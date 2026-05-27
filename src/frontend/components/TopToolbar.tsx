@@ -81,8 +81,8 @@ export const TopToolbar: React.FC = () => {
 
             <input
               type="text"
-              value={sourceConfig.connectionString}
-              onChange={(e) => setSourceConfig({ connectionString: e.target.value })}
+              value={sourceConfig.option.connectionString}
+              onChange={(e) => setSourceConfig({ option: { ...sourceConfig.option, connectionString: e.target.value } })}
               placeholder="Host / connection URL"
               className="col-span-6 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-cyan-500 font-mono overflow-ellipsis"
             />
@@ -148,8 +148,8 @@ export const TopToolbar: React.FC = () => {
 
             <input
               type="text"
-              value={targetConfig.connectionString}
-              onChange={(e) => setTargetConfig({ connectionString: e.target.value })}
+              value={targetConfig.option.connectionString}
+              onChange={(e) => setTargetConfig({ option: { ...targetConfig.option, connectionString: e.target.value } })}
               placeholder="Host / connection URL"
               className="col-span-6 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-purple-500 font-mono overflow-ellipsis"
             />

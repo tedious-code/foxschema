@@ -1,32 +1,79 @@
-
-import {
-  SchemaProvider,
-  TableSchema
-} from '../interfaces/schema-provider.interface';
-
-import {
-  DriverDetector
-} from './provider';
+import { ConnectionFactory } from "../cores/connection-factory";
+import { ConnectionOptions, SchemaProvider } from "../interfaces/schema-provider.interface";
 
 export class PostgresProvider implements SchemaProvider {
-  async getTables(
-    connectionString: string,
-    schema: string
-  ): Promise<TableSchema[]> {
+  async testConnection(options: ConnectionOptions): Promise<boolean> {
+    let connection: any;
 
-    const driver =
-      await DriverDetector.checkProvider('postgres');
+    try {
 
-    if (!driver.installed) {
-      throw new Error(`DB2 driver not found. Please install: ${driver.installCommand} Original error: ${driver.error}`);
+      connection =
+        await ConnectionFactory.create(
+          this.provider,
+          options
+        );
+
+      const sql = `SELECT 1`;
+
+      await connection.query(
+        sql,
+        [],
+        options.timeout?.queryMs ?? 15000
+      );
+
+      return true;
+
+    } catch (error) {
+
+      console.error('Error testing postgres connection:', error);
+      return false;
+    } finally {
+
+      await ConnectionFactory.close(
+        this.provider,
+        connection
+      );
     }
+  }
 
-    console.log(
-      `Executing production DB2 SYSCAT queries on: ${connectionString} for schema: ${schema}`
-    );
+  readonly provider = 'postgres';
 
-    const data: TableSchema[] = [];
+  async getTables(
+    options: ConnectionOptions,
+    schema: string
+  ) {
 
-    return data;
+    let connection: any;
+
+    try {
+
+      connection =
+        await ConnectionFactory.create(
+          this.provider,
+          options
+        );
+
+      const sql = `
+        SELECT TABNAME
+        FROM SYSCAT.TABLES
+        WHERE TABSCHEMA = ?
+      `;
+
+      const rows =
+        await connection.query(
+          sql,
+          [schema.toUpperCase()],
+          options.timeout?.queryMs ?? 15000
+        );
+
+      return [];
+
+    } finally {
+
+      await ConnectionFactory.close(
+        this.provider,
+        connection
+      );
+    }
   }
 }

@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { ConnectionModule } from '../../backend/modules/connection.module';
 import { CompareModule } from '../../backend/modules/compare.module';
 import { SqlGeneratorModule } from '../../backend/modules/sql-generator.module';
-import { TableSchema, DbObjectType } from '../../backend/interfaces/schema-provider.interface';
+import { TableSchema, DbObjectType, ConnectionOptions } from '../../backend/interfaces/schema-provider.interface';
 import { SchemaCompareResult, TableDiff } from '../../backend/types/diff.types';
 
 const connectionModule = new ConnectionModule();
@@ -11,7 +11,7 @@ const sqlGeneratorModule = new SqlGeneratorModule();
 
 interface ConnectionConfig {
   dialect: 'postgres' | 'mysql' | 'db2';
-  connectionString: string;
+  option: ConnectionOptions;
   schema: string;
 }
 
@@ -53,12 +53,16 @@ interface SyncState {
 export const useSyncStore = create<SyncState>((set, get) => ({
   sourceConfig: {
     dialect: 'postgres',
-    connectionString: 'postgresql://postgres:secret@localhost:5432/production_source',
+    option: {
+      connectionString: 'postgresql://postgres:secret@localhost:5432/production_source',
+    },
     schema: 'public',
   },
   targetConfig: {
     dialect: 'postgres',
-    connectionString: 'postgresql://postgres:secret@localhost:5432/staging_target',
+    option: {
+      connectionString: 'postgresql://postgres:secret@localhost:5432/staging_target',
+    },
     schema: 'public',
   },
   isTestingSource: false,
@@ -97,8 +101,8 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   testSourceConnection: async () => {
     set({ isTestingSource: true, errorMsg: null });
     try {
-      const { dialect, connectionString } = get().sourceConfig;
-      const success = await connectionModule.testConnection(dialect, connectionString);
+      const { dialect, option } = get().sourceConfig;
+      const success = await connectionModule.testConnection(dialect, option);
       set({ sourceConnected: success, isTestingSource: false });
     } catch (e: any) {
       set({ errorMsg: e.message || 'Source connection failed', isTestingSource: false, sourceConnected: false });
@@ -108,8 +112,8 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   testTargetConnection: async () => {
     set({ isTestingTarget: true, errorMsg: null });
     try {
-      const { dialect, connectionString } = get().targetConfig;
-      const success = await connectionModule.testConnection(dialect, connectionString);
+      const { dialect, option } = get().targetConfig;
+      const success = await connectionModule.testConnection(dialect, option);
       set({ targetConnected: success, isTestingTarget: false });
     } catch (e: any) {
       set({ errorMsg: e.message || 'Target connection failed', isTestingTarget: false, targetConnected: false });
@@ -124,8 +128,8 @@ export const useSyncStore = create<SyncState>((set, get) => ({
       const sourceProvider = connectionModule.getProvider(sourceConfig.dialect);
       const targetProvider = connectionModule.getProvider(targetConfig.dialect);
 
-      let sourceSchemas = await sourceProvider.getTables(sourceConfig.connectionString, sourceConfig.schema);
-      let targetSchemas = await targetProvider.getTables(targetConfig.connectionString, targetConfig.schema);
+      let sourceSchemas = await sourceProvider.getTables(sourceConfig.option, sourceConfig.schema);
+      let targetSchemas = await targetProvider.getTables(targetConfig.option, targetConfig.schema);
 
       // Filter extracted tables based on active user settings (Table, View, Function, Procedure)
       sourceSchemas = sourceSchemas.filter(s => selectedObjectTypes.includes(s.objectType));

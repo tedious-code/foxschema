@@ -1,7 +1,7 @@
 import { Db2Provider } from '../providers/db2.provider';
 import { PostgresProvider } from '../providers/postgres.provider';
 import { MysqlProvider } from '../providers/mysql.provider';
-import { SchemaProvider } from '../interfaces/schema-provider.interface';
+import { ConnectionOptions, SchemaProvider } from '../interfaces/schema-provider.interface';
 
 export class ConnectionModule {
   private providers: Record<string, SchemaProvider> = {
@@ -10,20 +10,46 @@ export class ConnectionModule {
     mysql: new MysqlProvider(),
   };
 
-  async testConnection(dialect: string, connectionString: string): Promise<boolean> {
-    if (!this.providers[dialect.toLowerCase()]) {
-      throw new Error(`Unsupported dialect: ${dialect}`);
-    }
-    // Simulate latency
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    return connectionString.length > 5;
+async testConnection(
+  dialect: string,
+  option: ConnectionOptions
+): Promise<boolean> {
+
+  const provider =
+    this.providers[dialect.toLowerCase()];
+
+  if (!provider) {
+    throw new Error(
+      `Unsupported dialect: ${dialect}`
+    );
   }
 
-  getProvider(dialect: string): SchemaProvider {
-    const provider = this.providers[dialect.toLowerCase()];
-    if (!provider) {
-      throw new Error(`No provider registered for dialect: ${dialect}`);
-    }
-    return provider;
+  let connected:boolean = false;
+  
+  switch(dialect) {
+    case 'db2':
+      connected = await provider.testConnection(option);
+      break;
+    case 'postgres':
+      connected = await provider.testConnection(option);
+      break;
+    case 'mysql':
+      connected = await provider.testConnection(option);
+      break;
+    default:
+      throw new Error(`Unsupported dialect: ${dialect}`);
   }
+
+  return connected;
+}
+
+getProvider(dialect: string): SchemaProvider {
+  const provider = this.providers[dialect.toLowerCase()];
+
+  if (!provider) {
+    throw new Error(`No provider registered for dialect: ${dialect}`);
+  }
+
+  return provider;
+}
 }

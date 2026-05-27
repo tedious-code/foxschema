@@ -1,3 +1,31 @@
+export interface ConnectionOptions {
+  connectionString?: string;
+  username?: string;
+  password?: string;
+  host?: string;
+  port?: number;
+  database?: string;
+
+  pool?: {
+    min?: number;
+    max?: number;
+    idleTimeoutMs?: number;
+  };
+
+  ssl?: {
+    enabled: boolean;
+    rejectUnauthorized?: boolean;
+    ca?: string;
+    cert?: string;
+    key?: string;
+  };
+
+  timeout?: {
+    connectMs?: number;
+    queryMs?: number;
+  };
+}
+
 export interface ColumnInfo {
   name: string;
   type: string;
@@ -31,5 +59,6 @@ export interface TableSchema {
 }
 
 export interface SchemaProvider {
-  getTables(connectionString: string, schema: string): Promise<TableSchema[]>;
+  getTables(options: ConnectionOptions, schema: string): Promise<TableSchema[]>;
+  testConnection(options: ConnectionOptions): Promise<boolean>;
 }
