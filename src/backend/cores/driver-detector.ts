@@ -15,8 +15,6 @@ export interface DriverInfo {
   error?: string;
 }
 
-
-
 const DRIVER_MAP: Record<DatabaseProvider, string> = {
   db2: 'ibm_db',
   postgres: 'pg',
@@ -38,15 +36,13 @@ export class DriverDetector {
     const packageName = DRIVER_MAP[provider];
 
     try {
-      require.resolve(packageName);
-
-      const pkg = require(`${packageName}/package.json`);
+      const mod = await import(/* @vite-ignore */ packageName);
 
       return {
         provider,
         packageName,
         installed: true,
-        version: pkg.version
+        version: mod?.version ?? mod?.default?.version
       };
 
     } catch (error: any) {
@@ -112,19 +108,21 @@ export class DriverDetector {
       }))
     );
   }
-    static async loadDriver(provider: DatabaseProvider): Promise<any> {
 
-    const info =
-      await this.checkProvider(provider);
+  /**
+   * Load a database driver module
+   */
+  static async loadDriver(provider: DatabaseProvider): Promise<any> {
+
+    const info = await this.checkProvider(provider);
 
     if (!info.installed) {
       throw new Error(
-        `Missing driver ${info.packageName}.
-        Install:
-        ${info.installCommand}`
-            );
+        `Missing driver ${info.packageName}. Install: ${info.installCommand}`
+      );
     }
 
-    return require(info.packageName);
+    const mod = await import(/* @vite-ignore */ info.packageName);
+    return mod.default ?? mod;
   }
 }

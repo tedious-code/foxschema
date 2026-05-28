@@ -84,7 +84,7 @@ export const TopToolbar: React.FC = () => {
               value={sourceConfig.option.connectionString}
               onChange={(e) => setSourceConfig({ option: { ...sourceConfig.option, connectionString: e.target.value } })}
               placeholder="Host / connection URL"
-              className="col-span-6 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-cyan-500 font-mono overflow-ellipsis"
+              className="col-span-5 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-cyan-500 font-mono overflow-ellipsis"
             />
 
             <input
@@ -94,6 +94,12 @@ export const TopToolbar: React.FC = () => {
               placeholder="Schema"
               className="col-span-3 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-cyan-500"
             />
+            <button
+              onClick={testSourceConnection}
+              className="col-span-1 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-cyan-500"
+            >
+              +
+            </button>
           </div>
 
           <div className="flex justify-between items-center mt-1">

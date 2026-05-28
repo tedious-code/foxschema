@@ -43,6 +43,7 @@ interface SyncState {
   setSearchTerm: (term: string) => void;
   setSelectedTable: (table: TableDiff | null) => void;
 
+  generateConnectionString: () => string;
   testSourceConnection: () => Promise<void>;
   testTargetConnection: () => Promise<void>;
   runSchemaComparison: () => Promise<void>;
@@ -97,6 +98,18 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   setFilterStatus: (filterStatus) => set({ filterStatus }),
   setSearchTerm: (searchTerm) => set({ searchTerm }),
   setSelectedTable: (selectedTable) => set({ selectedTable }),
+
+  generateConnectionString: () => {
+    const { dialect, option } = get().sourceConfig;
+    switch(dialect) {
+      case 'postgres':
+        return option.connectionString ?? `postgresql://${option.username}:${option.password}@${option.host}:${option.port}/${option.database}`;
+      case 'db2':
+        return option.connectionString ?? `db2://${option.username}:${option.password}@${option.host}:${option.port}/${option.database}`;
+      default:
+        throw new Error(`Unsupported dialect: ${dialect}`);
+    }
+  },
 
   testSourceConnection: async () => {
     set({ isTestingSource: true, errorMsg: null });

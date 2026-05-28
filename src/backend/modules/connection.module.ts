@@ -10,46 +10,30 @@ export class ConnectionModule {
     mysql: new MysqlProvider(),
   };
 
-async testConnection(
-  dialect: string,
-  option: ConnectionOptions
-): Promise<boolean> {
+  async testConnection(
+    dialect: string,
+    option: ConnectionOptions
+  ): Promise<boolean> {
 
-  const provider =
-    this.providers[dialect.toLowerCase()];
+    const provider =
+      this.providers[dialect.toLowerCase()];
 
-  if (!provider) {
-    throw new Error(
-      `Unsupported dialect: ${dialect}`
-    );
+    if (!provider) {
+      throw new Error(
+        `Unsupported dialect: ${dialect}`
+      );
+    }
+
+    return provider.testConnection(option);
   }
 
-  let connected:boolean = false;
-  
-  switch(dialect) {
-    case 'db2':
-      connected = await provider.testConnection(option);
-      break;
-    case 'postgres':
-      connected = await provider.testConnection(option);
-      break;
-    case 'mysql':
-      connected = await provider.testConnection(option);
-      break;
-    default:
-      throw new Error(`Unsupported dialect: ${dialect}`);
+  getProvider(dialect: string): SchemaProvider {
+    const provider = this.providers[dialect.toLowerCase()];
+
+    if (!provider) {
+      throw new Error(`No provider registered for dialect: ${dialect}`);
+    }
+
+    return provider;
   }
-
-  return connected;
-}
-
-getProvider(dialect: string): SchemaProvider {
-  const provider = this.providers[dialect.toLowerCase()];
-
-  if (!provider) {
-    throw new Error(`No provider registered for dialect: ${dialect}`);
-  }
-
-  return provider;
-}
 }
