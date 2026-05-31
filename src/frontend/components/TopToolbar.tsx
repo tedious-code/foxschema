@@ -1,7 +1,8 @@
 import React from 'react';
 import { useSyncStore } from '../store/useSyncStore';
-import { Database, Link2, RefreshCw, AlertCircle, CheckCircle2, ChevronRight, Zap, Settings } from 'lucide-react';
+import { Database, Link2, RefreshCw, AlertCircle, CheckCircle2, ChevronRight, Zap, Settings, Plus } from 'lucide-react';
 import { DbObjectType } from '../../backend/interfaces/schema-provider.interface';
+import { ConnectionModal } from './ConnectionModal';
 
 export const TopToolbar: React.FC = () => {
   const {
@@ -21,6 +22,9 @@ export const TopToolbar: React.FC = () => {
     resetSync,
     selectedObjectTypes,
     toggleObjectTypeFilter,
+    showConnectionModal,
+    setShowConnectionModal,
+    addConnection
   } = useSyncStore();
 
   const objectScopeOptions: { type: DbObjectType; label: string }[] = [
@@ -76,16 +80,26 @@ export const TopToolbar: React.FC = () => {
             >
               <option value="postgres">Postgres</option>
               <option value="mysql">MySQL</option>
-              <option value="db2">IBM DB2 (SYSCAT)</option>
+              <option value="db2">IBM DB2</option>
             </select>
 
-            <input
-              type="text"
-              value={sourceConfig.option.connectionString}
-              onChange={(e) => setSourceConfig({ option: { ...sourceConfig.option, connectionString: e.target.value } })}
-              placeholder="Host / connection URL"
-              className="col-span-5 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-cyan-500 font-mono overflow-ellipsis"
-            />
+            {/* Combined input field and "+" button into a clean layout wrapper */}
+            <div className="col-span-6 flex gap-1">
+              <input
+                type="text"
+                value={sourceConfig.option.connectionString || ''}
+                onChange={(e) => setSourceConfig({ option: { ...sourceConfig.option, connectionString: e.target.value } })}
+                placeholder="Host / connection URL"
+                className="w-full text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-cyan-500 font-mono overflow-ellipsis"
+              />
+              <button
+                onClick={() => setShowConnectionModal(true)}
+                title="Save Connection"
+                className="px-2 bg-slate-800 border border-slate-700/60 hover:bg-slate-700 text-cyan-400 rounded transition cursor-pointer flex items-center justify-center"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            </div>
 
             <input
               type="text"
@@ -94,12 +108,6 @@ export const TopToolbar: React.FC = () => {
               placeholder="Schema"
               className="col-span-3 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-cyan-500"
             />
-            <button
-              onClick={testSourceConnection}
-              className="col-span-1 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-cyan-500"
-            >
-              +
-            </button>
           </div>
 
           <div className="flex justify-between items-center mt-1">
@@ -149,12 +157,12 @@ export const TopToolbar: React.FC = () => {
             >
               <option value="postgres">Postgres</option>
               <option value="mysql">MySQL</option>
-              <option value="db2">IBM DB2 (SYSCAT)</option>
+              <option value="db2">IBM DB2</option>
             </select>
 
             <input
               type="text"
-              value={targetConfig.option.connectionString}
+              value={targetConfig.option.connectionString || ''}
               onChange={(e) => setTargetConfig({ option: { ...targetConfig.option, connectionString: e.target.value } })}
               placeholder="Host / connection URL"
               className="col-span-6 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-purple-500 font-mono overflow-ellipsis"
@@ -238,6 +246,21 @@ export const TopToolbar: React.FC = () => {
           )}
         </button>
       </div>
+
+      <ConnectionModal
+        open={showConnectionModal}
+        onClose={() => setShowConnectionModal(false)}
+        onSave={(options) => {
+          addConnection({
+            id: crypto.randomUUID(),
+            name: options.database
+              ? `${options.host}/${options.database}`
+              : options.connectionString ?? 'New Connection',
+            dialect: sourceConfig.dialect,
+            option: options,
+          });
+        }}
+      />
     </header>
   );
 };
