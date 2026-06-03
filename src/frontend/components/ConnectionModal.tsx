@@ -1,15 +1,24 @@
 import React, { useState } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { ConnectionOptions } from "../../backend/interfaces/schema-provider.interface";
 
 interface Props {
   open: boolean;
+  dialect: 'postgres' | 'mysql' | 'db2';
   onClose: () => void;
   onSave: (options: ConnectionOptions) => void;
 }
 
+const dialectSchemes: Record<Props['dialect'], string> = {
+  postgres: 'postgresql',
+  mysql: 'mysql',
+  db2: 'db2',
+};
+
 export const ConnectionModal: React.FC<Props> = ({
   open,
+  dialect,
   onClose,
   onSave,
 }) => {
@@ -38,8 +47,9 @@ export const ConnectionModal: React.FC<Props> = ({
   };
 
   const handleSave = () => {
+    const scheme = dialectSchemes[dialect];
     const connectionString =
-      `postgresql://${encodeURIComponent(form.username || '')}` +
+      `${scheme}://${encodeURIComponent(form.username || '')}` +
       `:${encodeURIComponent(form.password || '')}` +
       `@${form.host}:${form.port}/${form.database}`;
 
@@ -51,9 +61,12 @@ export const ConnectionModal: React.FC<Props> = ({
     onClose();
   };
 
-  return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div className="w-[600px] bg-slate-900 border border-slate-700 rounded-xl">
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4">
+      <div
+        className="w-full max-w-[600px] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between p-4 border-b border-slate-800">
           <h2 className="text-white font-semibold">
             Add Database Connection
@@ -144,6 +157,7 @@ export const ConnectionModal: React.FC<Props> = ({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

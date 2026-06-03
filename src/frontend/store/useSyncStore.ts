@@ -1,11 +1,10 @@
 import { create } from 'zustand';
-import { ConnectionModule } from '../../backend/modules/connection.module';
 import { CompareModule } from '../../backend/modules/compare.module';
 import { SqlGeneratorModule } from '../../backend/modules/sql-generator.module';
-import { TableSchema, DbObjectType, ConnectionOptions } from '../../backend/interfaces/schema-provider.interface';
+import { DbObjectType, ConnectionOptions, SavedConnection } from '../../backend/interfaces/schema-provider.interface';
 import { SchemaCompareResult, TableDiff } from '../../backend/types/diff.types';
+import { testConnection as apiTestConnection, fetchTables } from '../api/schemaApi';
 
-const connectionModule = new ConnectionModule();
 const compareModule = new CompareModule();
 const sqlGeneratorModule = new SqlGeneratorModule();
 
@@ -19,6 +18,22 @@ interface SyncState {
   sourceConfig: ConnectionConfig;
   targetConfig: ConnectionConfig;
   
+  connections: SavedConnection[];
+  selectedSourceConnectionId: string | null;
+  selectedTargetConnectionId: string | null;
+
+  showConnectionModal: boolean;
+  editingConnection: SavedConnection | null;
+
+  addConnection: (conn: SavedConnection) => void;
+  removeConnection: (id: string) => void;
+
+  setShowConnectionModal: (open: boolean) => void;
+  setEditingConnection: (conn: SavedConnection | null) => void;
+
+  setSelectedSourceConnection: (id: string | null) => void;
+  setSelectedTargetConnection: (id: string | null) => void;
+
   isTestingSource: boolean;
   isTestingTarget: boolean;
   sourceConnected: boolean;
@@ -52,6 +67,7 @@ interface SyncState {
 }
 
 export const useSyncStore = create<SyncState>((set, get) => ({
+  // --- Initial States ---
   sourceConfig: {
     dialect: 'postgres',
     option: {
@@ -66,15 +82,20 @@ export const useSyncStore = create<SyncState>((set, get) => ({
     },
     schema: 'public',
   },
+  
+  connections: [],
+  selectedSourceConnectionId: null,
+  selectedTargetConnectionId: null,
+  showConnectionModal: false,
+  editingConnection: null,
+
   isTestingSource: false,
   isTestingTarget: false,
   sourceConnected: false,
   targetConnected: false,
   errorMsg: null,
 
-  // Default to comparing all elements
   selectedObjectTypes: ['TABLE', 'VIEW', 'FUNCTION', 'PROCEDURE'],
-
   isComparing: false,
   compareResult: null,
   selectedTable: null,
@@ -83,10 +104,31 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   filterStatus: 'ALL',
   searchTerm: '',
 
+  // --- Actions ---
+  addConnection: (conn) =>
+    set((state) => ({
+      connections: [...state.connections, conn],
+    })),
+
+  removeConnection: (id) =>
+    set((state) => ({
+      connections: state.connections.filter((c) => c.id !== id),
+      selectedSourceConnectionId:
+        state.selectedSourceConnectionId === id ? null : state.selectedSourceConnectionId,
+      selectedTargetConnectionId:
+        state.selectedTargetConnectionId === id ? null : state.selectedTargetConnectionId,
+    })),
+
+  setShowConnectionModal: (showConnectionModal) => set({ showConnectionModal }),
+  setEditingConnection: (editingConnection) => set({ editingConnection }),
+  setSelectedSourceConnection: (id) => set({ selectedSourceConnectionId: id }),
+  setSelectedTargetConnection: (id) => set({ selectedTargetConnectionId: id }),
+
   setSourceConfig: (cfg) =>
     set((state) => ({ sourceConfig: { ...state.sourceConfig, ...cfg }, sourceConnected: false })),
   setTargetConfig: (cfg) =>
     set((state) => ({ targetConfig: { ...state.targetConfig, ...cfg }, targetConnected: false })),
+  
   toggleObjectTypeFilter: (type) =>
     set((state) => {
       const active = state.selectedObjectTypes;
@@ -95,15 +137,18 @@ export const useSyncStore = create<SyncState>((set, get) => ({
         : [...active, type];
       return { selectedObjectTypes: next };
     }),
+    
   setFilterStatus: (filterStatus) => set({ filterStatus }),
   setSearchTerm: (searchTerm) => set({ searchTerm }),
   setSelectedTable: (selectedTable) => set({ selectedTable }),
 
   generateConnectionString: () => {
     const { dialect, option } = get().sourceConfig;
-    switch(dialect) {
+    switch (dialect) {
       case 'postgres':
         return option.connectionString ?? `postgresql://${option.username}:${option.password}@${option.host}:${option.port}/${option.database}`;
+      case 'mysql':
+        return option.connectionString ?? `mysql://${option.username}:${option.password}@${option.host}:${option.port}/${option.database}`;
       case 'db2':
         return option.connectionString ?? `db2://${option.username}:${option.password}@${option.host}:${option.port}/${option.database}`;
       default:
@@ -115,7 +160,7 @@ export const useSyncStore = create<SyncState>((set, get) => ({
     set({ isTestingSource: true, errorMsg: null });
     try {
       const { dialect, option } = get().sourceConfig;
-      const success = await connectionModule.testConnection(dialect, option);
+      const success = await apiTestConnection(dialect, option);
       set({ sourceConnected: success, isTestingSource: false });
     } catch (e: any) {
       set({ errorMsg: e.message || 'Source connection failed', isTestingSource: false, sourceConnected: false });
@@ -126,7 +171,7 @@ export const useSyncStore = create<SyncState>((set, get) => ({
     set({ isTestingTarget: true, errorMsg: null });
     try {
       const { dialect, option } = get().targetConfig;
-      const success = await connectionModule.testConnection(dialect, option);
+      const success = await apiTestConnection(dialect, option);
       set({ targetConnected: success, isTestingTarget: false });
     } catch (e: any) {
       set({ errorMsg: e.message || 'Target connection failed', isTestingTarget: false, targetConnected: false });
@@ -138,13 +183,17 @@ export const useSyncStore = create<SyncState>((set, get) => ({
     try {
       const { sourceConfig, targetConfig, selectedObjectTypes } = get();
       
-      const sourceProvider = connectionModule.getProvider(sourceConfig.dialect);
-      const targetProvider = connectionModule.getProvider(targetConfig.dialect);
+      let sourceSchemas = await fetchTables(
+        sourceConfig.dialect,
+        sourceConfig.option,
+        sourceConfig.schema
+      );
+      let targetSchemas = await fetchTables(
+        targetConfig.dialect,
+        targetConfig.option,
+        targetConfig.schema
+      );
 
-      let sourceSchemas = await sourceProvider.getTables(sourceConfig.option, sourceConfig.schema);
-      let targetSchemas = await targetProvider.getTables(targetConfig.option, targetConfig.schema);
-
-      // Filter extracted tables based on active user settings (Table, View, Function, Procedure)
       sourceSchemas = sourceSchemas.filter(s => selectedObjectTypes.includes(s.objectType));
       targetSchemas = targetSchemas.filter(t => selectedObjectTypes.includes(t.objectType));
 
@@ -164,6 +213,7 @@ export const useSyncStore = create<SyncState>((set, get) => ({
 
   applyMigration: async () => {
     set({ isComparing: true });
+    // Simulating API migration processing time
     await new Promise((resolve) => setTimeout(resolve, 1500));
     set({ migrationExecuted: true, isComparing: false });
   },

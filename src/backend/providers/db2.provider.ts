@@ -15,11 +15,12 @@ export class Db2Provider implements SchemaProvider {
 
       const sql = `SELECT 1`;
 
-      await connection.query(
-        sql,
-        [],
-        options.timeout?.queryMs ?? 15000
-      );
+      await new Promise<void>((resolve, reject) => {
+        connection.query(sql, [], (err: Error | null) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
 
       return true;
 
@@ -59,14 +60,14 @@ export class Db2Provider implements SchemaProvider {
         WHERE TABSCHEMA = ?
       `;
 
-      const rows =
-        await connection.query(
-          sql,
-          [schema.toUpperCase()],
-          options.timeout?.queryMs ?? 15000
-        );
+      const rows = await new Promise<unknown[]>((resolve, reject) => {
+        connection.query(sql, [schema.toUpperCase()], (err: Error | null, data: unknown[]) => {
+          if (err) reject(err);
+          else resolve(data ?? []);
+        });
+      });
 
-      return rows as TableSchema [];
+      return rows as TableSchema[];
 
     } finally {
 

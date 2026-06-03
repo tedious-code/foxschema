@@ -1,6 +1,7 @@
 import { Db2Provider } from '../providers/db2.provider';
 import { PostgresProvider } from '../providers/postgres.provider';
 import { MysqlProvider } from '../providers/mysql.provider';
+import { DriverDetector } from '../cores/driver-detector';
 import { ConnectionOptions, SchemaProvider } from '../interfaces/schema-provider.interface';
 
 export class ConnectionModule {
@@ -10,10 +11,15 @@ export class ConnectionModule {
     mysql: new MysqlProvider(),
   };
 
+  checkDriver(dialect: string) {
+    return DriverDetector.checkDialect(dialect);
+  }
+
   async testConnection(
     dialect: string,
     option: ConnectionOptions
   ): Promise<boolean> {
+    DriverDetector.ensureDriver(dialect);
 
     const provider =
       this.providers[dialect.toLowerCase()];
@@ -28,6 +34,8 @@ export class ConnectionModule {
   }
 
   getProvider(dialect: string): SchemaProvider {
+    DriverDetector.ensureDriver(dialect);
+
     const provider = this.providers[dialect.toLowerCase()];
 
     if (!provider) {

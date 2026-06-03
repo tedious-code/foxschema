@@ -1,3 +1,10 @@
+import { createRequire } from 'node:module';
+import type { DriverInfo } from '../interfaces/schema-provider.interface';
+
+const nodeRequire = createRequire(import.meta.url);
+
+export type { DriverInfo };
+
 export type DatabaseProvider =
   | 'db2'
   | 'postgres'
@@ -6,123 +13,121 @@ export type DatabaseProvider =
   | 'sqlserver'
   | 'sqlite';
 
-export interface DriverInfo {
-  provider: DatabaseProvider;
-  packageName: string;
-  installed: boolean;
-  version?: string;
-  installCommand?: string;
-  error?: string;
-}
+export type AppDialect = 'postgres' | 'mysql' | 'db2';
 
 const DRIVER_MAP: Record<DatabaseProvider, string> = {
-  db2: 'ibm_db',
+  db2: 'ibm_db2',
   postgres: 'pg',
   mysql: 'mysql2',
   oracle: 'oracledb',
   sqlserver: 'mssql',
-  sqlite: 'sqlite3'
+  sqlite: 'sqlite3',
+};
+
+const DIALECT_TO_PROVIDER: Record<AppDialect, DatabaseProvider> = {
+  postgres: 'postgres',
+  mysql: 'mysql',
+  db2: 'db2',
 };
 
 export class DriverDetector {
+  static resolveProvider(dialect: string): DatabaseProvider {
+    const provider = DIALECT_TO_PROVIDER[dialect.toLowerCase() as AppDialect];
+    if (!provider) {
+      throw new Error(`Unsupported dialect: ${dialect}`);
+    }
+    return provider;
+  }
+
+  static getPackageName(dialect: string): string {
+    return DRIVER_MAP[this.resolveProvider(dialect)];
+  }
 
   /**
-   * Check a single provider driver
+   * Check whether the npm package for a dialect is installed and loadable.
    */
-  static async checkProvider(
-    provider: DatabaseProvider
-  ): Promise<DriverInfo> {
-
+  static checkProvider(provider: DatabaseProvider): DriverInfo & { provider: DatabaseProvider } {
     const packageName = DRIVER_MAP[provider];
 
     try {
-      const mod = await import(/* @vite-ignore */ packageName);
+      const mod = nodeRequire(packageName);
 
       return {
         provider,
         packageName,
         installed: true,
-        version: mod?.version ?? mod?.default?.version
+        version: mod?.version ?? mod?.default?.version,
       };
-
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
 
       return {
         provider,
         packageName,
         installed: false,
         installCommand: `npm install ${packageName}`,
-        error: error.message
+        error: message,
       };
     }
   }
 
-  /**
-   * Detect all supported database drivers
-   */
-  static async detectAll(): Promise<DriverInfo[]> {
+  static checkDialect(dialect: string): DriverInfo {
+    return this.checkProvider(this.resolveProvider(dialect));
+  }
 
+  /**
+   * Verify driver package exists before opening a database connection.
+   */
+  static ensureDriver(dialect: string): DriverInfo {
+    const info = this.checkDialect(dialect);
+
+    if (!info.installed) {
+      throw new Error(
+        `Database driver "${info.packageName}" is not installed for ${dialect}. ` +
+          `Install it with: ${info.installCommand}` +
+          (info.error ? ` — ${info.error}` : '')
+      );
+    }
+
+    return info;
+  }
+
+  static detectAll(): DriverInfo[] {
     const providers = Object.keys(DRIVER_MAP) as DatabaseProvider[];
-
-    return Promise.all(
-      providers.map(provider =>
-        this.checkProvider(provider)
-      )
-    );
+    return providers.map((provider) => this.checkProvider(provider));
   }
 
-  /**
-   * Detect installed providers only
-   */
-  static async detectInstalled(): Promise<DriverInfo[]> {
-
-    const all = await this.detectAll();
-
-    return all.filter(driver => driver.installed);
+  static detectInstalled(): DriverInfo[] {
+    return this.detectAll().filter((driver) => driver.installed);
   }
 
-  /**
-   * Detect missing providers only
-   */
-  static async detectMissing(): Promise<DriverInfo[]> {
-
-    const all = await this.detectAll();
-
-    return all.filter(driver => !driver.installed);
+  static detectMissing(): DriverInfo[] {
+    return this.detectAll().filter((driver) => !driver.installed);
   }
 
-  /**
-   * Print diagnostics table
-   */
-  static async printDiagnostics(): Promise<void> {
-
-    const results = await this.detectAll();
+  static printDiagnostics(): void {
+    const results = this.detectAll();
 
     console.table(
-      results.map(r => ({
+      results.map((r) => ({
         Provider: r.provider,
         Package: r.packageName,
         Installed: r.installed,
         Version: r.version ?? '-',
-        Install: r.installCommand ?? '-'
+        Install: r.installCommand ?? '-',
       }))
     );
   }
 
   /**
-   * Load a database driver module
+   * Dynamically load a driver module (Node.js only).
    */
-  static async loadDriver(provider: DatabaseProvider): Promise<any> {
+  static loadDriver(dialect: string): unknown {
+    const provider = this.resolveProvider(dialect);
+    this.ensureDriver(dialect);
 
-    const info = await this.checkProvider(provider);
-
-    if (!info.installed) {
-      throw new Error(
-        `Missing driver ${info.packageName}. Install: ${info.installCommand}`
-      );
-    }
-
-    const mod = await import(/* @vite-ignore */ info.packageName);
+    const packageName = DRIVER_MAP[provider];
+    const mod = nodeRequire(packageName);
     return mod.default ?? mod;
   }
 }

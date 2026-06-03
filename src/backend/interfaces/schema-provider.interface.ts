@@ -1,3 +1,12 @@
+export interface DriverInfo {
+  provider: string;
+  packageName: string;
+  installed: boolean;
+  version?: string;
+  installCommand?: string;
+  error?: string;
+}
+
 export interface ConnectionOptions {
   connectionString?: string;
   username?: string;
@@ -24,6 +33,13 @@ export interface ConnectionOptions {
     connectMs?: number;
     queryMs?: number;
   };
+}
+
+export interface SavedConnection {
+  id: string;
+  name: string;
+  dialect: 'postgres' | 'mysql' | 'db2';
+  option?: ConnectionOptions;
 }
 
 export interface ColumnInfo {

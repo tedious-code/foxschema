@@ -27,30 +27,10 @@ export class ConnectionFactory {
        * DB2
        */
       case 'db2': {
-
-        const ibmdb =
-          await DriverDetector.loadDriver('db2');
-
-        if (this.pools.has(poolKey)) {
-          return this.openDb2Connection(
-            this.pools.get(poolKey),
-            connectionString
-          );
-        }
-
-        const pool = new ibmdb.Pool();
-
-        pool.init(
-          options.pool?.max ?? 10,
-          connectionString
-        );
-
-        this.pools.set(poolKey, pool);
-
-        return this.openDb2Connection(
-          pool,
-          connectionString
-        );
+        const ibmdb = DriverDetector.loadDriver('db2') as {
+          open: (connStr: string, cb: (err: Error | null, conn: unknown) => void) => void;
+        };
+        return this.openDb2Connection(ibmdb, connectionString);
       }
 
       /**
@@ -63,8 +43,9 @@ export class ConnectionFactory {
 
         if (!pool) {
 
-          const pg =
-            await DriverDetector.loadDriver('postgres');
+          const pg = DriverDetector.loadDriver('postgres') as {
+            Pool: new (config: Record<string, unknown>) => { connect: () => Promise<unknown> };
+          };
 
           pool = new pg.Pool({
 
@@ -109,24 +90,14 @@ export class ConnectionFactory {
   }
 
   private static openDb2Connection(
-    pool: any,
+    ibmdb: { open: (connStr: string, cb: (err: Error | null, conn: unknown) => void) => void },
     connectionString: string
-  ): Promise<any> {
-
+  ): Promise<unknown> {
     return new Promise((resolve, reject) => {
-
-      pool.open(
-        connectionString,
-        (err: any, conn: any) => {
-
-          if (err) {
-            reject(err);
-            return;
-          }
-
-          resolve(conn);
-        }
-      );
+      ibmdb.open(connectionString, (err, conn) => {
+        if (err) reject(err);
+        else resolve(conn);
+      });
     });
   }
 
@@ -142,7 +113,12 @@ export class ConnectionFactory {
     switch (provider.toLowerCase()) {
 
       case 'db2':
-        await connection.close();
+        await new Promise<void>((resolve, reject) => {
+          connection.close((err: Error | null) => {
+            if (err) reject(err);
+            else resolve();
+          });
+        });
         break;
 
       case 'postgres':

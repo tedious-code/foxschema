@@ -11,7 +11,7 @@ export const LeftPanel: React.FC = () => {
     filterStatus,
     setFilterStatus,
     searchTerm,
-    setSearchTerm,
+    setSearchTerm
   } = useSyncStore();
 
   if (!compareResult) {

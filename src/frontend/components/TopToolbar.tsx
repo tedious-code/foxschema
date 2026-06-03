@@ -84,7 +84,7 @@ export const TopToolbar: React.FC = () => {
             </select>
 
             {/* Combined input field and "+" button into a clean layout wrapper */}
-            <div className="col-span-6 flex gap-1">
+            <div className="col-span-7 flex gap-1">
               <input
                 type="text"
                 value={sourceConfig.option.connectionString || ''}
@@ -106,7 +106,7 @@ export const TopToolbar: React.FC = () => {
               value={sourceConfig.schema}
               onChange={(e) => setSourceConfig({ schema: e.target.value })}
               placeholder="Schema"
-              className="col-span-3 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-cyan-500"
+              className="col-span-2 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-cyan-500"
             />
           </div>
 
@@ -249,8 +249,10 @@ export const TopToolbar: React.FC = () => {
 
       <ConnectionModal
         open={showConnectionModal}
+        dialect={sourceConfig.dialect}
         onClose={() => setShowConnectionModal(false)}
         onSave={(options) => {
+          setSourceConfig({ option: options });
           addConnection({
             id: crypto.randomUUID(),
             name: options.database
