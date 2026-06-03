@@ -1,15 +1,17 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
+import { exec } from 'child_process';
 import { ConnectionModule } from '../modules/connection.module';
+import { DriverDetector } from '../cores/driver-detector';
 import type { ConnectionOptions } from '../interfaces/schema-provider.interface';
 
 export function createApiRoutes(connectionModule: ConnectionModule): Router {
   const router = Router();
 
-  router.get('/health', (_req, res) => {
+  router.get('/health', (_req: Request, res: Response) => {
     res.json({ ok: true });
   });
 
-  router.get('/driver/check', (req, res) => {
+  router.get('/driver/check', (req: Request, res: Response) => {
     const dialect = String(req.query.dialect ?? '');
 
     try {
@@ -21,7 +23,34 @@ export function createApiRoutes(connectionModule: ConnectionModule): Router {
     }
   });
 
-  router.post('/connection/test', async (req, res) => {
+  router.post('/driver/install', (req: Request, res: Response) => {
+    const { dialect } = req.body as { dialect: string };
+
+    try {
+      const packageName = DriverDetector.getPackageName(dialect);
+      
+      // Execute npm install with ignore-scripts so DB2 won't crash on compilation during general setup
+      exec(`pnpm add ${packageName} --ignore-scripts`, (error, stdout, stderr) => {
+        if (error) {
+          res.status(500).json({
+            success: false,
+            error: error.message,
+            stderr: stderr
+          });
+          return;
+        }
+        res.json({
+          success: true,
+          stdout: stdout
+        });
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Installation failed';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  router.post('/connection/test', async (req: Request, res: Response) => {
     const { dialect, option } = req.body as {
       dialect: string;
       option: ConnectionOptions;
@@ -39,7 +68,7 @@ export function createApiRoutes(connectionModule: ConnectionModule): Router {
     }
   });
 
-  router.post('/schema/tables', async (req, res) => {
+  router.post('/schema/tables', async (req: Request, res: Response) => {
     const { dialect, option, schema } = req.body as {
       dialect: string;
       option: ConnectionOptions;
@@ -58,3 +87,5 @@ export function createApiRoutes(connectionModule: ConnectionModule): Router {
 
   return router;
 }
+
+

@@ -6,9 +6,12 @@
   "scripts": {
     "dev": "vite",
     "dev:api": "tsx watch src/backend/index.ts",
-    "dev:all": "concurrently -n api,web -c cyan,magenta \"npm run dev:api\" \"npm run dev\"",
+    "dev:all": "concurrently -n api,web -c cyan,magenta \"pnpm run dev:api\" \"pnpm run dev\"",
     "build": "tsc && vite build",
     "preview": "vite preview"
+  },
+  "engines": {
+    "node": "24.x"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
@@ -26,8 +29,9 @@
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.0",
-    "ibm_db2": "^3.0.0",
+    "ibm_db": "^3.3.5",
     "lucide-react": "^1.16.0",
+    "pg": "^8.21.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "tailwindcss": "^4.3.0",

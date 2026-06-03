@@ -1,9 +1,9 @@
 import { create } from 'zustand';
 import { CompareModule } from '../../backend/modules/compare.module';
 import { SqlGeneratorModule } from '../../backend/modules/sql-generator.module';
-import { DbObjectType, ConnectionOptions, SavedConnection } from '../../backend/interfaces/schema-provider.interface';
+import { DbObjectType, ConnectionOptions, SavedConnection, DriverInfo } from '../../backend/interfaces/schema-provider.interface';
 import { SchemaCompareResult, TableDiff } from '../../backend/types/diff.types';
-import { testConnection as apiTestConnection, fetchTables } from '../api/schemaApi';
+import { testConnection as apiTestConnection, fetchTables, checkDriver as apiCheckDriver, installDriver as apiInstallDriver } from '../api/schemaApi';
 
 const compareModule = new CompareModule();
 const sqlGeneratorModule = new SqlGeneratorModule();
@@ -33,6 +33,12 @@ interface SyncState {
 
   setSelectedSourceConnection: (id: string | null) => void;
   setSelectedTargetConnection: (id: string | null) => void;
+
+  sourceDriverInfo: DriverInfo | null;
+  targetDriverInfo: DriverInfo | null;
+  isInstallingDriver: string | null;
+  checkDrivers: () => Promise<void>;
+  installDriver: (target: 'source' | 'target') => Promise<void>;
 
   isTestingSource: boolean;
   isTestingTarget: boolean;
@@ -89,6 +95,10 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   showConnectionModal: false,
   editingConnection: null,
 
+  sourceDriverInfo: null,
+  targetDriverInfo: null,
+  isInstallingDriver: null,
+
   isTestingSource: false,
   isTestingTarget: false,
   sourceConnected: false,
@@ -124,10 +134,14 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   setSelectedSourceConnection: (id) => set({ selectedSourceConnectionId: id }),
   setSelectedTargetConnection: (id) => set({ selectedTargetConnectionId: id }),
 
-  setSourceConfig: (cfg) =>
-    set((state) => ({ sourceConfig: { ...state.sourceConfig, ...cfg }, sourceConnected: false })),
-  setTargetConfig: (cfg) =>
-    set((state) => ({ targetConfig: { ...state.targetConfig, ...cfg }, targetConnected: false })),
+  setSourceConfig: (cfg) => {
+    set((state) => ({ sourceConfig: { ...state.sourceConfig, ...cfg }, sourceConnected: false }));
+    get().checkDrivers();
+  },
+  setTargetConfig: (cfg) => {
+    set((state) => ({ targetConfig: { ...state.targetConfig, ...cfg }, targetConnected: false }));
+    get().checkDrivers();
+  },
   
   toggleObjectTypeFilter: (type) =>
     set((state) => {
@@ -141,6 +155,34 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   setFilterStatus: (filterStatus) => set({ filterStatus }),
   setSearchTerm: (searchTerm) => set({ searchTerm }),
   setSelectedTable: (selectedTable) => set({ selectedTable }),
+
+  checkDrivers: async () => {
+    const { sourceConfig, targetConfig } = get();
+    try {
+      const sourceDriver = await apiCheckDriver(sourceConfig.dialect);
+      const targetDriver = await apiCheckDriver(targetConfig.dialect);
+      set({ sourceDriverInfo: sourceDriver, targetDriverInfo: targetDriver });
+    } catch (e) {
+      console.error('Error checking drivers:', e);
+    }
+  },
+
+  installDriver: async (target) => {
+    const dialect = target === 'source' ? get().sourceConfig.dialect : get().targetConfig.dialect;
+    set({ isInstallingDriver: dialect, errorMsg: null });
+    try {
+      const result = await apiInstallDriver(dialect);
+      if (result.success) {
+        await get().checkDrivers();
+      } else {
+        set({ errorMsg: result.error || `Failed to install driver for ${dialect}` });
+      }
+    } catch (e: any) {
+      set({ errorMsg: e.message || `Failed to install driver for ${dialect}` });
+    } finally {
+      set({ isInstallingDriver: null });
+    }
+  },
 
   generateConnectionString: () => {
     const { dialect, option } = get().sourceConfig;
@@ -159,7 +201,8 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   testSourceConnection: async () => {
     set({ isTestingSource: true, errorMsg: null });
     try {
-      const { dialect, option } = get().sourceConfig;
+      const { dialect, option, schema } = get().sourceConfig;
+      option.schema = schema;
       const success = await apiTestConnection(dialect, option);
       set({ sourceConnected: success, isTestingSource: false });
     } catch (e: any) {

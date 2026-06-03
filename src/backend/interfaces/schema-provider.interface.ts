@@ -14,7 +14,8 @@ export interface ConnectionOptions {
   host?: string;
   port?: number;
   database?: string;
-
+  schema?:string;
+  
   pool?: {
     min?: number;
     max?: number;

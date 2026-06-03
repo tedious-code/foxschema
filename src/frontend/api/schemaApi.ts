@@ -24,9 +24,20 @@ export async function checkDriver(dialect: string): Promise<DriverInfo> {
   );
 }
 
+export async function installDriver(dialect: string): Promise<{ success: boolean; stdout?: string; error?: string }> {
+  return parseJson<{ success: boolean; stdout?: string; error?: string }>(
+    await fetch(`${API_BASE}/driver/install`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dialect }),
+    })
+  );
+}
+
+
 export async function testConnection(
   dialect: string,
-  option: ConnectionOptions
+  option: ConnectionOptions,
 ): Promise<boolean> {
   const data = await parseJson<{ success: boolean; error?: string }>(
     await fetch(`${API_BASE}/connection/test`, {

@@ -20,7 +20,7 @@ export class ConnectionFactory {
 
     const poolKey =
       `${normalizedProvider}:${connectionString}`;
-
+    console.log(connectionString)
     switch (normalizedProvider) {
 
       /**
@@ -165,7 +165,9 @@ export class ConnectionFactory {
           `PORT=${options.port ?? 50000};`,
           'PROTOCOL=TCPIP;',
           `UID=${options.username};`,
-          `PWD=${options.password};`
+          `PWD=${options.password};`,
+          `CurrentSchema=${options.schema.toUpperCase()};`
+
         ].join('');
       }
 

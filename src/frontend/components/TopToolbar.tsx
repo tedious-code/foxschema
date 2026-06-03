@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSyncStore } from '../store/useSyncStore';
-import { Database, Link2, RefreshCw, AlertCircle, CheckCircle2, ChevronRight, Zap, Settings, Plus } from 'lucide-react';
+import { Database, Link2, RefreshCw, AlertCircle, CheckCircle2, ChevronRight, Zap, Settings, Plus, Download, HelpCircle } from 'lucide-react';
 import { DbObjectType } from '../../backend/interfaces/schema-provider.interface';
 import { ConnectionModal } from './ConnectionModal';
 
@@ -24,8 +24,20 @@ export const TopToolbar: React.FC = () => {
     toggleObjectTypeFilter,
     showConnectionModal,
     setShowConnectionModal,
-    addConnection
+    addConnection,
+    sourceDriverInfo,
+    targetDriverInfo,
+    isInstallingDriver,
+    checkDrivers,
+    installDriver
   } = useSyncStore();
+
+  const [activeModalTarget, setActiveModalTarget] = useState<'source' | 'target' | null>(null);
+
+  // Auto-run driver check on mount
+  useEffect(() => {
+    checkDrivers();
+  }, []);
 
   const objectScopeOptions: { type: DbObjectType; label: string }[] = [
     { type: 'TABLE', label: 'Tables' },
@@ -61,138 +73,218 @@ export const TopToolbar: React.FC = () => {
       </div>
 
       {/* Database Connection Control Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
+      <div className="grid grid-cols-1 xl:grid-cols-11 gap-4 items-stretch">
         {/* Source Configuration */}
-        <div className="lg:col-span-5 bg-slate-950/60 p-3 rounded-lg border border-slate-800/80 flex flex-col gap-2">
+        <div className="xl:col-span-5 bg-slate-950/60 p-4 rounded-lg border border-slate-800/80 flex flex-col gap-3">
           <div className="flex justify-between items-center">
             <span className="text-xs font-semibold text-cyan-400 flex items-center gap-1.5 uppercase tracking-wider">
               <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-pulse"></span>
               Source Database
             </span>
-            <span className="text-xs text-slate-500">Extract reference structure</span>
+            
+            {/* Driver Badge */}
+            {sourceDriverInfo && (
+              <div className="flex items-center gap-1.5">
+                {sourceDriverInfo.installed ? (
+                  <span className="text-[9px] text-emerald-400 bg-emerald-950/30 px-2 py-0.5 rounded-full border border-emerald-500/10 font-medium">
+                    Driver: {sourceDriverInfo.version || 'Installed'}
+                  </span>
+                ) : (
+                  <div className="flex items-center gap-1">
+                    <span className="text-[9px] text-amber-400 bg-amber-950/30 px-2 py-0.5 rounded-full border border-amber-500/10 font-medium flex items-center gap-1">
+                      <AlertCircle className="w-2.5 h-2.5" /> Driver Missing
+                    </span>
+                    <button
+                      disabled={isInstallingDriver !== null}
+                      onClick={() => installDriver('source')}
+                      className="text-[9px] font-bold text-slate-950 bg-amber-400 hover:bg-amber-300 disabled:bg-slate-800 disabled:text-slate-500 px-2 py-0.5 rounded transition flex items-center gap-0.5 cursor-pointer"
+                      title="Install driver package automatically"
+                    >
+                      {isInstallingDriver === sourceConfig.dialect ? (
+                        <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                      ) : (
+                        <Download className="w-2.5 h-2.5" />
+                      )}
+                      Install
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-12 gap-2">
             <select
               value={sourceConfig.dialect}
               onChange={(e) => setSourceConfig({ dialect: e.target.value as any })}
-              className="col-span-3 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-cyan-500"
+              className="col-span-4 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-500"
             >
-              <option value="postgres">Postgres</option>
+              <option value="postgres">PostgreSQL</option>
               <option value="mysql">MySQL</option>
               <option value="db2">IBM DB2</option>
             </select>
-
-            {/* Combined input field and "+" button into a clean layout wrapper */}
-            <div className="col-span-7 flex gap-1">
-              <input
-                type="text"
-                value={sourceConfig.option.connectionString || ''}
-                onChange={(e) => setSourceConfig({ option: { ...sourceConfig.option, connectionString: e.target.value } })}
-                placeholder="Host / connection URL"
-                className="w-full text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-cyan-500 font-mono overflow-ellipsis"
-              />
-              <button
-                onClick={() => setShowConnectionModal(true)}
-                title="Save Connection"
-                className="px-2 bg-slate-800 border border-slate-700/60 hover:bg-slate-700 text-cyan-400 rounded transition cursor-pointer flex items-center justify-center"
-              >
-                <Plus className="w-3.5 h-3.5" />
-              </button>
-            </div>
 
             <input
               type="text"
               value={sourceConfig.schema}
               onChange={(e) => setSourceConfig({ schema: e.target.value })}
               placeholder="Schema"
-              className="col-span-2 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-cyan-500"
+              className="col-span-5 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-500"
+            />
+
+            <button
+              onClick={() => {
+                setActiveModalTarget('source');
+                setShowConnectionModal(true);
+              }}
+              title="Configure Credentials"
+              className="col-span-3 text-xs bg-slate-800 border border-slate-700 hover:bg-slate-700 text-cyan-400 rounded transition cursor-pointer flex items-center justify-center gap-1 py-1"
+            >
+              <Settings className="w-3.5 h-3.5" />
+              <span>Params</span>
+            </button>
+          </div>
+
+          {/* Wider Connection String Field */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Connection String</label>
+            <input
+              type="text"
+              value={sourceConfig.option.connectionString || ''}
+              onChange={(e) => setSourceConfig({ option: { ...sourceConfig.option, connectionString: e.target.value } })}
+              placeholder="scheme://user:pass@host:port/database"
+              className="w-full text-xs bg-slate-900 border border-slate-700/60 rounded px-3 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-500 font-mono overflow-ellipsis"
             />
           </div>
 
-          <div className="flex justify-between items-center mt-1">
+          <div className="flex justify-between items-center mt-1 pt-1 border-t border-slate-900">
             <button
               onClick={testSourceConnection}
               disabled={isTestingSource}
-              className="text-xs text-slate-300 hover:text-slate-100 flex items-center gap-1 hover:bg-slate-900 px-2 py-0.5 rounded transition cursor-pointer"
+              className="text-xs text-slate-350 hover:text-slate-100 flex items-center gap-1 hover:bg-slate-900 px-3 py-1 rounded border border-slate-800 transition cursor-pointer"
             >
-              {isTestingSource ? 'Connecting...' : 'Test Connection'}
+              {isTestingSource ? 'Testing...' : 'Test Connection'}
             </button>
 
             {sourceConnected ? (
-              <span className="text-[10px] text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-500/20 flex items-center gap-1 font-medium">
-                <CheckCircle2 className="w-3 h-3" /> Connected
+              <span className="text-[10px] text-emerald-400 bg-emerald-950/40 px-2.5 py-1 rounded-full border border-emerald-500/20 flex items-center gap-1 font-medium">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Connected
               </span>
             ) : (
-              <span className="text-[10px] text-slate-500 flex items-center gap-1 font-medium">
-                <AlertCircle className="w-3 h-3" /> Unconnected
+              <span className="text-[10px] text-slate-500 flex items-center gap-1 font-medium px-2 py-1">
+                <AlertCircle className="w-3.5 h-3.5" /> Unconnected
               </span>
             )}
           </div>
         </div>
 
         {/* Link Interconnect Visual */}
-        <div className="hidden lg:flex lg:col-span-2 justify-center items-center text-slate-600">
+        <div className="hidden xl:flex xl:col-span-1 justify-center items-center text-slate-650">
           <div className="flex flex-col items-center">
-            <Link2 className="w-5 h-5 animate-pulse text-indigo-500/80" />
-            <ChevronRight className="w-4 h-4 text-slate-700 -mt-1" />
+            <Link2 className="w-6 h-6 animate-pulse text-indigo-500/80" />
+            <ChevronRight className="w-5 h-5 text-slate-700 -mt-1" />
           </div>
         </div>
 
         {/* Target Configuration */}
-        <div className="lg:col-span-5 bg-slate-950/60 p-3 rounded-lg border border-slate-800/80 flex flex-col gap-2">
+        <div className="xl:col-span-5 bg-slate-950/60 p-4 rounded-lg border border-slate-800/80 flex flex-col gap-3">
           <div className="flex justify-between items-center">
             <span className="text-xs font-semibold text-purple-400 flex items-center gap-1.5 uppercase tracking-wider">
               <span className="w-1.5 h-1.5 bg-purple-400 rounded-full animate-pulse"></span>
               Target Database
             </span>
-            <span className="text-xs text-slate-500">Apply migrations here</span>
+
+            {/* Driver Badge */}
+            {targetDriverInfo && (
+              <div className="flex items-center gap-1.5">
+                {targetDriverInfo.installed ? (
+                  <span className="text-[9px] text-emerald-400 bg-emerald-950/30 px-2 py-0.5 rounded-full border border-emerald-500/10 font-medium">
+                    Driver: {targetDriverInfo.version || 'Installed'}
+                  </span>
+                ) : (
+                  <div className="flex items-center gap-1">
+                    <span className="text-[9px] text-amber-400 bg-amber-950/30 px-2 py-0.5 rounded-full border border-amber-500/10 font-medium flex items-center gap-1">
+                      <AlertCircle className="w-2.5 h-2.5" /> Driver Missing
+                    </span>
+                    <button
+                      disabled={isInstallingDriver !== null}
+                      onClick={() => installDriver('target')}
+                      className="text-[9px] font-bold text-slate-950 bg-amber-400 hover:bg-amber-300 disabled:bg-slate-800 disabled:text-slate-500 px-2 py-0.5 rounded transition flex items-center gap-0.5 cursor-pointer"
+                      title="Install driver package automatically"
+                    >
+                      {isInstallingDriver === targetConfig.dialect ? (
+                        <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                      ) : (
+                        <Download className="w-2.5 h-2.5" />
+                      )}
+                      Install
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-12 gap-2">
             <select
               value={targetConfig.dialect}
               onChange={(e) => setTargetConfig({ dialect: e.target.value as any })}
-              className="col-span-3 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-purple-500"
+              className="col-span-4 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-purple-500"
             >
-              <option value="postgres">Postgres</option>
+              <option value="postgres">PostgreSQL</option>
               <option value="mysql">MySQL</option>
               <option value="db2">IBM DB2</option>
             </select>
 
             <input
               type="text"
-              value={targetConfig.option.connectionString || ''}
-              onChange={(e) => setTargetConfig({ option: { ...targetConfig.option, connectionString: e.target.value } })}
-              placeholder="Host / connection URL"
-              className="col-span-6 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-purple-500 font-mono overflow-ellipsis"
-            />
-
-            <input
-              type="text"
               value={targetConfig.schema}
               onChange={(e) => setTargetConfig({ schema: e.target.value })}
               placeholder="Schema"
-              className="col-span-3 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-purple-500"
+              className="col-span-5 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-purple-500"
+            />
+
+            <button
+              onClick={() => {
+                setActiveModalTarget('target');
+                setShowConnectionModal(true);
+              }}
+              title="Configure Credentials"
+              className="col-span-3 text-xs bg-slate-800 border border-slate-700 hover:bg-slate-700 text-purple-405 rounded transition cursor-pointer flex items-center justify-center gap-1 py-1"
+            >
+              <Settings className="w-3.5 h-3.5" />
+              <span>Params</span>
+            </button>
+          </div>
+
+          {/* Wider Connection String Field */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Connection String</label>
+            <input
+              type="text"
+              value={targetConfig.option.connectionString || ''}
+              onChange={(e) => setTargetConfig({ option: { ...targetConfig.option, connectionString: e.target.value } })}
+              placeholder="scheme://user:pass@host:port/database"
+              className="w-full text-xs bg-slate-900 border border-slate-700/60 rounded px-3 py-1.5 text-slate-200 focus:outline-none focus:border-purple-500 font-mono overflow-ellipsis"
             />
           </div>
 
-          <div className="flex justify-between items-center mt-1">
+          <div className="flex justify-between items-center mt-1 pt-1 border-t border-slate-900">
             <button
               onClick={testTargetConnection}
               disabled={isTestingTarget}
-              className="text-xs text-slate-300 hover:text-slate-100 flex items-center gap-1 hover:bg-slate-900 px-2 py-0.5 rounded transition cursor-pointer"
+              className="text-xs text-slate-350 hover:text-slate-100 flex items-center gap-1 hover:bg-slate-900 px-3 py-1 rounded border border-slate-800 transition cursor-pointer"
             >
-              {isTestingTarget ? 'Connecting...' : 'Test Connection'}
+              {isTestingTarget ? 'Testing...' : 'Test Connection'}
             </button>
 
             {targetConnected ? (
-              <span className="text-[10px] text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-500/20 flex items-center gap-1 font-medium">
-                <CheckCircle2 className="w-3 h-3" /> Connected
+              <span className="text-[10px] text-emerald-400 bg-emerald-950/40 px-2.5 py-1 rounded-full border border-emerald-500/20 flex items-center gap-1 font-medium">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Connected
               </span>
             ) : (
-              <span className="text-[10px] text-slate-500 flex items-center gap-1 font-medium">
-                <AlertCircle className="w-3 h-3" /> Unconnected
+              <span className="text-[10px] text-slate-500 flex items-center gap-1 font-medium px-2 py-1">
+                <AlertCircle className="w-3.5 h-3.5" /> Unconnected
               </span>
             )}
           </div>
@@ -249,16 +341,24 @@ export const TopToolbar: React.FC = () => {
 
       <ConnectionModal
         open={showConnectionModal}
-        dialect={sourceConfig.dialect}
-        onClose={() => setShowConnectionModal(false)}
+        dialect={activeModalTarget === 'target' ? targetConfig.dialect : sourceConfig.dialect}
+        initialOptions={activeModalTarget === 'target' ? targetConfig.option : sourceConfig.option}
+        onClose={() => {
+          setShowConnectionModal(false);
+          setActiveModalTarget(null);
+        }}
         onSave={(options) => {
-          setSourceConfig({ option: options });
+          if (activeModalTarget === 'target') {
+            setTargetConfig({ option: options });
+          } else {
+            setSourceConfig({ option: options });
+          }
           addConnection({
             id: crypto.randomUUID(),
             name: options.database
               ? `${options.host}/${options.database}`
               : options.connectionString ?? 'New Connection',
-            dialect: sourceConfig.dialect,
+            dialect: activeModalTarget === 'target' ? targetConfig.dialect : sourceConfig.dialect,
             option: options,
           });
         }}

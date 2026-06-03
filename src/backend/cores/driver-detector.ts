@@ -16,7 +16,7 @@ export type DatabaseProvider =
 export type AppDialect = 'postgres' | 'mysql' | 'db2';
 
 const DRIVER_MAP: Record<DatabaseProvider, string> = {
-  db2: 'ibm_db2',
+  db2: 'ibm_db',
   postgres: 'pg',
   mysql: 'mysql2',
   oracle: 'oracledb',
