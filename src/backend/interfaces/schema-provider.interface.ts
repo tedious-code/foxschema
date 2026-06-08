@@ -1,3 +1,5 @@
+import { DbSchema, TableSchema } from './schema.interface';
+
 export interface DriverInfo {
   provider: string;
   packageName: string;
@@ -14,26 +16,11 @@ export interface ConnectionOptions {
   host?: string;
   port?: number;
   database?: string;
-  schema?:string;
-  
-  pool?: {
-    min?: number;
-    max?: number;
-    idleTimeoutMs?: number;
-  };
-
-  ssl?: {
-    enabled: boolean;
-    rejectUnauthorized?: boolean;
-    ca?: string;
-    cert?: string;
-    key?: string;
-  };
-
-  timeout?: {
-    connectMs?: number;
-    queryMs?: number;
-  };
+  schema?: string;
+  pool?: { min?: number; max?: number; idleTimeoutMs?: number; };
+  ssl?: { enabled: boolean; rejectUnauthorized?: boolean; ca?: string; cert?: string; key?: string; };
+  timeout?: { connectMs?: number; queryMs?: number; };
+  [key: string]: any; 
 }
 
 export interface SavedConnection {
@@ -43,39 +30,9 @@ export interface SavedConnection {
   option?: ConnectionOptions;
 }
 
-export interface ColumnInfo {
-  name: string;
-  type: string;
-  nullable: boolean;
-  defaultValue?: string;
-  primaryKey: boolean;
-}
-
-export interface IndexInfo {
-  name: string;
-  columns: string[];
-  unique: boolean;
-}
-
-export interface ForeignKeyInfo {
-  name: string;
-  columns: string[];
-  referencedTable: string;
-  referencedColumns: string[];
-}
-
-export type DbObjectType = 'TABLE' | 'VIEW' | 'FUNCTION' | 'PROCEDURE';
-
-export interface TableSchema {
-  name: string;
-  objectType: DbObjectType;
-  definition?: string; // For Views, Functions, Stored Procedures SQL body
-  columns: ColumnInfo[];
-  indices: IndexInfo[];
-  foreignKeys: ForeignKeyInfo[];
-}
-
 export interface SchemaProvider {
-  getTables(options: ConnectionOptions, schema: string): Promise<TableSchema[]>;
+  readonly provider: string;
   testConnection(options: ConnectionOptions): Promise<boolean>;
+  loadSchema(options: ConnectionOptions, schema: string): Promise<DbSchema>;
+  getTables?(options: ConnectionOptions, schema: string): Promise<TableSchema[]>;
 }

@@ -29,7 +29,7 @@
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.0",
-    "ibm_db": "^3.3.5",
+    "ibm_db": "4.0.1",
     "lucide-react": "^1.16.0",
     "pg": "^8.21.0",
     "react": "^19.2.6",

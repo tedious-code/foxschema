@@ -39,14 +39,23 @@ export async function testConnection(
   dialect: string,
   option: ConnectionOptions,
 ): Promise<boolean> {
-  const data = await parseJson<{ success: boolean; error?: string }>(
-    await fetch(`${API_BASE}/connection/test`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dialect, option }),
-    })
-  );
-  return data.success;
+  const res = await fetch(`${API_BASE}/connection/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dialect, option }),
+  });
+
+  const data = (await res.json()) as { success: boolean; error?: string };
+
+  if (!res.ok) {
+    throw new Error(data.error ?? res.statusText);
+  }
+
+  if (!data.success) {
+    throw new Error(data.error ?? 'Connection test returned false');
+  }
+
+  return true;
 }
 
 export async function fetchTables(

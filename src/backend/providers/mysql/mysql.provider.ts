@@ -1,7 +1,11 @@
-import { ConnectionFactory } from "../cores/connection-factory";
-import { SchemaProvider, ConnectionOptions } from "../interfaces/schema-provider.interface";
+import { ConnectionFactory } from "../../cores/connection-factory";
+import { SchemaProvider, ConnectionOptions } from "../../interfaces/schema-provider.interface";
+import { DbSchema } from "../../interfaces/schema.interface";
 
 export class MysqlProvider implements SchemaProvider {
+  loadSchema(options: ConnectionOptions, schema: string): Promise<DbSchema> {
+      throw new Error("Method not implemented.");
+  }
   async testConnection(options: ConnectionOptions): Promise<boolean> {
     let connection: any;
 

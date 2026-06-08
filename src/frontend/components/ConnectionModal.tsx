@@ -82,7 +82,7 @@ export const ConnectionModal: React.FC<Props> = ({
       // Build a temporary option copy to test
       const scheme = dialectSchemes[dialect];
       const connStr = dialect === 'db2'
-        ? `DATABASE=${form.database};HOSTNAME=${form.host};PORT=${form.port};PROTOCOL=TCPIP;UID=${form.username};PWD=${form.password};`
+        ? `DATABASE=${form.database};HOSTNAME=${form.host};PORT=${form.port};PROTOCOL=TCPIP;UID=${form.username};PWD=${form.password};Authentication=SERVER;`
         : `${scheme}://${encodeURIComponent(form.username || '')}:${encodeURIComponent(form.password || '')}@${form.host}:${form.port}/${form.database}`;
 
       const success = await apiTestConnection(dialect, {
@@ -103,7 +103,7 @@ export const ConnectionModal: React.FC<Props> = ({
   const handleSave = () => {
     const scheme = dialectSchemes[dialect];
     const connectionString = dialect === 'db2'
-      ? `DATABASE=${form.database};HOSTNAME=${form.host};PORT=${form.port};PROTOCOL=TCPIP;UID=${form.username};PWD=${form.password};`
+      ? `DATABASE=${form.database};HOSTNAME=${form.host};PORT=${form.port};PROTOCOL=TCPIP;UID=${form.username};PWD=${form.password};Authentication=SERVER;`
       : `${scheme}://${encodeURIComponent(form.username || '')}` +
         `:${encodeURIComponent(form.password || '')}` +
         `@${form.host}:${form.port}/${form.database}`;

@@ -1,13 +1,14 @@
-import { TableSchema, ColumnInfo, IndexInfo, ForeignKeyInfo } from '../interfaces/schema-provider.interface';
+// import { TableSchema, ColumnInfo, IndexInfo, ForeignKeyInfo } from '../interfaces/schema-provider.interface';
 import { SchemaCompareResult, TableDiff, ColumnDiff, IndexDiff, ForeignKeyDiff } from '../types/diff.types';
 
+import { DbTable, DbColumn, DbIndex, DbForeignKey } from '../interfaces/schema.interface';
 export class CompareModule {
-  async compare(sourceSchemas: TableSchema[], targetSchemas: TableSchema[]): Promise<SchemaCompareResult> {
+  async compare(sourceSchemas: DbTable[], targetSchemas: DbTable[]): Promise<SchemaCompareResult> {
     // Simulate complex background schema analytics calculations
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
-    const sourceMap = new Map<string, TableSchema>(sourceSchemas.map((t) => [t.name.toUpperCase(), t]));
-    const targetMap = new Map<string, TableSchema>(targetSchemas.map((t) => [t.name.toUpperCase(), t]));
+    const sourceMap = new Map<string, DbTable>(sourceSchemas.map((t) => [t.name.toUpperCase(), t]));
+    const targetMap = new Map<string, DbTable>(targetSchemas.map((t) => [t.name.toUpperCase(), t]));
 
     const allTableNames = Array.from(new Set([...Array.from(sourceMap.keys()), ...Array.from(targetMap.keys())]));
     const tableDiffs: TableDiff[] = [];

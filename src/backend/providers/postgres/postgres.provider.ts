@@ -1,7 +1,11 @@
-import { ConnectionFactory } from "../cores/connection-factory";
-import { ConnectionOptions, SchemaProvider, TableSchema } from "../interfaces/schema-provider.interface";
+import { ConnectionFactory } from "../../cores/connection-factory";
+import { ConnectionOptions, SchemaProvider } from "../../interfaces/schema-provider.interface";
+import { DbSchema } from "../../interfaces/schema.interface";
 
-export class Db2Provider implements SchemaProvider {
+export class PostgresProvider implements SchemaProvider {
+  loadSchema(options: ConnectionOptions, schema: string): Promise<DbSchema> {
+      throw new Error("Method not implemented.");
+  }
   async testConnection(options: ConnectionOptions): Promise<boolean> {
     let connection: any;
 
@@ -15,18 +19,17 @@ export class Db2Provider implements SchemaProvider {
 
       const sql = `SELECT 1`;
 
-      await new Promise<void>((resolve, reject) => {
-        connection.query(sql, [], (err: Error | null) => {
-          if (err) reject(err);
-          else resolve();
-        });
-      });
+      await connection.query(
+        sql,
+        [],
+        options.timeout?.queryMs ?? 15000
+      );
 
       return true;
 
     } catch (error) {
 
-      console.error('Error testing DB2 connection:', error);
+      console.error('Error testing postgres connection:', error);
       return false;
     } finally {
 
@@ -37,7 +40,7 @@ export class Db2Provider implements SchemaProvider {
     }
   }
 
-  readonly provider = 'db2';
+  readonly provider = 'postgres';
 
   async getTables(
     options: ConnectionOptions,
@@ -60,14 +63,14 @@ export class Db2Provider implements SchemaProvider {
         WHERE TABSCHEMA = ?
       `;
 
-      const rows = await new Promise<unknown[]>((resolve, reject) => {
-        connection.query(sql, [schema.toUpperCase()], (err: Error | null, data: unknown[]) => {
-          if (err) reject(err);
-          else resolve(data ?? []);
-        });
-      });
+      const rows =
+        await connection.query(
+          sql,
+          [schema.toUpperCase()],
+          options.timeout?.queryMs ?? 15000
+        );
 
-      return rows as TableSchema[];
+      return [];
 
     } finally {
 

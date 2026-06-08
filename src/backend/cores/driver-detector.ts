@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module';
 import type { DriverInfo } from '../interfaces/schema-provider.interface';
+import { setupDb2ClientEnv } from './db2-env';
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -125,6 +126,10 @@ export class DriverDetector {
   static loadDriver(dialect: string): unknown {
     const provider = this.resolveProvider(dialect);
     this.ensureDriver(dialect);
+
+    if (provider === 'db2') {
+      setupDb2ClientEnv();
+    }
 
     const packageName = DRIVER_MAP[provider];
     const mod = nodeRequire(packageName);
