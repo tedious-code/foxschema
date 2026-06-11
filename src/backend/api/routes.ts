@@ -68,6 +68,25 @@ export function createApiRoutes(connectionModule: ConnectionModule): Router {
     }
   });
 
+  router.post('/schema/list', async (req: Request, res: Response) => {
+    const { dialect, option } = req.body as {
+      dialect: string;
+      option: ConnectionOptions;
+    };
+
+    try {
+      const provider = connectionModule.getProvider(dialect);
+      if (!provider.listSchemas) {
+        throw new Error(`Provider for dialect "${dialect}" does not support schema listing`);
+      }
+      const schemas = await provider.listSchemas(option);
+      res.json({ schemas });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to list schemas';
+      res.status(500).json({ error: message });
+    }
+  });
+
   router.post('/schema/tables', async (req: Request, res: Response) => {
     const { dialect, option, schema } = req.body as {
       dialect: string;

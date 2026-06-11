@@ -5,7 +5,7 @@ import { CompareModule } from '../../backend/modules/compare.module';
 import { SqlGeneratorModule } from '../../backend/modules/sql-generator.module';
 import { DbObjectType, ConnectionOptions, SavedConnection, DriverInfo } from '../../backend/interfaces/schema-provider.interface';
 import { SchemaCompareResult, TableDiff } from '../../backend/types/diff.types';
-import { testConnection as apiTestConnection, fetchTables, checkDriver as apiCheckDriver, installDriver as apiInstallDriver } from '../api/schemaApi';
+import { testConnection as apiTestConnection, fetchTables, fetchSchemaList, checkDriver as apiCheckDriver, installDriver as apiInstallDriver } from '../api/schemaApi';
 
 const compareModule = new CompareModule();
 const sqlGeneratorModule = new SqlGeneratorModule();
@@ -49,6 +49,12 @@ interface SyncState {
   targetConnected: boolean;
   errorMsg: string | null;
 
+  // Schemas available on each connected database (loaded after a successful test)
+  sourceSchemaList: string[];
+  targetSchemaList: string[];
+  loadSchemaList: (side: 'source' | 'target') => Promise<void>;
+  setSchema: (side: 'source' | 'target', schema: string) => void;
+
   // Selected Object Scope selection filters
   selectedObjectTypes: DbObjectType[];
 
@@ -87,14 +93,14 @@ export const useSyncStore = create<SyncState>()(
   sourceConfig: {
     dialect: 'postgres',
     option: {
-      connectionString: 'postgresql://postgres:secret@localhost:5432/production_source',
+      connectionString: 'put your connection string here',
     },
     schema: 'public',
   },
   targetConfig: {
     dialect: 'postgres',
     option: {
-      connectionString: 'postgresql://postgres:secret@localhost:5432/staging_target',
+      connectionString: 'put your connection string here',
     },
     schema: 'public',
   },
@@ -114,6 +120,8 @@ export const useSyncStore = create<SyncState>()(
   sourceConnected: false,
   targetConnected: false,
   errorMsg: null,
+  sourceSchemaList: [],
+  targetSchemaList: [],
 
   selectedObjectTypes: ['TABLE', 'VIEW', 'FUNCTION', 'PROCEDURE'],
   isComparing: false,
@@ -178,6 +186,8 @@ export const useSyncStore = create<SyncState>()(
       });
     }
     get().checkDrivers();
+    // No manual test button anymore — verify the saved connection right away
+    void (side === 'source' ? get().testSourceConnection() : get().testTargetConnection());
   },
 
   setSourceConfig: (cfg) => {
@@ -262,6 +272,36 @@ export const useSyncStore = create<SyncState>()(
     return option.connectionString?.trim() || buildConnectionString(dialect, option);
   },
 
+  loadSchemaList: async (side) => {
+    const cfg = side === 'source' ? get().sourceConfig : get().targetConfig;
+    try {
+      const schemas = await fetchSchemaList(cfg.dialect, withConnectionString(cfg.dialect, cfg.option));
+      // Keep the configured schema if the server has it (case-insensitive), else fall back to the first
+      const current = cfg.schema || '';
+      const match =
+        schemas.find((s) => s === current) ??
+        schemas.find((s) => s.toLowerCase() === current.toLowerCase()) ??
+        schemas[0] ??
+        current;
+      if (side === 'source') {
+        set({ sourceSchemaList: schemas, sourceConfig: { ...get().sourceConfig, schema: match } });
+      } else {
+        set({ targetSchemaList: schemas, targetConfig: { ...get().targetConfig, schema: match } });
+      }
+    } catch (e) {
+      console.error(`Failed to load schema list for ${side}:`, e);
+    }
+  },
+
+  setSchema: (side, schema) => {
+    // Schema switch keeps the connection valid — only the comparison scope changes
+    if (side === 'source') {
+      set({ sourceConfig: { ...get().sourceConfig, schema }, compareResult: null, selectedTable: null, generatedSql: null, syncSelection: {} });
+    } else {
+      set({ targetConfig: { ...get().targetConfig, schema }, compareResult: null, selectedTable: null, generatedSql: null, syncSelection: {} });
+    }
+  },
+
   testSourceConnection: async () => {
     set({ isTestingSource: true, errorMsg: null });
     try {
@@ -273,9 +313,8 @@ export const useSyncStore = create<SyncState>()(
         sourceConnected: success,
         isTestingSource: false,
       });
-      // Both sides verified: load the object lists right away
-      if (success && get().targetConnected && !get().compareResult) {
-        await get().runSchemaComparison();
+      if (success) {
+        await get().loadSchemaList('source');
       }
     } catch (e: any) {
       set({ errorMsg: e.message || 'Source connection failed', isTestingSource: false, sourceConnected: false });
@@ -293,9 +332,8 @@ export const useSyncStore = create<SyncState>()(
         targetConnected: success,
         isTestingTarget: false,
       });
-      // Both sides verified: load the object lists right away
-      if (success && get().sourceConnected && !get().compareResult) {
-        await get().runSchemaComparison();
+      if (success) {
+        await get().loadSchemaList('target');
       }
     } catch (e: any) {
       set({ errorMsg: e.message || 'Target connection failed', isTestingTarget: false, targetConnected: false });

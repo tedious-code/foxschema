@@ -58,6 +58,20 @@ export async function testConnection(
   return true;
 }
 
+export async function fetchSchemaList(
+  dialect: string,
+  option: ConnectionOptions
+): Promise<string[]> {
+  const data = await parseJson<{ schemas: string[] }>(
+    await fetch(`${API_BASE}/schema/list`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dialect, option }),
+    })
+  );
+  return data.schemas;
+}
+
 export async function fetchTables(
   dialect: string,
   option: ConnectionOptions,

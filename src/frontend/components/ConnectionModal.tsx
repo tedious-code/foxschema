@@ -70,30 +70,28 @@ export const ConnectionModal: React.FC<Props> = ({
     }));
   };
 
-  const handleTest = async () => {
+  // Apply Config tests first and only saves a working connection —
+  // on failure the modal stays open showing the error
+  const handleSave = async () => {
+    const options: ConnectionOptions = {
+      ...form,
+      connectionString: buildConnectionString(dialect, form),
+    };
+
     setTestingState({ status: 'testing' });
     try {
-      const success = await apiTestConnection(dialect, {
-        ...form,
-        connectionString: buildConnectionString(dialect, form),
-      });
-
-      if (success) {
-        setTestingState({ status: 'success' });
-      } else {
+      const success = await apiTestConnection(dialect, options);
+      if (!success) {
         setTestingState({ status: 'failed', error: 'Connection returned false' });
+        return;
       }
     } catch (error: any) {
       setTestingState({ status: 'failed', error: error.message || 'Connection failed' });
+      return;
     }
-  };
 
-  const handleSave = () => {
-    onSave({
-      ...form,
-      connectionString: buildConnectionString(dialect, form),
-    });
-
+    setTestingState({ status: 'success' });
+    onSave(options);
     onClose();
   };
 
@@ -232,30 +230,27 @@ export const ConnectionModal: React.FC<Props> = ({
         </div>
 
         {/* Footer Actions */}
-        <div className="flex justify-between items-center px-6 py-4 bg-slate-950/60 border-t border-slate-800">
+        <div className="flex justify-end items-center gap-2 px-6 py-4 bg-slate-950/60 border-t border-slate-800">
           <button
-            onClick={handleTest}
-            disabled={testingState.status === 'testing'}
-            className="px-4 py-2 text-xs font-semibold text-slate-350 hover:text-slate-100 hover:bg-slate-850 rounded border border-slate-800 disabled:opacity-50 cursor-pointer transition"
+            onClick={onClose}
+            className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-850/50 rounded transition"
           >
-            {testingState.status === 'testing' ? 'Testing...' : 'Test Connection'}
+            Cancel
           </button>
 
-          <div className="flex gap-2">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-850/50 rounded transition"
-            >
-              Cancel
-            </button>
-
-            <button
-              onClick={handleSave}
-              className="px-4 py-2 text-xs font-bold bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-slate-950 rounded transition shadow-md cursor-pointer"
-            >
-              Apply Config
-            </button>
-          </div>
+          <button
+            onClick={handleSave}
+            disabled={testingState.status === 'testing'}
+            className="px-4 py-2 text-xs font-bold bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-slate-950 rounded transition shadow-md cursor-pointer disabled:opacity-60 disabled:cursor-wait flex items-center gap-1.5"
+          >
+            {testingState.status === 'testing' ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" /> Connecting...
+              </>
+            ) : (
+              'Apply & Connect'
+            )}
+          </button>
         </div>
       </div>
     </div>,

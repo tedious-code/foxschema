@@ -42,6 +42,18 @@ export class PostgresProvider implements SchemaProvider {
 
   readonly provider = 'postgres';
 
+  async listSchemas(options: ConnectionOptions): Promise<string[]> {
+    const rows = await ConnectionFactory.executeQuery<{ schema_name: string }>(
+      this.provider,
+      options,
+      `SELECT schema_name
+       FROM information_schema.schemata
+       WHERE schema_name NOT IN ('pg_catalog', 'information_schema') AND schema_name NOT LIKE 'pg_%'
+       ORDER BY schema_name`
+    );
+    return rows.map((r) => r.schema_name);
+  }
+
   async getTables(
     options: ConnectionOptions,
     schema: string

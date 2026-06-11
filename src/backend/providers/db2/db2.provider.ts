@@ -57,6 +57,18 @@ export class Db2Provider implements SchemaProvider {
     }
   }
 
+  async listSchemas(options: ConnectionOptions): Promise<string[]> {
+    const rows = await ConnectionFactory.executeQuery<{ SCHEMANAME: string }>(
+      this.provider,
+      options,
+      `SELECT TRIM(SCHEMANAME) AS SCHEMANAME
+       FROM SYSCAT.SCHEMATA
+       WHERE SCHEMANAME NOT LIKE 'SYS%' AND SCHEMANAME NOT IN ('NULLID', 'SQLJ')
+       ORDER BY SCHEMANAME`
+    );
+    return rows.map((r) => r.SCHEMANAME);
+  }
+
   async getTables(options: ConnectionOptions, schema: string): Promise<TableSchema[]> {
     const dbSchema = await this.loadSchema(options, schema);
     const result: TableSchema[] = [];

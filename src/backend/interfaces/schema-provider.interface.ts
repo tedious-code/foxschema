@@ -37,6 +37,8 @@ export interface SchemaProvider {
   testConnection(options: ConnectionOptions): Promise<boolean>;
   loadSchema(options: ConnectionOptions, schema: string): Promise<DbSchema>;
   getTables?(options: ConnectionOptions, schema: string): Promise<TableSchema[]>;
+  /** Lists selectable namespaces in the connected database: schemas for DB2/Postgres, databases for MySQL. */
+  listSchemas?(options: ConnectionOptions): Promise<string[]>;
 }
 
 /**

@@ -42,6 +42,19 @@ export class MysqlProvider implements SchemaProvider {
 
   readonly provider = 'mysql';
 
+  // MySQL has no separate schema level — databases are the schemas
+  async listSchemas(options: ConnectionOptions): Promise<string[]> {
+    const rows = await ConnectionFactory.executeQuery<{ schema_name: string }>(
+      this.provider,
+      options,
+      `SELECT schema_name
+       FROM information_schema.schemata
+       WHERE schema_name NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')
+       ORDER BY schema_name`
+    );
+    return rows.map((r) => r.schema_name);
+  }
+
   async getTables(
     options: ConnectionOptions,
     schema: string

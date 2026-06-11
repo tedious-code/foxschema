@@ -32,6 +32,9 @@ export const TopToolbar: React.FC = () => {
     selectedSourceConnectionId,
     selectedTargetConnectionId,
     applySavedConnection,
+    sourceSchemaList,
+    targetSchemaList,
+    setSchema,
     sourceDriverInfo,
     targetDriverInfo,
     isInstallingDriver,
@@ -131,13 +134,26 @@ export const TopToolbar: React.FC = () => {
               ))}
             </select>
 
-            <input
-              type="text"
-              value={sourceConfig.schema}
-              onChange={(e) => setSourceConfig({ schema: e.target.value })}
-              placeholder="Schema"
-              className="col-span-5 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-500"
-            />
+            {sourceSchemaList.length > 0 ? (
+              <select
+                value={sourceConfig.schema}
+                onChange={(e) => setSchema('source', e.target.value)}
+                title="Schemas available on the connected database"
+                className="col-span-5 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-500"
+              >
+                {sourceSchemaList.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                value={sourceConfig.schema}
+                onChange={(e) => setSourceConfig({ schema: e.target.value })}
+                placeholder="Schema (connect to load list)"
+                className="col-span-5 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-500"
+              />
+            )}
 
             <button
               onClick={() => {
@@ -168,28 +184,18 @@ export const TopToolbar: React.FC = () => {
             </select>
           )}
 
-          {/* Wider Connection String Field */}
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Connection String</label>
-            <input
-              type="text"
-              value={sourceConfig.option.connectionString || ''}
-              onChange={(e) => setSourceConfig({ option: { ...sourceConfig.option, connectionString: e.target.value } })}
-              placeholder="scheme://user:pass@host:port/database"
-              className="w-full text-xs bg-slate-900 border border-slate-700/60 rounded px-3 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-500 font-mono overflow-ellipsis"
-            />
-          </div>
-
           <div className="flex justify-between items-center mt-1 pt-1 border-t border-slate-900">
-            <button
-              onClick={testSourceConnection}
-              disabled={isTestingSource}
-              className="text-xs text-slate-350 hover:text-slate-100 flex items-center gap-1 hover:bg-slate-900 px-3 py-1 rounded border border-slate-800 transition cursor-pointer"
-            >
-              {isTestingSource ? 'Testing...' : 'Test Connection'}
-            </button>
+            <span className="text-[10px] text-slate-600">
+              {sourceConfig.option.database
+                ? `${sourceConfig.option.host ?? 'localhost'} / ${sourceConfig.option.database}`
+                : 'Configure credentials via Params'}
+            </span>
 
-            {sourceConnected ? (
+            {isTestingSource ? (
+              <span className="text-[10px] text-cyan-400 flex items-center gap-1 font-medium px-2 py-1">
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Connecting...
+              </span>
+            ) : sourceConnected ? (
               <span className="text-[10px] text-emerald-400 bg-emerald-950/40 px-2.5 py-1 rounded-full border border-emerald-500/20 flex items-center gap-1 font-medium">
                 <CheckCircle2 className="w-3.5 h-3.5" /> Connected
               </span>
@@ -259,13 +265,26 @@ export const TopToolbar: React.FC = () => {
               ))}
             </select>
 
-            <input
-              type="text"
-              value={targetConfig.schema}
-              onChange={(e) => setTargetConfig({ schema: e.target.value })}
-              placeholder="Schema"
-              className="col-span-5 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-purple-500"
-            />
+            {targetSchemaList.length > 0 ? (
+              <select
+                value={targetConfig.schema}
+                onChange={(e) => setSchema('target', e.target.value)}
+                title="Schemas available on the connected database"
+                className="col-span-5 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-purple-500"
+              >
+                {targetSchemaList.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                value={targetConfig.schema}
+                onChange={(e) => setTargetConfig({ schema: e.target.value })}
+                placeholder="Schema (connect to load list)"
+                className="col-span-5 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-purple-500"
+              />
+            )}
 
             <button
               onClick={() => {
@@ -296,28 +315,18 @@ export const TopToolbar: React.FC = () => {
             </select>
           )}
 
-          {/* Wider Connection String Field */}
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Connection String</label>
-            <input
-              type="text"
-              value={targetConfig.option.connectionString || ''}
-              onChange={(e) => setTargetConfig({ option: { ...targetConfig.option, connectionString: e.target.value } })}
-              placeholder="scheme://user:pass@host:port/database"
-              className="w-full text-xs bg-slate-900 border border-slate-700/60 rounded px-3 py-1.5 text-slate-200 focus:outline-none focus:border-purple-500 font-mono overflow-ellipsis"
-            />
-          </div>
-
           <div className="flex justify-between items-center mt-1 pt-1 border-t border-slate-900">
-            <button
-              onClick={testTargetConnection}
-              disabled={isTestingTarget}
-              className="text-xs text-slate-350 hover:text-slate-100 flex items-center gap-1 hover:bg-slate-900 px-3 py-1 rounded border border-slate-800 transition cursor-pointer"
-            >
-              {isTestingTarget ? 'Testing...' : 'Test Connection'}
-            </button>
+            <span className="text-[10px] text-slate-600">
+              {targetConfig.option.database
+                ? `${targetConfig.option.host ?? 'localhost'} / ${targetConfig.option.database}`
+                : 'Configure credentials via Params'}
+            </span>
 
-            {targetConnected ? (
+            {isTestingTarget ? (
+              <span className="text-[10px] text-purple-400 flex items-center gap-1 font-medium px-2 py-1">
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Connecting...
+              </span>
+            ) : targetConnected ? (
               <span className="text-[10px] text-emerald-400 bg-emerald-950/40 px-2.5 py-1 rounded-full border border-emerald-500/20 flex items-center gap-1 font-medium">
                 <CheckCircle2 className="w-3.5 h-3.5" /> Connected
               </span>
@@ -400,9 +409,15 @@ export const TopToolbar: React.FC = () => {
             name: options.database
               ? `${options.host}/${options.database}`
               : options.connectionString ?? 'New Connection',
-            dialect: activeModalTarget === 'target' ? targetConfig.dialect : sourceConfig.dialect,
+            dialect,
             option: options,
           });
+          // Auto-verify the connection and load the schema list
+          if (activeModalTarget === 'target') {
+            void testTargetConnection();
+          } else {
+            void testSourceConnection();
+          }
         }}
       />
     </header>
