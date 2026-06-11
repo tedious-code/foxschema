@@ -1,6 +1,6 @@
-import { Db2Provider } from '../providers/db2.provider';
-import { PostgresProvider } from '../providers/postgres.provider';
-import { MysqlProvider } from '../providers/mysql.provider';
+import { Db2Provider } from '../providers/db2/db2.provider';
+import { PostgresProvider } from '../providers/postgres/postgres.provider';
+import { MysqlProvider } from '../providers/mysql/mysql.provider';
 import { DriverDetector } from '../cores/driver-detector';
 import { ConnectionOptions, SchemaProvider } from '../interfaces/schema-provider.interface';
 

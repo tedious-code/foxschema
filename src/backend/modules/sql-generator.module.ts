@@ -1,6 +1,40 @@
 import { TableDiff } from '../types/diff.types';
+import { TableSchema } from '../interfaces/schema.interface';
 
 export class SqlGeneratorModule {
+  /**
+   * Renders the full DDL of a single object as it exists on one side,
+   * used for side-by-side source/target diff display.
+   */
+  generateObjectDdl(table: TableSchema): string {
+    if (table.objectType !== 'TABLE') {
+      return table.definition || `-- No definition available for ${table.objectType} ${table.name}`;
+    }
+
+    let sql = `CREATE TABLE ${table.name} (\n`;
+    sql += table.columns
+      .map((c) => {
+        let def = `  ${c.name} ${c.type}`;
+        if (!c.nullable) def += ` NOT NULL`;
+        if (c.defaultValue) def += ` DEFAULT ${c.defaultValue}`;
+        if (c.primaryKey) def += ` PRIMARY KEY`;
+        return def;
+      })
+      .join(',\n');
+    sql += `\n);\n`;
+
+    for (const idx of table.indices) {
+      const uniqueStr = idx.unique ? ' UNIQUE' : '';
+      sql += `CREATE${uniqueStr} INDEX ${idx.name} ON ${table.name} (${idx.columns.join(', ')});\n`;
+    }
+
+    for (const fk of table.foreignKeys) {
+      sql += `ALTER TABLE ${table.name} ADD CONSTRAINT ${fk.name} FOREIGN KEY (${fk.columns.join(', ')}) REFERENCES ${fk.referencedTable} (${fk.referencedColumns.join(', ')});\n`;
+    }
+
+    return sql;
+  }
+
   generateMigrationSql(diffs: TableDiff[], dialect: string): string {
     const dialectUpper = dialect.toUpperCase();
     let sql = `-- =========================================================================\n`;

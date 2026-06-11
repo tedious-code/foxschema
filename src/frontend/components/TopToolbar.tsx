@@ -2,7 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useSyncStore } from '../store/useSyncStore';
 import { Database, Link2, RefreshCw, AlertCircle, CheckCircle2, ChevronRight, Zap, Settings, Plus, Download, HelpCircle } from 'lucide-react';
 import { DbObjectType } from '../../backend/interfaces/schema-provider.interface';
+import { PROVIDER_SETTINGS } from '../../backend/providers/provider-settings';
 import { ConnectionModal } from './ConnectionModal';
+
+const dialectOptions = Object.values(PROVIDER_SETTINGS);
 
 export const TopToolbar: React.FC = () => {
   const {
@@ -25,6 +28,10 @@ export const TopToolbar: React.FC = () => {
     showConnectionModal,
     setShowConnectionModal,
     addConnection,
+    connections,
+    selectedSourceConnectionId,
+    selectedTargetConnectionId,
+    applySavedConnection,
     sourceDriverInfo,
     targetDriverInfo,
     isInstallingDriver,
@@ -119,9 +126,9 @@ export const TopToolbar: React.FC = () => {
               onChange={(e) => setSourceConfig({ dialect: e.target.value as any })}
               className="col-span-4 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-500"
             >
-              <option value="postgres">PostgreSQL</option>
-              <option value="mysql">MySQL</option>
-              <option value="db2">IBM DB2</option>
+              {dialectOptions.map((d) => (
+                <option key={d.dialect} value={d.dialect}>{d.label}</option>
+              ))}
             </select>
 
             <input
@@ -144,6 +151,22 @@ export const TopToolbar: React.FC = () => {
               <span>Params</span>
             </button>
           </div>
+
+          {/* Saved Connections */}
+          {connections.length > 0 && (
+            <select
+              value={selectedSourceConnectionId ?? ''}
+              onChange={(e) => e.target.value && applySavedConnection('source', e.target.value)}
+              className="w-full text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-500"
+            >
+              <option value="">— Saved connections —</option>
+              {connections.map((c) => (
+                <option key={c.id} value={c.id}>
+                  [{c.dialect.toUpperCase()}] {c.name}
+                </option>
+              ))}
+            </select>
+          )}
 
           {/* Wider Connection String Field */}
           <div className="flex flex-col gap-1">
@@ -231,9 +254,9 @@ export const TopToolbar: React.FC = () => {
               onChange={(e) => setTargetConfig({ dialect: e.target.value as any })}
               className="col-span-4 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-purple-500"
             >
-              <option value="postgres">PostgreSQL</option>
-              <option value="mysql">MySQL</option>
-              <option value="db2">IBM DB2</option>
+              {dialectOptions.map((d) => (
+                <option key={d.dialect} value={d.dialect}>{d.label}</option>
+              ))}
             </select>
 
             <input
@@ -256,6 +279,22 @@ export const TopToolbar: React.FC = () => {
               <span>Params</span>
             </button>
           </div>
+
+          {/* Saved Connections */}
+          {connections.length > 0 && (
+            <select
+              value={selectedTargetConnectionId ?? ''}
+              onChange={(e) => e.target.value && applySavedConnection('target', e.target.value)}
+              className="w-full text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-purple-500"
+            >
+              <option value="">— Saved connections —</option>
+              {connections.map((c) => (
+                <option key={c.id} value={c.id}>
+                  [{c.dialect.toUpperCase()}] {c.name}
+                </option>
+              ))}
+            </select>
+          )}
 
           {/* Wider Connection String Field */}
           <div className="flex flex-col gap-1">
@@ -348,10 +387,13 @@ export const TopToolbar: React.FC = () => {
           setActiveModalTarget(null);
         }}
         onSave={(options) => {
+          const dialect = activeModalTarget === 'target' ? targetConfig.dialect : sourceConfig.dialect;
+          // MySQL has no separate schema concept — the database is the schema
+          const schema = options.schema || (dialect === 'mysql' ? options.database : undefined);
           if (activeModalTarget === 'target') {
-            setTargetConfig({ option: options });
+            setTargetConfig({ option: options, ...(schema ? { schema } : {}) });
           } else {
-            setSourceConfig({ option: options });
+            setSourceConfig({ option: options, ...(schema ? { schema } : {}) });
           }
           addConnection({
             id: crypto.randomUUID(),

@@ -77,6 +77,9 @@ export function createApiRoutes(connectionModule: ConnectionModule): Router {
 
     try {
       const provider = connectionModule.getProvider(dialect);
+      if (!provider.getTables) {
+        throw new Error(`Provider for dialect "${dialect}" does not support table listing`);
+      }
       const tables = await provider.getTables(option, schema);
       res.json({ tables });
     } catch (error: unknown) {

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "dev:api": "tsx watch src/backend/index.ts",
-    "dev:all": "concurrently -n api,web -c cyan,magenta \"pnpm run dev:api\" \"pnpm run dev\"",
+    "dev:all": "concurrently -n api,web -c cyan,magenta \"npm run dev:api\" \"npm run dev\"",
     "build": "tsc && vite build",
     "preview": "vite preview"
   },

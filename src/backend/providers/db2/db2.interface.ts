@@ -7,5 +7,5 @@ export interface Db2IndexRaw { INDSCHEMA: string; INDNAME: string; TABNAME: stri
 export interface Db2IndexColumnRaw { INDNAME: string; COLNAME: string; COLORDER: 'A' | 'D'; COLSEQ: number; }
 export interface Db2ViewRaw { VIEWSCHEMA: string; VIEWNAME: string; TEXT: string; }
 export interface Db2TriggerRaw { TRIGSCHEMA: string; TRIGNAME: string; TABNAME: string; TEXT: string; }
-export interface Db2ProcedureRaw { ROUTINESCHEMA: string; ROUTINENAME: string; ROUTINETYPE: 'F' | 'P'; }
+export interface Db2ProcedureRaw { ROUTINESCHEMA: string; ROUTINENAME: string; ROUTINETYPE: 'F' | 'P'; TEXT?: string | null; }
 export interface Db2SequenceRaw { SEQSCHEMA: string; SEQNAME: string; }

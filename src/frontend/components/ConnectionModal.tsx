@@ -2,6 +2,8 @@ import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { X, CheckCircle, AlertTriangle, Loader2 } from "lucide-react";
 import { ConnectionOptions } from "../../backend/interfaces/schema-provider.interface";
+import { buildConnectionString, DEFAULT_PORTS } from "../../backend/cores/connection-string";
+import { getProviderSettings } from "../../backend/providers/provider-settings";
 import { testConnection as apiTestConnection } from "../api/schemaApi";
 
 interface Props {
@@ -12,17 +14,7 @@ interface Props {
   onSave: (options: ConnectionOptions) => void;
 }
 
-const dialectSchemes: Record<Props['dialect'], string> = {
-  postgres: 'postgresql',
-  mysql: 'mysql',
-  db2: 'db2',
-};
-
-const defaultPorts: Record<Props['dialect'], number> = {
-  postgres: 5432,
-  mysql: 3306,
-  db2: 50000,
-};
+const defaultPorts = DEFAULT_PORTS;
 
 export const ConnectionModal: React.FC<Props> = ({
   open,
@@ -35,6 +27,7 @@ export const ConnectionModal: React.FC<Props> = ({
     host: 'localhost',
     port: 5432,
     database: '',
+    schema: '',
     username: '',
     password: '',
     ssl: { enabled: false },
@@ -53,6 +46,7 @@ export const ConnectionModal: React.FC<Props> = ({
         host: initialOptions?.host || 'localhost',
         port: initialOptions?.port || defaultPorts[dialect],
         database: initialOptions?.database || '',
+        schema: initialOptions?.schema || getProviderSettings(dialect).defaultSchema || '',
         username: initialOptions?.username || '',
         password: initialOptions?.password || '',
         ssl: {
@@ -79,15 +73,9 @@ export const ConnectionModal: React.FC<Props> = ({
   const handleTest = async () => {
     setTestingState({ status: 'testing' });
     try {
-      // Build a temporary option copy to test
-      const scheme = dialectSchemes[dialect];
-      const connStr = dialect === 'db2'
-        ? `DATABASE=${form.database};HOSTNAME=${form.host};PORT=${form.port};PROTOCOL=TCPIP;UID=${form.username};PWD=${form.password};Authentication=SERVER;`
-        : `${scheme}://${encodeURIComponent(form.username || '')}:${encodeURIComponent(form.password || '')}@${form.host}:${form.port}/${form.database}`;
-
       const success = await apiTestConnection(dialect, {
         ...form,
-        connectionString: connStr,
+        connectionString: buildConnectionString(dialect, form),
       });
 
       if (success) {
@@ -101,16 +89,9 @@ export const ConnectionModal: React.FC<Props> = ({
   };
 
   const handleSave = () => {
-    const scheme = dialectSchemes[dialect];
-    const connectionString = dialect === 'db2'
-      ? `DATABASE=${form.database};HOSTNAME=${form.host};PORT=${form.port};PROTOCOL=TCPIP;UID=${form.username};PWD=${form.password};Authentication=SERVER;`
-      : `${scheme}://${encodeURIComponent(form.username || '')}` +
-        `:${encodeURIComponent(form.password || '')}` +
-        `@${form.host}:${form.port}/${form.database}`;
-
     onSave({
       ...form,
-      connectionString,
+      connectionString: buildConnectionString(dialect, form),
     });
 
     onClose();
@@ -160,14 +141,27 @@ export const ConnectionModal: React.FC<Props> = ({
             </div>
           </div>
 
-          <div>
-            <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Database Name</label>
-            <input
-              placeholder="my_database"
-              value={form.database}
-              onChange={(e) => updateField('database', e.target.value)}
-              className="mt-1 w-full bg-slate-950 border border-slate-850 focus:border-cyan-500 text-sm text-slate-200 rounded px-3 py-2 outline-none font-mono"
-            />
+          <div className="grid grid-cols-3 gap-3">
+            <div className="col-span-2">
+              <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Database Name</label>
+              <input
+                placeholder="my_database"
+                value={form.database}
+                onChange={(e) => updateField('database', e.target.value)}
+                className="mt-1 w-full bg-slate-950 border border-slate-850 focus:border-cyan-500 text-sm text-slate-200 rounded px-3 py-2 outline-none font-mono"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Schema</label>
+              <input
+                placeholder={getProviderSettings(dialect).defaultSchema || (dialect === 'mysql' ? 'n/a' : 'SCHEMA')}
+                value={form.schema}
+                onChange={(e) => updateField('schema', e.target.value)}
+                disabled={dialect === 'mysql'}
+                title={dialect === 'mysql' ? 'MySQL uses the database as the schema' : 'Schema to compare (sets CURRENTSCHEMA / search_path)'}
+                className="mt-1 w-full bg-slate-950 border border-slate-850 focus:border-cyan-500 text-sm text-slate-200 rounded px-3 py-2 outline-none font-mono disabled:opacity-40 disabled:cursor-not-allowed"
+              />
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">

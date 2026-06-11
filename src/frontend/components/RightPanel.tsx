@@ -1,6 +1,10 @@
 import React, { useState } from 'react';
 import { useSyncStore } from '../store/useSyncStore';
-import { Code, Play, RefreshCw, FileText, CheckCircle2, ChevronRight, AlertCircle, Copy } from 'lucide-react';
+import { Code, Play, RefreshCw, FileText, CheckCircle2, ChevronRight, AlertCircle, Copy, GitCompareArrows } from 'lucide-react';
+import { SqlGeneratorModule } from '../../backend/modules/sql-generator.module';
+import { diffLines } from '../utils/lineDiff';
+
+const ddlGenerator = new SqlGeneratorModule();
 
 export const RightPanel: React.FC = () => {
   const {
@@ -10,9 +14,13 @@ export const RightPanel: React.FC = () => {
     migrationExecuted,
     isComparing,
     targetConfig,
+    syncSelection,
+    toggleSyncSelection,
   } = useSyncStore();
 
-  const [activeTab, setActiveTab] = useState<'DIFF' | 'SQL'>('DIFF');
+  const includedCount = Object.values(syncSelection).filter(Boolean).length;
+
+  const [activeTab, setActiveTab] = useState<'DIFF' | 'DDL_DIFF' | 'SQL'>('DIFF');
   const [copied, setCopied] = useState(false);
 
   if (!selectedTable) {
@@ -32,6 +40,67 @@ export const RightPanel: React.FC = () => {
     navigator.clipboard.writeText(generatedSql);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const renderDdlDiff = () => {
+    const sourceDdl = selectedTable.sourceTable
+      ? ddlGenerator.generateObjectDdl(selectedTable.sourceTable)
+      : '';
+    const targetDdl = selectedTable.targetTable
+      ? ddlGenerator.generateObjectDdl(selectedTable.targetTable)
+      : '';
+    // Target is the "old" side: green = only in source, red = only in target
+    const lines = diffLines(targetDdl, sourceDdl);
+    const addedCount = lines.filter((l) => l.type === 'added').length;
+    const removedCount = lines.filter((l) => l.type === 'removed').length;
+
+    return (
+      <div className="flex-1 flex flex-col min-h-0 overflow-auto bg-slate-950/90 border-t border-slate-850">
+        {/* Diff header, GitHub style */}
+        <div className="flex items-center justify-between px-4 py-2 border-b border-slate-800 bg-slate-900/60 sticky top-0 z-10">
+          <span className="text-xs font-mono text-slate-400">
+            {selectedTable.tableName} — Target (destination) vs Source
+          </span>
+          <span className="text-[10px] font-mono flex items-center gap-2">
+            <span className="text-emerald-400">+{addedCount}</span>
+            <span className="text-rose-400">-{removedCount}</span>
+          </span>
+        </div>
+
+        <table className="w-full font-mono text-xs border-collapse">
+          <tbody>
+            {lines.map((line, i) => {
+              const rowClass =
+                line.type === 'added'
+                  ? 'bg-emerald-500/10'
+                  : line.type === 'removed'
+                  ? 'bg-rose-500/10'
+                  : '';
+              const textClass =
+                line.type === 'added'
+                  ? 'text-emerald-300'
+                  : line.type === 'removed'
+                  ? 'text-rose-300'
+                  : 'text-slate-300';
+              const marker = line.type === 'added' ? '+' : line.type === 'removed' ? '-' : ' ';
+
+              return (
+                <tr key={i} className={rowClass}>
+                  <td className="w-10 px-2 text-right text-slate-600 select-none border-r border-slate-800/60 align-top">
+                    {line.oldLine ?? ''}
+                  </td>
+                  <td className="w-10 px-2 text-right text-slate-600 select-none border-r border-slate-800/60 align-top">
+                    {line.newLine ?? ''}
+                  </td>
+                  <td className={`w-5 text-center select-none ${textClass} align-top`}>{marker}</td>
+                  <td className={`px-2 whitespace-pre ${textClass}`}>{line.text}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    );
   };
 
   const renderSchemaObjectDiff = () => {
@@ -57,8 +126,21 @@ export const RightPanel: React.FC = () => {
               </span>
             </p>
           </div>
-          <div className="text-[10px] text-slate-500 font-mono bg-slate-900 border border-slate-800 px-3 py-1 rounded">
-            Target Dialect: {targetConfig.dialect.toUpperCase()}
+          <div className="flex items-center gap-3">
+            {selectedTable.status !== 'UNCHANGED' && (
+              <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-300 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded hover:border-cyan-500/40 transition">
+                <input
+                  type="checkbox"
+                  checked={!!syncSelection[selectedTable.tableName]}
+                  onChange={() => toggleSyncSelection(selectedTable.tableName)}
+                  className="w-3.5 h-3.5 accent-cyan-500 cursor-pointer"
+                />
+                Deploy to Target
+              </label>
+            )}
+            <div className="text-[10px] text-slate-500 font-mono bg-slate-900 border border-slate-800 px-3 py-1 rounded">
+              Target Dialect: {targetConfig.dialect.toUpperCase()}
+            </div>
           </div>
         </div>
 
@@ -262,6 +344,16 @@ export const RightPanel: React.FC = () => {
             <FileText className="w-3.5 h-3.5" /> Schema Blueprint
           </button>
           <button
+            onClick={() => setActiveTab('DDL_DIFF')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer ${
+              activeTab === 'DDL_DIFF'
+                ? 'bg-slate-850 text-slate-100 border border-slate-700/80 shadow'
+                : 'text-slate-400 hover:text-slate-200 border border-transparent'
+            }`}
+          >
+            <GitCompareArrows className="w-3.5 h-3.5" /> DDL Diff
+          </button>
+          <button
             onClick={() => setActiveTab('SQL')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer ${
               activeTab === 'SQL'
@@ -286,10 +378,13 @@ export const RightPanel: React.FC = () => {
 
           <button
             onClick={applyMigration}
-            disabled={isComparing || migrationExecuted}
+            disabled={isComparing || migrationExecuted || includedCount === 0}
+            title={includedCount === 0 ? 'No objects selected for deployment' : `Deploy ${includedCount} object(s) to target`}
             className={`flex items-center gap-1.5 px-4 py-1.5 rounded text-xs font-bold transition shadow ${
               migrationExecuted
                 ? 'bg-emerald-950/40 text-emerald-400 border border-emerald-500/25 cursor-default'
+                : includedCount === 0
+                ? 'bg-slate-800 text-slate-500 border border-slate-700/50 cursor-not-allowed'
                 : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-slate-950 cursor-pointer shadow-emerald-500/5'
             }`}
           >
@@ -303,7 +398,7 @@ export const RightPanel: React.FC = () => {
               </>
             ) : (
               <>
-                <Play className="w-3.5 h-3.5 fill-current" /> Execute Sync Script
+                <Play className="w-3.5 h-3.5 fill-current" /> Execute Sync Script ({includedCount})
               </>
             )}
           </button>
@@ -314,6 +409,8 @@ export const RightPanel: React.FC = () => {
       <div className="flex-1 flex flex-col min-h-0">
         {activeTab === 'DIFF' ? (
           renderSchemaObjectDiff()
+        ) : activeTab === 'DDL_DIFF' ? (
+          renderDdlDiff()
         ) : (
           <div className="flex-1 flex flex-col min-h-0 bg-slate-950/90 font-mono text-xs overflow-auto relative p-6 border-t border-slate-850">
             {/* Visual DDL Code Box */}

@@ -11,7 +11,10 @@ export const LeftPanel: React.FC = () => {
     filterStatus,
     setFilterStatus,
     searchTerm,
-    setSearchTerm
+    setSearchTerm,
+    syncSelection,
+    toggleSyncSelection,
+    setAllSyncSelection
   } = useSyncStore();
 
   if (!compareResult) {
@@ -25,6 +28,10 @@ export const LeftPanel: React.FC = () => {
       </div>
     );
   }
+
+  const changedTables = compareResult.tables.filter((t) => t.status !== 'UNCHANGED');
+  const changedCount = changedTables.length;
+  const includedCount = changedTables.filter((t) => syncSelection[t.tableName]).length;
 
   // Filter and search logic
   const filteredTables = compareResult.tables.filter((table) => {
@@ -130,6 +137,22 @@ export const LeftPanel: React.FC = () => {
         </div>
       </div>
 
+      {/* Deployment Selection Header */}
+      <div className="px-3 py-2 border-b border-slate-800/80 bg-slate-950/30 flex items-center justify-between">
+        <label className="flex items-center gap-2 cursor-pointer text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+          <input
+            type="checkbox"
+            checked={changedCount > 0 && includedCount === changedCount}
+            onChange={(e) => setAllSyncSelection(e.target.checked)}
+            className="w-3.5 h-3.5 accent-cyan-500 cursor-pointer"
+          />
+          Deploy to Target
+        </label>
+        <span className="text-[10px] text-slate-500 font-mono">
+          {includedCount} / {changedCount} included
+        </span>
+      </div>
+
       {/* Tree Node List */}
       <div className="flex-1 overflow-y-auto p-2 space-y-1">
         {filteredTables.length === 0 ? (
@@ -150,6 +173,18 @@ export const LeftPanel: React.FC = () => {
                 }`}
               >
                 <div className="flex items-center gap-2 min-w-0">
+                  {table.status !== 'UNCHANGED' ? (
+                    <input
+                      type="checkbox"
+                      checked={!!syncSelection[table.tableName]}
+                      onChange={() => toggleSyncSelection(table.tableName)}
+                      onClick={(e) => e.stopPropagation()}
+                      title="Include this change in the deployment script"
+                      className="w-3.5 h-3.5 accent-cyan-500 cursor-pointer shrink-0"
+                    />
+                  ) : (
+                    <span className="w-3.5 shrink-0" />
+                  )}
                   {styles.icon}
                   <div className="flex flex-col min-w-0">
                     <span className={`text-xs font-semibold truncate ${isSelected ? 'text-slate-100' : 'text-slate-300 group-hover:text-slate-200'}`}>

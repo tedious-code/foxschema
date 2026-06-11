@@ -1,11 +1,11 @@
 import { ConnectionFactory } from "../../cores/connection-factory";
 import { ConnectionOptions, SchemaProvider } from "../../interfaces/schema-provider.interface";
 
-import { 
-  DbProcedure, 
-  DbSchema, 
-  DbSequence, 
-  DbTrigger,    
+import {
+  DbProcedure,
+  DbSchema,
+  DbSequence,
+  DbTrigger,
   DbTable,
   DbColumn,
   DbPrimaryKey,
@@ -14,6 +14,7 @@ import {
   DbIndex,
   DbIndexColumn,
   DbView,
+  TableSchema,
 } from "../../interfaces/schema.interface";
 import { 
   Db2TableRaw,
@@ -54,6 +55,66 @@ export class Db2Provider implements SchemaProvider {
     } finally {
       await ConnectionFactory.close(this.provider, connection);
     }
+  }
+
+  async getTables(options: ConnectionOptions, schema: string): Promise<TableSchema[]> {
+    const dbSchema = await this.loadSchema(options, schema);
+    const result: TableSchema[] = [];
+
+    for (const table of Object.values(dbSchema.tables)) {
+      const pkSet = new Set(table.primaryKey);
+      result.push({
+        name: table.name,
+        objectType: 'TABLE',
+        columns: Object.values(table.columns).map((c) => ({
+          name: c.name,
+          type: this.formatType(c),
+          nullable: c.nullable,
+          defaultValue: c.defaultValue,
+          primaryKey: pkSet.has(c.name),
+        })),
+        // The 'P' index backs the primary key constraint — not a standalone index
+        indices: table.indexes
+          .filter((i) => i.uniqueRule !== 'P')
+          .map((i) => ({ name: i.name, columns: i.columns, unique: i.uniqueRule !== 'D' })),
+        foreignKeys: table.foreignKeys.map((fk) => ({
+          name: fk.name,
+          columns: fk.columns,
+          referencedTable: fk.referencedTable,
+          // DB2 FKs reference the parent's PK/unique key; PK columns cover the common case
+          referencedColumns: dbSchema.tables[fk.referencedTable]?.primaryKey ?? [],
+        })),
+      });
+    }
+
+    for (const viewList of Object.values(dbSchema.views)) {
+      for (const v of viewList) {
+        result.push({ name: v.name, objectType: 'VIEW', definition: v.definition, columns: [], indices: [], foreignKeys: [] });
+      }
+    }
+    for (const list of Object.values(dbSchema.functions)) {
+      for (const f of list) {
+        result.push({ name: f.name, objectType: 'FUNCTION', definition: f.definition, columns: [], indices: [], foreignKeys: [] });
+      }
+    }
+    for (const list of Object.values(dbSchema.procedures)) {
+      for (const p of list) {
+        result.push({ name: p.name, objectType: 'PROCEDURE', definition: p.definition, columns: [], indices: [], foreignKeys: [] });
+      }
+    }
+
+    return result.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  private formatType(c: DbColumn): string {
+    const type = c.type.trim().toUpperCase();
+    if ((type === 'DECIMAL' || type === 'NUMERIC') && c.length) {
+      return `${type}(${c.length},${c.scale ?? 0})`;
+    }
+    if (['CHARACTER', 'CHAR', 'VARCHAR', 'GRAPHIC', 'VARGRAPHIC', 'CLOB', 'BLOB', 'DBCLOB', 'BINARY', 'VARBINARY'].includes(type) && c.length) {
+      return `${type}(${c.length})`;
+    }
+    return type;
   }
 
   async loadSchema(options: ConnectionOptions, schema: string): Promise<DbSchema> {
@@ -133,7 +194,7 @@ export class Db2Provider implements SchemaProvider {
         ),
         ConnectionFactory.executeOnConnection<Db2ProcedureRaw>(
           this.provider, conn,
-          `SELECT ROUTINESCHEMA, ROUTINENAME, ROUTINETYPE FROM SYSCAT.ROUTINES WHERE ROUTINESCHEMA = ?`,
+          `SELECT ROUTINESCHEMA, ROUTINENAME, ROUTINETYPE, TEXT FROM SYSCAT.ROUTINES WHERE ROUTINESCHEMA = ?`,
           [schemaName]
         ),
         ConnectionFactory.executeOnConnection<Db2SequenceRaw>(
@@ -308,7 +369,8 @@ export class Db2Provider implements SchemaProvider {
         const mappedRoutine: DbProcedure = {
           name: proc.ROUTINENAME,
           schema: proc.ROUTINESCHEMA,
-          routineType: proc.ROUTINETYPE === 'P' ? 'PROCEDURE' : 'FUNCTION'
+          routineType: proc.ROUTINETYPE === 'P' ? 'PROCEDURE' : 'FUNCTION',
+          definition: proc.TEXT ?? undefined
         };
 
         if (proc.ROUTINETYPE === 'P') {

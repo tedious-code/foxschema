@@ -1,4 +1,6 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+import { buildConnectionString, withConnectionString } from '../../backend/cores/connection-string';
 import { CompareModule } from '../../backend/modules/compare.module';
 import { SqlGeneratorModule } from '../../backend/modules/sql-generator.module';
 import { DbObjectType, ConnectionOptions, SavedConnection, DriverInfo } from '../../backend/interfaces/schema-provider.interface';
@@ -33,6 +35,7 @@ interface SyncState {
 
   setSelectedSourceConnection: (id: string | null) => void;
   setSelectedTargetConnection: (id: string | null) => void;
+  applySavedConnection: (side: 'source' | 'target', id: string) => void;
 
   sourceDriverInfo: DriverInfo | null;
   targetDriverInfo: DriverInfo | null;
@@ -57,6 +60,11 @@ interface SyncState {
   filterStatus: 'ALL' | 'ADDED' | 'REMOVED' | 'MODIFIED' | 'UNCHANGED';
   searchTerm: string;
 
+  // Per-object inclusion in the deployment script (keyed by tableName)
+  syncSelection: Record<string, boolean>;
+  toggleSyncSelection: (tableName: string) => void;
+  setAllSyncSelection: (selected: boolean) => void;
+
   setSourceConfig: (cfg: Partial<ConnectionConfig>) => void;
   setTargetConfig: (cfg: Partial<ConnectionConfig>) => void;
   toggleObjectTypeFilter: (type: DbObjectType) => void;
@@ -64,7 +72,7 @@ interface SyncState {
   setSearchTerm: (term: string) => void;
   setSelectedTable: (table: TableDiff | null) => void;
 
-  generateConnectionString: () => string;
+  generateConnectionString: (side: 'source' | 'target') => string;
   testSourceConnection: () => Promise<void>;
   testTargetConnection: () => Promise<void>;
   runSchemaComparison: () => Promise<void>;
@@ -72,7 +80,9 @@ interface SyncState {
   resetSync: () => void;
 }
 
-export const useSyncStore = create<SyncState>((set, get) => ({
+export const useSyncStore = create<SyncState>()(
+  persist(
+    (set, get) => ({
   // --- Initial States ---
   sourceConfig: {
     dialect: 'postgres',
@@ -113,12 +123,21 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   migrationExecuted: false,
   filterStatus: 'ALL',
   searchTerm: '',
+  syncSelection: {},
 
   // --- Actions ---
   addConnection: (conn) =>
-    set((state) => ({
-      connections: [...state.connections, conn],
-    })),
+    set((state) => {
+      // Same name + dialect means an update of the saved entry, not a duplicate
+      const existing = state.connections.find(
+        (c) => c.name === conn.name && c.dialect === conn.dialect
+      );
+      return {
+        connections: existing
+          ? state.connections.map((c) => (c.id === existing.id ? { ...conn, id: existing.id } : c))
+          : [...state.connections, conn],
+      };
+    }),
 
   removeConnection: (id) =>
     set((state) => ({
@@ -133,6 +152,33 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   setEditingConnection: (editingConnection) => set({ editingConnection }),
   setSelectedSourceConnection: (id) => set({ selectedSourceConnectionId: id }),
   setSelectedTargetConnection: (id) => set({ selectedTargetConnectionId: id }),
+
+  applySavedConnection: (side, id) => {
+    const conn = get().connections.find((c) => c.id === id);
+    if (!conn) return;
+    if (side === 'source') {
+      set({
+        selectedSourceConnectionId: id,
+        sourceConfig: {
+          dialect: conn.dialect,
+          option: conn.option ?? {},
+          schema: conn.option?.schema || get().sourceConfig.schema,
+        },
+        sourceConnected: false,
+      });
+    } else {
+      set({
+        selectedTargetConnectionId: id,
+        targetConfig: {
+          dialect: conn.dialect,
+          option: conn.option ?? {},
+          schema: conn.option?.schema || get().targetConfig.schema,
+        },
+        targetConnected: false,
+      });
+    }
+    get().checkDrivers();
+  },
 
   setSourceConfig: (cfg) => {
     set((state) => ({ sourceConfig: { ...state.sourceConfig, ...cfg }, sourceConnected: false }));
@@ -155,6 +201,33 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   setFilterStatus: (filterStatus) => set({ filterStatus }),
   setSearchTerm: (searchTerm) => set({ searchTerm }),
   setSelectedTable: (selectedTable) => set({ selectedTable }),
+
+  toggleSyncSelection: (tableName) => {
+    const { compareResult, syncSelection, targetConfig } = get();
+    if (!compareResult) return;
+    const nextSelection = { ...syncSelection, [tableName]: !syncSelection[tableName] };
+    const includedDiffs = compareResult.tables.filter((t) => nextSelection[t.tableName]);
+    set({
+      syncSelection: nextSelection,
+      generatedSql: sqlGeneratorModule.generateMigrationSql(includedDiffs, targetConfig.dialect),
+      migrationExecuted: false,
+    });
+  },
+
+  setAllSyncSelection: (selected) => {
+    const { compareResult, targetConfig } = get();
+    if (!compareResult) return;
+    const nextSelection: Record<string, boolean> = {};
+    for (const t of compareResult.tables) {
+      if (t.status !== 'UNCHANGED') nextSelection[t.tableName] = selected;
+    }
+    const includedDiffs = compareResult.tables.filter((t) => nextSelection[t.tableName]);
+    set({
+      syncSelection: nextSelection,
+      generatedSql: sqlGeneratorModule.generateMigrationSql(includedDiffs, targetConfig.dialect),
+      migrationExecuted: false,
+    });
+  },
 
   checkDrivers: async () => {
     const { sourceConfig, targetConfig } = get();
@@ -184,27 +257,26 @@ export const useSyncStore = create<SyncState>((set, get) => ({
     }
   },
 
-  generateConnectionString: () => {
-    const { dialect, option } = get().sourceConfig;
-    switch (dialect) {
-      case 'postgres':
-        return option.connectionString ?? `postgresql://${option.username}:${option.password}@${option.host}:${option.port}/${option.database}`;
-      case 'mysql':
-        return option.connectionString ?? `mysql://${option.username}:${option.password}@${option.host}:${option.port}/${option.database}`;
-      case 'db2':
-        return option.connectionString ?? `db2://${option.username}:${option.password}@${option.host}:${option.port}/${option.database}`;
-      default:
-        throw new Error(`Unsupported dialect: ${dialect}`);
-    }
+  generateConnectionString: (side) => {
+    const { dialect, option } = side === 'source' ? get().sourceConfig : get().targetConfig;
+    return option.connectionString?.trim() || buildConnectionString(dialect, option);
   },
 
   testSourceConnection: async () => {
     set({ isTestingSource: true, errorMsg: null });
     try {
       const { dialect, option, schema } = get().sourceConfig;
-      option.schema = schema;
-      const success = await apiTestConnection(dialect, option);
-      set({ sourceConnected: success, isTestingSource: false });
+      const fullOption = withConnectionString(dialect, { ...option, schema });
+      const success = await apiTestConnection(dialect, fullOption);
+      set({
+        sourceConfig: { ...get().sourceConfig, option: fullOption },
+        sourceConnected: success,
+        isTestingSource: false,
+      });
+      // Both sides verified: load the object lists right away
+      if (success && get().targetConnected && !get().compareResult) {
+        await get().runSchemaComparison();
+      }
     } catch (e: any) {
       set({ errorMsg: e.message || 'Source connection failed', isTestingSource: false, sourceConnected: false });
     }
@@ -213,9 +285,18 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   testTargetConnection: async () => {
     set({ isTestingTarget: true, errorMsg: null });
     try {
-      const { dialect, option } = get().targetConfig;
-      const success = await apiTestConnection(dialect, option);
-      set({ targetConnected: success, isTestingTarget: false });
+      const { dialect, option, schema } = get().targetConfig;
+      const fullOption = withConnectionString(dialect, { ...option, schema });
+      const success = await apiTestConnection(dialect, fullOption);
+      set({
+        targetConfig: { ...get().targetConfig, option: fullOption },
+        targetConnected: success,
+        isTestingTarget: false,
+      });
+      // Both sides verified: load the object lists right away
+      if (success && get().sourceConnected && !get().compareResult) {
+        await get().runSchemaComparison();
+      }
     } catch (e: any) {
       set({ errorMsg: e.message || 'Target connection failed', isTestingTarget: false, targetConnected: false });
     }
@@ -228,12 +309,12 @@ export const useSyncStore = create<SyncState>((set, get) => ({
       
       let sourceSchemas = await fetchTables(
         sourceConfig.dialect,
-        sourceConfig.option,
+        withConnectionString(sourceConfig.dialect, sourceConfig.option),
         sourceConfig.schema
       );
       let targetSchemas = await fetchTables(
         targetConfig.dialect,
-        targetConfig.option,
+        withConnectionString(targetConfig.dialect, targetConfig.option),
         targetConfig.schema
       );
 
@@ -241,10 +322,18 @@ export const useSyncStore = create<SyncState>((set, get) => ({
       targetSchemas = targetSchemas.filter(t => selectedObjectTypes.includes(t.objectType));
 
       const diffResult = await compareModule.compare(sourceSchemas, targetSchemas);
-      const sql = sqlGeneratorModule.generateMigrationSql(diffResult.tables, targetConfig.dialect);
+
+      // Every changed object is included in the deployment by default
+      const syncSelection: Record<string, boolean> = {};
+      for (const t of diffResult.tables) {
+        if (t.status !== 'UNCHANGED') syncSelection[t.tableName] = true;
+      }
+      const includedDiffs = diffResult.tables.filter((t) => syncSelection[t.tableName]);
+      const sql = sqlGeneratorModule.generateMigrationSql(includedDiffs, targetConfig.dialect);
 
       set({
         compareResult: diffResult,
+        syncSelection,
         generatedSql: sql,
         selectedTable: diffResult.tables[0] || null,
         isComparing: false,
@@ -267,6 +356,21 @@ export const useSyncStore = create<SyncState>((set, get) => ({
       selectedTable: null,
       generatedSql: null,
       migrationExecuted: false,
+      syncSelection: {},
     });
   },
-}));
+    }),
+    {
+      name: 'schema-sync-storage',
+      // Persist saved connections and the active configs only — never runtime/compare state
+      partialize: (state) => ({
+        connections: state.connections,
+        sourceConfig: state.sourceConfig,
+        targetConfig: state.targetConfig,
+        selectedSourceConnectionId: state.selectedSourceConnectionId,
+        selectedTargetConnectionId: state.selectedTargetConnectionId,
+        selectedObjectTypes: state.selectedObjectTypes,
+      }),
+    }
+  )
+);
