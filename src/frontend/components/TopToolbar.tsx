@@ -54,10 +54,11 @@ export const TopToolbar: React.FC = () => {
     { type: 'VIEW', label: 'Views' },
     { type: 'FUNCTION', label: 'Functions' },
     { type: 'PROCEDURE', label: 'Procedures' },
+    { type: 'TRIGGER', label: 'Triggers' },
   ];
 
   return (
-    <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md px-6 py-4 flex flex-col gap-4">
+    <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md px-6 py-3 flex flex-col gap-3">
       {/* Brand Logo & Actions */}
       <div className="flex justify-between items-center">
         <div className="flex items-center gap-3">
@@ -83,9 +84,9 @@ export const TopToolbar: React.FC = () => {
       </div>
 
       {/* Database Connection Control Grid */}
-      <div className="grid grid-cols-1 xl:grid-cols-11 gap-4 items-stretch">
+      <div className="grid grid-cols-1 xl:grid-cols-11 gap-3 items-stretch">
         {/* Source Configuration */}
-        <div className="xl:col-span-5 bg-slate-950/60 p-4 rounded-lg border border-slate-800/80 flex flex-col gap-3">
+        <div className="xl:col-span-5 bg-slate-950/60 p-3 rounded-lg border border-slate-800/80 flex flex-col gap-2">
           <div className="flex justify-between items-center">
             <span className="text-xs font-semibold text-cyan-400 flex items-center gap-1.5 uppercase tracking-wider">
               <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-pulse"></span>
@@ -168,39 +169,45 @@ export const TopToolbar: React.FC = () => {
             </button>
           </div>
 
-          {/* Saved Connections */}
-          {connections.length > 0 && (
-            <select
-              value={selectedSourceConnectionId ?? ''}
-              onChange={(e) => e.target.value && applySavedConnection('source', e.target.value)}
-              className="w-full text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-500"
-            >
-              <option value="">— Saved connections —</option>
-              {connections.map((c) => (
-                <option key={c.id} value={c.id}>
-                  [{c.dialect.toUpperCase()}] {c.name}
-                </option>
-              ))}
-            </select>
-          )}
+          {/* Saved Connections + Server Info + Status, inline */}
+          <div className="flex items-center gap-2">
+            {connections.length > 0 ? (
+              <select
+                value={selectedSourceConnectionId ?? ''}
+                onChange={(e) => e.target.value && applySavedConnection('source', e.target.value)}
+                className="flex-1 min-w-0 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-500"
+              >
+                <option value="">— Saved connections —</option>
+                {connections.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    [{c.dialect.toUpperCase()}] {c.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="flex-1 min-w-0 text-[10px] text-slate-600 truncate">
+                {sourceConfig.option.database
+                  ? `${sourceConfig.option.host ?? 'localhost'} / ${sourceConfig.option.database}`
+                  : 'Configure credentials via Params'}
+              </span>
+            )}
 
-          <div className="flex justify-between items-center mt-1 pt-1 border-t border-slate-900">
-            <span className="text-[10px] text-slate-600">
-              {sourceConfig.option.database
-                ? `${sourceConfig.option.host ?? 'localhost'} / ${sourceConfig.option.database}`
-                : 'Configure credentials via Params'}
-            </span>
+            {connections.length > 0 && sourceConfig.option.database && (
+              <span className="text-[10px] text-slate-500 font-mono truncate max-w-[150px] shrink-0">
+                {sourceConfig.option.host ?? 'localhost'} / {sourceConfig.option.database}
+              </span>
+            )}
 
             {isTestingSource ? (
-              <span className="text-[10px] text-cyan-400 flex items-center gap-1 font-medium px-2 py-1">
+              <span className="text-[10px] text-cyan-400 flex items-center gap-1 font-medium shrink-0">
                 <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Connecting...
               </span>
             ) : sourceConnected ? (
-              <span className="text-[10px] text-emerald-400 bg-emerald-950/40 px-2.5 py-1 rounded-full border border-emerald-500/20 flex items-center gap-1 font-medium">
+              <span className="text-[10px] text-emerald-400 bg-emerald-950/40 px-2.5 py-1 rounded-full border border-emerald-500/20 flex items-center gap-1 font-medium shrink-0">
                 <CheckCircle2 className="w-3.5 h-3.5" /> Connected
               </span>
             ) : (
-              <span className="text-[10px] text-slate-500 flex items-center gap-1 font-medium px-2 py-1">
+              <span className="text-[10px] text-slate-500 flex items-center gap-1 font-medium shrink-0">
                 <AlertCircle className="w-3.5 h-3.5" /> Unconnected
               </span>
             )}
@@ -216,7 +223,7 @@ export const TopToolbar: React.FC = () => {
         </div>
 
         {/* Target Configuration */}
-        <div className="xl:col-span-5 bg-slate-950/60 p-4 rounded-lg border border-slate-800/80 flex flex-col gap-3">
+        <div className="xl:col-span-5 bg-slate-950/60 p-3 rounded-lg border border-slate-800/80 flex flex-col gap-2">
           <div className="flex justify-between items-center">
             <span className="text-xs font-semibold text-purple-400 flex items-center gap-1.5 uppercase tracking-wider">
               <span className="w-1.5 h-1.5 bg-purple-400 rounded-full animate-pulse"></span>
@@ -299,39 +306,45 @@ export const TopToolbar: React.FC = () => {
             </button>
           </div>
 
-          {/* Saved Connections */}
-          {connections.length > 0 && (
-            <select
-              value={selectedTargetConnectionId ?? ''}
-              onChange={(e) => e.target.value && applySavedConnection('target', e.target.value)}
-              className="w-full text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-purple-500"
-            >
-              <option value="">— Saved connections —</option>
-              {connections.map((c) => (
-                <option key={c.id} value={c.id}>
-                  [{c.dialect.toUpperCase()}] {c.name}
-                </option>
-              ))}
-            </select>
-          )}
+          {/* Saved Connections + Server Info + Status, inline */}
+          <div className="flex items-center gap-2">
+            {connections.length > 0 ? (
+              <select
+                value={selectedTargetConnectionId ?? ''}
+                onChange={(e) => e.target.value && applySavedConnection('target', e.target.value)}
+                className="flex-1 min-w-0 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-purple-500"
+              >
+                <option value="">— Saved connections —</option>
+                {connections.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    [{c.dialect.toUpperCase()}] {c.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="flex-1 min-w-0 text-[10px] text-slate-600 truncate">
+                {targetConfig.option.database
+                  ? `${targetConfig.option.host ?? 'localhost'} / ${targetConfig.option.database}`
+                  : 'Configure credentials via Params'}
+              </span>
+            )}
 
-          <div className="flex justify-between items-center mt-1 pt-1 border-t border-slate-900">
-            <span className="text-[10px] text-slate-600">
-              {targetConfig.option.database
-                ? `${targetConfig.option.host ?? 'localhost'} / ${targetConfig.option.database}`
-                : 'Configure credentials via Params'}
-            </span>
+            {connections.length > 0 && targetConfig.option.database && (
+              <span className="text-[10px] text-slate-500 font-mono truncate max-w-[150px] shrink-0">
+                {targetConfig.option.host ?? 'localhost'} / {targetConfig.option.database}
+              </span>
+            )}
 
             {isTestingTarget ? (
-              <span className="text-[10px] text-purple-400 flex items-center gap-1 font-medium px-2 py-1">
+              <span className="text-[10px] text-purple-400 flex items-center gap-1 font-medium shrink-0">
                 <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Connecting...
               </span>
             ) : targetConnected ? (
-              <span className="text-[10px] text-emerald-400 bg-emerald-950/40 px-2.5 py-1 rounded-full border border-emerald-500/20 flex items-center gap-1 font-medium">
+              <span className="text-[10px] text-emerald-400 bg-emerald-950/40 px-2.5 py-1 rounded-full border border-emerald-500/20 flex items-center gap-1 font-medium shrink-0">
                 <CheckCircle2 className="w-3.5 h-3.5" /> Connected
               </span>
             ) : (
-              <span className="text-[10px] text-slate-500 flex items-center gap-1 font-medium px-2 py-1">
+              <span className="text-[10px] text-slate-500 flex items-center gap-1 font-medium shrink-0">
                 <AlertCircle className="w-3.5 h-3.5" /> Unconnected
               </span>
             )}

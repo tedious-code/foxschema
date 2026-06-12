@@ -1,4 +1,16 @@
-export type DbObjectType = 'TABLE' | 'VIEW' | 'FUNCTION' | 'PROCEDURE';
+export type DbObjectType = 'TABLE' | 'VIEW' | 'FUNCTION' | 'PROCEDURE' | 'TRIGGER';
+
+export interface PrimaryKeyInfo {
+  name?: string;
+  columns: string[];
+}
+
+export interface TriggerInfo {
+  name: string;
+  timing?: string;
+  event?: string;
+  definition?: string;
+}
 
 export interface ColumnInfo {
   name: string;
@@ -28,6 +40,8 @@ export interface TableSchema {
   columns: ColumnInfo[];
   indices: IndexInfo[];
   foreignKeys: ForeignKeyInfo[];
+  primaryKey?: PrimaryKeyInfo;
+  triggers?: TriggerInfo[];
 }
 
 export interface CompareResult<T> {

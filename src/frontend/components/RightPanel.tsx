@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { useSyncStore } from '../store/useSyncStore';
-import { Code, Play, RefreshCw, FileText, CheckCircle2, ChevronRight, AlertCircle, Copy, GitCompareArrows } from 'lucide-react';
+import { Code, Play, RefreshCw, FileText, CheckCircle2, ChevronRight, ChevronDown, AlertCircle, Copy, GitCompareArrows, KeyRound } from 'lucide-react';
 import { SqlGeneratorModule } from '../../backend/modules/sql-generator.module';
 import { diffLines } from '../utils/lineDiff';
+import { formatSql } from '../utils/formatSql';
 
 const ddlGenerator = new SqlGeneratorModule();
 
@@ -13,6 +14,7 @@ export const RightPanel: React.FC = () => {
     applyMigration,
     migrationExecuted,
     isComparing,
+    sourceConfig,
     targetConfig,
     syncSelection,
     toggleSyncSelection,
@@ -22,6 +24,10 @@ export const RightPanel: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<'DIFF' | 'DDL_DIFF' | 'SQL'>('DIFF');
   const [copied, setCopied] = useState(false);
+  const [expandedTriggers, setExpandedTriggers] = useState<Record<string, boolean>>({});
+
+  const toggleTriggerDdl = (name: string) =>
+    setExpandedTriggers((prev) => ({ ...prev, [name]: !prev[name] }));
 
   if (!selectedTable) {
     return (
@@ -43,12 +49,17 @@ export const RightPanel: React.FC = () => {
   };
 
   const renderDdlDiff = () => {
-    const sourceDdl = selectedTable.sourceTable
+    // Catalog definitions are often a single unreadable line — format non-table
+    // DDL on both sides so the diff compares structure, not whitespace
+    const isTable = selectedTable.objectType === 'TABLE';
+    const rawSource = selectedTable.sourceTable
       ? ddlGenerator.generateObjectDdl(selectedTable.sourceTable)
       : '';
-    const targetDdl = selectedTable.targetTable
+    const rawTarget = selectedTable.targetTable
       ? ddlGenerator.generateObjectDdl(selectedTable.targetTable)
       : '';
+    const sourceDdl = isTable ? rawSource : formatSql(rawSource, sourceConfig.dialect);
+    const targetDdl = isTable ? rawTarget : formatSql(rawTarget, targetConfig.dialect);
     // Target is the "old" side: green = only in source, red = only in target
     const lines = diffLines(targetDdl, sourceDdl);
     const addedCount = lines.filter((l) => l.type === 'added').length;
@@ -103,10 +114,54 @@ export const RightPanel: React.FC = () => {
     );
   };
 
+  // Renders one side's column state, highlighting the attributes that differ from the other side
+  const renderColumnState = (
+    own?: { type: string; nullable: boolean; defaultValue?: string; primaryKey?: boolean },
+    other?: { type: string; nullable: boolean; defaultValue?: string; primaryKey?: boolean }
+  ) => {
+    if (!own) return <span className="text-slate-600 italic">none</span>;
+
+    const hl = 'text-amber-300 bg-amber-500/15 rounded px-1';
+    const typeChanged = !!other && own.type.toLowerCase() !== other.type.toLowerCase();
+    const nullChanged = !!other && own.nullable !== other.nullable;
+    const defChanged = !!other && (own.defaultValue ?? null) !== (other.defaultValue ?? null);
+    const pkChanged = !!other && !!own.primaryKey !== !!other.primaryKey;
+    const hasDefault = own.defaultValue !== undefined && own.defaultValue !== null;
+
+    return (
+      <span className="inline-flex flex-wrap items-center gap-1.5">
+        <span className={typeChanged ? hl : ''}>{own.type}</span>
+
+        {(!own.nullable || nullChanged) && (
+          <span className={nullChanged ? hl : ''}>{own.nullable ? 'NULL' : 'NOT NULL'}</span>
+        )}
+
+        {hasDefault ? (
+          <span className={defChanged ? hl : ''}>DEFAULT {own.defaultValue}</span>
+        ) : defChanged ? (
+          <span className={`${hl} italic`}>no default</span>
+        ) : null}
+
+        {own.primaryKey ? (
+          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
+            pkChanged
+              ? 'text-amber-300 bg-amber-500/15 border-amber-500/40'
+              : 'text-amber-400 bg-amber-950/40 border-amber-500/20'
+          }`}>
+            PRIMARY KEY
+          </span>
+        ) : pkChanged ? (
+          <span className={`${hl} italic`}>not PK</span>
+        ) : null}
+      </span>
+    );
+  };
+
   const renderSchemaObjectDiff = () => {
     const colDiffs = selectedTable.columnDiffs;
     const indexDiffs = selectedTable.indexDiffs;
     const fkDiffs = selectedTable.foreignKeyDiffs;
+    const trgDiffs = selectedTable.triggerDiffs ?? [];
 
     return (
       <div className="flex-1 flex flex-col min-h-0 text-xs overflow-y-auto p-6 space-y-6">
@@ -151,7 +206,11 @@ export const RightPanel: React.FC = () => {
               <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full"></span> Source DDL Definition
             </h4>
             <div className="bg-slate-950 border border-slate-850 p-4 rounded-lg font-mono text-[11px] leading-relaxed text-slate-350 overflow-x-auto">
-              <pre>{selectedTable.sourceTable?.definition || selectedTable.targetTable?.definition}</pre>
+              <pre>
+                {selectedTable.sourceTable?.definition
+                  ? formatSql(selectedTable.sourceTable.definition, sourceConfig.dialect)
+                  : formatSql(selectedTable.targetTable?.definition ?? '', targetConfig.dialect)}
+              </pre>
             </div>
           </div>
         )}
@@ -205,33 +264,24 @@ export const RightPanel: React.FC = () => {
                       rowBg = 'bg-amber-950/10 hover:bg-amber-950/20';
                     }
 
+                    const isPk = col.source?.primaryKey || col.target?.primaryKey;
+
                     return (
                       <tr key={col.name} className={`${rowBg} transition-colors`}>
-                        <td className="p-3 font-semibold text-slate-200 font-mono">{col.name}</td>
+                        <td className="p-3 font-semibold text-slate-200 font-mono">
+                          <span className="flex items-center gap-1.5">
+                            {col.name}
+                            {isPk && <KeyRound className="w-3.5 h-3.5 text-amber-400" aria-label="Primary key" />}
+                          </span>
+                        </td>
                         <td className="p-3 text-slate-400 font-mono">
-                          {col.source ? (
-                            <span>
-                              {col.source.type}
-                              {col.source.nullable ? '' : ' NOT NULL'}
-                              {col.source.defaultValue ? ` DEFAULT ${col.source.defaultValue}` : ''}
-                            </span>
-                          ) : (
-                            <span className="text-slate-600 italic">none</span>
-                          )}
+                          {renderColumnState(col.source, col.target)}
                         </td>
                         <td className="p-3 text-center text-slate-600">
                           <ChevronRight className="w-4 h-4 mx-auto text-slate-600" />
                         </td>
                         <td className="p-3 text-slate-400 font-mono">
-                          {col.target ? (
-                            <span>
-                              {col.target.type}
-                              {col.target.nullable ? '' : ' NOT NULL'}
-                              {col.target.defaultValue ? ` DEFAULT ${col.target.defaultValue}` : ''}
-                            </span>
-                          ) : (
-                            <span className="text-slate-600 italic">none</span>
-                          )}
+                          {renderColumnState(col.target, col.source)}
                         </td>
                         <td className="p-3 text-right">{opBadge}</td>
                       </tr>
@@ -242,6 +292,75 @@ export const RightPanel: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* Primary Key Diff Section */}
+        {selectedTable.objectType === 'TABLE' && (() => {
+          const srcPk = selectedTable.sourceTable?.primaryKey;
+          const tgtPk = selectedTable.targetTable?.primaryKey;
+          const pkChanged = JSON.stringify(srcPk?.columns ?? []) !== JSON.stringify(tgtPk?.columns ?? []);
+
+          let opBadge = <span className="text-[10px] text-slate-500 font-bold bg-slate-900 px-2 py-0.5 rounded border border-slate-800">No Change</span>;
+          let rowBg = 'hover:bg-slate-900/10';
+          if (srcPk && !tgtPk) {
+            opBadge = <span className="text-[10px] text-emerald-400 font-bold bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/20">ADD PRIMARY KEY</span>;
+            rowBg = 'bg-emerald-950/10';
+          } else if (!srcPk && tgtPk) {
+            opBadge = <span className="text-[10px] text-rose-400 font-bold bg-rose-950/40 px-2 py-0.5 rounded border border-rose-500/20">DROP PRIMARY KEY</span>;
+            rowBg = 'bg-rose-950/10';
+          } else if (srcPk && tgtPk && pkChanged) {
+            opBadge = <span className="text-[10px] text-amber-400 font-bold bg-amber-950/40 px-2 py-0.5 rounded border border-amber-500/20">RECREATE</span>;
+            rowBg = 'bg-amber-950/10';
+          }
+
+          return (
+            <div>
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center gap-2">
+                <span className="w-1.5 h-1.5 bg-amber-500 rounded-full"></span> Primary Key
+              </h4>
+              <div className="bg-slate-950/60 border border-slate-800/80 rounded-lg overflow-hidden">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-slate-900 border-b border-slate-800 text-slate-400">
+                      <th className="p-3 font-semibold">Constraint Name</th>
+                      <th className="p-3 font-semibold">Source Columns</th>
+                      <th className="p-3 font-semibold text-center">Compare</th>
+                      <th className="p-3 font-semibold">Target Columns</th>
+                      <th className="p-3 font-semibold text-right">Operation</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {!srcPk && !tgtPk ? (
+                      <tr>
+                        <td colSpan={5} className="p-3 text-slate-600 italic text-center">
+                          No primary key defined on this table
+                        </td>
+                      </tr>
+                    ) : (
+                      <tr className={`${rowBg} transition-colors`}>
+                        <td className="p-3 text-slate-200 font-semibold font-mono">
+                          <span className="flex items-center gap-1.5">
+                            <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+                            {srcPk?.name ?? tgtPk?.name ?? '—'}
+                          </span>
+                        </td>
+                        <td className="p-3 text-slate-400 font-mono">
+                          {srcPk ? srcPk.columns.join(', ') : <span className="text-slate-600 italic">none</span>}
+                        </td>
+                        <td className="p-3 text-center text-slate-600">
+                          <ChevronRight className="w-4 h-4 mx-auto text-slate-600" />
+                        </td>
+                        <td className="p-3 text-slate-400 font-mono">
+                          {tgtPk ? tgtPk.columns.join(', ') : <span className="text-slate-600 italic">none</span>}
+                        </td>
+                        <td className="p-3 text-right">{opBadge}</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Indices Diff Section */}
         {indexDiffs.length > 0 && (
@@ -319,6 +438,133 @@ export const RightPanel: React.FC = () => {
                       </tr>
                     );
                   })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Triggers Diff Section — always visible for tables */}
+        {selectedTable.objectType === 'TABLE' && (
+          <div>
+            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center gap-2">
+              <span className="w-1.5 h-1.5 bg-yellow-500 rounded-full"></span> Table Triggers
+            </h4>
+            <div className="bg-slate-950/60 border border-slate-800/80 rounded-lg overflow-hidden">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-900 border-b border-slate-800 text-slate-400">
+                    <th className="p-3 font-semibold">Trigger Name</th>
+                    <th className="p-3 font-semibold">Source State</th>
+                    <th className="p-3 font-semibold text-center">Compare</th>
+                    <th className="p-3 font-semibold">Target State</th>
+                    <th className="p-3 font-semibold text-right">Operation</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-850">
+                  {trgDiffs.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="p-3 text-slate-600 italic text-center">
+                        No triggers defined on this table
+                      </td>
+                    </tr>
+                  ) : (
+                    trgDiffs.map((trg) => {
+                      let opBadge = <span className="text-[10px] text-slate-500 font-bold bg-slate-900 px-2 py-0.5 rounded border border-slate-800">No Change</span>;
+                      let rowBg = 'hover:bg-slate-900/10';
+                      if (trg.status === 'ADDED') {
+                        opBadge = <span className="text-[10px] text-emerald-400 font-bold bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/20">CREATE TRIGGER</span>;
+                        rowBg = 'bg-emerald-950/10 hover:bg-emerald-950/20';
+                      } else if (trg.status === 'REMOVED') {
+                        opBadge = <span className="text-[10px] text-rose-400 font-bold bg-rose-950/40 px-2 py-0.5 rounded border border-rose-500/20">DROP TRIGGER</span>;
+                        rowBg = 'bg-rose-950/10 hover:bg-rose-950/20';
+                      } else if (trg.status === 'MODIFIED') {
+                        opBadge = <span className="text-[10px] text-amber-400 font-bold bg-amber-950/40 px-2 py-0.5 rounded border border-amber-500/20">RECREATE</span>;
+                        rowBg = 'bg-amber-950/10 hover:bg-amber-950/20';
+                      }
+
+                      const stateLabel = (info?: { timing?: string; event?: string }) =>
+                        info ? `${info.timing ?? ''} ${info.event ?? ''}`.trim() || 'present' : null;
+
+                      const isExpanded = !!expandedTriggers[trg.name];
+                      const oldDdl = trg.target?.definition ? formatSql(trg.target.definition, targetConfig.dialect).trim() : '';
+                      const newDdl = trg.source?.definition ? formatSql(trg.source.definition, sourceConfig.dialect).trim() : '';
+                      // A one-sided trigger diffs against '' — drop the resulting blank line
+                      const ddlLines = isExpanded
+                        ? diffLines(oldDdl, newDdl).filter((l) => !(l.text === '' && (oldDdl === '' || newDdl === '')))
+                        : [];
+
+                      return (
+                        <React.Fragment key={trg.name}>
+                          <tr
+                            onClick={() => toggleTriggerDdl(trg.name)}
+                            title="Click to show DDL diff"
+                            className={`${rowBg} transition-colors cursor-pointer`}
+                          >
+                            <td className="p-3 text-slate-200 font-semibold font-mono">
+                              <span className="flex items-center gap-1.5">
+                                {isExpanded
+                                  ? <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+                                  : <ChevronRight className="w-3.5 h-3.5 text-slate-500" />}
+                                {trg.name}
+                              </span>
+                            </td>
+                            <td className="p-3 text-slate-400 font-mono">
+                              {stateLabel(trg.source) ?? <span className="text-slate-600 italic">none</span>}
+                            </td>
+                            <td className="p-3 text-center text-slate-600">
+                              <ChevronRight className="w-4 h-4 mx-auto text-slate-600" />
+                            </td>
+                            <td className="p-3 text-slate-400 font-mono">
+                              {stateLabel(trg.target) ?? <span className="text-slate-600 italic">none</span>}
+                            </td>
+                            <td className="p-3 text-right">{opBadge}</td>
+                          </tr>
+
+                          {/* Expanded DDL diff for this trigger */}
+                          {isExpanded && (
+                            <tr>
+                              <td colSpan={5} className="p-0 bg-slate-950/90 border-t border-slate-800/60">
+                                {trg.source?.definition || trg.target?.definition ? (
+                                  <div className="max-h-72 overflow-auto">
+                                    <table className="w-full font-mono text-[11px] border-collapse">
+                                      <tbody>
+                                        {ddlLines.map((line, i) => {
+                                          const textClass =
+                                            line.type === 'added'
+                                              ? 'text-emerald-300'
+                                              : line.type === 'removed'
+                                              ? 'text-rose-300'
+                                              : 'text-slate-300';
+                                          const lineBg =
+                                            line.type === 'added'
+                                              ? 'bg-emerald-500/10'
+                                              : line.type === 'removed'
+                                              ? 'bg-rose-500/10'
+                                              : '';
+                                          const marker = line.type === 'added' ? '+' : line.type === 'removed' ? '-' : ' ';
+                                          return (
+                                            <tr key={i} className={lineBg}>
+                                              <td className={`w-5 text-center select-none ${textClass} align-top`}>{marker}</td>
+                                              <td className={`px-2 py-0.5 whitespace-pre ${textClass}`}>{line.text}</td>
+                                            </tr>
+                                          );
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                ) : (
+                                  <div className="p-3 text-slate-600 italic text-center">
+                                    No DDL definition available for this trigger
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>

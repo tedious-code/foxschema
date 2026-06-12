@@ -73,11 +73,34 @@ export class Db2Provider implements SchemaProvider {
     const dbSchema = await this.loadSchema(options, schema);
     const result: TableSchema[] = [];
 
+    // Triggers belong to their table; group them by owning table name
+    const triggersByTable = new Map<string, { name: string; timing?: string; event?: string; definition?: string }[]>();
+    for (const list of Object.values(dbSchema.triggers)) {
+      for (const t of list) {
+        const owned = triggersByTable.get(t.tableName) ?? [];
+        owned.push({ name: t.name, timing: t.timing, event: t.event, definition: t.definition });
+        triggersByTable.set(t.tableName, owned);
+      }
+    }
+
+    // PK columns from the constraint catalog, falling back to the 'P' index that
+    // always backs a primary key (covers composite keys and TABCONST visibility gaps)
+    const pkColumnsOf = (table?: DbTable): string[] => {
+      if (!table) return [];
+      if (table.primaryKey.length > 0) return table.primaryKey;
+      return table.indexes.find((i) => i.uniqueRule === 'P')?.columns ?? [];
+    };
+
     for (const table of Object.values(dbSchema.tables)) {
-      const pkSet = new Set(table.primaryKey);
+      const pkColumns = pkColumnsOf(table);
+      const pkSet = new Set(pkColumns);
       result.push({
         name: table.name,
         objectType: 'TABLE',
+        triggers: triggersByTable.get(table.name) ?? [],
+        primaryKey: pkColumns.length > 0
+          ? { name: dbSchema.primaryKeys[table.name]?.[0]?.constName, columns: pkColumns }
+          : undefined,
         columns: Object.values(table.columns).map((c) => ({
           name: c.name,
           type: this.formatType(c),
@@ -94,7 +117,7 @@ export class Db2Provider implements SchemaProvider {
           columns: fk.columns,
           referencedTable: fk.referencedTable,
           // DB2 FKs reference the parent's PK/unique key; PK columns cover the common case
-          referencedColumns: dbSchema.tables[fk.referencedTable]?.primaryKey ?? [],
+          referencedColumns: pkColumnsOf(dbSchema.tables[fk.referencedTable]),
         })),
       });
     }
@@ -112,6 +135,14 @@ export class Db2Provider implements SchemaProvider {
     for (const list of Object.values(dbSchema.procedures)) {
       for (const p of list) {
         result.push({ name: p.name, objectType: 'PROCEDURE', definition: p.definition, columns: [], indices: [], foreignKeys: [] });
+      }
+    }
+    // Only triggers whose table is outside this schema remain standalone objects
+    for (const list of Object.values(dbSchema.triggers)) {
+      for (const t of list) {
+        if (!dbSchema.tables[t.tableName]) {
+          result.push({ name: t.name, objectType: 'TRIGGER', definition: t.definition, columns: [], indices: [], foreignKeys: [] });
+        }
       }
     }
 
@@ -159,10 +190,10 @@ export class Db2Provider implements SchemaProvider {
         ),
         ConnectionFactory.executeOnConnection<Db2PrimaryKeyRaw>(
           this.provider, conn,
-          `SELECT TC.TABNAME, TC.CONSTNAME, K.COLNAME, K.COLSEQ 
-           FROM SYSCAT.TABCONST TC 
-           JOIN SYSCAT.KEYCOLUSE K ON TC.CONSTNAME = K.CONSTNAME AND TC.TABSCHEMA = K.TABSCHEMA 
-           WHERE TC.TYPE = 'P' AND TC.TABSCHEMA = ? 
+          `SELECT TC.TABNAME, TC.CONSTNAME, K.COLNAME, K.COLSEQ
+           FROM SYSCAT.TABCONST TC
+           JOIN SYSCAT.KEYCOLUSE K ON TC.CONSTNAME = K.CONSTNAME AND TC.TABSCHEMA = K.TABSCHEMA AND TC.TABNAME = K.TABNAME
+           WHERE TC.TYPE = 'P' AND TC.TABSCHEMA = ?
            ORDER BY TC.TABNAME, K.COLSEQ`,
           [schemaName]
         ),
@@ -201,7 +232,7 @@ export class Db2Provider implements SchemaProvider {
         ),
         ConnectionFactory.executeOnConnection<Db2TriggerRaw>(
           this.provider, conn,
-          `SELECT TRIGSCHEMA, TRIGNAME, TABNAME, TEXT FROM SYSCAT.TRIGGERS WHERE TRIGSCHEMA = ?`,
+          `SELECT TRIGSCHEMA, TRIGNAME, TABNAME, TRIGTIME, TRIGEVENT, TEXT FROM SYSCAT.TRIGGERS WHERE TABSCHEMA = ? ORDER BY TABNAME, TRIGNAME`,
           [schemaName]
         ),
         ConnectionFactory.executeOnConnection<Db2ProcedureRaw>(
@@ -363,13 +394,15 @@ export class Db2Provider implements SchemaProvider {
       }
 
       // 8. Process Triggers
+      const trigTimings: Record<string, string> = { B: 'BEFORE', A: 'AFTER', I: 'INSTEAD OF' };
+      const trigEvents: Record<string, string> = { I: 'INSERT', U: 'UPDATE', D: 'DELETE', M: 'MULTIPLE' };
       for (const trg of rawTriggers) {
         const mappedTrigger: DbTrigger = {
           name: trg.TRIGNAME,
           schema: trg.TRIGSCHEMA,
           tableName: trg.TABNAME,
-          event: 'UNKNOWN',
-          timing: 'UNKNOWN',
+          event: trigEvents[trg.TRIGEVENT] ?? trg.TRIGEVENT,
+          timing: trigTimings[trg.TRIGTIME] ?? trg.TRIGTIME,
           definition: trg.TEXT
         };
         if (!triggers[trg.TRIGNAME]) triggers[trg.TRIGNAME] = [];

@@ -6,22 +6,35 @@ export class SqlGeneratorModule {
    * Renders the full DDL of a single object as it exists on one side,
    * used for side-by-side source/target diff display.
    */
+  /** PK columns from the named constraint, falling back to per-column flags. */
+  private primaryKeyColumns(table: TableSchema): string[] {
+    if (table.primaryKey?.columns?.length) return table.primaryKey.columns;
+    return table.columns.filter((c) => c.primaryKey).map((c) => c.name);
+  }
+
+  private renderCreateTable(table: TableSchema): string {
+    const lines = table.columns.map((c) => {
+      let def = `  ${c.name} ${c.type}`;
+      if (!c.nullable) def += ` NOT NULL`;
+      if (c.defaultValue) def += ` DEFAULT ${c.defaultValue}`;
+      return def;
+    });
+
+    const pkCols = this.primaryKeyColumns(table);
+    if (pkCols.length > 0) {
+      const constraintName = table.primaryKey?.name ? `CONSTRAINT ${table.primaryKey.name} ` : '';
+      lines.push(`  ${constraintName}PRIMARY KEY (${pkCols.join(', ')})`);
+    }
+
+    return `CREATE TABLE ${table.name} (\n${lines.join(',\n')}\n);\n`;
+  }
+
   generateObjectDdl(table: TableSchema): string {
     if (table.objectType !== 'TABLE') {
       return table.definition || `-- No definition available for ${table.objectType} ${table.name}`;
     }
 
-    let sql = `CREATE TABLE ${table.name} (\n`;
-    sql += table.columns
-      .map((c) => {
-        let def = `  ${c.name} ${c.type}`;
-        if (!c.nullable) def += ` NOT NULL`;
-        if (c.defaultValue) def += ` DEFAULT ${c.defaultValue}`;
-        if (c.primaryKey) def += ` PRIMARY KEY`;
-        return def;
-      })
-      .join(',\n');
-    sql += `\n);\n`;
+    let sql = this.renderCreateTable(table);
 
     for (const idx of table.indices) {
       const uniqueStr = idx.unique ? ' UNIQUE' : '';
@@ -30,6 +43,12 @@ export class SqlGeneratorModule {
 
     for (const fk of table.foreignKeys) {
       sql += `ALTER TABLE ${table.name} ADD CONSTRAINT ${fk.name} FOREIGN KEY (${fk.columns.join(', ')}) REFERENCES ${fk.referencedTable} (${fk.referencedColumns.join(', ')});\n`;
+    }
+
+    for (const trg of table.triggers ?? []) {
+      sql += trg.definition
+        ? `${trg.definition.trim()}\n`
+        : `-- Trigger ${trg.name} (${trg.timing ?? ''} ${trg.event ?? ''}) has no available definition\n`;
     }
 
     return sql;
@@ -70,6 +89,8 @@ export class SqlGeneratorModule {
           sql += `DROP FUNCTION ${obj.tableName};\n`;
         } else if (obj.objectType === 'PROCEDURE') {
           sql += `DROP PROCEDURE ${obj.tableName};\n`;
+        } else if (obj.objectType === 'TRIGGER') {
+          sql += `DROP TRIGGER ${obj.tableName};\n`;
         }
       }
       sql += `\n`;
@@ -85,16 +106,8 @@ export class SqlGeneratorModule {
         if (!source) continue;
 
         if (obj.objectType === 'TABLE') {
-          sql += `CREATE TABLE ${obj.tableName} (\n`;
-          const colDefinitions = source.columns.map((c) => {
-            let def = `  ${c.name} ${c.type}`;
-            if (!c.nullable) def += ` NOT NULL`;
-            if (c.defaultValue) def += ` DEFAULT ${c.defaultValue}`;
-            if (c.primaryKey) def += ` PRIMARY KEY`;
-            return def;
-          });
-          sql += colDefinitions.join(',\n');
-          sql += `\n);\n\n`;
+          sql += this.renderCreateTable(source);
+          sql += `\n`;
 
           for (const idx of source.indices) {
             const uniqueStr = idx.unique ? ' UNIQUE' : '';
@@ -104,6 +117,10 @@ export class SqlGeneratorModule {
           for (const fk of source.foreignKeys) {
             sql += `ALTER TABLE ${obj.tableName} ADD CONSTRAINT ${fk.name} \n`;
             sql += `  FOREIGN KEY (${fk.columns.join(', ')}) REFERENCES ${fk.referencedTable} (${fk.referencedColumns.join(', ')});\n`;
+          }
+
+          for (const trg of source.triggers ?? []) {
+            if (trg.definition) sql += `${trg.definition.trim()}\n`;
           }
         } else if (obj.definition) {
           sql += `${obj.definition}\n`;
@@ -160,6 +177,24 @@ export class SqlGeneratorModule {
             }
           }
 
+          // Primary key change: drop the old constraint, add the new one
+          const srcPk = obj.sourceTable ? this.primaryKeyColumns(obj.sourceTable) : [];
+          const tgtPk = obj.targetTable ? this.primaryKeyColumns(obj.targetTable) : [];
+          if (JSON.stringify(srcPk) !== JSON.stringify(tgtPk)) {
+            if (tgtPk.length > 0) {
+              if (dialectUpper === 'POSTGRES') {
+                sql += `ALTER TABLE ${obj.tableName} DROP CONSTRAINT ${obj.targetTable?.primaryKey?.name ?? `${obj.tableName}_pkey`};\n`;
+              } else {
+                sql += `ALTER TABLE ${obj.tableName} DROP PRIMARY KEY;\n`;
+              }
+            }
+            if (srcPk.length > 0) {
+              const pkName = obj.sourceTable?.primaryKey?.name;
+              const constraint = pkName ? `CONSTRAINT ${pkName} ` : '';
+              sql += `ALTER TABLE ${obj.tableName} ADD ${constraint}PRIMARY KEY (${srcPk.join(', ')});\n`;
+            }
+          }
+
           const idxRem = obj.indexDiffs.filter((i) => i.status === 'REMOVED' || i.status === 'MODIFIED');
           for (const idx of idxRem) {
             sql += `DROP INDEX ${idx.name};\n`;
@@ -172,6 +207,16 @@ export class SqlGeneratorModule {
             const uniqueStr = srcIdx.unique ? ' UNIQUE' : '';
             sql += `CREATE${uniqueStr} INDEX ${idx.name} ON ${obj.tableName} (${srcIdx.columns.join(', ')});\n`;
           }
+
+          // Triggers: drop removed/changed, recreate added/changed from source
+          const trgDrop = (obj.triggerDiffs ?? []).filter((t) => t.status === 'REMOVED' || t.status === 'MODIFIED');
+          for (const trg of trgDrop) {
+            sql += `DROP TRIGGER ${trg.name};\n`;
+          }
+          const trgCreate = (obj.triggerDiffs ?? []).filter((t) => t.status === 'ADDED' || t.status === 'MODIFIED');
+          for (const trg of trgCreate) {
+            if (trg.source?.definition) sql += `${trg.source.definition.trim()}\n`;
+          }
         } else if (obj.definition) {
           // Re-create views/funcs/procs by dropping first
           if (obj.objectType === 'VIEW') {
@@ -180,6 +225,8 @@ export class SqlGeneratorModule {
             sql += `DROP FUNCTION IF EXISTS ${obj.tableName};\n`;
           } else if (obj.objectType === 'PROCEDURE') {
             sql += `DROP PROCEDURE IF EXISTS ${obj.tableName};\n`;
+          } else if (obj.objectType === 'TRIGGER') {
+            sql += `DROP TRIGGER IF EXISTS ${obj.tableName};\n`;
           }
           sql += `${obj.definition}\n`;
         }

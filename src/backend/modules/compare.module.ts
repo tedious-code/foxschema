@@ -1,5 +1,5 @@
-import { SchemaCompareResult, TableDiff, ColumnDiff, IndexDiff, ForeignKeyDiff } from '../types/diff.types';
-import { TableSchema, ColumnInfo, IndexInfo, ForeignKeyInfo } from '../interfaces/schema.interface';
+import { SchemaCompareResult, TableDiff, ColumnDiff, IndexDiff, ForeignKeyDiff, TriggerDiff } from '../types/diff.types';
+import { TableSchema, ColumnInfo, IndexInfo, ForeignKeyInfo, TriggerInfo } from '../interfaces/schema.interface';
 
 export class CompareModule {
   async compare(sourceSchemas: TableSchema[], targetSchemas: TableSchema[]): Promise<SchemaCompareResult> {
@@ -29,6 +29,7 @@ export class CompareModule {
           columnDiffs: source.columns.map((c) => ({ name: c.name, status: 'ADDED', source: c })),
           indexDiffs: source.indices.map((i) => ({ name: i.name, status: 'ADDED', source: i })),
           foreignKeyDiffs: source.foreignKeys.map((f) => ({ name: f.name, status: 'ADDED', source: f })),
+          triggerDiffs: (source.triggers ?? []).map((t) => ({ name: t.name, status: 'ADDED' as const, source: t })),
           sourceTable: source,
         });
       } else if (!source && target) {
@@ -42,6 +43,7 @@ export class CompareModule {
           columnDiffs: target.columns.map((c) => ({ name: c.name, status: 'REMOVED', target: c })),
           indexDiffs: target.indices.map((i) => ({ name: i.name, status: 'REMOVED', target: i })),
           foreignKeyDiffs: target.foreignKeys.map((f) => ({ name: f.name, status: 'REMOVED', target: f })),
+          triggerDiffs: (target.triggers ?? []).map((t) => ({ name: t.name, status: 'REMOVED' as const, target: t })),
           targetTable: target,
         });
       } else if (source && target) {
@@ -49,11 +51,18 @@ export class CompareModule {
         const columnDiffs = this.compareColumns(source.columns, target.columns);
         const indexDiffs = this.compareIndices(source.indices, target.indices);
         const foreignKeyDiffs = this.compareForeignKeys(source.foreignKeys, target.foreignKeys);
+        const triggerDiffs = this.compareTriggers(source.triggers ?? [], target.triggers ?? []);
+
+        const pkChanged =
+          JSON.stringify(source.primaryKey?.columns ?? []) !==
+          JSON.stringify(target.primaryKey?.columns ?? []);
 
         const isModified =
           columnDiffs.some((d) => d.status !== 'UNCHANGED') ||
           indexDiffs.some((d) => d.status !== 'UNCHANGED') ||
           foreignKeyDiffs.some((d) => d.status !== 'UNCHANGED') ||
+          triggerDiffs.some((d) => d.status !== 'UNCHANGED') ||
+          pkChanged ||
           source.definition !== target.definition;
 
         if (isModified) {
@@ -70,6 +79,7 @@ export class CompareModule {
           columnDiffs,
           indexDiffs,
           foreignKeyDiffs,
+          triggerDiffs,
           sourceTable: source,
           targetTable: target,
         });
@@ -133,6 +143,30 @@ export class CompareModule {
         return { name, status: 'UNCHANGED', source: sIdx, target: tIdx };
       }
       return { name, status: 'UNCHANGED' };
+    });
+  }
+
+  private compareTriggers(sourceTrgs: TriggerInfo[], targetTrgs: TriggerInfo[]): TriggerDiff[] {
+    const sMap = new Map(sourceTrgs.map((t) => [t.name.toUpperCase(), t]));
+    const tMap = new Map(targetTrgs.map((t) => [t.name.toUpperCase(), t]));
+    const allNames = Array.from(new Set([...Array.from(sMap.keys()), ...Array.from(tMap.keys())]));
+
+    return allNames.map((name) => {
+      const sTrg = sMap.get(name);
+      const tTrg = tMap.get(name);
+
+      if (sTrg && !tTrg) {
+        return { name, status: 'ADDED' as const, source: sTrg };
+      } else if (!sTrg && tTrg) {
+        return { name, status: 'REMOVED' as const, target: tTrg };
+      } else if (sTrg && tTrg) {
+        const defChanged = (sTrg.definition ?? '').trim() !== (tTrg.definition ?? '').trim();
+        if (defChanged) {
+          return { name, status: 'MODIFIED' as const, source: sTrg, target: tTrg };
+        }
+        return { name, status: 'UNCHANGED' as const, source: sTrg, target: tTrg };
+      }
+      return { name, status: 'UNCHANGED' as const };
     });
   }
 

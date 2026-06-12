@@ -34,6 +34,7 @@
     "pg": "^8.21.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
+    "sql-formatter": "^15.8.1",
     "tailwindcss": "^4.3.0",
     "zustand": "^5.0.13"
   }

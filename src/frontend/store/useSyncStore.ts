@@ -123,7 +123,7 @@ export const useSyncStore = create<SyncState>()(
   sourceSchemaList: [],
   targetSchemaList: [],
 
-  selectedObjectTypes: ['TABLE', 'VIEW', 'FUNCTION', 'PROCEDURE'],
+  selectedObjectTypes: ['TABLE', 'VIEW', 'FUNCTION', 'PROCEDURE', 'TRIGGER'],
   isComparing: false,
   compareResult: null,
   selectedTable: null,
@@ -400,6 +400,7 @@ export const useSyncStore = create<SyncState>()(
     }),
     {
       name: 'schema-sync-storage',
+      version: 2,
       // Persist saved connections and the active configs only — never runtime/compare state
       partialize: (state) => ({
         connections: state.connections,
@@ -409,6 +410,13 @@ export const useSyncStore = create<SyncState>()(
         selectedTargetConnectionId: state.selectedTargetConnectionId,
         selectedObjectTypes: state.selectedObjectTypes,
       }),
+      migrate: (persisted: any, version) => {
+        // v2 introduced the TRIGGER object type — enable it once for settings saved before that
+        if (version < 2 && Array.isArray(persisted?.selectedObjectTypes) && !persisted.selectedObjectTypes.includes('TRIGGER')) {
+          persisted.selectedObjectTypes = [...persisted.selectedObjectTypes, 'TRIGGER'];
+        }
+        return persisted;
+      },
     }
   )
 );

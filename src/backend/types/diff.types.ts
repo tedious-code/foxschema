@@ -1,12 +1,12 @@
-import { TableSchema } from '../interfaces/schema-provider.interface';
+import { TableSchema, DbObjectType } from '../interfaces/schema-provider.interface';
 
 export type DiffType = 'ADDED' | 'REMOVED' | 'MODIFIED' | 'UNCHANGED';
 
 export interface ColumnDiff {
   name: string;
   status: 'ADDED' | 'REMOVED' | 'MODIFIED' | 'UNCHANGED';
-  source?: { type: string; nullable: boolean; defaultValue?: string };
-  target?: { type: string; nullable: boolean; defaultValue?: string };
+  source?: { type: string; nullable: boolean; defaultValue?: string; primaryKey?: boolean };
+  target?: { type: string; nullable: boolean; defaultValue?: string; primaryKey?: boolean };
 }
 
 export interface IndexDiff {
@@ -23,14 +23,22 @@ export interface ForeignKeyDiff {
   target?: { columns: string[]; referencedTable: string; referencedColumns: string[] };
 }
 
+export interface TriggerDiff {
+  name: string;
+  status: 'ADDED' | 'REMOVED' | 'MODIFIED' | 'UNCHANGED';
+  source?: { timing?: string; event?: string; definition?: string };
+  target?: { timing?: string; event?: string; definition?: string };
+}
+
 export interface TableDiff {
   tableName: string;
-  objectType: 'TABLE' | 'VIEW' | 'FUNCTION' | 'PROCEDURE';
+  objectType: DbObjectType;
   status: DiffType;
   definition?: string;
   columnDiffs: ColumnDiff[];
   indexDiffs: IndexDiff[];
   foreignKeyDiffs: ForeignKeyDiff[];
+  triggerDiffs?: TriggerDiff[];
   sourceTable?: TableSchema;
   targetTable?: TableSchema;
 }
