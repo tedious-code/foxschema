@@ -2,9 +2,18 @@ import { SchemaCompareResult, TableDiff, ColumnDiff, IndexDiff, ForeignKeyDiff, 
 import { TableSchema, ColumnInfo, IndexInfo, ForeignKeyInfo, TriggerInfo } from '../interfaces/schema.interface';
 
 export class CompareModule {
+  /**
+   * Normalizes an object name for matching: drops any leading "schema." qualifier
+   * and uppercases. So CARTER.GPX_FILE, "VLAD".GPX_File and GPX_FILE all match —
+   * the comparison is about the object, not which schema it was read from.
+   */
+  private key(name: string): string {
+    return name.replace(/^"?[^".]+"?\./, '').replace(/"/g, '').toUpperCase();
+  }
+
   async compare(sourceSchemas: TableSchema[], targetSchemas: TableSchema[]): Promise<SchemaCompareResult> {
-    const sourceMap = new Map<string, TableSchema>(sourceSchemas.map((t) => [t.name.toUpperCase(), t]));
-    const targetMap = new Map<string, TableSchema>(targetSchemas.map((t) => [t.name.toUpperCase(), t]));
+    const sourceMap = new Map<string, TableSchema>(sourceSchemas.map((t) => [this.key(t.name), t]));
+    const targetMap = new Map<string, TableSchema>(targetSchemas.map((t) => [this.key(t.name), t]));
 
     const allTableNames = Array.from(new Set([...Array.from(sourceMap.keys()), ...Array.from(targetMap.keys())]));
     const tableDiffs: TableDiff[] = [];
@@ -93,8 +102,8 @@ export class CompareModule {
   }
 
   private compareColumns(sourceCols: ColumnInfo[], targetCols: ColumnInfo[]): ColumnDiff[] {
-    const sMap = new Map(sourceCols.map((c) => [c.name.toUpperCase(), c]));
-    const tMap = new Map(targetCols.map((c) => [c.name.toUpperCase(), c]));
+    const sMap = new Map(sourceCols.map((c) => [this.key(c.name), c]));
+    const tMap = new Map(targetCols.map((c) => [this.key(c.name), c]));
     const allColNames = Array.from(new Set([...Array.from(sMap.keys()), ...Array.from(tMap.keys())]));
 
     return allColNames.map((name) => {
@@ -121,8 +130,8 @@ export class CompareModule {
   }
 
   private compareIndices(sourceInds: IndexInfo[], targetInds: IndexInfo[]): IndexDiff[] {
-    const sMap = new Map(sourceInds.map((i) => [i.name.toUpperCase(), i]));
-    const tMap = new Map(targetInds.map((i) => [i.name.toUpperCase(), i]));
+    const sMap = new Map(sourceInds.map((i) => [this.key(i.name), i]));
+    const tMap = new Map(targetInds.map((i) => [this.key(i.name), i]));
     const allIndNames = Array.from(new Set([...Array.from(sMap.keys()), ...Array.from(tMap.keys())]));
 
     return allIndNames.map((name) => {
@@ -147,8 +156,8 @@ export class CompareModule {
   }
 
   private compareTriggers(sourceTrgs: TriggerInfo[], targetTrgs: TriggerInfo[]): TriggerDiff[] {
-    const sMap = new Map(sourceTrgs.map((t) => [t.name.toUpperCase(), t]));
-    const tMap = new Map(targetTrgs.map((t) => [t.name.toUpperCase(), t]));
+    const sMap = new Map(sourceTrgs.map((t) => [this.key(t.name), t]));
+    const tMap = new Map(targetTrgs.map((t) => [this.key(t.name), t]));
     const allNames = Array.from(new Set([...Array.from(sMap.keys()), ...Array.from(tMap.keys())]));
 
     return allNames.map((name) => {
@@ -171,8 +180,8 @@ export class CompareModule {
   }
 
   private compareForeignKeys(sourceFks: ForeignKeyInfo[], targetFks: ForeignKeyInfo[]): ForeignKeyDiff[] {
-    const sMap = new Map(sourceFks.map((f) => [f.name.toUpperCase(), f]));
-    const tMap = new Map(targetFks.map((f) => [f.name.toUpperCase(), f]));
+    const sMap = new Map(sourceFks.map((f) => [this.key(f.name), f]));
+    const tMap = new Map(targetFks.map((f) => [this.key(f.name), f]));
     const allFkNames = Array.from(new Set([...Array.from(sMap.keys()), ...Array.from(tMap.keys())]));
 
     return allFkNames.map((name) => {
@@ -185,7 +194,7 @@ export class CompareModule {
         return { name, status: 'REMOVED', target: tFk };
       } else if (sFk && tFk) {
         const colChanged = JSON.stringify(sFk.columns) !== JSON.stringify(tFk.columns);
-        const refTableChanged = sFk.referencedTable.toUpperCase() !== tFk.referencedTable.toUpperCase();
+        const refTableChanged = this.key(sFk.referencedTable) !== this.key(tFk.referencedTable);
         const refColChanged = JSON.stringify(sFk.referencedColumns) !== JSON.stringify(tFk.referencedColumns);
 
         if (colChanged || refTableChanged || refColChanged) {

@@ -1,11 +1,15 @@
 import { Router, Request, Response } from 'express';
 import { exec } from 'child_process';
 import { ConnectionModule } from '../modules/connection.module';
+import { MigrationModule } from '../modules/migration.module';
+import { SqlGeneratorModule, MigrationStep } from '../modules/sql-generator.module';
 import { DriverDetector } from '../cores/driver-detector';
 import type { ConnectionOptions } from '../interfaces/schema-provider.interface';
 
 export function createApiRoutes(connectionModule: ConnectionModule): Router {
   const router = Router();
+  const migrationModule = new MigrationModule();
+  const sqlGenerator = new SqlGeneratorModule();
 
   router.get('/health', (_req: Request, res: Response) => {
     res.json({ ok: true });
@@ -105,6 +109,42 @@ export function createApiRoutes(connectionModule: ConnectionModule): Router {
       const message = error instanceof Error ? error.message : 'Failed to load schema';
       res.status(500).json({ error: message });
     }
+  });
+
+  router.post('/migration/execute', async (req: Request, res: Response) => {
+    const { dialect, option, schema, steps } = req.body as {
+      dialect: string;
+      option: ConnectionOptions;
+      schema: string;
+      steps: MigrationStep[];
+    };
+
+    // Stream NDJSON progress events as the migration runs
+    res.setHeader('Content-Type', 'application/x-ndjson');
+    res.setHeader('Cache-Control', 'no-cache');
+    const send = (event: unknown) => res.write(JSON.stringify(event) + '\n');
+
+    try {
+      // 1. Snapshot the target schema DDL before touching anything
+      const provider = connectionModule.getProvider(dialect);
+      if (provider.getTables) {
+        const targetObjects = await provider.getTables(option, schema);
+        let snapshot = `-- =========================================================================\n`;
+        snapshot += `-- Target schema snapshot (pre-migration)\n`;
+        snapshot += `-- Schema: ${schema}  |  Taken At: ${new Date().toISOString()}\n`;
+        snapshot += `-- =========================================================================\n\n`;
+        snapshot += targetObjects.map((t) => sqlGenerator.generateObjectDdl(t)).join('\n');
+        send({ type: 'snapshot', ddl: snapshot });
+      }
+
+      // 2. Execute the plan in a single transaction, reporting per object
+      await migrationModule.execute(dialect, option, schema, steps, send);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Migration failed';
+      send({ type: 'done', success: false, rolledBack: false, error: message });
+    }
+
+    res.end();
   });
 
   return router;

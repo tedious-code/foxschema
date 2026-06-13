@@ -5,7 +5,15 @@ import { CompareModule } from '../../backend/modules/compare.module';
 import { SqlGeneratorModule } from '../../backend/modules/sql-generator.module';
 import { DbObjectType, ConnectionOptions, SavedConnection, DriverInfo } from '../../backend/interfaces/schema-provider.interface';
 import { SchemaCompareResult, TableDiff } from '../../backend/types/diff.types';
-import { testConnection as apiTestConnection, fetchTables, fetchSchemaList, checkDriver as apiCheckDriver, installDriver as apiInstallDriver } from '../api/schemaApi';
+import { testConnection as apiTestConnection, fetchTables, fetchSchemaList, executeMigration, checkDriver as apiCheckDriver, installDriver as apiInstallDriver } from '../api/schemaApi';
+
+export interface MigrationProgressItem {
+  objectName: string;
+  objectType: string;
+  action: string;
+  status: 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED';
+  error?: string;
+}
 
 const compareModule = new CompareModule();
 const sqlGeneratorModule = new SqlGeneratorModule();
@@ -71,6 +79,14 @@ interface SyncState {
   toggleSyncSelection: (tableName: string) => void;
   setAllSyncSelection: (selected: boolean) => void;
 
+  // Live migration execution state
+  isMigrating: boolean;
+  migrationProgress: MigrationProgressItem[];
+  snapshotDdl: string | null;
+  migrationError: string | null;
+  migrationRolledBack: boolean;
+  clearMigrationProgress: () => void;
+
   setSourceConfig: (cfg: Partial<ConnectionConfig>) => void;
   setTargetConfig: (cfg: Partial<ConnectionConfig>) => void;
   toggleObjectTypeFilter: (type: DbObjectType) => void;
@@ -132,6 +148,12 @@ export const useSyncStore = create<SyncState>()(
   filterStatus: 'ALL',
   searchTerm: '',
   syncSelection: {},
+
+  isMigrating: false,
+  migrationProgress: [],
+  snapshotDdl: null,
+  migrationError: null,
+  migrationRolledBack: false,
 
   // --- Actions ---
   addConnection: (conn) =>
@@ -213,19 +235,22 @@ export const useSyncStore = create<SyncState>()(
   setSelectedTable: (selectedTable) => set({ selectedTable }),
 
   toggleSyncSelection: (tableName) => {
-    const { compareResult, syncSelection, targetConfig } = get();
+    const { compareResult, syncSelection, sourceConfig, targetConfig } = get();
     if (!compareResult) return;
     const nextSelection = { ...syncSelection, [tableName]: !syncSelection[tableName] };
     const includedDiffs = compareResult.tables.filter((t) => nextSelection[t.tableName]);
     set({
       syncSelection: nextSelection,
-      generatedSql: sqlGeneratorModule.generateMigrationSql(includedDiffs, targetConfig.dialect),
+      generatedSql: sqlGeneratorModule.generateMigrationSql(includedDiffs, targetConfig.dialect, {
+        sourceSchema: sourceConfig.schema,
+        targetSchema: targetConfig.schema,
+      }),
       migrationExecuted: false,
     });
   },
 
   setAllSyncSelection: (selected) => {
-    const { compareResult, targetConfig } = get();
+    const { compareResult, sourceConfig, targetConfig } = get();
     if (!compareResult) return;
     const nextSelection: Record<string, boolean> = {};
     for (const t of compareResult.tables) {
@@ -234,7 +259,10 @@ export const useSyncStore = create<SyncState>()(
     const includedDiffs = compareResult.tables.filter((t) => nextSelection[t.tableName]);
     set({
       syncSelection: nextSelection,
-      generatedSql: sqlGeneratorModule.generateMigrationSql(includedDiffs, targetConfig.dialect),
+      generatedSql: sqlGeneratorModule.generateMigrationSql(includedDiffs, targetConfig.dialect, {
+        sourceSchema: sourceConfig.schema,
+        targetSchema: targetConfig.schema,
+      }),
       migrationExecuted: false,
     });
   },
@@ -343,8 +371,15 @@ export const useSyncStore = create<SyncState>()(
   runSchemaComparison: async () => {
     set({ isComparing: true, errorMsg: null, compareResult: null, selectedTable: null, generatedSql: null, migrationExecuted: false });
     try {
+      // Re-read the available schemas so the comparison runs against current server state
+      await Promise.all([
+        get().sourceConnected ? get().loadSchemaList('source') : Promise.resolve(),
+        get().targetConnected ? get().loadSchemaList('target') : Promise.resolve(),
+      ]);
+
+      // Read configs after the refresh — it may have re-resolved the selected schema
       const { sourceConfig, targetConfig, selectedObjectTypes } = get();
-      
+
       let sourceSchemas = await fetchTables(
         sourceConfig.dialect,
         withConnectionString(sourceConfig.dialect, sourceConfig.option),
@@ -367,7 +402,10 @@ export const useSyncStore = create<SyncState>()(
         if (t.status !== 'UNCHANGED') syncSelection[t.tableName] = true;
       }
       const includedDiffs = diffResult.tables.filter((t) => syncSelection[t.tableName]);
-      const sql = sqlGeneratorModule.generateMigrationSql(includedDiffs, targetConfig.dialect);
+      const sql = sqlGeneratorModule.generateMigrationSql(includedDiffs, targetConfig.dialect, {
+        sourceSchema: sourceConfig.schema,
+        targetSchema: targetConfig.schema,
+      });
 
       set({
         compareResult: diffResult,
@@ -381,11 +419,64 @@ export const useSyncStore = create<SyncState>()(
     }
   },
 
+  clearMigrationProgress: () =>
+    set({ migrationProgress: [], snapshotDdl: null, migrationError: null, migrationRolledBack: false }),
+
   applyMigration: async () => {
-    set({ isComparing: true });
-    // Simulating API migration processing time
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    set({ migrationExecuted: true, isComparing: false });
+    const { compareResult, syncSelection, sourceConfig, targetConfig } = get();
+    if (!compareResult) return;
+
+    const includedDiffs = compareResult.tables.filter((t) => syncSelection[t.tableName]);
+    const plan = sqlGeneratorModule.generateMigrationPlan(includedDiffs, targetConfig.dialect, {
+      sourceSchema: sourceConfig.schema,
+      targetSchema: targetConfig.schema,
+    });
+    if (plan.length === 0) return;
+
+    set({
+      isMigrating: true,
+      migrationError: null,
+      migrationRolledBack: false,
+      snapshotDdl: null,
+      migrationProgress: plan.map((s) => ({
+        objectName: s.objectName,
+        objectType: s.objectType,
+        action: s.action,
+        status: 'PENDING' as const,
+      })),
+    });
+
+    try {
+      await executeMigration(
+        targetConfig.dialect,
+        withConnectionString(targetConfig.dialect, { ...targetConfig.option, schema: targetConfig.schema }),
+        targetConfig.schema,
+        plan,
+        (event) => {
+          if (event.type === 'snapshot') {
+            set({ snapshotDdl: event.ddl });
+          } else if (event.type === 'object') {
+            set({
+              migrationProgress: get().migrationProgress.map((item) =>
+                item.objectName === event.objectName && item.action === event.action
+                  ? { ...item, status: event.status, error: event.error }
+                  : item
+              ),
+            });
+          } else if (event.type === 'done') {
+            set({
+              migrationExecuted: event.success,
+              migrationError: event.error ?? null,
+              migrationRolledBack: event.rolledBack,
+            });
+          }
+        }
+      );
+    } catch (e: any) {
+      set({ migrationError: e.message || 'Migration failed' });
+    } finally {
+      set({ isMigrating: false });
+    }
   },
 
   resetSync: () => {

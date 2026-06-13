@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useSyncStore } from '../store/useSyncStore';
-import { Code, Play, RefreshCw, FileText, CheckCircle2, ChevronRight, ChevronDown, AlertCircle, Copy, GitCompareArrows, KeyRound } from 'lucide-react';
+import { Code, Play, RefreshCw, FileText, CheckCircle2, ChevronRight, ChevronDown, AlertCircle, Copy, GitCompareArrows, KeyRound, XCircle, Circle, Download, X, Undo2 } from 'lucide-react';
 import { SqlGeneratorModule } from '../../backend/modules/sql-generator.module';
 import { diffLines } from '../utils/lineDiff';
 import { formatSql } from '../utils/formatSql';
@@ -18,6 +18,12 @@ export const RightPanel: React.FC = () => {
     targetConfig,
     syncSelection,
     toggleSyncSelection,
+    isMigrating,
+    migrationProgress,
+    snapshotDdl,
+    migrationError,
+    migrationRolledBack,
+    clearMigrationProgress,
   } = useSyncStore();
 
   const includedCount = Object.values(syncSelection).filter(Boolean).length;
@@ -25,6 +31,8 @@ export const RightPanel: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'DIFF' | 'DDL_DIFF' | 'SQL'>('DIFF');
   const [copied, setCopied] = useState(false);
   const [expandedTriggers, setExpandedTriggers] = useState<Record<string, boolean>>({});
+  // Matches the case-insensitive schema compare; toggle off to inspect raw identifier casing
+  const [ignoreCase, setIgnoreCase] = useState(true);
 
   const toggleTriggerDdl = (name: string) =>
     setExpandedTriggers((prev) => ({ ...prev, [name]: !prev[name] }));
@@ -61,7 +69,7 @@ export const RightPanel: React.FC = () => {
     const sourceDdl = isTable ? rawSource : formatSql(rawSource, sourceConfig.dialect);
     const targetDdl = isTable ? rawTarget : formatSql(rawTarget, targetConfig.dialect);
     // Target is the "old" side: green = only in source, red = only in target
-    const lines = diffLines(targetDdl, sourceDdl);
+    const lines = diffLines(targetDdl, sourceDdl, { ignoreCase });
     const addedCount = lines.filter((l) => l.type === 'added').length;
     const removedCount = lines.filter((l) => l.type === 'removed').length;
 
@@ -72,10 +80,21 @@ export const RightPanel: React.FC = () => {
           <span className="text-xs font-mono text-slate-400">
             {selectedTable.tableName} — Target (destination) vs Source
           </span>
-          <span className="text-[10px] font-mono flex items-center gap-2">
-            <span className="text-emerald-400">+{addedCount}</span>
-            <span className="text-rose-400">-{removedCount}</span>
-          </span>
+          <div className="flex items-center gap-3">
+            <label className="text-[10px] text-slate-400 flex items-center gap-1.5 cursor-pointer" title="Ignore identifier letter-case, matching how columns are compared">
+              <input
+                type="checkbox"
+                checked={ignoreCase}
+                onChange={(e) => setIgnoreCase(e.target.checked)}
+                className="w-3 h-3 accent-cyan-500 cursor-pointer"
+              />
+              Ignore case
+            </label>
+            <span className="text-[10px] font-mono flex items-center gap-2">
+              <span className="text-emerald-400">+{addedCount}</span>
+              <span className="text-rose-400">-{removedCount}</span>
+            </span>
+          </div>
         </div>
 
         <table className="w-full font-mono text-xs border-collapse">
@@ -491,7 +510,7 @@ export const RightPanel: React.FC = () => {
                       const newDdl = trg.source?.definition ? formatSql(trg.source.definition, sourceConfig.dialect).trim() : '';
                       // A one-sided trigger diffs against '' — drop the resulting blank line
                       const ddlLines = isExpanded
-                        ? diffLines(oldDdl, newDdl).filter((l) => !(l.text === '' && (oldDdl === '' || newDdl === '')))
+                        ? diffLines(oldDdl, newDdl, { ignoreCase }).filter((l) => !(l.text === '' && (oldDdl === '' || newDdl === '')))
                         : [];
 
                       return (
@@ -624,7 +643,7 @@ export const RightPanel: React.FC = () => {
 
           <button
             onClick={applyMigration}
-            disabled={isComparing || migrationExecuted || includedCount === 0}
+            disabled={isComparing || isMigrating || migrationExecuted || includedCount === 0}
             title={includedCount === 0 ? 'No objects selected for deployment' : `Deploy ${includedCount} object(s) to target`}
             className={`flex items-center gap-1.5 px-4 py-1.5 rounded text-xs font-bold transition shadow ${
               migrationExecuted
@@ -634,9 +653,9 @@ export const RightPanel: React.FC = () => {
                 : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-slate-950 cursor-pointer shadow-emerald-500/5'
             }`}
           >
-            {isComparing ? (
+            {isMigrating ? (
               <>
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Synchronizing...
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Migrating...
               </>
             ) : migrationExecuted ? (
               <>
@@ -664,20 +683,99 @@ export const RightPanel: React.FC = () => {
               {generatedSql || `-- No Migration script generated.`}
             </pre>
 
-            {migrationExecuted && (
-              <div className="absolute bottom-6 right-6 flex items-center gap-2.5 bg-emerald-950/90 border border-emerald-500/40 px-5 py-3 rounded-lg shadow-2xl backdrop-blur-md animate-fade-in">
-                <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
-                <div>
-                  <h4 className="text-xs font-bold text-slate-100">Sync Pipeline Complete</h4>
-                  <p className="text-[10px] text-slate-400 mt-0.5">
-                    DDL updates applied to target databases successfully.
-                  </p>
-                </div>
-              </div>
-            )}
           </div>
         )}
       </div>
+
+      {/* Migration Progress Panel */}
+      {migrationProgress.length > 0 && (
+        <div className="fixed bottom-6 right-6 w-[380px] max-h-[60vh] flex flex-col bg-slate-900/95 border border-slate-700 rounded-xl shadow-2xl backdrop-blur-md z-50 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-950/60">
+            <h4 className="text-xs font-bold text-slate-100 flex items-center gap-2">
+              {isMigrating ? (
+                <><RefreshCw className="w-4 h-4 animate-spin text-cyan-400" /> Migrating Target...</>
+              ) : migrationError ? (
+                <><XCircle className="w-4 h-4 text-rose-400" /> Migration Failed</>
+              ) : (
+                <><CheckCircle2 className="w-4 h-4 text-emerald-400" /> Migration Complete</>
+              )}
+            </h4>
+            <div className="flex items-center gap-1.5">
+              {snapshotDdl && (
+                <button
+                  onClick={() => {
+                    const blob = new Blob([snapshotDdl], { type: 'text/sql' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `target-snapshot-${new Date().toISOString().replace(/[:.]/g, '-')}.sql`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  title="Download pre-migration schema snapshot"
+                  className="flex items-center gap-1 text-[10px] text-slate-300 hover:text-slate-100 border border-slate-700 rounded px-2 py-1 hover:bg-slate-800 transition"
+                >
+                  <Download className="w-3 h-3" /> Snapshot
+                </button>
+              )}
+              {!isMigrating && (
+                <button
+                  onClick={clearMigrationProgress}
+                  className="p-1 text-slate-500 hover:text-slate-200 hover:bg-slate-800 rounded transition"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-2 space-y-1">
+            {migrationProgress.map((item) => (
+              <div
+                key={`${item.action}-${item.objectName}`}
+                className={`flex items-start gap-2.5 px-3 py-2 rounded-lg text-xs ${
+                  item.status === 'FAILED' ? 'bg-rose-950/30 border border-rose-500/20' : 'bg-slate-950/40'
+                }`}
+              >
+                <span className="mt-0.5 shrink-0">
+                  {item.status === 'PENDING' && <Circle className="w-3.5 h-3.5 text-slate-600" />}
+                  {item.status === 'RUNNING' && <RefreshCw className="w-3.5 h-3.5 text-cyan-400 animate-spin" />}
+                  {item.status === 'SUCCESS' && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
+                  {item.status === 'FAILED' && <XCircle className="w-3.5 h-3.5 text-rose-400" />}
+                </span>
+                <div className="min-w-0">
+                  <span className="font-mono font-semibold text-slate-200">
+                    <span className="text-slate-500 font-sans font-bold text-[10px] mr-1.5">{item.action}</span>
+                    {item.objectName}
+                  </span>
+                  <span className="text-slate-600 ml-1.5 text-[10px] uppercase">{item.objectType}</span>
+                  {item.error && (
+                    <p className="text-[10px] text-rose-400 mt-1 font-mono break-all">{item.error}</p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {!isMigrating && migrationError && (
+            <div className="px-4 py-3 border-t border-slate-800 bg-rose-950/30 flex items-start gap-2">
+              <Undo2 className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              <p className="text-[11px] text-slate-300">
+                {migrationRolledBack
+                  ? 'All changes were rolled back — the target is unchanged.'
+                  : 'Rollback could not be confirmed — verify the target manually (snapshot available above).'}
+              </p>
+            </div>
+          )}
+          {!isMigrating && !migrationError && (
+            <div className="px-4 py-3 border-t border-slate-800 bg-emerald-950/20">
+              <p className="text-[11px] text-slate-300">
+                All {migrationProgress.length} object(s) deployed and committed to the target.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

@@ -3,6 +3,8 @@ import type {
   DriverInfo,
   TableSchema,
 } from '../../backend/interfaces/schema-provider.interface';
+import type { MigrationStep } from '../../backend/modules/sql-generator.module';
+import type { MigrationEvent } from '../../backend/modules/migration.module';
 
 const API_BASE = '/api';
 
@@ -70,6 +72,42 @@ export async function fetchSchemaList(
     })
   );
   return data.schemas;
+}
+
+/** Streams NDJSON migration progress events, invoking onEvent for each. */
+export async function executeMigration(
+  dialect: string,
+  option: ConnectionOptions,
+  schema: string,
+  steps: MigrationStep[],
+  onEvent: (e: MigrationEvent) => void
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/migration/execute`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dialect, option, schema, steps }),
+  });
+
+  if (!res.ok || !res.body) {
+    throw new Error(`Migration request failed: ${res.statusText}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let newlineIdx;
+    while ((newlineIdx = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, newlineIdx).trim();
+      buffer = buffer.slice(newlineIdx + 1);
+      if (line) onEvent(JSON.parse(line) as MigrationEvent);
+    }
+  }
 }
 
 export async function fetchTables(

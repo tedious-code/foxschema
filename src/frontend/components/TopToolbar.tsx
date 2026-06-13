@@ -171,45 +171,51 @@ export const TopToolbar: React.FC = () => {
 
           {/* Saved Connections + Server Info + Status, inline */}
           <div className="flex items-center gap-2">
-            {connections.length > 0 ? (
+            {connections.length > 0 && (
               <select
                 value={selectedSourceConnectionId ?? ''}
                 onChange={(e) => e.target.value && applySavedConnection('source', e.target.value)}
-                className="flex-1 min-w-0 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-500"
+                title="Saved connections"
+                className="w-40 shrink-0 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-500 truncate"
               >
-                <option value="">— Saved connections —</option>
+                <option value="">— Saved —</option>
                 {connections.map((c) => (
                   <option key={c.id} value={c.id}>
                     [{c.dialect.toUpperCase()}] {c.name}
                   </option>
                 ))}
               </select>
-            ) : (
-              <span className="flex-1 min-w-0 text-[10px] text-slate-600 truncate">
-                {sourceConfig.option.database
-                  ? `${sourceConfig.option.host ?? 'localhost'} / ${sourceConfig.option.database}`
-                  : 'Configure credentials via Params'}
-              </span>
             )}
 
-            {connections.length > 0 && sourceConfig.option.database && (
-              <span className="text-[10px] text-slate-500 font-mono truncate max-w-[150px] shrink-0">
-                {sourceConfig.option.host ?? 'localhost'} / {sourceConfig.option.database}
-              </span>
-            )}
+            <span className="flex-1 min-w-0 text-[10px] text-slate-500 font-mono truncate">
+              {sourceConfig.option.database
+                ? `${sourceConfig.option.host ?? 'localhost'} / ${sourceConfig.option.database}`
+                : 'Configure credentials via Params'}
+            </span>
 
             {isTestingSource ? (
               <span className="text-[10px] text-cyan-400 flex items-center gap-1 font-medium shrink-0">
                 <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Connecting...
               </span>
             ) : sourceConnected ? (
-              <span className="text-[10px] text-emerald-400 bg-emerald-950/40 px-2.5 py-1 rounded-full border border-emerald-500/20 flex items-center gap-1 font-medium shrink-0">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Connected
-              </span>
+              <button
+                onClick={testSourceConnection}
+                title="Reconnect and refresh schema list"
+                className="group text-[10px] text-emerald-400 bg-emerald-950/40 px-2.5 py-1 rounded-full border border-emerald-500/20 hover:border-emerald-400/50 hover:bg-emerald-950/70 flex items-center gap-1 font-medium shrink-0 cursor-pointer transition"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 group-hover:hidden" />
+                <RefreshCw className="w-3.5 h-3.5 hidden group-hover:block" />
+                <span className="group-hover:hidden">Connected</span>
+                <span className="hidden group-hover:inline">Refresh</span>
+              </button>
             ) : (
-              <span className="text-[10px] text-slate-500 flex items-center gap-1 font-medium shrink-0">
-                <AlertCircle className="w-3.5 h-3.5" /> Unconnected
-              </span>
+              <button
+                onClick={testSourceConnection}
+                title="Retry connection"
+                className="text-[10px] text-slate-400 hover:text-cyan-300 border border-slate-700 hover:border-cyan-500/40 bg-slate-900/60 hover:bg-slate-900 px-2.5 py-1 rounded-full flex items-center gap-1 font-medium shrink-0 cursor-pointer transition"
+              >
+                <RefreshCw className="w-3.5 h-3.5" /> Retry Connection
+              </button>
             )}
           </div>
         </div>
@@ -308,45 +314,51 @@ export const TopToolbar: React.FC = () => {
 
           {/* Saved Connections + Server Info + Status, inline */}
           <div className="flex items-center gap-2">
-            {connections.length > 0 ? (
+            {connections.length > 0 && (
               <select
                 value={selectedTargetConnectionId ?? ''}
                 onChange={(e) => e.target.value && applySavedConnection('target', e.target.value)}
-                className="flex-1 min-w-0 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-purple-500"
+                title="Saved connections"
+                className="w-40 shrink-0 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-purple-500 truncate"
               >
-                <option value="">— Saved connections —</option>
+                <option value="">— Saved —</option>
                 {connections.map((c) => (
                   <option key={c.id} value={c.id}>
                     [{c.dialect.toUpperCase()}] {c.name}
                   </option>
                 ))}
               </select>
-            ) : (
-              <span className="flex-1 min-w-0 text-[10px] text-slate-600 truncate">
-                {targetConfig.option.database
-                  ? `${targetConfig.option.host ?? 'localhost'} / ${targetConfig.option.database}`
-                  : 'Configure credentials via Params'}
-              </span>
             )}
 
-            {connections.length > 0 && targetConfig.option.database && (
-              <span className="text-[10px] text-slate-500 font-mono truncate max-w-[150px] shrink-0">
-                {targetConfig.option.host ?? 'localhost'} / {targetConfig.option.database}
-              </span>
-            )}
+            <span className="flex-1 min-w-0 text-[10px] text-slate-500 font-mono truncate">
+              {targetConfig.option.database
+                ? `${targetConfig.option.host ?? 'localhost'} / ${targetConfig.option.database}`
+                : 'Configure credentials via Params'}
+            </span>
 
             {isTestingTarget ? (
               <span className="text-[10px] text-purple-400 flex items-center gap-1 font-medium shrink-0">
                 <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Connecting...
               </span>
             ) : targetConnected ? (
-              <span className="text-[10px] text-emerald-400 bg-emerald-950/40 px-2.5 py-1 rounded-full border border-emerald-500/20 flex items-center gap-1 font-medium shrink-0">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Connected
-              </span>
+              <button
+                onClick={testTargetConnection}
+                title="Reconnect and refresh schema list"
+                className="group text-[10px] text-emerald-400 bg-emerald-950/40 px-2.5 py-1 rounded-full border border-emerald-500/20 hover:border-emerald-400/50 hover:bg-emerald-950/70 flex items-center gap-1 font-medium shrink-0 cursor-pointer transition"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 group-hover:hidden" />
+                <RefreshCw className="w-3.5 h-3.5 hidden group-hover:block" />
+                <span className="group-hover:hidden">Connected</span>
+                <span className="hidden group-hover:inline">Refresh</span>
+              </button>
             ) : (
-              <span className="text-[10px] text-slate-500 flex items-center gap-1 font-medium shrink-0">
-                <AlertCircle className="w-3.5 h-3.5" /> Unconnected
-              </span>
+              <button
+                onClick={testTargetConnection}
+                title="Retry connection"
+                className="text-[10px] text-slate-400 hover:text-purple-300 border border-slate-700 hover:border-purple-500/40 bg-slate-900/60 hover:bg-slate-900 px-2.5 py-1 rounded-full flex items-center gap-1 font-medium shrink-0 cursor-pointer transition"
+              >
+                <RefreshCw className="w-3.5 h-3.5" /> Retry Connection
+              </button>
             )}
           </div>
         </div>
