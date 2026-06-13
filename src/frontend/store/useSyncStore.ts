@@ -89,6 +89,7 @@ interface SyncState {
 
   setSourceConfig: (cfg: Partial<ConnectionConfig>) => void;
   setTargetConfig: (cfg: Partial<ConnectionConfig>) => void;
+  swapSourceTarget: () => void;
   toggleObjectTypeFilter: (type: DbObjectType) => void;
   setFilterStatus: (status: 'ALL' | 'ADDED' | 'REMOVED' | 'MODIFIED' | 'UNCHANGED') => void;
   setSearchTerm: (term: string) => void;
@@ -139,7 +140,7 @@ export const useSyncStore = create<SyncState>()(
   sourceSchemaList: [],
   targetSchemaList: [],
 
-  selectedObjectTypes: ['TABLE', 'VIEW', 'FUNCTION', 'PROCEDURE', 'TRIGGER'],
+  selectedObjectTypes: ['TABLE', 'VIEW', 'FUNCTION', 'PROCEDURE', 'TRIGGER', 'SEQUENCE', 'TYPE'],
   isComparing: false,
   compareResult: null,
   selectedTable: null,
@@ -220,7 +221,31 @@ export const useSyncStore = create<SyncState>()(
     set((state) => ({ targetConfig: { ...state.targetConfig, ...cfg }, targetConnected: false }));
     get().checkDrivers();
   },
-  
+
+  // Flip migration direction: what was the source becomes the target and vice versa
+  swapSourceTarget: () => {
+    const s = get();
+    set({
+      sourceConfig: s.targetConfig,
+      targetConfig: s.sourceConfig,
+      sourceConnected: s.targetConnected,
+      targetConnected: s.sourceConnected,
+      sourceSchemaList: s.targetSchemaList,
+      targetSchemaList: s.sourceSchemaList,
+      sourceDriverInfo: s.targetDriverInfo,
+      targetDriverInfo: s.sourceDriverInfo,
+      selectedSourceConnectionId: s.selectedTargetConnectionId,
+      selectedTargetConnectionId: s.selectedSourceConnectionId,
+      // The previous comparison was computed in the old direction — clear it
+      compareResult: null,
+      selectedTable: null,
+      generatedSql: null,
+      syncSelection: {},
+      migrationExecuted: false,
+    });
+  },
+
+
   toggleObjectTypeFilter: (type) =>
     set((state) => {
       const active = state.selectedObjectTypes;
@@ -491,7 +516,7 @@ export const useSyncStore = create<SyncState>()(
     }),
     {
       name: 'schema-sync-storage',
-      version: 2,
+      version: 3,
       // Persist saved connections and the active configs only — never runtime/compare state
       partialize: (state) => ({
         connections: state.connections,
@@ -502,10 +527,14 @@ export const useSyncStore = create<SyncState>()(
         selectedObjectTypes: state.selectedObjectTypes,
       }),
       migrate: (persisted: any, version) => {
-        // v2 introduced the TRIGGER object type — enable it once for settings saved before that
-        if (version < 2 && Array.isArray(persisted?.selectedObjectTypes) && !persisted.selectedObjectTypes.includes('TRIGGER')) {
-          persisted.selectedObjectTypes = [...persisted.selectedObjectTypes, 'TRIGGER'];
-        }
+        const ensure = (type: string) => {
+          if (Array.isArray(persisted?.selectedObjectTypes) && !persisted.selectedObjectTypes.includes(type)) {
+            persisted.selectedObjectTypes = [...persisted.selectedObjectTypes, type];
+          }
+        };
+        // v2 added TRIGGER; v3 added SEQUENCE and TYPE — enable them once for older settings
+        if (version < 2) ensure('TRIGGER');
+        if (version < 3) { ensure('SEQUENCE'); ensure('TYPE'); }
         return persisted;
       },
     }

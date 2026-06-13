@@ -9,7 +9,7 @@ const App: React.FC = () => {
   const { errorMsg } = useSyncStore();
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100 antialiased overflow-hidden">
+    <div className="h-screen flex flex-col bg-slate-950 text-slate-100 antialiased overflow-hidden">
       {/* Top Banner / Navigation */}
       <TopToolbar />
 

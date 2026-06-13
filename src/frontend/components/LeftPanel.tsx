@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useSyncStore } from '../store/useSyncStore';
-import { Search, Layers, Table2, Eye, FunctionSquare, SquareTerminal, Zap } from 'lucide-react';
+import { Search, Layers, Table2, Eye, FunctionSquare, SquareTerminal, Zap, Hash, Box } from 'lucide-react';
 import { TableDiff } from '../../backend/types/diff.types';
 import { DbObjectType } from '../../backend/interfaces/schema-provider.interface';
 
@@ -40,9 +40,23 @@ const TYPE_META: Record<DbObjectType, { label: string; group: string; color: str
     bg: 'bg-yellow-950/40 border-yellow-500/20',
     icon: <Zap className="w-4 h-4 text-yellow-400" />,
   },
+  SEQUENCE: {
+    label: 'Sequence',
+    group: 'Sequences',
+    color: 'text-teal-400',
+    bg: 'bg-teal-950/40 border-teal-500/20',
+    icon: <Hash className="w-4 h-4 text-teal-400" />,
+  },
+  TYPE: {
+    label: 'Type',
+    group: 'Types',
+    color: 'text-sky-400',
+    bg: 'bg-sky-950/40 border-sky-500/20',
+    icon: <Box className="w-4 h-4 text-sky-400" />,
+  },
 };
 
-const TYPE_ORDER: DbObjectType[] = ['TABLE', 'VIEW', 'PROCEDURE', 'FUNCTION', 'TRIGGER'];
+const TYPE_ORDER: DbObjectType[] = ['TABLE', 'VIEW', 'PROCEDURE', 'FUNCTION', 'TRIGGER', 'SEQUENCE', 'TYPE'];
 
 const MIN_WIDTH = 280;
 const MAX_WIDTH = 640;
@@ -63,6 +77,15 @@ export const LeftPanel: React.FC = () => {
 
   const [panelWidth, setPanelWidth] = useState(340);
   const [typeFilter, setTypeFilter] = useState<'ALL' | DbObjectType>('ALL');
+  // Unchanged objects are hidden by default — most comparisons only care about diffs
+  const [showUnchanged, setShowUnchanged] = useState(false);
+
+  const toggleShowUnchanged = () => {
+    const next = !showUnchanged;
+    setShowUnchanged(next);
+    // Leaving "show unchanged" off while it's the active filter would hide everything
+    if (!next && filterStatus === 'UNCHANGED') setFilterStatus('ALL');
+  };
 
   const startResize = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -97,13 +120,18 @@ export const LeftPanel: React.FC = () => {
   const changedCount = changedTables.length;
   const includedCount = changedTables.filter((t) => syncSelection[t.tableName]).length;
 
-  // Filter by search text, status, and object type
+  // Filter by search text, status, object type, and the unchanged toggle
   const filteredTables = compareResult.tables.filter((table) => {
+    if (!showUnchanged && table.status === 'UNCHANGED') return false;
     const matchesSearch = table.tableName.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = filterStatus === 'ALL' || table.status === filterStatus;
     const matchesType = typeFilter === 'ALL' || table.objectType === typeFilter;
     return matchesSearch && matchesStatus && matchesType;
   });
+
+  const statusOptions = (['ALL', 'ADDED', 'REMOVED', 'MODIFIED', 'UNCHANGED'] as const).filter(
+    (s) => s !== 'UNCHANGED' || showUnchanged
+  );
 
   // Group the filtered objects by type, in a stable order
   const groups = TYPE_ORDER
@@ -179,12 +207,12 @@ export const LeftPanel: React.FC = () => {
         </div>
 
         {/* Object Type Filter */}
-        <div className="flex gap-1 overflow-x-auto pb-1">
+        <div className="flex gap-1.5 overflow-x-auto pb-1">
           {(['ALL', ...TYPE_ORDER] as const).map((type) => (
             <button
               key={type}
               onClick={() => setTypeFilter(type)}
-              className={`text-[11px] font-bold px-2 py-1 rounded transition whitespace-nowrap cursor-pointer flex items-center gap-1 ${
+              className={`text-xs font-bold px-3 py-1.5 rounded-md transition whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
                 typeFilter === type
                   ? 'bg-slate-800 text-slate-100 border border-slate-600'
                   : 'bg-slate-900/60 text-slate-400 hover:text-slate-200 border border-transparent'
@@ -197,21 +225,36 @@ export const LeftPanel: React.FC = () => {
           ))}
         </div>
 
-        {/* Status Filter */}
-        <div className="flex gap-1 overflow-x-auto pb-1">
-          {(['ALL', 'ADDED', 'REMOVED', 'MODIFIED', 'UNCHANGED'] as const).map((status) => (
-            <button
-              key={status}
-              onClick={() => setFilterStatus(status)}
-              className={`text-[11px] font-bold px-2 py-1 rounded transition whitespace-nowrap cursor-pointer ${
-                filterStatus === status
-                  ? 'bg-gradient-to-r from-cyan-600 to-indigo-600 text-slate-100 border border-cyan-500/20 shadow'
-                  : 'bg-slate-800/60 text-slate-400 hover:text-slate-200 border border-transparent'
-              }`}
-            >
-              {status}
-            </button>
-          ))}
+        {/* Status Filter + Show Unchanged toggle */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex gap-1.5 overflow-x-auto pb-1">
+            {statusOptions.map((status) => (
+              <button
+                key={status}
+                onClick={() => setFilterStatus(status)}
+                className={`text-xs font-bold px-3 py-1.5 rounded-md transition whitespace-nowrap cursor-pointer ${
+                  filterStatus === status
+                    ? 'bg-gradient-to-r from-cyan-600 to-indigo-600 text-slate-100 border border-cyan-500/20 shadow'
+                    : 'bg-slate-800/60 text-slate-400 hover:text-slate-200 border border-transparent'
+                }`}
+              >
+                {status}
+              </button>
+            ))}
+          </div>
+
+          <label
+            title="Include unchanged objects in the list"
+            className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400 whitespace-nowrap cursor-pointer shrink-0 pb-1"
+          >
+            <input
+              type="checkbox"
+              checked={showUnchanged}
+              onChange={toggleShowUnchanged}
+              className="w-3.5 h-3.5 accent-cyan-500 cursor-pointer"
+            />
+            Unchanged
+          </label>
         </div>
       </div>
 

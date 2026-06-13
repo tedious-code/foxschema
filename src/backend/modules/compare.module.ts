@@ -66,12 +66,18 @@ export class CompareModule {
           JSON.stringify(source.primaryKey?.columns ?? []) !==
           JSON.stringify(target.primaryKey?.columns ?? []);
 
+        // Sequences and user-defined types carry their state in dedicated fields
+        const sequenceChanged = JSON.stringify(source.sequence ?? {}) !== JSON.stringify(target.sequence ?? {});
+        const userTypeChanged = JSON.stringify(source.userType ?? {}) !== JSON.stringify(target.userType ?? {});
+
         const isModified =
           columnDiffs.some((d) => d.status !== 'UNCHANGED') ||
           indexDiffs.some((d) => d.status !== 'UNCHANGED') ||
           foreignKeyDiffs.some((d) => d.status !== 'UNCHANGED') ||
           triggerDiffs.some((d) => d.status !== 'UNCHANGED') ||
           pkChanged ||
+          sequenceChanged ||
+          userTypeChanged ||
           source.definition !== target.definition;
 
         if (isModified) {
@@ -119,8 +125,9 @@ export class CompareModule {
         const nullChanged = sCol.nullable !== tCol.nullable;
         const defaultChanged = sCol.defaultValue !== tCol.defaultValue;
         const pkChanged = sCol.primaryKey !== tCol.primaryKey;
+        const identityChanged = !!sCol.identity !== !!tCol.identity;
 
-        if (typeChanged || nullChanged || defaultChanged || pkChanged) {
+        if (typeChanged || nullChanged || defaultChanged || pkChanged || identityChanged) {
           return { name, status: 'MODIFIED', source: sCol, target: tCol };
         }
         return { name, status: 'UNCHANGED', source: sCol, target: tCol };

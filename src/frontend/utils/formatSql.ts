@@ -17,6 +17,7 @@ export function formatSql(sql: string, dialect: string): string {
       language: (LANGUAGE_BY_DIALECT[dialect.toLowerCase()] ?? 'sql') as any,
       keywordCase: 'upper',
       tabWidth: 2,
+      indentStyle: 'tabularLeft'
     });
   } catch {
     return sql;

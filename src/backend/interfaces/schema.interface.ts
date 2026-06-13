@@ -1,4 +1,27 @@
-export type DbObjectType = 'TABLE' | 'VIEW' | 'FUNCTION' | 'PROCEDURE' | 'TRIGGER';
+export type DbObjectType = 'TABLE' | 'VIEW' | 'FUNCTION' | 'PROCEDURE' | 'TRIGGER' | 'SEQUENCE' | 'TYPE';
+
+export interface SequenceInfo {
+  dataType?: string;
+  start?: string;
+  increment?: string;
+  minValue?: string;
+  maxValue?: string;
+  cycle?: boolean;
+  cache?: number;
+}
+
+export interface TypeAttributeInfo {
+  name: string;
+  type: string;
+}
+
+export interface UserTypeInfo {
+  /** Underlying built-in type a DISTINCT/user-defined type maps to. */
+  sourceType?: string;
+  metaType?: string;
+  /** Member attributes for structured types. */
+  attributes?: TypeAttributeInfo[];
+}
 
 export interface PrimaryKeyInfo {
   name?: string;
@@ -18,6 +41,10 @@ export interface ColumnInfo {
   nullable: boolean;
   defaultValue?: string;
   primaryKey: boolean;
+  /** GENERATED ... AS IDENTITY column. */
+  identity?: boolean;
+  /** 'ALWAYS' | 'BY DEFAULT' when identity. */
+  identityGeneration?: string;
 }
 
 export interface IndexInfo {
@@ -42,6 +69,10 @@ export interface TableSchema {
   foreignKeys: ForeignKeyInfo[];
   primaryKey?: PrimaryKeyInfo;
   triggers?: TriggerInfo[];
+  /** Present when objectType === 'SEQUENCE'. */
+  sequence?: SequenceInfo;
+  /** Present when objectType === 'TYPE'. */
+  userType?: UserTypeInfo;
 }
 
 export interface CompareResult<T> {
@@ -57,6 +88,7 @@ export interface DbSchema {
   procedures: Record<string, DbProcedure[]>;
   triggers: Record<string, DbTrigger[]>;
   sequences: Record<string, DbSequence[]>;
+  userTypes: Record<string, DbUserType[]>;
   primaryKeys: Record<string, DbPrimaryKey[]>;
   foreignKeys: Record<string, DbForeignKey[]>;
   views: Record<string, DbView[]>;
@@ -74,7 +106,7 @@ export interface DbTable {
   indexes: DbIndex[];
 }
 
-export interface DbColumn { name: string; type: string; length?: number; scale?: number; nullable: boolean; defaultValue?: string; }
+export interface DbColumn { name: string; type: string; length?: number; scale?: number; nullable: boolean; defaultValue?: string; identity?: boolean; identityGeneration?: string; }
 export interface DbForeignKey { name: string; columns: string[]; referencedSchema: string; referencedTable: string; }
 export interface DbPrimaryKey { name: string; constName: string; column: string; colSeq: number; }
 export interface DbUniqueConstraint { name: string; columns: string[]; }
@@ -83,4 +115,5 @@ export interface DbIndexColumn { name: string; colName: string; colOrder: 'A' | 
 export interface DbView { name: string; schema: string; definition: string; columns: Record<string, DbColumn>; indexes: DbIndex[]; }
 export interface DbTrigger { name: string; schema: string; tableName: string; event: string; timing: string; definition: string; }
 export interface DbProcedure { name: string; schema: string; routineType: string; specificName?: string; definition?: string; }
-export interface DbSequence { name: string; schema: string; startValue?: number; increment?: number; minValue?: number; maxValue?: number; cycle?: boolean; }
+export interface DbSequence { name: string; schema: string; dataType?: string; startValue?: string; increment?: string; minValue?: string; maxValue?: string; cycle?: boolean; cache?: number; }
+export interface DbUserType { name: string; schema: string; sourceType?: string; metaType?: string; attributes?: { name: string; type: string }[]; }

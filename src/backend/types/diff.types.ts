@@ -5,8 +5,8 @@ export type DiffType = 'ADDED' | 'REMOVED' | 'MODIFIED' | 'UNCHANGED';
 export interface ColumnDiff {
   name: string;
   status: 'ADDED' | 'REMOVED' | 'MODIFIED' | 'UNCHANGED';
-  source?: { type: string; nullable: boolean; defaultValue?: string; primaryKey?: boolean };
-  target?: { type: string; nullable: boolean; defaultValue?: string; primaryKey?: boolean };
+  source?: { type: string; nullable: boolean; defaultValue?: string; primaryKey?: boolean; identity?: boolean };
+  target?: { type: string; nullable: boolean; defaultValue?: string; primaryKey?: boolean; identity?: boolean };
 }
 
 export interface IndexDiff {

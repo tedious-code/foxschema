@@ -14,9 +14,10 @@ import {
   DbIndex,
   DbIndexColumn,
   DbView,
+  DbUserType,
   TableSchema,
 } from "../../interfaces/schema.interface";
-import { 
+import {
   Db2TableRaw,
   Db2ColumnRaw,
   Db2PrimaryKeyRaw,
@@ -27,7 +28,9 @@ import {
   Db2ViewRaw,
   Db2TriggerRaw,
   Db2ProcedureRaw,
-  Db2SequenceRaw 
+  Db2SequenceRaw,
+  Db2UserTypeRaw,
+  Db2AttributeRaw
 } from "./db2.interface";
 
 export class Db2Provider implements SchemaProvider {
@@ -107,6 +110,8 @@ export class Db2Provider implements SchemaProvider {
           nullable: c.nullable,
           defaultValue: c.defaultValue,
           primaryKey: pkSet.has(c.name),
+          identity: c.identity,
+          identityGeneration: c.identityGeneration,
         })),
         // The 'P' index backs the primary key constraint — not a standalone index
         indices: table.indexes
@@ -135,6 +140,34 @@ export class Db2Provider implements SchemaProvider {
     for (const list of Object.values(dbSchema.procedures)) {
       for (const p of list) {
         result.push({ name: p.name, objectType: 'PROCEDURE', definition: p.definition, columns: [], indices: [], foreignKeys: [] });
+      }
+    }
+    for (const list of Object.values(dbSchema.sequences)) {
+      for (const s of list) {
+        result.push({
+          name: s.name,
+          objectType: 'SEQUENCE',
+          columns: [], indices: [], foreignKeys: [],
+          sequence: {
+            dataType: s.dataType,
+            start: s.startValue,
+            increment: s.increment,
+            minValue: s.minValue,
+            maxValue: s.maxValue,
+            cycle: s.cycle,
+            cache: s.cache,
+          },
+        });
+      }
+    }
+    for (const list of Object.values(dbSchema.userTypes)) {
+      for (const u of list) {
+        result.push({
+          name: u.name,
+          objectType: 'TYPE',
+          columns: [], indices: [], foreignKeys: [],
+          userType: { sourceType: u.sourceType, metaType: u.metaType, attributes: u.attributes },
+        });
       }
     }
     // Only triggers whose table is outside this schema remain standalone objects
@@ -176,7 +209,9 @@ export class Db2Provider implements SchemaProvider {
         rawViews,
         rawTriggers,
         rawProcedures,
-        rawSequences
+        rawSequences,
+        rawUserTypes,
+        rawAttributes
       ] = await Promise.all([
         ConnectionFactory.executeOnConnection<Db2TableRaw>(
           this.provider, conn,
@@ -185,7 +220,7 @@ export class Db2Provider implements SchemaProvider {
         ),
         ConnectionFactory.executeOnConnection<Db2ColumnRaw>(
           this.provider, conn,
-          `SELECT TABNAME, COLNAME, COLNO, TYPENAME, LENGTH, SCALE, NULLS, DEFAULT FROM SYSCAT.COLUMNS WHERE TABSCHEMA = ? ORDER BY TABNAME, COLNO`,
+          `SELECT TABNAME, COLNAME, COLNO, TYPENAME, LENGTH, SCALE, NULLS, DEFAULT, IDENTITY, GENERATED FROM SYSCAT.COLUMNS WHERE TABSCHEMA = ? ORDER BY TABNAME, COLNO`,
           [schemaName]
         ),
         ConnectionFactory.executeOnConnection<Db2PrimaryKeyRaw>(
@@ -237,12 +272,34 @@ export class Db2Provider implements SchemaProvider {
         ),
         ConnectionFactory.executeOnConnection<Db2ProcedureRaw>(
           this.provider, conn,
-          `SELECT ROUTINESCHEMA, ROUTINENAME, ROUTINETYPE, TEXT FROM SYSCAT.ROUTINES WHERE ROUTINESCHEMA = ?`,
+          // ORIGIN 'E'/'Q' = user external / SQL routines; excludes system-generated,
+          // sourced (the <, =, cast functions DB2 creates for user-defined types), and built-ins
+          `SELECT ROUTINESCHEMA, ROUTINENAME, ROUTINETYPE, TEXT FROM SYSCAT.ROUTINES WHERE ROUTINESCHEMA = ? AND ORIGIN IN ('E', 'Q')`,
           [schemaName]
         ),
         ConnectionFactory.executeOnConnection<Db2SequenceRaw>(
           this.provider, conn,
-          `SELECT SEQSCHEMA, SEQNAME FROM SYSCAT.SEQUENCES WHERE SEQSCHEMA = ?`,
+          `SELECT S.SEQSCHEMA, S.SEQNAME, D.TYPENAME, S.START, S.INCREMENT, S.MINVALUE, S.MAXVALUE, S.CYCLE, S.CACHE
+           FROM SYSCAT.SEQUENCES S
+           LEFT JOIN SYSCAT.DATATYPES D ON S.DATATYPEID = D.TYPEID
+           WHERE S.SEQSCHEMA = ? AND S.SEQTYPE = 'S'
+           ORDER BY S.SEQNAME`,
+          [schemaName]
+        ),
+        ConnectionFactory.executeOnConnection<Db2UserTypeRaw>(
+          this.provider, conn,
+          `SELECT TYPESCHEMA, TYPENAME, SOURCENAME, METATYPE, LENGTH, SCALE
+           FROM SYSCAT.DATATYPES
+           WHERE TYPESCHEMA = ? AND METATYPE IN ('T', 'R', 'S')
+           ORDER BY TYPENAME`,
+          [schemaName]
+        ),
+        ConnectionFactory.executeOnConnection<Db2AttributeRaw>(
+          this.provider, conn,
+          `SELECT TYPESCHEMA, TYPENAME, ATTR_NAME, ATTR_TYPENAME, LENGTH, SCALE, ORDINAL
+           FROM SYSCAT.ATTRIBUTES
+           WHERE TYPESCHEMA = ?
+           ORDER BY TYPENAME, ORDINAL`,
           [schemaName]
         )
       ]);
@@ -286,7 +343,10 @@ export class Db2Provider implements SchemaProvider {
           length: col.LENGTH,
           scale: col.SCALE,
           nullable: col.NULLS === 'Y',
-          defaultValue: col.DEFAULT ?? undefined
+          defaultValue: col.DEFAULT ?? undefined,
+          identity: col.IDENTITY === 'Y',
+          // GENERATED: 'A' = ALWAYS, 'D' = BY DEFAULT
+          identityGeneration: col.IDENTITY === 'Y' ? (col.GENERATED === 'D' ? 'BY DEFAULT' : 'ALWAYS') : undefined
         };
 
         if (tables[col.TABNAME]) {
@@ -428,14 +488,44 @@ export class Db2Provider implements SchemaProvider {
       }
 
       // 10. Process Sequences
+      const str = (v: unknown): string | undefined => (v === null || v === undefined ? undefined : String(v).trim());
       for (const seq of rawSequences) {
         const mappedSeq: DbSequence = {
           name: seq.SEQNAME,
-          schema: seq.SEQSCHEMA
+          schema: seq.SEQSCHEMA,
+          dataType: seq.TYPENAME?.trim(),
+          startValue: str(seq.START),
+          increment: str(seq.INCREMENT),
+          minValue: str(seq.MINVALUE),
+          maxValue: str(seq.MAXVALUE),
+          cycle: seq.CYCLE === 'Y',
+          cache: seq.CACHE
         };
 
         if (!sequences[seq.SEQNAME]) sequences[seq.SEQNAME] = [];
         sequences[seq.SEQNAME].push(mappedSeq);
+      }
+
+      // 11. Process User-Defined Types and their attributes (structured types)
+      const attrsByType = new Map<string, { name: string; type: string }[]>();
+      for (const a of rawAttributes) {
+        const len = a.LENGTH && a.LENGTH > 0 ? `(${a.LENGTH}${a.SCALE ? `,${a.SCALE}` : ''})` : '';
+        const list = attrsByType.get(a.TYPENAME) ?? [];
+        list.push({ name: a.ATTR_NAME, type: `${a.ATTR_TYPENAME?.trim()}${len}` });
+        attrsByType.set(a.TYPENAME, list);
+      }
+
+      const userTypes: Record<string, DbUserType[]> = {};
+      for (const ut of rawUserTypes) {
+        const mappedType: DbUserType = {
+          name: ut.TYPENAME,
+          schema: ut.TYPESCHEMA,
+          sourceType: ut.SOURCENAME?.trim(),
+          metaType: ut.METATYPE?.trim(),
+          attributes: attrsByType.get(ut.TYPENAME)
+        };
+        if (!userTypes[ut.TYPENAME]) userTypes[ut.TYPENAME] = [];
+        userTypes[ut.TYPENAME].push(mappedType);
       }
 
       return {
@@ -445,6 +535,7 @@ export class Db2Provider implements SchemaProvider {
         procedures,
         triggers,
         sequences,
+        userTypes,
         primaryKeys,
         foreignKeys,
         uniqueConstraints,

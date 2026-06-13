@@ -1,9 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, Suspense, lazy } from 'react';
 import { useSyncStore } from '../store/useSyncStore';
 import { Code, Play, RefreshCw, FileText, CheckCircle2, ChevronRight, ChevronDown, AlertCircle, Copy, GitCompareArrows, KeyRound, XCircle, Circle, Download, X, Undo2 } from 'lucide-react';
 import { SqlGeneratorModule } from '../../backend/modules/sql-generator.module';
 import { diffLines } from '../utils/lineDiff';
 import { formatSql } from '../utils/formatSql';
+// Monaco is heavy — load it only when a SQL surface is actually shown
+const SqlEditor = lazy(() => import('./SqlEditor').then((m) => ({ default: m.SqlEditor })));
+const SqlDiffEditor = lazy(() => import('./SqlEditor').then((m) => ({ default: m.SqlDiffEditor })));
+
+const EditorFallback: React.FC = () => (
+  <div className="flex-1 flex items-center justify-center text-slate-500 text-xs gap-2">
+    <RefreshCw className="w-4 h-4 animate-spin" /> Loading editor...
+  </div>
+);
 
 const ddlGenerator = new SqlGeneratorModule();
 
@@ -33,6 +42,7 @@ export const RightPanel: React.FC = () => {
   const [expandedTriggers, setExpandedTriggers] = useState<Record<string, boolean>>({});
   // Matches the case-insensitive schema compare; toggle off to inspect raw identifier casing
   const [ignoreCase, setIgnoreCase] = useState(true);
+  const [inlineDiff, setInlineDiff] = useState(false);
 
   const toggleTriggerDdl = (name: string) =>
     setExpandedTriggers((prev) => ({ ...prev, [name]: !prev[name] }));
@@ -68,17 +78,13 @@ export const RightPanel: React.FC = () => {
       : '';
     const sourceDdl = isTable ? rawSource : formatSql(rawSource, sourceConfig.dialect);
     const targetDdl = isTable ? rawTarget : formatSql(rawTarget, targetConfig.dialect);
-    // Target is the "old" side: green = only in source, red = only in target
-    const lines = diffLines(targetDdl, sourceDdl, { ignoreCase });
-    const addedCount = lines.filter((l) => l.type === 'added').length;
-    const removedCount = lines.filter((l) => l.type === 'removed').length;
 
     return (
-      <div className="flex-1 flex flex-col min-h-0 overflow-auto bg-slate-950/90 border-t border-slate-850">
-        {/* Diff header, GitHub style */}
-        <div className="flex items-center justify-between px-4 py-2 border-b border-slate-800 bg-slate-900/60 sticky top-0 z-10">
+      <div className="flex-1 flex flex-col min-h-0 bg-slate-950/90 border-t border-slate-850">
+        {/* Diff header */}
+        <div className="flex items-center justify-between px-4 py-2 border-b border-slate-800 bg-slate-900/60">
           <span className="text-xs font-mono text-slate-400">
-            {selectedTable.tableName} — Target (destination) vs Source
+            {selectedTable.tableName} — <span className="text-rose-400/80">Target</span> vs <span className="text-emerald-400/80">Source</span>
           </span>
           <div className="flex items-center gap-3">
             <label className="text-[10px] text-slate-400 flex items-center gap-1.5 cursor-pointer" title="Ignore identifier letter-case, matching how columns are compared">
@@ -90,53 +96,36 @@ export const RightPanel: React.FC = () => {
               />
               Ignore case
             </label>
-            <span className="text-[10px] font-mono flex items-center gap-2">
-              <span className="text-emerald-400">+{addedCount}</span>
-              <span className="text-rose-400">-{removedCount}</span>
-            </span>
+            <button
+              onClick={() => setInlineDiff((v) => !v)}
+              className="text-[10px] text-slate-300 border border-slate-700 hover:border-slate-500 rounded px-2 py-0.5 transition"
+            >
+              {inlineDiff ? 'Side-by-side' : 'Inline'}
+            </button>
           </div>
         </div>
 
-        <table className="w-full font-mono text-xs border-collapse">
-          <tbody>
-            {lines.map((line, i) => {
-              const rowClass =
-                line.type === 'added'
-                  ? 'bg-emerald-500/10'
-                  : line.type === 'removed'
-                  ? 'bg-rose-500/10'
-                  : '';
-              const textClass =
-                line.type === 'added'
-                  ? 'text-emerald-300'
-                  : line.type === 'removed'
-                  ? 'text-rose-300'
-                  : 'text-slate-300';
-              const marker = line.type === 'added' ? '+' : line.type === 'removed' ? '-' : ' ';
-
-              return (
-                <tr key={i} className={rowClass}>
-                  <td className="w-10 px-2 text-right text-slate-600 select-none border-r border-slate-800/60 align-top">
-                    {line.oldLine ?? ''}
-                  </td>
-                  <td className="w-10 px-2 text-right text-slate-600 select-none border-r border-slate-800/60 align-top">
-                    {line.newLine ?? ''}
-                  </td>
-                  <td className={`w-5 text-center select-none ${textClass} align-top`}>{marker}</td>
-                  <td className={`px-2 whitespace-pre ${textClass}`}>{line.text}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <div className="flex-1 min-h-0 relative">
+          <div className="absolute inset-0">
+            <Suspense fallback={<EditorFallback />}>
+              <SqlDiffEditor
+                original={targetDdl}
+                modified={sourceDdl}
+                dialect={targetConfig.dialect}
+                inline={inlineDiff}
+                ignoreCase={ignoreCase}
+              />
+            </Suspense>
+          </div>
+        </div>
       </div>
     );
   };
 
   // Renders one side's column state, highlighting the attributes that differ from the other side
   const renderColumnState = (
-    own?: { type: string; nullable: boolean; defaultValue?: string; primaryKey?: boolean },
-    other?: { type: string; nullable: boolean; defaultValue?: string; primaryKey?: boolean }
+    own?: { type: string; nullable: boolean; defaultValue?: string; primaryKey?: boolean; identity?: boolean },
+    other?: { type: string; nullable: boolean; defaultValue?: string; primaryKey?: boolean; identity?: boolean }
   ) => {
     if (!own) return <span className="text-slate-600 italic">none</span>;
 
@@ -145,6 +134,7 @@ export const RightPanel: React.FC = () => {
     const nullChanged = !!other && own.nullable !== other.nullable;
     const defChanged = !!other && (own.defaultValue ?? null) !== (other.defaultValue ?? null);
     const pkChanged = !!other && !!own.primaryKey !== !!other.primaryKey;
+    const identityChanged = !!other && !!own.identity !== !!other.identity;
     const hasDefault = own.defaultValue !== undefined && own.defaultValue !== null;
 
     return (
@@ -171,6 +161,18 @@ export const RightPanel: React.FC = () => {
           </span>
         ) : pkChanged ? (
           <span className={`${hl} italic`}>not PK</span>
+        ) : null}
+
+        {own.identity ? (
+          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
+            identityChanged
+              ? 'text-amber-300 bg-amber-500/15 border-amber-500/40'
+              : 'text-emerald-400 bg-emerald-950/40 border-emerald-500/20'
+          }`}>
+            IDENTITY
+          </span>
+        ) : identityChanged ? (
+          <span className={`${hl} italic`}>not identity</span>
         ) : null}
       </span>
     );
@@ -224,15 +226,119 @@ export const RightPanel: React.FC = () => {
             <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
               <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full"></span> Source DDL Definition
             </h4>
-            <div className="bg-slate-950 border border-slate-850 p-4 rounded-lg font-mono text-[11px] leading-relaxed text-slate-350 overflow-x-auto">
-              <pre>
-                {selectedTable.sourceTable?.definition
-                  ? formatSql(selectedTable.sourceTable.definition, sourceConfig.dialect)
-                  : formatSql(selectedTable.targetTable?.definition ?? '', targetConfig.dialect)}
-              </pre>
+            <div className="bg-slate-950 border border-slate-850 rounded-lg overflow-hidden h-64">
+              <Suspense fallback={<EditorFallback />}>
+                <SqlEditor
+                  dialect={selectedTable.sourceTable?.definition ? sourceConfig.dialect : targetConfig.dialect}
+                  value={
+                    selectedTable.sourceTable?.definition
+                      ? formatSql(selectedTable.sourceTable.definition, sourceConfig.dialect)
+                      : formatSql(selectedTable.targetTable?.definition ?? '', targetConfig.dialect)
+                  }
+                />
+              </Suspense>
             </div>
           </div>
         )}
+
+        {/* Sequence / Type Attribute Section */}
+        {(selectedTable.objectType === 'SEQUENCE' || selectedTable.objectType === 'TYPE') && (() => {
+          const isSeq = selectedTable.objectType === 'SEQUENCE';
+          const src: any = isSeq ? selectedTable.sourceTable?.sequence : selectedTable.sourceTable?.userType;
+          const tgt: any = isSeq ? selectedTable.targetTable?.sequence : selectedTable.targetTable?.userType;
+          const rows: { label: string; key: string }[] = isSeq
+            ? [
+                { label: 'Data Type', key: 'dataType' },
+                { label: 'Start', key: 'start' },
+                { label: 'Increment', key: 'increment' },
+                { label: 'Min Value', key: 'minValue' },
+                { label: 'Max Value', key: 'maxValue' },
+                { label: 'Cycle', key: 'cycle' },
+                { label: 'Cache', key: 'cache' },
+              ]
+            : [
+                { label: 'Source Type', key: 'sourceType' },
+                { label: 'Meta Type', key: 'metaType' },
+              ];
+          const fmt = (v: any) => (v === undefined || v === null || v === '' ? '—' : String(v));
+
+          return (
+            <div>
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center gap-2">
+                <span className={`w-1.5 h-1.5 rounded-full ${isSeq ? 'bg-teal-500' : 'bg-sky-500'}`}></span>
+                {isSeq ? 'Sequence Attributes' : 'Type Definition'}
+              </h4>
+              <div className="bg-slate-950/60 border border-slate-800/80 rounded-lg overflow-hidden">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-slate-900 border-b border-slate-800 text-slate-400">
+                      <th className="p-3 font-semibold">Attribute</th>
+                      <th className="p-3 font-semibold">Source</th>
+                      <th className="p-3 font-semibold text-center">Compare</th>
+                      <th className="p-3 font-semibold">Target</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-850">
+                    {rows.map((r) => {
+                      const sv = fmt(src?.[r.key]);
+                      const tv = fmt(tgt?.[r.key]);
+                      const changed = sv !== tv;
+                      return (
+                        <tr key={r.key} className={changed ? 'bg-amber-950/10' : ''}>
+                          <td className="p-3 text-slate-300 font-semibold">{r.label}</td>
+                          <td className={`p-3 font-mono ${changed ? 'text-amber-300' : 'text-slate-400'}`}>{sv}</td>
+                          <td className="p-3 text-center text-slate-600"><ChevronRight className="w-4 h-4 mx-auto" /></td>
+                          <td className={`p-3 font-mono ${changed ? 'text-amber-300' : 'text-slate-400'}`}>{tv}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Structured type member attributes */}
+              {!isSeq && ((src?.attributes?.length ?? 0) > 0 || (tgt?.attributes?.length ?? 0) > 0) && (() => {
+                const sAttrs: { name: string; type: string }[] = src?.attributes ?? [];
+                const tAttrs: { name: string; type: string }[] = tgt?.attributes ?? [];
+                const tMap = new Map(tAttrs.map((a) => [a.name.toUpperCase(), a]));
+                const sMap = new Map(sAttrs.map((a) => [a.name.toUpperCase(), a]));
+                const names = Array.from(new Set([...sAttrs.map((a) => a.name), ...tAttrs.map((a) => a.name)]));
+                return (
+                  <div className="mt-3">
+                    <h5 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Attributes</h5>
+                    <div className="bg-slate-950/60 border border-slate-800/80 rounded-lg overflow-hidden">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="bg-slate-900 border-b border-slate-800 text-slate-400">
+                            <th className="p-3 font-semibold">Attribute</th>
+                            <th className="p-3 font-semibold">Source Type</th>
+                            <th className="p-3 font-semibold text-center">Compare</th>
+                            <th className="p-3 font-semibold">Target Type</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-850">
+                          {names.map((n) => {
+                            const sa = sMap.get(n.toUpperCase());
+                            const ta = tMap.get(n.toUpperCase());
+                            const changed = (sa?.type ?? '') !== (ta?.type ?? '');
+                            return (
+                              <tr key={n} className={changed ? 'bg-amber-950/10' : ''}>
+                                <td className="p-3 text-slate-200 font-semibold font-mono">{n}</td>
+                                <td className={`p-3 font-mono ${changed ? 'text-amber-300' : 'text-slate-400'}`}>{sa?.type ?? <span className="text-slate-600 italic">none</span>}</td>
+                                <td className="p-3 text-center text-slate-600"><ChevronRight className="w-4 h-4 mx-auto" /></td>
+                                <td className={`p-3 font-mono ${changed ? 'text-amber-300' : 'text-slate-400'}`}>{ta?.type ?? <span className="text-slate-600 italic">none</span>}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          );
+        })()}
 
         {/* Columns Diff Section (Only show if columns present, e.g., Tables or Views) */}
         {colDiffs.length > 0 && (
@@ -677,12 +783,17 @@ export const RightPanel: React.FC = () => {
         ) : activeTab === 'DDL_DIFF' ? (
           renderDdlDiff()
         ) : (
-          <div className="flex-1 flex flex-col min-h-0 bg-slate-950/90 font-mono text-xs overflow-auto relative p-6 border-t border-slate-850">
-            {/* Visual DDL Code Box */}
-            <pre className="text-slate-300 whitespace-pre leading-relaxed select-text select-all">
-              {generatedSql || `-- No Migration script generated.`}
-            </pre>
-
+          <div className="flex-1 flex flex-col min-h-0 bg-slate-950/90 border-t border-slate-850">
+            <div className="flex-1 min-h-0 relative">
+              <div className="absolute inset-0">
+                <Suspense fallback={<EditorFallback />}>
+                  <SqlEditor
+                    dialect={targetConfig.dialect}
+                    value={generatedSql || '-- No migration script generated.'}
+                  />
+                </Suspense>
+              </div>
+            </div>
           </div>
         )}
       </div>

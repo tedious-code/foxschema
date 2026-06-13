@@ -54,13 +54,16 @@ export class SqlGeneratorModule {
     return table.columns.filter((c) => c.primaryKey).map((c) => c.name);
   }
 
+  private renderColumn(c: TableSchema['columns'][number]): string {
+    let def = `${c.name} ${c.type}`;
+    if (!c.nullable) def += ` NOT NULL`;
+    if (c.defaultValue) def += ` DEFAULT ${c.defaultValue}`;
+    if (c.identity) def += ` GENERATED ${c.identityGeneration ?? 'ALWAYS'} AS IDENTITY`;
+    return def;
+  }
+
   private renderCreateTable(table: TableSchema, mapping?: SchemaMapping): string {
-    const lines = table.columns.map((c) => {
-      let def = `  ${c.name} ${c.type}`;
-      if (!c.nullable) def += ` NOT NULL`;
-      if (c.defaultValue) def += ` DEFAULT ${c.defaultValue}`;
-      return def;
-    });
+    const lines = table.columns.map((c) => `  ${this.renderColumn(c)}`);
 
     const pkCols = this.primaryKeyColumns(table);
     if (pkCols.length > 0) {
@@ -75,7 +78,33 @@ export class SqlGeneratorModule {
    * Renders the full DDL of a single object as it exists on one side,
    * used for side-by-side source/target diff display.
    */
+  private renderCreateSequence(table: TableSchema): string {
+    const s = table.sequence ?? {};
+    let sql = `CREATE SEQUENCE ${table.name}`;
+    if (s.dataType) sql += ` AS ${s.dataType}`;
+    if (s.start !== undefined) sql += ` START WITH ${s.start}`;
+    if (s.increment !== undefined) sql += ` INCREMENT BY ${s.increment}`;
+    if (s.minValue !== undefined) sql += ` MINVALUE ${s.minValue}`;
+    if (s.maxValue !== undefined) sql += ` MAXVALUE ${s.maxValue}`;
+    sql += s.cycle ? ` CYCLE` : ` NO CYCLE`;
+    if (s.cache !== undefined) sql += s.cache > 0 ? ` CACHE ${s.cache}` : ` NO CACHE`;
+    return sql + `;`;
+  }
+
+  private renderCreateType(table: TableSchema): string {
+    const u = table.userType ?? {};
+    // Structured type: render member attributes
+    if (u.attributes && u.attributes.length > 0) {
+      const attrs = u.attributes.map((a) => `  ${a.name} ${a.type}`).join(',\n');
+      return `CREATE TYPE ${table.name} AS (\n${attrs}\n) MODE DB2SQL;`;
+    }
+    // Distinct type
+    return `CREATE TYPE ${table.name} AS ${u.sourceType ?? 'VARCHAR(255)'} WITH COMPARISONS;`;
+  }
+
   generateObjectDdl(table: TableSchema): string {
+    if (table.objectType === 'SEQUENCE') return this.renderCreateSequence(table);
+    if (table.objectType === 'TYPE') return this.renderCreateType(table);
     if (table.objectType !== 'TABLE') {
       return table.definition || `-- No definition available for ${table.objectType} ${table.name}`;
     }
@@ -116,6 +145,10 @@ export class SqlGeneratorModule {
       statements.push(`DROP PROCEDURE ${name};`);
     } else if (obj.objectType === 'TRIGGER') {
       statements.push(`DROP TRIGGER ${name};`);
+    } else if (obj.objectType === 'SEQUENCE') {
+      statements.push(`DROP SEQUENCE ${name};`);
+    } else if (obj.objectType === 'TYPE') {
+      statements.push(`DROP TYPE ${name};`);
     }
     return statements;
   }
@@ -142,6 +175,10 @@ export class SqlGeneratorModule {
       for (const trg of source.triggers ?? []) {
         if (trg.definition) statements.push(trg.definition.trim());
       }
+    } else if (obj.objectType === 'SEQUENCE' && source) {
+      statements.push(this.renderCreateSequence({ ...source, name }));
+    } else if (obj.objectType === 'TYPE' && source) {
+      statements.push(this.renderCreateType({ ...source, name }));
     } else if (obj.definition) {
       statements.push(obj.definition);
     }
@@ -233,6 +270,19 @@ export class SqlGeneratorModule {
       for (const trg of trgCreate) {
         if (trg.source?.definition) statements.push(trg.source.definition.trim());
       }
+    } else if (obj.objectType === 'SEQUENCE' && obj.sourceTable) {
+      // Sequence attributes can be altered in place (RESTART aside)
+      const s = obj.sourceTable.sequence ?? {};
+      let alter = `ALTER SEQUENCE ${tableName}`;
+      if (s.increment !== undefined) alter += ` INCREMENT BY ${s.increment}`;
+      if (s.minValue !== undefined) alter += ` MINVALUE ${s.minValue}`;
+      if (s.maxValue !== undefined) alter += ` MAXVALUE ${s.maxValue}`;
+      alter += s.cycle ? ` CYCLE` : ` NO CYCLE`;
+      statements.push(alter + `;`);
+    } else if (obj.objectType === 'TYPE' && obj.sourceTable) {
+      // Distinct types can't be altered — drop and recreate
+      statements.push(`DROP TYPE ${tableName};`);
+      statements.push(this.renderCreateType({ ...obj.sourceTable, name: tableName }));
     } else if (obj.definition) {
       // Re-create views/funcs/procs by dropping first
       if (obj.objectType === 'VIEW') {
