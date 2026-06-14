@@ -37,9 +37,9 @@ export const SqlEditor: React.FC<SqlViewerProps> = ({ value, dialect, editable =
 );
 
 interface SqlDiffProps {
-  /** Left side — the target (destination) DDL. */
+  /** Left side (the diff "original"). */
   original: string;
-  /** Right side — the source DDL. */
+  /** Right side (the diff "modified"). */
   modified: string;
   dialect: string;
   inline?: boolean;

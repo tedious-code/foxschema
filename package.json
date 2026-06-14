@@ -8,7 +8,9 @@
     "dev:api": "tsx watch src/backend/index.ts",
     "dev:all": "concurrently -n api,web -c cyan,magenta \"npm run dev:api\" \"npm run dev\"",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "engines": {
     "node": "24.x"
@@ -25,7 +27,8 @@
     "express": "^5.2.1",
     "tsx": "^4.22.4",
     "typescript": "~6.0.2",
-    "vite": "^8.0.12"
+    "vite": "^8.0.12",
+    "vitest": "^4.1.8"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",

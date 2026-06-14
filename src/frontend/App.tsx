@@ -2,6 +2,7 @@ import React from 'react';
 import { TopToolbar } from './components/TopToolbar';
 import { LeftPanel } from './components/LeftPanel';
 import { RightPanel } from './components/RightPanel';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { useSyncStore } from './store/useSyncStore';
 import { AlertCircle } from 'lucide-react';
 
@@ -24,10 +25,14 @@ const App: React.FC = () => {
       {/* Main Workspace Split View */}
       <main className="flex-1 flex min-h-0 overflow-hidden">
         {/* Schema Tree Browser */}
-        <LeftPanel />
+        <ErrorBoundary>
+          <LeftPanel />
+        </ErrorBoundary>
 
         {/* Selected Schema DDL & Operation Map */}
-        <RightPanel />
+        <ErrorBoundary>
+          <RightPanel />
+        </ErrorBoundary>
       </main>
     </div>
   );

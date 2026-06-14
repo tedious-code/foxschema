@@ -6,6 +6,9 @@ export const mysqlSettings: ProviderConnectionSettings = {
   defaultPort: 3306,
 
   buildConnectionString(option: ConnectionOptions): string {
+    // mysql driver accepts a URL directly — honor a pre-built one
+    if (option.connectionString?.trim()) return option.connectionString.trim();
+
     const host = option.host || 'localhost';
     const port = option.port || this.defaultPort;
     const username = encodeURIComponent(option.username || '');

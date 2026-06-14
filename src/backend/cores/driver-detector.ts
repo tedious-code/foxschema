@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import type { DriverInfo } from '../interfaces/schema-provider.interface';
-import { setupDb2ClientEnv } from './db2-env';
+import { setupDb2ClientEnv } from '../providers/db2/db2.env';
 
 const nodeRequire = createRequire(import.meta.url);
 

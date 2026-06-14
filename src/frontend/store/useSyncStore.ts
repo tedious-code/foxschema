@@ -1,11 +1,10 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { buildConnectionString, withConnectionString } from '../../backend/cores/connection-string';
-import { CompareModule } from '../../backend/modules/compare.module';
 import { SqlGeneratorModule } from '../../backend/modules/sql-generator.module';
 import { DbObjectType, ConnectionOptions, SavedConnection, DriverInfo } from '../../backend/interfaces/schema-provider.interface';
 import { SchemaCompareResult, TableDiff } from '../../backend/types/diff.types';
-import { testConnection as apiTestConnection, fetchTables, fetchSchemaList, executeMigration, checkDriver as apiCheckDriver, installDriver as apiInstallDriver } from '../api/schemaApi';
+import { testConnection as apiTestConnection, fetchSchemaList, compareSchemas, executeMigration, checkDriver as apiCheckDriver, installDriver as apiInstallDriver } from '../api/schemaApi';
 
 export interface MigrationProgressItem {
   objectName: string;
@@ -15,7 +14,8 @@ export interface MigrationProgressItem {
   error?: string;
 }
 
-const compareModule = new CompareModule();
+// Comparison runs server-side (/api/compare); SQL generation stays client-side
+// because it re-runs interactively as deploy checkboxes toggle, with no DB round-trip
 const sqlGeneratorModule = new SqlGeneratorModule();
 
 interface ConnectionConfig {
@@ -405,36 +405,30 @@ export const useSyncStore = create<SyncState>()(
       // Read configs after the refresh — it may have re-resolved the selected schema
       const { sourceConfig, targetConfig, selectedObjectTypes } = get();
 
-      let sourceSchemas = await fetchTables(
-        sourceConfig.dialect,
-        withConnectionString(sourceConfig.dialect, sourceConfig.option),
-        sourceConfig.schema
+      // Load + diff both schemas on the server; only the result comes back
+      const diffResult = await compareSchemas(
+        {
+          dialect: sourceConfig.dialect,
+          option: withConnectionString(sourceConfig.dialect, { ...sourceConfig.option, schema: sourceConfig.schema }),
+          schema: sourceConfig.schema,
+        },
+        {
+          dialect: targetConfig.dialect,
+          option: withConnectionString(targetConfig.dialect, { ...targetConfig.option, schema: targetConfig.schema }),
+          schema: targetConfig.schema,
+        },
+        selectedObjectTypes
       );
-      let targetSchemas = await fetchTables(
-        targetConfig.dialect,
-        withConnectionString(targetConfig.dialect, targetConfig.option),
-        targetConfig.schema
-      );
 
-      sourceSchemas = sourceSchemas.filter(s => selectedObjectTypes.includes(s.objectType));
-      targetSchemas = targetSchemas.filter(t => selectedObjectTypes.includes(t.objectType));
-
-      const diffResult = await compareModule.compare(sourceSchemas, targetSchemas);
-
-      // Every changed object is included in the deployment by default
-      const syncSelection: Record<string, boolean> = {};
-      for (const t of diffResult.tables) {
-        if (t.status !== 'UNCHANGED') syncSelection[t.tableName] = true;
-      }
-      const includedDiffs = diffResult.tables.filter((t) => syncSelection[t.tableName]);
-      const sql = sqlGeneratorModule.generateMigrationSql(includedDiffs, targetConfig.dialect, {
+      // Nothing is auto-selected — the user opts objects into the deployment
+      const sql = sqlGeneratorModule.generateMigrationSql([], targetConfig.dialect, {
         sourceSchema: sourceConfig.schema,
         targetSchema: targetConfig.schema,
       });
 
       set({
         compareResult: diffResult,
-        syncSelection,
+        syncSelection: {},
         generatedSql: sql,
         selectedTable: diffResult.tables[0] || null,
         isComparing: false,

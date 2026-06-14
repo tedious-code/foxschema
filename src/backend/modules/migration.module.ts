@@ -22,7 +22,9 @@ export class MigrationModule {
     onEvent: (e: MigrationEvent) => void
   ): Promise<void> {
     const provider = dialect.toLowerCase();
-    const conn = await ConnectionFactory.create(provider, option);
+    // Dedicated (non-pooled) connection — it runs a transaction and must not be
+    // returned to the shared pool in a mid-transaction state
+    const conn = await ConnectionFactory.create(provider, option, { pooled: false });
 
     try {
       await this.begin(provider, conn);

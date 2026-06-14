@@ -1,4 +1,4 @@
-import React, { useState, Suspense, lazy } from 'react';
+import React, { useState, useMemo, Suspense, lazy } from 'react';
 import { useSyncStore } from '../store/useSyncStore';
 import { Code, Play, RefreshCw, FileText, CheckCircle2, ChevronRight, ChevronDown, AlertCircle, Copy, GitCompareArrows, KeyRound, XCircle, Circle, Download, X, Undo2 } from 'lucide-react';
 import { SqlGeneratorModule } from '../../backend/modules/sql-generator.module';
@@ -47,6 +47,16 @@ export const RightPanel: React.FC = () => {
   const toggleTriggerDdl = (name: string) =>
     setExpandedTriggers((prev) => ({ ...prev, [name]: !prev[name] }));
 
+  // Pretty-print the migration script — but only when the SQL tab is actually
+  // shown, and skip very large scripts: formatting the whole thing (with routine
+  // bodies) is synchronous and can freeze the UI on big schemas.
+  // NOTE: must stay above any early return — hooks run unconditionally every render.
+  const formattedSql = useMemo(() => {
+    if (activeTab !== 'SQL' || !generatedSql) return generatedSql ?? '';
+    if (generatedSql.length > 50000) return generatedSql;
+    return formatSql(generatedSql, targetConfig.dialect);
+  }, [activeTab, generatedSql, targetConfig.dialect]);
+
   if (!selectedTable) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-slate-500 bg-slate-950/20 p-6">
@@ -60,8 +70,8 @@ export const RightPanel: React.FC = () => {
   }
 
   const handleCopySql = () => {
-    if (!generatedSql) return;
-    navigator.clipboard.writeText(generatedSql);
+    if (!formattedSql) return;
+    navigator.clipboard.writeText(formattedSql);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -84,7 +94,7 @@ export const RightPanel: React.FC = () => {
         {/* Diff header */}
         <div className="flex items-center justify-between px-4 py-2 border-b border-slate-800 bg-slate-900/60">
           <span className="text-xs font-mono text-slate-400">
-            {selectedTable.tableName} — <span className="text-rose-400/80">Target</span> vs <span className="text-emerald-400/80">Source</span>
+            {selectedTable.tableName} — <span className="text-cyan-400/80">Source</span> → <span className="text-purple-400/80">Target</span>
           </span>
           <div className="flex items-center gap-3">
             <label className="text-[10px] text-slate-400 flex items-center gap-1.5 cursor-pointer" title="Ignore identifier letter-case, matching how columns are compared">
@@ -109,8 +119,8 @@ export const RightPanel: React.FC = () => {
           <div className="absolute inset-0">
             <Suspense fallback={<EditorFallback />}>
               <SqlDiffEditor
-                original={targetDdl}
-                modified={sourceDdl}
+                original={sourceDdl}
+                modified={targetDdl}
                 dialect={targetConfig.dialect}
                 inline={inlineDiff}
                 ignoreCase={ignoreCase}
@@ -789,7 +799,7 @@ export const RightPanel: React.FC = () => {
                 <Suspense fallback={<EditorFallback />}>
                   <SqlEditor
                     dialect={targetConfig.dialect}
-                    value={generatedSql || '-- No migration script generated.'}
+                    value={formattedSql || '-- No migration script generated.'}
                   />
                 </Suspense>
               </div>

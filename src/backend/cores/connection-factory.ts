@@ -1,5 +1,5 @@
 import { ConnectionOptions } from '../interfaces/schema-provider.interface';
-import { buildDb2ConnectionString } from './db2-connection';
+import { getProviderSettings } from '../providers/provider-settings';
 import { DriverDetector } from './driver-detector';
 
 export class ConnectionFactory {
@@ -8,8 +8,11 @@ export class ConnectionFactory {
 
   static async create(
     provider: string,
-    options: ConnectionOptions
+    options: ConnectionOptions,
+    opts: { pooled?: boolean } = {}
   ): Promise<any> {
+
+    const pooled = opts.pooled !== false;
 
     const normalizedProvider =
       provider.toLowerCase();
@@ -26,21 +29,50 @@ export class ConnectionFactory {
     switch (normalizedProvider) {
 
       /**
-       * DB2
+       * DB2 — pooled via ibm_db's built-in Pool so each schema load reuses
+       * connections instead of paying the (expensive) DB2 connect cost per op.
        */
       case 'db2': {
 
         const ibmdb = DriverDetector.loadDriver('db2') as {
+          Pool?: new () => any;
           open: (
             connStr: string,
             cb: (err: Error | null, conn: any) => void
           ) => void;
         };
 
-        return this.openDb2Connection(
-          ibmdb,
-          connectionString
-        );
+        // Transactional callers (migrations) want a dedicated connection so a
+        // mid-transaction connection is never returned to the shared pool.
+        // Older ibm_db builds may also lack Pool — fall back to a raw open.
+        if (!pooled || !ibmdb.Pool) {
+          return this.openDb2Connection(ibmdb, connectionString);
+        }
+
+        let pool = this.pools.get(poolKey);
+        if (!pool) {
+          pool = new ibmdb.Pool();
+          if (typeof pool.setMaxPoolSize === 'function') {
+            pool.setMaxPoolSize(options.pool?.max ?? 10);
+          }
+          if (typeof pool.setConnectTimeout === 'function' && options.timeout?.connectMs) {
+            pool.setConnectTimeout(Math.ceil(options.timeout.connectMs / 1000));
+          }
+          if (typeof pool.setIdleTimeout === 'function' && options.pool?.idleTimeoutMs) {
+            pool.setIdleTimeout(Math.ceil(options.pool.idleTimeoutMs / 1000));
+          }
+          this.pools.set(poolKey, pool);
+        }
+
+        return new Promise((resolve, reject) => {
+          pool.open(connectionString, (err: Error | null, conn: any) => {
+            if (err) {
+              reject(err);
+              return;
+            }
+            resolve(conn);
+          });
+        });
       }
 
       /**
@@ -138,6 +170,29 @@ export class ConnectionFactory {
 
         break;
     }
+  }
+
+  /**
+   * Closes every pooled connection. Call on graceful shutdown so the process
+   * can exit cleanly instead of hanging on open DB handles.
+   */
+  static async closeAll(): Promise<void> {
+    const entries = Array.from(this.pools.entries());
+    this.pools.clear();
+
+    await Promise.all(
+      entries.map(async ([key, pool]) => {
+        try {
+          if (key.startsWith('postgres:') && typeof pool.end === 'function') {
+            await pool.end();
+          } else if (key.startsWith('db2:') && typeof pool.close === 'function') {
+            await new Promise<void>((resolve) => pool.close(() => resolve()));
+          }
+        } catch (err) {
+          console.error(`Error closing pool ${key.split(':')[0]}:`, err);
+        }
+      })
+    );
   }
 
   /**
@@ -315,53 +370,13 @@ export class ConnectionFactory {
   }
 
   /**
-   * Build connection string
+   * Build the driver-ready connection string via the provider's own format —
+   * the single source of truth shared with the frontend.
    */
   private static buildConnectionString(
     provider: string,
     options: ConnectionOptions
   ): string {
-
-    switch (provider) {
-
-      case 'postgres': {
-
-        if (
-          options.connectionString?.trim()
-        ) {
-          return options.connectionString;
-        }
-
-        return [
-          'postgresql://',
-          encodeURIComponent(
-            options.username ?? ''
-          ),
-          ':',
-          encodeURIComponent(
-            options.password ?? ''
-          ),
-          '@',
-          options.host ?? 'localhost',
-          ':',
-          options.port ?? 5432,
-          '/',
-          options.database ?? ''
-        ].join('');
-      }
-
-      case 'db2':
-
-        return buildDb2ConnectionString(
-          options,
-          options.schema
-        );
-
-      default:
-
-        throw new Error(
-          `Connection string builder not implemented for ${provider}`
-        );
-    }
+    return getProviderSettings(provider).buildConnectionString(options);
   }
 }

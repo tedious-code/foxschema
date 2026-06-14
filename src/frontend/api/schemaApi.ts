@@ -5,6 +5,29 @@ import type {
 } from '../../backend/interfaces/schema-provider.interface';
 import type { MigrationStep } from '../../backend/modules/sql-generator.module';
 import type { MigrationEvent } from '../../backend/modules/migration.module';
+import type { SchemaCompareResult } from '../../backend/types/diff.types';
+import type { DbObjectType } from '../../backend/interfaces/schema-provider.interface';
+
+interface CompareSide {
+  dialect: string;
+  option: ConnectionOptions;
+  schema: string;
+}
+
+/** Runs the schema comparison server-side and returns only the diff result. */
+export async function compareSchemas(
+  source: CompareSide,
+  target: CompareSide,
+  scope: DbObjectType[]
+): Promise<SchemaCompareResult> {
+  return parseJson<SchemaCompareResult>(
+    await fetch(`${API_BASE}/compare`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source, target, scope }),
+    })
+  );
+}
 
 const API_BASE = '/api';
 

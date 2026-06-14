@@ -1,4 +1,4 @@
-import type { ConnectionOptions } from '../interfaces/schema-provider.interface';
+import type { ConnectionOptions } from '../../interfaces/schema-provider.interface';
 
 /**
  * Build a DB2 CLI connection string (semicolon-delimited key=value pairs).

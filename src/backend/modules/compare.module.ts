@@ -4,7 +4,7 @@ import { TableSchema, ColumnInfo, IndexInfo, ForeignKeyInfo, TriggerInfo } from 
 export class CompareModule {
   /**
    * Normalizes an object name for matching: drops any leading "schema." qualifier
-   * and uppercases. So CARTER.GPX_FILE, "VLAD".GPX_File and GPX_FILE all match —
+   * and uppercases. So MY.MyTable, "YOU".MyTable and MyTable all match —
    * the comparison is about the object, not which schema it was read from.
    */
   private key(name: string): string {

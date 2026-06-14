@@ -1,15 +1,31 @@
 import { Router, Request, Response } from 'express';
 import { exec } from 'child_process';
 import { ConnectionModule } from '../modules/connection.module';
+import { CompareModule } from '../modules/compare.module';
 import { MigrationModule } from '../modules/migration.module';
 import { SqlGeneratorModule, MigrationStep } from '../modules/sql-generator.module';
 import { DriverDetector } from '../cores/driver-detector';
-import type { ConnectionOptions } from '../interfaces/schema-provider.interface';
+import type { ConnectionOptions, DbObjectType } from '../interfaces/schema-provider.interface';
 
 export function createApiRoutes(connectionModule: ConnectionModule): Router {
   const router = Router();
+  const compareModule = new CompareModule();
   const migrationModule = new MigrationModule();
   const sqlGenerator = new SqlGeneratorModule();
+
+  async function loadScopedTables(
+    dialect: string,
+    option: ConnectionOptions,
+    schema: string,
+    scope: DbObjectType[]
+  ) {
+    const provider = connectionModule.getProvider(dialect);
+    if (!provider.getTables) {
+      throw new Error(`Provider for dialect "${dialect}" does not support table listing`);
+    }
+    const tables = await provider.getTables(option, schema);
+    return scope?.length ? tables.filter((t) => scope.includes(t.objectType)) : tables;
+  }
 
   router.get('/health', (_req: Request, res: Response) => {
     res.json({ ok: true });
@@ -17,7 +33,6 @@ export function createApiRoutes(connectionModule: ConnectionModule): Router {
 
   router.get('/driver/check', (req: Request, res: Response) => {
     const dialect = String(req.query.dialect ?? '');
-
     try {
       const driver = connectionModule.checkDriver(dialect);
       res.json(driver);
@@ -107,6 +122,28 @@ export function createApiRoutes(connectionModule: ConnectionModule): Router {
       res.json({ tables });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Failed to load schema';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  router.post('/compare', async (req: Request, res: Response) => {
+    const { source, target, scope } = req.body as {
+      source: { dialect: string; option: ConnectionOptions; schema: string };
+      target: { dialect: string; option: ConnectionOptions; schema: string };
+      scope: DbObjectType[];
+    };
+
+    try {
+      // Load both schemas and diff server-side; only the result crosses the wire
+      const [sourceTables, targetTables] = await Promise.all([
+        loadScopedTables(source.dialect, source.option, source.schema, scope),
+        loadScopedTables(target.dialect, target.option, target.schema, scope),
+      ]);
+
+      const result = await compareModule.compare(sourceTables, targetTables);
+      res.json(result);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Schema comparison failed';
       res.status(500).json({ error: message });
     }
   });
