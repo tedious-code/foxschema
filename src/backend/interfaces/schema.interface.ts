@@ -75,12 +75,6 @@ export interface TableSchema {
   userType?: UserTypeInfo;
 }
 
-export interface CompareResult<T> {
-  added: T[];
-  removed: T[];
-  modified: Array<{ source: T; target: T; differences: string[] }>;
-}
-
 export interface DbSchema {
   tables: Record<string, DbTable>;
   columns: Record<string, DbColumn[]>;

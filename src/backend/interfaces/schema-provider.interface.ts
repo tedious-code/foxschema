@@ -53,3 +53,31 @@ export interface ProviderConnectionSettings {
   defaultSchema?: string;
   buildConnectionString(option: ConnectionOptions): string;
 }
+
+/**
+ * Backend-only driver adapter: owns everything native-driver-specific for a
+ * dialect (pooling, query execution, transactions). Adding a database platform
+ * means implementing this in the provider folder — core/modules stay generic.
+ */
+export interface DriverAdapter {
+  readonly dialect: string;
+  /** npm package that supplies this driver (for install/availability checks). */
+  readonly packageName: string;
+
+  /** Acquire a connection — pooled for reads, dedicated when pooled=false (transactions). */
+  acquire(connectionString: string, options: ConnectionOptions, pooled: boolean): Promise<any>;
+  /** Return a pooled connection to its pool, or close a dedicated one. */
+  release(connection: any): Promise<void>;
+  /** Run a statement and return rows. */
+  query<T = Record<string, unknown>>(connection: any, sql: string, params: readonly unknown[]): Promise<T[]>;
+
+  /** Transaction lifecycle (used by migrations). */
+  beginTransaction(connection: any): Promise<void>;
+  commitTransaction(connection: any): Promise<void>;
+  rollbackTransaction(connection: any): Promise<void>;
+  /** Pin the working schema so unqualified DDL lands in the right place. */
+  setCurrentSchema(connection: any, schema: string): Promise<void>;
+
+  /** Close every pooled resource (graceful shutdown). */
+  closeAll(): Promise<void>;
+}

@@ -4,7 +4,7 @@ import { buildConnectionString, withConnectionString } from '../../backend/cores
 import { SqlGeneratorModule } from '../../backend/modules/sql-generator.module';
 import { DbObjectType, ConnectionOptions, SavedConnection, DriverInfo } from '../../backend/interfaces/schema-provider.interface';
 import { SchemaCompareResult, TableDiff } from '../../backend/types/diff.types';
-import { testConnection as apiTestConnection, fetchSchemaList, compareSchemas, executeMigration, checkDriver as apiCheckDriver, installDriver as apiInstallDriver } from '../api/schemaApi';
+import { testConnection as apiTestConnection, fetchSchemaList, compareSchemas, executeMigration, checkDriver as apiCheckDriver, installDriver as apiInstallDriver, invalidateCache } from '../api/schemaApi';
 
 export interface MigrationProgressItem {
   objectName: string;
@@ -358,6 +358,8 @@ export const useSyncStore = create<SyncState>()(
   testSourceConnection: async () => {
     set({ isTestingSource: true, errorMsg: null });
     try {
+      // Explicit (re)connect — drop cached schema lists so the refresh is live
+      invalidateCache('schemas:');
       const { dialect, option, schema } = get().sourceConfig;
       const fullOption = withConnectionString(dialect, { ...option, schema });
       const success = await apiTestConnection(dialect, fullOption);
@@ -377,6 +379,8 @@ export const useSyncStore = create<SyncState>()(
   testTargetConnection: async () => {
     set({ isTestingTarget: true, errorMsg: null });
     try {
+      // Explicit (re)connect — drop cached schema lists so the refresh is live
+      invalidateCache('schemas:');
       const { dialect, option, schema } = get().targetConfig;
       const fullOption = withConnectionString(dialect, { ...option, schema });
       const success = await apiTestConnection(dialect, fullOption);

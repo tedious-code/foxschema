@@ -1,4 +1,5 @@
 import { ConnectionFactory } from '../cores/connection-factory';
+import { getAdapter } from '../providers/adapter-registry';
 import { ConnectionOptions } from '../interfaces/schema-provider.interface';
 import { MigrationStep } from './sql-generator.module';
 
@@ -9,9 +10,10 @@ export type MigrationEvent =
   | { type: 'done'; success: boolean; rolledBack: boolean; error?: string };
 
 /**
- * Executes a migration plan on the target inside one transaction.
- * DB2 and PostgreSQL both support transactional DDL, so any failure
- * rolls the target back to its pre-migration state.
+ * Executes a migration plan on the target inside one transaction. Dialect-
+ * specific transaction handling lives in the provider's DriverAdapter, so this
+ * orchestration stays generic. (DB2 and PostgreSQL support transactional DDL,
+ * so any failure rolls the target back to its pre-migration state.)
  */
 export class MigrationModule {
   async execute(
@@ -21,18 +23,18 @@ export class MigrationModule {
     steps: MigrationStep[],
     onEvent: (e: MigrationEvent) => void
   ): Promise<void> {
-    const provider = dialect.toLowerCase();
+    const adapter = getAdapter(dialect);
     // Dedicated (non-pooled) connection — it runs a transaction and must not be
     // returned to the shared pool in a mid-transaction state
-    const conn = await ConnectionFactory.create(provider, option, { pooled: false });
+    const conn = await ConnectionFactory.create(dialect, option, { pooled: false });
 
     try {
-      await this.begin(provider, conn);
+      await adapter.beginTransaction(conn);
 
       // Pin the target schema so unqualified DDL never lands in the
       // connection user's default schema
       if (schema?.trim()) {
-        await this.setCurrentSchema(provider, conn, schema.trim());
+        await adapter.setCurrentSchema(conn, schema.trim());
       }
 
       onEvent({ type: 'start', total: steps.length });
@@ -45,7 +47,7 @@ export class MigrationModule {
               // Trailing semicolons are script syntax, not part of the statement for the driver
               const sql = raw.trim().replace(/;\s*$/, '');
               if (!sql || sql.startsWith('--')) continue;
-              await ConnectionFactory.executeOnConnection(provider, conn, sql, []);
+              await adapter.query(conn, sql, []);
             }
             onEvent({ type: 'object', objectName: step.objectName, objectType: step.objectType, action: step.action, status: 'SUCCESS' });
           } catch (err) {
@@ -55,13 +57,13 @@ export class MigrationModule {
           }
         }
 
-        await this.commit(provider, conn);
+        await adapter.commitTransaction(conn);
         onEvent({ type: 'done', success: true, rolledBack: false });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         let rolledBack = false;
         try {
-          await this.rollback(provider, conn);
+          await adapter.rollbackTransaction(conn);
           rolledBack = true;
         } catch (rollbackErr) {
           console.error('Rollback failed:', rollbackErr);
@@ -69,46 +71,7 @@ export class MigrationModule {
         onEvent({ type: 'done', success: false, rolledBack, error: message });
       }
     } finally {
-      await ConnectionFactory.close(provider, conn);
+      await ConnectionFactory.close(dialect, conn);
     }
-  }
-
-  private async setCurrentSchema(provider: string, conn: any, schema: string): Promise<void> {
-    if (provider === 'db2') {
-      await ConnectionFactory.executeOnConnection(provider, conn, `SET CURRENT SCHEMA = ${schema.toUpperCase()}`, []);
-      // Unqualified function/procedure resolution follows CURRENT PATH, not CURRENT SCHEMA
-      await ConnectionFactory.executeOnConnection(provider, conn, `SET CURRENT PATH = SYSTEM PATH, ${schema.toUpperCase()}`, []);
-    } else if (provider === 'postgres') {
-      await ConnectionFactory.executeOnConnection(provider, conn, `SET search_path TO ${schema}`, []);
-    } else if (provider === 'mysql') {
-      await ConnectionFactory.executeOnConnection(provider, conn, `USE ${schema}`, []);
-    }
-  }
-
-  private begin(provider: string, conn: any): Promise<void> {
-    if (provider === 'db2') {
-      return new Promise((resolve, reject) => {
-        conn.beginTransaction((err: Error | null) => (err ? reject(err) : resolve()));
-      });
-    }
-    return ConnectionFactory.executeOnConnection(provider, conn, 'BEGIN', []).then(() => undefined);
-  }
-
-  private commit(provider: string, conn: any): Promise<void> {
-    if (provider === 'db2') {
-      return new Promise((resolve, reject) => {
-        conn.commitTransaction((err: Error | null) => (err ? reject(err) : resolve()));
-      });
-    }
-    return ConnectionFactory.executeOnConnection(provider, conn, 'COMMIT', []).then(() => undefined);
-  }
-
-  private rollback(provider: string, conn: any): Promise<void> {
-    if (provider === 'db2') {
-      return new Promise((resolve, reject) => {
-        conn.rollbackTransaction((err: Error | null) => (err ? reject(err) : resolve()));
-      });
-    }
-    return ConnectionFactory.executeOnConnection(provider, conn, 'ROLLBACK', []).then(() => undefined);
   }
 }

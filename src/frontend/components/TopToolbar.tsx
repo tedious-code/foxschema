@@ -50,6 +50,14 @@ export const TopToolbar: React.FC = () => {
     checkDrivers();
   }, []);
 
+  // Same dialect + server + database + schema means you'd be comparing a schema
+  // with itself (everything UNCHANGED) — almost always a misconfiguration
+  const sameConfig =
+    sourceConfig.dialect === targetConfig.dialect &&
+    (sourceConfig.option.host ?? '') === (targetConfig.option.host ?? '') &&
+    (sourceConfig.option.database ?? '') === (targetConfig.option.database ?? '') &&
+    sourceConfig.schema.trim().toUpperCase() === targetConfig.schema.trim().toUpperCase();
+
   const objectScopeOptions: { type: DbObjectType; label: string }[] = [
     { type: 'TABLE', label: 'Tables' },
     { type: 'VIEW', label: 'Views' },
@@ -400,25 +408,34 @@ export const TopToolbar: React.FC = () => {
           </div>
         </div>
 
-        <button
-          onClick={runSchemaComparison}
-          disabled={isComparing || !sourceConnected || !targetConnected || selectedObjectTypes.length === 0}
-          className={`flex items-center gap-2 px-5 py-2 rounded-lg text-base font-bold transition shadow-lg ${
-            sourceConnected && targetConnected && selectedObjectTypes.length > 0
-              ? 'bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-slate-950 shadow-indigo-500/10 cursor-pointer'
-              : 'bg-slate-850 text-slate-500 cursor-not-allowed border border-slate-800/50'
-          }`}
-        >
-          {isComparing ? (
-            <>
-              <RefreshCw className="w-4 h-4 animate-spin" /> Analyzing Schema...
-            </>
-          ) : (
-            <>
-              <Zap className="w-4 h-4 fill-current" /> Compare Schemas
-            </>
+        <div className="flex items-center gap-3">
+          {sameConfig && (
+            <span className="flex items-center gap-1.5 text-sm font-medium text-amber-400 bg-amber-950/30 border border-amber-500/20 px-3 py-1.5 rounded-lg">
+              <AlertCircle className="w-4 h-4 shrink-0" /> Source and target are the same
+            </span>
           )}
-        </button>
+
+          <button
+            onClick={runSchemaComparison}
+            disabled={isComparing || !sourceConnected || !targetConnected || selectedObjectTypes.length === 0 || sameConfig}
+            title={sameConfig ? 'Source and target point to the same database and schema' : undefined}
+            className={`flex items-center gap-2 px-5 py-2 rounded-lg text-base font-bold transition shadow-lg ${
+              sourceConnected && targetConnected && selectedObjectTypes.length > 0 && !sameConfig
+                ? 'bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-slate-950 shadow-indigo-500/10 cursor-pointer'
+                : 'bg-slate-850 text-slate-500 cursor-not-allowed border border-slate-800/50'
+            }`}
+          >
+            {isComparing ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" /> Analyzing Schema...
+              </>
+            ) : (
+              <>
+                <Zap className="w-4 h-4 fill-current" /> Compare Schemas
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       <ConnectionModal

@@ -8,8 +8,29 @@ export function createApp() {
   const app = express();
   const connectionModule = new ConnectionModule();
 
-  app.use(cors());
-  app.use(express.json());
+  // The API holds DB credentials and can run migrations, so only allow the
+  // local app to call it — this blocks a malicious site in the user's browser
+  // from reaching http://localhost:<port>/api and reading/triggering anything.
+  app.use(
+    cors({
+      origin: (origin, cb) => {
+        if (!origin) return cb(null, true); // same-origin / curl / dev proxy
+        try {
+          const host = new URL(origin).hostname;
+          if (host === 'localhost' || host === '127.0.0.1' || host === '::1') {
+            return cb(null, true);
+          }
+        } catch {
+          /* malformed origin → reject below */
+        }
+        cb(new Error('Origin not allowed'));
+      },
+    })
+  );
+
+  // Bounded body size — migration payloads carry routine bodies, but cap to
+  // avoid unbounded memory use from a hostile request.
+  app.use(express.json({ limit: '10mb' }));
   app.use('/api', createApiRoutes(connectionModule));
 
   return app;
