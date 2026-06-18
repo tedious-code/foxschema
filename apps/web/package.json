@@ -1,0 +1,42 @@
+{
+  "name": "@foxschema/web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:api": "AUTH_REQUIRED=true APP_ENCRYPTION_KEY=${APP_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000} tsx watch src/backend/index.ts",
+    "dev:all": "concurrently -n api,web -c cyan,magenta \"npm run dev:api\" \"npm run dev\"",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@foxschema/core": "*",
+    "@foxschema/shared": "*",
+    "@monaco-editor/react": "^4.7.0",
+    "@tailwindcss/vite": "^4.3.0",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "ibm_db": "4.0.1",
+    "lucide-react": "^1.16.0",
+    "monaco-editor": "^0.55.1",
+    "pg": "^8.21.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "sql-formatter": "^15.8.1",
+    "tailwindcss": "^4.3.0",
+    "zustand": "^5.0.13"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.9.1",
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "concurrently": "^9.2.1",
+    "tsx": "^4.22.4",
+    "vite": "^8.0.12"
+  }
+}
