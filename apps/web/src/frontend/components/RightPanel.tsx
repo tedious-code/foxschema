@@ -200,6 +200,22 @@ export const RightPanel: React.FC = () => {
     const fkDiffs = selectedTable.foreignKeyDiffs.filter((f) => keep(f.status));
     const trgDiffs = (selectedTable.triggerDiffs ?? []).filter((t) => keep(t.status));
 
+    // Counts for the summary — always over the FULL set (independent of the
+    // show-unchanged toggle). `original` is the count present in the original
+    // (target); ADDED items don't exist there yet.
+    const stat = (arr: { status: string }[]) => ({
+      original: arr.filter((x) => x.status !== 'ADDED').length,
+      added: arr.filter((x) => x.status === 'ADDED').length,
+      modified: arr.filter((x) => x.status === 'MODIFIED').length,
+      removed: arr.filter((x) => x.status === 'REMOVED').length,
+    });
+    const summary = [
+      { label: 'Columns', s: stat(selectedTable.columnDiffs) },
+      { label: 'Indexes', s: stat(selectedTable.indexDiffs) },
+      { label: 'Foreign Keys', s: stat(selectedTable.foreignKeyDiffs) },
+      { label: 'Triggers', s: stat(selectedTable.triggerDiffs ?? []) },
+    ];
+
     return (
       <div className="flex-1 flex flex-col min-h-0 text-xs overflow-y-auto p-6 space-y-6">
         {/* Table Overview Header */}
@@ -258,27 +274,78 @@ export const RightPanel: React.FC = () => {
           </div>
         </div>
 
-        {/* View / Function / Procedure Definition Code Display */}
-        {selectedTable.objectType !== 'TABLE' && (selectedTable.sourceTable?.definition || selectedTable.targetTable?.definition) && (
-          <div className="space-y-2">
-            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-              <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full"></span> Source DDL Definition
-            </h4>
-            <div className="bg-slate-950 border border-slate-850 rounded-lg overflow-hidden h-64">
-              <Suspense fallback={<EditorFallback />}>
-                <SqlEditor
-                  highlight={searchTerm}
-                  dialect={selectedTable.sourceTable?.definition ? sourceConfig.dialect : targetConfig.dialect}
-                  value={
-                    selectedTable.sourceTable?.definition
-                      ? formatSql(selectedTable.sourceTable.definition, sourceConfig.dialect)
-                      : formatSql(selectedTable.targetTable?.definition ?? '', targetConfig.dialect)
-                  }
-                />
-              </Suspense>
+        {/* Change summary — original count + added/modified/removed per category */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {summary.map(({ label, s }) => (
+            <div key={label} className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+              <div className="flex items-baseline justify-between">
+                <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400">{label}</span>
+                <span className="text-xl font-extrabold text-slate-100 leading-none" title={`${s.original} in original`}>
+                  {s.original}
+                </span>
+              </div>
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] font-bold">
+                {s.added > 0 && <span className="text-emerald-400">+{s.added} added</span>}
+                {s.modified > 0 && <span className="text-amber-400">~{s.modified} modified</span>}
+                {s.removed > 0 && <span className="text-rose-400">-{s.removed} removed</span>}
+                {s.added === 0 && s.modified === 0 && s.removed === 0 && <span className="text-slate-600">no changes</span>}
+              </div>
             </div>
-          </div>
-        )}
+          ))}
+        </div>
+
+        {/* Routine Parameters (functions & procedures) */}
+        {(selectedTable.objectType === 'FUNCTION' || selectedTable.objectType === 'PROCEDURE') && (() => {
+          const routine = selectedTable.sourceTable ?? selectedTable.targetTable;
+          const params = routine?.parameters ?? [];
+          const modeCls = (m: string) =>
+            m === 'RETURN' || m === 'RESULT'
+              ? 'text-emerald-300 bg-emerald-950/40 border-emerald-500/25'
+              : m === 'OUT' || m === 'INOUT'
+              ? 'text-amber-300 bg-amber-950/40 border-amber-500/25'
+              : 'text-slate-300 bg-slate-800 border-slate-700/50';
+          return (
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                <span className="w-1.5 h-1.5 bg-cyan-500 rounded-full"></span>
+                Parameters
+                {selectedTable.objectType === 'FUNCTION' && routine?.functionKind && (
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded border text-indigo-300 bg-indigo-950/40 border-indigo-500/30 uppercase tracking-wider">
+                    {routine.functionKind}-valued
+                  </span>
+                )}
+              </h4>
+              {params.length === 0 ? (
+                <p className="text-xs text-slate-500 italic">No parameters.</p>
+              ) : (
+                <div className="bg-slate-950/60 border border-slate-800/80 rounded-lg overflow-hidden">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-slate-900 border-b border-slate-800 text-slate-400">
+                        <th className="p-3 font-semibold">Parameter</th>
+                        <th className="p-3 font-semibold">Type</th>
+                        <th className="p-3 font-semibold text-right">Mode</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-850">
+                      {params.map((p, i) => (
+                        <tr key={`${p.name}-${i}`} className="hover:bg-slate-900/30">
+                          <td className="p-3 font-mono text-slate-200">
+                            {p.name || <span className="text-slate-600 italic">(unnamed)</span>}
+                          </td>
+                          <td className="p-3 font-mono text-cyan-300/90">{p.type}</td>
+                          <td className="p-3 text-right">
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${modeCls(p.mode)}`}>{p.mode}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Sequence / Type Attribute Section */}
         {(selectedTable.objectType === 'SEQUENCE' || selectedTable.objectType === 'TYPE') && (() => {
@@ -525,6 +592,28 @@ export const RightPanel: React.FC = () => {
             </div>
           );
         })()}
+
+        {/* View / Function / Procedure Definition — below the column blueprint */}
+        {selectedTable.objectType !== 'TABLE' && (selectedTable.sourceTable?.definition || selectedTable.targetTable?.definition) && (
+          <div className="space-y-2">
+            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+              <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full"></span> Source DDL Definition
+            </h4>
+            <div className="bg-slate-950 border border-slate-850 rounded-lg overflow-hidden h-64">
+              <Suspense fallback={<EditorFallback />}>
+                <SqlEditor
+                  highlight={searchTerm}
+                  dialect={selectedTable.sourceTable?.definition ? sourceConfig.dialect : targetConfig.dialect}
+                  value={
+                    selectedTable.sourceTable?.definition
+                      ? formatSql(selectedTable.sourceTable.definition, sourceConfig.dialect)
+                      : formatSql(selectedTable.targetTable?.definition ?? '', targetConfig.dialect)
+                  }
+                />
+              </Suspense>
+            </div>
+          </div>
+        )}
 
         {/* Indices Diff Section */}
         {indexDiffs.length > 0 && (

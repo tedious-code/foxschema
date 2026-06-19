@@ -16,6 +16,8 @@ import {
   DbView,
   DbUserType,
   TableSchema,
+  RoutineParameter,
+  RoutineParameterMode,
 } from '@foxschema/shared';
 import {
   Db2TableRaw,
@@ -28,6 +30,7 @@ import {
   Db2ViewRaw,
   Db2TriggerRaw,
   Db2ProcedureRaw,
+  Db2RoutineParmRaw,
   Db2SequenceRaw,
   Db2UserTypeRaw,
   Db2AttributeRaw
@@ -129,17 +132,49 @@ export class Db2Provider implements SchemaProvider {
 
     for (const viewList of Object.values(dbSchema.views)) {
       for (const v of viewList) {
-        result.push({ name: v.name, objectType: 'VIEW', definition: v.definition, columns: [], indices: [], foreignKeys: [] });
+        result.push({
+          name: v.name,
+          objectType: 'VIEW',
+          definition: v.definition,
+          columns: Object.values(v.columns).map((c) => ({
+            name: c.name,
+            type: this.formatType(c),
+            nullable: c.nullable,
+            defaultValue: c.defaultValue,
+            primaryKey: false,
+            identity: c.identity,
+            identityGeneration: c.identityGeneration,
+          })),
+          indices: [],
+          foreignKeys: [],
+        });
       }
     }
     for (const list of Object.values(dbSchema.functions)) {
       for (const f of list) {
-        result.push({ name: f.name, objectType: 'FUNCTION', definition: f.definition, columns: [], indices: [], foreignKeys: [] });
+        result.push({
+          name: f.name,
+          objectType: 'FUNCTION',
+          definition: f.definition,
+          columns: [],
+          indices: [],
+          foreignKeys: [],
+          parameters: f.parameters ?? [],
+          functionKind: f.functionType === 'T' ? 'table' : 'scalar',
+        });
       }
     }
     for (const list of Object.values(dbSchema.procedures)) {
       for (const p of list) {
-        result.push({ name: p.name, objectType: 'PROCEDURE', definition: p.definition, columns: [], indices: [], foreignKeys: [] });
+        result.push({
+          name: p.name,
+          objectType: 'PROCEDURE',
+          definition: p.definition,
+          columns: [],
+          indices: [],
+          foreignKeys: [],
+          parameters: p.parameters ?? [],
+        });
       }
     }
     for (const list of Object.values(dbSchema.sequences)) {
@@ -182,7 +217,7 @@ export class Db2Provider implements SchemaProvider {
     return result.sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  private formatType(c: DbColumn): string {
+  private formatType(c: { type: string; length?: number; scale?: number }): string {
     const type = c.type.trim().toUpperCase();
     if ((type === 'DECIMAL' || type === 'NUMERIC') && c.length) {
       return `${type}(${c.length},${c.scale ?? 0})`;
@@ -211,7 +246,8 @@ export class Db2Provider implements SchemaProvider {
         rawProcedures,
         rawSequences,
         rawUserTypes,
-        rawAttributes
+        rawAttributes,
+        rawRoutineParms
       ] = await Promise.all([
         ConnectionFactory.executeOnConnection<Db2TableRaw>(
           this.provider, conn,
@@ -274,7 +310,7 @@ export class Db2Provider implements SchemaProvider {
           this.provider, conn,
           // ORIGIN 'E'/'Q' = user external / SQL routines; excludes system-generated,
           // sourced (the <, =, cast functions DB2 creates for user-defined types), and built-ins
-          `SELECT ROUTINESCHEMA, ROUTINENAME, ROUTINETYPE, TEXT FROM SYSCAT.ROUTINES WHERE ROUTINESCHEMA = ? AND ORIGIN IN ('E', 'Q')`,
+          `SELECT ROUTINESCHEMA, ROUTINENAME, ROUTINETYPE, FUNCTIONTYPE, TEXT FROM SYSCAT.ROUTINES WHERE ROUTINESCHEMA = ? AND ORIGIN IN ('E', 'Q')`,
           [schemaName]
         ),
         ConnectionFactory.executeOnConnection<Db2SequenceRaw>(
@@ -300,6 +336,16 @@ export class Db2Provider implements SchemaProvider {
            FROM SYSCAT.ATTRIBUTES
            WHERE TYPESCHEMA = ?
            ORDER BY TYPENAME, ORDINAL`,
+          [schemaName]
+        ),
+        ConnectionFactory.executeOnConnection<Db2RoutineParmRaw>(
+          this.provider, conn,
+          // Parameters (and the table-function result columns, ROWTYPE='C') of
+          // user routines, ordered for a faithful signature.
+          `SELECT ROUTINENAME, PARMNAME, TYPENAME, LENGTH, SCALE, ROWTYPE, ORDINAL
+           FROM SYSCAT.ROUTINEPARMS
+           WHERE ROUTINESCHEMA = ?
+           ORDER BY ROUTINENAME, ORDINAL`,
           [schemaName]
         )
       ]);
@@ -441,12 +487,15 @@ export class Db2Provider implements SchemaProvider {
         if (!indexes[idx.TABNAME]) indexes[idx.TABNAME] = [];
         indexes[idx.TABNAME].push(mappedIdx);
       }
-      for (const vw of rawViews) {     
+      for (const vw of rawViews) {
+        // View columns come through SYSCAT.COLUMNS (collected in `columns` above).
+        const viewColumns: Record<string, DbColumn> = {};
+        for (const c of columns[vw.VIEWNAME] ?? []) viewColumns[c.name] = c;
         const mappedView: DbView = {
           name: vw.VIEWNAME,
           schema: vw.VIEWSCHEMA,
           definition: vw.TEXT,
-          columns: {},
+          columns: viewColumns,
           indexes: []
         };
         if (!views[vw.VIEWNAME]) views[vw.VIEWNAME] = [];
@@ -470,12 +519,27 @@ export class Db2Provider implements SchemaProvider {
       }
 
       // 9. Process Procedures & Functions
+      // Group routine parameters (and table-function result columns) by name.
+      const parmMode = (rt: string): RoutineParameterMode =>
+        rt === 'O' ? 'OUT' : rt === 'B' ? 'INOUT' : rt === 'C' ? 'RESULT' : rt === 'R' ? 'RETURN' : 'IN';
+      const routineParms: Record<string, RoutineParameter[]> = {};
+      for (const p of rawRoutineParms) {
+        (routineParms[p.ROUTINENAME] ??= []).push({
+          name: p.PARMNAME ?? '',
+          type: this.formatType({ type: p.TYPENAME, length: p.LENGTH, scale: p.SCALE }),
+          mode: parmMode(p.ROWTYPE),
+          ordinal: p.ORDINAL,
+        });
+      }
+
       for (const proc of rawProcedures) {
         const mappedRoutine: DbProcedure = {
           name: proc.ROUTINENAME,
           schema: proc.ROUTINESCHEMA,
           routineType: proc.ROUTINETYPE === 'P' ? 'PROCEDURE' : 'FUNCTION',
-          definition: proc.TEXT ?? undefined
+          definition: proc.TEXT ?? undefined,
+          functionType: proc.FUNCTIONTYPE ?? undefined,
+          parameters: routineParms[proc.ROUTINENAME] ?? [],
         };
 
         if (proc.ROUTINETYPE === 'P') {

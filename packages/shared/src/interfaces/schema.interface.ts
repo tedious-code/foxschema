@@ -60,6 +60,15 @@ export interface ForeignKeyInfo {
   referencedColumns: string[];
 }
 
+export type RoutineParameterMode = 'IN' | 'OUT' | 'INOUT' | 'RETURN' | 'RESULT';
+
+export interface RoutineParameter {
+  name: string;
+  type: string;
+  mode: RoutineParameterMode;
+  ordinal?: number;
+}
+
 export interface TableSchema {
   name: string;
   objectType: DbObjectType;
@@ -73,6 +82,10 @@ export interface TableSchema {
   sequence?: SequenceInfo;
   /** Present when objectType === 'TYPE'. */
   userType?: UserTypeInfo;
+  /** Present when objectType === 'FUNCTION' | 'PROCEDURE'. */
+  parameters?: RoutineParameter[];
+  /** Present when objectType === 'FUNCTION': scalar vs table-valued. */
+  functionKind?: 'scalar' | 'table';
 }
 
 export interface DbSchema {
@@ -108,6 +121,6 @@ export interface DbIndex { name: string; uniqueRule: string; columns: string[]; 
 export interface DbIndexColumn { name: string; colName: string; colOrder: 'A' | 'D'; colSeq: number; }
 export interface DbView { name: string; schema: string; definition: string; columns: Record<string, DbColumn>; indexes: DbIndex[]; }
 export interface DbTrigger { name: string; schema: string; tableName: string; event: string; timing: string; definition: string; }
-export interface DbProcedure { name: string; schema: string; routineType: string; specificName?: string; definition?: string; }
+export interface DbProcedure { name: string; schema: string; routineType: string; specificName?: string; definition?: string; functionType?: string; parameters?: RoutineParameter[]; }
 export interface DbSequence { name: string; schema: string; dataType?: string; startValue?: string; increment?: string; minValue?: string; maxValue?: string; cycle?: boolean; cache?: number; }
 export interface DbUserType { name: string; schema: string; sourceType?: string; metaType?: string; attributes?: { name: string; type: string }[]; }
