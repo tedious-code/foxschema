@@ -104,6 +104,6 @@
 
 /* Search keyword highlight inside Monaco (object-browser search → SQL panels) */
 .fox-search-hl {
-  background-color: rgba(34, 211, 238, 0.25);
+  background-color: rgb(255, 0, 0);
   border-radius: 2px;
 }

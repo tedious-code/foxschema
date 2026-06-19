@@ -3,6 +3,7 @@ import { useSyncStore } from '../store/useSyncStore';
 import { Search, Layers, Table2, Eye, FunctionSquare, SquareTerminal, Zap, Hash, Box } from 'lucide-react';
 import { TableDiff } from '@foxschema/shared';
 import { DbObjectType } from '@foxschema/shared';
+import { highlightMatch } from '../utils/highlight';
 
 const TYPE_META: Record<DbObjectType, { label: string; group: string; color: string; bg: string; icon: React.ReactNode }> = {
   TABLE: {
@@ -60,31 +61,6 @@ const TYPE_ORDER: DbObjectType[] = ['TABLE', 'VIEW', 'PROCEDURE', 'FUNCTION', 'T
 
 const MIN_WIDTH = 280;
 const MAX_WIDTH = 640;
-
-// Wrap every (case-insensitive) occurrence of `query` in `text` with a <mark>,
-// so the matched keyword stands out in the result list. Uses indexOf rather
-// than a RegExp so the query needs no escaping.
-const highlightMatch = (text: string, query: string): React.ReactNode => {
-  if (!query) return text;
-  const lower = text.toLowerCase();
-  const parts: React.ReactNode[] = [];
-  let from = 0;
-  let at = lower.indexOf(query);
-  if (at === -1) return text;
-  let key = 0;
-  while (at !== -1) {
-    if (at > from) parts.push(text.slice(from, at));
-    parts.push(
-      <mark key={key++} className="bg-cyan-400/25 text-cyan-200 rounded-sm px-0.5">
-        {text.slice(at, at + query.length)}
-      </mark>
-    );
-    from = at + query.length;
-    at = lower.indexOf(query, from);
-  }
-  if (from < text.length) parts.push(text.slice(from));
-  return parts;
-};
 
 export const LeftPanel: React.FC = () => {
   const {

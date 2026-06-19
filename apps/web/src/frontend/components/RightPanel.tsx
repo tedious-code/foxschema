@@ -3,6 +3,7 @@ import { useSyncStore } from '../store/useSyncStore';
 import { Code, Play, RefreshCw, FileText, CheckCircle2, ChevronRight, ChevronDown, AlertCircle, Copy, GitCompareArrows, KeyRound, XCircle, Circle, Download, X, Undo2 } from 'lucide-react';
 import { SqlGeneratorModule } from '@foxschema/shared';
 import { diffLines } from '../utils/lineDiff';
+import { highlightMatch } from '../utils/highlight';
 import { formatSql } from '../utils/formatSql';
 // Monaco is heavy — load it only when a SQL surface is actually shown
 const SqlEditor = lazy(() => import('./SqlEditor').then((m) => ({ default: m.SqlEditor })));
@@ -193,6 +194,9 @@ export const RightPanel: React.FC = () => {
   };
 
   const renderSchemaObjectDiff = () => {
+    // Highlight the object-browser search keyword in the blueprint (e.g. a
+    // matched column name), mirroring the SQL panels.
+    const query = searchTerm.trim().toLowerCase();
     // Hide UNCHANGED items unless the "Show unchanged" toggle is on.
     const keep = (status: string) => showUnchangedDetail || status !== 'UNCHANGED';
     const colDiffs = selectedTable.columnDiffs.filter((c) => keep(c.status));
@@ -501,7 +505,7 @@ export const RightPanel: React.FC = () => {
                       <tr key={col.name} className={`${rowBg} transition-colors`}>
                         <td className="p-3 font-semibold text-slate-200 font-mono">
                           <span className="flex items-center gap-1.5">
-                            {col.name}
+                            {highlightMatch(col.name, query)}
                             {isPk && <KeyRound className="w-3.5 h-3.5 text-amber-400" aria-label="Primary key" />}
                           </span>
                         </td>
@@ -643,7 +647,7 @@ export const RightPanel: React.FC = () => {
 
                     return (
                       <tr key={idx.name} className="hover:bg-slate-900/10">
-                        <td className="p-3 text-slate-200 font-semibold font-mono">{idx.name}</td>
+                        <td className="p-3 text-slate-200 font-semibold font-mono">{highlightMatch(idx.name, query)}</td>
                         <td className="p-3 text-slate-400 font-mono">{info?.columns.join(', ')}</td>
                         <td className="p-3 text-slate-400 font-mono">{info?.unique ? 'UNIQUE' : 'NON-UNIQUE'}</td>
                         <td className="p-3 text-right">{opBadge}</td>
@@ -684,7 +688,7 @@ export const RightPanel: React.FC = () => {
 
                     return (
                       <tr key={fk.name} className="hover:bg-slate-900/10">
-                        <td className="p-3 text-slate-200 font-semibold font-mono">{fk.name}</td>
+                        <td className="p-3 text-slate-200 font-semibold font-mono">{highlightMatch(fk.name, query)}</td>
                         <td className="p-3 text-slate-400 font-mono">{info?.columns.join(', ')}</td>
                         <td className="p-3 text-slate-400 font-mono">{info?.referencedTable} ({info?.referencedColumns.join(', ')})</td>
                         <td className="p-3 text-right">{opBadge}</td>
@@ -759,7 +763,7 @@ export const RightPanel: React.FC = () => {
                                 {isExpanded
                                   ? <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
                                   : <ChevronRight className="w-3.5 h-3.5 text-slate-500" />}
-                                {trg.name}
+                                {highlightMatch(trg.name, query)}
                               </span>
                             </td>
                             <td className="p-3 text-slate-400 font-mono">

@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useSyncStore } from '../store/useSyncStore';
-import { Database, ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, CheckCircle2, Zap, Settings, Download, KeyRound } from 'lucide-react';
+import { Database, ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, CheckCircle2, Zap, Settings, KeyRound } from 'lucide-react';
 import { ProfileMenu } from './ProfileMenu';
 import { CredentialManager } from './CredentialManager';
 import { DbObjectType } from '@foxschema/shared';
@@ -35,23 +35,10 @@ export const TopToolbar: React.FC = () => {
     selectedTargetConnectionId,
     applySavedConnection,
     swapSourceTarget,
-    sourceSchemaList,
-    targetSchemaList,
-    setSchema,
-    sourceDriverInfo,
-    targetDriverInfo,
-    isInstallingDriver,
-    checkDrivers,
-    installDriver
   } = useSyncStore();
 
   const [activeModalTarget, setActiveModalTarget] = useState<'source' | 'target' | null>(null);
   const [showCredentials, setShowCredentials] = useState(false);
-
-  // Auto-run driver check on mount
-  useEffect(() => {
-    checkDrivers();
-  }, []);
 
   // Same dialect + server + database + schema means you'd be comparing a schema
   // with itself (everything UNCHANGED) — almost always a misconfiguration
@@ -112,43 +99,6 @@ export const TopToolbar: React.FC = () => {
       <div className="grid grid-cols-1 xl:grid-cols-11 gap-3 items-stretch">
         {/* Source Configuration */}
         <div className="xl:col-span-5 bg-slate-950/60 p-3 rounded-lg border border-slate-800/80 flex flex-col gap-2">
-          <div className="flex justify-between items-center">
-            <span className="text-base font-semibold text-cyan-400 flex items-center gap-1.5 uppercase tracking-wider">
-              <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-pulse"></span>
-              Source Database
-            </span>
-            
-            {/* Driver Badge */}
-            {sourceDriverInfo && (
-              <div className="flex items-center gap-1.5">
-                {sourceDriverInfo.installed ? (
-                  <span className="text-sm text-emerald-400 bg-emerald-950/30 px-2 py-0.5 rounded-full border border-emerald-500/10 font-medium">
-                    Driver: {sourceDriverInfo.version || 'Installed'}
-                  </span>
-                ) : (
-                  <div className="flex items-center gap-1">
-                    <span className="text-sm text-amber-400 bg-amber-950/30 px-2 py-0.5 rounded-full border border-amber-500/10 font-medium flex items-center gap-1">
-                      <AlertCircle className="w-2.5 h-2.5" /> Driver Missing
-                    </span>
-                    <button
-                      disabled={isInstallingDriver !== null}
-                      onClick={() => installDriver('source')}
-                      className="text-sm font-bold text-slate-950 bg-amber-400 hover:bg-amber-300 disabled:bg-slate-800 disabled:text-slate-500 px-2 py-0.5 rounded transition flex items-center gap-0.5 cursor-pointer"
-                      title="Install driver package automatically"
-                    >
-                      {isInstallingDriver === sourceConfig.dialect ? (
-                        <RefreshCw className="w-2.5 h-2.5 animate-spin" />
-                      ) : (
-                        <Download className="w-2.5 h-2.5" />
-                      )}
-                      Install
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
           {/* Label + Add/Edit Connection + status, all inline */}
           <div className="flex items-center gap-2">
             {connections.length > 0 && (
@@ -217,7 +167,7 @@ export const TopToolbar: React.FC = () => {
         </div>
 
         {/* Direction / Swap control — migration always flows Source → Target */}
-        <div className="hidden xl:flex xl:col-span-1 justify-center items-center">
+        <div className="flex xl:col-span-1 justify-center items-center">
           <button
             onClick={swapSourceTarget}
             title="Swap Source and Target (reverse migration direction)"
@@ -232,43 +182,6 @@ export const TopToolbar: React.FC = () => {
 
         {/* Target Configuration */}
         <div className="xl:col-span-5 bg-slate-950/60 p-3 rounded-lg border border-slate-800/80 flex flex-col gap-2">
-          <div className="flex justify-between items-center">
-            <span className="text-base font-semibold text-purple-400 flex items-center gap-1.5 uppercase tracking-wider">
-              <span className="w-1.5 h-1.5 bg-purple-400 rounded-full animate-pulse"></span>
-              Target Database
-            </span>
-
-            {/* Driver Badge */}
-            {targetDriverInfo && (
-              <div className="flex items-center gap-1.5">
-                {targetDriverInfo.installed ? (
-                  <span className="text-sm text-emerald-400 bg-emerald-950/30 px-2 py-0.5 rounded-full border border-emerald-500/10 font-medium">
-                    Driver: {targetDriverInfo.version || 'Installed'}
-                  </span>
-                ) : (
-                  <div className="flex items-center gap-1">
-                    <span className="text-sm text-amber-400 bg-amber-950/30 px-2 py-0.5 rounded-full border border-amber-500/10 font-medium flex items-center gap-1">
-                      <AlertCircle className="w-2.5 h-2.5" /> Driver Missing
-                    </span>
-                    <button
-                      disabled={isInstallingDriver !== null}
-                      onClick={() => installDriver('target')}
-                      className="text-sm font-bold text-slate-950 bg-amber-400 hover:bg-amber-300 disabled:bg-slate-800 disabled:text-slate-500 px-2 py-0.5 rounded transition flex items-center gap-0.5 cursor-pointer"
-                      title="Install driver package automatically"
-                    >
-                      {isInstallingDriver === targetConfig.dialect ? (
-                        <RefreshCw className="w-2.5 h-2.5 animate-spin" />
-                      ) : (
-                        <Download className="w-2.5 h-2.5" />
-                      )}
-                      Install
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
           {/* Label + Add/Edit Connection + status, all inline */}
           <div className="flex items-center gap-2">
             {connections.length > 0 && (
