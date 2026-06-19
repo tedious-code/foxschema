@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { X, CheckCircle, AlertTriangle, Loader2, ListTree } from "lucide-react";
-import { ConnectionOptions, buildConnectionString, DEFAULT_PORTS, getProviderSettings, PROVIDER_SETTINGS } from '@foxschema/shared';
-import { fetchSchemaList } from "../api/schemaApi";
+import { X, CheckCircle, AlertTriangle, Loader2, ListTree, Download } from "lucide-react";
+import { ConnectionOptions, DriverInfo, buildConnectionString, DEFAULT_PORTS, getProviderSettings, PROVIDER_SETTINGS } from '@foxschema/shared';
+import { fetchSchemaList, checkDriver as apiCheckDriver, installDriver as apiInstallDriver } from "../api/schemaApi";
 
 type Dialect = 'postgres' | 'mysql' | 'db2';
 
@@ -27,6 +27,11 @@ interface Props {
 
 const defaultPorts = DEFAULT_PORTS;
 const dialectOptions = Object.values(PROVIDER_SETTINGS);
+
+const MAX_NAME_LEN = 50;
+// Credential names allow letters, numbers, spaces, hyphen and underscore only —
+// no other special characters (keeps them safe as labels / dropdown entries).
+const sanitizeName = (raw: string) => raw.replace(/[^A-Za-z0-9 _-]/g, '').slice(0, MAX_NAME_LEN);
 
 export const ConnectionModal: React.FC<Props> = ({
   open,
@@ -55,6 +60,9 @@ export const ConnectionModal: React.FC<Props> = ({
   const [schemaList, setSchemaList] = useState<string[]>([]);
   const schemaRequired = getProviderSettings(selDialect).schemaRequired;
 
+  const [driverInfo, setDriverInfo] = useState<DriverInfo | null>(null);
+  const [installing, setInstalling] = useState(false);
+
   const [testingState, setTestingState] = useState<{
     status: 'idle' | 'testing' | 'success' | 'failed';
     error?: string;
@@ -63,7 +71,7 @@ export const ConnectionModal: React.FC<Props> = ({
   useEffect(() => {
     if (open) {
       setSelDialect(dialect);
-      setName(initialName ?? '');
+      setName(sanitizeName(initialName ?? ''));
       setForm({
         host: initialOptions?.host || 'localhost',
         port: initialOptions?.port || defaultPorts[dialect],
@@ -78,6 +86,19 @@ export const ConnectionModal: React.FC<Props> = ({
       setTestingState({ status: 'idle' });
     }
   }, [open, dialect, initialOptions, initialName]);
+
+  // Check whether the selected provider's driver is installed, whenever the
+  // modal opens or the provider changes. (Must stay above the early return —
+  // hooks run unconditionally every render.)
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setDriverInfo(null);
+    apiCheckDriver(selDialect)
+      .then((info) => { if (!cancelled) setDriverInfo(info); })
+      .catch(() => { if (!cancelled) setDriverInfo(null); });
+    return () => { cancelled = true; };
+  }, [open, selDialect]);
 
   if (!open) return null;
 
@@ -94,6 +115,18 @@ export const ConnectionModal: React.FC<Props> = ({
       port: defaultPorts[d],
       schema: getProviderSettings(d).defaultSchema || '',
     }));
+  };
+
+  const handleInstall = async () => {
+    setInstalling(true);
+    try {
+      await apiInstallDriver(selDialect);
+      setDriverInfo(await apiCheckDriver(selDialect));
+    } catch {
+      /* leave as not-installed; the server logs the install error */
+    } finally {
+      setInstalling(false);
+    }
   };
 
   // Connect with the entered params and pull the list of selectable schemas.
@@ -148,7 +181,7 @@ export const ConnectionModal: React.FC<Props> = ({
       <div className="w-full max-w-[500px] bg-slate-900 border border-slate-800 rounded-xl shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/40">
           <div>
-            <h2 className="text-white font-bold text-base">{isCredential ? 'Add Credential' : 'Connection Parameters'}</h2>
+            <h2 className="text-white font-bold text-base">{isCredential ? (initialName ? 'Edit Credential' : 'Add Credential') : 'Connection Parameters'}</h2>
             <p className="text-xs text-slate-400 mt-0.5">
               {isCredential ? 'Saved encrypted and reusable from the connection dropdowns' : `Configure options for ${selDialect.toUpperCase()}`}
             </p>
@@ -166,9 +199,11 @@ export const ConnectionModal: React.FC<Props> = ({
                 <input
                   placeholder="e.g. Prod DB2"
                   value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  onChange={(e) => setName(sanitizeName(e.target.value))}
+                  maxLength={MAX_NAME_LEN}
                   className={inputCls.replace('font-mono', '')}
                 />
+                <p className="text-[10px] text-slate-500 mt-1">Letters, numbers, spaces, - and _ · max {MAX_NAME_LEN}</p>
               </div>
               <div>
                 <label className={labelCls}>Dialect</label>
@@ -190,6 +225,31 @@ export const ConnectionModal: React.FC<Props> = ({
                 ))}
               </select>
             </div>
+          )}
+
+          {driverInfo && (
+            driverInfo.installed ? (
+              <div className="flex items-center gap-1.5 text-[11px] text-emerald-400/90 px-0.5">
+                <CheckCircle className="w-3.5 h-3.5" />
+                Driver ready · {driverInfo.packageName}{driverInfo.version ? ` ${driverInfo.version}` : ''}
+              </div>
+            ) : (
+              <div className="flex items-center justify-between gap-2 p-2.5 rounded-lg bg-amber-950/20 border border-amber-500/30">
+                <span className="flex items-center gap-1.5 text-xs font-semibold text-amber-300 min-w-0">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  Driver "{driverInfo.packageName}" is not installed
+                </span>
+                <button
+                  onClick={handleInstall}
+                  disabled={installing}
+                  title="Install the driver package on the server"
+                  className="shrink-0 text-xs font-bold text-slate-950 bg-amber-400 hover:bg-amber-300 disabled:bg-slate-700 disabled:text-slate-400 px-3 py-1 rounded flex items-center gap-1.5 cursor-pointer disabled:cursor-wait"
+                >
+                  {installing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                  {installing ? 'Installing…' : 'Install'}
+                </button>
+              </div>
+            )
           )}
 
           <div className="grid grid-cols-3 gap-3">

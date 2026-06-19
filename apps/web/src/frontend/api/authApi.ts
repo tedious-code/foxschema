@@ -99,6 +99,17 @@ export async function apiCreateConnection(input: {
   return connection;
 }
 
+export async function apiUpdateConnection(
+  id: string,
+  input: { name?: string; dialect: string; schema?: string; option: Record<string, unknown> }
+): Promise<SavedConnectionSummary> {
+  const { connection } = await request<{ connection: SavedConnectionSummary }>(`/connections/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });
+  return connection;
+}
+
 export async function apiDeleteConnection(id: string): Promise<void> {
   await request(`/connections/${id}`, { method: 'DELETE' });
 }

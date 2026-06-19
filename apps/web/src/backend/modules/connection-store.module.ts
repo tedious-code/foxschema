@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../database/sqlite';
 import { encryptSecret, decryptSecret } from '../cores/crypto';
-import { ConnectionOptions } from '@foxschema/shared';
+import { ConnectionOptions, buildConnectionString } from '@foxschema/shared';
 
 export interface SavedConnectionInput {
   name?: string;
@@ -102,6 +102,29 @@ export class ConnectionStore {
       schema: row.schema ?? undefined,
       option: JSON.parse(decryptSecret(row.encrypted_config)) as ConnectionOptions,
     };
+  }
+
+  /**
+   * Update a saved connection. If the incoming option omits the password (the
+   * edit form never receives it), the existing password is preserved and the
+   * connection string is rebuilt so it stays valid.
+   */
+  update(userId: string, id: string, input: SavedConnectionInput): SavedConnectionSummary | null {
+    const existing = this.resolve(userId, id);
+    if (!existing) return null;
+
+    const merged: ConnectionOptions = { ...input.option };
+    if (!merged.password) merged.password = existing.option.password;
+    merged.connectionString = buildConnectionString(input.dialect, merged);
+
+    getDb()
+      .prepare('UPDATE connections SET name = ?, dialect = ?, schema = ?, encrypted_config = ? WHERE id = ? AND user_id = ?')
+      .run(input.name ?? null, input.dialect, input.schema ?? null, encryptSecret(JSON.stringify(merged)), id, userId);
+
+    const row = getDb()
+      .prepare('SELECT id, name, dialect, schema, encrypted_config, created_at FROM connections WHERE id = ? AND user_id = ?')
+      .get(id, userId) as ConnectionRow | undefined;
+    return row ? this.toSummary(row) : null;
   }
 
   remove(userId: string, id: string): boolean {

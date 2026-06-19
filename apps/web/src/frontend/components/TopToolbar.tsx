@@ -156,7 +156,7 @@ export const TopToolbar: React.FC = () => {
                 value={selectedSourceConnectionId ?? ''}
                 onChange={(e) => e.target.value && applySavedConnection('source', e.target.value)}
                 title="Saved connections"
-                className="w-auto shrink-0 text-base bg-slate-900 border border-slate-700/60 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-500 truncate"
+                className="shrink-0 w-40 max-w-[160px] text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-500 truncate"
               >
                 <option value="">— Saved —</option>
                 {connections.map((c) => (
@@ -173,7 +173,7 @@ export const TopToolbar: React.FC = () => {
                 : 'text-cyan-200 bg-cyan-500/10 border border-cyan-500/30 rounded px-2 py-1'
             }`}>
               {sourceConfig.option.database
-                ? `${sourceConfig.option.database}${sourceConfig.schema ? ` / ${sourceConfig.schema}` : ''}`
+                ? `${sourceConfig.option.host ?? 'localhost'} / ${sourceConfig.option.database}${sourceConfig.schema ? ` / ${sourceConfig.schema}` : ''}`
                 : 'Configure credentials via Params'}
             </span>
 
@@ -276,7 +276,7 @@ export const TopToolbar: React.FC = () => {
                 value={selectedTargetConnectionId ?? ''}
                 onChange={(e) => e.target.value && applySavedConnection('target', e.target.value)}
                 title="Saved connections"
-                className="w-auto shrink-0 text-base bg-slate-900 border border-slate-700/60 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-purple-500 truncate"
+                className="shrink-0 w-40 max-w-[160px] text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-purple-500 truncate"
               >
                 <option value="">— Saved —</option>
                 {connections.map((c) => (
@@ -293,7 +293,7 @@ export const TopToolbar: React.FC = () => {
                 : 'text-purple-200 bg-purple-500/10 border border-purple-500/30 rounded px-2 py-1'
             }`}>
               {targetConfig.option.database
-                ? `${targetConfig.option.database}${targetConfig.schema ? ` / ${targetConfig.schema}` : ''}`
+                ? `${targetConfig.option.host ?? 'localhost'} / ${targetConfig.option.database}${targetConfig.schema ? ` / ${targetConfig.schema}` : ''}`
                 : 'Configure credentials via Params'}
             </span>
 

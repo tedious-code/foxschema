@@ -44,6 +44,8 @@ export const RightPanel: React.FC = () => {
   // Matches the case-insensitive schema compare; toggle off to inspect raw identifier casing
   const [ignoreCase, setIgnoreCase] = useState(true);
   const [inlineDiff, setInlineDiff] = useState(false);
+  // Schema Blueprint: off = only changed items, on = include unchanged too
+  const [showUnchangedDetail, setShowUnchangedDetail] = useState(false);
 
   const toggleTriggerDdl = (name: string) =>
     setExpandedTriggers((prev) => ({ ...prev, [name]: !prev[name] }));
@@ -125,6 +127,7 @@ export const RightPanel: React.FC = () => {
                 dialect={targetConfig.dialect}
                 inline={inlineDiff}
                 ignoreCase={ignoreCase}
+                highlight={searchTerm}
               />
             </Suspense>
           </div>
@@ -190,10 +193,12 @@ export const RightPanel: React.FC = () => {
   };
 
   const renderSchemaObjectDiff = () => {
-    const colDiffs = selectedTable.columnDiffs;
-    const indexDiffs = selectedTable.indexDiffs;
-    const fkDiffs = selectedTable.foreignKeyDiffs;
-    const trgDiffs = selectedTable.triggerDiffs ?? [];
+    // Hide UNCHANGED items unless the "Show unchanged" toggle is on.
+    const keep = (status: string) => showUnchangedDetail || status !== 'UNCHANGED';
+    const colDiffs = selectedTable.columnDiffs.filter((c) => keep(c.status));
+    const indexDiffs = selectedTable.indexDiffs.filter((i) => keep(i.status));
+    const fkDiffs = selectedTable.foreignKeyDiffs.filter((f) => keep(f.status));
+    const trgDiffs = (selectedTable.triggerDiffs ?? []).filter((t) => keep(t.status));
 
     return (
       <div className="flex-1 flex flex-col min-h-0 text-xs overflow-y-auto p-6 space-y-6">
@@ -224,6 +229,18 @@ export const RightPanel: React.FC = () => {
             </p>
           </div>
           <div className="flex items-center gap-3">
+            <label
+              className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-300 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded hover:border-cyan-500/40 transition"
+              title="Show unchanged columns, indexes, foreign keys and triggers (off = only changes)"
+            >
+              <input
+                type="checkbox"
+                checked={showUnchangedDetail}
+                onChange={(e) => setShowUnchangedDetail(e.target.checked)}
+                className="w-3.5 h-3.5 accent-cyan-500 cursor-pointer"
+              />
+              Show unchanged
+            </label>
             {selectedTable.status !== 'UNCHANGED' && (
               <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-300 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded hover:border-cyan-500/40 transition">
                 <input
@@ -250,6 +267,7 @@ export const RightPanel: React.FC = () => {
             <div className="bg-slate-950 border border-slate-850 rounded-lg overflow-hidden h-64">
               <Suspense fallback={<EditorFallback />}>
                 <SqlEditor
+                  highlight={searchTerm}
                   dialect={selectedTable.sourceTable?.definition ? sourceConfig.dialect : targetConfig.dialect}
                   value={
                     selectedTable.sourceTable?.definition
@@ -811,6 +829,7 @@ export const RightPanel: React.FC = () => {
                   <SqlEditor
                     dialect={targetConfig.dialect}
                     value={formattedSql || '-- No migration script generated.'}
+                    highlight={searchTerm}
                   />
                 </Suspense>
               </div>

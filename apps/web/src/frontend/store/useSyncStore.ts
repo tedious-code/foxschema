@@ -23,6 +23,7 @@ import {
 import {
   apiListConnections,
   apiCreateConnection,
+  apiUpdateConnection,
   apiDeleteConnection,
   type SavedConnectionSummary,
 } from '../api/authApi';
@@ -72,6 +73,7 @@ interface SyncState {
 
   loadConnections: () => Promise<void>;
   addConnection: (input: { name?: string; dialect: string; schema?: string; option: ConnectionOptions }) => Promise<SavedConnectionSummary>;
+  updateConnection: (id: string, input: { name?: string; dialect: string; schema?: string; option: ConnectionOptions }) => Promise<SavedConnectionSummary>;
   removeConnection: (id: string) => Promise<void>;
 
   setShowConnectionModal: (open: boolean) => void;
@@ -204,6 +206,12 @@ export const useSyncStore = create<SyncState>()(
     const created = await apiCreateConnection(input);
     await get().loadConnections();
     return created;
+  },
+
+  updateConnection: async (id, input) => {
+    const updated = await apiUpdateConnection(id, input);
+    await get().loadConnections();
+    return updated;
   },
 
   removeConnection: async (id) => {

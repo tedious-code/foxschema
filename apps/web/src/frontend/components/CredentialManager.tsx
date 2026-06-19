@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Plus, Trash2, KeyRound, Database } from 'lucide-react';
+import { X, Plus, Trash2, Pencil, KeyRound, Database } from 'lucide-react';
 import { useSyncStore } from '../store/useSyncStore';
 import { ConnectionModal } from './ConnectionModal';
+import type { SavedConnectionSummary } from '../api/authApi';
+
+type Dialect = 'postgres' | 'mysql' | 'db2';
 
 interface Props {
   open: boolean;
@@ -11,8 +14,9 @@ interface Props {
 
 /** Manage reusable, encrypted credentials. They appear in the source/target dropdowns. */
 export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
-  const { connections, addConnection, removeConnection } = useSyncStore();
+  const { connections, addConnection, updateConnection, removeConnection } = useSyncStore();
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<SavedConnectionSummary | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   if (!open) return null;
@@ -41,8 +45,12 @@ export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
             </div>
           ) : (
             connections.map((c) => (
-              <div key={c.id} className="flex items-center justify-between gap-3 p-3 rounded-lg bg-slate-950/50 border border-slate-800">
-                <div className="flex items-center gap-3 min-w-0">
+              <div key={c.id} className="flex items-center justify-between gap-3 p-3 rounded-lg bg-slate-950/50 border border-slate-800 hover:border-slate-700 transition">
+                <button
+                  onClick={() => setEditing(c)}
+                  title="Edit credential"
+                  className="flex items-center gap-3 min-w-0 flex-1 text-left cursor-pointer"
+                >
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700/50 shrink-0">
                     {c.dialect.toUpperCase()}
                   </span>
@@ -52,18 +60,27 @@ export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
                       {c.host}{c.database ? ` / ${c.database}` : ''}{c.schema ? ` · ${c.schema}` : ''}
                     </p>
                   </div>
-                </div>
-                <button
-                  onClick={async () => {
-                    setDeletingId(c.id);
-                    try { await removeConnection(c.id); } finally { setDeletingId(null); }
-                  }}
-                  disabled={deletingId === c.id}
-                  title="Delete credential"
-                  className="p-2 text-slate-500 hover:text-rose-300 hover:bg-rose-950/20 rounded-md transition shrink-0 disabled:opacity-50"
-                >
-                  <Trash2 className="w-4 h-4" />
                 </button>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={() => setEditing(c)}
+                    title="Edit credential"
+                    className="p-2 text-slate-500 hover:text-cyan-300 hover:bg-cyan-950/20 rounded-md transition cursor-pointer"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={async () => {
+                      setDeletingId(c.id);
+                      try { await removeConnection(c.id); } finally { setDeletingId(null); }
+                    }}
+                    disabled={deletingId === c.id}
+                    title="Delete credential"
+                    className="p-2 text-slate-500 hover:text-rose-300 hover:bg-rose-950/20 rounded-md transition disabled:opacity-50 cursor-pointer"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             ))
           )}
@@ -80,12 +97,22 @@ export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
       </div>
 
       <ConnectionModal
-        open={adding}
+        open={adding || !!editing}
         mode="credential"
-        dialect="db2"
-        onClose={() => setAdding(false)}
+        dialect={(editing?.dialect as Dialect) ?? 'db2'}
+        initialName={editing?.name}
+        initialOptions={
+          editing
+            ? { host: editing.host, port: editing.port, database: editing.database, username: editing.username, schema: editing.schema }
+            : undefined
+        }
+        onClose={() => {
+          setAdding(false);
+          setEditing(null);
+        }}
         onSaveCredential={async (input) => {
-          await addConnection(input);
+          if (editing) await updateConnection(editing.id, input);
+          else await addConnection(input);
         }}
       />
     </div>,

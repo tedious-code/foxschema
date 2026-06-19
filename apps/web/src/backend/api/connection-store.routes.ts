@@ -28,6 +28,29 @@ export function createConnectionStoreRoutes(store: ConnectionStore): Router {
     }
   });
 
+  router.put('/:id', (req: AuthedRequest, res: Response) => {
+    const { name, dialect, schema, option } = req.body as {
+      name?: string;
+      dialect?: string;
+      schema?: string;
+      option?: Record<string, unknown>;
+    };
+    if (!dialect || !option) {
+      res.status(400).json({ error: 'dialect and option are required' });
+      return;
+    }
+    try {
+      const updated = store.update(req.userId!, String(req.params.id), { name, dialect, schema, option });
+      if (!updated) {
+        res.status(404).json({ error: 'Connection not found' });
+        return;
+      }
+      res.json({ connection: updated });
+    } catch (error: unknown) {
+      res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to update connection' });
+    }
+  });
+
   router.delete('/:id', (req: AuthedRequest, res: Response) => {
     const removed = store.remove(req.userId!, String(req.params.id));
     res.status(removed ? 200 : 404).json({ ok: removed });
