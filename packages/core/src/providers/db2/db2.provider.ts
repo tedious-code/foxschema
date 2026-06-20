@@ -18,6 +18,7 @@ import {
   TableSchema,
   RoutineParameter,
   RoutineParameterMode,
+  DbRole,
 } from '@foxschema/shared';
 import {
   Db2TableRaw,
@@ -31,6 +32,8 @@ import {
   Db2TriggerRaw,
   Db2ProcedureRaw,
   Db2RoutineParmRaw,
+  Db2RoleRaw,
+  Db2RoleAuthRaw,
   Db2SequenceRaw,
   Db2UserTypeRaw,
   Db2AttributeRaw
@@ -102,7 +105,8 @@ export class Db2Provider implements SchemaProvider {
       const pkSet = new Set(pkColumns);
       result.push({
         name: table.name,
-        objectType: 'TABLE',
+        objectType: table.isMqt ? 'MQT' : 'TABLE',
+        tablespace: table.tablespace,
         triggers: triggersByTable.get(table.name) ?? [],
         primaryKey: pkColumns.length > 0
           ? { name: dbSchema.primaryKeys[table.name]?.[0]?.constName, columns: pkColumns }
@@ -214,6 +218,19 @@ export class Db2Provider implements SchemaProvider {
       }
     }
 
+    // Roles: members are modeled as "columns" (name = grantee, type = USER/
+    // GROUP/ROLE) so they flow through the column compare and blueprint, and a
+    // member add/remove shows the role as MODIFIED.
+    for (const role of dbSchema.roles ?? []) {
+      result.push({
+        name: role.name,
+        objectType: 'ROLE',
+        columns: role.members.map((m) => ({ name: m.grantee, type: m.granteeType, nullable: true, primaryKey: false })),
+        indices: [],
+        foreignKeys: [],
+      });
+    }
+
     return result.sort((a, b) => a.name.localeCompare(b.name));
   }
 
@@ -247,11 +264,14 @@ export class Db2Provider implements SchemaProvider {
         rawSequences,
         rawUserTypes,
         rawAttributes,
-        rawRoutineParms
+        rawRoutineParms,
+        rawRoles,
+        rawRoleAuths
       ] = await Promise.all([
         ConnectionFactory.executeOnConnection<Db2TableRaw>(
           this.provider, conn,
-          `SELECT TABSCHEMA, TABNAME FROM SYSCAT.TABLES WHERE TABSCHEMA = ? AND TYPE = 'T' ORDER BY TABNAME`,
+          // TYPE 'T' = base table, 'S' = materialized query table (MQT)
+          `SELECT TABSCHEMA, TABNAME, TYPE, TBSPACE FROM SYSCAT.TABLES WHERE TABSCHEMA = ? AND TYPE IN ('T', 'S') ORDER BY TABNAME`,
           [schemaName]
         ),
         ConnectionFactory.executeOnConnection<Db2ColumnRaw>(
@@ -347,6 +367,17 @@ export class Db2Provider implements SchemaProvider {
            WHERE ROUTINESCHEMA = ?
            ORDER BY ROUTINENAME, ORDINAL`,
           [schemaName]
+        ),
+        // Roles are database-global (not schema-scoped).
+        ConnectionFactory.executeOnConnection<Db2RoleRaw>(
+          this.provider, conn,
+          `SELECT ROLENAME FROM SYSCAT.ROLES ORDER BY ROLENAME`,
+          []
+        ),
+        ConnectionFactory.executeOnConnection<Db2RoleAuthRaw>(
+          this.provider, conn,
+          `SELECT ROLENAME, GRANTEE, GRANTEETYPE FROM SYSCAT.ROLEAUTH ORDER BY ROLENAME, GRANTEE`,
+          []
         )
       ]);
 
@@ -371,7 +402,9 @@ export class Db2Provider implements SchemaProvider {
           primaryKey: [],
           foreignKeys: [],
           uniqueConstraints: [],
-          indexes: []
+          indexes: [],
+          tablespace: t.TBSPACE?.trim() || undefined,
+          isMqt: t.TYPE === 'S'
         };
         // Setup initial container keys for the root lists
         columns[t.TABNAME] = [];
@@ -531,6 +564,13 @@ export class Db2Provider implements SchemaProvider {
           ordinal: p.ORDINAL,
         });
       }
+      // Stable signature order: input/output params first (by position), then
+      // table-function result columns, then the scalar return. Same-named params
+      // with different modes are kept (e.g. a table function's input + result col).
+      const parmRank = (m: RoutineParameterMode) => (m === 'RESULT' ? 1 : m === 'RETURN' ? 2 : 0);
+      for (const list of Object.values(routineParms)) {
+        list.sort((a, b) => parmRank(a.mode) - parmRank(b.mode) || (a.ordinal ?? 0) - (b.ordinal ?? 0));
+      }
 
       for (const proc of rawProcedures) {
         const mappedRoutine: DbProcedure = {
@@ -592,6 +632,15 @@ export class Db2Provider implements SchemaProvider {
         userTypes[ut.TYPENAME].push(mappedType);
       }
 
+      // Roles + their grantees (members). Database-global, not schema-scoped.
+      const granteeTypeLabel = (gt: string) =>
+        gt === 'U' ? 'USER' : gt === 'G' ? 'GROUP' : gt === 'R' ? 'ROLE' : gt;
+      const roleMembers: Record<string, { grantee: string; granteeType: string }[]> = {};
+      for (const ra of rawRoleAuths) {
+        (roleMembers[ra.ROLENAME] ??= []).push({ grantee: ra.GRANTEE.trim(), granteeType: granteeTypeLabel(ra.GRANTEETYPE) });
+      }
+      const roles: DbRole[] = rawRoles.map((r) => ({ name: r.ROLENAME.trim(), members: roleMembers[r.ROLENAME] ?? [] }));
+
       return {
         tables,
         columns,
@@ -605,7 +654,8 @@ export class Db2Provider implements SchemaProvider {
         uniqueConstraints,
         indexes,
         indexColumns,
-        views
+        views,
+        roles
       };
 
     } finally {

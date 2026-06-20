@@ -1,4 +1,4 @@
-export type DbObjectType = 'TABLE' | 'VIEW' | 'FUNCTION' | 'PROCEDURE' | 'TRIGGER' | 'SEQUENCE' | 'TYPE';
+export type DbObjectType = 'TABLE' | 'MQT' | 'VIEW' | 'FUNCTION' | 'PROCEDURE' | 'TRIGGER' | 'SEQUENCE' | 'TYPE' | 'ROLE';
 
 export interface SequenceInfo {
   dataType?: string;
@@ -86,10 +86,16 @@ export interface TableSchema {
   parameters?: RoutineParameter[];
   /** Present when objectType === 'FUNCTION': scalar vs table-valued. */
   functionKind?: 'scalar' | 'table';
+  /** Storage tablespace (tables/MQTs). */
+  tablespace?: string;
 }
+
+export interface DbRoleMember { grantee: string; granteeType: string; }
+export interface DbRole { name: string; members: DbRoleMember[]; }
 
 export interface DbSchema {
   tables: Record<string, DbTable>;
+  roles?: DbRole[];
   columns: Record<string, DbColumn[]>;
   functions: Record<string, DbProcedure[]>; 
   procedures: Record<string, DbProcedure[]>;
@@ -111,6 +117,9 @@ export interface DbTable {
   foreignKeys: DbForeignKey[];
   uniqueConstraints: DbUniqueConstraint[];
   indexes: DbIndex[];
+  tablespace?: string;
+  /** Materialized query table (DB2 TYPE='S'). */
+  isMqt?: boolean;
 }
 
 export interface DbColumn { name: string; type: string; length?: number; scale?: number; nullable: boolean; defaultValue?: string; identity?: boolean; identityGeneration?: string; }

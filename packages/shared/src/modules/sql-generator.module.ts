@@ -105,7 +105,9 @@ export class SqlGeneratorModule {
   generateObjectDdl(table: TableSchema): string {
     if (table.objectType === 'SEQUENCE') return this.renderCreateSequence(table);
     if (table.objectType === 'TYPE') return this.renderCreateType(table);
-    if (table.objectType !== 'TABLE') {
+    // MQTs have columns but no separately-captured query — render their column
+    // structure like a table so the DDL diff is meaningful.
+    if (table.objectType !== 'TABLE' && table.objectType !== 'MQT') {
       return table.definition || `-- No definition available for ${table.objectType} ${table.name}`;
     }
 
@@ -149,6 +151,8 @@ export class SqlGeneratorModule {
       statements.push(`DROP SEQUENCE ${name};`);
     } else if (obj.objectType === 'TYPE') {
       statements.push(`DROP TYPE ${name};`);
+    } else if (obj.objectType === 'ROLE') {
+      statements.push(`DROP ROLE ${this.bareName(obj.tableName)};`);
     }
     return statements;
   }
@@ -179,6 +183,13 @@ export class SqlGeneratorModule {
       statements.push(this.renderCreateSequence({ ...source, name }));
     } else if (obj.objectType === 'TYPE' && source) {
       statements.push(this.renderCreateType({ ...source, name }));
+    } else if (obj.objectType === 'ROLE') {
+      const roleName = this.bareName(obj.tableName);
+      statements.push(`CREATE ROLE ${roleName};`);
+      for (const m of obj.columnDiffs) {
+        const info = m.source ?? m.target;
+        if (info) statements.push(`GRANT ROLE ${roleName} TO ${info.type} ${m.name};`);
+      }
     } else if (obj.definition) {
       statements.push(obj.definition);
     }
@@ -283,6 +294,16 @@ export class SqlGeneratorModule {
       // Distinct types can't be altered — drop and recreate
       statements.push(`DROP TYPE ${tableName};`);
       statements.push(this.renderCreateType({ ...obj.sourceTable, name: tableName }));
+    } else if (obj.objectType === 'ROLE') {
+      // Role membership changes: grant added members, revoke removed ones.
+      const roleName = this.bareName(obj.tableName);
+      for (const m of obj.columnDiffs) {
+        if (m.status === 'ADDED' && m.source) {
+          statements.push(`GRANT ROLE ${roleName} TO ${m.source.type} ${m.name};`);
+        } else if (m.status === 'REMOVED' && m.target) {
+          statements.push(`REVOKE ROLE ${roleName} FROM ${m.target.type} ${m.name};`);
+        }
+      }
     } else if (obj.definition) {
       // Re-create views/funcs/procs by dropping first
       if (obj.objectType === 'VIEW') {

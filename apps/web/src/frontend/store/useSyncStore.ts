@@ -40,6 +40,23 @@ export interface MigrationProgressItem {
 // because it re-runs interactively as deploy checkboxes toggle, with no DB round-trip
 const sqlGeneratorModule = new SqlGeneratorModule();
 
+// Build the diffs to deploy from the object selection, applying per-role member
+// opt-outs: a role member explicitly set to false is dropped from the role's
+// diffs, so it won't appear in the generated GRANT/REVOKE.
+function buildIncludedDiffs(
+  tables: TableDiff[],
+  selection: Record<string, boolean>,
+  memberSelection: Record<string, Record<string, boolean>>
+): TableDiff[] {
+  return tables
+    .filter((t) => selection[t.tableName])
+    .map((t) => {
+      if (t.objectType !== 'ROLE') return t;
+      const sel = memberSelection[t.tableName] ?? {};
+      return { ...t, columnDiffs: t.columnDiffs.filter((c) => sel[c.name] !== false) };
+    });
+}
+
 interface ConnectionConfig {
   dialect: 'postgres' | 'mysql' | 'db2';
   option: ConnectionOptions;
@@ -115,6 +132,10 @@ interface SyncState {
   syncSelection: Record<string, boolean>;
   toggleSyncSelection: (tableName: string) => void;
   setAllSyncSelection: (selected: boolean) => void;
+  /** Per-role member opt-out: memberSelection[role][member] === false excludes that member from deploy. */
+  memberSelection: Record<string, Record<string, boolean>>;
+  toggleMemberSelection: (roleName: string, memberName: string) => void;
+  setAllMemberSelection: (roleName: string, selected: boolean) => void;
 
   // Live migration execution state
   isMigrating: boolean;
@@ -176,7 +197,7 @@ export const useSyncStore = create<SyncState>()(
   sourceSchemaList: [],
   targetSchemaList: [],
 
-  selectedObjectTypes: ['TABLE', 'VIEW', 'FUNCTION', 'PROCEDURE', 'TRIGGER', 'SEQUENCE', 'TYPE'],
+  selectedObjectTypes: ['TABLE', 'MQT', 'VIEW', 'FUNCTION', 'PROCEDURE', 'TRIGGER', 'SEQUENCE', 'TYPE', 'ROLE'],
   isComparing: false,
   compareResult: null,
   selectedTable: null,
@@ -184,6 +205,7 @@ export const useSyncStore = create<SyncState>()(
   migrationExecuted: false,
   filterStatus: 'ALL',
   searchTerm: '',
+  memberSelection: {},
   syncSelection: {},
 
   isMigrating: false,
@@ -301,10 +323,10 @@ export const useSyncStore = create<SyncState>()(
   setSelectedTable: (selectedTable) => set({ selectedTable }),
 
   toggleSyncSelection: (tableName) => {
-    const { compareResult, syncSelection, sourceConfig, targetConfig } = get();
+    const { compareResult, syncSelection, memberSelection, sourceConfig, targetConfig } = get();
     if (!compareResult) return;
     const nextSelection = { ...syncSelection, [tableName]: !syncSelection[tableName] };
-    const includedDiffs = compareResult.tables.filter((t) => nextSelection[t.tableName]);
+    const includedDiffs = buildIncludedDiffs(compareResult.tables, nextSelection, memberSelection);
     set({
       syncSelection: nextSelection,
       generatedSql: sqlGeneratorModule.generateMigrationSql(includedDiffs, targetConfig.dialect, {
@@ -316,15 +338,54 @@ export const useSyncStore = create<SyncState>()(
   },
 
   setAllSyncSelection: (selected) => {
-    const { compareResult, sourceConfig, targetConfig } = get();
+    const { compareResult, memberSelection, sourceConfig, targetConfig } = get();
     if (!compareResult) return;
     const nextSelection: Record<string, boolean> = {};
     for (const t of compareResult.tables) {
       if (t.status !== 'UNCHANGED') nextSelection[t.tableName] = selected;
     }
-    const includedDiffs = compareResult.tables.filter((t) => nextSelection[t.tableName]);
+    const includedDiffs = buildIncludedDiffs(compareResult.tables, nextSelection, memberSelection);
     set({
       syncSelection: nextSelection,
+      generatedSql: sqlGeneratorModule.generateMigrationSql(includedDiffs, targetConfig.dialect, {
+        sourceSchema: sourceConfig.schema,
+        targetSchema: targetConfig.schema,
+      }),
+      migrationExecuted: false,
+    });
+  },
+
+  toggleMemberSelection: (roleName, memberName) => {
+    const { compareResult, syncSelection, memberSelection, sourceConfig, targetConfig } = get();
+    if (!compareResult) return;
+    const roleSel = { ...(memberSelection[roleName] ?? {}) };
+    // Default included; toggle to false (excluded) and back.
+    roleSel[memberName] = roleSel[memberName] === false ? true : false;
+    const nextMember = { ...memberSelection, [roleName]: roleSel };
+    const includedDiffs = buildIncludedDiffs(compareResult.tables, syncSelection, nextMember);
+    set({
+      memberSelection: nextMember,
+      generatedSql: sqlGeneratorModule.generateMigrationSql(includedDiffs, targetConfig.dialect, {
+        sourceSchema: sourceConfig.schema,
+        targetSchema: targetConfig.schema,
+      }),
+      migrationExecuted: false,
+    });
+  },
+
+  setAllMemberSelection: (roleName, selected) => {
+    const { compareResult, syncSelection, memberSelection, sourceConfig, targetConfig } = get();
+    if (!compareResult) return;
+    const role = compareResult.tables.find((t) => t.tableName === roleName && t.objectType === 'ROLE');
+    if (!role) return;
+    const roleSel: Record<string, boolean> = {};
+    for (const m of role.columnDiffs) {
+      if (m.status !== 'UNCHANGED') roleSel[m.name] = selected;
+    }
+    const nextMember = { ...memberSelection, [roleName]: roleSel };
+    const includedDiffs = buildIncludedDiffs(compareResult.tables, syncSelection, nextMember);
+    set({
+      memberSelection: nextMember,
       generatedSql: sqlGeneratorModule.generateMigrationSql(includedDiffs, targetConfig.dialect, {
         sourceSchema: sourceConfig.schema,
         targetSchema: targetConfig.schema,
@@ -529,7 +590,7 @@ export const useSyncStore = create<SyncState>()(
     }),
     {
       name: 'schema-sync-storage',
-      version: 3,
+      version: 4,
       // Persist only the object-type scope. Connections live server-side now,
       // and we deliberately do NOT persist configs — credentials must never
       // touch localStorage (saved connections reload from the server on sign-in).
@@ -542,9 +603,11 @@ export const useSyncStore = create<SyncState>()(
             persisted.selectedObjectTypes = [...persisted.selectedObjectTypes, type];
           }
         };
-        // v2 added TRIGGER; v3 added SEQUENCE and TYPE — enable them once for older settings
+        // v2 added TRIGGER; v3 added SEQUENCE and TYPE; v4 added MQT and ROLE —
+        // enable each once for older persisted settings.
         if (version < 2) ensure('TRIGGER');
         if (version < 3) { ensure('SEQUENCE'); ensure('TYPE'); }
+        if (version < 4) { ensure('MQT'); ensure('ROLE'); }
         return persisted;
       },
     }

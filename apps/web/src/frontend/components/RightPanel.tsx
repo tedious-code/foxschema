@@ -1,4 +1,5 @@
 import React, { useState, useMemo, Suspense, lazy } from 'react';
+import { createPortal } from 'react-dom';
 import { useSyncStore } from '../store/useSyncStore';
 import { Code, Play, RefreshCw, FileText, CheckCircle2, ChevronRight, ChevronDown, AlertCircle, Copy, GitCompareArrows, KeyRound, XCircle, Circle, Download, X, Undo2 } from 'lucide-react';
 import { SqlGeneratorModule } from '@foxschema/shared';
@@ -16,6 +17,9 @@ const EditorFallback: React.FC = () => (
 );
 
 const ddlGenerator = new SqlGeneratorModule();
+
+// Persisted "skip the deploy confirmation" preference.
+const SKIP_DEPLOY_CONFIRM_KEY = 'foxschema-skip-deploy-confirm';
 
 export const RightPanel: React.FC = () => {
   const {
@@ -35,6 +39,9 @@ export const RightPanel: React.FC = () => {
     migrationRolledBack,
     clearMigrationProgress,
     searchTerm,
+    memberSelection,
+    toggleMemberSelection,
+    setAllMemberSelection,
   } = useSyncStore();
 
   const includedCount = Object.values(syncSelection).filter(Boolean).length;
@@ -47,6 +54,9 @@ export const RightPanel: React.FC = () => {
   const [inlineDiff, setInlineDiff] = useState(false);
   // Schema Blueprint: off = only changed items, on = include unchanged too
   const [showUnchangedDetail, setShowUnchangedDetail] = useState(false);
+  // Deploy confirmation dialog
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [dontAskAgain, setDontAskAgain] = useState(false);
 
   const toggleTriggerDdl = (name: string) =>
     setExpandedTriggers((prev) => ({ ...prev, [name]: !prev[name] }));
@@ -72,6 +82,22 @@ export const RightPanel: React.FC = () => {
       </div>
     );
   }
+
+  // Show the confirmation dialog before deploying, unless the user opted out.
+  const handleExecuteClick = () => {
+    if (localStorage.getItem(SKIP_DEPLOY_CONFIRM_KEY) === 'true') {
+      applyMigration();
+    } else {
+      setDontAskAgain(false);
+      setShowConfirm(true);
+    }
+  };
+
+  const confirmExecute = () => {
+    if (dontAskAgain) localStorage.setItem(SKIP_DEPLOY_CONFIRM_KEY, 'true');
+    setShowConfirm(false);
+    applyMigration();
+  };
 
   const handleCopySql = () => {
     if (!formattedSql) return;
@@ -197,6 +223,13 @@ export const RightPanel: React.FC = () => {
     // Highlight the object-browser search keyword in the blueprint (e.g. a
     // matched column name), mirroring the SQL panels.
     const query = searchTerm.trim().toLowerCase();
+
+    // Role member deploy selection (changed members only).
+    const isRole = selectedTable.objectType === 'ROLE';
+    const roleChangedMembers = isRole ? selectedTable.columnDiffs.filter((c) => c.status !== 'UNCHANGED') : [];
+    const allMembersSelected =
+      roleChangedMembers.length > 0 &&
+      roleChangedMembers.every((m) => memberSelection[selectedTable.tableName]?.[m.name] !== false);
     // Hide UNCHANGED items unless the "Show unchanged" toggle is on.
     const keep = (status: string) => showUnchangedDetail || status !== 'UNCHANGED';
     const colDiffs = selectedTable.columnDiffs.filter((c) => keep(c.status));
@@ -272,6 +305,14 @@ export const RightPanel: React.FC = () => {
                 Deploy to Target
               </label>
             )}
+            {(() => {
+              const ts = selectedTable.sourceTable?.tablespace ?? selectedTable.targetTable?.tablespace;
+              return ts ? (
+                <div className="text-[10px] text-slate-400 font-mono bg-slate-900 border border-slate-800 px-3 py-1 rounded" title="Storage tablespace">
+                  Tablespace: <span className="text-cyan-300">{ts}</span>
+                </div>
+              ) : null;
+            })()}
             <div className="text-[10px] text-slate-500 font-mono bg-slate-900 border border-slate-800 px-3 py-1 rounded">
               Target Dialect: {targetConfig.dialect.toUpperCase()}
             </div>
@@ -454,13 +495,27 @@ export const RightPanel: React.FC = () => {
         {colDiffs.length > 0 && (
           <div>
             <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center gap-2">
-              <span className="w-1.5 h-1.5 bg-cyan-500 rounded-full"></span> Column Blueprint / Attributes
+              <span className="w-1.5 h-1.5 bg-cyan-500 rounded-full"></span> {isRole ? 'Members' : 'Column Blueprint / Attributes'}
+              {isRole && roleChangedMembers.length > 0 && (
+                <label
+                  className="ml-auto flex items-center gap-1.5 normal-case text-[10px] font-semibold text-slate-300 cursor-pointer"
+                  title="Include/exclude all changed members in the deploy script"
+                >
+                  <input
+                    type="checkbox"
+                    checked={allMembersSelected}
+                    onChange={(e) => setAllMemberSelection(selectedTable.tableName, e.target.checked)}
+                    className="w-3.5 h-3.5 accent-cyan-500 cursor-pointer"
+                  />
+                  Deploy all members
+                </label>
+              )}
             </h4>
             <div className="bg-slate-950/60 border border-slate-800/80 rounded-lg overflow-hidden">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-slate-900 border-b border-slate-800 text-slate-400">
-                    <th className="p-3 font-semibold">Column Name</th>
+                    <th className="p-3 font-semibold">{selectedTable.objectType === 'ROLE' ? 'Member' : 'Column Name'}</th>
                     <th className="p-3 font-semibold">Source State</th>
                     <th className="p-3 font-semibold text-center">Compare</th>
                     <th className="p-3 font-semibold">Target State</th>
@@ -505,6 +560,15 @@ export const RightPanel: React.FC = () => {
                       <tr key={col.name} className={`${rowBg} transition-colors`}>
                         <td className="p-3 font-semibold text-slate-200 font-mono">
                           <span className="flex items-center gap-1.5">
+                            {selectedTable.objectType === 'ROLE' && col.status !== 'UNCHANGED' && (
+                              <input
+                                type="checkbox"
+                                checked={memberSelection[selectedTable.tableName]?.[col.name] !== false}
+                                onChange={() => toggleMemberSelection(selectedTable.tableName, col.name)}
+                                title="Include this member in the deploy script"
+                                className="w-3.5 h-3.5 accent-cyan-500 cursor-pointer shrink-0"
+                              />
+                            )}
                             {highlightMatch(col.name, query)}
                             {isPk && <KeyRound className="w-3.5 h-3.5 text-amber-400" aria-label="Primary key" />}
                           </span>
@@ -880,7 +944,7 @@ export const RightPanel: React.FC = () => {
           )}
 
           <button
-            onClick={applyMigration}
+            onClick={handleExecuteClick}
             disabled={isComparing || isMigrating || migrationExecuted || includedCount === 0}
             title={includedCount === 0 ? 'No objects selected for deployment' : `Deploy ${includedCount} object(s) to target`}
             className={`flex items-center gap-1.5 px-4 py-1.5 rounded text-xs font-bold transition shadow ${
@@ -905,6 +969,56 @@ export const RightPanel: React.FC = () => {
               </>
             )}
           </button>
+
+          {showConfirm && createPortal(
+            <div
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+              onClick={() => setShowConfirm(false)}
+            >
+              <div
+                className="w-full max-w-[440px] bg-slate-900 border border-slate-800 rounded-xl shadow-2xl overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="px-6 py-4 border-b border-slate-800 bg-slate-950/40 flex items-center gap-2.5">
+                  <AlertCircle className="w-5 h-5 text-amber-400 shrink-0" />
+                  <h2 className="text-white font-bold text-base">Execute sync script?</h2>
+                </div>
+                <div className="p-6 space-y-3">
+                  <p className="text-sm text-slate-300 leading-relaxed">
+                    This runs the generated migration against the{' '}
+                    <span className="font-bold text-purple-300">target</span> database
+                    {' '}(<span className="font-mono text-xs">{targetConfig.dialect.toUpperCase()}</span>), applying{' '}
+                    <span className="font-bold text-slate-100">{includedCount}</span> object change{includedCount === 1 ? '' : 's'}.
+                    This cannot be undone automatically.
+                  </p>
+                  <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={dontAskAgain}
+                      onChange={(e) => setDontAskAgain(e.target.checked)}
+                      className="w-4 h-4 accent-cyan-500 cursor-pointer"
+                    />
+                    Don't show this again
+                  </label>
+                </div>
+                <div className="flex justify-end gap-2 px-6 py-4 bg-slate-950/60 border-t border-slate-800">
+                  <button
+                    onClick={() => setShowConfirm(false)}
+                    className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-850/50 rounded transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={confirmExecute}
+                    className="px-4 py-2 text-xs font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-slate-950 rounded transition shadow flex items-center gap-1.5"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current" /> Execute
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )}
         </div>
       </div>
 

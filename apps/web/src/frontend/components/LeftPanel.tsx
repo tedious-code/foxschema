@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useSyncStore } from '../store/useSyncStore';
-import { Search, Layers, Table2, Eye, FunctionSquare, SquareTerminal, Zap, Hash, Box } from 'lucide-react';
+import { Search, Layers, Table2, Eye, FunctionSquare, SquareTerminal, Zap, Hash, Box, Users } from 'lucide-react';
 import { TableDiff } from '@foxschema/shared';
 import { DbObjectType } from '@foxschema/shared';
 import { highlightMatch } from '../utils/highlight';
@@ -12,6 +12,13 @@ const TYPE_META: Record<DbObjectType, { label: string; group: string; color: str
     color: 'text-cyan-400',
     bg: 'bg-cyan-950/40 border-cyan-500/20',
     icon: <Table2 className="w-4 h-4 text-cyan-400" />,
+  },
+  MQT: {
+    label: 'MQT',
+    group: 'MQTs',
+    color: 'text-emerald-400',
+    bg: 'bg-emerald-950/40 border-emerald-500/20',
+    icon: <Layers className="w-4 h-4 text-emerald-400" />,
   },
   VIEW: {
     label: 'View',
@@ -55,9 +62,16 @@ const TYPE_META: Record<DbObjectType, { label: string; group: string; color: str
     bg: 'bg-sky-950/40 border-sky-500/20',
     icon: <Box className="w-4 h-4 text-sky-400" />,
   },
+  ROLE: {
+    label: 'Role',
+    group: 'Roles',
+    color: 'text-rose-400',
+    bg: 'bg-rose-950/40 border-rose-500/20',
+    icon: <Users className="w-4 h-4 text-rose-400" />,
+  },
 };
 
-const TYPE_ORDER: DbObjectType[] = ['TABLE', 'VIEW', 'PROCEDURE', 'FUNCTION', 'TRIGGER', 'SEQUENCE', 'TYPE'];
+const TYPE_ORDER: DbObjectType[] = ['TABLE', 'MQT', 'VIEW', 'PROCEDURE', 'FUNCTION', 'TRIGGER', 'SEQUENCE', 'TYPE', 'ROLE'];
 
 const MIN_WIDTH = 280;
 const MAX_WIDTH = 640;
@@ -224,7 +238,7 @@ export const LeftPanel: React.FC = () => {
       <div className="p-4 border-b border-slate-800/80 bg-slate-950/40">
         <div className="flex justify-between items-center mb-3">
           <h2 className="text-sm font-bold text-slate-300 uppercase tracking-wider">Comparison Scope</h2>
-          <span className="text-xs text-slate-500 font-mono">
+          <span className="text-sm text-slate-200 font-mono font-bold">
             {compareResult.tables.length} objects
           </span>
         </div>
@@ -261,7 +275,7 @@ export const LeftPanel: React.FC = () => {
             <button
               key={type}
               onClick={() => setTypeFilter(type)}
-              className={`text-xs font-bold px-3 py-1.5 rounded-md transition whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+              className={`text-sm font-bold px-3.5 py-2 rounded-md transition whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
                 typeFilter === type
                   ? 'bg-slate-800 text-slate-100 border border-slate-600'
                   : 'bg-slate-900/60 text-slate-400 hover:text-slate-200 border border-transparent'
@@ -281,7 +295,7 @@ export const LeftPanel: React.FC = () => {
               <button
                 key={status}
                 onClick={() => setFilterStatus(status)}
-                className={`text-xs font-bold px-3 py-1.5 rounded-md transition whitespace-nowrap cursor-pointer ${
+                className={`text-sm font-bold px-3.5 py-2 rounded-md transition whitespace-nowrap cursor-pointer ${
                   filterStatus === status
                     ? 'bg-gradient-to-r from-cyan-600 to-indigo-600 text-slate-100 border border-cyan-500/20 shadow'
                     : 'bg-slate-800/60 text-slate-400 hover:text-slate-200 border border-transparent'
@@ -294,13 +308,13 @@ export const LeftPanel: React.FC = () => {
 
           <label
             title="Include unchanged objects in the list"
-            className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400 whitespace-nowrap cursor-pointer shrink-0 pb-1"
+            className="flex items-center gap-2 text-xs font-bold text-slate-300 whitespace-nowrap cursor-pointer shrink-0 pb-1"
           >
             <input
               type="checkbox"
               checked={showUnchanged}
               onChange={toggleShowUnchanged}
-              className="w-3.5 h-3.5 accent-cyan-500 cursor-pointer"
+              className="w-4 h-4 accent-cyan-500 cursor-pointer"
             />
             Unchanged
           </label>
@@ -318,7 +332,7 @@ export const LeftPanel: React.FC = () => {
           />
           Deploy to Target
         </label>
-        <span className="text-xs text-slate-500 font-mono">
+        <span className="text-xs text-slate-300 font-mono font-bold">
           {includedCount} / {changedCount} included
         </span>
       </div>

@@ -50,12 +50,14 @@ export const TopToolbar: React.FC = () => {
 
   const objectScopeOptions: { type: DbObjectType; label: string }[] = [
     { type: 'TABLE', label: 'Tables' },
+    { type: 'MQT', label: 'MQTs' },
     { type: 'VIEW', label: 'Views' },
     { type: 'FUNCTION', label: 'Functions' },
     { type: 'PROCEDURE', label: 'Procedures' },
     { type: 'TRIGGER', label: 'Triggers' },
     { type: 'SEQUENCE', label: 'Sequences' },
     { type: 'TYPE', label: 'Types' },
+    { type: 'ROLE', label: 'Roles' },
   ];
 
   return (
