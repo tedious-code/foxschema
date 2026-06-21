@@ -50,6 +50,29 @@ const MIGRATIONS: Migration[] = [
       CREATE INDEX idx_sessions_user ON sessions(user_id);
     `,
   },
+  {
+    id: 2,
+    name: 'migration_runs',
+    up: `
+      CREATE TABLE migration_runs (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        status TEXT NOT NULL,            -- RUNNING | SUCCESS | FAILED | ROLLED_BACK
+        dialect TEXT NOT NULL,
+        target_host TEXT,
+        database_name TEXT,
+        schema TEXT,
+        object_count INTEGER NOT NULL DEFAULT 0,
+        script TEXT,
+        snapshot_ddl TEXT,
+        results_json TEXT,               -- per-object [{name,type,action,status,error}]
+        error TEXT,
+        started_at TEXT NOT NULL,
+        finished_at TEXT
+      );
+      CREATE INDEX idx_migration_runs_user ON migration_runs(user_id, started_at DESC);
+    `,
+  },
 ];
 
 export function runMigrations(db: DatabaseSync): void {

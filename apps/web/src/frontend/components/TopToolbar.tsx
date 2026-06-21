@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { useSyncStore } from '../store/useSyncStore';
-import { Database, ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, CheckCircle2, Zap, Settings, KeyRound } from 'lucide-react';
+import { Database, ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, CheckCircle2, Zap, Settings, KeyRound, History } from 'lucide-react';
 import { ProfileMenu } from './ProfileMenu';
 import { CredentialManager } from './CredentialManager';
+import { MigrationHistory } from './MigrationHistory';
 import { DbObjectType } from '@foxschema/shared';
 import { PROVIDER_SETTINGS } from '@foxschema/shared';
 import { ConnectionModal } from './ConnectionModal';
@@ -39,6 +40,7 @@ export const TopToolbar: React.FC = () => {
 
   const [activeModalTarget, setActiveModalTarget] = useState<'source' | 'target' | null>(null);
   const [showCredentials, setShowCredentials] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
 
   // Same dialect + server + database + schema means you'd be comparing a schema
   // with itself (everything UNCHANGED) — almost always a misconfiguration
@@ -82,6 +84,12 @@ export const TopToolbar: React.FC = () => {
             className="flex items-center gap-1.5 px-3 py-1.5 text-base font-semibold text-cyan-400 hover:text-cyan-300 border border-slate-700 hover:border-cyan-500/40 rounded-md transition cursor-pointer"
           >
             <KeyRound className="w-4 h-4" /> Credentials
+          </button>
+          <button
+            onClick={() => setShowHistory(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-base font-semibold text-slate-300 hover:text-slate-100 border border-slate-700 hover:border-slate-500 rounded-md transition cursor-pointer"
+          >
+            <History className="w-4 h-4" /> History
           </button>
           {compareResult && (
             <button
@@ -333,6 +341,8 @@ export const TopToolbar: React.FC = () => {
       />
 
       <CredentialManager open={showCredentials} onClose={() => setShowCredentials(false)} />
+
+      <MigrationHistory open={showHistory} onClose={() => setShowHistory(false)} />
     </header>
   );
 };

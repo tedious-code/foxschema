@@ -1066,7 +1066,10 @@ export const RightPanel: React.FC = () => {
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = `target-snapshot-${new Date().toISOString().replace(/[:.]/g, '-')}.sql`;
+                    // Filename: snapshot_<host>_<database>_<schema>_<datetime>.sql
+                    const safe = (s?: string) => (s ?? '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'unknown';
+                    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+                    a.download = `snapshot_${safe(targetConfig.option.host)}_${safe(targetConfig.option.database)}_${safe(targetConfig.schema)}_${stamp}.sql`;
                     a.click();
                     URL.revokeObjectURL(url);
                   }}

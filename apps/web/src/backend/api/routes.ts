@@ -11,6 +11,7 @@ import {
   type DbObjectType,
 } from '@foxschema/core';
 import { ConnectionStore } from '../modules/connection-store.module';
+import { MigrationHistoryStore, type MigrationObjectResult, type MigrationRunStatus } from '../modules/migration-history.module';
 import type { AuthedRequest } from './auth.routes';
 
 /**
@@ -29,6 +30,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   const compareModule = new CompareModule();
   const migrationModule = new MigrationModule();
   const sqlGenerator = new SqlGeneratorModule();
+  const migrationHistory = new MigrationHistoryStore();
 
   /** Resolve a ConnectionRef to concrete credentials (decrypting a saved one). */
   function resolveRef(userId: string | undefined, ref: ConnectionRef): { dialect: string; option: ConnectionOptions; schema: string } {
@@ -181,10 +183,51 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       return;
     }
 
-    // Stream NDJSON progress events as the migration runs
+    // Record this run in history (best-effort — never let logging break a deploy).
+    const userId = (req as AuthedRequest).userId!;
+    const script = steps
+      .map((s) => `-- ${s.action} ${s.objectType} ${s.objectName}\n${s.statements.join('\n')}`)
+      .join('\n\n');
+    let runId: string | null = null;
+    try {
+      runId = migrationHistory.start(userId, {
+        dialect,
+        host: option.host,
+        database: option.database,
+        schema,
+        objectCount: steps.length,
+        script,
+      });
+    } catch {
+      /* history is non-critical */
+    }
+
+    // Stream NDJSON progress events as the migration runs, while capturing the
+    // snapshot, per-object results, and final status for the history record.
     res.setHeader('Content-Type', 'application/x-ndjson');
     res.setHeader('Cache-Control', 'no-cache');
-    const send = (event: unknown) => res.write(JSON.stringify(event) + '\n');
+    let snapshotDdl: string | undefined;
+    const resultMap = new Map<string, MigrationObjectResult>();
+    let finalStatus: MigrationRunStatus = 'FAILED';
+    let finalError: string | undefined;
+    const send = (event: any) => {
+      res.write(JSON.stringify(event) + '\n');
+      if (event?.type === 'snapshot') {
+        snapshotDdl = event.ddl;
+      } else if (event?.type === 'object') {
+        // Keep the latest status per object (RUNNING → SUCCESS/FAILED).
+        resultMap.set(event.objectName, {
+          name: event.objectName,
+          type: event.objectType,
+          action: event.action,
+          status: event.status,
+          error: event.error,
+        });
+      } else if (event?.type === 'done') {
+        finalStatus = event.success ? 'SUCCESS' : event.rolledBack ? 'ROLLED_BACK' : 'FAILED';
+        finalError = event.error;
+      }
+    };
 
     try {
       // 1. Snapshot the target schema DDL before touching anything
@@ -203,10 +246,45 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       await migrationModule.execute(dialect, option, schema, steps, send);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Migration failed';
+      finalStatus = 'FAILED';
+      finalError = message;
       send({ type: 'done', success: false, rolledBack: false, error: message });
     }
 
+    // Finalize the history record with the outcome.
+    if (runId) {
+      try {
+        migrationHistory.finish(runId, {
+          status: finalStatus,
+          results: [...resultMap.values()],
+          snapshotDdl,
+          error: finalError,
+        });
+      } catch {
+        /* history is non-critical */
+      }
+    }
+
     res.end();
+  });
+
+  // --- Migration history (per user) ----------------------------------------
+  router.get('/migrations', (req: Request, res: Response) => {
+    res.json({ runs: migrationHistory.list((req as AuthedRequest).userId!) });
+  });
+
+  router.get('/migrations/:id', (req: Request, res: Response) => {
+    const run = migrationHistory.get((req as AuthedRequest).userId!, String(req.params.id));
+    if (!run) {
+      res.status(404).json({ error: 'Migration run not found' });
+      return;
+    }
+    res.json({ run });
+  });
+
+  router.delete('/migrations/:id', (req: Request, res: Response) => {
+    const removed = migrationHistory.remove((req as AuthedRequest).userId!, String(req.params.id));
+    res.status(removed ? 200 : 404).json({ ok: removed });
   });
 
   return router;
