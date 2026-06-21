@@ -23,7 +23,7 @@ export const AuthPage: React.FC = () => {
     <div className="h-screen flex items-center justify-center bg-slate-950 text-slate-100 p-4">
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-8">
-          <div className="bg-gradient-to-tr from-cyan-500 to-indigo-500 p-3 rounded-xl text-slate-950 shadow-lg shadow-cyan-500/10 mb-3">
+          <div className="bg-gradient-to-tr from-cyan-500 to-indigo-500 p-3 rounded-xl on-accent-fg shadow-lg shadow-cyan-500/10 mb-3">
             <Database className="w-7 h-7" />
           </div>
           <h1 className="text-xl font-bold">FoxSchema</h1>
@@ -68,7 +68,7 @@ export const AuthPage: React.FC = () => {
           <button
             type="submit"
             disabled={busy}
-            className="flex items-center justify-center gap-2 bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 disabled:opacity-60 text-slate-950 font-bold rounded-md py-2.5 text-sm transition cursor-pointer"
+            className="flex items-center justify-center gap-2 accent-grad disabled:opacity-60 on-accent-fg font-bold rounded-md py-2.5 text-sm transition cursor-pointer"
           >
             {busy && <Loader2 className="w-4 h-4 animate-spin" />}
             {mode === 'login' ? 'Sign In' : 'Create Account'}

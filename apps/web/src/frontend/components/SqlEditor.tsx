@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
-import { MONACO_THEME, monacoLanguage } from '../monaco-setup';
+import { MONACO_THEME, MONACO_THEME_LIGHT, monacoLanguage } from '../monaco-setup';
+import { useUiStore } from '../store/uiStore';
 
 const BASE_OPTIONS = {
   minimap: { enabled: false },
@@ -46,6 +47,7 @@ interface SqlViewerProps {
 export const SqlEditor: React.FC<SqlViewerProps> = ({ value, dialect, editable = false, onChange, height = '100%', highlight }) => {
   const editorRef = useRef<any>(null);
   const decoRef = useRef<any>(null);
+  const monacoTheme = useUiStore((s) => s.resolvedMode) === 'light' ? MONACO_THEME_LIGHT : MONACO_THEME;
 
   const apply = useCallback(() => {
     if (editorRef.current) decoRef.current = decorate(editorRef.current, highlight ?? '', decoRef.current);
@@ -58,7 +60,7 @@ export const SqlEditor: React.FC<SqlViewerProps> = ({ value, dialect, editable =
   return (
     <Editor
       height={height}
-      theme={MONACO_THEME}
+      theme={monacoTheme}
       language={monacoLanguage(dialect)}
       value={value}
       onChange={(v) => onChange?.(v ?? '')}
@@ -93,6 +95,7 @@ export const SqlDiffEditor: React.FC<SqlDiffProps> = ({ original, modified, dial
   const diffRef = useRef<any>(null);
   const decoModRef = useRef<any>(null);
   const decoOrigRef = useRef<any>(null);
+  const monacoTheme = useUiStore((s) => s.resolvedMode) === 'light' ? MONACO_THEME_LIGHT : MONACO_THEME;
 
   const apply = useCallback(() => {
     const diff = diffRef.current;
@@ -108,7 +111,7 @@ export const SqlDiffEditor: React.FC<SqlDiffProps> = ({ original, modified, dial
   return (
     <DiffEditor
       height={height}
-      theme={MONACO_THEME}
+      theme={monacoTheme}
       language={monacoLanguage(dialect)}
       original={orig}
       modified={mod}

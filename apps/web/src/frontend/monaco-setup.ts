@@ -37,6 +37,27 @@ monaco.editor.defineTheme(MONACO_THEME, {
   },
 });
 
+/** Light counterpart, used when the app theme resolves to light. */
+export const MONACO_THEME_LIGHT = 'schemaSyncLight';
+
+monaco.editor.defineTheme(MONACO_THEME_LIGHT, {
+  base: 'vs',
+  inherit: true,
+  rules: [],
+  colors: {
+    'editor.background': '#ffffff',
+    'editor.foreground': '#1e293b',
+    'editorCursor.foreground': '#0891b2',
+    'editor.lineHighlightBackground': '#f1f5f9',
+    'editorLineNumber.foreground': '#94a3b8',
+    'editorGutter.background': '#ffffff',
+    'diffEditor.insertedTextBackground': '#10b9812e',
+    'diffEditor.removedTextBackground': '#f43f5e2e',
+    'diffEditor.insertedLineBackground': '#10b98122',
+    'diffEditor.removedLineBackground': '#f43f5e22',
+  },
+});
+
 /** Map an app dialect to a Monaco language id. */
 export function monacoLanguage(dialect: string): string {
   switch (dialect.toLowerCase()) {

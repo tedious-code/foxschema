@@ -65,7 +65,7 @@ export const TopToolbar: React.FC = () => {
       {/* Brand Logo & Actions */}
       <div className="flex justify-between items-center">
         <div className="flex items-center gap-3">
-          <div className="accent-grad p-2 rounded-lg text-slate-950 font-bold shadow-lg shadow-cyan-500/10">
+          <div className="accent-grad p-2 rounded-lg on-accent-fg font-bold shadow-lg shadow-cyan-500/10">
             <Database className="w-5 h-5" />
           </div>
           <div>
@@ -292,7 +292,7 @@ export const TopToolbar: React.FC = () => {
             title={sameConfig ? 'Source and target point to the same database and schema' : undefined}
             className={`flex items-center gap-2 px-5 py-2 rounded-lg text-base font-bold transition shadow-lg ${
               sourceConnected && targetConnected && selectedObjectTypes.length > 0 && !sameConfig
-                ? 'bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-slate-950 shadow-indigo-500/10 cursor-pointer'
+                ? 'accent-grad on-accent-fg shadow-indigo-500/10 cursor-pointer'
                 : 'bg-slate-850 text-slate-500 cursor-not-allowed border border-slate-800/50'
             }`}
           >

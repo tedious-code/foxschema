@@ -17,7 +17,7 @@ export function highlightMatch(text: string, query: string): React.ReactNode {
   while (at !== -1) {
     if (at > from) parts.push(text.slice(from, at));
     parts.push(
-      <mark key={key++} className="bg-cyan-400/25 text-cyan-200 rounded-sm px-0.5">
+      <mark key={key++} className="fox-search-hl px-0.5">
         {text.slice(at, at + query.length)}
       </mark>
     );

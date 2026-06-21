@@ -28,7 +28,7 @@ export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
           <div className="flex items-center gap-2">
             <KeyRound className="w-5 h-5 text-cyan-400" />
             <div>
-              <h2 className="text-white font-bold text-base">Saved Credentials</h2>
+              <h2 className="text-slate-100 font-bold text-base">Saved Credentials</h2>
               <p className="text-xs text-slate-400 mt-0.5">Encrypted at rest · reusable from the connection dropdowns</p>
             </div>
           </div>
@@ -89,7 +89,7 @@ export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
         <div className="px-6 py-4 bg-slate-950/60 border-t border-slate-800">
           <button
             onClick={() => setAdding(true)}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-bold bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-slate-950 rounded-lg transition cursor-pointer"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-bold accent-grad on-accent-fg rounded-lg transition cursor-pointer"
           >
             <Plus className="w-4 h-4" /> Add Credential
           </button>

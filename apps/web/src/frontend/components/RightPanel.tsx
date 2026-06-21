@@ -952,7 +952,7 @@ export const RightPanel: React.FC = () => {
                 ? 'bg-emerald-950/40 text-emerald-400 border border-emerald-500/25 cursor-default'
                 : includedCount === 0
                 ? 'bg-slate-800 text-slate-500 border border-slate-700/50 cursor-not-allowed'
-                : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-slate-950 cursor-pointer shadow-emerald-500/5'
+                : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 on-accent-fg cursor-pointer shadow-emerald-500/5'
             }`}
           >
             {isMigrating ? (
@@ -981,7 +981,7 @@ export const RightPanel: React.FC = () => {
               >
                 <div className="px-6 py-4 border-b border-slate-800 bg-slate-950/40 flex items-center gap-2.5">
                   <AlertCircle className="w-5 h-5 text-amber-400 shrink-0" />
-                  <h2 className="text-white font-bold text-base">Execute sync script?</h2>
+                  <h2 className="text-slate-100 font-bold text-base">Execute sync script?</h2>
                 </div>
                 <div className="p-6 space-y-3">
                   <p className="text-sm text-slate-300 leading-relaxed">
@@ -1010,7 +1010,7 @@ export const RightPanel: React.FC = () => {
                   </button>
                   <button
                     onClick={confirmExecute}
-                    className="px-4 py-2 text-xs font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-slate-950 rounded transition shadow flex items-center gap-1.5"
+                    className="px-4 py-2 text-xs font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 on-accent-fg rounded transition shadow flex items-center gap-1.5"
                   >
                     <Play className="w-3.5 h-3.5 fill-current" /> Execute
                   </button>
