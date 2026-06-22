@@ -37,18 +37,44 @@ const FONT_PX: Record<FontSize, string> = { sm: '14px', md: '16px', lg: '18px', 
 // re-theme the whole UI by remapping the slate scale to the chosen tone family,
 // inverted for light mode (950↔50). Accents stay untouched.
 const SHADES = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950] as const;
-// Symmetric flip (used for the colored families in light mode).
-const INVERT: Record<number, number> = {
-  50: 950, 100: 900, 200: 800, 300: 700, 400: 600, 500: 500, 600: 400, 700: 300, 800: 200, 900: 100, 950: 50,
-};
-// Neutral light map — a *shifted* flip: backgrounds land on soft off-white
-// (not glaring pure white) and text lands darker, for legibility.
+// Light-mode shade remap (used for BOTH neutrals and colored families). Backgrounds land light (text darker for
+// legibility). The dominant base shade (950) is additionally softened to a
+// gentle canvas between 100 and 200 below — lighter than a flat gray, but not
+// the bare white that read as "uncoloured".
 const LIGHT_NEUTRAL: Record<number, number> = {
   950: 100, 900: 200, 800: 300, 700: 400, 600: 500, 500: 600, 400: 700, 300: 800, 200: 900, 100: 950, 50: 950,
 };
-// Colored families used in the UI — inverted in light mode so colored text and
-// badges (cyan labels, amber/emerald/rose status pills) read dark-on-light.
+// Colored families used in the UI (cyan labels, amber/emerald/rose status
+// pills + add/remove/modified tints). Remapped in light mode with the shifted
+// scale above so dark fills (bg-*-950/900) become *visible* light tints
+// (100/200) rather than near-white, and colored text lands dark enough to read.
 const COLORED = ['cyan', 'emerald', 'rose', 'amber', 'indigo', 'purple', 'teal', 'yellow', 'sky', 'violet', 'pink', 'orange'];
+// Neutral "tone" families.
+const TONE_FAMILIES: ToneId[] = ['slate', 'gray', 'zinc', 'stone', 'neutral'];
+
+// The real palette, captured once as *literal* color values. Light-mode
+// overrides must reference these literals rather than other `--color-*` vars,
+// because a remap like 400→700 alongside 700→400 forms a circular var() chain
+// that CSS marks invalid-at-computed-value-time — which blanks the color out
+// (the bug: amber/rose/emerald status tints rendered as inherited gray).
+let ORIGINALS: Record<string, string> | null = null;
+function captureOriginals(root: HTMLElement): void {
+  if (ORIGINALS) return;
+  const fams = [...TONE_FAMILIES, ...COLORED];
+  // Read from a clean slate so any prior inline overrides can't skew the capture.
+  for (const fam of fams) for (const s of SHADES) root.style.removeProperty(`--color-${fam}-${s}`);
+  const cs = getComputedStyle(root);
+  const map: Record<string, string> = {};
+  for (const fam of fams) {
+    for (const s of SHADES) {
+      const v = cs.getPropertyValue(`--color-${fam}-${s}`).trim();
+      if (v) map[`${fam}-${s}`] = v;
+    }
+  }
+  // Only cache once the stylesheet is loaded (non-empty); avoids locking in
+  // blanks if applied before CSS is ready.
+  if (map['slate-500'] || map['gray-500']) ORIGINALS = map;
+}
 
 function resolveMode(mode: ThemeMode): 'dark' | 'light' {
   if (mode === 'system' && typeof window !== 'undefined') {
@@ -62,23 +88,36 @@ function applyToDocument(themeMode: ThemeMode, tone: ToneId, fontSize: FontSize,
   const mode = resolveMode(themeMode);
   const light = mode === 'light';
 
-  // Neutral scale → chosen tone family (shifted-inverted for light). Default
-  // (slate + dark) drops overrides to avoid a circular self-reference.
+  captureOriginals(root);
+  // Literal value of a palette entry — never a `--color-*` var (which may itself
+  // be overridden → circular). Falls back to a var() only if capture isn't ready.
+  const lit = (fam: string, shade: number) => ORIGINALS?.[`${fam}-${shade}`] ?? `var(--color-${fam}-${shade})`;
+
+  // Neutral scale → chosen tone family (shifted for light). Default (slate +
+  // dark) drops overrides to use Tailwind's own slate.
   const neutralDefault = tone === 'slate' && !light;
   for (const s of SHADES) {
     if (neutralDefault) {
       root.style.removeProperty(`--color-slate-${s}`);
     } else {
-      root.style.setProperty(`--color-slate-${s}`, `var(--color-${tone}-${light ? LIGHT_NEUTRAL[s] : s})`);
+      root.style.setProperty(`--color-slate-${s}`, lit(tone, light ? LIGHT_NEUTRAL[s] : s));
     }
   }
+  // Soften the base canvas (the largest surface) to a gentle tint between shades
+  // 100 and 200: lighter than a flat gray, but enough that big areas don't read
+  // as a bare-white, "uncoloured" page next to the panels.
+  if (light) {
+    root.style.setProperty('--color-slate-950', `color-mix(in oklab, ${lit(tone, 100)} 60%, ${lit(tone, 200)})`);
+  }
 
-  // Colored families: invert in light mode, default (no override) in dark.
-  // Shade 500 maps to itself, so leave it unset to avoid a circular var().
+  // Colored families: in light mode remap with the same shifted scale as the
+  // neutrals, so status fills (bg-emerald-950/rose-950/amber-950 …) become
+  // visible light tints and colored numbers/text land dark enough to read.
+  // Default (no override) in dark.
   for (const fam of COLORED) {
     for (const s of SHADES) {
-      if (light && INVERT[s] !== s) {
-        root.style.setProperty(`--color-${fam}-${s}`, `var(--color-${fam}-${INVERT[s]})`);
+      if (light) {
+        root.style.setProperty(`--color-${fam}-${s}`, lit(fam, LIGHT_NEUTRAL[s]));
       } else {
         root.style.removeProperty(`--color-${fam}-${s}`);
       }

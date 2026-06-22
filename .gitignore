@@ -16,6 +16,7 @@ dist-ssr
 *.local
 
 # Editor directories and files
+.claude
 .vscode/*
 !.vscode/extensions.json
 .idea
@@ -27,6 +28,9 @@ dist-ssr
 *.sw?
 foxschema.db*
 
+IMPLEMENTATION_STATE.md
+CLAUDE.md
+CHANGELOG.md
 # Desktop (Tauri) build artifacts
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/

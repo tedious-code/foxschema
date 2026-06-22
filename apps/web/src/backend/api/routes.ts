@@ -12,6 +12,10 @@ import {
 } from '@foxschema/core';
 import { ConnectionStore } from '../modules/connection-store.module';
 import { MigrationHistoryStore, type MigrationObjectResult, type MigrationRunStatus } from '../modules/migration-history.module';
+import { AppSettingsStore } from '../modules/app-settings.module';
+import { getMetadataDbConfig, SUPPORTED_ENGINES, type DbEngine } from '../database/config';
+import { createMetadataStore } from '../database/providers/registry';
+import { keySchemeInfo } from '../cores/crypto';
 import type { AuthedRequest } from './auth.routes';
 
 /**
@@ -31,12 +35,16 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   const migrationModule = new MigrationModule();
   const sqlGenerator = new SqlGeneratorModule();
   const migrationHistory = new MigrationHistoryStore();
+  const appSettings = new AppSettingsStore();
 
   /** Resolve a ConnectionRef to concrete credentials (decrypting a saved one). */
-  function resolveRef(userId: string | undefined, ref: ConnectionRef): { dialect: string; option: ConnectionOptions; schema: string } {
+  async function resolveRef(
+    userId: string | undefined,
+    ref: ConnectionRef
+  ): Promise<{ dialect: string; option: ConnectionOptions; schema: string }> {
     if (ref.connectionId) {
       if (!userId) throw new Error('Sign in to use a saved connection');
-      const resolved = connectionStore.resolve(userId, ref.connectionId);
+      const resolved = await connectionStore.resolve(userId, ref.connectionId);
       if (!resolved) throw new Error('Saved connection not found');
       return { dialect: resolved.dialect, option: resolved.option, schema: ref.schema ?? resolved.schema ?? '' };
     }
@@ -60,6 +68,62 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
 
   router.get('/health', (_req: Request, res: Response) => {
     res.json({ ok: true });
+  });
+
+  // Non-secret info about where the app's metadata DB lives and how the
+  // credential-encryption key is bound — for the "Database & Security" settings
+  // section. Never exposes the key itself.
+  router.get('/app-info', async (_req: Request, res: Response) => {
+    const cfg = getMetadataDbConfig();
+    const key = keySchemeInfo();
+    // Persist a durable record of the active config (useful for later tooling).
+    try {
+      await appSettings.set('db.engine', cfg.engine);
+      if (cfg.path) await appSettings.set('db.path', cfg.path);
+      if (key.boundEmail) await appSettings.set('key.boundEmail', key.boundEmail);
+      await appSettings.set('key.scheme', key.scheme);
+    } catch {
+      /* best-effort; never block the response */
+    }
+    res.json({
+      db: { engine: cfg.engine, location: cfg.engine === 'sqlite' ? cfg.path ?? '(default)' : cfg.url ?? '' },
+      security: { keyScheme: key.scheme, emailBound: key.emailBound, boundEmail: key.boundEmail },
+      desktop: process.env.EDITION === 'community',
+    });
+  });
+
+  // Validate a candidate metadata-DB engine/URL before the user switches to it.
+  // Opens a throwaway connection (no migrations, no effect on the live store).
+  // Restricted to the local/community edition — on multi-user web the metadata
+  // DB is ops-managed, and a connection probe would be an SSRF vector.
+  router.post('/db/test', async (req: Request, res: Response) => {
+    if (process.env.EDITION !== 'community') {
+      res.status(403).json({ ok: false, error: 'Database engine is managed by the server in this edition.' });
+      return;
+    }
+    const { engine, url, path } = req.body as { engine?: string; url?: string; path?: string };
+    if (!engine || !SUPPORTED_ENGINES.includes(engine as DbEngine)) {
+      res.status(400).json({ ok: false, error: `Unsupported engine. Supported: ${SUPPORTED_ENGINES.join(', ')}.` });
+      return;
+    }
+    if ((engine === 'postgres' || engine === 'mysql') && !url) {
+      res.status(400).json({ ok: false, error: 'A connection string is required.' });
+      return;
+    }
+    let store;
+    try {
+      store = createMetadataStore({ engine: engine as DbEngine, url, path });
+      await store.init();
+      res.json({ ok: true });
+    } catch (error: unknown) {
+      res.json({ ok: false, error: error instanceof Error ? error.message : 'Connection failed' });
+    } finally {
+      try {
+        await store?.close();
+      } catch {
+        /* ignore */
+      }
+    }
   });
 
   router.get('/driver/check', (req: Request, res: Response) => {
@@ -102,7 +166,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
 
   router.post('/connection/test', async (req: Request, res: Response) => {
     try {
-      const { dialect, option } = resolveRef((req as AuthedRequest).userId, req.body as ConnectionRef);
+      const { dialect, option } = await resolveRef((req as AuthedRequest).userId, req.body as ConnectionRef);
       const success = await connectionModule.testConnection(dialect, option);
       res.json({ success, error: success ? undefined : 'Connection test returned false' });
     } catch (error: unknown) {
@@ -113,7 +177,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
 
   router.post('/schema/list', async (req: Request, res: Response) => {
     try {
-      const { dialect, option } = resolveRef((req as AuthedRequest).userId, req.body as ConnectionRef);
+      const { dialect, option } = await resolveRef((req as AuthedRequest).userId, req.body as ConnectionRef);
       const provider = connectionModule.getProvider(dialect);
       if (!provider.listSchemas) {
         throw new Error(`Provider for dialect "${dialect}" does not support schema listing`);
@@ -155,8 +219,8 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
 
     try {
       const userId = (req as AuthedRequest).userId;
-      const src = resolveRef(userId, source);
-      const tgt = resolveRef(userId, target);
+      const src = await resolveRef(userId, source);
+      const tgt = await resolveRef(userId, target);
       // Load both schemas and diff server-side; only the result crosses the wire
       const [sourceTables, targetTables] = await Promise.all([
         loadScopedTables(src.dialect, src.option, src.schema, scope),
@@ -177,7 +241,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     let option: ConnectionOptions;
     let schema: string;
     try {
-      ({ dialect, option, schema } = resolveRef((req as AuthedRequest).userId, ref));
+      ({ dialect, option, schema } = await resolveRef((req as AuthedRequest).userId, ref));
     } catch (error: unknown) {
       res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid connection' });
       return;
@@ -190,7 +254,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       .join('\n\n');
     let runId: string | null = null;
     try {
-      runId = migrationHistory.start(userId, {
+      runId = await migrationHistory.start(userId, {
         dialect,
         host: option.host,
         database: option.database,
@@ -254,7 +318,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     // Finalize the history record with the outcome.
     if (runId) {
       try {
-        migrationHistory.finish(runId, {
+        await migrationHistory.finish(runId, {
           status: finalStatus,
           results: [...resultMap.values()],
           snapshotDdl,
@@ -269,12 +333,12 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   });
 
   // --- Migration history (per user) ----------------------------------------
-  router.get('/migrations', (req: Request, res: Response) => {
-    res.json({ runs: migrationHistory.list((req as AuthedRequest).userId!) });
+  router.get('/migrations', async (req: Request, res: Response) => {
+    res.json({ runs: await migrationHistory.list((req as AuthedRequest).userId!) });
   });
 
-  router.get('/migrations/:id', (req: Request, res: Response) => {
-    const run = migrationHistory.get((req as AuthedRequest).userId!, String(req.params.id));
+  router.get('/migrations/:id', async (req: Request, res: Response) => {
+    const run = await migrationHistory.get((req as AuthedRequest).userId!, String(req.params.id));
     if (!run) {
       res.status(404).json({ error: 'Migration run not found' });
       return;
@@ -282,8 +346,8 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     res.json({ run });
   });
 
-  router.delete('/migrations/:id', (req: Request, res: Response) => {
-    const removed = migrationHistory.remove((req as AuthedRequest).userId!, String(req.params.id));
+  router.delete('/migrations/:id', async (req: Request, res: Response) => {
+    const removed = await migrationHistory.remove((req as AuthedRequest).userId!, String(req.params.id));
     res.status(removed ? 200 : 404).json({ ok: removed });
   });
 

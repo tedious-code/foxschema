@@ -54,7 +54,7 @@ export const ProfileMenu: React.FC = () => {
             }}
             className="w-full flex items-center gap-2 px-4 py-3 text-sm font-semibold text-slate-300 hover:text-slate-100 hover:bg-slate-800/60 transition cursor-pointer"
           >
-            <Palette className="w-4 h-4" /> Appearance
+            <Palette className="w-4 h-4" /> User Preference
           </button>
 
           {!LOCAL_SINGLE_USER && (

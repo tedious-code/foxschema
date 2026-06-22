@@ -17,6 +17,23 @@ function tauri(): TauriGlobal | undefined {
   return (window as unknown as { __TAURI__?: TauriGlobal }).__TAURI__;
 }
 
+/** True in the desktop (Tauri) shell, false on the web. */
+export function isTauri(): boolean {
+  return !!tauri()?.core?.invoke;
+}
+
+/** Invoke a Tauri command. Rejects if not running under Tauri. */
+export function invokeTauri<T>(cmd: string, args?: unknown): Promise<T> {
+  const invoke = tauri()?.core?.invoke;
+  if (!invoke) return Promise.reject(new Error('Not running under Tauri'));
+  return invoke<T>(cmd, args);
+}
+
+/** Set the cached API base (e.g. after the sidecar is spawned at setup). */
+export function setApiBase(base: string): void {
+  if (base) cached = base;
+}
+
 /** Resolve and cache the API base. Call once at app boot before any fetch. */
 export async function resolveApiBase(): Promise<string> {
   if (cached) return cached;

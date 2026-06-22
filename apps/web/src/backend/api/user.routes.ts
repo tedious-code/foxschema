@@ -6,14 +6,20 @@ import { AuthedRequest } from './auth.routes';
 export function createUserRoutes(user: UserModule): Router {
   const router = Router();
 
-  router.get('/preferences', (req: AuthedRequest, res: Response) => {
-    res.json({ preferences: user.getPreferences(req.userId!) });
+  router.get('/preferences', async (req: AuthedRequest, res: Response) => {
+    res.json({ preferences: await user.getPreferences(req.userId!) });
   });
 
-  router.put('/preferences', (req: AuthedRequest, res: Response) => {
+  router.put('/preferences', async (req: AuthedRequest, res: Response) => {
     const { role, primaryDatabase, primaryGoal, theme, onboardingCompleted } = req.body as Partial<UserPreferences>;
     res.json({
-      preferences: user.updatePreferences(req.userId!, { role, primaryDatabase, primaryGoal, theme, onboardingCompleted }),
+      preferences: await user.updatePreferences(req.userId!, {
+        role,
+        primaryDatabase,
+        primaryGoal,
+        theme,
+        onboardingCompleted,
+      }),
     });
   });
 

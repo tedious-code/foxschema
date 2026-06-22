@@ -30,10 +30,10 @@ function setSessionCookie(res: Response, token: string): void {
 export function createAuthRoutes(auth: AuthModule): Router {
   const router = Router();
 
-  router.post('/register', (req: Request, res: Response) => {
+  router.post('/register', async (req: Request, res: Response) => {
     const { email, password } = req.body as { email: string; password: string };
     try {
-      const { user, token } = auth.register(email, password);
+      const { user, token } = await auth.register(email, password);
       setSessionCookie(res, token);
       res.json({ user });
     } catch (error: unknown) {
@@ -41,10 +41,10 @@ export function createAuthRoutes(auth: AuthModule): Router {
     }
   });
 
-  router.post('/login', (req: Request, res: Response) => {
+  router.post('/login', async (req: Request, res: Response) => {
     const { email, password } = req.body as { email: string; password: string };
     try {
-      const { user, token } = auth.login(email, password);
+      const { user, token } = await auth.login(email, password);
       setSessionCookie(res, token);
       res.json({ user });
     } catch (error: unknown) {
@@ -52,14 +52,14 @@ export function createAuthRoutes(auth: AuthModule): Router {
     }
   });
 
-  router.post('/logout', (req: Request, res: Response) => {
-    auth.logout(readCookie(req, SESSION_COOKIE));
+  router.post('/logout', async (req: Request, res: Response) => {
+    await auth.logout(readCookie(req, SESSION_COOKIE));
     res.clearCookie(SESSION_COOKIE, { path: '/' });
     res.json({ ok: true });
   });
 
-  router.get('/me', (req: Request, res: Response) => {
-    const user = auth.getUserByToken(readCookie(req, SESSION_COOKIE));
+  router.get('/me', async (req: Request, res: Response) => {
+    const user = await auth.getUserByToken(readCookie(req, SESSION_COOKIE));
     if (!user) {
       res.status(401).json({ error: 'Not authenticated' });
       return;
@@ -72,14 +72,18 @@ export function createAuthRoutes(auth: AuthModule): Router {
 
 /** Guard for protected routes — attaches userId or 401s. */
 export function authGuard(auth: AuthModule) {
-  return (req: AuthedRequest, res: Response, next: NextFunction) => {
-    const user = auth.getUserByToken(readCookie(req, SESSION_COOKIE));
-    if (!user) {
-      res.status(401).json({ error: 'Authentication required' });
-      return;
+  return async (req: AuthedRequest, res: Response, next: NextFunction) => {
+    try {
+      const user = await auth.getUserByToken(readCookie(req, SESSION_COOKIE));
+      if (!user) {
+        res.status(401).json({ error: 'Authentication required' });
+        return;
+      }
+      req.userId = user.id;
+      next();
+    } catch (err) {
+      next(err);
     }
-    req.userId = user.id;
-    next();
   };
 }
 
@@ -88,8 +92,12 @@ export function authGuard(auth: AuthModule) {
  * the singleton local user, so per-user routes work without an auth flow.
  */
 export function localUserGuard(auth: AuthModule) {
-  return (req: AuthedRequest, _res: Response, next: NextFunction) => {
-    req.userId = auth.ensureLocalUser().id;
-    next();
+  return async (req: AuthedRequest, _res: Response, next: NextFunction) => {
+    try {
+      req.userId = (await auth.ensureLocalUser()).id;
+      next();
+    } catch (err) {
+      next(err);
+    }
   };
 }

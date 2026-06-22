@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { getDb } from '../database/sqlite';
+import { getStore } from '../database/store';
 import { hashPassword, verifyPassword, newToken } from '../cores/crypto';
 
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
@@ -21,31 +21,32 @@ function validateCredentials(email: string, password: string): void {
 
 export class AuthModule {
   /** Create an account and start a session (register auto-logs-in). */
-  register(email: string, password: string): { user: AuthUser; token: string } {
+  async register(email: string, password: string): Promise<{ user: AuthUser; token: string }> {
     validateCredentials(email, password);
-    const db = getDb();
+    const store = await getStore();
     const normalized = email.trim().toLowerCase();
 
-    const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(normalized);
+    const existing = await store.get('SELECT id FROM users WHERE email = ?', [normalized]);
     if (existing) throw new Error('An account with this email already exists.');
 
     const id = randomUUID();
-    db.prepare('INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)').run(
+    await store.run('INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)', [
       id,
       normalized,
       hashPassword(password),
-      new Date().toISOString()
-    );
+      new Date().toISOString(),
+    ]);
 
-    return { user: { id, email: normalized, onboardingCompleted: false }, token: this.createSession(id) };
+    return { user: { id, email: normalized, onboardingCompleted: false }, token: await this.createSession(id) };
   }
 
-  login(email: string, password: string): { user: AuthUser; token: string } {
-    const db = getDb();
+  async login(email: string, password: string): Promise<{ user: AuthUser; token: string }> {
+    const store = await getStore();
     const normalized = (email ?? '').trim().toLowerCase();
-    const row = db
-      .prepare('SELECT id, email, password_hash, onboarding_completed FROM users WHERE email = ?')
-      .get(normalized) as { id: string; email: string; password_hash: string; onboarding_completed: number } | undefined;
+    const row = await store.get<{ id: string; email: string; password_hash: string; onboarding_completed: number }>(
+      'SELECT id, email, password_hash, onboarding_completed FROM users WHERE email = ?',
+      [normalized]
+    );
 
     // Same error whether the email or password is wrong (no account enumeration)
     if (!row || !verifyPassword(password ?? '', row.password_hash)) {
@@ -54,7 +55,7 @@ export class AuthModule {
 
     return {
       user: { id: row.id, email: row.email, onboardingCompleted: !!row.onboarding_completed },
-      token: this.createSession(row.id),
+      token: await this.createSession(row.id),
     };
   }
 
@@ -64,58 +65,73 @@ export class AuthModule {
    * app itself is the authenticated boundary, so the stored hash is random and
    * unusable.
    */
-  ensureLocalUser(): AuthUser {
-    const db = getDb();
-    const email = 'local@foxschema.app';
-    const existing = db
-      .prepare('SELECT id, email, onboarding_completed FROM users WHERE email = ?')
-      .get(email) as { id: string; email: string; onboarding_completed: number } | undefined;
+  async ensureLocalUser(): Promise<AuthUser> {
+    const store = await getStore();
+    // The bound email from the one-time setup (key is derived from it); falls
+    // back to the legacy default for installs created before setup existed.
+    const boundEmail = (process.env.APP_USER_EMAIL || '').trim().toLowerCase();
+    const email = boundEmail || 'local@foxschema.app';
+    const find = (e: string) =>
+      store.get<{ id: string; email: string; onboarding_completed: number }>(
+        'SELECT id, email, onboarding_completed FROM users WHERE email = ?',
+        [e]
+      );
+    // Prefer an existing user (bound email, then legacy) so a migrated install
+    // keeps its data instead of orphaning connections under a new user row.
+    const existing = (await find(email)) || (boundEmail ? await find('local@foxschema.app') : undefined);
     if (existing) {
       return { id: existing.id, email: existing.email, onboardingCompleted: !!existing.onboarding_completed };
     }
     const id = randomUUID();
-    db.prepare('INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)').run(
+    await store.run('INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)', [
       id,
       email,
       hashPassword(randomUUID()),
-      new Date().toISOString()
-    );
+      new Date().toISOString(),
+    ]);
     return { id, email, onboardingCompleted: false };
   }
 
-  logout(token: string | undefined): void {
+  async logout(token: string | undefined): Promise<void> {
     if (!token) return;
-    getDb().prepare('DELETE FROM sessions WHERE token = ?').run(token);
+    const store = await getStore();
+    await store.run('DELETE FROM sessions WHERE token = ?', [token]);
   }
 
   /** Resolve a session token to its user, or null if missing/expired. */
-  getUserByToken(token: string | undefined): AuthUser | null {
+  async getUserByToken(token: string | undefined): Promise<AuthUser | null> {
     if (!token) return null;
-    const db = getDb();
-    const session = db.prepare('SELECT user_id, expires_at FROM sessions WHERE token = ?').get(token) as
-      | { user_id: string; expires_at: string }
-      | undefined;
+    const store = await getStore();
+    const session = await store.get<{ user_id: string; expires_at: string }>(
+      'SELECT user_id, expires_at FROM sessions WHERE token = ?',
+      [token]
+    );
     if (!session) return null;
 
     if (new Date(session.expires_at).getTime() < Date.now()) {
-      db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
+      await store.run('DELETE FROM sessions WHERE token = ?', [token]);
       return null;
     }
 
-    const user = db
-      .prepare('SELECT id, email, onboarding_completed FROM users WHERE id = ?')
-      .get(session.user_id) as { id: string; email: string; onboarding_completed: number } | undefined;
+    const user = await store.get<{ id: string; email: string; onboarding_completed: number }>(
+      'SELECT id, email, onboarding_completed FROM users WHERE id = ?',
+      [session.user_id]
+    );
     if (!user) return null;
 
     return { id: user.id, email: user.email, onboardingCompleted: !!user.onboarding_completed };
   }
 
-  private createSession(userId: string): string {
+  private async createSession(userId: string): Promise<string> {
     const token = newToken();
     const now = Date.now();
-    getDb()
-      .prepare('INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)')
-      .run(token, userId, new Date(now).toISOString(), new Date(now + SESSION_TTL_MS).toISOString());
+    const store = await getStore();
+    await store.run('INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)', [
+      token,
+      userId,
+      new Date(now).toISOString(),
+      new Date(now + SESSION_TTL_MS).toISOString(),
+    ]);
     return token;
   }
 }

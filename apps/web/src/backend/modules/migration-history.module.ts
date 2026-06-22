@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { getDb } from '../database/sqlite';
+import { getStore } from '../database/store';
 
 export type MigrationRunStatus = 'RUNNING' | 'SUCCESS' | 'FAILED' | 'ROLLED_BACK';
 
@@ -66,18 +66,17 @@ function cap(text: string | undefined, max = MAX_TEXT_LEN): string | undefined {
  */
 export class MigrationHistoryStore {
   /** Record the start of a migration; returns the run id. */
-  start(
+  async start(
     userId: string,
     input: { dialect: string; host?: string; database?: string; schema?: string; objectCount: number; script: string }
-  ): string {
+  ): Promise<string> {
     const id = randomUUID();
-    getDb()
-      .prepare(
-        `INSERT INTO migration_runs
-           (id, user_id, status, dialect, target_host, database_name, schema, object_count, script, started_at)
-         VALUES (?, ?, 'RUNNING', ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(
+    const store = await getStore();
+    await store.run(
+      `INSERT INTO migration_runs
+         (id, user_id, status, dialect, target_host, database_name, "schema", object_count, script, started_at)
+       VALUES (?, ?, 'RUNNING', ?, ?, ?, ?, ?, ?, ?)`,
+      [
         id,
         userId,
         input.dialect,
@@ -86,44 +85,47 @@ export class MigrationHistoryStore {
         input.schema ?? null,
         input.objectCount,
         cap(input.script) ?? null,
-        new Date().toISOString()
-      );
-    this.prune(userId);
+        new Date().toISOString(),
+      ]
+    );
+    await this.prune(userId);
     return id;
   }
 
   /** Keep only the most recent MAX_RUNS_PER_USER runs for a user. */
-  private prune(userId: string): void {
-    getDb()
-      .prepare(
-        `DELETE FROM migration_runs
-          WHERE user_id = ?
-            AND id NOT IN (
+  private async prune(userId: string): Promise<void> {
+    const store = await getStore();
+    await store.run(
+      `DELETE FROM migration_runs
+        WHERE user_id = ?
+          AND id NOT IN (
+            SELECT id FROM (
               SELECT id FROM migration_runs WHERE user_id = ? ORDER BY started_at DESC LIMIT ?
-            )`
-      )
-      .run(userId, userId, MAX_RUNS_PER_USER);
+            ) AS keep
+          )`,
+      [userId, userId, MAX_RUNS_PER_USER]
+    );
   }
 
   /** Finalize a run with its outcome. */
-  finish(
+  async finish(
     id: string,
     outcome: { status: MigrationRunStatus; results: MigrationObjectResult[]; snapshotDdl?: string; error?: string }
-  ): void {
-    getDb()
-      .prepare(
-        `UPDATE migration_runs
-            SET status = ?, results_json = ?, snapshot_ddl = ?, error = ?, finished_at = ?
-          WHERE id = ?`
-      )
-      .run(
+  ): Promise<void> {
+    const store = await getStore();
+    await store.run(
+      `UPDATE migration_runs
+          SET status = ?, results_json = ?, snapshot_ddl = ?, error = ?, finished_at = ?
+        WHERE id = ?`,
+      [
         outcome.status,
         JSON.stringify(outcome.results ?? []),
         cap(outcome.snapshotDdl) ?? null,
         outcome.error ?? null,
         new Date().toISOString(),
-        id
-      );
+        id,
+      ]
+    );
   }
 
   private summary(r: Row): MigrationRunSummary {
@@ -141,20 +143,19 @@ export class MigrationHistoryStore {
     };
   }
 
-  list(userId: string, limit = 100): MigrationRunSummary[] {
-    const rows = getDb()
-      .prepare(
-        `SELECT id, status, dialect, target_host, database_name, schema, object_count, error, started_at, finished_at
-           FROM migration_runs WHERE user_id = ? ORDER BY started_at DESC LIMIT ?`
-      )
-      .all(userId, limit) as unknown as Row[];
+  async list(userId: string, limit = 100): Promise<MigrationRunSummary[]> {
+    const store = await getStore();
+    const rows = await store.all<Row>(
+      `SELECT id, status, dialect, target_host, database_name, "schema", object_count, error, started_at, finished_at
+         FROM migration_runs WHERE user_id = ? ORDER BY started_at DESC LIMIT ?`,
+      [userId, limit]
+    );
     return rows.map((r) => this.summary(r));
   }
 
-  get(userId: string, id: string): MigrationRunDetail | null {
-    const r = getDb()
-      .prepare('SELECT * FROM migration_runs WHERE id = ? AND user_id = ?')
-      .get(id, userId) as Row | undefined;
+  async get(userId: string, id: string): Promise<MigrationRunDetail | null> {
+    const store = await getStore();
+    const r = await store.get<Row>('SELECT * FROM migration_runs WHERE id = ? AND user_id = ?', [id, userId]);
     if (!r) return null;
     let results: MigrationObjectResult[] = [];
     try {
@@ -170,8 +171,9 @@ export class MigrationHistoryStore {
     };
   }
 
-  remove(userId: string, id: string): boolean {
-    const result = getDb().prepare('DELETE FROM migration_runs WHERE id = ? AND user_id = ?').run(id, userId);
-    return Number(result.changes) > 0;
+  async remove(userId: string, id: string): Promise<boolean> {
+    const store = await getStore();
+    const result = await store.run('DELETE FROM migration_runs WHERE id = ? AND user_id = ?', [id, userId]);
+    return result.changes > 0;
   }
 }

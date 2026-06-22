@@ -1,6 +1,6 @@
 [package]
 name = "foxschema-desktop"
-version = "0.1.0"
+version = "1.0.0"
 description = "FoxSchema desktop (Community edition)"
 authors = ["FoxSchema"]
 license = ""
@@ -24,4 +24,9 @@ log = "0.4"
 tauri = { version = "2.11.2", features = [] }
 tauri-plugin-log = "2"
 tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
 rand = "0.8"
+# OS-native secret store for the per-install encryption key (Keychain /
+# Credential Manager / Secret Service). Keeps the key off disk so a copied DB
+# can't be decrypted on another machine.
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }

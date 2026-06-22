@@ -5,22 +5,47 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use rand::RngCore;
-use tauri::{Manager, RunEvent, State};
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Manager, RunEvent, State};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
-/// Holds the resolved API base (sidecar URL) and the sidecar handle so we can
-/// expose the URL to the frontend and kill the process on exit.
-struct SidecarState {
-    api_base: String,
-    child: Mutex<Option<CommandChild>>,
+/// Keychain service the per-install Data Encryption Key (DEK) is stored under;
+/// the account is the user's email, so the key is both machine- and email-bound.
+const KEY_SERVICE: &str = "com.foxschema.desktop.dek";
+
+/// Persisted (non-secret) first-run state in app-data/setup.json. The secret
+/// (the DEK) is NOT here — it lives only in the OS keychain.
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)] // tolerate older setup.json missing newer fields
+struct SetupInfo {
+    setup_complete: bool,
+    email: String,
+    db_engine: String, // "sqlite" | "postgres" | "mysql"
+    db_path: String,   // sqlite file location
+    db_url: String,    // postgres/mysql connection string
+    key_scheme: String, // "v1" (legacy/migrated, raw key) | "v2" (email-bound)
 }
 
-/// Frontend calls this (via window.__TAURI__.core.invoke) to learn where the
-/// Node sidecar is listening, since the port is chosen dynamically.
-#[tauri::command]
-fn get_api_base(state: State<SidecarState>) -> String {
-    state.api_base.clone()
+/// What the frontend needs to decide between the setup screen and the app.
+#[derive(Serialize, Clone)]
+struct SetupState {
+    setup_complete: bool,
+    email: String,
+    db_engine: String,
+    db_path: String,
+    db_url: String,
+    default_db_path: String,
+    api_base: String,
+    sidecar_ready: bool,
+}
+
+struct AppState {
+    data_dir: PathBuf,
+    default_db_path: String,
+    setup: Mutex<SetupInfo>,
+    api_base: Mutex<String>,
+    child: Mutex<Option<CommandChild>>,
 }
 
 /// Pick a free localhost port by binding to :0 and reading it back.
@@ -32,28 +57,302 @@ fn free_port() -> u16 {
         .port()
 }
 
-/// Load the per-install AES key (64 hex chars) from app-data, creating it on
-/// first run. The desktop app is the trust boundary; this protects stored DB
-/// credentials at rest. (A keychain-backed store is a planned upgrade.)
-fn load_or_create_key(data_dir: &PathBuf) -> String {
-    let key_path = data_dir.join("encryption.key");
-    if let Ok(existing) = fs::read_to_string(&key_path) {
-        let trimmed = existing.trim().to_string();
-        if trimmed.len() == 64 {
-            return trimmed;
-        }
-    }
+fn random_key_hex() -> String {
     let mut bytes = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut bytes);
-    let hex: String = bytes.iter().map(|b| format!("{:02x}", b)).collect();
-    let _ = fs::write(&key_path, &hex);
-    hex
+    bytes.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+fn setup_path(dir: &PathBuf) -> PathBuf {
+    dir.join("setup.json")
+}
+
+fn read_setup(dir: &PathBuf) -> SetupInfo {
+    fs::read_to_string(setup_path(dir))
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn write_setup(dir: &PathBuf, info: &SetupInfo) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(info).map_err(|e| e.to_string())?;
+    fs::write(setup_path(dir), json).map_err(|e| e.to_string())
+}
+
+fn keychain_get(account: &str) -> Option<String> {
+    keyring::Entry::new(KEY_SERVICE, account)
+        .ok()?
+        .get_password()
+        .ok()
+}
+
+fn keychain_set(account: &str, value: &str) -> Result<(), String> {
+    keyring::Entry::new(KEY_SERVICE, account)
+        .map_err(|e| e.to_string())?
+        .set_password(value)
+        .map_err(|e| e.to_string())
+}
+
+/// Where the bundled Node server lives (crate dir in dev, resources in release).
+fn resolve_server_js(app: &AppHandle) -> PathBuf {
+    if cfg!(debug_assertions) {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/server/server.mjs")
+    } else {
+        app.path()
+            .resource_dir()
+            .expect("resource dir")
+            .join("resources/server/server.mjs")
+    }
+}
+
+fn build_setup_state(state: &AppState, api_base: &str) -> SetupState {
+    let s = state.setup.lock().unwrap();
+    SetupState {
+        setup_complete: s.setup_complete,
+        email: s.email.clone(),
+        db_engine: if s.db_engine.is_empty() { "sqlite".into() } else { s.db_engine.clone() },
+        db_path: if s.db_path.is_empty() {
+            state.default_db_path.clone()
+        } else {
+            s.db_path.clone()
+        },
+        db_url: s.db_url.clone(),
+        default_db_path: state.default_db_path.clone(),
+        api_base: api_base.to_string(),
+        sidecar_ready: !api_base.is_empty(),
+    }
+}
+
+/// Spawn (or respawn) the Node sidecar with the resolved key/email/db env.
+fn spawn_sidecar(app: &AppHandle, state: &AppState, dek: &str) -> Result<String, String> {
+    // Never run two sidecars; replace any existing one.
+    if let Some(child) = state.child.lock().unwrap().take() {
+        let _ = child.kill();
+    }
+
+    let setup = state.setup.lock().unwrap().clone();
+    let port = free_port();
+    let api_base = format!("http://localhost:{}/api", port);
+    let server_js = resolve_server_js(app);
+
+    let mut envs: HashMap<String, String> = HashMap::new();
+    envs.insert("EDITION".into(), "community".into());
+    envs.insert("NODE_ENV".into(), "production".into());
+    envs.insert("AUTH_REQUIRED".into(), "false".into());
+    envs.insert("API_PORT".into(), port.to_string());
+    envs.insert(
+        "APP_DB_ENGINE".into(),
+        if setup.db_engine.is_empty() {
+            "sqlite".into()
+        } else {
+            setup.db_engine.clone()
+        },
+    );
+    envs.insert(
+        "APP_DB_PATH".into(),
+        if setup.db_path.is_empty() {
+            state.default_db_path.clone()
+        } else {
+            setup.db_path.clone()
+        },
+    );
+    if !setup.db_url.is_empty() {
+        envs.insert("APP_DB_URL".into(), setup.db_url.clone());
+    }
+    envs.insert("APP_ENCRYPTION_KEY".into(), dek.to_string());
+    if !setup.email.is_empty() {
+        envs.insert("APP_USER_EMAIL".into(), setup.email.clone());
+    }
+    if !setup.key_scheme.is_empty() {
+        envs.insert("APP_KEY_SCHEME".into(), setup.key_scheme.clone());
+    }
+
+    let (mut rx, child) = app
+        .shell()
+        .sidecar("foxschema-sidecar")
+        .map_err(|e| e.to_string())?
+        .arg(server_js.to_string_lossy().to_string())
+        .envs(envs)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    tauri::async_runtime::spawn(async move {
+        while let Some(event) = rx.recv().await {
+            match event {
+                CommandEvent::Stdout(line) => {
+                    log::info!("[sidecar] {}", String::from_utf8_lossy(&line));
+                }
+                CommandEvent::Stderr(line) => {
+                    log::warn!("[sidecar] {}", String::from_utf8_lossy(&line));
+                }
+                _ => {}
+            }
+        }
+    });
+
+    *state.child.lock().unwrap() = Some(child);
+    *state.api_base.lock().unwrap() = api_base.clone();
+    Ok(api_base)
+}
+
+/// Frontend calls this to learn where the Node sidecar is listening. Empty until
+/// setup completes and the sidecar is spawned.
+#[tauri::command]
+fn get_api_base(state: State<AppState>) -> String {
+    state.api_base.lock().unwrap().clone()
+}
+
+/// Native "save as" dialog for choosing the SQLite database location. Async so
+/// it runs off the main thread (the blocking dialog would otherwise deadlock).
+#[tauri::command]
+async fn pick_db_location(app: AppHandle, default_dir: Option<String>) -> Option<String> {
+    use tauri_plugin_dialog::DialogExt;
+    let mut builder = app
+        .dialog()
+        .file()
+        .set_title("Choose database location")
+        .add_filter("SQLite database", &["db", "sqlite"])
+        .set_file_name("foxschema.db");
+    if let Some(dir) = default_dir {
+        if let Some(parent) = std::path::PathBuf::from(dir).parent() {
+            builder = builder.set_directory(parent);
+        }
+    }
+    builder
+        .blocking_save_file()
+        .and_then(|fp| fp.into_path().ok())
+        .map(|p| p.to_string_lossy().to_string())
+}
+
+/// Current first-run state — the frontend shows the setup screen until complete.
+#[tauri::command]
+fn get_setup_state(state: State<AppState>) -> SetupState {
+    let api_base = state.api_base.lock().unwrap().clone();
+    build_setup_state(state.inner(), &api_base)
+}
+
+/// Finish first-run setup: bind/create the keychain DEK for `email`, persist the
+/// (non-secret) config, then spawn the sidecar. Migrates a pre-keychain install
+/// by importing its on-disk key (kept as scheme v1 so existing data decrypts).
+#[tauri::command]
+fn complete_setup(
+    app: AppHandle,
+    state: State<AppState>,
+    email: String,
+    engine: Option<String>,
+    db_path: Option<String>,
+    db_url: Option<String>,
+) -> Result<SetupState, String> {
+    let email_norm = email.trim().to_lowercase();
+    if !email_norm.contains('@') || email_norm.contains(char::is_whitespace) {
+        return Err("A valid email is required.".into());
+    }
+
+    let engine = engine.unwrap_or_else(|| "sqlite".into());
+    let db_url = db_url.unwrap_or_default().trim().to_string();
+    if matches!(engine.as_str(), "postgres" | "mysql") && db_url.is_empty() {
+        return Err("A connection string is required for Postgres/MySQL.".into());
+    }
+    if !matches!(engine.as_str(), "sqlite" | "postgres" | "mysql") {
+        return Err(format!("Unsupported database engine \"{engine}\"."));
+    }
+
+    let legacy_key = state.data_dir.join("encryption.key");
+    let (dek, scheme) = if let Some(existing) = keychain_get(&email_norm) {
+        // Already provisioned for this email — reuse it (keep recorded scheme).
+        let scheme = {
+            let s = state.setup.lock().unwrap();
+            if s.key_scheme.is_empty() {
+                "v2".to_string()
+            } else {
+                s.key_scheme.clone()
+            }
+        };
+        (existing, scheme)
+    } else if let Ok(file_key) = fs::read_to_string(&legacy_key) {
+        // Migrate: import the on-disk key into the keychain, keep scheme v1 so
+        // already-encrypted credentials still decrypt, then delete the file.
+        let trimmed = file_key.trim().to_string();
+        let dek = if trimmed.len() == 64 {
+            trimmed
+        } else {
+            random_key_hex()
+        };
+        keychain_set(&email_norm, &dek)?;
+        let _ = fs::remove_file(&legacy_key);
+        (dek, "v1".to_string())
+    } else {
+        // Fresh install → new random DEK, email-bound (v2).
+        let dek = random_key_hex();
+        keychain_set(&email_norm, &dek)?;
+        (dek, "v2".to_string())
+    };
+
+    let resolved_db = db_path
+        .filter(|p| !p.trim().is_empty())
+        .unwrap_or_else(|| state.default_db_path.clone());
+
+    let info = SetupInfo {
+        setup_complete: true,
+        email: email_norm,
+        db_engine: engine,
+        db_path: resolved_db,
+        db_url,
+        key_scheme: scheme,
+    };
+    write_setup(&state.data_dir, &info)?;
+    *state.setup.lock().unwrap() = info;
+
+    let api_base = spawn_sidecar(&app, state.inner(), &dek)?;
+    Ok(build_setup_state(state.inner(), &api_base))
+}
+
+/// Switch the app's metadata database engine/location after setup (from
+/// Settings → Database). Rewrites setup.json and respawns the sidecar on the new
+/// engine; the frontend reloads against the returned api_base. The encryption
+/// key and bound email are unchanged.
+#[tauri::command]
+fn update_db_config(
+    app: AppHandle,
+    state: State<AppState>,
+    engine: String,
+    db_path: Option<String>,
+    db_url: Option<String>,
+) -> Result<SetupState, String> {
+    if !matches!(engine.as_str(), "sqlite" | "postgres" | "mysql") {
+        return Err(format!("Unsupported database engine \"{engine}\"."));
+    }
+    let db_url = db_url.unwrap_or_default().trim().to_string();
+    if matches!(engine.as_str(), "postgres" | "mysql") && db_url.is_empty() {
+        return Err("A connection string is required for Postgres/MySQL.".into());
+    }
+
+    let email = state.setup.lock().unwrap().email.clone();
+    if email.is_empty() {
+        return Err("Setup is not complete.".into());
+    }
+    let dek = keychain_get(&email).ok_or("Encryption key not found in keychain.")?;
+
+    let info = {
+        let mut s = state.setup.lock().unwrap();
+        s.db_engine = engine;
+        s.db_path = db_path
+            .filter(|p| !p.trim().is_empty())
+            .unwrap_or_else(|| state.default_db_path.clone());
+        s.db_url = db_url;
+        s.clone()
+    };
+    write_setup(&state.data_dir, &info)?;
+
+    let api_base = spawn_sidecar(&app, state.inner(), &dek)?;
+    Ok(build_setup_state(state.inner(), &api_base))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -66,68 +365,52 @@ pub fn run() {
             // Per-install state lives in the OS app-data dir.
             let data_dir = app.path().app_data_dir().expect("app data dir");
             fs::create_dir_all(&data_dir).ok();
-            let db_path = data_dir.join("foxschema.db");
-            let key = load_or_create_key(&data_dir);
+            let default_db_path = data_dir.join("foxschema.db").to_string_lossy().to_string();
+            let info = read_setup(&data_dir);
 
-            let port = free_port();
-            let api_base = format!("http://localhost:{}/api", port);
+            app.manage(AppState {
+                data_dir: data_dir.clone(),
+                default_db_path,
+                setup: Mutex::new(info.clone()),
+                api_base: Mutex::new(String::new()),
+                child: Mutex::new(None),
+            });
 
-            // The bundled server lives in resources/server. In dev resolve it
-            // from the crate dir so `tauri dev` works against the build output.
-            let server_js: PathBuf = if cfg!(debug_assertions) {
-                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/server/server.mjs")
-            } else {
-                app.path()
-                    .resource_dir()
-                    .expect("resource dir")
-                    .join("resources/server/server.mjs")
-            };
-
-            let mut envs: HashMap<String, String> = HashMap::new();
-            envs.insert("EDITION".into(), "community".into());
-            envs.insert("NODE_ENV".into(), "production".into());
-            envs.insert("AUTH_REQUIRED".into(), "false".into());
-            envs.insert("API_PORT".into(), port.to_string());
-            envs.insert("APP_DB_PATH".into(), db_path.to_string_lossy().to_string());
-            envs.insert("APP_ENCRYPTION_KEY".into(), key);
-
-            let (mut rx, child) = app
-                .shell()
-                .sidecar("foxschema-sidecar")
-                .expect("sidecar command")
-                .arg(server_js.to_string_lossy().to_string())
-                .envs(envs)
-                .spawn()
-                .expect("spawn sidecar");
-
-            // Pipe sidecar logs into the app log.
-            tauri::async_runtime::spawn(async move {
-                while let Some(event) = rx.recv().await {
-                    match event {
-                        CommandEvent::Stdout(line) => {
-                            log::info!("[sidecar] {}", String::from_utf8_lossy(&line));
-                        }
-                        CommandEvent::Stderr(line) => {
-                            log::warn!("[sidecar] {}", String::from_utf8_lossy(&line));
-                        }
-                        _ => {}
+            // If already set up, resolve the key from the keychain and launch the
+            // sidecar. If the key is missing (e.g. the DB folder was copied to a
+            // new machine), fall back to the setup screen — the copied data stays
+            // undecryptable, which is the point.
+            if info.setup_complete {
+                if let Some(dek) = keychain_get(&info.email) {
+                    let state = app.state::<AppState>();
+                    if let Err(e) = spawn_sidecar(&app.handle(), state.inner(), &dek) {
+                        log::error!("failed to spawn sidecar: {e}");
                     }
+                } else {
+                    log::warn!(
+                        "setup marked complete but no key in keychain for {} — showing setup",
+                        info.email
+                    );
+                    let state = app.state::<AppState>();
+                    state.setup.lock().unwrap().setup_complete = false;
                 }
-            });
+            }
 
-            app.manage(SidecarState {
-                api_base,
-                child: Mutex::new(Some(child)),
-            });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_api_base])
+        .invoke_handler(tauri::generate_handler![
+            get_api_base,
+            get_setup_state,
+            complete_setup,
+            update_db_config,
+            pick_db_location
+        ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             // Make sure the sidecar dies with the app.
             if let RunEvent::Exit = event {
-                if let Some(state) = app_handle.try_state::<SidecarState>() {
+                if let Some(state) = app_handle.try_state::<AppState>() {
                     if let Some(child) = state.child.lock().unwrap().take() {
                         let _ = child.kill();
                     }

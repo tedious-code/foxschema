@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Sun, Moon, Monitor, Palette, Type, RotateCcw } from 'lucide-react';
+import { X, Sun, Moon, Monitor, Palette, Type, RotateCcw, ShieldCheck, Database } from 'lucide-react';
 import { useUiStore, ACCENTS, TONES, FONT_SIZES, type ThemeMode, type AccentId } from '../store/uiStore';
+import { fetchAppInfo, type AppInfo } from '../api/setupApi';
+import { DatabaseSettings } from './DatabaseSettings';
 
 interface Props {
   open: boolean;
@@ -31,6 +33,18 @@ const Section: React.FC<{ icon: React.ReactNode; title: string; children: React.
 /** Appearance settings: theme mode, UI tone, accent, and text size. Each change applies live. */
 export const SettingsPanel: React.FC<Props> = ({ open, onClose }) => {
   const { themeMode, tone, fontSize, accent, setThemeMode, setTone, setFontSize, setAccent, resetAppearance } = useUiStore();
+  // Hooks must stay above the early return (rules-of-hooks).
+  const [info, setInfo] = useState<AppInfo | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    fetchAppInfo()
+      .then((i) => alive && setInfo(i))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [open]);
   if (!open) return null;
 
   const optionBtn = (active: boolean) =>
@@ -122,6 +136,33 @@ export const SettingsPanel: React.FC<Props> = ({ open, onClose }) => {
               ))}
             </div>
           </Section>
+
+          {info && (
+            <Section icon={<Database className="w-3 h-3" />} title="Database">
+              <DatabaseSettings info={info} />
+            </Section>
+          )}
+
+          {info && (
+            <Section icon={<ShieldCheck className="w-3 h-3" />} title="Security">
+              <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg border border-slate-800 bg-slate-950/40 text-xs">
+                <ShieldCheck
+                  className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${info.security.emailBound ? 'text-emerald-400' : 'text-amber-400'}`}
+                />
+                <p className="text-slate-300">
+                  {info.security.emailBound ? (
+                    <>
+                      Encryption key bound to{' '}
+                      <span className="font-mono text-slate-200">{info.security.boundEmail}</span> and held in the OS
+                      keychain — a copied database can't be decrypted elsewhere.
+                    </>
+                  ) : (
+                    <>Encryption key stored on this install (legacy key scheme).</>
+                  )}
+                </p>
+              </div>
+            </Section>
+          )}
         </div>
 
         <div className="flex justify-between items-center px-6 py-4 bg-slate-950/60 border-t border-slate-800">

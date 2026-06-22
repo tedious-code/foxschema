@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { getDb } from '../database/sqlite';
+import { getStore } from '../database/store';
 import { encryptSecret, decryptSecret } from '../cores/crypto';
 import { ConnectionOptions, buildConnectionString } from '@foxschema/shared';
 
@@ -65,19 +65,23 @@ export class ConnectionStore {
     };
   }
 
-  list(userId: string): SavedConnectionSummary[] {
-    const rows = getDb()
-      .prepare('SELECT id, name, dialect, schema, encrypted_config, created_at FROM connections WHERE user_id = ? ORDER BY created_at DESC')
-      .all(userId) as unknown as ConnectionRow[];
+  async list(userId: string): Promise<SavedConnectionSummary[]> {
+    const store = await getStore();
+    const rows = await store.all<ConnectionRow>(
+      'SELECT id, name, dialect, "schema", encrypted_config, created_at FROM connections WHERE user_id = ? ORDER BY created_at DESC',
+      [userId]
+    );
     return rows.map((r) => this.toSummary(r));
   }
 
-  create(userId: string, input: SavedConnectionInput): SavedConnectionSummary {
+  async create(userId: string, input: SavedConnectionInput): Promise<SavedConnectionSummary> {
+    const store = await getStore();
     const id = randomUUID();
     const createdAt = new Date().toISOString();
-    getDb()
-      .prepare('INSERT INTO connections (id, user_id, name, dialect, schema, encrypted_config, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(id, userId, input.name ?? null, input.dialect, input.schema ?? null, encryptSecret(JSON.stringify(input.option)), createdAt);
+    await store.run(
+      'INSERT INTO connections (id, user_id, name, dialect, "schema", encrypted_config, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [id, userId, input.name ?? null, input.dialect, input.schema ?? null, encryptSecret(JSON.stringify(input.option)), createdAt]
+    );
     return {
       id,
       name: input.name ?? '',
@@ -92,10 +96,15 @@ export class ConnectionStore {
   }
 
   /** Decrypted config for server-side use (connect/compare). Never sent to the client. */
-  resolve(userId: string, id: string): { dialect: string; schema?: string; option: ConnectionOptions } | null {
-    const row = getDb()
-      .prepare('SELECT dialect, schema, encrypted_config FROM connections WHERE id = ? AND user_id = ?')
-      .get(id, userId) as { dialect: string; schema: string | null; encrypted_config: string } | undefined;
+  async resolve(
+    userId: string,
+    id: string
+  ): Promise<{ dialect: string; schema?: string; option: ConnectionOptions } | null> {
+    const store = await getStore();
+    const row = await store.get<{ dialect: string; schema: string | null; encrypted_config: string }>(
+      'SELECT dialect, "schema", encrypted_config FROM connections WHERE id = ? AND user_id = ?',
+      [id, userId]
+    );
     if (!row) return null;
     return {
       dialect: row.dialect,
@@ -109,26 +118,30 @@ export class ConnectionStore {
    * edit form never receives it), the existing password is preserved and the
    * connection string is rebuilt so it stays valid.
    */
-  update(userId: string, id: string, input: SavedConnectionInput): SavedConnectionSummary | null {
-    const existing = this.resolve(userId, id);
+  async update(userId: string, id: string, input: SavedConnectionInput): Promise<SavedConnectionSummary | null> {
+    const store = await getStore();
+    const existing = await this.resolve(userId, id);
     if (!existing) return null;
 
     const merged: ConnectionOptions = { ...input.option };
     if (!merged.password) merged.password = existing.option.password;
     merged.connectionString = buildConnectionString(input.dialect, merged);
 
-    getDb()
-      .prepare('UPDATE connections SET name = ?, dialect = ?, schema = ?, encrypted_config = ? WHERE id = ? AND user_id = ?')
-      .run(input.name ?? null, input.dialect, input.schema ?? null, encryptSecret(JSON.stringify(merged)), id, userId);
+    await store.run(
+      'UPDATE connections SET name = ?, dialect = ?, "schema" = ?, encrypted_config = ? WHERE id = ? AND user_id = ?',
+      [input.name ?? null, input.dialect, input.schema ?? null, encryptSecret(JSON.stringify(merged)), id, userId]
+    );
 
-    const row = getDb()
-      .prepare('SELECT id, name, dialect, schema, encrypted_config, created_at FROM connections WHERE id = ? AND user_id = ?')
-      .get(id, userId) as ConnectionRow | undefined;
+    const row = await store.get<ConnectionRow>(
+      'SELECT id, name, dialect, "schema", encrypted_config, created_at FROM connections WHERE id = ? AND user_id = ?',
+      [id, userId]
+    );
     return row ? this.toSummary(row) : null;
   }
 
-  remove(userId: string, id: string): boolean {
-    const result = getDb().prepare('DELETE FROM connections WHERE id = ? AND user_id = ?').run(id, userId);
-    return Number(result.changes) > 0;
+  async remove(userId: string, id: string): Promise<boolean> {
+    const store = await getStore();
+    const result = await store.run('DELETE FROM connections WHERE id = ? AND user_id = ?', [id, userId]);
+    return result.changes > 0;
   }
 }

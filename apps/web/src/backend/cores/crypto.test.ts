@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import { hashPassword, verifyPassword, encryptSecret, decryptSecret, newToken } from './crypto';
 
 beforeAll(() => {
@@ -38,9 +38,41 @@ describe('secret encryption (AES-256-GCM)', () => {
 
   it('fails to decrypt tampered ciphertext (auth tag)', () => {
     const enc = encryptSecret('secret');
-    const [iv, tag, data] = enc.split(':');
-    const tampered = `${iv}:${tag}:${Buffer.from('garbage').toString('base64')}`;
+    const [scheme, iv, tag] = enc.split(':');
+    const tampered = `${scheme}:${iv}:${tag}:${Buffer.from('garbage').toString('base64')}`;
     expect(() => decryptSecret(tampered)).toThrow();
+  });
+
+  it('still decrypts a legacy untagged (3-part) v1 payload', () => {
+    // Old format had no scheme prefix; encrypt then strip the "v1:" tag.
+    const enc = encryptSecret('legacy-secret');
+    const untagged = enc.replace(/^v1:/, '');
+    expect(untagged.split(':').length).toBe(3);
+    expect(decryptSecret(untagged)).toBe('legacy-secret');
+  });
+});
+
+describe('email-bound key scheme (v2)', () => {
+  const ORIG = { ...process.env };
+  afterEach(() => {
+    process.env.APP_KEY_SCHEME = ORIG.APP_KEY_SCHEME;
+    process.env.APP_USER_EMAIL = ORIG.APP_USER_EMAIL;
+  });
+
+  it('round-trips when the bound email matches', () => {
+    process.env.APP_USER_EMAIL = 'huy@example.com';
+    process.env.APP_KEY_SCHEME = 'v2';
+    const enc = encryptSecret('p@ss');
+    expect(enc.startsWith('v2:')).toBe(true);
+    expect(decryptSecret(enc)).toBe('p@ss');
+  });
+
+  it('cannot decrypt with a different email (anti-copy binding)', () => {
+    process.env.APP_USER_EMAIL = 'huy@example.com';
+    process.env.APP_KEY_SCHEME = 'v2';
+    const enc = encryptSecret('p@ss');
+    process.env.APP_USER_EMAIL = 'attacker@example.com';
+    expect(() => decryptSecret(enc)).toThrow();
   });
 });
 

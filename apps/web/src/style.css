@@ -195,6 +195,9 @@
 }
 
 @layer base {
+  html {
+    background-color: var(--color-slate-950);
+  }
   body {
     background-color: var(--color-slate-950);
     color: var(--color-slate-100);

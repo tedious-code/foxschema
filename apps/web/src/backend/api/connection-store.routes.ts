@@ -6,11 +6,11 @@ import { AuthedRequest } from './auth.routes';
 export function createConnectionStoreRoutes(store: ConnectionStore): Router {
   const router = Router();
 
-  router.get('/', (req: AuthedRequest, res: Response) => {
-    res.json({ connections: store.list(req.userId!) });
+  router.get('/', async (req: AuthedRequest, res: Response) => {
+    res.json({ connections: await store.list(req.userId!) });
   });
 
-  router.post('/', (req: AuthedRequest, res: Response) => {
+  router.post('/', async (req: AuthedRequest, res: Response) => {
     const { name, dialect, schema, option } = req.body as {
       name?: string;
       dialect?: string;
@@ -22,13 +22,13 @@ export function createConnectionStoreRoutes(store: ConnectionStore): Router {
       return;
     }
     try {
-      res.json({ connection: store.create(req.userId!, { name, dialect, schema, option }) });
+      res.json({ connection: await store.create(req.userId!, { name, dialect, schema, option }) });
     } catch (error: unknown) {
       res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to save connection' });
     }
   });
 
-  router.put('/:id', (req: AuthedRequest, res: Response) => {
+  router.put('/:id', async (req: AuthedRequest, res: Response) => {
     const { name, dialect, schema, option } = req.body as {
       name?: string;
       dialect?: string;
@@ -40,7 +40,7 @@ export function createConnectionStoreRoutes(store: ConnectionStore): Router {
       return;
     }
     try {
-      const updated = store.update(req.userId!, String(req.params.id), { name, dialect, schema, option });
+      const updated = await store.update(req.userId!, String(req.params.id), { name, dialect, schema, option });
       if (!updated) {
         res.status(404).json({ error: 'Connection not found' });
         return;
@@ -51,8 +51,8 @@ export function createConnectionStoreRoutes(store: ConnectionStore): Router {
     }
   });
 
-  router.delete('/:id', (req: AuthedRequest, res: Response) => {
-    const removed = store.remove(req.userId!, String(req.params.id));
+  router.delete('/:id', async (req: AuthedRequest, res: Response) => {
+    const removed = await store.remove(req.userId!, String(req.params.id));
     res.status(removed ? 200 : 404).json({ ok: removed });
   });
 
