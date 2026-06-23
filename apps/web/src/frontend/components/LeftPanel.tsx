@@ -92,15 +92,9 @@ export const LeftPanel: React.FC = () => {
 
   const [panelWidth, setPanelWidth] = useState(340);
   const [typeFilter, setTypeFilter] = useState<'ALL' | DbObjectType>('ALL');
-  // Unchanged objects are hidden by default — most comparisons only care about diffs
-  const [showUnchanged, setShowUnchanged] = useState(false);
-
-  const toggleShowUnchanged = () => {
-    const next = !showUnchanged;
-    setShowUnchanged(next);
-    // Leaving "show unchanged" off while it's the active filter would hide everything
-    if (!next && filterStatus === 'UNCHANGED') setFilterStatus('ALL');
-  };
+  // "Unchanged" is an independent toggle (not part of the All/Added/Removed/Modified
+  // status filter). On by default, so the initial view shows every object.
+  const [showUnchanged, setShowUnchanged] = useState(true);
 
   const startResize = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -184,17 +178,15 @@ export const LeftPanel: React.FC = () => {
     return null;
   };
 
-  // Filter by search text, status, object type, and the unchanged toggle
+  // Filter by search text, object type, the status filter (All/Added/Removed/
+  // Modified), and the independent Unchanged toggle. Unchanged objects appear
+  // only while the toggle is on; changed objects follow the status filter.
   const filteredTables = compareResult.tables.filter((table) => {
-    if (!showUnchanged && table.status === 'UNCHANGED') return false;
-    const matchesStatus = filterStatus === 'ALL' || table.status === filterStatus;
-    const matchesType = typeFilter === 'ALL' || table.objectType === typeFilter;
-    return matchesSearch(table) && matchesStatus && matchesType;
+    if (!matchesSearch(table)) return false;
+    if (!(typeFilter === 'ALL' || table.objectType === typeFilter)) return false;
+    if (table.status === 'UNCHANGED') return showUnchanged;
+    return filterStatus === 'ALL' || table.status === filterStatus;
   });
-
-  const statusOptions = (['ALL', 'ADDED', 'REMOVED', 'MODIFIED', 'UNCHANGED'] as const).filter(
-    (s) => s !== 'UNCHANGED' || showUnchanged
-  );
 
   // Group the filtered objects by type, in a stable order
   const groups = TYPE_ORDER
@@ -222,10 +214,11 @@ export const LeftPanel: React.FC = () => {
   const getChangeSummaryStats = () => {
     const { added, removed, modified, unchanged } = compareResult.summary;
     return [
-      { label: 'Added', count: added, color: 'text-emerald-400' },
-      { label: 'Removed', count: removed, color: 'text-rose-400' },
-      { label: 'Modified', count: modified, color: 'text-amber-400' },
-      { label: 'Unchanged', count: unchanged, color: 'text-slate-400' },
+      { label: 'All', count: compareResult.tables.length, color: 'text-slate-100', status: 'ALL' as const, toggle: false },
+      { label: 'Added', count: added, color: 'text-emerald-400', status: 'ADDED' as const, toggle: false },
+      { label: 'Removed', count: removed, color: 'text-rose-400', status: 'REMOVED' as const, toggle: false },
+      { label: 'Modified', count: modified, color: 'text-amber-400', status: 'MODIFIED' as const, toggle: false },
+      { label: 'Unchanged', count: unchanged, color: 'text-slate-400', status: 'UNCHANGED' as const, toggle: true },
     ];
   };
 
@@ -243,16 +236,27 @@ export const LeftPanel: React.FC = () => {
           </span>
         </div>
 
-        <div className="grid grid-cols-4 gap-1.5">
-          {getChangeSummaryStats().map((stat, idx) => (
-            <div
-              key={idx}
-              className="bg-slate-950/80 border border-slate-800/50 p-2 rounded flex flex-col items-center justify-center text-center"
-            >
-              <span className={`text-lg font-extrabold ${stat.color}`}>{stat.count}</span>
-              <span className="text-[10px] text-slate-500 font-medium">{stat.label}</span>
-            </div>
-          ))}
+        {/* Stat cards double as the filter: All/Added/Removed/Modified are a
+            single-select status filter; Unchanged is an independent toggle. */}
+        <div className="grid grid-cols-5 gap-1.5">
+          {getChangeSummaryStats().map((stat) => {
+            const active = stat.toggle ? showUnchanged : filterStatus === stat.status;
+            return (
+              <button
+                key={stat.status}
+                onClick={() => (stat.toggle ? setShowUnchanged((v) => !v) : setFilterStatus(stat.status))}
+                title={stat.toggle ? 'Toggle unchanged objects' : `Show ${stat.label.toLowerCase()}`}
+                className={`p-2 rounded border flex flex-col items-center justify-center text-center transition cursor-pointer ${
+                  active
+                    ? 'bg-slate-800 border-cyan-500/50 ring-1 ring-cyan-500/20'
+                    : 'bg-slate-950/80 border-slate-800/50 hover:border-slate-700'
+                }`}
+              >
+                <span className={`text-base font-extrabold leading-none ${stat.color}`}>{stat.count}</span>
+                <span className="text-[9px] text-slate-500 font-medium leading-tight mt-1">{stat.label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -269,16 +273,16 @@ export const LeftPanel: React.FC = () => {
           />
         </div>
 
-        {/* Object Type Filter */}
-        <div className="flex gap-1.5 overflow-x-auto pb-1">
+        {/* Object Type Filter — card-styled buttons, matching the stat cards */}
+        <div className="flex gap-1.5 overflow-x-auto">
           {(['ALL', ...TYPE_ORDER] as const).map((type) => (
             <button
               key={type}
               onClick={() => setTypeFilter(type)}
-              className={`text-sm font-bold px-3.5 py-2 rounded-md transition whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+              className={`text-xs font-bold px-2.5 py-1.5 rounded transition whitespace-nowrap cursor-pointer flex items-center gap-1.5 border ${
                 typeFilter === type
-                  ? 'bg-slate-800 text-slate-100 border border-slate-600'
-                  : 'bg-slate-900/60 text-slate-400 hover:text-slate-200 border border-transparent'
+                  ? 'bg-slate-800 text-slate-100 border-slate-600'
+                  : 'bg-slate-950/80 text-slate-400 hover:text-slate-200 border-slate-800/50'
               }`}
             >
               {type !== 'ALL' && <span className={TYPE_META[type].color}>{TYPE_META[type].icon}</span>}
@@ -288,37 +292,6 @@ export const LeftPanel: React.FC = () => {
           ))}
         </div>
 
-        {/* Status Filter + Show Unchanged toggle */}
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex gap-1.5 overflow-x-auto pb-1">
-            {statusOptions.map((status) => (
-              <button
-                key={status}
-                onClick={() => setFilterStatus(status)}
-                className={`text-sm font-bold px-3.5 py-2 rounded-md transition whitespace-nowrap cursor-pointer ${
-                  filterStatus === status
-                    ? 'bg-gradient-to-r from-cyan-600 to-indigo-600 text-slate-100 border border-cyan-500/20 shadow'
-                    : 'bg-slate-800/60 text-slate-400 hover:text-slate-200 border border-transparent'
-                }`}
-              >
-                {status}
-              </button>
-            ))}
-          </div>
-
-          <label
-            title="Include unchanged objects in the list"
-            className="flex items-center gap-2 text-xs font-bold text-slate-300 whitespace-nowrap cursor-pointer shrink-0 pb-1"
-          >
-            <input
-              type="checkbox"
-              checked={showUnchanged}
-              onChange={toggleShowUnchanged}
-              className="w-4 h-4 accent-cyan-500 cursor-pointer"
-            />
-            Unchanged
-          </label>
-        </div>
       </div>
 
       {/* Deployment Selection Header */}

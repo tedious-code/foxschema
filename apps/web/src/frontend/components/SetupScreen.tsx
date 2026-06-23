@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Database, Loader2, AlertCircle, ShieldCheck, HardDrive, FolderOpen } from 'lucide-react';
+import { Loader2, AlertCircle, ShieldCheck, HardDrive, FolderOpen } from 'lucide-react';
 import { completeSetup, pickDbLocation, type SetupState } from '../api/setupApi';
 import { isTauri } from '../api/apiBase';
+import { Brand } from './Brand';
 
 /**
  * One-time desktop first-run screen. Collects the user's email — the per-install
@@ -49,11 +50,8 @@ export const SetupScreen: React.FC<{ initial: SetupState; onDone: (s: SetupState
     <div className="h-screen flex items-center justify-center bg-slate-950 text-slate-100 p-4">
       <div className="w-full max-w-md">
         <div className="flex flex-col items-center mb-8">
-          <div className="bg-gradient-to-tr from-cyan-500 to-indigo-500 p-3 rounded-xl on-accent-fg shadow-lg shadow-cyan-500/10 mb-3">
-            <Database className="w-7 h-7" />
-          </div>
-          <h1 className="text-xl font-bold">Welcome to FoxSchema</h1>
-          <p className="text-sm text-slate-400 mt-1 text-center">Let's secure this install. Takes a few seconds.</p>
+          <Brand logoSize={48} textClassName="text-2xl font-bold" subtitle={false} className="mb-2" />
+          <p className="text-sm text-slate-400 mt-1 text-center">Welcome — let's secure this install. Takes a few seconds.</p>
         </div>
 
         <form onSubmit={submit} className="bg-slate-900/60 border border-slate-800 rounded-xl p-6 flex flex-col gap-5">

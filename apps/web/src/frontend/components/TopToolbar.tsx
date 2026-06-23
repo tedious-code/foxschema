@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useSyncStore } from '../store/useSyncStore';
-import { Database, ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, CheckCircle2, Zap, Settings, KeyRound, History } from 'lucide-react';
+import { ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, CheckCircle2, Zap, Settings, KeyRound, History } from 'lucide-react';
+import { Brand } from './Brand';
 import { ProfileMenu } from './ProfileMenu';
 import { CredentialManager } from './CredentialManager';
 import { MigrationHistory } from './MigrationHistory';
@@ -66,17 +67,7 @@ export const TopToolbar: React.FC = () => {
     <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md px-6 py-3 flex flex-col gap-3">
       {/* Brand Logo & Actions */}
       <div className="flex justify-between items-center">
-        <div className="flex items-center gap-3">
-          <div className="accent-grad p-2 rounded-lg on-accent-fg font-bold shadow-lg shadow-cyan-500/10">
-            <Database className="w-5 h-5" />
-          </div>
-          <div>
-            <h1 className="text-lg font-bold bg-gradient-to-r from-slate-100 to-slate-300 bg-clip-text text-transparent">
-              FoxSchema
-            </h1>
-            <p className="text-base text-slate-400 font-medium">Database Schema Diff & Sync</p>
-          </div>
-        </div>
+        <Brand logoSize={42} textClassName="text-2xl font-bold" />
 
         <div className="flex items-center gap-3">
           <button

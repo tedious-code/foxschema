@@ -37,3 +37,11 @@ apps/desktop/src-tauri/gen/
 apps/desktop/src-tauri/frontendDist/
 apps/desktop/src-tauri/binaries/
 apps/desktop/src-tauri/resources/server/
+
+# Local environment / secrets (keep .env.example tracked)
+.env
+.env.local
+.env.*.local
+
+# CLI build output
+apps/cli/dist/

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { ShieldCheck, HardDrive, Server, Loader2, CheckCircle2, AlertCircle, RotateCw } from 'lucide-react';
+import { ShieldCheck, HardDrive, Server, Loader2, CheckCircle2, AlertCircle, RotateCw, FolderOpen } from 'lucide-react';
 import { isTauri, setApiBase } from '../api/apiBase';
-import { testDbConnection, updateDbConfig, type AppInfo, type DbEngine } from '../api/setupApi';
+import { testDbConnection, updateDbConfig, pickDbLocation, type AppInfo, type DbEngine } from '../api/setupApi';
 
 const ENGINES: { id: DbEngine; label: string }[] = [
   { id: 'sqlite', label: 'SQLite' },
@@ -67,6 +67,18 @@ export const DatabaseSettings: React.FC<{ info: AppInfo }> = ({ info }) => {
     }
   };
 
+  const browse = async () => {
+    try {
+      const picked = await pickDbLocation(dbPath || undefined);
+      if (picked) {
+        setDbPath(picked);
+        resetTest();
+      }
+    } catch {
+      /* dialog cancelled / unavailable — keep the typed value */
+    }
+  };
+
   const apply = async () => {
     setApplying(true);
     setError(null);
@@ -107,7 +119,7 @@ export const DatabaseSettings: React.FC<{ info: AppInfo }> = ({ info }) => {
       </div>
 
       {isSqlite ? (
-        <label className="flex items-center gap-2 text-xs">
+        <div className="flex items-center gap-2 text-xs">
           <HardDrive className="w-3.5 h-3.5 text-slate-500 shrink-0" />
           <input
             type="text"
@@ -120,7 +132,14 @@ export const DatabaseSettings: React.FC<{ info: AppInfo }> = ({ info }) => {
             }}
             className="flex-1 min-w-0 bg-slate-950 border border-slate-800 focus:border-cyan-500 rounded-md px-2.5 py-1.5 font-mono text-[11px] outline-none"
           />
-        </label>
+          <button
+            type="button"
+            onClick={browse}
+            className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 font-semibold bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-md transition"
+          >
+            <FolderOpen className="w-3.5 h-3.5" /> Browse
+          </button>
+        </div>
       ) : (
         <label className="flex items-center gap-2 text-xs">
           <Server className="w-3.5 h-3.5 text-slate-500 shrink-0" />

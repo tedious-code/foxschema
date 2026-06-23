@@ -6,7 +6,7 @@ export interface AuthedRequest extends Request {
 }
 
 /** Minimal cookie reader (avoids a cookie-parser dependency). */
-function readCookie(req: Request, name: string): string | undefined {
+export function readCookie(req: Request, name: string): string | undefined {
   const header = req.headers.cookie;
   if (!header) return undefined;
   for (const part of header.split(';')) {
@@ -17,7 +17,7 @@ function readCookie(req: Request, name: string): string | undefined {
   return undefined;
 }
 
-function setSessionCookie(res: Response, token: string): void {
+export function setSessionCookie(res: Response, token: string): void {
   res.cookie(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: 'lax',

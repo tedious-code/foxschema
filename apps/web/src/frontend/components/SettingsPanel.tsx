@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Sun, Moon, Monitor, Palette, Type, RotateCcw, ShieldCheck, Database } from 'lucide-react';
+import { X, Sun, Moon, Monitor, Palette, Type, RotateCcw, ShieldCheck, Database, ArrowUpCircle } from 'lucide-react';
 import { useUiStore, ACCENTS, TONES, FONT_SIZES, type ThemeMode, type AccentId } from '../store/uiStore';
 import { fetchAppInfo, type AppInfo } from '../api/setupApi';
 import { DatabaseSettings } from './DatabaseSettings';
+import { UpdatesSettings } from './UpdatesSettings';
 
 interface Props {
   open: boolean;
@@ -142,6 +143,10 @@ export const SettingsPanel: React.FC<Props> = ({ open, onClose }) => {
               <DatabaseSettings info={info} />
             </Section>
           )}
+
+          <Section icon={<ArrowUpCircle className="w-3 h-3" />} title="Updates">
+            <UpdatesSettings />
+          </Section>
 
           {info && (
             <Section icon={<ShieldCheck className="w-3 h-3" />} title="Security">

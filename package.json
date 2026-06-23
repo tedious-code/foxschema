@@ -6,7 +6,7 @@
   "workspaces": ["packages/*", "apps/*"],
   "scripts": {
     "dev": "npm -w @foxschema/web run dev:all",
-    "dev:web": "npm -w @foxschema/web run dev",
+    "dev:web": "npm -w @foxschema/web run dev:all:web",
     "dev:api": "npm -w @foxschema/web run dev:api",
     "build": "npm -w @foxschema/web run build",
     "preview": "npm -w @foxschema/web run preview",

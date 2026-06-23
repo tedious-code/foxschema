@@ -65,6 +65,35 @@ export class AuthModule {
    * app itself is the authenticated boundary, so the stored hash is random and
    * unusable.
    */
+  /**
+   * Log in via a verified external identity (SSO): find the user by email or
+   * create a passwordless account, then start a session. The provider has
+   * already verified the email, so there's no password check.
+   */
+  async loginWithEmail(email: string): Promise<{ user: AuthUser; token: string }> {
+    const store = await getStore();
+    const normalized = (email ?? '').trim().toLowerCase();
+    if (!normalized.includes('@')) throw new Error('SSO did not return a valid email.');
+    let row = await store.get<{ id: string; email: string; onboarding_completed: number }>(
+      'SELECT id, email, onboarding_completed FROM users WHERE email = ?',
+      [normalized]
+    );
+    if (!row) {
+      const id = randomUUID();
+      await store.run('INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)', [
+        id,
+        normalized,
+        hashPassword(randomUUID()), // unusable password — SSO-only account
+        new Date().toISOString(),
+      ]);
+      row = { id, email: normalized, onboarding_completed: 0 };
+    }
+    return {
+      user: { id: row.id, email: row.email, onboardingCompleted: !!row.onboarding_completed },
+      token: await this.createSession(row.id),
+    };
+  }
+
   async ensureLocalUser(): Promise<AuthUser> {
     const store = await getStore();
     // The bound email from the one-time setup (key is derived from it); falls

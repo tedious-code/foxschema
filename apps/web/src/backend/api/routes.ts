@@ -29,6 +29,67 @@ interface ConnectionRef {
   schema?: string;
 }
 
+/** Current app version (the host/desktop can override via APP_VERSION). */
+const APP_VERSION = process.env.APP_VERSION || '1.0.0';
+
+/** Returns true if dotted-numeric version `a` is greater than `b`. */
+function isNewer(a: string, b: string): boolean {
+  const pa = a.split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = b.split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = pa[i] ?? 0;
+    const y = pb[i] ?? 0;
+    if (x !== y) return x > y;
+  }
+  return false;
+}
+
+interface UpdateInfo {
+  current: string;
+  latest: string;
+  updateAvailable: boolean;
+  url?: string;
+  notes?: string;
+  configured: boolean;
+  checkedAt: number;
+}
+let updateCache: UpdateInfo | null = null;
+const UPDATE_TTL_MS = 60 * 60 * 1000; // 1h — don't hammer the feed
+
+/**
+ * Check a configurable release feed (UPDATE_FEED_URL) for a newer version.
+ * Accepts a simple `{ version, url, notes }` JSON or a GitHub releases object
+ * (`{ tag_name, html_url, body }`). No-ops cleanly when no feed is configured.
+ */
+async function checkForUpdate(): Promise<UpdateInfo> {
+  if (updateCache && Date.now() - updateCache.checkedAt < UPDATE_TTL_MS) return updateCache;
+  const feed = process.env.UPDATE_FEED_URL;
+  const base: UpdateInfo = {
+    current: APP_VERSION,
+    latest: APP_VERSION,
+    updateAvailable: false,
+    configured: !!feed,
+    checkedAt: Date.now(),
+  };
+  if (!feed) return (updateCache = base);
+  try {
+    const res = await fetch(feed, { headers: { Accept: 'application/json', 'User-Agent': 'FoxSchema' } });
+    if (!res.ok) throw new Error(String(res.status));
+    const data = (await res.json()) as { version?: string; tag_name?: string; url?: string; html_url?: string; notes?: string; body?: string };
+    const latest = (data.version || data.tag_name || '').replace(/^v/i, '').trim();
+    const info: UpdateInfo = {
+      ...base,
+      latest: latest || APP_VERSION,
+      updateAvailable: !!latest && isNewer(latest, APP_VERSION),
+      url: data.url || data.html_url || undefined,
+      notes: data.notes || data.body || undefined,
+    };
+    return (updateCache = info);
+  } catch {
+    return base; // don't cache transient failures
+  }
+}
+
 export function createApiRoutes(connectionModule: ConnectionModule, connectionStore: ConnectionStore): Router {
   const router = Router();
   const compareModule = new CompareModule();
@@ -68,6 +129,11 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
 
   router.get('/health', (_req: Request, res: Response) => {
     res.json({ ok: true });
+  });
+
+  // In-app update check — compares the running version against a release feed.
+  router.get('/updates/check', async (_req: Request, res: Response) => {
+    res.json(await checkForUpdate());
   });
 
   // Non-secret info about where the app's metadata DB lives and how the

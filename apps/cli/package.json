@@ -1,0 +1,29 @@
+{
+  "name": "@foxschema/cli",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "FoxSchema — database schema diff & migration, in your terminal",
+  "bin": {
+    "foxschema": "dist/index.js"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "foxschema": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "@foxschema/core": "*",
+    "@foxschema/shared": "*",
+    "@foxschema/web": "*",
+    "@inquirer/prompts": "^7.2.0",
+    "@napi-rs/keyring": "^1.1.6",
+    "chalk": "^5.4.1",
+    "commander": "^12.1.0",
+    "env-paths": "^3.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  }
+}

@@ -6,6 +6,7 @@ import { ConnectionStore } from '../modules/connection-store.module';
 import { UserModule } from '../modules/user.module';
 import { createApiRoutes } from './routes';
 import { createAuthRoutes, authGuard, localUserGuard } from './auth.routes';
+import { createSsoRoutes } from './sso.routes';
 import { createConnectionStoreRoutes } from './connection-store.routes';
 import { createUserRoutes } from './user.routes';
 import { LOCAL_SINGLE_USER } from '../cores/edition';
@@ -54,8 +55,10 @@ export function createApp() {
   // Public liveness check
   app.get('/api/health', (_req: Request, res: Response) => res.json({ ok: true }));
 
-  // Auth endpoints are public (you can't be logged in to log in)
+  // Auth endpoints are public (you can't be logged in to log in). SSO is mounted
+  // first so its sub-paths take precedence over the base auth router.
   const auth = new AuthModule();
+  app.use('/api/auth/sso', createSsoRoutes(auth));
   app.use('/api/auth', createAuthRoutes(auth));
 
   // In local single-user mode (community desktop) the singleton local user is
