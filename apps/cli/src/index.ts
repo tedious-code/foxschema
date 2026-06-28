@@ -9,6 +9,7 @@ import { runSnapshot } from './commands/snapshot';
 import { runMigrate } from './commands/migrate';
 import { runSearch } from './commands/search';
 import { listHistory, showHistory } from './commands/history';
+import { VERSION } from './version';
 
 /** Shared connection-ref options (saved name or inline) for single-connection commands. */
 function withRefOptions(cmd: import('commander').Command): import('commander').Command {
@@ -28,7 +29,15 @@ const program = new Command();
 program
   .name('foxschema')
   .description('FoxSchema — database schema diff & migration, in your terminal')
-  .version('1.0.0', '-v, --version');
+  .version(VERSION, '-v, --version');
+
+program
+  .command('version')
+  .description('Show the version and runtime info')
+  .action(() => {
+    console.log(`FoxSchema CLI ${chalk.bold('v' + VERSION)}`);
+    console.log(chalk.dim(`node ${process.version} · ${process.platform} ${process.arch}`));
+  });
 
 program
   .command('setup')

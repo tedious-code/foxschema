@@ -1,5 +1,5 @@
 import { password as passwordPrompt } from '@inquirer/prompts';
-import { buildConnectionString, type ConnectionOptions } from '@foxschema/shared';
+import { buildConnectionString, type ConnectionOptions } from '@foxschema/core';
 import { getContext } from './store';
 
 export interface ResolvedRef {

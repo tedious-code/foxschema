@@ -4,8 +4,7 @@ import { X, Plus, Trash2, Pencil, KeyRound, Database } from 'lucide-react';
 import { useSyncStore } from '../store/useSyncStore';
 import { ConnectionModal } from './ConnectionModal';
 import type { SavedConnectionSummary } from '../api/authApi';
-
-type Dialect = 'postgres' | 'mysql' | 'db2';
+import type { Dialect } from '../lib/provider-settings';
 
 interface Props {
   open: boolean;

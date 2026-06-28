@@ -1,0 +1,135 @@
+# FoxSchema — test databases for all 6 server-based providers.
+# SQLite needs no container — use any local file path (e.g. /tmp/test.db).
+#
+# Start all:   docker compose up -d
+# Stop all:    docker compose down
+# Logs:        docker compose logs -f <service>
+# Reset data:  docker compose down -v
+#
+# Apple Silicon note: DB2 and Oracle require x86_64 emulation via Rosetta.
+# Enable "Use Rosetta for x86/amd64 emulation" in Docker Desktop settings.
+
+services:
+
+  # ── PostgreSQL 16 ───────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16
+    container_name: foxschema-postgres
+    environment:
+      POSTGRES_USER: foxuser
+      POSTGRES_PASSWORD: foxpass
+      POSTGRES_DB: foxdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U foxuser -d foxdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── MySQL 8 ─────────────────────────────────────────────────────────────────
+  mysql:
+    image: mysql:8
+    container_name: foxschema-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: foxrootpass
+      MYSQL_USER: foxuser
+      MYSQL_PASSWORD: foxpass
+      MYSQL_DATABASE: foxdb
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "foxuser", "-pfoxpass"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # ── MariaDB 11 ──────────────────────────────────────────────────────────────
+  mariadb:
+    image: mariadb:11
+    container_name: foxschema-mariadb
+    environment:
+      MARIADB_ROOT_PASSWORD: foxrootpass
+      MARIADB_USER: foxuser
+      MARIADB_PASSWORD: foxpass
+      MARIADB_DATABASE: foxdb
+    ports:
+      - "3307:3306"
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # ── SQL Server 2022 ─────────────────────────────────────────────────────────
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: foxschema-sqlserver
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "FoxPass123!"
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U SA -P 'FoxPass123!' -Q 'SELECT 1' -No -C || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── Oracle Free 23c (ARM64-native) ──────────────────────────────────────────
+  oracle:
+    image: gvenzl/oracle-free:23-slim
+    container_name: foxschema-oracle
+    environment:
+      ORACLE_PASSWORD: FoxPass123
+      ORACLE_DATABASE: FOXDB
+      APP_USER: foxuser
+      APP_USER_PASSWORD: foxpass
+    ports:
+      - "1521:1521"
+    volumes:
+      - oracle_data:/opt/oracle/oradata
+    healthcheck:
+      test: ["CMD-SHELL", "healthcheck.sh"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+
+  # ── IBM DB2 Community Edition (x86 only — runs via Rosetta on Apple Silicon) ─
+  db2:
+    image: icr.io/db2_community/db2
+    platform: linux/amd64
+    container_name: foxschema-db2
+    privileged: true
+    environment:
+      LICENSE: accept
+      DB2INST1_PASSWORD: foxpass
+      DBNAME: foxdb
+    ports:
+      - "50000:50000"
+    volumes:
+      - db2_data:/database
+    healthcheck:
+      test: ["CMD-SHELL", "su - db2inst1 -c 'db2 connect to foxdb' | grep -q 'Database Connection Information'"]
+      interval: 15s
+      timeout: 15s
+      retries: 20
+      start_period: 120s
+
+volumes:
+  pg_data:
+  mysql_data:
+  mariadb_data:
+  sqlserver_data:
+  oracle_data:
+  db2_data:

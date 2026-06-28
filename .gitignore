@@ -27,6 +27,7 @@ dist-ssr
 *.sln
 *.sw?
 foxschema.db*
+schemacompare.db*
 
 IMPLEMENTATION_STATE.md
 CLAUDE.md
@@ -45,3 +46,4 @@ apps/desktop/src-tauri/resources/server/
 
 # CLI build output
 apps/cli/dist/
+apps/cli/dist-bin/

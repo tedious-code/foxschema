@@ -12,11 +12,7 @@ export default defineConfig({
     tailwindcss()
   ],
   resolve: {
-    // Resolve the workspace packages from source (no separate build step in dev).
-    // The frontend only ever pulls @foxschema/shared (browser-safe, no drivers);
-    // @foxschema/core is aliased too so any shared-via-core type still resolves.
     alias: [
-      { find: '@foxschema/shared', replacement: pkg('../../packages/shared/src/index.ts') },
       { find: '@foxschema/core', replacement: pkg('../../packages/core/src/index.ts') },
     ],
   },

@@ -2,7 +2,7 @@ import React, { useState, useMemo, Suspense, lazy } from 'react';
 import { createPortal } from 'react-dom';
 import { useSyncStore } from '../store/useSyncStore';
 import { Code, Play, RefreshCw, FileText, CheckCircle2, ChevronRight, ChevronDown, AlertCircle, Copy, GitCompareArrows, KeyRound, XCircle, Circle, Download, X, Undo2 } from 'lucide-react';
-import { SqlGeneratorModule } from '@foxschema/shared';
+import { SqlGeneratorModule } from '../lib/sql-generator';
 import { diffLines } from '../utils/lineDiff';
 import { highlightMatch } from '../utils/highlight';
 import { formatSql } from '../utils/formatSql';
@@ -111,10 +111,10 @@ export const RightPanel: React.FC = () => {
     // DDL on both sides so the diff compares structure, not whitespace
     const isTable = selectedTable.objectType === 'TABLE';
     const rawSource = selectedTable.sourceTable
-      ? ddlGenerator.generateObjectDdl(selectedTable.sourceTable)
+      ? ddlGenerator.generateObjectDdl(selectedTable.sourceTable, sourceConfig.dialect)
       : '';
     const rawTarget = selectedTable.targetTable
-      ? ddlGenerator.generateObjectDdl(selectedTable.targetTable)
+      ? ddlGenerator.generateObjectDdl(selectedTable.targetTable, targetConfig.dialect)
       : '';
     const sourceDdl = isTable ? rawSource : formatSql(rawSource, sourceConfig.dialect);
     const targetDdl = isTable ? rawTarget : formatSql(rawTarget, targetConfig.dialect);
@@ -123,8 +123,19 @@ export const RightPanel: React.FC = () => {
       <div className="flex-1 flex flex-col min-h-0 bg-slate-950/90 border-t border-slate-850">
         {/* Diff header */}
         <div className="flex items-center justify-between px-4 py-2 border-b border-slate-800 bg-slate-900/60">
-          <span className="text-xs font-mono text-slate-400">
-            {selectedTable.tableName} — <span className="text-purple-400/80">Original</span> → <span className="text-cyan-400/80">Destination</span>
+          <span className="text-xs font-mono text-slate-400 flex items-center gap-2">
+            <span className="text-slate-300">{selectedTable.tableName}</span>
+            <span className="text-slate-600">—</span>
+            {/* Migration preview: left = target current state, right = source desired state.
+                Red  = present in target but not source → will be removed from target.
+                Green = present in source but not target → will be added to target. */}
+            <span className="text-slate-500 text-[10px] italic">Target (current)</span>
+            <span className="text-slate-600">→</span>
+            <span className="text-slate-500 text-[10px] italic">Source (desired)</span>
+            <span className="ml-1 flex items-center gap-2 text-[10px]">
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-rose-500/70"></span><span className="text-rose-300/80">remove from target</span></span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-emerald-500/70"></span><span className="text-emerald-300/80">add to target</span></span>
+            </span>
           </span>
           <div className="flex items-center gap-3">
             <label className="text-[10px] text-slate-400 flex items-center gap-1.5 cursor-pointer" title="Ignore identifier letter-case, matching how columns are compared">
@@ -266,17 +277,12 @@ export const RightPanel: React.FC = () => {
             </div>
             <p className="text-xs text-slate-500 mt-2 flex items-center gap-1.5">
               Status:
-              <span
-                className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${
-                  selectedTable.status === 'ADDED'
-                    ? 'text-emerald-400 bg-emerald-950/40 border-emerald-500/25'
-                    : selectedTable.status === 'REMOVED'
-                    ? 'text-rose-400 bg-rose-950/40 border-rose-500/25'
-                    : selectedTable.status === 'MODIFIED'
-                    ? 'text-amber-400 bg-amber-950/40 border-amber-500/25'
-                    : 'text-slate-400 bg-slate-800/60 border-slate-700/40'
-                }`}
-              >
+              <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${
+                selectedTable.status === 'ADDED'    ? 'text-emerald-400 bg-emerald-950/40 border-emerald-500/25' :
+                selectedTable.status === 'REMOVED'  ? 'text-rose-400 bg-rose-950/40 border-rose-500/25' :
+                selectedTable.status === 'MODIFIED' ? 'text-amber-400 bg-amber-950/40 border-amber-500/25' :
+                                                      'text-slate-400 bg-slate-800/60 border-slate-700/40'
+              }`}>
                 {selectedTable.status}
               </span>
             </p>

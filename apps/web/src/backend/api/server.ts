@@ -9,7 +9,10 @@ import { createAuthRoutes, authGuard, localUserGuard } from './auth.routes';
 import { createSsoRoutes } from './sso.routes';
 import { createConnectionStoreRoutes } from './connection-store.routes';
 import { createUserRoutes } from './user.routes';
-import { LOCAL_SINGLE_USER } from '../cores/edition';
+
+// Default to single-user (no auth). Set LOCAL_SINGLE_USER=false + AUTH_REQUIRED=true
+// in the environment to enable multi-user auth for self-hosted deployments.
+const LOCAL_SINGLE_USER = process.env.LOCAL_SINGLE_USER !== 'false';
 
 export function createApp() {
   const app = express();

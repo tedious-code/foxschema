@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module';
-import { ConnectionOptions, DriverAdapter } from '@foxschema/shared';
+import { ConnectionOptions, DriverAdapter } from '../../interfaces/schema-provider.interface';
 import { assertSafeIdentifier } from '../../cores/sql-identifier';
 import { setupDb2ClientEnv } from './db2.env';
 

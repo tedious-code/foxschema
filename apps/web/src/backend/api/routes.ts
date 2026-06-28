@@ -154,7 +154,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     res.json({
       db: { engine: cfg.engine, location: cfg.engine === 'sqlite' ? cfg.path ?? '(default)' : cfg.url ?? '' },
       security: { keyScheme: key.scheme, emailBound: key.emailBound, boundEmail: key.boundEmail },
-      desktop: process.env.EDITION === 'community',
+      desktop: process.env.TAURI_PLATFORM !== undefined,
     });
   });
 
@@ -163,10 +163,6 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   // Restricted to the local/community edition — on multi-user web the metadata
   // DB is ops-managed, and a connection probe would be an SSRF vector.
   router.post('/db/test', async (req: Request, res: Response) => {
-    if (process.env.EDITION !== 'community') {
-      res.status(403).json({ ok: false, error: 'Database engine is managed by the server in this edition.' });
-      return;
-    }
     const { engine, url, path } = req.body as { engine?: string; url?: string; path?: string };
     if (!engine || !SUPPORTED_ENGINES.includes(engine as DbEngine)) {
       res.status(400).json({ ok: false, error: `Unsupported engine. Supported: ${SUPPORTED_ENGINES.join(', ')}.` });

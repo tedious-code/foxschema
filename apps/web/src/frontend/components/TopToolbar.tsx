@@ -5,8 +5,8 @@ import { Brand } from './Brand';
 import { ProfileMenu } from './ProfileMenu';
 import { CredentialManager } from './CredentialManager';
 import { MigrationHistory } from './MigrationHistory';
-import { DbObjectType } from '@foxschema/shared';
-import { PROVIDER_SETTINGS } from '@foxschema/shared';
+import type { DbObjectType } from '../lib/types';
+import { PROVIDER_SETTINGS } from '../lib/provider-settings';
 import { ConnectionModal } from './ConnectionModal';
 
 const dialectOptions = Object.values(PROVIDER_SETTINGS);
@@ -174,10 +174,10 @@ export const TopToolbar: React.FC = () => {
             title="Swap Source and Target (reverse migration direction)"
             className="group flex flex-col items-center gap-0.5 transition cursor-pointer"
           >
-            <span className="text-sm font-bold uppercase tracking-wider text-cyan-500/70 group-hover:text-cyan-400">Source</span>
+            <span className="text-sm font-bold uppercase tracking-wider text-cyan-500/70 group-hover:text-cyan-400"/>
             <ArrowRight className="w-6 h-6 text-indigo-500/80 group-hover:hidden transition" />
             <ArrowLeftRight className="w-6 h-6 text-cyan-400 hidden group-hover:block" />
-            <span className="text-sm font-bold uppercase tracking-wider text-purple-400/70 group-hover:text-cyan-400">Target</span>
+            <span className="text-sm font-bold uppercase tracking-wider text-purple-400/70 group-hover:text-cyan-400"/>
           </button>
         </div>
 

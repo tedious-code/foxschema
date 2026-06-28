@@ -11,11 +11,11 @@
     "dev": "tsx src/index.ts",
     "foxschema": "tsx src/index.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "build": "node build.mjs"
+    "build": "node build.mjs",
+    "build:binary": "node build-binary.mjs"
   },
   "dependencies": {
     "@foxschema/core": "*",
-    "@foxschema/shared": "*",
     "@foxschema/web": "*",
     "@inquirer/prompts": "^7.2.0",
     "@napi-rs/keyring": "^1.1.6",
@@ -24,6 +24,7 @@
     "env-paths": "^3.0.0"
   },
   "devDependencies": {
-    "esbuild": "^0.24.0"
+    "esbuild": "^0.24.0",
+    "postject": "^1.0.0-alpha.6"
   }
 }

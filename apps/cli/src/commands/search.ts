@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import type { TableSchema } from '@foxschema/shared';
+import type { TableSchema } from '@foxschema/core';
 import { resolveRef, type RefFlags } from '../runtime/connectionRef';
 import { loadScopedTables, parseScope } from '../runtime/engine';
 

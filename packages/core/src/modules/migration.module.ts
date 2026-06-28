@@ -1,6 +1,8 @@
 import { ConnectionFactory } from '../cores/connection-factory';
 import { getAdapter } from '../providers/adapter-registry';
-import { ConnectionOptions, MigrationStep, MigrationEvent } from '@foxschema/shared';
+import { ConnectionOptions } from '../interfaces';
+import type { MigrationEvent } from '../interfaces';
+import type { MigrationStep } from './sql-generator.module';
 
 export type { MigrationEvent };
 

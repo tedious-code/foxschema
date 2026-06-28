@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { X, CheckCircle, AlertTriangle, Loader2, ListTree, Download } from "lucide-react";
-import { ConnectionOptions, DriverInfo, buildConnectionString, DEFAULT_PORTS, getProviderSettings, PROVIDER_SETTINGS } from '@foxschema/shared';
+import { type ConnectionOptions, type Dialect, buildConnectionString, DEFAULT_PORTS, getProviderSettings, PROVIDER_SETTINGS } from '../lib/provider-settings';
+import type { DriverInfo } from '../lib/types';
 import { fetchSchemaList, checkDriver as apiCheckDriver, installDriver as apiInstallDriver } from "../api/schemaApi";
 
-type Dialect = 'postgres' | 'mysql' | 'db2';
 
 interface CredentialInput {
   name: string;
@@ -271,7 +271,7 @@ export const ConnectionModal: React.FC<Props> = ({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelCls}>Username</label>
-              <input placeholder="postgres" value={form.username} onChange={(e) => updateField('username', e.target.value)} className={inputCls} />
+              <input placeholder="user" value={form.username} onChange={(e) => updateField('username', e.target.value)} className={inputCls} />
             </div>
             <div>
               <label className={labelCls}>Password</label>
@@ -291,37 +291,38 @@ export const ConnectionModal: React.FC<Props> = ({
             </label>
           </div>
 
-          {schemaRequired && (
-            <div>
-              <label className={labelCls}>Schema</label>
-              <div className="flex gap-2 mt-1">
-                {schemaList.length > 0 ? (
-                  <select value={form.schema} onChange={(e) => updateField('schema', e.target.value)} className={`${inputCls} !mt-0 flex-1`}>
-                    {form.schema && !schemaList.includes(form.schema) && <option value={form.schema}>{form.schema}</option>}
-                    {schemaList.map((s) => (
-                      <option key={s} value={s}>{s}</option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    placeholder="Load schemas, or type one"
-                    value={form.schema}
-                    onChange={(e) => updateField('schema', e.target.value)}
-                    className={`${inputCls} !mt-0 flex-1`}
-                  />
-                )}
-                <button
-                  onClick={loadSchemas}
-                  disabled={testingState.status === 'testing'}
-                  title="Connect and list available schemas"
-                  className="shrink-0 px-3 rounded text-xs font-bold bg-slate-800 border border-slate-700 hover:border-cyan-500/40 text-cyan-400 transition flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-wait cursor-pointer"
-                >
-                  {testingState.status === 'testing' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ListTree className="w-3.5 h-3.5" />}
-                  Load Schema
-                </button>
-              </div>
+          <div>
+            <label className={labelCls}>
+              Schema{schemaRequired ? <span className="text-rose-400 ml-1">*</span> : <span className="text-slate-600 ml-1">(optional)</span>}
+            </label>
+            <div className="flex gap-2 mt-1">
+              {schemaList.length > 0 ? (
+                <select value={form.schema} onChange={(e) => updateField('schema', e.target.value)} className={`${inputCls} !mt-0 flex-1`}>
+                  {!schemaRequired && <option value="">— all schemas —</option>}
+                  {form.schema && !schemaList.includes(form.schema) && <option value={form.schema}>{form.schema}</option>}
+                  {schemaList.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  placeholder={schemaRequired ? 'Required — load or type schema name' : 'Optional — leave blank or type a schema name'}
+                  value={form.schema}
+                  onChange={(e) => updateField('schema', e.target.value)}
+                  className={`${inputCls} !mt-0 flex-1`}
+                />
+              )}
+              <button
+                onClick={loadSchemas}
+                disabled={testingState.status === 'testing'}
+                title="Connect and list available schemas"
+                className="shrink-0 px-3 rounded text-xs font-bold bg-slate-800 border border-slate-700 hover:border-cyan-500/40 text-cyan-400 transition flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-wait cursor-pointer"
+              >
+                {testingState.status === 'testing' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ListTree className="w-3.5 h-3.5" />}
+                Load Schema
+              </button>
             </div>
-          )}
+          </div>
 
           {testingState.status !== 'idle' && (
             <div className={`mt-3 p-3 rounded-lg border flex items-start gap-2.5 text-xs ${

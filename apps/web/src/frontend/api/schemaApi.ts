@@ -1,11 +1,11 @@
+import type { ConnectionOptions } from '../lib/provider-settings';
 import type {
-  ConnectionOptions,
   DriverInfo,
-  MigrationStep,
-  MigrationEvent, 
   DbObjectType,
-  SchemaCompareResult
-} from '@foxschema/shared';
+  SchemaCompareResult,
+  MigrationStep,
+  MigrationEvent,
+} from '../lib/types';
 import { getApiBase } from './apiBase';
 
 

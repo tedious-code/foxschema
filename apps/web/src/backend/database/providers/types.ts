@@ -9,6 +9,7 @@
  * its own dialect. Values bound as `?` are never interpolated.
  */
 
+/** Metadata-store engine dialect — separate from schema-provider dialects. */
 export type Dialect = 'sqlite' | 'postgres' | 'mysql';
 
 export type SqlParam = string | number | null;

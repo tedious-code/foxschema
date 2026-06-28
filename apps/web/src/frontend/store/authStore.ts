@@ -8,14 +8,12 @@ import {
   type AuthUser,
   type UserPreferences,
 } from '../api/authApi';
-import { CAPABILITIES } from '../edition';
-
 type AuthStatus = 'loading' | 'anon' | 'onboarding' | 'ready';
 
-// Local single-user editions (the community desktop app) have no login: the
-// backend attaches a singleton local user to every request, so the UI goes
-// straight to the workspace. Multi-user (web) editions use the auth flow.
-const LOCAL_SINGLE_USER = !CAPABILITIES.multiUser;
+// Single-user mode: no login required. The backend attaches a local user to
+// every request automatically. Set LOCAL_SINGLE_USER=false in the environment
+// to enable multi-user auth for self-hosted deployments.
+const LOCAL_SINGLE_USER = true;
 const LOCAL_USER: AuthUser = { id: 'local', email: 'local@foxschema.app', onboardingCompleted: true };
 
 interface AuthState {

@@ -1,5 +1,8 @@
 import { build } from 'esbuild';
 import { chmodSync } from 'node:fs';
+import { createRequire } from 'node:module';
+
+const pkg = createRequire(import.meta.url)('./package.json');
 
 // Bundle the CLI to a single ESM file. @foxschema/* TS sources are inlined;
 // native drivers stay external (resolved from node_modules at runtime, like the
@@ -17,6 +20,7 @@ await build({
     js: ['import { createRequire as ___cr } from "node:module";', 'const require = ___cr(import.meta.url);'].join('\n'),
   },
   external: ['ibm_db', 'pg', 'mysql2', '@napi-rs/keyring'],
+  define: { __CLI_VERSION__: JSON.stringify(pkg.version) },
   logLevel: 'info',
 });
 

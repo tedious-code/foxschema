@@ -65,7 +65,7 @@ export const SetupScreen: React.FC<{ initial: SetupState; onDone: (s: SetupState
               autoFocus
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@company.com"
+              placeholder="your@email.com"
               className="bg-slate-950 border border-slate-800 focus:border-cyan-500 rounded-md px-3 py-2 text-sm outline-none"
             />
             <p className="text-[11px] text-slate-500 leading-relaxed">

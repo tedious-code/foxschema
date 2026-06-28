@@ -1,5 +1,6 @@
-import { ConnectionOptions } from '@foxschema/shared';
-import { getProviderSettings } from '@foxschema/shared';
+
+import { ConnectionOptions } from '../interfaces';
+import { getProviderSettings } from '../providers/provider-settings';
 import { getAdapter, ADAPTERS } from '../providers/adapter-registry';
 
 /**

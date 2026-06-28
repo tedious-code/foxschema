@@ -1,15 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { 
-  SqlGeneratorModule,
-  DbObjectType, 
-  ConnectionOptions, 
-  DriverInfo,
-  buildConnectionString, 
-  withConnectionString,
-  SchemaCompareResult, 
-  TableDiff 
-} from '@foxschema/shared';
+import { SqlGeneratorModule } from '../lib/sql-generator';
+import { buildConnectionString, withConnectionString, type ConnectionOptions } from '../lib/provider-settings';
+import type { DbObjectType, DriverInfo, SchemaCompareResult, TableDiff } from '../lib/types';
 import {
   testConnection as apiTestConnection,
   fetchSchemaList,
@@ -299,7 +292,6 @@ export const useSyncStore = create<SyncState>()(
       targetDriverInfo: s.sourceDriverInfo,
       selectedSourceConnectionId: s.selectedTargetConnectionId,
       selectedTargetConnectionId: s.selectedSourceConnectionId,
-      // The previous comparison was computed in the old direction — clear it
       compareResult: null,
       selectedTable: null,
       generatedSql: null,

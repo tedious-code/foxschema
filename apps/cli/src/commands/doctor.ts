@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import { CompareModule, SqlGeneratorModule } from '@foxschema/shared';
+import { CompareModule, SqlGeneratorModule } from '@foxschema/core';
 import { readConfig, CONFIG_DIR, CONFIG_FILE } from '../runtime/config';
 import { getDek } from '../runtime/keyring';
 
@@ -30,9 +30,7 @@ export async function runDoctor(): Promise<void> {
     `  db engine        ${c.dbEngine}${c.dbEngine === 'sqlite' ? ` · ${c.dbPath || '(default)'}` : c.dbUrl ? ' · (url set)' : ''}`
   );
 
-  // Engine wiring: shared is browser-safe (always); core may load native drivers.
-  const sharedOk = typeof CompareModule === 'function' && typeof SqlGeneratorModule === 'function';
-  console.log(`  @foxschema/shared ${sharedOk ? chalk.green('loaded') : chalk.red('missing')}`);
+  const coreModulesOk = typeof CompareModule === 'function' && typeof SqlGeneratorModule === 'function';
   let core: string;
   try {
     const mod = await import('@foxschema/core');
@@ -40,5 +38,5 @@ export async function runDoctor(): Promise<void> {
   } catch (e) {
     core = chalk.red(`failed: ${e instanceof Error ? e.message : String(e)}`);
   }
-  console.log(`  @foxschema/core   ${core}`);
+  console.log(`  @foxschema/core   ${core} ${coreModulesOk ? chalk.green('(modules ok)') : chalk.red('(modules missing)')}`);
 }

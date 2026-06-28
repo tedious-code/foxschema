@@ -7,9 +7,7 @@
   "exports": {
     ".": "./src/index.ts"
   },
-  "dependencies": {
-    "@foxschema/shared": "*"
-  },
+  "dependencies": {},
   "peerDependencies": {
     "ibm_db": "*",
     "pg": "*",

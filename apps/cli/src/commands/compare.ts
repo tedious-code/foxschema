@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import type { TableDiff } from '@foxschema/shared';
+import type { TableDiff } from '@foxschema/core';
 import { resolveRef } from '../runtime/connectionRef';
 import { compareModule, loadScopedTables, parseScope, sqlGenerator } from '../runtime/engine';
 

@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module';
-import type { DriverInfo } from '@foxschema/shared';
+import type { DriverInfo } from '../interfaces';
 import { getAdapter, ADAPTERS } from '../providers/adapter-registry';
 
 const nodeRequire = createRequire(import.meta.url);

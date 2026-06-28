@@ -1,5 +1,5 @@
 import { ConnectionFactory } from "../../cores/connection-factory";
-import { ConnectionOptions, SchemaProvider } from '@foxschema/shared';
+import { ConnectionOptions, SchemaProvider } from '../../interfaces';
 
 import {
   DbProcedure,
@@ -19,7 +19,7 @@ import {
   RoutineParameter,
   RoutineParameterMode,
   DbRole,
-} from '@foxschema/shared';
+} from '../../interfaces';
 import {
   Db2TableRaw,
   Db2ColumnRaw,

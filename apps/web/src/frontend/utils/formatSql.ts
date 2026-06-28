@@ -1,10 +1,16 @@
 import { format } from 'sql-formatter';
 
+
 const LANGUAGE_BY_DIALECT: Record<string, string> = {
   db2: 'db2',
-  mysql: 'mysql',
+  mySql: 'mysql',
+  mariaDb: 'mariadb',
+  oracle: 'plsql',
   postgres: 'postgresql',
+  sqlServer: 'tsql',
+  sqlLite: 'sqlite'
 };
+
 
 /**
  * Pretty-prints catalog DDL (views, triggers, routines often come back as one line).

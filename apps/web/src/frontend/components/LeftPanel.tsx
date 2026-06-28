@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { useSyncStore } from '../store/useSyncStore';
 import { Search, Layers, Table2, Eye, FunctionSquare, SquareTerminal, Zap, Hash, Box, Users } from 'lucide-react';
-import { TableDiff } from '@foxschema/shared';
-import { DbObjectType } from '@foxschema/shared';
+import type { TableDiff, DbObjectType } from '../lib/types';
 import { highlightMatch } from '../utils/highlight';
 
 const TYPE_META: Record<DbObjectType, { label: string; group: string; color: string; bg: string; icon: React.ReactNode }> = {
@@ -200,25 +199,21 @@ export const LeftPanel: React.FC = () => {
 
   const getStatusBadge = (status: TableDiff['status']) => {
     switch (status) {
-      case 'ADDED':
-        return 'bg-emerald-950/60 text-emerald-400 border-emerald-500/20';
-      case 'REMOVED':
-        return 'bg-rose-950/60 text-rose-400 border-rose-500/20';
-      case 'MODIFIED':
-        return 'bg-amber-950/60 text-amber-400 border-amber-500/20';
-      default:
-        return 'bg-slate-800 text-slate-400 border-slate-700/30';
+      case 'ADDED':   return 'bg-emerald-950/60 text-emerald-400 border-emerald-500/20';
+      case 'REMOVED': return 'bg-rose-950/60 text-rose-400 border-rose-500/20';
+      case 'MODIFIED': return 'bg-amber-950/60 text-amber-400 border-amber-500/20';
+      default: return 'bg-slate-800 text-slate-400 border-slate-700/30';
     }
   };
 
   const getChangeSummaryStats = () => {
     const { added, removed, modified, unchanged } = compareResult.summary;
     return [
-      { label: 'All', count: compareResult.tables.length, color: 'text-slate-100', status: 'ALL' as const, toggle: false },
-      { label: 'Added', count: added, color: 'text-emerald-400', status: 'ADDED' as const, toggle: false },
-      { label: 'Removed', count: removed, color: 'text-rose-400', status: 'REMOVED' as const, toggle: false },
-      { label: 'Modified', count: modified, color: 'text-amber-400', status: 'MODIFIED' as const, toggle: false },
-      { label: 'Unchanged', count: unchanged, color: 'text-slate-400', status: 'UNCHANGED' as const, toggle: true },
+      { label: 'All',       count: compareResult.tables.length, color: 'text-slate-100',   status: 'ALL'       as const, toggle: false },
+      { label: 'Added',     count: added,    color: 'text-emerald-400', status: 'ADDED'     as const, toggle: false },
+      { label: 'Removed',   count: removed,  color: 'text-rose-400',   status: 'REMOVED'   as const, toggle: false },
+      { label: 'Modified',  count: modified, color: 'text-amber-400',  status: 'MODIFIED'  as const, toggle: false },
+      { label: 'Unchanged', count: unchanged,color: 'text-slate-400',  status: 'UNCHANGED' as const, toggle: true  },
     ];
   };
 
