@@ -1,0 +1,20 @@
+{
+  "name": "@foxschema/desktop",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build:frontend": "cd ../web && VITE_EDITION=community vite build --outDir ../desktop/src-tauri/frontendDist --emptyOutDir",
+    "build:sidecar": "node scripts/build-sidecar.mjs",
+    "dev:frontend": "cd ../web && vite",
+    "predev": "npm run build:sidecar",
+    "dev": "tauri dev",
+    "prebuild": "npm run build:sidecar",
+    "build": "tauri build",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "esbuild": "^0.28.0"
+  }
+}

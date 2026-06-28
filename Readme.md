@@ -1,6 +1,6 @@
-# SchemaSync Lite: Database Schema Compare Application
+# FoxSchema: Database Schema Compare Application
 
-I have built a complete, premium, production-ready implementation of **SchemaSync Lite** in your workspace: `/Users/huydg/Documents/schemaCompare`. The project utilizes a modern development stack (Vite + React TS + Tailwind CSS v4) and features a stunning, dark-themed interface engineered for professional developers.
+I have built a complete, premium, production-ready implementation of **FoxSchema** in your workspace: `/Users/hiphan/Documents/GitHub/foxSchema`. The project utilizes a modern development stack (Vite + React TS + Tailwind CSS v4) and features a stunning, dark-themed interface engineered for professional developers.
 
 Here is a summary of the architectural and design implementations added to your workspace:
 

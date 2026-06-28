@@ -1,0 +1,55 @@
+{
+  "name": "@foxschema/web",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    "./auth": "./src/backend/modules/auth.module.ts",
+    "./connection-store": "./src/backend/modules/connection-store.module.ts",
+    "./migration-history": "./src/backend/modules/migration-history.module.ts",
+    "./app-settings": "./src/backend/modules/app-settings.module.ts",
+    "./store": "./src/backend/database/store.ts"
+  },
+  "scripts": {
+    "dev": "vite",
+    "dev:api": "AUTH_REQUIRED=true APP_ENCRYPTION_KEY=${APP_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000} tsx watch src/backend/index.ts",
+    "dev:all": "concurrently -n api,web -c cyan,magenta \"npm run dev:api\" \"npm run dev\"",
+    "dev:auth": "AUTH_REQUIRED=true LOCAL_SINGLE_USER=false vite",
+    "dev:api:auth": "AUTH_REQUIRED=true LOCAL_SINGLE_USER=false APP_ENCRYPTION_KEY=${APP_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000} tsx watch src/backend/index.ts",
+    "dev:all:auth": "concurrently -n api,web -c cyan,magenta \"npm run dev:api:auth\" \"npm run dev:auth\"",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@foxschema/core": "*",
+    "@monaco-editor/react": "^4.7.0",
+    "@tailwindcss/vite": "^4.3.0",
+    "better-sqlite3": "^12.11.1",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "ibm_db": "4.0.1",
+    "lucide-react": "^1.16.0",
+    "monaco-editor": "^0.55.1",
+    "mssql": "^12.6.0",
+    "mysql2": "^3.11.0",
+    "oracledb": "^7.0.0",
+    "pg": "^8.21.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "sql-formatter": "^15.8.1",
+    "tailwindcss": "^4.3.0",
+    "zustand": "^5.0.13"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.9.1",
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "concurrently": "^9.2.1",
+    "tsx": "^4.22.4",
+    "vite": "^8.0.12"
+  }
+}

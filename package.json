@@ -1,46 +1,24 @@
 {
-  "name": "schemacompare",
+  "name": "foxschema-monorepo",
+  "author": "huyplb@gmail.com",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
+  "workspaces": ["packages/*", "apps/*"],
   "scripts": {
-    "dev": "vite",
-    "dev:api": "tsx watch src/backend/index.ts",
-    "dev:all": "concurrently -n api,web -c cyan,magenta \"npm run dev:api\" \"npm run dev\"",
-    "build": "tsc && vite build",
-    "preview": "vite preview",
+    "dev": "npm -w @foxschema/web run dev:all",
+    "dev:auth": "npm -w @foxschema/web run dev:all:auth",
+    "dev:api": "npm -w @foxschema/web run dev:api",
+    "build": "npm -w @foxschema/web run build",
+    "preview": "npm -w @foxschema/web run preview",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "engines": {
-    "node": "24.x"
+    "node": ">=22.5"
   },
   "devDependencies": {
-    "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.6",
-    "@types/node": "^25.9.1",
-    "@types/react": "^19.2.15",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.2",
-    "concurrently": "^9.2.1",
-    "cors": "^2.8.6",
-    "express": "^5.2.1",
-    "tsx": "^4.22.4",
     "typescript": "~6.0.2",
-    "vite": "^8.0.12",
     "vitest": "^4.1.8"
-  },
-  "dependencies": {
-    "@monaco-editor/react": "^4.7.0",
-    "@tailwindcss/vite": "^4.3.0",
-    "ibm_db": "4.0.1",
-    "lucide-react": "^1.16.0",
-    "monaco-editor": "^0.55.1",
-    "pg": "^8.21.0",
-    "react": "^19.2.6",
-    "react-dom": "^19.2.6",
-    "sql-formatter": "^15.8.1",
-    "tailwindcss": "^4.3.0",
-    "zustand": "^5.0.13"
   }
 }
