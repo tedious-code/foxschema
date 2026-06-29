@@ -86,77 +86,6 @@ export class SqlGeneratorModule {
     return target.renderType(source.parseType(rawType));
   }
 
-  /** True when the migration deploys into a PostgreSQL target. */
-  private isPostgresTarget(mapping?: SchemaMapping): boolean {
-    return (mapping?.targetDialect ?? '').toUpperCase() === 'POSTGRES';
-  }
-
-  /** The bare sequence name from a Postgres serial default (nextval('seq'::regclass)), or null. */
-  private nextvalSequence(def?: string): string | null {
-    if (!def) return null;
-    const m = def.match(/nextval\(\s*'([^']+)'(?:::regclass)?\s*\)/i);
-    return m ? this.bareName(m[1].replace(/"/g, '')) : null;
-  }
-
-  /** A unique, valid temp-table suffix for one table's saved-view scratch space. */
-  private viewDepTag(qualifiedTable: string): string {
-    return qualifiedTable.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 48);
-  }
-
-  /**
-   * Postgres rejects ALTER/DROP COLUMN on a table that a view (or a view-on-view)
-   * depends on. Static DDL can't know those dependencies, so we resolve them at
-   * apply-time: this DO block saves every dependent view's definition (with its
-   * dependency depth) into a temp table, then drops them (deepest first, CASCADE).
-   * pgRecreateDependentViews() restores them after the column changes. Paired by tag.
-   */
-  private pgDropDependentViews(qualifiedTable: string, tag: string): string {
-    const tbl = qualifiedTable.replace(/'/g, "''");
-    const tmp = `_fs_vdep_${tag}`;
-    return [
-      `DO $fs_pre$ DECLARE r RECORD; BEGIN`,
-      `  CREATE TEMP TABLE ${tmp} ON COMMIT DROP AS`,
-      `  WITH RECURSIVE deps(viewoid, depth) AS (`,
-      `    SELECT rw.ev_class, 1 FROM pg_depend d JOIN pg_rewrite rw ON rw.oid = d.objid`,
-      `    WHERE d.refobjid = '${tbl}'::regclass AND d.deptype = 'n' AND rw.ev_class <> d.refobjid`,
-      `    UNION`,
-      `    SELECT rw.ev_class, deps.depth + 1 FROM pg_depend d JOIN pg_rewrite rw ON rw.oid = d.objid`,
-      `    JOIN deps ON deps.viewoid = d.refobjid WHERE d.deptype = 'n' AND rw.ev_class <> d.refobjid`,
-      `  )`,
-      `  SELECT quote_ident(n.nspname)||'.'||quote_ident(c.relname) AS vname,`,
-      `         pg_get_viewdef(c.oid, true) AS vdef, max(deps.depth) AS depth`,
-      `  FROM deps JOIN pg_class c ON c.oid = deps.viewoid JOIN pg_namespace n ON n.oid = c.relnamespace`,
-      `  WHERE c.relkind = 'v' GROUP BY c.oid, n.nspname, c.relname;`,
-      `  FOR r IN SELECT vname FROM ${tmp} ORDER BY depth DESC LOOP`,
-      `    EXECUTE 'DROP VIEW IF EXISTS '||r.vname||' CASCADE';`,
-      `  END LOOP;`,
-      `END $fs_pre$;`,
-    ].join('\n');
-  }
-
-  /**
-   * Recreates the views saved by pgDropDependentViews() (shallowest first, so a
-   * view-on-view finds its base view already present). Any failure propagates and
-   * rolls back the whole migration transaction — views are never silently lost.
-   */
-  private pgRecreateDependentViews(tag: string): string {
-    const tmp = `_fs_vdep_${tag}`;
-    return [
-      `DO $fs_post$ DECLARE r RECORD; BEGIN`,
-      `  FOR r IN SELECT vname, vdef FROM ${tmp} ORDER BY depth ASC LOOP`,
-      `    BEGIN`,
-      `      EXECUTE 'CREATE VIEW '||r.vname||' AS '||r.vdef;`,
-      `    EXCEPTION WHEN OTHERS THEN`,
-      // Re-raise (aborts the whole migration — nothing is half-applied) but with a
-      // clear, actionable message instead of a bare "column ... does not exist".
-      `      RAISE EXCEPTION 'FoxSchema: cannot restore dependent view % after the table changes (%). It references a column that was dropped or incompatibly retyped. Include this view in the migration so it gets the new definition, or drop/update it manually, then retry.', r.vname, SQLERRM;`,
-      `    END;`,
-      `  END LOOP;`,
-      `  DROP TABLE ${tmp};`,
-      `END $fs_post$;`,
-    ].join('\n');
-  }
-
   /**
    * Procedural objects (views/functions/procedures/triggers) carry dialect-
    * specific bodies that can't be reliably auto-translated. Cross-dialect we emit
@@ -310,10 +239,10 @@ export class SqlGeneratorModule {
       // 'relation "<name>_id_seq" does not exist'. Create it first and tie its
       // lifecycle to the column so it drops with the table.
       const seqOwned: string[] = [];
-      if (this.isPostgresTarget(mapping)) {
+      if (dialect.serialSequenceFromDefault) {
         const seen = new Set<string>();
         for (const c of source.columns) {
-          const seq = this.nextvalSequence(c.defaultValue);
+          const seq = dialect.serialSequenceFromDefault(c.defaultValue ?? '');
           if (!seq || seen.has(seq)) continue;
           seen.add(seq);
           statements.push(`CREATE SEQUENCE IF NOT EXISTS ${this.qualify(seq, mapping)};`);
@@ -368,15 +297,16 @@ export class SqlGeneratorModule {
     const tableName = this.qualify(obj.tableName, mapping);
 
     if (obj.objectType === 'TABLE') {
-      // Postgres: changing or dropping a column a view depends on is rejected with
-      // "cannot alter type of a column used by a view or rule". Static DDL can't see
-      // those dependencies, so we resolve them at apply-time — drop the dependent views
-      // (this block), run the column changes, then recreate them (block appended below).
-      // ADD COLUMN never triggers this, so only guard MODIFIED/REMOVED column changes.
-      const vtag = this.viewDepTag(tableName);
-      const pgGuard = this.isPostgresTarget(mapping)
-        && obj.columnDiffs.some((c) => c.status === 'MODIFIED' || (c.status === 'REMOVED' && !mapping?.nonDestructive));
-      if (pgGuard) statements.push(this.pgDropDependentViews(tableName, vtag));
+      // Some dialects (Postgres) reject ALTER/DROP COLUMN on tables that a view
+      // depends on. The dialect provides drop/recreate blocks to handle this at
+      // apply-time. ADD COLUMN never triggers this — only MODIFIED/REMOVED columns.
+      const hasStructuralColumnChanges = obj.columnDiffs.some(
+        (c) => c.status === 'MODIFIED' || (c.status === 'REMOVED' && !mapping?.nonDestructive)
+      );
+      const dropViewsBlock = hasStructuralColumnChanges
+        ? (dialect.dropDependentViewsBlock?.(tableName) ?? null)
+        : null;
+      if (dropViewsBlock) statements.push(dropViewsBlock);
 
       // Drop FK constraints FIRST — before indexes and column drops. Dropping a
       // column cascades to any FK whose source columns include it, so an explicit
@@ -384,8 +314,7 @@ export class SqlGeneratorModule {
       // also requires the column to still exist if the FK holds a reference.
       if (!mapping?.nonDestructive) {
         for (const fk of obj.foreignKeyDiffs.filter((f) => f.status === 'REMOVED' || f.status === 'MODIFIED')) {
-          const name = fk.target?.name ?? fk.source?.name;
-          if (name) statements.push(`ALTER TABLE ${tableName} DROP CONSTRAINT IF EXISTS ${this.bareName(name)};`);
+          if (fk.name) statements.push(`ALTER TABLE ${tableName} DROP CONSTRAINT IF EXISTS ${this.bareName(fk.name)};`);
         }
       }
 
@@ -403,10 +332,8 @@ export class SqlGeneratorModule {
         const translated = this.translateType(col.source.type, mapping);
         if (translated.warning) statements.push(`-- review: ${col.name}: ${translated.warning}`);
         // A serial column added to an existing table needs its sequence first.
-        if (this.isPostgresTarget(mapping)) {
-          const seq = this.nextvalSequence(col.source.defaultValue);
-          if (seq) statements.push(`CREATE SEQUENCE IF NOT EXISTS ${this.qualify(seq, mapping)};`);
-        }
+        const seq = dialect.serialSequenceFromDefault?.(col.source.defaultValue ?? '');
+        if (seq) statements.push(`CREATE SEQUENCE IF NOT EXISTS ${this.qualify(seq, mapping)};`);
         let colDef = `${col.name} ${translated.sql}`;
         if (!col.source.nullable) colDef += ` NOT NULL`;
         if (col.source.defaultValue) colDef += ` DEFAULT ${col.source.defaultValue}`;
@@ -431,10 +358,8 @@ export class SqlGeneratorModule {
             statements.push(`-- review: ${col.name}: default '${srcDef}' is ${(mapping?.sourceDialect ?? '').toUpperCase()} syntax — set it manually for ${(mapping?.targetDialect ?? '').toUpperCase()}`);
           } else {
             // A new serial/sequence default needs its backing sequence to exist first.
-            if (this.isPostgresTarget(mapping)) {
-              const seq = this.nextvalSequence(srcDef);
-              if (seq) statements.push(`CREATE SEQUENCE IF NOT EXISTS ${this.qualify(seq, mapping)};`);
-            }
+            const seqForDefault = dialect.serialSequenceFromDefault?.(srcDef ?? '');
+            if (seqForDefault) statements.push(`CREATE SEQUENCE IF NOT EXISTS ${this.qualify(seqForDefault, mapping)};`);
             statements.push(...dialect.setDefaultStatements(tableName, col.name, srcDef));
           }
         }
@@ -476,7 +401,7 @@ export class SqlGeneratorModule {
         const info = fk.source;
         if (!info) continue;
         statements.push(
-          `ALTER TABLE ${tableName} ADD CONSTRAINT ${this.bareName(info.name)} FOREIGN KEY (${info.columns.join(', ')}) REFERENCES ${this.qualify(info.referencedTable, mapping)} (${info.referencedColumns.join(', ')});`
+          `ALTER TABLE ${tableName} ADD CONSTRAINT ${this.bareName(fk.name)} FOREIGN KEY (${info.columns.join(', ')}) REFERENCES ${this.qualify(info.referencedTable, mapping)} (${info.referencedColumns.join(', ')});`
         );
       }
 
@@ -487,8 +412,11 @@ export class SqlGeneratorModule {
         if (trg.source?.definition) statements.push(trg.source.definition.trim());
       }
 
-      // Postgres: recreate any views that were dropped by pgDropDependentViews() above.
-      if (pgGuard) statements.push(this.pgRecreateDependentViews(vtag));
+      // Recreate any views dropped by the dialect's dropDependentViewsBlock above.
+      if (dropViewsBlock) {
+        const recreateBlock = dialect.recreateDependentViewsBlock?.(tableName);
+        if (recreateBlock) statements.push(recreateBlock);
+      }
     } else if (obj.objectType === 'SEQUENCE' && obj.sourceTable) {
       const s = obj.sourceTable.sequence ?? {};
       let alter = `ALTER SEQUENCE ${tableName}`;

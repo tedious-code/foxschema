@@ -83,6 +83,29 @@ export interface SqlDialect {
 
   /** Render a canonical type into this dialect's native syntax. */
   renderType(t: CanonicalType): RenderedType;
+
+  /**
+   * Extract a backing sequence name from a column default expression
+   * (e.g. `nextval('schema.seq'::regclass)` → `seq`). Return null if this
+   * dialect doesn't need pre-created backing sequences for serial columns.
+   * When non-null, the generator creates the sequence before the table/column.
+   */
+  serialSequenceFromDefault?(defaultValue: string): string | null;
+
+  /**
+   * Return a SQL block that saves and drops all views transitively dependent on
+   * `qualifiedTable` so that column ALTER/DROP can proceed without "column used
+   * by a view" errors. Called before column changes; pair with
+   * `recreateDependentViewsBlock` using the same `qualifiedTable`.
+   * Return null if the dialect doesn't need this guard.
+   */
+  dropDependentViewsBlock?(qualifiedTable: string): string | null;
+
+  /**
+   * Return a SQL block that recreates the views saved by `dropDependentViewsBlock`.
+   * Must be called with the same `qualifiedTable`. Return null if not applicable.
+   */
+  recreateDependentViewsBlock?(qualifiedTable: string): string | null;
 }
 
 /** Full schema column — a superset of ColumnSpec, so assignable to it. */
