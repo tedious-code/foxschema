@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Sun, Moon, Monitor, Palette, Type, RotateCcw, ShieldCheck, Database, ArrowUpCircle } from 'lucide-react';
-import { useUiStore, ACCENTS, TONES, FONT_SIZES, type ThemeMode, type AccentId } from '../store/uiStore';
+import { X, Sun, Moon, Monitor, Palette, Type, RotateCcw, ShieldCheck, Database, ArrowUpCircle, Sparkles } from 'lucide-react';
+import { useUiStore, ACCENTS, TONES, FONT_SIZES, THEME_PRESETS, type ThemeMode, type AccentId, type ThemePreset } from '../store/uiStore';
 import { fetchAppInfo, type AppInfo } from '../api/setupApi';
 import { DatabaseSettings } from './DatabaseSettings';
 import { UpdatesSettings } from './UpdatesSettings';
@@ -33,7 +33,8 @@ const Section: React.FC<{ icon: React.ReactNode; title: string; children: React.
 
 /** Appearance settings: theme mode, UI tone, accent, and text size. Each change applies live. */
 export const SettingsPanel: React.FC<Props> = ({ open, onClose }) => {
-  const { themeMode, tone, fontSize, accent, setThemeMode, setTone, setFontSize, setAccent, resetAppearance } = useUiStore();
+  const { themeMode, tone, fontSize, accent, setThemeMode, setTone, setFontSize, setAccent, applyPreset, resetAppearance } = useUiStore();
+  const presetActive = (p: ThemePreset) => themeMode === p.mode && tone === p.tone && accent === p.accent;
   // Hooks must stay above the early return (rules-of-hooks).
   const [info, setInfo] = useState<AppInfo | null>(null);
   useEffect(() => {
@@ -76,6 +77,47 @@ export const SettingsPanel: React.FC<Props> = ({ open, onClose }) => {
         </div>
 
         <div className="p-6 space-y-6">
+          <Section icon={<Sparkles className="w-3 h-3" />} title="Theme Presets">
+            <div className="grid grid-cols-2 gap-2">
+              {THEME_PRESETS.map((p) => {
+                const active = presetActive(p);
+                const dark = p.mode === 'dark';
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => applyPreset(p.id)}
+                    title={`${p.label} — ${dark ? 'Dark' : 'Light'} · ${p.tone} · ${ACCENTS[p.accent].label}`}
+                    className={`flex items-center gap-2.5 p-1.5 rounded-lg ${optionBtn(active)}`}
+                  >
+                    {/* Mini app preview: tone side-panel · canvas · accent bar */}
+                    <div
+                      className="h-9 w-12 rounded-md overflow-hidden flex shrink-0 border border-black/30"
+                      style={{ background: dark ? '#0b0f17' : '#eef2f7' }}
+                    >
+                      <div style={{ width: '34%', backgroundColor: TONE_SWATCH[p.tone] }} />
+                      <div className="flex-1" />
+                      <div
+                        style={{
+                          width: 5,
+                          backgroundImage: `linear-gradient(to bottom, ${ACCENTS[p.accent].from}, ${ACCENTS[p.accent].to})`,
+                        }}
+                      />
+                    </div>
+                    <div className="min-w-0 text-left">
+                      <div className="text-xs font-semibold flex items-center gap-1">
+                        {dark ? <Moon className="w-3 h-3 opacity-60" /> : <Sun className="w-3 h-3 opacity-60" />}
+                        {p.label}
+                      </div>
+                      <div className="text-[10px] text-slate-500 capitalize truncate">
+                        {p.tone} · {ACCENTS[p.accent].label}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </Section>
+
           <Section icon={<Monitor className="w-3 h-3" />} title="Background">
             <div className="grid grid-cols-3 gap-2">
               {MODES.map((m) => (

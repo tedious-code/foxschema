@@ -51,4 +51,6 @@ export interface SchemaCompareResult {
     modified: number;
     unchanged: number;
   };
+  /** Non-fatal notices, e.g. an object class that could not be read (insufficient privileges). */
+  warnings?: string[];
 }

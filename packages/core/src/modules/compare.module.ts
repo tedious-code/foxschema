@@ -1,7 +1,14 @@
 import { SchemaCompareResult, TableDiff, ColumnDiff, IndexDiff, ForeignKeyDiff, TriggerDiff } from '../interfaces';
 import { TableSchema, ColumnInfo, IndexInfo, ForeignKeyInfo, TriggerInfo } from '../interfaces';
+import type { SqlDialect } from './sql-dialect.interface';
+import { resolveDialect } from './dialect-registry';
+import { canonicalEquals } from './type-mapping';
 
 export class CompareModule {
+  /** When set (and the dialects differ), columns are compared by canonical type. */
+  private sourceDialect: SqlDialect | null = null;
+  private targetDialect: SqlDialect | null = null;
+
   /**
    * Normalizes an object name for matching: drops any leading "schema." qualifier
    * and uppercases. So HUY.MyTable, "YOU".MyTable and MyTable all match —
@@ -11,7 +18,19 @@ export class CompareModule {
     return name.replace(/^"?[^".]+"?\./, '').replace(/"/g, '').toUpperCase();
   }
 
-  async compare(sourceSchemas: TableSchema[], targetSchemas: TableSchema[]): Promise<SchemaCompareResult> {
+  async compare(
+    sourceSchemas: TableSchema[],
+    targetSchemas: TableSchema[],
+    dialects?: { source?: string; target?: string }
+  ): Promise<SchemaCompareResult> {
+    // Cross-dialect: resolve both strategies so equivalent native types (e.g.
+    // DB2 VARCHAR(255) vs Postgres "character varying(255)") aren't false-flagged.
+    const src = dialects?.source;
+    const tgt = dialects?.target;
+    const crossDialect = !!src && !!tgt && resolveDialect(src) !== resolveDialect(tgt);
+    this.sourceDialect = crossDialect ? resolveDialect(src!) : null;
+    this.targetDialect = crossDialect ? resolveDialect(tgt!) : null;
+
     const sourceMap = new Map<string, TableSchema>(sourceSchemas.map((t) => [this.key(t.name), t]));
     const targetMap = new Map<string, TableSchema>(targetSchemas.map((t) => [this.key(t.name), t]));
 
@@ -78,7 +97,7 @@ export class CompareModule {
           pkChanged ||
           sequenceChanged ||
           userTypeChanged ||
-          source.definition !== target.definition;
+          this.normalizeDefinition(source.definition) !== this.normalizeDefinition(target.definition);
 
         if (isModified) {
           modified++;
@@ -107,6 +126,58 @@ export class CompareModule {
     };
   }
 
+  /**
+   * Whether two native type strings differ. Same-dialect: a case-insensitive
+   * string compare (unchanged behavior). Cross-dialect: a canonical compare so
+   * equivalent types across dialects aren't flagged as a change.
+   */
+  /**
+   * Normalize a procedural object definition (view body, function body, etc.)
+   * for semantic comparison. Postgres reformats definitions on storage — different
+   * whitespace, implicit schema prefixes, lower-cased identifiers — so a raw
+   * string compare always shows MODIFIED after a successful migration.
+   * We collapse whitespace and lowercase before comparing.
+   */
+  private normalizeDefinition(d: string | undefined | null): string {
+    if (!d) return '';
+    return d
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase()
+      // Strip schema qualifier from the object name in CREATE statements:
+      //   CREATE OR REPLACE FUNCTION app.fn_get_discount → ... FUNCTION fn_get_discount
+      .replace(/\b(function|procedure|view|trigger|table)\s+"?[\w$]+"?\s*\.\s*"?/g, '$1 ')
+      // Strip schema qualifiers from table references inside the body, e.g.
+      //   FROM app.orders → FROM orders
+      //   JOIN demo_b.order_items → JOIN order_items
+      // Safe: both sides are normalized the same way, so equivalence is preserved.
+      .replace(/\b(from|join|update|into|table)\s+"?[\w$]+"?\s*\.\s*"?/g, '$1 ');
+  }
+
+  /**
+   * Normalize a column default for comparison so cosmetic differences (like
+   * Postgres auto-qualifying `nextval('seq')` → `nextval('schema.seq'::regclass)`)
+   * don't show up as changes after a successful migration.
+   */
+  private normalizeDefault(d: string | undefined | null): string {
+    if (d == null) return '';
+    return d
+      // Strip ::regclass / ::text / ::character varying etc. casts
+      .replace(/::[\w\s]+(\([^)]*\))?/g, '')
+      // nextval('schema.seq') → nextval('seq') — ignore schema qualifier inside nextval
+      .replace(/nextval\('([^']+)'\)/gi, (_, seq) => `nextval('${seq.split('.').pop()!}')`)
+      // lowercase + collapse whitespace
+      .toLowerCase()
+      .trim();
+  }
+
+  private typeChanged(sourceType: string, targetType: string): boolean {
+    if (this.sourceDialect && this.targetDialect) {
+      return !canonicalEquals(this.sourceDialect.parseType(sourceType), this.targetDialect.parseType(targetType));
+    }
+    return sourceType.toLowerCase() !== targetType.toLowerCase();
+  }
+
   private compareColumns(sourceCols: ColumnInfo[], targetCols: ColumnInfo[]): ColumnDiff[] {
     const sMap = new Map(sourceCols.map((c) => [this.key(c.name), c]));
     const tMap = new Map(targetCols.map((c) => [this.key(c.name), c]));
@@ -121,9 +192,9 @@ export class CompareModule {
       } else if (!sCol && tCol) {
         return { name, status: 'REMOVED', target: tCol };
       } else if (sCol && tCol) {
-        const typeChanged = sCol.type.toLowerCase() !== tCol.type.toLowerCase();
+        const typeChanged = this.typeChanged(sCol.type, tCol.type);
         const nullChanged = sCol.nullable !== tCol.nullable;
-        const defaultChanged = sCol.defaultValue !== tCol.defaultValue;
+        const defaultChanged = this.normalizeDefault(sCol.defaultValue) !== this.normalizeDefault(tCol.defaultValue);
         const pkChanged = sCol.primaryKey !== tCol.primaryKey;
         const identityChanged = !!sCol.identity !== !!tCol.identity;
 

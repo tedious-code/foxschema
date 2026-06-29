@@ -1,8 +1,11 @@
 import { ConnectionFactory } from '../../cores/connection-factory';
-import { dbSchemaToTableSchemas } from '../../cores/schema-to-tables';
+import { dbSchemaToTableSchemas, rolesToTableSchemas, roleSkippedWarning } from '../../cores/schema-to-tables';
 import {
   ConnectionOptions,
   SchemaProvider,
+  RoleLoadResult,
+  DbRole,
+  DbRoleMember,
   DbSchema,
   DbTable,
   DbColumn,
@@ -63,6 +66,36 @@ export class PostgresProvider implements SchemaProvider {
   async getTables(options: ConnectionOptions, schema: string): Promise<TableSchema[]> {
     const dbSchema = await this.loadSchema(options, schema);
     return dbSchemaToTableSchemas(dbSchema);
+  }
+
+  /**
+   * Cluster-global roles and their memberships. `pg_roles` is readable by any
+   * connected user (passwords are masked), but we still degrade to a warning if
+   * the catalog can't be read. Built-in `pg_*` roles are excluded.
+   */
+  async getRoles(options: ConnectionOptions, _schema: string): Promise<RoleLoadResult> {
+    try {
+      const rows = await ConnectionFactory.executeQuery<{ role_name: string; member: string | null; member_can_login: boolean | null }>(
+        this.provider,
+        options,
+        `SELECT g.rolname AS role_name, m.rolname AS member, m.rolcanlogin AS member_can_login
+         FROM pg_roles g
+         LEFT JOIN pg_auth_members am ON am.roleid = g.oid
+         LEFT JOIN pg_roles m ON m.oid = am.member
+         WHERE g.rolname NOT LIKE 'pg\\_%'
+         ORDER BY g.rolname, m.rolname`
+      );
+      const byRole = new Map<string, DbRoleMember[]>();
+      for (const r of rows) {
+        const members = byRole.get(r.role_name) ?? [];
+        if (r.member) members.push({ grantee: r.member, granteeType: r.member_can_login ? 'USER' : 'ROLE' });
+        byRole.set(r.role_name, members);
+      }
+      const roles: DbRole[] = [...byRole.entries()].map(([name, members]) => ({ name, members }));
+      return { roles: rolesToTableSchemas(roles) };
+    } catch (error) {
+      return { roles: [], warning: roleSkippedWarning(this.provider, error) };
+    }
   }
 
   /** Split a comma-separated argument list while respecting (), so numeric(10,2) stays intact. */

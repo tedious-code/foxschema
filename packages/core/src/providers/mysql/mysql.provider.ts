@@ -1,7 +1,9 @@
 import { ConnectionFactory } from '../../cores/connection-factory';
-import { dbSchemaToTableSchemas } from '../../cores/schema-to-tables';
+import { dbSchemaToTableSchemas, rolesToTableSchemas, groupRoleRows, roleSkippedWarning } from '../../cores/schema-to-tables';
 import {
   SchemaProvider,
+  RoleLoadResult,
+  DbRole,
   ConnectionOptions,
   DbSchema,
   DbTable,
@@ -60,6 +62,30 @@ export class MysqlProvider implements SchemaProvider {
   async getTables(options: ConnectionOptions, schema: string): Promise<TableSchema[]> {
     const dbSchema = await this.loadSchema(options, schema);
     return dbSchemaToTableSchemas(dbSchema);
+  }
+
+  /**
+   * Server-global role grants. MySQL 8 stores them in `mysql.role_edges`, which
+   * typically needs SELECT on the `mysql` database — a privilege most app users
+   * lack, so this commonly degrades to a warning. MariaDB overrides `fetchRoles`.
+   */
+  protected async fetchRoles(options: ConnectionOptions): Promise<DbRole[]> {
+    const rows = await ConnectionFactory.executeQuery<{ role_name: string; member: string | null }>(
+      this.provider,
+      options,
+      `SELECT FROM_USER AS role_name, TO_USER AS member
+       FROM mysql.role_edges
+       ORDER BY FROM_USER, TO_USER`
+    );
+    return groupRoleRows(rows);
+  }
+
+  async getRoles(options: ConnectionOptions, _schema: string): Promise<RoleLoadResult> {
+    try {
+      return { roles: rolesToTableSchemas(await this.fetchRoles(options)) };
+    } catch (error) {
+      return { roles: [], warning: roleSkippedWarning(this.provider, error) };
+    }
   }
 
   async loadSchema(options: ConnectionOptions, schema: string): Promise<DbSchema> {

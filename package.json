@@ -1,10 +1,12 @@
 {
-  "name": "foxschema-monorepo",
-  "author": "huyplb@gmail.com",
+  "name": "foxschema",
+  "author": "huyplb",
   "private": true,
   "version": "1.0.0",
   "type": "module",
+  "license": "BSD-2-Clause",
   "workspaces": ["packages/*", "apps/*"],
+  "bugs":"https://github.com/tedious-code/foxschema/issues",
   "scripts": {
     "dev": "npm -w @foxschema/web run dev:all",
     "dev:auth": "npm -w @foxschema/web run dev:all:auth",

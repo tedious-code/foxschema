@@ -32,6 +32,8 @@ export const RightPanel: React.FC = () => {
     targetConfig,
     syncSelection,
     toggleSyncSelection,
+    nonDestructive,
+    setNonDestructive,
     isMigrating,
     migrationProgress,
     snapshotDdl,
@@ -108,7 +110,22 @@ export const RightPanel: React.FC = () => {
 
   const renderDdlDiff = () => {
     // Catalog definitions are often a single unreadable line — format non-table
-    // DDL on both sides so the diff compares structure, not whitespace
+    // DDL on both sides so the diff compares structure, not whitespace.
+    // Strip schema qualifiers from both sides before diffing: Postgres stores
+    // view/function bodies with schema-prefixed table names (APP.ORDERS) while
+    // the source may not, producing false-positive diff lines that aren't real
+    // structural changes. Schema names belong in the Migration SQL tab, not here.
+    const stripSchemas = (ddl: string) => {
+      const schemas = [sourceConfig.schema, targetConfig.schema].filter(Boolean);
+      let out = ddl;
+      for (const s of schemas) {
+        // Match schema. or "schema". — word-boundary before, dot after
+        out = out.replace(new RegExp(`\\b${s}\\.`, 'gi'), '');
+        out = out.replace(new RegExp(`"${s}"\\s*\\.\\s*`, 'gi'), '');
+      }
+      return out;
+    };
+
     const isTable = selectedTable.objectType === 'TABLE';
     const rawSource = selectedTable.sourceTable
       ? ddlGenerator.generateObjectDdl(selectedTable.sourceTable, sourceConfig.dialect)
@@ -116,8 +133,8 @@ export const RightPanel: React.FC = () => {
     const rawTarget = selectedTable.targetTable
       ? ddlGenerator.generateObjectDdl(selectedTable.targetTable, targetConfig.dialect)
       : '';
-    const sourceDdl = isTable ? rawSource : formatSql(rawSource, sourceConfig.dialect);
-    const targetDdl = isTable ? rawTarget : formatSql(rawTarget, targetConfig.dialect);
+    const sourceDdl = stripSchemas(isTable ? rawSource : formatSql(rawSource, sourceConfig.dialect));
+    const targetDdl = stripSchemas(isTable ? rawTarget : formatSql(rawTarget, targetConfig.dialect));
 
     return (
       <div className="flex-1 flex flex-col min-h-0 bg-slate-950/90 border-t border-slate-850">
@@ -126,15 +143,15 @@ export const RightPanel: React.FC = () => {
           <span className="text-xs font-mono text-slate-400 flex items-center gap-2">
             <span className="text-slate-300">{selectedTable.tableName}</span>
             <span className="text-slate-600">—</span>
-            {/* Migration preview: left = target current state, right = source desired state.
-                Red  = present in target but not source → will be removed from target.
-                Green = present in source but not target → will be added to target. */}
-            <span className="text-slate-500 text-[10px] italic">Target (current)</span>
-            <span className="text-slate-600">→</span>
+            {/* Orientation matches the connection bar: source (left) → target (right).
+                Red  = present in source but not target → will be added to target.
+                Green = present in target but not source → will be removed from target. */}
             <span className="text-slate-500 text-[10px] italic">Source (desired)</span>
+            <span className="text-slate-600">→</span>
+            <span className="text-slate-500 text-[10px] italic">Target (current)</span>
             <span className="ml-1 flex items-center gap-2 text-[10px]">
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-rose-500/70"></span><span className="text-rose-300/80">remove from target</span></span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-emerald-500/70"></span><span className="text-emerald-300/80">add to target</span></span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-rose-500/70"></span><span className="text-rose-300/80">add to target</span></span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-emerald-500/70"></span><span className="text-emerald-300/80">remove from target</span></span>
             </span>
           </span>
           <div className="flex items-center gap-3">
@@ -160,8 +177,8 @@ export const RightPanel: React.FC = () => {
           <div className="absolute inset-0">
             <Suspense fallback={<EditorFallback />}>
               <SqlDiffEditor
-                original={targetDdl}
-                modified={sourceDdl}
+                original={sourceDdl}
+                modified={targetDdl}
                 dialect={targetConfig.dialect}
                 inline={inlineDiff}
                 ignoreCase={ignoreCase}
@@ -322,6 +339,14 @@ export const RightPanel: React.FC = () => {
             <div className="text-[10px] text-slate-500 font-mono bg-slate-900 border border-slate-800 px-3 py-1 rounded">
               Target Dialect: {targetConfig.dialect.toUpperCase()}
             </div>
+            {sourceConfig.dialect !== targetConfig.dialect && (
+              <div
+                className="text-[10px] text-amber-300 font-mono bg-amber-950/40 border border-amber-500/30 px-3 py-1 rounded"
+                title="Cross-dialect migration — column types are translated; review the generated DDL and any MANUAL REVIEW blocks"
+              >
+                Cross-dialect: {sourceConfig.dialect.toUpperCase()} → {targetConfig.dialect.toUpperCase()} · review DDL
+              </div>
+            )}
           </div>
         </div>
 
@@ -1134,6 +1159,44 @@ export const RightPanel: React.FC = () => {
               </p>
             </div>
           )}
+
+          {/* Actionable guidance for the dependent-view conflict, with a one-click fix. */}
+          {!isMigrating && migrationError && /cannot restore dependent view/i.test(migrationError) && (() => {
+            const view = /dependent view\s+([^\s]+)/i.exec(migrationError)?.[1];
+            return (
+              <div className="px-4 py-3 border-t border-slate-800 bg-amber-950/20">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                  <div className="text-[11px] text-slate-300 space-y-2">
+                    <p className="font-semibold text-amber-200">
+                      A view{view ? <> (<span className="font-mono">{view}</span>)</> : null} depends on a column this migration changes
+                    </p>
+                    <p className="text-slate-400">
+                      The migration drops or retypes a column that view uses, so it can&apos;t be rebuilt afterwards.
+                      The target was left unchanged. Choose how to proceed:
+                    </p>
+                    <ul className="space-y-2">
+                      <li className="flex items-start gap-2">
+                        <button
+                          onClick={() => { setNonDestructive(true); clearMigrationProgress(); }}
+                          className="shrink-0 text-[11px] font-semibold text-slate-950 bg-emerald-400 hover:bg-emerald-300 rounded px-2 py-1 transition on-accent-fg"
+                        >
+                          Switch to non-destructive
+                        </button>
+                        <span className="text-slate-400 mt-0.5">
+                          Keeps the column (no drop), so the view stays valid. Then press <span className="text-slate-200 font-semibold">Execute</span> again.
+                        </span>
+                      </li>
+                      <li className="text-slate-400 pl-1">
+                        Or drop / update <span className="font-mono text-slate-300">{view ?? 'the view'}</span> in the target yourself
+                        {view ? <> — e.g. <code className="text-slate-300">DROP VIEW {view};</code></> : null}, then re-run.
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
           {!isMigrating && !migrationError && (
             <div className="px-4 py-3 border-t border-slate-800 bg-emerald-950/20">
               <p className="text-[11px] text-slate-300">

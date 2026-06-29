@@ -6,6 +6,7 @@ export * from './interfaces/schema.interface';
 export type {
   ConnectionOptions,
   SchemaProvider,
+  RoleLoadResult,
   DriverInfo,
   SavedConnection,
   ProviderConnectionSettings,
@@ -18,7 +19,8 @@ export type { MigrationEvent } from './interfaces/migration.types';
 export { CompareModule } from './modules/compare.module';
 export { SqlGeneratorModule } from './modules/sql-generator.module';
 export type { MigrationStep, SchemaMapping } from './modules/sql-generator.module';
-export type { SqlDialect } from './modules/sql-dialect.interface';
+export type { SqlDialect, CanonicalType, CanonicalBase, RenderedType } from './modules/sql-dialect.interface';
+export { resolveDialect, DIALECT_MAP } from './modules/dialect-registry';
 
 // Connection-string helpers
 export { buildConnectionString, withConnectionString, DEFAULT_PORTS } from './cores/connection-string';

@@ -1,4 +1,39 @@
-import { DbSchema, DbTable, TableSchema } from '../interfaces';
+import { DbSchema, DbTable, TableSchema, DbRole, DbRoleMember } from '../interfaces';
+
+/**
+ * Map roles into the `TableSchema` shape the compare engine consumes. Members
+ * are modeled as "columns" (name = grantee, type = USER/GROUP/ROLE) so a member
+ * being added/removed surfaces the role as MODIFIED — mirrors the DB2 provider.
+ */
+export function rolesToTableSchemas(roles: DbRole[]): TableSchema[] {
+  return roles.map((role) => ({
+    name: role.name,
+    objectType: 'ROLE' as const,
+    columns: role.members.map((m) => ({ name: m.grantee, type: m.granteeType, nullable: true, primaryKey: false })),
+    indices: [],
+    foreignKeys: [],
+  }));
+}
+
+/** Fold flat (role, member) rows into DbRole[], preserving roles with no members. */
+export function groupRoleRows(
+  rows: { role_name: string; member: string | null }[],
+  memberType = 'USER'
+): DbRole[] {
+  const byRole = new Map<string, DbRoleMember[]>();
+  for (const r of rows) {
+    const members = byRole.get(r.role_name) ?? [];
+    if (r.member) members.push({ grantee: r.member, granteeType: memberType });
+    byRole.set(r.role_name, members);
+  }
+  return [...byRole.entries()].map(([name, members]) => ({ name, members }));
+}
+
+/** Client-facing notice when a provider can't read roles (usually a privilege issue). */
+export function roleSkippedWarning(dialect: string, error: unknown): string {
+  const msg = error instanceof Error ? error.message : String(error);
+  return `Roles could not be read for ${dialect} — the connected user may lack privileges on the role catalog. (${msg})`;
+}
 
 /**
  * Convert the internal `DbSchema` (the rich, catalog-shaped model each provider

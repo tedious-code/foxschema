@@ -86,7 +86,9 @@ export const LeftPanel: React.FC = () => {
     setSearchTerm,
     syncSelection,
     toggleSyncSelection,
-    setAllSyncSelection
+    setAllSyncSelection,
+    nonDestructive,
+    setNonDestructive,
   } = useSyncStore();
 
   const [panelWidth, setPanelWidth] = useState(340);
@@ -290,8 +292,8 @@ export const LeftPanel: React.FC = () => {
       </div>
 
       {/* Deployment Selection Header */}
-      <div className="px-3 py-2 border-b border-slate-800/80 bg-slate-950/30 flex items-center justify-between">
-        <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-400 uppercase tracking-wider">
+      <div className="px-3 py-2 border-b border-slate-800/80 bg-slate-950/30 flex items-center justify-between gap-2">
+        <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-400 uppercase tracking-wider shrink-0">
           <input
             type="checkbox"
             checked={changedCount > 0 && includedCount === changedCount}
@@ -300,9 +302,27 @@ export const LeftPanel: React.FC = () => {
           />
           Deploy to Target
         </label>
-        <span className="text-xs text-slate-300 font-mono font-bold">
-          {includedCount} / {changedCount} included
-        </span>
+        <div className="flex items-center gap-2 ml-auto">
+          <label
+            className={`flex items-center gap-1.5 cursor-pointer text-[10px] font-semibold px-2 py-1 rounded border transition ${
+              nonDestructive
+                ? 'text-emerald-300 bg-emerald-950/50 border-emerald-500/40'
+                : 'text-slate-500 bg-slate-950/40 border-slate-800 hover:border-slate-700'
+            }`}
+            title="Non-destructive: ADD/MODIFY only — never DROP columns, indexes, or tables"
+          >
+            <input
+              type="checkbox"
+              checked={nonDestructive}
+              onChange={(e) => setNonDestructive(e.target.checked)}
+              className="w-3 h-3 accent-emerald-500 cursor-pointer"
+            />
+            No drops
+          </label>
+          <span className="text-xs text-slate-300 font-mono font-bold shrink-0">
+            {includedCount} / {changedCount}
+          </span>
+        </div>
       </div>
 
       {/* Tree Node List, grouped by object type */}

@@ -124,6 +124,8 @@ export interface TableDiff {
 export interface SchemaCompareResult {
   tables: TableDiff[];
   summary: { added: number; removed: number; modified: number; unchanged: number };
+  /** Non-fatal notices, e.g. roles skipped because the user lacks catalog privileges. */
+  warnings?: string[];
 }
 
 export interface MigrationStep {

@@ -1,7 +1,8 @@
 import { ConnectionFactory } from '../../cores/connection-factory';
-import { dbSchemaToTableSchemas } from '../../cores/schema-to-tables';
+import { dbSchemaToTableSchemas, rolesToTableSchemas, groupRoleRows, roleSkippedWarning } from '../../cores/schema-to-tables';
 import {
   SchemaProvider,
+  RoleLoadResult,
   ConnectionOptions,
   DbSchema,
   DbTable,
@@ -76,6 +77,28 @@ export class OracleProvider implements SchemaProvider {
   async getTables(options: ConnectionOptions, schema: string): Promise<TableSchema[]> {
     const dbSchema = await this.loadSchema(options, schema);
     return dbSchemaToTableSchemas(dbSchema);
+  }
+
+  /**
+   * Database roles and their grantees from the `DBA_*` views. These require
+   * elevated privileges (e.g. SELECT_CATALOG_ROLE); a plain schema user will be
+   * denied, in which case roles are skipped with a warning rather than failing.
+   */
+  async getRoles(options: ConnectionOptions, _schema: string): Promise<RoleLoadResult> {
+    try {
+      const rows = await ConnectionFactory.executeQuery<{ ROLE_NAME: string; MEMBER: string | null }>(
+        this.provider,
+        options,
+        `SELECT r.ROLE AS ROLE_NAME, rp.GRANTEE AS MEMBER
+         FROM DBA_ROLES r
+         LEFT JOIN DBA_ROLE_PRIVS rp ON rp.GRANTED_ROLE = r.ROLE
+         ORDER BY r.ROLE, rp.GRANTEE`
+      );
+      const norm = rows.map((r) => ({ role_name: r.ROLE_NAME, member: r.MEMBER }));
+      return { roles: rolesToTableSchemas(groupRoleRows(norm)) };
+    } catch (error) {
+      return { roles: [], warning: roleSkippedWarning(this.provider, error) };
+    }
   }
 
   async loadSchema(options: ConnectionOptions, schema: string): Promise<DbSchema> {

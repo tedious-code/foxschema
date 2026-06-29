@@ -61,6 +61,21 @@ describe('CompareModule.compare', () => {
     expect(r.tables[0].columnDiffs[0].status).toBe('MODIFIED');
   });
 
+  it('treats equivalent cross-dialect types as UNCHANGED', async () => {
+    // DB2 VARCHAR(255) vs Postgres character varying(255) — same type, different spelling
+    const src = table({ name: 'A', columns: [col('NAME', { type: 'VARCHAR(255)' })] });
+    const tgt = table({ name: 'A', columns: [col('NAME', { type: 'character varying(255)' })] });
+    const r = await cmp.compare([src], [tgt], { source: 'db2', target: 'postgres' });
+    expect(r.tables[0].status).toBe('UNCHANGED');
+  });
+
+  it('still flags a genuine cross-dialect type change', async () => {
+    const src = table({ name: 'A', columns: [col('AMT', { type: 'DECIMAL(10,2)' })] });
+    const tgt = table({ name: 'A', columns: [col('AMT', { type: 'integer' })] });
+    const r = await cmp.compare([src], [tgt], { source: 'db2', target: 'postgres' });
+    expect(r.tables[0].status).toBe('MODIFIED');
+  });
+
   it('detects an identity flag change', async () => {
     const src = table({ name: 'A', columns: [col('ID', { identity: true })] });
     const tgt = table({ name: 'A', columns: [col('ID', { identity: false })] });
