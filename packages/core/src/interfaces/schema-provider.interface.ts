@@ -33,11 +33,28 @@ export interface SavedConnection {
   option?: ConnectionOptions;
 }
 
+/**
+ * Result of attempting to read roles. Roles are server/instance-global (not
+ * schema-scoped), so reading them often needs elevated privileges. When the
+ * connected user can't, the provider returns no roles plus a `warning` rather
+ * than failing the whole comparison.
+ */
+export interface RoleLoadResult {
+  roles: TableSchema[];
+  warning?: string;
+}
+
 export interface SchemaProvider {
   readonly provider: string;
   testConnection(options: ConnectionOptions): Promise<boolean>;
   loadSchema(options: ConnectionOptions, schema: string): Promise<DbSchema>;
   getTables?(options: ConnectionOptions, schema: string): Promise<TableSchema[]>;
+  /**
+   * Reads roles/user-groups as comparable objects. Optional — providers that
+   * can't surface roles simply omit it. Implementations must never throw on a
+   * permission error; they degrade to `{ roles: [], warning }`.
+   */
+  getRoles?(options: ConnectionOptions, schema: string): Promise<RoleLoadResult>;
   /** Lists selectable namespaces in the connected database: schemas for DB2/Postgres, databases for MySQL. */
   listSchemas?(options: ConnectionOptions): Promise<string[]>;
 }

@@ -13,7 +13,7 @@ export default defineConfig({
   ],
   resolve: {
     alias: [
-      { find: '@foxschema/core', replacement: pkg('../../packages/core/src/index.ts') },
+      { find: '@foxschema/core', replacement: pkg('../../packages/core/src/browser.ts') },
     ],
   },
   server: {

@@ -9,6 +9,7 @@ import {
   type MigrationStep,
   type ConnectionOptions,
   type DbObjectType,
+  type TableSchema,
 } from '@foxschema/core';
 import { ConnectionStore } from '../modules/connection-store.module';
 import { MigrationHistoryStore, type MigrationObjectResult, type MigrationRunStatus } from '../modules/migration-history.module';
@@ -118,13 +119,26 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     option: ConnectionOptions,
     schema: string,
     scope: DbObjectType[]
-  ) {
+  ): Promise<{ tables: TableSchema[]; warnings: string[] }> {
     const provider = connectionModule.getProvider(dialect);
     if (!provider.getTables) {
       throw new Error(`Provider for dialect "${dialect}" does not support table listing`);
     }
-    const tables = await provider.getTables(option, schema);
-    return scope?.length ? tables.filter((t) => scope.includes(t.objectType)) : tables;
+    let tables = await provider.getTables(option, schema);
+    const warnings: string[] = [];
+
+    // Roles are server-global and need their own (privilege-gated) read. Only
+    // fetch them when the user selected the Roles scope, and never let a
+    // permission error abort the whole comparison — getRoles degrades to a warning.
+    const wantRoles = !scope?.length || scope.includes('ROLE');
+    if (wantRoles && provider.getRoles) {
+      const { roles, warning } = await provider.getRoles(option, schema);
+      tables = tables.concat(roles);
+      if (warning) warnings.push(warning);
+    }
+
+    const scoped = scope?.length ? tables.filter((t) => scope.includes(t.objectType)) : tables;
+    return { tables: scoped, warnings };
   }
 
   router.get('/health', (_req: Request, res: Response) => {
@@ -284,13 +298,20 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       const src = await resolveRef(userId, source);
       const tgt = await resolveRef(userId, target);
       // Load both schemas and diff server-side; only the result crosses the wire
-      const [sourceTables, targetTables] = await Promise.all([
+      const [srcLoad, tgtLoad] = await Promise.all([
         loadScopedTables(src.dialect, src.option, src.schema, scope),
         loadScopedTables(tgt.dialect, tgt.option, tgt.schema, scope),
       ]);
 
-      const result = await compareModule.compare(sourceTables, targetTables);
-      res.json(result);
+      const result = await compareModule.compare(srcLoad.tables, tgtLoad.tables, {
+        source: src.dialect,
+        target: tgt.dialect,
+      });
+      const warnings = [
+        ...srcLoad.warnings.map((w) => `Source — ${w}`),
+        ...tgtLoad.warnings.map((w) => `Target — ${w}`),
+      ];
+      res.json(warnings.length ? { ...result, warnings } : result);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Schema comparison failed';
       res.status(500).json({ error: message });

@@ -35,7 +35,20 @@ export async function runCompare(opts: CompareOptions): Promise<void> {
     loadScopedTables(tgt.dialect, tgt.option, tgt.schema, scope),
   ]);
 
-  const result = await compareModule.compare(sourceTables, targetTables);
+  // Cross-dialect aware: passing both dialects lets equivalent native types
+  // (e.g. MySQL int ≡ Postgres integer) compare equal and lets generated DDL
+  // translate source types into the target dialect.
+  const mapping = {
+    sourceSchema: src.schema,
+    targetSchema: tgt.schema,
+    sourceDialect: src.dialect,
+    targetDialect: tgt.dialect,
+  };
+
+  const result = await compareModule.compare(sourceTables, targetTables, {
+    source: src.dialect,
+    target: tgt.dialect,
+  });
   const { added, removed, modified, unchanged } = result.summary;
   const drift = added + removed + modified > 0;
 
@@ -46,13 +59,14 @@ export async function runCompare(opts: CompareOptions): Promise<void> {
     if (changed.length === 0) {
       console.log(chalk.dim('-- schemas are identical; no migration needed'));
     } else {
-      console.log(sqlGenerator.generateMigrationSql(changed, tgt.dialect));
+      console.log(sqlGenerator.generateMigrationSql(changed, tgt.dialect, mapping));
     }
   } else {
     // table / summary view
+    const route = src.dialect === tgt.dialect ? src.dialect : `${src.dialect} → ${tgt.dialect}`;
     console.log(
       `${chalk.green(`+${added}`)}  ${chalk.red(`-${removed}`)}  ${chalk.yellow(`~${modified}`)}  ${chalk.dim(`=${unchanged}`)}   ${chalk.dim(
-        `(${src.dialect} ${src.schema || ''} → ${tgt.schema || ''})`
+        `(${route}: ${src.schema || ''} → ${tgt.schema || ''})`
       )}`
     );
     const changed = result.tables.filter((t: TableDiff) => t.status !== 'UNCHANGED');

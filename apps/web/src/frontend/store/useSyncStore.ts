@@ -103,6 +103,8 @@ interface SyncState {
   sourceConnected: boolean;
   targetConnected: boolean;
   errorMsg: string | null;
+  /** Non-fatal notices from the last comparison (e.g. roles skipped — no privilege). */
+  warnings: string[];
 
   // Schemas available on each connected database (loaded after a successful test)
   sourceSchemaList: string[];
@@ -118,6 +120,9 @@ interface SyncState {
   selectedTable: TableDiff | null;
   generatedSql: string | null;
   migrationExecuted: boolean;
+  /** Additive mode: generate ADD/MODIFY only — never DROP anything in the target. */
+  nonDestructive: boolean;
+  setNonDestructive: (v: boolean) => void;
   filterStatus: 'ALL' | 'ADDED' | 'REMOVED' | 'MODIFIED' | 'UNCHANGED';
   searchTerm: string;
 
@@ -187,6 +192,7 @@ export const useSyncStore = create<SyncState>()(
   sourceConnected: false,
   targetConnected: false,
   errorMsg: null,
+  warnings: [],
   sourceSchemaList: [],
   targetSchemaList: [],
 
@@ -196,6 +202,7 @@ export const useSyncStore = create<SyncState>()(
   selectedTable: null,
   generatedSql: null,
   migrationExecuted: false,
+  nonDestructive: false,
   filterStatus: 'ALL',
   searchTerm: '',
   memberSelection: {},
@@ -310,6 +317,23 @@ export const useSyncStore = create<SyncState>()(
       return { selectedObjectTypes: next };
     }),
     
+  setNonDestructive: (nonDestructive) => {
+    set({ nonDestructive });
+    // Regenerate the script from the current selection so the preview reflects the mode.
+    const { compareResult, syncSelection, memberSelection, sourceConfig, targetConfig } = get();
+    if (!compareResult) return;
+    const includedDiffs = buildIncludedDiffs(compareResult.tables, syncSelection, memberSelection);
+    set({
+      generatedSql: sqlGeneratorModule.generateMigrationSql(includedDiffs, targetConfig.dialect, {
+        sourceSchema: sourceConfig.schema,
+        sourceDialect: sourceConfig.dialect,
+        targetSchema: targetConfig.schema,
+        nonDestructive,
+      }),
+      migrationExecuted: false,
+    });
+  },
+
   setFilterStatus: (filterStatus) => set({ filterStatus }),
   setSearchTerm: (searchTerm) => set({ searchTerm }),
   setSelectedTable: (selectedTable) => set({ selectedTable }),
@@ -323,7 +347,9 @@ export const useSyncStore = create<SyncState>()(
       syncSelection: nextSelection,
       generatedSql: sqlGeneratorModule.generateMigrationSql(includedDiffs, targetConfig.dialect, {
         sourceSchema: sourceConfig.schema,
+        sourceDialect: sourceConfig.dialect,
         targetSchema: targetConfig.schema,
+        nonDestructive: get().nonDestructive,
       }),
       migrationExecuted: false,
     });
@@ -341,7 +367,9 @@ export const useSyncStore = create<SyncState>()(
       syncSelection: nextSelection,
       generatedSql: sqlGeneratorModule.generateMigrationSql(includedDiffs, targetConfig.dialect, {
         sourceSchema: sourceConfig.schema,
+        sourceDialect: sourceConfig.dialect,
         targetSchema: targetConfig.schema,
+        nonDestructive: get().nonDestructive,
       }),
       migrationExecuted: false,
     });
@@ -359,7 +387,9 @@ export const useSyncStore = create<SyncState>()(
       memberSelection: nextMember,
       generatedSql: sqlGeneratorModule.generateMigrationSql(includedDiffs, targetConfig.dialect, {
         sourceSchema: sourceConfig.schema,
+        sourceDialect: sourceConfig.dialect,
         targetSchema: targetConfig.schema,
+        nonDestructive: get().nonDestructive,
       }),
       migrationExecuted: false,
     });
@@ -380,7 +410,9 @@ export const useSyncStore = create<SyncState>()(
       memberSelection: nextMember,
       generatedSql: sqlGeneratorModule.generateMigrationSql(includedDiffs, targetConfig.dialect, {
         sourceSchema: sourceConfig.schema,
+        sourceDialect: sourceConfig.dialect,
         targetSchema: targetConfig.schema,
+        nonDestructive: get().nonDestructive,
       }),
       migrationExecuted: false,
     });
@@ -480,7 +512,7 @@ export const useSyncStore = create<SyncState>()(
   },
 
   runSchemaComparison: async () => {
-    set({ isComparing: true, errorMsg: null, compareResult: null, selectedTable: null, generatedSql: null, migrationExecuted: false });
+    set({ isComparing: true, errorMsg: null, warnings: [], compareResult: null, selectedTable: null, generatedSql: null, migrationExecuted: false });
     try {
       // Re-read the available schemas so the comparison runs against current server state
       await Promise.all([
@@ -497,11 +529,14 @@ export const useSyncStore = create<SyncState>()(
       // Nothing is auto-selected — the user opts objects into the deployment
       const sql = sqlGeneratorModule.generateMigrationSql([], targetConfig.dialect, {
         sourceSchema: sourceConfig.schema,
+        sourceDialect: sourceConfig.dialect,
         targetSchema: targetConfig.schema,
+        nonDestructive: get().nonDestructive,
       });
 
       set({
         compareResult: diffResult,
+        warnings: diffResult.warnings ?? [],
         syncSelection: {},
         generatedSql: sql,
         selectedTable: diffResult.tables[0] || null,
@@ -522,7 +557,9 @@ export const useSyncStore = create<SyncState>()(
     const includedDiffs = compareResult.tables.filter((t) => syncSelection[t.tableName]);
     const plan = sqlGeneratorModule.generateMigrationPlan(includedDiffs, targetConfig.dialect, {
       sourceSchema: sourceConfig.schema,
+      sourceDialect: sourceConfig.dialect,
       targetSchema: targetConfig.schema,
+      nonDestructive: get().nonDestructive,
     });
     if (plan.length === 0) return;
 
@@ -539,6 +576,7 @@ export const useSyncStore = create<SyncState>()(
       })),
     });
 
+    let migrationSucceeded = false;
     try {
       await executeMigration(
         buildRef(targetConfig),
@@ -555,6 +593,7 @@ export const useSyncStore = create<SyncState>()(
               ),
             });
           } else if (event.type === 'done') {
+            migrationSucceeded = event.success && !event.rolledBack;
             set({
               migrationExecuted: event.success,
               migrationError: event.error ?? null,
@@ -567,6 +606,12 @@ export const useSyncStore = create<SyncState>()(
       set({ migrationError: e.message || 'Migration failed' });
     } finally {
       set({ isMigrating: false });
+    }
+
+    // Auto-refresh the comparison so the diff list reflects what was just applied.
+    // migrationProgress and migration result state are preserved across the refresh.
+    if (migrationSucceeded) {
+      await get().runSchemaComparison();
     }
   },
 
@@ -588,6 +633,7 @@ export const useSyncStore = create<SyncState>()(
       // touch localStorage (saved connections reload from the server on sign-in).
       partialize: (state) => ({
         selectedObjectTypes: state.selectedObjectTypes,
+        nonDestructive: state.nonDestructive,
       }),
       migrate: (persisted: any, version) => {
         const ensure = (type: string) => {

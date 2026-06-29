@@ -1,0 +1,22 @@
+// Browser-safe exports — pure logic only, no Node.js built-ins.
+// Import from '@foxschema/core/browser' in frontend code.
+
+export * from './interfaces/schema.interface';
+export type {
+  ConnectionOptions,
+  SchemaProvider,
+  DriverInfo,
+  SavedConnection,
+  ProviderConnectionSettings,
+  DriverAdapter,
+} from './interfaces/schema-provider.interface';
+export * from './interfaces/diff.types.interface';
+export type { MigrationEvent } from './interfaces/migration.types';
+
+export { CompareModule } from './modules/compare.module';
+export { SqlGeneratorModule } from './modules/sql-generator.module';
+export type { MigrationStep, SchemaMapping } from './modules/sql-generator.module';
+export type { SqlDialect, CanonicalType, CanonicalBase, RenderedType } from './modules/sql-dialect.interface';
+
+export { buildConnectionString, withConnectionString, DEFAULT_PORTS } from './cores/connection-string';
+export { PROVIDER_SETTINGS, getProviderSettings } from './providers/provider-settings';

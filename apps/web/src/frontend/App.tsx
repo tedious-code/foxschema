@@ -9,10 +9,10 @@ import { useSyncStore } from './store/useSyncStore';
 import { useAuthStore } from './store/authStore';
 import { useUiStore } from './store/uiStore';
 import { apiGetPreferences } from './api/authApi';
-import { AlertCircle, Loader2 } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Loader2 } from 'lucide-react';
 
 const Workspace: React.FC = () => {
-  const { errorMsg } = useSyncStore();
+  const { errorMsg, warnings } = useSyncStore();
   return (
     <div className="h-screen flex flex-col bg-slate-950 text-slate-100 antialiased overflow-hidden">
       <TopToolbar />
@@ -21,6 +21,17 @@ const Workspace: React.FC = () => {
         <div className="bg-rose-950/60 border-y border-rose-500/20 px-6 py-2.5 flex items-center gap-2.5 text-xs text-rose-300 font-semibold animate-slide-down">
           <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
           <span>{errorMsg}</span>
+        </div>
+      )}
+
+      {warnings.length > 0 && (
+        <div className="bg-amber-950/50 border-y border-amber-500/20 px-6 py-2.5 flex items-start gap-2.5 text-xs text-amber-300 font-medium animate-slide-down">
+          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+          <div className="flex flex-col gap-0.5">
+            {warnings.map((w, i) => (
+              <span key={i}>{w}</span>
+            ))}
+          </div>
         </div>
       )}
 

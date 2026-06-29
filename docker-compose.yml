@@ -1,13 +1,16 @@
 # FoxSchema — test databases for all 6 server-based providers.
-# SQLite needs no container — use any local file path (e.g. /tmp/test.db).
+# SQLite needs no container — seed files are in docker/init/sqlite/.
 #
-# Start all:   docker compose up -d
-# Stop all:    docker compose down
-# Logs:        docker compose logs -f <service>
-# Reset data:  docker compose down -v
+# First start:  docker compose up -d        (auto-seeds demo_a / demo_b schemas)
+# Stop:         docker compose down
+# Logs:         docker compose logs -f <service>
+# Full reset:   docker compose down -v && docker compose up -d
 #
-# Apple Silicon note: DB2 and Oracle require x86_64 emulation via Rosetta.
-# Enable "Use Rosetta for x86/amd64 emulation" in Docker Desktop settings.
+# Init scripts only run once (when the data volume is empty).
+# After a full reset they re-run automatically — no manual seeding needed.
+#
+# Apple Silicon: DB2 requires Rosetta — enable in Docker Desktop → Settings →
+# "Use Rosetta for x86/amd64 emulation on Apple Silicon".
 
 services:
 
@@ -23,6 +26,7 @@ services:
       - "5432:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
+      - ./docker/init/postgres:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U foxuser -d foxdb"]
       interval: 5s
@@ -42,6 +46,7 @@ services:
       - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
+      - ./docker/init/mysql:/docker-entrypoint-initdb.d:ro
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "foxuser", "-pfoxpass"]
@@ -62,6 +67,7 @@ services:
       - "3307:3306"
     volumes:
       - mariadb_data:/var/lib/mysql
+      - ./docker/init/mariadb:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 5s
@@ -69,9 +75,12 @@ services:
       retries: 12
 
   # ── SQL Server 2022 ─────────────────────────────────────────────────────────
+  # Uses a custom entrypoint that starts sqlservr, waits for it to be ready,
+  # seeds the demo schemas once, then keeps the process running.
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: foxschema-sqlserver
+    user: root
     environment:
       ACCEPT_EULA: "Y"
       MSSQL_SA_PASSWORD: "FoxPass123!"
@@ -79,6 +88,8 @@ services:
       - "1433:1433"
     volumes:
       - sqlserver_data:/var/opt/mssql
+      - ./docker/init/sqlserver:/docker-init:ro
+    entrypoint: ["/bin/bash", "/docker-init/entrypoint.sh"]
     healthcheck:
       test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U SA -P 'FoxPass123!' -Q 'SELECT 1' -No -C || exit 1"]
       interval: 10s
@@ -86,6 +97,8 @@ services:
       retries: 10
 
   # ── Oracle Free 23c (ARM64-native) ──────────────────────────────────────────
+  # Init scripts in /container-entrypoint-initdb.d run after the DB is ready.
+  # 01_seed.sh connects as SYSTEM to create demo_a / demo_b users and objects.
   oracle:
     image: gvenzl/oracle-free:23-slim
     container_name: foxschema-oracle
@@ -98,6 +111,7 @@ services:
       - "1521:1521"
     volumes:
       - oracle_data:/opt/oracle/oradata
+      - ./docker/init/oracle:/container-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "healthcheck.sh"]
       interval: 10s

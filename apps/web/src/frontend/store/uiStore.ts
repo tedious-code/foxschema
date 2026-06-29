@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware';
 import { apiPutPreferences } from '../api/authApi';
 
 export type FontSize = 'sm' | 'md' | 'lg' | 'xl';
-export type AccentId = 'cyan' | 'violet' | 'emerald' | 'rose' | 'amber';
+export type AccentId = 'cyan' | 'violet' | 'emerald' | 'rose' | 'amber' | 'teal' | 'sky' | 'fuchsia';
 export type ThemeMode = 'dark' | 'light' | 'system';
 export type ToneId = 'slate' | 'gray' | 'zinc' | 'stone' | 'neutral';
 
@@ -13,7 +13,33 @@ export const ACCENTS: Record<AccentId, { label: string; from: string; to: string
   emerald: { label: 'Emerald', from: '#10b981', to: '#0d9488' },
   rose: { label: 'Rose', from: '#f43f5e', to: '#be123c' },
   amber: { label: 'Amber', from: '#f59e0b', to: '#d97706' },
+  teal: { label: 'Teal', from: '#14b8a6', to: '#0d9488' },
+  sky: { label: 'Sky', from: '#0ea5e9', to: '#2563eb' },
+  fuchsia: { label: 'Fuchsia', from: '#d946ef', to: '#9333ea' },
 };
+
+/**
+ * Curated one-click looks: a complete combination of mode + tone + accent.
+ * Individual controls below still fine-tune after a preset is applied.
+ */
+export interface ThemePreset {
+  id: string;
+  label: string;
+  mode: ThemeMode;
+  tone: ToneId;
+  accent: AccentId;
+}
+
+export const THEME_PRESETS: ThemePreset[] = [
+  { id: 'midnight', label: 'Midnight', mode: 'dark', tone: 'slate', accent: 'cyan' },
+  { id: 'nebula', label: 'Nebula', mode: 'dark', tone: 'zinc', accent: 'violet' },
+  { id: 'forest', label: 'Forest', mode: 'dark', tone: 'stone', accent: 'emerald' },
+  { id: 'ember', label: 'Ember', mode: 'dark', tone: 'neutral', accent: 'amber' },
+  { id: 'crimson', label: 'Crimson', mode: 'dark', tone: 'gray', accent: 'rose' },
+  { id: 'abyss', label: 'Abyss', mode: 'dark', tone: 'slate', accent: 'sky' },
+  { id: 'daylight', label: 'Daylight', mode: 'light', tone: 'slate', accent: 'cyan' },
+  { id: 'parchment', label: 'Parchment', mode: 'light', tone: 'stone', accent: 'amber' },
+];
 
 export const TONES: { id: ToneId; label: string }[] = [
   { id: 'slate', label: 'Slate' },
@@ -143,6 +169,8 @@ interface UiState {
   setTone: (tone: ToneId) => void;
   setFontSize: (size: FontSize) => void;
   setAccent: (accent: AccentId) => void;
+  /** Apply a curated preset (mode + tone + accent) in one step. */
+  applyPreset: (id: string) => void;
   resetAppearance: () => void;
   /** Apply current values to the document (call on load + on change). */
   apply: () => void;
@@ -184,6 +212,10 @@ export const useUiStore = create<UiState>()(
         setTone: (tone) => update({ tone }),
         setFontSize: (fontSize) => update({ fontSize }),
         setAccent: (accent) => update({ accent }),
+        applyPreset: (id) => {
+          const p = THEME_PRESETS.find((x) => x.id === id);
+          if (p) update({ themeMode: p.mode, tone: p.tone, accent: p.accent });
+        },
         resetAppearance: () => update({ ...DEFAULTS }),
 
         apply,

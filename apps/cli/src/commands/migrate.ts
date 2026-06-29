@@ -42,15 +42,27 @@ export async function runMigrate(opts: MigrateOptions): Promise<void> {
     loadScopedTables(tgt.dialect, tgt.option, tgt.schema, scope),
   ]);
 
-  const result = await compareModule.compare(sourceTables, targetTables);
+  // Cross-dialect aware: both dialects are threaded through so equivalent native
+  // types aren't false-flagged and generated DDL is translated to the target.
+  const mapping = {
+    sourceSchema: src.schema,
+    targetSchema: tgt.schema,
+    sourceDialect: src.dialect,
+    targetDialect: tgt.dialect,
+  };
+
+  const result = await compareModule.compare(sourceTables, targetTables, {
+    source: src.dialect,
+    target: tgt.dialect,
+  });
   const changed = result.tables.filter((d: TableDiff) => d.status !== 'UNCHANGED');
   if (changed.length === 0) {
     console.log(chalk.green('✔ Target already matches source — nothing to migrate.'));
     return;
   }
 
-  const sql = sqlGenerator.generateMigrationSql(changed, tgt.dialect);
-  const steps = sqlGenerator.generateMigrationPlan(changed, tgt.dialect);
+  const sql = sqlGenerator.generateMigrationSql(changed, tgt.dialect, mapping);
+  const steps = sqlGenerator.generateMigrationPlan(changed, tgt.dialect, mapping);
 
   if (!opts.execute) {
     console.log(chalk.dim(`-- ${steps.length} change(s) to apply to the target\n`));

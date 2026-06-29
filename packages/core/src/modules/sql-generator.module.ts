@@ -1,12 +1,7 @@
 import { TableDiff } from '../interfaces';
 import { TableSchema, DbObjectType } from '../interfaces';
 import type { SqlDialect, ColumnSpec } from './sql-dialect.interface';
-import { db2SqlDialect } from '../providers/db2/db2.sql-dialect';
-import { postgresSqlDialect } from '../providers/postgres/postgres.sql-dialect';
-import { mysqlSqlDialect, mariadbSqlDialect } from '../providers/mysql/mysql.sql-dialect';
-import { sqlServerSqlDialect } from '../providers/sqlServer/sqlserver.sql-dialect';
-import { oracleSqlDialect } from '../providers/oracle/oracle.sql-dialect';
-import { sqliteSqlDialect } from '../providers/sqlLite/sqlite.sql-dialect';
+import { resolveDialect } from './dialect-registry';
 
 export interface MigrationStep {
   objectName: string;
@@ -21,21 +16,19 @@ export interface SchemaMapping {
   sourceSchema?: string;
   /** Schema the migration deploys into (e.g. HUY). */
   targetSchema?: string;
+  /** Dialect the source objects were read from. Enables cross-dialect type translation. */
+  sourceDialect?: string;
+  /** Dialect the migration deploys into. Defaults to the dialect passed to generate*(). */
+  targetDialect?: string;
+  /**
+   * Non-destructive (additive) mode: emit ADD/MODIFY but never DROP. Objects,
+   * columns and indexes that exist only in the target are left untouched instead
+   * of being removed. Safer — the target keeps its extra structure.
+   */
+  nonDestructive?: boolean;
 }
 
-const DIALECT_MAP: Record<string, SqlDialect> = {
-  DB2: db2SqlDialect,
-  POSTGRES: postgresSqlDialect,
-  MYSQL: mysqlSqlDialect,
-  MARIADB: mariadbSqlDialect,
-  SQLSERVER: sqlServerSqlDialect,
-  ORACLE: oracleSqlDialect,
-  SQLITE: sqliteSqlDialect,
-};
-
-function resolveDialect(dialect: string): SqlDialect {
-  return DIALECT_MAP[dialect.toUpperCase()] ?? db2SqlDialect;
-}
+const PROCEDURAL_TYPES: ReadonlySet<DbObjectType> = new Set(['VIEW', 'FUNCTION', 'PROCEDURE', 'TRIGGER']);
 
 export class SqlGeneratorModule {
   /**
@@ -75,16 +68,75 @@ export class SqlGeneratorModule {
     return table.columns.filter((c) => c.primaryKey).map((c) => c.name);
   }
 
-  private renderColumn(c: ColumnSpec & { name: string }, dialect: SqlDialect): string {
-    let def = `${c.name} ${c.type}`;
+  /** True when source and target dialects are both known and genuinely different. */
+  private isCrossDialect(mapping?: SchemaMapping): boolean {
+    if (!mapping?.sourceDialect || !mapping?.targetDialect) return false;
+    return resolveDialect(mapping.sourceDialect) !== resolveDialect(mapping.targetDialect);
+  }
+
+  /**
+   * Translate a native column type from the source dialect into the target
+   * dialect. No-op (returns the raw type) for same-dialect migrations or when
+   * the source dialect is unknown — so existing behavior is unchanged.
+   */
+  private translateType(rawType: string, mapping?: SchemaMapping): { sql: string; warning?: string } {
+    if (!this.isCrossDialect(mapping)) return { sql: rawType };
+    const source = resolveDialect(mapping!.sourceDialect!);
+    const target = resolveDialect(mapping!.targetDialect!);
+    return target.renderType(source.parseType(rawType));
+  }
+
+  /**
+   * Procedural objects (views/functions/procedures/triggers) carry dialect-
+   * specific bodies that can't be reliably auto-translated. Cross-dialect we emit
+   * the original as a commented-out review block so the rest of the plan still runs.
+   */
+  /** Ensure a SQL definition ends with a semicolon — Postgres stores bodies without one. */
+  private ensureSemicolon(def: string): string {
+    const t = def.trim();
+    return t.endsWith(';') ? t : t + ';';
+  }
+
+  /**
+   * Build DROP FUNCTION/PROCEDURE with the full parameter-type signature so the
+   * correct overload is dropped even when multiple overloads share the same name.
+   * Falls back to the bare name when parameters are unavailable.
+   */
+  private dropRoutineSql(type: 'FUNCTION' | 'PROCEDURE', tableName: string, params?: import('../interfaces').RoutineParameter[]): string {
+    const kw = type === 'FUNCTION' ? 'FUNCTION' : 'PROCEDURE';
+    if (!params) return `DROP ${kw} IF EXISTS ${tableName};`;
+    // Only IN/INOUT params appear in the call signature for DROP purposes
+    const sig = params.filter((p) => p.mode === 'IN' || p.mode === 'INOUT').map((p) => p.type).join(', ');
+    return `DROP ${kw} IF EXISTS ${tableName}(${sig});`;
+  }
+
+  private manualReviewBlock(obj: TableDiff, mapping?: SchemaMapping): string[] {
+    const src = (mapping?.sourceDialect ?? '').toUpperCase();
+    const tgt = (mapping?.targetDialect ?? '').toUpperCase();
+    const lines = [
+      `-- ============================================================`,
+      `-- MANUAL REVIEW REQUIRED: ${obj.objectType} ${this.bareName(obj.tableName)}`,
+      `-- Body is ${src} SQL and was NOT auto-translated to ${tgt}.`,
+      `-- Review and adapt before running:`,
+    ];
+    const body = (obj.sourceTable?.definition ?? obj.definition ?? '').trim();
+    for (const ln of (body ? body.split('\n') : ['(no definition available)'])) lines.push(`--   ${ln}`);
+    lines.push(`-- ============================================================`);
+    return lines;
+  }
+
+  private renderColumn(c: ColumnSpec & { name: string }, dialect: SqlDialect, mapping?: SchemaMapping, warnings?: string[]): string {
+    const translated = this.translateType(c.type, mapping);
+    if (translated.warning) warnings?.push(`${c.name}: ${translated.warning}`);
+    let def = `${c.name} ${translated.sql}`;
     def += dialect.identityClause(c);
     if (!c.nullable) def += ` NOT NULL`;
     if (c.defaultValue) def += ` DEFAULT ${c.defaultValue}`;
     return def;
   }
 
-  private renderCreateTable(table: TableSchema, dialect: SqlDialect, mapping?: SchemaMapping): string {
-    const lines = table.columns.map((c) => `  ${this.renderColumn(c, dialect)}`);
+  private renderCreateTable(table: TableSchema, dialect: SqlDialect, mapping?: SchemaMapping, warnings?: string[]): string {
+    const lines = table.columns.map((c) => `  ${this.renderColumn(c, dialect, mapping, warnings)}`);
 
     const pkCols = this.primaryKeyColumns(table);
     if (pkCols.length > 0) {
@@ -97,7 +149,7 @@ export class SqlGeneratorModule {
 
   private renderCreateSequence(table: TableSchema): string {
     const s = table.sequence ?? {};
-    let sql = `CREATE SEQUENCE ${table.name}`;
+    let sql = `CREATE SEQUENCE IF NOT EXISTS ${table.name}`;
     if (s.dataType) sql += ` AS ${s.dataType}`;
     if (s.start !== undefined) sql += ` START WITH ${s.start}`;
     if (s.increment !== undefined) sql += ` INCREMENT BY ${s.increment}`;
@@ -177,11 +229,34 @@ export class SqlGeneratorModule {
     const name = this.qualify(obj.tableName, mapping);
 
     if (obj.objectType === 'TABLE' && source) {
-      statements.push(this.renderCreateTable(source, dialect, mapping));
+      const typeWarnings: string[] = [];
+      const createTable = this.renderCreateTable(source, dialect, mapping, typeWarnings);
+      for (const w of typeWarnings) statements.push(`-- review: ${w}`);
+
+      // Postgres serial columns reference a backing sequence in their DEFAULT
+      // (nextval('…_seq'::regclass)). That sequence must exist before the table
+      // that uses it, or a cross-schema CREATE fails with
+      // 'relation "<name>_id_seq" does not exist'. Create it first and tie its
+      // lifecycle to the column so it drops with the table.
+      const seqOwned: string[] = [];
+      if (dialect.serialSequenceFromDefault) {
+        const seen = new Set<string>();
+        for (const c of source.columns) {
+          const seq = dialect.serialSequenceFromDefault(c.defaultValue ?? '');
+          if (!seq || seen.has(seq)) continue;
+          seen.add(seq);
+          statements.push(`CREATE SEQUENCE IF NOT EXISTS ${this.qualify(seq, mapping)};`);
+          seqOwned.push(`ALTER SEQUENCE ${this.qualify(seq, mapping)} OWNED BY ${name}.${c.name};`);
+        }
+      }
+      statements.push(createTable);
+      statements.push(...seqOwned);
 
       for (const idx of source.indices) {
         const uniqueStr = idx.unique ? ' UNIQUE' : '';
-        statements.push(`CREATE${uniqueStr} INDEX ${this.qualify(idx.name, mapping)} ON ${name} (${idx.columns.join(', ')});`);
+        // Index name must be bare — it's created in the (qualified) table's schema.
+        // A schema-qualified index name is a syntax error in Postgres/MySQL/SQL Server.
+        statements.push(`CREATE${uniqueStr} INDEX ${this.bareName(idx.name)} ON ${name} (${idx.columns.join(', ')});`);
       }
 
       for (const fk of source.foreignKeys) {
@@ -204,8 +279,15 @@ export class SqlGeneratorModule {
         const info = m.source ?? m.target;
         if (info) statements.push(`GRANT ROLE ${roleName} TO ${info.type} ${m.name};`);
       }
+    } else if (PROCEDURAL_TYPES.has(obj.objectType) && this.isCrossDialect(mapping)) {
+      statements.push(...this.manualReviewBlock(obj, mapping));
     } else if (obj.definition) {
-      statements.push(obj.definition);
+      if (obj.objectType === 'VIEW') {
+        // obj.definition is just the SELECT body — wrap it into a full CREATE statement.
+        statements.push(`CREATE OR REPLACE VIEW ${name} AS\n${this.ensureSemicolon(obj.definition)}`);
+      } else {
+        statements.push(this.ensureSemicolon(obj.definition));
+      }
     }
     return statements;
   }
@@ -215,9 +297,44 @@ export class SqlGeneratorModule {
     const tableName = this.qualify(obj.tableName, mapping);
 
     if (obj.objectType === 'TABLE') {
+      // Some dialects (Postgres) reject ALTER/DROP COLUMN on tables that a view
+      // depends on. The dialect provides drop/recreate blocks to handle this at
+      // apply-time. ADD COLUMN never triggers this — only MODIFIED/REMOVED columns.
+      const hasStructuralColumnChanges = obj.columnDiffs.some(
+        (c) => c.status === 'MODIFIED' || (c.status === 'REMOVED' && !mapping?.nonDestructive)
+      );
+      const dropViewsBlock = hasStructuralColumnChanges
+        ? (dialect.dropDependentViewsBlock?.(tableName) ?? null)
+        : null;
+      if (dropViewsBlock) statements.push(dropViewsBlock);
+
+      // Drop FK constraints FIRST — before indexes and column drops. Dropping a
+      // column cascades to any FK whose source columns include it, so an explicit
+      // DROP CONSTRAINT afterwards fails with "does not exist". Dropping indexes
+      // also requires the column to still exist if the FK holds a reference.
+      if (!mapping?.nonDestructive) {
+        for (const fk of obj.foreignKeyDiffs.filter((f) => f.status === 'REMOVED' || f.status === 'MODIFIED')) {
+          if (fk.name) statements.push(`ALTER TABLE ${tableName} DROP CONSTRAINT IF EXISTS ${this.bareName(fk.name)};`);
+        }
+      }
+
+      // Drop obsolete indexes BEFORE column changes. Dropping a column cascades to
+      // any index on it (Postgres/others), so an explicit DROP INDEX afterwards would
+      // fail with "index does not exist". Doing it first also frees columns being retyped.
+      // Non-destructive: keep target-only indexes (REMOVED); MODIFIED are still
+      // dropped here and recreated below (that's a change, not a removal).
+      for (const idx of obj.indexDiffs.filter((i) => i.status === 'MODIFIED' || (i.status === 'REMOVED' && !mapping?.nonDestructive))) {
+        statements.push(`DROP INDEX ${this.qualify(idx.name, mapping)};`);
+      }
+
       for (const col of obj.columnDiffs.filter((c) => c.status === 'ADDED')) {
         if (!col.source) continue;
-        let colDef = `${col.name} ${col.source.type}`;
+        const translated = this.translateType(col.source.type, mapping);
+        if (translated.warning) statements.push(`-- review: ${col.name}: ${translated.warning}`);
+        // A serial column added to an existing table needs its sequence first.
+        const seq = dialect.serialSequenceFromDefault?.(col.source.defaultValue ?? '');
+        if (seq) statements.push(`CREATE SEQUENCE IF NOT EXISTS ${this.qualify(seq, mapping)};`);
+        let colDef = `${col.name} ${translated.sql}`;
         if (!col.source.nullable) colDef += ` NOT NULL`;
         if (col.source.defaultValue) colDef += ` DEFAULT ${col.source.defaultValue}`;
         statements.push(dialect.addColumnStatement(tableName, colDef));
@@ -225,11 +342,33 @@ export class SqlGeneratorModule {
 
       for (const col of obj.columnDiffs.filter((c) => c.status === 'MODIFIED')) {
         if (!col.source) continue;
-        statements.push(...dialect.modifyColumnStatements(tableName, col.name, col.source));
+        const translated = this.translateType(col.source.type, mapping);
+        if (translated.warning) statements.push(`-- review: ${col.name}: ${translated.warning}`);
+        statements.push(...dialect.modifyColumnStatements(tableName, col.name, { ...col.source, type: translated.sql }));
+
+        // The compare flags a column as MODIFIED when only its DEFAULT differs, but
+        // the type/nullability statements above don't carry the default — apply it
+        // explicitly so the migration actually converges.
+        const srcDef = col.source.defaultValue;
+        const tgtDef = col.target?.defaultValue;
+        if ((srcDef ?? '') !== (tgtDef ?? '')) {
+          if (this.isCrossDialect(mapping) && srcDef) {
+            // A default expression is source-dialect SQL; don't risk emitting it
+            // verbatim into another dialect — flag it for review instead.
+            statements.push(`-- review: ${col.name}: default '${srcDef}' is ${(mapping?.sourceDialect ?? '').toUpperCase()} syntax — set it manually for ${(mapping?.targetDialect ?? '').toUpperCase()}`);
+          } else {
+            // A new serial/sequence default needs its backing sequence to exist first.
+            const seqForDefault = dialect.serialSequenceFromDefault?.(srcDef ?? '');
+            if (seqForDefault) statements.push(`CREATE SEQUENCE IF NOT EXISTS ${this.qualify(seqForDefault, mapping)};`);
+            statements.push(...dialect.setDefaultStatements(tableName, col.name, srcDef));
+          }
+        }
       }
 
-      for (const col of obj.columnDiffs.filter((c) => c.status === 'REMOVED')) {
-        statements.push(dialect.dropColumnStatement(tableName, col.name));
+      if (!mapping?.nonDestructive) {
+        for (const col of obj.columnDiffs.filter((c) => c.status === 'REMOVED')) {
+          statements.push(dialect.dropColumnStatement(tableName, col.name));
+        }
       }
 
       const srcPk = obj.sourceTable ? this.primaryKeyColumns(obj.sourceTable) : [];
@@ -248,30 +387,45 @@ export class SqlGeneratorModule {
         }
       }
 
-      for (const idx of obj.indexDiffs.filter((i) => i.status === 'REMOVED' || i.status === 'MODIFIED')) {
-        statements.push(`DROP INDEX ${this.qualify(idx.name, mapping)};`);
-      }
-
       for (const idx of obj.indexDiffs.filter((i) => i.status === 'ADDED' || i.status === 'MODIFIED')) {
         const srcIdx = idx.source;
         if (!srcIdx) continue;
         const uniqueStr = srcIdx.unique ? ' UNIQUE' : '';
-        statements.push(`CREATE${uniqueStr} INDEX ${this.qualify(idx.name, mapping)} ON ${tableName} (${srcIdx.columns.join(', ')});`);
+        // Bare index name (its schema follows the qualified table) — a qualified
+        // index name is a syntax error in Postgres/MySQL/SQL Server.
+        statements.push(`CREATE${uniqueStr} INDEX ${this.bareName(idx.name)} ON ${tableName} (${srcIdx.columns.join(', ')});`);
       }
 
-      for (const trg of (obj.triggerDiffs ?? []).filter((t) => t.status === 'REMOVED' || t.status === 'MODIFIED')) {
+      // Add new / recreate modified FK constraints (after all column changes are done).
+      for (const fk of obj.foreignKeyDiffs.filter((f) => f.status === 'ADDED' || f.status === 'MODIFIED')) {
+        const info = fk.source;
+        if (!info) continue;
+        statements.push(
+          `ALTER TABLE ${tableName} ADD CONSTRAINT ${this.bareName(fk.name)} FOREIGN KEY (${info.columns.join(', ')}) REFERENCES ${this.qualify(info.referencedTable, mapping)} (${info.referencedColumns.join(', ')});`
+        );
+      }
+
+      for (const trg of (obj.triggerDiffs ?? []).filter((t) => t.status === 'MODIFIED' || (t.status === 'REMOVED' && !mapping?.nonDestructive))) {
         statements.push(`DROP TRIGGER ${this.qualify(trg.name, mapping)};`);
       }
       for (const trg of (obj.triggerDiffs ?? []).filter((t) => t.status === 'ADDED' || t.status === 'MODIFIED')) {
         if (trg.source?.definition) statements.push(trg.source.definition.trim());
       }
+
+      // Recreate any views dropped by the dialect's dropDependentViewsBlock above.
+      if (dropViewsBlock) {
+        const recreateBlock = dialect.recreateDependentViewsBlock?.(tableName);
+        if (recreateBlock) statements.push(recreateBlock);
+      }
     } else if (obj.objectType === 'SEQUENCE' && obj.sourceTable) {
       const s = obj.sourceTable.sequence ?? {};
       let alter = `ALTER SEQUENCE ${tableName}`;
+      if (s.dataType) alter += ` AS ${s.dataType}`;
       if (s.increment !== undefined) alter += ` INCREMENT BY ${s.increment}`;
       if (s.minValue !== undefined) alter += ` MINVALUE ${s.minValue}`;
       if (s.maxValue !== undefined) alter += ` MAXVALUE ${s.maxValue}`;
       alter += s.cycle ? ` CYCLE` : ` NO CYCLE`;
+      if (s.cache !== undefined) alter += s.cache > 0 ? ` CACHE ${s.cache}` : ` NO CACHE`;
       statements.push(alter + `;`);
     } else if (obj.objectType === 'TYPE' && obj.sourceTable) {
       statements.push(`DROP TYPE ${tableName};`);
@@ -285,12 +439,19 @@ export class SqlGeneratorModule {
           statements.push(`REVOKE ROLE ${roleName} FROM ${m.target.type} ${m.name};`);
         }
       }
+    } else if (PROCEDURAL_TYPES.has(obj.objectType) && this.isCrossDialect(mapping)) {
+      statements.push(...this.manualReviewBlock(obj, mapping));
     } else if (obj.definition) {
-      if (obj.objectType === 'VIEW') statements.push(`DROP VIEW IF EXISTS ${tableName};`);
-      else if (obj.objectType === 'FUNCTION') statements.push(`DROP FUNCTION IF EXISTS ${tableName};`);
-      else if (obj.objectType === 'PROCEDURE') statements.push(`DROP PROCEDURE IF EXISTS ${tableName};`);
-      else if (obj.objectType === 'TRIGGER') statements.push(`DROP TRIGGER IF EXISTS ${tableName};`);
-      statements.push(obj.definition);
+      const src = obj.sourceTable;
+      if (obj.objectType === 'VIEW') {
+        statements.push(`DROP VIEW IF EXISTS ${tableName};`);
+        statements.push(`CREATE OR REPLACE VIEW ${tableName} AS\n${this.ensureSemicolon(obj.definition)}`);
+      } else {
+        if (obj.objectType === 'FUNCTION') statements.push(this.dropRoutineSql('FUNCTION', tableName, src?.parameters));
+        else if (obj.objectType === 'PROCEDURE') statements.push(this.dropRoutineSql('PROCEDURE', tableName, src?.parameters));
+        else if (obj.objectType === 'TRIGGER') statements.push(`DROP TRIGGER IF EXISTS ${tableName};`);
+        statements.push(this.ensureSemicolon(obj.definition));
+      }
     }
 
     return statements;
@@ -298,21 +459,39 @@ export class SqlGeneratorModule {
 
   generateMigrationPlan(diffs: TableDiff[], dialectStr: string, mapping?: SchemaMapping): MigrationStep[] {
     const dialect = resolveDialect(dialectStr);
+    // Pin the target dialect into the mapping so the render helpers can detect a
+    // cross-dialect migration and translate column types accordingly.
+    const m: SchemaMapping = { ...mapping, targetDialect: mapping?.targetDialect ?? dialectStr };
     const steps: MigrationStep[] = [];
 
-    for (const obj of diffs.filter((d) => d.status === 'REMOVED')) {
-      steps.push({ objectName: obj.tableName, objectType: obj.objectType, action: 'DROP', statements: this.dropObjectStatements(obj, mapping) });
+    // Non-destructive mode never drops objects that exist only in the target.
+    if (!m.nonDestructive) {
+      for (const obj of diffs.filter((d) => d.status === 'REMOVED')) {
+        steps.push({ objectName: obj.tableName, objectType: obj.objectType, action: 'DROP', statements: this.dropObjectStatements(obj, m) });
+      }
     }
     for (const obj of diffs.filter((d) => d.status === 'ADDED')) {
-      steps.push({ objectName: obj.tableName, objectType: obj.objectType, action: 'CREATE', statements: this.createObjectStatements(obj, dialect, mapping) });
-    }
-    for (const obj of diffs.filter((d) => d.status === 'MODIFIED')) {
-      steps.push({ objectName: obj.tableName, objectType: obj.objectType, action: 'ALTER', statements: this.alterObjectStatements(obj, dialect, mapping) });
+      steps.push({ objectName: obj.tableName, objectType: obj.objectType, action: 'CREATE', statements: this.createObjectStatements(obj, dialect, m) });
     }
 
-    return steps
+    for (const obj of diffs.filter((d) => d.status === 'MODIFIED')) {
+      steps.push({ objectName: obj.tableName, objectType: obj.objectType, action: 'ALTER', statements: this.alterObjectStatements(obj, dialect, m) });
+    }
+
+    // Collect MODIFIED objects whose statements were entirely skipped (all changes
+    // were removals, suppressed by non-destructive mode). Callers can surface these
+    // as informational notes rather than silently hiding them.
+    const skippedInNonDestructive: string[] = m.nonDestructive
+      ? steps.filter((s) => s.action === 'ALTER' && s.statements.length === 0).map((s) => s.objectName)
+      : [];
+
+    const actionable = steps
       .filter((s) => s.statements.length > 0)
-      .map((s) => ({ ...s, statements: s.statements.map((st) => this.remapSchema(st, mapping)) }));
+      .map((s) => ({ ...s, statements: s.statements.map((st) => this.remapSchema(st, m)) }));
+
+    // Attach skipped list so generateMigrationSql can report it.
+    (actionable as any).__skipped = skippedInNonDestructive;
+    return actionable;
   }
 
   generateMigrationSql(diffs: TableDiff[], dialectStr: string, mapping?: SchemaMapping): string {
@@ -322,11 +501,29 @@ export class SqlGeneratorModule {
     if (mapping?.targetSchema) {
       sql += `-- Target Schema: ${mapping.targetSchema.toUpperCase()}\n`;
     }
+    const crossDialect = this.isCrossDialect({ ...mapping, targetDialect: mapping?.targetDialect ?? dialectStr });
+    if (crossDialect) {
+      sql += `-- Cross-dialect: ${(mapping?.sourceDialect ?? '').toUpperCase()} -> ${dialectStr.toUpperCase()}\n`;
+      sql += `-- Column types were translated; review any '-- review:' notes and MANUAL REVIEW blocks below.\n`;
+    }
+    if (mapping?.nonDestructive) {
+      sql += `-- Non-destructive mode: ADD/MODIFY only — nothing in the target is dropped.\n`;
+    }
     sql += `-- Created At: ${new Date().toISOString()}\n`;
     sql += `-- =========================================================================\n\n`;
 
     const steps = this.generateMigrationPlan(diffs, dialectStr, mapping);
+    const skipped: string[] = (steps as any).__skipped ?? [];
+
     if (steps.length === 0) {
+      if (skipped.length > 0) {
+        // Objects were selected but all their changes were removals — suppressed by non-destructive mode.
+        sql += `-- Nothing to apply: every selected change is a removal and non-destructive mode is ON.\n`;
+        sql += `-- The following objects have target-only columns / indexes / constraints that won't be dropped:\n`;
+        for (const name of skipped) sql += `--   ${name}\n`;
+        sql += `--\n-- To remove these differences: disable non-destructive mode and re-run.`;
+        return sql;
+      }
       return sql + `-- No schema changes detected. Target database is in sync with source.`;
     }
 

@@ -1,7 +1,10 @@
 import { ConnectionFactory } from '../../cores/connection-factory';
-import { dbSchemaToTableSchemas } from '../../cores/schema-to-tables';
+import { dbSchemaToTableSchemas, rolesToTableSchemas, roleSkippedWarning } from '../../cores/schema-to-tables';
 import {
   SchemaProvider,
+  RoleLoadResult,
+  DbRole,
+  DbRoleMember,
   ConnectionOptions,
   DbSchema,
   DbTable,
@@ -76,6 +79,36 @@ export class SqlServerProvider implements SchemaProvider {
   async getTables(options: ConnectionOptions, schema: string): Promise<TableSchema[]> {
     const dbSchema = await this.loadSchema(options, schema);
     return dbSchemaToTableSchemas(dbSchema);
+  }
+
+  /**
+   * Database-level roles and their members from `sys.database_principals` /
+   * `sys.database_role_members`. Fixed roles and `public` are excluded. Readable
+   * by most users, but degrades to a warning if VIEW DEFINITION is withheld.
+   */
+  async getRoles(options: ConnectionOptions, _schema: string): Promise<RoleLoadResult> {
+    try {
+      const rows = await ConnectionFactory.executeQuery<{ role_name: string; member: string | null; member_type: string | null }>(
+        this.provider,
+        options,
+        `SELECT r.name AS role_name, m.name AS member, m.type_desc AS member_type
+         FROM sys.database_principals r
+         LEFT JOIN sys.database_role_members rm ON rm.role_principal_id = r.principal_id
+         LEFT JOIN sys.database_principals m ON m.principal_id = rm.member_principal_id
+         WHERE r.type = 'R' AND r.is_fixed_role = 0 AND r.name <> 'public'
+         ORDER BY r.name, m.name`
+      );
+      const byRole = new Map<string, DbRoleMember[]>();
+      for (const r of rows) {
+        const members = byRole.get(r.role_name) ?? [];
+        if (r.member) members.push({ grantee: r.member, granteeType: (r.member_type ?? '').includes('ROLE') ? 'ROLE' : 'USER' });
+        byRole.set(r.role_name, members);
+      }
+      const roles: DbRole[] = [...byRole.entries()].map(([name, members]) => ({ name, members }));
+      return { roles: rolesToTableSchemas(roles) };
+    } catch (error) {
+      return { roles: [], warning: roleSkippedWarning(this.provider, error) };
+    }
   }
 
   async loadSchema(options: ConnectionOptions, schema: string): Promise<DbSchema> {
