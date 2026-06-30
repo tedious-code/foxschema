@@ -53,3 +53,18 @@ export async function apiGetMigration(id: string): Promise<MigrationRunDetail> {
 export async function apiDeleteMigration(id: string): Promise<void> {
   await request(`/migrations/${id}`, { method: 'DELETE' });
 }
+
+/** Delete a set of runs. Returns how many were removed. */
+export async function apiDeleteMigrations(ids: string[]): Promise<number> {
+  const { removed } = await request<{ removed: number }>('/migrations/delete', {
+    method: 'POST',
+    body: JSON.stringify({ ids }),
+  });
+  return removed;
+}
+
+/** Clear the entire migration history. Returns how many were removed. */
+export async function apiClearMigrations(): Promise<number> {
+  const { removed } = await request<{ removed: number }>('/migrations', { method: 'DELETE' });
+  return removed;
+}

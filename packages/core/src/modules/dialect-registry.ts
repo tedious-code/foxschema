@@ -5,6 +5,9 @@ import { mysqlSqlDialect, mariadbSqlDialect } from '../providers/mysql/mysql.sql
 import { sqlServerSqlDialect } from '../providers/sqlServer/sqlserver.sql-dialect';
 import { oracleSqlDialect } from '../providers/oracle/oracle.sql-dialect';
 import { sqliteSqlDialect } from '../providers/sqlLite/sqlite.sql-dialect';
+import { redshiftSqlDialect } from '../providers/redshift/redshift.sql-dialect';
+import { clickHouseSqlDialect } from '../providers/clickHouse/clickhouse.sql-dialect';
+import { azureSqlDialect } from '../providers/azureSql/azuresql.sql-dialect';
 
 /** Maps a dialect name (case-insensitive) to its SQL generation strategy. */
 export const DIALECT_MAP: Record<string, SqlDialect> = {
@@ -15,6 +18,9 @@ export const DIALECT_MAP: Record<string, SqlDialect> = {
   SQLSERVER: sqlServerSqlDialect,
   ORACLE: oracleSqlDialect,
   SQLITE: sqliteSqlDialect,
+  REDSHIFT: redshiftSqlDialect,
+  CLICKHOUSE: clickHouseSqlDialect,
+  AZURESQL: azureSqlDialect,
 };
 
 /** Resolve a dialect name to its strategy, defaulting to Db2 for unknown names. */

@@ -32,6 +32,9 @@ schemacompare.db*
 IMPLEMENTATION_STATE.md
 CLAUDE.md
 CHANGELOG.md
+*.md
+*/*.md
+*/*/*.md
 # Desktop (Tauri) build artifacts
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/

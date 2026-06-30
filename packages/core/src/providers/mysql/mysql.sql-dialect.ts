@@ -77,7 +77,9 @@ const mysqlDialect: SqlDialect = {
   },
 
   modifyColumnStatements(tableName: string, colName: string, col: ColumnSpec): string[] {
-    return [`ALTER TABLE ${tableName} MODIFY COLUMN ${colName} ${col.type};`];
+    const nullClause = col.nullable ? '' : ' NOT NULL';
+    const identity = col.identity ? ' AUTO_INCREMENT' : '';
+    return [`ALTER TABLE ${tableName} MODIFY COLUMN ${colName} ${col.type}${identity}${nullClause};`];
   },
 
   dropColumnStatement(tableName: string, colName: string): string {
@@ -93,6 +95,30 @@ const mysqlDialect: SqlDialect = {
 
   dropPrimaryKeyStatements(tableName: string, _pkName: string | undefined): string[] {
     return [`ALTER TABLE ${tableName} DROP PRIMARY KEY;`];
+  },
+
+  dropForeignKeyStatement(tableName: string, fkName: string): string {
+    // MySQL has a separate FK namespace; DROP CONSTRAINT is unsupported in older
+    // versions and DROP CONSTRAINT IF EXISTS is not valid MySQL syntax at all.
+    return `ALTER TABLE ${tableName} DROP FOREIGN KEY ${fkName};`;
+  },
+
+  dropIndexStatement(indexName: string, qualifiedTable: string): string {
+    return `DROP INDEX ${indexName} ON ${qualifiedTable};`;
+  },
+
+  dropTriggerStatement(triggerName: string, _qualifiedTable: string): string {
+    return `DROP TRIGGER IF EXISTS ${triggerName};`;
+  },
+
+  createTriggerStatement(
+    trg: { name: string; timing?: string; event?: string; definition?: string },
+    qualifiedTable: string
+  ): string | null {
+    if (!trg.definition) return null;
+    const timing = (trg.timing ?? 'AFTER').toUpperCase();
+    const event = (trg.event ?? 'INSERT').toUpperCase();
+    return `CREATE TRIGGER ${trg.name} ${timing} ${event} ON ${qualifiedTable} FOR EACH ROW\n${trg.definition.trim()};`;
   },
 
   ...types,

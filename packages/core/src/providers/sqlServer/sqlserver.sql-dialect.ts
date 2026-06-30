@@ -68,7 +68,9 @@ export const sqlServerSqlDialect: SqlDialect = {
   },
 
   modifyColumnStatements(tableName: string, colName: string, col: ColumnSpec): string[] {
-    return [`ALTER TABLE ${tableName} ALTER COLUMN ${colName} ${col.type};`];
+    const nullClause = col.nullable ? ' NULL' : ' NOT NULL';
+    const identity = col.identity ? ' IDENTITY(1,1)' : '';
+    return [`ALTER TABLE ${tableName} ALTER COLUMN ${colName} ${col.type}${identity}${nullClause};`];
   },
 
   dropColumnStatement(tableName: string, colName: string): string {
@@ -85,6 +87,47 @@ export const sqlServerSqlDialect: SqlDialect = {
   dropPrimaryKeyStatements(tableName: string, pkName: string | undefined): string[] {
     const constraint = pkName ?? `PK_${tableName.replace(/^.*\./, '')}`;
     return [`ALTER TABLE ${tableName} DROP CONSTRAINT ${constraint};`];
+  },
+
+  dropIndexStatement(indexName: string, qualifiedTable: string): string {
+    return `DROP INDEX ${indexName} ON ${qualifiedTable};`;
+  },
+
+  dropTriggerStatement(triggerName: string, qualifiedTable: string): string {
+    const dot = qualifiedTable.indexOf('.');
+    const prefix = dot >= 0 ? qualifiedTable.slice(0, dot + 1) : '';
+    return `DROP TRIGGER IF EXISTS ${prefix}${triggerName};`;
+  },
+
+  dropForeignKeyStatement(tableName: string, fkName: string): string {
+    return `ALTER TABLE ${tableName} DROP CONSTRAINT ${fkName};`;
+  },
+
+  createViewStatement(name: string, body: string): string {
+    return `CREATE VIEW ${name} AS\n${body}`;
+  },
+
+  alterViewStatement(name: string, body: string): string {
+    return `ALTER VIEW ${name} AS\n${body}`;
+  },
+
+  // SQL Server has no CREATE SEQUENCE IF NOT EXISTS — use an OBJECT_ID existence check.
+  wrapCreateSequence(qualifiedName: string, createSql: string): string {
+    const escaped = qualifiedName.replace(/'/g, "''");
+    return `IF NOT EXISTS (SELECT 1 FROM sys.sequences WHERE object_id = OBJECT_ID(N'${escaped}'))\n  ${createSql}`;
+  },
+
+  // SQL Server has no DROP TABLE CASCADE — drop all inbound FK constraints first
+  // using a dynamic batch so the DROP TABLE can succeed even when other tables
+  // (not in the current migration plan) still reference this one.
+  preDropTableStatements(tableName: string): string[] {
+    const escaped = tableName.replace(/'/g, "''");
+    return [
+      `DECLARE @s NVARCHAR(MAX)=N'';` +
+      `SELECT @s+=N'ALTER TABLE '+QUOTENAME(SCHEMA_NAME(fk.schema_id))+N'.'+QUOTENAME(OBJECT_NAME(fk.parent_object_id))+N' DROP CONSTRAINT '+QUOTENAME(fk.name)+N';'` +
+      ` FROM sys.foreign_keys fk WHERE fk.referenced_object_id=OBJECT_ID(N'${escaped}');` +
+      `IF @s<>N'' EXEC sp_executesql @s`,
+    ];
   },
 
   ...types,

@@ -75,9 +75,13 @@ const TYPE_ORDER: DbObjectType[] = ['TABLE', 'MQT', 'VIEW', 'PROCEDURE', 'FUNCTI
 const MIN_WIDTH = 280;
 const MAX_WIDTH = 640;
 
-export const LeftPanel: React.FC = () => {
+export const SchemaTreePanel: React.FC = () => {
   const {
     compareResult,
+    browseMode,
+    browseSide,
+    sourceConfig,
+    targetConfig,
     selectedTable,
     setSelectedTable,
     filterStatus,
@@ -120,11 +124,13 @@ export const LeftPanel: React.FC = () => {
         <Layers className="w-10 h-10 mb-3 text-slate-700 animate-bounce" />
         <p className="text-sm font-semibold text-slate-400">No Comparison Active</p>
         <p className="text-xs text-slate-600 text-center max-w-[220px] mt-1">
-          Connect to databases and click "Compare Schemas" to view difference tree.
+          Connect and click "Compare Schemas" to view the difference tree — or "Browse" one side to search its objects.
         </p>
       </div>
     );
   }
+
+  const browseSchemaName = browseSide === 'target' ? targetConfig.schema : sourceConfig.schema;
 
   const changedTables = compareResult.tables.filter((t) => t.status !== 'UNCHANGED');
   const changedCount = changedTables.length;
@@ -227,14 +233,22 @@ export const LeftPanel: React.FC = () => {
       {/* Overview Stats Dashboard */}
       <div className="p-4 border-b border-slate-800/80 bg-slate-950/40">
         <div className="flex justify-between items-center mb-3">
-          <h2 className="text-sm font-bold text-slate-300 uppercase tracking-wider">Comparison Scope</h2>
+          <h2 className="text-sm font-bold text-slate-300 uppercase tracking-wider">
+            {browseMode ? (
+              <>Browsing <span className="text-cyan-400 normal-case">{browseSchemaName}</span></>
+            ) : (
+              'Comparison Scope'
+            )}
+          </h2>
           <span className="text-sm text-slate-200 font-mono font-bold">
             {compareResult.tables.length} objects
           </span>
         </div>
 
         {/* Stat cards double as the filter: All/Added/Removed/Modified are a
-            single-select status filter; Unchanged is an independent toggle. */}
+            single-select status filter; Unchanged is an independent toggle.
+            Hidden in browse mode — there are no statuses to filter by. */}
+        {!browseMode && (
         <div className="grid grid-cols-5 gap-1.5">
           {getChangeSummaryStats().map((stat) => {
             const active = stat.toggle ? showUnchanged : filterStatus === stat.status;
@@ -255,6 +269,7 @@ export const LeftPanel: React.FC = () => {
             );
           })}
         </div>
+        )}
       </div>
 
       {/* Navigation Filter / Search Bar */}
@@ -291,7 +306,8 @@ export const LeftPanel: React.FC = () => {
 
       </div>
 
-      {/* Deployment Selection Header */}
+      {/* Deployment Selection Header — hidden in browse mode (nothing to deploy) */}
+      {!browseMode && (
       <div className="px-3 py-2 border-b border-slate-800/80 bg-slate-950/30 flex items-center justify-between gap-2">
         <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-400 uppercase tracking-wider shrink-0">
           <input
@@ -324,6 +340,7 @@ export const LeftPanel: React.FC = () => {
           </span>
         </div>
       </div>
+      )}
 
       {/* Tree Node List, grouped by object type */}
       <div className="flex-1 overflow-y-auto p-2 space-y-3">
@@ -357,7 +374,7 @@ export const LeftPanel: React.FC = () => {
                       }`}
                     >
                       <div className="flex items-center gap-2.5 min-w-0">
-                        {table.status !== 'UNCHANGED' ? (
+                        {browseMode ? null : table.status !== 'UNCHANGED' ? (
                           <input
                             type="checkbox"
                             checked={!!syncSelection[table.tableName]}
@@ -382,9 +399,11 @@ export const LeftPanel: React.FC = () => {
                         </div>
                       </div>
 
-                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border shrink-0 ml-2 ${getStatusBadge(table.status)}`}>
-                        {table.status}
-                      </span>
+                      {!browseMode && (
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border shrink-0 ml-2 ${getStatusBadge(table.status)}`}>
+                          {table.status}
+                        </span>
+                      )}
                     </div>
                   );
                 })}

@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { TopToolbar } from './components/TopToolbar';
-import { LeftPanel } from './components/LeftPanel';
-import { RightPanel } from './components/RightPanel';
+import { SchemaTreePanel } from './components/SchemaTreePanel';
+import { ObjectDetailPanel } from './components/ObjectDetailPanel';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { AuthPage } from './components/AuthPage';
 import { OnboardingWizard } from './components/OnboardingWizard';
@@ -9,10 +9,10 @@ import { useSyncStore } from './store/useSyncStore';
 import { useAuthStore } from './store/authStore';
 import { useUiStore } from './store/uiStore';
 import { apiGetPreferences } from './api/authApi';
-import { AlertCircle, AlertTriangle, Loader2 } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Loader2, X } from 'lucide-react';
 
 const Workspace: React.FC = () => {
-  const { errorMsg, warnings } = useSyncStore();
+  const { errorMsg, warnings, dismissWarnings } = useSyncStore();
   return (
     <div className="h-screen flex flex-col bg-slate-950 text-slate-100 antialiased overflow-hidden">
       <TopToolbar />
@@ -27,20 +27,27 @@ const Workspace: React.FC = () => {
       {warnings.length > 0 && (
         <div className="bg-amber-950/50 border-y border-amber-500/20 px-6 py-2.5 flex items-start gap-2.5 text-xs text-amber-300 font-medium animate-slide-down">
           <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-          <div className="flex flex-col gap-0.5">
+          <div className="flex flex-col gap-0.5 flex-1">
             {warnings.map((w, i) => (
               <span key={i}>{w}</span>
             ))}
           </div>
+          <button
+            onClick={dismissWarnings}
+            className="shrink-0 p-0.5 text-amber-500 hover:text-amber-200 hover:bg-amber-500/15 rounded transition"
+            title="Dismiss"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
 
       <main className="flex-1 flex min-h-0 overflow-hidden">
         <ErrorBoundary>
-          <LeftPanel />
+          <SchemaTreePanel />
         </ErrorBoundary>
         <ErrorBoundary>
-          <RightPanel />
+          <ObjectDetailPanel />
         </ErrorBoundary>
       </main>
     </div>

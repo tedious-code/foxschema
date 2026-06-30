@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useSyncStore } from '../store/useSyncStore';
-import { ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, CheckCircle2, Zap, Settings, KeyRound, History } from 'lucide-react';
+import { ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, CheckCircle2, Zap, Settings, KeyRound, History, Search } from 'lucide-react';
 import { Brand } from './Brand';
 import { ProfileMenu } from './ProfileMenu';
 import { CredentialManager } from './CredentialManager';
@@ -25,6 +25,8 @@ export const TopToolbar: React.FC = () => {
     testTargetConnection,
     isComparing,
     runSchemaComparison,
+    browseSchema,
+    isBrowsing,
     compareResult,
     resetSync,
     selectedObjectTypes,
@@ -164,6 +166,17 @@ export const TopToolbar: React.FC = () => {
                 <RefreshCw className="w-3.5 h-3.5" /> Retry Connection
               </button>
             )}
+
+            {sourceConnected && (
+              <button
+                onClick={() => browseSchema('source')}
+                disabled={isBrowsing || selectedObjectTypes.length === 0}
+                title="Load this schema's objects to browse and search (no comparison)"
+                className="shrink-0 text-base text-cyan-400 border border-cyan-500/30 hover:border-cyan-400/60 bg-cyan-950/30 hover:bg-cyan-950/60 px-2.5 py-1 rounded-full flex items-center gap-1 font-medium cursor-pointer transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Search className="w-3.5 h-3.5" /> Browse
+              </button>
+            )}
           </div>
         </div>
 
@@ -245,6 +258,17 @@ export const TopToolbar: React.FC = () => {
                 className="text-base text-slate-400 hover:text-purple-300 border border-slate-700 hover:border-purple-500/40 bg-slate-900/60 hover:bg-slate-900 px-2.5 py-1 rounded-full flex items-center gap-1 font-medium shrink-0 cursor-pointer transition"
               >
                 <RefreshCw className="w-3.5 h-3.5" /> Retry Connection
+              </button>
+            )}
+
+            {targetConnected && (
+              <button
+                onClick={() => browseSchema('target')}
+                disabled={isBrowsing || selectedObjectTypes.length === 0}
+                title="Load this schema's objects to browse and search (no comparison)"
+                className="shrink-0 text-base text-purple-300 border border-purple-500/30 hover:border-purple-400/60 bg-purple-950/30 hover:bg-purple-950/60 px-2.5 py-1 rounded-full flex items-center gap-1 font-medium cursor-pointer transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Search className="w-3.5 h-3.5" /> Browse
               </button>
             )}
           </div>

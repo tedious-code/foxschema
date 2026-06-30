@@ -57,6 +57,12 @@ export interface SchemaProvider {
   getRoles?(options: ConnectionOptions, schema: string): Promise<RoleLoadResult>;
   /** Lists selectable namespaces in the connected database: schemas for DB2/Postgres, databases for MySQL. */
   listSchemas?(options: ConnectionOptions): Promise<string[]>;
+  /**
+   * Return the server version string (e.g. "19.3.0.0.0" for Oracle 19c,
+   * "11.5.8.0" for DB2 11.5). Used by sql-generator to emit version-safe DDL.
+   * Called once after a successful testConnection; never throws.
+   */
+  detectVersion?(options: ConnectionOptions): Promise<string>;
 }
 
 /**

@@ -53,6 +53,18 @@ const types = makeDialectTypeFns({
   },
 });
 
+// Oracle 23c introduced DROP IF EXISTS. Pre-23c requires PL/SQL exception blocks.
+function oracleMajor(version?: string): number {
+  if (!version) return 0;
+  return parseInt(version.split('.')[0], 10) || 0;
+}
+
+function oracleDrop(keyword: string, name: string, sqlcode: number, version?: string): string {
+  if (oracleMajor(version) >= 23) return `DROP ${keyword} IF EXISTS ${name};`;
+  const safe = name.replace(/'/g, "''");
+  return `BEGIN\n  EXECUTE IMMEDIATE 'DROP ${keyword} ${safe}';\nEXCEPTION\n  WHEN OTHERS THEN IF SQLCODE != ${sqlcode} THEN RAISE; END IF;\nEND;\n/`;
+}
+
 export const oracleSqlDialect: SqlDialect = {
   identityClause(c: ColumnSpec): string {
     return c.identity ? ` GENERATED ${c.identityGeneration ?? 'ALWAYS'} AS IDENTITY` : '';
@@ -63,7 +75,8 @@ export const oracleSqlDialect: SqlDialect = {
   },
 
   modifyColumnStatements(tableName: string, colName: string, col: ColumnSpec): string[] {
-    return [`ALTER TABLE ${tableName} MODIFY ${colName} ${col.type};`];
+    const nullClause = col.nullable ? ' NULL' : ' NOT NULL';
+    return [`ALTER TABLE ${tableName} MODIFY ${colName} ${col.type}${nullClause};`];
   },
 
   dropColumnStatement(tableName: string, colName: string): string {
@@ -77,6 +90,63 @@ export const oracleSqlDialect: SqlDialect = {
 
   dropPrimaryKeyStatements(tableName: string, _pkName: string | undefined): string[] {
     return [`ALTER TABLE ${tableName} DROP PRIMARY KEY;`];
+  },
+
+  dropForeignKeyStatement(tableName: string, fkName: string): string {
+    // Oracle has no DROP CONSTRAINT IF EXISTS — emit the plain form (the migration
+    // drops constraints it knows exist; a missing one is a genuine error to surface).
+    return `ALTER TABLE ${tableName} DROP CONSTRAINT ${fkName};`;
+  },
+
+  dropIndexStatement(indexName: string, qualifiedTable: string): string {
+    const dot = qualifiedTable.indexOf('.');
+    const prefix = dot >= 0 ? qualifiedTable.slice(0, dot + 1) : '';
+    return `DROP INDEX ${prefix}${indexName};`;
+  },
+
+  dropTriggerStatement(triggerName: string, qualifiedTable: string): string {
+    const dot = qualifiedTable.indexOf('.');
+    const prefix = dot >= 0 ? qualifiedTable.slice(0, dot + 1) : '';
+    return `DROP TRIGGER ${prefix}${triggerName};`;
+  },
+
+  createTriggerStatement(
+    trg: { name: string; timing?: string; event?: string; definition?: string },
+    qualifiedTable: string
+  ): string | null {
+    if (!trg.definition) return null;
+    // Oracle ALL_TRIGGERS.TRIGGER_TYPE = 'BEFORE EACH ROW' / 'AFTER EACH ROW' / 'INSTEAD OF' etc.
+    // ALL_TRIGGERS.TRIGGERING_EVENT = 'INSERT' / 'UPDATE' / 'INSERT OR UPDATE' etc.
+    const rawType = (trg.timing ?? 'AFTER EACH ROW').toUpperCase();
+    const event = (trg.event ?? 'INSERT').toUpperCase();
+    const isInstead = rawType.startsWith('INSTEAD');
+    const timing = isInstead ? 'INSTEAD OF' : rawType.startsWith('BEFORE') ? 'BEFORE' : 'AFTER';
+    const forEachRow = rawType.includes('EACH ROW') && !isInstead ? '\nFOR EACH ROW' : '';
+    return `CREATE OR REPLACE TRIGGER ${trg.name}\n${timing} ${event} ON ${qualifiedTable}${forEachRow}\n${trg.definition.trim()};`;
+  },
+
+  // ORA-00942 = table or view does not exist
+  dropTableStatement(name: string, version?: string): string {
+    return oracleDrop('TABLE', name, -942, version);
+  },
+
+  // ORA-00942 = view does not exist (same code)
+  dropViewStatement(name: string, version?: string): string {
+    return oracleDrop('VIEW', name, -942, version);
+  },
+
+  // ORA-02289 = sequence does not exist
+  dropSequenceStatement(name: string, version?: string): string {
+    return oracleDrop('SEQUENCE', name, -2289, version);
+  },
+
+  // ORA-04043 = object does not exist
+  dropFunctionStatement(name: string, version?: string): string {
+    return oracleDrop('FUNCTION', name, -4043, version);
+  },
+
+  dropProcedureStatement(name: string, version?: string): string {
+    return oracleDrop('PROCEDURE', name, -4043, version);
   },
 
   ...types,

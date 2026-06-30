@@ -1,10 +1,12 @@
 import React, { useEffect, useState, Suspense, lazy } from 'react';
 import { createPortal } from 'react-dom';
-import { X, History, RefreshCw, Trash2, Download, Database } from 'lucide-react';
+import { X, History, RefreshCw, Trash2, Download, Database, CheckSquare, Square } from 'lucide-react';
 import {
   apiListMigrations,
   apiGetMigration,
   apiDeleteMigration,
+  apiDeleteMigrations,
+  apiClearMigrations,
   type MigrationRunSummary,
   type MigrationRunDetail,
   type MigrationRunStatus,
@@ -38,6 +40,9 @@ export const MigrationHistory: React.FC<Props> = ({ open, onClose }) => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<MigrationRunDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  // Multi-select for bulk delete (keyed by run id).
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [confirmClear, setConfirmClear] = useState(false);
 
   const loadList = async () => {
     setLoading(true);
@@ -45,6 +50,8 @@ export const MigrationHistory: React.FC<Props> = ({ open, onClose }) => {
       const list = await apiListMigrations();
       setRuns(list);
       setSelectedId((cur) => cur ?? list[0]?.id ?? null);
+      // Drop selections for runs that no longer exist.
+      setChecked((prev) => new Set([...prev].filter((id) => list.some((r) => r.id === id))));
     } catch {
       setRuns([]);
     } finally {
@@ -76,7 +83,36 @@ export const MigrationHistory: React.FC<Props> = ({ open, onClose }) => {
   const remove = async (id: string) => {
     await apiDeleteMigration(id).catch(() => undefined);
     setRuns((rs) => rs.filter((r) => r.id !== id));
+    setChecked((prev) => { const n = new Set(prev); n.delete(id); return n; });
     if (selectedId === id) setSelectedId(null);
+  };
+
+  const toggleCheck = (id: string) =>
+    setChecked((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+
+  const allChecked = runs.length > 0 && checked.size === runs.length;
+  const toggleCheckAll = () =>
+    setChecked(allChecked ? new Set() : new Set(runs.map((r) => r.id)));
+
+  const deleteSelected = async () => {
+    const ids = [...checked];
+    if (!ids.length) return;
+    await apiDeleteMigrations(ids).catch(() => undefined);
+    setRuns((rs) => rs.filter((r) => !checked.has(r.id)));
+    if (selectedId && checked.has(selectedId)) setSelectedId(null);
+    setChecked(new Set());
+  };
+
+  const clearAll = async () => {
+    await apiClearMigrations().catch(() => undefined);
+    setRuns([]);
+    setChecked(new Set());
+    setSelectedId(null);
+    setConfirmClear(false);
   };
 
   const downloadSnapshot = (d: MigrationRunDetail) => {
@@ -116,7 +152,51 @@ export const MigrationHistory: React.FC<Props> = ({ open, onClose }) => {
 
         <div className="flex-1 flex min-h-0">
           {/* Run list */}
-          <div className="w-72 shrink-0 border-r border-slate-800 overflow-y-auto">
+          <div className="w-72 shrink-0 border-r border-slate-800 flex flex-col min-h-0">
+            {runs.length > 0 && (
+              <div className="shrink-0 border-b border-slate-800 bg-slate-950/40">
+                {/* Select-all row */}
+                <div className="flex items-center justify-between gap-2 px-3 py-2">
+                  <button
+                    onClick={toggleCheckAll}
+                    className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-300 hover:text-slate-100 transition"
+                    title={allChecked ? 'Deselect all' : 'Select all'}
+                  >
+                    {allChecked ? <CheckSquare className="w-4 h-4 text-cyan-400" /> : <Square className="w-4 h-4 text-slate-500" />}
+                    {checked.size > 0 ? `${checked.size} selected` : 'Select all'}
+                  </button>
+                  <div className="flex items-center gap-1">
+                    {checked.size > 0 && (
+                      <button
+                        onClick={deleteSelected}
+                        title="Delete selected records"
+                        className="flex items-center gap-1 text-[11px] font-semibold text-rose-300 hover:text-rose-200 border border-rose-500/30 bg-rose-950/30 hover:bg-rose-950/50 rounded px-2 py-1 transition cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" /> Delete
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setConfirmClear(true)}
+                      title="Clear all records"
+                      className="text-[11px] font-semibold text-slate-400 hover:text-slate-200 border border-slate-700 hover:border-slate-600 rounded px-2 py-1 transition cursor-pointer"
+                    >
+                      Clear all
+                    </button>
+                  </div>
+                </div>
+                {/* Inline confirm for the destructive clear-all */}
+                {confirmClear && (
+                  <div className="flex items-center justify-between gap-2 px-3 py-2 bg-rose-950/30 border-t border-rose-500/20">
+                    <span className="text-[11px] text-rose-200">Delete all {runs.length} record{runs.length === 1 ? '' : 's'}?</span>
+                    <div className="flex items-center gap-1">
+                      <button onClick={clearAll} className="text-[11px] font-bold text-slate-950 bg-rose-400 hover:bg-rose-300 rounded px-2 py-1 transition on-accent-fg">Clear all</button>
+                      <button onClick={() => setConfirmClear(false)} className="text-[11px] font-semibold text-slate-400 hover:text-slate-200 px-2 py-1 transition">Cancel</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="flex-1 overflow-y-auto">
             {runs.length === 0 ? (
               <div className="text-center py-12 px-4 text-slate-500 text-sm">
                 <Database className="w-8 h-8 mx-auto mb-2 text-slate-700" />
@@ -124,24 +204,35 @@ export const MigrationHistory: React.FC<Props> = ({ open, onClose }) => {
               </div>
             ) : (
               runs.map((r) => (
-                <button
+                <div
                   key={r.id}
                   onClick={() => setSelectedId(r.id)}
-                  className={`w-full text-left px-4 py-3 border-b border-slate-850 transition cursor-pointer ${
+                  className={`flex items-start gap-2.5 px-3 py-3 border-b border-slate-850 transition cursor-pointer ${
                     selectedId === r.id ? 'bg-slate-800/70' : 'hover:bg-slate-900/60'
                   }`}
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <StatusBadge status={r.status} />
-                    <span className="text-[10px] text-slate-500 shrink-0">{r.objectCount} obj</span>
+                  <input
+                    type="checkbox"
+                    checked={checked.has(r.id)}
+                    onChange={() => toggleCheck(r.id)}
+                    onClick={(e) => e.stopPropagation()}
+                    title="Select this record"
+                    className="w-4 h-4 mt-0.5 accent-cyan-500 cursor-pointer shrink-0"
+                  />
+                  <div className="min-w-0 flex-1 text-left">
+                    <div className="flex items-center justify-between gap-2">
+                      <StatusBadge status={r.status} />
+                      <span className="text-[10px] text-slate-500 shrink-0">{r.objectCount} obj</span>
+                    </div>
+                    <p className="text-xs text-slate-300 font-mono truncate mt-1.5" title={`${r.host} / ${r.database} / ${r.schema}`}>
+                      {r.database}{r.schema ? ` / ${r.schema}` : ''}
+                    </p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">{fmt(r.startedAt)}</p>
                   </div>
-                  <p className="text-xs text-slate-300 font-mono truncate mt-1.5" title={`${r.host} / ${r.database} / ${r.schema}`}>
-                    {r.database}{r.schema ? ` / ${r.schema}` : ''}
-                  </p>
-                  <p className="text-[10px] text-slate-500 mt-0.5">{fmt(r.startedAt)}</p>
-                </button>
+                </div>
               ))
             )}
+            </div>
           </div>
 
           {/* Detail */}

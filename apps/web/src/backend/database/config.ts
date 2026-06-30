@@ -8,7 +8,7 @@
  * separate from the user databases being compared (those use the provider layer).
  */
 
-import type { Dialect } from './providers/types';
+import type { Dialect } from './stores/types';
 
 export type DbEngine = Dialect;
 

@@ -151,5 +151,15 @@ export const postgresSqlDialect: SqlDialect = {
     ].join('\n');
   },
 
+  dropIndexStatement(indexName: string, qualifiedTable: string): string {
+    const dot = qualifiedTable.indexOf('.');
+    const prefix = dot >= 0 ? qualifiedTable.slice(0, dot + 1) : '';
+    return `DROP INDEX IF EXISTS ${prefix}${indexName};`;
+  },
+
+  dropTriggerStatement(triggerName: string, qualifiedTable: string): string {
+    return `DROP TRIGGER IF EXISTS ${triggerName} ON ${qualifiedTable};`;
+  },
+
   ...types,
 };

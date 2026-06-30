@@ -15,7 +15,7 @@ import { ConnectionStore } from '../modules/connection-store.module';
 import { MigrationHistoryStore, type MigrationObjectResult, type MigrationRunStatus } from '../modules/migration-history.module';
 import { AppSettingsStore } from '../modules/app-settings.module';
 import { getMetadataDbConfig, SUPPORTED_ENGINES, type DbEngine } from '../database/config';
-import { createMetadataStore } from '../database/providers/registry';
+import { createMetadataStore } from '../database/stores/registry';
 import { keySchemeInfo } from '../cores/crypto';
 import type { AuthedRequest } from './auth.routes';
 
@@ -243,8 +243,8 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   router.post('/connection/test', async (req: Request, res: Response) => {
     try {
       const { dialect, option } = await resolveRef((req as AuthedRequest).userId, req.body as ConnectionRef);
-      const success = await connectionModule.testConnection(dialect, option);
-      res.json({ success, error: success ? undefined : 'Connection test returned false' });
+      const { success, version } = await connectionModule.testConnection(dialect, option);
+      res.json({ success, version, error: success ? undefined : 'Connection test returned false' });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Connection failed';
       res.status(500).json({ success: false, error: message });
@@ -266,20 +266,15 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     }
   });
 
-  router.post('/schema/tables', async (req: Request, res: Response) => {
-    const { dialect, option, schema } = req.body as {
-      dialect: string;
-      option: ConnectionOptions;
-      schema: string;
-    };
-
+  // Load a single schema's scoped objects (no comparison) — for the browse/search
+  // mode. Uses resolveRef so saved connections work, and applies the object-type
+  // scope just like /compare does for each side.
+  router.post('/schema/load', async (req: Request, res: Response) => {
+    const { scope, ...ref } = req.body as ConnectionRef & { scope: DbObjectType[] };
     try {
-      const provider = connectionModule.getProvider(dialect);
-      if (!provider.getTables) {
-        throw new Error(`Provider for dialect "${dialect}" does not support table listing`);
-      }
-      const tables = await provider.getTables(option, schema);
-      res.json({ tables });
+      const { dialect, option, schema } = await resolveRef((req as AuthedRequest).userId, ref);
+      const { tables, warnings } = await loadScopedTables(dialect, option, schema, scope);
+      res.json(warnings.length ? { tables, warnings } : { tables });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Failed to load schema';
       res.status(500).json({ error: message });
@@ -418,6 +413,22 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   // --- Migration history (per user) ----------------------------------------
   router.get('/migrations', async (req: Request, res: Response) => {
     res.json({ runs: await migrationHistory.list((req as AuthedRequest).userId!) });
+  });
+
+  // Bulk delete selected runs. Registered before '/migrations/:id' so the
+  // literal path isn't captured as an :id.
+  router.post('/migrations/delete', async (req: Request, res: Response) => {
+    const ids = Array.isArray((req.body as { ids?: unknown }).ids)
+      ? ((req.body as { ids: unknown[] }).ids.filter((i) => typeof i === 'string') as string[])
+      : [];
+    const removed = await migrationHistory.removeMany((req as AuthedRequest).userId!, ids);
+    res.json({ removed });
+  });
+
+  // Clear the entire history for the user.
+  router.delete('/migrations', async (req: Request, res: Response) => {
+    const removed = await migrationHistory.clear((req as AuthedRequest).userId!);
+    res.json({ removed });
   });
 
   router.get('/migrations/:id', async (req: Request, res: Response) => {

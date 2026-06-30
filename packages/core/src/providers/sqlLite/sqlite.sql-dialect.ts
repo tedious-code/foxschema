@@ -65,8 +65,12 @@ export const sqliteSqlDialect: SqlDialect = {
   },
 
   modifyColumnStatements(tableName: string, colName: string, col: ColumnSpec): string[] {
-    // SQLite ALTER COLUMN is only supported since 3.35.0 and limited
-    return [`ALTER TABLE ${tableName} ALTER COLUMN ${colName} ${col.type};`];
+    // SQLite has no ALTER COLUMN for type/nullability changes — table must be recreated.
+    const nullNote = col.nullable ? 'nullable' : 'NOT NULL';
+    return [
+      `-- review: SQLite cannot change a column type or nullability in-place.`,
+      `-- Recreate ${tableName} to apply: ${colName} ${col.type} ${nullNote}`,
+    ];
   },
 
   dropColumnStatement(tableName: string, colName: string): string {
@@ -81,6 +85,20 @@ export const sqliteSqlDialect: SqlDialect = {
   dropPrimaryKeyStatements(tableName: string, _pkName: string | undefined): string[] {
     // SQLite has no ALTER TABLE DROP PRIMARY KEY; must recreate the table
     return [`-- SQLite: recreate ${tableName} to change primary key`];
+  },
+
+  dropForeignKeyStatement(tableName: string, fkName: string): string {
+    // SQLite cannot drop a constraint in place — the table must be recreated.
+    // Emit a review note rather than invalid SQL.
+    return `-- review: SQLite cannot DROP a foreign key (${fkName}) in place — recreate ${tableName} to remove it`;
+  },
+
+  dropIndexStatement(indexName: string, _qualifiedTable: string): string {
+    return `DROP INDEX IF EXISTS ${indexName};`;
+  },
+
+  dropTriggerStatement(triggerName: string, _qualifiedTable: string): string {
+    return `DROP TRIGGER IF EXISTS ${triggerName};`;
   },
 
   ...types,

@@ -10,6 +10,9 @@ CREATE DATABASE demo_b CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 -- Grant access to foxuser
 GRANT ALL PRIVILEGES ON demo_a.* TO 'foxuser'@'%';
 GRANT ALL PRIVILEGES ON demo_b.* TO 'foxuser'@'%';
+-- SUPER: allows CREATE FUNCTION/PROCEDURE/TRIGGER with binary logging enabled (error 1419)
+-- SHOW_ROUTINE: allows reading procedure/function bodies from information_schema.ROUTINES
+GRANT SUPER, SHOW_ROUTINE ON *.* TO 'foxuser'@'%';
 FLUSH PRIVILEGES;
 
 -- ============================================================

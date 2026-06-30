@@ -1,11 +1,14 @@
 import React, { useState, useMemo, Suspense, lazy } from 'react';
-import { createPortal } from 'react-dom';
 import { useSyncStore } from '../store/useSyncStore';
-import { Code, Play, RefreshCw, FileText, CheckCircle2, ChevronRight, ChevronDown, AlertCircle, Copy, GitCompareArrows, KeyRound, XCircle, Circle, Download, X, Undo2 } from 'lucide-react';
+import { Code, Play, RefreshCw, FileText, CheckCircle2, ChevronRight, ChevronDown, KeyRound, Copy, GitCompareArrows, AlertTriangle } from 'lucide-react';
 import { SqlGeneratorModule } from '../lib/sql-generator';
+import { findDropDependencies, type DropDependency } from '../lib/dependency-scan';
 import { diffLines } from '../utils/lineDiff';
 import { highlightMatch } from '../utils/highlight';
 import { formatSql } from '../utils/formatSql';
+import { MigrationProgressPanel } from './object-detail/MigrationProgressPanel';
+import { DeployConfirmDialog } from './object-detail/DeployConfirmDialog';
+import { DependencyWarningDialog } from './object-detail/DependencyWarningDialog';
 // Monaco is heavy — load it only when a SQL surface is actually shown
 const SqlEditor = lazy(() => import('./SqlEditor').then((m) => ({ default: m.SqlEditor })));
 const SqlDiffEditor = lazy(() => import('./SqlEditor').then((m) => ({ default: m.SqlDiffEditor })));
@@ -21,7 +24,7 @@ const ddlGenerator = new SqlGeneratorModule();
 // Persisted "skip the deploy confirmation" preference.
 const SKIP_DEPLOY_CONFIRM_KEY = 'foxschema-skip-deploy-confirm';
 
-export const RightPanel: React.FC = () => {
+export const ObjectDetailPanel: React.FC = () => {
   const {
     selectedTable,
     generatedSql,
@@ -30,16 +33,12 @@ export const RightPanel: React.FC = () => {
     isComparing,
     sourceConfig,
     targetConfig,
+    compareResult,
+    browseMode,
     syncSelection,
     toggleSyncSelection,
     nonDestructive,
-    setNonDestructive,
     isMigrating,
-    migrationProgress,
-    snapshotDdl,
-    migrationError,
-    migrationRolledBack,
-    clearMigrationProgress,
     searchTerm,
     memberSelection,
     toggleMemberSelection,
@@ -59,6 +58,8 @@ export const RightPanel: React.FC = () => {
   // Deploy confirmation dialog
   const [showConfirm, setShowConfirm] = useState(false);
   const [dontAskAgain, setDontAskAgain] = useState(false);
+  // Pre-deploy warning: dropped tables/columns still referenced by views/functions/procedures.
+  const [dropDeps, setDropDeps] = useState<DropDependency[]>([]);
 
   const toggleTriggerDdl = (name: string) =>
     setExpandedTriggers((prev) => ({ ...prev, [name]: !prev[name] }));
@@ -85,14 +86,34 @@ export const RightPanel: React.FC = () => {
     );
   }
 
-  // Show the confirmation dialog before deploying, unless the user opted out.
-  const handleExecuteClick = () => {
+  // Proceed to the normal confirm step (or deploy directly if the user opted out).
+  const proceedToConfirm = () => {
     if (localStorage.getItem(SKIP_DEPLOY_CONFIRM_KEY) === 'true') {
       applyMigration();
     } else {
       setDontAskAgain(false);
       setShowConfirm(true);
     }
+  };
+
+  // Before deploying, warn when a selected drop (table/column) would break a
+  // view/function/procedure that still references it. Recommend handling those
+  // dependents first; the user can include them in the deploy or proceed anyway.
+  const handleExecuteClick = () => {
+    const deps = compareResult
+      ? findDropDependencies(compareResult.tables, syncSelection, { nonDestructive })
+      : [];
+    if (deps.length > 0) {
+      setDropDeps(deps);
+      return;
+    }
+    proceedToConfirm();
+  };
+
+  // "Deploy anyway" from the dependency warning — dismiss it and run the normal flow.
+  const proceedDespiteDeps = () => {
+    setDropDeps([]);
+    proceedToConfirm();
   };
 
   const confirmExecute = () => {
@@ -143,15 +164,15 @@ export const RightPanel: React.FC = () => {
           <span className="text-xs font-mono text-slate-400 flex items-center gap-2">
             <span className="text-slate-300">{selectedTable.tableName}</span>
             <span className="text-slate-600">—</span>
-            {/* Orientation matches the connection bar: source (left) → target (right).
-                Red  = present in source but not target → will be added to target.
-                Green = present in target but not source → will be removed from target. */}
-            <span className="text-slate-500 text-[10px] italic">Source (desired)</span>
-            <span className="text-slate-600">→</span>
+            {/* Orientation: target (left, current state) → source (right, desired state).
+                Monaco computes "what transforms original into modified" — so target is
+                original and source is modified. Green = added to target, Red = removed from target. */}
             <span className="text-slate-500 text-[10px] italic">Target (current)</span>
+            <span className="text-slate-600">→</span>
+            <span className="text-slate-500 text-[10px] italic">Source (desired)</span>
             <span className="ml-1 flex items-center gap-2 text-[10px]">
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-rose-500/70"></span><span className="text-rose-300/80">add to target</span></span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-emerald-500/70"></span><span className="text-emerald-300/80">remove from target</span></span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-emerald-500/70"></span><span className="text-emerald-300/80">add to target</span></span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-rose-500/70"></span><span className="text-rose-300/80">remove from target</span></span>
             </span>
           </span>
           <div className="flex items-center gap-3">
@@ -177,8 +198,8 @@ export const RightPanel: React.FC = () => {
           <div className="absolute inset-0">
             <Suspense fallback={<EditorFallback />}>
               <SqlDiffEditor
-                original={sourceDdl}
-                modified={targetDdl}
+                original={targetDdl}
+                modified={sourceDdl}
                 dialect={targetConfig.dialect}
                 inline={inlineDiff}
                 ignoreCase={ignoreCase}
@@ -926,6 +947,25 @@ export const RightPanel: React.FC = () => {
     );
   };
 
+  // MySQL/MariaDB refuse CREATE FUNCTION/PROCEDURE/TRIGGER when binary logging is on
+  // and the connecting user lacks SUPER (error 1419), unless
+  // log_bin_trust_function_creators=1. Warn when the migration deploys (creates or
+  // recreates) any routine or trigger to a MySQL target. Triggers ride inside a
+  // table's ALTER step, so check triggerDiffs as well as top-level routine objects.
+  const targetIsMySql = ['mysql', 'mariadb'].includes(targetConfig.dialect.toLowerCase());
+  const deploysRoutineToMySql =
+    targetIsMySql &&
+    (compareResult?.tables ?? []).some((t) => {
+      if (!syncSelection[t.tableName]) return false;
+      if (
+        (t.objectType === 'FUNCTION' || t.objectType === 'PROCEDURE' || t.objectType === 'TRIGGER') &&
+        (t.status === 'ADDED' || t.status === 'MODIFIED')
+      ) {
+        return true;
+      }
+      return (t.triggerDiffs ?? []).some((d) => d.status === 'ADDED' || d.status === 'MODIFIED');
+    });
+
   return (
     <div className="flex-1 flex flex-col min-w-0 bg-slate-900 h-full">
       {/* Detail Panel Toolbar */}
@@ -941,26 +981,31 @@ export const RightPanel: React.FC = () => {
           >
             <FileText className="w-3.5 h-3.5" /> Schema Blueprint
           </button>
-          <button
-            onClick={() => setActiveTab('DDL_DIFF')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer ${
-              activeTab === 'DDL_DIFF'
-                ? 'bg-slate-850 text-slate-100 border border-slate-700/80 shadow'
-                : 'text-slate-400 hover:text-slate-200 border border-transparent'
-            }`}
-          >
-            <GitCompareArrows className="w-3.5 h-3.5" /> DDL Diff
-          </button>
-          <button
-            onClick={() => setActiveTab('SQL')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer ${
-              activeTab === 'SQL'
-                ? 'bg-slate-850 text-slate-100 border border-slate-700/80 shadow'
-                : 'text-slate-400 hover:text-slate-200 border border-transparent'
-            }`}
-          >
-            <Code className="w-3.5 h-3.5" /> Migration SQL
-          </button>
+          {/* DDL Diff and Migration SQL are comparison-only — hidden when browsing one schema. */}
+          {!browseMode && (
+            <>
+              <button
+                onClick={() => setActiveTab('DDL_DIFF')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer ${
+                  activeTab === 'DDL_DIFF'
+                    ? 'bg-slate-850 text-slate-100 border border-slate-700/80 shadow'
+                    : 'text-slate-400 hover:text-slate-200 border border-transparent'
+                }`}
+              >
+                <GitCompareArrows className="w-3.5 h-3.5" /> DDL Diff
+              </button>
+              <button
+                onClick={() => setActiveTab('SQL')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer ${
+                  activeTab === 'SQL'
+                    ? 'bg-slate-850 text-slate-100 border border-slate-700/80 shadow'
+                    : 'text-slate-400 hover:text-slate-200 border border-transparent'
+                }`}
+              >
+                <Code className="w-3.5 h-3.5" /> Migration SQL
+              </button>
+            </>
+          )}
         </div>
 
         {/* Action Panel Actions */}
@@ -974,6 +1019,7 @@ export const RightPanel: React.FC = () => {
             </button>
           )}
 
+          {!browseMode && (
           <button
             onClick={handleExecuteClick}
             disabled={isComparing || isMigrating || migrationExecuted || includedCount === 0}
@@ -1000,67 +1046,51 @@ export const RightPanel: React.FC = () => {
               </>
             )}
           </button>
-
-          {showConfirm && createPortal(
-            <div
-              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
-              onClick={() => setShowConfirm(false)}
-            >
-              <div
-                className="w-full max-w-[440px] bg-slate-900 border border-slate-800 rounded-xl shadow-2xl overflow-hidden"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="px-6 py-4 border-b border-slate-800 bg-slate-950/40 flex items-center gap-2.5">
-                  <AlertCircle className="w-5 h-5 text-amber-400 shrink-0" />
-                  <h2 className="text-slate-100 font-bold text-base">Execute sync script?</h2>
-                </div>
-                <div className="p-6 space-y-3">
-                  <p className="text-sm text-slate-300 leading-relaxed">
-                    This runs the generated migration against the{' '}
-                    <span className="font-bold text-purple-300">target</span> database
-                    {' '}(<span className="font-mono text-xs">{targetConfig.dialect.toUpperCase()}</span>), applying{' '}
-                    <span className="font-bold text-slate-100">{includedCount}</span> object change{includedCount === 1 ? '' : 's'}.
-                    This cannot be undone automatically.
-                  </p>
-                  <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={dontAskAgain}
-                      onChange={(e) => setDontAskAgain(e.target.checked)}
-                      className="w-4 h-4 accent-cyan-500 cursor-pointer"
-                    />
-                    Don't show this again
-                  </label>
-                </div>
-                <div className="flex justify-end gap-2 px-6 py-4 bg-slate-950/60 border-t border-slate-800">
-                  <button
-                    onClick={() => setShowConfirm(false)}
-                    className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-850/50 rounded transition"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={confirmExecute}
-                    className="px-4 py-2 text-xs font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 on-accent-fg rounded transition shadow flex items-center gap-1.5"
-                  >
-                    <Play className="w-3.5 h-3.5 fill-current" /> Execute
-                  </button>
-                </div>
-              </div>
-            </div>,
-            document.body
           )}
+
+          <DependencyWarningDialog
+            deps={dropDeps}
+            syncSelection={syncSelection}
+            toggleSyncSelection={toggleSyncSelection}
+            onCancel={() => setDropDeps([])}
+            onDeployAnyway={proceedDespiteDeps}
+          />
+
+          <DeployConfirmDialog
+            open={showConfirm}
+            dialect={targetConfig.dialect}
+            count={includedCount}
+            dontAskAgain={dontAskAgain}
+            onToggleDontAsk={setDontAskAgain}
+            onCancel={() => setShowConfirm(false)}
+            onConfirm={confirmExecute}
+          />
         </div>
       </div>
 
       {/* Main Panel Content Panel */}
       <div className="flex-1 flex flex-col min-h-0">
-        {activeTab === 'DIFF' ? (
+        {browseMode || activeTab === 'DIFF' ? (
           renderSchemaObjectDiff()
         ) : activeTab === 'DDL_DIFF' ? (
           renderDdlDiff()
         ) : (
           <div className="flex-1 flex flex-col min-h-0 bg-slate-950/90 border-t border-slate-850">
+            {deploysRoutineToMySql && (
+              <div className="flex items-start gap-2 px-4 py-2.5 bg-amber-950/40 border-b border-amber-500/30 text-[11px] text-amber-200">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+                <div className="leading-relaxed">
+                  <span className="font-bold text-amber-300">MySQL routine/trigger deploy:</span> with binary
+                  logging enabled, <code className="text-amber-100">CREATE FUNCTION/PROCEDURE/TRIGGER</code>{' '}
+                  requires the <code className="text-amber-100">SUPER</code> privilege (error 1419). If the
+                  connecting user lacks it, have a DBA run{' '}
+                  <code className="text-amber-100">SET GLOBAL log_bin_trust_function_creators = 1;</code> once
+                  (or set it in <code className="text-amber-100">my.cnf</code>) before deploying — or use{' '}
+                  <span className="font-semibold text-amber-100">Skip &amp; retry</span> in the progress panel
+                  to deploy everything else.
+                </div>
+              </div>
+            )}
             <div className="flex-1 min-h-0 relative">
               <div className="absolute inset-0">
                 <Suspense fallback={<EditorFallback />}>
@@ -1076,136 +1106,7 @@ export const RightPanel: React.FC = () => {
         )}
       </div>
 
-      {/* Migration Progress Panel */}
-      {migrationProgress.length > 0 && (
-        <div className="fixed bottom-6 right-6 w-[380px] max-h-[60vh] flex flex-col bg-slate-900/95 border border-slate-700 rounded-xl shadow-2xl backdrop-blur-md z-50 overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-950/60">
-            <h4 className="text-xs font-bold text-slate-100 flex items-center gap-2">
-              {isMigrating ? (
-                <><RefreshCw className="w-4 h-4 animate-spin text-cyan-400" /> Migrating Target...</>
-              ) : migrationError ? (
-                <><XCircle className="w-4 h-4 text-rose-400" /> Migration Failed</>
-              ) : (
-                <><CheckCircle2 className="w-4 h-4 text-emerald-400" /> Migration Complete</>
-              )}
-            </h4>
-            <div className="flex items-center gap-1.5">
-              {snapshotDdl && (
-                <button
-                  onClick={() => {
-                    const blob = new Blob([snapshotDdl], { type: 'text/sql' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    // Filename: snapshot_<host>_<database>_<schema>_<datetime>.sql
-                    const safe = (s?: string) => (s ?? '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'unknown';
-                    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-                    a.download = `snapshot_${safe(targetConfig.option.host)}_${safe(targetConfig.option.database)}_${safe(targetConfig.schema)}_${stamp}.sql`;
-                    a.click();
-                    URL.revokeObjectURL(url);
-                  }}
-                  title="Download pre-migration schema snapshot"
-                  className="flex items-center gap-1 text-[10px] text-slate-300 hover:text-slate-100 border border-slate-700 rounded px-2 py-1 hover:bg-slate-800 transition"
-                >
-                  <Download className="w-3 h-3" /> Snapshot
-                </button>
-              )}
-              {!isMigrating && (
-                <button
-                  onClick={clearMigrationProgress}
-                  className="p-1 text-slate-500 hover:text-slate-200 hover:bg-slate-800 rounded transition"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-2 space-y-1">
-            {migrationProgress.map((item) => (
-              <div
-                key={`${item.action}-${item.objectName}`}
-                className={`flex items-start gap-2.5 px-3 py-2 rounded-lg text-xs ${
-                  item.status === 'FAILED' ? 'bg-rose-950/30 border border-rose-500/20' : 'bg-slate-950/40'
-                }`}
-              >
-                <span className="mt-0.5 shrink-0">
-                  {item.status === 'PENDING' && <Circle className="w-3.5 h-3.5 text-slate-600" />}
-                  {item.status === 'RUNNING' && <RefreshCw className="w-3.5 h-3.5 text-cyan-400 animate-spin" />}
-                  {item.status === 'SUCCESS' && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
-                  {item.status === 'FAILED' && <XCircle className="w-3.5 h-3.5 text-rose-400" />}
-                </span>
-                <div className="min-w-0">
-                  <span className="font-mono font-semibold text-slate-200">
-                    <span className="text-slate-500 font-sans font-bold text-[10px] mr-1.5">{item.action}</span>
-                    {item.objectName}
-                  </span>
-                  <span className="text-slate-600 ml-1.5 text-[10px] uppercase">{item.objectType}</span>
-                  {item.error && (
-                    <p className="text-[10px] text-rose-400 mt-1 font-mono break-all">{item.error}</p>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {!isMigrating && migrationError && (
-            <div className="px-4 py-3 border-t border-slate-800 bg-rose-950/30 flex items-start gap-2">
-              <Undo2 className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-              <p className="text-[11px] text-slate-300">
-                {migrationRolledBack
-                  ? 'All changes were rolled back — the target is unchanged.'
-                  : 'Rollback could not be confirmed — verify the target manually (snapshot available above).'}
-              </p>
-            </div>
-          )}
-
-          {/* Actionable guidance for the dependent-view conflict, with a one-click fix. */}
-          {!isMigrating && migrationError && /cannot restore dependent view/i.test(migrationError) && (() => {
-            const view = /dependent view\s+([^\s]+)/i.exec(migrationError)?.[1];
-            return (
-              <div className="px-4 py-3 border-t border-slate-800 bg-amber-950/20">
-                <div className="flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                  <div className="text-[11px] text-slate-300 space-y-2">
-                    <p className="font-semibold text-amber-200">
-                      A view{view ? <> (<span className="font-mono">{view}</span>)</> : null} depends on a column this migration changes
-                    </p>
-                    <p className="text-slate-400">
-                      The migration drops or retypes a column that view uses, so it can&apos;t be rebuilt afterwards.
-                      The target was left unchanged. Choose how to proceed:
-                    </p>
-                    <ul className="space-y-2">
-                      <li className="flex items-start gap-2">
-                        <button
-                          onClick={() => { setNonDestructive(true); clearMigrationProgress(); }}
-                          className="shrink-0 text-[11px] font-semibold text-slate-950 bg-emerald-400 hover:bg-emerald-300 rounded px-2 py-1 transition on-accent-fg"
-                        >
-                          Switch to non-destructive
-                        </button>
-                        <span className="text-slate-400 mt-0.5">
-                          Keeps the column (no drop), so the view stays valid. Then press <span className="text-slate-200 font-semibold">Execute</span> again.
-                        </span>
-                      </li>
-                      <li className="text-slate-400 pl-1">
-                        Or drop / update <span className="font-mono text-slate-300">{view ?? 'the view'}</span> in the target yourself
-                        {view ? <> — e.g. <code className="text-slate-300">DROP VIEW {view};</code></> : null}, then re-run.
-                      </li>
-                    </ul>
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
-          {!isMigrating && !migrationError && (
-            <div className="px-4 py-3 border-t border-slate-800 bg-emerald-950/20">
-              <p className="text-[11px] text-slate-300">
-                All {migrationProgress.length} object(s) deployed and committed to the target.
-              </p>
-            </div>
-          )}
-        </div>
-      )}
+      <MigrationProgressPanel />
     </div>
   );
 };
