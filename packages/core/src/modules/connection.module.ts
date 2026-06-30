@@ -7,9 +7,13 @@ export class ConnectionModule {
     return DriverDetector.checkDialect(dialect);
   }
 
-  async testConnection(dialect: string, option: ConnectionOptions): Promise<boolean> {
+  async testConnection(dialect: string, option: ConnectionOptions): Promise<{ success: boolean; version?: string }> {
     DriverDetector.ensureDriver(dialect);
-    return this.getProvider(dialect).testConnection(option);
+    const provider = this.getProvider(dialect);
+    const success = await provider.testConnection(option);
+    if (!success) return { success: false };
+    const version = await provider.detectVersion?.(option).catch(() => undefined);
+    return { success: true, version };
   }
 
   getProvider(dialect: string): SchemaProvider {

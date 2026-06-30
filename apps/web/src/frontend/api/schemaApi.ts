@@ -5,6 +5,7 @@ import type {
   SchemaCompareResult,
   MigrationStep,
   MigrationEvent,
+  TableSchema,
 } from '../lib/types';
 import { getApiBase } from './apiBase';
 
@@ -86,6 +87,25 @@ export async function compareSchemas(
   );
 }
 
+/** Loads one schema's scoped objects (no comparison) for browse/search mode. */
+export async function loadSchema(
+  ref: ConnectionRef,
+  scope: DbObjectType[]
+): Promise<{ tables: TableSchema[]; warnings?: string[] }> {
+  // De-dupe concurrent identical loads (e.g. double-click); never cached
+  const key = `load:${JSON.stringify({ ref, scope })}`;
+  return idempotent(key, async () =>
+    parseJson<{ tables: TableSchema[]; warnings?: string[] }>(
+      await fetch(`${getApiBase()}/schema/load`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...ref, scope }),
+      })
+    )
+  );
+}
+
 export async function checkDriver(dialect: string): Promise<DriverInfo> {
   // Driver-installed status rarely changes — cache for 30s, dedupe concurrent checks
   return idempotent(
@@ -112,7 +132,7 @@ export async function installDriver(dialect: string): Promise<{ success: boolean
 }
 
 
-export async function testConnection(ref: ConnectionRef): Promise<boolean> {
+export async function testConnection(ref: ConnectionRef): Promise<{ version?: string }> {
   const res = await fetch(`${getApiBase()}/connection/test`, {
     method: 'POST',
     credentials: 'include',
@@ -120,7 +140,7 @@ export async function testConnection(ref: ConnectionRef): Promise<boolean> {
     body: JSON.stringify(ref),
   });
 
-  const data = (await res.json()) as { success: boolean; error?: string };
+  const data = (await res.json()) as { success: boolean; version?: string; error?: string };
 
   if (!res.ok) {
     throw new Error(data.error ?? res.statusText);
@@ -130,7 +150,7 @@ export async function testConnection(ref: ConnectionRef): Promise<boolean> {
     throw new Error(data.error ?? 'Connection test returned false');
   }
 
-  return true;
+  return { version: data.version };
 }
 
 export async function fetchSchemaList(ref: ConnectionRef): Promise<string[]> {

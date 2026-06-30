@@ -4,5 +4,5 @@
 export type MigrationEvent =
   | { type: 'snapshot'; ddl: string }
   | { type: 'start'; total: number }
-  | { type: 'object'; objectName: string; objectType: string; action: string; status: 'RUNNING' | 'SUCCESS' | 'FAILED'; error?: string }
+  | { type: 'object'; objectName: string; objectType: string; action: string; status: 'RUNNING' | 'SUCCESS' | 'FAILED' | 'SKIPPED'; error?: string }
   | { type: 'done'; success: boolean; rolledBack: boolean; error?: string };

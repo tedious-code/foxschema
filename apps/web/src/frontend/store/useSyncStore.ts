@@ -1,163 +1,25 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { SqlGeneratorModule } from '../lib/sql-generator';
-import { buildConnectionString, withConnectionString, type ConnectionOptions } from '../lib/provider-settings';
-import type { DbObjectType, DriverInfo, SchemaCompareResult, TableDiff } from '../lib/types';
+import { buildBrowseResult } from '../lib/browse';
+import type { ConnectionOptions } from '../lib/provider-settings';
 import {
   testConnection as apiTestConnection,
   fetchSchemaList,
   compareSchemas,
+  loadSchema,
   executeMigration,
-  checkDriver as apiCheckDriver,
-  installDriver as apiInstallDriver,
   invalidateCache,
-  type ConnectionRef,
 } from '../api/schemaApi';
 import {
   apiListConnections,
   apiCreateConnection,
   apiUpdateConnection,
   apiDeleteConnection,
-  type SavedConnectionSummary,
 } from '../api/authApi';
+import type { ConnectionConfig, SyncState } from './sync-types';
+import { sqlGeneratorModule, buildRef, buildMapping, regenerateSql } from './sync-helpers';
 
-export interface MigrationProgressItem {
-  objectName: string;
-  objectType: string;
-  action: string;
-  status: 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED';
-  error?: string;
-}
-
-// Comparison runs server-side (/api/compare); SQL generation stays client-side
-// because it re-runs interactively as deploy checkboxes toggle, with no DB round-trip
-const sqlGeneratorModule = new SqlGeneratorModule();
-
-// Build the diffs to deploy from the object selection, applying per-role member
-// opt-outs: a role member explicitly set to false is dropped from the role's
-// diffs, so it won't appear in the generated GRANT/REVOKE.
-function buildIncludedDiffs(
-  tables: TableDiff[],
-  selection: Record<string, boolean>,
-  memberSelection: Record<string, Record<string, boolean>>
-): TableDiff[] {
-  return tables
-    .filter((t) => selection[t.tableName])
-    .map((t) => {
-      if (t.objectType !== 'ROLE') return t;
-      const sel = memberSelection[t.tableName] ?? {};
-      return { ...t, columnDiffs: t.columnDiffs.filter((c) => sel[c.name] !== false) };
-    });
-}
-
-interface ConnectionConfig {
-  dialect: 'postgres' | 'mysql' | 'db2';
-  option: ConnectionOptions;
-  schema: string;
-  /** Set when this side uses a saved server connection — no password held client-side. */
-  connectionId?: string;
-}
-
-/**
- * A side's request payload: a saved connection (connectionId, resolved+decrypted
- * server-side) or an inline ad-hoc option. Keeps passwords off the wire for saved ones.
- */
-function buildRef(cfg: ConnectionConfig): ConnectionRef {
-  if (cfg.connectionId) return { connectionId: cfg.connectionId, schema: cfg.schema };
-  return {
-    dialect: cfg.dialect,
-    option: withConnectionString(cfg.dialect, { ...cfg.option, schema: cfg.schema }),
-    schema: cfg.schema,
-  };
-}
-
-interface SyncState {
-  sourceConfig: ConnectionConfig;
-  targetConfig: ConnectionConfig;
-  
-  connections: SavedConnectionSummary[];
-  selectedSourceConnectionId: string | null;
-  selectedTargetConnectionId: string | null;
-
-  showConnectionModal: boolean;
-
-  loadConnections: () => Promise<void>;
-  addConnection: (input: { name?: string; dialect: string; schema?: string; option: ConnectionOptions }) => Promise<SavedConnectionSummary>;
-  updateConnection: (id: string, input: { name?: string; dialect: string; schema?: string; option: ConnectionOptions }) => Promise<SavedConnectionSummary>;
-  removeConnection: (id: string) => Promise<void>;
-
-  setShowConnectionModal: (open: boolean) => void;
-
-  setSelectedSourceConnection: (id: string | null) => void;
-  setSelectedTargetConnection: (id: string | null) => void;
-  applySavedConnection: (side: 'source' | 'target', id: string) => void;
-
-  sourceDriverInfo: DriverInfo | null;
-  targetDriverInfo: DriverInfo | null;
-  isInstallingDriver: string | null;
-  checkDrivers: () => Promise<void>;
-  installDriver: (target: 'source' | 'target') => Promise<void>;
-
-  isTestingSource: boolean;
-  isTestingTarget: boolean;
-  sourceConnected: boolean;
-  targetConnected: boolean;
-  errorMsg: string | null;
-  /** Non-fatal notices from the last comparison (e.g. roles skipped — no privilege). */
-  warnings: string[];
-
-  // Schemas available on each connected database (loaded after a successful test)
-  sourceSchemaList: string[];
-  targetSchemaList: string[];
-  loadSchemaList: (side: 'source' | 'target') => Promise<void>;
-  setSchema: (side: 'source' | 'target', schema: string) => void;
-
-  // Selected Object Scope selection filters
-  selectedObjectTypes: DbObjectType[];
-
-  isComparing: boolean;
-  compareResult: SchemaCompareResult | null;
-  selectedTable: TableDiff | null;
-  generatedSql: string | null;
-  migrationExecuted: boolean;
-  /** Additive mode: generate ADD/MODIFY only — never DROP anything in the target. */
-  nonDestructive: boolean;
-  setNonDestructive: (v: boolean) => void;
-  filterStatus: 'ALL' | 'ADDED' | 'REMOVED' | 'MODIFIED' | 'UNCHANGED';
-  searchTerm: string;
-
-  // Per-object inclusion in the deployment script (keyed by tableName)
-  syncSelection: Record<string, boolean>;
-  toggleSyncSelection: (tableName: string) => void;
-  setAllSyncSelection: (selected: boolean) => void;
-  /** Per-role member opt-out: memberSelection[role][member] === false excludes that member from deploy. */
-  memberSelection: Record<string, Record<string, boolean>>;
-  toggleMemberSelection: (roleName: string, memberName: string) => void;
-  setAllMemberSelection: (roleName: string, selected: boolean) => void;
-
-  // Live migration execution state
-  isMigrating: boolean;
-  migrationProgress: MigrationProgressItem[];
-  snapshotDdl: string | null;
-  migrationError: string | null;
-  migrationRolledBack: boolean;
-  clearMigrationProgress: () => void;
-
-  setSourceConfig: (cfg: Partial<ConnectionConfig>) => void;
-  setTargetConfig: (cfg: Partial<ConnectionConfig>) => void;
-  swapSourceTarget: () => void;
-  toggleObjectTypeFilter: (type: DbObjectType) => void;
-  setFilterStatus: (status: 'ALL' | 'ADDED' | 'REMOVED' | 'MODIFIED' | 'UNCHANGED') => void;
-  setSearchTerm: (term: string) => void;
-  setSelectedTable: (table: TableDiff | null) => void;
-
-  generateConnectionString: (side: 'source' | 'target') => string;
-  testSourceConnection: () => Promise<void>;
-  testTargetConnection: () => Promise<void>;
-  runSchemaComparison: () => Promise<void>;
-  applyMigration: () => Promise<void>;
-  resetSync: () => void;
-}
+export type { MigrationProgressItem } from './sync-types';
 
 export const useSyncStore = create<SyncState>()(
   persist(
@@ -183,14 +45,12 @@ export const useSyncStore = create<SyncState>()(
   selectedTargetConnectionId: null,
   showConnectionModal: false,
 
-  sourceDriverInfo: null,
-  targetDriverInfo: null,
-  isInstallingDriver: null,
-
   isTestingSource: false,
   isTestingTarget: false,
   sourceConnected: false,
   targetConnected: false,
+  sourceServerVersion: undefined,
+  targetServerVersion: undefined,
   errorMsg: null,
   warnings: [],
   sourceSchemaList: [],
@@ -199,6 +59,9 @@ export const useSyncStore = create<SyncState>()(
   selectedObjectTypes: ['TABLE', 'MQT', 'VIEW', 'FUNCTION', 'PROCEDURE', 'TRIGGER', 'SEQUENCE', 'TYPE', 'ROLE'],
   isComparing: false,
   compareResult: null,
+  browseMode: false,
+  browseSide: null,
+  isBrowsing: false,
   selectedTable: null,
   generatedSql: null,
   migrationExecuted: false,
@@ -271,18 +134,15 @@ export const useSyncStore = create<SyncState>()(
     } else {
       set({ selectedTargetConnectionId: id, targetConfig: config, targetConnected: false });
     }
-    get().checkDrivers();
     // Verify the saved connection right away
     void (side === 'source' ? get().testSourceConnection() : get().testTargetConnection());
   },
 
   setSourceConfig: (cfg) => {
     set((state) => ({ sourceConfig: { ...state.sourceConfig, ...cfg }, sourceConnected: false }));
-    get().checkDrivers();
   },
   setTargetConfig: (cfg) => {
     set((state) => ({ targetConfig: { ...state.targetConfig, ...cfg }, targetConnected: false }));
-    get().checkDrivers();
   },
 
   // Flip migration direction: what was the source becomes the target and vice versa
@@ -295,8 +155,6 @@ export const useSyncStore = create<SyncState>()(
       targetConnected: s.sourceConnected,
       sourceSchemaList: s.targetSchemaList,
       targetSchemaList: s.sourceSchemaList,
-      sourceDriverInfo: s.targetDriverInfo,
-      targetDriverInfo: s.sourceDriverInfo,
       selectedSourceConnectionId: s.selectedTargetConnectionId,
       selectedTargetConnectionId: s.selectedSourceConnectionId,
       compareResult: null,
@@ -304,6 +162,8 @@ export const useSyncStore = create<SyncState>()(
       generatedSql: null,
       syncSelection: {},
       migrationExecuted: false,
+      browseMode: false,
+      browseSide: null,
     });
   },
 
@@ -320,16 +180,10 @@ export const useSyncStore = create<SyncState>()(
   setNonDestructive: (nonDestructive) => {
     set({ nonDestructive });
     // Regenerate the script from the current selection so the preview reflects the mode.
-    const { compareResult, syncSelection, memberSelection, sourceConfig, targetConfig } = get();
-    if (!compareResult) return;
-    const includedDiffs = buildIncludedDiffs(compareResult.tables, syncSelection, memberSelection);
+    const s = get();
+    if (!s.compareResult) return;
     set({
-      generatedSql: sqlGeneratorModule.generateMigrationSql(includedDiffs, targetConfig.dialect, {
-        sourceSchema: sourceConfig.schema,
-        sourceDialect: sourceConfig.dialect,
-        targetSchema: targetConfig.schema,
-        nonDestructive,
-      }),
+      generatedSql: regenerateSql(s, s.syncSelection, s.memberSelection),
       migrationExecuted: false,
     });
   },
@@ -339,116 +193,59 @@ export const useSyncStore = create<SyncState>()(
   setSelectedTable: (selectedTable) => set({ selectedTable }),
 
   toggleSyncSelection: (tableName) => {
-    const { compareResult, syncSelection, memberSelection, sourceConfig, targetConfig } = get();
-    if (!compareResult) return;
-    const nextSelection = { ...syncSelection, [tableName]: !syncSelection[tableName] };
-    const includedDiffs = buildIncludedDiffs(compareResult.tables, nextSelection, memberSelection);
+    const s = get();
+    if (!s.compareResult) return;
+    const nextSelection = { ...s.syncSelection, [tableName]: !s.syncSelection[tableName] };
     set({
       syncSelection: nextSelection,
-      generatedSql: sqlGeneratorModule.generateMigrationSql(includedDiffs, targetConfig.dialect, {
-        sourceSchema: sourceConfig.schema,
-        sourceDialect: sourceConfig.dialect,
-        targetSchema: targetConfig.schema,
-        nonDestructive: get().nonDestructive,
-      }),
+      generatedSql: regenerateSql(s, nextSelection, s.memberSelection),
       migrationExecuted: false,
     });
   },
 
   setAllSyncSelection: (selected) => {
-    const { compareResult, memberSelection, sourceConfig, targetConfig } = get();
-    if (!compareResult) return;
+    const s = get();
+    if (!s.compareResult) return;
     const nextSelection: Record<string, boolean> = {};
-    for (const t of compareResult.tables) {
+    for (const t of s.compareResult.tables) {
       if (t.status !== 'UNCHANGED') nextSelection[t.tableName] = selected;
     }
-    const includedDiffs = buildIncludedDiffs(compareResult.tables, nextSelection, memberSelection);
     set({
       syncSelection: nextSelection,
-      generatedSql: sqlGeneratorModule.generateMigrationSql(includedDiffs, targetConfig.dialect, {
-        sourceSchema: sourceConfig.schema,
-        sourceDialect: sourceConfig.dialect,
-        targetSchema: targetConfig.schema,
-        nonDestructive: get().nonDestructive,
-      }),
+      generatedSql: regenerateSql(s, nextSelection, s.memberSelection),
       migrationExecuted: false,
     });
   },
 
   toggleMemberSelection: (roleName, memberName) => {
-    const { compareResult, syncSelection, memberSelection, sourceConfig, targetConfig } = get();
-    if (!compareResult) return;
-    const roleSel = { ...(memberSelection[roleName] ?? {}) };
+    const s = get();
+    if (!s.compareResult) return;
+    const roleSel = { ...(s.memberSelection[roleName] ?? {}) };
     // Default included; toggle to false (excluded) and back.
     roleSel[memberName] = roleSel[memberName] === false ? true : false;
-    const nextMember = { ...memberSelection, [roleName]: roleSel };
-    const includedDiffs = buildIncludedDiffs(compareResult.tables, syncSelection, nextMember);
+    const nextMember = { ...s.memberSelection, [roleName]: roleSel };
     set({
       memberSelection: nextMember,
-      generatedSql: sqlGeneratorModule.generateMigrationSql(includedDiffs, targetConfig.dialect, {
-        sourceSchema: sourceConfig.schema,
-        sourceDialect: sourceConfig.dialect,
-        targetSchema: targetConfig.schema,
-        nonDestructive: get().nonDestructive,
-      }),
+      generatedSql: regenerateSql(s, s.syncSelection, nextMember),
       migrationExecuted: false,
     });
   },
 
   setAllMemberSelection: (roleName, selected) => {
-    const { compareResult, syncSelection, memberSelection, sourceConfig, targetConfig } = get();
-    if (!compareResult) return;
-    const role = compareResult.tables.find((t) => t.tableName === roleName && t.objectType === 'ROLE');
+    const s = get();
+    if (!s.compareResult) return;
+    const role = s.compareResult.tables.find((t) => t.tableName === roleName && t.objectType === 'ROLE');
     if (!role) return;
     const roleSel: Record<string, boolean> = {};
     for (const m of role.columnDiffs) {
       if (m.status !== 'UNCHANGED') roleSel[m.name] = selected;
     }
-    const nextMember = { ...memberSelection, [roleName]: roleSel };
-    const includedDiffs = buildIncludedDiffs(compareResult.tables, syncSelection, nextMember);
+    const nextMember = { ...s.memberSelection, [roleName]: roleSel };
     set({
       memberSelection: nextMember,
-      generatedSql: sqlGeneratorModule.generateMigrationSql(includedDiffs, targetConfig.dialect, {
-        sourceSchema: sourceConfig.schema,
-        sourceDialect: sourceConfig.dialect,
-        targetSchema: targetConfig.schema,
-        nonDestructive: get().nonDestructive,
-      }),
+      generatedSql: regenerateSql(s, s.syncSelection, nextMember),
       migrationExecuted: false,
     });
-  },
-
-  checkDrivers: async () => {
-    const { sourceConfig, targetConfig } = get();
-    try {
-      const sourceDriver = await apiCheckDriver(sourceConfig.dialect);
-      const targetDriver = await apiCheckDriver(targetConfig.dialect);
-      set({ sourceDriverInfo: sourceDriver, targetDriverInfo: targetDriver });
-    } catch (e) {
-      console.error('Error checking drivers:', e);
-    }
-  },
-
-  installDriver: async (target) => {
-    const dialect = target === 'source' ? get().sourceConfig.dialect : get().targetConfig.dialect;
-    set({ isInstallingDriver: dialect, errorMsg: null });
-    try {
-      const result = await apiInstallDriver(dialect);
-      if (result.success) {
-        await get().checkDrivers();
-      } else {
-        set({ errorMsg: result.error || `Failed to install driver for ${dialect}` });
-      }
-    } catch (e: any) {
-      set({ errorMsg: e.message || `Failed to install driver for ${dialect}` });
-    } finally {
-      set({ isInstallingDriver: null });
-    }
-  },
-
-  generateConnectionString: (side) => {
-    const { dialect, option } = side === 'source' ? get().sourceConfig : get().targetConfig;
-    return option.connectionString?.trim() || buildConnectionString(dialect, option);
   },
 
   loadSchemaList: async (side) => {
@@ -475,44 +272,61 @@ export const useSyncStore = create<SyncState>()(
   setSchema: (side, schema) => {
     // Schema switch keeps the connection valid — only the comparison scope changes
     if (side === 'source') {
-      set({ sourceConfig: { ...get().sourceConfig, schema }, compareResult: null, selectedTable: null, generatedSql: null, syncSelection: {} });
+      set({ sourceConfig: { ...get().sourceConfig, schema }, compareResult: null, selectedTable: null, generatedSql: null, syncSelection: {}, browseMode: false, browseSide: null });
     } else {
-      set({ targetConfig: { ...get().targetConfig, schema }, compareResult: null, selectedTable: null, generatedSql: null, syncSelection: {} });
+      set({ targetConfig: { ...get().targetConfig, schema }, compareResult: null, selectedTable: null, generatedSql: null, syncSelection: {}, browseMode: false, browseSide: null });
     }
   },
 
   testSourceConnection: async () => {
     set({ isTestingSource: true, errorMsg: null });
     try {
-      // Explicit (re)connect — drop cached schema lists so the refresh is live
       invalidateCache('schemas:');
-      const success = await apiTestConnection(buildRef(get().sourceConfig));
-      set({ sourceConnected: success, isTestingSource: false });
-      if (success) {
-        await get().loadSchemaList('source');
-      }
+      const { version } = await apiTestConnection(buildRef(get().sourceConfig));
+      set({ sourceConnected: true, isTestingSource: false, sourceServerVersion: version });
+      await get().loadSchemaList('source');
     } catch (e: any) {
-      set({ errorMsg: e.message || 'Source connection failed', isTestingSource: false, sourceConnected: false });
+      set({ errorMsg: e.message || 'Source connection failed', isTestingSource: false, sourceConnected: false, sourceServerVersion: undefined });
     }
   },
 
   testTargetConnection: async () => {
     set({ isTestingTarget: true, errorMsg: null });
     try {
-      // Explicit (re)connect — drop cached schema lists so the refresh is live
       invalidateCache('schemas:');
-      const success = await apiTestConnection(buildRef(get().targetConfig));
-      set({ targetConnected: success, isTestingTarget: false });
-      if (success) {
-        await get().loadSchemaList('target');
-      }
+      const { version } = await apiTestConnection(buildRef(get().targetConfig));
+      set({ targetConnected: true, isTestingTarget: false, targetServerVersion: version });
+      await get().loadSchemaList('target');
     } catch (e: any) {
-      set({ errorMsg: e.message || 'Target connection failed', isTestingTarget: false, targetConnected: false });
+      set({ errorMsg: e.message || 'Target connection failed', isTestingTarget: false, targetConnected: false, targetServerVersion: undefined });
+    }
+  },
+
+  browseSchema: async (side) => {
+    const cfg = side === 'source' ? get().sourceConfig : get().targetConfig;
+    set({ isBrowsing: true, errorMsg: null, warnings: [], compareResult: null, selectedTable: null, generatedSql: null, migrationExecuted: false });
+    try {
+      // Refresh the schema list so we browse against current server state
+      await get().loadSchemaList(side);
+      const ref = buildRef(side === 'source' ? get().sourceConfig : get().targetConfig);
+      const { tables, warnings } = await loadSchema(ref, get().selectedObjectTypes);
+      const result = buildBrowseResult(tables, side);
+      set({
+        compareResult: result,
+        warnings: warnings ?? [],
+        browseMode: true,
+        browseSide: side,
+        syncSelection: {},
+        selectedTable: result.tables[0] || null,
+        isBrowsing: false,
+      });
+    } catch (e: any) {
+      set({ errorMsg: e.message || `Failed to load ${side} schema`, isBrowsing: false });
     }
   },
 
   runSchemaComparison: async () => {
-    set({ isComparing: true, errorMsg: null, warnings: [], compareResult: null, selectedTable: null, generatedSql: null, migrationExecuted: false });
+    set({ isComparing: true, errorMsg: null, warnings: [], compareResult: null, selectedTable: null, generatedSql: null, migrationExecuted: false, browseMode: false, browseSide: null });
     try {
       // Re-read the available schemas so the comparison runs against current server state
       await Promise.all([
@@ -527,12 +341,7 @@ export const useSyncStore = create<SyncState>()(
       const diffResult = await compareSchemas(buildRef(sourceConfig), buildRef(targetConfig), selectedObjectTypes);
 
       // Nothing is auto-selected — the user opts objects into the deployment
-      const sql = sqlGeneratorModule.generateMigrationSql([], targetConfig.dialect, {
-        sourceSchema: sourceConfig.schema,
-        sourceDialect: sourceConfig.dialect,
-        targetSchema: targetConfig.schema,
-        nonDestructive: get().nonDestructive,
-      });
+      const sql = sqlGeneratorModule.generateMigrationSql([], targetConfig.dialect, buildMapping(get()));
 
       set({
         compareResult: diffResult,
@@ -547,20 +356,33 @@ export const useSyncStore = create<SyncState>()(
     }
   },
 
+  dismissWarnings: () => set({ warnings: [] }),
+
   clearMigrationProgress: () =>
     set({ migrationProgress: [], snapshotDdl: null, migrationError: null, migrationRolledBack: false }),
 
+  skipObjectAndRetry: async (objectName) => {
+    const s = get();
+    // Deselect the failed object so the regenerated plan excludes it, then re-run.
+    const nextSelection = { ...s.syncSelection, [objectName]: false };
+    set({
+      syncSelection: nextSelection,
+      generatedSql: regenerateSql(s, nextSelection, s.memberSelection),
+      migrationProgress: [],
+      migrationError: null,
+      migrationRolledBack: false,
+      snapshotDdl: null,
+      migrationExecuted: false,
+    });
+    await get().applyMigration();
+  },
+
   applyMigration: async () => {
-    const { compareResult, syncSelection, sourceConfig, targetConfig } = get();
+    const { compareResult, syncSelection, targetConfig } = get();
     if (!compareResult) return;
 
     const includedDiffs = compareResult.tables.filter((t) => syncSelection[t.tableName]);
-    const plan = sqlGeneratorModule.generateMigrationPlan(includedDiffs, targetConfig.dialect, {
-      sourceSchema: sourceConfig.schema,
-      sourceDialect: sourceConfig.dialect,
-      targetSchema: targetConfig.schema,
-      nonDestructive: get().nonDestructive,
-    });
+    const plan = sqlGeneratorModule.generateMigrationPlan(includedDiffs, targetConfig.dialect, buildMapping(get()));
     if (plan.length === 0) return;
 
     set({
@@ -622,6 +444,8 @@ export const useSyncStore = create<SyncState>()(
       generatedSql: null,
       migrationExecuted: false,
       syncSelection: {},
+      browseMode: false,
+      browseSide: null,
     });
   },
     }),

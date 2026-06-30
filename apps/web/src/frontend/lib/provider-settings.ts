@@ -1,4 +1,4 @@
-export type Dialect = 'postgres' | 'mysql' | 'mariadb' | 'db2' | 'sqlserver' | 'oracle' | 'sqlite';
+export type Dialect = 'postgres' | 'mysql' | 'mariadb' | 'db2' | 'sqlserver' | 'oracle' | 'sqlite' | 'redshift' | 'clickhouse' | 'azuresql';
 
 export interface ConnectionOptions {
   connectionString?: string;

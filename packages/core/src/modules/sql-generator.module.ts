@@ -9,6 +9,8 @@ export interface MigrationStep {
   action: 'DROP' | 'CREATE' | 'ALTER';
   /** Individual executable statements, in order. Trailing semicolons are display-only. */
   statements: string[];
+  /** When set, the executor skips all statements and emits SKIPPED status with this reason. */
+  skipped?: string;
 }
 
 export interface SchemaMapping {
@@ -26,6 +28,12 @@ export interface SchemaMapping {
    * of being removed. Safer — the target keeps its extra structure.
    */
   nonDestructive?: boolean;
+  /**
+   * Server version string of the TARGET database (e.g. "19.3.0.0.0" for Oracle 19c,
+   * "11.5.8.0" for DB2 11.5). Populated after a successful test-connection.
+   * Passed to dialect drop hooks so they can emit version-safe DDL.
+   */
+  targetServerVersion?: string;
 }
 
 const PROCEDURAL_TYPES: ReadonlySet<DbObjectType> = new Set(['VIEW', 'FUNCTION', 'PROCEDURE', 'TRIGGER']);
@@ -128,9 +136,17 @@ export class SqlGeneratorModule {
   private renderColumn(c: ColumnSpec & { name: string }, dialect: SqlDialect, mapping?: SchemaMapping, warnings?: string[]): string {
     const translated = this.translateType(c.type, mapping);
     if (translated.warning) warnings?.push(`${c.name}: ${translated.warning}`);
-    let def = `${c.name} ${translated.sql}`;
-    def += dialect.identityClause(c);
-    if (!c.nullable) def += ` NOT NULL`;
+    let typeSql: string;
+    if (dialect.nullableTypeWrapper) {
+      // Dialect encodes nullability in the type (e.g. ClickHouse Nullable(T)) — no NOT NULL keyword.
+      typeSql = dialect.nullableTypeWrapper(translated.sql, c.nullable);
+    } else {
+      typeSql = translated.sql + dialect.identityClause(c);
+    }
+    let def = `${c.name} ${typeSql}`;
+    if (!dialect.nullableTypeWrapper) {
+      if (!c.nullable) def += ` NOT NULL`;
+    }
     if (c.defaultValue) def += ` DEFAULT ${c.defaultValue}`;
     return def;
   }
@@ -140,24 +156,29 @@ export class SqlGeneratorModule {
 
     const pkCols = this.primaryKeyColumns(table);
     if (pkCols.length > 0) {
-      const constraintName = table.primaryKey?.name ? `CONSTRAINT ${this.bareName(table.primaryKey.name)} ` : '';
+      const pkName = table.primaryKey?.name;
+      // MySQL names every PK constraint "PRIMARY" — emitting CONSTRAINT PRIMARY PRIMARY KEY
+      // is redundant and confusing. Skip the CONSTRAINT clause for that reserved name.
+      const constraintName = pkName && pkName.toUpperCase() !== 'PRIMARY' ? `CONSTRAINT ${this.bareName(pkName)} ` : '';
       lines.push(`  ${constraintName}PRIMARY KEY (${pkCols.join(', ')})`);
     }
 
     return `CREATE TABLE ${this.qualify(table.name, mapping)} (\n${lines.join(',\n')}\n);`;
   }
 
-  private renderCreateSequence(table: TableSchema): string {
+  private renderCreateSequence(table: TableSchema, dialect?: SqlDialect): string {
     const s = table.sequence ?? {};
-    let sql = `CREATE SEQUENCE IF NOT EXISTS ${table.name}`;
-    if (s.dataType) sql += ` AS ${s.dataType}`;
-    if (s.start !== undefined) sql += ` START WITH ${s.start}`;
-    if (s.increment !== undefined) sql += ` INCREMENT BY ${s.increment}`;
-    if (s.minValue !== undefined) sql += ` MINVALUE ${s.minValue}`;
-    if (s.maxValue !== undefined) sql += ` MAXVALUE ${s.maxValue}`;
-    sql += s.cycle ? ` CYCLE` : ` NO CYCLE`;
-    if (s.cache !== undefined) sql += s.cache > 0 ? ` CACHE ${s.cache}` : ` NO CACHE`;
-    return sql + `;`;
+    const name = table.name;
+    let opts = '';
+    if (s.dataType) opts += ` AS ${s.dataType}`;
+    if (s.start !== undefined) opts += ` START WITH ${s.start}`;
+    if (s.increment !== undefined) opts += ` INCREMENT BY ${s.increment}`;
+    if (s.minValue !== undefined) opts += ` MINVALUE ${s.minValue}`;
+    if (s.maxValue !== undefined) opts += ` MAXVALUE ${s.maxValue}`;
+    opts += s.cycle ? ` CYCLE` : ` NO CYCLE`;
+    if (s.cache !== undefined) opts += s.cache > 0 ? ` CACHE ${s.cache}` : ` NO CACHE`;
+    const createSql = `CREATE SEQUENCE ${name}${opts};`;
+    return dialect?.wrapCreateSequence?.(name, createSql) ?? `CREATE SEQUENCE IF NOT EXISTS ${name}${opts};`;
   }
 
   private renderCreateType(table: TableSchema): string {
@@ -171,7 +192,7 @@ export class SqlGeneratorModule {
 
   generateObjectDdl(table: TableSchema, dialectStr = 'db2'): string {
     const dialect = resolveDialect(dialectStr);
-    if (table.objectType === 'SEQUENCE') return this.renderCreateSequence(table);
+    if (table.objectType === 'SEQUENCE') return this.renderCreateSequence(table, dialect);
     if (table.objectType === 'TYPE') return this.renderCreateType(table);
     if (table.objectType !== 'TABLE' && table.objectType !== 'MQT') {
       return table.definition || `-- No definition available for ${table.objectType} ${table.name}`;
@@ -197,28 +218,32 @@ export class SqlGeneratorModule {
     return sql;
   }
 
-  private dropObjectStatements(obj: TableDiff, mapping?: SchemaMapping): string[] {
+  private dropObjectStatements(obj: TableDiff, mapping?: SchemaMapping, dialect?: SqlDialect): string[] {
     const statements: string[] = [];
-    const name = this.qualify(obj.tableName, mapping);
+    // Use the object's native casing (it's the only thing the target DB actually has) —
+    // obj.tableName is the uppercased match key from compare.module.ts, not a real identifier.
+    const name = this.qualify(obj.targetTable?.name ?? obj.tableName, mapping);
+    const ver = mapping?.targetServerVersion;
     if (obj.objectType === 'TABLE') {
-      for (const fk of obj.targetTable?.foreignKeys ?? []) {
-        statements.push(`ALTER TABLE ${name} DROP CONSTRAINT ${this.bareName(fk.name)};`);
-      }
-      statements.push(`DROP TABLE ${name};`);
+      // Drop all inbound FK constraints before dropping the table. Required for SQL Server
+      // (no CASCADE support); a no-op for dialects that don't implement the hook.
+      statements.push(...(dialect?.preDropTableStatements?.(name) ?? []));
+      statements.push(dialect?.dropTableStatement?.(name, ver) ?? `DROP TABLE IF EXISTS ${name};`);
     } else if (obj.objectType === 'VIEW') {
-      statements.push(`DROP VIEW ${name};`);
+      statements.push(dialect?.dropViewStatement?.(name, ver) ?? `DROP VIEW IF EXISTS ${name};`);
     } else if (obj.objectType === 'FUNCTION') {
-      statements.push(`DROP FUNCTION ${name};`);
+      // Dialect hook takes precedence; fall back to signature-aware generic drop.
+      statements.push(dialect?.dropFunctionStatement?.(name, ver) ?? this.dropRoutineSql('FUNCTION', name, obj.targetTable?.parameters));
     } else if (obj.objectType === 'PROCEDURE') {
-      statements.push(`DROP PROCEDURE ${name};`);
+      statements.push(dialect?.dropProcedureStatement?.(name, ver) ?? this.dropRoutineSql('PROCEDURE', name, obj.targetTable?.parameters));
     } else if (obj.objectType === 'TRIGGER') {
-      statements.push(`DROP TRIGGER ${name};`);
+      statements.push(`DROP TRIGGER IF EXISTS ${name};`);
     } else if (obj.objectType === 'SEQUENCE') {
-      statements.push(`DROP SEQUENCE ${name};`);
+      statements.push(dialect?.dropSequenceStatement?.(name, ver) ?? `DROP SEQUENCE IF EXISTS ${name};`);
     } else if (obj.objectType === 'TYPE') {
-      statements.push(`DROP TYPE ${name};`);
+      statements.push(`DROP TYPE IF EXISTS ${name};`);
     } else if (obj.objectType === 'ROLE') {
-      statements.push(`DROP ROLE ${this.bareName(obj.tableName)};`);
+      statements.push(`DROP ROLE IF EXISTS ${this.bareName(obj.tableName)};`);
     }
     return statements;
   }
@@ -226,7 +251,10 @@ export class SqlGeneratorModule {
   private createObjectStatements(obj: TableDiff, dialect: SqlDialect, mapping?: SchemaMapping): string[] {
     const statements: string[] = [];
     const source = obj.sourceTable;
-    const name = this.qualify(obj.tableName, mapping);
+    // Use the source object's native casing so this matches the casing renderCreateTable
+    // emits in the CREATE TABLE statement above — obj.tableName is just the uppercased
+    // match key from compare.module.ts and may differ in casing on case-sensitive engines.
+    const name = this.qualify(source?.name ?? obj.tableName, mapping);
 
     if (obj.objectType === 'TABLE' && source) {
       const typeWarnings: string[] = [];
@@ -266,10 +294,12 @@ export class SqlGeneratorModule {
       }
 
       for (const trg of source.triggers ?? []) {
-        if (trg.definition) statements.push(trg.definition.trim());
+        if (!trg.definition) continue;
+        const stmt = dialect.createTriggerStatement?.(trg, name) ?? null;
+        statements.push(stmt ?? trg.definition.trim());
       }
     } else if (obj.objectType === 'SEQUENCE' && source) {
-      statements.push(this.renderCreateSequence({ ...source, name }));
+      statements.push(this.renderCreateSequence({ ...source, name }, dialect));
     } else if (obj.objectType === 'TYPE' && source) {
       statements.push(this.renderCreateType({ ...source, name }));
     } else if (obj.objectType === 'ROLE') {
@@ -283,8 +313,8 @@ export class SqlGeneratorModule {
       statements.push(...this.manualReviewBlock(obj, mapping));
     } else if (obj.definition) {
       if (obj.objectType === 'VIEW') {
-        // obj.definition is just the SELECT body — wrap it into a full CREATE statement.
-        statements.push(`CREATE OR REPLACE VIEW ${name} AS\n${this.ensureSemicolon(obj.definition)}`);
+        const body = this.ensureSemicolon(obj.definition);
+        statements.push(dialect.createViewStatement?.(name, body) ?? `CREATE OR REPLACE VIEW ${name} AS\n${body}`);
       } else {
         statements.push(this.ensureSemicolon(obj.definition));
       }
@@ -294,7 +324,9 @@ export class SqlGeneratorModule {
 
   private alterObjectStatements(obj: TableDiff, dialect: SqlDialect, mapping?: SchemaMapping): string[] {
     const statements: string[] = [];
-    const tableName = this.qualify(obj.tableName, mapping);
+    // The table already exists in the target — reference it with the casing it
+    // actually has there, not the uppercased compare-module match key.
+    const tableName = this.qualify(obj.targetTable?.name ?? obj.tableName, mapping);
 
     if (obj.objectType === 'TABLE') {
       // Some dialects (Postgres) reject ALTER/DROP COLUMN on tables that a view
@@ -314,7 +346,13 @@ export class SqlGeneratorModule {
       // also requires the column to still exist if the FK holds a reference.
       if (!mapping?.nonDestructive) {
         for (const fk of obj.foreignKeyDiffs.filter((f) => f.status === 'REMOVED' || f.status === 'MODIFIED')) {
-          if (fk.name) statements.push(`ALTER TABLE ${tableName} DROP CONSTRAINT IF EXISTS ${this.bareName(fk.name)};`);
+          if (fk.name) {
+            const fkName = this.bareName(fk.name);
+            statements.push(
+              dialect.dropForeignKeyStatement?.(tableName, fkName) ??
+              `ALTER TABLE ${tableName} DROP CONSTRAINT IF EXISTS ${fkName};`
+            );
+          }
         }
       }
 
@@ -324,7 +362,10 @@ export class SqlGeneratorModule {
       // Non-destructive: keep target-only indexes (REMOVED); MODIFIED are still
       // dropped here and recreated below (that's a change, not a removal).
       for (const idx of obj.indexDiffs.filter((i) => i.status === 'MODIFIED' || (i.status === 'REMOVED' && !mapping?.nonDestructive))) {
-        statements.push(`DROP INDEX ${this.qualify(idx.name, mapping)};`);
+        statements.push(
+          dialect.dropIndexStatement?.(this.bareName(idx.name), tableName) ??
+          `DROP INDEX ${this.qualify(idx.name, mapping)};`
+        );
       }
 
       for (const col of obj.columnDiffs.filter((c) => c.status === 'ADDED')) {
@@ -334,8 +375,14 @@ export class SqlGeneratorModule {
         // A serial column added to an existing table needs its sequence first.
         const seq = dialect.serialSequenceFromDefault?.(col.source.defaultValue ?? '');
         if (seq) statements.push(`CREATE SEQUENCE IF NOT EXISTS ${this.qualify(seq, mapping)};`);
-        let colDef = `${col.name} ${translated.sql}`;
-        if (!col.source.nullable) colDef += ` NOT NULL`;
+        let addTypeSql: string;
+        if (dialect.nullableTypeWrapper) {
+          addTypeSql = dialect.nullableTypeWrapper(translated.sql, col.source.nullable);
+        } else {
+          addTypeSql = translated.sql;
+        }
+        let colDef = `${col.name} ${addTypeSql}`;
+        if (!dialect.nullableTypeWrapper && !col.source.nullable) colDef += ` NOT NULL`;
         if (col.source.defaultValue) colDef += ` DEFAULT ${col.source.defaultValue}`;
         statements.push(dialect.addColumnStatement(tableName, colDef));
       }
@@ -406,10 +453,16 @@ export class SqlGeneratorModule {
       }
 
       for (const trg of (obj.triggerDiffs ?? []).filter((t) => t.status === 'MODIFIED' || (t.status === 'REMOVED' && !mapping?.nonDestructive))) {
-        statements.push(`DROP TRIGGER ${this.qualify(trg.name, mapping)};`);
+        statements.push(
+          dialect.dropTriggerStatement?.(this.bareName(trg.name), tableName) ??
+          `DROP TRIGGER ${this.qualify(trg.name, mapping)};`
+        );
       }
       for (const trg of (obj.triggerDiffs ?? []).filter((t) => t.status === 'ADDED' || t.status === 'MODIFIED')) {
-        if (trg.source?.definition) statements.push(trg.source.definition.trim());
+        if (!trg.source?.definition) continue;
+        const trgSpec = { name: trg.name, timing: trg.source.timing, event: trg.source.event, definition: trg.source.definition };
+        const stmt = dialect.createTriggerStatement?.(trgSpec, tableName) ?? null;
+        statements.push(stmt ?? trg.source.definition.trim());
       }
 
       // Recreate any views dropped by the dialect's dropDependentViewsBlock above.
@@ -444,8 +497,15 @@ export class SqlGeneratorModule {
     } else if (obj.definition) {
       const src = obj.sourceTable;
       if (obj.objectType === 'VIEW') {
-        statements.push(`DROP VIEW IF EXISTS ${tableName};`);
-        statements.push(`CREATE OR REPLACE VIEW ${tableName} AS\n${this.ensureSemicolon(obj.definition)}`);
+        const body = this.ensureSemicolon(obj.definition);
+        if (dialect.alterViewStatement) {
+          // SQL Server: ALTER VIEW replaces in place without a prior DROP.
+          statements.push(dialect.alterViewStatement(tableName, body));
+        } else {
+          // All other dialects support CREATE OR REPLACE VIEW which handles
+          // replacement atomically — no prior DROP needed.
+          statements.push(`CREATE OR REPLACE VIEW ${tableName} AS\n${body}`);
+        }
       } else {
         if (obj.objectType === 'FUNCTION') statements.push(this.dropRoutineSql('FUNCTION', tableName, src?.parameters));
         else if (obj.objectType === 'PROCEDURE') statements.push(this.dropRoutineSql('PROCEDURE', tableName, src?.parameters));
@@ -457,6 +517,69 @@ export class SqlGeneratorModule {
     return statements;
   }
 
+  /**
+   * Sort newly-added TABLE objects in FK dependency order so referenced tables are
+   * always created before the tables that reference them. Non-TABLE objects (views,
+   * procedures, etc.) are appended after all tables. Cycles are broken arbitrarily.
+   */
+  private sortAddedByDependency(added: TableDiff[]): TableDiff[] {
+    const tables = added.filter((o) => o.objectType === 'TABLE');
+    const others = added.filter((o) => o.objectType !== 'TABLE');
+
+    const byKey = new Map<string, TableDiff>(
+      tables.map((t) => [t.tableName.toUpperCase(), t])
+    );
+    const visited = new Set<string>();
+    const result: TableDiff[] = [];
+
+    const visit = (obj: TableDiff) => {
+      const key = obj.tableName.toUpperCase();
+      if (visited.has(key)) return;
+      visited.add(key);
+      for (const fk of obj.sourceTable?.foreignKeys ?? []) {
+        // Strip schema prefix and quotes so "appdb.orders" and "orders" both match.
+        const refKey = fk.referencedTable.replace(/^"?[^".]+"?\./, '').replace(/"/g, '').toUpperCase();
+        const dep = byKey.get(refKey);
+        if (dep) visit(dep);
+      }
+      result.push(obj);
+    };
+
+    for (const t of tables) visit(t);
+    return [...result, ...others];
+  }
+
+  // For DROP ordering: if A has an FK to B, A must be dropped before B.
+  // This is the reverse of ADD ordering (where B is created before A).
+  // We run the same DFS as sortAddedByDependency against targetTable FKs, then reverse.
+  private sortRemovedByDependency(removed: TableDiff[]): TableDiff[] {
+    const tables = removed.filter((o) => o.objectType === 'TABLE');
+    const others = removed.filter((o) => o.objectType !== 'TABLE');
+
+    const byKey = new Map<string, TableDiff>(
+      tables.map((t) => [t.tableName.toUpperCase(), t])
+    );
+    const visited = new Set<string>();
+    const addOrder: TableDiff[] = [];
+
+    const visit = (obj: TableDiff) => {
+      const key = obj.tableName.toUpperCase();
+      if (visited.has(key)) return;
+      visited.add(key);
+      for (const fk of obj.targetTable?.foreignKeys ?? []) {
+        const refKey = fk.referencedTable.replace(/^"?[^".]+"?\./, '').replace(/"/g, '').toUpperCase();
+        const dep = byKey.get(refKey);
+        if (dep) visit(dep);
+      }
+      addOrder.push(obj);
+    };
+
+    for (const t of tables) visit(t);
+    // Reverse gives DROP order: referencers first, referenced last.
+    // Non-table objects (views, routines) are dropped before tables.
+    return [...others, ...addOrder.reverse()];
+  }
+
   generateMigrationPlan(diffs: TableDiff[], dialectStr: string, mapping?: SchemaMapping): MigrationStep[] {
     const dialect = resolveDialect(dialectStr);
     // Pin the target dialect into the mapping so the render helpers can detect a
@@ -466,12 +589,24 @@ export class SqlGeneratorModule {
 
     // Non-destructive mode never drops objects that exist only in the target.
     if (!m.nonDestructive) {
-      for (const obj of diffs.filter((d) => d.status === 'REMOVED')) {
-        steps.push({ objectName: obj.tableName, objectType: obj.objectType, action: 'DROP', statements: this.dropObjectStatements(obj, m) });
+      for (const obj of this.sortRemovedByDependency(diffs.filter((d) => d.status === 'REMOVED'))) {
+        steps.push({ objectName: obj.tableName, objectType: obj.objectType, action: 'DROP', statements: this.dropObjectStatements(obj, m, dialect) });
       }
     }
-    for (const obj of diffs.filter((d) => d.status === 'ADDED')) {
-      steps.push({ objectName: obj.tableName, objectType: obj.objectType, action: 'CREATE', statements: this.createObjectStatements(obj, dialect, m) });
+    for (const obj of this.sortAddedByDependency(diffs.filter((d) => d.status === 'ADDED'))) {
+      const stmts = this.createObjectStatements(obj, dialect, m);
+      const noDefRoutine =
+        stmts.length === 0 &&
+        PROCEDURAL_TYPES.has(obj.objectType) &&
+        !obj.definition &&
+        !this.isCrossDialect(m);
+      steps.push({
+        objectName: obj.tableName,
+        objectType: obj.objectType,
+        action: 'CREATE',
+        statements: stmts,
+        ...(noDefRoutine ? { skipped: `No definition available — grant SHOW_ROUTINE privilege and re-compare` } : {}),
+      });
     }
 
     for (const obj of diffs.filter((d) => d.status === 'MODIFIED')) {
@@ -498,6 +633,9 @@ export class SqlGeneratorModule {
     let sql = `-- =========================================================================\n`;
     sql += `-- FoxSchema Generated Migration Script\n`;
     sql += `-- Dialect: ${dialectStr.toUpperCase()}\n`;
+    if (mapping?.sourceSchema) {
+      sql += `-- Source Schema: ${mapping.sourceSchema.toUpperCase()}\n`;
+    }
     if (mapping?.targetSchema) {
       sql += `-- Target Schema: ${mapping.targetSchema.toUpperCase()}\n`;
     }

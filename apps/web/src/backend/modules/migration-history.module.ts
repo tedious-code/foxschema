@@ -176,4 +176,23 @@ export class MigrationHistoryStore {
     const result = await store.run('DELETE FROM migration_runs WHERE id = ? AND user_id = ?', [id, userId]);
     return result.changes > 0;
   }
+
+  /** Delete a set of runs owned by the user. Returns how many were removed. */
+  async removeMany(userId: string, ids: string[]): Promise<number> {
+    if (!ids.length) return 0;
+    const store = await getStore();
+    const placeholders = ids.map(() => '?').join(', ');
+    const result = await store.run(
+      `DELETE FROM migration_runs WHERE user_id = ? AND id IN (${placeholders})`,
+      [userId, ...ids]
+    );
+    return result.changes;
+  }
+
+  /** Delete every run for the user. Returns how many were removed. */
+  async clear(userId: string): Promise<number> {
+    const store = await getStore();
+    const result = await store.run('DELETE FROM migration_runs WHERE user_id = ?', [userId]);
+    return result.changes;
+  }
 }

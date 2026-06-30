@@ -6,6 +6,9 @@ import { MariadbProvider } from './mysql/mariadb.provider';
 import { SqlServerProvider } from './sqlServer/sqlserver.provider';
 import { OracleProvider } from './oracle/oracle.provider';
 import { SqliteProvider } from './sqlLite/sqlLite.provider';
+import { RedshiftProvider } from './redshift/redshift.provider';
+import { ClickHouseProvider } from './clickHouse/clickhouse.provider';
+import { AzureSqlProvider } from './azureSql/azuresql.provider';
 
 // Register a dialect's schema provider (queries) here — one line per platform.
 export const PROVIDERS: Record<string, SchemaProvider> = {
@@ -16,6 +19,9 @@ export const PROVIDERS: Record<string, SchemaProvider> = {
   sqlserver: new SqlServerProvider(),
   oracle: new OracleProvider(),
   sqlite: new SqliteProvider(),
+  redshift: new RedshiftProvider(),
+  clickhouse: new ClickHouseProvider(),
+  azuresql: new AzureSqlProvider(),
 };
 
 export function getRegisteredProvider(dialect: string): SchemaProvider {

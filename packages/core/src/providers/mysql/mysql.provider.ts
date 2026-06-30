@@ -21,6 +21,24 @@ import {
   RoutineParameterMode,
 } from '../../interfaces';
 
+const SQL_KEYWORDS = /^(current_timestamp|current_date|current_time|now|uuid|null|true|false)(\(\))?$/i;
+const STRING_TYPES = /^(varchar|char|tinytext|text|mediumtext|longtext|enum|set|nchar|nvarchar)/i;
+
+/**
+ * MySQL's information_schema.COLUMNS.COLUMN_DEFAULT stores string defaults WITHOUT
+ * surrounding quotes (e.g. DEFAULT 'active' → stored as 'active'). Numeric and
+ * expression defaults are fine as-is. This helper re-adds quotes for string types.
+ */
+function normalizeDefault(columnType: string, raw: string | null): string | undefined {
+  if (raw === null) return undefined;
+  if (SQL_KEYWORDS.test(raw.trim())) return raw; // keyword / function
+  if (raw.includes('(')) return raw; // expression
+  if (/^\d+(\.\d+)?$/.test(raw)) return raw; // numeric literal
+  if (raw.startsWith("'") || raw.startsWith('"')) return raw; // already quoted
+  if (STRING_TYPES.test(columnType.trim())) return `'${raw.replace(/'/g, "''")}'`;
+  return raw;
+}
+
 // information_schema raw shapes (column names normalized to lower-case by mysql2)
 interface MyTableRaw { TABLE_NAME: string; TABLE_TYPE: string; }
 interface MyColumnRaw { TABLE_NAME: string; COLUMN_NAME: string; COLUMN_TYPE: string; IS_NULLABLE: string; COLUMN_DEFAULT: string | null; EXTRA: string; COLUMN_KEY: string; ORDINAL_POSITION: number; }
@@ -193,7 +211,7 @@ export class MysqlProvider implements SchemaProvider {
           name: col.COLUMN_NAME,
           type: col.COLUMN_TYPE,
           nullable: col.IS_NULLABLE === 'YES',
-          defaultValue: col.COLUMN_DEFAULT ?? undefined,
+          defaultValue: normalizeDefault(col.COLUMN_TYPE, col.COLUMN_DEFAULT),
           identity: /auto_increment/i.test(col.EXTRA),
           identityGeneration: /auto_increment/i.test(col.EXTRA) ? 'ALWAYS' : undefined,
         };
@@ -291,12 +309,32 @@ export class MysqlProvider implements SchemaProvider {
       }
 
       // 8. Functions & procedures
+      // ROUTINE_DEFINITION from information_schema only contains the body (BEGIN...END),
+      // not the full CREATE statement. SHOW CREATE FUNCTION/PROCEDURE returns the complete,
+      // executable DDL — always prefer it and fall back to the body-only if access is denied.
+      const fullDefs = new Map<string, string>();
+      await Promise.all(
+        rawRoutines.map(async (r) => {
+          try {
+            const colKey = r.ROUTINE_TYPE === 'FUNCTION' ? 'Create Function' : 'Create Procedure';
+            const rows = await exec<Record<string, string>>(
+              `SHOW CREATE ${r.ROUTINE_TYPE} \`${db}\`.\`${r.ROUTINE_NAME}\``
+            );
+            const def = rows[0]?.[colKey];
+            // Strip DEFINER so the statement is portable across environments
+            if (def) fullDefs.set(r.ROUTINE_NAME, def.replace(/\bDEFINER\s*=\s*`[^`]*`@`[^`]*`\s*/i, ''));
+          } catch {
+            // No SHOW CREATE access — fall back to ROUTINE_DEFINITION body below
+          }
+        })
+      );
+
       for (const r of rawRoutines) {
         const mapped: DbProcedure = {
           name: r.ROUTINE_NAME,
           schema: db,
           routineType: r.ROUTINE_TYPE,
-          definition: r.ROUTINE_DEFINITION ?? undefined,
+          definition: fullDefs.get(r.ROUTINE_NAME) ?? r.ROUTINE_DEFINITION ?? undefined,
           parameters: routineParams.get(r.ROUTINE_NAME) ?? [],
         };
         if (r.ROUTINE_TYPE === 'PROCEDURE') (procedures[r.ROUTINE_NAME] ??= []).push(mapped);

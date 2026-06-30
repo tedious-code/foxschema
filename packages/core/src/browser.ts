@@ -16,6 +16,9 @@ export type { MigrationEvent } from './interfaces/migration.types';
 export { CompareModule } from './modules/compare.module';
 export { SqlGeneratorModule } from './modules/sql-generator.module';
 export type { MigrationStep, SchemaMapping } from './modules/sql-generator.module';
+export { findDropDependencies } from './modules/dependency-scan';
+export type { DropDependency, DropDependencyOptions } from './modules/dependency-scan';
+export { buildBrowseResult } from './modules/browse';
 export type { SqlDialect, CanonicalType, CanonicalBase, RenderedType } from './modules/sql-dialect.interface';
 
 export { buildConnectionString, withConnectionString, DEFAULT_PORTS } from './cores/connection-string';

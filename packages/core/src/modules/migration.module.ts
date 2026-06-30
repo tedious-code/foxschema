@@ -38,6 +38,10 @@ export class MigrationModule {
 
       try {
         for (const step of steps) {
+          if (step.skipped) {
+            onEvent({ type: 'object', objectName: step.objectName, objectType: step.objectType, action: step.action, status: 'SKIPPED', error: step.skipped });
+            continue;
+          }
           onEvent({ type: 'object', objectName: step.objectName, objectType: step.objectType, action: step.action, status: 'RUNNING' });
           try {
             for (const raw of step.statements) {

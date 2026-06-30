@@ -1,8 +1,8 @@
 import { fileURLToPath } from 'node:url';
 import { getMetadataDbConfig } from './config';
-import { createMetadataStore } from './providers/registry';
+import { createMetadataStore } from './stores/registry';
 import { runMigrations } from './schema';
-import type { MetadataStore } from './providers/types';
+import type { MetadataStore } from './stores/types';
 
 // Default SQLite location, anchored to this module so it's independent of the
 // process working directory. Override with APP_DB_PATH (or switch engines with

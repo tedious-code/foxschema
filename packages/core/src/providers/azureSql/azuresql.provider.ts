@@ -24,13 +24,12 @@ import {
   RoutineParameterMode,
 } from '../../interfaces';
 
-/**
- * sys.default_constraints.definition wraps every value in extra parentheses:
- *   ('active')  → 'active'
- *   ((0))       → 0
- *   (getdate()) → getdate()
- * Strip all leading/trailing paren pairs so the generator emits valid DEFAULT values.
- */
+// Azure SQL catalog is based on the same sys.* catalog as SQL Server, but the
+// provider is intentionally STANDALONE — not a subclass — so it can evolve
+// independently as Azure SQL gains/drops features (Hyperscale, serverless tier,
+// external tables, Azure AD users, etc.) without coupling back to on-prem SQL Server.
+
+// sys.default_constraints.definition wraps values in extra parens: ('x') → 'x', ((0)) → 0
 function normalizeSSDefault(raw: string | null): string | undefined {
   if (raw === null) return undefined;
   let v = raw.trim();
@@ -38,38 +37,38 @@ function normalizeSSDefault(raw: string | null): string | undefined {
   return v || undefined;
 }
 
-// sys catalog raw shapes (column names from mssql come out with original casing)
-interface SsTableRaw { table_name: string; }
-interface SsColumnRaw { table_name: string; column_name: string; ordinal: number; type_name: string; max_length: number; precision: number; scale: number; is_nullable: boolean; is_identity: boolean; default_value: string | null; is_view: boolean; }
-interface SsPkRaw { table_name: string; constraint_name: string; column_name: string; col_seq: number; }
-interface SsFkRaw { table_name: string; constraint_name: string; column_name: string; ref_schema: string; ref_table: string; col_seq: number; }
-interface SsUcRaw { table_name: string; constraint_name: string; column_name: string; col_seq: number; }
-interface SsIndexRaw { table_name: string; index_name: string; is_primary_key: boolean; is_unique: boolean; column_name: string; col_seq: number; }
-interface SsViewRaw { view_name: string; definition: string; }
-interface SsTriggerRaw { trigger_name: string; table_name: string; timing: string; event: string; definition: string; }
-interface SsRoutineRaw { name: string; obj_type: string; definition: string; param_id: number | null; param_name: string | null; param_type: string | null; param_max_length: number; param_precision: number; param_scale: number; is_output: boolean; }
-interface SsSequenceRaw { seq_name: string; data_type: string; start_value: string; increment: string; min_value: string; max_value: string; cycle: boolean; cache_size: string | null; }
-interface SsUserTypeRaw { type_name: string; base_type: string; max_length: number; precision: number; scale: number; }
+// Raw catalog shapes
+interface AzTableRaw { table_name: string; }
+interface AzColumnRaw {
+  table_name: string; column_name: string; ordinal: number;
+  type_name: string; max_length: number; precision: number; scale: number;
+  is_nullable: boolean; is_identity: boolean; default_value: string | null; is_view: boolean;
+}
+interface AzPkRaw { table_name: string; constraint_name: string; column_name: string; col_seq: number; }
+interface AzFkRaw { table_name: string; constraint_name: string; column_name: string; ref_schema: string; ref_table: string; col_seq: number; }
+interface AzUcRaw { table_name: string; constraint_name: string; column_name: string; col_seq: number; }
+interface AzIndexRaw { table_name: string; index_name: string; is_primary_key: boolean; is_unique: boolean; column_name: string; col_seq: number; }
+interface AzViewRaw { view_name: string; definition: string; }
+interface AzTriggerRaw { trigger_name: string; table_name: string; timing: string; event: string; definition: string; }
+interface AzRoutineRaw {
+  name: string; obj_type: string; definition: string;
+  param_id: number | null; param_name: string | null; param_type: string | null;
+  param_max_length: number; param_precision: number; param_scale: number; is_output: boolean;
+}
+interface AzSequenceRaw { seq_name: string; data_type: string; start_value: string; increment: string; min_value: string; max_value: string; cycle: boolean; cache_size: string | null; }
+interface AzUserTypeRaw { type_name: string; base_type: string; max_length: number; precision: number; scale: number; }
 
 function fmtType(typeName: string, maxLength: number, precision: number, scale: number): string {
   const t = typeName.toLowerCase();
-  if (['varchar', 'char', 'binary', 'varbinary'].includes(t)) {
-    return maxLength === -1 ? `${t}(max)` : `${t}(${maxLength})`;
-  }
-  if (['nvarchar', 'nchar'].includes(t)) {
-    return maxLength === -1 ? `${t}(max)` : `${t}(${maxLength / 2})`;
-  }
-  if (['decimal', 'numeric'].includes(t)) {
-    return `${t}(${precision},${scale})`;
-  }
-  if (['datetime2', 'datetimeoffset', 'time'].includes(t)) {
-    return `${t}(${scale})`;
-  }
+  if (['varchar', 'char', 'binary', 'varbinary'].includes(t)) return maxLength === -1 ? `${t}(max)` : `${t}(${maxLength})`;
+  if (['nvarchar', 'nchar'].includes(t)) return maxLength === -1 ? `${t}(max)` : `${t}(${Math.floor(maxLength / 2)})`;
+  if (['decimal', 'numeric'].includes(t)) return `${t}(${precision},${scale})`;
+  if (['datetime2', 'datetimeoffset', 'time'].includes(t)) return `${t}(${scale})`;
   return t;
 }
 
-export class SqlServerProvider implements SchemaProvider {
-  readonly provider: string = 'sqlserver';
+export class AzureSqlProvider implements SchemaProvider {
+  readonly provider = 'azuresql';
 
   async testConnection(options: ConnectionOptions): Promise<boolean> {
     try {
@@ -81,11 +80,12 @@ export class SqlServerProvider implements SchemaProvider {
   }
 
   async listSchemas(options: ConnectionOptions): Promise<string[]> {
-    const systemSchemas = `'sys','guest','INFORMATION_SCHEMA','db_owner','db_accessadmin','db_securityadmin','db_ddladmin','db_backupoperator','db_datareader','db_datawriter','db_denydatareader','db_denydatawriter'`;
+    // Azure SQL also has 'cdc' (change data capture) schema — exclude along with standard fixed schemas
+    const excluded = `'sys','guest','INFORMATION_SCHEMA','cdc','db_owner','db_accessadmin','db_securityadmin','db_ddladmin','db_backupoperator','db_datareader','db_datawriter','db_denydatareader','db_denydatawriter'`;
     const rows = await ConnectionFactory.executeQuery<{ name: string }>(
       this.provider,
       options,
-      `SELECT name FROM sys.schemas WHERE name NOT IN (${systemSchemas}) ORDER BY name`
+      `SELECT name FROM sys.schemas WHERE name NOT IN (${excluded}) ORDER BY name`
     );
     return rows.map((r) => r.name);
   }
@@ -96,9 +96,9 @@ export class SqlServerProvider implements SchemaProvider {
   }
 
   /**
-   * Database-level roles and their members from `sys.database_principals` /
-   * `sys.database_role_members`. Fixed roles and `public` are excluded. Readable
-   * by most users, but degrades to a warning if VIEW DEFINITION is withheld.
+   * Database roles and their members. Azure SQL supports both SQL principals AND
+   * Azure AD users/groups. We include all members; Azure AD entries typically have
+   * type_desc like 'EXTERNAL_USER' or 'EXTERNAL_GROUP'.
    */
   async getRoles(options: ConnectionOptions, _schema: string): Promise<RoleLoadResult> {
     try {
@@ -110,12 +110,16 @@ export class SqlServerProvider implements SchemaProvider {
          LEFT JOIN sys.database_role_members rm ON rm.role_principal_id = r.principal_id
          LEFT JOIN sys.database_principals m ON m.principal_id = rm.member_principal_id
          WHERE r.type = 'R' AND r.is_fixed_role = 0 AND r.name <> 'public'
+           AND (m.type_desc IS NULL OR m.type_desc NOT IN ('DATABASE_ROLE'))
          ORDER BY r.name, m.name`
       );
       const byRole = new Map<string, DbRoleMember[]>();
       for (const r of rows) {
         const members = byRole.get(r.role_name) ?? [];
-        if (r.member) members.push({ grantee: r.member, granteeType: (r.member_type ?? '').includes('ROLE') ? 'ROLE' : 'USER' });
+        if (r.member) {
+          const isRole = (r.member_type ?? '').includes('ROLE');
+          members.push({ grantee: r.member, granteeType: isRole ? 'ROLE' : 'USER' });
+        }
         byRole.set(r.role_name, members);
       }
       const roles: DbRole[] = [...byRole.entries()].map(([name, members]) => ({ name, members }));
@@ -144,17 +148,17 @@ export class SqlServerProvider implements SchemaProvider {
       rawSequences,
       rawUserTypes,
     ] = await Promise.all([
-      exec<SsTableRaw>(
+      exec<AzTableRaw>(
         `SELECT t.name AS table_name
          FROM sys.tables t JOIN sys.schemas sc ON sc.schema_id = t.schema_id
-         WHERE sc.name = @p0 AND t.is_ms_shipped = 0 ORDER BY t.name`,
+         WHERE sc.name = @p0 AND t.is_ms_shipped = 0
+         ORDER BY t.name`,
         [s]
       ),
-      exec<SsColumnRaw>(
+      exec<AzColumnRaw>(
         `SELECT t.name AS table_name, c.name AS column_name, c.column_id AS ordinal,
                 tp.name AS type_name, c.max_length, c.precision, c.scale,
-                c.is_nullable, c.is_identity,
-                dc.definition AS default_value, CAST(0 AS bit) AS is_view
+                c.is_nullable, c.is_identity, dc.definition AS default_value, CAST(0 AS bit) AS is_view
          FROM sys.columns c
          JOIN sys.tables t ON t.object_id = c.object_id
          JOIN sys.schemas sc ON sc.schema_id = t.schema_id
@@ -164,7 +168,7 @@ export class SqlServerProvider implements SchemaProvider {
          ORDER BY t.name, c.column_id`,
         [s]
       ),
-      exec<SsColumnRaw>(
+      exec<AzColumnRaw>(
         `SELECT v.name AS table_name, c.name AS column_name, c.column_id AS ordinal,
                 tp.name AS type_name, c.max_length, c.precision, c.scale,
                 c.is_nullable, CAST(0 AS bit) AS is_identity, NULL AS default_value, CAST(1 AS bit) AS is_view
@@ -176,7 +180,7 @@ export class SqlServerProvider implements SchemaProvider {
          ORDER BY v.name, c.column_id`,
         [s]
       ),
-      exec<SsPkRaw>(
+      exec<AzPkRaw>(
         `SELECT t.name AS table_name, kc.name AS constraint_name,
                 c.name AS column_name, ic.key_ordinal AS col_seq
          FROM sys.key_constraints kc
@@ -188,10 +192,10 @@ export class SqlServerProvider implements SchemaProvider {
          ORDER BY t.name, ic.key_ordinal`,
         [s]
       ),
-      exec<SsFkRaw>(
+      exec<AzFkRaw>(
         `SELECT t.name AS table_name, fk.name AS constraint_name,
-                c.name AS column_name, rs.name AS ref_schema,
-                rt.name AS ref_table, fkc.constraint_column_id AS col_seq
+                c.name AS column_name, rs.name AS ref_schema, rt.name AS ref_table,
+                fkc.constraint_column_id AS col_seq
          FROM sys.foreign_keys fk
          JOIN sys.tables t ON t.object_id = fk.parent_object_id
          JOIN sys.schemas sc ON sc.schema_id = t.schema_id
@@ -203,7 +207,7 @@ export class SqlServerProvider implements SchemaProvider {
          ORDER BY t.name, fk.name, fkc.constraint_column_id`,
         [s]
       ),
-      exec<SsUcRaw>(
+      exec<AzUcRaw>(
         `SELECT t.name AS table_name, kc.name AS constraint_name,
                 c.name AS column_name, ic.key_ordinal AS col_seq
          FROM sys.key_constraints kc
@@ -215,10 +219,9 @@ export class SqlServerProvider implements SchemaProvider {
          ORDER BY t.name, kc.name, ic.key_ordinal`,
         [s]
       ),
-      exec<SsIndexRaw>(
+      exec<AzIndexRaw>(
         `SELECT t.name AS table_name, i.name AS index_name,
-                i.is_primary_key, i.is_unique,
-                c.name AS column_name, ic.key_ordinal AS col_seq
+                i.is_primary_key, i.is_unique, c.name AS column_name, ic.key_ordinal AS col_seq
          FROM sys.indexes i
          JOIN sys.tables t ON t.object_id = i.object_id
          JOIN sys.schemas sc ON sc.schema_id = t.schema_id
@@ -228,7 +231,7 @@ export class SqlServerProvider implements SchemaProvider {
          ORDER BY t.name, i.name, ic.key_ordinal`,
         [s]
       ),
-      exec<SsViewRaw>(
+      exec<AzViewRaw>(
         `SELECT v.name AS view_name, sm.definition
          FROM sys.views v
          JOIN sys.schemas sc ON sc.schema_id = v.schema_id
@@ -237,7 +240,7 @@ export class SqlServerProvider implements SchemaProvider {
          ORDER BY v.name`,
         [s]
       ),
-      exec<SsTriggerRaw>(
+      exec<AzTriggerRaw>(
         `SELECT tg.name AS trigger_name, t.name AS table_name,
                 CASE WHEN tg.is_instead_of_trigger = 1 THEN 'INSTEAD OF' ELSE 'AFTER' END AS timing,
                 LTRIM(RTRIM(
@@ -254,7 +257,7 @@ export class SqlServerProvider implements SchemaProvider {
          ORDER BY t.name, tg.name`,
         [s]
       ),
-      exec<SsRoutineRaw>(
+      exec<AzRoutineRaw>(
         `SELECT o.name, o.type AS obj_type, sm.definition,
                 p.parameter_id AS param_id, p.name AS param_name,
                 tp.name AS param_type, p.max_length AS param_max_length,
@@ -269,7 +272,7 @@ export class SqlServerProvider implements SchemaProvider {
          ORDER BY o.name, p.parameter_id`,
         [s]
       ),
-      exec<SsSequenceRaw>(
+      exec<AzSequenceRaw>(
         `SELECT s.name AS seq_name, tp.name AS data_type,
                 CAST(s.start_value AS nvarchar(40)) AS start_value,
                 CAST(s.increment AS nvarchar(40)) AS increment,
@@ -284,7 +287,7 @@ export class SqlServerProvider implements SchemaProvider {
          ORDER BY s.name`,
         [s]
       ),
-      exec<SsUserTypeRaw>(
+      exec<AzUserTypeRaw>(
         `SELECT t.name AS type_name, bt.name AS base_type,
                 t.max_length, t.precision, t.scale
          FROM sys.types t
@@ -320,18 +323,17 @@ export class SqlServerProvider implements SchemaProvider {
       indexes[t.table_name] = [];
     }
 
-    // 2. Columns (tables + views share the same mapping)
-    const mapColumn = (col: SsColumnRaw): DbColumn => ({
-      name: col.column_name,
-      type: fmtType(col.type_name, col.max_length, col.precision, col.scale),
-      nullable: col.is_nullable,
-      defaultValue: normalizeSSDefault(col.default_value),
-      identity: col.is_identity,
-      identityGeneration: col.is_identity ? 'ALWAYS' : undefined,
+    // 2. Columns
+    const mapCol = (c: AzColumnRaw): DbColumn => ({
+      name: c.column_name,
+      type: fmtType(c.type_name, c.max_length, c.precision, c.scale),
+      nullable: c.is_nullable,
+      defaultValue: normalizeSSDefault(c.default_value),
+      identity: c.is_identity,
+      identityGeneration: c.is_identity ? 'ALWAYS' : undefined,
     });
-
     for (const col of rawCols) {
-      const mapped = mapColumn(col);
+      const mapped = mapCol(col);
       if (tables[col.table_name]) tables[col.table_name].columns[col.column_name] = mapped;
       (columns[col.table_name] ??= []).push(mapped);
     }
@@ -342,7 +344,7 @@ export class SqlServerProvider implements SchemaProvider {
       (primaryKeys[pk.table_name] ??= []).push({ name: pk.column_name, constName: pk.constraint_name, column: pk.column_name, colSeq: pk.col_seq });
     }
 
-    // 4. FKs (grouped by constraint name)
+    // 4. FKs
     const fkGroups = new Map<string, { table: string; cols: string[]; rSchema: string; rTable: string }>();
     for (const fk of rawFks) {
       const g = fkGroups.get(fk.constraint_name) ?? { table: fk.table_name, cols: [], rSchema: fk.ref_schema, rTable: fk.ref_table };
@@ -373,9 +375,7 @@ export class SqlServerProvider implements SchemaProvider {
     const idxMeta = new Map<string, { table: string; isPrimary: boolean; isUnique: boolean }>();
     for (const ix of rawIndexes) {
       const id = `${ix.table_name}.${ix.index_name}`;
-      const cols = idxCols.get(id) ?? [];
-      cols.push(ix.column_name);
-      idxCols.set(id, cols);
+      (idxCols.get(id) ?? idxCols.set(id, []).get(id)!).push(ix.column_name);
       if (!idxMeta.has(id)) idxMeta.set(id, { table: ix.table_name, isPrimary: ix.is_primary_key, isUnique: ix.is_unique });
       (indexColumns[ix.index_name] ??= []).push({ name: ix.index_name, colName: ix.column_name, colOrder: 'A', colSeq: ix.col_seq });
     }
@@ -389,20 +389,11 @@ export class SqlServerProvider implements SchemaProvider {
 
     // 7. Views
     const viewColsByName: Record<string, DbColumn[]> = {};
-    for (const col of rawViewCols) {
-      (viewColsByName[col.table_name] ??= []).push(mapColumn(col));
-    }
+    for (const col of rawViewCols) (viewColsByName[col.table_name] ??= []).push(mapCol(col));
     for (const vw of rawViews) {
       const viewColumns: Record<string, DbColumn> = {};
       for (const c of viewColsByName[vw.view_name] ?? []) viewColumns[c.name] = c;
-      // sys.sql_modules.definition returns the full "CREATE VIEW [schema].[name] AS SELECT ..."
-      // statement. Store only the SELECT body so the generator can re-emit it with the
-      // correct target schema prefix (matching how MySQL/Postgres providers store view bodies).
-      const body = vw.definition.replace(
-        /^\s*CREATE\s+(?:OR\s+REPLACE\s+)?VIEW\s+(?:\[[^\]]*\]\s*\.\s*)?\[[^\]]*\]\s+(?:WITH\s+\w+(?:\s*,\s*\w+)*\s+)?AS\s*/i,
-        ''
-      ).trim();
-      (views[vw.view_name] ??= []).push({ name: vw.view_name, schema: s, definition: body, columns: viewColumns, indexes: [] });
+      (views[vw.view_name] ??= []).push({ name: vw.view_name, schema: s, definition: vw.definition, columns: viewColumns, indexes: [] });
     }
 
     // 8. Triggers
@@ -411,7 +402,7 @@ export class SqlServerProvider implements SchemaProvider {
       (triggers[trg.trigger_name] ??= []).push({ name: trg.trigger_name, schema: s, tableName: trg.table_name, event, timing: trg.timing, definition: trg.definition });
     }
 
-    // 9. Functions & procedures (rows are repeated per parameter)
+    // 9. Functions & procedures
     const routineParams = new Map<string, RoutineParameter[]>();
     const routineMeta = new Map<string, { type: string; def: string }>();
     for (const r of rawRoutines) {

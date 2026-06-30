@@ -57,6 +57,13 @@ const types = makeDialectTypeFns({
   },
 });
 
+// DB2 LUW has never supported DROP IF EXISTS syntax — use SQL PL CONTINUE HANDLER.
+// SQLSTATE '42704' = "An undefined object or constraint name was detected."
+function db2Drop(keyword: string, name: string): string {
+  const safe = name.replace(/'/g, "''");
+  return `BEGIN\n  DECLARE CONTINUE HANDLER FOR SQLSTATE '42704' BEGIN END;\n  EXECUTE IMMEDIATE 'DROP ${keyword} ${safe}';\nEND`;
+}
+
 export const db2SqlDialect: SqlDialect = {
   identityClause(c: ColumnSpec): string {
     return c.identity ? ` GENERATED ${c.identityGeneration ?? 'ALWAYS'} AS IDENTITY` : '';
@@ -67,7 +74,12 @@ export const db2SqlDialect: SqlDialect = {
   },
 
   modifyColumnStatements(tableName: string, colName: string, col: ColumnSpec): string[] {
-    return [`ALTER TABLE ${tableName} ALTER COLUMN ${colName} SET DATA TYPE ${col.type};`];
+    const stmts = [`ALTER TABLE ${tableName} ALTER COLUMN ${colName} SET DATA TYPE ${col.type};`];
+    // DB2 nullability is a separate clause — SET DATA TYPE does not carry it.
+    stmts.push(col.nullable
+      ? `ALTER TABLE ${tableName} ALTER COLUMN ${colName} DROP NOT NULL;`
+      : `ALTER TABLE ${tableName} ALTER COLUMN ${colName} SET NOT NULL;`);
+    return stmts;
   },
 
   dropColumnStatement(tableName: string, colName: string): string {
@@ -82,6 +94,43 @@ export const db2SqlDialect: SqlDialect = {
 
   dropPrimaryKeyStatements(tableName: string, _pkName: string | undefined): string[] {
     return [`ALTER TABLE ${tableName} DROP PRIMARY KEY;`];
+  },
+
+  dropForeignKeyStatement(tableName: string, fkName: string): string {
+    // DB2 has no DROP CONSTRAINT IF EXISTS; DROP FOREIGN KEY is the native form.
+    return `ALTER TABLE ${tableName} DROP FOREIGN KEY ${fkName};`;
+  },
+
+  dropIndexStatement(indexName: string, qualifiedTable: string): string {
+    const dot = qualifiedTable.indexOf('.');
+    const prefix = dot >= 0 ? qualifiedTable.slice(0, dot + 1) : '';
+    return `DROP INDEX ${prefix}${indexName};`;
+  },
+
+  dropTriggerStatement(triggerName: string, qualifiedTable: string): string {
+    const dot = qualifiedTable.indexOf('.');
+    const prefix = dot >= 0 ? qualifiedTable.slice(0, dot + 1) : '';
+    return `DROP TRIGGER ${prefix}${triggerName};`;
+  },
+
+  dropTableStatement(name: string, _version?: string): string {
+    return db2Drop('TABLE', name);
+  },
+
+  dropViewStatement(name: string, _version?: string): string {
+    return db2Drop('VIEW', name);
+  },
+
+  dropSequenceStatement(name: string, _version?: string): string {
+    return db2Drop('SEQUENCE', name);
+  },
+
+  dropFunctionStatement(name: string, _version?: string): string {
+    return db2Drop('FUNCTION', name);
+  },
+
+  dropProcedureStatement(name: string, _version?: string): string {
+    return db2Drop('PROCEDURE', name);
   },
 
   ...types,

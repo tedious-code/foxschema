@@ -6,6 +6,9 @@ import { mariaDbSettings } from './mariaDb/mariaDb.settings';
 import { sqlServerSettings } from './sqlServer/sqlserver.settings';
 import { oracleSettings } from './oracle/oracle.settings';
 import { sqliteSettings } from './sqlLite/sqlLite.settings';
+import { redshiftSettings } from './redshift/redshift.settings';
+import { clickHouseSettings } from './clickHouse/clickhouse.settings';
+import { azureSqlSettings } from './azureSql/azuresql.settings';
 
 // Register a new dialect by adding its settings here — nothing else changes
 export const PROVIDER_SETTINGS: Record<string, ProviderConnectionSettings> = {
@@ -16,6 +19,9 @@ export const PROVIDER_SETTINGS: Record<string, ProviderConnectionSettings> = {
   [sqlServerSettings.dialect]: sqlServerSettings,
   [oracleSettings.dialect]: oracleSettings,
   [sqliteSettings.dialect]: sqliteSettings,
+  [redshiftSettings.dialect]: redshiftSettings,
+  [clickHouseSettings.dialect]: clickHouseSettings,
+  [azureSqlSettings.dialect]: azureSqlSettings,
 };
 
 export function getProviderSettings(dialect: string): ProviderConnectionSettings {

@@ -1,4 +1,4 @@
-import type { Dialect, MetadataStore } from './providers/types';
+import type { Dialect, MetadataStore } from './stores/types';
 
 /**
  * Dialect-aware schema. The DDL is rendered per engine (column types differ:

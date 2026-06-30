@@ -66,6 +66,22 @@ export class Db2Provider implements SchemaProvider {
     }
   }
 
+  async detectVersion(options: ConnectionOptions): Promise<string> {
+    try {
+      const rows = await ConnectionFactory.executeQuery<{ SERVICE_LEVEL: string }>(
+        this.provider,
+        options,
+        `SELECT SERVICE_LEVEL FROM SYSIBMADM.ENV_INST_INFO`
+      );
+      const level = rows[0]?.SERVICE_LEVEL ?? '';
+      // "DB2 v11.5.7.0" → "11.5.7.0"
+      const m = level.match(/v(\d+[\d.]*)/);
+      return m ? m[1] : level;
+    } catch {
+      return '';
+    }
+  }
+
   async listSchemas(options: ConnectionOptions): Promise<string[]> {
     const rows = await ConnectionFactory.executeQuery<{ SCHEMANAME: string }>(
       this.provider,

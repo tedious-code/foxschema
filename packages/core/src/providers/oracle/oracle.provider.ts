@@ -65,6 +65,17 @@ export class OracleProvider implements SchemaProvider {
     }
   }
 
+  async detectVersion(options: ConnectionOptions): Promise<string> {
+    try {
+      const rows = await ConnectionFactory.executeQuery<{ VERSION: string }>(
+        this.provider, options, `SELECT VERSION FROM V$INSTANCE`
+      );
+      return rows[0]?.VERSION ?? '';
+    } catch {
+      return '';
+    }
+  }
+
   async listSchemas(options: ConnectionOptions): Promise<string[]> {
     const rows = await ConnectionFactory.executeQuery<OraSchemaRaw>(
       this.provider,
