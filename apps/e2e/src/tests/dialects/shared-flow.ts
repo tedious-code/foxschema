@@ -8,13 +8,13 @@
  *   6. Verify migration history shows a SUCCESS record
  *
  * Each dialect test file calls runDialectFlow(dialect, getSource, getTarget).
- * The driver is managed here via beforeAll / afterAll.
+ * The browser is managed here via beforeAll / afterAll.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { WebDriver } from 'selenium-webdriver';
-import { buildDriver } from '../../helpers/driver.js';
+import type { Page } from 'playwright';
+import { buildDriver, quitDriver } from '../../helpers/driver.js';
+import { attachConsoleMonitor } from '../../helpers/console-monitor.js';
 import { saveScreenshot } from '../../helpers/screenshot.js';
-import { getBrowserErrors } from '../../helpers/console-monitor.js';
 import { AppPage } from '../../pages/AppPage.js';
 import { ConnectionModal } from '../../pages/ConnectionModal.js';
 import { MigrationPage } from '../../pages/MigrationPage.js';
@@ -25,27 +25,30 @@ export function runDialectFlow(
   getSource: () => DbConfig,
   getTarget: () => DbConfig
 ): void {
-  let driver: WebDriver;
+  let driver: Page;
   let app: AppPage;
   let modal: ConnectionModal;
   let migration: MigrationPage;
+  let getErrors: ReturnType<typeof attachConsoleMonitor>['getErrors'];
 
   beforeAll(async () => {
     driver = await buildDriver();
+    // Attach before first navigation so boot errors are captured.
+    ({ getErrors } = attachConsoleMonitor(driver));
     app = new AppPage(driver);
     modal = new ConnectionModal(driver);
     migration = new MigrationPage(driver);
   });
 
   afterAll(async () => {
-    await driver?.quit();
+    if (driver) await quitDriver(driver);
   });
 
   // ── 1. Boot ─────────────────────────────────────────────────────────────
 
   it('app boots without console errors', async () => {
     await app.open();
-    const errors = (await getBrowserErrors(driver)).filter((e) => e.level === 'SEVERE');
+    const errors = getErrors().filter((e) => e.level === 'SEVERE');
     if (errors.length) await saveScreenshot(driver, `${dialectLabel}_boot_error`);
     expect(errors, errors.map((e) => e.message).join('\n')).toHaveLength(0);
   });
@@ -82,7 +85,7 @@ export function runDialectFlow(
   });
 
   it('no SEVERE console errors after compare', async () => {
-    const errors = (await getBrowserErrors(driver)).filter((e) => e.level === 'SEVERE');
+    const errors = getErrors().filter((e) => e.level === 'SEVERE');
     if (errors.length) await saveScreenshot(driver, `${dialectLabel}_compare_error`);
     expect(errors, errors.map((e) => e.message).join('\n')).toHaveLength(0);
   });
@@ -134,7 +137,7 @@ export function runDialectFlow(
   });
 
   it('no SEVERE console errors after migration', async () => {
-    const errors = (await getBrowserErrors(driver)).filter((e) => e.level === 'SEVERE');
+    const errors = getErrors().filter((e) => e.level === 'SEVERE');
     if (errors.length) await saveScreenshot(driver, `${dialectLabel}_post_migrate_error`);
     expect(errors, errors.map((e) => e.message).join('\n')).toHaveLength(0);
   });

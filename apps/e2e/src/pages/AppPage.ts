@@ -1,4 +1,4 @@
-import { WebDriver, By, until } from 'selenium-webdriver';
+import type { Page } from 'playwright';
 import { BASE_URL, waitFor, clickWhen } from '../helpers/driver.js';
 
 /**
@@ -6,75 +6,63 @@ import { BASE_URL, waitFor, clickWhen } from '../helpers/driver.js';
  * All selectors match the data-testid attributes set in the React components.
  */
 export class AppPage {
-  constructor(private driver: WebDriver) {}
+  constructor(private page: Page) {}
 
   async open(): Promise<void> {
-    await this.driver.get(BASE_URL);
-    await waitFor(this.driver, By.css('[data-testid="toolbar"]'));
+    await this.page.goto(BASE_URL);
+    await waitFor(this.page, '[data-testid="toolbar"]');
   }
 
   // ── Source side ─────────────────────────────────────────────────────────
 
   async openSourceModal(): Promise<void> {
-    await clickWhen(this.driver, By.css('[data-testid="source-config-btn"]'));
-    await waitFor(this.driver, By.css('[data-testid="conn-modal"]'));
+    await clickWhen(this.page, '[data-testid="source-config-btn"]');
+    await waitFor(this.page, '[data-testid="conn-modal"]');
   }
 
   async isSourceConnected(): Promise<boolean> {
-    const els = await this.driver.findElements(By.css('[data-testid="source-connected-btn"]'));
-    return els.length > 0;
+    return this.page.locator('[data-testid="source-connected-btn"]').isVisible();
   }
 
   async waitForSourceConnected(timeoutMs = 15_000): Promise<void> {
-    await this.driver.wait(
-      until.elementLocated(By.css('[data-testid="source-connected-btn"]')),
-      timeoutMs
-    );
+    await this.page.waitForSelector('[data-testid="source-connected-btn"]', { timeout: timeoutMs });
   }
 
   // ── Target side ─────────────────────────────────────────────────────────
 
   async openTargetModal(): Promise<void> {
-    await clickWhen(this.driver, By.css('[data-testid="target-config-btn"]'));
-    await waitFor(this.driver, By.css('[data-testid="conn-modal"]'));
+    await clickWhen(this.page, '[data-testid="target-config-btn"]');
+    await waitFor(this.page, '[data-testid="conn-modal"]');
   }
 
   async isTargetConnected(): Promise<boolean> {
-    const els = await this.driver.findElements(By.css('[data-testid="target-connected-btn"]'));
-    return els.length > 0;
+    return this.page.locator('[data-testid="target-connected-btn"]').isVisible();
   }
 
   async waitForTargetConnected(timeoutMs = 15_000): Promise<void> {
-    await this.driver.wait(
-      until.elementLocated(By.css('[data-testid="target-connected-btn"]')),
-      timeoutMs
-    );
+    await this.page.waitForSelector('[data-testid="target-connected-btn"]', { timeout: timeoutMs });
   }
 
   // ── Comparison ─────────────────────────────────────────────────────────
 
   async runCompare(): Promise<void> {
-    await clickWhen(this.driver, By.css('[data-testid="compare-btn"]'));
-    await this.driver.wait(
-      until.elementLocated(By.css('[data-testid="schema-tree"]')),
-      30_000
-    );
+    await clickWhen(this.page, '[data-testid="compare-btn"]');
+    await this.page.waitForSelector('[data-testid="schema-tree"]', { timeout: 30_000 });
   }
 
   async getDiffCount(): Promise<number> {
-    const items = await this.driver.findElements(By.css('[data-testid="diff-item"]'));
-    return items.length;
+    return this.page.locator('[data-testid="diff-item"]').count();
   }
 
   async getDiffStatuses(): Promise<(string | null)[]> {
-    const items = await this.driver.findElements(By.css('[data-testid="diff-item"]'));
+    const items = await this.page.locator('[data-testid="diff-item"]').all();
     return Promise.all(items.map((el) => el.getAttribute('data-status')));
   }
 
   async isSchemaTreeVisible(): Promise<boolean> {
     try {
-      const el = await waitFor(this.driver, By.css('[data-testid="schema-tree"]'), 3_000);
-      return el.isDisplayed();
+      await this.page.waitForSelector('[data-testid="schema-tree"]', { timeout: 3_000 });
+      return this.page.locator('[data-testid="schema-tree"]').isVisible();
     } catch {
       return false;
     }
@@ -83,21 +71,18 @@ export class AppPage {
   // ── Banners ────────────────────────────────────────────────────────────
 
   async isErrorBannerVisible(): Promise<boolean> {
-    const els = await this.driver.findElements(By.css('[data-testid="error-banner"]'));
-    return els.length > 0 && els[0].isDisplayed();
+    return this.page.locator('[data-testid="error-banner"]').isVisible();
   }
 
   async getErrorBannerText(): Promise<string> {
-    const el = await waitFor(this.driver, By.css('[data-testid="error-banner"]'));
-    return el.getText();
+    return (await this.page.locator('[data-testid="error-banner"]').textContent()) ?? '';
   }
 
   async isWarningBannerVisible(): Promise<boolean> {
-    const els = await this.driver.findElements(By.css('[data-testid="warning-banner"]'));
-    return els.length > 0 && els[0].isDisplayed();
+    return this.page.locator('[data-testid="warning-banner"]').isVisible();
   }
 
   async dismissWarnings(): Promise<void> {
-    await clickWhen(this.driver, By.css('[data-testid="dismiss-warnings-btn"]'));
+    await clickWhen(this.page, '[data-testid="dismiss-warnings-btn"]');
   }
 }

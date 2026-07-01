@@ -137,7 +137,13 @@ export const ConnectionModal: React.FC<Props> = ({
       const option: ConnectionOptions = { ...form, connectionString: buildConnectionString(selDialect, form) };
       const list = await fetchSchemaList({ dialect: selDialect, option });
       setSchemaList(list);
-      if (list.length && !list.includes(form.schema || '')) updateField('schema', list[0]);
+      if (list.length && !list.includes(form.schema || '')) {
+        // For single-schema-per-database dialects (MySQL/MariaDB), "schema" and
+        // "database" are the same concept — prefer the already-entered database
+        // name over the first alphabetical entry in the list.
+        const preferred = form.database && list.includes(form.database) ? form.database : list[0];
+        updateField('schema', preferred);
+      }
       setTestingState({ status: 'success' });
     } catch (error: any) {
       setTestingState({ status: 'failed', error: error.message || 'Failed to load schemas' });

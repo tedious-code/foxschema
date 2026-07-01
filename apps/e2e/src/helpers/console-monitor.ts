@@ -1,4 +1,10 @@
-import { WebDriver, logging } from 'selenium-webdriver';
+import type { Page, ConsoleMessage } from 'playwright';
+
+export interface ConsoleError {
+  level: string;
+  message: string;
+  timestamp: number;
+}
 
 const IGNORED_PATTERNS = [
   /favicon\.ico/,
@@ -7,33 +13,28 @@ const IGNORED_PATTERNS = [
   /\[vite\]/,
 ];
 
-export interface ConsoleError {
-  level: string;
-  message: string;
-  timestamp: number;
-}
-
 /**
- * Collect browser console errors/warnings.
- * Must call `enableLogging()` in beforeAll before using the driver.
+ * Attach a console listener to the page. Call this immediately after buildDriver(),
+ * before any page.goto(), so errors emitted during navigation are captured.
+ *
+ * Returns a getErrors() function — call it in tests to read accumulated errors.
+ * Unlike the old Selenium log API, errors accumulate across the whole session
+ * (not cleared between calls), which is fine since all tests check totals.
  */
-export async function getBrowserErrors(driver: WebDriver): Promise<ConsoleError[]> {
-  let entries: logging.Entry[];
-  try {
-    entries = await driver.manage().logs().get(logging.Type.BROWSER);
-  } catch {
-    return [];
-  }
+export function attachConsoleMonitor(page: Page): { getErrors(): ConsoleError[] } {
+  const errors: ConsoleError[] = [];
 
-  return entries
-    .filter((e) => ['SEVERE', 'WARNING'].includes(e.level.name))
-    .filter((e) => !IGNORED_PATTERNS.some((p) => p.test(e.message)))
-    .map((e) => ({ level: e.level.name, message: e.message, timestamp: e.timestamp }));
-}
+  page.on('console', (msg: ConsoleMessage) => {
+    const type = msg.type();
+    if (type !== 'error' && type !== 'warning') return;
+    const message = msg.text();
+    if (IGNORED_PATTERNS.some((p) => p.test(message))) return;
+    errors.push({
+      level: type === 'error' ? 'SEVERE' : 'WARNING',
+      message,
+      timestamp: Date.now(),
+    });
+  });
 
-/** Build driver with browser logging enabled (call instead of plain buildDriver when you need console monitoring). */
-export function browserLoggingPrefs(): logging.Preferences {
-  const prefs = new logging.Preferences();
-  prefs.setLevel(logging.Type.BROWSER, logging.Level.WARNING);
-  return prefs;
+  return { getErrors: () => [...errors] };
 }
