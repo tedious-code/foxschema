@@ -1,7 +1,7 @@
 {
   "$schema": "../../../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "FoxSchema",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "identifier": "com.foxschema.desktop",
   "build": {
     "frontendDist": "frontendDist",
@@ -29,8 +29,12 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "externalBin": ["binaries/foxschema-sidecar"],
-    "resources": ["resources/server"],
+    "externalBin": [
+      "binaries/foxschema-sidecar"
+    ],
+    "resources": [
+      "resources/server"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

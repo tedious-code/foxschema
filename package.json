@@ -2,11 +2,14 @@
   "name": "foxschema",
   "author": "huyplb",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "license": "BSD-2-Clause",
-  "workspaces": ["packages/*", "apps/*"],
-  "bugs":"https://github.com/tedious-code/foxschema/issues",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "bugs": "https://github.com/tedious-code/foxschema/issues",
   "scripts": {
     "lint": "eslint .",
     "lint:security": "eslint . --max-warnings 0",

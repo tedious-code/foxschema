@@ -1,6 +1,6 @@
 {
   "name": "@foxschema/core",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Dialect-agnostic database schema diff & migration engine (FoxSchema core). The full Node runtime: drivers, pooling, and migration execution.",
   "type": "module",
   "license": "MIT",
@@ -14,8 +14,14 @@
     "mysql2": "*"
   },
   "peerDependenciesMeta": {
-    "ibm_db": { "optional": true },
-    "pg": { "optional": true },
-    "mysql2": { "optional": true }
+    "ibm_db": {
+      "optional": true
+    },
+    "pg": {
+      "optional": true
+    },
+    "mysql2": {
+      "optional": true
+    }
   }
 }
