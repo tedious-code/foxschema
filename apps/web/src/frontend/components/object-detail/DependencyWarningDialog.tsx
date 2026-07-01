@@ -1,6 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { AlertCircle, FileText, Play } from 'lucide-react';
+import { AlertCircle, FileText } from 'lucide-react';
 import type { DropDependency } from '../../lib/dependency-scan';
 
 interface Props {
@@ -8,15 +8,16 @@ interface Props {
   syncSelection: Record<string, boolean>;
   toggleSyncSelection: (name: string) => void;
   onCancel: () => void;
-  onDeployAnyway: () => void;
 }
 
 /**
  * Pre-deploy warning shown when a selected drop (table/column) is still
- * referenced by a view/function/procedure in the target. Offers a per-dependent
- * "Include in deploy" quick-fix or "Deploy anyway".
+ * referenced by a view/function/procedure in the target. Execute stays disabled
+ * while this list is non-empty — there is no bypass. Resolve each entry either
+ * by including the dependent in the deploy, or by deselecting the object that
+ * drops the referenced column/table.
  */
-export const DependencyWarningDialog: React.FC<Props> = ({ deps, syncSelection, toggleSyncSelection, onCancel, onDeployAnyway }) => {
+export const DependencyWarningDialog: React.FC<Props> = ({ deps, syncSelection, toggleSyncSelection, onCancel }) => {
   if (deps.length === 0) return null;
   return createPortal(
     <div
@@ -54,7 +55,7 @@ export const DependencyWarningDialog: React.FC<Props> = ({ deps, syncSelection, 
                     <span className="font-mono text-slate-300">{d.dropped}</span>
                   </p>
                 </div>
-                {d.deployable && (
+                {d.deployable ? (
                   <button
                     onClick={() => {
                       if (!syncSelection[d.dependentName]) toggleSyncSelection(d.dependentName);
@@ -64,6 +65,10 @@ export const DependencyWarningDialog: React.FC<Props> = ({ deps, syncSelection, 
                   >
                     {syncSelection[d.dependentName] ? 'Included' : 'Include in deploy'}
                   </button>
+                ) : (
+                  <span className="shrink-0 text-[10px] text-slate-500 italic max-w-[140px] text-right">
+                    deselect the drop of {d.dropped} to resolve
+                  </span>
                 )}
               </li>
             ))}
@@ -74,13 +79,7 @@ export const DependencyWarningDialog: React.FC<Props> = ({ deps, syncSelection, 
             onClick={onCancel}
             className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-850/50 rounded transition"
           >
-            Cancel
-          </button>
-          <button
-            onClick={onDeployAnyway}
-            className="px-4 py-2 text-xs font-bold bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 on-accent-fg rounded transition shadow flex items-center gap-1.5"
-          >
-            <Play className="w-3.5 h-3.5 fill-current" /> Deploy anyway
+            Close
           </button>
         </div>
       </div>
