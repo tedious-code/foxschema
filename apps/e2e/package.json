@@ -35,8 +35,7 @@
     "test:redshift:headed": "HEADLESS=false vitest run --config vitest.config.ts src/tests/dialects/redshift.test.ts"
   },
   "devDependencies": {
-    "@types/selenium-webdriver": "^4.1.26",
-    "selenium-webdriver": "^4.29.0",
+    "playwright": "^1.49.0",
     "vitest": "^4.1.8"
   }
 }

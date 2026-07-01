@@ -9,6 +9,14 @@ GO
 -- Drop and recreate schemas
 -- ============================================================
 IF EXISTS (SELECT 1 FROM sys.schemas WHERE name = 'demo_a') BEGIN
+  -- Drop FKs first — sys.objects enumeration order doesn't respect dependency
+  -- order, so a plain DROP TABLE loop can hit "categories" before "products"
+  -- and fail with a FOREIGN KEY constraint error.
+  DECLARE @fkSql NVARCHAR(MAX) = N'';
+  SELECT @fkSql += 'ALTER TABLE demo_a.' + OBJECT_NAME(parent_object_id) +
+    ' DROP CONSTRAINT ' + name + '; '
+  FROM sys.foreign_keys WHERE SCHEMA_NAME(schema_id) = 'demo_a';
+  EXEC sp_executesql @fkSql;
   DECLARE @sql NVARCHAR(MAX) = N'';
   SELECT @sql += 'DROP ' + CASE type_desc
     WHEN 'USER_TABLE'   THEN 'TABLE'
@@ -20,10 +28,21 @@ IF EXISTS (SELECT 1 FROM sys.schemas WHERE name = 'demo_a') BEGIN
   FROM sys.objects WHERE schema_id = SCHEMA_ID('demo_a')
     AND type_desc IN ('SQL_TRIGGER','SQL_SCALAR_FUNCTION','SQL_STORED_PROCEDURE','VIEW','USER_TABLE');
   EXEC sp_executesql @sql;
+  -- Sequences live in sys.sequences, not sys.objects' handled type_desc list above —
+  -- drop them separately or DROP SCHEMA fails with "referenced by object 'order_seq'".
+  DECLARE @seqSql NVARCHAR(MAX) = N'';
+  SELECT @seqSql += 'DROP SEQUENCE demo_a.' + name + '; '
+  FROM sys.sequences WHERE schema_id = SCHEMA_ID('demo_a');
+  EXEC sp_executesql @seqSql;
   DROP SCHEMA demo_a;
 END
 GO
 IF EXISTS (SELECT 1 FROM sys.schemas WHERE name = 'demo_b') BEGIN
+  DECLARE @fkSql NVARCHAR(MAX) = N'';
+  SELECT @fkSql += 'ALTER TABLE demo_b.' + OBJECT_NAME(parent_object_id) +
+    ' DROP CONSTRAINT ' + name + '; '
+  FROM sys.foreign_keys WHERE SCHEMA_NAME(schema_id) = 'demo_b';
+  EXEC sp_executesql @fkSql;
   DECLARE @sql NVARCHAR(MAX) = N'';
   SELECT @sql += 'DROP ' + CASE type_desc
     WHEN 'USER_TABLE'   THEN 'TABLE'
@@ -35,6 +54,10 @@ IF EXISTS (SELECT 1 FROM sys.schemas WHERE name = 'demo_b') BEGIN
   FROM sys.objects WHERE schema_id = SCHEMA_ID('demo_b')
     AND type_desc IN ('SQL_TRIGGER','SQL_SCALAR_FUNCTION','SQL_STORED_PROCEDURE','VIEW','USER_TABLE');
   EXEC sp_executesql @sql;
+  DECLARE @seqSql NVARCHAR(MAX) = N'';
+  SELECT @seqSql += 'DROP SEQUENCE demo_b.' + name + '; '
+  FROM sys.sequences WHERE schema_id = SCHEMA_ID('demo_b');
+  EXEC sp_executesql @seqSql;
   DROP SCHEMA demo_b;
 END
 GO
