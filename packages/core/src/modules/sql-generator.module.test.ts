@@ -183,6 +183,40 @@ describe('SqlGeneratorModule.generateMigrationPlan', () => {
     expect(stmts.some((s) => /^\s*CREATE VIEW/.test(s))).toBe(false);
   });
 
+  it('creates an ADDED function before a MODIFIED table\'s ALTER step adds a trigger that calls it', () => {
+    // Regression: a MODIFIED table's ALTER can add a new trigger whose EXECUTE
+    // FUNCTION clause calls a function that is itself only ADDED in this same
+    // migration. The function must be created before the ALTER runs, not after.
+    const modifiedTableWithNewTrigger: TableDiff = {
+      tableName: 'CUSTOMERS',
+      objectType: 'TABLE',
+      status: 'MODIFIED',
+      columnDiffs: [],
+      indexDiffs: [],
+      foreignKeyDiffs: [],
+      triggerDiffs: [{
+        name: 'TRG_CUSTOMER_CREATED',
+        status: 'ADDED',
+        source: { definition: 'CREATE TRIGGER TRG_CUSTOMER_CREATED BEFORE INSERT ON CUSTOMERS FOR EACH ROW EXECUTE FUNCTION TRG_UPDATE_TS()' },
+      }],
+    };
+    const addedFunction: TableDiff = {
+      tableName: 'TRG_UPDATE_TS',
+      objectType: 'FUNCTION',
+      status: 'ADDED',
+      columnDiffs: [],
+      indexDiffs: [],
+      foreignKeyDiffs: [],
+      definition: 'CREATE FUNCTION TRG_UPDATE_TS() RETURNS trigger AS $$ BEGIN RETURN NEW; END; $$',
+    };
+    const steps = gen.generateMigrationPlan([modifiedTableWithNewTrigger, addedFunction], 'postgres');
+    const functionStepIndex = steps.findIndex((s) => s.objectType === 'FUNCTION');
+    const alterStepIndex = steps.findIndex((s) => s.objectType === 'TABLE' && s.action === 'ALTER');
+    expect(functionStepIndex).toBeGreaterThanOrEqual(0);
+    expect(alterStepIndex).toBeGreaterThanOrEqual(0);
+    expect(functionStepIndex).toBeLessThan(alterStepIndex);
+  });
+
   it('drops then recreates a modified trigger', () => {
     const diff: TableDiff = {
       tableName: 'ORDERS',

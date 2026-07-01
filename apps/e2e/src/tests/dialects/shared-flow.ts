@@ -98,9 +98,16 @@ export function runDialectFlow(
       console.log(`[${dialectLabel}] No diff objects — skipping execute step`);
       return;
     }
-    // Select all objects first — the execute button stays disabled until at least
+    // Non-destructive first — Execute stays disabled while the plan contains
+    // DROP TABLE/COLUMN/INDEX until the "destructive drops" checkbox is ticked,
+    // and this flow is documented (and named) as the non-destructive run.
+    await migration.setNonDestructive(true);
+    // Select all objects — the execute button stays disabled until at least
     // one diff object is checked in.
     await migration.selectAllObjects(true);
+    // Tick any remaining safety acknowledgments (e.g. MySQL binlog risk —
+    // independent of non-destructive mode, since it's about routine creation).
+    await migration.acknowledgeSafetyWarnings();
     expect(await migration.isExecuteEnabled()).toBe(true);
   });
 

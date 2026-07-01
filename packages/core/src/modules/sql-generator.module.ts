@@ -37,6 +37,12 @@ export interface SchemaMapping {
 }
 
 const PROCEDURAL_TYPES: ReadonlySet<DbObjectType> = new Set(['VIEW', 'FUNCTION', 'PROCEDURE', 'TRIGGER']);
+// Routines (FUNCTION/PROCEDURE) don't need ALTER'd columns to exist to be created —
+// nothing validates their bodies against table structure at creation time. Anything
+// that might CALL them (a trigger added during ALTER, another routine) does need
+// them to exist first, so they're created before the ALTER phase, not after it —
+// unlike VIEW/TRIGGER, which are ordered after ALTER (see generateMigrationPlan).
+const ROUTINE_TYPES: ReadonlySet<DbObjectType> = new Set(['FUNCTION', 'PROCEDURE']);
 
 export class SqlGeneratorModule {
   /**
@@ -595,6 +601,22 @@ export class SqlGeneratorModule {
     return [...others, ...addOrder.reverse(), ...sequences, ...types];
   }
 
+  /** Build a CREATE step for an ADDED procedural object (routine, view, or trigger). */
+  private createProceduralStep(obj: TableDiff, dialect: SqlDialect, m: SchemaMapping): MigrationStep {
+    const stmts = this.createObjectStatements(obj, dialect, m);
+    const noDefRoutine =
+      stmts.length === 0 &&
+      !obj.definition &&
+      !this.isCrossDialect(m);
+    return {
+      objectName: obj.tableName,
+      objectType: obj.objectType,
+      action: 'CREATE',
+      statements: stmts,
+      ...(noDefRoutine ? { skipped: `No definition available — grant SHOW_ROUTINE privilege and re-compare` } : {}),
+    };
+  }
+
   generateMigrationPlan(diffs: TableDiff[], dialectStr: string, mapping?: SchemaMapping): MigrationStep[] {
     const dialect = resolveDialect(dialectStr);
     // Pin the target dialect into the mapping so the render helpers can detect a
@@ -617,28 +639,26 @@ export class SqlGeneratorModule {
       steps.push({ objectName: obj.tableName, objectType: obj.objectType, action: 'CREATE', statements: stmts });
     }
 
-    // MODIFIED (ALTER TABLE, etc.) — must run before ADDED procedural objects so that
-    // views and functions referencing newly-added columns see them when created.
+    // ADDED routines (FUNCTION, PROCEDURE) come before MODIFIED — a MODIFIED table's
+    // ALTER step can add a new TRIGGER that calls a newly-added function, so the
+    // function must already exist by then. See ROUTINE_TYPES comment.
+    const addedRoutines = diffs.filter((d) => d.status === 'ADDED' && ROUTINE_TYPES.has(d.objectType));
+    for (const obj of this.sortAddedByDependency(addedRoutines)) {
+      steps.push(this.createProceduralStep(obj, dialect, m));
+    }
+
+    // MODIFIED (ALTER TABLE, etc.) — must run before ADDED views/triggers so that
+    // views referencing newly-added columns see them when created.
     for (const obj of diffs.filter((d) => d.status === 'MODIFIED')) {
       steps.push({ objectName: obj.tableName, objectType: obj.objectType, action: 'ALTER', statements: this.alterObjectStatements(obj, dialect, m) });
     }
 
-    // Procedural ADDED objects (VIEW, FUNCTION, PROCEDURE, TRIGGER) come last so they
-    // can reference columns and tables that were added/modified in the steps above.
-    const addedProcedural = diffs.filter((d) => d.status === 'ADDED' && PROCEDURAL_TYPES.has(d.objectType));
-    for (const obj of this.sortAddedByDependency(addedProcedural)) {
-      const stmts = this.createObjectStatements(obj, dialect, m);
-      const noDefRoutine =
-        stmts.length === 0 &&
-        !obj.definition &&
-        !this.isCrossDialect(m);
-      steps.push({
-        objectName: obj.tableName,
-        objectType: obj.objectType,
-        action: 'CREATE',
-        statements: stmts,
-        ...(noDefRoutine ? { skipped: `No definition available — grant SHOW_ROUTINE privilege and re-compare` } : {}),
-      });
+    // ADDED views/triggers come last so they can reference columns and tables that
+    // were added/modified in the steps above (and, for triggers, routines created
+    // just before the ALTER phase above).
+    const addedViewsAndTriggers = diffs.filter((d) => d.status === 'ADDED' && PROCEDURAL_TYPES.has(d.objectType) && !ROUTINE_TYPES.has(d.objectType));
+    for (const obj of this.sortAddedByDependency(addedViewsAndTriggers)) {
+      steps.push(this.createProceduralStep(obj, dialect, m));
     }
 
     // Collect MODIFIED objects whose statements were entirely skipped (all changes

@@ -329,6 +329,7 @@ export const SchemaTreePanel: React.FC = () => {
             title="Non-destructive: ADD/MODIFY only — never DROP columns, indexes, or tables"
           >
             <input
+              data-testid="non-destructive-checkbox"
               type="checkbox"
               checked={nonDestructive}
               onChange={(e) => setNonDestructive(e.target.checked)}
