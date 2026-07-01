@@ -2,7 +2,7 @@ import React, { useState, useMemo, Suspense, lazy } from 'react';
 import { useSyncStore } from '../store/useSyncStore';
 import { Code, Play, RefreshCw, FileText, CheckCircle2, ChevronRight, ChevronDown, KeyRound, Copy, GitCompareArrows, AlertTriangle } from 'lucide-react';
 import { SqlGeneratorModule } from '../lib/sql-generator';
-import { findDropDependencies, type DropDependency } from '../lib/dependency-scan';
+import { findDropDependencies } from '../lib/dependency-scan';
 import { diffLines } from '../utils/lineDiff';
 import { highlightMatch } from '../utils/highlight';
 import { formatSql } from '../utils/formatSql';
@@ -33,6 +33,7 @@ export const ObjectDetailPanel: React.FC = () => {
     isComparing,
     sourceConfig,
     targetConfig,
+    targetConnected,
     compareResult,
     browseMode,
     syncSelection,
@@ -59,7 +60,27 @@ export const ObjectDetailPanel: React.FC = () => {
   const [showConfirm, setShowConfirm] = useState(false);
   const [dontAskAgain, setDontAskAgain] = useState(false);
   // Pre-deploy warning: dropped tables/columns still referenced by views/functions/procedures.
-  const [dropDeps, setDropDeps] = useState<DropDependency[]>([]);
+  // The dialog always renders the live scan (below) — this only tracks open/closed.
+  const [showDepsDialog, setShowDepsDialog] = useState(false);
+  // Explicit acknowledgment for destructive drops / MySQL binlog risk — keyed to the
+  // exact generatedSql that was acknowledged, so any change to the plan (new selection,
+  // toggling non-destructive, etc.) silently invalidates a stale checkbox instead of
+  // carrying forward consent for a plan the user never actually saw.
+  const [destructiveAckSql, setDestructiveAckSql] = useState<string | null>(null);
+  const [mysqlAckSql, setMysqlAckSql] = useState<string | null>(null);
+
+  // Live dependency scan — recomputed on every selection/nonDestructive change, not just
+  // on Execute click, so the button can stay disabled until conflicts are resolved.
+  const liveDropDeps = useMemo(
+    () => (compareResult ? findDropDependencies(compareResult.tables, syncSelection, { nonDestructive }) : []),
+    [compareResult, syncSelection, nonDestructive]
+  );
+  const hasUnresolvedDropDeps = liveDropDeps.length > 0;
+
+  // Destructive drops (DROP TABLE/COLUMN/INDEX) in the generated plan while non-destructive
+  // mode is off — require an explicit checkbox acknowledgment before Execute unlocks.
+  const hasDestructiveDrops = !nonDestructive && !!generatedSql && /\bDROP\s+(TABLE|COLUMN|INDEX)\b/i.test(generatedSql);
+  const destructiveDropsAcked = destructiveAckSql !== null && destructiveAckSql === generatedSql;
 
   const toggleTriggerDdl = (name: string) =>
     setExpandedTriggers((prev) => ({ ...prev, [name]: !prev[name] }));
@@ -96,23 +117,15 @@ export const ObjectDetailPanel: React.FC = () => {
     }
   };
 
-  // Before deploying, warn when a selected drop (table/column) would break a
-  // view/function/procedure that still references it. Recommend handling those
-  // dependents first; the user can include them in the deploy or proceed anyway.
+  // Execute is disabled whenever hasUnresolvedDropDeps is true (see the disabled
+  // expression on the button below), so reaching this handler means the dependency
+  // scan is already clean. Kept as a defensive re-check rather than trusting that
+  // every call site respects the disabled state.
   const handleExecuteClick = () => {
-    const deps = compareResult
-      ? findDropDependencies(compareResult.tables, syncSelection, { nonDestructive })
-      : [];
-    if (deps.length > 0) {
-      setDropDeps(deps);
+    if (liveDropDeps.length > 0) {
+      setShowDepsDialog(true);
       return;
     }
-    proceedToConfirm();
-  };
-
-  // "Deploy anyway" from the dependency warning — dismiss it and run the normal flow.
-  const proceedDespiteDeps = () => {
-    setDropDeps([]);
     proceedToConfirm();
   };
 
@@ -164,15 +177,25 @@ export const ObjectDetailPanel: React.FC = () => {
           <span className="text-xs font-mono text-slate-400 flex items-center gap-2">
             <span className="text-slate-300">{selectedTable.tableName}</span>
             <span className="text-slate-600">—</span>
-            {/* Orientation: target (left, current state) → source (right, desired state).
-                Monaco computes "what transforms original into modified" — so target is
-                original and source is modified. Green = added to target, Red = removed from target. */}
-            <span className="text-slate-500 text-[10px] italic">Target (current)</span>
+            {/* Orientation: source (left, original) → target (right, destination) —
+                matches the Source/Target connection panel layout in the top toolbar.
+                Monaco computes "what transforms original into modified" — so source is
+                original and target is modified. Diff highlight color signals what the
+                migration will DO to this object: green = new object, amber = existing
+                object's definition changed, red = object is being dropped. */}
+            <span className="text-slate-500 text-[10px] italic">Source (original)</span>
             <span className="text-slate-600">→</span>
-            <span className="text-slate-500 text-[10px] italic">Source (desired)</span>
+            <span className="text-slate-500 text-[10px] italic">Target (destination)</span>
             <span className="ml-1 flex items-center gap-2 text-[10px]">
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-emerald-500/70"></span><span className="text-emerald-300/80">add to target</span></span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-rose-500/70"></span><span className="text-rose-300/80">remove from target</span></span>
+              {selectedTable.status === 'ADDED' && (
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-emerald-500/70"></span><span className="text-emerald-300/80">new object</span></span>
+              )}
+              {selectedTable.status === 'REMOVED' && (
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-red-500/70"></span><span className="text-red-300/80">dropped</span></span>
+              )}
+              {(selectedTable.status === 'MODIFIED' || selectedTable.status === 'UNCHANGED') && (
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-amber-500/70"></span><span className="text-amber-300/80">modified</span></span>
+              )}
             </span>
           </span>
           <div className="flex items-center gap-3">
@@ -198,12 +221,13 @@ export const ObjectDetailPanel: React.FC = () => {
           <div className="absolute inset-0">
             <Suspense fallback={<EditorFallback />}>
               <SqlDiffEditor
-                original={targetDdl}
-                modified={sourceDdl}
+                original={sourceDdl}
+                modified={targetDdl}
                 dialect={targetConfig.dialect}
                 inline={inlineDiff}
                 ignoreCase={ignoreCase}
                 highlight={searchTerm}
+                status={selectedTable.status === 'ADDED' || selectedTable.status === 'REMOVED' ? selectedTable.status : 'MODIFIED'}
               />
             </Suspense>
           </div>
@@ -965,6 +989,17 @@ export const ObjectDetailPanel: React.FC = () => {
       }
       return (t.triggerDiffs ?? []).some((d) => d.status === 'ADDED' || d.status === 'MODIFIED');
     });
+  const mysqlRiskAcked = mysqlAckSql !== null && mysqlAckSql === generatedSql;
+
+  // Single source of truth for why Execute is disabled, checked in priority order —
+  // most severe / least self-service first. `null` means nothing is blocking.
+  const executeBlockReason: string | null =
+    includedCount === 0 ? 'No objects selected for deployment'
+    : !targetConnected ? 'Target connection is not healthy — reconnect before deploying'
+    : hasUnresolvedDropDeps ? `${liveDropDeps.length} dependent object(s) would break — resolve the conflicts below`
+    : hasDestructiveDrops && !destructiveDropsAcked ? 'Acknowledge the destructive drops below before deploying'
+    : deploysRoutineToMySql && !mysqlRiskAcked ? 'Acknowledge the MySQL binlog privilege risk below before deploying'
+    : null;
 
   return (
     <div className="flex-1 flex flex-col min-w-0 bg-slate-900 h-full">
@@ -1023,12 +1058,17 @@ export const ObjectDetailPanel: React.FC = () => {
           <button
             data-testid="execute-btn"
             onClick={handleExecuteClick}
-            disabled={isComparing || isMigrating || migrationExecuted || includedCount === 0}
-            title={includedCount === 0 ? 'No objects selected for deployment' : `Deploy ${includedCount} object(s) to target`}
+            disabled={
+              isComparing || isMigrating || migrationExecuted || includedCount === 0 ||
+              !targetConnected || hasUnresolvedDropDeps ||
+              (hasDestructiveDrops && !destructiveDropsAcked) ||
+              (deploysRoutineToMySql && !mysqlRiskAcked)
+            }
+            title={executeBlockReason ?? `Deploy ${includedCount} object(s) to target`}
             className={`flex items-center gap-1.5 px-4 py-1.5 rounded text-xs font-bold transition shadow ${
               migrationExecuted
                 ? 'bg-emerald-950/40 text-emerald-400 border border-emerald-500/25 cursor-default'
-                : includedCount === 0
+                : executeBlockReason
                 ? 'bg-slate-800 text-slate-500 border border-slate-700/50 cursor-not-allowed'
                 : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 on-accent-fg cursor-pointer shadow-emerald-500/5'
             }`}
@@ -1050,11 +1090,10 @@ export const ObjectDetailPanel: React.FC = () => {
           )}
 
           <DependencyWarningDialog
-            deps={dropDeps}
+            deps={showDepsDialog ? liveDropDeps : []}
             syncSelection={syncSelection}
             toggleSyncSelection={toggleSyncSelection}
-            onCancel={() => setDropDeps([])}
-            onDeployAnyway={proceedDespiteDeps}
+            onCancel={() => setShowDepsDialog(false)}
           />
 
           <DeployConfirmDialog
@@ -1068,6 +1107,59 @@ export const ObjectDetailPanel: React.FC = () => {
           />
         </div>
       </div>
+
+      {/* Safety gate banner — anything that currently blocks Execute, with the
+          action needed to clear it. Visible on every tab, not just Migration SQL,
+          since Execute lives in the toolbar above regardless of active tab. */}
+      {!browseMode && (!targetConnected || hasUnresolvedDropDeps || (hasDestructiveDrops && !destructiveDropsAcked) || (deploysRoutineToMySql && !mysqlRiskAcked)) && (
+        <div className="border-b border-slate-800 bg-slate-950/60 divide-y divide-slate-800/60">
+          {!targetConnected && (
+            <div className="flex items-center gap-2.5 px-4 py-2 text-[11px] text-rose-300">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-rose-400" />
+              Target connection is not healthy — reconnect the target before deploying.
+            </div>
+          )}
+          {hasUnresolvedDropDeps && (
+            <div className="flex items-center justify-between gap-2.5 px-4 py-2 text-[11px] text-amber-200">
+              <span className="flex items-center gap-2.5">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-400" />
+                {liveDropDeps.length} dependent object{liveDropDeps.length === 1 ? '' : 's'} would break from a drop in this deploy.
+              </span>
+              <button
+                onClick={() => setShowDepsDialog(true)}
+                className="shrink-0 text-[10px] font-semibold rounded px-2 py-1 text-amber-200 bg-amber-950/50 border border-amber-500/40 hover:bg-amber-900/50 transition"
+              >
+                Review conflicts
+              </button>
+            </div>
+          )}
+          {hasDestructiveDrops && (
+            <label className="flex items-center gap-2.5 px-4 py-2 text-[11px] text-amber-200 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={destructiveDropsAcked}
+                onChange={(e) => setDestructiveAckSql(e.target.checked ? generatedSql : null)}
+                className="w-3 h-3 accent-amber-500 cursor-pointer shrink-0"
+              />
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-400" />
+              This migration drops table(s), column(s), or index(es) that cannot be recovered — I understand and want to proceed.
+            </label>
+          )}
+          {deploysRoutineToMySql && (
+            <label className="flex items-center gap-2.5 px-4 py-2 text-[11px] text-amber-200 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={mysqlRiskAcked}
+                onChange={(e) => setMysqlAckSql(e.target.checked ? generatedSql : null)}
+                className="w-3 h-3 accent-amber-500 cursor-pointer shrink-0"
+              />
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-400" />
+              This deploy creates/updates a MySQL function, procedure, or trigger — the connecting user needs SUPER or{' '}
+              <code className="text-amber-100">log_bin_trust_function_creators = 1</code> or it will fail. I've confirmed this.
+            </label>
+          )}
+        </div>
+      )}
 
       {/* Main Panel Content Panel */}
       <div className="flex-1 flex flex-col min-h-0">

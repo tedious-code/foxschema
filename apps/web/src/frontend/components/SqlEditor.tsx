@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
-import { MONACO_THEME, MONACO_THEME_LIGHT, monacoLanguage } from '../monaco-setup';
+import { MONACO_THEME, MONACO_THEME_LIGHT, MONACO_DIFF_THEME, MONACO_DIFF_THEME_LIGHT, monacoLanguage } from '../monaco-setup';
 import { useUiStore } from '../store/uiStore';
 
 const BASE_OPTIONS = {
@@ -84,10 +84,12 @@ interface SqlDiffProps {
   height?: string | number;
   /** Highlight occurrences of this term on both sides of the diff. */
   highlight?: string;
+  /** Object status — picks the diff highlight color (green/amber/red). Defaults to MODIFIED (amber). */
+  status?: 'ADDED' | 'MODIFIED' | 'REMOVED';
 }
 
 /** Side-by-side (or inline) SQL diff backed by Monaco's DiffEditor. */
-export const SqlDiffEditor: React.FC<SqlDiffProps> = ({ original, modified, dialect, inline = false, ignoreCase = false, height = '100%', highlight }) => {
+export const SqlDiffEditor: React.FC<SqlDiffProps> = ({ original, modified, dialect, inline = false, ignoreCase = false, height = '100%', highlight, status = 'MODIFIED' }) => {
   // Monaco's diff is case-sensitive; normalize both sides to collapse case-only differences
   const orig = ignoreCase ? original.toUpperCase() : original;
   const mod = ignoreCase ? modified.toUpperCase() : modified;
@@ -95,7 +97,8 @@ export const SqlDiffEditor: React.FC<SqlDiffProps> = ({ original, modified, dial
   const diffRef = useRef<any>(null);
   const decoModRef = useRef<any>(null);
   const decoOrigRef = useRef<any>(null);
-  const monacoTheme = useUiStore((s) => s.resolvedMode) === 'light' ? MONACO_THEME_LIGHT : MONACO_THEME;
+  const isLight = useUiStore((s) => s.resolvedMode) === 'light';
+  const monacoTheme = isLight ? MONACO_DIFF_THEME_LIGHT[status] : MONACO_DIFF_THEME[status];
 
   const apply = useCallback(() => {
     const diff = diffRef.current;
