@@ -17,6 +17,29 @@ export class MigrationPage {
     if (current !== check) await cb.click();
   }
 
+  /** Check/uncheck the "No drops" (non-destructive) toggle in the tree header. */
+  async setNonDestructive(check: boolean): Promise<void> {
+    const cb = this.page.locator('[data-testid="non-destructive-checkbox"]');
+    await cb.waitFor({ state: 'visible' });
+    const current = await cb.isChecked();
+    if (current !== check) await cb.click();
+  }
+
+  /**
+   * Tick any safety-acknowledgment checkboxes currently rendered above the
+   * Execute button (destructive drops, MySQL binlog risk). Each only renders
+   * when its risk condition is active, so this is a no-op when absent —
+   * safe to call unconditionally before every Execute click.
+   */
+  async acknowledgeSafetyWarnings(): Promise<void> {
+    for (const testId of ['ack-destructive-drops', 'ack-mysql-binlog-risk']) {
+      const cb = this.page.locator(`[data-testid="${testId}"]`);
+      if (await cb.count() > 0 && !(await cb.isChecked())) {
+        await cb.click();
+      }
+    }
+  }
+
   // ── Execute button ──────────────────────────────────────────────────────
 
   async clickExecute(): Promise<void> {
@@ -94,7 +117,7 @@ export class MigrationPage {
   }
 
   async closeHistory(): Promise<void> {
-    await this.page.locator('[data-testid="history-dialog"] > div button:last-child').click();
+    await this.page.locator('[data-testid="history-dialog-close-btn"]').click();
     await this.page.waitForSelector('[data-testid="history-dialog"]', {
       state: 'detached',
       timeout: 5_000,

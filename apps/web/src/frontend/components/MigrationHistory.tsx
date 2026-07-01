@@ -144,7 +144,7 @@ export const MigrationHistory: React.FC<Props> = ({ open, onClose }) => {
             <button onClick={loadList} title="Refresh" className="p-1.5 hover:bg-slate-800 rounded text-slate-400 hover:text-slate-200 transition">
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
-            <button onClick={onClose} className="p-1.5 hover:bg-slate-800 rounded text-slate-400 hover:text-slate-200 transition">
+            <button data-testid="history-dialog-close-btn" onClick={onClose} className="p-1.5 hover:bg-slate-800 rounded text-slate-400 hover:text-slate-200 transition">
               <X className="w-5 h-5" />
             </button>
           </div>

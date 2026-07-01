@@ -1136,6 +1136,7 @@ export const ObjectDetailPanel: React.FC = () => {
           {hasDestructiveDrops && (
             <label className="flex items-center gap-2.5 px-4 py-2 text-[11px] text-amber-200 cursor-pointer">
               <input
+                data-testid="ack-destructive-drops"
                 type="checkbox"
                 checked={destructiveDropsAcked}
                 onChange={(e) => setDestructiveAckSql(e.target.checked ? generatedSql : null)}
@@ -1148,6 +1149,7 @@ export const ObjectDetailPanel: React.FC = () => {
           {deploysRoutineToMySql && (
             <label className="flex items-center gap-2.5 px-4 py-2 text-[11px] text-amber-200 cursor-pointer">
               <input
+                data-testid="ack-mysql-binlog-risk"
                 type="checkbox"
                 checked={mysqlRiskAcked}
                 onChange={(e) => setMysqlAckSql(e.target.checked ? generatedSql : null)}
