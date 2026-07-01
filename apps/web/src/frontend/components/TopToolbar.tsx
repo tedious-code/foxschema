@@ -66,7 +66,7 @@ export const TopToolbar: React.FC = () => {
   ];
 
   return (
-    <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md px-6 py-3 flex flex-col gap-3">
+    <header data-testid="toolbar" className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md px-6 py-3 flex flex-col gap-3">
       {/* Brand Logo & Actions */}
       <div className="flex justify-between items-center">
         <Brand logoSize={42} textClassName="text-2xl font-bold" />
@@ -79,6 +79,7 @@ export const TopToolbar: React.FC = () => {
             <KeyRound className="w-4 h-4" /> Credentials
           </button>
           <button
+            data-testid="history-btn"
             onClick={() => setShowHistory(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-base font-semibold text-slate-300 hover:text-slate-100 border border-slate-700 hover:border-slate-500 rounded-md transition cursor-pointer"
           >
@@ -131,6 +132,7 @@ export const TopToolbar: React.FC = () => {
             </span>
 
             <button
+              data-testid="source-config-btn"
               onClick={() => {
                 setActiveModalTarget('source');
                 setShowConnectionModal(true);
@@ -148,6 +150,7 @@ export const TopToolbar: React.FC = () => {
               </span>
             ) : sourceConnected ? (
               <button
+                data-testid="source-connected-btn"
                 onClick={testSourceConnection}
                 title="Reconnect and refresh schema list"
                 className="group text-base text-emerald-400 bg-emerald-950/40 px-2.5 py-1 rounded-full border border-emerald-500/20 hover:border-emerald-400/50 hover:bg-emerald-950/70 flex items-center gap-1 font-medium shrink-0 cursor-pointer transition"
@@ -159,6 +162,7 @@ export const TopToolbar: React.FC = () => {
               </button>
             ) : (
               <button
+                data-testid="source-connect-btn"
                 onClick={testSourceConnection}
                 title="Retry connection"
                 className="text-base text-slate-400 hover:text-cyan-300 border border-slate-700 hover:border-cyan-500/40 bg-slate-900/60 hover:bg-slate-900 px-2.5 py-1 rounded-full flex items-center gap-1 font-medium shrink-0 cursor-pointer transition"
@@ -225,6 +229,7 @@ export const TopToolbar: React.FC = () => {
             </span>
 
             <button
+              data-testid="target-config-btn"
               onClick={() => {
                 setActiveModalTarget('target');
                 setShowConnectionModal(true);
@@ -242,6 +247,7 @@ export const TopToolbar: React.FC = () => {
               </span>
             ) : targetConnected ? (
               <button
+                data-testid="target-connected-btn"
                 onClick={testTargetConnection}
                 title="Reconnect and refresh schema list"
                 className="group text-base text-emerald-400 bg-emerald-950/40 px-2.5 py-1 rounded-full border border-emerald-500/20 hover:border-emerald-400/50 hover:bg-emerald-950/70 flex items-center gap-1 font-medium shrink-0 cursor-pointer transition"
@@ -253,6 +259,7 @@ export const TopToolbar: React.FC = () => {
               </button>
             ) : (
               <button
+                data-testid="target-connect-btn"
                 onClick={testTargetConnection}
                 title="Retry connection"
                 className="text-base text-slate-400 hover:text-purple-300 border border-slate-700 hover:border-purple-500/40 bg-slate-900/60 hover:bg-slate-900 px-2.5 py-1 rounded-full flex items-center gap-1 font-medium shrink-0 cursor-pointer transition"
@@ -310,6 +317,7 @@ export const TopToolbar: React.FC = () => {
           )}
 
           <button
+            data-testid="compare-btn"
             onClick={runSchemaComparison}
             disabled={isComparing || !sourceConnected || !targetConnected || selectedObjectTypes.length === 0 || sameConfig}
             title={sameConfig ? 'Source and target point to the same database and schema' : undefined}

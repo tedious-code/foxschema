@@ -190,6 +190,13 @@ export interface SqlDialect {
   dropFunctionStatement?(name: string, version?: string): string;
   /** Version-safe DROP PROCEDURE statement. */
   dropProcedureStatement?(name: string, version?: string): string;
+
+  /**
+   * Full CREATE TYPE statement for a user-defined type (ENUM, composite, domain).
+   * Return null to fall back to the generic DB2-style renderer.
+   * Implement in dialects that have their own type syntax (e.g. Postgres ENUM).
+   */
+  createTypeStatement?(schema: TableSchema): string | null;
 }
 
 /** Full schema column — a superset of ColumnSpec, so assignable to it. */

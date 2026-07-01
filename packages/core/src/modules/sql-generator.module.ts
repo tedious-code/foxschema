@@ -145,9 +145,10 @@ export class SqlGeneratorModule {
     }
     let def = `${c.name} ${typeSql}`;
     if (!dialect.nullableTypeWrapper) {
+      // Oracle requires DEFAULT before NOT NULL; the standard allows either order.
+      if (c.defaultValue) def += ` DEFAULT ${c.defaultValue}`;
       if (!c.nullable) def += ` NOT NULL`;
     }
-    if (c.defaultValue) def += ` DEFAULT ${c.defaultValue}`;
     return def;
   }
 
@@ -181,7 +182,11 @@ export class SqlGeneratorModule {
     return dialect?.wrapCreateSequence?.(name, createSql) ?? `CREATE SEQUENCE IF NOT EXISTS ${name}${opts};`;
   }
 
-  private renderCreateType(table: TableSchema): string {
+  private renderCreateType(table: TableSchema, dialect?: SqlDialect): string {
+    // Let the dialect produce its own CREATE TYPE (e.g. Postgres ENUM).
+    const dialectSql = dialect?.createTypeStatement?.(table);
+    if (dialectSql) return dialectSql;
+
     const u = table.userType ?? {};
     if (u.attributes && u.attributes.length > 0) {
       const attrs = u.attributes.map((a) => `  ${a.name} ${a.type}`).join(',\n');
@@ -193,7 +198,7 @@ export class SqlGeneratorModule {
   generateObjectDdl(table: TableSchema, dialectStr = 'db2'): string {
     const dialect = resolveDialect(dialectStr);
     if (table.objectType === 'SEQUENCE') return this.renderCreateSequence(table, dialect);
-    if (table.objectType === 'TYPE') return this.renderCreateType(table);
+    if (table.objectType === 'TYPE') return this.renderCreateType(table, dialect);
     if (table.objectType !== 'TABLE' && table.objectType !== 'MQT') {
       return table.definition || `-- No definition available for ${table.objectType} ${table.name}`;
     }
@@ -301,7 +306,7 @@ export class SqlGeneratorModule {
     } else if (obj.objectType === 'SEQUENCE' && source) {
       statements.push(this.renderCreateSequence({ ...source, name }, dialect));
     } else if (obj.objectType === 'TYPE' && source) {
-      statements.push(this.renderCreateType({ ...source, name }));
+      statements.push(this.renderCreateType({ ...source, name }, dialect));
     } else if (obj.objectType === 'ROLE') {
       const roleName = this.bareName(obj.tableName);
       statements.push(`CREATE ROLE ${roleName};`);
@@ -382,8 +387,11 @@ export class SqlGeneratorModule {
           addTypeSql = translated.sql;
         }
         let colDef = `${col.name} ${addTypeSql}`;
-        if (!dialect.nullableTypeWrapper && !col.source.nullable) colDef += ` NOT NULL`;
-        if (col.source.defaultValue) colDef += ` DEFAULT ${col.source.defaultValue}`;
+        if (!dialect.nullableTypeWrapper) {
+          // Oracle requires DEFAULT before NOT NULL; the standard allows either order.
+          if (col.source.defaultValue) colDef += ` DEFAULT ${col.source.defaultValue}`;
+          if (!col.source.nullable) colDef += ` NOT NULL`;
+        }
         statements.push(dialect.addColumnStatement(tableName, colDef));
       }
 
@@ -482,7 +490,7 @@ export class SqlGeneratorModule {
       statements.push(alter + `;`);
     } else if (obj.objectType === 'TYPE' && obj.sourceTable) {
       statements.push(`DROP TYPE ${tableName};`);
-      statements.push(this.renderCreateType({ ...obj.sourceTable, name: tableName }));
+      statements.push(this.renderCreateType({ ...obj.sourceTable, name: tableName }, dialect));
     } else if (obj.objectType === 'ROLE') {
       const roleName = this.bareName(obj.tableName);
       for (const m of obj.columnDiffs) {
@@ -553,8 +561,11 @@ export class SqlGeneratorModule {
   // This is the reverse of ADD ordering (where B is created before A).
   // We run the same DFS as sortAddedByDependency against targetTable FKs, then reverse.
   private sortRemovedByDependency(removed: TableDiff[]): TableDiff[] {
-    const tables = removed.filter((o) => o.objectType === 'TABLE');
-    const others = removed.filter((o) => o.objectType !== 'TABLE');
+    const tables    = removed.filter((o) => o.objectType === 'TABLE');
+    const sequences = removed.filter((o) => o.objectType === 'SEQUENCE');
+    const types     = removed.filter((o) => o.objectType === 'TYPE');
+    // Views, functions, procedures, triggers — reference tables but don't own them.
+    const others    = removed.filter((o) => !['TABLE', 'SEQUENCE', 'TYPE'].includes(o.objectType));
 
     const byKey = new Map<string, TableDiff>(
       tables.map((t) => [t.tableName.toUpperCase(), t])
@@ -575,9 +586,13 @@ export class SqlGeneratorModule {
     };
 
     for (const t of tables) visit(t);
-    // Reverse gives DROP order: referencers first, referenced last.
-    // Non-table objects (views, routines) are dropped before tables.
-    return [...others, ...addOrder.reverse()];
+
+    // Drop order:
+    // 1. Views / routines / triggers first (they reference tables but don't own anything)
+    // 2. Tables in FK-safe order (dropping a table auto-drops its owned sequences in Postgres)
+    // 3. Sequences last — IF EXISTS is a no-op when already dropped by a table drop
+    // 4. Types last — columns that reference them are gone after the table drops above
+    return [...others, ...addOrder.reverse(), ...sequences, ...types];
   }
 
   generateMigrationPlan(diffs: TableDiff[], dialectStr: string, mapping?: SchemaMapping): MigrationStep[] {
@@ -593,11 +608,28 @@ export class SqlGeneratorModule {
         steps.push({ objectName: obj.tableName, objectType: obj.objectType, action: 'DROP', statements: this.dropObjectStatements(obj, m, dialect) });
       }
     }
-    for (const obj of this.sortAddedByDependency(diffs.filter((d) => d.status === 'ADDED'))) {
+
+    // Structural ADDED objects (TABLE, SEQUENCE, TYPE, ROLE) come before MODIFIED so
+    // that new tables can be referenced by FK constraints added in ALTER steps.
+    const addedStructural = diffs.filter((d) => d.status === 'ADDED' && !PROCEDURAL_TYPES.has(d.objectType));
+    for (const obj of this.sortAddedByDependency(addedStructural)) {
+      const stmts = this.createObjectStatements(obj, dialect, m);
+      steps.push({ objectName: obj.tableName, objectType: obj.objectType, action: 'CREATE', statements: stmts });
+    }
+
+    // MODIFIED (ALTER TABLE, etc.) — must run before ADDED procedural objects so that
+    // views and functions referencing newly-added columns see them when created.
+    for (const obj of diffs.filter((d) => d.status === 'MODIFIED')) {
+      steps.push({ objectName: obj.tableName, objectType: obj.objectType, action: 'ALTER', statements: this.alterObjectStatements(obj, dialect, m) });
+    }
+
+    // Procedural ADDED objects (VIEW, FUNCTION, PROCEDURE, TRIGGER) come last so they
+    // can reference columns and tables that were added/modified in the steps above.
+    const addedProcedural = diffs.filter((d) => d.status === 'ADDED' && PROCEDURAL_TYPES.has(d.objectType));
+    for (const obj of this.sortAddedByDependency(addedProcedural)) {
       const stmts = this.createObjectStatements(obj, dialect, m);
       const noDefRoutine =
         stmts.length === 0 &&
-        PROCEDURAL_TYPES.has(obj.objectType) &&
         !obj.definition &&
         !this.isCrossDialect(m);
       steps.push({
@@ -607,10 +639,6 @@ export class SqlGeneratorModule {
         statements: stmts,
         ...(noDefRoutine ? { skipped: `No definition available — grant SHOW_ROUTINE privilege and re-compare` } : {}),
       });
-    }
-
-    for (const obj of diffs.filter((d) => d.status === 'MODIFIED')) {
-      steps.push({ objectName: obj.tableName, objectType: obj.objectType, action: 'ALTER', statements: this.alterObjectStatements(obj, dialect, m) });
     }
 
     // Collect MODIFIED objects whose statements were entirely skipped (all changes

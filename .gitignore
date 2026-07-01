@@ -32,9 +32,13 @@ schemacompare.db*
 IMPLEMENTATION_STATE.md
 CLAUDE.md
 CHANGELOG.md
+
 *.md
 */*.md
 */*/*.md
+# Security policy and docs must be tracked
+!SECURITY.md
+!docs/security/security-process.md
 # Desktop (Tauri) build artifacts
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/

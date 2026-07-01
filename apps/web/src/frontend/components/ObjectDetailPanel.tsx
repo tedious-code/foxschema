@@ -1021,6 +1021,7 @@ export const ObjectDetailPanel: React.FC = () => {
 
           {!browseMode && (
           <button
+            data-testid="execute-btn"
             onClick={handleExecuteClick}
             disabled={isComparing || isMigrating || migrationExecuted || includedCount === 0}
             title={includedCount === 0 ? 'No objects selected for deployment' : `Deploy ${includedCount} object(s) to target`}

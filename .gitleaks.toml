@@ -1,0 +1,32 @@
+# Gitleaks configuration for FoxSchema.
+# Extend the default ruleset and add project-specific allowlists.
+
+[extend]
+# Pull in the full default ruleset (AWS keys, JWTs, private keys, etc.)
+useDefault = true
+
+[allowlist]
+  description = "Project-level false-positive suppressions"
+  paths = [
+    # E2E test database credentials — local Docker-only setup, labelled dev-only.
+    # These credentials have no production access and are intentionally committed
+    # as documentation for local environment setup.
+    '''apps/e2e/\.env''',
+  ]
+  regexes = [
+    # vitest / test harness output that contains the word "password" in test data
+    '''foxpass''',
+    '''foxuser''',
+    # Placeholder password used only in local Docker compose (never production)
+    '''FoxPass123!''',
+  ]
+
+# Fine-tune rule severity so the SARIF report is useful without noise.
+# Rules that commonly fire on documentation / example code:
+[[rules]]
+  id = "generic-api-key"
+  [rules.allowlist]
+    regexes = [
+      # Example connection strings in docs / comments
+      '''example\.|placeholder|your-key-here|<YOUR_''',
+    ]

@@ -1,0 +1,58 @@
+name: CodeQL Analysis
+
+# CodeQL is NOT a PR gate — it is too slow (5–15 min) to block developer feedback.
+# Findings appear in the GitHub Security tab automatically.
+# Runs:
+#   - Every push to main (catches anything that slipped through PR checks)
+#   - Weekly on Monday at 02:00 UTC (baseline drift detection)
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 2 * * 1'
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  analyze:
+    name: CodeQL — JavaScript / TypeScript
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          # No cache: npm — package-lock.json is gitignored in this project.
+
+      # CodeQL needs installed dependencies to resolve imports properly.
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          # "javascript" covers both JS and TS — no need to list both.
+          languages: javascript
+          # security-and-quality includes OWASP Top 10 patterns.
+          queries: security-and-quality
+
+      # Let CodeQL auto-detect the build (TypeScript projects typically need no explicit step).
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      # continue-on-error: SARIF upload requires GitHub Advanced Security on private repos.
+      # The analysis itself still runs; findings are logged in the job output.
+      - name: Run CodeQL analysis
+        continue-on-error: true
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:javascript
+          upload: true

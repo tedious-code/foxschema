@@ -17,6 +17,7 @@ export const DeployConfirmDialog: React.FC<Props> = ({ open, dialect, count, don
   if (!open) return null;
   return createPortal(
     <div
+      data-testid="deploy-confirm-dialog"
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
       onClick={onCancel}
     >
@@ -48,12 +49,14 @@ export const DeployConfirmDialog: React.FC<Props> = ({ open, dialect, count, don
         </div>
         <div className="flex justify-end gap-2 px-6 py-4 bg-slate-950/60 border-t border-slate-800">
           <button
+            data-testid="deploy-cancel-btn"
             onClick={onCancel}
             className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-850/50 rounded transition"
           >
             Cancel
           </button>
           <button
+            data-testid="deploy-confirm-btn"
             onClick={onConfirm}
             className="px-4 py-2 text-xs font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 on-accent-fg rounded transition shadow flex items-center gap-1.5"
           >
