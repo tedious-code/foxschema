@@ -1,4 +1,5 @@
 import type { SqlDialect, ColumnSpec } from '../../modules/sql-dialect.interface';
+import type { TableSchema } from '../../interfaces';
 import { makeDialectTypeFns, plain, sized, decimalAs } from '../../modules/type-mapping';
 
 const types = makeDialectTypeFns({
@@ -159,6 +160,25 @@ export const postgresSqlDialect: SqlDialect = {
 
   dropTriggerStatement(triggerName: string, qualifiedTable: string): string {
     return `DROP TRIGGER IF EXISTS ${triggerName} ON ${qualifiedTable};`;
+  },
+
+  createTypeStatement(schema: TableSchema): string | null {
+    const u = schema.userType ?? {};
+    // ENUM — stored by the Postgres provider with metaType='E' and attribute names as labels.
+    if (u.metaType === 'E' && u.attributes && u.attributes.length > 0) {
+      const vals = u.attributes.map((a) => `'${a.name.replace(/'/g, "''")}'`).join(', ');
+      return `CREATE TYPE ${schema.name} AS ENUM (${vals});`;
+    }
+    // Composite object type — Postgres uses plain "AS (col type, ...)" without MODE DB2SQL.
+    if (u.metaType === 'O' && u.attributes && u.attributes.length > 0) {
+      const cols = u.attributes.map((a) => `  ${a.name} ${a.type}`).join(',\n');
+      return `CREATE TYPE ${schema.name} AS (\n${cols}\n);`;
+    }
+    // Domain type — Postgres uses "AS basetype".
+    if (u.metaType === 'D' && u.sourceType) {
+      return `CREATE TYPE ${schema.name} AS ${u.sourceType};`;
+    }
+    return null; // fall through to generic renderer
   },
 
   ...types,

@@ -1,0 +1,106 @@
+name: Dependency Security
+
+# Runs on every PR and every push to main.
+# Hard-blocks on Critical npm vulnerabilities.
+# Hard-blocks on any Rust advisory (cargo audit).
+# Warns on High npm vulnerabilities (non-blocking — devDep false positives are common).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  # ── npm audit ──────────────────────────────────────────────────────────────
+  npm-audit:
+    name: npm audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # package-lock.json is gitignored in this project.
+      # Generate it on the fly (--package-lock-only skips actual installs).
+      # Consider committing package-lock.json for faster, deterministic CI.
+      - name: Generate lockfile
+        run: npm install --package-lock-only --ignore-scripts
+
+      # Hard block — Critical vulns in production dependencies.
+      - name: Fail on Critical vulnerabilities
+        run: npm audit --audit-level=critical --omit=dev
+
+      # Soft check — High vulns across all deps (informational; common in devDeps).
+      - name: Warn on High vulnerabilities
+        run: npm audit --audit-level=high || echo "⚠️  High-severity advisories found — review npm-audit-full.json"
+
+      # Upload full JSON report as a build artifact for manual review.
+      - name: Save full audit report
+        if: always()
+        run: npm audit --json > npm-audit-full.json || true
+
+      - name: Upload audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-report
+          path: npm-audit-full.json
+          retention-days: 30
+
+  # ── ESLint security rules ──────────────────────────────────────────────────
+  eslint-security:
+    name: ESLint security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+
+      # Errors (inject/eval/ReDoS) cause non-zero exit and block the PR.
+      # Warnings (detect-non-literal-fs-filename) are informational — legitimate
+      # server/CLI filesystem operations use variable paths by design.
+      - name: Run ESLint security rules
+        run: npx eslint .
+
+  # ── Rust / cargo audit ─────────────────────────────────────────────────────
+  cargo-audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-audit-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
+          restore-keys: cargo-audit-
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked --quiet
+
+      - name: Run cargo audit
+        working-directory: apps/desktop/src-tauri
+        run: cargo audit

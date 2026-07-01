@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { exec } from 'child_process';
+import { spawn } from 'child_process';
 import {
   ConnectionModule,
   CompareModule,
@@ -219,20 +219,22 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     try {
       const packageName = DriverDetector.getPackageName(dialect);
       
-      // Execute npm install with ignore-scripts so DB2 won't crash on compilation during general setup
-      exec(`pnpm add ${packageName} --ignore-scripts`, (error, stdout, stderr) => {
-        if (error) {
-          res.status(500).json({
-            success: false,
-            error: error.message,
-            stderr: stderr
-          });
+      // Use spawn with an explicit argument array instead of exec() with a template
+      // string — this prevents shell interpretation of packageName (command injection).
+      const proc = spawn('pnpm', ['add', packageName, '--ignore-scripts'], { stdio: 'pipe' });
+      let stdout = '';
+      let stderr = '';
+      proc.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
+      proc.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+      proc.on('close', (code: number | null) => {
+        if (code !== 0) {
+          res.status(500).json({ success: false, error: `pnpm exited with code ${code}`, stderr });
           return;
         }
-        res.json({
-          success: true,
-          stdout: stdout
-        });
+        res.json({ success: true, stdout });
+      });
+      proc.on('error', (err: Error) => {
+        res.status(500).json({ success: false, error: err.message });
       });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Installation failed';

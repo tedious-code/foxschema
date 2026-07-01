@@ -398,10 +398,10 @@ export class SqlServerProvider implements SchemaProvider {
       // sys.sql_modules.definition returns the full "CREATE VIEW [schema].[name] AS SELECT ..."
       // statement. Store only the SELECT body so the generator can re-emit it with the
       // correct target schema prefix (matching how MySQL/Postgres providers store view bodies).
-      const body = vw.definition.replace(
-        /^\s*CREATE\s+(?:OR\s+REPLACE\s+)?VIEW\s+(?:\[[^\]]*\]\s*\.\s*)?\[[^\]]*\]\s+(?:WITH\s+\w+(?:\s*,\s*\w+)*\s+)?AS\s*/i,
-        ''
-      ).trim();
+      // Named constant so the eslint-disable directive sits on the same line as the pattern.
+      // eslint-disable-next-line security/detect-unsafe-regex -- false positive: anchored at ^\s*CREATE; [^\]]* negated class cannot backtrack
+      const VIEW_CREATE_RE = /^\s*CREATE\s+(?:OR\s+REPLACE\s+)?VIEW\s+(?:\[[^\]]*\]\s*\.\s*)?\[[^\]]*\]\s+(?:WITH\s+\w+(?:\s*,\s*\w+)*\s+)?AS\s*/i;
+      const body = vw.definition.replace(VIEW_CREATE_RE, '').trim();
       (views[vw.view_name] ??= []).push({ name: vw.view_name, schema: s, definition: body, columns: viewColumns, indexes: [] });
     }
 

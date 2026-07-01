@@ -227,6 +227,7 @@ export const SchemaTreePanel: React.FC = () => {
 
   return (
     <div
+      data-testid="schema-tree"
       style={{ width: panelWidth }}
       className="relative shrink-0 border-r border-slate-800 bg-slate-905 flex flex-col h-full select-none"
     >
@@ -366,6 +367,9 @@ export const SchemaTreePanel: React.FC = () => {
                   return (
                     <div
                       key={table.tableName}
+                      data-testid="diff-item"
+                      data-object={table.tableName}
+                      data-status={table.status}
                       onClick={() => setSelectedTable(table)}
                       className={`group flex items-center justify-between p-2.5 rounded-lg border transition cursor-pointer ${
                         isSelected

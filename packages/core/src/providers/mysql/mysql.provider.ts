@@ -33,6 +33,7 @@ function normalizeDefault(columnType: string, raw: string | null): string | unde
   if (raw === null) return undefined;
   if (SQL_KEYWORDS.test(raw.trim())) return raw; // keyword / function
   if (raw.includes('(')) return raw; // expression
+  // eslint-disable-next-line security/detect-unsafe-regex -- false positive: fully anchored ^…$ with simple digit classes, cannot ReDoS
   if (/^\d+(\.\d+)?$/.test(raw)) return raw; // numeric literal
   if (raw.startsWith("'") || raw.startsWith('"')) return raw; // already quoted
   if (STRING_TYPES.test(columnType.trim())) return `'${raw.replace(/'/g, "''")}'`;

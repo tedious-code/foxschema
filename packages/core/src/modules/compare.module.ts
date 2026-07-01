@@ -163,6 +163,7 @@ export class CompareModule {
     if (d == null) return '';
     return d
       // Strip ::regclass / ::text / ::character varying etc. casts
+      // eslint-disable-next-line security/detect-unsafe-regex -- false positive: (\([^)]*\)) uses a negated class, which cannot backtrack catastrophically
       .replace(/::[\w\s]+(\([^)]*\))?/g, '')
       // nextval('schema.seq') → nextval('seq') — ignore schema qualifier inside nextval
       .replace(/nextval\('([^']+)'\)/gi, (_, seq) => `nextval('${seq.split('.').pop()!}')`)

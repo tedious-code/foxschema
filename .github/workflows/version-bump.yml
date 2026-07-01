@@ -1,0 +1,78 @@
+name: Version Bump
+
+# Runs on every push to main (i.e. every merged PR).
+# Reads the current 0.0.BUILD from root package.json, increments BUILD by 1,
+# and writes the new version back to all package.json, tauri.conf.json, and Cargo.toml files.
+on:
+  push:
+    branches: [main]
+
+jobs:
+  bump:
+    # Skip when the push is the version-bump commit itself (avoids infinite loop).
+    if: "!startsWith(github.event.head_commit.message, 'chore: bump version')"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Use a PAT or the default GITHUB_TOKEN.
+          # GITHUB_TOKEN is enough for pushing to non-protected branches.
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Compute new version
+        id: ver
+        run: |
+          CURRENT=$(jq -r '.version' package.json)
+          BUILD=$(echo "$CURRENT" | cut -d. -f3)
+          NEW_BUILD=$((BUILD + 1))
+          NEW="${CURRENT%.*}.$NEW_BUILD"
+          echo "new=$NEW" >> "$GITHUB_OUTPUT"
+          echo "Bumping $CURRENT → $NEW"
+
+      - name: Update package.json files
+        run: |
+          V=${{ steps.ver.outputs.new }}
+          for f in \
+            package.json \
+            packages/core/package.json \
+            apps/web/package.json \
+            apps/cli/package.json \
+            apps/desktop/package.json; do
+            jq --arg v "$V" '.version = $v' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+          done
+
+      - name: Update tauri.conf.json
+        run: |
+          V=${{ steps.ver.outputs.new }}
+          jq --arg v "$V" '.version = $v' \
+            apps/desktop/src-tauri/tauri.conf.json \
+            > apps/desktop/src-tauri/tauri.conf.json.tmp \
+            && mv apps/desktop/src-tauri/tauri.conf.json.tmp \
+               apps/desktop/src-tauri/tauri.conf.json
+
+      - name: Update Cargo.toml
+        run: |
+          V=${{ steps.ver.outputs.new }}
+          sed -i "s/^version = \".*\"/version = \"$V\"/" \
+            apps/desktop/src-tauri/Cargo.toml
+
+      - name: Commit and push
+        run: |
+          V=${{ steps.ver.outputs.new }}
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add \
+            package.json \
+            packages/core/package.json \
+            apps/web/package.json \
+            apps/cli/package.json \
+            apps/desktop/package.json \
+            apps/desktop/src-tauri/tauri.conf.json \
+            apps/desktop/src-tauri/Cargo.toml
+          git commit -m "chore: bump version to $V [skip ci]"
+          git push

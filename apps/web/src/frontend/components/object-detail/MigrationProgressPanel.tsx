@@ -36,9 +36,12 @@ export const MigrationProgressPanel: React.FC = () => {
   };
 
   return (
-    <div className="fixed bottom-6 right-6 w-[380px] max-h-[60vh] flex flex-col bg-slate-900/95 border border-slate-700 rounded-xl shadow-2xl backdrop-blur-md z-50 overflow-hidden">
+    <div data-testid="migration-progress-panel" className="fixed bottom-6 right-6 w-[380px] max-h-[60vh] flex flex-col bg-slate-900/95 border border-slate-700 rounded-xl shadow-2xl backdrop-blur-md z-50 overflow-hidden">
       <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-950/60">
-        <h4 className="text-xs font-bold text-slate-100 flex items-center gap-2">
+        <h4
+          data-testid={isMigrating ? 'migration-running' : migrationError ? 'migration-failed' : 'migration-complete'}
+          className="text-xs font-bold text-slate-100 flex items-center gap-2"
+        >
           {isMigrating ? (
             <><RefreshCw className="w-4 h-4 animate-spin text-cyan-400" /> Migrating Target...</>
           ) : migrationError ? (
@@ -72,6 +75,9 @@ export const MigrationProgressPanel: React.FC = () => {
         {migrationProgress.map((item) => (
           <div
             key={`${item.action}-${item.objectName}`}
+            data-testid="migration-progress-item"
+            data-object={item.objectName}
+            data-status={item.status}
             className={`flex items-start gap-2.5 px-3 py-2 rounded-lg text-xs ${
               item.status === 'FAILED' ? 'bg-rose-950/30 border border-rose-500/20' :
               item.status === 'SKIPPED' ? 'bg-amber-950/20 border border-amber-500/20' :

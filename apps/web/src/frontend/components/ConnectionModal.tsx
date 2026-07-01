@@ -177,7 +177,7 @@ export const ConnectionModal: React.FC<Props> = ({
   const labelCls = 'text-[10px] uppercase font-bold text-slate-400 tracking-wider';
 
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fadeIn">
+    <div data-testid="conn-modal" className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fadeIn">
       <div className="w-full max-w-[500px] bg-slate-900 border border-slate-800 rounded-xl shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/40">
           <div>
@@ -197,6 +197,7 @@ export const ConnectionModal: React.FC<Props> = ({
               <div className="col-span-2">
                 <label className={labelCls}>Credential Name</label>
                 <input
+                  data-testid="conn-name-input"
                   placeholder="e.g. Prod DB2"
                   value={name}
                   onChange={(e) => setName(sanitizeName(e.target.value))}
@@ -207,7 +208,7 @@ export const ConnectionModal: React.FC<Props> = ({
               </div>
               <div>
                 <label className={labelCls}>Dialect</label>
-                <select value={selDialect} onChange={(e) => changeDialect(e.target.value as Dialect)} className={inputCls}>
+                <select data-testid="conn-dialect-select" value={selDialect} onChange={(e) => changeDialect(e.target.value as Dialect)} className={inputCls}>
                   {dialectOptions.map((d) => (
                     <option key={d.dialect} value={d.dialect}>{d.label}</option>
                   ))}
@@ -219,7 +220,7 @@ export const ConnectionModal: React.FC<Props> = ({
           {!isCredential && (
             <div>
               <label className={labelCls}>Provider</label>
-              <select value={selDialect} onChange={(e) => changeDialect(e.target.value as Dialect)} className={inputCls}>
+              <select data-testid="conn-dialect-select" value={selDialect} onChange={(e) => changeDialect(e.target.value as Dialect)} className={inputCls}>
                 {dialectOptions.map((d) => (
                   <option key={d.dialect} value={d.dialect}>{d.label}</option>
                 ))}
@@ -255,27 +256,27 @@ export const ConnectionModal: React.FC<Props> = ({
           <div className="grid grid-cols-3 gap-3">
             <div className="col-span-2">
               <label className={labelCls}>Host</label>
-              <input placeholder="localhost" value={form.host} onChange={(e) => updateField('host', e.target.value)} className={inputCls} />
+              <input data-testid="conn-host-input" placeholder="localhost" value={form.host} onChange={(e) => updateField('host', e.target.value)} className={inputCls} />
             </div>
             <div>
               <label className={labelCls}>Port</label>
-              <input type="number" placeholder={String(defaultPorts[selDialect])} value={form.port} onChange={(e) => updateField('port', Number(e.target.value))} className={inputCls} />
+              <input data-testid="conn-port-input" type="number" placeholder={String(defaultPorts[selDialect])} value={form.port} onChange={(e) => updateField('port', Number(e.target.value))} className={inputCls} />
             </div>
           </div>
 
           <div>
             <label className={labelCls}>Database Name</label>
-            <input placeholder="my_database" value={form.database} onChange={(e) => updateField('database', e.target.value)} className={inputCls} />
+            <input data-testid="conn-database-input" placeholder="my_database" value={form.database} onChange={(e) => updateField('database', e.target.value)} className={inputCls} />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelCls}>Username</label>
-              <input placeholder="user" value={form.username} onChange={(e) => updateField('username', e.target.value)} className={inputCls} />
+              <input data-testid="conn-username-input" placeholder="user" value={form.username} onChange={(e) => updateField('username', e.target.value)} className={inputCls} />
             </div>
             <div>
               <label className={labelCls}>Password</label>
-              <input type="password" placeholder="••••••••" value={form.password} onChange={(e) => updateField('password', e.target.value)} className={inputCls} />
+              <input data-testid="conn-password-input" type="password" placeholder="••••••••" value={form.password} onChange={(e) => updateField('password', e.target.value)} className={inputCls} />
             </div>
           </div>
 
@@ -297,7 +298,7 @@ export const ConnectionModal: React.FC<Props> = ({
             </label>
             <div className="flex gap-2 mt-1">
               {schemaList.length > 0 ? (
-                <select value={form.schema} onChange={(e) => updateField('schema', e.target.value)} className={`${inputCls} !mt-0 flex-1`}>
+                <select data-testid="conn-schema-select" value={form.schema} onChange={(e) => updateField('schema', e.target.value)} className={`${inputCls} !mt-0 flex-1`}>
                   {!schemaRequired && <option value="">— all schemas —</option>}
                   {form.schema && !schemaList.includes(form.schema) && <option value={form.schema}>{form.schema}</option>}
                   {schemaList.map((s) => (
@@ -306,6 +307,7 @@ export const ConnectionModal: React.FC<Props> = ({
                 </select>
               ) : (
                 <input
+                  data-testid="conn-schema-input"
                   placeholder={schemaRequired ? 'Required — load or type schema name' : 'Optional — leave blank or type a schema name'}
                   value={form.schema}
                   onChange={(e) => updateField('schema', e.target.value)}
@@ -313,6 +315,7 @@ export const ConnectionModal: React.FC<Props> = ({
                 />
               )}
               <button
+                data-testid="conn-load-schema-btn"
                 onClick={loadSchemas}
                 disabled={testingState.status === 'testing'}
                 title="Connect and list available schemas"
@@ -325,7 +328,7 @@ export const ConnectionModal: React.FC<Props> = ({
           </div>
 
           {testingState.status !== 'idle' && (
-            <div className={`mt-3 p-3 rounded-lg border flex items-start gap-2.5 text-xs ${
+            <div data-testid={`conn-test-${testingState.status}`} className={`mt-3 p-3 rounded-lg border flex items-start gap-2.5 text-xs ${
               testingState.status === 'testing' ? 'bg-slate-950/40 border-slate-800 text-slate-400'
                 : testingState.status === 'success' ? 'bg-emerald-950/20 border-emerald-500/20 text-emerald-400'
                 : 'bg-rose-950/20 border-rose-500/20 text-rose-400'
@@ -350,6 +353,7 @@ export const ConnectionModal: React.FC<Props> = ({
             Cancel
           </button>
           <button
+            data-testid="conn-save-btn"
             onClick={handleSave}
             disabled={testingState.status === 'testing'}
             className="px-4 py-2 text-xs font-bold accent-grad on-accent-fg rounded transition shadow-md cursor-pointer disabled:opacity-60 disabled:cursor-wait flex items-center gap-1.5"

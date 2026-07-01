@@ -61,7 +61,7 @@ export const MigrationHistory: React.FC<Props> = ({ open, onClose }) => {
 
   useEffect(() => {
     if (open) loadList();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // loadList is stable (defined outside the effect); only re-run when open changes.
   }, [open]);
 
   useEffect(() => {
@@ -126,7 +126,7 @@ export const MigrationHistory: React.FC<Props> = ({ open, onClose }) => {
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={onClose}>
+    <div data-testid="history-dialog" className="fixed inset-0 z-[95] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={onClose}>
       <div
         className="w-full max-w-[1000px] h-[80vh] bg-slate-900 border border-slate-800 rounded-xl shadow-2xl overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
@@ -206,6 +206,9 @@ export const MigrationHistory: React.FC<Props> = ({ open, onClose }) => {
               runs.map((r) => (
                 <div
                   key={r.id}
+                  data-testid="history-run-item"
+                  data-run-id={r.id}
+                  data-status={r.status}
                   onClick={() => setSelectedId(r.id)}
                   className={`flex items-start gap-2.5 px-3 py-3 border-b border-slate-850 transition cursor-pointer ${
                     selectedId === r.id ? 'bg-slate-800/70' : 'hover:bg-slate-900/60'

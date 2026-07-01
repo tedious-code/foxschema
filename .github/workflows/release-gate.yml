@@ -1,0 +1,137 @@
+name: Release Gate
+
+# Triggered by a version tag push (e.g. v0.0.12).
+# All security checks must pass before a GitHub Release draft is created.
+# To release: push a tag matching v* — this workflow does the rest.
+#
+# Usage:
+#   git tag v0.0.12
+#   git push origin v0.0.12
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # needed to create a GitHub Release
+  security-events: write
+
+jobs:
+  # ── Gate: unit tests ────────────────────────────────────────────────────────
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm install --ignore-scripts
+      - run: npx vitest run
+
+  # ── Gate: ESLint security ───────────────────────────────────────────────────
+  eslint-security:
+    name: ESLint security
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm install --ignore-scripts
+      - run: npx eslint .
+
+  # ── Gate: npm audit ─────────────────────────────────────────────────────────
+  npm-audit:
+    name: npm audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm install --package-lock-only --ignore-scripts
+      - run: npm audit --audit-level=critical --omit=dev
+
+  # ── Gate: Gitleaks ──────────────────────────────────────────────────────────
+  gitleaks:
+    name: Gitleaks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Gitleaks
+        env:
+          GITLEAKS_VERSION: "8.21.2"
+        run: |
+          curl -sSfL \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+      - run: gitleaks detect --source . --config .gitleaks.toml --redact
+
+  # ── Gate: cargo audit ───────────────────────────────────────────────────────
+  cargo-audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-audit-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
+      - run: cargo install cargo-audit --locked --quiet
+      - run: cargo audit
+        working-directory: apps/desktop/src-tauri
+
+  # ── Publish: create GitHub Release draft ────────────────────────────────────
+  # Only runs if ALL gate jobs succeed.
+  create-release:
+    name: Create Release Draft
+    needs: [unit-tests, eslint-security, npm-audit, gitleaks, cargo-audit]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract version from tag
+        id: tag
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release draft
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          name: "FoxSchema ${{ github.ref_name }}"
+          body: |
+            ## FoxSchema ${{ github.ref_name }}
+
+            All security gates passed:
+            - ✅ Unit tests
+            - ✅ ESLint security rules
+            - ✅ npm audit (no Critical vulnerabilities)
+            - ✅ Gitleaks (no secrets detected)
+            - ✅ cargo audit (no Rust advisories)
+
+            > **Review this draft before publishing.** Edit the release notes above, then click "Publish release."
