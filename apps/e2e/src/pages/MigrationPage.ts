@@ -116,6 +116,30 @@ export class MigrationPage {
     return this.page.locator('[data-testid="history-run-item"]').first().getAttribute('data-status');
   }
 
+  /**
+   * Wait for the history list to actually settle. Two races otherwise:
+   * the dialog's loadList() fetch is async (counting items right after the
+   * dialog opens can see 0), and the backend writes the final run status
+   * AFTER streaming the migration 'done' event (so the first fetch can see
+   * the run still RUNNING). Polls until at least one item exists with a
+   * terminal status; returns that status.
+   */
+  async waitForLatestRunSettled(timeoutMs = 10_000): Promise<string | null> {
+    const deadline = Date.now() + timeoutMs;
+    let status: string | null = null;
+    while (Date.now() < deadline) {
+      if ((await this.getHistoryRunCount()) > 0) {
+        status = await this.getLatestRunStatus();
+        if (status && status !== 'RUNNING') return status;
+      }
+      // The dialog only fetches on open/refresh — nudge it so a late
+      // history write still shows up within the polling window.
+      await this.page.locator('[data-testid="history-dialog"] button[title="Refresh"]').click().catch(() => {});
+      await this.page.waitForTimeout(500);
+    }
+    return status;
+  }
+
   async closeHistory(): Promise<void> {
     await this.page.locator('[data-testid="history-dialog-close-btn"]').click();
     await this.page.waitForSelector('[data-testid="history-dialog"]', {

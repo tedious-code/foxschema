@@ -217,6 +217,53 @@ describe('SqlGeneratorModule.generateMigrationPlan', () => {
     expect(functionStepIndex).toBeLessThan(alterStepIndex);
   });
 
+  it('drops a MODIFIED function with a bare name on MySQL (no parenthesized signature)', () => {
+    // Regression: MySQL/MariaDB/SQL Server reject ANY parenthesized signature on
+    // DROP FUNCTION, even an empty one — only Postgres/Redshift support overloading.
+    const diff: TableDiff = {
+      tableName: 'FN_GET_DISCOUNT',
+      objectType: 'FUNCTION',
+      status: 'MODIFIED',
+      columnDiffs: [],
+      indexDiffs: [],
+      foreignKeyDiffs: [],
+      definition: 'CREATE FUNCTION FN_GET_DISCOUNT(p_price DECIMAL(10,2), p_qty INT) RETURNS DECIMAL(10,2) ...',
+      sourceTable: tableSchema({
+        name: 'FN_GET_DISCOUNT',
+        objectType: 'FUNCTION',
+        parameters: [
+          { name: 'p_price', type: 'decimal(10,2)', mode: 'IN' },
+          { name: 'p_qty', type: 'int', mode: 'IN' },
+        ],
+      }),
+    };
+    const stmts = gen.generateMigrationPlan([diff], 'mysql').flatMap((s) => s.statements);
+    expect(stmts).toContain('DROP FUNCTION IF EXISTS FN_GET_DISCOUNT;');
+    expect(stmts.some((s) => /DROP FUNCTION IF EXISTS FN_GET_DISCOUNT\(/.test(s))).toBe(false);
+  });
+
+  it('drops a MODIFIED function with its parameter signature on Postgres', () => {
+    const diff: TableDiff = {
+      tableName: 'FN_GET_DISCOUNT',
+      objectType: 'FUNCTION',
+      status: 'MODIFIED',
+      columnDiffs: [],
+      indexDiffs: [],
+      foreignKeyDiffs: [],
+      definition: 'CREATE FUNCTION FN_GET_DISCOUNT(p_price numeric, p_qty integer) RETURNS numeric ...',
+      sourceTable: tableSchema({
+        name: 'FN_GET_DISCOUNT',
+        objectType: 'FUNCTION',
+        parameters: [
+          { name: 'p_price', type: 'numeric', mode: 'IN' },
+          { name: 'p_qty', type: 'integer', mode: 'IN' },
+        ],
+      }),
+    };
+    const stmts = gen.generateMigrationPlan([diff], 'postgres').flatMap((s) => s.statements);
+    expect(stmts).toContain('DROP FUNCTION IF EXISTS FN_GET_DISCOUNT(numeric, integer);');
+  });
+
   it('drops then recreates a modified trigger', () => {
     const diff: TableDiff = {
       tableName: 'ORDERS',

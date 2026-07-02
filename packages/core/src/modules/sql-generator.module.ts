@@ -112,13 +112,16 @@ export class SqlGeneratorModule {
   }
 
   /**
-   * Build DROP FUNCTION/PROCEDURE with the full parameter-type signature so the
-   * correct overload is dropped even when multiple overloads share the same name.
-   * Falls back to the bare name when parameters are unavailable.
+   * Generic fallback DROP FUNCTION/PROCEDURE — used when the dialect doesn't
+   * implement its own `dropFunctionStatement`/`dropProcedureStatement` hook.
+   * Only appends a parenthesized parameter-type signature when the dialect
+   * opts in via `dropRoutineSignature` (Postgres/Redshift, which support
+   * overloading). MySQL/MariaDB/SQL Server reject ANY parenthesized
+   * signature — even an empty `()` — so the default is the bare form.
    */
-  private dropRoutineSql(type: 'FUNCTION' | 'PROCEDURE', tableName: string, params?: import('../interfaces').RoutineParameter[]): string {
+  private dropRoutineSql(type: 'FUNCTION' | 'PROCEDURE', tableName: string, dialect: SqlDialect | undefined, params?: import('../interfaces').RoutineParameter[]): string {
     const kw = type === 'FUNCTION' ? 'FUNCTION' : 'PROCEDURE';
-    if (!params) return `DROP ${kw} IF EXISTS ${tableName};`;
+    if (!dialect?.dropRoutineSignature || !params) return `DROP ${kw} IF EXISTS ${tableName};`;
     // Only IN/INOUT params appear in the call signature for DROP purposes
     const sig = params.filter((p) => p.mode === 'IN' || p.mode === 'INOUT').map((p) => p.type).join(', ');
     return `DROP ${kw} IF EXISTS ${tableName}(${sig});`;
@@ -244,9 +247,9 @@ export class SqlGeneratorModule {
       statements.push(dialect?.dropViewStatement?.(name, ver) ?? `DROP VIEW IF EXISTS ${name};`);
     } else if (obj.objectType === 'FUNCTION') {
       // Dialect hook takes precedence; fall back to signature-aware generic drop.
-      statements.push(dialect?.dropFunctionStatement?.(name, ver) ?? this.dropRoutineSql('FUNCTION', name, obj.targetTable?.parameters));
+      statements.push(dialect?.dropFunctionStatement?.(name, ver) ?? this.dropRoutineSql('FUNCTION', name, dialect, obj.targetTable?.parameters));
     } else if (obj.objectType === 'PROCEDURE') {
-      statements.push(dialect?.dropProcedureStatement?.(name, ver) ?? this.dropRoutineSql('PROCEDURE', name, obj.targetTable?.parameters));
+      statements.push(dialect?.dropProcedureStatement?.(name, ver) ?? this.dropRoutineSql('PROCEDURE', name, dialect, obj.targetTable?.parameters));
     } else if (obj.objectType === 'TRIGGER') {
       statements.push(`DROP TRIGGER IF EXISTS ${name};`);
     } else if (obj.objectType === 'SEQUENCE') {
@@ -405,7 +408,14 @@ export class SqlGeneratorModule {
         if (!col.source) continue;
         const translated = this.translateType(col.source.type, mapping);
         if (translated.warning) statements.push(`-- review: ${col.name}: ${translated.warning}`);
-        statements.push(...dialect.modifyColumnStatements(tableName, col.name, { ...col.source, type: translated.sql }));
+        // Cross-dialect: the raw default is source-dialect SQL — strip it so a
+        // hook (e.g. Postgres re-applying the default after a TYPE change) never
+        // emits it verbatim into the target dialect. The default-diff branch
+        // below flags it for manual review instead.
+        const colSpec = this.isCrossDialect(mapping)
+          ? { ...col.source, type: translated.sql, defaultValue: undefined }
+          : { ...col.source, type: translated.sql };
+        statements.push(...dialect.modifyColumnStatements(tableName, col.name, colSpec, col.target?.nullable));
 
         // The compare flags a column as MODIFIED when only its DEFAULT differs, but
         // the type/nullability statements above don't carry the default — apply it
@@ -487,7 +497,10 @@ export class SqlGeneratorModule {
     } else if (obj.objectType === 'SEQUENCE' && obj.sourceTable) {
       const s = obj.sourceTable.sequence ?? {};
       let alter = `ALTER SEQUENCE ${tableName}`;
-      if (s.dataType) alter += ` AS ${s.dataType}`;
+      // Only Postgres can change a sequence's data type via ALTER SEQUENCE ... AS.
+      // SQL Server rejects it outright ("Argument 'AS' cannot be used"), and
+      // Oracle/DB2/MariaDB have no such clause either — gate behind the flag.
+      if (s.dataType && dialect.alterSequenceAsType) alter += ` AS ${s.dataType}`;
       if (s.increment !== undefined) alter += ` INCREMENT BY ${s.increment}`;
       if (s.minValue !== undefined) alter += ` MINVALUE ${s.minValue}`;
       if (s.maxValue !== undefined) alter += ` MAXVALUE ${s.maxValue}`;
@@ -521,9 +534,16 @@ export class SqlGeneratorModule {
           statements.push(`CREATE OR REPLACE VIEW ${tableName} AS\n${body}`);
         }
       } else {
-        if (obj.objectType === 'FUNCTION') statements.push(this.dropRoutineSql('FUNCTION', tableName, src?.parameters));
-        else if (obj.objectType === 'PROCEDURE') statements.push(this.dropRoutineSql('PROCEDURE', tableName, src?.parameters));
-        else if (obj.objectType === 'TRIGGER') statements.push(`DROP TRIGGER IF EXISTS ${tableName};`);
+        // Dialect hook takes precedence (Oracle/DB2 version-aware exception blocks);
+        // fall back to the generic drop, same pattern as the DROP phase above.
+        const ver = mapping?.targetServerVersion;
+        if (obj.objectType === 'FUNCTION') {
+          statements.push(dialect.dropFunctionStatement?.(tableName, ver) ?? this.dropRoutineSql('FUNCTION', tableName, dialect, src?.parameters));
+        } else if (obj.objectType === 'PROCEDURE') {
+          statements.push(dialect.dropProcedureStatement?.(tableName, ver) ?? this.dropRoutineSql('PROCEDURE', tableName, dialect, src?.parameters));
+        } else if (obj.objectType === 'TRIGGER') {
+          statements.push(`DROP TRIGGER IF EXISTS ${tableName};`);
+        }
         statements.push(this.ensureSemicolon(obj.definition));
       }
     }
@@ -623,7 +643,7 @@ export class SqlGeneratorModule {
     // cross-dialect migration and translate column types accordingly.
     const m: SchemaMapping = { ...mapping, targetDialect: mapping?.targetDialect ?? dialectStr };
     const steps: MigrationStep[] = [];
-
+    
     // Non-destructive mode never drops objects that exist only in the target.
     if (!m.nonDestructive) {
       for (const obj of this.sortRemovedByDependency(diffs.filter((d) => d.status === 'REMOVED'))) {

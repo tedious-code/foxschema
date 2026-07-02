@@ -78,13 +78,26 @@ export const postgresSqlDialect: SqlDialect = {
   },
 
   modifyColumnStatements(tableName: string, colName: string, col: ColumnSpec): string[] {
+    // Postgres refuses ALTER COLUMN TYPE while the column has a DEFAULT it can't
+    // auto-cast to the new type ("default for column ... cannot be cast
+    // automatically", e.g. varchar 'pending' → enum). Drop the default first,
+    // then re-apply the source default after the type change. If the source has
+    // no default, the drop still converges (target default shouldn't survive a
+    // type change it can't cast into anyway).
+    const stmts = [`ALTER TABLE ${tableName} ALTER COLUMN ${colName} DROP DEFAULT;`];
     // USING provides an explicit cast so Postgres doesn't rely on implicit coercion,
     // which may not exist for all type pairs (e.g. text → integer requires it).
-    const stmts = [`ALTER TABLE ${tableName} ALTER COLUMN ${colName} TYPE ${col.type} USING ${colName}::${col.type};`];
+    stmts.push(`ALTER TABLE ${tableName} ALTER COLUMN ${colName} TYPE ${col.type} USING ${colName}::${col.type};`);
     if (col.nullable) {
       stmts.push(`ALTER TABLE ${tableName} ALTER COLUMN ${colName} DROP NOT NULL;`);
     } else {
       stmts.push(`ALTER TABLE ${tableName} ALTER COLUMN ${colName} SET NOT NULL;`);
+    }
+    if (col.defaultValue) {
+      // Re-apply the desired default — needed even when source and target
+      // defaults compare equal (the generator's default-diff branch only fires
+      // on a difference, and we just dropped it above).
+      stmts.push(`ALTER TABLE ${tableName} ALTER COLUMN ${colName} SET DEFAULT ${col.defaultValue};`);
     }
     return stmts;
   },
@@ -161,6 +174,13 @@ export const postgresSqlDialect: SqlDialect = {
   dropTriggerStatement(triggerName: string, qualifiedTable: string): string {
     return `DROP TRIGGER IF EXISTS ${triggerName} ON ${qualifiedTable};`;
   },
+
+  // Postgres supports function/procedure overloading — a signature disambiguates
+  // which overload to drop, and is sometimes required when multiple exist.
+  dropRoutineSignature: true,
+
+  // Postgres is the only dialect where ALTER SEQUENCE can change the data type.
+  alterSequenceAsType: true,
 
   createTypeStatement(schema: TableSchema): string | null {
     const u = schema.userType ?? {};

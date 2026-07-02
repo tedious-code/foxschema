@@ -183,17 +183,87 @@ Postgres's column-type-change path. Left for a dedicated follow-up per this
 session's instruction to fix one thing deeply rather than chase every issue
 that surfaces.
 
+## Follow-up fix: MODIFIED-routine DROP used the wrong syntax (2026-07-01, later same day)
+
+The seed matrix's predicted-fail case (below) was confirmed exactly:
+`alterObjectStatements`'s FUNCTION/PROCEDURE path called `dropRoutineSql`
+directly, which — whenever the provider supplied `parameters` (MySQL,
+Postgres, SQL Server all do, even for zero-arg routines) — appended a
+parenthesized signature: `DROP FUNCTION IF EXISTS name(sig);`. Postgres
+accepts this (needed for overload disambiguation); **MySQL/MariaDB/SQL
+Server reject any parenthesized signature, even empty `()`** — confirmed
+live: `error near '(decimal(10,2), int)'` (MySQL/MariaDB), `Incorrect syntax
+near 'decimal'` (SQL Server). This also meant a REMOVED function on those
+three dialects broke via the DROP-phase fallback too — a latent bug beyond
+just ALTER.
+
+**Fix**: added `dropRoutineSignature?: boolean` to `SqlDialect` — Postgres
+and Redshift (function-overloading dialects) opt in; everyone else defaults
+to the bare-name form. `dropRoutineSql` now takes the dialect and gates on
+this flag instead of unconditionally including the signature whenever
+`params` exists. Also routed the ALTER-phase routine drop through
+`dialect.dropFunctionStatement?.(...) ?? dropRoutineSql(...)` — the same
+hook-first pattern the DROP phase already used — so Oracle/DB2's
+version-aware exception-block drops apply consistently on ALTER too, not
+just DROP.
+
+**Verified**: 2 new regression tests (bare-name on MySQL, signature on
+Postgres) + full 95/95 suite green. Live: MariaDB now **passes fully**
+end-to-end; MySQL and SQL Server's `ALTER FN_GET_DISCOUNT FUNCTION` step
+succeeds cleanly (no more signature syntax error) and progresses to their
+own separate, already-known issues (MySQL SYSTEM_USER privilege gap;
+SQL Server `ALTER SEQUENCE ... AS`).
+
+## Follow-up fix: SQL Server seed's trigger drop ran after its owning table (2026-07-01)
+
+Self-inflicted by the seed-matrix work: adding `trg_item_price_check` (a
+target-only trigger, case #7) exposed a real ordering bug in
+`docker/init/sqlserver/01_seed.sql`'s dynamic DROP block — it enumerates
+`sys.objects` with no `ORDER BY`, so a `DROP TABLE` could run before the
+`DROP TRIGGER` for a trigger owned by that table. SQL Server auto-drops a
+table's triggers when the table itself drops, so the later explicit
+`DROP TRIGGER` then failed with "does not exist" — cascading into
+`SqlState 24000, Invalid cursor state` for every statement after it in the
+same batch, corrupting the whole reseed (schema `demo_a` ended up missing
+entirely). This is what looked like a `connects source` schema-dropdown
+*flake* in earlier runs — it wasn't a flake, the schema genuinely didn't
+exist. **Fix**: `ORDER BY CASE type_desc WHEN 'SQL_TRIGGER' THEN 0 ELSE 1
+END` on both the `demo_a` and `demo_b` drop blocks, so triggers always drop
+before tables. Verified: clean reseed, SQL Server E2E `connects
+source`/`connects target`/`runs schema comparison` all pass reliably now.
+
+## New finding: DB2 index-name collision on CREATE TABLE (2026-07-01)
+
+Not fixed — DB2's migration fails on the very first CREATE TABLE step:
+`SQL0601N The name of the object to be created is identical to the existing
+name "DEMO_B.SQL<timestamp>" of type "INDEX"`. DB2 auto-generates
+timestamp-based system names for unnamed indexes (e.g. behind a UNIQUE
+constraint); the collision is reproducible but its exact mechanism (genuine
+timestamp collision under rapid-fire DDL vs. a real generator naming bug)
+wasn't root-caused this session. Likely the DB2 analogue of the SQL Server
+"DROP INDEX needed by unique constraint" class of issue. DB2 is otherwise
+fully wired into the E2E harness — connect, compare, safety-gate checkboxes,
+and Execute all work; only the migration itself hits this.
+
 ## Deferred (separate follow-ups, not fixed this session)
-- **New**: Postgres `ALTER COLUMN ... TYPE` fails when the column has an
-  existing DEFAULT that can't auto-cast to the new type (see above) —
-  exposed by today's fix, not yet root-caused beyond the error message.
+
+> Seed data exercising these paths (plus written per-case predictions) now
+> exists — see [2026-07-01-seed-test-matrix.md](2026-07-01-seed-test-matrix.md).
+
+- Postgres `ALTER COLUMN ... TYPE` fails when the column has an existing
+  DEFAULT that can't auto-cast to the new type — exposed by the phase-order
+  fix, not yet root-caused beyond the error message.
+- SQL Server `ALTER SEQUENCE ... AS <type>` — `Argument 'AS' cannot be used
+  in an ALTER SEQUENCE statement`.
+- MySQL `CREATE FUNCTION`/binary-logging `SYSTEM_USER` privilege gap — known,
+  documented in `IMPLEMENTATION_STATE.md`, environmental (DBA must grant).
 - Oracle `ORA-02289: sequence does not exist` on `CREATE CATEGORIES TABLE` —
   needs its own root-cause session with a working Oracle connection capture.
-- SQL Server `connects source` schema-dropdown timeout — re-run to confirm
-  it's a real flake vs. a regression before investigating further.
-- MySQL/Postgres "migration history shows 0 records" — likely the SSE
-  'done'-event-before-history-write race identified in an earlier session;
-  not re-investigated here.
+- **New**: DB2 `SQL0601N` index-name collision on `CREATE CATEGORIES TABLE`
+  (see above).
+- MySQL/Postgres/SQL Server/DB2 "migration history shows 0 records" — likely
+  the SSE 'done'-event-before-history-write race identified in an earlier
+  session; not re-investigated here.
 - Oracle seed script's silent `DROP USER` exception-swallowing (see "False
   leads" above) — same bug class as the SQL Server sequence-drop fix from
   the previous session, not yet applied to Oracle's seed script.

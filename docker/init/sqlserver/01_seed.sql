@@ -2,6 +2,13 @@
 -- Two schemas in foxdb: demo_a (source, newer) vs demo_b (target, older)
 -- Scopes covered: Tables, Views, Functions, Procedures, Triggers, Sequences
 
+-- SQL Server has no MSSQL_DATABASE env (unlike Postgres/MySQL) and the entrypoint
+-- doesn't create the DB — so create foxdb here or the first `USE foxdb` fails on a
+-- fresh volume (Msg 911). Idempotent: only creates when absent.
+IF DB_ID('foxdb') IS NULL
+  CREATE DATABASE foxdb;
+GO
+
 USE foxdb;
 GO
 
@@ -17,6 +24,10 @@ IF EXISTS (SELECT 1 FROM sys.schemas WHERE name = 'demo_a') BEGIN
     ' DROP CONSTRAINT ' + name + '; '
   FROM sys.foreign_keys WHERE SCHEMA_NAME(schema_id) = 'demo_a';
   EXEC sp_executesql @fkSql;
+  -- Triggers must drop before their owning table: DROP TABLE cascades a
+  -- trigger away with it, so an explicit DROP TRIGGER issued afterward (this
+  -- string has no inherent statement order without ORDER BY) fails with
+  -- "does not exist" whenever the table happened to be enumerated first.
   DECLARE @sql NVARCHAR(MAX) = N'';
   SELECT @sql += 'DROP ' + CASE type_desc
     WHEN 'USER_TABLE'   THEN 'TABLE'
@@ -26,7 +37,8 @@ IF EXISTS (SELECT 1 FROM sys.schemas WHERE name = 'demo_a') BEGIN
     WHEN 'SQL_TRIGGER'  THEN 'TRIGGER'
     ELSE NULL END + ' demo_a.' + name + '; '
   FROM sys.objects WHERE schema_id = SCHEMA_ID('demo_a')
-    AND type_desc IN ('SQL_TRIGGER','SQL_SCALAR_FUNCTION','SQL_STORED_PROCEDURE','VIEW','USER_TABLE');
+    AND type_desc IN ('SQL_TRIGGER','SQL_SCALAR_FUNCTION','SQL_STORED_PROCEDURE','VIEW','USER_TABLE')
+  ORDER BY CASE type_desc WHEN 'SQL_TRIGGER' THEN 0 ELSE 1 END;
   EXEC sp_executesql @sql;
   -- Sequences live in sys.sequences, not sys.objects' handled type_desc list above —
   -- drop them separately or DROP SCHEMA fails with "referenced by object 'order_seq'".
@@ -43,6 +55,7 @@ IF EXISTS (SELECT 1 FROM sys.schemas WHERE name = 'demo_b') BEGIN
     ' DROP CONSTRAINT ' + name + '; '
   FROM sys.foreign_keys WHERE SCHEMA_NAME(schema_id) = 'demo_b';
   EXEC sp_executesql @fkSql;
+  -- Triggers must drop before their owning table — see demo_a block comment above.
   DECLARE @sql NVARCHAR(MAX) = N'';
   SELECT @sql += 'DROP ' + CASE type_desc
     WHEN 'USER_TABLE'   THEN 'TABLE'
@@ -52,7 +65,8 @@ IF EXISTS (SELECT 1 FROM sys.schemas WHERE name = 'demo_b') BEGIN
     WHEN 'SQL_TRIGGER'  THEN 'TRIGGER'
     ELSE NULL END + ' demo_b.' + name + '; '
   FROM sys.objects WHERE schema_id = SCHEMA_ID('demo_b')
-    AND type_desc IN ('SQL_TRIGGER','SQL_SCALAR_FUNCTION','SQL_STORED_PROCEDURE','VIEW','USER_TABLE');
+    AND type_desc IN ('SQL_TRIGGER','SQL_SCALAR_FUNCTION','SQL_STORED_PROCEDURE','VIEW','USER_TABLE')
+  ORDER BY CASE type_desc WHEN 'SQL_TRIGGER' THEN 0 ELSE 1 END;
   EXEC sp_executesql @sql;
   DECLARE @seqSql NVARCHAR(MAX) = N'';
   SELECT @seqSql += 'DROP SEQUENCE demo_b.' + name + '; '
@@ -227,8 +241,8 @@ CREATE TABLE demo_b.order_items (
     id         INT IDENTITY(1,1) PRIMARY KEY,
     order_id   INT NOT NULL,
     product_id INT NOT NULL,
-    qty        INT NOT NULL DEFAULT 1,
-    unit_price DECIMAL(10,2) NOT NULL
+    qty        INT NOT NULL DEFAULT 0,  -- default-only diff (A: DEFAULT 1)
+    unit_price DECIMAL(10,2)            -- nullability-only diff (A: NOT NULL)
 );
 GO
 
@@ -249,13 +263,98 @@ FROM   demo_b.orders o
 JOIN   demo_b.order_items oi ON oi.order_id = o.id;
 GO
 
+-- MODIFIED function: body differs from demo_a (older thresholds/rates)
 CREATE FUNCTION demo_b.fn_get_discount(@price DECIMAL(10,2), @qty INT)
 RETURNS DECIMAL(10,2) AS
 BEGIN
   RETURN CASE
-    WHEN @qty >= 10 THEN @price * 0.10
-    WHEN @qty >= 5  THEN @price * 0.05
+    WHEN @qty >= 20 THEN @price * 0.15
+    WHEN @qty >= 10 THEN @price * 0.08
     ELSE 0
   END;
 END;
+GO
+
+-- ============================================================
+-- EXTENDED TEST CASES — one object set per generator path
+-- (see docs/plans/2026-07-01-seed-test-matrix.md)
+-- ============================================================
+
+-- [ADDED tables: composite PK + FK to another ADDED table + FK to a MODIFIED table]
+CREATE TABLE demo_a.coupons (
+    id           INT IDENTITY(1,1) PRIMARY KEY,
+    code         NVARCHAR(30) NOT NULL UNIQUE,
+    discount_pct DECIMAL(5,2) NOT NULL DEFAULT 0,
+    valid_until  DATE
+);
+GO
+CREATE TABLE demo_a.order_coupons (
+    order_id   INT NOT NULL REFERENCES demo_a.orders(id),
+    coupon_id  INT NOT NULL REFERENCES demo_a.coupons(id),
+    applied_at DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+    PRIMARY KEY (order_id, coupon_id)
+);
+GO
+
+-- [ADDED function called by an ADDED trigger on a MODIFIED table]
+-- Regression for the routine-before-ALTER ordering fix: trg_customer_tier is
+-- created inside the customers ALTER step (after the tier column is added)
+-- and calls a function that is only ADDED in this same migration.
+CREATE FUNCTION demo_a.fn_tier_priority(@tier NVARCHAR(10))
+RETURNS INT AS
+BEGIN
+  RETURN CASE WHEN @tier IN ('gold', 'vip') THEN 1 ELSE 0 END;
+END;
+GO
+CREATE TRIGGER demo_a.trg_customer_tier
+ON demo_a.customers AFTER INSERT AS
+BEGIN
+  SET NOCOUNT ON;
+  UPDATE c SET tier = 'standard'
+  FROM   demo_a.customers c
+  JOIN   inserted i ON i.id = c.id
+  WHERE  demo_a.fn_tier_priority(i.tier) = 0;
+END;
+GO
+
+-- [MODIFIED trigger: demo_b has a weaker version of the same trigger]
+CREATE TRIGGER demo_a.trg_item_price_check
+ON demo_a.order_items AFTER INSERT AS
+BEGIN
+  SET NOCOUNT ON;
+  IF EXISTS (SELECT 1 FROM inserted WHERE qty <= 0 OR unit_price < 0)
+    THROW 50001, 'invalid order item', 1;
+END;
+GO
+CREATE TRIGGER demo_b.trg_item_price_check
+ON demo_b.order_items AFTER INSERT AS
+BEGIN
+  SET NOCOUNT ON;
+  IF EXISTS (SELECT 1 FROM inserted WHERE qty <= 0)
+    THROW 50001, 'invalid qty', 1;
+END;
+GO
+
+-- [MODIFIED view: column list differs between schemas]
+CREATE VIEW demo_a.v_active_products AS
+SELECT id, name, price, sku
+FROM   demo_a.products
+WHERE  stock > 0 AND active = 1;
+GO
+CREATE VIEW demo_b.v_active_products AS
+SELECT id, name, price
+FROM   demo_b.products
+WHERE  stock > 0;
+GO
+
+-- [REMOVED trigger: exists only in the target]
+CREATE TRIGGER demo_b.trg_b_orders_touch
+ON demo_b.orders AFTER UPDATE AS
+BEGIN
+  SET NOCOUNT ON;
+END;
+GO
+
+-- [REMOVED index on a MODIFIED table]
+CREATE INDEX idx_b_orders_created ON demo_b.orders(created_at);
 GO

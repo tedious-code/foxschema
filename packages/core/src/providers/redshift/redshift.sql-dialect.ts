@@ -111,5 +111,8 @@ export const redshiftSqlDialect: SqlDialect = {
     return `ALTER TABLE ${tableName} DROP CONSTRAINT ${fkName};`;
   },
 
+  // Postgres-derived — supports function overloading, so a signature disambiguates.
+  dropRoutineSignature: true,
+
   ...types,
 };

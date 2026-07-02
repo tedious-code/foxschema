@@ -70,7 +70,14 @@ export const db2SqlDialect: SqlDialect = {
   },
 
   addColumnStatement(tableName: string, colDef: string): string {
-    return `ALTER TABLE ${tableName} ADD ${colDef};`;
+    // DB2 rejects adding a NOT NULL column to an existing (possibly non-empty)
+    // table with no default (SQL0193N). `WITH DEFAULT` (no value) backfills
+    // existing rows with the type's default (0 / '' / current timestamp), the
+    // closest safe equivalent when the source column declares no default.
+    const def = /\bNOT\s+NULL\b/i.test(colDef) && !/\bDEFAULT\b/i.test(colDef)
+      ? `${colDef} WITH DEFAULT`
+      : colDef;
+    return `ALTER TABLE ${tableName} ADD ${def};`;
   },
 
   modifyColumnStatements(tableName: string, colName: string, col: ColumnSpec): string[] {

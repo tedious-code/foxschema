@@ -43,10 +43,20 @@ export class MigrationModule {
             continue;
           }
           onEvent({ type: 'object', objectName: step.objectName, objectType: step.objectType, action: step.action, status: 'RUNNING' });
+          const isOracle = dialect.toLowerCase() === 'oracle';
           try {
             for (const raw of step.statements) {
-              // Trailing semicolons are script syntax, not part of the statement for the driver
-              const sql = raw.trim().replace(/;\s*$/, '');
+              // Normalize terminators for single-statement driver execution:
+              //  - drop a trailing SQL*Plus "/" (Oracle script terminator the driver rejects)
+              //  - drop ONE trailing ";" — EXCEPT, on Oracle, for PL/SQL blocks / routine
+              //    bodies ending in "END;" / "END name;", where the driver *requires* the
+              //    semicolon (a bare "END" is ORA-06550). CREATE TABLE etc. end in ")".
+              let sql = raw.trim().replace(/\n?\/\s*$/, '').trim();
+              const isPlSqlBlock = isOracle && /\bEND\s*(?:"[^"]*"|\w+)?\s*;$/i.test(sql);
+              if (!isPlSqlBlock) {
+                sql = sql.replace(/;\s*$/, '');
+              }
+              sql = sql.trim();
               if (!sql || sql.startsWith('--')) continue;
               await adapter.query(conn, sql, []);
             }

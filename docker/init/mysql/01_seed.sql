@@ -12,7 +12,11 @@ GRANT ALL PRIVILEGES ON demo_a.* TO 'foxuser'@'%';
 GRANT ALL PRIVILEGES ON demo_b.* TO 'foxuser'@'%';
 -- SUPER: allows CREATE FUNCTION/PROCEDURE/TRIGGER with binary logging enabled (error 1419)
 -- SHOW_ROUTINE: allows reading procedure/function bodies from information_schema.ROUTINES
-GRANT SUPER, SHOW_ROUTINE ON *.* TO 'foxuser'@'%';
+-- SYSTEM_USER: this seed creates the demo routines as root (a SYSTEM_USER account),
+--   so their DEFINER is root — and MySQL 8 requires the SYSTEM_USER privilege to
+--   drop/alter any object whose DEFINER names a SYSTEM_USER account. Without it,
+--   the migration's DROP FUNCTION fails "Access denied; you need SYSTEM_USER".
+GRANT SUPER, SHOW_ROUTINE, SYSTEM_USER ON *.* TO 'foxuser'@'%';
 FLUSH PRIVILEGES;
 
 -- ============================================================
@@ -168,8 +172,8 @@ CREATE TABLE order_items (
     id          INT AUTO_INCREMENT PRIMARY KEY,
     order_id    INT NOT NULL,
     product_id  INT NOT NULL,
-    qty         INT NOT NULL DEFAULT 1,
-    unit_price  DECIMAL(10,2) NOT NULL
+    qty         INT NOT NULL DEFAULT 0,  -- default-only diff (A: DEFAULT 1)
+    unit_price  DECIMAL(10,2)            -- nullability-only diff (A: NOT NULL)
 );
 
 CREATE TABLE legacy_audit_log (
@@ -187,15 +191,105 @@ SELECT o.id, o.total, o.status, o.created_at,
 FROM   orders o
 JOIN   order_items oi ON oi.order_id = o.id;
 
+-- MODIFIED function: body differs from demo_a (older thresholds/rates)
 DELIMITER $$
 CREATE FUNCTION fn_get_discount(p_price DECIMAL(10,2), p_qty INT)
 RETURNS DECIMAL(10,2) DETERMINISTIC
 BEGIN
-  IF p_qty >= 10 THEN RETURN p_price * 0.10;
-  ELSEIF p_qty >= 5 THEN RETURN p_price * 0.05;
+  IF p_qty >= 20 THEN RETURN p_price * 0.15;
+  ELSEIF p_qty >= 10 THEN RETURN p_price * 0.08;
   ELSE RETURN 0;
   END IF;
 END$$
 DELIMITER ;
 
 -- Missing: fn_order_total, sp_confirm_order, sp_restock_product, triggers
+
+-- ============================================================
+-- EXTENDED TEST CASES — one object set per generator path
+-- (see docs/plans/2026-07-01-seed-test-matrix.md)
+-- ============================================================
+
+USE demo_a;
+
+-- [ADDED tables: composite PK + FK to another ADDED table + FK to a MODIFIED table]
+CREATE TABLE coupons (
+    id           INT AUTO_INCREMENT PRIMARY KEY,
+    code         VARCHAR(30) NOT NULL UNIQUE,
+    discount_pct DECIMAL(5,2) NOT NULL DEFAULT 0,
+    valid_until  DATE
+);
+CREATE TABLE order_coupons (
+    order_id   INT NOT NULL,
+    coupon_id  INT NOT NULL,
+    applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (order_id, coupon_id),
+    CONSTRAINT fk_oc_order  FOREIGN KEY (order_id)  REFERENCES orders(id),
+    CONSTRAINT fk_oc_coupon FOREIGN KEY (coupon_id) REFERENCES coupons(id)
+);
+
+-- [ADDED function called by an ADDED trigger on a MODIFIED table]
+-- Regression for the routine-before-ALTER ordering fix: trg_customer_tier is
+-- created inside the customers ALTER step (after the tier column is added)
+-- and calls a function that is only ADDED in this same migration.
+DELIMITER $$
+CREATE FUNCTION fn_tier_priority(p_tier VARCHAR(10))
+RETURNS INT DETERMINISTIC
+BEGIN
+  RETURN IF(p_tier IN ('gold', 'vip'), 1, 0);
+END$$
+
+CREATE TRIGGER trg_customer_tier
+BEFORE INSERT ON customers
+FOR EACH ROW
+BEGIN
+  IF fn_tier_priority(NEW.tier) = 0 THEN SET NEW.tier = 'standard'; END IF;
+END$$
+
+-- [MODIFIED trigger: demo_b has a weaker version of the same trigger]
+CREATE TRIGGER trg_item_price_check
+BEFORE INSERT ON order_items
+FOR EACH ROW
+BEGIN
+  IF NEW.qty <= 0 OR NEW.unit_price < 0 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'invalid order item';
+  END IF;
+END$$
+DELIMITER ;
+
+-- [MODIFIED view: column list differs from demo_b]
+CREATE VIEW v_active_products AS
+SELECT id, name, price, sku
+FROM   products
+WHERE  stock > 0 AND active = 1;
+
+USE demo_b;
+
+-- [MODIFIED trigger: weaker body than demo_a's version]
+DELIMITER $$
+CREATE TRIGGER trg_item_price_check
+BEFORE INSERT ON order_items
+FOR EACH ROW
+BEGIN
+  IF NEW.qty <= 0 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'invalid qty';
+  END IF;
+END$$
+
+-- [REMOVED trigger: exists only in the target]
+CREATE TRIGGER trg_b_orders_touch
+BEFORE UPDATE ON orders
+FOR EACH ROW
+BEGIN
+  SET NEW.status = NEW.status;
+END$$
+DELIMITER ;
+
+-- [MODIFIED view: older column list]
+CREATE VIEW v_active_products AS
+SELECT id, name, price
+FROM   products
+WHERE  stock > 0;
+
+-- [REMOVED index on a MODIFIED table]
+CREATE INDEX idx_b_orders_created ON orders(created_at);

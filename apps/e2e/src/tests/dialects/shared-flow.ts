@@ -155,11 +155,11 @@ export function runDialectFlow(
     await migration.openHistory();
     expect(await migration.isHistoryVisible()).toBe(true);
 
-    const count = await migration.getHistoryRunCount();
-    expect(count, 'Expected at least one history record').toBeGreaterThan(0);
-
-    const status = await migration.getLatestRunStatus();
+    // Poll instead of instant-count: the dialog's list fetch is async, and the
+    // backend finalizes the run status after streaming the 'done' event.
+    const status = await migration.waitForLatestRunSettled();
     console.log(`[${dialectLabel}] latest history run status: ${status}`);
+    expect(status, 'Expected a settled history record').not.toBeNull();
     expect(status).toBe('SUCCESS');
 
     await migration.closeHistory();

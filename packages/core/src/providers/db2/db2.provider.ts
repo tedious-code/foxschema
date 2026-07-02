@@ -125,7 +125,12 @@ export class Db2Provider implements SchemaProvider {
         tablespace: table.tablespace,
         triggers: triggersByTable.get(table.name) ?? [],
         primaryKey: pkColumns.length > 0
-          ? { name: dbSchema.primaryKeys[table.name]?.[0]?.constName, columns: pkColumns }
+          // Drop DB2's system-generated PK constraint name (SQL<timestamp>): the
+          // generator would emit it as `CONSTRAINT SQL... PRIMARY KEY`, which
+          // both re-uses a non-portable name and can collide with a unique
+          // index's system name on the target. Leaving it undefined makes the
+          // generator emit a bare `PRIMARY KEY (cols)` and DB2 auto-names it.
+          ? { name: this.normalizeSystemName(dbSchema.primaryKeys[table.name]?.[0]?.constName), columns: pkColumns }
           : undefined,
         columns: Object.values(table.columns).map((c) => ({
           name: c.name,
@@ -250,6 +255,16 @@ export class Db2Provider implements SchemaProvider {
     return result.sort((a, b) => a.name.localeCompare(b.name));
   }
 
+  /**
+   * DB2 auto-generates constraint/index names as "SQL<17-digit-timestamp>" for
+   * unnamed PK/UNIQUE constraints. Those are non-portable (target generates its
+   * own) and can collide across object types on the target. Return undefined so
+   * the generator omits the name and lets DB2 assign a fresh one.
+   */
+  private normalizeSystemName(name: string | undefined): string | undefined {
+    return name && /^SQL\d+$/i.test(name.trim()) ? undefined : name;
+  }
+
   private formatType(c: { type: string; length?: number; scale?: number }): string {
     const type = c.type.trim().toUpperCase();
     if ((type === 'DECIMAL' || type === 'NUMERIC') && c.length) {
@@ -320,6 +335,11 @@ export class Db2Provider implements SchemaProvider {
         ),
         ConnectionFactory.executeOnConnection<Db2IndexRaw>(
           this.provider, conn,
+          // 'P' rows (PK-backing indexes) are kept here so pkColumnsOf can fall
+          // back to them, but schema-to-tables filters them out of the emitted
+          // index list. Unique ('U') system-named indexes are re-emitted (they
+          // carry a table's UNIQUE constraint) but get a deterministic name
+          // below so they don't collide with the PK's system name (SQL0601N).
           `SELECT INDSCHEMA, INDNAME, TABNAME, UNIQUERULE FROM SYSCAT.INDEXES WHERE TABSCHEMA = ? ORDER BY TABNAME`,
           [schemaName]
         ),
@@ -524,8 +544,16 @@ export class Db2Provider implements SchemaProvider {
       // 7. Process Indexes
       for (const idx of rawIndexes) {
         const relatedCols = indexColumns[idx.INDNAME]?.map(c => c.colName) || [];
+        // DB2 names the index backing a UNIQUE constraint with a system-generated
+        // "SQL<timestamp>" — non-portable and, worse, it can equal the PK's own
+        // system name, so re-emitting `CREATE UNIQUE INDEX SQL... ` collides with
+        // the PK backing index on the target (SQL0601N). Give it a deterministic,
+        // per-(table,columns) name instead.
+        const name = /^SQL\d+$/i.test(idx.INDNAME)
+          ? `${idx.TABNAME}_${relatedCols.join('_')}_IDX`.toUpperCase()
+          : idx.INDNAME;
         const mappedIdx: DbIndex = {
-          name: idx.INDNAME,
+          name,
           uniqueRule: idx.UNIQUERULE,
           columns: relatedCols
         };
@@ -540,10 +568,17 @@ export class Db2Provider implements SchemaProvider {
         // View columns come through SYSCAT.COLUMNS (collected in `columns` above).
         const viewColumns: Record<string, DbColumn> = {};
         for (const c of columns[vw.VIEWNAME] ?? []) viewColumns[c.name] = c;
+        // SYSCAT.VIEWS.TEXT is the full "CREATE VIEW <schema>.<name> AS SELECT ..."
+        // statement. Store only the SELECT body so the generator can re-emit it via
+        // CREATE OR REPLACE VIEW with the target schema — otherwise the wrapped
+        // result is "CREATE OR REPLACE VIEW n AS CREATE VIEW ..." (SQL0104N).
+        // Identifiers may be bare (UPPER) or quoted; a leading comment can precede CREATE.
+        // eslint-disable-next-line security/detect-unsafe-regex -- anchored at ^; bounded comment/whitespace runs and identifier alternatives
+        const VIEW_CREATE_RE = /^(?:\s*--[^\n]*\n)*\s*CREATE\s+(?:OR\s+REPLACE\s+)?VIEW\s+(?:(?:"[^"]*"|\w+)\s*\.\s*)?(?:"[^"]*"|\w+)\s+AS\s+/i;
         const mappedView: DbView = {
           name: vw.VIEWNAME,
           schema: vw.VIEWSCHEMA,
-          definition: vw.TEXT,
+          definition: String(vw.TEXT ?? '').replace(VIEW_CREATE_RE, '').trim(),
           columns: viewColumns,
           indexes: []
         };
