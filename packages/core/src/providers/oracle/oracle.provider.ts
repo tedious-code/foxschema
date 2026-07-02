@@ -24,7 +24,7 @@ import {
 
 // ALL_* catalog raw shapes (Oracle folds unquoted identifiers to UPPER)
 interface OraTableRaw { TABLE_NAME: string; TABLESPACE_NAME: string | null; }
-interface OraColumnRaw { TABLE_NAME: string; COLUMN_NAME: string; COLUMN_ID: number; DATA_TYPE: string; DATA_LENGTH: number; DATA_PRECISION: number | null; DATA_SCALE: number | null; NULLABLE: string; DATA_DEFAULT: string | null; }
+interface OraColumnRaw { TABLE_NAME: string; COLUMN_NAME: string; COLUMN_ID: number; DATA_TYPE: string; DATA_LENGTH: number; DATA_PRECISION: number | null; DATA_SCALE: number | null; NULLABLE: string; DATA_DEFAULT: string | null; IDENTITY_COLUMN: string; }
 interface OraConstraintRaw { CONSTRAINT_NAME: string; CONSTRAINT_TYPE: string; TABLE_NAME: string; R_CONSTRAINT_NAME: string | null; R_OWNER: string | null; }
 interface OraConsColRaw { CONSTRAINT_NAME: string; TABLE_NAME: string; COLUMN_NAME: string; POSITION: number; }
 interface OraIndexRaw { INDEX_NAME: string; TABLE_NAME: string; UNIQUENESS: string; }
@@ -138,7 +138,7 @@ export class OracleProvider implements SchemaProvider {
         [owner]
       ),
       exec<OraColumnRaw>(
-        `SELECT TABLE_NAME, COLUMN_NAME, COLUMN_ID, DATA_TYPE, DATA_LENGTH, DATA_PRECISION, DATA_SCALE, NULLABLE, DATA_DEFAULT
+        `SELECT TABLE_NAME, COLUMN_NAME, COLUMN_ID, DATA_TYPE, DATA_LENGTH, DATA_PRECISION, DATA_SCALE, NULLABLE, DATA_DEFAULT, IDENTITY_COLUMN
          FROM ALL_TAB_COLUMNS WHERE OWNER = :1 ORDER BY TABLE_NAME, COLUMN_ID`,
         [owner]
       ),
@@ -161,18 +161,31 @@ export class OracleProvider implements SchemaProvider {
          ORDER BY cc.TABLE_NAME, cc.CONSTRAINT_NAME, cc.POSITION`,
         [owner]
       ),
+      // Exclude indexes that back a PK/UNIQUE constraint: Oracle auto-creates
+      // one per constraint (often sharing the constraint's system name), and the
+      // constraint declaration in CREATE TABLE already produces it. Re-emitting a
+      // CREATE INDEX on the same columns fails with ORA-01408 ("such column list
+      // already indexed"). ALL_CONSTRAINTS.INDEX_NAME names the backing index.
+      // NOTE: oracledb counts each :N occurrence as a separate bind, so the
+      // repeated owner filter uses :2 with owner passed twice.
       exec<OraIndexRaw>(
         `SELECT INDEX_NAME, TABLE_NAME, UNIQUENESS FROM ALL_INDEXES
          WHERE TABLE_OWNER = :1 AND INDEX_TYPE NOT IN ('LOB','CLUSTER')
+           AND INDEX_NAME NOT IN (
+             SELECT INDEX_NAME FROM ALL_CONSTRAINTS
+             WHERE OWNER = :2 AND CONSTRAINT_TYPE IN ('P','U') AND INDEX_NAME IS NOT NULL)
          ORDER BY TABLE_NAME, INDEX_NAME`,
-        [owner]
+        [owner, owner]
       ),
       exec<OraIndColRaw>(
         `SELECT ic.INDEX_NAME, ic.TABLE_NAME, ic.COLUMN_NAME, ic.COLUMN_POSITION
          FROM ALL_IND_COLUMNS ic JOIN ALL_INDEXES i ON i.INDEX_NAME = ic.INDEX_NAME AND i.TABLE_OWNER = ic.TABLE_OWNER
          WHERE ic.TABLE_OWNER = :1 AND i.INDEX_TYPE NOT IN ('LOB','CLUSTER')
+           AND ic.INDEX_NAME NOT IN (
+             SELECT INDEX_NAME FROM ALL_CONSTRAINTS
+             WHERE OWNER = :2 AND CONSTRAINT_TYPE IN ('P','U') AND INDEX_NAME IS NOT NULL)
          ORDER BY ic.INDEX_NAME, ic.COLUMN_POSITION`,
-        [owner]
+        [owner, owner]
       ),
       exec<OraViewRaw>(
         `SELECT VIEW_NAME, DBMS_METADATA.GET_DDL('VIEW', VIEW_NAME, OWNER) AS TEXT
@@ -204,7 +217,9 @@ export class OracleProvider implements SchemaProvider {
       exec<OraSeqRaw>(
         `SELECT SEQUENCE_NAME, TO_CHAR(MIN_VALUE) AS MIN_VALUE, TO_CHAR(MAX_VALUE) AS MAX_VALUE,
                 TO_CHAR(INCREMENT_BY) AS INCREMENT_BY, CYCLE_FLAG, TO_CHAR(CACHE_SIZE) AS CACHE_SIZE
-         FROM ALL_SEQUENCES WHERE SEQUENCE_OWNER = :1 ORDER BY SEQUENCE_NAME`,
+         FROM ALL_SEQUENCES WHERE SEQUENCE_OWNER = :1
+           AND SEQUENCE_NAME NOT LIKE 'ISEQ$$\\_%' ESCAPE '\\'
+         ORDER BY SEQUENCE_NAME`,
         [owner]
       ),
       exec<OraTypeRaw>(
@@ -244,12 +259,23 @@ export class OracleProvider implements SchemaProvider {
 
     // 2. Columns (table columns only; view columns handled separately)
     const tableSet = new Set(Object.keys(tables));
-    const mapOraCol = (col: OraColumnRaw | OraViewColRaw): DbColumn => ({
-      name: col.COLUMN_NAME,
-      type: fmtOraType(col.DATA_TYPE, col.DATA_LENGTH, col.DATA_PRECISION, col.DATA_SCALE),
-      nullable: col.NULLABLE === 'Y',
-      defaultValue: (col as OraColumnRaw).DATA_DEFAULT?.trim() ?? undefined,
-    });
+    const mapOraCol = (col: OraColumnRaw | OraViewColRaw): DbColumn => {
+      // Identity columns carry an internal DEFAULT of the form
+      // "SCHEMA"."ISEQ$$_nnn".nextval — that's not a portable/re-emittable
+      // default and referencing the system sequence in generated DDL fails
+      // (ORA-02289). Represent them as GENERATED identity columns instead and
+      // drop the internal default so the generator emits
+      // `GENERATED ... AS IDENTITY` (via identityClause), not a nextval default.
+      const isIdentity = (col as OraColumnRaw).IDENTITY_COLUMN === 'YES';
+      return {
+        name: col.COLUMN_NAME,
+        type: fmtOraType(col.DATA_TYPE, col.DATA_LENGTH, col.DATA_PRECISION, col.DATA_SCALE),
+        nullable: col.NULLABLE === 'Y',
+        defaultValue: isIdentity ? undefined : ((col as OraColumnRaw).DATA_DEFAULT?.trim() ?? undefined),
+        identity: isIdentity || undefined,
+        identityGeneration: isIdentity ? 'ALWAYS' : undefined,
+      };
+    };
 
     for (const col of rawColumns) {
       if (!tableSet.has(col.TABLE_NAME)) continue; // skip view columns from ALL_TAB_COLUMNS
@@ -315,10 +341,18 @@ export class OracleProvider implements SchemaProvider {
     for (const col of rawViewCols) {
       (viewColsByName[col.TABLE_NAME] ??= []).push(mapOraCol(col));
     }
+    // DBMS_METADATA.GET_DDL returns the full
+    //   CREATE OR REPLACE FORCE [NON]EDITIONABLE VIEW "SCHEMA"."NAME" ("C1",...) AS <select>
+    // Strip that header so the generator re-emits just the SELECT via CREATE OR
+    // REPLACE VIEW (otherwise the wrapped result is CREATE ... AS CREATE ... — ORA-00928).
+    // (The ALL_VIEWS.TEXT fallback already returns just the SELECT, which this no-ops on.)
+    // eslint-disable-next-line security/detect-unsafe-regex -- anchored at ^; each segment is a bounded token or negated class
+    const ORA_VIEW_CREATE_RE = /^\s*CREATE\s+(?:OR\s+REPLACE\s+)?(?:FORCE\s+)?(?:(?:NON)?EDITIONABLE\s+)?VIEW\s+(?:"[^"]*"\s*\.\s*)?"[^"]*"\s*(?:\([^)]*\)\s*)?AS\s+/i;
     for (const vw of rawViews) {
       const viewColumns: Record<string, DbColumn> = {};
       for (const c of viewColsByName[vw.VIEW_NAME] ?? []) viewColumns[c.name] = c;
-      (views[vw.VIEW_NAME] ??= []).push({ name: vw.VIEW_NAME, schema: owner, definition: String(vw.TEXT ?? ''), columns: viewColumns, indexes: [] });
+      const definition = String(vw.TEXT ?? '').replace(ORA_VIEW_CREATE_RE, '').trim();
+      (views[vw.VIEW_NAME] ??= []).push({ name: vw.VIEW_NAME, schema: owner, definition, columns: viewColumns, indexes: [] });
     }
 
     // 6. Triggers
@@ -343,7 +377,13 @@ export class OracleProvider implements SchemaProvider {
 
     const modeMap: Record<string, RoutineParameterMode> = { IN: 'IN', OUT: 'OUT', 'IN/OUT': 'INOUT' };
     for (const [name, { type, lines }] of sourceMap) {
-      const definition = lines.join('');
+      // ALL_SOURCE.TEXT starts at "FUNCTION name..."/"PROCEDURE name..." — the
+      // CREATE [OR REPLACE] verb is NOT stored. Prepend it so the emitted DDL is
+      // a valid CREATE statement (otherwise Oracle rejects it with ORA-00900).
+      const rawBody = lines.join('').replace(/\s+$/, '');
+      const definition = /^\s*(CREATE|FUNCTION|PROCEDURE)/i.test(rawBody)
+        ? (/^\s*CREATE/i.test(rawBody) ? rawBody : `CREATE OR REPLACE ${rawBody}`)
+        : rawBody;
       const args = argMap.get(name) ?? [];
       // ordinal=0 is the function return value (ARGUMENT_NAME is null)
       const parameters: RoutineParameter[] = args

@@ -34,6 +34,10 @@ class OracleAdapter implements DriverAdapter {
   async acquire(connectionString: string, options: ConnectionOptions, pooled: boolean): Promise<OracleHandle> {
     const oracledb = this.load();
     oracledb.outFormat = oracledb.OUT_FORMAT_OBJECT;
+    // Return CLOBs as plain strings, not Lob stream objects. DBMS_METADATA.GET_DDL
+    // (used for view definitions) returns a CLOB; without this it stringifies to
+    // "[object Object]" and the view body is lost.
+    oracledb.fetchAsString = [oracledb.CLOB];
 
     if (!pooled) {
       const conn = await oracledb.getConnection({
@@ -44,7 +48,15 @@ class OracleAdapter implements DriverAdapter {
       return { _type: 'tx', conn };
     }
 
-    let pool = this.pools.get(connectionString);
+    // Key pools by user AND connect string. Oracle's connect string
+    // (host:port/service) carries no username — it's passed separately — and
+    // source/target routinely connect to the SAME service as DIFFERENT users
+    // (schema-per-user model, e.g. demo_a vs demo_b). Keying by connect string
+    // alone made the second user silently reuse the first user's pool, so its
+    // catalog queries ran under the wrong account and returned zero objects —
+    // the compare then reported every target object as ADDED.
+    const poolKey = `${options.username ?? ''}@${connectionString}`;
+    let pool = this.pools.get(poolKey);
     if (!pool) {
       pool = await oracledb.createPool({
         user: options.username || '',
@@ -55,7 +67,7 @@ class OracleAdapter implements DriverAdapter {
         poolTimeout: Math.ceil((options.pool?.idleTimeoutMs ?? 60000) / 1000),
         connectTimeout: Math.ceil((options.timeout?.connectMs ?? 15000) / 1000),
       });
-      this.pools.set(connectionString, pool);
+      this.pools.set(poolKey, pool);
     }
     const conn = await pool.getConnection();
     return { _type: 'pool', pool, conn };

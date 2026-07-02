@@ -62,8 +62,13 @@ export interface SqlDialect {
   /** Full ALTER TABLE ... ADD [COLUMN] statement. */
   addColumnStatement(tableName: string, colDef: string): string;
 
-  /** Full ALTER TABLE ... MODIFY / ALTER COLUMN statement(s). Returns one or more statements. */
-  modifyColumnStatements(tableName: string, colName: string, col: ColumnSpec): string[];
+  /**
+   * Full ALTER TABLE ... MODIFY / ALTER COLUMN statement(s). Returns one or more statements.
+   * `currentNullable` is the column's existing nullability in the target (when known),
+   * so a dialect can skip re-stating NULL/NOT NULL when it hasn't changed — Oracle
+   * rejects `MODIFY col ... NOT NULL` on a column that is already NOT NULL (ORA-01442).
+   */
+  modifyColumnStatements(tableName: string, colName: string, col: ColumnSpec, currentNullable?: boolean): string[];
 
   /** Full ALTER TABLE ... DROP [COLUMN] statement. */
   dropColumnStatement(tableName: string, colName: string): string;
@@ -190,6 +195,25 @@ export interface SqlDialect {
   dropFunctionStatement?(name: string, version?: string): string;
   /** Version-safe DROP PROCEDURE statement. */
   dropProcedureStatement?(name: string, version?: string): string;
+
+  /**
+   * Whether the generator's generic DROP FUNCTION/PROCEDURE fallback should
+   * append a parenthesized parameter-type signature — `DROP FUNCTION name(int, text);`
+   * — to disambiguate overloads. Postgres and Redshift support function
+   * overloading and accept (sometimes require) this form. MySQL/MariaDB and
+   * SQL Server do NOT support overloading and reject ANY parenthesized
+   * signature after the routine name, even an empty `()` — so this must
+   * default to false/omitted (the safe form: bare `DROP FUNCTION name;`).
+   */
+  dropRoutineSignature?: boolean;
+
+  /**
+   * Whether ALTER SEQUENCE may include an `AS <datatype>` clause to change the
+   * sequence's data type. Postgres supports it; SQL Server rejects it outright
+   * ("Argument 'AS' cannot be used in an ALTER SEQUENCE statement") and
+   * Oracle/DB2/MariaDB have no such clause. Default: omit the clause.
+   */
+  alterSequenceAsType?: boolean;
 
   /**
    * Full CREATE TYPE statement for a user-defined type (ENUM, composite, domain).

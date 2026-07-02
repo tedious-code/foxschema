@@ -182,8 +182,8 @@ CREATE TABLE demo_b.order_items (
     id          NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     order_id    NUMBER NOT NULL,
     product_id  NUMBER NOT NULL,
-    qty         NUMBER(10) DEFAULT 1 NOT NULL,
-    unit_price  NUMBER(10,2) NOT NULL
+    qty         NUMBER(10) DEFAULT 0 NOT NULL,  -- default-only diff (A: DEFAULT 1)
+    unit_price  NUMBER(10,2)                    -- nullability-only diff (A: NOT NULL)
 );
 
 CREATE TABLE demo_b.legacy_audit_log (
@@ -200,12 +200,96 @@ SELECT o.id, o.total, o.status, o.created_at, oi.qty, oi.unit_price
 FROM   demo_b.orders o
 JOIN   demo_b.order_items oi ON oi.order_id = o.id;
 
+-- MODIFIED function: body differs from demo_a (older thresholds/rates)
 CREATE OR REPLACE FUNCTION demo_b.fn_get_discount(p_price NUMBER, p_qty NUMBER)
 RETURN NUMBER AS
 BEGIN
-  IF    p_qty >= 10 THEN RETURN p_price * 0.10;
-  ELSIF p_qty >= 5  THEN RETURN p_price * 0.05;
+  IF    p_qty >= 20 THEN RETURN p_price * 0.15;
+  ELSIF p_qty >= 10 THEN RETURN p_price * 0.08;
   ELSE RETURN 0;
   END IF;
 END;
 /
+
+-- ============================================================
+-- EXTENDED TEST CASES — one object set per generator path
+-- (see docs/plans/2026-07-01-seed-test-matrix.md)
+-- ============================================================
+
+-- [ADDED tables: composite PK + FK to another ADDED table + FK to a MODIFIED table]
+CREATE TABLE demo_a.coupons (
+    id           NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    code         VARCHAR2(30) NOT NULL UNIQUE,
+    discount_pct NUMBER(5,2) DEFAULT 0 NOT NULL,
+    valid_until  DATE
+);
+
+CREATE TABLE demo_a.order_coupons (
+    order_id   NUMBER NOT NULL REFERENCES demo_a.orders(id),
+    coupon_id  NUMBER NOT NULL REFERENCES demo_a.coupons(id),
+    applied_at TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    PRIMARY KEY (order_id, coupon_id)
+);
+
+-- [ADDED function called by an ADDED trigger on a MODIFIED table]
+-- Regression for the routine-before-ALTER ordering fix: trg_customer_tier is
+-- created inside the customers ALTER step (after the tier column is added)
+-- and calls a function that is only ADDED in this same migration.
+CREATE OR REPLACE FUNCTION demo_a.fn_tier_priority(p_tier VARCHAR2)
+RETURN NUMBER AS
+BEGIN
+  IF p_tier IN ('gold', 'vip') THEN RETURN 1; ELSE RETURN 0; END IF;
+END;
+/
+
+CREATE OR REPLACE TRIGGER demo_a.trg_customer_tier
+BEFORE INSERT ON demo_a.customers
+FOR EACH ROW
+BEGIN
+  IF demo_a.fn_tier_priority(:NEW.tier) = 0 THEN :NEW.tier := 'standard'; END IF;
+END;
+/
+
+-- [MODIFIED trigger: demo_b has a weaker version of the same trigger]
+CREATE OR REPLACE TRIGGER demo_a.trg_item_price_check
+BEFORE INSERT ON demo_a.order_items
+FOR EACH ROW
+BEGIN
+  IF :NEW.qty <= 0 OR :NEW.unit_price < 0 THEN
+    RAISE_APPLICATION_ERROR(-20001, 'invalid order item');
+  END IF;
+END;
+/
+
+CREATE OR REPLACE TRIGGER demo_b.trg_item_price_check
+BEFORE INSERT ON demo_b.order_items
+FOR EACH ROW
+BEGIN
+  IF :NEW.qty <= 0 THEN
+    RAISE_APPLICATION_ERROR(-20001, 'invalid qty');
+  END IF;
+END;
+/
+
+-- [MODIFIED view: column list differs between schemas]
+CREATE OR REPLACE VIEW demo_a.v_active_products AS
+SELECT id, name, price, sku
+FROM   demo_a.products
+WHERE  stock > 0 AND active = 1;
+
+CREATE OR REPLACE VIEW demo_b.v_active_products AS
+SELECT id, name, price
+FROM   demo_b.products
+WHERE  stock > 0;
+
+-- [REMOVED trigger: exists only in the target]
+CREATE OR REPLACE TRIGGER demo_b.trg_b_orders_touch
+BEFORE UPDATE ON demo_b.orders
+FOR EACH ROW
+BEGIN
+  NULL;
+END;
+/
+
+-- [REMOVED index on a MODIFIED table]
+CREATE INDEX demo_b.idx_b_orders_created ON demo_b.orders(created_at);

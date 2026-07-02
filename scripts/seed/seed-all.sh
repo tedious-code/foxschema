@@ -6,7 +6,7 @@
 # (init scripts in docker/init/ auto-seed on first start)
 #
 # This script is for re-seeding without a volume wipe.
-# Usage: bash scripts/seed/seed-all.sh [postgres|mysql|mariadb|sqlserver|oracle|sqlite]
+# Usage: bash scripts/seed/seed-all.sh [postgres|mysql|mariadb|sqlserver|oracle|db2|sqlite]
 
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -51,6 +51,17 @@ seed_oracle() {
   echo "  ✓ done"
 }
 
+seed_db2() {
+  echo "▶ DB2 …"
+  # /var/custom-sql/01_seed.sql is a live bind mount of docker/init/db2/01_seed.sql
+  # (see docker-compose.yml) — always reflects the current file, no docker cp needed.
+  # db2's CLP -f flag needs an actual filesystem path, not stdin, so this can't
+  # use `< file` redirection the way psql/mysql/sqlplus/sqlcmd do above.
+  docker exec -i foxschema-db2 \
+    su - db2inst1 -c "db2 connect to foxdb && db2 -tvf /var/custom-sql/01_seed.sql -z /tmp/foxschema_seed.log"
+  echo "  ✓ done"
+}
+
 seed_sqlite() {
   echo "▶ SQLite …"
   mkdir -p "$SL_DIR"
@@ -67,6 +78,7 @@ case "$TARGET" in
   mariadb)    seed_mariadb ;;
   sqlserver)  seed_sqlserver ;;
   oracle)     seed_oracle ;;
+  db2)        seed_db2 ;;
   sqlite)     seed_sqlite ;;
   all)
     seed_postgres  || echo "  ✗ PostgreSQL skipped"
@@ -74,11 +86,12 @@ case "$TARGET" in
     seed_mariadb   || echo "  ✗ MariaDB skipped"
     seed_sqlserver || echo "  ✗ SQL Server skipped"
     seed_oracle    || echo "  ✗ Oracle skipped"
+    seed_db2       || echo "  ✗ DB2 skipped"
     seed_sqlite    || echo "  ✗ SQLite skipped"
     ;;
   *)
     echo "Unknown target: $TARGET"
-    echo "Usage: $0 [postgres|mysql|mariadb|sqlserver|oracle|sqlite|all]"
+    echo "Usage: $0 [postgres|mysql|mariadb|sqlserver|oracle|db2|sqlite|all]"
     exit 1
     ;;
 esac
@@ -90,4 +103,5 @@ echo "  MySQL       localhost:3306  foxuser/foxpass      db=demo_a vs demo_b"
 echo "  MariaDB     localhost:3307  foxuser/foxpass      db=demo_a vs demo_b"
 echo "  SQL Server  localhost:1433  SA/FoxPass123!       db=foxdb     schema=demo_a vs demo_b"
 echo "  Oracle      localhost:1521  demo_a/foxpass       service=FREEPDB1 vs user=demo_b/foxpass"
+echo "  DB2         localhost:50000 db2inst1/foxpass     db=foxdb     schema=DEMO_A vs DEMO_B"
 echo "  SQLite      $SL_DIR/demo_a.db  vs  demo_b.db"

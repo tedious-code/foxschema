@@ -395,12 +395,17 @@ export class SqlServerProvider implements SchemaProvider {
     for (const vw of rawViews) {
       const viewColumns: Record<string, DbColumn> = {};
       for (const c of viewColsByName[vw.view_name] ?? []) viewColumns[c.name] = c;
-      // sys.sql_modules.definition returns the full "CREATE VIEW [schema].[name] AS SELECT ..."
-      // statement. Store only the SELECT body so the generator can re-emit it with the
-      // correct target schema prefix (matching how MySQL/Postgres providers store view bodies).
+      // sys.sql_modules.definition returns the full "CREATE VIEW <name> AS SELECT ..."
+      // statement AS WRITTEN — the identifier may be bracketed ([schema].[name]),
+      // quoted ("schema"."name"), or bare (schema.name), with or without a schema
+      // qualifier. Store only the SELECT body so the generator can re-emit it with
+      // the correct target schema prefix (matching how MySQL/Postgres providers do).
+      // An identifier is any of those three forms; the header is CREATE VIEW <id>[.<id>] [WITH opts] AS.
+      // A leading `-- comment` line (or several) can precede CREATE when the view
+      // was defined with a comment above it — consume those so the header still matches.
       // Named constant so the eslint-disable directive sits on the same line as the pattern.
-      // eslint-disable-next-line security/detect-unsafe-regex -- false positive: anchored at ^\s*CREATE; [^\]]* negated class cannot backtrack
-      const VIEW_CREATE_RE = /^\s*CREATE\s+(?:OR\s+REPLACE\s+)?VIEW\s+(?:\[[^\]]*\]\s*\.\s*)?\[[^\]]*\]\s+(?:WITH\s+\w+(?:\s*,\s*\w+)*\s+)?AS\s*/i;
+      // eslint-disable-next-line security/detect-unsafe-regex -- false positive: anchored at ^; leading part is bounded comment/whitespace runs, each identifier alternative is a bounded negated class or \w+
+      const VIEW_CREATE_RE = /^(?:\s*--[^\n]*\n)*\s*CREATE\s+(?:OR\s+REPLACE\s+)?VIEW\s+(?:(?:\[[^\]]*\]|"[^"]*"|\w+)\s*\.\s*)?(?:\[[^\]]*\]|"[^"]*"|\w+)\s+(?:WITH\s+\w+(?:\s*,\s*\w+)*\s+)?AS\s+/i;
       const body = vw.definition.replace(VIEW_CREATE_RE, '').trim();
       (views[vw.view_name] ??= []).push({ name: vw.view_name, schema: s, definition: body, columns: viewColumns, indexes: [] });
     }

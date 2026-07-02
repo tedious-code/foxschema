@@ -133,6 +133,12 @@ services:
       - "50000:50000"
     volumes:
       - db2_data:/database
+      # The community image auto-execs every file directly under /var/custom
+      # (not docker-entrypoint-initdb.d like Postgres/MySQL) — only the wrapper
+      # script goes there. The .sql it runs is mounted at a separate path so the
+      # "run every file in this dir" loop doesn't also try to exec the SQL file.
+      - ./docker/init/db2/01_seed.sh:/var/custom/01_seed.sh:ro
+      - ./docker/init/db2/01_seed.sql:/var/custom-sql/01_seed.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "su - db2inst1 -c 'db2 connect to foxdb' | grep -q 'Database Connection Information'"]
       interval: 15s

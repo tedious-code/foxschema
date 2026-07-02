@@ -62,7 +62,11 @@ function oracleMajor(version?: string): number {
 function oracleDrop(keyword: string, name: string, sqlcode: number, version?: string): string {
   if (oracleMajor(version) >= 23) return `DROP ${keyword} IF EXISTS ${name};`;
   const safe = name.replace(/'/g, "''");
-  return `BEGIN\n  EXECUTE IMMEDIATE 'DROP ${keyword} ${safe}';\nEXCEPTION\n  WHEN OTHERS THEN IF SQLCODE != ${sqlcode} THEN RAISE; END IF;\nEND;\n/`;
+  // No trailing "/" — that's a SQL*Plus script terminator; the driver executes
+  // the anonymous block directly and rejects the "/" (ORA-06550). The final
+  // "END;" semicolon is required and preserved (the executor keeps it for
+  // statements ending in END;).
+  return `BEGIN\n  EXECUTE IMMEDIATE 'DROP ${keyword} ${safe}';\nEXCEPTION\n  WHEN OTHERS THEN IF SQLCODE != ${sqlcode} THEN RAISE; END IF;\nEND;`;
 }
 
 export const oracleSqlDialect: SqlDialect = {
@@ -74,8 +78,14 @@ export const oracleSqlDialect: SqlDialect = {
     return `ALTER TABLE ${tableName} ADD ${colDef};`;
   },
 
-  modifyColumnStatements(tableName: string, colName: string, col: ColumnSpec): string[] {
-    const nullClause = col.nullable ? ' NULL' : ' NOT NULL';
+  modifyColumnStatements(tableName: string, colName: string, col: ColumnSpec, currentNullable?: boolean): string[] {
+    // Oracle rejects re-stating a nullability that hasn't changed:
+    // MODIFY col ... NOT NULL on an already-NOT-NULL column → ORA-01442
+    // (and the mirror ORA-01451 for NULL on an already-nullable column).
+    // Omit the clause when we know it's unchanged; MODIFY without it keeps
+    // the existing nullability.
+    const nullChanged = currentNullable === undefined || currentNullable !== col.nullable;
+    const nullClause = nullChanged ? (col.nullable ? ' NULL' : ' NOT NULL') : '';
     return [`ALTER TABLE ${tableName} MODIFY ${colName} ${col.type}${nullClause};`];
   },
 
