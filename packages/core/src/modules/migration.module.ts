@@ -52,7 +52,10 @@ export class MigrationModule {
               //    bodies ending in "END;" / "END name;", where the driver *requires* the
               //    semicolon (a bare "END" is ORA-06550). CREATE TABLE etc. end in ")".
               let sql = raw.trim().replace(/\n?\/\s*$/, '').trim();
-              const isPlSqlBlock = isOracle && /\bEND\s*(?:"[^"]*"|\w+)?\s*;$/i.test(sql);
+              // Ends with END; or END <name>; — anchored at ;$ with only bounded
+              // token/negated-class quantifiers, so it can't backtrack catastrophically.
+              // eslint-disable-next-line security/detect-unsafe-regex -- false positive: anchored at ;$; [^"]* is a bounded negated class and the optional name requires a leading \s+
+              const isPlSqlBlock = isOracle && /\bEND\b(?:\s+(?:"[^"]*"|\w+))?\s*;$/i.test(sql);
               if (!isPlSqlBlock) {
                 sql = sql.replace(/;\s*$/, '');
               }
