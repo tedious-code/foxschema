@@ -88,7 +88,7 @@ export function dbSchemaToTableSchemas(dbSchema: DbSchema): TableSchema[] {
       // The primary ('P') index backs the PK constraint — not a standalone index.
       indices: table.indexes
         .filter((i) => i.uniqueRule !== 'P')
-        .map((i) => ({ name: i.name, columns: i.columns, unique: i.uniqueRule !== 'D' })),
+        .map((i) => ({ name: i.name, columns: i.columns, unique: i.uniqueRule !== 'D', constraint: i.constraint })),
       foreignKeys: table.foreignKeys.map((fk) => ({
         name: fk.name,
         columns: fk.columns,

@@ -12,8 +12,8 @@ export interface ColumnDiff {
 export interface IndexDiff {
   name: string;
   status: 'ADDED' | 'REMOVED' | 'MODIFIED' | 'UNCHANGED';
-  source?: { columns: string[]; unique: boolean };
-  target?: { columns: string[]; unique: boolean };
+  source?: { columns: string[]; unique: boolean; constraint?: boolean };
+  target?: { columns: string[]; unique: boolean; constraint?: boolean };
 }
 
 export interface ForeignKeyDiff {

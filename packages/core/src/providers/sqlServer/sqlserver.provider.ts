@@ -44,7 +44,7 @@ interface SsColumnRaw { table_name: string; column_name: string; ordinal: number
 interface SsPkRaw { table_name: string; constraint_name: string; column_name: string; col_seq: number; }
 interface SsFkRaw { table_name: string; constraint_name: string; column_name: string; ref_schema: string; ref_table: string; col_seq: number; }
 interface SsUcRaw { table_name: string; constraint_name: string; column_name: string; col_seq: number; }
-interface SsIndexRaw { table_name: string; index_name: string; is_primary_key: boolean; is_unique: boolean; column_name: string; col_seq: number; }
+interface SsIndexRaw { table_name: string; index_name: string; is_primary_key: boolean; is_unique: boolean; is_unique_constraint: boolean; column_name: string; col_seq: number; }
 interface SsViewRaw { view_name: string; definition: string; }
 interface SsTriggerRaw { trigger_name: string; table_name: string; timing: string; event: string; definition: string; }
 interface SsRoutineRaw { name: string; obj_type: string; definition: string; param_id: number | null; param_name: string | null; param_type: string | null; param_max_length: number; param_precision: number; param_scale: number; is_output: boolean; }
@@ -217,7 +217,7 @@ export class SqlServerProvider implements SchemaProvider {
       ),
       exec<SsIndexRaw>(
         `SELECT t.name AS table_name, i.name AS index_name,
-                i.is_primary_key, i.is_unique,
+                i.is_primary_key, i.is_unique, i.is_unique_constraint,
                 c.name AS column_name, ic.key_ordinal AS col_seq
          FROM sys.indexes i
          JOIN sys.tables t ON t.object_id = i.object_id
@@ -370,19 +370,21 @@ export class SqlServerProvider implements SchemaProvider {
 
     // 6. Indexes
     const idxCols = new Map<string, string[]>();
-    const idxMeta = new Map<string, { table: string; isPrimary: boolean; isUnique: boolean }>();
+    const idxMeta = new Map<string, { table: string; isPrimary: boolean; isUnique: boolean; isConstraint: boolean }>();
     for (const ix of rawIndexes) {
       const id = `${ix.table_name}.${ix.index_name}`;
       const cols = idxCols.get(id) ?? [];
       cols.push(ix.column_name);
       idxCols.set(id, cols);
-      if (!idxMeta.has(id)) idxMeta.set(id, { table: ix.table_name, isPrimary: ix.is_primary_key, isUnique: ix.is_unique });
+      if (!idxMeta.has(id)) idxMeta.set(id, { table: ix.table_name, isPrimary: ix.is_primary_key, isUnique: ix.is_unique, isConstraint: ix.is_unique_constraint });
       (indexColumns[ix.index_name] ??= []).push({ name: ix.index_name, colName: ix.column_name, colOrder: 'A', colSeq: ix.col_seq });
     }
     for (const [id, meta] of idxMeta) {
       const cols = idxCols.get(id) ?? [];
       const uniqueRule = meta.isPrimary ? 'P' : meta.isUnique ? 'U' : 'D';
-      const mapped: DbIndex = { name: id.split('.')[1], uniqueRule, columns: cols };
+      // Flag unique-constraint-backing indexes so the generator drops/creates them via
+      // ALTER TABLE ADD/DROP CONSTRAINT (SQL Server forbids DROP INDEX on them).
+      const mapped: DbIndex = { name: id.split('.')[1], uniqueRule, columns: cols, constraint: meta.isConstraint };
       if (tables[meta.table]) tables[meta.table].indexes.push(mapped);
       (indexes[meta.table] ??= []).push(mapped);
     }

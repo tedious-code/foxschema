@@ -60,7 +60,16 @@ export class MigrationModule {
                 sql = sql.replace(/;\s*$/, '');
               }
               sql = sql.trim();
-              if (!sql || sql.startsWith('--')) continue;
+              // Skip only statements that are ENTIRELY comments/blank (e.g. a generator
+              // "-- review:" note). A real statement whose definition merely *starts* with
+              // a comment line — common for routines/triggers whose stored body begins with
+              // "-- ...\nCREATE FUNCTION/TRIGGER ..." — must still run, or it's silently
+              // dropped from the migration.
+              const hasExecutableSql = sql.split('\n').some((ln) => {
+                const t = ln.trim();
+                return t.length > 0 && !t.startsWith('--');
+              });
+              if (!hasExecutableSql) continue;
               await adapter.query(conn, sql, []);
             }
             onEvent({ type: 'object', objectName: step.objectName, objectType: step.objectType, action: step.action, status: 'SUCCESS' });

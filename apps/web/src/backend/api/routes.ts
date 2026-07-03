@@ -300,10 +300,12 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
         loadScopedTables(tgt.dialect, tgt.option, tgt.schema, scope),
       ]);
 
-      const result = await compareModule.compare(srcLoad.tables, tgtLoad.tables, {
-        source: src.dialect,
-        target: tgt.dialect,
-      });
+      const result = await compareModule.compare(
+        srcLoad.tables,
+        tgtLoad.tables,
+        { source: src.dialect, target: tgt.dialect },
+        { source: src.schema, target: tgt.schema },
+      );
       const warnings = [
         ...srcLoad.warnings.map((w) => `Source — ${w}`),
         ...tgtLoad.warnings.map((w) => `Target — ${w}`),

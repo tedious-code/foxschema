@@ -1,4 +1,5 @@
 import type { SqlDialect, ColumnSpec } from '../../modules/sql-dialect.interface';
+import type { TableSchema } from '../../interfaces';
 import { makeDialectTypeFns, plain, sized, sizedOr, decimalAs, warn } from '../../modules/type-mapping';
 
 const types = makeDialectTypeFns({
@@ -72,6 +73,23 @@ function oracleDrop(keyword: string, name: string, sqlcode: number, version?: st
 export const oracleSqlDialect: SqlDialect = {
   identityClause(c: ColumnSpec): string {
     return c.identity ? ` GENERATED ${c.identityGeneration ?? 'ALWAYS'} AS IDENTITY` : '';
+  },
+
+  // Oracle can't RESTART a sequence portably (RESTART START WITH is 18c+; older has no
+  // equivalent), so skip the clause rather than emit invalid SQL.
+  alterSequenceRestart(): string {
+    return '';
+  },
+
+  createTypeStatement(schema: TableSchema): string | null {
+    const u = schema.userType ?? {};
+    // Oracle object type — CREATE TYPE ... AS OBJECT (attr type, ...), not DB2's
+    // "AS (...) MODE DB2SQL". metaType 'O' is set by the provider for TYPECODE='OBJECT'.
+    if (u.metaType === 'O' && u.attributes && u.attributes.length > 0) {
+      const attrs = u.attributes.map((a) => `  ${a.name} ${a.type}`).join(',\n');
+      return `CREATE TYPE ${schema.name} AS OBJECT (\n${attrs}\n);`;
+    }
+    return null; // fall through to the generic renderer for other kinds
   },
 
   addColumnStatement(tableName: string, colDef: string): string {

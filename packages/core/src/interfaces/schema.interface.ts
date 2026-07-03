@@ -48,6 +48,13 @@ export interface IndexInfo {
   name: string;
   columns: string[];
   unique: boolean;
+  /**
+   * True when this index backs a UNIQUE constraint rather than being a standalone
+   * index. SQL Server forbids DROP INDEX / CREATE INDEX on these — they must be
+   * dropped/created via ALTER TABLE DROP/ADD CONSTRAINT. Set by providers that can
+   * tell the two apart (e.g. SQL Server `sys.indexes.is_unique_constraint`).
+   */
+  constraint?: boolean;
 }
 
 export interface ForeignKeyInfo {
@@ -120,7 +127,7 @@ export interface DbColumn { name: string; type: string; length?: number; scale?:
 export interface DbForeignKey { name: string; columns: string[]; referencedSchema: string; referencedTable: string; }
 export interface DbPrimaryKey { name: string; constName: string; column: string; colSeq: number; }
 export interface DbUniqueConstraint { name: string; columns: string[]; }
-export interface DbIndex { name: string; uniqueRule: string; columns: string[]; }
+export interface DbIndex { name: string; uniqueRule: string; columns: string[]; constraint?: boolean; }
 export interface DbIndexColumn { name: string; colName: string; colOrder: 'A' | 'D'; colSeq: number; }
 export interface DbView { name: string; schema: string; definition: string; columns: Record<string, DbColumn>; indexes: DbIndex[]; }
 export interface DbTrigger { name: string; schema: string; tableName: string; event: string; timing: string; definition: string; }
