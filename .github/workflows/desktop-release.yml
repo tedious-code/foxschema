@@ -1,0 +1,74 @@
+name: Desktop Release
+
+# Builds the Tauri desktop app for macOS (Apple Silicon + Intel), Windows and Linux
+# and attaches the installers to a DRAFT GitHub Release. Installers are UNSIGNED for
+# now (see docs/desktop-build.md for the signing follow-up).
+#
+# Trigger: push a version tag (e.g. `v0.1.0`), or run manually from the Actions tab.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write # create the release + upload installers
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest   # Apple Silicon (aarch64-apple-darwin)
+          - platform: macos-13       # Intel (x86_64-apple-darwin)
+          - platform: ubuntu-22.04   # webkit2gtk 4.1 → .deb + .AppImage
+          - platform: windows-latest # .msi + .exe (NSIS)
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Tauri v2 + WebKitGTK + the keyring (libsecret) build deps.
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsecret-1-dev \
+            build-essential \
+            libssl-dev \
+            patchelf
+
+      # No lockfile is committed (see dependency-security.yml) — do NOT use cache:npm.
+      - name: Install workspace dependencies
+        run: npm install
+
+      # tauri build runs beforeBuildCommand (sidecar + frontend) automatically.
+      - name: Build & draft release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/desktop
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || format('desktop-{0}', github.run_number) }}
+          releaseName: 'FoxSchema ${{ github.ref_type == 'tag' && github.ref_name || github.run_number }}'
+          releaseDraft: true
+          prerelease: false

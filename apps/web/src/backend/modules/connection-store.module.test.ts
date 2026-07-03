@@ -62,4 +62,31 @@ describe('ConnectionStore', () => {
     const rows = await db.all<{ encrypted_config: string }>('SELECT encrypted_config FROM connections');
     for (const r of rows) expect(r.encrypted_config).not.toContain('super-secret');
   });
+
+  it('does not persist the password when savePassword is false', async () => {
+    const created = await store.create(alice, { ...sample, savePassword: false });
+    expect(created.hasPassword).toBe(false);
+    const resolved = await store.resolve(alice, created.id);
+    expect(resolved?.option.password).toBeUndefined();
+    // other fields still saved
+    expect(resolved?.option.host).toBe('db.example.com');
+  });
+
+  it('reports hasPassword true when the password is stored', async () => {
+    const created = await store.create(alice, { ...sample, savePassword: true });
+    expect(created.hasPassword).toBe(true);
+  });
+
+  it('update() preserves the existing password when the edit omits it', async () => {
+    const id = (await store.create(alice, sample)).id;
+    await store.update(alice, id, { ...sample, option: { ...sample.option, password: undefined } });
+    expect((await store.resolve(alice, id))?.option.password).toBe('super-secret');
+  });
+
+  it('update() clears the stored password when savePassword is false', async () => {
+    const id = (await store.create(alice, sample)).id;
+    const updated = await store.update(alice, id, { ...sample, option: { ...sample.option, password: undefined }, savePassword: false });
+    expect(updated?.hasPassword).toBe(false);
+    expect((await store.resolve(alice, id))?.option.password).toBeUndefined();
+  });
 });

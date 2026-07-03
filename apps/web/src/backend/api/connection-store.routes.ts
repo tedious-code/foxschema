@@ -11,36 +11,38 @@ export function createConnectionStoreRoutes(store: ConnectionStore): Router {
   });
 
   router.post('/', async (req: AuthedRequest, res: Response) => {
-    const { name, dialect, schema, option } = req.body as {
+    const { name, dialect, schema, option, savePassword } = req.body as {
       name?: string;
       dialect?: string;
       schema?: string;
       option?: Record<string, unknown>;
+      savePassword?: boolean;
     };
     if (!dialect || !option) {
       res.status(400).json({ error: 'dialect and option are required' });
       return;
     }
     try {
-      res.json({ connection: await store.create(req.userId!, { name, dialect, schema, option }) });
+      res.json({ connection: await store.create(req.userId!, { name, dialect, schema, option, savePassword }) });
     } catch (error: unknown) {
       res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to save connection' });
     }
   });
 
   router.put('/:id', async (req: AuthedRequest, res: Response) => {
-    const { name, dialect, schema, option } = req.body as {
+    const { name, dialect, schema, option, savePassword } = req.body as {
       name?: string;
       dialect?: string;
       schema?: string;
       option?: Record<string, unknown>;
+      savePassword?: boolean;
     };
     if (!dialect || !option) {
       res.status(400).json({ error: 'dialect and option are required' });
       return;
     }
     try {
-      const updated = await store.update(req.userId!, String(req.params.id), { name, dialect, schema, option });
+      const updated = await store.update(req.userId!, String(req.params.id), { name, dialect, schema, option, savePassword });
       if (!updated) {
         res.status(404).json({ error: 'Connection not found' });
         return;

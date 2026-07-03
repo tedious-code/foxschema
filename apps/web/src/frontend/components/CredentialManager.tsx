@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Plus, Trash2, Pencil, KeyRound, Database, Server, User, Calendar } from 'lucide-react';
+import { X, Plus, Trash2, Pencil, KeyRound, Database, Server, User, Calendar, Search, ArrowDownUp } from 'lucide-react';
 import { useSyncStore } from '../store/useSyncStore';
 import { ConnectionModal } from './ConnectionModal';
 import { PROVIDER_SETTINGS } from '../lib/provider-settings';
@@ -40,6 +40,32 @@ export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<SavedConnectionSummary | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [dialectFilter, setDialectFilter] = useState('all');
+  const [sortBy, setSortBy] = useState<'recent' | 'name' | 'provider'>('recent');
+
+  // Distinct providers actually present, so the filter never lists empty options.
+  const availableDialects = useMemo(
+    () => Array.from(new Set(connections.map((c) => c.dialect.toLowerCase()))).sort(),
+    [connections]
+  );
+
+  // Keep hooks above the early return (rules-of-hooks).
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const filtered = connections.filter((c) => {
+      if (dialectFilter !== 'all' && c.dialect.toLowerCase() !== dialectFilter) return false;
+      if (!q) return true;
+      return [c.name, c.host, c.database, c.username, dialectLabel(c.dialect)]
+        .some((f) => f?.toLowerCase().includes(q));
+    });
+    const byRecent = (a: SavedConnectionSummary, b: SavedConnectionSummary) => (b.createdAt || '').localeCompare(a.createdAt || '');
+    const byName = (a: SavedConnectionSummary, b: SavedConnectionSummary) => (a.name || '').localeCompare(b.name || '');
+    const byProvider = (a: SavedConnectionSummary, b: SavedConnectionSummary) =>
+      dialectLabel(a.dialect).localeCompare(dialectLabel(b.dialect)) || byName(a, b);
+    const cmp = sortBy === 'name' ? byName : sortBy === 'provider' ? byProvider : byRecent;
+    return [...filtered].sort(cmp);
+  }, [connections, search, dialectFilter, sortBy]);
 
   if (!open) return null;
 
@@ -59,12 +85,56 @@ export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-500 tabular-nums">{connections.length} saved</span>
+            <span className="text-xs text-slate-500 tabular-nums">
+              {visible.length === connections.length ? `${connections.length} saved` : `${visible.length} of ${connections.length}`}
+            </span>
             <button onClick={onClose} className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-200 transition">
               <X className="w-4.5 h-4.5" />
             </button>
           </div>
         </div>
+
+        {/* Search / filter / sort toolbar */}
+        {connections.length > 0 && (
+          <div className="flex items-center gap-2 px-4 pt-3 pb-1">
+            <div className="relative flex-1 min-w-0">
+              <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                data-testid="cred-search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search name, host, database, user…"
+                className="w-full bg-slate-950 border border-slate-800 focus:border-cyan-600 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 outline-none"
+              />
+            </div>
+            <select
+              data-testid="cred-dialect-filter"
+              value={dialectFilter}
+              onChange={(e) => setDialectFilter(e.target.value)}
+              title="Filter by provider"
+              className="bg-slate-950 border border-slate-800 focus:border-cyan-600 rounded-lg px-2 py-1.5 text-xs text-slate-300 outline-none cursor-pointer"
+            >
+              <option value="all">All providers</option>
+              {availableDialects.map((d) => (
+                <option key={d} value={d}>{dialectLabel(d)}</option>
+              ))}
+            </select>
+            <div className="relative">
+              <ArrowDownUp className="w-3.5 h-3.5 text-slate-500 absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <select
+                data-testid="cred-sort"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as 'recent' | 'name' | 'provider')}
+                title="Sort"
+                className="bg-slate-950 border border-slate-800 focus:border-cyan-600 rounded-lg pl-7 pr-2 py-1.5 text-xs text-slate-300 outline-none cursor-pointer"
+              >
+                <option value="recent">Recent</option>
+                <option value="name">Name</option>
+                <option value="provider">Provider</option>
+              </select>
+            </div>
+          </div>
+        )}
 
         {/* List */}
         <div
@@ -79,8 +149,21 @@ export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
               <p className="font-medium text-slate-400">No saved credentials yet</p>
               <p className="text-xs text-slate-600 mt-1">Add one to reuse connections across comparisons</p>
             </div>
+          ) : visible.length === 0 ? (
+            <div className="text-center py-12 text-slate-500 text-sm">
+              <div className="w-12 h-12 rounded-full bg-slate-800/60 flex items-center justify-center mx-auto mb-3">
+                <Search className="w-5 h-5 text-slate-600" />
+              </div>
+              <p className="font-medium text-slate-400">No credentials match your filters</p>
+              <button
+                onClick={() => { setSearch(''); setDialectFilter('all'); }}
+                className="text-xs text-cyan-400 hover:text-cyan-300 mt-1.5 cursor-pointer"
+              >
+                Clear filters
+              </button>
+            </div>
           ) : (
-            connections.map((c) => {
+            visible.map((c) => {
               const styles = DIALECT_STYLES[c.dialect.toLowerCase()] ?? { badge: 'bg-slate-800 text-slate-300 border-slate-700/50', dot: 'bg-slate-400' };
               const hostLine = [c.host, c.port ? `:${c.port}` : ''].join('').trim();
               const dbLine = [c.database, c.schema ? `· ${c.schema}` : ''].filter(Boolean).join('  ');
@@ -184,6 +267,7 @@ export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
         mode="credential"
         dialect={(editing?.dialect as Dialect) ?? 'db2'}
         initialName={editing?.name}
+        initialHasPassword={editing?.hasPassword}
         initialOptions={
           editing
             ? { host: editing.host, port: editing.port, database: editing.database, username: editing.username, schema: editing.schema }

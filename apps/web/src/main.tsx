@@ -4,7 +4,11 @@ import App from './frontend/App.tsx'
 import { SetupScreen } from './frontend/components/SetupScreen'
 import { resolveApiBase, setApiBase } from './frontend/api/apiBase'
 import { getSetupState, type SetupState } from './frontend/api/setupApi'
+import { hardenAgainstInspect } from './frontend/lib/harden'
 import './style.css'
+
+// Packaged desktop only: block the WebView inspector (no-op on web / in dev).
+hardenAgainstInspect()
 
 const root = ReactDOM.createRoot(document.getElementById('app')!)
 

@@ -7,7 +7,7 @@
     "frontendDist": "frontendDist",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "npm run dev:frontend",
-    "beforeBuildCommand": "npm run build:frontend"
+    "beforeBuildCommand": "npm run build:sidecar && npm run build:frontend"
   },
   "app": {
     "withGlobalTauri": true,

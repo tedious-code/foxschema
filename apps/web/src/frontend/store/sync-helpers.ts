@@ -13,7 +13,12 @@ export const sqlGeneratorModule = new SqlGeneratorModule();
  * server-side) or an inline ad-hoc option. Keeps passwords off the wire for saved ones.
  */
 export function buildRef(cfg: ConnectionConfig): ConnectionRef {
-  if (cfg.connectionId) return { connectionId: cfg.connectionId, schema: cfg.schema };
+  if (cfg.connectionId) {
+    // For a saved connection stored without its password, forward the session password
+    // the user typed (kept in-memory on the config), so the server can connect with it.
+    const password = cfg.option?.password || undefined;
+    return { connectionId: cfg.connectionId, schema: cfg.schema, password };
+  }
   return {
     dialect: cfg.dialect,
     option: withConnectionString(cfg.dialect, { ...cfg.option, schema: cfg.schema }),
