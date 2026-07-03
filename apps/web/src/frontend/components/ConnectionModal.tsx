@@ -11,6 +11,7 @@ interface CredentialInput {
   dialect: string;
   schema?: string;
   option: ConnectionOptions;
+  savePassword: boolean;
 }
 
 interface Props {
@@ -20,6 +21,8 @@ interface Props {
   /** 'side' binds to source/target; 'credential' defines a reusable saved credential. */
   mode?: 'side' | 'credential';
   initialName?: string;
+  /** Edit mode: whether the saved credential currently has a stored password. */
+  initialHasPassword?: boolean;
   onClose: () => void;
   onSave?: (options: ConnectionOptions, dialect: Dialect) => void;
   onSaveCredential?: (input: CredentialInput) => Promise<void>;
@@ -39,6 +42,7 @@ export const ConnectionModal: React.FC<Props> = ({
   initialOptions,
   mode = 'side',
   initialName,
+  initialHasPassword,
   onClose,
   onSave,
   onSaveCredential,
@@ -46,6 +50,8 @@ export const ConnectionModal: React.FC<Props> = ({
   const isCredential = mode === 'credential';
   const [selDialect, setSelDialect] = useState<Dialect>(dialect);
   const [name, setName] = useState('');
+  // Off by default (opt-in). On edit, reflect whether a password is already stored.
+  const [savePassword, setSavePassword] = useState(false);
   const [form, setForm] = useState<ConnectionOptions>({
     host: 'localhost',
     port: 5432,
@@ -83,9 +89,10 @@ export const ConnectionModal: React.FC<Props> = ({
         pool: { min: initialOptions?.pool?.min || 1, max: initialOptions?.pool?.max || 10 },
       });
       setSchemaList([]);
+      setSavePassword(initialHasPassword ?? false);
       setTestingState({ status: 'idle' });
     }
-  }, [open, dialect, initialOptions, initialName]);
+  }, [open, dialect, initialOptions, initialName, initialHasPassword]);
 
   // Check whether the selected provider's driver is installed, whenever the
   // modal opens or the provider changes. (Must stay above the early return —
@@ -164,11 +171,14 @@ export const ConnectionModal: React.FC<Props> = ({
 
     try {
       if (isCredential) {
+        // Send the full option (the caller may reuse the typed password for THIS session);
+        // the server persists it only when savePassword is true.
         await onSaveCredential?.({
           name: name.trim() || `${form.host}/${form.database}`,
           dialect: selDialect,
           schema: form.schema,
           option,
+          savePassword,
         });
       } else {
         onSave?.(option, selDialect);
@@ -282,9 +292,23 @@ export const ConnectionModal: React.FC<Props> = ({
             </div>
             <div>
               <label className={labelCls}>Password</label>
-              <input data-testid="conn-password-input" type="password" placeholder="••••••••" value={form.password} onChange={(e) => updateField('password', e.target.value)} className={inputCls} />
+              <input data-testid="conn-password-input" type="password" placeholder={isCredential && initialHasPassword && !form.password ? '•••••••• (saved)' : '••••••••'} value={form.password} onChange={(e) => updateField('password', e.target.value)} className={inputCls} />
             </div>
           </div>
+
+          {isCredential && (
+            <label className="flex items-center gap-2.5 text-xs text-slate-350 cursor-pointer select-none pt-1">
+              <input
+                data-testid="conn-save-password"
+                type="checkbox"
+                checked={savePassword}
+                onChange={(e) => setSavePassword(e.target.checked)}
+                className="w-4 h-4 rounded border-slate-800 bg-slate-950 text-cyan-600 focus:ring-0 focus:ring-offset-0"
+              />
+              Save password (encrypted)
+              <span className="text-slate-500">— off: you'll enter it each session</span>
+            </label>
+          )}
 
           <div className="flex items-center justify-between pt-2">
             <label className="flex items-center gap-2.5 text-xs text-slate-350 cursor-pointer select-none">

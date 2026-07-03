@@ -8,6 +8,12 @@ export interface SavedConnectionInput {
   dialect: string;
   schema?: string;
   option: ConnectionOptions;
+  /**
+   * Whether to persist the password. Default (undefined) keeps the password that was
+   * supplied. When explicitly `false`, the password is never stored (and cleared on an
+   * update), so the user re-enters it each session.
+   */
+  savePassword?: boolean;
 }
 
 /** Safe-to-send connection metadata — never includes the password. */
@@ -20,6 +26,8 @@ export interface SavedConnectionSummary {
   port?: number;
   database?: string;
   username?: string;
+  /** Whether a password is stored (so the edit form can reflect the checkbox). */
+  hasPassword: boolean;
   createdAt: string;
 }
 
@@ -43,12 +51,14 @@ export class ConnectionStore {
     let port: number | undefined;
     let database: string | undefined;
     let username: string | undefined;
+    let hasPassword = false;
     try {
       const opt = JSON.parse(decryptSecret(row.encrypted_config)) as ConnectionOptions;
       host = opt.host;
       port = opt.port;
       database = opt.database;
       username = opt.username;
+      hasPassword = !!opt.password;
     } catch {
       /* unreadable (key rotated?) — show metadata without connection fields */
     }
@@ -61,6 +71,7 @@ export class ConnectionStore {
       port,
       database,
       username,
+      hasPassword,
       createdAt: row.created_at,
     };
   }
@@ -78,19 +89,23 @@ export class ConnectionStore {
     const store = await getStore();
     const id = randomUUID();
     const createdAt = new Date().toISOString();
+    // Never persist the password when the user opted out, regardless of what was sent.
+    const option: ConnectionOptions =
+      input.savePassword === false ? { ...input.option, password: undefined } : input.option;
     await store.run(
       'INSERT INTO connections (id, user_id, name, dialect, "schema", encrypted_config, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [id, userId, input.name ?? null, input.dialect, input.schema ?? null, encryptSecret(JSON.stringify(input.option)), createdAt]
+      [id, userId, input.name ?? null, input.dialect, input.schema ?? null, encryptSecret(JSON.stringify(option)), createdAt]
     );
     return {
       id,
       name: input.name ?? '',
       dialect: input.dialect,
       schema: input.schema,
-      host: input.option.host,
-      port: input.option.port,
-      database: input.option.database,
-      username: input.option.username,
+      host: option.host,
+      port: option.port,
+      database: option.database,
+      username: option.username,
+      hasPassword: !!option.password,
       createdAt,
     };
   }
@@ -114,9 +129,10 @@ export class ConnectionStore {
   }
 
   /**
-   * Update a saved connection. If the incoming option omits the password (the
-   * edit form never receives it), the existing password is preserved and the
-   * connection string is rebuilt so it stays valid.
+   * Update a saved connection. If the incoming option omits the password (the edit form
+   * never receives it), the existing password is preserved — UNLESS the user unticked
+   * "save password" (`savePassword === false`), in which case it's explicitly cleared.
+   * The connection string is rebuilt so it stays valid either way.
    */
   async update(userId: string, id: string, input: SavedConnectionInput): Promise<SavedConnectionSummary | null> {
     const store = await getStore();
@@ -124,7 +140,11 @@ export class ConnectionStore {
     if (!existing) return null;
 
     const merged: ConnectionOptions = { ...input.option };
-    if (!merged.password) merged.password = existing.option.password;
+    if (input.savePassword === false) {
+      merged.password = undefined; // user opted out — drop any stored secret
+    } else if (!merged.password) {
+      merged.password = existing.option.password; // omitted on edit — keep existing
+    }
     merged.connectionString = buildConnectionString(input.dialect, merged);
 
     await store.run(

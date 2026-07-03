@@ -16,6 +16,8 @@ export interface ConnectionRef {
   dialect?: string;
   option?: ConnectionOptions;
   schema?: string;
+  /** Session password for a saved connection stored without one; merged server-side, never persisted. */
+  password?: string;
 }
 
 // --- Idempotency layer -----------------------------------------------------

@@ -38,15 +38,15 @@ export interface SyncState {
   showConnectionModal: boolean;
 
   loadConnections: () => Promise<void>;
-  addConnection: (input: { name?: string; dialect: string; schema?: string; option: ConnectionOptions }) => Promise<SavedConnectionSummary>;
-  updateConnection: (id: string, input: { name?: string; dialect: string; schema?: string; option: ConnectionOptions }) => Promise<SavedConnectionSummary>;
+  addConnection: (input: { name?: string; dialect: string; schema?: string; option: ConnectionOptions; savePassword?: boolean }) => Promise<SavedConnectionSummary>;
+  updateConnection: (id: string, input: { name?: string; dialect: string; schema?: string; option: ConnectionOptions; savePassword?: boolean }) => Promise<SavedConnectionSummary>;
   removeConnection: (id: string) => Promise<void>;
 
   setShowConnectionModal: (open: boolean) => void;
 
   setSelectedSourceConnection: (id: string | null) => void;
   setSelectedTargetConnection: (id: string | null) => void;
-  applySavedConnection: (side: Side, id: string) => void;
+  applySavedConnection: (side: Side, id: string, sessionPassword?: string) => void;
 
   // --- Connection test + schema list ------------------------------------
   isTestingSource: boolean;

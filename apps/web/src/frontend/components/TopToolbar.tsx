@@ -359,7 +359,9 @@ export const TopToolbar: React.FC = () => {
           // server-side) then bind it to this side by id.
           const side = activeModalTarget === 'target' ? 'target' : 'source';
           const saved = await addConnection(input);
-          applySavedConnection(side, saved.id);
+          // If the password wasn't persisted, keep it in-memory for this session so the
+          // just-bound connection can be used without re-entering it.
+          applySavedConnection(side, saved.id, saved.hasPassword ? undefined : input.option.password);
         }}
       />
 

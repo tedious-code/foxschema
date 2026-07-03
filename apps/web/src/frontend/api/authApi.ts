@@ -78,6 +78,8 @@ export interface SavedConnectionSummary {
   port?: number;
   database?: string;
   username?: string;
+  /** Whether a password is stored server-side (drives the "save password" checkbox on edit). */
+  hasPassword?: boolean;
   createdAt: string;
 }
 
@@ -91,6 +93,7 @@ export async function apiCreateConnection(input: {
   dialect: string;
   schema?: string;
   option: Record<string, unknown>;
+  savePassword?: boolean;
 }): Promise<SavedConnectionSummary> {
   const { connection } = await request<{ connection: SavedConnectionSummary }>('/connections', {
     method: 'POST',
@@ -101,7 +104,7 @@ export async function apiCreateConnection(input: {
 
 export async function apiUpdateConnection(
   id: string,
-  input: { name?: string; dialect: string; schema?: string; option: Record<string, unknown> }
+  input: { name?: string; dialect: string; schema?: string; option: Record<string, unknown>; savePassword?: boolean }
 ): Promise<SavedConnectionSummary> {
   const { connection } = await request<{ connection: SavedConnectionSummary }>(`/connections/${id}`, {
     method: 'PUT',

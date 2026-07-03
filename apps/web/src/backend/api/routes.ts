@@ -6,6 +6,7 @@ import {
   MigrationModule,
   SqlGeneratorModule,
   DriverDetector,
+  buildConnectionString,
   type MigrationStep,
   type ConnectionOptions,
   type DbObjectType,
@@ -28,6 +29,12 @@ interface ConnectionRef {
   dialect?: string;
   option?: ConnectionOptions;
   schema?: string;
+  /**
+   * Session password for a saved connection that was stored WITHOUT its password
+   * ("save password" unticked). Supplied per-use, merged into the resolved option,
+   * never persisted.
+   */
+  password?: string;
 }
 
 /** Current app version (the host/desktop can override via APP_VERSION). */
@@ -108,7 +115,14 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       if (!userId) throw new Error('Sign in to use a saved connection');
       const resolved = await connectionStore.resolve(userId, ref.connectionId);
       if (!resolved) throw new Error('Saved connection not found');
-      return { dialect: resolved.dialect, option: resolved.option, schema: ref.schema ?? resolved.schema ?? '' };
+      // Merge a per-session password for connections saved without one, and rebuild the
+      // connection string so the driver picks it up.
+      let option = resolved.option;
+      if (ref.password && !option.password) {
+        option = { ...option, password: ref.password };
+        option.connectionString = buildConnectionString(resolved.dialect, option);
+      }
+      return { dialect: resolved.dialect, option, schema: ref.schema ?? resolved.schema ?? '' };
     }
     if (!ref.dialect || !ref.option) throw new Error('A connectionId or (dialect + option) is required');
     return { dialect: ref.dialect, option: ref.option, schema: ref.schema ?? '' };

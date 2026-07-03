@@ -112,11 +112,11 @@ export const useSyncStore = create<SyncState>()(
   setSelectedSourceConnection: (id) => set({ selectedSourceConnectionId: id }),
   setSelectedTargetConnection: (id) => set({ selectedTargetConnectionId: id }),
 
-  applySavedConnection: (side, id) => {
+  applySavedConnection: (side, id, sessionPassword) => {
     const conn = get().connections.find((c) => c.id === id);
     if (!conn) return;
-    // Use the saved connection by id — no password is held in the browser.
-    // Carry the non-secret fields so the edit form prefills them.
+    // Use the saved connection by id — no password is held in the browser, EXCEPT an
+    // optional session password (for connections stored without one) kept in-memory only.
     const config: ConnectionConfig = {
       dialect: conn.dialect as ConnectionConfig['dialect'],
       option: {
@@ -125,6 +125,7 @@ export const useSyncStore = create<SyncState>()(
         database: conn.database,
         username: conn.username,
         schema: conn.schema,
+        ...(sessionPassword ? { password: sessionPassword } : {}),
       },
       schema: conn.schema ?? '',
       connectionId: id,

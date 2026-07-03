@@ -41,6 +41,8 @@ CHANGELOG.md
 !docs/security/security-process.md
 # Session work-summary plans must be tracked
 !docs/plans/*.md
+# Desktop build/publish guide must be tracked
+!docs/desktop-build.md
 # Desktop (Tauri) build artifacts
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/
