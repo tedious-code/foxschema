@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useSyncStore } from '../store/useSyncStore';
-import { ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, CheckCircle2, Zap, Settings, KeyRound, History, Search } from 'lucide-react';
+import { ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, CheckCircle2, Zap, Settings, KeyRound, History, Search, X } from 'lucide-react';
 import { Brand } from './Brand';
 import { ProfileMenu } from './ProfileMenu';
 import { CredentialManager } from './CredentialManager';
@@ -44,6 +45,29 @@ export const TopToolbar: React.FC = () => {
   const [activeModalTarget, setActiveModalTarget] = useState<'source' | 'target' | null>(null);
   const [showCredentials, setShowCredentials] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+
+  // A saved connection created without a stored password ("Save password" left
+  // unticked) has no password to apply automatically — selecting it from either
+  // dropdown must prompt for a session-only password instead of connecting with none.
+  const [pendingPassword, setPendingPassword] = useState<{ side: 'source' | 'target'; id: string; name: string } | null>(null);
+  const [pendingPasswordValue, setPendingPasswordValue] = useState('');
+
+  const selectSavedConnection = (side: 'source' | 'target', id: string) => {
+    const conn = connections.find((c) => c.id === id);
+    if (conn && !conn.hasPassword) {
+      setPendingPassword({ side, id, name: conn.name });
+      setPendingPasswordValue('');
+      return;
+    }
+    applySavedConnection(side, id);
+  };
+
+  const confirmPendingPassword = () => {
+    if (!pendingPassword) return;
+    applySavedConnection(pendingPassword.side, pendingPassword.id, pendingPasswordValue || undefined);
+    setPendingPassword(null);
+    setPendingPasswordValue('');
+  };
 
   // Same dialect + server + database + schema means you'd be comparing a schema
   // with itself (everything UNCHANGED) — almost always a misconfiguration
@@ -108,7 +132,7 @@ export const TopToolbar: React.FC = () => {
             {connections.length > 0 && (
               <select
                 value={selectedSourceConnectionId ?? ''}
-                onChange={(e) => e.target.value && applySavedConnection('source', e.target.value)}
+                onChange={(e) => e.target.value && selectSavedConnection('source', e.target.value)}
                 title="Saved connections"
                 className="shrink-0 w-40 max-w-[160px] text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-500 truncate"
               >
@@ -205,7 +229,7 @@ export const TopToolbar: React.FC = () => {
             {connections.length > 0 && (
               <select
                 value={selectedTargetConnectionId ?? ''}
-                onChange={(e) => e.target.value && applySavedConnection('target', e.target.value)}
+                onChange={(e) => e.target.value && selectSavedConnection('target', e.target.value)}
                 title="Saved connections"
                 className="shrink-0 w-40 max-w-[160px] text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-purple-500 truncate"
               >
@@ -368,6 +392,60 @@ export const TopToolbar: React.FC = () => {
       <CredentialManager open={showCredentials} onClose={() => setShowCredentials(false)} />
 
       <MigrationHistory open={showHistory} onClose={() => setShowHistory(false)} />
+
+      {pendingPassword && createPortal(
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+          onClick={() => setPendingPassword(null)}
+        >
+          <div
+            className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-xl shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-800 bg-slate-950/40">
+              <span className="flex items-center gap-2 text-sm font-bold text-slate-100">
+                <KeyRound className="w-4 h-4 text-cyan-400" /> Enter Password
+              </span>
+              <button
+                onClick={() => setPendingPassword(null)}
+                className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-slate-200 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-xs text-slate-400">
+                <span className="font-semibold text-slate-200">{pendingPassword.name}</span> was saved without a
+                stored password. Enter it for this session only — it won't be persisted.
+              </p>
+              <input
+                autoFocus
+                type="password"
+                value={pendingPasswordValue}
+                onChange={(e) => setPendingPasswordValue(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && confirmPendingPassword()}
+                placeholder="••••••••"
+                className="w-full bg-slate-950 border border-slate-850 focus:border-cyan-500 text-sm text-slate-200 rounded px-3 py-2 outline-none font-mono"
+              />
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  onClick={() => setPendingPassword(null)}
+                  className="text-xs font-semibold text-slate-400 hover:text-slate-200 px-3 py-1.5 rounded transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmPendingPassword}
+                  className="text-xs font-bold accent-grad on-accent-fg rounded px-4 py-1.5 transition cursor-pointer"
+                >
+                  Connect
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </header>
   );
 };

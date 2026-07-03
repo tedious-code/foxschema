@@ -14,6 +14,12 @@ use tauri_plugin_shell::ShellExt;
 /// the account is the user's email, so the key is both machine- and email-bound.
 const KEY_SERVICE: &str = "com.foxschema.desktop.dek";
 
+/// Keychain service recording which SQLite metadata DBs THIS machine has bound.
+/// Separate from KEY_SERVICE (and not email-keyed) so it works before any email
+/// is known and never mixes with the encryption key material.
+const INSTALL_BINDING_SERVICE: &str = "com.foxschema.desktop.install-binding";
+const INSTALL_BINDING_ACCOUNT: &str = "machine";
+
 /// Persisted (non-secret) first-run state in app-data/setup.json. The secret
 /// (the DEK) is NOT here — it lives only in the OS keychain.
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -91,6 +97,93 @@ fn keychain_set(account: &str, value: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())?
         .set_password(value)
         .map_err(|e| e.to_string())
+}
+
+/// IDs of every SQLite metadata DB this machine has ever bound (a machine may
+/// legitimately point at more than one local DB over its lifetime, e.g. via
+/// Settings → Database, so this is a set, not a single value).
+fn install_binding_ids() -> Vec<String> {
+    keyring::Entry::new(INSTALL_BINDING_SERVICE, INSTALL_BINDING_ACCOUNT)
+        .ok()
+        .and_then(|e| e.get_password().ok())
+        .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
+        .unwrap_or_default()
+}
+
+fn install_binding_add(id: &str) -> Result<(), String> {
+    let mut ids = install_binding_ids();
+    if !ids.iter().any(|i| i == id) {
+        ids.push(id.to_string());
+    }
+    let json = serde_json::to_string(&ids).map_err(|e| e.to_string())?;
+    keyring::Entry::new(INSTALL_BINDING_SERVICE, INSTALL_BINDING_ACCOUNT)
+        .map_err(|e| e.to_string())?
+        .set_password(&json)
+        .map_err(|e| e.to_string())
+}
+
+/// Verify (and, for a virgin DB, establish) that `db_path` belongs to this
+/// machine, by running the sidecar's `--check-install-binding` mode against it
+/// BEFORE the real sidecar is spawned. Only applies to the sqlite engine —
+/// Postgres/MySQL are server-side, not portable by copying a file.
+///
+/// A DB with no marker yet is adopted (this machine's list gains its id) — this
+/// covers both a genuinely fresh database and a pre-existing install upgrading
+/// to this feature for the first time, so neither is disrupted. A DB that
+/// already carries a marker must appear in this machine's list, or the DB was
+/// bound elsewhere and is refused. There is deliberately no recovery path (the
+/// same tradeoff the existing keychain-bound encryption key already makes) —
+/// that refusal is the point of this check.
+async fn enforce_install_binding(app: &AppHandle, engine: &str, db_path: &str) -> Result<(), String> {
+    if engine != "sqlite" {
+        return Ok(());
+    }
+    let server_js = resolve_server_js(app);
+    let mut envs: HashMap<String, String> = HashMap::new();
+    envs.insert("APP_DB_ENGINE".into(), "sqlite".into());
+    envs.insert("APP_DB_PATH".into(), db_path.to_string());
+
+    let output = app
+        .shell()
+        .sidecar("foxschema-sidecar")
+        .map_err(|e| e.to_string())?
+        .arg(server_js.to_string_lossy().to_string())
+        .arg("--check-install-binding")
+        .envs(envs)
+        .output()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !output.status.success() {
+        return Err("Could not read the selected database to verify it.".into());
+    }
+    // Tolerate any incidental log noise on stdout — the check prints exactly one
+    // JSON line, always last.
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let line = stdout.lines().last().unwrap_or("").trim();
+    let report: serde_json::Value =
+        serde_json::from_str(line).map_err(|_| "Could not verify the selected database.".to_string())?;
+    if report.get("ok").and_then(|v| v.as_bool()) != Some(true) {
+        return Err(report
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Could not verify the selected database.")
+            .to_string());
+    }
+    let Some(db_id) = report.get("id").and_then(|v| v.as_str()) else {
+        return Ok(()); // skipped (non-sqlite) — nothing to bind
+    };
+
+    if install_binding_ids().iter().any(|i| i == db_id) {
+        return Ok(());
+    }
+    if report.get("generated").and_then(|v| v.as_bool()) == Some(true) {
+        // Virgin DB — this call just minted its id. Adopt it for this machine.
+        return install_binding_add(db_id);
+    }
+    Err("This database was set up on a different computer and can't be opened here. \
+         Choose a different database file to continue."
+        .into())
 }
 
 /// Where the bundled Node server lives (crate dir in dev, resources in release).
@@ -235,9 +328,9 @@ fn get_setup_state(state: State<AppState>) -> SetupState {
 /// (non-secret) config, then spawn the sidecar. Migrates a pre-keychain install
 /// by importing its on-disk key (kept as scheme v1 so existing data decrypts).
 #[tauri::command]
-fn complete_setup(
+async fn complete_setup(
     app: AppHandle,
-    state: State<AppState>,
+    state: State<'_, AppState>,
     email: String,
     engine: Option<String>,
     db_path: Option<String>,
@@ -256,6 +349,14 @@ fn complete_setup(
     if !matches!(engine.as_str(), "sqlite" | "postgres" | "mysql") {
         return Err(format!("Unsupported database engine \"{engine}\"."));
     }
+
+    let resolved_db = db_path
+        .filter(|p| !p.trim().is_empty())
+        .unwrap_or_else(|| state.default_db_path.clone());
+
+    // Refuse a SQLite DB copied from another machine before touching anything
+    // else (encryption key, setup.json) — see enforce_install_binding.
+    enforce_install_binding(&app, &engine, &resolved_db).await?;
 
     let legacy_key = state.data_dir.join("encryption.key");
     let (dek, scheme) = if let Some(existing) = keychain_get(&email_norm) {
@@ -288,10 +389,6 @@ fn complete_setup(
         (dek, "v2".to_string())
     };
 
-    let resolved_db = db_path
-        .filter(|p| !p.trim().is_empty())
-        .unwrap_or_else(|| state.default_db_path.clone());
-
     let info = SetupInfo {
         setup_complete: true,
         email: email_norm,
@@ -312,9 +409,9 @@ fn complete_setup(
 /// engine; the frontend reloads against the returned api_base. The encryption
 /// key and bound email are unchanged.
 #[tauri::command]
-fn update_db_config(
+async fn update_db_config(
     app: AppHandle,
-    state: State<AppState>,
+    state: State<'_, AppState>,
     engine: String,
     db_path: Option<String>,
     db_url: Option<String>,
@@ -333,12 +430,17 @@ fn update_db_config(
     }
     let dek = keychain_get(&email).ok_or("Encryption key not found in keychain.")?;
 
+    let resolved_db = db_path
+        .filter(|p| !p.trim().is_empty())
+        .unwrap_or_else(|| state.default_db_path.clone());
+
+    // Refuse a SQLite DB copied from another machine before switching to it.
+    enforce_install_binding(&app, &engine, &resolved_db).await?;
+
     let info = {
         let mut s = state.setup.lock().unwrap();
         s.db_engine = engine;
-        s.db_path = db_path
-            .filter(|p| !p.trim().is_empty())
-            .unwrap_or_else(|| state.default_db_path.clone());
+        s.db_path = resolved_db;
         s.db_url = db_url;
         s.clone()
     };

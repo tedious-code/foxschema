@@ -6,6 +6,7 @@ process.env.APP_ENCRYPTION_KEY = '0'.repeat(64);
 import { AuthModule } from './auth.module';
 import { ConnectionStore } from './connection-store.module';
 import { getStore } from '../database/store';
+import { buildConnectionString } from '@foxschema/core';
 
 const auth = new AuthModule();
 const store = new ConnectionStore();
@@ -88,5 +89,65 @@ describe('ConnectionStore', () => {
     const updated = await store.update(alice, id, { ...sample, option: { ...sample.option, password: undefined }, savePassword: false });
     expect(updated?.hasPassword).toBe(false);
     expect((await store.resolve(alice, id))?.option.password).toBeUndefined();
+  });
+
+  // Regression: the real frontend (ConnectionModal.tsx) always pre-builds
+  // connectionString from the typed form values BEFORE the save request is sent, and
+  // for URL-style dialects that embeds the password directly (postgresql://user:pass@...).
+  // create() must strip it from BOTH option.password AND option.connectionString when
+  // the user opts out, or the secret survives in the encrypted blob regardless.
+  it('does not leak the password via a pre-built connectionString when savePassword is false', async () => {
+    const pgOption = { host: 'db.example.com', port: 5432, database: 'proddb', username: 'admin', password: 'super-secret' };
+    const optionWithEmbeddedPassword = { ...pgOption, connectionString: buildConnectionString('postgres', pgOption) };
+    expect(optionWithEmbeddedPassword.connectionString).toContain('super-secret');
+
+    const created = await store.create(alice, {
+      name: 'pg', dialect: 'postgres', schema: 'public', option: optionWithEmbeddedPassword, savePassword: false,
+    });
+    expect(created.hasPassword).toBe(false);
+
+    const resolved = await store.resolve(alice, created.id);
+    expect(resolved?.option.password).toBeUndefined();
+    expect(resolved?.option.connectionString).not.toContain('super-secret');
+
+    // the raw encrypted column must not contain the secret in any form either
+    const db = await getStore();
+    const rows = await db.all<{ encrypted_config: string }>('SELECT encrypted_config FROM connections WHERE id = ?', [created.id]);
+    for (const r of rows) expect(r.encrypted_config).not.toContain('super-secret');
+  });
+
+  it('update() also strips a leaked password from a pre-built connectionString when opting out', async () => {
+    const pgOption = { host: 'db.example.com', port: 5432, database: 'proddb', username: 'admin', password: 'super-secret' };
+    const id = (await store.create(alice, { name: 'pg', dialect: 'postgres', schema: 'public', option: pgOption, savePassword: true })).id;
+
+    const newOption = { ...pgOption, password: 'new-secret' };
+    const optionWithEmbeddedPassword = { ...newOption, connectionString: buildConnectionString('postgres', newOption) };
+    expect(optionWithEmbeddedPassword.connectionString).toContain('new-secret');
+
+    const updated = await store.update(alice, id, {
+      name: 'pg', dialect: 'postgres', schema: 'public', option: optionWithEmbeddedPassword, savePassword: false,
+    });
+    expect(updated?.hasPassword).toBe(false);
+
+    const resolved = await store.resolve(alice, id);
+    expect(resolved?.option.password).toBeUndefined();
+    expect(resolved?.option.connectionString).not.toContain('new-secret');
+    expect(resolved?.option.connectionString).not.toContain('super-secret');
+  });
+
+  it('still produces a correct, usable connectionString when the password IS kept', async () => {
+    // Sanity check that discarding + rebuilding connectionString doesn't break the
+    // normal case — the rebuilt string must still round-trip the kept password.
+    const pgOption = { host: 'db.example.com', port: 5432, database: 'proddb', username: 'admin', password: 'super-secret' };
+    const created = await store.create(alice, {
+      name: 'pg', dialect: 'postgres', schema: 'public',
+      option: { ...pgOption, connectionString: 'this-stale-value-should-be-discarded' },
+      savePassword: true,
+    });
+    expect(created.hasPassword).toBe(true);
+
+    const resolved = await store.resolve(alice, created.id);
+    expect(resolved?.option.password).toBe('super-secret');
+    expect(resolved?.option.connectionString).toBe(buildConnectionString('postgres', pgOption));
   });
 });
