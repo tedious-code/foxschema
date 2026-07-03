@@ -46,6 +46,39 @@ interface ConnectionRow {
  * client receives metadata only, never the secret.
  */
 export class ConnectionStore {
+  /**
+   * Decide what password (if any) to persist for a save, and always rebuild
+   * `connectionString` from the result — the single place both create() and update()
+   * go through, so the password rule can never drift between them.
+   *
+   * Rebuilding connectionString unconditionally is required, not optional: the client
+   * builds `option.connectionString` from the form BEFORE the save intent is known, so
+   * for URL-style dialects (Postgres/MySQL/MariaDB) or SQL Server's `Password=...;`
+   * format it already embeds the plaintext password the caller may be opting out of.
+   * If we only cleared `option.password` and left connectionString alone, the secret
+   * would still be persisted inside it, defeating the opt-out entirely.
+   *
+   * The stale connectionString must also be discarded BEFORE rebuilding, not just
+   * overwritten after: those same dialects' buildConnectionString() honors an existing
+   * connectionString verbatim instead of reconstructing it from host/user/password, so
+   * rebuilding "in place" would silently keep the old embedded password unchanged.
+   */
+  private resolvePasswordOnSave(
+    dialect: string,
+    option: ConnectionOptions,
+    savePassword: boolean | undefined,
+    existingPassword?: string
+  ): ConnectionOptions {
+    const resolved: ConnectionOptions = { ...option, connectionString: undefined };
+    if (savePassword === false) {
+      resolved.password = undefined; // user opted out — never persist a secret
+    } else if (!resolved.password && existingPassword !== undefined) {
+      resolved.password = existingPassword; // omitted on edit — keep existing
+    }
+    resolved.connectionString = buildConnectionString(dialect, resolved);
+    return resolved;
+  }
+
   private toSummary(row: ConnectionRow): SavedConnectionSummary {
     let host: string | undefined;
     let port: number | undefined;
@@ -89,9 +122,7 @@ export class ConnectionStore {
     const store = await getStore();
     const id = randomUUID();
     const createdAt = new Date().toISOString();
-    // Never persist the password when the user opted out, regardless of what was sent.
-    const option: ConnectionOptions =
-      input.savePassword === false ? { ...input.option, password: undefined } : input.option;
+    const option = this.resolvePasswordOnSave(input.dialect, input.option, input.savePassword);
     await store.run(
       'INSERT INTO connections (id, user_id, name, dialect, "schema", encrypted_config, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [id, userId, input.name ?? null, input.dialect, input.schema ?? null, encryptSecret(JSON.stringify(option)), createdAt]
@@ -139,13 +170,7 @@ export class ConnectionStore {
     const existing = await this.resolve(userId, id);
     if (!existing) return null;
 
-    const merged: ConnectionOptions = { ...input.option };
-    if (input.savePassword === false) {
-      merged.password = undefined; // user opted out — drop any stored secret
-    } else if (!merged.password) {
-      merged.password = existing.option.password; // omitted on edit — keep existing
-    }
-    merged.connectionString = buildConnectionString(input.dialect, merged);
+    const merged = this.resolvePasswordOnSave(input.dialect, input.option, input.savePassword, existing.option.password);
 
     await store.run(
       'UPDATE connections SET name = ?, dialect = ?, "schema" = ?, encrypted_config = ? WHERE id = ? AND user_id = ?',

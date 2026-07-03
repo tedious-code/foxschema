@@ -116,10 +116,13 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       const resolved = await connectionStore.resolve(userId, ref.connectionId);
       if (!resolved) throw new Error('Saved connection not found');
       // Merge a per-session password for connections saved without one, and rebuild the
-      // connection string so the driver picks it up.
+      // connection string so the driver picks it up. connectionString must be cleared
+      // before rebuilding — several dialects' buildConnectionString() honors an existing
+      // connectionString verbatim instead of reconstructing it from the fields, which
+      // would silently keep the stored (passwordless) string and ignore the merge.
       let option = resolved.option;
       if (ref.password && !option.password) {
-        option = { ...option, password: ref.password };
+        option = { ...option, password: ref.password, connectionString: undefined };
         option.connectionString = buildConnectionString(resolved.dialect, option);
       }
       return { dialect: resolved.dialect, option, schema: ref.schema ?? resolved.schema ?? '' };

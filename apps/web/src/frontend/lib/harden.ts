@@ -22,7 +22,13 @@ export function hardenAgainstInspect(): void {
     const isDevtoolsCombo =
       e.key === 'F12' ||
       (mod && e.shiftKey && (key === 'I' || key === 'J' || key === 'C')) ||
-      (mod && e.altKey && (key === 'I' || key === 'J' || key === 'C')) || // macOS ⌘⌥I
+      // macOS ⌘⌥I/J/C only — NOT e.ctrlKey: on Windows/Linux, Ctrl+Alt+<letter> is how
+      // AltGr is reported (standard browser behavior), and several European keyboard
+      // layouts type accented characters via AltGr (e.g. Polish AltGr+C -> ć). Scoping
+      // this to metaKey avoids swallowing normal text input on those layouts — there's
+      // no legitimate Ctrl+Alt devtools shortcut on those platforms to block anyway
+      // (they use Ctrl+Shift+I/J/C, already covered above).
+      (e.metaKey && e.altKey && (key === 'I' || key === 'J' || key === 'C')) ||
       (mod && key === 'U'); // view-source
     if (isDevtoolsCombo) {
       e.preventDefault();
