@@ -1,5 +1,6 @@
 import { TableDiff } from '../interfaces';
 import { TableSchema, DbObjectType } from '../interfaces';
+import type { IndexInfo } from '../interfaces';
 import type { SqlDialect, ColumnSpec } from './sql-dialect.interface';
 import { resolveDialect } from './dialect-registry';
 
@@ -176,6 +177,16 @@ export class SqlGeneratorModule {
     return `CREATE TABLE ${this.qualify(table.name, mapping)} (\n${lines.join(',\n')}\n);`;
   }
 
+  /**
+   * CREATE INDEX for an index, letting the dialect special-case a constraint-backing
+   * index (SQL Server renders it as ALTER TABLE ADD CONSTRAINT). `idx.name` must be bare.
+   */
+  private createIndexSql(idx: IndexInfo, qualifiedTable: string, dialect?: SqlDialect): string {
+    if (dialect?.createIndexStatement) return dialect.createIndexStatement(idx, qualifiedTable);
+    const uniqueStr = idx.unique ? ' UNIQUE' : '';
+    return `CREATE${uniqueStr} INDEX ${idx.name} ON ${qualifiedTable} (${idx.columns.join(', ')});`;
+  }
+
   private renderCreateSequence(table: TableSchema, dialect?: SqlDialect): string {
     const s = table.sequence ?? {};
     const name = table.name;
@@ -215,8 +226,7 @@ export class SqlGeneratorModule {
     let sql = this.renderCreateTable(table, dialect) + `\n`;
 
     for (const idx of table.indices) {
-      const uniqueStr = idx.unique ? ' UNIQUE' : '';
-      sql += `CREATE${uniqueStr} INDEX ${idx.name} ON ${table.name} (${idx.columns.join(', ')});\n`;
+      sql += this.createIndexSql({ ...idx, name: this.bareName(idx.name) }, table.name, dialect) + `\n`;
     }
 
     for (const fk of table.foreignKeys) {
@@ -295,10 +305,9 @@ export class SqlGeneratorModule {
       statements.push(...seqOwned);
 
       for (const idx of source.indices) {
-        const uniqueStr = idx.unique ? ' UNIQUE' : '';
         // Index name must be bare — it's created in the (qualified) table's schema.
         // A schema-qualified index name is a syntax error in Postgres/MySQL/SQL Server.
-        statements.push(`CREATE${uniqueStr} INDEX ${this.bareName(idx.name)} ON ${name} (${idx.columns.join(', ')});`);
+        statements.push(this.createIndexSql({ ...idx, name: this.bareName(idx.name) }, name, dialect));
       }
 
       for (const fk of source.foreignKeys) {
@@ -376,8 +385,9 @@ export class SqlGeneratorModule {
       // Non-destructive: keep target-only indexes (REMOVED); MODIFIED are still
       // dropped here and recreated below (that's a change, not a removal).
       for (const idx of obj.indexDiffs.filter((i) => i.status === 'MODIFIED' || (i.status === 'REMOVED' && !mapping?.nonDestructive))) {
+        const dropIdx: IndexInfo | undefined = idx.target ? { ...idx.target, name: this.bareName(idx.name) } : undefined;
         statements.push(
-          dialect.dropIndexStatement?.(this.bareName(idx.name), tableName) ??
+          dialect.dropIndexStatement?.(this.bareName(idx.name), tableName, dropIdx) ??
           `DROP INDEX ${this.qualify(idx.name, mapping)};`
         );
       }
@@ -461,10 +471,9 @@ export class SqlGeneratorModule {
       for (const idx of obj.indexDiffs.filter((i) => i.status === 'ADDED' || i.status === 'MODIFIED')) {
         const srcIdx = idx.source;
         if (!srcIdx) continue;
-        const uniqueStr = srcIdx.unique ? ' UNIQUE' : '';
         // Bare index name (its schema follows the qualified table) — a qualified
         // index name is a syntax error in Postgres/MySQL/SQL Server.
-        statements.push(`CREATE${uniqueStr} INDEX ${this.bareName(idx.name)} ON ${tableName} (${srcIdx.columns.join(', ')});`);
+        statements.push(this.createIndexSql({ ...srcIdx, name: this.bareName(idx.name) }, tableName, dialect));
       }
 
       // Add new / recreate modified FK constraints (after all column changes are done).
@@ -501,6 +510,13 @@ export class SqlGeneratorModule {
       // SQL Server rejects it outright ("Argument 'AS' cannot be used"), and
       // Oracle/DB2/MariaDB have no such clause either — gate behind the flag.
       if (s.dataType && dialect.alterSequenceAsType) alter += ` AS ${s.dataType}`;
+      // Re-align the sequence's next value. The CREATE path uses START WITH; ALTER uses
+      // RESTART WITH (SQL Server/Postgres/DB2/MariaDB). Oracle's syntax differs and older
+      // versions can't restart, so it opts out via the hook — without this clause a
+      // start-value difference (e.g. 1 vs 1000) never converges after a deploy.
+      if (s.start !== undefined) {
+        alter += dialect.alterSequenceRestart?.(s.start) ?? ` RESTART WITH ${s.start}`;
+      }
       if (s.increment !== undefined) alter += ` INCREMENT BY ${s.increment}`;
       if (s.minValue !== undefined) alter += ` MINVALUE ${s.minValue}`;
       if (s.maxValue !== undefined) alter += ` MAXVALUE ${s.maxValue}`;

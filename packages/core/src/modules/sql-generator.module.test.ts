@@ -55,6 +55,16 @@ describe('SqlGeneratorModule.generateObjectDdl', () => {
     expect(ddl).toContain('CREATE TYPE ADDR AS (');
     expect(ddl).toContain('STREET VARCHAR(100)');
   });
+
+  it('renders an Oracle object type as AS OBJECT, not DB2 MODE DB2SQL', () => {
+    const t = tableSchema({ name: 'T_ADDRESS', objectType: 'TYPE',
+      userType: { metaType: 'O', attributes: [{ name: 'STREET', type: 'VARCHAR2(100)' }, { name: 'CITY', type: 'VARCHAR2(50)' }] } });
+    const ora = gen.generateObjectDdl(t, 'oracle');
+    expect(ora).toContain('CREATE TYPE T_ADDRESS AS OBJECT (');
+    expect(ora).not.toContain('MODE DB2SQL');
+    // DB2 keeps its own syntax
+    expect(gen.generateObjectDdl(t, 'db2')).toContain('MODE DB2SQL');
+  });
 });
 
 describe('SqlGeneratorModule.generateMigrationPlan', () => {
@@ -475,5 +485,72 @@ describe('SqlGeneratorModule.generateMigrationPlan', () => {
     };
     const stmts = gen.generateMigrationPlan([diff], 'postgres').flatMap((s) => s.statements);
     expect(stmts.some((s) => /ALTER COLUMN amount TYPE.*USING amount::/i.test(s))).toBe(true);
+  });
+
+  it('SQL Server drops/creates a unique-constraint index via ALTER TABLE CONSTRAINT, not DROP/CREATE INDEX', () => {
+    const diff: TableDiff = {
+      tableName: 'CUSTOMERS',
+      objectType: 'TABLE',
+      status: 'MODIFIED',
+      columnDiffs: [],
+      indexDiffs: [
+        { name: 'UQ__CUSTOMER__AB6E', status: 'REMOVED', target: { columns: ['EMAIL'], unique: true, constraint: true } },
+        { name: 'UQ_EMAIL', status: 'ADDED', source: { columns: ['EMAIL'], unique: true, constraint: true } },
+      ],
+      foreignKeyDiffs: [],
+      sourceTable: tableSchema({ name: 'CUSTOMERS', columns: [{ name: 'EMAIL', type: 'VARCHAR(255)', nullable: false, primaryKey: false }] }),
+      targetTable: tableSchema({ name: 'CUSTOMERS', columns: [{ name: 'EMAIL', type: 'VARCHAR(255)', nullable: false, primaryKey: false }] }),
+    };
+    const stmts = gen.generateMigrationPlan([diff], 'sqlserver', { targetSchema: 'demo_b' }).flatMap((s) => s.statements);
+    expect(stmts).toContain('ALTER TABLE demo_b.CUSTOMERS DROP CONSTRAINT UQ__CUSTOMER__AB6E;');
+    expect(stmts).toContain('ALTER TABLE demo_b.CUSTOMERS ADD CONSTRAINT UQ_EMAIL UNIQUE (EMAIL);');
+    expect(stmts.some((s) => /DROP INDEX|CREATE\s+UNIQUE\s+INDEX/i.test(s))).toBe(false);
+  });
+
+  it('SQL Server still uses DROP/CREATE INDEX for a plain (non-constraint) unique index', () => {
+    const diff: TableDiff = {
+      tableName: 'CUSTOMERS',
+      objectType: 'TABLE',
+      status: 'MODIFIED',
+      columnDiffs: [],
+      indexDiffs: [{ name: 'IX_EMAIL', status: 'REMOVED', target: { columns: ['EMAIL'], unique: true } }],
+      foreignKeyDiffs: [],
+      sourceTable: tableSchema({ name: 'CUSTOMERS', columns: [{ name: 'EMAIL', type: 'VARCHAR(255)', nullable: false, primaryKey: false }] }),
+      targetTable: tableSchema({ name: 'CUSTOMERS', columns: [{ name: 'EMAIL', type: 'VARCHAR(255)', nullable: false, primaryKey: false }] }),
+    };
+    const stmts = gen.generateMigrationPlan([diff], 'sqlserver', { targetSchema: 'demo_b' }).flatMap((s) => s.statements);
+    expect(stmts).toContain('DROP INDEX IX_EMAIL ON demo_b.CUSTOMERS;');
+    expect(stmts.some((s) => /DROP CONSTRAINT/i.test(s))).toBe(false);
+  });
+
+  it('emits RESTART WITH for a MODIFIED sequence start value (and Oracle omits it)', () => {
+    const seqDiff = (start: string): TableDiff => ({
+      tableName: 'ORDER_SEQ', objectType: 'SEQUENCE', status: 'MODIFIED',
+      columnDiffs: [], indexDiffs: [], foreignKeyDiffs: [],
+      sourceTable: tableSchema({ name: 'ORDER_SEQ', objectType: 'SEQUENCE', sequence: { start, increment: '1' } }),
+      targetTable: tableSchema({ name: 'ORDER_SEQ', objectType: 'SEQUENCE', sequence: { start: '1', increment: '1' } }),
+    });
+    const ss = gen.generateMigrationPlan([seqDiff('1000')], 'sqlserver', { targetSchema: 'demo_b' }).flatMap((s) => s.statements);
+    expect(ss.some((s) => /ALTER SEQUENCE .*RESTART WITH 1000/.test(s))).toBe(true);
+    // Oracle can't RESTART portably → no RESTART clause
+    const ora = gen.generateMigrationPlan([seqDiff('1000')], 'oracle', { targetSchema: 'DEMO_B' }).flatMap((s) => s.statements);
+    expect(ora.some((s) => /ALTER SEQUENCE/.test(s))).toBe(true);
+    expect(ora.some((s) => /RESTART/i.test(s))).toBe(false);
+  });
+
+  it('SQL Server changes a column default by dropping the named DF constraint then re-adding', () => {
+    const diff: TableDiff = {
+      tableName: 'ORDER_ITEMS', objectType: 'TABLE', status: 'MODIFIED',
+      columnDiffs: [{ name: 'qty', status: 'MODIFIED',
+        source: { type: 'int', nullable: false, defaultValue: '1' },
+        target: { type: 'int', nullable: false, defaultValue: '0' } }],
+      indexDiffs: [], foreignKeyDiffs: [],
+      sourceTable: tableSchema({ name: 'ORDER_ITEMS', columns: [{ name: 'qty', type: 'int', nullable: false, primaryKey: false, defaultValue: '1' }] }),
+      targetTable: tableSchema({ name: 'ORDER_ITEMS', columns: [{ name: 'qty', type: 'int', nullable: false, primaryKey: false, defaultValue: '0' }] }),
+    };
+    const stmts = gen.generateMigrationPlan([diff], 'sqlserver', { targetSchema: 'demo_b' }).flatMap((s) => s.statements);
+    expect(stmts.some((s) => /sys\.default_constraints/.test(s) && /DROP CONSTRAINT/.test(s))).toBe(true);
+    expect(stmts.some((s) => /ADD DEFAULT 1 FOR qty/.test(s))).toBe(true);
+    expect(stmts.some((s) => /^-- review:/.test(s))).toBe(false);
   });
 });

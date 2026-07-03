@@ -8,6 +8,13 @@ export class CompareModule {
   /** When set (and the dialects differ), columns are compared by canonical type. */
   private sourceDialect: SqlDialect | null = null;
   private targetDialect: SqlDialect | null = null;
+  /**
+   * The source/target schema names (e.g. demo_a, demo_b). Their qualifiers are
+   * stripped from definitions and defaults so that a routine/trigger/default which is
+   * identical except for its schema prefix (which the migration re-qualifies to the
+   * target) doesn't read as MODIFIED after a deploy.
+   */
+  private compareSchemas: string[] = [];
 
   /**
    * Normalizes an object name for matching: drops any leading "schema." qualifier
@@ -18,10 +25,23 @@ export class CompareModule {
     return name.replace(/^"?[^".]+"?\./, '').replace(/"/g, '').toUpperCase();
   }
 
+  /**
+   * Ordered, case-insensitive comparison of two identifier lists (index / FK / PK
+   * columns). The tool matches every identifier case-insensitively (see `key`), so a
+   * column list read as `category_id` from one schema and `CATEGORY_ID` from the other
+   * (e.g. after a migration re-emits DDL) must not read as a change. Order matters —
+   * a composite index (a, b) differs from (b, a).
+   */
+  private sameColumns(a: string[] = [], b: string[] = []): boolean {
+    if (a.length !== b.length) return false;
+    return a.every((c, i) => (c ?? '').toUpperCase() === (b[i] ?? '').toUpperCase());
+  }
+
   async compare(
     sourceSchemas: TableSchema[],
     targetSchemas: TableSchema[],
-    dialects?: { source?: string; target?: string }
+    dialects?: { source?: string; target?: string },
+    schemas?: { source?: string; target?: string }
   ): Promise<SchemaCompareResult> {
     // Cross-dialect: resolve both strategies so equivalent native types (e.g.
     // DB2 VARCHAR(255) vs Postgres "character varying(255)") aren't false-flagged.
@@ -30,6 +50,9 @@ export class CompareModule {
     const crossDialect = !!src && !!tgt && resolveDialect(src) !== resolveDialect(tgt);
     this.sourceDialect = crossDialect ? resolveDialect(src!) : null;
     this.targetDialect = crossDialect ? resolveDialect(tgt!) : null;
+    // Both sides are normalized with both schema names stripped, so a definition that
+    // references demo_a.* (source) matches its migrated demo_b.* (target) counterpart.
+    this.compareSchemas = [schemas?.source, schemas?.target].filter((s): s is string => !!s);
 
     const sourceMap = new Map<string, TableSchema>(sourceSchemas.map((t) => [this.key(t.name), t]));
     const targetMap = new Map<string, TableSchema>(targetSchemas.map((t) => [this.key(t.name), t]));
@@ -81,9 +104,7 @@ export class CompareModule {
         const foreignKeyDiffs = this.compareForeignKeys(source.foreignKeys, target.foreignKeys);
         const triggerDiffs = this.compareTriggers(source.triggers ?? [], target.triggers ?? []);
 
-        const pkChanged =
-          JSON.stringify(source.primaryKey?.columns ?? []) !==
-          JSON.stringify(target.primaryKey?.columns ?? []);
+        const pkChanged = !this.sameColumns(source.primaryKey?.columns, target.primaryKey?.columns);
 
         // Sequences and user-defined types carry their state in dedicated fields
         const sequenceChanged = JSON.stringify(source.sequence ?? {}) !== JSON.stringify(target.sequence ?? {});
@@ -138,9 +159,25 @@ export class CompareModule {
    * string compare always shows MODIFIED after a successful migration.
    * We collapse whitespace and lowercase before comparing.
    */
+  /**
+   * Remove `schema.` qualifiers for the known source/target schemas wherever they
+   * appear — bracketed ([demo_a].), quoted ("demo_a".) or bare (demo_a.), any case.
+   * Position-independent, so it catches `ON demo_a.customers`, `NEXT VALUE FOR
+   * [demo_a].[order_seq]`, `demo_a.fn(...)`, etc. — anything the syntactic strips miss.
+   */
+  private stripSchemaQualifiers(s: string): string {
+    let out = s;
+    for (const schema of this.compareSchemas) {
+      const esc = schema.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      // [schema]. | "schema". | schema.  → (removed)
+      out = out.replace(new RegExp(`(?:\\[${esc}\\]|"${esc}"|\\b${esc}\\b)\\s*\\.\\s*`, 'gi'), '');
+    }
+    return out;
+  }
+
   private normalizeDefinition(d: string | undefined | null): string {
     if (!d) return '';
-    return d
+    return this.stripSchemaQualifiers(d)
       .replace(/\s+/g, ' ')
       .trim()
       .toLowerCase()
@@ -151,7 +188,17 @@ export class CompareModule {
       //   FROM app.orders → FROM orders
       //   JOIN demo_b.order_items → JOIN order_items
       // Safe: both sides are normalized the same way, so equivalence is preserved.
-      .replace(/\b(from|join|update|into|table)\s+"?[\w$]+"?\s*\.\s*"?/g, '$1 ');
+      .replace(/\b(from|join|update|into|table)\s+"?[\w$]+"?\s*\.\s*"?/g, '$1 ')
+      // Strip a schema qualifier before a routine call in the body, e.g.
+      //   demo_a.fn_tier_priority(:new.tier) → fn_tier_priority(:new.tier)
+      // The migration re-qualifies such calls to the target schema, so this keeps an
+      // otherwise-identical trigger/routine from reading as MODIFIED after a deploy.
+      // Guarded by the trailing "(" so it never touches record refs like :new.tier.
+      .replace(/\b[\w$]+\s*\.\s*([\w$]+\s*\()/g, '$1')
+      // Drop a trailing statement terminator — `... END` vs `... END;` is the same
+      // routine (SQL Server stores the body with/without it inconsistently), and it
+      // otherwise keeps a function/procedure reading as MODIFIED after a deploy.
+      .replace(/\s*;\s*$/, '');
   }
 
   /**
@@ -161,14 +208,21 @@ export class CompareModule {
    */
   private normalizeDefault(d: string | undefined | null): string {
     if (d == null) return '';
-    return d
+    // Drop schema qualifiers first, so SQL Server `NEXT VALUE FOR [demo_a].[order_seq]`
+    // matches its migrated `[demo_b].[order_seq]` counterpart.
+    return this.stripSchemaQualifiers(d)
       // Strip ::regclass / ::text / ::character varying etc. casts
       // eslint-disable-next-line security/detect-unsafe-regex -- false positive: (\([^)]*\)) uses a negated class, which cannot backtrack catastrophically
       .replace(/::[\w\s]+(\([^)]*\))?/g, '')
       // nextval('schema.seq') → nextval('seq') — ignore schema qualifier inside nextval
       .replace(/nextval\('([^']+)'\)/gi, (_, seq) => `nextval('${seq.split('.').pop()!}')`)
+      // Oracle: demo_a.order_seq.NEXTVAL → order_seq.NEXTVAL — drop the schema prefix
+      // (case-insensitively) so demo_a.* vs DEMO_B.* on the same sequence converges
+      // to UNCHANGED after a migration. Only strips the schema before <seq>.NEXTVAL/CURRVAL.
+      .replace(/\b[\w$]+\s*\.\s*([\w$]+\s*\.\s*(?:nextval|currval))\b/gi, '$1')
       // lowercase + collapse whitespace
       .toLowerCase()
+      .replace(/\s+/g, ' ')
       .trim();
   }
 
@@ -222,7 +276,7 @@ export class CompareModule {
       } else if (!sIdx && tIdx) {
         return { name, status: 'REMOVED', target: tIdx };
       } else if (sIdx && tIdx) {
-        const columnsChanged = JSON.stringify(sIdx.columns) !== JSON.stringify(tIdx.columns);
+        const columnsChanged = !this.sameColumns(sIdx.columns, tIdx.columns);
         const uniqueChanged = sIdx.unique !== tIdx.unique;
 
         if (columnsChanged || uniqueChanged) {
@@ -248,7 +302,7 @@ export class CompareModule {
       } else if (!sTrg && tTrg) {
         return { name, status: 'REMOVED' as const, target: tTrg };
       } else if (sTrg && tTrg) {
-        const defChanged = (sTrg.definition ?? '').trim() !== (tTrg.definition ?? '').trim();
+        const defChanged = this.normalizeDefinition(sTrg.definition) !== this.normalizeDefinition(tTrg.definition);
         if (defChanged) {
           return { name, status: 'MODIFIED' as const, source: sTrg, target: tTrg };
         }
@@ -272,9 +326,9 @@ export class CompareModule {
       } else if (!sFk && tFk) {
         return { name, status: 'REMOVED', target: tFk };
       } else if (sFk && tFk) {
-        const colChanged = JSON.stringify(sFk.columns) !== JSON.stringify(tFk.columns);
+        const colChanged = !this.sameColumns(sFk.columns, tFk.columns);
         const refTableChanged = this.key(sFk.referencedTable) !== this.key(tFk.referencedTable);
-        const refColChanged = JSON.stringify(sFk.referencedColumns) !== JSON.stringify(tFk.referencedColumns);
+        const refColChanged = !this.sameColumns(sFk.referencedColumns, tFk.referencedColumns);
 
         if (colChanged || refTableChanged || refColChanged) {
           return { name, status: 'MODIFIED', source: sFk, target: tFk };

@@ -1,4 +1,5 @@
 import type { SqlDialect, ColumnSpec } from '../../modules/sql-dialect.interface';
+import type { IndexInfo } from '../../interfaces';
 import { makeDialectTypeFns, plain, sized, sizedOr, decimalAs, warn } from '../../modules/type-mapping';
 
 const types = makeDialectTypeFns({
@@ -78,10 +79,18 @@ export const sqlServerSqlDialect: SqlDialect = {
   },
 
   setDefaultStatements(tableName: string, colName: string, defaultValue: string | undefined): string[] {
-    // SQL Server defaults are named constraints; changing one needs the existing
-    // constraint's name (not available here), so flag it for manual handling.
-    const action = defaultValue ? `set DEFAULT ${defaultValue}` : 'drop the DEFAULT';
-    return [`-- review: ${colName}: ${action} — SQL Server requires dropping the existing DEFAULT constraint by name first, then ALTER TABLE ${tableName} ADD DEFAULT ... FOR ${colName}`];
+    // SQL Server defaults are system-named constraints (DF__…), so drop the existing one
+    // by looking its name up dynamically (same pattern preDropTableStatements uses for
+    // FKs), then add the new default. Emitted as one T-SQL batch — the executor runs each
+    // statement as its own batch, so DECLARE/EXEC/ALTER together is fine.
+    const dropExisting =
+      `DECLARE @df sysname; ` +
+      `SELECT @df = dc.name FROM sys.default_constraints dc ` +
+      `JOIN sys.columns c ON c.object_id = dc.parent_object_id AND c.column_id = dc.parent_column_id ` +
+      `WHERE dc.parent_object_id = OBJECT_ID('${tableName}') AND c.name = '${colName}'; ` +
+      `IF @df IS NOT NULL EXEC('ALTER TABLE ${tableName} DROP CONSTRAINT [' + @df + ']');`;
+    if (defaultValue === undefined) return [dropExisting];
+    return [`${dropExisting} ALTER TABLE ${tableName} ADD DEFAULT ${defaultValue} FOR ${colName};`];
   },
 
   dropPrimaryKeyStatements(tableName: string, pkName: string | undefined): string[] {
@@ -89,8 +98,22 @@ export const sqlServerSqlDialect: SqlDialect = {
     return [`ALTER TABLE ${tableName} DROP CONSTRAINT ${constraint};`];
   },
 
-  dropIndexStatement(indexName: string, qualifiedTable: string): string {
+  dropIndexStatement(indexName: string, qualifiedTable: string, index?: IndexInfo): string {
+    // A unique-constraint-backing index cannot be dropped with DROP INDEX ("An explicit
+    // DROP INDEX is not allowed on index ... used for UNIQUE KEY constraint enforcement").
+    // It must be dropped as the constraint it enforces.
+    if (index?.constraint) return `ALTER TABLE ${qualifiedTable} DROP CONSTRAINT ${indexName};`;
     return `DROP INDEX ${indexName} ON ${qualifiedTable};`;
+  },
+
+  createIndexStatement(index: IndexInfo, qualifiedTable: string): string {
+    // Recreate a unique constraint as a constraint (so it round-trips as one), not as a
+    // plain unique index — the mirror of dropIndexStatement above.
+    if (index.constraint) {
+      return `ALTER TABLE ${qualifiedTable} ADD CONSTRAINT ${index.name} UNIQUE (${index.columns.join(', ')});`;
+    }
+    const uniqueStr = index.unique ? ' UNIQUE' : '';
+    return `CREATE${uniqueStr} INDEX ${index.name} ON ${qualifiedTable} (${index.columns.join(', ')});`;
   },
 
   dropTriggerStatement(triggerName: string, qualifiedTable: string): string {

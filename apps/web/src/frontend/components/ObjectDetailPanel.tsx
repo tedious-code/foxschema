@@ -6,6 +6,7 @@ import { findDropDependencies } from '../lib/dependency-scan';
 import { diffLines } from '../utils/lineDiff';
 import { highlightMatch } from '../utils/highlight';
 import { formatSql } from '../utils/formatSql';
+import type { TableDiff } from '../lib/types';
 import { MigrationProgressPanel } from './object-detail/MigrationProgressPanel';
 import { DeployConfirmDialog } from './object-detail/DeployConfirmDialog';
 import { DependencyWarningDialog } from './object-detail/DependencyWarningDialog';
@@ -23,6 +24,121 @@ const ddlGenerator = new SqlGeneratorModule();
 
 // Persisted "skip the deploy confirmation" preference.
 const SKIP_DEPLOY_CONFIRM_KEY = 'foxschema-skip-deploy-confirm';
+
+// ── Status-driven DDL diff for tables ────────────────────────────────────────
+// A raw text diff of two rendered CREATE TABLEs mis-reads a column *reorder* as a
+// change, and colours a source-only column as a deletion — when it's really an ADD
+// the migration will apply to the target. So for tables we drive the colouring from
+// the already-correct columnDiffs instead: render the source (the desired end state)
+// column-by-column, tag each line by its ColumnDiff status, then append the
+// target-only (REMOVED) columns. Same source of truth the column table uses.
+type DdlLineKind = 'added' | 'removed' | 'modified' | 'neutral';
+interface DdlDiffLine { kind: DdlLineKind; marker: string; text: string; }
+
+const kindForStatus = (status?: string): DdlLineKind =>
+  status === 'ADDED' ? 'added'
+    : status === 'REMOVED' ? 'removed'
+    : status === 'MODIFIED' ? 'modified'
+    : 'neutral';
+
+const markerForKind = (kind: DdlLineKind): string =>
+  kind === 'added' ? '+' : kind === 'removed' ? '-' : kind === 'modified' ? '~' : ' ';
+
+// Colour trailing CREATE INDEX / ADD CONSTRAINT lines by their own diff status.
+const trailingLineKind = (text: string, diff: TableDiff, baseIsSource: boolean): DdlLineKind => {
+  const idx = text.match(/^\s*CREATE(?:\s+UNIQUE)?\s+INDEX\s+(\S+)\s+ON\b/i);
+  if (idx) {
+    const st = (diff.indexDiffs ?? []).find((d) => d.name.toUpperCase() === idx[1].toUpperCase())?.status;
+    return baseIsSource ? kindForStatus(st) : 'removed';
+  }
+  const fk = text.match(/ADD\s+CONSTRAINT\s+(\S+)\s+FOREIGN\s+KEY\b/i);
+  if (fk) {
+    const st = (diff.foreignKeyDiffs ?? []).find((d) => d.name.toUpperCase() === fk[1].toUpperCase())?.status;
+    return baseIsSource ? kindForStatus(st) : 'removed';
+  }
+  return 'neutral';
+};
+
+function buildTableDdlDiffLines(
+  diff: TableDiff,
+  sourceDialect: string,
+  targetDialect: string,
+  strip: (ddl: string) => string,
+): DdlDiffLine[] {
+  const src = diff.sourceTable;
+  const tgt = diff.targetTable;
+  const base = src ?? tgt;
+  if (!base) return [];
+  const baseIsSource = !!src;
+
+  const colStatus = new Map<string, string>();
+  for (const c of diff.columnDiffs ?? []) colStatus.set(c.name.toUpperCase(), c.status);
+
+  const baseDialect = baseIsSource ? sourceDialect : targetDialect;
+  // Render the table WITHOUT triggers — generateObjectDdl only appends the raw trigger
+  // body (Oracle stores no CREATE TRIGGER header) and can't colour it, so we render
+  // triggers ourselves below with a name header + status colour.
+  const baseLines = strip(ddlGenerator.generateObjectDdl({ ...base, triggers: [] }, baseDialect)).split('\n');
+  const out: DdlDiffLine[] = [];
+
+  // renderCreateTable emits: header, one line per base.columns (in order), an optional
+  // PK line, then ");" — so column N is baseLines[1 + N].
+  out.push({ kind: 'neutral', marker: ' ', text: baseLines[0] ?? `CREATE TABLE ${base.name} (` });
+  let li = 1;
+  for (let c = 0; c < base.columns.length; c++, li++) {
+    const kind = baseIsSource ? kindForStatus(colStatus.get(base.columns[c].name.toUpperCase())) : 'removed';
+    out.push({ kind, marker: markerForKind(kind), text: baseLines[li] ?? '' });
+  }
+
+  // Target-only columns the migration will DROP — pull their rendered line from the
+  // target side and slot them in after the desired column set.
+  if (src && tgt) {
+    const tgtLines = strip(ddlGenerator.generateObjectDdl({ ...tgt, triggers: [] }, targetDialect)).split('\n');
+    tgt.columns.forEach((col, t) => {
+      if (colStatus.get(col.name.toUpperCase()) === 'REMOVED') {
+        out.push({ kind: 'removed', marker: '-', text: tgtLines[1 + t] ?? `  ${col.name}` });
+      }
+    });
+  }
+
+  // PK line, ");", and any CREATE INDEX / ADD CONSTRAINT lines appended after.
+  for (; li < baseLines.length; li++) {
+    const text = baseLines[li];
+    if (text === undefined) continue;
+    const kind = trailingLineKind(text, diff, baseIsSource);
+    out.push({ kind, marker: markerForKind(kind), text });
+  }
+
+  // Triggers — rendered from triggerDiffs so we surface the name (Oracle keeps only the
+  // raw body) and colour by status. Desired end-state triggers (source) first, then
+  // target-only (REMOVED) ones.
+  const pushTrigger = (
+    name: string,
+    trg: { timing?: string; event?: string; definition?: string },
+    kind: DdlLineKind,
+  ) => {
+    const marker = markerForKind(kind);
+    const meta = [trg.timing, trg.event].filter(Boolean).join(' ');
+    out.push({ kind, marker, text: `-- TRIGGER ${name}${meta ? ` (${meta})` : ''}` });
+    const body = (trg.definition ?? '').trim();
+    if (body) for (const bl of body.split('\n')) out.push({ kind, marker, text: bl });
+    else out.push({ kind, marker, text: '  -- no definition available' });
+  };
+  const trigDiffs = diff.triggerDiffs ?? [];
+  for (const td of trigDiffs) {
+    if (td.status === 'REMOVED') continue;
+    const trg = td.source ?? td.target;
+    if (trg) pushTrigger(td.name, trg, baseIsSource ? kindForStatus(td.status) : 'removed');
+  }
+  for (const td of trigDiffs) {
+    if (td.status === 'REMOVED' && td.target) pushTrigger(td.name, td.target, 'removed');
+  }
+
+  // Trim trailing blank lines left by the DDL generator.
+  while (out.length && out[out.length - 1].text.trim() === '') out.pop();
+
+  return out;
+}
 
 export const ObjectDetailPanel: React.FC = () => {
   const {
@@ -161,14 +277,23 @@ export const ObjectDetailPanel: React.FC = () => {
     };
 
     const isTable = selectedTable.objectType === 'TABLE';
-    const rawSource = selectedTable.sourceTable
+
+    // Tables: status-driven colouring from columnDiffs (aligns by column name, colours
+    // by what the migration DOES — see buildTableDdlDiffLines). Everything else
+    // (views/functions/triggers/sequences) keeps the Monaco text diff.
+    const tableLines = isTable
+      ? buildTableDdlDiffLines(selectedTable, sourceConfig.dialect, targetConfig.dialect, stripSchemas)
+      : [];
+    const q = searchTerm.trim().toLowerCase();
+
+    const rawSource = !isTable && selectedTable.sourceTable
       ? ddlGenerator.generateObjectDdl(selectedTable.sourceTable, sourceConfig.dialect)
       : '';
-    const rawTarget = selectedTable.targetTable
+    const rawTarget = !isTable && selectedTable.targetTable
       ? ddlGenerator.generateObjectDdl(selectedTable.targetTable, targetConfig.dialect)
       : '';
-    const sourceDdl = stripSchemas(isTable ? rawSource : formatSql(rawSource, sourceConfig.dialect));
-    const targetDdl = stripSchemas(isTable ? rawTarget : formatSql(rawTarget, targetConfig.dialect));
+    const sourceDdl = stripSchemas(formatSql(rawSource, sourceConfig.dialect));
+    const targetDdl = stripSchemas(formatSql(rawTarget, targetConfig.dialect));
 
     return (
       <div className="flex-1 flex flex-col min-h-0 bg-slate-950/90 border-t border-slate-850">
@@ -177,15 +302,23 @@ export const ObjectDetailPanel: React.FC = () => {
           <span className="text-xs font-mono text-slate-400 flex items-center gap-2">
             <span className="text-slate-300">{selectedTable.tableName}</span>
             <span className="text-slate-600">—</span>
-            {/* Orientation: source (left, original) → target (right, destination) —
-                matches the Source/Target connection panel layout in the top toolbar.
-                Monaco computes "what transforms original into modified" — so source is
-                original and target is modified. Diff highlight color signals what the
-                migration will DO to this object: green = new object, amber = existing
-                object's definition changed, red = object is being dropped. */}
-            <span className="text-slate-500 text-[10px] italic">Source (original)</span>
-            <span className="text-slate-600">→</span>
-            <span className="text-slate-500 text-[10px] italic">Target (destination)</span>
+            {isTable ? (
+              /* Tables show a single canonical view (source column order = the desired
+                 end state) with each line coloured by its ColumnDiff status. Colour =
+                 what the migration DOES to the target: green add, amber change, red drop. */
+              <span className="text-slate-500 text-[10px] italic">how the target will look after sync</span>
+            ) : (
+              <>
+                {/* Non-table objects (view/function/procedure/trigger) are replaced
+                    wholesale, so we diff in MIGRATION direction: current target (left)
+                    → desired source (right). Standard diff colours then read correctly —
+                    red = removed by the migration, green = added to reach the source
+                    definition — instead of being inverted. */}
+                <span className="text-slate-500 text-[10px] italic">Target (current)</span>
+                <span className="text-slate-600">→</span>
+                <span className="text-slate-500 text-[10px] italic">Source (desired)</span>
+              </>
+            )}
             <span className="ml-1 flex items-center gap-2 text-[10px]">
               {selectedTable.status === 'ADDED' && (
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-emerald-500/70"></span><span className="text-emerald-300/80">new object</span></span>
@@ -199,38 +332,77 @@ export const ObjectDetailPanel: React.FC = () => {
             </span>
           </span>
           <div className="flex items-center gap-3">
-            <label className="text-[10px] text-slate-400 flex items-center gap-1.5 cursor-pointer" title="Ignore identifier letter-case, matching how columns are compared">
-              <input
-                type="checkbox"
-                checked={ignoreCase}
-                onChange={(e) => setIgnoreCase(e.target.checked)}
-                className="w-3 h-3 accent-cyan-500 cursor-pointer"
-              />
-              Ignore case
-            </label>
-            <button
-              onClick={() => setInlineDiff((v) => !v)}
-              className="text-[10px] text-slate-300 border border-slate-700 hover:border-slate-500 rounded px-2 py-0.5 transition"
-            >
-              {inlineDiff ? 'Side-by-side' : 'Inline'}
-            </button>
+            {isTable ? (
+              <span className="flex items-center gap-2 text-[10px] text-slate-500">
+                <span className="flex items-center gap-1"><span className="text-emerald-400 font-bold">+</span>add</span>
+                <span className="flex items-center gap-1"><span className="text-amber-400 font-bold">~</span>change</span>
+                <span className="flex items-center gap-1"><span className="text-rose-400 font-bold">−</span>drop</span>
+              </span>
+            ) : (
+              <>
+                <label className="text-[10px] text-slate-400 flex items-center gap-1.5 cursor-pointer" title="Ignore identifier letter-case, matching how columns are compared">
+                  <input
+                    type="checkbox"
+                    checked={ignoreCase}
+                    onChange={(e) => setIgnoreCase(e.target.checked)}
+                    className="w-3 h-3 accent-cyan-500 cursor-pointer"
+                  />
+                  Ignore case
+                </label>
+                <button
+                  onClick={() => setInlineDiff((v) => !v)}
+                  className="text-[10px] text-slate-300 border border-slate-700 hover:border-slate-500 rounded px-2 py-0.5 transition"
+                >
+                  {inlineDiff ? 'Side-by-side' : 'Inline'}
+                </button>
+              </>
+            )}
           </div>
         </div>
 
         <div className="flex-1 min-h-0 relative">
-          <div className="absolute inset-0">
-            <Suspense fallback={<EditorFallback />}>
-              <SqlDiffEditor
-                original={sourceDdl}
-                modified={targetDdl}
-                dialect={targetConfig.dialect}
-                inline={inlineDiff}
-                ignoreCase={ignoreCase}
-                highlight={searchTerm}
-                status={selectedTable.status === 'ADDED' || selectedTable.status === 'REMOVED' ? selectedTable.status : 'MODIFIED'}
-              />
-            </Suspense>
-          </div>
+          {isTable ? (
+            <div className="absolute inset-0 overflow-auto bg-slate-950/90">
+              <table className="w-full font-mono text-[12px] border-collapse">
+                <tbody>
+                  {tableLines.map((line, i) => {
+                    const textClass =
+                      line.kind === 'added' ? 'text-emerald-300'
+                        : line.kind === 'removed' ? 'text-rose-300'
+                        : line.kind === 'modified' ? 'text-amber-300'
+                        : 'text-slate-300';
+                    const rowBg =
+                      line.kind === 'added' ? 'bg-emerald-500/10'
+                        : line.kind === 'removed' ? 'bg-rose-500/10'
+                        : line.kind === 'modified' ? 'bg-amber-500/10'
+                        : '';
+                    return (
+                      <tr key={i} className={rowBg}>
+                        <td className={`w-6 text-center select-none align-top ${textClass}`}>{line.marker}</td>
+                        <td className={`px-3 py-0.5 whitespace-pre ${textClass} ${line.kind === 'removed' ? 'line-through decoration-rose-500/30' : ''}`}>
+                          {highlightMatch(line.text, q)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="absolute inset-0">
+              <Suspense fallback={<EditorFallback />}>
+                <SqlDiffEditor
+                  original={targetDdl}
+                  modified={sourceDdl}
+                  dialect={targetConfig.dialect}
+                  inline={inlineDiff}
+                  ignoreCase={ignoreCase}
+                  highlight={searchTerm}
+                  status={selectedTable.status === 'ADDED' || selectedTable.status === 'REMOVED' ? selectedTable.status : 'MODIFIED'}
+                />
+              </Suspense>
+            </div>
+          )}
         </div>
       </div>
     );

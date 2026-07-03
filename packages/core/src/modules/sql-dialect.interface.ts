@@ -1,4 +1,4 @@
-import type { TableSchema } from '../interfaces';
+import type { TableSchema, IndexInfo } from '../interfaces';
 
 /** Minimal column info available in both full schema and diff contexts. */
 export interface ColumnSpec {
@@ -121,9 +121,19 @@ export interface SqlDialect {
 
   /**
    * DROP INDEX statement for the dialect. MySQL needs `DROP INDEX name ON table;`
-   * rather than the generic `DROP INDEX schema.name;`.
+   * rather than the generic `DROP INDEX schema.name;`. `index` (when supplied) carries
+   * the metadata being dropped so a dialect can special-case a constraint-backing index
+   * (SQL Server: `ALTER TABLE t DROP CONSTRAINT name`).
    */
-  dropIndexStatement?(indexName: string, qualifiedTable: string): string;
+  dropIndexStatement?(indexName: string, qualifiedTable: string, index?: IndexInfo): string;
+
+  /**
+   * CREATE INDEX statement for the dialect. The generic renderer emits
+   * `CREATE [UNIQUE] INDEX name ON table (cols)`. A dialect overrides this to render a
+   * constraint-backing index as its constraint form (SQL Server: `ALTER TABLE t ADD
+   * CONSTRAINT name UNIQUE (cols)`). `index.name` is already bare (unqualified).
+   */
+  createIndexStatement?(index: IndexInfo, qualifiedTable: string): string;
 
   /**
    * DROP TRIGGER statement for the dialect. MySQL needs `DROP TRIGGER IF EXISTS name;`.
@@ -221,6 +231,14 @@ export interface SqlDialect {
    * Implement in dialects that have their own type syntax (e.g. Postgres ENUM).
    */
   createTypeStatement?(schema: TableSchema): string | null;
+
+  /**
+   * The `ALTER SEQUENCE` clause that re-aligns the sequence's next value, returned with
+   * a leading space (e.g. ` RESTART WITH 1000`). Defaults to ` RESTART WITH <start>`.
+   * Oracle overrides this (different syntax / not supported pre-18c) to return '' so no
+   * invalid clause is emitted.
+   */
+  alterSequenceRestart?(start: string): string;
 }
 
 /** Full schema column — a superset of ColumnSpec, so assignable to it. */
