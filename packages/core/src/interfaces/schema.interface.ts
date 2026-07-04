@@ -129,6 +129,8 @@ export interface DbTable {
   indexes: DbIndex[];
   tablespace?: string;
   isMqt?: boolean;
+  /** Materialized view's backing query (Postgres matviews). Undefined for plain tables and for dialects that don't expose it (e.g. DB2 MQTs). */
+  definition?: string;
 }
 
 export interface DbColumn { name: string; type: string; length?: number; scale?: number; nullable: boolean; defaultValue?: string; identity?: boolean; identityGeneration?: string; collation?: string; }

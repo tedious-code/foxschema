@@ -191,6 +191,21 @@ export interface SqlDialect {
   alterViewStatement?(name: string, body: string): string;
 
   /**
+   * Full CREATE MATERIALIZED VIEW statement for an MQT-type object whose backing
+   * query was captured (currently: Postgres matviews — DB2 MQTs aren't queryable
+   * this way). Return undefined/omit to fall back to rendering it as a plain
+   * CREATE TABLE (structure-only, no defining query) — DB2's current behavior.
+   */
+  createMaterializedViewStatement?(name: string, body: string): string;
+
+  /**
+   * DROP statement for an MQT-type object. Default: `DROP TABLE IF EXISTS name;`
+   * (DB2 MQTs are dropped like any table). Postgres overrides with
+   * `DROP MATERIALIZED VIEW IF EXISTS name;` — Postgres rejects DROP TABLE on one.
+   */
+  dropMaterializedViewStatement?(name: string): string;
+
+  /**
    * Wrap the standard `CREATE SEQUENCE IF NOT EXISTS name ...` into a dialect-safe form.
    * Called with the qualified name and the full `CREATE SEQUENCE name ...;` string.
    * SQL Server has no `IF NOT EXISTS` for sequences — it uses an OBJECT_ID guard instead.

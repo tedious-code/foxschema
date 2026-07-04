@@ -21,6 +21,8 @@ export { SqlGeneratorModule } from './modules/sql-generator.module';
 export type { MigrationStep, SchemaMapping } from './modules/sql-generator.module';
 export { findDropDependencies } from './modules/dependency-scan';
 export type { DropDependency, DropDependencyOptions } from './modules/dependency-scan';
+export { findMissingFkTargets, findNarrowingTypeChanges, extractReviewNotices, validateMigrationPlan } from './modules/migration-validation';
+export type { ValidationIssue, ValidationSeverity, ValidationCode } from './modules/migration-validation';
 export { buildBrowseResult } from './modules/browse';
 export type { SqlDialect, CanonicalType, CanonicalBase, RenderedType } from './modules/sql-dialect.interface';
 export { resolveDialect, DIALECT_MAP } from './modules/dialect-registry';

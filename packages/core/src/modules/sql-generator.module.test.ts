@@ -65,6 +65,22 @@ describe('SqlGeneratorModule.generateObjectDdl', () => {
     // DB2 keeps its own syntax
     expect(gen.generateObjectDdl(t, 'db2')).toContain('MODE DB2SQL');
   });
+
+  it('renders a SQL Server user type as CREATE TYPE ... FROM, not DB2 MODE DB2SQL', () => {
+    const t = tableSchema({ name: 'EMAIL_TYPE', objectType: 'TYPE', userType: { sourceType: 'varchar(255)', metaType: 'D' } });
+    const ss = gen.generateObjectDdl(t, 'sqlserver');
+    expect(ss).toBe('CREATE TYPE EMAIL_TYPE FROM varchar(255);');
+    expect(ss).not.toContain('MODE DB2SQL');
+  });
+
+  it('renders MariaDB CREATE SEQUENCE with single-token NOCYCLE/NOCACHE', () => {
+    const t = tableSchema({ name: 'PLAIN_SEQ', objectType: 'SEQUENCE', sequence: { start: '1', increment: '1', cycle: false, cache: 0 } });
+    const ddl = gen.generateObjectDdl(t, 'mariadb');
+    expect(ddl).toContain('NOCYCLE');
+    expect(ddl).toContain('NOCACHE');
+    expect(ddl).not.toMatch(/NO CYCLE|NO CACHE/);
+    expect(ddl).toContain('CREATE SEQUENCE IF NOT EXISTS PLAIN_SEQ');
+  });
 });
 
 describe('SqlGeneratorModule.generateMigrationPlan', () => {
@@ -623,5 +639,45 @@ describe('SqlGeneratorModule.generateMigrationPlan', () => {
     };
     const stmts = gen.generateMigrationPlan([diff], 'mysql', { sourceDialect: 'postgres', targetDialect: 'mysql' }).flatMap((s) => s.statements);
     expect(stmts.some((s) => s.includes('en_US.utf8') || s.includes('COLLATE'))).toBe(false);
+  });
+});
+
+describe('SqlGeneratorModule materialized views (MQT)', () => {
+  const mv = tableSchema({
+    name: 'mv_test',
+    objectType: 'MQT',
+    definition: 'SELECT 1 AS id;',
+    columns: [{ name: 'id', type: 'integer', nullable: true, primaryKey: false }],
+  });
+
+  it('renders a Postgres matview as CREATE MATERIALIZED VIEW, not a plain CREATE TABLE', () => {
+    const diff: TableDiff = { tableName: 'MV_TEST', objectType: 'MQT', status: 'ADDED', columnDiffs: [], indexDiffs: [], foreignKeyDiffs: [], sourceTable: mv };
+    const stmts = gen.generateMigrationPlan([diff], 'postgres').flatMap((s) => s.statements);
+    expect(stmts.some((s) => /CREATE MATERIALIZED VIEW mv_test AS/.test(s))).toBe(true);
+    expect(stmts.some((s) => /^CREATE TABLE/.test(s))).toBe(false);
+  });
+
+  it('falls back to a plain CREATE TABLE for a dialect without matview support (DB2)', () => {
+    const diff: TableDiff = { tableName: 'MV_TEST', objectType: 'MQT', status: 'ADDED', columnDiffs: [], indexDiffs: [], foreignKeyDiffs: [], sourceTable: mv };
+    const stmts = gen.generateMigrationPlan([diff], 'db2').flatMap((s) => s.statements);
+    expect(stmts.some((s) => /^CREATE TABLE mv_test/.test(s))).toBe(true);
+    expect(stmts.some((s) => /CREATE MATERIALIZED VIEW/.test(s))).toBe(false);
+  });
+
+  it('drops and recreates a Postgres matview when its query changes (no in-place ALTER)', () => {
+    const diff: TableDiff = {
+      tableName: 'MV_TEST', objectType: 'MQT', status: 'MODIFIED', columnDiffs: [], indexDiffs: [], foreignKeyDiffs: [],
+      sourceTable: mv,
+      targetTable: tableSchema({ name: 'mv_test', objectType: 'MQT', definition: 'SELECT 1 AS id, 2 AS other;', columns: mv.columns }),
+    };
+    const stmts = gen.generateMigrationPlan([diff], 'postgres').flatMap((s) => s.statements);
+    expect(stmts[0]).toBe('DROP MATERIALIZED VIEW IF EXISTS mv_test;');
+    expect(stmts.some((s) => /CREATE MATERIALIZED VIEW mv_test AS/.test(s))).toBe(true);
+  });
+
+  it('drops a Postgres matview with DROP MATERIALIZED VIEW, not DROP TABLE', () => {
+    const diff: TableDiff = { tableName: 'MV_TEST', objectType: 'MQT', status: 'REMOVED', columnDiffs: [], indexDiffs: [], foreignKeyDiffs: [], targetTable: mv };
+    const stmts = gen.generateMigrationPlan([diff], 'postgres').flatMap((s) => s.statements);
+    expect(stmts).toEqual(['DROP MATERIALIZED VIEW IF EXISTS mv_test;']);
   });
 });

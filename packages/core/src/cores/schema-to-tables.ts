@@ -71,6 +71,7 @@ export function dbSchemaToTableSchemas(dbSchema: DbSchema): TableSchema[] {
     result.push({
       name: table.name,
       objectType: table.isMqt ? 'MQT' : 'TABLE',
+      definition: table.definition,
       tablespace: table.tablespace,
       triggers: triggersByTable.get(table.name) ?? [],
       primaryKey: pkColumns.length > 0

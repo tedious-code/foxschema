@@ -16,6 +16,7 @@ import {
   DbUniqueConstraint,
   DbIndex,
   DbIndexColumn,
+  DbSequence,
   TableSchema,
   RoutineParameter,
   RoutineParameterMode,
@@ -107,6 +108,14 @@ export class MysqlProvider implements SchemaProvider {
     }
   }
 
+  /**
+   * MySQL has no native sequence object (only AUTO_INCREMENT columns), so this is a
+   * no-op here. MariaDB (10.3+) has real CREATE SEQUENCE and overrides this.
+   */
+  protected async fetchSequences(_options: ConnectionOptions, _db: string): Promise<Record<string, DbSequence[]>> {
+    return {};
+  }
+
   async loadSchema(options: ConnectionOptions, schema: string): Promise<DbSchema> {
     // The "schema" is the database name for MySQL/MariaDB.
     const db = schema || options.database || options.schema || '';
@@ -125,6 +134,7 @@ export class MysqlProvider implements SchemaProvider {
         rawTriggers,
         rawRoutines,
         rawParams,
+        sequences,
       ] = await Promise.all([
         exec<MyTableRaw>(
           `SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES
@@ -173,6 +183,7 @@ export class MysqlProvider implements SchemaProvider {
            ORDER BY SPECIFIC_NAME, ORDINAL_POSITION`,
           [db]
         ),
+        this.fetchSequences(options, db),
       ]);
 
       const tables: Record<string, DbTable> = {};
@@ -180,8 +191,7 @@ export class MysqlProvider implements SchemaProvider {
       const functions: Record<string, DbProcedure[]> = {};
       const procedures: Record<string, DbProcedure[]> = {};
       const triggers: Record<string, DbTrigger[]> = {};
-      const sequences: Record<string, never[]> = {}; // MySQL has no sequences
-      const userTypes: Record<string, never[]> = {}; // nor user-defined types
+      const userTypes: Record<string, never[]> = {}; // MySQL/MariaDB have no user-defined types
       const primaryKeys: Record<string, DbPrimaryKey[]> = {};
       const foreignKeys: Record<string, DbForeignKey[]> = {};
       const uniqueConstraints: Record<string, DbUniqueConstraint[]> = {};
@@ -344,8 +354,7 @@ export class MysqlProvider implements SchemaProvider {
       }
 
       return {
-        tables, columns, functions, procedures, triggers,
-        sequences: sequences as Record<string, never[]>,
+        tables, columns, functions, procedures, triggers, sequences,
         userTypes: userTypes as Record<string, never[]>,
         primaryKeys, foreignKeys, uniqueConstraints, indexes, indexColumns, views,
       };

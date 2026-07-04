@@ -122,6 +122,21 @@ const mysqlDialect: SqlDialect = {
     return `CREATE TRIGGER ${trg.name} ${timing} ${event} ON ${qualifiedTable} FOR EACH ROW\n${trg.definition.trim()};`;
   },
 
+  // Only MariaDB (10.3+) ever has real SEQUENCE diffs to render — MySQL has none
+  // (fetchSequences returns {}), so this is safe to share on the one dialect
+  // object both mysqlSqlDialect and mariadbSqlDialect point to (kept as a single
+  // reference on purpose: isCrossDialect in sql-generator/compare compares dialect
+  // objects by identity, and MySQL/MariaDB must keep comparing equal). MariaDB's
+  // grammar wants NOCYCLE/NOCACHE as single tokens — "NO CYCLE"/"NO CACHE" (the
+  // generic renderer's default spacing) is a syntax error — and supports
+  // IF NOT EXISTS directly (unlike SQL Server's OBJECT_ID-guard workaround).
+  wrapCreateSequence(_qualifiedName: string, createSql: string): string {
+    return createSql
+      .replace(/\bNO CYCLE\b/g, 'NOCYCLE')
+      .replace(/\bNO CACHE\b/g, 'NOCACHE')
+      .replace(/^CREATE SEQUENCE /, 'CREATE SEQUENCE IF NOT EXISTS ');
+  },
+
   ...types,
 };
 
