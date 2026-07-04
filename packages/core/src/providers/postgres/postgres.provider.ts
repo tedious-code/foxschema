@@ -25,7 +25,7 @@ import {
 } from '../../interfaces';
 
 // pg_catalog raw shapes (lower-cased column names — pg folds unquoted identifiers)
-interface PgTableRaw { table_name: string; relkind: string; tablespace: string | null; }
+interface PgTableRaw { table_name: string; relkind: string; tablespace: string | null; definition: string | null; }
 interface PgColumnRaw { table_name: string; column_name: string; ordinal: number; data_type: string; not_null: boolean; default_value: string | null; identity: string; relkind: string; collation: string | null; }
 interface PgKeyRaw { table_name: string; constraint_name: string; column_name: string; col_seq: number; }
 interface PgFkRaw { table_name: string; constraint_name: string; column_name: string; ref_schema: string; ref_table: string; col_seq: number; }
@@ -156,7 +156,8 @@ export class PostgresProvider implements SchemaProvider {
         rawEnums,
       ] = await Promise.all([
         exec<PgTableRaw>(
-          `SELECT c.relname AS table_name, c.relkind, t.spcname AS tablespace
+          `SELECT c.relname AS table_name, c.relkind, t.spcname AS tablespace,
+                  CASE WHEN c.relkind = 'm' THEN pg_get_viewdef(c.oid, true) END AS definition
            FROM pg_class c
            JOIN pg_namespace n ON n.oid = c.relnamespace
            LEFT JOIN pg_tablespace t ON t.oid = c.reltablespace
@@ -333,6 +334,7 @@ export class PostgresProvider implements SchemaProvider {
           indexes: [],
           tablespace: t.tablespace ?? undefined,
           isMqt: t.relkind === 'm',
+          definition: t.definition ?? undefined,
         };
         columns[t.table_name] = [];
         primaryKeys[t.table_name] = [];

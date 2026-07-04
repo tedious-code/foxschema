@@ -3,6 +3,8 @@ import { useSyncStore } from '../store/useSyncStore';
 import { Code, Play, RefreshCw, FileText, CheckCircle2, ChevronRight, ChevronDown, KeyRound, Copy, GitCompareArrows, AlertTriangle } from 'lucide-react';
 import { SqlGeneratorModule } from '../lib/sql-generator';
 import { findDropDependencies } from '../lib/dependency-scan';
+import { findMissingFkTargets, findNarrowingTypeChanges, extractReviewNotices, resolveDialect } from '../lib/migration-validation';
+import { buildIncludedDiffs, buildMapping } from '../store/sync-helpers';
 import { diffLines } from '../utils/lineDiff';
 import { highlightMatch } from '../utils/highlight';
 import { formatSql } from '../utils/formatSql';
@@ -10,6 +12,7 @@ import type { TableDiff } from '../lib/types';
 import { MigrationProgressPanel } from './object-detail/MigrationProgressPanel';
 import { DeployConfirmDialog } from './object-detail/DeployConfirmDialog';
 import { DependencyWarningDialog } from './object-detail/DependencyWarningDialog';
+import { ValidationWarningsDialog } from './object-detail/ValidationWarningsDialog';
 // Monaco is heavy — load it only when a SQL surface is actually shown
 const SqlEditor = lazy(() => import('./SqlEditor').then((m) => ({ default: m.SqlEditor })));
 const SqlDiffEditor = lazy(() => import('./SqlEditor').then((m) => ({ default: m.SqlDiffEditor })));
@@ -160,6 +163,7 @@ export const ObjectDetailPanel: React.FC = () => {
     memberSelection,
     toggleMemberSelection,
     setAllMemberSelection,
+    targetServerVersion,
   } = useSyncStore();
 
   const includedCount = Object.values(syncSelection).filter(Boolean).length;
@@ -184,6 +188,10 @@ export const ObjectDetailPanel: React.FC = () => {
   // carrying forward consent for a plan the user never actually saw.
   const [destructiveAckSql, setDestructiveAckSql] = useState<string | null>(null);
   const [mysqlAckSql, setMysqlAckSql] = useState<string | null>(null);
+  const [narrowingAckSql, setNarrowingAckSql] = useState<string | null>(null);
+  const [showFkDialog, setShowFkDialog] = useState(false);
+  const [showNarrowingDialog, setShowNarrowingDialog] = useState(false);
+  const [showReviewDialog, setShowReviewDialog] = useState(false);
 
   // Live dependency scan — recomputed on every selection/nonDestructive change, not just
   // on Execute click, so the button can stay disabled until conflicts are resolved.
@@ -192,6 +200,31 @@ export const ObjectDetailPanel: React.FC = () => {
     [compareResult, syncSelection, nonDestructive]
   );
   const hasUnresolvedDropDeps = liveDropDeps.length > 0;
+
+  // Live pre-flight validation — missing FK targets, narrowing type changes, and the
+  // generator's own "-- review:" / "MANUAL REVIEW REQUIRED" notices surfaced up front
+  // instead of only inside the scrolled SQL preview.
+  const missingFkIssues = useMemo(
+    () => (compareResult ? findMissingFkTargets(compareResult.tables, syncSelection) : []),
+    [compareResult, syncSelection]
+  );
+  const narrowingIssues = useMemo(
+    () => (compareResult ? findNarrowingTypeChanges(compareResult.tables, syncSelection, resolveDialect(targetConfig.dialect)) : []),
+    [compareResult, syncSelection, targetConfig.dialect]
+  );
+  const reviewIssues = useMemo(() => {
+    if (!compareResult) return [];
+    const includedDiffs = buildIncludedDiffs(compareResult.tables, syncSelection, memberSelection);
+    const steps = ddlGenerator.generateMigrationPlan(
+      includedDiffs,
+      targetConfig.dialect,
+      buildMapping({ sourceConfig, targetConfig, nonDestructive, targetServerVersion })
+    );
+    return extractReviewNotices(steps);
+  }, [compareResult, syncSelection, memberSelection, sourceConfig, targetConfig, nonDestructive, targetServerVersion]);
+  const hasMissingFkTargets = missingFkIssues.length > 0;
+  const hasNarrowingChanges = narrowingIssues.length > 0;
+  const narrowingAcked = narrowingAckSql !== null && narrowingAckSql === generatedSql;
 
   // Destructive drops (DROP TABLE/COLUMN/INDEX) in the generated plan while non-destructive
   // mode is off — require an explicit checkbox acknowledgment before Execute unlocks.
@@ -1168,7 +1201,9 @@ export const ObjectDetailPanel: React.FC = () => {
   const executeBlockReason: string | null =
     includedCount === 0 ? 'No objects selected for deployment'
     : !targetConnected ? 'Target connection is not healthy — reconnect before deploying'
+    : hasMissingFkTargets ? `${missingFkIssues.length} foreign key(s) reference a table that won't exist in the target — resolve the conflicts below`
     : hasUnresolvedDropDeps ? `${liveDropDeps.length} dependent object(s) would break — resolve the conflicts below`
+    : hasNarrowingChanges && !narrowingAcked ? 'Acknowledge the narrowing type changes below before deploying'
     : hasDestructiveDrops && !destructiveDropsAcked ? 'Acknowledge the destructive drops below before deploying'
     : deploysRoutineToMySql && !mysqlRiskAcked ? 'Acknowledge the MySQL binlog privilege risk below before deploying'
     : null;
@@ -1268,6 +1303,27 @@ export const ObjectDetailPanel: React.FC = () => {
             onCancel={() => setShowDepsDialog(false)}
           />
 
+          <ValidationWarningsDialog
+            title="Foreign keys reference a missing table"
+            description="These foreign keys point at a table that won't exist in the target once this migration runs. Include the referenced table in the deploy, or deselect the foreign key change."
+            issues={showFkDialog ? missingFkIssues : []}
+            onCancel={() => setShowFkDialog(false)}
+          />
+
+          <ValidationWarningsDialog
+            title="Narrowing column type changes"
+            description="These columns are changing to a type that can hold less data than before — existing values may be truncated or rejected."
+            issues={showNarrowingDialog ? narrowingIssues : []}
+            onCancel={() => setShowNarrowingDialog(false)}
+          />
+
+          <ValidationWarningsDialog
+            title="Manual review notes"
+            description="The generator flagged these — usually a cross-dialect type mapping with no exact equivalent, or a procedural body it couldn't auto-translate. The migration is still runnable; review these before deploying."
+            issues={showReviewDialog ? reviewIssues : []}
+            onCancel={() => setShowReviewDialog(false)}
+          />
+
           <DeployConfirmDialog
             open={showConfirm}
             dialect={targetConfig.dialect}
@@ -1283,12 +1339,26 @@ export const ObjectDetailPanel: React.FC = () => {
       {/* Safety gate banner — anything that currently blocks Execute, with the
           action needed to clear it. Visible on every tab, not just Migration SQL,
           since Execute lives in the toolbar above regardless of active tab. */}
-      {!browseMode && (!targetConnected || hasUnresolvedDropDeps || (hasDestructiveDrops && !destructiveDropsAcked) || (deploysRoutineToMySql && !mysqlRiskAcked)) && (
+      {!browseMode && (!targetConnected || hasMissingFkTargets || hasUnresolvedDropDeps || hasNarrowingChanges || (hasDestructiveDrops && !destructiveDropsAcked) || (deploysRoutineToMySql && !mysqlRiskAcked) || reviewIssues.length > 0) && (
         <div className="border-b border-slate-800 bg-slate-950/60 divide-y divide-slate-800/60">
           {!targetConnected && (
             <div className="flex items-center gap-2.5 px-4 py-2 text-[11px] text-rose-300">
               <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-rose-400" />
               Target connection is not healthy — reconnect the target before deploying.
+            </div>
+          )}
+          {hasMissingFkTargets && (
+            <div className="flex items-center justify-between gap-2.5 px-4 py-2 text-[11px] text-rose-200">
+              <span className="flex items-center gap-2.5">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-rose-400" />
+                {missingFkIssues.length} foreign key{missingFkIssues.length === 1 ? '' : 's'} would reference a table missing from the target.
+              </span>
+              <button
+                onClick={() => setShowFkDialog(true)}
+                className="shrink-0 text-[10px] font-semibold rounded px-2 py-1 text-rose-200 bg-rose-950/50 border border-rose-500/40 hover:bg-rose-900/50 transition"
+              >
+                Review conflicts
+              </button>
             </div>
           )}
           {hasUnresolvedDropDeps && (
@@ -1302,6 +1372,44 @@ export const ObjectDetailPanel: React.FC = () => {
                 className="shrink-0 text-[10px] font-semibold rounded px-2 py-1 text-amber-200 bg-amber-950/50 border border-amber-500/40 hover:bg-amber-900/50 transition"
               >
                 Review conflicts
+              </button>
+            </div>
+          )}
+          {hasNarrowingChanges && (
+            <label className="flex items-center gap-2.5 px-4 py-2 text-[11px] text-amber-200 cursor-pointer">
+              <input
+                data-testid="ack-narrowing-types"
+                type="checkbox"
+                checked={narrowingAcked}
+                onChange={(e) => setNarrowingAckSql(e.target.checked ? generatedSql : null)}
+                className="w-3 h-3 accent-amber-500 cursor-pointer shrink-0"
+              />
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-400" />
+              {narrowingIssues.length} column type change{narrowingIssues.length === 1 ? '' : 's'} may truncate or reject existing data —{' '}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  setShowNarrowingDialog(true);
+                }}
+                className="underline hover:text-amber-100"
+              >
+                view details
+              </button>
+              . I understand and want to proceed.
+            </label>
+          )}
+          {reviewIssues.length > 0 && (
+            <div className="flex items-center justify-between gap-2.5 px-4 py-2 text-[11px] text-slate-400">
+              <span className="flex items-center gap-2.5">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-slate-500" />
+                {reviewIssues.length} note{reviewIssues.length === 1 ? '' : 's'} in the generated SQL need manual review.
+              </span>
+              <button
+                onClick={() => setShowReviewDialog(true)}
+                className="shrink-0 text-[10px] font-semibold rounded px-2 py-1 text-slate-300 bg-slate-800/50 border border-slate-700/40 hover:bg-slate-800 transition"
+              >
+                View notes
               </button>
             </div>
           )}

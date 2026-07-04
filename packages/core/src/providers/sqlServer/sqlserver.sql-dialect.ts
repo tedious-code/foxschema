@@ -1,5 +1,5 @@
 import type { SqlDialect, ColumnSpec } from '../../modules/sql-dialect.interface';
-import type { IndexInfo } from '../../interfaces';
+import type { IndexInfo, TableSchema } from '../../interfaces';
 import { makeDialectTypeFns, plain, sized, sizedOr, decimalAs, warn } from '../../modules/type-mapping';
 
 const types = makeDialectTypeFns({
@@ -133,6 +133,18 @@ export const sqlServerSqlDialect: SqlDialect = {
 
   alterViewStatement(name: string, body: string): string {
     return `ALTER VIEW ${name} AS\n${body}`;
+  },
+
+  // SQL Server's user-defined types are alias types (CREATE TYPE name FROM base_type),
+  // not DB2's "AS (...) MODE DB2SQL" attribute-list syntax — the generic renderer's
+  // fallback is invalid T-SQL. metaType 'D' is set by the provider for every row it
+  // reads (sqlserver.provider.ts has no other kind). SQL Server has no ALTER TYPE —
+  // a changed type must be dropped and recreated, which the generator's DROP+CREATE
+  // path for MODIFIED objects already does by calling this same renderer.
+  createTypeStatement(schema: TableSchema): string | null {
+    const u = schema.userType ?? {};
+    if (!u.sourceType) return null; // fall through to the generic renderer
+    return `CREATE TYPE ${schema.name} FROM ${u.sourceType};`;
   },
 
   // SQL Server has no CREATE SEQUENCE IF NOT EXISTS — use an OBJECT_ID existence check.

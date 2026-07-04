@@ -77,6 +77,15 @@ export const postgresSqlDialect: SqlDialect = {
     return `ALTER TABLE ${tableName} ADD COLUMN ${colDef};`;
   },
 
+  createMaterializedViewStatement(name: string, body: string): string {
+    // body already ends with ';' (see ensureSemicolon at the call site).
+    return `CREATE MATERIALIZED VIEW ${name} AS\n${body}`;
+  },
+
+  dropMaterializedViewStatement(name: string): string {
+    return `DROP MATERIALIZED VIEW IF EXISTS ${name};`;
+  },
+
   // Postgres's "default" pseudo-collation is a reserved word, and real collation
   // names often contain dots (en_US.utf8) — always double-quote, unlike the other
   // dialects' unquoted default.

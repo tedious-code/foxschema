@@ -292,6 +292,11 @@ export class SqlGeneratorModule {
       // (no CASCADE support); a no-op for dialects that don't implement the hook.
       statements.push(...(dialect?.preDropTableStatements?.(name) ?? []));
       statements.push(dialect?.dropTableStatement?.(name, ver) ?? `DROP TABLE IF EXISTS ${name};`);
+    } else if (obj.objectType === 'MQT') {
+      // Default matches the pre-existing (implicit) behavior for dialects without
+      // a dedicated hook (DB2 MQTs drop like a table). Postgres overrides with
+      // DROP MATERIALIZED VIEW — it rejects DROP TABLE on one.
+      statements.push(dialect?.dropMaterializedViewStatement?.(name) ?? `DROP TABLE IF EXISTS ${name};`);
     } else if (obj.objectType === 'VIEW') {
       statements.push(dialect?.dropViewStatement?.(name, ver) ?? `DROP VIEW IF EXISTS ${name};`);
     } else if (obj.objectType === 'FUNCTION') {
@@ -319,9 +324,16 @@ export class SqlGeneratorModule {
     // match key from compare.module.ts and may differ in casing on case-sensitive engines.
     const name = this.qualify(source?.name ?? obj.tableName, mapping);
 
-    if (obj.objectType === 'TABLE' && source) {
+    if ((obj.objectType === 'TABLE' || obj.objectType === 'MQT') && source) {
       const typeWarnings: string[] = [];
-      const createTable = this.renderCreateTable(source, dialect, mapping, typeWarnings);
+      // Postgres matviews (definition captured + dialect hook available) render as a
+      // true CREATE MATERIALIZED VIEW; DB2 MQTs and any other MQT without a captured
+      // backing query fall back to the plain CREATE TABLE shape used before this hook
+      // existed — same indices/FKs/triggers loops below still apply to either shape.
+      const createTable =
+        obj.objectType === 'MQT' && source.definition && dialect.createMaterializedViewStatement
+          ? dialect.createMaterializedViewStatement(name, this.ensureSemicolon(source.definition))
+          : this.renderCreateTable(source, dialect, mapping, typeWarnings);
       for (const w of typeWarnings) statements.push(`-- review: ${w}`);
 
       // Postgres serial columns reference a backing sequence in their DEFAULT
@@ -578,6 +590,16 @@ export class SqlGeneratorModule {
     } else if (obj.objectType === 'TYPE' && obj.sourceTable) {
       statements.push(`DROP TYPE ${tableName};`);
       statements.push(this.renderCreateType({ ...obj.sourceTable, name: tableName }, dialect));
+    } else if (obj.objectType === 'MQT' && obj.sourceTable?.definition && dialect.createMaterializedViewStatement) {
+      // Materialized views can't be altered in place when their backing query
+      // changes — drop and recreate (mirroring the TYPE branch above). Dialects
+      // without createMaterializedViewStatement (DB2) fall through to the
+      // generic TABLE-shaped handling further down, unchanged from before.
+      statements.push(dialect.dropMaterializedViewStatement?.(tableName) ?? `DROP TABLE IF EXISTS ${tableName};`);
+      statements.push(dialect.createMaterializedViewStatement(tableName, this.ensureSemicolon(obj.sourceTable.definition)));
+      for (const idx of obj.sourceTable.indices) {
+        statements.push(this.createIndexSql({ ...idx, name: this.bareName(idx.name) }, tableName, dialect));
+      }
     } else if (obj.objectType === 'ROLE') {
       const roleName = this.bareName(obj.tableName);
       for (const m of obj.columnDiffs) {
