@@ -43,6 +43,7 @@ interface AzColumnRaw {
   table_name: string; column_name: string; ordinal: number;
   type_name: string; max_length: number; precision: number; scale: number;
   is_nullable: boolean; is_identity: boolean; default_value: string | null; is_view: boolean;
+  collation_name: string | null;
 }
 interface AzPkRaw { table_name: string; constraint_name: string; column_name: string; col_seq: number; }
 interface AzFkRaw { table_name: string; constraint_name: string; column_name: string; ref_schema: string; ref_table: string; col_seq: number; }
@@ -158,7 +159,8 @@ export class AzureSqlProvider implements SchemaProvider {
       exec<AzColumnRaw>(
         `SELECT t.name AS table_name, c.name AS column_name, c.column_id AS ordinal,
                 tp.name AS type_name, c.max_length, c.precision, c.scale,
-                c.is_nullable, c.is_identity, dc.definition AS default_value, CAST(0 AS bit) AS is_view
+                c.is_nullable, c.is_identity, dc.definition AS default_value, CAST(0 AS bit) AS is_view,
+                c.collation_name
          FROM sys.columns c
          JOIN sys.tables t ON t.object_id = c.object_id
          JOIN sys.schemas sc ON sc.schema_id = t.schema_id
@@ -171,7 +173,8 @@ export class AzureSqlProvider implements SchemaProvider {
       exec<AzColumnRaw>(
         `SELECT v.name AS table_name, c.name AS column_name, c.column_id AS ordinal,
                 tp.name AS type_name, c.max_length, c.precision, c.scale,
-                c.is_nullable, CAST(0 AS bit) AS is_identity, NULL AS default_value, CAST(1 AS bit) AS is_view
+                c.is_nullable, CAST(0 AS bit) AS is_identity, NULL AS default_value, CAST(1 AS bit) AS is_view,
+                c.collation_name
          FROM sys.columns c
          JOIN sys.views v ON v.object_id = c.object_id
          JOIN sys.schemas sc ON sc.schema_id = v.schema_id
@@ -331,6 +334,7 @@ export class AzureSqlProvider implements SchemaProvider {
       defaultValue: normalizeSSDefault(c.default_value),
       identity: c.is_identity,
       identityGeneration: c.is_identity ? 'ALWAYS' : undefined,
+      collation: c.collation_name ?? undefined,
     });
     for (const col of rawCols) {
       const mapped = mapCol(col);

@@ -175,6 +175,14 @@ describe('CompareModule.compare', () => {
     expect(r.tables[0].status).toBe('UNCHANGED');
   });
 
+  it('ignores the schema on a MariaDB backtick-quoted nextval() sequence default', async () => {
+    const c = (sc: string) => col('ID', { type: 'bigint(20)', defaultValue: `nextval(\`${sc}\`.\`order_seq\`)` });
+    const src = table({ name: 'ORDERS', columns: [c('demo_a')] });
+    const tgt = table({ name: 'ORDERS', columns: [c('demo_b')] });
+    const r = await cmp.compare([src], [tgt], undefined, { source: 'demo_a', target: 'demo_b' });
+    expect(r.tables[0].status).toBe('UNCHANGED');
+  });
+
   it('compares index and foreign-key columns case-insensitively', async () => {
     // One schema reads columns lowercase, the other uppercase (e.g. after a migration
     // re-emits DDL) — the same columns must not read as a MODIFIED index/FK.
@@ -191,5 +199,34 @@ describe('CompareModule.compare', () => {
     const mk = (cols: string[]) => table({ name: 'PRODUCTS', indices: [{ name: 'IDX', columns: cols, unique: false }] });
     const r = await cmp.compare([mk(['sku', 'name'])], [mk(['sku'])]);
     expect(r.tables[0].status).toBe('MODIFIED');
+  });
+
+  it('flags a same-dialect collation difference as MODIFIED', async () => {
+    const src = table({ name: 'CUSTOMERS', columns: [col('NAME', { type: 'varchar(150)', collation: 'utf8mb4_unicode_ci' })] });
+    const tgt = table({ name: 'CUSTOMERS', columns: [col('NAME', { type: 'varchar(150)', collation: 'utf8mb4_general_ci' })] });
+    const r = await cmp.compare([src], [tgt], { source: 'mysql', target: 'mysql' });
+    expect(r.tables[0].status).toBe('MODIFIED');
+    expect(r.tables[0].columnDiffs.find((c) => c.name === 'NAME')?.status).toBe('MODIFIED');
+  });
+
+  it('does not flag identical same-dialect collations', async () => {
+    const mk = () => table({ name: 'CUSTOMERS', columns: [col('NAME', { type: 'varchar(150)', collation: 'utf8mb4_unicode_ci' })] });
+    const r = await cmp.compare([mk()], [mk()], { source: 'mysql', target: 'mysql' });
+    expect(r.tables[0].status).toBe('UNCHANGED');
+  });
+
+  it('ignores a collation difference across genuinely different dialects (not comparable vocabularies)', async () => {
+    const src = table({ name: 'CUSTOMERS', columns: [col('NAME', { type: 'varchar(150)', collation: 'utf8mb4_unicode_ci' })] });
+    const tgt = table({ name: 'CUSTOMERS', columns: [col('NAME', { type: 'character varying(150)', collation: 'en_US.utf8' })] });
+    const r = await cmp.compare([src], [tgt], { source: 'mysql', target: 'postgres' });
+    // Cross-dialect: type is canonically equal (varchar(150) both sides) and collation
+    // is skipped entirely — must not spuriously flag MODIFIED from collation alone.
+    expect(r.tables[0].columnDiffs.find((c) => c.name === 'NAME')?.status).toBe('UNCHANGED');
+  });
+
+  it('does not flag when neither side has a collation (non-character columns, or DB2)', async () => {
+    const mk = () => table({ name: 'ORDERS', columns: [col('ID', { type: 'int' })] });
+    const r = await cmp.compare([mk()], [mk()]);
+    expect(r.tables[0].status).toBe('UNCHANGED');
   });
 });

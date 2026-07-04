@@ -77,10 +77,45 @@ export class SqlGeneratorModule {
     return tgt ? `${tgt}.${bare}` : bare;
   }
 
+  /**
+   * Rewrites a source-schema qualifier embedded INSIDE a column default expression
+   * (most commonly a sequence reference like `nextval(\`schema\`.\`seq\`)` or
+   * `nextval('schema.seq')`) to the target schema. Providers read the default
+   * verbatim from the source database, so without this the migrated column's
+   * default keeps pointing at the source schema — wrong, and on some setups
+   * (e.g. a source-only DB user) not even reachable from the target. Handles
+   * bracket-, double-quote-, backtick-, and bare-qualified forms.
+   */
+  private requalifyDefault(defaultValue: string, mapping?: SchemaMapping): string {
+    const src = mapping?.sourceSchema?.trim();
+    const tgt = mapping?.targetSchema?.trim();
+    if (!src || !tgt || src.toUpperCase() === tgt.toUpperCase()) return defaultValue;
+    const esc = src.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return defaultValue
+      .replace(new RegExp(`\\[${esc}\\]\\s*\\.`, 'gi'), `[${tgt}].`)
+      .replace(new RegExp(`"${esc}"\\s*\\.`, 'gi'), `"${tgt}".`)
+      .replace(new RegExp('`' + esc + '`\\s*\\.', 'gi'), `\`${tgt}\`.`)
+      .replace(new RegExp(`\\b${esc}\\.`, 'gi'), `${tgt}.`);
+  }
+
   /** PK columns from the named constraint, falling back to per-column flags. */
   private primaryKeyColumns(table: TableSchema): string[] {
     if (table.primaryKey?.columns?.length) return table.primaryKey.columns;
     return table.columns.filter((c) => c.primaryKey).map((c) => c.name);
+  }
+
+  /**
+   * Same-column-set check that ignores identifier case (matching how the compare
+   * module already treats these as equal) — used before deciding to touch a
+   * table's primary key, so a native-casing difference alone never triggers a
+   * DROP+ADD PRIMARY KEY. That's not just noise: on MySQL/MariaDB, rebuilding a
+   * table's PK while another table holds an inbound FK to it can fail with
+   * errno 150 ("Foreign key constraint is incorrectly formed") on the rename
+   * step — a real error for a change that was never actually needed.
+   */
+  private sameColumnSet(a: string[], b: string[]): boolean {
+    if (a.length !== b.length) return false;
+    return a.every((c, i) => c.toUpperCase() === b[i].toUpperCase());
   }
 
   /** True when source and target dialects are both known and genuinely different. */
@@ -154,9 +189,13 @@ export class SqlGeneratorModule {
       typeSql = translated.sql + dialect.identityClause(c);
     }
     let def = `${c.name} ${typeSql}`;
+    // COLLATE goes right after the type on every dialect that supports a per-column
+    // collation (Postgres/MySQL/MariaDB/SQL Server/Oracle 12.2+), before DEFAULT/NOT
+    // NULL. Dialects that never populate collation (DB2) simply never hit this.
+    if (c.collation) def += dialect.columnCollateClause?.(c.collation) ?? ` COLLATE ${c.collation}`;
     if (!dialect.nullableTypeWrapper) {
       // Oracle requires DEFAULT before NOT NULL; the standard allows either order.
-      if (c.defaultValue) def += ` DEFAULT ${c.defaultValue}`;
+      if (c.defaultValue) def += ` DEFAULT ${this.requalifyDefault(c.defaultValue, mapping)}`;
       if (!c.nullable) def += ` NOT NULL`;
     }
     return def;
@@ -406,9 +445,10 @@ export class SqlGeneratorModule {
           addTypeSql = translated.sql;
         }
         let colDef = `${col.name} ${addTypeSql}`;
+        if (col.source.collation) colDef += dialect.columnCollateClause?.(col.source.collation) ?? ` COLLATE ${col.source.collation}`;
         if (!dialect.nullableTypeWrapper) {
           // Oracle requires DEFAULT before NOT NULL; the standard allows either order.
-          if (col.source.defaultValue) colDef += ` DEFAULT ${col.source.defaultValue}`;
+          if (col.source.defaultValue) colDef += ` DEFAULT ${this.requalifyDefault(col.source.defaultValue, mapping)}`;
           if (!col.source.nullable) colDef += ` NOT NULL`;
         }
         statements.push(dialect.addColumnStatement(tableName, colDef));
@@ -418,12 +458,14 @@ export class SqlGeneratorModule {
         if (!col.source) continue;
         const translated = this.translateType(col.source.type, mapping);
         if (translated.warning) statements.push(`-- review: ${col.name}: ${translated.warning}`);
-        // Cross-dialect: the raw default is source-dialect SQL — strip it so a
-        // hook (e.g. Postgres re-applying the default after a TYPE change) never
-        // emits it verbatim into the target dialect. The default-diff branch
-        // below flags it for manual review instead.
+        // Cross-dialect: the raw default AND collation are source-dialect vocabulary
+        // (collation names don't map across engines any more than default expressions
+        // do) — strip both so a hook never emits either verbatim into the target
+        // dialect. The default-diff branch below flags a default for manual review;
+        // collation differences are simply never compared cross-dialect (see
+        // CompareModule.collationChanged), so there's nothing to flag here.
         const colSpec = this.isCrossDialect(mapping)
-          ? { ...col.source, type: translated.sql, defaultValue: undefined }
+          ? { ...col.source, type: translated.sql, defaultValue: undefined, collation: undefined }
           : { ...col.source, type: translated.sql };
         statements.push(...dialect.modifyColumnStatements(tableName, col.name, colSpec, col.target?.nullable));
 
@@ -441,7 +483,8 @@ export class SqlGeneratorModule {
             // A new serial/sequence default needs its backing sequence to exist first.
             const seqForDefault = dialect.serialSequenceFromDefault?.(srcDef ?? '');
             if (seqForDefault) statements.push(`CREATE SEQUENCE IF NOT EXISTS ${this.qualify(seqForDefault, mapping)};`);
-            statements.push(...dialect.setDefaultStatements(tableName, col.name, srcDef));
+            const requalifiedDef = srcDef !== undefined ? this.requalifyDefault(srcDef, mapping) : srcDef;
+            statements.push(...dialect.setDefaultStatements(tableName, col.name, requalifiedDef));
           }
         }
       }
@@ -454,7 +497,7 @@ export class SqlGeneratorModule {
 
       const srcPk = obj.sourceTable ? this.primaryKeyColumns(obj.sourceTable) : [];
       const tgtPk = obj.targetTable ? this.primaryKeyColumns(obj.targetTable) : [];
-      if (JSON.stringify(srcPk) !== JSON.stringify(tgtPk)) {
+      if (!this.sameColumnSet(srcPk, tgtPk)) {
         if (tgtPk.length > 0) {
           const pkName = obj.targetTable?.primaryKey?.name
             ? this.bareName(obj.targetTable.primaryKey.name)
@@ -463,7 +506,10 @@ export class SqlGeneratorModule {
         }
         if (srcPk.length > 0) {
           const pkName = obj.sourceTable?.primaryKey?.name;
-          const constraint = pkName ? `CONSTRAINT ${this.bareName(pkName)} ` : '';
+          // MySQL/MariaDB always name the PK constraint "PRIMARY" — emitting
+          // CONSTRAINT PRIMARY PRIMARY KEY is invalid syntax. Skip the CONSTRAINT
+          // clause for that reserved name (mirrors renderCreateTable's guard).
+          const constraint = pkName && pkName.toUpperCase() !== 'PRIMARY' ? `CONSTRAINT ${this.bareName(pkName)} ` : '';
           statements.push(`ALTER TABLE ${tableName} ADD ${constraint}PRIMARY KEY (${srcPk.join(', ')});`);
         }
       }
@@ -485,15 +531,21 @@ export class SqlGeneratorModule {
         );
       }
 
+      // trg.name is the uppercased compare-key match name, not a real identifier — use
+      // the native-cased name from the actual side being touched. Several engines
+      // (MariaDB/MySQL on Linux) treat trigger names case-sensitively, so a DROP TRIGGER
+      // IF EXISTS issued with the wrong case silently no-ops instead of erroring, leaving
+      // the table permanently flagged as modified on every future compare.
       for (const trg of (obj.triggerDiffs ?? []).filter((t) => t.status === 'MODIFIED' || (t.status === 'REMOVED' && !mapping?.nonDestructive))) {
+        const dropName = trg.target?.name ?? trg.name;
         statements.push(
-          dialect.dropTriggerStatement?.(this.bareName(trg.name), tableName) ??
-          `DROP TRIGGER ${this.qualify(trg.name, mapping)};`
+          dialect.dropTriggerStatement?.(this.bareName(dropName), tableName) ??
+          `DROP TRIGGER ${this.qualify(dropName, mapping)};`
         );
       }
       for (const trg of (obj.triggerDiffs ?? []).filter((t) => t.status === 'ADDED' || t.status === 'MODIFIED')) {
         if (!trg.source?.definition) continue;
-        const trgSpec = { name: trg.name, timing: trg.source.timing, event: trg.source.event, definition: trg.source.definition };
+        const trgSpec = { name: trg.source.name, timing: trg.source.timing, event: trg.source.event, definition: trg.source.definition };
         const stmt = dialect.createTriggerStatement?.(trgSpec, tableName) ?? null;
         statements.push(stmt ?? trg.source.definition.trim());
       }

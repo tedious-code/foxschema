@@ -40,7 +40,7 @@ function normalizeSSDefault(raw: string | null): string | undefined {
 
 // sys catalog raw shapes (column names from mssql come out with original casing)
 interface SsTableRaw { table_name: string; }
-interface SsColumnRaw { table_name: string; column_name: string; ordinal: number; type_name: string; max_length: number; precision: number; scale: number; is_nullable: boolean; is_identity: boolean; default_value: string | null; is_view: boolean; }
+interface SsColumnRaw { table_name: string; column_name: string; ordinal: number; type_name: string; max_length: number; precision: number; scale: number; is_nullable: boolean; is_identity: boolean; default_value: string | null; is_view: boolean; collation_name: string | null; }
 interface SsPkRaw { table_name: string; constraint_name: string; column_name: string; col_seq: number; }
 interface SsFkRaw { table_name: string; constraint_name: string; column_name: string; ref_schema: string; ref_table: string; col_seq: number; }
 interface SsUcRaw { table_name: string; constraint_name: string; column_name: string; col_seq: number; }
@@ -154,7 +154,8 @@ export class SqlServerProvider implements SchemaProvider {
         `SELECT t.name AS table_name, c.name AS column_name, c.column_id AS ordinal,
                 tp.name AS type_name, c.max_length, c.precision, c.scale,
                 c.is_nullable, c.is_identity,
-                dc.definition AS default_value, CAST(0 AS bit) AS is_view
+                dc.definition AS default_value, CAST(0 AS bit) AS is_view,
+                c.collation_name
          FROM sys.columns c
          JOIN sys.tables t ON t.object_id = c.object_id
          JOIN sys.schemas sc ON sc.schema_id = t.schema_id
@@ -167,7 +168,8 @@ export class SqlServerProvider implements SchemaProvider {
       exec<SsColumnRaw>(
         `SELECT v.name AS table_name, c.name AS column_name, c.column_id AS ordinal,
                 tp.name AS type_name, c.max_length, c.precision, c.scale,
-                c.is_nullable, CAST(0 AS bit) AS is_identity, NULL AS default_value, CAST(1 AS bit) AS is_view
+                c.is_nullable, CAST(0 AS bit) AS is_identity, NULL AS default_value, CAST(1 AS bit) AS is_view,
+                c.collation_name
          FROM sys.columns c
          JOIN sys.views v ON v.object_id = c.object_id
          JOIN sys.schemas sc ON sc.schema_id = v.schema_id
@@ -328,6 +330,7 @@ export class SqlServerProvider implements SchemaProvider {
       defaultValue: normalizeSSDefault(col.default_value),
       identity: col.is_identity,
       identityGeneration: col.is_identity ? 'ALWAYS' : undefined,
+      collation: col.collation_name ?? undefined,
     });
 
     for (const col of rawCols) {

@@ -26,7 +26,7 @@ import {
 
 // pg_catalog raw shapes (lower-cased column names — pg folds unquoted identifiers)
 interface PgTableRaw { table_name: string; relkind: string; tablespace: string | null; }
-interface PgColumnRaw { table_name: string; column_name: string; ordinal: number; data_type: string; not_null: boolean; default_value: string | null; identity: string; relkind: string; }
+interface PgColumnRaw { table_name: string; column_name: string; ordinal: number; data_type: string; not_null: boolean; default_value: string | null; identity: string; relkind: string; collation: string | null; }
 interface PgKeyRaw { table_name: string; constraint_name: string; column_name: string; col_seq: number; }
 interface PgFkRaw { table_name: string; constraint_name: string; column_name: string; ref_schema: string; ref_table: string; col_seq: number; }
 interface PgIndexRaw { table_name: string; index_name: string; is_primary: boolean; is_unique: boolean; column_name: string; col_seq: number; }
@@ -170,11 +170,16 @@ export class PostgresProvider implements SchemaProvider {
                   a.attnotnull AS not_null,
                   pg_get_expr(d.adbin, d.adrelid) AS default_value,
                   a.attidentity AS identity,
-                  c.relkind
+                  c.relkind,
+                  coll.collname AS collation
            FROM pg_attribute a
            JOIN pg_class c ON c.oid = a.attrelid
            JOIN pg_namespace n ON n.oid = c.relnamespace
            LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+           -- attcollation = 0 for non-collatable types (int, timestamp, ...) — no join
+           -- match, collation stays null. Collatable types always join (even to the
+           -- pseudo-collation named "default" when no explicit COLLATE was set).
+           LEFT JOIN pg_collation coll ON coll.oid = a.attcollation
            WHERE n.nspname = $1 AND a.attnum > 0 AND NOT a.attisdropped
                  AND c.relkind IN ('r','p','m','v')
            ORDER BY c.relname, a.attnum`,
@@ -345,6 +350,7 @@ export class PostgresProvider implements SchemaProvider {
           defaultValue: col.default_value ?? undefined,
           identity: col.identity === 'a' || col.identity === 'd',
           identityGeneration: col.identity === 'a' ? 'ALWAYS' : col.identity === 'd' ? 'BY DEFAULT' : undefined,
+          collation: col.collation ?? undefined,
         };
         if (tables[col.table_name]) tables[col.table_name].columns[col.column_name] = mapped;
         (columns[col.table_name] ??= []).push(mapped);

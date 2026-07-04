@@ -77,6 +77,13 @@ export const postgresSqlDialect: SqlDialect = {
     return `ALTER TABLE ${tableName} ADD COLUMN ${colDef};`;
   },
 
+  // Postgres's "default" pseudo-collation is a reserved word, and real collation
+  // names often contain dots (en_US.utf8) — always double-quote, unlike the other
+  // dialects' unquoted default.
+  columnCollateClause(collation: string): string {
+    return ` COLLATE "${collation}"`;
+  },
+
   modifyColumnStatements(tableName: string, colName: string, col: ColumnSpec): string[] {
     // Postgres refuses ALTER COLUMN TYPE while the column has a DEFAULT it can't
     // auto-cast to the new type ("default for column ... cannot be cast
@@ -87,7 +94,9 @@ export const postgresSqlDialect: SqlDialect = {
     const stmts = [`ALTER TABLE ${tableName} ALTER COLUMN ${colName} DROP DEFAULT;`];
     // USING provides an explicit cast so Postgres doesn't rely on implicit coercion,
     // which may not exist for all type pairs (e.g. text → integer requires it).
-    stmts.push(`ALTER TABLE ${tableName} ALTER COLUMN ${colName} TYPE ${col.type} USING ${colName}::${col.type};`);
+    // COLLATE goes between the new type and USING.
+    const collateClause = col.collation ? this.columnCollateClause!(col.collation) : '';
+    stmts.push(`ALTER TABLE ${tableName} ALTER COLUMN ${colName} TYPE ${col.type}${collateClause} USING ${colName}::${col.type};`);
     if (col.nullable) {
       stmts.push(`ALTER TABLE ${tableName} ALTER COLUMN ${colName} DROP NOT NULL;`);
     } else {

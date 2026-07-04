@@ -42,6 +42,14 @@ export interface ColumnInfo {
   primaryKey: boolean;
   identity?: boolean;
   identityGeneration?: string;
+  /**
+   * Explicit column-level collation, only for collatable (character) types and
+   * only when the provider's catalog exposes one. Left undefined for
+   * non-character types, and for dialects with no true per-column collation
+   * (DB2) or when the value is the dialect's own "no explicit collation, use
+   * the session/database default" placeholder (e.g. Oracle's USING_NLS_COMP).
+   */
+  collation?: string;
 }
 
 export interface IndexInfo {
@@ -123,7 +131,7 @@ export interface DbTable {
   isMqt?: boolean;
 }
 
-export interface DbColumn { name: string; type: string; length?: number; scale?: number; nullable: boolean; defaultValue?: string; identity?: boolean; identityGeneration?: string; }
+export interface DbColumn { name: string; type: string; length?: number; scale?: number; nullable: boolean; defaultValue?: string; identity?: boolean; identityGeneration?: string; collation?: string; }
 export interface DbForeignKey { name: string; columns: string[]; referencedSchema: string; referencedTable: string; }
 export interface DbPrimaryKey { name: string; constName: string; column: string; colSeq: number; }
 export interface DbUniqueConstraint { name: string; columns: string[]; }

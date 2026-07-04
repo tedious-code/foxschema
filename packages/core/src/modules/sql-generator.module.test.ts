@@ -207,7 +207,7 @@ describe('SqlGeneratorModule.generateMigrationPlan', () => {
       triggerDiffs: [{
         name: 'TRG_CUSTOMER_CREATED',
         status: 'ADDED',
-        source: { definition: 'CREATE TRIGGER TRG_CUSTOMER_CREATED BEFORE INSERT ON CUSTOMERS FOR EACH ROW EXECUTE FUNCTION TRG_UPDATE_TS()' },
+        source: { name: 'TRG_CUSTOMER_CREATED', definition: 'CREATE TRIGGER TRG_CUSTOMER_CREATED BEFORE INSERT ON CUSTOMERS FOR EACH ROW EXECUTE FUNCTION TRG_UPDATE_TS()' },
       }],
     };
     const addedFunction: TableDiff = {
@@ -282,7 +282,7 @@ describe('SqlGeneratorModule.generateMigrationPlan', () => {
       columnDiffs: [],
       indexDiffs: [],
       foreignKeyDiffs: [],
-      triggerDiffs: [{ name: 'TRG', status: 'MODIFIED', source: { definition: 'CREATE TRIGGER TRG ...' } }],
+      triggerDiffs: [{ name: 'TRG', status: 'MODIFIED', source: { name: 'TRG', definition: 'CREATE TRIGGER TRG ...' } }],
     };
     const stmts = gen.generateMigrationPlan([diff], 'db2').flatMap((s) => s.statements);
     expect(stmts).toContain('DROP TRIGGER TRG;');
@@ -552,5 +552,76 @@ describe('SqlGeneratorModule.generateMigrationPlan', () => {
     expect(stmts.some((s) => /sys\.default_constraints/.test(s) && /DROP CONSTRAINT/.test(s))).toBe(true);
     expect(stmts.some((s) => /ADD DEFAULT 1 FOR qty/.test(s))).toBe(true);
     expect(stmts.some((s) => /^-- review:/.test(s))).toBe(false);
+  });
+
+  it('re-qualifies a backtick-quoted nextval() default to the target schema on SET DEFAULT', () => {
+    const diff: TableDiff = {
+      tableName: 'ORDERS', objectType: 'TABLE', status: 'MODIFIED',
+      columnDiffs: [{ name: 'ID', status: 'MODIFIED',
+        source: { type: 'bigint(20)', nullable: false, defaultValue: 'nextval(`demo_a`.`order_seq`)' },
+        target: { type: 'bigint(20)', nullable: false, defaultValue: 'nextval(`demo_b`.`order_seq`)' } }],
+      indexDiffs: [], foreignKeyDiffs: [],
+      sourceTable: tableSchema({ name: 'orders', columns: [{ name: 'id', type: 'bigint(20)', nullable: false, primaryKey: true, defaultValue: 'nextval(`demo_a`.`order_seq`)' }] }),
+      targetTable: tableSchema({ name: 'orders', columns: [{ name: 'id', type: 'bigint(20)', nullable: false, primaryKey: true, defaultValue: 'nextval(`demo_b`.`order_seq`)' }] }),
+    };
+    const stmts = gen.generateMigrationPlan([diff], 'mariadb', { sourceSchema: 'demo_a', targetSchema: 'demo_b' }).flatMap((s) => s.statements);
+    // Must reference the TARGET schema, never the source one, in the emitted default.
+    expect(stmts.some((s) => /SET DEFAULT nextval\(`demo_b`\.`order_seq`\)/.test(s))).toBe(true);
+    expect(stmts.some((s) => s.includes('demo_a'))).toBe(false);
+  });
+
+  it('renders COLLATE on CREATE TABLE and ADD COLUMN when a column carries a collation', () => {
+    const added: TableDiff = {
+      tableName: 'CUSTOMERS', objectType: 'TABLE', status: 'ADDED',
+      columnDiffs: [], indexDiffs: [], foreignKeyDiffs: [],
+      sourceTable: tableSchema({ name: 'customers', columns: [{ name: 'name', type: 'varchar(150)', nullable: false, primaryKey: false, collation: 'utf8mb4_unicode_ci' }] }),
+    };
+    const createSql = gen.generateMigrationPlan([added], 'mysql').flatMap((s) => s.statements).join('\n');
+    expect(createSql).toMatch(/name varchar\(150\) COLLATE utf8mb4_unicode_ci NOT NULL/);
+
+    const addCol: TableDiff = {
+      tableName: 'CUSTOMERS', objectType: 'TABLE', status: 'MODIFIED',
+      columnDiffs: [{ name: 'NICKNAME', status: 'ADDED', source: { type: 'varchar(50)', nullable: true, collation: 'utf8mb4_unicode_ci' } }],
+      indexDiffs: [], foreignKeyDiffs: [],
+      sourceTable: tableSchema({ name: 'customers', columns: [{ name: 'nickname', type: 'varchar(50)', nullable: true, primaryKey: false, collation: 'utf8mb4_unicode_ci' }] }),
+      targetTable: tableSchema({ name: 'customers', columns: [] }),
+    };
+    const addSql = gen.generateMigrationPlan([addCol], 'mysql').flatMap((s) => s.statements).join('\n');
+    expect(addSql).toMatch(/ADD NICKNAME varchar\(50\) COLLATE utf8mb4_unicode_ci/);
+  });
+
+  it('emits a dialect-correct COLLATE clause when modifying a column collation, per dialect', () => {
+    const diffFor = (type: string): TableDiff => ({
+      tableName: 'CUSTOMERS', objectType: 'TABLE', status: 'MODIFIED',
+      columnDiffs: [{ name: 'NAME', status: 'MODIFIED',
+        source: { type, nullable: false, collation: 'target_collation' },
+        target: { type, nullable: false, collation: 'source_collation' } }],
+      indexDiffs: [], foreignKeyDiffs: [],
+      sourceTable: tableSchema({ name: 'customers', columns: [{ name: 'name', type, nullable: false, primaryKey: false, collation: 'target_collation' }] }),
+      targetTable: tableSchema({ name: 'customers', columns: [{ name: 'name', type, nullable: false, primaryKey: false, collation: 'source_collation' }] }),
+    });
+
+    const mysqlSql = gen.generateMigrationPlan([diffFor('varchar(150)')], 'mysql').flatMap((s) => s.statements).join('\n');
+    expect(mysqlSql).toMatch(/MODIFY COLUMN NAME varchar\(150\) COLLATE target_collation/);
+
+    const pgSql = gen.generateMigrationPlan([diffFor('character varying(150)')], 'postgres').flatMap((s) => s.statements).join('\n');
+    expect(pgSql).toMatch(/TYPE character varying\(150\) COLLATE "target_collation" USING/);
+
+    const ssSql = gen.generateMigrationPlan([diffFor('nvarchar(150)')], 'sqlserver').flatMap((s) => s.statements).join('\n');
+    expect(ssSql).toMatch(/ALTER COLUMN NAME nvarchar\(150\) COLLATE target_collation/);
+  });
+
+  it('strips collation across a cross-dialect migration (collation names are not portable)', () => {
+    const diff: TableDiff = {
+      tableName: 'CUSTOMERS', objectType: 'TABLE', status: 'MODIFIED',
+      columnDiffs: [{ name: 'NAME', status: 'MODIFIED',
+        source: { type: 'character varying(150)', nullable: false, collation: 'en_US.utf8' },
+        target: { type: 'varchar(150)', nullable: false } }],
+      indexDiffs: [], foreignKeyDiffs: [],
+      sourceTable: tableSchema({ name: 'customers', columns: [{ name: 'name', type: 'character varying(150)', nullable: false, primaryKey: false, collation: 'en_US.utf8' }] }),
+      targetTable: tableSchema({ name: 'customers', columns: [{ name: 'name', type: 'varchar(150)', nullable: false, primaryKey: false }] }),
+    };
+    const stmts = gen.generateMigrationPlan([diff], 'mysql', { sourceDialect: 'postgres', targetDialect: 'mysql' }).flatMap((s) => s.statements);
+    expect(stmts.some((s) => s.includes('en_US.utf8') || s.includes('COLLATE'))).toBe(false);
   });
 });

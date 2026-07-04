@@ -104,7 +104,8 @@ export const oracleSqlDialect: SqlDialect = {
     // the existing nullability.
     const nullChanged = currentNullable === undefined || currentNullable !== col.nullable;
     const nullClause = nullChanged ? (col.nullable ? ' NULL' : ' NOT NULL') : '';
-    return [`ALTER TABLE ${tableName} MODIFY ${colName} ${col.type}${nullClause};`];
+    const collateClause = col.collation ? ` COLLATE ${col.collation}` : '';
+    return [`ALTER TABLE ${tableName} MODIFY ${colName} ${col.type}${collateClause}${nullClause};`];
   },
 
   dropColumnStatement(tableName: string, colName: string): string {

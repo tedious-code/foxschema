@@ -24,13 +24,13 @@ import {
 
 // ALL_* catalog raw shapes (Oracle folds unquoted identifiers to UPPER)
 interface OraTableRaw { TABLE_NAME: string; TABLESPACE_NAME: string | null; }
-interface OraColumnRaw { TABLE_NAME: string; COLUMN_NAME: string; COLUMN_ID: number; DATA_TYPE: string; DATA_LENGTH: number; DATA_PRECISION: number | null; DATA_SCALE: number | null; NULLABLE: string; DATA_DEFAULT: string | null; IDENTITY_COLUMN: string; }
+interface OraColumnRaw { TABLE_NAME: string; COLUMN_NAME: string; COLUMN_ID: number; DATA_TYPE: string; DATA_LENGTH: number; DATA_PRECISION: number | null; DATA_SCALE: number | null; NULLABLE: string; DATA_DEFAULT: string | null; IDENTITY_COLUMN: string; COLLATION: string | null; }
 interface OraConstraintRaw { CONSTRAINT_NAME: string; CONSTRAINT_TYPE: string; TABLE_NAME: string; R_CONSTRAINT_NAME: string | null; R_OWNER: string | null; }
 interface OraConsColRaw { CONSTRAINT_NAME: string; TABLE_NAME: string; COLUMN_NAME: string; POSITION: number; }
 interface OraIndexRaw { INDEX_NAME: string; TABLE_NAME: string; UNIQUENESS: string; }
 interface OraIndColRaw { INDEX_NAME: string; TABLE_NAME: string; COLUMN_NAME: string; COLUMN_POSITION: number; }
 interface OraViewRaw { VIEW_NAME: string; TEXT: string; }
-interface OraViewColRaw { TABLE_NAME: string; COLUMN_NAME: string; COLUMN_ID: number; DATA_TYPE: string; DATA_LENGTH: number; DATA_PRECISION: number | null; DATA_SCALE: number | null; NULLABLE: string; }
+interface OraViewColRaw { TABLE_NAME: string; COLUMN_NAME: string; COLUMN_ID: number; DATA_TYPE: string; DATA_LENGTH: number; DATA_PRECISION: number | null; DATA_SCALE: number | null; NULLABLE: string; COLLATION?: string | null; }
 interface OraTriggerRaw { TRIGGER_NAME: string; TABLE_NAME: string; TRIGGER_TYPE: string; TRIGGERING_EVENT: string; TRIGGER_BODY: string; }
 interface OraSourceRaw { NAME: string; TYPE: string; TEXT: string; LINE: number; }
 interface OraArgRaw { OBJECT_NAME: string; ARGUMENT_NAME: string | null; SEQUENCE: number; DATA_TYPE: string; IN_OUT: string; OBJECT_ID: number; }
@@ -138,12 +138,12 @@ export class OracleProvider implements SchemaProvider {
         [owner]
       ),
       exec<OraColumnRaw>(
-        `SELECT TABLE_NAME, COLUMN_NAME, COLUMN_ID, DATA_TYPE, DATA_LENGTH, DATA_PRECISION, DATA_SCALE, NULLABLE, DATA_DEFAULT, IDENTITY_COLUMN
+        `SELECT TABLE_NAME, COLUMN_NAME, COLUMN_ID, DATA_TYPE, DATA_LENGTH, DATA_PRECISION, DATA_SCALE, NULLABLE, DATA_DEFAULT, IDENTITY_COLUMN, COLLATION
          FROM ALL_TAB_COLUMNS WHERE OWNER = :1 ORDER BY TABLE_NAME, COLUMN_ID`,
         [owner]
       ),
       exec<OraViewColRaw>(
-        `SELECT c.TABLE_NAME, c.COLUMN_NAME, c.COLUMN_ID, c.DATA_TYPE, c.DATA_LENGTH, c.DATA_PRECISION, c.DATA_SCALE, c.NULLABLE
+        `SELECT c.TABLE_NAME, c.COLUMN_NAME, c.COLUMN_ID, c.DATA_TYPE, c.DATA_LENGTH, c.DATA_PRECISION, c.DATA_SCALE, c.NULLABLE, c.COLLATION
          FROM ALL_TAB_COLUMNS c JOIN ALL_VIEWS v ON v.VIEW_NAME = c.TABLE_NAME AND v.OWNER = c.OWNER
          WHERE c.OWNER = :1 ORDER BY c.TABLE_NAME, c.COLUMN_ID`,
         [owner]
@@ -267,6 +267,10 @@ export class OracleProvider implements SchemaProvider {
       // drop the internal default so the generator emits
       // `GENERATED ... AS IDENTITY` (via identityClause), not a nextval default.
       const isIdentity = (col as OraColumnRaw).IDENTITY_COLUMN === 'YES';
+      // COLLATION is 'USING_NLS_COMP' when no explicit column-level collation was set
+      // (the vast majority of columns) — that's Oracle's "use session/db defaults"
+      // placeholder, not a real named collation, so treat it the same as absent.
+      const collation = col.COLLATION && col.COLLATION !== 'USING_NLS_COMP' ? col.COLLATION : undefined;
       return {
         name: col.COLUMN_NAME,
         type: fmtOraType(col.DATA_TYPE, col.DATA_LENGTH, col.DATA_PRECISION, col.DATA_SCALE),
@@ -274,6 +278,7 @@ export class OracleProvider implements SchemaProvider {
         defaultValue: isIdentity ? undefined : ((col as OraColumnRaw).DATA_DEFAULT?.trim() ?? undefined),
         identity: isIdentity || undefined,
         identityGeneration: isIdentity ? 'ALWAYS' : undefined,
+        collation,
       };
     };
 

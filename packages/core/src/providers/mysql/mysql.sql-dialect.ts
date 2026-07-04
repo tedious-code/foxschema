@@ -79,7 +79,8 @@ const mysqlDialect: SqlDialect = {
   modifyColumnStatements(tableName: string, colName: string, col: ColumnSpec): string[] {
     const nullClause = col.nullable ? '' : ' NOT NULL';
     const identity = col.identity ? ' AUTO_INCREMENT' : '';
-    return [`ALTER TABLE ${tableName} MODIFY COLUMN ${colName} ${col.type}${identity}${nullClause};`];
+    const collateClause = col.collation ? ` COLLATE ${col.collation}` : '';
+    return [`ALTER TABLE ${tableName} MODIFY COLUMN ${colName} ${col.type}${collateClause}${identity}${nullClause};`];
   },
 
   dropColumnStatement(tableName: string, colName: string): string {
