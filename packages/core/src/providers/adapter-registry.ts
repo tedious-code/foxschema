@@ -15,7 +15,7 @@ export const ADAPTERS: Record<string, DriverAdapter> = {
   [db2Adapter.dialect]: db2Adapter,
   [postgresAdapter.dialect]: postgresAdapter,
   [mysqlAdapter.dialect]: mysqlAdapter,
-  mariadb: mysqlAdapter,
+  mariadb: mysqlAdapter, // MariaDB shares the mysql2 adapter (same wire protocol & driver).
   [sqlServerAdapter.dialect]: sqlServerAdapter,
   [oracleAdapter.dialect]: oracleAdapter,
   [sqliteAdapter.dialect]: sqliteAdapter,

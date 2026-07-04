@@ -180,13 +180,14 @@ export async function fetchSchemaList(ref: ConnectionRef): Promise<string[]> {
 export async function executeMigration(
   ref: ConnectionRef,
   steps: MigrationStep[],
-  onEvent: (e: MigrationEvent) => void
+  onEvent: (e: MigrationEvent) => void,
+  continueOnError?: boolean
 ): Promise<void> {
   const res = await fetch(`${getApiBase()}/migration/execute`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...ref, steps }),
+    body: JSON.stringify({ ...ref, steps, continueOnError: !!continueOnError }),
   });
 
   if (!res.ok || !res.body) {

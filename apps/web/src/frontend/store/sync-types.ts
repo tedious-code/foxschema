@@ -83,6 +83,15 @@ export interface SyncState {
   /** Additive mode: generate ADD/MODIFY only — never DROP anything in the target. */
   nonDestructive: boolean;
   setNonDestructive: (v: boolean) => void;
+  /**
+   * Continue past an object that fails to deploy instead of aborting/rolling back
+   * the whole run. On dialects with real transactional DDL (Postgres/DB2/SQL
+   * Server/Azure SQL) this uses a per-step SAVEPOINT so the failure doesn't poison
+   * the rest of the transaction; on MySQL/MariaDB/Oracle each DDL statement already
+   * auto-commits as it runs, so there's nothing extra to do.
+   */
+  continueOnError: boolean;
+  setContinueOnError: (v: boolean) => void;
   filterStatus: FilterStatus;
   searchTerm: string;
 

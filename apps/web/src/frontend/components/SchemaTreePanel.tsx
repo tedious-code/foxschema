@@ -93,6 +93,8 @@ export const SchemaTreePanel: React.FC = () => {
     setAllSyncSelection,
     nonDestructive,
     setNonDestructive,
+    continueOnError,
+    setContinueOnError,
   } = useSyncStore();
 
   const [panelWidth, setPanelWidth] = useState(340);
@@ -336,6 +338,23 @@ export const SchemaTreePanel: React.FC = () => {
               className="w-3 h-3 accent-emerald-500 cursor-pointer"
             />
             No drops
+          </label>
+          <label
+            className={`flex items-center gap-1.5 cursor-pointer text-[10px] font-semibold px-2 py-1 rounded border transition ${
+              continueOnError
+                ? 'text-amber-300 bg-amber-950/50 border-amber-500/40'
+                : 'text-slate-500 bg-slate-950/40 border-slate-800 hover:border-slate-700'
+            }`}
+            title="Skip failures: an object that fails to deploy is skipped instead of aborting and rolling back the whole run. Objects depending on a skipped one will likely fail too."
+          >
+            <input
+              data-testid="continue-on-error-checkbox"
+              type="checkbox"
+              checked={continueOnError}
+              onChange={(e) => setContinueOnError(e.target.checked)}
+              className="w-3 h-3 accent-amber-500 cursor-pointer"
+            />
+            Skip failures
           </label>
           <span className="text-xs text-slate-300 font-mono font-bold shrink-0">
             {includedCount} / {changedCount}

@@ -335,7 +335,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   });
 
   router.post('/migration/execute', async (req: Request, res: Response) => {
-    const { steps, ...ref } = req.body as ConnectionRef & { steps: MigrationStep[] };
+    const { steps, continueOnError, ...ref } = req.body as ConnectionRef & { steps: MigrationStep[]; continueOnError?: boolean };
     let dialect: string;
     let option: ConnectionOptions;
     let schema: string;
@@ -387,7 +387,12 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
           error: event.error,
         });
       } else if (event?.type === 'done') {
-        finalStatus = event.success ? 'SUCCESS' : event.rolledBack ? 'ROLLED_BACK' : 'FAILED';
+        // continueOnError can commit successfully while individual objects failed
+        // and were skipped — distinguish that from a clean run for the history log.
+        const anyObjectFailed = Array.from(resultMap.values()).some((r) => r.status === 'FAILED');
+        finalStatus = event.success
+          ? (anyObjectFailed ? 'PARTIAL_SUCCESS' : 'SUCCESS')
+          : event.rolledBack ? 'ROLLED_BACK' : 'FAILED';
         finalError = event.error;
       }
     };
@@ -406,7 +411,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       }
 
       // 2. Execute the plan in a single transaction, reporting per object
-      await migrationModule.execute(dialect, option, schema, steps, send);
+      await migrationModule.execute(dialect, option, schema, steps, send, { continueOnError: !!continueOnError });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Migration failed';
       finalStatus = 'FAILED';

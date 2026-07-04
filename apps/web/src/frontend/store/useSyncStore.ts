@@ -66,6 +66,7 @@ export const useSyncStore = create<SyncState>()(
   generatedSql: null,
   migrationExecuted: false,
   nonDestructive: false,
+  continueOnError: false,
   filterStatus: 'ALL',
   searchTerm: '',
   memberSelection: {},
@@ -188,6 +189,9 @@ export const useSyncStore = create<SyncState>()(
       migrationExecuted: false,
     });
   },
+
+  // Execution-mode only — doesn't change the generated SQL, so no regeneration needed.
+  setContinueOnError: (continueOnError) => set({ continueOnError }),
 
   setFilterStatus: (filterStatus) => set({ filterStatus }),
   setSearchTerm: (searchTerm) => set({ searchTerm }),
@@ -379,7 +383,7 @@ export const useSyncStore = create<SyncState>()(
   },
 
   applyMigration: async () => {
-    const { compareResult, syncSelection, targetConfig } = get();
+    const { compareResult, syncSelection, targetConfig, continueOnError } = get();
     if (!compareResult) return;
 
     const includedDiffs = compareResult.tables.filter((t) => syncSelection[t.tableName]);
@@ -423,7 +427,8 @@ export const useSyncStore = create<SyncState>()(
               migrationRolledBack: event.rolledBack,
             });
           }
-        }
+        },
+        continueOnError
       );
     } catch (e: any) {
       set({ migrationError: e.message || 'Migration failed' });

@@ -23,6 +23,8 @@ export { findDropDependencies } from './modules/dependency-scan';
 export type { DropDependency, DropDependencyOptions } from './modules/dependency-scan';
 export { findMissingFkTargets, findNarrowingTypeChanges, extractReviewNotices, validateMigrationPlan } from './modules/migration-validation';
 export type { ValidationIssue, ValidationSeverity, ValidationCode } from './modules/migration-validation';
+export { CROSS_DIALECT_READINESS } from './modules/cross-dialect-readiness';
+export type { ObjectTypeReadiness, ReadinessLevel } from './modules/cross-dialect-readiness';
 export { buildBrowseResult } from './modules/browse';
 export type { SqlDialect, CanonicalType, CanonicalBase, RenderedType } from './modules/sql-dialect.interface';
 export { resolveDialect, DIALECT_MAP } from './modules/dialect-registry';

@@ -24,6 +24,11 @@ export const MigrationProgressPanel: React.FC = () => {
 
   if (migrationProgress.length === 0) return null;
 
+  // continueOnError can finish with migrationError === null (the run committed)
+  // while individual objects still failed and were skipped — distinguish that
+  // from a clean run without treating it as the hard-failure/rollback case.
+  const failedCount = migrationProgress.filter((i) => i.status === 'FAILED').length;
+
   const downloadSnapshot = () => {
     if (!snapshotDdl) return;
     const url = URL.createObjectURL(new Blob([snapshotDdl], { type: 'text/sql' }));
@@ -39,13 +44,15 @@ export const MigrationProgressPanel: React.FC = () => {
     <div data-testid="migration-progress-panel" className="fixed bottom-6 right-6 w-[380px] max-h-[60vh] flex flex-col bg-slate-900/95 border border-slate-700 rounded-xl shadow-2xl backdrop-blur-md z-50 overflow-hidden">
       <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-950/60">
         <h4
-          data-testid={isMigrating ? 'migration-running' : migrationError ? 'migration-failed' : 'migration-complete'}
+          data-testid={isMigrating ? 'migration-running' : migrationError ? 'migration-failed' : failedCount > 0 ? 'migration-partial' : 'migration-complete'}
           className="text-xs font-bold text-slate-100 flex items-center gap-2"
         >
           {isMigrating ? (
             <><RefreshCw className="w-4 h-4 animate-spin text-cyan-400" /> Migrating Target...</>
           ) : migrationError ? (
             <><XCircle className="w-4 h-4 text-rose-400" /> Migration Failed</>
+          ) : failedCount > 0 ? (
+            <><AlertCircle className="w-4 h-4 text-amber-400" /> Completed With Failures</>
           ) : (
             <><CheckCircle2 className="w-4 h-4 text-emerald-400" /> Migration Complete</>
           )}
@@ -168,11 +175,17 @@ export const MigrationProgressPanel: React.FC = () => {
 
       {!isMigrating && !migrationError && (() => {
         const skipped = migrationProgress.filter((i) => i.status === 'SKIPPED').length;
-        const deployed = migrationProgress.length - skipped;
+        const deployed = migrationProgress.length - skipped - failedCount;
         return (
-          <div className="px-4 py-3 border-t border-slate-800 bg-emerald-950/20">
+          <div className={`px-4 py-3 border-t border-slate-800 ${failedCount > 0 ? 'bg-amber-950/20' : 'bg-emerald-950/20'}`}>
             <p className="text-[11px] text-slate-300">
               {deployed} object(s) deployed and committed to the target.
+              {failedCount > 0 && (
+                <span className="text-amber-400 ml-1">
+                  {failedCount} failed and {failedCount === 1 ? 'was' : 'were'} skipped — objects depending on{' '}
+                  {failedCount === 1 ? 'it' : 'them'} may have failed too; review the errors above.
+                </span>
+              )}
               {skipped > 0 && (
                 <span className="text-amber-400 ml-1">{skipped} skipped (no definition available).</span>
               )}
