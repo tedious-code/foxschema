@@ -84,6 +84,7 @@ export function dbSchemaToTableSchemas(dbSchema: DbSchema): TableSchema[] {
         primaryKey: pkSet.has(c.name),
         identity: c.identity,
         identityGeneration: c.identityGeneration,
+        collation: c.collation,
       })),
       // The primary ('P') index backs the PK constraint — not a standalone index.
       indices: table.indexes
@@ -113,6 +114,7 @@ export function dbSchemaToTableSchemas(dbSchema: DbSchema): TableSchema[] {
           primaryKey: false,
           identity: c.identity,
           identityGeneration: c.identityGeneration,
+          collation: c.collation,
         })),
         indices: [],
         foreignKeys: [],

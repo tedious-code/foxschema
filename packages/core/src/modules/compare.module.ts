@@ -169,8 +169,8 @@ export class CompareModule {
     let out = s;
     for (const schema of this.compareSchemas) {
       const esc = schema.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      // [schema]. | "schema". | schema.  → (removed)
-      out = out.replace(new RegExp(`(?:\\[${esc}\\]|"${esc}"|\\b${esc}\\b)\\s*\\.\\s*`, 'gi'), '');
+      // [schema]. | "schema". | `schema`. (MySQL/MariaDB) | schema.  → (removed)
+      out = out.replace(new RegExp(`(?:\\[${esc}\\]|"${esc}"|\`${esc}\`|\\b${esc}\\b)\\s*\\.\\s*`, 'gi'), '');
     }
     return out;
   }
@@ -233,6 +233,19 @@ export class CompareModule {
     return sourceType.toLowerCase() !== targetType.toLowerCase();
   }
 
+  /**
+   * Collation names are dialect-specific vocabulary (Postgres "en_US.utf8" vs
+   * MySQL "utf8mb4_unicode_ci" vs SQL Server "SQL_Latin1_General_CP1_CI_AS") with
+   * no cross-engine mapping, unlike types. A raw compare across genuinely
+   * different dialects would flag nearly every character column as changed, so
+   * this only fires within the same dialect (or a same-catalog family already
+   * treated as non-cross-dialect, e.g. MySQL/MariaDB, SQL Server/Azure SQL).
+   */
+  private collationChanged(source?: string, target?: string): boolean {
+    if (this.sourceDialect && this.targetDialect) return false;
+    return (source ?? '').trim().toUpperCase() !== (target ?? '').trim().toUpperCase();
+  }
+
   private compareColumns(sourceCols: ColumnInfo[], targetCols: ColumnInfo[]): ColumnDiff[] {
     const sMap = new Map(sourceCols.map((c) => [this.key(c.name), c]));
     const tMap = new Map(targetCols.map((c) => [this.key(c.name), c]));
@@ -252,8 +265,9 @@ export class CompareModule {
         const defaultChanged = this.normalizeDefault(sCol.defaultValue) !== this.normalizeDefault(tCol.defaultValue);
         const pkChanged = sCol.primaryKey !== tCol.primaryKey;
         const identityChanged = !!sCol.identity !== !!tCol.identity;
+        const collationChanged = this.collationChanged(sCol.collation, tCol.collation);
 
-        if (typeChanged || nullChanged || defaultChanged || pkChanged || identityChanged) {
+        if (typeChanged || nullChanged || defaultChanged || pkChanged || identityChanged || collationChanged) {
           return { name, status: 'MODIFIED', source: sCol, target: tCol };
         }
         return { name, status: 'UNCHANGED', source: sCol, target: tCol };

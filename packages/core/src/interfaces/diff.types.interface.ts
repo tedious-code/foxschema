@@ -5,8 +5,8 @@ export type DiffType = 'ADDED' | 'REMOVED' | 'MODIFIED' | 'UNCHANGED';
 export interface ColumnDiff {
   name: string;
   status: 'ADDED' | 'REMOVED' | 'MODIFIED' | 'UNCHANGED';
-  source?: { type: string; nullable: boolean; defaultValue?: string; primaryKey?: boolean; identity?: boolean };
-  target?: { type: string; nullable: boolean; defaultValue?: string; primaryKey?: boolean; identity?: boolean };
+  source?: { type: string; nullable: boolean; defaultValue?: string; primaryKey?: boolean; identity?: boolean; collation?: string };
+  target?: { type: string; nullable: boolean; defaultValue?: string; primaryKey?: boolean; identity?: boolean; collation?: string };
 }
 
 export interface IndexDiff {
@@ -24,10 +24,11 @@ export interface ForeignKeyDiff {
 }
 
 export interface TriggerDiff {
+  /** Uppercased compare-key match name — NOT a real identifier, see schema.name below. */
   name: string;
   status: 'ADDED' | 'REMOVED' | 'MODIFIED' | 'UNCHANGED';
-  source?: { timing?: string; event?: string; definition?: string };
-  target?: { timing?: string; event?: string; definition?: string };
+  source?: { name: string; timing?: string; event?: string; definition?: string };
+  target?: { name: string; timing?: string; event?: string; definition?: string };
 }
 
 export interface TableDiff {

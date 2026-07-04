@@ -71,7 +71,8 @@ export const sqlServerSqlDialect: SqlDialect = {
   modifyColumnStatements(tableName: string, colName: string, col: ColumnSpec): string[] {
     const nullClause = col.nullable ? ' NULL' : ' NOT NULL';
     const identity = col.identity ? ' IDENTITY(1,1)' : '';
-    return [`ALTER TABLE ${tableName} ALTER COLUMN ${colName} ${col.type}${identity}${nullClause};`];
+    const collateClause = col.collation ? ` COLLATE ${col.collation}` : '';
+    return [`ALTER TABLE ${tableName} ALTER COLUMN ${colName} ${col.type}${collateClause}${identity}${nullClause};`];
   },
 
   dropColumnStatement(tableName: string, colName: string): string {

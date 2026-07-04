@@ -42,7 +42,7 @@ function normalizeDefault(columnType: string, raw: string | null): string | unde
 
 // information_schema raw shapes (column names normalized to lower-case by mysql2)
 interface MyTableRaw { TABLE_NAME: string; TABLE_TYPE: string; }
-interface MyColumnRaw { TABLE_NAME: string; COLUMN_NAME: string; COLUMN_TYPE: string; IS_NULLABLE: string; COLUMN_DEFAULT: string | null; EXTRA: string; COLUMN_KEY: string; ORDINAL_POSITION: number; }
+interface MyColumnRaw { TABLE_NAME: string; COLUMN_NAME: string; COLUMN_TYPE: string; IS_NULLABLE: string; COLUMN_DEFAULT: string | null; EXTRA: string; COLUMN_KEY: string; ORDINAL_POSITION: number; COLLATION_NAME: string | null; }
 interface MyKeyRaw { TABLE_NAME: string; CONSTRAINT_NAME: string; COLUMN_NAME: string; ORDINAL_POSITION: number; REFERENCED_TABLE_SCHEMA: string | null; REFERENCED_TABLE_NAME: string | null; }
 interface MyIndexRaw { TABLE_NAME: string; INDEX_NAME: string; NON_UNIQUE: number; COLUMN_NAME: string; SEQ_IN_INDEX: number; COLLATION: string | null; }
 interface MyViewRaw { TABLE_NAME: string; VIEW_DEFINITION: string; }
@@ -132,7 +132,7 @@ export class MysqlProvider implements SchemaProvider {
           [db]
         ),
         exec<MyColumnRaw>(
-          `SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, EXTRA, COLUMN_KEY, ORDINAL_POSITION
+          `SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, EXTRA, COLUMN_KEY, ORDINAL_POSITION, COLLATION_NAME
            FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME, ORDINAL_POSITION`,
           [db]
         ),
@@ -215,6 +215,7 @@ export class MysqlProvider implements SchemaProvider {
           defaultValue: normalizeDefault(col.COLUMN_TYPE, col.COLUMN_DEFAULT),
           identity: /auto_increment/i.test(col.EXTRA),
           identityGeneration: /auto_increment/i.test(col.EXTRA) ? 'ALWAYS' : undefined,
+          collation: col.COLLATION_NAME ?? undefined,
         };
         if (tables[col.TABLE_NAME]) tables[col.TABLE_NAME].columns[col.COLUMN_NAME] = mapped;
         (columns[col.TABLE_NAME] ??= []).push(mapped);

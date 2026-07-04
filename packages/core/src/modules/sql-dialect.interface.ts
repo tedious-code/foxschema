@@ -8,6 +8,7 @@ export interface ColumnSpec {
   primaryKey?: boolean;
   identity?: boolean;
   identityGeneration?: string;
+  collation?: string;
 }
 
 /**
@@ -118,6 +119,15 @@ export interface SqlDialect {
    * appending NULL/NOT NULL; returns the full column type string.
    */
   nullableTypeWrapper?(typeSql: string, nullable: boolean): string;
+
+  /**
+   * Full ` COLLATE ...` clause (with leading space) for a column's collation, used in
+   * CREATE TABLE / ADD COLUMN. Default: ` COLLATE <name>`, unquoted — correct for
+   * MySQL/MariaDB/SQL Server/Oracle collation names. Postgres overrides this: its
+   * "default" pseudo-collation is a reserved word and collation names may contain
+   * dots (e.g. en_US.utf8), so it always double-quotes.
+   */
+  columnCollateClause?(collation: string): string;
 
   /**
    * DROP INDEX statement for the dialect. MySQL needs `DROP INDEX name ON table;`
