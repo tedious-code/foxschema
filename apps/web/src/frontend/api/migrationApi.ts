@@ -1,6 +1,6 @@
 import { getApiBase } from './apiBase';
 
-export type MigrationRunStatus = 'RUNNING' | 'SUCCESS' | 'FAILED' | 'ROLLED_BACK';
+export type MigrationRunStatus = 'RUNNING' | 'SUCCESS' | 'PARTIAL_SUCCESS' | 'FAILED' | 'ROLLED_BACK';
 
 export interface MigrationObjectResult {
   name: string;

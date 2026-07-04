@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { getStore } from '../database/store';
 
-export type MigrationRunStatus = 'RUNNING' | 'SUCCESS' | 'FAILED' | 'ROLLED_BACK';
+/** PARTIAL_SUCCESS: committed, but continueOnError mode skipped one or more failed objects. */
+export type MigrationRunStatus = 'RUNNING' | 'SUCCESS' | 'PARTIAL_SUCCESS' | 'FAILED' | 'ROLLED_BACK';
 
 export interface MigrationObjectResult {
   name: string;

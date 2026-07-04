@@ -13,6 +13,7 @@ import { MigrationProgressPanel } from './object-detail/MigrationProgressPanel';
 import { DeployConfirmDialog } from './object-detail/DeployConfirmDialog';
 import { DependencyWarningDialog } from './object-detail/DependencyWarningDialog';
 import { ValidationWarningsDialog } from './object-detail/ValidationWarningsDialog';
+import { CrossDialectReadinessDialog } from './object-detail/CrossDialectReadinessDialog';
 // Monaco is heavy — load it only when a SQL surface is actually shown
 const SqlEditor = lazy(() => import('./SqlEditor').then((m) => ({ default: m.SqlEditor })));
 const SqlDiffEditor = lazy(() => import('./SqlEditor').then((m) => ({ default: m.SqlDiffEditor })));
@@ -192,6 +193,7 @@ export const ObjectDetailPanel: React.FC = () => {
   const [showFkDialog, setShowFkDialog] = useState(false);
   const [showNarrowingDialog, setShowNarrowingDialog] = useState(false);
   const [showReviewDialog, setShowReviewDialog] = useState(false);
+  const [showReadinessDialog, setShowReadinessDialog] = useState(false);
 
   // Live dependency scan — recomputed on every selection/nonDestructive change, not just
   // on Execute click, so the button can stay disabled until conflicts are resolved.
@@ -590,12 +592,13 @@ export const ObjectDetailPanel: React.FC = () => {
               Target Dialect: {targetConfig.dialect.toUpperCase()}
             </div>
             {sourceConfig.dialect !== targetConfig.dialect && (
-              <div
-                className="text-[10px] text-amber-300 font-mono bg-amber-950/40 border border-amber-500/30 px-3 py-1 rounded"
-                title="Cross-dialect migration — column types are translated; review the generated DDL and any MANUAL REVIEW blocks"
+              <button
+                onClick={() => setShowReadinessDialog(true)}
+                className="text-[10px] text-amber-300 font-mono bg-amber-950/40 border border-amber-500/30 px-3 py-1 rounded hover:bg-amber-900/40 transition cursor-pointer"
+                title="Cross-dialect migration — click for a per-object-type breakdown of what's translated vs. flagged for manual review"
               >
-                Cross-dialect: {sourceConfig.dialect.toUpperCase()} → {targetConfig.dialect.toUpperCase()} · review DDL
-              </div>
+                Cross-dialect: {sourceConfig.dialect.toUpperCase()} → {targetConfig.dialect.toUpperCase()} · view readiness
+              </button>
             )}
           </div>
         </div>
@@ -1322,6 +1325,13 @@ export const ObjectDetailPanel: React.FC = () => {
             description="The generator flagged these — usually a cross-dialect type mapping with no exact equivalent, or a procedural body it couldn't auto-translate. The migration is still runnable; review these before deploying."
             issues={showReviewDialog ? reviewIssues : []}
             onCancel={() => setShowReviewDialog(false)}
+          />
+
+          <CrossDialectReadinessDialog
+            open={showReadinessDialog}
+            sourceDialect={sourceConfig.dialect}
+            targetDialect={targetConfig.dialect}
+            onClose={() => setShowReadinessDialog(false)}
           />
 
           <DeployConfirmDialog

@@ -208,6 +208,12 @@ export class CompareModule {
    */
   private normalizeDefault(d: string | undefined | null): string {
     if (d == null) return '';
+    // DEFAULT NULL is semantically identical to having no default. MariaDB's
+    // information_schema reports the literal string 'NULL' for nullable
+    // no-default columns (MySQL 8 reports a real NULL there), so without this
+    // a MariaDB side false-flags every nullable column against any engine
+    // that reports "no default" as absent.
+    if (d.trim().toUpperCase() === 'NULL') return '';
     // Drop schema qualifiers first, so SQL Server `NEXT VALUE FOR [demo_a].[order_seq]`
     // matches its migrated `[demo_b].[order_seq]` counterpart.
     return this.stripSchemaQualifiers(d)

@@ -21,6 +21,7 @@ interface Props {
 
 const STATUS: Record<MigrationRunStatus, { label: string; cls: string }> = {
   SUCCESS: { label: 'Success', cls: 'text-emerald-400 bg-emerald-950/40 border-emerald-500/25' },
+  PARTIAL_SUCCESS: { label: 'Partial (skipped failures)', cls: 'text-amber-400 bg-amber-950/40 border-amber-500/25' },
   FAILED: { label: 'Failed', cls: 'text-rose-400 bg-rose-950/40 border-rose-500/25' },
   ROLLED_BACK: { label: 'Rolled back', cls: 'text-amber-400 bg-amber-950/40 border-amber-500/25' },
   RUNNING: { label: 'Running', cls: 'text-cyan-400 bg-cyan-950/40 border-cyan-500/25' },

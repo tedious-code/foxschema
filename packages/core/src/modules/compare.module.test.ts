@@ -183,6 +183,16 @@ describe('CompareModule.compare', () => {
     expect(r.tables[0].status).toBe('UNCHANGED');
   });
 
+  it("treats a literal 'NULL' default as no default (MariaDB reports 'NULL' for nullable no-default columns)", async () => {
+    // MariaDB's information_schema returns the string 'NULL' where MySQL 8 / Postgres
+    // report absence — semantically identical (DEFAULT NULL ≡ no default), so a
+    // cross-engine compare must not flag every nullable column as MODIFIED.
+    const src = table({ name: 'T', columns: [col('C', { type: 'varchar(120)', nullable: true })] });
+    const tgt = table({ name: 'T', columns: [col('C', { type: 'varchar(120)', nullable: true, defaultValue: 'NULL' })] });
+    const r = await cmp.compare([src], [tgt], { source: 'postgres', target: 'mariadb' });
+    expect(r.tables[0].status).toBe('UNCHANGED');
+  });
+
   it('compares index and foreign-key columns case-insensitively', async () => {
     // One schema reads columns lowercase, the other uppercase (e.g. after a migration
     // re-emits DDL) — the same columns must not read as a MODIFIED index/FK.
