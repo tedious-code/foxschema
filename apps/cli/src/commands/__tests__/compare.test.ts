@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { runCompare } from '../compare';
 import * as connectionRef from '../../runtime/connectionRef';
 import * as engine from '../../runtime/engine';
