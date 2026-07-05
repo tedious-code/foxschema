@@ -32,7 +32,7 @@ export async function resolveRef(flags: RefFlags): Promise<ResolvedRef> {
     const ctx = await getContext();
     const list = await ctx.connections.list(ctx.userId);
     const match = list.find((c) => c.id === flags.connection || c.name === flags.connection);
-    if (!match) throw new Error(`Saved connection "${flags.connection}" not found (see \`foxschema connections list\`).`);
+    if (!match) throw new Error(`Saved connection "${flags.connection}" not found (see \`fox connections list\`).`);
     const resolved = await ctx.connections.resolve(ctx.userId, match.id);
     if (!resolved) throw new Error('Could not decrypt the saved connection.');
     return { dialect: resolved.dialect, option: resolved.option, schema: flags.schema ?? resolved.schema ?? '' };

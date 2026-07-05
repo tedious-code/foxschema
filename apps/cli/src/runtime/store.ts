@@ -20,11 +20,11 @@ let ctx: CliContext | null = null;
 export async function getContext(): Promise<CliContext> {
   if (ctx) return ctx;
   if (!readConfig().setupComplete) {
-    throw new Error('Not set up yet — run `foxschema setup` first.');
+    throw new Error('Not set up yet — run `fox setup` first.');
   }
   if (!applyEnv()) {
     throw new Error(
-      'Encryption key unavailable (keychain locked or moved). Re-run `foxschema setup`, or set FOXSCHEMA_KEY.'
+      'Encryption key unavailable (keychain locked or moved). Re-run `fox setup`, or set FOXSCHEMA_KEY.'
     );
   }
   const user = await new AuthModule().ensureLocalUser();

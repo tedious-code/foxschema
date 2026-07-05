@@ -175,7 +175,7 @@ export const postgresSqlDialect: SqlDialect = {
       `    BEGIN`,
       `      EXECUTE 'CREATE VIEW '||r.vname||' AS '||r.vdef;`,
       `    EXCEPTION WHEN OTHERS THEN`,
-      `      RAISE EXCEPTION 'FoxSchema: cannot restore dependent view % after the table changes (%). It references a column that was dropped or incompatibly retyped. Include this view in the migration so it gets the new definition, or drop/update it manually, then retry.', r.vname, SQLERRM;`,
+      `      RAISE EXCEPTION 'Fox: cannot restore dependent view % after the table changes (%). It references a column that was dropped or incompatibly retyped. Include this view in the migration so it gets the new definition, or drop/update it manually, then retry.', r.vname, SQLERRM;`,
       `    END;`,
       `  END LOOP;`,
       `  DROP TABLE ${tmp};`,

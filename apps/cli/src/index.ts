@@ -27,15 +27,15 @@ function withRefOptions(cmd: import('commander').Command): import('commander').C
 const program = new Command();
 
 program
-  .name('foxschema')
-  .description('FoxSchema — database schema diff & migration, in your terminal')
+  .name('fox')
+  .description('Fox schema cli — database schema diff & migration, in your terminal')
   .version(VERSION, '-v, --version');
 
 program
   .command('version')
   .description('Show the version and runtime info')
   .action(() => {
-    console.log(`FoxSchema CLI ${chalk.bold('v' + VERSION)}`);
+    console.log(`Fox CLI ${chalk.bold('v' + VERSION)}`);
     console.log(chalk.dim(`node ${process.version} · ${process.platform} ${process.arch}`));
   });
 

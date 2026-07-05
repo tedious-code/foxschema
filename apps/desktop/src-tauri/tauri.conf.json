@@ -1,6 +1,6 @@
 {
   "$schema": "../../../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "FoxSchema",
+  "productName": "Fox",
   "version": "0.0.14",
   "identifier": "com.foxschema.desktop",
   "build": {
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "FoxSchema",
+        "title": "Fox",
         "width": 1400,
         "height": 900,
         "minWidth": 1000,

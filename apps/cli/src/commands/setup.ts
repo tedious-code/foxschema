@@ -55,7 +55,7 @@ export async function runSetup(opts: { email?: string }): Promise<void> {
   writeConfig(cfg);
 
   console.log();
-  console.log(chalk.green.bold('✔ FoxSchema is set up.'));
+  console.log(chalk.green.bold('✔ Fox is set up.'));
   console.log(`  ${chalk.dim('email')}     ${email}`);
   console.log(
     `  ${chalk.dim('key')}       ${created ? 'generated and stored' : 'reused'} in the OS keychain ${chalk.dim('(never on disk)')}`
@@ -63,5 +63,5 @@ export async function runSetup(opts: { email?: string }): Promise<void> {
   console.log(`  ${chalk.dim('database')}  sqlite · ${cfg.dbPath}`);
   console.log(`  ${chalk.dim('config')}    ${CONFIG_FILE}`);
   console.log();
-  console.log(chalk.dim('Next: `foxschema --help`. A copied database can’t be decrypted on another machine.'));
+  console.log(chalk.dim('Next: `fox --help`. A copied database can’t be decrypted on another machine.'));
 }

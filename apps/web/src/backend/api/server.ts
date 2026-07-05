@@ -91,7 +91,7 @@ export function startServer(port = Number(process.env.API_PORT) || 3001) {
   const app = createApp();
 
   const server = app.listen(port, () => {
-    console.log(`FoxSchema API listening on http://localhost:${port}`);
+    console.log(`Fox API listening on http://localhost:${port}`);
   });
 
   // Drain connection pools on shutdown so the process exits cleanly

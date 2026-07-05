@@ -97,7 +97,7 @@ export const SetupScreen: React.FC<{ initial: SetupState; onDone: (s: SetupState
               )}
             </div>
             <p className="text-[11px] text-slate-500 leading-relaxed">
-              FoxSchema stores its data in a local SQLite database here. You can switch to your own Postgres or MySQL
+              Fox stores its data in a local SQLite database here. You can switch to your own Postgres or MySQL
               server later in Settings → Database.
             </p>
           </div>

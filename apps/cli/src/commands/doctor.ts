@@ -14,12 +14,12 @@ function safe<T>(fn: () => T): T | null {
 /** Environment + engine-wiring + setup diagnostics. */
 export async function runDoctor(): Promise<void> {
   const c = readConfig();
-  console.log(chalk.bold('FoxSchema CLI — doctor'));
+  console.log(chalk.bold('Fox CLI — doctor'));
   console.log(`  node             ${process.version}`);
   console.log(`  config dir       ${CONFIG_DIR}`);
   console.log(`  config file      ${CONFIG_FILE}`);
   console.log(
-    `  setup complete   ${c.setupComplete ? chalk.green('yes') : chalk.yellow('no — run `foxschema setup`')}`
+    `  setup complete   ${c.setupComplete ? chalk.green('yes') : chalk.yellow('no — run `fox setup`')}`
   );
   if (c.email) {
     const hasKey = process.env.FOXSCHEMA_KEY ? true : !!safe(() => getDek(c.email));

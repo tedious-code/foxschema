@@ -183,7 +183,7 @@ export const DatabaseSettings: React.FC<{ info: AppInfo }> = ({ info }) => {
       )}
 
       <p className="text-[11px] text-slate-500 leading-relaxed">
-        FoxSchema stores its own data (connections, history, settings) here, encrypted with your keychain key.
+        Fox stores its own data (connections, history, settings) here, encrypted with your keychain key.
         Switching engines restarts the app and starts an empty store on the new database — existing data isn't copied.
       </p>
 

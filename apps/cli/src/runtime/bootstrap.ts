@@ -42,12 +42,12 @@ export function applyEnv(): boolean {
 /** Guard for commands that need the store: ensure setup ran and apply env. */
 export function requireReady(): void {
   if (!readConfig().setupComplete) {
-    throw new Error('Not set up yet — run `foxschema setup` first.');
+    throw new Error('Not set up yet — run `fox setup` first.');
   }
   if (!applyEnv()) {
     throw new Error(
       'Encryption key unavailable (keychain locked or on a different machine). ' +
-        'Re-run `foxschema setup`, or set FOXSCHEMA_KEY for headless use.'
+        'Re-run `fox setup`, or set FOXSCHEMA_KEY for headless use.'
     );
   }
 }

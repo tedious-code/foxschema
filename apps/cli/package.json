@@ -3,13 +3,13 @@
   "version": "0.0.14",
   "private": true,
   "type": "module",
-  "description": "FoxSchema — database schema diff & migration, in your terminal",
+  "description": "Fox schema cli — database schema diff & migration, in your terminal",
   "bin": {
-    "foxschema": "dist/index.js"
+    "fox": "dist/index.js"
   },
   "scripts": {
     "dev": "tsx src/index.ts",
-    "foxschema": "tsx src/index.ts",
+    "fox": "tsx src/index.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "node build.mjs",
     "build:binary": "node build-binary.mjs"

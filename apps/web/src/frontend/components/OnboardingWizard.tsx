@@ -98,7 +98,7 @@ export const OnboardingWizard: React.FC = () => {
 
         <div className="flex items-center justify-center gap-1.5 mt-8 text-slate-700">
           <Database className="w-3.5 h-3.5" />
-          <span className="text-[10px] uppercase tracking-wider">FoxSchema</span>
+          <span className="text-[10px] uppercase tracking-wider">Fox</span>
         </div>
       </div>
     </div>
