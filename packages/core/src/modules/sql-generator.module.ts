@@ -789,7 +789,7 @@ export class SqlGeneratorModule {
 
   generateMigrationSql(diffs: TableDiff[], dialectStr: string, mapping?: SchemaMapping): string {
     let sql = `-- =========================================================================\n`;
-    sql += `-- FoxSchema Generated Migration Script\n`;
+    sql += `-- Fox Generated Migration Script\n`;
     sql += `-- Dialect: ${dialectStr.toUpperCase()}\n`;
     if (mapping?.sourceSchema) {
       sql += `-- Source Schema: ${mapping.sourceSchema.toUpperCase()}\n`;

@@ -2,7 +2,7 @@ import type { Page } from 'playwright';
 import { BASE_URL, waitFor, clickWhen } from '../helpers/driver.js';
 
 /**
- * Page object for the main FoxSchema comparison workspace.
+ * Page object for the main Fox comparison workspace.
  * All selectors match the data-testid attributes set in the React components.
  */
 export class AppPage {

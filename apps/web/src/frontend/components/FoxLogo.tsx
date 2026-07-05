@@ -1,8 +1,8 @@
 import React from 'react';
 
-// FoxSchema brand mark — the orange fox. Transparent background (single path),
+// Fox brand mark — the orange fox. Transparent background (single path),
 // so it sits cleanly on dark or light surfaces. Color via the `color` prop;
-// defaults to the FoxSchema brand orange.
+// defaults to the Fox brand orange.
 export const FOX_ORANGE = '#F26B21';
 
 export const FoxLogo: React.FC<{ size?: number; color?: string; className?: string }> = ({
@@ -16,7 +16,7 @@ export const FoxLogo: React.FC<{ size?: number; color?: string; className?: stri
     viewBox="0 0 1024 1024"
     className={className}
     role="img"
-    aria-label="FoxSchema"
+    aria-label="Fox"
     fill={color}
     xmlns="http://www.w3.org/2000/svg"
   >

@@ -1,11 +1,10 @@
 import React from 'react';
 import { FoxLogo, FOX_ORANGE } from './FoxLogo';
 
-/** "FoxSchema" wordmark — "Fox" in brand orange, "Schema" in the theme foreground. */
+/** "Fox" wordmark — rendered in the brand orange. */
 export const Wordmark: React.FC<{ className?: string }> = ({ className }) => (
   <span className={`tracking-tight antialiased ${className ?? ''}`}>
     <span style={{ color: FOX_ORANGE }}>Fox</span>
-    <span className="text-slate-100">Schema</span>
   </span>
 );
 

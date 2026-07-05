@@ -69,7 +69,7 @@ const results = [];
 const bar = '─'.repeat(60);
 
 console.log('\n' + bar);
-console.log(`  FoxSchema E2E — running ${configured.length} dialect(s)`);
+console.log(`  Fox E2E — running ${configured.length} dialect(s)`);
 console.log(bar + '\n');
 
 for (const dialect of configured) {

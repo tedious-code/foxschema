@@ -332,8 +332,8 @@ describe('SqlGeneratorModule.generateMigrationPlan', () => {
     expect(pre).toContain('rw.ev_class');
     expect(pre).toMatch(/refobjid = 'app\.ORDERS'::regclass/);
     // recreate must re-RAISE on failure (never swallow) so the whole migration rolls
-    // back, but with a clear FoxSchema message rather than a bare catalog error.
-    expect(stmts[postIdx]).toMatch(/RAISE EXCEPTION 'FoxSchema:/);
+    // back, but with a clear Fox message rather than a bare catalog error.
+    expect(stmts[postIdx]).toMatch(/RAISE EXCEPTION 'Fox:/);
   });
 
   it('guards a Postgres DROP COLUMN (not just type changes) but skips ADD-only changes', () => {

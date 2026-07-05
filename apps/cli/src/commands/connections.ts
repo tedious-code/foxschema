@@ -8,7 +8,7 @@ export async function listConnections(): Promise<void> {
   const ctx = await getContext();
   const rows = await ctx.connections.list(ctx.userId);
   if (rows.length === 0) {
-    console.log(chalk.dim('No saved connections. Add one with `foxschema connections add`.'));
+    console.log(chalk.dim('No saved connections. Add one with `fox connections add`.'));
     return;
   }
   for (const c of rows) {

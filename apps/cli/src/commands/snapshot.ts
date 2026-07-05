@@ -8,7 +8,7 @@ export async function runSnapshot(opts: RefFlags & { scope?: string; out?: strin
   const ref = await resolveRef(opts);
   const tables = await loadScopedTables(ref.dialect, ref.option, ref.schema, parseScope(opts.scope));
   const header =
-    `-- FoxSchema snapshot · ${ref.dialect} · schema ${ref.schema || '(default)'} · ${new Date().toISOString()}\n` +
+    `-- Fox snapshot · ${ref.dialect} · schema ${ref.schema || '(default)'} · ${new Date().toISOString()}\n` +
     `-- ${tables.length} object(s)\n\n`;
   const ddl = header + tables.map((t) => sqlGenerator.generateObjectDdl(t)).join('\n\n') + '\n';
 
