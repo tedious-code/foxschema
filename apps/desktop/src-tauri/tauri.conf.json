@@ -1,7 +1,7 @@
 {
   "$schema": "../../../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Fox",
-  "version": "0.0.14",
+  "productName": "FoxSchema",
+  "version": "0.0.15",
   "identifier": "com.foxschema.desktop",
   "build": {
     "frontendDist": "frontendDist",
