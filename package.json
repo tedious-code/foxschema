@@ -2,7 +2,7 @@
   "name": "foxschema",
   "author": "huyplb",
   "private": true,
-  "version": "0.0.15",
+  "version": "0.0.16",
   "type": "module",
   "license": "BSD-2-Clause",
   "workspaces": [
