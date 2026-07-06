@@ -4,7 +4,7 @@ use std::net::TcpListener;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use rand::RngCore;
+use rand::RngExt;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, RunEvent, State};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
@@ -65,7 +65,7 @@ fn free_port() -> u16 {
 
 fn random_key_hex() -> String {
     let mut bytes = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    rand::rng().fill(&mut bytes);
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
