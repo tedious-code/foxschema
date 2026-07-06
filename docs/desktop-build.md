@@ -43,6 +43,11 @@ git push origin v0.1.0
 
 You can also run it manually from the **Actions → Desktop Release → Run workflow** button.
 
+Once you hit **Publish** on the draft, `.github/workflows/release-checksums.yml` (triggered
+by the release's `published` event) downloads every attached installer, generates a
+`SHA256SUMS.txt`, and uploads it back to the same release — so anyone downloading an
+installer can verify it wasn't corrupted or tampered with in transit.
+
 ## Local builds (per OS)
 
 Prerequisites everywhere: **Node 22+**, **Rust (stable)**, repo deps installed (`npm install`
