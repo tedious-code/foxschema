@@ -3,7 +3,7 @@
   "version": "0.0.18",
   "private": true,
   "type": "module",
-  "description": "Fox schema cli — database schema diff & migration, in your terminal",
+  "description": "Fox Schema CLI — database schema diff & migration, in your terminal",
   "bin": {
     "fox": "dist/index.js"
   },

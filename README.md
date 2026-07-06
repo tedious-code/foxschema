@@ -1,6 +1,6 @@
 <div align="center">
 
-# Fox schema
+# Fox Schema
 
 **Compare two database schemas, see exactly what differs, and generate the migration SQL to make them match — across 10 SQL dialects.**
 
