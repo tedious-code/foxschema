@@ -15,6 +15,13 @@ export default defineConfig({
     alias: [
       { find: '@foxschema/core', replacement: pkg('../../packages/core/src/browser.ts') },
     ],
+    // Force a single copy of React resolved from this app's node_modules. The
+    // monorepo also contains the Ink-based CLI, which pins react@18; npm hoists
+    // that copy to the repo-root node_modules while nesting web's react@19 under
+    // apps/web. Without deduping, react-dom (hoisted to the root) binds to the
+    // root react@18 and crashes at runtime ("Cannot read properties of undefined
+    // (reading 'S')" — a react/react-dom major mismatch), leaving a blank page.
+    dedupe: ['react', 'react-dom'],
   },
   server: {
     proxy: {
