@@ -1,0 +1,33 @@
+# Force a clean install/build inside the image.
+**/node_modules
+**/dist
+**/dist-bin
+**/dist-ssr
+# Exclude the host lockfile: it's generated on the dev machine's OS/arch
+# (macOS/arm64) and carries platform-specific optional bindings; letting it into
+# a linux/amd64 build trips npm's optional-deps resolver (npm/cli#4828) — e.g. it
+# can't find @tailwindcss/oxide-linux-x64-gnu. A fresh `npm install` in the image
+# resolves the correct platform binaries.
+package-lock.json
+
+# Workspaces the web deployment image doesn't need (keep the build small/fast):
+apps/cli
+apps/desktop
+apps/e2e
+
+# Development-only infra (the 6 test databases + their seed assets).
+docker
+scripts
+
+# VCS / CI / editor / local env.
+.git
+.github
+.vscode
+.idea
+*.log
+.env
+.env.*
+!.env.example
+
+# Local SQLite metadata DBs, if any leaked into the tree.
+*.db

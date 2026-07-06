@@ -43,6 +43,12 @@ CHANGELOG.md
 !docs/plans/*.md
 # Desktop build/publish guide must be tracked
 !docs/desktop-build.md
+# Public project docs must be tracked
+!README.md
+!CONTRIBUTING.md
+!docs/ARCHITECTURE.md
+!docs/USER_GUIDE.md
+!docs/DEPLOYMENT.md
 # Desktop (Tauri) build artifacts
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/
