@@ -78,17 +78,25 @@ cd apps/desktop && npm run build          # → .deb and .AppImage
 - `libsecret-1-dev` is required for the keyring; at **runtime** the machine needs a Secret
   Service (gnome-keyring / KWallet) for the encryption key to be stored.
 
-## Code signing / notarization (not yet enabled)
+## Code signing / notarization
 
-Installers currently ship **unsigned**, so users see a first-run warning:
-- **macOS**: right-click the app → **Open** (Gatekeeper). For distribution without the
-  prompt you need an Apple Developer ID cert + notarization.
-- **Windows**: SmartScreen → **More info → Run anyway**. An Authenticode cert removes it.
+- **macOS**: `signingIdentity: "-"` in `tauri.conf.json` ad-hoc signs the app (free, no
+  Apple Developer account) — this avoids the scarier "*App* is damaged and can't be
+  opened" message that unsigned apps get on modern macOS. It still isn't
+  Developer-ID-signed/notarized though, so first launch shows Gatekeeper's
+  "unidentified developer" prompt: right-click the app → **Open**. **If a user still
+  sees the "damaged" message** (e.g. from a build made before ad-hoc signing was added,
+  or if the signature was stripped in transit), the fix is `xattr -cr "/Applications/Fox
+  Schema.app"` in Terminal, then open normally.
+- **Windows**: unsigned — SmartScreen shows **More info → Run anyway**. An Authenticode
+  cert removes it.
 - **Linux**: no signing needed.
 
-To enable signing later, add the certs/secrets to the repo and pass them to `tauri-action`
-(`APPLE_CERTIFICATE`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` for macOS;
-`WINDOWS_CERTIFICATE` + password for Windows). See the Tauri "Signing" docs.
+For the smooth, warning-free experience on macOS (no Gatekeeper prompt at all) you need
+a paid Apple Developer ID cert + notarization — add the certs/secrets to the repo and
+pass them to `tauri-action` (`APPLE_CERTIFICATE`, `APPLE_ID`, `APPLE_PASSWORD`,
+`APPLE_TEAM_ID`), and drop the ad-hoc `signingIdentity` in favor of the real one. Same
+for Windows via `WINDOWS_CERTIFICATE` + password. See the Tauri "Signing" docs.
 
 ## Devtools / inspector
 
