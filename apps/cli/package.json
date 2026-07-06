@@ -1,6 +1,6 @@
 {
   "name": "@foxschema/cli",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "type": "module",
   "description": "Fox Schema CLI — database schema diff & migration, in your terminal",
