@@ -1,6 +1,6 @@
 {
   "name": "@foxschema/core",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Dialect-agnostic database schema diff & migration engine (FoxSchema core). The full Node runtime: drivers, pooling, and migration execution.",
   "type": "module",
   "license": "Apache-2.0",
