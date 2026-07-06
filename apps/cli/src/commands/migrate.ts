@@ -13,6 +13,7 @@ export interface MigrateOptions {
   scope?: string;
   execute?: boolean;
   yes?: boolean;
+  continueOnError?: boolean;
 }
 
 interface MigrationEvent {
@@ -116,7 +117,10 @@ export async function runMigrate(opts: MigrateOptions): Promise<void> {
       const mark = e.status === 'SUCCESS' ? chalk.green('✔') : e.status === 'FAILED' ? chalk.red('✗') : chalk.dim('…');
       console.log(`  ${mark} ${e.action} ${e.objectType} ${e.objectName}${e.error ? chalk.red(' — ' + e.error) : ''}`);
     } else if (e?.type === 'done') {
-      finalStatus = e.success ? 'SUCCESS' : e.rolledBack ? 'ROLLED_BACK' : 'FAILED';
+      // continueOnError can commit successfully while individual objects failed and
+      // were skipped — distinguish that from a clean run (mirrors routes.ts's history log).
+      const anyObjectFailed = [...results.values()].some((r) => r.status === 'FAILED');
+      finalStatus = e.success ? (anyObjectFailed ? 'PARTIAL_SUCCESS' : 'SUCCESS') : e.rolledBack ? 'ROLLED_BACK' : 'FAILED';
       finalError = e.error;
     }
   };
@@ -129,7 +133,7 @@ export async function runMigrate(opts: MigrateOptions): Promise<void> {
         `-- Target snapshot (pre-migration) · ${new Date().toISOString()}\n\n` +
         objs.map((o) => sqlGenerator.generateObjectDdl(o)).join('\n');
     }
-    await migrationModule.execute(tgt.dialect, tgt.option, tgt.schema, steps, send);
+    await migrationModule.execute(tgt.dialect, tgt.option, tgt.schema, steps, send, { continueOnError: !!opts.continueOnError });
   } catch (err) {
     finalStatus = 'FAILED';
     finalError = err instanceof Error ? err.message : String(err);
@@ -139,7 +143,7 @@ export async function runMigrate(opts: MigrateOptions): Promise<void> {
   if (runId) {
     try {
       await ctx.history.finish(runId, {
-        status: finalStatus as 'SUCCESS' | 'FAILED' | 'ROLLED_BACK',
+        status: finalStatus as 'SUCCESS' | 'PARTIAL_SUCCESS' | 'FAILED' | 'ROLLED_BACK',
         results: [...results.values()],
         snapshotDdl,
         error: finalError,
@@ -151,6 +155,9 @@ export async function runMigrate(opts: MigrateOptions): Promise<void> {
 
   if (finalStatus === 'SUCCESS') {
     console.log(chalk.green(`\n✔ Migration applied (${steps.length} change(s)).`));
+  } else if (finalStatus === 'PARTIAL_SUCCESS') {
+    const failedCount = [...results.values()].filter((r) => r.status === 'FAILED').length;
+    console.log(chalk.yellow(`\n⚠ Migration completed with ${failedCount} failure(s) — skipped and continued.`));
   } else {
     console.error(chalk.red(`\n✗ Migration ${finalStatus.toLowerCase()}${finalError ? ': ' + finalError : ''}`));
     process.exitCode = 1;

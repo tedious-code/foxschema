@@ -50,12 +50,6 @@ program
   .description('Show environment, engine wiring, and setup status')
   .action(() => runDoctor());
 
-// Surface upcoming commands so `--help` shows the roadmap. Each lands in a later
-// milestone; calling one now exits non-zero with a clear note.
-const soon = (milestone: string) => () => {
-  console.error(chalk.yellow(`Not implemented yet — coming in ${milestone}.`));
-  process.exitCode = 1;
-};
 const connections = program.command('connections').description('Manage saved connections (credentials encrypted at rest)');
 connections.command('list').description('List saved connections').action(() => listConnections());
 connections
@@ -110,12 +104,36 @@ program
   .option('--scope <types>', 'narrow to object types (comma list)')
   .option('--execute', 'apply the migration (default is a dry run)')
   .option('--yes', 'skip the confirmation prompt')
+  .option('--continue-on-error', 'skip a failed object and continue instead of rolling back the whole run')
   .action((opts) => runMigrate(opts));
 
 const history = program.command('history').description('Migration run history');
 history.command('list').description('List recent migration runs').action(() => listHistory());
 history.command('show <id>').description('Show a migration run in detail').action((id) => showHistory(id));
-program.command('tui').description('Launch the interactive terminal UI [M4]').action(soon('M4'));
+program
+  .command('tui')
+  .description('Launch the interactive terminal UI')
+  .action(async () => {
+    // A *computed* import target, not a string literal — this is deliberate, not
+    // stylistic. esbuild can only inline a dynamic import() whose specifier is a
+    // literal string; it always leaves a computed one as an opaque runtime call.
+    // That matters because the tui/ subtree is built as its own separate ESM
+    // bundle (see build.mjs / build-binary.mjs) rather than inlined into this
+    // file: Ink's own screens statically `import {Box} from 'ink'`, and if
+    // those ended up bundled into *this* CJS-capable entry point, esbuild would
+    // rewrite every one of those into a synchronous `require('ink')` the moment
+    // any screen's module executes — which fails outright in the compiled SEA
+    // binary, since ink's own yoga-layout dependency has a top-level `await` in
+    // its ESM entry, and Node's require(esm) interop cannot evaluate that
+    // synchronously (confirmed by reproducing it directly against a real
+    // esbuild CJS bundle). Resolving relative to import.meta.url — which
+    // becomes an execPath-relative runtime value in the SEA build via that
+    // build's own `define` — is what lets the exact same source resolve
+    // correctly across dev (tsx), the plain ESM build, and the SEA binary.
+    const tuiEntry = new URL('./tui/index.js', import.meta.url).href;
+    const { runTui } = await import(tuiEntry);
+    await runTui();
+  });
 
 program.parseAsync(process.argv).catch((err) => {
   console.error(chalk.red(err instanceof Error ? err.message : String(err)));

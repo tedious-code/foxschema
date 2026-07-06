@@ -2,7 +2,13 @@ import chalk from 'chalk';
 import { getContext } from '../runtime/store';
 
 const statusColor = (s: string) =>
-  s === 'SUCCESS' ? chalk.green(s) : s === 'FAILED' ? chalk.red(s) : s === 'ROLLED_BACK' ? chalk.yellow(s) : chalk.dim(s);
+  s === 'SUCCESS'
+    ? chalk.green(s)
+    : s === 'PARTIAL_SUCCESS' || s === 'ROLLED_BACK'
+      ? chalk.yellow(s)
+      : s === 'FAILED'
+        ? chalk.red(s)
+        : chalk.dim(s);
 
 /** `history list` — recent migration runs. */
 export async function listHistory(): Promise<void> {

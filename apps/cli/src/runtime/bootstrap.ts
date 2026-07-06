@@ -51,3 +51,14 @@ export function requireReady(): void {
     );
   }
 }
+
+/**
+ * Non-throwing counterpart to requireReady(), for the TUI: a thrown error there
+ * would crash the whole interactive session instead of landing on a helpful
+ * screen. Line commands keep using requireReady()/getContext() as-is.
+ */
+export function checkReady(): { ready: true } | { ready: false; reason: 'not-set-up' | 'key-unreachable' } {
+  if (!readConfig().setupComplete) return { ready: false, reason: 'not-set-up' };
+  if (!applyEnv()) return { ready: false, reason: 'key-unreachable' };
+  return { ready: true };
+}

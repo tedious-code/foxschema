@@ -2,6 +2,17 @@ import chalk from 'chalk';
 import type { TableDiff } from '@foxschema/core';
 import { resolveRef } from '../runtime/connectionRef';
 import { compareModule, loadScopedTables, parseScope, sqlGenerator } from '../runtime/engine';
+import {
+  TYPE_LABEL,
+  groupByType,
+  sortSections,
+  sortByStatusThenName,
+  countByStatus,
+  describeColumn,
+  describeIndex,
+  describeFk,
+  describeTrigger,
+} from '../format/diffPresentation';
 
 export interface CompareOptions {
   source?: string;
@@ -14,30 +25,12 @@ export interface CompareOptions {
   fail?: boolean; // commander: --no-fail sets this false
 }
 
-// Object-type → plural section label (matches the DbObjectType union in core).
-const TYPE_LABEL: Record<string, string> = {
-  TABLE: 'TABLES',
-  VIEW: 'VIEWS',
-  MQT: 'MATERIALIZED VIEWS',
-  SEQUENCE: 'SEQUENCES',
-  TYPE: 'TYPES',
-  FUNCTION: 'FUNCTIONS',
-  PROCEDURE: 'PROCEDURES',
-  TRIGGER: 'TRIGGERS',
-  ROLE: 'ROLES',
-};
-// Canonical section order, used to break ties when two types have the same count.
-const TYPE_ORDER = Object.keys(TYPE_LABEL);
-
-// Coloured single-char change marker, and the order changes are listed within a type.
+// Coloured single-char change marker for the line-CLI's plain-text output.
 const STATUS_MARK: Record<string, string> = {
   ADDED: chalk.green('+'),
   MODIFIED: chalk.yellow('~'),
   REMOVED: chalk.red('-'),
 };
-const STATUS_ORDER: Record<string, number> = { MODIFIED: 0, ADDED: 1, REMOVED: 2 };
-
-const RULE_WIDTH = 59;
 
 /** A boxed summary line: `┌─ +16 Added  ~7 Modified  -1 Removed  =2 Unchanged ─┐`. */
 export function summaryBox(added: number, removed: number, modified: number, unchanged: number): string {
@@ -54,35 +47,62 @@ export function summaryBox(added: number, removed: number, modified: number, unc
   return [`┌${'─'.repeat(inner)}┐`, `│${body}│`, `└${'─'.repeat(inner)}┘`].join('\n');
 }
 
-/** Group changed diffs by object type, then print each type as a counted section. */
-export function renderGroupedView(changed: TableDiff[]): void {
-  const byType = new Map<string, TableDiff[]>();
-  for (const t of changed) {
-    const list = byType.get(t.objectType) ?? [];
-    list.push(t);
-    byType.set(t.objectType, list);
+/** `label: N added, N modified, N removed, N unchanged` — omits zero counts. */
+function formatCounts(counts: Record<string, number>): string {
+  const parts: string[] = [];
+  if (counts.ADDED) parts.push(chalk.green(`${counts.ADDED} added`));
+  if (counts.MODIFIED) parts.push(chalk.yellow(`${counts.MODIFIED} modified`));
+  if (counts.REMOVED) parts.push(chalk.red(`${counts.REMOVED} removed`));
+  if (counts.UNCHANGED) parts.push(chalk.dim(`${counts.UNCHANGED} unchanged`));
+  return parts.join(', ');
+}
+
+/** One indented sub-tree line per changed item (columns/indexes/FKs/triggers). Returns whether anything was printed. */
+function renderSubItems<T extends { status: string; name: string }>(
+  title: string,
+  items: T[] | undefined,
+  describe: (item: T) => string
+): boolean {
+  const changed = (items ?? []).filter((i) => i.status !== 'UNCHANGED');
+  if (changed.length === 0) return false;
+  console.log(`    ${chalk.dim(title)}`);
+  for (const item of changed) {
+    const desc = describe(item);
+    console.log(`      ${STATUS_MARK[item.status] ?? '·'} ${item.name}${desc ? chalk.dim(`  ${desc}`) : ''}`);
   }
+  return true;
+}
 
-  // Sections ordered by size (largest first), ties broken by the canonical type order.
-  const sections = [...byType.entries()].sort((a, b) => {
-    if (b[1].length !== a[1].length) return b[1].length - a[1].length;
-    return TYPE_ORDER.indexOf(a[0]) - TYPE_ORDER.indexOf(b[0]);
-  });
-
-  console.log();
-  console.log(chalk.bold('Changes by Type'));
-  console.log(chalk.dim('─'.repeat(RULE_WIDTH)));
+/**
+ * Tree view: one section per object type (`TABLES: 3 added, 1 modified, 12
+ * unchanged`), one line per changed object, and — for MODIFIED tables/views —
+ * an indented drill-down into exactly what changed (columns, indexes, FKs,
+ * triggers), each shown as an old → new description.
+ */
+export function renderTreeView(allTables: TableDiff[]): void {
+  const changed = allTables.filter((t) => t.status !== 'UNCHANGED');
+  const changedByType = groupByType(changed);
+  const totalByType = groupByType(allTables);
+  const sections = sortSections([...changedByType.entries()]);
 
   for (const [type, items] of sections) {
-    items.sort(
-      (a, b) =>
-        (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9) ||
-        a.tableName.localeCompare(b.tableName)
-    );
+    const counts = countByStatus(totalByType.get(type) ?? items);
     console.log();
-    console.log(chalk.bold(`${TYPE_LABEL[type] ?? type} (${items.length})`));
-    for (const t of items) {
+    console.log(chalk.bold(`${TYPE_LABEL[type] ?? type}: ${formatCounts(counts)}`));
+    for (const t of sortByStatusThenName(items)) {
       console.log(`  ${STATUS_MARK[t.status] ?? '·'} ${t.tableName}`);
+      if (t.status === 'MODIFIED') {
+        const shownAny = [
+          renderSubItems('columns', t.columnDiffs, describeColumn),
+          renderSubItems('indexes', t.indexDiffs, describeIndex),
+          renderSubItems('foreign keys', t.foreignKeyDiffs, describeFk),
+          renderSubItems('triggers', t.triggerDiffs, describeTrigger),
+        ].some(Boolean);
+        // Views/functions/procedures etc. have no column-level model — a MODIFIED
+        // status there means the object's definition changed, with nothing more
+        // granular to show.
+        if (!shownAny) console.log(`    ${chalk.dim('(definition changed)')}`);
+      }
     }
   }
 }
@@ -128,13 +148,11 @@ export async function runCompare(opts: CompareOptions): Promise<void> {
       console.log(sqlGenerator.generateMigrationSql(changed, tgt.dialect, mapping));
     }
   } else {
-    // Grouped summary view: header, boxed counts, then one section per object type.
-    const dialects = src.dialect === tgt.dialect ? src.dialect : `${src.dialect} → ${tgt.dialect}`;
-    const route = `${dialects}: ${src.schema || '(default)'} → ${tgt.schema || '(default)'}`;
+    // Tree view: header, boxed counts, then one drill-down section per object type.
+    const dialectNote = src.dialect === tgt.dialect ? '' : chalk.dim(` (${src.dialect} → ${tgt.dialect})`);
 
     console.log();
-    console.log(chalk.bold('Fox Compare'));
-    console.log(chalk.dim(route));
+    console.log(chalk.bold(`Schema ${src.schema || '(default)'} → ${tgt.schema || '(default)'}`) + dialectNote);
     console.log();
     console.log(summaryBox(added, removed, modified, unchanged));
 
@@ -142,7 +160,7 @@ export async function runCompare(opts: CompareOptions): Promise<void> {
       console.log();
       console.log(chalk.green('✔ Schemas are identical.'));
     } else {
-      renderGroupedView(result.tables.filter((t: TableDiff) => t.status !== 'UNCHANGED'));
+      renderTreeView(result.tables);
     }
   }
 

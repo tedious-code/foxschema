@@ -26,6 +26,7 @@ describe('CLI: migrate command', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.restoreAllMocks();
+    process.exitCode = undefined;
   });
 
   it('requires both source and target connections', async () => {
@@ -97,6 +98,56 @@ describe('CLI: migrate command', () => {
 
     expect(confirm).not.toHaveBeenCalled();
     expect(executeSpy).toHaveBeenCalled();
+  });
+
+  it('passes continueOnError through to migrationModule.execute', async () => {
+    stubRefsAndCompare(ONE_ADDED);
+    vi.spyOn(engine.sqlGenerator, 'generateMigrationSql').mockReturnValue('CREATE TABLE users (id INT PRIMARY KEY);');
+    vi.spyOn(engine.sqlGenerator, 'generateMigrationPlan').mockReturnValue([{ sql: 'CREATE TABLE users ...' }] as any);
+    vi.spyOn(store, 'getContext').mockResolvedValue({
+      userId: 'u1',
+      history: { start: vi.fn().mockResolvedValue('run1'), finish: vi.fn().mockResolvedValue(undefined) },
+    } as any);
+    vi.spyOn(engine.connectionModule, 'getProvider').mockReturnValue({ getTables: vi.fn().mockResolvedValue([]) } as any);
+    const executeSpy = vi.spyOn(engine.migrationModule, 'execute').mockImplementation(async (_d, _o, _s, _steps, send: any) => {
+      send({ type: 'done', success: true });
+    });
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await runMigrate({ source: 'demo_c', target: 'demo_d', execute: true, yes: true, continueOnError: true });
+
+    expect(executeSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      { continueOnError: true }
+    );
+  });
+
+  it('reports PARTIAL_SUCCESS when the run committed but an object failed', async () => {
+    stubRefsAndCompare(ONE_ADDED);
+    vi.spyOn(engine.sqlGenerator, 'generateMigrationSql').mockReturnValue('CREATE TABLE users (id INT PRIMARY KEY);');
+    vi.spyOn(engine.sqlGenerator, 'generateMigrationPlan').mockReturnValue([{ sql: 'CREATE TABLE users ...' }] as any);
+    const finishSpy = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(store, 'getContext').mockResolvedValue({
+      userId: 'u1',
+      history: { start: vi.fn().mockResolvedValue('run1'), finish: finishSpy },
+    } as any);
+    vi.spyOn(engine.connectionModule, 'getProvider').mockReturnValue({ getTables: vi.fn().mockResolvedValue([]) } as any);
+    vi.spyOn(engine.migrationModule, 'execute').mockImplementation(async (_d, _o, _s, _steps, send: any) => {
+      send({ type: 'object', objectName: 'users', objectType: 'TABLE', action: 'CREATE', status: 'FAILED', error: 'boom' });
+      // continueOnError: the run as a whole still reports success even though one object failed.
+      send({ type: 'done', success: true, rolledBack: false });
+    });
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await runMigrate({ source: 'demo_c', target: 'demo_d', execute: true, yes: true, continueOnError: true });
+
+    expect(finishSpy).toHaveBeenCalledWith('run1', expect.objectContaining({ status: 'PARTIAL_SUCCESS' }));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('1 failure(s)'));
+    expect(process.exitCode).not.toBe(1);
   });
 
   it('threads both dialects through compare for a cross-dialect migration', async () => {

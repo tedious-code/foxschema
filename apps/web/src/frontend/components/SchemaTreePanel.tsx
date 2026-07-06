@@ -4,7 +4,10 @@ import { Search, Layers, Table2, Eye, FunctionSquare, SquareTerminal, Zap, Hash,
 import type { TableDiff, DbObjectType } from '../lib/types';
 import { highlightMatch } from '../utils/highlight';
 
-const TYPE_META: Record<DbObjectType, { label: string; group: string; color: string; bg: string; icon: React.ReactNode }> = {
+// Exported so TopToolbar can render the same type pills (with counts) for
+// filtering the compare-results tree — that bar has the horizontal room this
+// panel's narrow, resizable width doesn't.
+export const TYPE_META: Record<DbObjectType, { label: string; group: string; color: string; bg: string; icon: React.ReactNode }> = {
   TABLE: {
     label: 'Table',
     group: 'Tables',
@@ -70,7 +73,7 @@ const TYPE_META: Record<DbObjectType, { label: string; group: string; color: str
   },
 };
 
-const TYPE_ORDER: DbObjectType[] = ['TABLE', 'MQT', 'VIEW', 'PROCEDURE', 'FUNCTION', 'TRIGGER', 'SEQUENCE', 'TYPE', 'ROLE'];
+export const TYPE_ORDER: DbObjectType[] = ['TABLE', 'MQT', 'VIEW', 'PROCEDURE', 'FUNCTION', 'TRIGGER', 'SEQUENCE', 'TYPE', 'ROLE'];
 
 const MIN_WIDTH = 280;
 const MAX_WIDTH = 640;
@@ -88,6 +91,7 @@ export const SchemaTreePanel: React.FC = () => {
     setFilterStatus,
     searchTerm,
     setSearchTerm,
+    typeFilter,
     syncSelection,
     toggleSyncSelection,
     setAllSyncSelection,
@@ -98,7 +102,6 @@ export const SchemaTreePanel: React.FC = () => {
   } = useSyncStore();
 
   const [panelWidth, setPanelWidth] = useState(340);
-  const [typeFilter, setTypeFilter] = useState<'ALL' | DbObjectType>('ALL');
   // "Unchanged" is an independent toggle (not part of the All/Added/Removed/Modified
   // status filter). On by default, so the initial view shows every object.
   const [showUnchanged, setShowUnchanged] = useState(true);
@@ -192,7 +195,7 @@ export const SchemaTreePanel: React.FC = () => {
   // only while the toggle is on; changed objects follow the status filter.
   const filteredTables = compareResult.tables.filter((table) => {
     if (!matchesSearch(table)) return false;
-    if (!(typeFilter === 'ALL' || table.objectType === typeFilter)) return false;
+    if (typeFilter.length > 0 && !typeFilter.includes(table.objectType)) return false;
     if (table.status === 'UNCHANGED') return showUnchanged;
     return filterStatus === 'ALL' || table.status === filterStatus;
   });
@@ -201,11 +204,6 @@ export const SchemaTreePanel: React.FC = () => {
   const groups = TYPE_ORDER
     .map((type) => ({ type, items: filteredTables.filter((t) => t.objectType === type) }))
     .filter((g) => g.items.length > 0);
-
-  const typeCounts = (type: 'ALL' | DbObjectType) =>
-    type === 'ALL'
-      ? compareResult.tables.length
-      : compareResult.tables.filter((t) => t.objectType === type).length;
 
   const getStatusBadge = (status: TableDiff['status']) => {
     switch (status) {
@@ -240,7 +238,7 @@ export const SchemaTreePanel: React.FC = () => {
             {browseMode ? (
               <>Browsing <span className="text-cyan-400 normal-case">{browseSchemaName}</span></>
             ) : (
-              'Comparison Scope'
+              'Compare Results'
             )}
           </h2>
           <span className="text-sm text-slate-200 font-mono font-bold">
@@ -275,8 +273,12 @@ export const SchemaTreePanel: React.FC = () => {
         )}
       </div>
 
-      {/* Navigation Filter / Search Bar */}
-      <div className="p-3 border-b border-slate-800/80 bg-slate-950/20 flex flex-col gap-2">
+      {/* Search Bar. The object-type filter used to live here as a row of
+          pills, but this panel's width (280-640px, resizable) kept clipping
+          it — it now lives in the top toolbar's wider scope bar (see
+          TopToolbar's "Viewing" pills), which sets the same store field
+          (typeFilter). */}
+      <div className="p-3 border-b border-slate-800/80 bg-slate-950/20">
         <div className="relative">
           <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
           <input
@@ -287,26 +289,6 @@ export const SchemaTreePanel: React.FC = () => {
             className="w-full text-sm pl-8 pr-3 py-1.5 bg-slate-900 border border-slate-800 rounded-md focus:outline-none focus:border-cyan-500 text-slate-200"
           />
         </div>
-
-        {/* Object Type Filter — card-styled buttons, matching the stat cards */}
-        <div className="flex gap-1.5 overflow-x-auto">
-          {(['ALL', ...TYPE_ORDER] as const).map((type) => (
-            <button
-              key={type}
-              onClick={() => setTypeFilter(type)}
-              className={`text-xs font-bold px-2.5 py-1.5 rounded transition whitespace-nowrap cursor-pointer flex items-center gap-1.5 border ${
-                typeFilter === type
-                  ? 'bg-slate-800 text-slate-100 border-slate-600'
-                  : 'bg-slate-950/80 text-slate-400 hover:text-slate-200 border-slate-800/50'
-              }`}
-            >
-              {type !== 'ALL' && <span className={TYPE_META[type].color}>{TYPE_META[type].icon}</span>}
-              {type === 'ALL' ? 'All' : TYPE_META[type].group}
-              <span className="text-slate-500">{typeCounts(type)}</span>
-            </button>
-          ))}
-        </div>
-
       </div>
 
       {/* Deployment Selection Header — hidden in browse mode (nothing to deploy) */}
