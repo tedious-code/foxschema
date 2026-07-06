@@ -1,9 +1,7 @@
 import { input } from '@inquirer/prompts';
 import chalk from 'chalk';
-import { readConfig, writeConfig, DEFAULT_DB_PATH, CONFIG_FILE, type CliConfig } from '../runtime/config';
-import { getDek, setDek, randomKeyHex } from '../runtime/keyring';
-
-const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+import { readConfig, CONFIG_FILE } from '../runtime/config';
+import { performSetup, EMAIL_RE } from '../runtime/setup';
 
 /**
  * One-time (re-runnable) setup: bind an email-derived encryption key, stored in
@@ -27,32 +25,15 @@ export async function runSetup(opts: { email?: string }): Promise<void> {
       .toLowerCase();
   }
 
-  let dek = getDek(email);
-  let keyScheme = existing.keyScheme || 'v2';
-  let created = false;
-  if (!dek) {
-    dek = randomKeyHex();
-    try {
-      setDek(email, dek); // may prompt for OS keychain access on first use
-    } catch (e) {
-      throw new Error(
-        `Couldn't store the key in the OS keychain (${e instanceof Error ? e.message : e}). ` +
-          'On a headless server, set FOXSCHEMA_KEY to a 64-hex key and skip setup.'
-      );
-    }
-    keyScheme = 'v2';
-    created = true;
+  let cfg, created;
+  try {
+    ({ cfg, created } = performSetup(email));
+  } catch (e) {
+    throw new Error(
+      `Couldn't store the key in the OS keychain (${e instanceof Error ? e.message : e}). ` +
+        'On a headless server, set FOXSCHEMA_KEY to a 64-hex key and skip setup.'
+    );
   }
-
-  const cfg: CliConfig = {
-    setupComplete: true,
-    email,
-    dbEngine: 'sqlite',
-    dbPath: existing.dbPath || DEFAULT_DB_PATH,
-    dbUrl: '',
-    keyScheme,
-  };
-  writeConfig(cfg);
 
   console.log();
   console.log(chalk.green.bold('✔ Fox is set up.'));

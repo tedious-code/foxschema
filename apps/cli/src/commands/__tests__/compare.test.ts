@@ -55,6 +55,57 @@ describe('CLI: compare command', () => {
     );
   });
 
+  it('should print a "Schema X → Y" header and drill into a MODIFIED table\'s column changes', async () => {
+    const mockCompareResult = {
+      summary: { added: 1, removed: 0, modified: 1, unchanged: 0 },
+      tables: [
+        {
+          tableName: 'USERS',
+          status: 'MODIFIED',
+          objectType: 'TABLE',
+          columnDiffs: [
+            {
+              name: 'AGE',
+              status: 'MODIFIED',
+              source: { type: 'int', nullable: true },
+              target: { type: 'bigint', nullable: true },
+            },
+          ],
+          indexDiffs: [],
+          foreignKeyDiffs: [],
+        },
+        {
+          tableName: 'V_ACTIVE',
+          status: 'MODIFIED',
+          objectType: 'VIEW',
+          columnDiffs: [],
+          indexDiffs: [],
+          foreignKeyDiffs: [],
+        },
+      ],
+    };
+
+    vi.spyOn(connectionRef, 'resolveRef')
+      .mockResolvedValueOnce({ dialect: 'postgres', schema: 'demo_c', option: {} } as any)
+      .mockResolvedValueOnce({ dialect: 'postgres', schema: 'demo_d', option: {} } as any);
+
+    vi.spyOn(engine, 'loadScopedTables')
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    vi.spyOn(engine.compareModule, 'compare').mockResolvedValueOnce(mockCompareResult as any);
+
+    const consoleSpy = vi.spyOn(console, 'log');
+
+    await runCompare({ source: 'demo_c', target: 'demo_d' });
+
+    const output = consoleSpy.mock.calls.map((c) => c.join(' ')).join('\n');
+    expect(output).toContain('Schema demo_c → demo_d');
+    expect(output).toContain('int → bigint');
+    // A modified view has no column-level model — falls back to a definition note.
+    expect(output).toContain('(definition changed)');
+  });
+
   it('should output JSON with --json flag', async () => {
     const mockResult = {
       summary: { added: 1, removed: 0, modified: 0, unchanged: 5 },

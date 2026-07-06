@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSyncStore } from '../store/useSyncStore';
-import { ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, CheckCircle2, Zap, Settings, KeyRound, History, Search, X } from 'lucide-react';
+import { ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, CheckCircle2, Zap, Settings, KeyRound, History, Search, X, Layers } from 'lucide-react';
 import { Brand } from './Brand';
 import { ProfileMenu } from './ProfileMenu';
 import { CredentialManager } from './CredentialManager';
 import { MigrationHistory } from './MigrationHistory';
+import { TYPE_META, TYPE_ORDER } from './SchemaTreePanel';
 import type { DbObjectType } from '../lib/types';
 import { PROVIDER_SETTINGS } from '../lib/provider-settings';
 import { ConnectionModal } from './ConnectionModal';
@@ -32,6 +33,9 @@ export const TopToolbar: React.FC = () => {
     resetSync,
     selectedObjectTypes,
     toggleObjectTypeFilter,
+    typeFilter,
+    toggleTypeFilter,
+    clearTypeFilter,
     showConnectionModal,
     setShowConnectionModal,
     addConnection,
@@ -76,6 +80,11 @@ export const TopToolbar: React.FC = () => {
     (sourceConfig.option.host ?? '') === (targetConfig.option.host ?? '') &&
     (sourceConfig.option.database ?? '') === (targetConfig.option.database ?? '') &&
     sourceConfig.schema.trim().toUpperCase() === targetConfig.schema.trim().toUpperCase();
+
+  const typeCounts = (type: 'ALL' | DbObjectType) =>
+    type === 'ALL'
+      ? (compareResult?.tables.length ?? 0)
+      : (compareResult?.tables.filter((t) => t.objectType === type).length ?? 0);
 
   const objectScopeOptions: { type: DbObjectType; label: string }[] = [
     { type: 'TABLE', label: 'Tables' },
@@ -308,29 +317,77 @@ export const TopToolbar: React.FC = () => {
 
       {/* Target Scope Selection & Trigger Bar */}
       <div className="flex flex-col md:flex-row justify-between md:items-center bg-slate-950/40 border border-slate-800/60 rounded-lg p-3 px-4 gap-3">
-        {/* Scope Config Controls */}
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-base font-semibold text-slate-400 flex items-center gap-1 uppercase tracking-wider border-r border-slate-800 pr-3">
-            <Settings className="w-3.5 h-3.5 text-cyan-400" /> Comparison Scope:
-          </span>
-          <div className="flex items-center gap-2">
-            {objectScopeOptions.map((opt) => {
-              const active = selectedObjectTypes.includes(opt.type);
-              return (
+        {/* Scope Config Controls — two always-separate rows: which object types
+            get compared (top), and which of the results are shown (bottom,
+            once a compare has run). Each is its own flex-wrap line so the
+            label always stays attached to its own pills. */}
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-base font-semibold text-slate-400 flex items-center gap-1 uppercase tracking-wider border-r border-slate-800 pr-3">
+              <Settings className="w-3.5 h-3.5 text-cyan-400" /> Comparison Scope:
+            </span>
+            <div className="flex items-center gap-2">
+              {objectScopeOptions.map((opt) => {
+                const active = selectedObjectTypes.includes(opt.type);
+                return (
+                  <button
+                    key={opt.type}
+                    onClick={() => toggleObjectTypeFilter(opt.type)}
+                    className={`px-3 py-1 rounded text-base font-semibold border transition cursor-pointer ${
+                      active
+                        ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
+                        : 'bg-slate-900/50 text-slate-500 border-slate-850 hover:text-slate-450 hover:bg-slate-900'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Results type filter — narrows the compare-results tree (SchemaTreePanel)
+              to one or more object types (multi-select, like Comparison Scope above).
+              Lives here rather than in that panel because this bar spans the full
+              page width; the panel's 280-640px resizable width kept clipping the
+              pill row (esp. with 9 types + counts). */}
+          {compareResult && (
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-base font-semibold text-slate-400 flex items-center gap-1 uppercase tracking-wider border-r border-slate-800 pr-3">
+                <Layers className="w-3.5 h-3.5 text-cyan-400" /> Viewing:
+              </span>
+              <div className="flex items-center gap-2 overflow-x-auto">
                 <button
-                  key={opt.type}
-                  onClick={() => toggleObjectTypeFilter(opt.type)}
-                  className={`px-3 py-1 rounded text-base font-semibold border transition cursor-pointer ${
-                    active
-                      ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
+                  onClick={clearTypeFilter}
+                  className={`px-3 py-1 rounded text-base font-semibold border transition cursor-pointer whitespace-nowrap ${
+                    typeFilter.length === 0
+                      ? 'bg-slate-800 text-slate-100 border-slate-600'
                       : 'bg-slate-900/50 text-slate-500 border-slate-850 hover:text-slate-450 hover:bg-slate-900'
                   }`}
                 >
-                  {opt.label}
+                  All {typeCounts('ALL')}
                 </button>
-              );
-            })}
-          </div>
+                {TYPE_ORDER.map((type) => {
+                  const active = typeFilter.includes(type);
+                  return (
+                    <button
+                      key={type}
+                      onClick={() => toggleTypeFilter(type)}
+                      className={`px-3 py-1 rounded text-base font-semibold border transition cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                        active
+                          ? 'bg-slate-800 text-slate-100 border-slate-600'
+                          : 'bg-slate-900/50 text-slate-500 border-slate-850 hover:text-slate-450 hover:bg-slate-900'
+                      }`}
+                    >
+                      <span className={TYPE_META[type].color}>{TYPE_META[type].icon}</span>
+                      {TYPE_META[type].group}
+                      <span className="text-slate-500">{typeCounts(type)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-3">

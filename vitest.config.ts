@@ -18,6 +18,6 @@ export default defineConfig({
     ],
   },
   test: {
-    include: ['packages/**/*.test.ts', 'apps/web/**/*.test.ts', 'apps/cli/**/*.test.ts'],
+    include: ['packages/**/*.test.ts', 'apps/web/**/*.test.ts', 'apps/cli/**/*.test.{ts,tsx}'],
   },
 });

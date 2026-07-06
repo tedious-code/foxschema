@@ -94,6 +94,8 @@ export interface SyncState {
   setContinueOnError: (v: boolean) => void;
   filterStatus: FilterStatus;
   searchTerm: string;
+  /** Object types the compare-results tree is narrowed to (empty = show every type). Multi-select. */
+  typeFilter: DbObjectType[];
 
   // --- Deploy selection -------------------------------------------------
   // Per-object inclusion in the deployment script (keyed by tableName)
@@ -121,6 +123,8 @@ export interface SyncState {
   toggleObjectTypeFilter: (type: DbObjectType) => void;
   setFilterStatus: (status: FilterStatus) => void;
   setSearchTerm: (term: string) => void;
+  toggleTypeFilter: (type: DbObjectType) => void;
+  clearTypeFilter: () => void;
   setSelectedTable: (table: TableDiff | null) => void;
 
   testSourceConnection: () => Promise<void>;

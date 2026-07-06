@@ -69,6 +69,7 @@ export const useSyncStore = create<SyncState>()(
   continueOnError: false,
   filterStatus: 'ALL',
   searchTerm: '',
+  typeFilter: [],
   memberSelection: {},
   syncSelection: {},
 
@@ -195,6 +196,13 @@ export const useSyncStore = create<SyncState>()(
 
   setFilterStatus: (filterStatus) => set({ filterStatus }),
   setSearchTerm: (searchTerm) => set({ searchTerm }),
+  toggleTypeFilter: (type) =>
+    set((state) => {
+      const active = state.typeFilter;
+      const next = active.includes(type) ? active.filter((t) => t !== type) : [...active, type];
+      return { typeFilter: next };
+    }),
+  clearTypeFilter: () => set({ typeFilter: [] }),
   setSelectedTable: (selectedTable) => set({ selectedTable }),
 
   toggleSyncSelection: (tableName) => {
