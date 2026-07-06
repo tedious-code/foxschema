@@ -121,6 +121,17 @@ specific (notably IBM Db2). See [DEPLOYMENT.md](DEPLOYMENT.md#database-drivers).
 **Saved passwords stopped working.** The encryption key changed. Restore the original
 `APP_ENCRYPTION_KEY`, or re-enter the passwords.
 
+**macOS: "'Fox Schema.app' is damaged and can't be opened."** This isn't actual
+corruption — it's Gatekeeper's response to an app that isn't notarized by Apple (which
+requires a paid Developer account). Open Terminal and run:
+
+```bash
+xattr -cr "/Applications/Fox Schema.app"
+```
+
+Then open the app normally. If it still shows an "unidentified developer" prompt instead,
+right-click the app → **Open**.
+
 **Lost my saved connections/history after a restart (Docker).** The app data lives on
 the `/data` volume — make sure you didn't remove it (`docker compose down -v` deletes
 volumes). See [DEPLOYMENT.md](DEPLOYMENT.md).
