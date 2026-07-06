@@ -1,4 +1,4 @@
-# Building & publishing the FoxSchema desktop app
+# Building & publishing the Fox Schema desktop app
 
 The desktop app is **Tauri v2** (Rust shell) wrapping the web UI, with the backend running
 as a **Node sidecar** that Tauri spawns. Because the sidecar is a native binary and the

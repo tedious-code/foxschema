@@ -1,6 +1,6 @@
-# Deploying FoxSchema
+# Deploying Fox Schema
 
-FoxSchema's web app ships as a **single container** that serves both the UI and the API on
+Fox Schema's web app ships as a **single container** that serves both the UI and the API on
 one configurable port. This guide covers running it locally, on a server, and in the
 cloud.
 
@@ -83,7 +83,7 @@ With `docker run`, just change the left side of `-p 8090:3001`.
 
 ## Where app data lives
 
-FoxSchema's **own** database (saved connections, migration history, settings — *not* the
+Fox Schema's **own** database (saved connections, migration history, settings — *not* the
 databases you compare) defaults to a SQLite file on the **`/data` volume**.
 
 - **Keep the volume** to keep your data across restarts/upgrades. `docker compose down`
@@ -126,7 +126,7 @@ SSO_MICROSOFT_TENANT=common
 Set each provider's OAuth redirect/callback to `${SSO_REDIRECT_BASE}/api/auth/sso/<provider>/callback`.
 
 **Always terminate TLS** (via your reverse proxy or platform) for any internet-facing
-deployment — Fox schema handles database credentials.
+deployment — Fox Schema handles database credentials.
 
 ## Cloud platforms
 

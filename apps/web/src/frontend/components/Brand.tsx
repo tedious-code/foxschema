@@ -1,10 +1,15 @@
 import React from 'react';
 import { FoxLogo, FOX_ORANGE } from './FoxLogo';
 
-/** "Fox" wordmark — rendered in the brand orange. */
+/**
+ * "Fox Schema" wordmark. "Fox" carries the brand orange; "Schema" is the
+ * subdued qualifier — same pairing as the npm scope (@foxschema/*) and the
+ * `fox` CLI command, which are unaffected by this display name.
+ */
 export const Wordmark: React.FC<{ className?: string }> = ({ className }) => (
   <span className={`tracking-tight antialiased ${className ?? ''}`}>
     <span style={{ color: FOX_ORANGE }}>Fox</span>
+    <span className="text-slate-400"> Schema</span>
   </span>
 );
 

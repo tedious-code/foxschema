@@ -28,14 +28,14 @@ const program = new Command();
 
 program
   .name('fox')
-  .description('Fox schema cli — database schema diff & migration, in your terminal')
+  .description('Fox Schema CLI — database schema diff & migration, in your terminal')
   .version(VERSION, '-v, --version');
 
 program
   .command('version')
   .description('Show the version and runtime info')
   .action(() => {
-    console.log(`Fox CLI ${chalk.bold('v' + VERSION)}`);
+    console.log(`Fox Schema CLI ${chalk.bold('v' + VERSION)}`);
     console.log(chalk.dim(`node ${process.version} · ${process.platform} ${process.arch}`));
   });
 

@@ -1,4 +1,4 @@
-# Contributing to Fox
+# Contributing to Fox Schema
 
 Thanks for your interest in improving Fox! New dialect support, bug fixes,
 documentation, and tests are all especially welcome. This guide gets you from a

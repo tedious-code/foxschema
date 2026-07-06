@@ -1,9 +1,9 @@
-# Fox schema — User Guide
+# Fox Schema — User Guide
 
-Fox schema compares two databases and shows you exactly what's different, then writes the
-SQL to make one match the other. This guide is for **using** Fox schema — no coding required.
+Fox Schema compares two databases and shows you exactly what's different, then writes the
+SQL to make one match the other. This guide is for **using** Fox Schema — no coding required.
 
-- [What Fox schema is for](#what-fox-is-for)
+- [What Fox Schema is for](#what-fox-schema-is-for)
 - [Install & run](#install--run)
 - [First run](#first-run)
 - [Connect a database](#connect-a-database)
@@ -13,7 +13,7 @@ SQL to make one match the other. This guide is for **using** Fox schema — no c
 - [History](#history)
 - [Troubleshooting](#troubleshooting)
 
-## What Fox schena is for
+## What Fox Schema is for
 
 Typical uses:
 
@@ -22,7 +22,7 @@ Typical uses:
 - **"Bring dev up to date with the new schema."** — generate the migration SQL and apply it.
 - **"What changed between these two databases?"** — a clear, grouped, searchable diff.
 
-Fox schema never changes your **source** database. It only ever writes to the **target**, and
+Fox Schema never changes your **source** database. It only ever writes to the **target**, and
 only when you explicitly apply a migration.
 
 ## Install & run
@@ -42,7 +42,7 @@ Then open **http://localhost:3001**. To use a different port, set `PORT=` in `.e
 
 ## First run
 
-The first time you open Fox schema it sets up an **encryption key** that protects the
+The first time you open Fox Schema it sets up an **encryption key** that protects the
 database passwords you save. With Docker this is the `APP_ENCRYPTION_KEY` you put in
 `.env`; on desktop it's created for you and kept in your OS keychain.
 
@@ -65,7 +65,7 @@ comparing **to** (target).
 1. Choose a **source** connection and a **target** connection.
 2. Click **Compare**.
 
-Fox schema reads both schemas and builds the diff. You can narrow what it looks at (tables
+Fox Schema reads both schemas and builds the diff. You can narrow what it looks at (tables
 only, views, functions, etc.) with the scope filter.
 
 ## Read the diff
@@ -98,7 +98,7 @@ look (view/function bodies, for instance, aren't auto-translated).
    shows "completed with failures" and lists what was skipped.
 
 You can always just copy the generated SQL and run it yourself instead of applying it
-through Fox schema.
+through Fox Schema.
 
 ## History
 
@@ -109,7 +109,7 @@ re-inspect past runs. No passwords are stored in history.
 ## Troubleshooting
 
 **"Connection failed" / timeout.** Check host, port, and that the database accepts
-connections from where Fox schema runs (in Docker, `localhost` means *inside the container* —
+connections from where Fox Schema runs (in Docker, `localhost` means *inside the container* —
 use the host's IP or a service name, not `localhost`, to reach a DB on your machine).
 
 **Port already in use.** Change `PORT` in `.env` and restart (`docker compose -f
