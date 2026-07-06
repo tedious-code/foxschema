@@ -3,7 +3,7 @@
   "version": "0.0.16",
   "description": "Dialect-agnostic database schema diff & migration engine (FoxSchema core). The full Node runtime: drivers, pooling, and migration execution.",
   "type": "module",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "exports": {
     ".": "./src/index.ts"
   },

@@ -19,6 +19,8 @@
     "dev:all:auth": "concurrently -n api,web -c cyan,magenta \"npm run dev:api:auth\" \"npm run dev:auth\"",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "serve": "tsx src/backend/serve.ts",
+    "start": "npm run serve",
     "test": "vitest run"
   },
   "dependencies": {
@@ -28,7 +30,6 @@
     "better-sqlite3": "^12.11.1",
     "cors": "^2.8.6",
     "express": "^5.2.1",
-    "ibm_db": "4.0.1",
     "lucide-react": "^1.16.0",
     "monaco-editor": "^0.55.1",
     "mssql": "^12.6.0",
@@ -40,6 +41,9 @@
     "sql-formatter": "^15.8.1",
     "tailwindcss": "^4.3.0",
     "zustand": "^5.0.13"
+  },
+  "optionalDependencies": {
+    "ibm_db": "4.0.1"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
