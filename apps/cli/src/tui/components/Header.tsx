@@ -7,7 +7,7 @@ export function Header(): React.JSX.Element {
       <Text bold color="#F26B21">
         Fox
       </Text>
-      <Text dimColor> — schema diff &amp; migration</Text>
+      <Text dimColor> — schema diff &amp; migration · foxschema.com</Text>
     </Box>
   );
 }
