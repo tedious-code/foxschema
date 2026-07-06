@@ -37,6 +37,7 @@ program
   .action(() => {
     console.log(`Fox Schema CLI ${chalk.bold('v' + VERSION)}`);
     console.log(chalk.dim(`node ${process.version} · ${process.platform} ${process.arch}`));
+    console.log(chalk.dim('foxschema.com'));
   });
 
 program

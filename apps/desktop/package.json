@@ -1,10 +1,10 @@
 {
   "name": "@foxschema/desktop",
   "private": true,
-  "version": "0.0.20",
+  "version": "0.1.8",
   "type": "module",
   "scripts": {
-    "build:frontend": "cd ../web && VITE_EDITION=community vite build --outDir ../desktop/src-tauri/frontendDist --emptyOutDir",
+    "build:frontend": "cd ../web && cross-env VITE_EDITION=community vite build --outDir ../desktop/src-tauri/frontendDist --emptyOutDir",
     "build:sidecar": "node scripts/build-sidecar.mjs",
     "dev:frontend": "cd ../web && vite",
     "predev": "npm run build:sidecar",
@@ -15,6 +15,7 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
+    "cross-env": "^7.0.3",
     "esbuild": "^0.28.0"
   }
 }

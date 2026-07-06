@@ -1,0 +1,46 @@
+name: Release Checksums
+
+# Runs once a GitHub Release is published (the manual "Publish release" click
+# after reviewing desktop-release.yml's draft) — downloads every asset already
+# attached, generates a SHA256SUMS.txt, and uploads it back to the same
+# release so anyone who downloads an installer can verify it wasn't
+# corrupted or tampered with in transit.
+#
+# workflow_dispatch (with a tag input) lets this be run against a release
+# that was already published before this workflow existed.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to checksum (e.g. v0.1.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  checksums:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve the release tag
+        id: tag
+        run: echo "tag=${{ github.event.release.tag_name || inputs.tag }}" >> "$GITHUB_OUTPUT"
+
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release download "${{ steps.tag.outputs.tag }}" --repo "${{ github.repository }}" --dir assets --clobber
+
+      - name: Generate SHA256SUMS.txt
+        run: |
+          cd assets
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Upload checksums to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ steps.tag.outputs.tag }}" assets/SHA256SUMS.txt --repo "${{ github.repository }}" --clobber

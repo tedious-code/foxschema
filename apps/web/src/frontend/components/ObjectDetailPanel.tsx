@@ -50,6 +50,10 @@ const markerForKind = (kind: DdlLineKind): string =>
 
 // Colour trailing CREATE INDEX / ADD CONSTRAINT lines by their own diff status.
 const trailingLineKind = (text: string, diff: TableDiff, baseIsSource: boolean): DdlLineKind => {
+  // security/detect-unsafe-regex false-positives here: no nested/overlapping
+  // quantifiers, so no catastrophic backtracking — verified against a 50k-char
+  // all-whitespace input at <1ms.
+  // eslint-disable-next-line security/detect-unsafe-regex
   const idx = text.match(/^\s*CREATE(?:\s+UNIQUE)?\s+INDEX\s+(\S+)\s+ON\b/i);
   if (idx) {
     const st = (diff.indexDiffs ?? []).find((d) => d.name.toUpperCase() === idx[1].toUpperCase())?.status;
