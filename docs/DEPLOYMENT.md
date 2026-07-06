@@ -163,6 +163,20 @@ Both images are still on the large side because they ship the full `node_modules
 (including the frontend build toolchain). Trimming that down with an esbuild backend
 bundle is a planned follow-up.
 
+## Pulling the published image
+
+Every tagged release (`v*`) publishes both variants to GitHub Container Registry —
+no local build needed:
+
+```bash
+docker pull ghcr.io/tedious-code/foxschema:latest      # common (multi-arch)
+docker pull ghcr.io/tedious-code/foxschema:db2-latest  # with Db2 (amd64 only)
+# or a specific version instead of :latest, e.g. ghcr.io/tedious-code/foxschema:v0.1.0
+```
+
+Built by `.github/workflows/web-release.yml`. Point `docker-compose.app.yml`'s
+`image:` at one of these instead of `build:` to skip building locally.
+
 ## Building the image
 
 **Common (recommended default):**

@@ -6,7 +6,7 @@
 
 Runs as a self-hostable **web app**, a cross-platform **desktop app**, and a **terminal CLI**.
 
-[Quick start](#quick-start) · [User guide](docs/USER_GUIDE.md) · [Deploy](docs/DEPLOYMENT.md) · [Contributing](CONTRIBUTING.md) · [Architecture](docs/ARCHITECTURE.md)
+[foxschema.com](https://foxschema.com) · [Quick start](#quick-start) · [User guide](docs/USER_GUIDE.md) · [Deploy](docs/DEPLOYMENT.md) · [Contributing](CONTRIBUTING.md) · [Architecture](docs/ARCHITECTURE.md)
 
 </div>
 

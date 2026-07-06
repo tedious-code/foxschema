@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { LogOut, Palette, ChevronDown, ArrowUpCircle } from 'lucide-react';
+import { LogOut, Palette, ChevronDown, ArrowUpCircle, Globe } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { SettingsPanel } from './SettingsPanel';
 import { checkForUpdates, type UpdateInfo } from '../api/updatesApi';
@@ -75,6 +75,16 @@ export const ProfileMenu: React.FC = () => {
           >
             <Palette className="w-4 h-4" /> User Preference
           </button>
+
+          <a
+            href="https://foxschema.com"
+            target="_blank"
+            rel="noreferrer"
+            onClick={() => setOpen(false)}
+            className="w-full flex items-center gap-2 px-4 py-3 text-sm font-semibold text-slate-300 hover:text-slate-100 hover:bg-slate-800/60 transition cursor-pointer"
+          >
+            <Globe className="w-4 h-4" /> foxschema.com
+          </a>
 
           <button
             onClick={logout}
