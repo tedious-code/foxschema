@@ -23,10 +23,19 @@ export function isTauri(): boolean {
 }
 
 /** Invoke a Tauri command. Rejects if not running under Tauri. */
-export function invokeTauri<T>(cmd: string, args?: unknown): Promise<T> {
+export async function invokeTauri<T>(cmd: string, args?: unknown): Promise<T> {
   const invoke = tauri()?.core?.invoke;
-  if (!invoke) return Promise.reject(new Error('Not running under Tauri'));
-  return invoke<T>(cmd, args);
+  if (!invoke) throw new Error('Not running under Tauri');
+  try {
+    return await invoke<T>(cmd, args);
+  } catch (err) {
+    // Rust commands return Result<T, String>, so a failed command rejects
+    // with a plain string here, not an Error — every call site's
+    // `err instanceof Error ? err.message : fallback` would otherwise
+    // always take the fallback and hide the real reason. Normalize once,
+    // at the IPC boundary, instead of fixing every catch site individually.
+    throw err instanceof Error ? err : new Error(typeof err === 'string' ? err : JSON.stringify(err));
+  }
 }
 
 /** Set the cached API base (e.g. after the sidecar is spawned at setup). */
