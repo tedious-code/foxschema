@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Loader2, AlertCircle, ShieldCheck } from 'lucide-react';
 import { completeSetup, type SetupState } from '../api/setupApi';
 import { Brand } from './Brand';
@@ -21,8 +21,19 @@ export const SetupScreen: React.FC<{ initial: SetupState; onDone: (s: SetupState
 }) => {
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  // StrictMode double-invokes effects in dev (mount → cleanup → remount) to
+  // surface missing-cleanup bugs. The `alive` flag below only guards against
+  // a stray setState after unmount — it doesn't stop completeSetup() itself
+  // from actually firing twice, which raced two sidecar subprocesses against
+  // the same SQLite file ("database is locked"). A ref survives that
+  // mount/unmount cycle, so gating on "have we already fired *this* attempt"
+  // makes the real IPC call fire exactly once per attempt, StrictMode or not.
+  const firedAttempt = useRef<number | null>(null);
 
   useEffect(() => {
+    if (firedAttempt.current === attempt) return;
+    firedAttempt.current = attempt;
+
     let alive = true;
     setError(null);
     completeSetup({

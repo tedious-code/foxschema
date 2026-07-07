@@ -155,14 +155,30 @@ async fn enforce_install_binding(app: &AppHandle, engine: &str, db_path: &str) -
         .map_err(|e| e.to_string())?;
 
     if !output.status.success() {
+        log::error!(
+            "[install-binding] sidecar exited {:?} — stdout: {} stderr: {}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
         return Err("Could not read the selected database to verify it.".into());
     }
     // Tolerate any incidental log noise on stdout — the check prints exactly one
-    // JSON line, always last.
+    // JSON line, always last. Trim the *whole* capture before splitting: the
+    // sidecar's stdout can arrive with more than one trailing newline (seen
+    // under tauri_plugin_shell's capture, though not from a direct shell
+    // invocation of the same command) — `.lines().last()` on untrimmed input
+    // would then return an empty final "line" instead of the JSON.
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let line = stdout.lines().last().unwrap_or("").trim();
-    let report: serde_json::Value =
-        serde_json::from_str(line).map_err(|_| "Could not verify the selected database.".to_string())?;
+    let line = stdout.trim().lines().last().unwrap_or("").trim();
+    let report: serde_json::Value = serde_json::from_str(line).map_err(|parse_err| {
+        log::error!(
+            "[install-binding] non-JSON sidecar output — parse error: {parse_err} — line ({} bytes): {line:?} — full stdout: {stdout:?} stderr: {}",
+            line.len(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        "Could not verify the selected database.".to_string()
+    })?;
     if report.get("ok").and_then(|v| v.as_bool()) != Some(true) {
         return Err(report
             .get("error")
