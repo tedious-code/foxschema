@@ -25,8 +25,23 @@ const binariesDir = join(srcTauri, 'binaries');
 const EXTERNAL = ['pg', 'pg-native', 'mysql2', 'ibm_db'];
 
 function hostTriple() {
-  // Prefer rustc — it's authoritative for the target Tauri will build, which
-  // can differ from Node's arch (e.g. an x64 Node under Rosetta on arm64).
+  // Cross-compiling (e.g. `tauri build --target x86_64-apple-darwin` for a
+  // DB2-enabled Intel build on an Apple Silicon Mac) means the actual build
+  // TARGET differs from the machine's native host — and rustc -vV only ever
+  // reports the latter. Tauri sets TAURI_ENV_PLATFORM/TAURI_ENV_ARCH to the
+  // real target for beforeBuildCommand/beforeDevCommand hooks (this script),
+  // so check those first.
+  const envPlatform = process.env.TAURI_ENV_PLATFORM;
+  const envArch = process.env.TAURI_ENV_ARCH;
+  if (envPlatform && envArch) {
+    const osMap = { darwin: 'apple-darwin', linux: 'unknown-linux-gnu', windows: 'pc-windows-msvc' };
+    const os = osMap[envPlatform];
+    if (os) return `${envArch}-${os}`;
+  }
+
+  // No cross-compile target set — ask rustc, authoritative for the host build
+  // (also correct when Node itself is the mismatched one, e.g. an x64 Node
+  // under Rosetta on an otherwise-native arm64 machine).
   // Try PATH and the default rustup location (not on the npm shell's PATH).
   const candidates = ['rustc', join(process.env.HOME ?? '', '.cargo', 'bin', 'rustc')];
   for (const bin of candidates) {
