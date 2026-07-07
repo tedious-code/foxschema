@@ -450,6 +450,48 @@ async fn update_db_config(
     Ok(build_setup_state(state.inner(), &api_base))
 }
 
+/// Rebind the encryption key to a new email — from Settings, any time after
+/// setup (which defaults to a placeholder email so first-run needs no input).
+/// Re-stores the SAME key material under the new email's keychain account —
+/// the DEK itself never changes, so already-encrypted data keeps decrypting —
+/// then best-effort removes the old account. No sidecar respawn: the running
+/// process already holds the DEK in memory and nothing about the metadata DB
+/// changes.
+#[tauri::command]
+async fn update_email(state: State<'_, AppState>, email: String) -> Result<SetupState, String> {
+    let email_norm = email.trim().to_lowercase();
+    if !email_norm.contains('@') || email_norm.contains(char::is_whitespace) {
+        return Err("A valid email is required.".into());
+    }
+
+    let old_email = state.setup.lock().unwrap().email.clone();
+    if old_email.is_empty() {
+        return Err("Setup is not complete.".into());
+    }
+    if email_norm == old_email {
+        let api_base = state.api_base.lock().unwrap().clone();
+        return Ok(build_setup_state(state.inner(), &api_base));
+    }
+
+    let dek = keychain_get(&old_email).ok_or("Encryption key not found in keychain.")?;
+    keychain_set(&email_norm, &dek)?;
+
+    let info = {
+        let mut s = state.setup.lock().unwrap();
+        s.email = email_norm.clone();
+        s.key_scheme = "v2".to_string();
+        s.clone()
+    };
+    write_setup(&state.data_dir, &info)?;
+
+    if let Ok(entry) = keyring::Entry::new(KEY_SERVICE, &old_email) {
+        let _ = entry.delete_credential();
+    }
+
+    let api_base = state.api_base.lock().unwrap().clone();
+    Ok(build_setup_state(state.inner(), &api_base))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -505,6 +547,7 @@ pub fn run() {
             get_setup_state,
             complete_setup,
             update_db_config,
+            update_email,
             pick_db_location
         ])
         .build(tauri::generate_context!())
