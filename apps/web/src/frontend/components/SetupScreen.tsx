@@ -1,123 +1,66 @@
-import React, { useState } from 'react';
-import { Loader2, AlertCircle, ShieldCheck, HardDrive, FolderOpen } from 'lucide-react';
-import { completeSetup, pickDbLocation, type SetupState } from '../api/setupApi';
-import { isTauri } from '../api/apiBase';
+import React, { useEffect, useState } from 'react';
+import { Loader2, AlertCircle, ShieldCheck } from 'lucide-react';
+import { completeSetup, type SetupState } from '../api/setupApi';
 import { Brand } from './Brand';
 
+// Matches authStore.ts's LOCAL_USER — the same placeholder identity the web
+// edition's single-user mode already uses. Real per-install key binding (a
+// distinct email per machine) is opt-in via Settings → Security → Change,
+// rather than required to get through first run.
+const DEFAULT_EMAIL = 'local@foxschema.app';
+
 /**
- * One-time desktop first-run screen. Collects the user's email — the per-install
- * encryption key is bound to it and stored in the OS keychain, so a copied
- * database can't be decrypted on another machine — and where the bundled SQLite
- * database lives. New installs always start on SQLite; switching to Postgres /
- * MySQL is done later in Settings → Database.
+ * One-time desktop first-run screen. Silently binds the encryption key (kept
+ * in the OS keychain) and starts the app on the default SQLite location — no
+ * input required. Both the bound email and the database engine/location can
+ * be changed afterward in Settings → Security / Settings → Database.
  */
 export const SetupScreen: React.FC<{ initial: SetupState; onDone: (s: SetupState) => void }> = ({
   initial,
   onDone,
 }) => {
-  const [email, setEmail] = useState(initial.email);
-  const [dbPath, setDbPath] = useState(initial.db_path || initial.default_db_path);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
-  const browse = async () => {
-    try {
-      const picked = await pickDbLocation(dbPath || initial.default_db_path);
-      if (picked) setDbPath(picked);
-    } catch {
-      /* dialog cancelled / unavailable — keep the typed value */
-    }
-  };
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  useEffect(() => {
+    let alive = true;
     setError(null);
-    setBusy(true);
-    try {
-      const state = await completeSetup({
-        email: email.trim(),
-        engine: 'sqlite',
-        dbPath: dbPath.trim() || undefined,
-      });
-      onDone(state);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Setup failed.');
-      setBusy(false);
-    }
-  };
+    completeSetup({
+      email: initial.email || DEFAULT_EMAIL,
+      engine: 'sqlite',
+    })
+      .then((state) => alive && onDone(state))
+      .catch((err) => alive && setError(err instanceof Error ? err.message : 'Setup failed.'));
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- retried by bumping `attempt`, not by re-deriving inputs
+  }, [attempt]);
 
   return (
     <div className="h-screen flex items-center justify-center bg-slate-950 text-slate-100 p-4">
-      <div className="w-full max-w-md">
-        <div className="flex flex-col items-center mb-8">
-          <Brand logoSize={48} textClassName="text-2xl font-bold" subtitle={false} className="mb-2" />
-          <p className="text-sm text-slate-400 mt-1 text-center">Welcome — let's secure this install. Takes a few seconds.</p>
-        </div>
+      <div className="w-full max-w-md flex flex-col items-center gap-6">
+        <Brand logoSize={48} textClassName="text-2xl font-bold" subtitle={false} />
 
-        <form onSubmit={submit} className="bg-slate-900/60 border border-slate-800 rounded-xl p-6 flex flex-col gap-5">
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-              <ShieldCheck className="w-3.5 h-3.5" /> Your email
-            </label>
-            <input
-              type="email"
-              required
-              autoFocus
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="your@email.com"
-              className="bg-slate-950 border border-slate-800 focus:border-cyan-500 rounded-md px-3 py-2 text-sm outline-none"
-            />
-            <p className="text-[11px] text-slate-500 leading-relaxed">
-              Your encryption key is generated on this machine, bound to this email, and stored in the OS keychain —
-              never written to disk. Copying the database to another computer won't decrypt it.
-            </p>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-              <HardDrive className="w-3.5 h-3.5" /> Database location
-            </label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={dbPath}
-                onChange={(e) => setDbPath(e.target.value)}
-                spellCheck={false}
-                className="flex-1 min-w-0 bg-slate-950 border border-slate-800 focus:border-cyan-500 rounded-md px-3 py-2 text-xs font-mono outline-none"
-              />
-              {isTauri() && (
-                <button
-                  type="button"
-                  onClick={browse}
-                  className="shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-md transition"
-                >
-                  <FolderOpen className="w-3.5 h-3.5" /> Browse
-                </button>
-              )}
-            </div>
-            <p className="text-[11px] text-slate-500 leading-relaxed">
-              Fox stores its data in a local SQLite database here. You can switch to your own Postgres or MySQL
-              server later in Settings → Database.
-            </p>
-          </div>
-
-          {error && (
+        {error ? (
+          <div className="w-full bg-slate-900/60 border border-slate-800 rounded-xl p-6 flex flex-col gap-4">
             <div className="flex items-start gap-2 text-xs text-rose-400 bg-rose-950/40 border border-rose-500/20 rounded-md px-3 py-2">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
               <span>{error}</span>
             </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={busy}
-            className="accent-grad on-accent-fg font-semibold text-sm rounded-md px-4 py-2.5 flex items-center justify-center gap-2 disabled:opacity-60"
-          >
-            {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
-            {busy ? 'Securing…' : 'Finish setup'}
-          </button>
-        </form>
+            <button
+              type="button"
+              onClick={() => setAttempt((a) => a + 1)}
+              className="accent-grad on-accent-fg font-semibold text-sm rounded-md px-4 py-2.5 flex items-center justify-center gap-2"
+            >
+              <ShieldCheck className="w-4 h-4" /> Retry
+            </button>
+          </div>
+        ) : (
+          <p className="text-sm text-slate-400 flex items-center gap-2">
+            <Loader2 className="w-4 h-4 animate-spin" /> Securing this install…
+          </p>
+        )}
       </div>
     </div>
   );

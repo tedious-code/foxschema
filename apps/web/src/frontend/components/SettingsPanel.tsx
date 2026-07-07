@@ -4,6 +4,7 @@ import { X, Sun, Moon, Monitor, Palette, Type, RotateCcw, ShieldCheck, Database,
 import { useUiStore, ACCENTS, TONES, FONT_SIZES, THEME_PRESETS, type ThemeMode, type AccentId, type ThemePreset } from '../store/uiStore';
 import { fetchAppInfo, type AppInfo } from '../api/setupApi';
 import { DatabaseSettings } from './DatabaseSettings';
+import { EmailSettings } from './EmailSettings';
 import { UpdatesSettings } from './UpdatesSettings';
 
 interface Props {
@@ -192,21 +193,8 @@ export const SettingsPanel: React.FC<Props> = ({ open, onClose }) => {
 
           {info && (
             <Section icon={<ShieldCheck className="w-3 h-3" />} title="Security">
-              <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg border border-slate-800 bg-slate-950/40 text-xs">
-                <ShieldCheck
-                  className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${info.security.emailBound ? 'text-emerald-400' : 'text-amber-400'}`}
-                />
-                <p className="text-slate-300">
-                  {info.security.emailBound ? (
-                    <>
-                      Encryption key bound to{' '}
-                      <span className="font-mono text-slate-200">{info.security.boundEmail}</span> and held in the OS
-                      keychain — a copied database can't be decrypted elsewhere.
-                    </>
-                  ) : (
-                    <>Encryption key stored on this install (legacy key scheme).</>
-                  )}
-                </p>
+              <div className="px-3 py-2.5 rounded-lg border border-slate-800 bg-slate-950/40 text-xs">
+                <EmailSettings info={info} onUpdated={setInfo} />
               </div>
             </Section>
           )}

@@ -92,3 +92,12 @@ export async function updateDbConfig(input: {
     dbUrl: input.dbUrl || null,
   });
 }
+
+/**
+ * Rebind the encryption key to a new email (desktop only, Settings → Security).
+ * The key material is unchanged — only which keychain account holds it, and
+ * setup.json's record of it, move to the new email.
+ */
+export async function updateEmail(email: string): Promise<SetupState> {
+  return invokeTauri<SetupState>('update_email', { email });
+}
