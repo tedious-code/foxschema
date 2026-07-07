@@ -28,19 +28,6 @@ Output installers land in `apps/desktop/src-tauri/target/release/bundle/`:
 
 > **DB2** is excluded from the bundle by default (`INCLUDE_DB2=1` to opt in) — the
 > clidriver's loose files trip Tauri's resource walker. The other 9 dialects are included.
->
-> `ibm_db` has **no Apple Silicon build** — a DB2-enabled macOS build must target Intel
-> even on an M-series Mac:
-> ```bash
-> rustup target add x86_64-apple-darwin   # once
-> cd apps/desktop
-> INCLUDE_DB2=1 npx tauri build --target x86_64-apple-darwin
-> ```
-> `build:sidecar` reads Tauri's `TAURI_ENV_PLATFORM`/`TAURI_ENV_ARCH` (set for
-> `beforeBuildCommand` whenever `--target` cross-compiles) to name the sidecar for the
-> **target**, not the machine's native host — otherwise the bundler fails with `Failed to
-> copy external binaries: resource path 'binaries/foxschema-sidecar-x86_64-apple-darwin'
-> doesn't exist` (it shipped a `-aarch64-` sidecar while looking for `-x86_64-`).
 
 ## Automated releases (CI)
 
