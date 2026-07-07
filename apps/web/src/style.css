@@ -303,6 +303,16 @@
   animation: statusPulse 1.5s ease-in-out infinite;
 }
 
+/* Indeterminate progress bar (driver install has no measurable percentage) */
+@keyframes indeterminateProgress {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+
+.animate-indeterminate-progress {
+  animation: indeterminateProgress 1.2s ease-in-out infinite;
+}
+
 /* Search keyword highlight — used both by the object browser / Schema Blueprint
    (<mark>) and inside Monaco. Accent-tinted so it stands out in light & dark. */
 .fox-search-hl {

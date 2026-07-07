@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::fs;
-use std::net::TcpListener;
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use rand::RngExt;
 use serde::{Deserialize, Serialize};
@@ -61,6 +63,23 @@ fn free_port() -> u16 {
         .local_addr()
         .expect("local_addr")
         .port()
+}
+
+/// Block until the sidecar's TCP port accepts connections, or `timeout` elapses.
+/// `spawn_sidecar` only hands `api_base` to the frontend once this returns, so
+/// the earliest requests (e.g. the auto "load saved connections" on boot) don't
+/// race a Node process that's still starting up and get a spurious
+/// connection-refused ("TypeError: Load failed" in the webview).
+fn wait_for_port_ready(port: u16, timeout: Duration) {
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok() {
+            return;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    log::warn!("sidecar on port {port} did not become ready within {timeout:?}");
 }
 
 fn random_key_hex() -> String {
@@ -300,6 +319,11 @@ fn spawn_sidecar(app: &AppHandle, state: &AppState, dek: &str) -> Result<String,
     });
 
     *state.child.lock().unwrap() = Some(child);
+
+    // Publish api_base only once the port is actually accepting connections —
+    // otherwise the frontend's very first requests race the Node process
+    // starting up (esbuild/driver requires can take several seconds).
+    wait_for_port_ready(port, Duration::from_secs(30));
     *state.api_base.lock().unwrap() = api_base.clone();
     Ok(api_base)
 }

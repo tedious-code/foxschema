@@ -235,10 +235,14 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
 
     try {
       const packageName = DriverDetector.getPackageName(dialect);
-      
+
       // Use spawn with an explicit argument array instead of exec() with a template
       // string — this prevents shell interpretation of packageName (command injection).
-      const proc = spawn('pnpm', ['add', packageName, '--ignore-scripts'], { stdio: 'pipe' });
+      // packageName is looked up from the fixed adapter registry (never the raw
+      // request body), so it's safe to let install scripts run — and ibm_db's
+      // postinstall is what actually fetches/wires up the DB2 CLI driver; skipping
+      // it left the package installed but non-functional.
+      const proc = spawn('pnpm', ['add', packageName], { stdio: 'pipe' });
       let stdout = '';
       let stderr = '';
       proc.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
