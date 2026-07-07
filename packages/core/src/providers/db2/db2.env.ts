@@ -7,14 +7,14 @@ const nodeRequire = createRequire(import.meta.url);
 let configured = false;
 
 /**
- * Point the process at ibm_db2's bundled clidriver before loading native bindings.
+ * Point the process at ibm_db's bundled clidriver before loading native bindings.
  * Helps avoid SQL1042C caused by missing/wrong CLI library paths.
  */
 export function setupDb2ClientEnv(): void {
   if (configured) return;
 
   try {
-    const pkgPath = nodeRequire.resolve('ibm_db2/package.json');
+    const pkgPath = nodeRequire.resolve('ibm_db/package.json');
     const clidriverDir = path.join(path.dirname(pkgPath), 'installer', 'clidriver');
     const libDir = path.join(clidriverDir, 'lib');
     const binDir = path.join(clidriverDir, 'bin');
@@ -38,7 +38,7 @@ export function setupDb2ClientEnv(): void {
 
     configured = true;
   } catch {
-    // ibm_db2 not installed yet
+    // ibm_db not installed yet
   }
 }
 

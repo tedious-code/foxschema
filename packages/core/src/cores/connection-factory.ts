@@ -8,6 +8,24 @@ import { getAdapter, ADAPTERS } from '../providers/adapter-registry';
  * per-provider DriverAdapter — this layer only builds the connection string and
  * delegates, so adding a database platform never touches this file.
  */
+/**
+ * Node's dual-stack TCP connect (e.g. host "localhost" resolving to both ::1
+ * and 127.0.0.1 with nothing listening on either) throws an AggregateError
+ * whose own `.message` is `''` — the real reasons live in `.errors`. Left
+ * as-is, every provider's `error.message` rethrow surfaces that empty string
+ * (the client then shows a bare "Internal Server Error"). Join the nested
+ * messages instead so the real cause reaches the UI.
+ */
+function describeConnectionError(error: unknown): Error {
+  if (error instanceof AggregateError && !error.message && error.errors?.length) {
+    const message = error.errors
+      .map((e) => (e instanceof Error ? e.message : String(e)))
+      .join('; ');
+    return new Error(message);
+  }
+  return error instanceof Error ? error : new Error(String(error));
+}
+
 export class ConnectionFactory {
   static async create(
     provider: string,
@@ -16,7 +34,11 @@ export class ConnectionFactory {
   ): Promise<any> {
     const adapter = getAdapter(provider);
     const connectionString = getProviderSettings(provider).buildConnectionString(options);
-    return adapter.acquire(connectionString, options, opts.pooled !== false);
+    try {
+      return await adapter.acquire(connectionString, options, opts.pooled !== false);
+    } catch (error) {
+      throw describeConnectionError(error);
+    }
   }
 
   static async close(provider: string, connection: any): Promise<void> {

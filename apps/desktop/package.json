@@ -17,5 +17,8 @@
     "@tauri-apps/cli": "^2",
     "cross-env": "^7.0.3",
     "esbuild": "^0.28.0"
+  },
+  "dependencies": {
+    "ibm_db": "^4.0.1"
   }
 }

@@ -251,20 +251,27 @@ export const ConnectionModal: React.FC<Props> = ({
                 Driver ready · {driverInfo.packageName}{driverInfo.version ? ` ${driverInfo.version}` : ''}
               </div>
             ) : (
-              <div className="flex items-center justify-between gap-2 p-2.5 rounded-lg bg-amber-950/20 border border-amber-500/30">
-                <span className="flex items-center gap-1.5 text-xs font-semibold text-amber-300 min-w-0">
-                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                  Driver "{driverInfo.packageName}" is not installed
-                </span>
-                <button
-                  onClick={handleInstall}
-                  disabled={installing}
-                  title="Install the driver package on the server"
-                  className="shrink-0 text-xs font-bold on-accent-fg bg-amber-400 hover:bg-amber-300 disabled:bg-slate-700 disabled:text-slate-400 px-3 py-1 rounded flex items-center gap-1.5 cursor-pointer disabled:cursor-wait"
-                >
-                  {installing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-                  {installing ? 'Installing…' : 'Install'}
-                </button>
+              <div className="flex flex-col gap-2 p-2.5 rounded-lg bg-amber-950/20 border border-amber-500/30">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-1.5 text-xs font-semibold text-amber-300 min-w-0">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                    Driver "{driverInfo.packageName}" is not installed
+                  </span>
+                  <button
+                    onClick={handleInstall}
+                    disabled={installing}
+                    title="Install the driver package on the server"
+                    className="shrink-0 text-xs font-bold on-accent-fg bg-amber-400 hover:bg-amber-300 disabled:bg-slate-700 disabled:text-slate-400 px-3 py-1 rounded flex items-center gap-1.5 cursor-pointer disabled:cursor-wait"
+                  >
+                    {installing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                    {installing ? 'Installing…' : 'Install'}
+                  </button>
+                </div>
+                {installing && (
+                  <div className="w-full h-1 rounded-full bg-amber-950/40 overflow-hidden">
+                    <div className="w-1/3 h-full rounded-full bg-amber-400 animate-indeterminate-progress" />
+                  </div>
+                )}
               </div>
             )
           )}
