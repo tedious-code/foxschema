@@ -45,7 +45,10 @@ export const SetupScreen: React.FC<{ initial: SetupState; onDone: (s: SetupState
     return () => {
       alive = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- retried by bumping `attempt`, not by re-deriving inputs
+    // Depends only on `attempt` by design: retries re-fire it by bumping the
+    // counter, not by re-deriving `initial`/`onDone`. (Plain comment, not an
+    // eslint-disable — the react-hooks plugin isn't part of this repo's lint
+    // setup, and ESLint errors on directives naming rules it doesn't know.)
   }, [attempt]);
 
   return (
