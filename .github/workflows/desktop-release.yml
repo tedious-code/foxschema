@@ -1,8 +1,17 @@
 name: Desktop Release
 
-# Builds the Tauri desktop app for macOS (Apple Silicon + Intel), Windows and Linux
-# and attaches the installers to a DRAFT GitHub Release. Installers are UNSIGNED for
+# Builds the Tauri desktop app for macOS (Apple Silicon), Windows and Linux, and
+# attaches the installers to a DRAFT GitHub Release. Installers are UNSIGNED for
 # now (see docs/desktop-build.md for the signing follow-up).
+#
+# Intel Mac (macos-13) is intentionally NOT in this matrix: GitHub's macos-13
+# hosted-runner pool has repeatedly had no available capacity — jobs sit queued
+# for hours with zero progress and never start. A universal (arm64+x86_64)
+# binary built from macos-latest would sidestep that runner entirely, but the
+# sidecar packaging script (apps/desktop/scripts/build-sidecar.mjs) only ships
+# whatever Node binary is currently running it (single-arch) — it needs a real
+# per-architecture Node fetch before a universal build would actually work.
+# Tracked as a follow-up; see that script's NOTE comment.
 #
 # Trigger: push a version tag (e.g. `v0.1.0`), or run manually from the Actions tab.
 
@@ -22,7 +31,6 @@ jobs:
       matrix:
         include:
           - platform: macos-latest   # Apple Silicon (aarch64-apple-darwin)
-          - platform: macos-13       # Intel (x86_64-apple-darwin)
           - platform: ubuntu-22.04   # webkit2gtk 4.1 → .deb + .AppImage
           - platform: windows-latest # .msi + .exe (NSIS)
     runs-on: ${{ matrix.platform }}
