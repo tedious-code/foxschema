@@ -2,7 +2,7 @@
 name = "foxschema-desktop"
 version = "0.1.15"
 description = "FoxSchema desktop (Community edition)"
-authors = ["FoxSchema"]
+authors = ["huyplb@live.com"]
 license = ""
 repository = ""
 edition = "2021"
