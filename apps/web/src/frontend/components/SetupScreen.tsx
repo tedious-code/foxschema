@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Loader2, AlertCircle, ShieldCheck } from 'lucide-react';
-import { completeSetup, type SetupState } from '../api/setupApi';
+import { Loader2, AlertCircle, ShieldCheck, Copy, Check, FolderOpen } from 'lucide-react';
+import { completeSetup, getLogPath, revealLogFile, type SetupState } from '../api/setupApi';
 import { Brand } from './Brand';
 
 // Matches authStore.ts's LOCAL_USER — the same placeholder identity the web
@@ -20,6 +20,8 @@ export const SetupScreen: React.FC<{ initial: SetupState; onDone: (s: SetupState
   onDone,
 }) => {
   const [error, setError] = useState<string | null>(null);
+  const [logPath, setLogPath] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const [attempt, setAttempt] = useState(0);
   // StrictMode double-invokes effects in dev (mount → cleanup → remount) to
   // surface missing-cleanup bugs. The `alive` flag below only guards against
@@ -41,7 +43,11 @@ export const SetupScreen: React.FC<{ initial: SetupState; onDone: (s: SetupState
       engine: 'sqlite',
     })
       .then((state) => alive && onDone(state))
-      .catch((err) => alive && setError(err instanceof Error ? err.message : 'Setup failed.'));
+      .catch((err) => {
+        if (!alive) return;
+        setError(err instanceof Error ? err.message : 'Setup failed.');
+        getLogPath().then((p) => alive && setLogPath(p)).catch(() => {});
+      });
     return () => {
       alive = false;
     };
@@ -62,6 +68,34 @@ export const SetupScreen: React.FC<{ initial: SetupState; onDone: (s: SetupState
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
               <span>{error}</span>
             </div>
+            {logPath && (
+              <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500 bg-slate-950/60 border border-slate-800 rounded-md px-2.5 py-1.5">
+                <span className="truncate font-mono" title={logPath}>{logPath}</span>
+                <div className="shrink-0 flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => revealLogFile()}
+                    title="Show log file in Finder"
+                    className="text-slate-400 hover:text-slate-200 cursor-pointer"
+                  >
+                    <FolderOpen className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(logPath).then(() => {
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 1500);
+                      });
+                    }}
+                    title="Copy log file path"
+                    className="text-slate-400 hover:text-slate-200 cursor-pointer"
+                  >
+                    {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              </div>
+            )}
             <button
               type="button"
               onClick={() => setAttempt((a) => a + 1)}

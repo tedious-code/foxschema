@@ -101,6 +101,14 @@ cd apps/desktop && npm run build          # → .deb and .AppImage
   sees the "damaged" message** (e.g. from a build made before ad-hoc signing was added,
   or if the signature was stripped in transit), the fix is `xattr -cr "/Applications/Fox
   Schema.app"` in Terminal, then open normally.
+  - `com.apple.quarantine` is applied recursively to every file inside the `.app` when
+    it's downloaded via a browser — including the bundled Node **sidecar** binary, not
+    just the top-level executable. Approving the main app via right-click → Open does
+    **not** always clear it from nested binaries, so the sidecar can still fail to
+    launch on first run. This surfaces as `"Could not read the selected database to
+    verify it."` on the setup screen (the sidecar's `--check-install-binding` check
+    exiting non-zero) — same fix: `xattr -cr "/Applications/Fox Schema.app"`, then
+    reopen.
 - **Windows**: unsigned — SmartScreen shows **More info → Run anyway**. An Authenticode
   cert removes it.
 - **Linux**: no signing needed.
