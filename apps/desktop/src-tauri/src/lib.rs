@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -180,7 +180,11 @@ async fn enforce_install_binding(app: &AppHandle, engine: &str, db_path: &str) -
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
-        return Err("Could not read the selected database to verify it.".into());
+        return Err("Could not read the selected database to verify it. If you just \
+             downloaded this app, macOS Gatekeeper may be blocking the bundled helper \
+             process from running. Open Terminal and run: xattr -cr \"/Applications/Fox \
+             Schema.app\" (adjust the path if installed elsewhere), then reopen the app."
+            .into());
     }
     // Tolerate any incidental log noise on stdout — the check prints exactly one
     // JSON line, always last. Trim the *whole* capture before splitting: the
@@ -333,6 +337,46 @@ fn spawn_sidecar(app: &AppHandle, state: &AppState, dek: &str) -> Result<String,
 #[tauri::command]
 fn get_api_base(state: State<AppState>) -> String {
     state.api_base.lock().unwrap().clone()
+}
+
+fn log_file_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app.path().app_log_dir().map_err(|e| e.to_string())?;
+    Ok(dir.join("foxschema.log"))
+}
+
+/// Path to the app's log file (see the `tauri_plugin_log` setup in `run()`), so
+/// the frontend can show/copy it — e.g. from the setup screen when a user is
+/// stuck before ever reaching a working app to look at.
+#[tauri::command]
+fn get_log_path(app: AppHandle) -> Result<String, String> {
+    Ok(log_file_path(&app)?.to_string_lossy().to_string())
+}
+
+/// Reveal the log file in Finder/Explorer/the file manager. Calls the opener
+/// crate's function directly rather than registering it as a plugin — this is
+/// the only opener action the app exposes, and it's driven entirely by a path
+/// we compute ourselves, never anything from the frontend, so there's no need
+/// for the plugin's own (broader) permission surface.
+#[tauri::command]
+fn reveal_log_file(app: AppHandle) -> Result<(), String> {
+    let path = log_file_path(&app)?;
+    // reveal_item_in_dir requires the target to exist; fall back to the
+    // containing folder if no line has been logged yet.
+    let target = if path.exists() { path } else { path.parent().map(Path::to_path_buf).unwrap_or(path) };
+    tauri_plugin_opener::reveal_item_in_dir(target).map_err(|e| e.to_string())
+}
+
+/// Truncate the log file so old noise doesn't obscure a fresh repro. Truncates
+/// in place (rather than deleting) since `tauri_plugin_log` holds its own
+/// write handle open for the process's lifetime — deleting the file out from
+/// under it could leave future writes going to a now-unlinked inode.
+#[tauri::command]
+fn clear_log_file(app: AppHandle) -> Result<(), String> {
+    let path = log_file_path(&app)?;
+    if path.exists() {
+        fs::File::create(&path).map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 /// Native "save as" dialog for choosing the SQLite database location. Async so
@@ -538,13 +582,20 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
+            // Always on (not just debug builds) — a release build with no logging
+            // at all left users with nothing to share when something like the
+            // sidecar failing to start (e.g. under Gatekeeper) went wrong. Writes
+            // to the OS log dir (see `get_log_path`) plus stdout when run from a
+            // terminal.
+            app.handle().plugin(
+                tauri_plugin_log::Builder::default()
+                    .level(log::LevelFilter::Info)
+                    .target(tauri_plugin_log::Target::new(
+                        tauri_plugin_log::TargetKind::LogDir { file_name: Some("foxschema".into()) },
+                    ))
+                    .target(tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout))
+                    .build(),
+            )?;
 
             // Per-install state lives in the OS app-data dir.
             let data_dir = app.path().app_data_dir().expect("app data dir");
@@ -588,7 +639,10 @@ pub fn run() {
             complete_setup,
             update_db_config,
             update_email,
-            pick_db_location
+            pick_db_location,
+            get_log_path,
+            reveal_log_file,
+            clear_log_file
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

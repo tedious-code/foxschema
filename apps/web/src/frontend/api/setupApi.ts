@@ -101,3 +101,21 @@ export async function updateDbConfig(input: {
 export async function updateEmail(email: string): Promise<SetupState> {
   return invokeTauri<SetupState>('update_email', { email });
 }
+
+/** Path to the app's log file (desktop only) — null on the web. */
+export async function getLogPath(): Promise<string | null> {
+  if (!isTauri()) return null;
+  return invokeTauri<string>('get_log_path');
+}
+
+/** Reveal the log file in Finder/Explorer (desktop only, no-op on web). */
+export async function revealLogFile(): Promise<void> {
+  if (!isTauri()) return;
+  return invokeTauri<void>('reveal_log_file');
+}
+
+/** Truncate the log file's contents (desktop only, no-op on web). */
+export async function clearLogFile(): Promise<void> {
+  if (!isTauri()) return;
+  return invokeTauri<void>('clear_log_file');
+}
