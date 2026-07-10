@@ -30,4 +30,3 @@ rand = "0.10"
 # Credential Manager / Secret Service). Keeps the key off disk so a copied DB
 # can't be decrypted on another machine.
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
-tauri-plugin-opener = "2"
