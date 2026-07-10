@@ -1,16 +1,24 @@
 name: Desktop Release
 
 # Builds the Tauri desktop app for macOS (Apple Silicon), Windows and Linux, and
-# attaches the installers to a GitHub Release, then auto-publishes it once all
-# three platforms have uploaded. Installers are UNSIGNED for now (see
-# docs/desktop-build.md for the signing follow-up).
+# attaches the installers to a GitHub Release, then auto-publishes it once every
+# build has uploaded. Installers are UNSIGNED for now (see docs/desktop-build.md
+# for the signing follow-up).
 #
-# The build jobs upload to a DRAFT (each matrix job appends its own installers
-# to the same draft). A final `publish` job — gated on all builds succeeding —
-# flips the draft to published. This ordering is deliberate: publishing only
-# after every platform's assets are present avoids a window where the release is
-# public with just one OS's installers, and makes the `release: published` event
-# (which triggers release-checksums.yml) fire once, on the complete release.
+# TWO VARIANTS per platform (matrix `variant`):
+#   - standard: "Fox Schema" (id com.foxschema.desktop) — all dialects except
+#     DB2; keeps the Linux AppImage.
+#   - db2: "Fox Schema DB2" (id com.foxschema.desktop.db2, via
+#     src-tauri/tauri.db2.conf.json + INCLUDE_DB2=1) — adds the DB2 driver, but
+#     drops AppImage (its clidriver breaks linuxdeploy). Distinct productName →
+#     distinct installer filenames, so both coexist in the same release.
+#
+# The build jobs upload to a DRAFT (each appends its installers to the same
+# draft). A final `publish` job — gated on all builds succeeding — flips the
+# draft to published. This ordering is deliberate: publishing only after every
+# variant's assets are present avoids a window where the release is public with a
+# partial set, and makes the `release: published` event (which triggers
+# release-checksums.yml) fire once, on the complete release.
 #
 # Intel Mac (macos-13) is intentionally NOT in this matrix: GitHub's macos-13
 # hosted-runner pool has repeatedly had no available capacity — jobs sit queued
@@ -37,10 +45,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - platform: macos-latest   # Apple Silicon (aarch64-apple-darwin)
-          - platform: ubuntu-22.04   # webkit2gtk 4.1 → .deb + .AppImage
-          - platform: windows-latest # .msi + .exe (NSIS)
+        platform:
+          - macos-latest   # Apple Silicon (aarch64-apple-darwin)
+          - ubuntu-22.04   # webkit2gtk 4.1
+          - windows-latest # .msi + .exe (NSIS)
+        variant:
+          - standard       # "Fox Schema" — no DB2, keeps AppImage on Linux
+          - db2            # "Fox Schema DB2" — adds DB2, drops AppImage
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
@@ -78,18 +89,22 @@ jobs:
         run: npm install
 
       # tauri build runs beforeBuildCommand (sidecar + frontend) automatically.
-      # Each matrix job uploads its installers to the SAME draft release (keyed
-      # by tagName); the publish job below flips it live once all three finish.
+      # INCLUDE_DB2=1 (db2 variant) makes build-sidecar bundle ibm_db; the
+      # --config override renames the app to "Fox Schema DB2" with its own id and
+      # drops AppImage. Both variants upload to the SAME draft (keyed by tagName)
+      # with distinct filenames; the publish job flips it live once all finish.
       - name: Build & draft release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INCLUDE_DB2: ${{ matrix.variant == 'db2' && '1' || '' }}
         with:
           projectPath: apps/desktop
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || format('desktop-{0}', github.run_number) }}
           releaseName: "FoxSchema ${{ github.ref_type == 'tag' && github.ref_name || github.run_number }}"
           releaseDraft: true
           prerelease: false
+          args: ${{ matrix.variant == 'db2' && '--config src-tauri/tauri.db2.conf.json' || '' }}
 
   # Auto-publish the draft only after every platform build has succeeded, so the
   # release never goes public with a partial set of installers.

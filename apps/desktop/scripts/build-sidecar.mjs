@@ -32,22 +32,26 @@ const binariesDir = join(srcTauri, 'binaries');
 const EXTERNAL = ['pg', 'pg-native', 'mysql2', 'mssql', 'oracledb', 'ibm_db',
                   'better-sqlite3', '@clickhouse/client'];
 
-// Drivers bundled into every desktop build — one per supported dialect, so the
-// packaged app works against all of them offline with no runtime install. Their
-// full transitive dep trees are copied by shipDrivers. Notes:
+// Drivers bundled into the STANDARD desktop build — one per supported dialect
+// (minus DB2), so the packaged app works against all of them offline with no
+// runtime install. Their full transitive dep trees are copied by shipDrivers.
+// Notes:
 //   - oracledb runs in thin mode (no Oracle Instant Client needed).
-//   - ibm_db (DB2) ships its own ~64MB CLI driver tree; npm's postinstall fetches
-//     the per-platform prebuilt binding + clidriver (MacARM64/Mac-x64/Win64/
-//     Linux x64 are all supported by ibm_db >= 3.3.0, NAPI since 4.0.0), so the
-//     CI runner for each target OS produces the right one. copyDepTree copies it
-//     with symlinks dereferenced, which also avoids the resource-walker EACCES
-//     that previously made DB2 opt-in.
 //   - better-sqlite3 is native: npm's `prebuild-install` grabs the prebuilt
 //     binary matching the runner's platform and Node ABI. Since the sidecar
 //     ships that same Node runtime (shipNodeBinary), the ABI matches at runtime.
 //   - @clickhouse/client is pure JS (HTTP).
-const BUNDLED_DRIVERS = ['pg', 'mysql2', 'mssql', 'oracledb', 'ibm_db',
+const BUNDLED_DRIVERS = ['pg', 'mysql2', 'mssql', 'oracledb',
                          'better-sqlite3', '@clickhouse/client'];
+
+// DB2 (ibm_db) is bundled ONLY in the "Fox Schema DB2" variant (INCLUDE_DB2=1).
+// Its ~64MB CLI driver tree bloats the app and is incompatible with Linux
+// AppImage (linuxdeploy resolves every bundled .so's deps and chokes on the
+// clidriver), so the DB2 variant drops AppImage (see tauri.db2.conf.json) while
+// the standard build keeps it. npm's postinstall fetches the per-platform
+// prebuilt binding + clidriver (MacARM64/Mac-x64/Win64/Linux x64, ibm_db >=
+// 3.3.0, NAPI since 4.0.0), so each CI runner produces the right one.
+if (process.env.INCLUDE_DB2 === '1') BUNDLED_DRIVERS.push('ibm_db');
 
 function hostTriple() {
   // Cross-compiling (e.g. `tauri build --target x86_64-apple-darwin` for a
