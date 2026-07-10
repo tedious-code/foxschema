@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	Required for the bundled Node.js sidecar under Hardened Runtime (enabled by
+	default by Tauri's macOS bundler). Without these, the sidecar is killed at
+	launch with EXC_BREAKPOINT/SIGTRAP the instant V8 tries to JIT-compile or
+	load a native addon (better-sqlite3, pg-native, oracledb, ibm_db, ...) —
+	surfacing in the app as "Could not read the selected database to verify
+	it." with zero output from the child process.
+	-->
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+</dict>
+</plist>
