@@ -146,6 +146,44 @@ services:
       retries: 20
       start_period: 120s
 
+  # ── CockroachDB (PostgreSQL wire-compatible, distributed SQL) ────────────────
+  # No docker-entrypoint-initdb.d — seeded via scripts/seed/seed-all.sh (which
+  # execs `cockroach sql` into the running node). Uses a trigger-free seed
+  # (docker/init/cockroachdb/01_seed.sql) since CockroachDB has no triggers.
+  cockroachdb:
+    image: cockroachdb/cockroach:latest
+    container_name: foxschema-cockroachdb
+    command: start-single-node --insecure
+    ports:
+      - "26257:26257"
+    volumes:
+      - cockroach_data:/cockroach/cockroach-data
+    healthcheck:
+      test: ["CMD-SHELL", "cockroach sql --insecure -e 'SELECT 1' >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # ── YugabyteDB (PostgreSQL-compatible distributed SQL; YSQL on 5433) ─────────
+  # YSQL reuses the Postgres query layer, so it seeds from the SAME Postgres seed
+  # (docker/init/postgres/01_seed.sql) via seed-all.sh. YSQL binds the node's
+  # address, so the healthcheck/seed connect via `hostname -i`, not localhost.
+  yugabytedb:
+    image: yugabytedb/yugabyte:latest
+    container_name: foxschema-yugabytedb
+    command: bin/yugabyted start --background=false
+    ports:
+      - "5433:5433"
+      - "15433:15433"
+    volumes:
+      - yugabyte_data:/root/var
+    healthcheck:
+      test: ["CMD-SHELL", "bin/ysqlsh -h $$(hostname -i) -p 5433 -U yugabyte -c 'SELECT 1' >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 60s
+
 volumes:
   pg_data:
   mysql_data:
@@ -153,3 +191,5 @@ volumes:
   sqlserver_data:
   oracle_data:
   db2_data:
+  cockroach_data:
+  yugabyte_data:

@@ -47,7 +47,7 @@ fi
 
 # ── 2. Wait for every dialect container to report healthy ───────────────────
 # Names must match container_name: in docker-compose.yml.
-CONTAINERS="foxschema-postgres foxschema-mysql foxschema-mariadb foxschema-sqlserver foxschema-oracle foxschema-db2"
+CONTAINERS="foxschema-postgres foxschema-mysql foxschema-mariadb foxschema-sqlserver foxschema-oracle foxschema-db2 foxschema-cockroachdb foxschema-yugabytedb"
 TIMEOUT_SECS=600
 ELAPSED=0
 

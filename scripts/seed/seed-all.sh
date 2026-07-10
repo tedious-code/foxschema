@@ -71,27 +71,54 @@ seed_sqlite() {
   echo "  ✓ done  →  $SL_DIR/demo_a.db  |  demo_b.db"
 }
 
+seed_cockroachdb() {
+  echo "▶ CockroachDB …"
+  # No auto-init; exec `cockroach sql`. Uses the trigger-free seed variant.
+  docker exec foxschema-cockroachdb cockroach sql --insecure \
+    -e "CREATE DATABASE IF NOT EXISTS foxdb"
+  docker exec -i foxschema-cockroachdb cockroach sql --insecure --database=foxdb \
+    < "$INIT/cockroachdb/01_seed.sql"
+  echo "  ✓ done"
+}
+
+seed_yugabytedb() {
+  echo "▶ YugabyteDB …"
+  # YSQL binds the node address, so connect via the container's own IP. Reuses
+  # the Postgres seed (YSQL is Postgres-compatible, triggers included).
+  local ip
+  ip=$(docker exec foxschema-yugabytedb hostname -i | awk '{print $1}')
+  docker exec foxschema-yugabytedb bin/ysqlsh -h "$ip" -p 5433 -U yugabyte \
+    -c "CREATE DATABASE foxdb" 2>/dev/null || true
+  docker exec -i foxschema-yugabytedb bin/ysqlsh -h "$ip" -p 5433 -U yugabyte -d foxdb \
+    < "$INIT/postgres/01_seed.sql"
+  echo "  ✓ done"
+}
+
 TARGET="${1:-all}"
 case "$TARGET" in
-  postgres)   seed_postgres ;;
-  mysql)      seed_mysql ;;
-  mariadb)    seed_mariadb ;;
-  sqlserver)  seed_sqlserver ;;
-  oracle)     seed_oracle ;;
-  db2)        seed_db2 ;;
-  sqlite)     seed_sqlite ;;
+  postgres)    seed_postgres ;;
+  mysql)       seed_mysql ;;
+  mariadb)     seed_mariadb ;;
+  sqlserver)   seed_sqlserver ;;
+  oracle)      seed_oracle ;;
+  db2)         seed_db2 ;;
+  sqlite)      seed_sqlite ;;
+  cockroachdb) seed_cockroachdb ;;
+  yugabytedb)  seed_yugabytedb ;;
   all)
-    seed_postgres  || echo "  ✗ PostgreSQL skipped"
-    seed_mysql     || echo "  ✗ MySQL skipped"
-    seed_mariadb   || echo "  ✗ MariaDB skipped"
-    seed_sqlserver || echo "  ✗ SQL Server skipped"
-    seed_oracle    || echo "  ✗ Oracle skipped"
-    seed_db2       || echo "  ✗ DB2 skipped"
-    seed_sqlite    || echo "  ✗ SQLite skipped"
+    seed_postgres    || echo "  ✗ PostgreSQL skipped"
+    seed_mysql       || echo "  ✗ MySQL skipped"
+    seed_mariadb     || echo "  ✗ MariaDB skipped"
+    seed_sqlserver   || echo "  ✗ SQL Server skipped"
+    seed_oracle      || echo "  ✗ Oracle skipped"
+    seed_db2         || echo "  ✗ DB2 skipped"
+    seed_sqlite      || echo "  ✗ SQLite skipped"
+    seed_cockroachdb || echo "  ✗ CockroachDB skipped"
+    seed_yugabytedb  || echo "  ✗ YugabyteDB skipped"
     ;;
   *)
     echo "Unknown target: $TARGET"
-    echo "Usage: $0 [postgres|mysql|mariadb|sqlserver|oracle|db2|sqlite|all]"
+    echo "Usage: $0 [postgres|mysql|mariadb|sqlserver|oracle|db2|sqlite|cockroachdb|yugabytedb|all]"
     exit 1
     ;;
 esac
@@ -105,3 +132,5 @@ echo "  SQL Server  localhost:1433  SA/FoxPass123!       db=foxdb     schema=dem
 echo "  Oracle      localhost:1521  demo_a/foxpass       service=FREEPDB1 vs user=demo_b/foxpass"
 echo "  DB2         localhost:50000 db2inst1/foxpass     db=foxdb     schema=DEMO_A vs DEMO_B"
 echo "  SQLite      $SL_DIR/demo_a.db  vs  demo_b.db"
+echo "  CockroachDB localhost:26257 root (insecure)      db=foxdb     schema=demo_a vs demo_b"
+echo "  YugabyteDB  localhost:5433  yugabyte (no pass)   db=foxdb     schema=demo_a vs demo_b"
