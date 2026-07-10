@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Sun, Moon, Monitor, Palette, Type, RotateCcw, ShieldCheck, Database, ArrowUpCircle, Sparkles, FileText, Copy, Check, FolderOpen, Trash2 } from 'lucide-react';
+import { X, Sun, Moon, Monitor, Palette, Type, RotateCcw, ShieldCheck, Database, ArrowUpCircle, Sparkles } from 'lucide-react';
 import { useUiStore, ACCENTS, TONES, FONT_SIZES, THEME_PRESETS, type ThemeMode, type AccentId, type ThemePreset } from '../store/uiStore';
-import { fetchAppInfo, getLogPath, revealLogFile, clearLogFile, type AppInfo } from '../api/setupApi';
+import { fetchAppInfo, type AppInfo } from '../api/setupApi';
 import { DatabaseSettings } from './DatabaseSettings';
 import { EmailSettings } from './EmailSettings';
 import { UpdatesSettings } from './UpdatesSettings';
@@ -38,16 +38,11 @@ export const SettingsPanel: React.FC<Props> = ({ open, onClose }) => {
   const presetActive = (p: ThemePreset) => themeMode === p.mode && tone === p.tone && accent === p.accent;
   // Hooks must stay above the early return (rules-of-hooks).
   const [info, setInfo] = useState<AppInfo | null>(null);
-  const [logPath, setLogPath] = useState<string | null>(null);
-  const [logPathCopied, setLogPathCopied] = useState(false);
   useEffect(() => {
     if (!open) return;
     let alive = true;
     fetchAppInfo()
       .then((i) => alive && setInfo(i))
-      .catch(() => undefined);
-    getLogPath()
-      .then((p) => alive && setLogPath(p))
       .catch(() => undefined);
     return () => {
       alive = false;
@@ -200,47 +195,6 @@ export const SettingsPanel: React.FC<Props> = ({ open, onClose }) => {
             <Section icon={<ShieldCheck className="w-3 h-3" />} title="Security">
               <div className="px-3 py-2.5 rounded-lg border border-slate-800 bg-slate-950/40 text-xs">
                 <EmailSettings info={info} onUpdated={setInfo} />
-              </div>
-            </Section>
-          )}
-
-          {logPath && (
-            <Section icon={<FileText className="w-3 h-3" />} title="Diagnostics">
-              <div className="px-3 py-2.5 rounded-lg border border-slate-800 bg-slate-950/40 text-xs space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="text-slate-300 font-semibold">Log file</div>
-                    <div className="text-slate-500 font-mono truncate" title={logPath}>{logPath}</div>
-                  </div>
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(logPath).then(() => {
-                        setLogPathCopied(true);
-                        setTimeout(() => setLogPathCopied(false), 1500);
-                      });
-                    }}
-                    title="Copy log file path"
-                    className="shrink-0 p-1.5 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition cursor-pointer"
-                  >
-                    {logPathCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                  </button>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => revealLogFile()}
-                    className="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md border border-slate-800 bg-slate-900/60 text-slate-300 hover:text-slate-100 hover:border-slate-700 font-semibold transition cursor-pointer"
-                  >
-                    <FolderOpen className="w-3.5 h-3.5" /> Show file location
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (window.confirm('Clear the log file? This cannot be undone.')) clearLogFile();
-                    }}
-                    className="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md border border-slate-800 bg-slate-900/60 text-rose-400 hover:text-rose-300 hover:border-rose-500/40 font-semibold transition cursor-pointer"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" /> Purge
-                  </button>
-                </div>
               </div>
             </Section>
           )}
