@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@clickhouse/client": "^1.23.1",
+    "@duckdb/node-api": "^1.5.4-r.1",
     "@foxschema/core": "*",
     "@monaco-editor/react": "^4.7.0",
     "@tailwindcss/vite": "^4.3.0",

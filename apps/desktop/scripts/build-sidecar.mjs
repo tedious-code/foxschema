@@ -30,7 +30,7 @@ const binariesDir = join(srcTauri, 'binaries');
 // are marked external (not inlined by esbuild) because they use dynamic
 // require() patterns that don't survive bundling.
 const EXTERNAL = ['pg', 'pg-native', 'mysql2', 'mssql', 'oracledb', 'ibm_db',
-                  'better-sqlite3', '@clickhouse/client'];
+                  'better-sqlite3', '@clickhouse/client', '@duckdb/node-api'];
 
 // Drivers bundled into the STANDARD desktop build — one per supported dialect
 // (minus DB2), so the packaged app works against all of them offline with no
@@ -41,8 +41,10 @@ const EXTERNAL = ['pg', 'pg-native', 'mysql2', 'mssql', 'oracledb', 'ibm_db',
 //     binary matching the runner's platform and Node ABI. Since the sidecar
 //     ships that same Node runtime (shipNodeBinary), the ABI matches at runtime.
 //   - @clickhouse/client is pure JS (HTTP).
+//   - @duckdb/node-api is native (its @duckdb/node-bindings-<platform> prebuilt
+//     is pulled per-runner by copyDepTree, like better-sqlite3).
 const BUNDLED_DRIVERS = ['pg', 'mysql2', 'mssql', 'oracledb',
-                         'better-sqlite3', '@clickhouse/client'];
+                         'better-sqlite3', '@clickhouse/client', '@duckdb/node-api'];
 
 // DB2 (ibm_db) is bundled ONLY in the "Fox Schema DB2" variant (INCLUDE_DB2=1).
 // Its ~64MB CLI driver tree bloats the app and is incompatible with Linux

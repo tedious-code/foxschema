@@ -50,7 +50,7 @@ function defaultPort(dialect: string): number {
     postgres: 5432, mysql: 3306, mariadb: 3306, sqlserver: 1433,
     oracle: 1521, db2: 50000, sqlite: 0, azuresql: 1433,
     clickhouse: 8123, redshift: 5439,
-    cockroachdb: 26257, yugabytedb: 5433, tidb: 4000,
+    cockroachdb: 26257, yugabytedb: 5433, tidb: 4000, duckdb: 0,
   };
   return ports[dialect] ?? 5432;
 }

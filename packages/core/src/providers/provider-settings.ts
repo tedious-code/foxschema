@@ -12,6 +12,7 @@ import { azureSqlSettings } from './azureSql/azuresql.settings';
 import { cockroachDbSettings } from './cockroachDb/cockroachdb.settings';
 import { yugabyteDbSettings } from './yugabyteDb/yugabytedb.settings';
 import { tiDbSettings } from './tiDb/tidb.settings';
+import { duckDbSettings } from './duckDb/duckdb.settings';
 
 // Register a new dialect by adding its settings here — nothing else changes
 export const PROVIDER_SETTINGS: Record<string, ProviderConnectionSettings> = {
@@ -28,6 +29,7 @@ export const PROVIDER_SETTINGS: Record<string, ProviderConnectionSettings> = {
   [cockroachDbSettings.dialect]: cockroachDbSettings,
   [yugabyteDbSettings.dialect]: yugabyteDbSettings,
   [tiDbSettings.dialect]: tiDbSettings,
+  [duckDbSettings.dialect]: duckDbSettings,
 };
 
 export function getProviderSettings(dialect: string): ProviderConnectionSettings {
