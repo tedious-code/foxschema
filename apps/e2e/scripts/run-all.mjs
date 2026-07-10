@@ -44,6 +44,9 @@ const ALL_DIALECTS = [
   { key: 'azuresql',   file: 'src/tests/dialects/azuresql.test.ts',    label: 'Azure SQL'   },
   { key: 'clickhouse', file: 'src/tests/dialects/clickhouse.test.ts',  label: 'ClickHouse'  },
   { key: 'redshift',   file: 'src/tests/dialects/redshift.test.ts',    label: 'Redshift'    },
+  { key: 'cockroachdb', file: 'src/tests/dialects/cockroachdb.test.ts', label: 'CockroachDB' },
+  { key: 'yugabytedb',  file: 'src/tests/dialects/yugabytedb.test.ts',  label: 'YugabyteDB'  },
+  { key: 'tidb',        file: 'src/tests/dialects/tidb.test.ts',        label: 'TiDB'        },
 ];
 
 function isConfigured(key) {
