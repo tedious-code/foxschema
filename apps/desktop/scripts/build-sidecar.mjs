@@ -10,7 +10,7 @@
 // node:sqlite). For release builds, swap in a pinned Node 22 LTS per platform.
 import { build } from 'esbuild';
 import { execSync } from 'node:child_process';
-import { cpSync, mkdirSync, rmSync, existsSync, chmodSync, copyFileSync } from 'node:fs';
+import { cpSync, mkdirSync, rmSync, existsSync, chmodSync, copyFileSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 
@@ -21,8 +21,20 @@ const srcTauri = join(desktop, 'src-tauri');
 const serverDir = join(srcTauri, 'resources', 'server');
 const binariesDir = join(srcTauri, 'binaries');
 
-// External (not bundled) — native addons + drivers shipped in node_modules.
-const EXTERNAL = ['pg', 'pg-native', 'mysql2', 'ibm_db'];
+// External (not bundled into server.mjs) — instead shipped as a pruned
+// node_modules tree next to it (see shipDrivers). The desktop app can't install
+// drivers at runtime the way the web edition does (`pnpm add`): the .app bundle
+// is read-only and code-signed, end users have no package manager, and the
+// bundled server only resolves modules from its own node_modules. So every
+// driver a packaged build supports must be bundled here at build time. These
+// are marked external (not inlined by esbuild) because they use dynamic
+// require() patterns that don't survive bundling.
+const EXTERNAL = ['pg', 'pg-native', 'mysql2', 'mssql', 'oracledb', 'ibm_db'];
+
+// Pure-JS drivers bundled by default (oracledb runs in thin mode — no Oracle
+// Instant Client needed). Their full transitive dep trees are copied by
+// shipDrivers. Native drivers (better-sqlite3, ibm_db) are handled separately.
+const BUNDLED_DRIVERS = ['pg', 'mysql2', 'mssql', 'oracledb'];
 
 function hostTriple() {
   // Cross-compiling (e.g. `tauri build --target x86_64-apple-darwin` for a
@@ -95,24 +107,63 @@ async function bundleServer() {
   });
 }
 
+// Resolve a package's directory: prefer a copy nested under the requiring
+// package, else the hoisted copy at the repo root (npm/pnpm flatten most deps
+// to the root, but keep conflicting versions nested).
+function resolvePkgDir(name, fromDir) {
+  const nested = join(fromDir, 'node_modules', name);
+  if (existsSync(join(nested, 'package.json'))) return nested;
+  const hoisted = join(repoRoot, 'node_modules', name);
+  if (existsSync(join(hoisted, 'package.json'))) return hoisted;
+  return null;
+}
+
+// Copy each entry package and its full (optional-)dependency tree into `outNm`
+// (flat — safe because the resolved deps are the hoisted ones). Returns the set
+// of copied package names. Missing packages are warned about, not fatal, so an
+// absent optional dep (e.g. a driver's platform-specific extra) doesn't abort
+// the whole build.
+function copyDepTree(entryPkgs, outNm) {
+  const copied = new Set();
+  const queue = entryPkgs.map((name) => ({ name, fromDir: repoRoot }));
+  while (queue.length) {
+    const { name, fromDir } = queue.shift();
+    if (copied.has(name)) continue;
+    const dir = resolvePkgDir(name, fromDir);
+    if (!dir) {
+      console.warn(`[sidecar] driver dependency not found, skipping: ${name}`);
+      continue;
+    }
+    copied.add(name);
+    cpSync(dir, join(outNm, name), { recursive: true, dereference: true });
+    let pkg;
+    try {
+      pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+    } catch {
+      continue;
+    }
+    const deps = { ...(pkg.dependencies || {}), ...(pkg.optionalDependencies || {}) };
+    for (const d of Object.keys(deps)) {
+      if (!copied.has(d)) queue.push({ name: d, fromDir: dir });
+    }
+  }
+  return copied;
+}
+
 function shipDrivers() {
   const nm = join(serverDir, 'node_modules');
   mkdirSync(nm, { recursive: true });
 
-  const deps = ['pg', 'pg-protocol', 'pg-types', 'pg-connection-string', 'pgpass',
-                'postgres-array', 'postgres-bytea', 'postgres-date', 'postgres-interval',
-                'split2', 'xtend'];
+  const entries = [...BUNDLED_DRIVERS];
 
   // DB2 (ibm_db) bundles a ~64MB native clidriver tree of loose files that
   // trips Tauri's resource walker (EACCES) and bloats incremental builds. It's
   // opt-in until packaged as a single extracted-on-first-run archive (see the
   // DB2 packaging step). Enable with INCLUDE_DB2=1.
-  if (process.env.INCLUDE_DB2 === '1') deps.push('ibm_db');
+  if (process.env.INCLUDE_DB2 === '1') entries.push('ibm_db');
 
-  for (const dep of deps) {
-    const from = join(repoRoot, 'node_modules', dep);
-    if (existsSync(from)) cpSync(from, join(nm, dep), { recursive: true, dereference: true });
-  }
+  const copied = copyDepTree(entries, nm);
+  console.log(`[sidecar] bundled ${copied.size} driver package(s): ${entries.join(', ')}`);
 }
 
 function shipNodeBinary() {
