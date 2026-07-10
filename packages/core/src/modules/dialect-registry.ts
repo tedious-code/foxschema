@@ -8,6 +8,9 @@ import { sqliteSqlDialect } from '../providers/sqlLite/sqlite.sql-dialect';
 import { redshiftSqlDialect } from '../providers/redshift/redshift.sql-dialect';
 import { clickHouseSqlDialect } from '../providers/clickHouse/clickhouse.sql-dialect';
 import { azureSqlDialect } from '../providers/azureSql/azuresql.sql-dialect';
+import { cockroachDbSqlDialect } from '../providers/cockroachDb/cockroachdb.sql-dialect';
+import { yugabyteDbSqlDialect } from '../providers/yugabyteDb/yugabytedb.sql-dialect';
+import { tiDbSqlDialect } from '../providers/tiDb/tidb.sql-dialect';
 
 /** Maps a dialect name (case-insensitive) to its SQL generation strategy. */
 export const DIALECT_MAP: Record<string, SqlDialect> = {
@@ -21,6 +24,9 @@ export const DIALECT_MAP: Record<string, SqlDialect> = {
   REDSHIFT: redshiftSqlDialect,
   CLICKHOUSE: clickHouseSqlDialect,
   AZURESQL: azureSqlDialect,
+  COCKROACHDB: cockroachDbSqlDialect,
+  YUGABYTEDB: yugabyteDbSqlDialect,
+  TIDB: tiDbSqlDialect,
 };
 
 /** Resolve a dialect name to its strategy, defaulting to Db2 for unknown names. */

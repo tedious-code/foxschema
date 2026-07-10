@@ -38,7 +38,7 @@ interface PgTypeRaw { name: string; typtype: string; source_type: string | null;
 interface PgEnumRaw { type_name: string; label: string; }
 
 export class PostgresProvider implements SchemaProvider {
-  readonly provider = 'postgres';
+  readonly provider: string = 'postgres'; // widened to string so wire-compatible variants (CockroachDB, YugabyteDB) can subclass and override
 
   async testConnection(options: ConnectionOptions): Promise<boolean> {
     try {

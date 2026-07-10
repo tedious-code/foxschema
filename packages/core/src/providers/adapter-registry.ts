@@ -14,8 +14,11 @@ import { azureSqlAdapter } from './azureSql/azuresql.adapter';
 export const ADAPTERS: Record<string, DriverAdapter> = {
   [db2Adapter.dialect]: db2Adapter,
   [postgresAdapter.dialect]: postgresAdapter,
+  cockroachdb: postgresAdapter, // Postgres wire-compatible — shares the pg adapter.
+  yugabytedb: postgresAdapter,  // Postgres wire-compatible — shares the pg adapter.
   [mysqlAdapter.dialect]: mysqlAdapter,
   mariadb: mysqlAdapter, // MariaDB shares the mysql2 adapter (same wire protocol & driver).
+  tidb: mysqlAdapter,    // MySQL wire-compatible — shares the mysql2 adapter.
   [sqlServerAdapter.dialect]: sqlServerAdapter,
   [oracleAdapter.dialect]: oracleAdapter,
   [sqliteAdapter.dialect]: sqliteAdapter,
