@@ -1,8 +1,16 @@
 name: Desktop Release
 
 # Builds the Tauri desktop app for macOS (Apple Silicon), Windows and Linux, and
-# attaches the installers to a DRAFT GitHub Release. Installers are UNSIGNED for
-# now (see docs/desktop-build.md for the signing follow-up).
+# attaches the installers to a GitHub Release, then auto-publishes it once all
+# three platforms have uploaded. Installers are UNSIGNED for now (see
+# docs/desktop-build.md for the signing follow-up).
+#
+# The build jobs upload to a DRAFT (each matrix job appends its own installers
+# to the same draft). A final `publish` job — gated on all builds succeeding —
+# flips the draft to published. This ordering is deliberate: publishing only
+# after every platform's assets are present avoids a window where the release is
+# public with just one OS's installers, and makes the `release: published` event
+# (which triggers release-checksums.yml) fire once, on the complete release.
 #
 # Intel Mac (macos-13) is intentionally NOT in this matrix: GitHub's macos-13
 # hosted-runner pool has repeatedly had no available capacity — jobs sit queued
@@ -70,6 +78,8 @@ jobs:
         run: npm install
 
       # tauri build runs beforeBuildCommand (sidecar + frontend) automatically.
+      # Each matrix job uploads its installers to the SAME draft release (keyed
+      # by tagName); the publish job below flips it live once all three finish.
       - name: Build & draft release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -80,3 +90,21 @@ jobs:
           releaseName: "FoxSchema ${{ github.ref_type == 'tag' && github.ref_name || github.run_number }}"
           releaseDraft: true
           prerelease: false
+
+  # Auto-publish the draft only after every platform build has succeeded, so the
+  # release never goes public with a partial set of installers.
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # publish (edit) the release
+    steps:
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || format('desktop-{0}', github.run_number) }}
+        run: |
+          # Flipping draft → published fires the `release: published` event that
+          # release-checksums.yml listens for, so SHA256SUMS.txt is still added.
+          gh release edit "$TAG" --repo "${{ github.repository }}" --draft=false --latest
+
