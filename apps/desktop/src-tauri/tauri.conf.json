@@ -1,7 +1,7 @@
 {
   "$schema": "../../../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Fox Schema",
-  "version": "0.1.24",
+  "version": "0.1.25",
   "identifier": "com.foxschema.desktop",
   "build": {
     "frontendDist": "frontendDist",
@@ -28,7 +28,14 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["deb", "rpm", "app", "dmg", "msi", "nsis"],
+    "targets": [
+      "deb",
+      "rpm",
+      "app",
+      "dmg",
+      "msi",
+      "nsis"
+    ],
     "externalBin": [
       "binaries/foxschema-sidecar"
     ],
