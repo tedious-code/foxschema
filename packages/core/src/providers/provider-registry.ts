@@ -9,6 +9,9 @@ import { SqliteProvider } from './sqlLite/sqlLite.provider';
 import { RedshiftProvider } from './redshift/redshift.provider';
 import { ClickHouseProvider } from './clickHouse/clickhouse.provider';
 import { AzureSqlProvider } from './azureSql/azuresql.provider';
+import { CockroachDbProvider } from './cockroachDb/cockroachdb.provider';
+import { YugabyteDbProvider } from './yugabyteDb/yugabytedb.provider';
+import { TiDbProvider } from './tiDb/tidb.provider';
 
 // Register a dialect's schema provider (queries) here — one line per platform.
 export const PROVIDERS: Record<string, SchemaProvider> = {
@@ -22,6 +25,9 @@ export const PROVIDERS: Record<string, SchemaProvider> = {
   redshift: new RedshiftProvider(),
   clickhouse: new ClickHouseProvider(),
   azuresql: new AzureSqlProvider(),
+  cockroachdb: new CockroachDbProvider(),
+  yugabytedb: new YugabyteDbProvider(),
+  tidb: new TiDbProvider(),
 };
 
 export function getRegisteredProvider(dialect: string): SchemaProvider {

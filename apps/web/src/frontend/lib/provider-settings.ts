@@ -1,4 +1,4 @@
-export type Dialect = 'postgres' | 'mysql' | 'mariadb' | 'db2' | 'sqlserver' | 'oracle' | 'sqlite' | 'redshift' | 'clickhouse' | 'azuresql';
+export type Dialect = 'postgres' | 'mysql' | 'mariadb' | 'db2' | 'sqlserver' | 'oracle' | 'sqlite' | 'redshift' | 'clickhouse' | 'azuresql' | 'cockroachdb' | 'yugabytedb' | 'tidb';
 
 export interface ConnectionOptions {
   connectionString?: string;
@@ -139,12 +139,38 @@ const sqliteSettings: ProviderSettings = {
   },
 };
 
+// Wire-compatible variants: same connection string as their base engine, only
+// the label + default port differ. (Mirrors the core provider subclasses.)
+const cockroachdbSettings: ProviderSettings = {
+  ...postgresSettings,
+  dialect: 'cockroachdb',
+  label: 'CockroachDB',
+  defaultPort: 26257,
+};
+
+const yugabytedbSettings: ProviderSettings = {
+  ...postgresSettings,
+  dialect: 'yugabytedb',
+  label: 'YugabyteDB',
+  defaultPort: 5433,
+};
+
+const tidbSettings: ProviderSettings = {
+  ...mysqlSettings,
+  dialect: 'tidb',
+  label: 'TiDB',
+  defaultPort: 4000,
+};
+
 // ── registry ─────────────────────────────────────────────────────────────────
 
 export const PROVIDER_SETTINGS: Record<string, ProviderSettings> = {
   postgres: postgresSettings,
+  cockroachdb: cockroachdbSettings,
+  yugabytedb: yugabytedbSettings,
   mysql: mysqlSettings,
   mariadb: mariadbSettings,
+  tidb: tidbSettings,
   db2: db2Settings,
   sqlserver: sqlServerSettings,
   oracle: oracleSettings,

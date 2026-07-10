@@ -9,6 +9,9 @@ import { sqliteSettings } from './sqlLite/sqlLite.settings';
 import { redshiftSettings } from './redshift/redshift.settings';
 import { clickHouseSettings } from './clickHouse/clickhouse.settings';
 import { azureSqlSettings } from './azureSql/azuresql.settings';
+import { cockroachDbSettings } from './cockroachDb/cockroachdb.settings';
+import { yugabyteDbSettings } from './yugabyteDb/yugabytedb.settings';
+import { tiDbSettings } from './tiDb/tidb.settings';
 
 // Register a new dialect by adding its settings here — nothing else changes
 export const PROVIDER_SETTINGS: Record<string, ProviderConnectionSettings> = {
@@ -22,6 +25,9 @@ export const PROVIDER_SETTINGS: Record<string, ProviderConnectionSettings> = {
   [redshiftSettings.dialect]: redshiftSettings,
   [clickHouseSettings.dialect]: clickHouseSettings,
   [azureSqlSettings.dialect]: azureSqlSettings,
+  [cockroachDbSettings.dialect]: cockroachDbSettings,
+  [yugabyteDbSettings.dialect]: yugabyteDbSettings,
+  [tiDbSettings.dialect]: tiDbSettings,
 };
 
 export function getProviderSettings(dialect: string): ProviderConnectionSettings {
