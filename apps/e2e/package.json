@@ -32,7 +32,13 @@
     "test:clickhouse": "vitest run --config vitest.config.ts src/tests/dialects/clickhouse.test.ts",
     "test:clickhouse:headed": "HEADLESS=false vitest run --config vitest.config.ts src/tests/dialects/clickhouse.test.ts",
     "test:redshift": "vitest run --config vitest.config.ts src/tests/dialects/redshift.test.ts",
-    "test:redshift:headed": "HEADLESS=false vitest run --config vitest.config.ts src/tests/dialects/redshift.test.ts"
+    "test:redshift:headed": "HEADLESS=false vitest run --config vitest.config.ts src/tests/dialects/redshift.test.ts",
+    "test:cockroachdb": "vitest run --config vitest.config.ts src/tests/dialects/cockroachdb.test.ts",
+    "test:cockroachdb:headed": "HEADLESS=false vitest run --config vitest.config.ts src/tests/dialects/cockroachdb.test.ts",
+    "test:yugabytedb": "vitest run --config vitest.config.ts src/tests/dialects/yugabytedb.test.ts",
+    "test:yugabytedb:headed": "HEADLESS=false vitest run --config vitest.config.ts src/tests/dialects/yugabytedb.test.ts",
+    "test:tidb": "vitest run --config vitest.config.ts src/tests/dialects/tidb.test.ts",
+    "test:tidb:headed": "HEADLESS=false vitest run --config vitest.config.ts src/tests/dialects/tidb.test.ts"
   },
   "devDependencies": {
     "playwright": "^1.49.0",
