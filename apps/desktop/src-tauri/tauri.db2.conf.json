@@ -1,0 +1,8 @@
+{
+  "$schema": "../../../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Fox Schema DB2",
+  "identifier": "com.foxschema.desktop.db2",
+  "bundle": {
+    "targets": ["deb", "rpm", "app", "dmg", "msi", "nsis"]
+  }
+}
