@@ -29,10 +29,12 @@ const binariesDir = join(srcTauri, 'binaries');
 // driver a packaged build supports must be bundled here at build time. These
 // are marked external (not inlined by esbuild) because they use dynamic
 // require() patterns that don't survive bundling.
-const EXTERNAL = ['pg', 'pg-native', 'mysql2', 'mssql', 'oracledb', 'ibm_db'];
+const EXTERNAL = ['pg', 'pg-native', 'mysql2', 'mssql', 'oracledb', 'ibm_db',
+                  'better-sqlite3', '@clickhouse/client'];
 
-// Drivers bundled into every desktop build. Their full transitive dep trees are
-// copied by shipDrivers. Notes:
+// Drivers bundled into every desktop build — one per supported dialect, so the
+// packaged app works against all of them offline with no runtime install. Their
+// full transitive dep trees are copied by shipDrivers. Notes:
 //   - oracledb runs in thin mode (no Oracle Instant Client needed).
 //   - ibm_db (DB2) ships its own ~64MB CLI driver tree; npm's postinstall fetches
 //     the per-platform prebuilt binding + clidriver (MacARM64/Mac-x64/Win64/
@@ -40,7 +42,12 @@ const EXTERNAL = ['pg', 'pg-native', 'mysql2', 'mssql', 'oracledb', 'ibm_db'];
 //     CI runner for each target OS produces the right one. copyDepTree copies it
 //     with symlinks dereferenced, which also avoids the resource-walker EACCES
 //     that previously made DB2 opt-in.
-const BUNDLED_DRIVERS = ['pg', 'mysql2', 'mssql', 'oracledb', 'ibm_db'];
+//   - better-sqlite3 is native: npm's `prebuild-install` grabs the prebuilt
+//     binary matching the runner's platform and Node ABI. Since the sidecar
+//     ships that same Node runtime (shipNodeBinary), the ABI matches at runtime.
+//   - @clickhouse/client is pure JS (HTTP).
+const BUNDLED_DRIVERS = ['pg', 'mysql2', 'mssql', 'oracledb', 'ibm_db',
+                         'better-sqlite3', '@clickhouse/client'];
 
 function hostTriple() {
   // Cross-compiling (e.g. `tauri build --target x86_64-apple-darwin` for a

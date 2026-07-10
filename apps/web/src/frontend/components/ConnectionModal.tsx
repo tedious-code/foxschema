@@ -253,15 +253,16 @@ export const ConnectionModal: React.FC<Props> = ({
               </div>
             ) : isTauri() ? (
               // The desktop app can't install drivers at runtime — the .app
-              // bundle is read-only/code-signed and ships a fixed set of drivers
-              // at build time. So don't offer a button that can only fail; state
-              // plainly that this dialect isn't available in the desktop build.
+              // bundle is read-only/code-signed. Every dialect's driver is
+              // bundled at build time, so a not-installed state here is
+              // unexpected (a binding that failed to load), not a missing
+              // driver. Don't offer an install button that can only fail.
               <div className="flex items-start gap-1.5 p-2.5 rounded-lg bg-amber-950/20 border border-amber-500/30 text-xs text-amber-300">
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                 <span>
-                  The <span className="font-semibold">{driverInfo.packageName}</span> driver isn't included in
-                  this desktop build. Use the web edition for this database, or pick a bundled dialect
-                  (PostgreSQL, MySQL/MariaDB, SQL Server, Oracle, DB2).
+                  The <span className="font-semibold">{driverInfo.packageName}</span> driver failed to load.
+                  All dialects ship with the desktop app, so this is unexpected — try reinstalling the
+                  app, or use the web edition for this database.
                 </span>
               </div>
             ) : (

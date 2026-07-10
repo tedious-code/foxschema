@@ -24,6 +24,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@clickhouse/client": "^1.23.1",
     "@foxschema/core": "*",
     "@monaco-editor/react": "^4.7.0",
     "@tailwindcss/vite": "^4.3.0",
