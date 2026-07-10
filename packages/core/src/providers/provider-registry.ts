@@ -12,6 +12,7 @@ import { AzureSqlProvider } from './azureSql/azuresql.provider';
 import { CockroachDbProvider } from './cockroachDb/cockroachdb.provider';
 import { YugabyteDbProvider } from './yugabyteDb/yugabytedb.provider';
 import { TiDbProvider } from './tiDb/tidb.provider';
+import { DuckDbProvider } from './duckDb/duckdb.provider';
 
 // Register a dialect's schema provider (queries) here — one line per platform.
 export const PROVIDERS: Record<string, SchemaProvider> = {
@@ -28,6 +29,7 @@ export const PROVIDERS: Record<string, SchemaProvider> = {
   cockroachdb: new CockroachDbProvider(),
   yugabytedb: new YugabyteDbProvider(),
   tidb: new TiDbProvider(),
+  duckdb: new DuckDbProvider(),
 };
 
 export function getRegisteredProvider(dialect: string): SchemaProvider {

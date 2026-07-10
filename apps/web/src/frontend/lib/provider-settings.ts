@@ -1,4 +1,4 @@
-export type Dialect = 'postgres' | 'mysql' | 'mariadb' | 'db2' | 'sqlserver' | 'oracle' | 'sqlite' | 'redshift' | 'clickhouse' | 'azuresql' | 'cockroachdb' | 'yugabytedb' | 'tidb';
+export type Dialect = 'postgres' | 'mysql' | 'mariadb' | 'db2' | 'sqlserver' | 'oracle' | 'sqlite' | 'redshift' | 'clickhouse' | 'azuresql' | 'cockroachdb' | 'yugabytedb' | 'tidb' | 'duckdb';
 
 export interface ConnectionOptions {
   connectionString?: string;
@@ -162,6 +162,18 @@ const tidbSettings: ProviderSettings = {
   defaultPort: 4000,
 };
 
+const duckdbSettings: ProviderSettings = {
+  dialect: 'duckdb',
+  label: 'DuckDB',
+  defaultPort: 0,
+  defaultSchema: 'main',
+  schemaRequired: false,
+  buildConnectionString(o) {
+    if (o.connectionString?.trim()) return o.connectionString.trim();
+    return o.database || ':memory:';
+  },
+};
+
 // ── registry ─────────────────────────────────────────────────────────────────
 
 export const PROVIDER_SETTINGS: Record<string, ProviderSettings> = {
@@ -175,6 +187,7 @@ export const PROVIDER_SETTINGS: Record<string, ProviderSettings> = {
   sqlserver: sqlServerSettings,
   oracle: oracleSettings,
   sqlite: sqliteSettings,
+  duckdb: duckdbSettings,
 };
 
 export const DEFAULT_PORTS: Record<string, number> = Object.fromEntries(

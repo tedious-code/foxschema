@@ -38,7 +38,9 @@
     "test:yugabytedb": "vitest run --config vitest.config.ts src/tests/dialects/yugabytedb.test.ts",
     "test:yugabytedb:headed": "HEADLESS=false vitest run --config vitest.config.ts src/tests/dialects/yugabytedb.test.ts",
     "test:tidb": "vitest run --config vitest.config.ts src/tests/dialects/tidb.test.ts",
-    "test:tidb:headed": "HEADLESS=false vitest run --config vitest.config.ts src/tests/dialects/tidb.test.ts"
+    "test:tidb:headed": "HEADLESS=false vitest run --config vitest.config.ts src/tests/dialects/tidb.test.ts",
+    "test:duckdb": "vitest run --config vitest.config.ts src/tests/dialects/duckdb.test.ts",
+    "test:duckdb:headed": "HEADLESS=false vitest run --config vitest.config.ts src/tests/dialects/duckdb.test.ts"
   },
   "devDependencies": {
     "playwright": "^1.49.0",

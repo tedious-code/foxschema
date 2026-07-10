@@ -47,6 +47,7 @@ const ALL_DIALECTS = [
   { key: 'cockroachdb', file: 'src/tests/dialects/cockroachdb.test.ts', label: 'CockroachDB' },
   { key: 'yugabytedb',  file: 'src/tests/dialects/yugabytedb.test.ts',  label: 'YugabyteDB'  },
   { key: 'tidb',        file: 'src/tests/dialects/tidb.test.ts',        label: 'TiDB'        },
+  { key: 'duckdb',      file: 'src/tests/dialects/duckdb.test.ts',      label: 'DuckDB'      },
 ];
 
 function isConfigured(key) {

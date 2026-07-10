@@ -8,6 +8,7 @@ import { sqliteAdapter } from './sqlLite/sqlLite.adapter';
 import { redshiftAdapter } from './redshift/redshift.adapter';
 import { clickHouseAdapter } from './clickHouse/clickhouse.adapter';
 import { azureSqlAdapter } from './azureSql/azuresql.adapter';
+import { duckDbAdapter } from './duckDb/duckdb.adapter';
 
 // Register a dialect's native driver adapter here — one line per platform.
 // MariaDB shares the mysql2 adapter (same wire protocol & driver).
@@ -25,6 +26,7 @@ export const ADAPTERS: Record<string, DriverAdapter> = {
   [redshiftAdapter.dialect]: redshiftAdapter,
   [clickHouseAdapter.dialect]: clickHouseAdapter,
   [azureSqlAdapter.dialect]: azureSqlAdapter,
+  [duckDbAdapter.dialect]: duckDbAdapter,
 };
 
 export function getAdapter(dialect: string): DriverAdapter {

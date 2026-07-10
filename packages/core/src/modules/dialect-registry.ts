@@ -11,6 +11,7 @@ import { azureSqlDialect } from '../providers/azureSql/azuresql.sql-dialect';
 import { cockroachDbSqlDialect } from '../providers/cockroachDb/cockroachdb.sql-dialect';
 import { yugabyteDbSqlDialect } from '../providers/yugabyteDb/yugabytedb.sql-dialect';
 import { tiDbSqlDialect } from '../providers/tiDb/tidb.sql-dialect';
+import { duckDbSqlDialect } from '../providers/duckDb/duckdb.sql-dialect';
 
 /** Maps a dialect name (case-insensitive) to its SQL generation strategy. */
 export const DIALECT_MAP: Record<string, SqlDialect> = {
@@ -27,6 +28,7 @@ export const DIALECT_MAP: Record<string, SqlDialect> = {
   COCKROACHDB: cockroachDbSqlDialect,
   YUGABYTEDB: yugabyteDbSqlDialect,
   TIDB: tiDbSqlDialect,
+  DUCKDB: duckDbSqlDialect,
 };
 
 /** Resolve a dialect name to its strategy, defaulting to Db2 for unknown names. */
