@@ -10,7 +10,7 @@
 // node:sqlite). For release builds, swap in a pinned Node 22 LTS per platform.
 import { build } from 'esbuild';
 import { execSync } from 'node:child_process';
-import { cpSync, mkdirSync, rmSync, existsSync, chmodSync, copyFileSync, readFileSync } from 'node:fs';
+import { cpSync, mkdirSync, rmSync, existsSync, chmodSync, copyFileSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 
@@ -31,10 +31,16 @@ const binariesDir = join(srcTauri, 'binaries');
 // require() patterns that don't survive bundling.
 const EXTERNAL = ['pg', 'pg-native', 'mysql2', 'mssql', 'oracledb', 'ibm_db'];
 
-// Pure-JS drivers bundled by default (oracledb runs in thin mode — no Oracle
-// Instant Client needed). Their full transitive dep trees are copied by
-// shipDrivers. Native drivers (better-sqlite3, ibm_db) are handled separately.
-const BUNDLED_DRIVERS = ['pg', 'mysql2', 'mssql', 'oracledb'];
+// Drivers bundled into every desktop build. Their full transitive dep trees are
+// copied by shipDrivers. Notes:
+//   - oracledb runs in thin mode (no Oracle Instant Client needed).
+//   - ibm_db (DB2) ships its own ~64MB CLI driver tree; npm's postinstall fetches
+//     the per-platform prebuilt binding + clidriver (MacARM64/Mac-x64/Win64/
+//     Linux x64 are all supported by ibm_db >= 3.3.0, NAPI since 4.0.0), so the
+//     CI runner for each target OS produces the right one. copyDepTree copies it
+//     with symlinks dereferenced, which also avoids the resource-walker EACCES
+//     that previously made DB2 opt-in.
+const BUNDLED_DRIVERS = ['pg', 'mysql2', 'mssql', 'oracledb', 'ibm_db'];
 
 function hostTriple() {
   // Cross-compiling (e.g. `tauri build --target x86_64-apple-darwin` for a
@@ -150,20 +156,48 @@ function copyDepTree(entryPkgs, outNm) {
   return copied;
 }
 
+// Replace every symlink under `root` with a real copy of its resolved target.
+// Two reasons this is required, both from ibm_db's DB2 clidriver:
+//   1. cpSync(dereference) rewrites nested relative symlinks (e.g. the
+//      libDB2xml4c .dylib version aliases) into ABSOLUTE symlinks pointing back
+//      at the build machine's node_modules — dead links on a user's machine.
+//   2. Tauri's resource walker chokes (EACCES) on symlinks in the bundled tree.
+// Resolving them to plain files sidesteps both. Runs on the build machine where
+// the link targets still exist, so realpath resolves correctly.
+function flattenSymlinks(root) {
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const p = join(root, entry.name);
+    if (entry.isSymbolicLink()) {
+      try {
+        const real = realpathSync(p); // resolves to the actual file, wherever it lives
+        rmSync(p, { force: true });
+        cpSync(real, p, { recursive: true }); // real copy (target is a normal file/dir now)
+      } catch {
+        rmSync(p, { force: true }); // broken link — drop it rather than ship a dead one
+      }
+    } else if (entry.isDirectory()) {
+      flattenSymlinks(p);
+    }
+  }
+}
+
 function shipDrivers() {
   const nm = join(serverDir, 'node_modules');
   mkdirSync(nm, { recursive: true });
 
-  const entries = [...BUNDLED_DRIVERS];
+  const copied = copyDepTree(BUNDLED_DRIVERS, nm);
+  flattenSymlinks(nm);
 
-  // DB2 (ibm_db) bundles a ~64MB native clidriver tree of loose files that
-  // trips Tauri's resource walker (EACCES) and bloats incremental builds. It's
-  // opt-in until packaged as a single extracted-on-first-run archive (see the
-  // DB2 packaging step). Enable with INCLUDE_DB2=1.
-  if (process.env.INCLUDE_DB2 === '1') entries.push('ibm_db');
+  // ibm_db's DB2 clidriver ships many read-only (0555) files. Tauri's macOS
+  // bundle step runs `xattr -cr` over the whole app to strip quarantine/extra
+  // attributes, which fails with EACCES on files it can't write — the real
+  // reason DB2 bundling used to break. Make the shipped tree owner-writable so
+  // that pass succeeds. (No-op concern on Windows: it has no such xattr step.)
+  if (process.platform !== 'win32') {
+    execSync(`chmod -R u+w "${nm}"`);
+  }
 
-  const copied = copyDepTree(entries, nm);
-  console.log(`[sidecar] bundled ${copied.size} driver package(s): ${entries.join(', ')}`);
+  console.log(`[sidecar] bundled ${copied.size} driver package(s): ${BUNDLED_DRIVERS.join(', ')}`);
 }
 
 function shipNodeBinary() {

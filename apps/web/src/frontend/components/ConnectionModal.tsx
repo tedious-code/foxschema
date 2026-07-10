@@ -261,7 +261,7 @@ export const ConnectionModal: React.FC<Props> = ({
                 <span>
                   The <span className="font-semibold">{driverInfo.packageName}</span> driver isn't included in
                   this desktop build. Use the web edition for this database, or pick a bundled dialect
-                  (PostgreSQL, MySQL/MariaDB, SQL Server, Oracle).
+                  (PostgreSQL, MySQL/MariaDB, SQL Server, Oracle, DB2).
                 </span>
               </div>
             ) : (
