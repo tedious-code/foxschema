@@ -4,6 +4,7 @@ import { X, CheckCircle, AlertTriangle, Loader2, ListTree, Download } from "luci
 import { type ConnectionOptions, type Dialect, buildConnectionString, DEFAULT_PORTS, getProviderSettings, PROVIDER_SETTINGS } from '../lib/provider-settings';
 import type { DriverInfo } from '../lib/types';
 import { fetchSchemaList, checkDriver as apiCheckDriver, installDriver as apiInstallDriver } from "../api/schemaApi";
+import { isTauri } from '../api/apiBase';
 
 
 interface CredentialInput {
@@ -249,6 +250,19 @@ export const ConnectionModal: React.FC<Props> = ({
               <div className="flex items-center gap-1.5 text-[11px] text-emerald-400/90 px-0.5">
                 <CheckCircle className="w-3.5 h-3.5" />
                 Driver ready · {driverInfo.packageName}{driverInfo.version ? ` ${driverInfo.version}` : ''}
+              </div>
+            ) : isTauri() ? (
+              // The desktop app can't install drivers at runtime — the .app
+              // bundle is read-only/code-signed and ships a fixed set of drivers
+              // at build time. So don't offer a button that can only fail; state
+              // plainly that this dialect isn't available in the desktop build.
+              <div className="flex items-start gap-1.5 p-2.5 rounded-lg bg-amber-950/20 border border-amber-500/30 text-xs text-amber-300">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                <span>
+                  The <span className="font-semibold">{driverInfo.packageName}</span> driver isn't included in
+                  this desktop build. Use the web edition for this database, or pick a bundled dialect
+                  (PostgreSQL, MySQL/MariaDB, SQL Server, Oracle).
+                </span>
               </div>
             ) : (
               <div className="flex flex-col gap-2 p-2.5 rounded-lg bg-amber-950/20 border border-amber-500/30">
