@@ -28,7 +28,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["deb", "rpm", "app", "dmg", "msi", "nsis"],
     "externalBin": [
       "binaries/foxschema-sidecar"
     ],
