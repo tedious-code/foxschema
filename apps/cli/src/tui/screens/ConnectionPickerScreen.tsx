@@ -73,7 +73,7 @@ export function ConnectionPickerScreen({ role, onPicked, onAddNew }: Props): Rea
         </Text>
       )}
       {resolveError && <Text color="red">{resolveError}</Text>}
-      <KeyHints hints={role === 'source' ? ['↑↓ navigate', 'enter select', 'h history', 'ctrl+c quit'] : ['↑↓ navigate', 'enter select', 'esc back']} />
+      <KeyHints hints={['↑↓ navigate', 'enter select', 'esc back']} />
     </Box>
   );
 }

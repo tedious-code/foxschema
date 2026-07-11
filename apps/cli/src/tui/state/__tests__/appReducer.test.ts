@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { appReducer, initialState } from '../appReducer';
 import type { Screen } from '../../types';
 
-const HOME: Screen = { name: 'connectionPicker', role: 'source' };
-const TARGET: Screen = { name: 'connectionPicker', role: 'target' };
+const HOME: Screen = { name: 'connectionPicker', role: 'source', purpose: 'compare' };
+const TARGET: Screen = { name: 'connectionPicker', role: 'target', purpose: 'compare' };
 const HISTORY: Screen = { name: 'historyList' };
 
 describe('appReducer', () => {

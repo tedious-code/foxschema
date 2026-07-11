@@ -1,7 +1,7 @@
 import { confirm } from '@inquirer/prompts';
 import chalk from 'chalk';
 import type { TableDiff } from '@foxschema/core';
-import { resolveRef } from '../runtime/connectionRef';
+import { ensureSourceTarget, resolveRef } from '../runtime/connectionRef';
 import { compareModule, connectionModule, loadScopedTables, migrationModule, parseScope, sqlGenerator } from '../runtime/engine';
 import { getContext } from '../runtime/store';
 
@@ -33,10 +33,10 @@ interface MigrationEvent {
  * Dry-run by default (prints the SQL); --execute applies it (--yes skips confirm).
  */
 export async function runMigrate(opts: MigrateOptions): Promise<void> {
-  if (!opts.source || !opts.target) throw new Error('Both --source and --target are required.');
+  const { source, target } = await ensureSourceTarget(opts);
   const scope = parseScope(opts.scope);
-  const src = await resolveRef({ connection: opts.source, schema: opts.sourceSchema });
-  const tgt = await resolveRef({ connection: opts.target, schema: opts.targetSchema });
+  const src = await resolveRef({ connection: source, schema: opts.sourceSchema });
+  const tgt = await resolveRef({ connection: target, schema: opts.targetSchema });
 
   const [sourceTables, targetTables] = await Promise.all([
     loadScopedTables(src.dialect, src.option, src.schema, scope),

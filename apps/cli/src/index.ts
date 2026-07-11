@@ -72,8 +72,8 @@ connections
 program
   .command('compare')
   .description('Diff two schemas (exit 0 = identical, 1 = drift)')
-  .requiredOption('--source <name>', 'source saved-connection name or id')
-  .requiredOption('--target <name>', 'target saved-connection name or id')
+  .option('--source <name>', 'source saved-connection name or id (prompted if omitted in a terminal)')
+  .option('--target <name>', 'target saved-connection name or id (prompted if omitted in a terminal)')
   .option('--source-schema <schema>', 'override the source schema')
   .option('--target-schema <schema>', 'override the target schema')
   .option('--scope <types>', 'comma list: tables,views,functions,procedures,triggers,sequences,types,mqts,roles')
@@ -98,8 +98,8 @@ withRefOptions(program.command('snapshot'))
 program
   .command('migrate')
   .description('Diff source→target and apply the changes to the target')
-  .requiredOption('--source <name>', 'source saved-connection name or id')
-  .requiredOption('--target <name>', 'target saved-connection name or id')
+  .option('--source <name>', 'source saved-connection name or id (prompted if omitted in a terminal)')
+  .option('--target <name>', 'target saved-connection name or id (prompted if omitted in a terminal)')
   .option('--source-schema <schema>', 'override the source schema')
   .option('--target-schema <schema>', 'override the target schema')
   .option('--scope <types>', 'narrow to object types (comma list)')
@@ -111,32 +111,39 @@ program
 const history = program.command('history').description('Migration run history');
 history.command('list').description('List recent migration runs').action(() => listHistory());
 history.command('show <id>').description('Show a migration run in detail').action((id) => showHistory(id));
+// A *computed* import target, not a string literal — this is deliberate, not
+// stylistic. esbuild can only inline a dynamic import() whose specifier is a
+// literal string; it always leaves a computed one as an opaque runtime call.
+// That matters because the tui/ subtree is built as its own separate ESM
+// bundle (see build.mjs / build-binary.mjs) rather than inlined into this
+// file: Ink's own screens statically `import {Box} from 'ink'`, and if
+// those ended up bundled into *this* CJS-capable entry point, esbuild would
+// rewrite every one of those into a synchronous `require('ink')` the moment
+// any screen's module executes — which fails outright in the compiled SEA
+// binary, since ink's own yoga-layout dependency has a top-level `await` in
+// its ESM entry, and Node's require(esm) interop cannot evaluate that
+// synchronously (confirmed by reproducing it directly against a real
+// esbuild CJS bundle). Resolving relative to import.meta.url — which
+// becomes an execPath-relative runtime value in the SEA build via that
+// build's own `define` — is what lets the exact same source resolve
+// correctly across dev (tsx), the plain ESM build, and the SEA binary.
+async function launchTui(): Promise<void> {
+  const tuiEntry = new URL('./tui/index.js', import.meta.url).href;
+  const { runTui } = await import(tuiEntry);
+  await runTui();
+}
+
 program
   .command('tui')
   .description('Launch the interactive terminal UI')
-  .action(async () => {
-    // A *computed* import target, not a string literal — this is deliberate, not
-    // stylistic. esbuild can only inline a dynamic import() whose specifier is a
-    // literal string; it always leaves a computed one as an opaque runtime call.
-    // That matters because the tui/ subtree is built as its own separate ESM
-    // bundle (see build.mjs / build-binary.mjs) rather than inlined into this
-    // file: Ink's own screens statically `import {Box} from 'ink'`, and if
-    // those ended up bundled into *this* CJS-capable entry point, esbuild would
-    // rewrite every one of those into a synchronous `require('ink')` the moment
-    // any screen's module executes — which fails outright in the compiled SEA
-    // binary, since ink's own yoga-layout dependency has a top-level `await` in
-    // its ESM entry, and Node's require(esm) interop cannot evaluate that
-    // synchronously (confirmed by reproducing it directly against a real
-    // esbuild CJS bundle). Resolving relative to import.meta.url — which
-    // becomes an execPath-relative runtime value in the SEA build via that
-    // build's own `define` — is what lets the exact same source resolve
-    // correctly across dev (tsx), the plain ESM build, and the SEA binary.
-    const tuiEntry = new URL('./tui/index.js', import.meta.url).href;
-    const { runTui } = await import(tuiEntry);
-    await runTui();
-  });
+  .action(() => launchTui());
 
-program.parseAsync(process.argv).catch((err) => {
+// A bare `fox` (no subcommand, no flags) opens the friendlier interactive UI
+// instead of printing commander's help — that's the on-ramp for a new user.
+// `fox --help`/`-h` and any real subcommand still go through commander as usual.
+const bareInvocation = process.argv.length <= 2;
+
+(bareInvocation ? launchTui() : program.parseAsync(process.argv)).catch((err) => {
   console.error(chalk.red(err instanceof Error ? err.message : String(err)));
   process.exit(1);
 });
