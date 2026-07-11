@@ -5,6 +5,7 @@ import SelectInput from 'ink-select-input';
 import Spinner from 'ink-spinner';
 import { buildConnectionString, type ConnectionOptions } from '@foxschema/core';
 import { getContext } from '../../runtime/store';
+import { friendlyError } from '../../format/friendlyError';
 import { KeyHints } from '../components/KeyHints';
 import type { ConnRef, Role } from '../types';
 
@@ -72,7 +73,7 @@ export function ConnectionFormScreen({ role, onSubmit }: Props): React.JSX.Eleme
       onSubmit({ dialect, option, schema: values.schema || '', label: values.name || dialect });
     } catch (e) {
       setBusy(false);
-      setError(e instanceof Error ? e.message : String(e));
+      setError(friendlyError(e));
     }
   };
 

@@ -5,6 +5,7 @@ import SelectInput from 'ink-select-input';
 import type { SavedConnectionSummary } from '@foxschema/web/connection-store';
 import { useConnections } from '../data/useConnections';
 import { getContext } from '../../runtime/store';
+import { friendlyError } from '../../format/friendlyError';
 import { KeyHints } from '../components/KeyHints';
 
 /** List saved connections; selecting one offers to delete it. Adding a connection stays in the compare/migrate flow (`+ Add a new connection`). */
@@ -25,7 +26,7 @@ export function ConnectionManageScreen(): React.JSX.Element {
       state.reload();
     } catch (e) {
       setBusy(false);
-      setError(e instanceof Error ? e.message : String(e));
+      setError(friendlyError(e));
       return;
     }
     setBusy(false);

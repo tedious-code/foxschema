@@ -2,6 +2,7 @@ import chalk from 'chalk';
 import { CompareModule, SqlGeneratorModule } from '@foxschema/core';
 import { readConfig, CONFIG_DIR, CONFIG_FILE } from '../runtime/config';
 import { getDek } from '../runtime/keyring';
+import { friendlyError } from '../format/friendlyError';
 
 function safe<T>(fn: () => T): T | null {
   try {
@@ -36,7 +37,7 @@ export async function runDoctor(): Promise<void> {
     const mod = await import('@foxschema/core');
     core = chalk.green(`loaded (${Object.keys(mod).length} exports)`);
   } catch (e) {
-    core = chalk.red(`failed: ${e instanceof Error ? e.message : String(e)}`);
+    core = chalk.red(`failed: ${friendlyError(e)}`);
   }
   console.log(`  @foxschema/core   ${core} ${coreModulesOk ? chalk.green('(modules ok)') : chalk.red('(modules missing)')}`);
 }

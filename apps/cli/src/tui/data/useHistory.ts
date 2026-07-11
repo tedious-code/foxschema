@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { MigrationRunDetail, MigrationRunSummary } from '@foxschema/web/migration-history';
 import { getContext } from '../../runtime/store';
+import { friendlyError } from '../../format/friendlyError';
 import type { AsyncState } from '../types';
 
 /** Plain, hook-independent data functions — unit-testable with the same vi.spyOn(store, 'getContext') pattern as the line commands. */
@@ -24,7 +25,7 @@ export function useHistoryList(): AsyncState<MigrationRunSummary[]> {
         if (!cancelled) setState({ status: 'ready', data });
       })
       .catch((e) => {
-        if (!cancelled) setState({ status: 'error', error: e instanceof Error ? e.message : String(e) });
+        if (!cancelled) setState({ status: 'error', error: friendlyError(e) });
       });
     return () => {
       cancelled = true;
@@ -45,7 +46,7 @@ export function useHistoryDetail(runId: string): AsyncState<MigrationRunDetail |
         if (!cancelled) setState({ status: 'ready', data });
       })
       .catch((e) => {
-        if (!cancelled) setState({ status: 'error', error: e instanceof Error ? e.message : String(e) });
+        if (!cancelled) setState({ status: 'error', error: friendlyError(e) });
       });
     return () => {
       cancelled = true;

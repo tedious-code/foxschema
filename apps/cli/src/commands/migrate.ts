@@ -2,6 +2,7 @@ import { confirm } from '@inquirer/prompts';
 import chalk from 'chalk';
 import type { TableDiff } from '@foxschema/core';
 import { ensureSourceTarget, resolveRef } from '../runtime/connectionRef';
+import { friendlyError } from '../format/friendlyError';
 import { compareModule, connectionModule, loadScopedTables, migrationModule, parseScope, sqlGenerator } from '../runtime/engine';
 import { getContext } from '../runtime/store';
 
@@ -136,7 +137,7 @@ export async function runMigrate(opts: MigrateOptions): Promise<void> {
     await migrationModule.execute(tgt.dialect, tgt.option, tgt.schema, steps, send, { continueOnError: !!opts.continueOnError });
   } catch (err) {
     finalStatus = 'FAILED';
-    finalError = err instanceof Error ? err.message : String(err);
+    finalError = friendlyError(err);
     send({ type: 'done', success: false, rolledBack: false, error: finalError });
   }
 

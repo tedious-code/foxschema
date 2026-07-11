@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Box, Text } from 'ink';
 import TextInput from 'ink-text-input';
 import { performSetup, EMAIL_RE } from '../../runtime/setup';
+import { friendlyError } from '../../format/friendlyError';
 
 interface Props {
   reason: 'not-set-up' | 'key-unreachable';
@@ -48,7 +49,7 @@ export function SetupRequiredScreen({ reason, onComplete }: Props): React.JSX.El
       onComplete();
     } catch (e) {
       setBusy(false);
-      setError(e instanceof Error ? e.message : String(e));
+      setError(friendlyError(e));
     }
   };
 
