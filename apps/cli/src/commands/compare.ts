@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import type { TableDiff } from '@foxschema/core';
-import { resolveRef } from '../runtime/connectionRef';
+import { ensureSourceTarget, resolveRef } from '../runtime/connectionRef';
 import { compareModule, loadScopedTables, parseScope, sqlGenerator } from '../runtime/engine';
 import {
   TYPE_LABEL,
@@ -109,12 +109,10 @@ export function renderTreeView(allTables: TableDiff[]): void {
 
 /** `compare` — diff two schemas. Exit 0 = identical, 1 = drift (for CI). */
 export async function runCompare(opts: CompareOptions): Promise<void> {
-  if (!opts.source || !opts.target) {
-    throw new Error('Both --source and --target are required (a saved connection name/id).');
-  }
+  const { source, target } = await ensureSourceTarget(opts);
   const scope = parseScope(opts.scope);
-  const src = await resolveRef({ connection: opts.source, schema: opts.sourceSchema });
-  const tgt = await resolveRef({ connection: opts.target, schema: opts.targetSchema });
+  const src = await resolveRef({ connection: source, schema: opts.sourceSchema });
+  const tgt = await resolveRef({ connection: target, schema: opts.targetSchema });
 
   const [sourceTables, targetTables] = await Promise.all([
     loadScopedTables(src.dialect, src.option, src.schema, scope),

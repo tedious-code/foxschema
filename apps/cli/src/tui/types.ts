@@ -16,14 +16,19 @@ export type AsyncState<T> =
 
 export type Role = 'source' | 'target';
 
+/** Why the user is picking connections — decides what screen they land on once both are picked. */
+export type Purpose = 'compare' | 'migrate';
+
 /**
  * Stack-based screen state. App.tsx keeps Screen[] (not just a "current" screen), so
  * `esc` always means "go back one level" without a screen needing to know its predecessor.
  */
 export type Screen =
+  | { name: 'mainMenu' }
   | { name: 'setupRequired' }
-  | { name: 'connectionPicker'; role: Role; source?: ConnRef }
-  | { name: 'connectionForm'; role: Role; source?: ConnRef }
+  | { name: 'connectionPicker'; role: Role; purpose: Purpose; source?: ConnRef }
+  | { name: 'connectionForm'; role: Role; purpose: Purpose; source?: ConnRef }
+  | { name: 'connectionManage' }
   | { name: 'compare'; source: ConnRef; target: ConnRef; scope?: DbObjectType[] }
   | { name: 'tableDiffDetail'; source: ConnRef; target: ConnRef; diff: TableDiff }
   | { name: 'migrateConfirm'; source: ConnRef; target: ConnRef }

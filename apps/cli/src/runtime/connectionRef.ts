@@ -1,4 +1,4 @@
-import { password as passwordPrompt } from '@inquirer/prompts';
+import { password as passwordPrompt, select } from '@inquirer/prompts';
 import { buildConnectionString, type ConnectionOptions } from '@foxschema/core';
 import { getContext } from './store';
 
@@ -61,4 +61,38 @@ export async function resolveRef(flags: RefFlags): Promise<ResolvedRef> {
   if (!option.connectionString) option.connectionString = buildConnectionString(flags.dialect, option);
 
   return { dialect: flags.dialect, option, schema: flags.schema ?? '' };
+}
+
+async function promptForSavedConnection(role: 'source' | 'target'): Promise<string> {
+  const ctx = await getContext();
+  const list = await ctx.connections.list(ctx.userId);
+  if (list.length === 0) {
+    throw new Error(`No saved connections yet — add one with \`fox connections add\`, then re-run this.`);
+  }
+  return select({
+    message: `Pick the ${role} connection:`,
+    choices: list.map((c) => ({
+      name: `${c.name || '(unnamed)'}  [${c.dialect}]  ${[c.host, c.database, c.schema].filter(Boolean).join(' / ')}`,
+      value: c.id,
+    })),
+  });
+}
+
+/**
+ * `compare`/`migrate` need both --source and --target. In a real terminal, a
+ * missing one is prompted for interactively (pick from saved connections)
+ * instead of hard-failing — the flags stay required for scripts/CI, where
+ * stdin/stdout aren't a TTY and prompting would just hang.
+ */
+export async function ensureSourceTarget(opts: {
+  source?: string;
+  target?: string;
+}): Promise<{ source: string; target: string }> {
+  if (opts.source && opts.target) return { source: opts.source, target: opts.target };
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error('Both --source and --target are required (a saved connection name or id).');
+  }
+  const source = opts.source ?? (await promptForSavedConnection('source'));
+  const target = opts.target ?? (await promptForSavedConnection('target'));
+  return { source, target };
 }
