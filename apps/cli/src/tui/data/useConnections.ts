@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { ConnectionOptions } from '@foxschema/core';
 import type { SavedConnectionSummary } from '@foxschema/web/connection-store';
 import { getContext } from '../../runtime/store';
+import { friendlyError } from '../../format/friendlyError';
 import type { AsyncState } from '../types';
 
 /** Plain, hook-independent data function — unit-testable with the same vi.spyOn(store, 'getContext') pattern as the line commands. */
@@ -31,7 +32,7 @@ export function useConnections(): AsyncState<SavedConnectionSummary[]> & { reloa
         if (!cancelled) setState({ status: 'ready', data });
       })
       .catch((e) => {
-        if (!cancelled) setState({ status: 'error', error: e instanceof Error ? e.message : String(e) });
+        if (!cancelled) setState({ status: 'error', error: friendlyError(e) });
       });
     return () => {
       cancelled = true;

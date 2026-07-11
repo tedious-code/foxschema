@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import chalk from 'chalk';
+import { friendlyError } from './format/friendlyError';
 import { runSetup } from './commands/setup';
 import { runDoctor } from './commands/doctor';
 import { addConnection, listConnections, removeConnection } from './commands/connections';
@@ -29,7 +30,22 @@ const program = new Command();
 program
   .name('fox')
   .description('Fox Schema CLI — database schema diff & migration, in your terminal')
-  .version(VERSION, '-v, --version');
+  .version(VERSION, '-v, --version')
+  .showSuggestionAfterError()
+  .addHelpText(
+    'after',
+    `
+Examples:
+  $ fox                                             Open the interactive UI
+  $ fox connections add                             Save a connection (prompts for details)
+  $ fox compare --source prod --target staging      Diff two saved connections
+  $ fox migrate --source prod --target staging      Dry run — preview the migration SQL
+  $ fox migrate --source prod --target staging --execute --yes
+                                                     Apply the migration without confirming
+  $ fox compare --source prod --target staging --json --no-fail > diff.json
+                                                     CI-friendly JSON, always exit 0
+`
+  );
 
 program
   .command('version')
@@ -144,6 +160,6 @@ program
 const bareInvocation = process.argv.length <= 2;
 
 (bareInvocation ? launchTui() : program.parseAsync(process.argv)).catch((err) => {
-  console.error(chalk.red(err instanceof Error ? err.message : String(err)));
+  console.error(chalk.red(friendlyError(err)));
   process.exit(1);
 });

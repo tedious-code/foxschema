@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MigrationEvent, MigrationStep, TableDiff } from '@foxschema/core';
 import { connectionModule, migrationModule, sqlGenerator } from '../../runtime/engine';
 import { getContext } from '../../runtime/store';
+import { friendlyError } from '../../format/friendlyError';
 import type { ConnRef } from '../types';
 
 export interface ObjectResult {
@@ -100,7 +101,7 @@ export function useMigrate(
         await migrationModule.execute(target.dialect, target.option, target.schema, steps, send, { continueOnError });
       } catch (err) {
         finalStatus = 'FAILED';
-        finalError = err instanceof Error ? err.message : String(err);
+        finalError = friendlyError(err);
         setOutcome({ status: 'failed', error: finalError });
       }
 

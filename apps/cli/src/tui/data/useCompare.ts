@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { DbObjectType, SchemaCompareResult } from '@foxschema/core';
 import { compareModule, loadScopedTables } from '../../runtime/engine';
+import { friendlyError } from '../../format/friendlyError';
 import type { AsyncState, ConnRef } from '../types';
 
 /** Plain, hook-independent data function — mirrors commands/compare.ts's runCompare sequence exactly. */
@@ -27,7 +28,7 @@ export function useCompare(source: ConnRef, target: ConnRef, scope?: DbObjectTyp
         if (!cancelled) setState({ status: 'ready', data });
       })
       .catch((e) => {
-        if (!cancelled) setState({ status: 'error', error: e instanceof Error ? e.message : String(e) });
+        if (!cancelled) setState({ status: 'error', error: friendlyError(e) });
       });
     return () => {
       cancelled = true;

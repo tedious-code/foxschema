@@ -4,6 +4,7 @@ import Spinner from 'ink-spinner';
 import SelectInput from 'ink-select-input';
 import { useConnections, resolveConnection } from '../data/useConnections';
 import type { ConnRef, Role } from '../types';
+import { friendlyError } from '../../format/friendlyError';
 import { KeyHints } from '../components/KeyHints';
 
 interface Props {
@@ -37,7 +38,7 @@ export function ConnectionPickerScreen({ role, onPicked, onAddNew }: Props): Rea
         state.status === 'ready' ? state.data.find((c) => c.id === item.value)?.name || resolved.dialect : resolved.dialect;
       onPicked({ dialect: resolved.dialect, option: resolved.option, schema: resolved.schema ?? '', label });
     } catch (e) {
-      setResolveError(e instanceof Error ? e.message : String(e));
+      setResolveError(friendlyError(e));
       setResolving(null);
     }
   };
