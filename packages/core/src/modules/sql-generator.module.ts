@@ -586,7 +586,8 @@ export class SqlGeneratorModule {
       if (s.maxValue !== undefined) alter += ` MAXVALUE ${s.maxValue}`;
       alter += s.cycle ? ` CYCLE` : ` NO CYCLE`;
       if (s.cache !== undefined) alter += s.cache > 0 ? ` CACHE ${s.cache}` : ` NO CACHE`;
-      statements.push(alter + `;`);
+      const alterSql = alter + `;`;
+      statements.push(dialect.wrapAlterSequence?.(tableName, alterSql) ?? alterSql);
     } else if (obj.objectType === 'TYPE' && obj.sourceTable) {
       statements.push(`DROP TYPE ${tableName};`);
       statements.push(this.renderCreateType({ ...obj.sourceTable, name: tableName }, dialect));

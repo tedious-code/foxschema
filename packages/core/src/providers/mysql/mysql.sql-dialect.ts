@@ -67,6 +67,15 @@ const types = makeDialectTypeFns({
   },
 });
 
+/**
+ * MariaDB's sequence grammar wants NOCYCLE/NOCACHE as single tokens — the generic
+ * renderer's `NO CYCLE`/`NO CACHE` (with a space) is a syntax error. Shared by the
+ * CREATE and ALTER SEQUENCE wrappers so both paths stay in sync.
+ */
+function normalizeSequenceTokens(sql: string): string {
+  return sql.replace(/\bNO CYCLE\b/g, 'NOCYCLE').replace(/\bNO CACHE\b/g, 'NOCACHE');
+}
+
 const mysqlDialect: SqlDialect = {
   identityClause(c: ColumnSpec): string {
     return c.identity ? ` AUTO_INCREMENT` : '';
@@ -131,10 +140,14 @@ const mysqlDialect: SqlDialect = {
   // generic renderer's default spacing) is a syntax error — and supports
   // IF NOT EXISTS directly (unlike SQL Server's OBJECT_ID-guard workaround).
   wrapCreateSequence(_qualifiedName: string, createSql: string): string {
-    return createSql
-      .replace(/\bNO CYCLE\b/g, 'NOCYCLE')
-      .replace(/\bNO CACHE\b/g, 'NOCACHE')
-      .replace(/^CREATE SEQUENCE /, 'CREATE SEQUENCE IF NOT EXISTS ');
+    return normalizeSequenceTokens(createSql).replace(/^CREATE SEQUENCE /, 'CREATE SEQUENCE IF NOT EXISTS ');
+  },
+
+  // The ALTER SEQUENCE path in the generator builds its statement directly (it
+  // doesn't route through wrapCreateSequence), so it needs the same NOCYCLE/NOCACHE
+  // normalization or MariaDB rejects `NO CYCLE`/`NO CACHE` with a syntax error.
+  wrapAlterSequence(_qualifiedName: string, alterSql: string): string {
+    return normalizeSequenceTokens(alterSql);
   },
 
   ...types,

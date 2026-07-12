@@ -213,6 +213,16 @@ export interface SqlDialect {
    */
   wrapCreateSequence?(qualifiedName: string, createSql: string): string;
 
+  /**
+   * Wrap the standard `ALTER SEQUENCE name ...;` into a dialect-safe form.
+   * Called with the qualified name and the full `ALTER SEQUENCE name ...;` string.
+   * MariaDB needs the CYCLE/CACHE negatives collapsed to the single tokens
+   * `NOCYCLE`/`NOCACHE` (the generic renderer emits `NO CYCLE`/`NO CACHE`, which
+   * MariaDB rejects with a syntax error) — the same normalization wrapCreateSequence
+   * applies on the CREATE path. Default: returns the statement unchanged.
+   */
+  wrapAlterSequence?(qualifiedName: string, alterSql: string): string;
+
   // ── Version-aware DROP hooks ────────────────────────────────────────────────
   // Each hook receives the server version string detected at connect time.
   // When the version is undefined the hook should fall back to the modern syntax.
