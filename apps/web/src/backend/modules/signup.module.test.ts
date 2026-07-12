@@ -86,4 +86,29 @@ describe('SignupModule', () => {
     expect(result.ok).toBe(false);
     expect(await signup.getState()).toEqual({ shown: false });
   });
+
+  it('submit() short-circuits (no webhook forward) once the wizard is already resolved', async () => {
+    process.env.SIGNUP_WEBHOOK_URL = 'https://example.com/hook';
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal('fetch', fetchSpy);
+    await signup.skip(); // resolve the wizard
+
+    const result = await signup.submit('late@example.com', 'web');
+
+    // Caps external side effects to ~one per install: an already-resolved
+    // install can't be driven to POST again to WordPress / send more emails.
+    expect(result).toEqual({ ok: true });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('submit() aborts the webhook call with a timeout signal', async () => {
+    process.env.SIGNUP_WEBHOOK_URL = 'https://example.com/hook';
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await signup.submit('timeout@example.com', 'web');
+
+    const opts = fetchSpy.mock.calls[0][1];
+    expect(opts.signal).toBeInstanceOf(AbortSignal);
+  });
 });

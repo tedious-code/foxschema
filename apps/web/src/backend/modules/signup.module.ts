@@ -2,6 +2,9 @@ import { AppSettingsStore } from './app-settings.module';
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const SHOWN_KEY = 'signup.wizard_shown';
+// Cap on how long the outbound WordPress webhook call may block a request —
+// without it a hung/slow endpoint ties up the Node request indefinitely.
+const WEBHOOK_TIMEOUT_MS = 5000;
 
 /**
  * First-run "stay in the loop" wizard: captures an email, forwards it to the
@@ -27,6 +30,13 @@ export class SignupModule {
    * dropping the signup, since capturing it is the entire point of this flow.
    */
   async submit(email: string, source: 'web' | 'desktop'): Promise<{ ok: boolean; error?: string }> {
+    // The wizard is a one-time flow: once it's been resolved (submitted or
+    // skipped) there's nothing more to forward. Short-circuiting here caps the
+    // outbound side effects (WordPress post + notification email) to essentially
+    // one per install, so a script hammering this endpoint after resolution
+    // can't amplify into unbounded posts/emails.
+    if ((await this.getState()).shown) return { ok: true };
+
     const trimmed = email.trim();
     if (!EMAIL_RE.test(trimmed)) return { ok: false, error: 'Enter a valid email address.' };
 
@@ -46,6 +56,7 @@ export class SignupModule {
           ...(process.env.SIGNUP_WEBHOOK_SECRET ? { 'X-Foxschema-Signup-Secret': process.env.SIGNUP_WEBHOOK_SECRET } : {}),
         },
         body: JSON.stringify({ email: trimmed, source }),
+        signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
       });
       if (!res.ok) throw new Error(`Webhook responded ${res.status}`);
     } catch (error: unknown) {
