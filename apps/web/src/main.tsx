@@ -2,9 +2,11 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './frontend/App.tsx'
 import { SetupScreen } from './frontend/components/SetupScreen'
+import { SignupWizard } from './frontend/components/SignupWizard'
 import { LoadingScreen } from './frontend/components/LoadingScreen'
 import { resolveApiBase, setApiBase } from './frontend/api/apiBase'
 import { getSetupState, type SetupState } from './frontend/api/setupApi'
+import { getSignupState } from './frontend/api/signupApi'
 import { hardenAgainstInspect } from './frontend/lib/harden'
 import './style.css'
 
@@ -19,6 +21,22 @@ function renderApp() {
       <App />
     </React.StrictMode>,
   )
+}
+
+// After the required setup gate (if any) resolves: offer the skippable
+// "stay in the loop" signup wizard once, then render the app. Fails open on
+// a network hiccup — never let this optional step block boot.
+async function afterSetup() {
+  const signup = await getSignupState().catch(() => ({ shown: true }))
+  if (!signup.shown) {
+    root.render(
+      <React.StrictMode>
+        <SignupWizard onDone={renderApp} />
+      </React.StrictMode>,
+    )
+    return
+  }
+  renderApp()
 }
 
 // Boot: on the desktop shell, gate on first-run setup (the sidecar isn't spawned
@@ -41,7 +59,7 @@ async function boot() {
           initial={setup}
           onDone={(s: SetupState) => {
             setApiBase(s.api_base)
-            renderApp()
+            afterSetup()
           }}
         />
       </React.StrictMode>,
@@ -52,7 +70,7 @@ async function boot() {
   // Already set up (or web): resolve the API base, then render.
   if (setup?.api_base) setApiBase(setup.api_base)
   else await resolveApiBase()
-  renderApp()
+  afterSetup()
 }
 
 boot()
