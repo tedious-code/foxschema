@@ -554,6 +554,20 @@ describe('SqlGeneratorModule.generateMigrationPlan', () => {
     expect(ora.some((s) => /RESTART/i.test(s))).toBe(false);
   });
 
+  it('renders a MODIFIED MariaDB sequence ALTER with single-token NOCYCLE/NOCACHE (MariaDB rejects "NO CYCLE"/"NO CACHE")', () => {
+    const diff: TableDiff = {
+      tableName: 'ORDER_SEQ', objectType: 'SEQUENCE', status: 'MODIFIED',
+      columnDiffs: [], indexDiffs: [], foreignKeyDiffs: [],
+      sourceTable: tableSchema({ name: 'ORDER_SEQ', objectType: 'SEQUENCE', sequence: { start: '1000', increment: '1', minValue: '1', maxValue: '9223372036854775806', cycle: false, cache: 0 } }),
+      targetTable: tableSchema({ name: 'ORDER_SEQ', objectType: 'SEQUENCE', sequence: { start: '1', increment: '1', cycle: true, cache: 1000 } }),
+    };
+    const stmts = gen.generateMigrationPlan([diff], 'mariadb', { sourceSchema: 'demo_a', targetSchema: 'demo_b' }).flatMap((s) => s.statements);
+    const alter = stmts.find((s) => /ALTER SEQUENCE/.test(s))!;
+    expect(alter).toContain('NOCYCLE');
+    expect(alter).toContain('NOCACHE');
+    expect(alter).not.toMatch(/NO CYCLE|NO CACHE/);
+  });
+
   it('SQL Server changes a column default by dropping the named DF constraint then re-adding', () => {
     const diff: TableDiff = {
       tableName: 'ORDER_ITEMS', objectType: 'TABLE', status: 'MODIFIED',
