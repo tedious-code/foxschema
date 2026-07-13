@@ -168,6 +168,9 @@ export const ObjectDetailPanel: React.FC = () => {
     memberSelection,
     toggleMemberSelection,
     setAllMemberSelection,
+    indexSelection,
+    toggleIndexSelection,
+    setAllIndexSelection,
     targetServerVersion,
   } = useSyncStore();
 
@@ -220,14 +223,14 @@ export const ObjectDetailPanel: React.FC = () => {
   );
   const reviewIssues = useMemo(() => {
     if (!compareResult) return [];
-    const includedDiffs = buildIncludedDiffs(compareResult.tables, syncSelection, memberSelection);
+    const includedDiffs = buildIncludedDiffs(compareResult.tables, syncSelection, memberSelection, indexSelection);
     const steps = ddlGenerator.generateMigrationPlan(
       includedDiffs,
       targetConfig.dialect,
       buildMapping({ sourceConfig, targetConfig, nonDestructive, targetServerVersion })
     );
     return extractReviewNotices(steps);
-  }, [compareResult, syncSelection, memberSelection, sourceConfig, targetConfig, nonDestructive, targetServerVersion]);
+  }, [compareResult, syncSelection, memberSelection, indexSelection, sourceConfig, targetConfig, nonDestructive, targetServerVersion]);
   const hasMissingFkTargets = missingFkIssues.length > 0;
   const hasNarrowingChanges = narrowingIssues.length > 0;
   const narrowingAcked = narrowingAckSql !== null && narrowingAckSql === generatedSql;
@@ -514,6 +517,12 @@ export const ObjectDetailPanel: React.FC = () => {
     const allMembersSelected =
       roleChangedMembers.length > 0 &&
       roleChangedMembers.every((m) => memberSelection[selectedTable.tableName]?.[m.name] !== false);
+    // Index deploy selection (changed indexes only) — opt-IN, so an index change
+    // is excluded from the migration unless the user explicitly checks it.
+    const indexChangedItems = selectedTable.indexDiffs.filter((i) => i.status !== 'UNCHANGED');
+    const allIndexesSelected =
+      indexChangedItems.length > 0 &&
+      indexChangedItems.every((i) => indexSelection[selectedTable.tableName]?.[i.name] === true);
     // Hide UNCHANGED items unless the "Show unchanged" toggle is on.
     const keep = (status: string) => showUnchangedDetail || status !== 'UNCHANGED';
     const colDiffs = selectedTable.columnDiffs.filter((c) => keep(c.status));
@@ -976,6 +985,20 @@ export const ObjectDetailPanel: React.FC = () => {
           <div>
             <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center gap-2">
               <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full"></span> Table Indexes
+              {indexChangedItems.length > 0 && (
+                <label
+                  className="ml-auto flex items-center gap-1.5 normal-case text-[10px] font-semibold text-slate-300 cursor-pointer"
+                  title="Include/exclude all changed indexes in the deploy script"
+                >
+                  <input
+                    type="checkbox"
+                    checked={allIndexesSelected}
+                    onChange={(e) => setAllIndexSelection(selectedTable.tableName, e.target.checked)}
+                    className="w-3.5 h-3.5 accent-cyan-500 cursor-pointer"
+                  />
+                  Deploy all indexes
+                </label>
+              )}
             </h4>
             <div className="bg-slate-950/60 border border-slate-800/80 rounded-lg overflow-hidden">
               <table className="w-full text-left border-collapse text-xs">
@@ -999,7 +1022,20 @@ export const ObjectDetailPanel: React.FC = () => {
 
                     return (
                       <tr key={idx.name} className="hover:bg-slate-900/10">
-                        <td className="p-3 text-slate-200 font-semibold font-mono">{highlightMatch(idx.name, query)}</td>
+                        <td className="p-3 text-slate-200 font-semibold font-mono">
+                          <span className="flex items-center gap-1.5">
+                            {idx.status !== 'UNCHANGED' && (
+                              <input
+                                type="checkbox"
+                                checked={indexSelection[selectedTable.tableName]?.[idx.name] === true}
+                                onChange={() => toggleIndexSelection(selectedTable.tableName, idx.name)}
+                                title="Include this index change in the deploy script"
+                                className="w-3.5 h-3.5 accent-cyan-500 cursor-pointer shrink-0"
+                              />
+                            )}
+                            {highlightMatch(idx.name, query)}
+                          </span>
+                        </td>
                         <td className="p-3 text-slate-400 font-mono">{info?.columns.join(', ')}</td>
                         <td className="p-3 text-slate-400 font-mono">{info?.unique ? 'UNIQUE' : 'NON-UNIQUE'}</td>
                         <td className="p-3 text-right">{opBadge}</td>

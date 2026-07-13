@@ -3,7 +3,7 @@ import chalk from 'chalk';
 import type { TableDiff } from '@foxschema/core';
 import { ensureSourceTarget, resolveRef } from '../runtime/connectionRef';
 import { friendlyError } from '../format/friendlyError';
-import { compareModule, connectionModule, loadScopedTables, migrationModule, parseScope, sqlGenerator } from '../runtime/engine';
+import { compareModule, connectionModule, filterIndexDiffs, loadScopedTables, migrationModule, parseScope, sqlGenerator } from '../runtime/engine';
 import { getContext } from '../runtime/store';
 
 export interface MigrateOptions {
@@ -15,6 +15,7 @@ export interface MigrateOptions {
   execute?: boolean;
   yes?: boolean;
   continueOnError?: boolean;
+  includeIndexes?: boolean;
 }
 
 interface MigrationEvent {
@@ -57,7 +58,7 @@ export async function runMigrate(opts: MigrateOptions): Promise<void> {
     source: src.dialect,
     target: tgt.dialect,
   });
-  const changed = result.tables.filter((d: TableDiff) => d.status !== 'UNCHANGED');
+  const changed = filterIndexDiffs(result.tables, !!opts.includeIndexes).filter((d: TableDiff) => d.status !== 'UNCHANGED');
   if (changed.length === 0) {
     console.log(chalk.green('✔ Target already matches source — nothing to migrate.'));
     return;

@@ -28,20 +28,25 @@ export function buildRef(cfg: ConnectionConfig): ConnectionRef {
 
 /**
  * Build the diffs to deploy from the object selection, applying per-role member
- * opt-outs: a role member explicitly set to false is dropped from the role's
- * diffs, so it won't appear in the generated GRANT/REVOKE.
+ * opt-outs (a role member explicitly set to false is dropped from the role's
+ * diffs, so it won't appear in the generated GRANT/REVOKE) and per-index opt-ins
+ * (an index change is only included once explicitly checked — see
+ * sync-types.ts's indexSelection doc comment for why the polarity is reversed).
  */
 export function buildIncludedDiffs(
   tables: TableDiff[],
   selection: Record<string, boolean>,
-  memberSelection: Record<string, Record<string, boolean>>
+  memberSelection: Record<string, Record<string, boolean>>,
+  indexSelection: Record<string, Record<string, boolean>>
 ): TableDiff[] {
   return tables
     .filter((t) => selection[t.tableName])
     .map((t) => {
-      if (t.objectType !== 'ROLE') return t;
+      const idxSel = indexSelection[t.tableName] ?? {};
+      const indexDiffs = t.indexDiffs.filter((i) => i.status === 'UNCHANGED' || idxSel[i.name] === true);
+      if (t.objectType !== 'ROLE') return { ...t, indexDiffs };
       const sel = memberSelection[t.tableName] ?? {};
-      return { ...t, columnDiffs: t.columnDiffs.filter((c) => sel[c.name] !== false) };
+      return { ...t, indexDiffs, columnDiffs: t.columnDiffs.filter((c) => sel[c.name] !== false) };
     });
 }
 
@@ -61,7 +66,7 @@ export function buildMapping(s: {
   };
 }
 
-/** Regenerate the preview migration script for a selection + per-role member opt-outs. */
+/** Regenerate the preview migration script for a selection + per-role member opt-outs + per-index opt-ins. */
 export function regenerateSql(
   s: {
     compareResult: SchemaCompareResult | null;
@@ -70,9 +75,10 @@ export function regenerateSql(
     nonDestructive: boolean;
   },
   selection: Record<string, boolean>,
-  memberSelection: Record<string, Record<string, boolean>>
+  memberSelection: Record<string, Record<string, boolean>>,
+  indexSelection: Record<string, Record<string, boolean>>
 ): string {
   if (!s.compareResult) return '';
-  const includedDiffs = buildIncludedDiffs(s.compareResult.tables, selection, memberSelection);
+  const includedDiffs = buildIncludedDiffs(s.compareResult.tables, selection, memberSelection, indexSelection);
   return sqlGeneratorModule.generateMigrationSql(includedDiffs, s.targetConfig.dialect, buildMapping(s));
 }

@@ -169,6 +169,50 @@ describe('CLI: compare command', () => {
     );
   });
 
+  it('excludes index diffs from --ddl output by default, includes them with --include-indexes', async () => {
+    const mockResult = {
+      summary: { added: 0, removed: 0, modified: 1, unchanged: 5 },
+      tables: [
+        {
+          tableName: 'orders',
+          status: 'MODIFIED',
+          objectType: 'table',
+          columnDiffs: [],
+          fkDiffs: [],
+          indexDiffs: [{ name: 'idx_new', status: 'ADDED' }],
+        },
+      ],
+    };
+
+    vi.spyOn(connectionRef, 'resolveRef')
+      .mockResolvedValueOnce({ dialect: 'postgres', schema: 'a', option: {} } as any)
+      .mockResolvedValueOnce({ dialect: 'postgres', schema: 'b', option: {} } as any);
+    vi.spyOn(engine, 'loadScopedTables').mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    vi.spyOn(engine.compareModule, 'compare').mockResolvedValueOnce(mockResult as any);
+    const genSpy = vi.spyOn(engine.sqlGenerator, 'generateMigrationSql').mockReturnValue('-- sql');
+    vi.spyOn(console, 'log');
+
+    await runCompare({ source: 'a', target: 'b', ddl: true });
+    expect(genSpy).toHaveBeenCalledWith(
+      [expect.objectContaining({ indexDiffs: [] })],
+      'postgres',
+      expect.anything()
+    );
+
+    genSpy.mockClear();
+    vi.spyOn(connectionRef, 'resolveRef')
+      .mockResolvedValueOnce({ dialect: 'postgres', schema: 'a', option: {} } as any)
+      .mockResolvedValueOnce({ dialect: 'postgres', schema: 'b', option: {} } as any);
+    vi.spyOn(engine, 'loadScopedTables').mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    vi.spyOn(engine.compareModule, 'compare').mockResolvedValueOnce(mockResult as any);
+    await runCompare({ source: 'a', target: 'b', ddl: true, includeIndexes: true });
+    expect(genSpy).toHaveBeenCalledWith(
+      [expect.objectContaining({ indexDiffs: [{ name: 'idx_new', status: 'ADDED' }] })],
+      'postgres',
+      expect.anything()
+    );
+  });
+
   it('should exit with code 1 on drift (default behavior)', async () => {
     vi.spyOn(connectionRef, 'resolveRef')
       .mockResolvedValueOnce({ dialect: 'postgres', schema: 'a', option: {} } as any)

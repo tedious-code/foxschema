@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 import type { TableDiff } from '@foxschema/core';
 import { ensureSourceTarget, resolveRef } from '../runtime/connectionRef';
-import { compareModule, loadScopedTables, parseScope, sqlGenerator } from '../runtime/engine';
+import { compareModule, filterIndexDiffs, loadScopedTables, parseScope, sqlGenerator } from '../runtime/engine';
 import {
   TYPE_LABEL,
   groupByType,
@@ -22,6 +22,7 @@ export interface CompareOptions {
   scope?: string;
   json?: boolean;
   ddl?: boolean;
+  includeIndexes?: boolean;
   fail?: boolean; // commander: --no-fail sets this false
 }
 
@@ -139,7 +140,7 @@ export async function runCompare(opts: CompareOptions): Promise<void> {
   if (opts.json) {
     console.log(JSON.stringify(result, null, 2));
   } else if (opts.ddl) {
-    const changed = result.tables.filter((t: TableDiff) => t.status !== 'UNCHANGED');
+    const changed = filterIndexDiffs(result.tables, !!opts.includeIndexes).filter((t: TableDiff) => t.status !== 'UNCHANGED');
     if (changed.length === 0) {
       console.log(chalk.dim('-- schemas are identical; no migration needed'));
     } else {

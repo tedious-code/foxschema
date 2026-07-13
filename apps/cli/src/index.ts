@@ -95,6 +95,7 @@ program
   .option('--scope <types>', 'comma list: tables,views,functions,procedures,triggers,sequences,types,mqts,roles')
   .option('--json', 'output the full comparison as JSON')
   .option('--ddl', 'output the migration DDL for the differences')
+  .option('--include-indexes', 'also include index CREATE/DROP/ALTER in --ddl output (excluded by default)')
   .option('--no-fail', 'always exit 0, even when there is drift')
   .action((opts) => runCompare(opts));
 
@@ -122,6 +123,7 @@ program
   .option('--execute', 'apply the migration (default is a dry run)')
   .option('--yes', 'skip the confirmation prompt')
   .option('--continue-on-error', 'skip a failed object and continue instead of rolling back the whole run')
+  .option('--include-indexes', 'also migrate index CREATE/DROP/ALTER changes (excluded by default)')
   .action((opts) => runMigrate(opts));
 
 const history = program.command('history').description('Migration run history');
