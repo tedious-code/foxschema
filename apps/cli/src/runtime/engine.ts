@@ -1,5 +1,5 @@
 import { ConnectionModule, MigrationModule } from '@foxschema/core';
-import { CompareModule, SqlGeneratorModule, type ConnectionOptions, type DbObjectType, type TableSchema } from '@foxschema/core';
+import { CompareModule, SqlGeneratorModule, type ConnectionOptions, type DbObjectType, type TableSchema, type TableDiff } from '@foxschema/core';
 
 // Shared engine singletons — the same modules the web/desktop apps use.
 export const connectionModule = new ConnectionModule();
@@ -33,6 +33,17 @@ const SCOPE_ALIASES: Record<string, DbObjectType> = {
   type: 'TYPE', types: 'TYPE',
   role: 'ROLE', roles: 'ROLE',
 };
+
+/**
+ * Index changes are opt-IN for migration/DDL generation (`--include-indexes`,
+ * off by default) — the CLI equivalent of the web app's per-index "deploy"
+ * checkboxes, which also default to excluded. UNCHANGED entries are harmless
+ * (no SQL either way) and kept so they don't skew counts.
+ */
+export function filterIndexDiffs(tables: TableDiff[], includeIndexes: boolean): TableDiff[] {
+  if (includeIndexes) return tables;
+  return tables.map((t) => ({ ...t, indexDiffs: t.indexDiffs.filter((i) => i.status === 'UNCHANGED') }));
+}
 
 /** Parse `--scope tables,views,roles` into DbObjectType[] (empty = all). */
 export function parseScope(scope?: string): DbObjectType[] {

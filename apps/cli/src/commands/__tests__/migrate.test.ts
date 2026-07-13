@@ -58,6 +58,43 @@ describe('CLI: migrate command', () => {
     expect(executeSpy).not.toHaveBeenCalled();
   });
 
+  it('excludes index diffs by default, includes them with --include-indexes', async () => {
+    const withIndexDiff = {
+      summary: { added: 0, removed: 0, modified: 1, unchanged: 5 },
+      tables: [
+        {
+          tableName: 'orders',
+          status: 'MODIFIED',
+          objectType: 'table',
+          columnDiffs: [],
+          fkDiffs: [],
+          indexDiffs: [{ name: 'idx_new', status: 'ADDED' }],
+        },
+      ],
+    };
+
+    stubRefsAndCompare(withIndexDiff);
+    const planSpy = vi.spyOn(engine.sqlGenerator, 'generateMigrationPlan').mockReturnValue([{ sql: 'ALTER TABLE orders ...' }] as any);
+    vi.spyOn(engine.sqlGenerator, 'generateMigrationSql').mockReturnValue('-- sql');
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await runMigrate({ source: 'demo_c', target: 'demo_d', execute: false });
+    expect(planSpy).toHaveBeenCalledWith(
+      [expect.objectContaining({ indexDiffs: [] })],
+      'postgres',
+      expect.anything()
+    );
+
+    planSpy.mockClear();
+    stubRefsAndCompare(withIndexDiff);
+    await runMigrate({ source: 'demo_c', target: 'demo_d', execute: false, includeIndexes: true });
+    expect(planSpy).toHaveBeenCalledWith(
+      [expect.objectContaining({ indexDiffs: [{ name: 'idx_new', status: 'ADDED' }] })],
+      'postgres',
+      expect.anything()
+    );
+  });
+
   it('prompts for confirmation with --execute and aborts when declined', async () => {
     const { confirm } = await import('@inquirer/prompts');
     (confirm as any).mockResolvedValueOnce(false);

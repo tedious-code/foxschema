@@ -106,6 +106,15 @@ export interface SyncState {
   memberSelection: Record<string, Record<string, boolean>>;
   toggleMemberSelection: (roleName: string, memberName: string) => void;
   setAllMemberSelection: (roleName: string, selected: boolean) => void;
+  /**
+   * Per-index opt-IN: indexSelection[table][index] === true includes that index
+   * change in the deploy script. Opposite polarity from memberSelection — index
+   * changes are excluded by default, so a fresh compare never silently rebuilds
+   * indexes the user hasn't reviewed.
+   */
+  indexSelection: Record<string, Record<string, boolean>>;
+  toggleIndexSelection: (tableName: string, indexName: string) => void;
+  setAllIndexSelection: (tableName: string, selected: boolean) => void;
 
   // --- Live migration execution -----------------------------------------
   isMigrating: boolean;

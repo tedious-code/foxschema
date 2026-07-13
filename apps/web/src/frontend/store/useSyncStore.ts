@@ -71,6 +71,7 @@ export const useSyncStore = create<SyncState>()(
   searchTerm: '',
   typeFilter: [],
   memberSelection: {},
+  indexSelection: {},
   syncSelection: {},
 
   isMigrating: false,
@@ -186,7 +187,7 @@ export const useSyncStore = create<SyncState>()(
     const s = get();
     if (!s.compareResult) return;
     set({
-      generatedSql: regenerateSql(s, s.syncSelection, s.memberSelection),
+      generatedSql: regenerateSql(s, s.syncSelection, s.memberSelection, s.indexSelection),
       migrationExecuted: false,
     });
   },
@@ -211,7 +212,7 @@ export const useSyncStore = create<SyncState>()(
     const nextSelection = { ...s.syncSelection, [tableName]: !s.syncSelection[tableName] };
     set({
       syncSelection: nextSelection,
-      generatedSql: regenerateSql(s, nextSelection, s.memberSelection),
+      generatedSql: regenerateSql(s, nextSelection, s.memberSelection, s.indexSelection),
       migrationExecuted: false,
     });
   },
@@ -225,7 +226,7 @@ export const useSyncStore = create<SyncState>()(
     }
     set({
       syncSelection: nextSelection,
-      generatedSql: regenerateSql(s, nextSelection, s.memberSelection),
+      generatedSql: regenerateSql(s, nextSelection, s.memberSelection, s.indexSelection),
       migrationExecuted: false,
     });
   },
@@ -239,7 +240,7 @@ export const useSyncStore = create<SyncState>()(
     const nextMember = { ...s.memberSelection, [roleName]: roleSel };
     set({
       memberSelection: nextMember,
-      generatedSql: regenerateSql(s, s.syncSelection, nextMember),
+      generatedSql: regenerateSql(s, s.syncSelection, nextMember, s.indexSelection),
       migrationExecuted: false,
     });
   },
@@ -256,7 +257,38 @@ export const useSyncStore = create<SyncState>()(
     const nextMember = { ...s.memberSelection, [roleName]: roleSel };
     set({
       memberSelection: nextMember,
-      generatedSql: regenerateSql(s, s.syncSelection, nextMember),
+      generatedSql: regenerateSql(s, s.syncSelection, nextMember, s.indexSelection),
+      migrationExecuted: false,
+    });
+  },
+
+  toggleIndexSelection: (tableName, indexName) => {
+    const s = get();
+    if (!s.compareResult) return;
+    const tableSel = { ...(s.indexSelection[tableName] ?? {}) };
+    // Default excluded; toggle to true (included) and back.
+    tableSel[indexName] = tableSel[indexName] === true ? false : true;
+    const nextIndex = { ...s.indexSelection, [tableName]: tableSel };
+    set({
+      indexSelection: nextIndex,
+      generatedSql: regenerateSql(s, s.syncSelection, s.memberSelection, nextIndex),
+      migrationExecuted: false,
+    });
+  },
+
+  setAllIndexSelection: (tableName, selected) => {
+    const s = get();
+    if (!s.compareResult) return;
+    const table = s.compareResult.tables.find((t) => t.tableName === tableName);
+    if (!table) return;
+    const tableSel: Record<string, boolean> = {};
+    for (const i of table.indexDiffs) {
+      if (i.status !== 'UNCHANGED') tableSel[i.name] = selected;
+    }
+    const nextIndex = { ...s.indexSelection, [tableName]: tableSel };
+    set({
+      indexSelection: nextIndex,
+      generatedSql: regenerateSql(s, s.syncSelection, s.memberSelection, nextIndex),
       migrationExecuted: false,
     });
   },
@@ -380,7 +412,7 @@ export const useSyncStore = create<SyncState>()(
     const nextSelection = { ...s.syncSelection, [objectName]: false };
     set({
       syncSelection: nextSelection,
-      generatedSql: regenerateSql(s, nextSelection, s.memberSelection),
+      generatedSql: regenerateSql(s, nextSelection, s.memberSelection, s.indexSelection),
       migrationProgress: [],
       migrationError: null,
       migrationRolledBack: false,
