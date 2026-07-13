@@ -52,7 +52,7 @@
     "node": ">=22.5"
   },
   "devDependencies": {
-    "typescript": "~6.0.2",
+    "typescript": "~7.0.2",
     "vitest": "^4.1.8",
     "eslint": "^10.6.0",
     "eslint-plugin-security": "^4.0.1",
