@@ -58,7 +58,22 @@ export function invalidateCache(prefix?: string): void {
 }
 
 async function parseJson<T>(res: Response): Promise<T> {
-  const data = (await res.json()) as T & { error?: string };
+  const text = await res.text();
+  if (!text.trim()) {
+    throw new Error(
+      res.status === 502 || res.status === 504 || res.type === 'opaque'
+        ? 'API server unreachable — run `npm run dev` from the repo root (starts both the API and UI).'
+        : `Empty response from server (${res.status} ${res.statusText || 'unknown'})`
+    );
+  }
+
+  let data: T & { error?: string };
+  try {
+    data = JSON.parse(text) as T & { error?: string };
+  } catch {
+    throw new Error(`Invalid response from server (${res.status}): ${text.slice(0, 200)}`);
+  }
+
   if (!res.ok) {
     throw new Error(
       typeof data === 'object' && data && 'error' in data && data.error

@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import type { DriverInfo } from '../interfaces';
 import { getAdapter, ADAPTERS } from '../providers/adapter-registry';
+import { setupDb2ClientEnv } from '../providers/db2/db2.env';
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -20,6 +21,10 @@ export class DriverDetector {
   }
 
   private static checkPackage(dialect: string, packageName: string): DriverInfo {
+    // ibm_db's native bindings need the bundled clidriver on PATH/LD_LIBRARY_PATH
+    // (especially on Windows) — same setup the DB2 adapter runs before open().
+    if (packageName === 'ibm_db') setupDb2ClientEnv();
+
     try {
       const mod = nodeRequire(packageName);
       return {
