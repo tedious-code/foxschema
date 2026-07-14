@@ -86,13 +86,13 @@ const db2Settings: ProviderSettings = {
   label: 'IBM DB2',
   defaultPort: 50000,
   defaultSchema: '',
-  schemaRequired: false,
+  schemaRequired: true,
   buildConnectionString(o) {
     if (o.connectionString?.trim()) return o.connectionString.trim();
     const host = o.host || 'localhost';
     const port = o.port || this.defaultPort;
-    let cs = `DATABASE=${o.database || ''};HOSTNAME=${host};PORT=${port};PROTOCOL=TCPIP;UID=${o.username || ''};PWD=${o.password || ''};`;
-    if (o.schema) cs += `CurrentSchema=${o.schema};`;
+    let cs = `DATABASE=${o.database || ''};HOSTNAME=${host};PORT=${port};PROTOCOL=TCPIP;UID=${o.username || ''};PWD=${o.password || ''};Authentication=SERVER;`;
+    if (o.schema) cs += `CurrentSchema=${o.schema.toUpperCase()};`;
     return cs;
   },
 };
