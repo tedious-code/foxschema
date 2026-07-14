@@ -10,6 +10,79 @@ Runs as a self-hostable **web app**, a cross-platform **desktop app**, and a **t
 
 </div>
 
+> [!WARNING]
+> ## Desktop Application Status
+>
+> FoxSchema desktop builds for **macOS** and **Windows 11** are currently **unsigned** because I do not yet have a code-signing certificate.
+>
+> As a result:
+>
+> - **macOS** may display *"FoxSchema.app is damaged"* or *"Apple cannot verify this app"*.
+> - **Windows 11** may display a **Microsoft Defender SmartScreen** warning.
+>
+> These warnings are expected for unsigned applications and **do not indicate malware**.
+>
+> If you prefer to avoid these security prompts, you can:
+>
+> - Clone the repository
+> - Build FoxSchema from source
+> - Run it directly from your local build
+>
+> ```bash
+> git clone https://github.com/tedious-code/foxschema.git
+> cd foxschema
+> # Follow the build instructions below
+> ```
+>
+## macOS Gatekeeper
+
+FoxSchema is currently distributed **without an Apple Developer code-signing certificate**. Because of this, macOS Gatekeeper may prevent the application from opening.
+
+If you downloaded the release from the official GitHub repository, you can bypass Gatekeeper:
+
+### Option 1 (Recommended)
+
+1. Open **System Settings → Privacy & Security**.
+2. Scroll down until you see that **FoxSchema** was blocked.
+3. Click **Open Anyway**.
+4. Confirm by clicking **Open**.
+
+### Option 2 (Terminal)
+
+Remove the quarantine attribute:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Fox Schema.app"
+```
+
+Or, if running from another location:
+
+```bash
+xattr -dr com.apple.quarantine "/path/to/Fox Schema.app"
+```
+
+After removing the quarantine attribute, launch the application normally.
+
+> **Security Notice**
+>
+> Only bypass Gatekeeper if you downloaded FoxSchema from the official GitHub repository and trust the source.
+
+---
+
+## Windows 11 SmartScreen
+
+FoxSchema is also distributed without a Microsoft code-signing certificate.
+
+Windows may display a **Microsoft Defender SmartScreen** warning.
+
+To continue:
+
+1. Click **More info**.
+2. Click **Run anyway**.
+
+Alternatively, you can clone the repository and build FoxSchema directly from source.
+
+Code signing for both macOS and Windows is planned for a future release.
 ---
 
 ## What it does
