@@ -81,17 +81,189 @@ An npm-workspaces monorepo:
 Deeper detail is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and the dialect
 engine contract in [packages/core/src/providers/DIALECTS.md](packages/core/src/providers/DIALECTS.md).
 
-## Contributing
+# 🦊 FoxSchema
 
-Contributions are welcome — new dialect support, bug fixes, and docs especially.
-Start with **[CONTRIBUTING.md](CONTRIBUTING.md)** for setup, the correctness gates, and
-how to add a dialect.
+> **The fastest open-source cross-database schema comparison and migration tool.**
 
-## Security
+Compare, migrate, and deploy database schemas across multiple database systems with a modern desktop UI and powerful CLI.
 
-Please report vulnerabilities privately per [SECURITY.md](SECURITY.md) — not via public issues.
+---
 
-## License
+## ✨ Why FoxSchema?
+
+Managing database schema changes across different environments is difficult.
+
+FoxSchema helps developers and database administrators:
+
+* 🔍 Compare database schemas
+* 🚀 Generate migration scripts
+* 🔄 Synchronize databases safely
+* 🌍 Work across multiple database engines
+* 💻 Use either a Desktop application or CLI
+
+Built with **Rust** for speed, reliability, and low memory usage.
+
+---
+
+## 🚀 Features
+
+* Schema comparison
+* Schema synchronization
+* Migration script generation
+* Dependency-aware deployment
+* Cross-database object comparison
+* Safe deployment preview
+* Visual diff viewer
+* Desktop application
+* Command-line interface (CLI)
+* Offline execution
+* Cross-platform (Windows, macOS, Linux)
+* Rollback generation
+* Drift detection
+* CI/CD integration
+
+---
+
+## 🗄 Supported Databases
+
+| Database        | Status |
+| --------------- | ------ |
+| PostgreSQL      | ✅      |
+| MySQL           | ✅      |
+| MariaDB         | ✅      |
+| SQL Server      | ✅      |
+| Oracle          | ✅      |
+| IBM Db2         | ✅      |
+| SQLite          | ✅      |
+| ClickHouse      | ✅      |
+| Amazon Redshift | ✅      |
+| Azure SQL       | ✅      |
+
+---
+
+## 🔍 Supported Database Objects
+
+FoxSchema compares more than just tables.
+
+Supported objects include:
+
+* Tables
+* Columns
+* Primary Keys
+* Foreign Keys
+* Unique Constraints
+* Check Constraints
+* Indexes
+* Views
+* Materialized Views
+* Sequences
+* Triggers
+* Functions
+* Procedures
+* Extensions (PostgreSQL)
+* User-defined Types
+* Schemas
+* Defaults
+
+
+Additional database-specific objects are continuously being added.
+
+---
+
+## 📷 Screenshots
+
+<img width="2880" height="1324" alt="postgres_migration_failed_1782856841479" src="https://github.com/user-attachments/assets/3fbeb83d-e7da-4ad5-b106-e36e8e46691f" />
+
+
+---
+
+## ⚡ Quick Start
+
+### Desktop
+
+Download the latest release and connect to your database.
+
+### CLI
+
+```bash
+foxschema compare \
+  --source postgres://... \
+  --target postgres://...
+```
+
+Generate migration:
+
+```bash
+foxschema migrate \
+  --source postgres://... \
+  --target postgres://...
+```
+
+---
+
+## 🏗 Architecture
+
+FoxSchema is designed around a dependency-aware execution engine.
+
+```
+Database
+      │
+      ▼
+Metadata Extraction
+      │
+      ▼
+Object Comparison
+      │
+      ▼
+Dependency Graph
+      │
+      ▼
+Migration Planner
+      │
+      ▼
+SQL Generator
+      │
+      ▼
+Deployment
+```
+
+---
+
+## 📚 Documentation
+
+Full documentation is available at:
+
+**https://foxschema.com**
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome!
+
+You can help by:
+
+* Reporting bugs
+* Suggesting new features
+* Improving documentation
+* Submitting pull requests
+
+---
+
+## ❤️ Support
+
+If FoxSchema saves you time, you can support the project by:
+
+* ⭐ Star this repository
+* ❤️ Become a GitHub Sponsor
+* ☕ Buy me a coffee
+* Share FoxSchema with your team
+
+Every contribution helps improve the project.
+
+---
+
+## 📄 License
 
 [Apache-2.0](LICENSE).
 
