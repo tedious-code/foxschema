@@ -1,0 +1,8 @@
+# quick-xml 0.39.x is pulled in transitively via plist → tauri. plist parses
+# trusted app metadata, not attacker-controlled XML via NsReader. Remove these
+# ignores once plist adopts quick-xml >= 0.41 (see rust-plist PR #191).
+[advisories]
+ignore = [
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
+]
