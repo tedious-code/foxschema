@@ -167,9 +167,11 @@ export class DuckDbProvider implements SchemaProvider {
     // 5. Views. duckdb_views().sql is the FULL "CREATE VIEW name AS <body>;" —
     // strip the header (and trailing ;) so `definition` is just the SELECT body,
     // matching what the other providers store and what the generator expects.
+    // eslint-disable-next-line security/detect-unsafe-regex -- anchored at ^; bounded identifier alternatives (no lazy [\s\S]*)
+    const VIEW_CREATE_RE = /^\s*CREATE\s+(?:OR\s+REPLACE\s+)?(?:TEMP(?:ORARY)?\s+)?VIEW\s+(?:(?:"[^"]*"|\w+)\s*\.\s*)?(?:"[^"]*"|\w+)\s+AS\s+/i;
     for (const vw of rawViews) {
       const body = (vw.sql ?? '')
-        .replace(/^\s*CREATE\s+(?:OR\s+REPLACE\s+)?(?:TEMP(?:ORARY)?\s+)?VIEW\s+[\s\S]*?\s+AS\s+/i, '')
+        .replace(VIEW_CREATE_RE, '')
         .replace(/;\s*$/, '')
         .trim();
       (views[vw.view_name] ??= []).push({
