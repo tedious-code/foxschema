@@ -245,7 +245,11 @@ Additional database-specific objects are continuously being added.
 
 ## 📷 Screenshots
 
-<img width="2880" height="1324" alt="postgres_migration_failed_1782856841479" src="https://github.com/user-attachments/assets/3fbeb83d-e7da-4ad5-b106-e36e8e46691f" />
+<img width="2842" height="1328" alt="image" src="https://github.com/user-attachments/assets/eeb9e69e-97f0-433a-b334-b66ceabdf4fc" />
+
+Migration schema
+
+<img width="1902" height="1354" alt="image" src="https://github.com/user-attachments/assets/68a32b0f-9e52-450c-a0e8-7110ea06b41b" />
 
 
 ---
