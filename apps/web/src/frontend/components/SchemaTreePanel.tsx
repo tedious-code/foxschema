@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSyncStore } from '../store/useSyncStore';
 import { Search, Layers, Table2, Eye, FunctionSquare, SquareTerminal, Zap, Hash, Box, Users } from 'lucide-react';
 import type { TableDiff, DbObjectType } from '../lib/types';
@@ -123,6 +123,45 @@ export const SchemaTreePanel: React.FC = () => {
     window.addEventListener('mouseup', onUp);
   };
 
+  // Compute the filtered list even when compareResult is null so the selection-
+  // sync effect can sit above the early return (rules of hooks).
+  const query = searchTerm.trim().toLowerCase();
+  const filteredTables = !compareResult
+    ? []
+    : compareResult.tables.filter((table) => {
+        if (query) {
+          const haystack: (string | undefined)[] = [table.tableName];
+          for (const c of table.columnDiffs) haystack.push(c.name);
+          for (const i of table.indexDiffs) haystack.push(i.name);
+          for (const fk of table.foreignKeyDiffs) {
+            haystack.push(fk.name, fk.source?.referencedTable ?? fk.target?.referencedTable);
+          }
+          for (const tr of table.triggerDiffs ?? []) {
+            haystack.push(tr.name, tr.source?.definition, tr.target?.definition);
+          }
+          haystack.push(table.definition, table.sourceTable?.definition, table.targetTable?.definition);
+          if (!haystack.some((s) => s?.toLowerCase().includes(query))) return false;
+        }
+        if (typeFilter.length > 0 && !typeFilter.includes(table.objectType)) return false;
+        // Browse mode has only UNCHANGED rows — always show them.
+        if (browseMode) return true;
+        if (table.status === 'UNCHANGED') return showUnchanged;
+        return filterStatus === 'ALL' || table.status === filterStatus;
+      });
+
+  // When search/filters hide the current selection (e.g. Browse + "PRODUCT" with
+  // no hits), drop or retarget selection so the detail panel doesn't show a
+  // stale object next to "No matching schema objects".
+  useEffect(() => {
+    if (!compareResult) return;
+    const stillVisible =
+      !!selectedTable && filteredTables.some((t) => t.tableName === selectedTable.tableName);
+    if (stillVisible) return;
+    const next = filteredTables[0] ?? null;
+    if ((selectedTable?.tableName ?? null) === (next?.tableName ?? null)) return;
+    setSelectedTable(next);
+  }, [compareResult, filteredTables, selectedTable, setSelectedTable]);
+
   if (!compareResult) {
     return (
       <div className="w-80 border-r border-slate-800 flex flex-col items-center justify-center text-slate-500 p-6 bg-slate-900/30">
@@ -145,7 +184,6 @@ export const SchemaTreePanel: React.FC = () => {
   // index, foreign-key (and referenced table), and trigger names, plus the DDL
   // definition body. The definition is what makes views, functions, procedures,
   // and triggers searchable, since those objects have no columns of their own.
-  const query = searchTerm.trim().toLowerCase();
   const matchesSearch = (table: TableDiff) => {
     if (!query) return true;
     const haystack: (string | undefined)[] = [table.tableName];
@@ -189,16 +227,6 @@ export const SchemaTreePanel: React.FC = () => {
       return 'definition';
     return null;
   };
-
-  // Filter by search text, object type, the status filter (All/Added/Removed/
-  // Modified), and the independent Unchanged toggle. Unchanged objects appear
-  // only while the toggle is on; changed objects follow the status filter.
-  const filteredTables = compareResult.tables.filter((table) => {
-    if (!matchesSearch(table)) return false;
-    if (typeFilter.length > 0 && !typeFilter.includes(table.objectType)) return false;
-    if (table.status === 'UNCHANGED') return showUnchanged;
-    return filterStatus === 'ALL' || table.status === filterStatus;
-  });
 
   // Group the filtered objects by type, in a stable order
   const groups = TYPE_ORDER

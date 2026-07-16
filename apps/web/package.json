@@ -45,7 +45,7 @@
     "zustand": "^5.0.13"
   },
   "optionalDependencies": {
-    "ibm_db": "4.0.1"
+    "ibm_db": "^4.0.1"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",

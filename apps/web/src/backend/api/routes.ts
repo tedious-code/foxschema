@@ -1,5 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { spawn } from 'child_process';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   ConnectionModule,
   CompareModule,
@@ -12,6 +14,9 @@ import {
   type DbObjectType,
   type TableSchema,
 } from '@foxschema/core';
+
+// apps/web/src/backend/api → monorepo root (npm workspaces live here)
+const WORKSPACE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../..');
 import { ConnectionStore } from '../modules/connection-store.module';
 import { MigrationHistoryStore, type MigrationObjectResult, type MigrationRunStatus } from '../modules/migration-history.module';
 import { AppSettingsStore } from '../modules/app-settings.module';
@@ -270,20 +275,40 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       // request body), so it's safe to let install scripts run — and ibm_db's
       // postinstall is what actually fetches/wires up the DB2 CLI driver; skipping
       // it left the package installed but non-functional.
-      const proc = spawn('pnpm', ['add', packageName], { stdio: 'pipe' });
+      //
+      // This monorepo uses npm workspaces (not pnpm). --foreground-scripts is
+      // required so ibm_db's installer actually downloads clidriver + builds the
+      // native binding (npm may otherwise skip scripts for optional deps).
+      const args =
+        packageName === 'ibm_db'
+          ? ['install', 'ibm_db@4.0.1', '--foreground-scripts', '-w', '@foxschema/web']
+          : ['install', packageName, '--foreground-scripts', '-w', '@foxschema/web'];
+      const proc = spawn('npm', args, {
+        cwd: WORKSPACE_ROOT,
+        stdio: 'pipe',
+        env: { ...process.env, npm_config_ignore_scripts: '' },
+      });
       let stdout = '';
       let stderr = '';
       proc.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
       proc.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
       proc.on('close', (code: number | null) => {
         if (code !== 0) {
-          res.status(500).json({ success: false, error: `pnpm exited with code ${code}`, stderr });
+          const detail = (stderr || stdout).trim().slice(-2000);
+          res.status(500).json({
+            success: false,
+            error: `npm install ${packageName} failed (exit ${code})${detail ? `: ${detail}` : ''}`,
+            stderr,
+          });
           return;
         }
         res.json({ success: true, stdout });
       });
       proc.on('error', (err: Error) => {
-        res.status(500).json({ success: false, error: err.message });
+        res.status(500).json({
+          success: false,
+          error: `Failed to run npm (${err.message}). Install manually: npm install ${packageName} --foreground-scripts -w @foxschema/web`,
+        });
       });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Installation failed';
