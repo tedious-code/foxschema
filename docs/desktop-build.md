@@ -56,10 +56,12 @@ git push origin v0.1.0
 
 You can also run it manually from the **Actions → Desktop Release → Run workflow** button.
 
-Once you hit **Publish** on the draft, `.github/workflows/release-checksums.yml` (triggered
-by the release's `published` event) downloads every attached installer, generates a
-`SHA256SUMS.txt`, and uploads it back to the same release — so anyone downloading an
-installer can verify it wasn't corrupted or tampered with in transit.
+When the release is published (CI auto-publishes after all builds succeed), the
+`release: published` event triggers:
+
+- `.github/workflows/release-checksums.yml` — uploads `SHA256SUMS.txt` to the release
+- `.github/workflows/winget.yml` — opens winget-pkgs PRs for both Windows MSI variants
+  (requires repo secret `WINGET_TOKEN`; see `docs/winget.md`)
 
 ## Local builds (per OS)
 

@@ -43,6 +43,8 @@ CHANGELOG.md
 !docs/plans/*.md
 # Desktop build/publish guide must be tracked
 !docs/desktop-build.md
+# WinGet publish guide must be tracked
+!docs/winget.md
 # Public project docs must be tracked
 !README.md
 !CONTRIBUTING.md
