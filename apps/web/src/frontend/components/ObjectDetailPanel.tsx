@@ -524,7 +524,9 @@ export const ObjectDetailPanel: React.FC = () => {
       indexChangedItems.length > 0 &&
       indexChangedItems.every((i) => indexSelection[selectedTable.tableName]?.[i.name] === true);
     // Hide UNCHANGED items unless the "Show unchanged" toggle is on.
-    const keep = (status: string) => showUnchangedDetail || status !== 'UNCHANGED';
+    // Browse mode synthesizes every field as UNCHANGED (no comparison) — always
+    // show them, otherwise the blueprint is empty and browsing looks broken.
+    const keep = (status: string) => browseMode || showUnchangedDetail || status !== 'UNCHANGED';
     const colDiffs = selectedTable.columnDiffs.filter((c) => keep(c.status));
     const indexDiffs = selectedTable.indexDiffs.filter((i) => keep(i.status));
     const fkDiffs = selectedTable.foreignKeyDiffs.filter((f) => keep(f.status));
@@ -570,6 +572,7 @@ export const ObjectDetailPanel: React.FC = () => {
             </p>
           </div>
           <div className="flex items-center gap-3">
+            {!browseMode && (
             <label
               className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-300 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded hover:border-cyan-500/40 transition"
               title="Show unchanged columns, indexes, foreign keys and triggers (off = only changes)"
@@ -582,6 +585,7 @@ export const ObjectDetailPanel: React.FC = () => {
               />
               Show unchanged
             </label>
+            )}
             {selectedTable.status !== 'UNCHANGED' && (
               <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-300 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded hover:border-cyan-500/40 transition">
                 <input

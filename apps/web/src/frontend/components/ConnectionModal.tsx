@@ -127,11 +127,22 @@ export const ConnectionModal: React.FC<Props> = ({
 
   const handleInstall = async () => {
     setInstalling(true);
+    setTestingState({ status: 'idle' });
     try {
       await apiInstallDriver(selDialect);
-      setDriverInfo(await apiCheckDriver(selDialect));
-    } catch {
-      /* leave as not-installed; the server logs the install error */
+      const info = await apiCheckDriver(selDialect);
+      setDriverInfo(info);
+      if (!info.installed) {
+        setTestingState({
+          status: 'failed',
+          error: info.error
+            ? `Driver still not loading: ${info.error}`
+            : `Install finished but "${info.packageName}" still failed to load. Try: ${info.installCommand ?? `npm install ${info.packageName}`}`,
+        });
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Driver install failed';
+      setTestingState({ status: 'failed', error: message });
     } finally {
       setInstalling(false);
     }
@@ -286,6 +297,17 @@ export const ConnectionModal: React.FC<Props> = ({
                   <div className="w-full h-1 rounded-full bg-amber-950/40 overflow-hidden">
                     <div className="w-1/3 h-full rounded-full bg-amber-400 animate-indeterminate-progress" />
                   </div>
+                )}
+                {!installing && driverInfo.error && (
+                  <p className="text-[11px] text-amber-200/80 break-words font-mono leading-snug">
+                    {driverInfo.error.slice(0, 280)}
+                    {driverInfo.installCommand ? (
+                      <>
+                        {' '}
+                        — run <span className="text-amber-100">{driverInfo.installCommand}</span>
+                      </>
+                    ) : null}
+                  </p>
                 )}
               </div>
             )

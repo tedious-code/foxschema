@@ -35,11 +35,19 @@ export class DriverDetector {
       };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
+      // ibm_db needs its postinstall (clidriver download + native build). Plain
+      // `npm install` with --ignore-scripts leaves a broken package that still
+      // "resolves" as a module path but fails on require — tell the user how to
+      // rebuild correctly.
+      const installCommand =
+        packageName === 'ibm_db'
+          ? 'npm install ibm_db@4.0.1 --foreground-scripts -w @foxschema/web'
+          : `npm install ${packageName}`;
       return {
         provider: dialect,
         packageName,
         installed: false,
-        installCommand: `npm install ${packageName}`,
+        installCommand,
         error: message,
       };
     }
