@@ -15,7 +15,7 @@ Only the latest release receives security fixes. We use a rolling `0.0.BUILD` ve
 
 Email the maintainer directly:
 
-**huy.ph1988@gmail.com**
+**huyplb@live.com**
 
 Include in your report:
 - Description of the vulnerability
