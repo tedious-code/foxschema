@@ -18,7 +18,7 @@ name: Desktop Release
 # draft to published. This ordering is deliberate: publishing only after every
 # variant's assets are present avoids a window where the release is public with a
 # partial set, and makes the `release: published` event (which triggers
-# release-checksums.yml) fire once, on the complete release.
+# release-checksums.yml and winget.yml) fire once, on the complete release.
 #
 # Intel Mac (macos-13) is intentionally NOT in this matrix: GitHub's macos-13
 # hosted-runner pool has repeatedly had no available capacity — jobs sit queued
@@ -119,7 +119,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_type == 'tag' && github.ref_name || format('desktop-{0}', github.run_number) }}
         run: |
-          # Flipping draft → published fires the `release: published` event that
-          # release-checksums.yml listens for, so SHA256SUMS.txt is still added.
+          # Flipping draft → published fires `release: published` for
+          # release-checksums.yml (SHA256SUMS) and winget.yml (winget-pkgs PRs).
           gh release edit "$TAG" --repo "${{ github.repository }}" --draft=false --latest
 
