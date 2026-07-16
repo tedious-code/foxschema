@@ -13,6 +13,10 @@ name: Desktop Release
 #     drops AppImage (its clidriver breaks linuxdeploy). Distinct productName →
 #     distinct installer filenames, so both coexist in the same release.
 #
+# A `cargo-audit` job runs first and gates every matrix build (same hard-block as
+# dependency-security.yml / release-gate.yml; advisory ignores live in
+# apps/desktop/src-tauri/.cargo/audit.toml).
+#
 # The build jobs upload to a DRAFT (each appends its installers to the same
 # draft). A final `publish` job — gated on all builds succeeding — flips the
 # draft to published. This ordering is deliberate: publishing only after every
@@ -41,7 +45,34 @@ permissions:
   contents: write # create the release + upload installers
 
 jobs:
+  # Hard-block on RustSec advisories before spending matrix build minutes.
+  cargo-audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-audit-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
+          restore-keys: cargo-audit-
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked --quiet
+
+      - name: Run cargo audit
+        working-directory: apps/desktop/src-tauri
+        run: cargo audit
+
   build:
+    needs: cargo-audit
     strategy:
       fail-fast: false
       matrix:
@@ -122,4 +153,3 @@ jobs:
           # Flipping draft → published fires `release: published` for
           # release-checksums.yml (SHA256SUMS) and winget.yml (winget-pkgs PRs).
           gh release edit "$TAG" --repo "${{ github.repository }}" --draft=false --latest
-

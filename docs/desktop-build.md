@@ -44,8 +44,10 @@ Output installers land in `apps/desktop/src-tauri/target/release/bundle/`:
 
 ## Automated releases (CI)
 
-`.github/workflows/desktop-release.yml` builds all four targets in parallel and attaches
-the installers to a **draft** GitHub Release.
+`.github/workflows/desktop-release.yml` runs **cargo audit** first (hard-block on
+RustSec advisories; ignores in `apps/desktop/src-tauri/.cargo/audit.toml`), then
+builds all platform × variant targets in parallel and attaches the installers to a
+**draft** GitHub Release.
 
 ```bash
 # tag a version and push it — CI builds macOS(arm+intel)/Windows/Linux and drafts a release

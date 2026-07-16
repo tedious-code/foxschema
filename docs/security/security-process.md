@@ -24,13 +24,18 @@ Push to main / Weekly Monday 02:00 UTC
         └─► codeql.yml → GitHub Security tab
 
 Tag push  v*
-        └─► release-gate.yml
-              ├─ unit tests
-              ├─ ESLint security
-              ├─ npm audit critical
-              ├─ Gitleaks full scan
-              └─ cargo audit
-              └─ [if all pass] → GitHub Release draft
+        ├─► release-gate.yml
+        │     ├─ unit tests
+        │     ├─ ESLint security
+        │     ├─ npm audit critical
+        │     ├─ Gitleaks full scan
+        │     └─ cargo audit
+        │     └─ [if all pass] → GitHub Release draft
+        │
+        └─► desktop-release.yml
+              ├─ cargo audit                       ←── HARD BLOCK (gates builds)
+              ├─ matrix builds (macOS / Windows / Linux × standard|db2)
+              └─ [if all pass] → publish release
 ```
 
 ---
