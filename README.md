@@ -245,7 +245,22 @@ Additional database-specific objects are continuously being added.
 
 ## 📷 Screenshots
 
-<img width="2880" height="1324" alt="postgres_migration_failed_1782856841479" src="https://github.com/user-attachments/assets/3fbeb83d-e7da-4ad5-b106-e36e8e46691f" />
+Schema Blueprint after comparing seeded `demo_a` → `demo_b` (Postgres and Db2):
+
+<p>
+  <img src="docs/marketing/schema-diff-postgres.png" alt="Fox Schema — Postgres schema diff (demo_a vs demo_b)" width="800" />
+</p>
+<p>
+  <img src="docs/marketing/schema-diff-db2.png" alt="Fox Schema — Db2 schema diff (DEMO_A vs DEMO_B)" width="800" />
+</p>
+
+Regenerate locally (containers seeded + `npm run dev`):
+
+```bash
+bash scripts/seed/seed-all.sh postgres
+bash scripts/seed/seed-all.sh db2
+E2E_BASE_URL=http://localhost:5173 node scripts/marketing-screenshot.mjs
+```
 
 
 ---
