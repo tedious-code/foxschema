@@ -119,6 +119,11 @@ Pull and run (no `.env` needed — encryption key is auto-created on `/data`):
 #### NOTE:
  APP_ENCRYPTION_KEY is required 
 ```bash
+
+Image DB2
+docker pull 5nickels/foxschema:db2-latest
+
+Non DB2 
 docker pull 5nickels/foxschema:latest
 
 docker run -d --name foxschema \
