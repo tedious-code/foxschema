@@ -1,13 +1,19 @@
 name: Web Release
 
-# Builds the web app's Docker image (see Dockerfile) and pushes it to GitHub
-# Container Registry: the common image (every dialect except Db2, any
-# architecture) plus the opt-in Db2 variant (amd64 only). See
-# docs/DEPLOYMENT.md for what the two variants are and how to run them.
+# Builds the web app's Docker image (see Dockerfile) and pushes it to:
+#   - GitHub Container Registry (always): ghcr.io/tedious-code/foxschema
+#   - Docker Hub (when DOCKERHUB_* secrets are set): <user>/foxschema
+#
+# Variants: common (every dialect except Db2, multi-arch) + Db2 (amd64 only).
+# See docs/DEPLOYMENT.md.
 #
 # Trigger: push a version tag (e.g. `v0.1.0`), or run manually from the
 # Actions tab. Mirrors desktop-release.yml's trigger so one tag cuts both
 # releases together.
+#
+# Docker Hub secrets (repo Settings → Secrets → Actions):
+#   DOCKERHUB_USERNAME — Hub user/org that owns the foxschema repository
+#   DOCKERHUB_TOKEN    — Hub access token (Read & Write), not the account password
 
 on:
   push:
@@ -21,7 +27,7 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }} # tedious-code/foxschema, lowercase already
+  IMAGE_NAME: ${{ github.repository }} # tedious-code/foxschema
 
 jobs:
   build-and-push:
@@ -33,12 +39,51 @@ jobs:
         id: ver
         run: echo "tag=${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.run_number) }}" >> "$GITHUB_OUTPUT"
 
+      - name: Compose image tags
+        id: tags
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          GHCR="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          GHCR="${GHCR,,}" # lowercase (GHCR requirement)
+          {
+            echo "common<<EOF"
+            echo "${GHCR}:latest"
+            echo "${GHCR}:${TAG}"
+            if [ -n "${DOCKERHUB_USERNAME}" ]; then
+              echo "${DOCKERHUB_USERNAME}/foxschema:latest"
+              echo "${DOCKERHUB_USERNAME}/foxschema:${TAG}"
+            fi
+            echo "EOF"
+            echo "db2<<EOF"
+            echo "${GHCR}:db2-latest"
+            echo "${GHCR}:db2-${TAG}"
+            if [ -n "${DOCKERHUB_USERNAME}" ]; then
+              echo "${DOCKERHUB_USERNAME}/foxschema:db2-latest"
+              echo "${DOCKERHUB_USERNAME}/foxschema:db2-${TAG}"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          if [ -n "${DOCKERHUB_USERNAME}" ]; then
+            echo "push_dockerhub=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "push_dockerhub=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        if: steps.tags.outputs.push_dockerhub == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       # Common image is native on amd64/arm64 (see Dockerfile); building arm64
       # here still needs emulation since GitHub-hosted runners are amd64 only.
@@ -56,9 +101,7 @@ jobs:
           push: true
           build-args: |
             WITH_DB2=false
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.ver.outputs.tag }}
+          tags: ${{ steps.tags.outputs.common }}
 
       - name: Build & push Db2 image (amd64 only)
         uses: docker/build-push-action@v6
@@ -68,6 +111,4 @@ jobs:
           push: true
           build-args: |
             WITH_DB2=true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:db2-latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:db2-${{ steps.ver.outputs.tag }}
+          tags: ${{ steps.tags.outputs.db2 }}

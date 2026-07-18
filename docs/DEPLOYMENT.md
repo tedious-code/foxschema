@@ -165,17 +165,36 @@ bundle is a planned follow-up.
 
 ## Pulling the published image
 
-Every tagged release (`v*`) publishes both variants to GitHub Container Registry —
-no local build needed:
+Every tagged release (`v*`) publishes both variants via `.github/workflows/web-release.yml`
+— no local build needed.
+
+**GitHub Container Registry** (always):
 
 ```bash
 docker pull ghcr.io/tedious-code/foxschema:latest      # common (multi-arch)
 docker pull ghcr.io/tedious-code/foxschema:db2-latest  # with Db2 (amd64 only)
-# or a specific version instead of :latest, e.g. ghcr.io/tedious-code/foxschema:v0.1.0
+# or a specific version, e.g. ghcr.io/tedious-code/foxschema:v0.1.49
 ```
 
-Built by `.github/workflows/web-release.yml`. Point `docker-compose.app.yml`'s
-`image:` at one of these instead of `build:` to skip building locally.
+**Docker Hub** (when repo secrets are set — same tags under `<user>/foxschema`):
+
+```bash
+docker pull <your-dockerhub-user>/foxschema:latest
+docker pull <your-dockerhub-user>/foxschema:db2-latest
+```
+
+Add these Actions secrets on `tedious-code/foxschema` before the next web release:
+
+| Secret | Value |
+|--------|--------|
+| `DOCKERHUB_USERNAME` | Docker Hub user or org that will own `foxschema` |
+| `DOCKERHUB_TOKEN` | Hub **Access Token** with Read & Write (not your password) |
+
+Create the Hub repositories once (or allow the first push to create them):
+`https://hub.docker.com/repository/docker/<user>/foxschema`.
+
+Point `docker-compose.app.yml`'s `image:` at GHCR or Docker Hub instead of `build:`
+to skip building locally.
 
 ## Building the image
 
