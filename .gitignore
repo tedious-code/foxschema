@@ -52,6 +52,10 @@ CHANGELOG.md
 !docs/USER_GUIDE.md
 !docs/DEPLOYMENT.md
 !docs/docker-hub-overview.md
+docs/demo/*
+!docs/demo/foxschema-demo.mp4
+!docs/demo/foxschema-demo.gif
+
 # Desktop (Tauri) build artifacts
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/

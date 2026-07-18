@@ -102,6 +102,14 @@ snapshot and per-object history.
   failed object instead of rolling back the whole run; every run is recorded in history.
 - **Credentials encrypted at rest** — saved passwords are never sent back to the browser.
 
+## Demo
+
+Connect two schemas, review table and view diffs, generate migration SQL, execute, and inspect history.
+
+![Fox Schema demo — connect, compare, migration SQL, execute, history](docs/demo/foxschema-demo.gif)
+
+[Download MP4](docs/demo/foxschema-demo.mp4)
+
 ## Supported dialects
 
 PostgreSQL · MySQL · MariaDB · SQL Server · Azure SQL · Oracle · IBM Db2 ·
