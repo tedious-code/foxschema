@@ -64,8 +64,12 @@ COPY --from=build /app/packages ./packages
 COPY --from=build /app/apps/web ./apps/web
 COPY --from=build /app/package.json ./package.json
 
-# Persistent volume for the SQLite metadata store (saved connections, history).
-RUN mkdir -p /data && chown -R fox:fox /data /app
+# Persistent volume for the SQLite metadata store (saved connections, history)
+# and the auto-generated encryption key (/data/.app_encryption_key).
+COPY docker-entrypoint.sh /entrypoint.sh
+RUN mkdir -p /data \
+    && chown -R fox:fox /data /app \
+    && chmod +x /entrypoint.sh
 USER fox
 
 ENV NODE_ENV=production \
@@ -76,8 +80,8 @@ ENV NODE_ENV=production \
     APP_KEY_SCHEME=v1 \
     LOCAL_SINGLE_USER=true \
     AUTH_REQUIRED=false
-# APP_ENCRYPTION_KEY is intentionally NOT set — it is REQUIRED at runtime and the
-# app fails fast without it (it encrypts saved DB passwords). Provide it via -e / .env.
+# APP_ENCRYPTION_KEY is optional for pull-and-run: entrypoint generates one into
+# /data/.app_encryption_key on first boot. Set -e APP_ENCRYPTION_KEY=… to override.
 
 EXPOSE 3001
 VOLUME ["/data"]
@@ -88,4 +92,5 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
 # tsx is present in node_modules (a devDependency, kept because we run TS at
 # runtime). node:sqlite is flag-free on Node 24. Bundling the backend with
 # esbuild (as the desktop sidecar/CLI do) is a future image-size optimization.
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["node_modules/.bin/tsx", "apps/web/src/backend/serve.ts"]

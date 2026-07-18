@@ -14,26 +14,40 @@ cloud.
 - [Database drivers](#database-drivers)
 - [Building the image](#building-the-image)
 
-## Quick start
+## Quick start (pull and run)
+
+No `.env` required. The image auto-generates `APP_ENCRYPTION_KEY` on first boot
+and stores it on the `/data` volume.
 
 ```bash
-cp .env.example .env
-# set APP_ENCRYPTION_KEY in .env  →  openssl rand -hex 32
-docker compose -f docker-compose.app.yml up -d --build
+docker pull ghcr.io/tedious-code/foxschema:latest
+docker run -d --name foxschema \
+  -p 3001:3001 \
+  -v foxschema_data:/data \
+  ghcr.io/tedious-code/foxschema:latest
 ```
 
-Open `http://localhost:${PORT}` (default `3001`). That's it — saved connections and
-history persist on a Docker volume.
+Open http://localhost:3001
 
-Prefer plain `docker run`?
+Defaults baked into the image: single-user mode (no login), SQLite metadata on
+`/data`, port `3001`. Keep the same volume across upgrades so saved connections
+and the encryption key survive.
+
+### Optional: pin your own encryption key
 
 ```bash
-docker build -t fox .
-docker run -d --name fox \
-  -p 8080:3001 \
-  -e APP_ENCRYPTION_KEY=$(openssl rand -hex 32) \
-  -v fox_data:/data \
-  fox
+docker run -d --name foxschema \
+  -p 3001:3001 \
+  -e APP_ENCRYPTION_KEY="$(openssl rand -hex 32)" \
+  -v foxschema_data:/data \
+  ghcr.io/tedious-code/foxschema:latest
+```
+
+### docker compose
+
+```bash
+docker compose -f docker-compose.app.yml up -d
+# or build locally: docker compose -f docker-compose.app.yml up -d --build
 ```
 
 ## Configuration (environment variables)
@@ -42,7 +56,7 @@ docker run -d --name fox \
 |----------|---------|---------|
 | `PORT` | `3001` | Host port published by docker-compose (what you open in a browser). |
 | `API_PORT` | `3001` | Port the app listens on **inside** the container. `PORT` maps to it. |
-| `APP_ENCRYPTION_KEY` | — | **Required.** 32-byte key (64 hex chars, or base64) that encrypts saved DB passwords. The app refuses to start without it in production. |
+| `APP_ENCRYPTION_KEY` | auto on `/data` | Encrypts saved DB passwords. Optional in Docker: entrypoint creates `/data/.app_encryption_key` if unset. Set explicitly for managed/secret-store deploys. |
 | `APP_DB_ENGINE` | `sqlite` | The app's own metadata store: `sqlite`, `postgres`, or `mysql`. |
 | `APP_DB_PATH` | `/data/foxschema.db` | SQLite file location (when `APP_DB_ENGINE=sqlite`). |
 | `APP_DB_URL` | — | Connection URL for the metadata store when engine is `postgres`/`mysql`. |
@@ -57,17 +71,20 @@ docker run -d --name fox \
 
 ## The encryption key
 
-`APP_ENCRYPTION_KEY` protects the database passwords Fox stores. Generate one:
+`APP_ENCRYPTION_KEY` protects the database passwords Fox stores.
+
+- **Docker pull-and-run:** leave it unset; the entrypoint writes a random key to
+  `/data/.app_encryption_key` and reuses it on later starts (as long as you keep
+  the `/data` volume).
+- **Pin your own key** (recommended for production secret managers):
 
 ```bash
 openssl rand -hex 32
-# or: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-- **Keep it stable and secret.** Store it in your platform's secret manager, not in
-  the image or a committed file. If it changes, previously saved passwords can't be
+- **Keep it stable and secret.** If it changes, previously saved passwords can't be
   decrypted and must be re-entered.
-- The app **fails fast** (won't start) if it's missing in production — that's intentional.
+- Running `serve.ts` outside Docker still requires the env var in production.
 
 ## Choosing a port
 

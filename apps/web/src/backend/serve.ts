@@ -25,15 +25,16 @@ try {
 
 setupDb2ClientEnv();
 
-// Fail fast on a missing encryption key rather than booting and only erroring
-// when someone first saves a connection. The crypto layer also enforces this,
-// but lazily — catching it here makes a misconfigured deployment obvious at
-// startup. (docker-compose.app.yml additionally refuses to start without it.)
+// Encryption key must be present in production. The Docker entrypoint
+// (docker-entrypoint.sh) auto-generates and persists one under /data when unset,
+// so plain `docker pull && docker run -v …:/data` works. Bare process deploys
+// without that helper still need an explicit APP_ENCRYPTION_KEY.
 if (process.env.NODE_ENV === 'production' && !process.env.APP_ENCRYPTION_KEY) {
   console.error(
     'FATAL: APP_ENCRYPTION_KEY is required in production — it encrypts saved database\n' +
       'passwords at rest. Generate one and set it in the environment:\n' +
-      '  openssl rand -hex 32'
+      '  openssl rand -hex 32\n' +
+      'Or run the Docker image with a /data volume (entrypoint auto-creates the key).'
   );
   process.exit(1);
 }

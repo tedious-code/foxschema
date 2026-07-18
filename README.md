@@ -111,18 +111,23 @@ SQLite · ClickHouse · Amazon Redshift
 
 ### Run the web app with Docker
 
+Pull and run (no `.env` needed — encryption key is auto-created on `/data`):
+
 ```bash
-cp .env.example .env
-# set APP_ENCRYPTION_KEY in .env  →  generate one with:  openssl rand -hex 32
-docker compose -f docker-compose.app.yml up -d --build
+docker pull ghcr.io/tedious-code/foxschema:latest
+docker run -d --name foxschema \
+  -p 3001:3001 \
+  -v foxschema_data:/data \
+  ghcr.io/tedious-code/foxschema:latest
 ```
 
-Open **http://localhost:3001** (change the port with `PORT` in `.env`).
+Open **http://localhost:3001**.
 
-This is the **common** image (every dialect except IBM Db2; builds on any
-architecture, including arm64). Db2 needs a large native driver, so it's an opt-in
-build — see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md), which also covers cloud deploys,
-using an external database, and enabling multi-user / SSO.
+Or with Compose: `docker compose -f docker-compose.app.yml up -d`
+
+This is the **common** image (every dialect except IBM Db2; multi-arch). Db2 is an
+opt-in build — see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for cloud deploys,
+external metadata DB, and multi-user / SSO.
 
 ### Desktop app
 
