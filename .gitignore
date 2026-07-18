@@ -51,6 +51,7 @@ CHANGELOG.md
 !docs/ARCHITECTURE.md
 !docs/USER_GUIDE.md
 !docs/DEPLOYMENT.md
+!docs/docker-hub-overview.md
 # Desktop (Tauri) build artifacts
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/
