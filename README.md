@@ -108,8 +108,6 @@ Connect two schemas, review table and view diffs, generate migration SQL, execut
 
 ![Fox Schema demo — connect, compare, migration SQL, execute, history](docs/demo/foxschema-demo.gif)
 
-[Download MP4](docs/demo/foxschema-demo.mp4)
-
 ## Supported dialects
 
 PostgreSQL · MySQL · MariaDB · SQL Server · Azure SQL · Oracle · IBM Db2 ·
