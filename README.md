@@ -116,10 +116,13 @@ Pull and run (no `.env` needed — encryption key is auto-created on `/data`):
  APP_ENCRYPTION_KEY is required 
 ```bash
 docker pull 5nickels/foxschema:latest
+
 docker run -d --name foxschema \
   -p 3001:3001 \
+  -e APP_ENCRYPTION_KEY="$(openssl rand -hex 32)" \
   -v foxschema_data:/data \
   5nickels/foxschema:latest
+
 ```
 
 Open **http://localhost:3001**.
