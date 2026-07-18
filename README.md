@@ -112,7 +112,8 @@ SQLite · ClickHouse · Amazon Redshift
 ### Run the web app with Docker
 
 Pull and run (no `.env` needed — encryption key is auto-created on `/data`):
-
+#### NOTE:
+ APP_ENCRYPTION_KEY is required 
 ```bash
 docker pull 5nickels/foxschema:latest
 docker run -d --name foxschema \
