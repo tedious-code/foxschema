@@ -104,8 +104,6 @@ snapshot and per-object history.
 
 ## Demo
 
-Connect two schemas, review table and view diffs, generate migration SQL, execute, and inspect history.
-
 ![Fox Schema demo — connect, compare, migration SQL, execute, history](docs/demo/foxschema-demo.gif)
 
 ## Supported dialects
