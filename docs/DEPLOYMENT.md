@@ -20,11 +20,11 @@ No `.env` required. The image auto-generates `APP_ENCRYPTION_KEY` on first boot
 and stores it on the `/data` volume.
 
 ```bash
-docker pull ghcr.io/tedious-code/foxschema:latest
+docker pull 5nickels/foxschema:latest
 docker run -d --name foxschema \
   -p 3001:3001 \
   -v foxschema_data:/data \
-  ghcr.io/tedious-code/foxschema:latest
+  5nickels/foxschema:latest
 ```
 
 Open http://localhost:3001
@@ -33,6 +33,16 @@ Defaults baked into the image: single-user mode (no login), SQLite metadata on
 `/data`, port `3001`. Keep the same volume across upgrades so saved connections
 and the encryption key survive.
 
+With Db2 client driver (amd64):
+
+```bash
+docker pull 5nickels/foxschema:db2-latest
+docker run -d --name foxschema \
+  -p 3001:3001 \
+  -v foxschema_data:/data \
+  5nickels/foxschema:db2-latest
+```
+
 ### Optional: pin your own encryption key
 
 ```bash
@@ -40,7 +50,7 @@ docker run -d --name foxschema \
   -p 3001:3001 \
   -e APP_ENCRYPTION_KEY="$(openssl rand -hex 32)" \
   -v foxschema_data:/data \
-  ghcr.io/tedious-code/foxschema:latest
+  5nickels/foxschema:latest
 ```
 
 ### docker compose
@@ -185,33 +195,30 @@ bundle is a planned follow-up.
 Every tagged release (`v*`) publishes both variants via `.github/workflows/web-release.yml`
 — no local build needed.
 
-**GitHub Container Registry** (always):
+**Docker Hub** (primary public image — [5nickels/foxschema](https://hub.docker.com/repository/docker/5nickels/foxschema/tags)):
 
 ```bash
-docker pull ghcr.io/tedious-code/foxschema:latest      # common (multi-arch)
-docker pull ghcr.io/tedious-code/foxschema:db2-latest  # with Db2 (amd64 only)
-# or a specific version, e.g. ghcr.io/tedious-code/foxschema:v0.1.49
+docker pull 5nickels/foxschema:latest       # common (multi-arch)
+docker pull 5nickels/foxschema:db2-latest   # with Db2 client (amd64 only)
 ```
 
-**Docker Hub** (when repo secrets are set — same tags under `<user>/foxschema`):
+**GitHub Container Registry** (also published on each release):
 
 ```bash
-docker pull <your-dockerhub-user>/foxschema:latest
-docker pull <your-dockerhub-user>/foxschema:db2-latest
+docker pull ghcr.io/tedious-code/foxschema:latest
+docker pull ghcr.io/tedious-code/foxschema:db2-latest
 ```
 
-Add these Actions secrets on `tedious-code/foxschema` before the next web release:
+CI (`.github/workflows/web-release.yml`) pushes both registries when these Actions
+secrets are set on `tedious-code/foxschema`:
 
 | Secret | Value |
 |--------|--------|
-| `DOCKERHUB_USERNAME` | Docker Hub user or org that will own `foxschema` |
+| `DOCKERHUB_USERNAME` | `5nickels` |
 | `DOCKERHUB_TOKEN` | Hub **Access Token** with Read & Write (not your password) |
 
-Create the Hub repositories once (or allow the first push to create them):
-`https://hub.docker.com/repository/docker/<user>/foxschema`.
-
-Point `docker-compose.app.yml`'s `image:` at GHCR or Docker Hub instead of `build:`
-to skip building locally.
+Point `docker-compose.app.yml`'s `image:` at `5nickels/foxschema:latest` instead of
+`build:` to skip building locally.
 
 ## Building the image
 

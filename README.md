@@ -114,20 +114,18 @@ SQLite · ClickHouse · Amazon Redshift
 Pull and run (no `.env` needed — encryption key is auto-created on `/data`):
 
 ```bash
-docker pull ghcr.io/tedious-code/foxschema:latest
+docker pull 5nickels/foxschema:latest
 docker run -d --name foxschema \
   -p 3001:3001 \
   -v foxschema_data:/data \
-  ghcr.io/tedious-code/foxschema:latest
+  5nickels/foxschema:latest
 ```
 
 Open **http://localhost:3001**.
 
-Or with Compose: `docker compose -f docker-compose.app.yml up -d`
-
-This is the **common** image (every dialect except IBM Db2; multi-arch). Db2 is an
-opt-in build — see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for cloud deploys,
-external metadata DB, and multi-user / SSO.
+Db2 client variant: `5nickels/foxschema:db2-latest` (linux/amd64).  
+Also on GHCR: `ghcr.io/tedious-code/foxschema:latest`.  
+More options: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ### Desktop app
 

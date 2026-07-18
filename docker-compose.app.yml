@@ -18,7 +18,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: fox:latest
+    # Prefer the published Hub image; `up --build` still builds locally as fox:latest.
+    image: ${FOX_IMAGE:-5nickels/foxschema:latest}
     # Publish host ${PORT} -> the container's ${API_PORT}. Set PORT in .env to
     # avoid clashing with your other services.
     ports:
