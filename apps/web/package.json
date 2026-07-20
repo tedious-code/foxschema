@@ -33,7 +33,7 @@
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "lucide-react": "^1.16.0",
-    "monaco-editor": "^0.55.1",
+    "monaco-editor": "^0.56.0",
     "mssql": "^12.6.0",
     "mysql2": "^3.11.0",
     "oracledb": "^7.0.0",
