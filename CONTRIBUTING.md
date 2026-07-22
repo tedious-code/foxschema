@@ -13,6 +13,10 @@ fresh clone to a running app with a passing test suite.
   develop on).
 - **Docker** — for the test databases and the end-to-end suite.
 - **Rust (stable)** — only if you build the desktop (Tauri) app.
+- **Windows desktop builds** also need Visual Studio Build Tools (“Desktop development
+  with C++” / MSVC), WebView2 (usually preinstalled on Win10/11), and optionally WiX
+  Toolset v3 for `.msi`. See [docs/desktop-build.md](docs/desktop-build.md) for the
+  full Windows checklist and troubleshooting.
 
 ## First-time setup
 

@@ -67,8 +67,10 @@ When the release is published (CI auto-publishes after all builds succeed), the
 
 ## Local builds (per OS)
 
-Prerequisites everywhere: **Node 22+**, **Rust (stable)**, repo deps installed (`npm install`
-at the repo root).
+Prerequisites everywhere: **Node ≥ 22.5** (22 LTS preferred; matches CI), **Rust
+(stable)** via [rustup](https://rustup.rs/), repo deps installed (`npm install` at the
+repo root). Install native modules **on the target OS** — do not copy `node_modules`
+across machines.
 
 ### macOS
 ```bash
@@ -79,11 +81,74 @@ cd apps/desktop && npm run build          # → .dmg / .app for the host arch
   set up yet.
 
 ### Windows
+
+Extra prerequisites (on top of Node + Rust):
+
+| Tool | Why |
+|------|-----|
+| **Visual Studio Build Tools** with **“Desktop development with C++”** (MSVC) | Links the Rust/Windows binary (`link.exe`) |
+| **WebView2** runtime | UI shell (usually already present on Windows 10/11) |
+| **WiX Toolset v3** (optional) | Needed for the `.msi` bundle; NSIS `.exe` still builds without it |
+
+Put `%USERPROFILE%\.cargo\bin` on your PATH so `rustc` / `cargo` work in PowerShell.
+Use the **MSVC** toolchain (`x86_64-pc-windows-msvc` / `aarch64-pc-windows-msvc`), not
+MinGW. Prefer a short clone path (e.g. `C:\src\foxSchema`) — long paths still bite
+Cargo/Tauri on some setups.
+
 ```powershell
-cd apps/desktop; npm run build            # → .msi and .exe
+# from repo root
+npm install
+
+cd apps\desktop
+npm run build                             # → .msi (WiX) and .exe (NSIS)
 ```
-- Needs the **WebView2** runtime (present on Windows 10/11 by default) and the MSVC build
-  tools (Visual Studio Build Tools / "Desktop development with C++").
+
+Dev loop (no installer):
+
+```powershell
+cd apps\desktop
+npm run dev
+```
+
+**Standard build (default):** all dialects except DB2. Prefer this first when validating
+a new Windows machine.
+
+**DB2 variant** (ibm_db + clidriver):
+
+```powershell
+$env:INCLUDE_DB2 = "1"
+npx tauri build --config src-tauri\tauri.db2.conf.json
+```
+
+Outputs: `apps\desktop\src-tauri\target\release\bundle\`.
+
+#### Windows troubleshooting
+
+1. **MSVC / `link.exe` not found** — Install VS Build Tools “Desktop development with
+   C++”, open a **new** “x64 Native Tools” or Developer PowerShell, then rebuild.
+2. **`Failed to copy external binaries` / missing
+   `foxschema-sidecar-*-pc-windows-msvc.exe`** — Sidecar step failed or `rustc` was not
+   discoverable when naming the host triple. Confirm `rustc -vV` prints
+   `host: …-pc-windows-msvc`, then run `npm run build:sidecar` alone under
+   `apps\desktop`.
+3. **Native driver rebuild fails** (`better-sqlite3`, `@duckdb/node-api`, or `ibm_db`
+   with `INCLUDE_DB2=1`) — Delete `node_modules` and re-run `npm install` **on Windows**.
+   Do not reuse a macOS/Linux `node_modules` tree. Prefer the standard (non-DB2) build
+   first.
+4. **WiX / MSI errors** — Install WiX Toolset v3, or use the NSIS `.exe` from the same
+   bundle folder if MSI is not required.
+5. **Path length / spaces** — Move the repo to a short path such as `C:\src\foxSchema`.
+6. **GNU/MinGW toolchain by mistake** — Switch to the default rustup MSVC target
+   (`*-pc-windows-msvc`).
+7. **SmartScreen after a successful build** — Expected while unsigned (More info →
+   Run anyway). Not a build failure.
+
+#### Easier alternatives (no local Windows toolchain)
+
+- Download a Windows installer from a **GitHub Release** (CI builds `.msi` / `.exe` on
+  `windows-latest`).
+- Trigger **Actions → Desktop Release → Run workflow**, or push a `v*` tag.
+- Run the **web edition** only: from the repo root, `npm run dev` (no Rust/MSVC).
 
 ### Ubuntu / Debian
 ```bash
