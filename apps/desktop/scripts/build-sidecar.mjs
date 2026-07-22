@@ -73,8 +73,18 @@ function hostTriple() {
   // No cross-compile target set — ask rustc, authoritative for the host build
   // (also correct when Node itself is the mismatched one, e.g. an x64 Node
   // under Rosetta on an otherwise-native arm64 machine).
-  // Try PATH and the default rustup location (not on the npm shell's PATH).
-  const candidates = ['rustc', join(process.env.HOME ?? '', '.cargo', 'bin', 'rustc')];
+  // Try PATH and the default rustup location (not always on the npm shell's PATH).
+  // On Windows HOME is often unset — prefer USERPROFILE / HOMEDRIVE+HOMEPATH.
+  const homeDir =
+    process.env.HOME ||
+    process.env.USERPROFILE ||
+    (process.env.HOMEDRIVE && process.env.HOMEPATH
+      ? `${process.env.HOMEDRIVE}${process.env.HOMEPATH}`
+      : '') ||
+    '';
+  const rustcName = process.platform === 'win32' ? 'rustc.exe' : 'rustc';
+  const candidates = ['rustc'];
+  if (homeDir) candidates.push(join(homeDir, '.cargo', 'bin', rustcName));
   for (const bin of candidates) {
     try {
       const out = execSync(`"${bin}" -vV`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
