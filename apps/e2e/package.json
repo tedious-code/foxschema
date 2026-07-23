@@ -11,6 +11,8 @@
     "test:headed": "HEADLESS=false vitest run --config vitest.config.ts",
     "test:smoke": "vitest run --config vitest.config.ts src/tests/smoke.test.ts",
     "test:smoke:headed": "HEADLESS=false vitest run --config vitest.config.ts src/tests/smoke.test.ts",
+    "test:sql-editor": "vitest run --config vitest.config.ts src/tests/sql-editor-smoke.test.ts src/tests/sql-editor-sqlite.test.ts",
+    "test:sql-editor:headed": "HEADLESS=false vitest run --config vitest.config.ts src/tests/sql-editor-smoke.test.ts src/tests/sql-editor-sqlite.test.ts",
     "test:errors": "vitest run --config vitest.config.ts src/tests/auto-error-catch.test.ts",
     "test:errors:headed": "HEADLESS=false vitest run --config vitest.config.ts src/tests/auto-error-catch.test.ts",
     "test:postgres": "vitest run --config vitest.config.ts src/tests/dialects/postgres.test.ts",

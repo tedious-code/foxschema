@@ -70,7 +70,7 @@ export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
   if (!open) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+    <div data-testid="cred-manager" className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
       <div className="w-full max-w-[620px] bg-slate-900 border border-slate-800 rounded-xl shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
 
         {/* Header */}
@@ -88,7 +88,7 @@ export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
             <span className="text-xs text-slate-500 tabular-nums">
               {visible.length === connections.length ? `${connections.length} saved` : `${visible.length} of ${connections.length}`}
             </span>
-            <button onClick={onClose} className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-200 transition">
+            <button data-testid="cred-close-btn" onClick={onClose} className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-200 transition">
               <X className="w-4.5 h-4.5" />
             </button>
           </div>
@@ -254,6 +254,7 @@ export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
         {/* Footer */}
         <div className="px-4 py-4 bg-slate-950/60 border-t border-slate-800">
           <button
+            data-testid="cred-add-btn"
             onClick={() => setAdding(true)}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-bold accent-grad on-accent-fg rounded-lg transition cursor-pointer"
           >

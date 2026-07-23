@@ -73,8 +73,40 @@ const results = [];
 const bar = '─'.repeat(60);
 
 console.log('\n' + bar);
-console.log(`  Fox E2E — running ${configured.length} dialect(s)`);
+console.log(`  Fox E2E — SQL Editor + ${configured.length} dialect(s)`);
 console.log(bar + '\n');
+
+// Always run SQL Editor suites first (self-seeding SQLite; no Docker required).
+const ALWAYS = [
+  { key: 'sql-editor', file: 'src/tests/sql-editor-smoke.test.ts src/tests/sql-editor-sqlite.test.ts', label: 'SQL Editor' },
+];
+
+for (const suite of ALWAYS) {
+  const start = Date.now();
+  const logFile = join(logDir, `${suite.key}.log`);
+  process.stdout.write(`▶  ${suite.label.padEnd(12)} `);
+  let passed = false;
+  let output = '';
+  try {
+    output = execSync(`${HEADED}${VITEST} ${suite.file}`, {
+      cwd: ROOT,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 300_000,
+      env: { ...process.env },
+    }).toString();
+    passed = true;
+    process.stdout.write('✓  PASS');
+  } catch (err) {
+    output = (err.stdout ?? '').toString() + '\n' + (err.stderr ?? '').toString();
+    passed = false;
+    process.stdout.write('✗  FAIL');
+  }
+  const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+  console.log(`  (${elapsed}s)  → log: logs/${suite.key}.log`);
+  writeFileSync(logFile, output, 'utf8');
+  const failLines = output.split('\n').filter((l) => l.includes('FAIL') || l.includes('Error') || l.includes('✗'));
+  results.push({ ...suite, passed, elapsed, logFile, failLines });
+}
 
 for (const dialect of configured) {
   const start = Date.now();

@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { TopToolbar } from './components/TopToolbar';
 import { SchemaTreePanel } from './components/SchemaTreePanel';
 import { ObjectDetailPanel } from './components/ObjectDetailPanel';
+import { SqlEditorView } from './components/sql-editor/SqlEditorView';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { AuthPage } from './components/AuthPage';
 import { OnboardingWizard } from './components/OnboardingWizard';
@@ -13,6 +14,7 @@ import { AlertCircle, AlertTriangle, Loader2, X } from 'lucide-react';
 
 const Workspace: React.FC = () => {
   const { errorMsg, warnings, dismissWarnings } = useSyncStore();
+  const activeView = useUiStore((s) => s.activeView);
   return (
     <div className="h-screen flex flex-col bg-slate-950 text-slate-100 antialiased overflow-hidden">
       <TopToolbar />
@@ -44,12 +46,20 @@ const Workspace: React.FC = () => {
       )}
 
       <main className="flex-1 flex min-h-0 overflow-hidden">
-        <ErrorBoundary>
-          <SchemaTreePanel />
-        </ErrorBoundary>
-        <ErrorBoundary>
-          <ObjectDetailPanel />
-        </ErrorBoundary>
+        {activeView === 'sqlEditor' ? (
+          <ErrorBoundary>
+            <SqlEditorView />
+          </ErrorBoundary>
+        ) : (
+          <>
+            <ErrorBoundary>
+              <SchemaTreePanel />
+            </ErrorBoundary>
+            <ErrorBoundary>
+              <ObjectDetailPanel />
+            </ErrorBoundary>
+          </>
+        )}
       </main>
     </div>
   );

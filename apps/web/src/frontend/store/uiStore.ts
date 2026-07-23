@@ -157,6 +157,9 @@ function applyToDocument(themeMode: ThemeMode, tone: ToneId, fontSize: FontSize,
   return mode;
 }
 
+/** Top-level workspace views: schema sync (compare/browse) vs the SQL Editor. */
+export type ActiveView = 'sync' | 'sqlEditor';
+
 interface UiState {
   themeMode: ThemeMode;
   tone: ToneId;
@@ -164,7 +167,10 @@ interface UiState {
   accent: AccentId;
   /** Resolved (system → dark|light) — for Monaco theme selection. */
   resolvedMode: 'dark' | 'light';
+  /** Which workspace view is showing (persisted; purely local, not synced to server prefs). */
+  activeView: ActiveView;
 
+  setActiveView: (view: ActiveView) => void;
   setThemeMode: (mode: ThemeMode) => void;
   setTone: (tone: ToneId) => void;
   setFontSize: (size: FontSize) => void;
@@ -207,7 +213,9 @@ export const useUiStore = create<UiState>()(
       return {
         ...DEFAULTS,
         resolvedMode: 'dark',
+        activeView: 'sync' as ActiveView,
 
+        setActiveView: (activeView) => set({ activeView }),
         setThemeMode: (themeMode) => update({ themeMode }),
         setTone: (tone) => update({ tone }),
         setFontSize: (fontSize) => update({ fontSize }),

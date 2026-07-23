@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSyncStore } from '../store/useSyncStore';
-import { ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, CheckCircle2, Zap, Settings, KeyRound, History, Search, X, Layers } from 'lucide-react';
+import { useUiStore } from '../store/uiStore';
+import { ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, CheckCircle2, Zap, Settings, KeyRound, History, Search, X, Layers, GitCompareArrows, Terminal } from 'lucide-react';
 import { Brand } from './Brand';
 import { ProfileMenu } from './ProfileMenu';
 import { CredentialManager } from './CredentialManager';
@@ -49,6 +50,7 @@ export const TopToolbar: React.FC = () => {
   const [activeModalTarget, setActiveModalTarget] = useState<'source' | 'target' | null>(null);
   const [showCredentials, setShowCredentials] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const { activeView, setActiveView } = useUiStore();
 
   // A saved connection created without a stored password ("Save password" left
   // unticked) has no password to apply automatically — selecting it from either
@@ -105,7 +107,29 @@ export const TopToolbar: React.FC = () => {
         <Brand logoSize={42} textClassName="text-2xl font-bold" />
 
         <div className="flex items-center gap-3">
+          {/* Workspace view switcher: Schema Sync (compare/browse) vs SQL Editor */}
+          <div className="flex items-center rounded-md border border-slate-700 overflow-hidden">
+            <button
+              data-testid="view-sync-btn"
+              onClick={() => setActiveView('sync')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold transition cursor-pointer ${
+                activeView === 'sync' ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <GitCompareArrows className="w-4 h-4" /> Schema Sync
+            </button>
+            <button
+              data-testid="view-sql-editor-btn"
+              onClick={() => setActiveView('sqlEditor')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold transition cursor-pointer border-l border-slate-700 ${
+                activeView === 'sqlEditor' ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Terminal className="w-4 h-4" /> SQL Editor
+            </button>
+          </div>
           <button
+            data-testid="credentials-btn"
             onClick={() => setShowCredentials(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-base font-semibold text-cyan-400 hover:text-cyan-300 border border-slate-700 hover:border-cyan-500/40 rounded-md transition cursor-pointer"
           >
@@ -118,7 +142,7 @@ export const TopToolbar: React.FC = () => {
           >
             <History className="w-4 h-4" /> History
           </button>
-          {compareResult && (
+          {compareResult && activeView === 'sync' && (
             <button
               onClick={resetSync}
               className="px-3 py-1.5 text-base font-semibold text-slate-400 hover:text-slate-200 border border-slate-700 hover:border-slate-600 rounded-md transition cursor-pointer"
@@ -132,6 +156,9 @@ export const TopToolbar: React.FC = () => {
         </div>
       </div>
 
+      {/* Sync-only controls — the SQL Editor view brings its own left panel. */}
+      {activeView === 'sync' && (
+        <>
       {/* Database Connection Control Grid */}
       <div className="grid grid-cols-1 xl:grid-cols-11 gap-3 items-stretch">
         {/* Source Configuration */}
@@ -420,6 +447,8 @@ export const TopToolbar: React.FC = () => {
           </button>
         </div>
       </div>
+        </>
+      )}
 
       <ConnectionModal
         open={showConnectionModal}
