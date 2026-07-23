@@ -2,7 +2,7 @@
 
 The CLI (`foxschema`) is installed via a Homebrew formula that wraps the
 published npm package. That gives correct Arm64 and x86_64 native driver
-binaries per machine without shipping a universal Tauri app.
+binaries per machine.
 
 ## Install (users)
 
@@ -14,13 +14,8 @@ foxschema
 
 Requires Homebrew’s `node@22` (or newer Node 22+ on PATH after link).
 
-DB2 is **not** in the bottle. After install:
-
-```bash
-foxschema drivers install db2
-# or
-docker pull 5nickels/foxschema:db2-latest
-```
+One formula — same npm package as `npm i -g foxschema`. Docker
+`5nickels/foxschema:latest` is the self-host image (linux/amd64, includes Db2).
 
 ## Tap repository
 
@@ -51,9 +46,3 @@ cd ../homebrew-foxschema
 git commit -am "foxschema 0.1.66"
 git push
 ```
-
-## Notes
-
-- Formula installs with `npm install -g --prefix=…` under `libexec`, then
-  symlinks `foxschema` / `fox` into Homebrew’s `bin`.
-- Desktop Tauri `.dmg` / winget MSI remain separate legacy channels.

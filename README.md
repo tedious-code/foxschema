@@ -4,86 +4,11 @@
 
 **Compare two database schemas, see exactly what differs, and generate the migration SQL to make them match — across 10 SQL dialects.**
 
-Runs as a **CLI** that opens a local web UI, a self-hostable **Docker** web app, and (legacy) desktop / TUI tools.
+Runs as a **CLI** (npm / Homebrew) that opens a local web UI, or a self-hostable
+**Docker** image. Windows: `npm install -g foxschema`.
 
-[foxschema.com](https://foxschema.com) · [Quick start](#quick-start) · [User guide](docs/USER_GUIDE.md) · [Deploy](docs/DEPLOYMENT.md) · [Homebrew](docs/homebrew.md) · [Contributing](CONTRIBUTING.md) · [Architecture](docs/ARCHITECTURE.md)
-
+[foxschema.com](https://foxschema.com) · [Quick start](#quick-start) · [User guide](docs/USER_GUIDE.md) · [Deploy](docs/DEPLOYMENT.md) · [Homebrew](docs/homebrew.md) · [Winget](docs/winget.md) · [Contributing](CONTRIBUTING.md) · [Architecture](docs/ARCHITECTURE.md)
 </div>
-
-> [!WARNING]
-> ## Desktop Application Status
->
-> FoxSchema desktop builds for **macOS** and **Windows 11** are currently **unsigned** because I do not yet have a code-signing certificate.
->
-> As a result:
->
-> - **macOS** may display *"FoxSchema.app is damaged"* or *"Apple cannot verify this app"*.
-> - **Windows 11** may display a **Microsoft Defender SmartScreen** warning.
->
-> These warnings are expected for unsigned applications and **do not indicate malware**.
->
-> If you prefer to avoid these security prompts, you can:
->
-> - Clone the repository
-> - Build FoxSchema from source
-> - Run it directly from your local build
->
-> ```bash
-> git clone https://github.com/tedious-code/foxschema.git
-> cd foxschema
-> # Follow the build instructions below
-> ```
->
-## macOS Gatekeeper
-
-FoxSchema is currently distributed **without an Apple Developer code-signing certificate**. Because of this, macOS Gatekeeper may prevent the application from opening.
-
-If you downloaded the release from the official GitHub repository, you can bypass Gatekeeper:
-
-### Option 1 (Recommended)
-
-1. Open **System Settings → Privacy & Security**.
-2. Scroll down until you see that **FoxSchema** was blocked.
-3. Click **Open Anyway**.
-4. Confirm by clicking **Open**.
-
-### Option 2 (Terminal)
-
-Remove the quarantine attribute:
-
-```bash
-xattr -dr com.apple.quarantine "/Applications/Fox Schema.app"
-```
-
-Or, if running from another location:
-
-```bash
-xattr -dr com.apple.quarantine "/path/to/Fox Schema.app"
-```
-
-After removing the quarantine attribute, launch the application normally.
-
-> **Security Notice**
->
-> Only bypass Gatekeeper if you downloaded FoxSchema from the official GitHub repository and trust the source.
-
----
-
-## Windows 11 SmartScreen
-
-FoxSchema is also distributed without a Microsoft code-signing certificate.
-
-Windows may display a **Microsoft Defender SmartScreen** warning.
-
-To continue:
-
-1. Click **More info**.
-2. Click **Run anyway**.
-
-Alternatively, you can clone the repository and build FoxSchema directly from source.
-
-Code signing for both macOS and Windows is planned for a future release.
----
 
 ## What it does
 
@@ -133,11 +58,15 @@ brew install foxschema
 foxschema
 ```
 
-DB2 is opt-in (`foxschema drivers install db2`) or via Docker `db2-latest`.
+Windows: same `npm install -g foxschema` (winget MSI channel retired — see [docs/winget.md](docs/winget.md)).
+
+One product — Docker and npm include Db2 support where the platform allows (`ibm_db`; not on linux/arm64).
 
 Line commands still work: `foxschema compare`, `foxschema migrate`, `foxschema tui`.
 
 ### Docker (self-host / servers)
+
+Single image (linux/amd64, **includes Db2**):
 
 ```bash
 docker pull 5nickels/foxschema:latest
@@ -147,12 +76,7 @@ docker run -d --name foxschema \
   5nickels/foxschema:latest
 ```
 
-Open **http://localhost:3001**. Db2 image: `5nickels/foxschema:db2-latest` (linux/amd64).  
-Details: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
-
-### Desktop app (legacy)
-
-Unsigned Tauri builds — see [docs/desktop-build.md](docs/desktop-build.md). Prefer the CLI or Docker to avoid Gatekeeper / SmartScreen prompts.
+Open **http://localhost:3001**. Details: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## How it's built
 
@@ -163,7 +87,7 @@ An npm-workspaces monorepo:
 | `packages/core` | The dialect-agnostic engine — introspection, diff, migration generation/execution, and all 10 providers. |
 | `apps/web` | Express API + React/Vite UI (also served by the CLI launcher and Docker). |
 | `apps/cli` | Public `foxschema` CLI — browser launcher + line commands + Ink TUI. |
-| `apps/desktop` | Legacy Tauri v2 shell (optional). |
+| `apps/desktop` | Retired Tauri shell (not released). |
 | `apps/e2e` | Playwright end-to-end tests against real dockerized databases. |
 
 Deeper detail is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and the dialect

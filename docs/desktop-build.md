@@ -1,5 +1,9 @@
 # Building & publishing the Fox Schema desktop app
 
+> **Retired.** Desktop (Tauri) releases are **no longer published**. Install via
+> `npm install -g foxschema`, Homebrew, or Docker (`5nickels/foxschema:latest`).
+> This document remains for historical / local experimental builds only.
+
 The desktop app is **Tauri v2** (Rust shell) wrapping the web UI, with the backend running
 as a **Node sidecar** that Tauri spawns. Because the sidecar is a native binary and the
 `keyring` crate uses each OS's secret store, the app must be **built on each target OS** —

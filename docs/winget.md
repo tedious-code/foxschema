@@ -1,57 +1,28 @@
 # Publishing Fox Schema to winget
 
-## Package IDs
+## Status: desktop MSI channel retired
 
-| Variant | PackageIdentifier | Moniker | Install command | Windows installer |
-|---------|-------------------|---------|-----------------|-------------------|
-| Standard (no DB2) | `TediousCode.FoxSchema` | `foxschema` | `winget install foxschema` | `Fox.Schema_<ver>_x64_en-US.msi` |
-| DB2 | `TediousCode.FoxSchema.DB2` | `foxschemadb2` | `winget install foxschemaDb2` | `Fox.Schema.DB2_<ver>_x64_en-US.msi` |
+Fox Schema no longer publishes Tauri desktop installers. The previous winget
+packages are **frozen** (no new versions):
 
-Manifest path in [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs):
-`manifests/t/TediousCode/FoxSchema/<version>/` and `FoxSchema/DB2/<version>/`.
+| Package | Moniker | Status |
+|---------|---------|--------|
+| `TediousCode.FoxSchema` | `foxschema` | Retired (last MSI releases only) |
+| `TediousCode.FoxSchema.DB2` | `foxschemadb2` | Retired — use the single product |
 
-Reference manifests (for manual first submit / local edits) live under
-`packaging/winget/` in this repo.
-
-## Automated updates (CI)
-
-`.github/workflows/winget.yml` runs when **Desktop Release** publishes a version
-tag (`release: published` — same event as checksums). It opens winget-pkgs PRs
-for both packages via [vedantmgoyal9/winget-releaser](https://github.com/vedantmgoyal9/winget-releaser).
-
-### One-time setup
-
-1. Classic GitHub PAT with `public_repo` (fine-grained tokens are **not** supported).
-2. Add it as repo secret **`WINGET_TOKEN`** (Settings → Secrets → Actions).
-3. Keep a fork of `microsoft/winget-pkgs` under **`huyplb`** (matches `fork-user` in the workflow). Sync the fork periodically if needed.
-4. At least **one** version of each package must already be merged in winget-pkgs
-   (the action templates from the latest). Seed manually for the first release;
-   later tags are automatic.
-
-### Manual retry / backfill
+## Windows install (current)
 
 ```bash
-gh workflow run winget.yml -f tag=v0.1.45
+npm install -g foxschema
+foxschema
 ```
 
-## Manual submit (first version only)
+Requires [Node.js ≥ 22.5](https://nodejs.org/).
 
-1. Confirm the GitHub Release is **published** and includes the MSI.
-2. Compute SHA256:
+Also available: Docker `5nickels/foxschema:latest` (linux/amd64, includes Db2).
 
-```bash
-VERSION=0.1.45
-MSI_URL="https://github.com/tedious-code/foxschema/releases/download/v${VERSION}/Fox.Schema_${VERSION}_x64_en-US.msi"
-SHA=$(curl -sL "$MSI_URL" | shasum -a 256 | awk '{print toupper($1)}')
-echo "$SHA"
-```
+## Future
 
-3. Copy `packaging/winget/TediousCode.FoxSchema/<version>/` (or `.DB2`) into the
-   fork, bump `PackageVersion` / `InstallerUrl` / `InstallerSha256` /
-   `ReleaseNotesUrl`, then open a PR to `microsoft/winget-pkgs`.
-
-## Notes
-
-- Prefer **MSI (WiX)** over the NSIS `-setup.exe` for winget.
-- Unsigned builds are allowed in the community repo; SmartScreen may still warn.
-- winget does **not** bypass Windows Defender / SmartScreen.
+A single winget package wrapping the npm CLI (portable / nested installer) may
+replace the MSI channel. Until then, use npm on Windows. The
+`.github/workflows/winget.yml` workflow is a no-op.

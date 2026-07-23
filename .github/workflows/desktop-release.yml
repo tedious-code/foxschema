@@ -1,155 +1,22 @@
 name: Desktop Release
 
-# Builds the Tauri desktop app for macOS (Apple Silicon), Windows and Linux, and
-# attaches the installers to a GitHub Release, then auto-publishes it once every
-# build has uploaded. Installers are UNSIGNED for now (see docs/desktop-build.md
-# for the signing follow-up).
+# RETIRED — desktop (Tauri) installers are no longer published.
+# Distribution is CLI-first: npm, Homebrew, Winget (CLI), and Docker.
+# See README.md and docs/DEPLOYMENT.md.
 #
-# TWO VARIANTS per platform (matrix `variant`):
-#   - standard: "Fox Schema" (id com.foxschema.desktop) — all dialects except
-#     DB2; keeps the Linux AppImage.
-#   - db2: "Fox Schema DB2" (id com.foxschema.desktop.db2, via
-#     src-tauri/tauri.db2.conf.json + INCLUDE_DB2=1) — adds the DB2 driver, but
-#     drops AppImage (its clidriver breaks linuxdeploy). Distinct productName →
-#     distinct installer filenames, so both coexist in the same release.
-#
-# A `cargo-audit` job runs first and gates every matrix build (same hard-block as
-# dependency-security.yml / release-gate.yml; advisory ignores live in
-# apps/desktop/src-tauri/.cargo/audit.toml).
-#
-# The build jobs upload to a DRAFT (each appends its installers to the same
-# draft). A final `publish` job — gated on all builds succeeding — flips the
-# draft to published. This ordering is deliberate: publishing only after every
-# variant's assets are present avoids a window where the release is public with a
-# partial set, and makes the `release: published` event (which triggers
-# release-checksums.yml and winget.yml) fire once, on the complete release.
-#
-# Intel Mac (macos-13) is intentionally NOT in this matrix: GitHub's macos-13
-# hosted-runner pool has repeatedly had no available capacity — jobs sit queued
-# for hours with zero progress and never start. A universal (arm64+x86_64)
-# binary built from macos-latest would sidestep that runner entirely, but the
-# sidecar packaging script (apps/desktop/scripts/build-sidecar.mjs) only ships
-# whatever Node binary is currently running it (single-arch) — it needs a real
-# per-architecture Node fetch before a universal build would actually work.
-# Tracked as a follow-up; see that script's NOTE comment.
-#
-# Trigger: push a version tag (e.g. `v0.1.0`), or run manually from the Actions tab.
+# This workflow is kept only so old workflow links do not 404. It does not
+# build or upload anything.
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
 
-permissions:
-  contents: write # create the release + upload installers
-
 jobs:
-  # Hard-block on RustSec advisories before spending matrix build minutes.
-  cargo-audit:
-    name: cargo audit
+  retired:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: cargo-audit-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
-          restore-keys: cargo-audit-
-
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked --quiet
-
-      - name: Run cargo audit
-        working-directory: apps/desktop/src-tauri
-        run: cargo audit
-
-  build:
-    needs: cargo-audit
-    strategy:
-      fail-fast: false
-      matrix:
-        platform:
-          - macos-latest   # Apple Silicon (aarch64-apple-darwin)
-          - ubuntu-22.04   # webkit2gtk 4.1
-          - windows-latest # .msi + .exe (NSIS)
-        variant:
-          - standard       # "Fox Schema" — no DB2, keeps AppImage on Linux
-          - db2            # "Fox Schema DB2" — adds DB2, drops AppImage
-    runs-on: ${{ matrix.platform }}
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: apps/desktop/src-tauri
-
-      - name: Install Node
-        uses: actions/setup-node@v5
-        with:
-          node-version: 22
-
-      # Tauri v2 + WebKitGTK + the keyring (libsecret) build deps.
-      - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+      - name: Desktop releases are retired
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libsecret-1-dev \
-            build-essential \
-            libssl-dev \
-            patchelf
-
-      # No lockfile is committed (see dependency-security.yml) — do NOT use cache:npm.
-      - name: Install workspace dependencies
-        run: npm install
-
-      # tauri build runs beforeBuildCommand (sidecar + frontend) automatically.
-      # INCLUDE_DB2=1 (db2 variant) makes build-sidecar bundle ibm_db; the
-      # --config override renames the app to "Fox Schema DB2" with its own id and
-      # drops AppImage. Both variants upload to the SAME draft (keyed by tagName)
-      # with distinct filenames; the publish job flips it live once all finish.
-      - name: Build & draft release
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          INCLUDE_DB2: ${{ matrix.variant == 'db2' && '1' || '' }}
-        with:
-          projectPath: apps/desktop
-          tagName: ${{ github.ref_type == 'tag' && github.ref_name || format('desktop-{0}', github.run_number) }}
-          releaseName: "FoxSchema ${{ github.ref_type == 'tag' && github.ref_name || github.run_number }}"
-          releaseDraft: true
-          prerelease: false
-          args: ${{ matrix.variant == 'db2' && '--config src-tauri/tauri.db2.conf.json' || '' }}
-
-  # Auto-publish the draft only after every platform build has succeeded, so the
-  # release never goes public with a partial set of installers.
-  publish:
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write # publish (edit) the release
-    steps:
-      - name: Publish the release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref_type == 'tag' && github.ref_name || format('desktop-{0}', github.run_number) }}
-        run: |
-          # Flipping draft → published fires `release: published` for
-          # release-checksums.yml (SHA256SUMS) and winget.yml (winget-pkgs PRs).
-          gh release edit "$TAG" --repo "${{ github.repository }}" --draft=false --latest
+          echo "::notice::Desktop (Tauri) releases are retired."
+          echo "Install via: npm i -g foxschema | brew install tedious-code/foxschema/foxschema"
+          echo "Or Docker: docker pull 5nickels/foxschema:latest"
+          exit 0

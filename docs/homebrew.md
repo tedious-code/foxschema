@@ -16,15 +16,9 @@ Opens **http://localhost:3210**.
 
 Requires Node.js 22.5+ (the formula depends on Homebrew `node@22`).
 
-## DB2
-
-Not bundled. After install:
-
-```bash
-foxschema drivers install db2
-```
-
-Or use Docker: `5nickels/foxschema:db2-latest`.
+One formula / one npm package. Db2 (`ibm_db`) is an optional dependency of the
+npm package (installs on supported platforms). Docker
+`5nickels/foxschema:latest` includes Db2 on linux/amd64.
 
 ## Maintainers
 

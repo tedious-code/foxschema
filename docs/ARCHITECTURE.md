@@ -8,8 +8,8 @@ here for detail. For current state, gotchas, and pending work see `IMPLEMENTATIO
 Database schema **diff & migration** tool. Compare a source schema against a target,
 generate dialect-native migration SQL, and deploy it. Primary target is DB2; Postgres,
 MySQL, SQL Server, Oracle, SQLite, MariaDB, Azure SQL, ClickHouse, and Redshift are also
-implemented. Distributions: **CLI** (`foxschema` opens a local web UI), **Docker/web**
-(Express + React), and legacy **desktop** (Tauri v2).
+implemented. Distributions: **CLI** (`foxschema` via npm/Homebrew), **Docker**
+(single amd64 image with Db2), and retired **desktop** (Tauri — not released).
 
 ## Commands
 

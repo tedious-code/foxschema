@@ -10,7 +10,7 @@ const DRIVER_PACKAGES: Record<string, { pkg: string; notes: string }> = {
   db2: {
     pkg: 'ibm_db',
     notes:
-      'Large CLI driver download. Not available on linux/arm64. Prefer Docker image 5nickels/foxschema:db2-latest when possible.',
+      'Large CLI driver. Not available on linux/arm64. Docker image 5nickels/foxschema:latest includes Db2 (linux/amd64).',
   },
   oracle: {
     pkg: 'oracledb',
@@ -56,7 +56,7 @@ export async function runDriversList(): Promise<void> {
   }
   console.log();
   console.log(chalk.dim('Install opt-in drivers:  foxschema drivers install db2|oracle'));
-  console.log(chalk.dim('DB2 easy path:           docker pull 5nickels/foxschema:db2-latest'));
+  console.log(chalk.dim('Docker (includes Db2):   docker pull 5nickels/foxschema:latest'));
 }
 
 /**

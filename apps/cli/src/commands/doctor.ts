@@ -88,7 +88,7 @@ export async function runDoctor(): Promise<void> {
   console.log(`  oracledb           ${driverStatus('oracledb')}`);
   console.log(`  @clickhouse/client ${driverStatus('@clickhouse/client')}`);
   console.log(`  @duckdb/node-api   ${driverStatus('@duckdb/node-api')}`);
-  console.log(`  ibm_db (DB2)       ${driverStatus('ibm_db')} ${chalk.dim('opt-in — foxschema drivers install db2')}`);
+  console.log(`  ibm_db (DB2)       ${driverStatus('ibm_db')} ${chalk.dim('(optional dep — also in Docker latest)')}`);
   console.log();
   console.log(chalk.dim('Tip: `foxschema` opens the UI at http://localhost:3210'));
 }

@@ -5,8 +5,8 @@
 #
 # This formula installs the published npm package globally under Homebrew's
 # prefix, so both Apple Silicon and Intel Macs get the correct Node native
-# addons for their arch. DB2 (ibm_db) is NOT included — use
-# `foxschema drivers install db2` or Docker `5nickels/foxschema:db2-latest`.
+# addons for their arch. One package — ibm_db is an optionalDependency of the
+# npm package. Docker 5nickels/foxschema:latest includes Db2 (linux/amd64).
 
 class Foxschema < Formula
   desc "Fox Schema — database schema diff & migration (local web UI)"

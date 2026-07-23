@@ -9,10 +9,17 @@ npm install -g foxschema
 # requires Node.js >= 22.5
 ```
 
-Or with Homebrew (after tapping):
+Or with Homebrew:
 
 ```bash
-brew install tedious-code/foxschema/foxschema
+brew tap tedious-code/foxschema
+brew install foxschema
+```
+
+Or Docker (linux/amd64, includes Db2):
+
+```bash
+docker pull 5nickels/foxschema:latest
 ```
 
 ## Usage
@@ -23,14 +30,11 @@ foxschema stop            # stop the managed UI server
 foxschema doctor          # environment + driver checks
 foxschema compare --source a --target b
 foxschema tui             # terminal UI
-foxschema drivers install db2   # opt-in DB2 driver (large)
 ```
 
 Data and encryption keys live under your user XDG dirs (`~/.config/foxschema`, `~/.local/share/foxschema` on Linux/macOS).
 
-## DB2
-
-Not included by default. Install with `foxschema drivers install db2`, or use the Docker image `5nickels/foxschema:db2-latest`.
+One npm package — Db2 (`ibm_db`) is an optional dependency (installs on supported platforms).
 
 ## License
 

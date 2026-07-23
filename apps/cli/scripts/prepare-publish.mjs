@@ -94,9 +94,9 @@ const publishPkg = {
     '@duckdb/node-api': webPkg.dependencies['@duckdb/node-api'],
   },
   optionalDependencies: {
-    // DB2 is opt-in (large clidriver; no linux/arm64). Prefer:
-    //   foxschema drivers install db2
-    // or Docker 5nickels/foxschema:db2-latest
+    // Single package — ibm_db installs on supported platforms (win/mac/linux x64).
+    // Unsupported platforms (e.g. linux/arm64) skip install without failing npm.
+    ibm_db: webPkg.optionalDependencies?.ibm_db || '^4.0.1',
   },
   publishConfig: { access: 'public' },
 };
