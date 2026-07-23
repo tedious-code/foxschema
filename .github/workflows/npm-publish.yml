@@ -1,0 +1,50 @@
+name: npm Publish
+
+# Publishes the public `foxschema` CLI package (browser launcher + line commands).
+# Trigger: version tag `v*` (same as desktop/web releases), or workflow_dispatch.
+#
+# Secrets:
+#   NPM_TOKEN — Automation token with publish rights to the `foxschema` package
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Git tag to publish (e.g. v0.1.66). Empty = current ref.'
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Install workspace
+        run: npm install
+
+      - name: Build web UI + CLI
+        run: |
+          npm run build -w @foxschema/web
+          npm run build -w @foxschema/cli
+
+      - name: Prepare npm pack folder
+        run: node apps/cli/scripts/prepare-publish.mjs
+
+      - name: Publish to npm
+        working-directory: apps/cli/npm-pack
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public

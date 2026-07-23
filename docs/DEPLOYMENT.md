@@ -1,10 +1,19 @@
 # Deploying Fox Schema
 
-Fox Schema's web app ships as a **single container** that serves both the UI and the API on
-one configurable port. This guide covers running it locally, on a server, and in the
-cloud.
+**Day-to-day on a laptop:** install the CLI and open the UI in your browser (no Docker required):
 
-- [Quick start](#quick-start)
+```bash
+npm install -g foxschema   # or: brew install tedious-code/foxschema/foxschema
+foxschema                  # http://localhost:3210
+```
+
+See [docs/homebrew.md](homebrew.md) and the CLI README. Desktop Tauri installers are legacy.
+
+**Servers / teams:** Fox Schema's web app also ships as a **single container** that serves
+both the UI and the API on one configurable port (default **3001** inside Docker).
+
+- [CLI / Homebrew](homebrew.md)
+- [Quick start (Docker)](#quick-start)
 - [Configuration (environment variables)](#configuration-environment-variables)
 - [The encryption key](#the-encryption-key)
 - [Choosing a port](#choosing-a-port)

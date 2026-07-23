@@ -71,3 +71,11 @@ apps/desktop/src-tauri/resources/server/
 # CLI build output
 apps/cli/dist/
 apps/cli/dist-bin/
+apps/cli/ui-dist/
+apps/cli/npm-pack/
+
+# Homebrew formula docs (tracked)
+!packaging/homebrew/README.md
+!apps/cli/README.md
+!docs/homebrew.md
+

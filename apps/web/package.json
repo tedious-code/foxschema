@@ -4,11 +4,13 @@
   "version": "0.1.66",
   "type": "module",
   "exports": {
+    "./package.json": "./package.json",
     "./auth": "./src/backend/modules/auth.module.ts",
     "./connection-store": "./src/backend/modules/connection-store.module.ts",
     "./migration-history": "./src/backend/modules/migration-history.module.ts",
     "./app-settings": "./src/backend/modules/app-settings.module.ts",
-    "./store": "./src/backend/database/store.ts"
+    "./store": "./src/backend/database/store.ts",
+    "./serve": "./src/backend/startUiServer.ts"
   },
   "scripts": {
     "dev": "vite",

@@ -4,9 +4,9 @@
 
 **Compare two database schemas, see exactly what differs, and generate the migration SQL to make them match — across 10 SQL dialects.**
 
-Runs as a self-hostable **web app**, a cross-platform **desktop app**, and a **terminal CLI**.
+Runs as a **CLI** that opens a local web UI, a self-hostable **Docker** web app, and (legacy) desktop / TUI tools.
 
-[foxschema.com](https://foxschema.com) · [Quick start](#quick-start) · [User guide](docs/USER_GUIDE.md) · [Deploy](docs/DEPLOYMENT.md) · [Contributing](CONTRIBUTING.md) · [Architecture](docs/ARCHITECTURE.md)
+[foxschema.com](https://foxschema.com) · [Quick start](#quick-start) · [User guide](docs/USER_GUIDE.md) · [Deploy](docs/DEPLOYMENT.md) · [Homebrew](docs/homebrew.md) · [Contributing](CONTRIBUTING.md) · [Architecture](docs/ARCHITECTURE.md)
 
 </div>
 
@@ -113,47 +113,46 @@ SQLite · ClickHouse · Amazon Redshift
 
 ## Quick start
 
-### Run the web app with Docker
+### CLI (recommended) — open the UI in your browser
 
-Pull and run (no `.env` needed — encryption key is auto-created on `/data`):
-#### NOTE:
- APP_ENCRYPTION_KEY is required 
+Requires **Node.js ≥ 22.5**.
+
 ```bash
+npm install -g foxschema
+foxschema
+```
 
-Image DB2
-docker pull 5nickels/foxschema:db2-latest
+Starts a local UI + API on **http://localhost:3210** and opens your browser.
+Stop with `foxschema stop`. Diagnostics: `foxschema doctor`.
 
-Non DB2 
+Homebrew (Arm + Intel): see [docs/homebrew.md](docs/homebrew.md).
+
+```bash
+brew tap tedious-code/foxschema
+brew install foxschema
+foxschema
+```
+
+DB2 is opt-in (`foxschema drivers install db2`) or via Docker `db2-latest`.
+
+Line commands still work: `foxschema compare`, `foxschema migrate`, `foxschema tui`.
+
+### Docker (self-host / servers)
+
+```bash
 docker pull 5nickels/foxschema:latest
-
 docker run -d --name foxschema \
   -p 3001:3001 \
-  -e APP_ENCRYPTION_KEY="$(openssl rand -hex 32)" \
   -v foxschema_data:/data \
   5nickels/foxschema:latest
-
 ```
 
-Open **http://localhost:3001**.
+Open **http://localhost:3001**. Db2 image: `5nickels/foxschema:db2-latest` (linux/amd64).  
+Details: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
-Db2 client variant: `5nickels/foxschema:db2-latest` (linux/amd64).  
-Also on GHCR: `ghcr.io/tedious-code/foxschema:latest`.  
-More options: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+### Desktop app (legacy)
 
-### Desktop app
-
-A native macOS / Windows / Linux build (Tauri) — see [docs/desktop-build.md](docs/desktop-build.md).
-
-### CLI
-
-```bash
-cd apps/cli
-npx tsx src/index.ts setup --email you@example.com
-npx tsx src/index.ts compare --source pg_c --target pg_d      # or: fox tui
-```
-
-`fox` also has a full-screen interactive TUI (`fox tui`). New to it all? Start with the
-[user guide](docs/USER_GUIDE.md).
+Unsigned Tauri builds — see [docs/desktop-build.md](docs/desktop-build.md). Prefer the CLI or Docker to avoid Gatekeeper / SmartScreen prompts.
 
 ## How it's built
 
@@ -162,9 +161,9 @@ An npm-workspaces monorepo:
 | Workspace | What it is |
 |-----------|------------|
 | `packages/core` | The dialect-agnostic engine — introspection, diff, migration generation/execution, and all 10 providers. |
-| `apps/web` | The web app: Express API + React/Vite UI. Also the desktop app's backend. |
-| `apps/desktop` | Tauri v2 shell wrapping the web UI as a native app. |
-| `apps/cli` | The `fox` terminal CLI + Ink TUI. |
+| `apps/web` | Express API + React/Vite UI (also served by the CLI launcher and Docker). |
+| `apps/cli` | Public `foxschema` CLI — browser launcher + line commands + Ink TUI. |
+| `apps/desktop` | Legacy Tauri v2 shell (optional). |
 | `apps/e2e` | Playwright end-to-end tests against real dockerized databases. |
 
 Deeper detail is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and the dialect
