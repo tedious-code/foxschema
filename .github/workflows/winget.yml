@@ -35,8 +35,18 @@ jobs:
         id: tag
         run: echo "tag=${{ github.event.release.tag_name || inputs.tag }}" >> "$GITHUB_OUTPUT"
 
+      # continue-on-error: winget publishing is best-effort and NOT release-
+      # critical. winget-releaser hard-fails ("Package … does not exist …")
+      # until the first version of each package is merged into winget-pkgs, and
+      # the initial New-Package PRs sit in Microsoft's moderator queue for days.
+      # Without this, every GitHub Release shows a red winget run for something
+      # we can't act on. The step still logs its real error for inspection; once
+      # the seed versions merge, later releases update automatically. Downside:
+      # a genuine failure after that point also won't red the run — acceptable
+      # for an optional publish channel you'd notice via a missing winget bump.
       - name: Publish TediousCode.FoxSchema (foxschema)
         uses: vedantmgoyal9/winget-releaser@v2
+        continue-on-error: true
         with:
           identifier: TediousCode.FoxSchema
           release-tag: ${{ steps.tag.outputs.tag }}
@@ -47,6 +57,7 @@ jobs:
 
       - name: Publish TediousCode.FoxSchema.DB2 (foxschemadb2)
         uses: vedantmgoyal9/winget-releaser@v2
+        continue-on-error: true
         with:
           identifier: TediousCode.FoxSchema.DB2
           release-tag: ${{ steps.tag.outputs.tag }}
