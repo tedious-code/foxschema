@@ -26,6 +26,8 @@ export type { ValidationIssue, ValidationSeverity, ValidationCode } from './modu
 export { CROSS_DIALECT_READINESS } from './modules/cross-dialect-readiness';
 export type { ObjectTypeReadiness, ReadinessLevel } from './modules/cross-dialect-readiness';
 export { buildBrowseResult } from './modules/browse';
+export { splitSqlStatements, checkStatement, isWriteStatement, firstKeyword, extractTableAliases, statementVerb, isMutatingDmlStatement, dmlLacksWhere } from './modules/sql-splitter';
+export type { SplitStatement, StatementStatus } from './modules/sql-splitter';
 export type { SqlDialect, CanonicalType, CanonicalBase, RenderedType } from './modules/sql-dialect.interface';
 export { resolveDialect, DIALECT_MAP } from './modules/dialect-registry';
 

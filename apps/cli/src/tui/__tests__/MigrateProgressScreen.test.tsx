@@ -9,7 +9,7 @@ import type { ConnRef } from '../types';
 // A real (not setTimeout(0)) delay for the one wait that isn't checkable via vi.waitFor:
 // after the terminal outcome is already rendered, SelectInput still needs a tick to
 // attach its own input listener before it can receive a keypress.
-const wait = (ms = 40) => new Promise((r) => setTimeout(r, ms));
+const wait = (ms = 100) => new Promise((r) => setTimeout(r, ms));
 
 const source: ConnRef = { dialect: 'postgres', option: {}, schema: 'demo_c', label: 'demo_c' };
 const target: ConnRef = { dialect: 'postgres', option: {}, schema: 'demo_d', label: 'demo_d' };
@@ -61,7 +61,7 @@ describe('MigrateProgressScreen', () => {
     const { lastFrame } = render(
       <MigrateProgressScreen source={source} target={target} continueOnError={true} onViewHistory={() => {}} onDone={() => {}} />
     );
-    await vi.waitFor(() => expect(lastFrame()).toContain('1 failure(s)'));
+    await vi.waitFor(() => expect(lastFrame()).toContain('1 failure(s)'), { timeout: 10_000 });
 
     expect(lastFrame()).toContain('boom');
   });

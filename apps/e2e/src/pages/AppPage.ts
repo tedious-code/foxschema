@@ -11,6 +11,12 @@ export class AppPage {
   async open(): Promise<void> {
     await this.page.goto(BASE_URL);
     await waitFor(this.page, '[data-testid="toolbar"]');
+    // One-time signup wizard (if the local metadata DB has never seen it).
+    const skip = this.page.getByRole('button', { name: /skip for now/i });
+    if (await skip.isVisible().catch(() => false)) {
+      await skip.click();
+      await waitFor(this.page, '[data-testid="toolbar"]');
+    }
   }
 
   // ── Source side ─────────────────────────────────────────────────────────

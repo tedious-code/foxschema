@@ -323,3 +323,22 @@
 mark.fox-search-hl {
   color: inherit;
 }
+
+/* SQL Editor gutter statement-status glyphs (Monaco glyph margin). The icon is
+   drawn with ::after content so no image assets are needed. */
+.fox-stmt-glyph-ok::after,
+.fox-stmt-glyph-warn::after {
+  display: block;
+  text-align: center;
+  font-size: 11px;
+  line-height: inherit;
+  font-weight: 700;
+}
+.fox-stmt-glyph-ok::after {
+  content: '✓';
+  color: #34d399; /* emerald-400 */
+}
+.fox-stmt-glyph-warn::after {
+  content: '⚠';
+  color: #fbbf24; /* amber-400 */
+}

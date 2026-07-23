@@ -22,6 +22,7 @@ import { MigrationHistoryStore, type MigrationObjectResult, type MigrationRunSta
 import { AppSettingsStore } from '../modules/app-settings.module';
 import { SignupModule } from '../modules/signup.module';
 import { rateLimit } from './rate-limit';
+import { runStatements, clampMaxRows, MAX_STATEMENTS, MAX_STATEMENT_LENGTH } from './sql-execute';
 import { getMetadataDbConfig, SUPPORTED_ENGINES, type DbEngine } from '../database/config';
 import { createMetadataStore } from '../database/stores/registry';
 import { keySchemeInfo } from '../cores/crypto';
@@ -353,6 +354,50 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       res.json(warnings.length ? { tables, warnings } : { tables });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Failed to load schema';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // SQL Editor: run ad-hoc statements against ONE credential and return shaped
+  // row results. The frontend fans out across selected credentials with one
+  // request each. The client splits the buffer (same trust model as
+  // /migration/execute's pre-split statements); the server validates shape and
+  // caps only. Rate-limited: each call can hold a DB connection for a while.
+  const sqlExecuteLimiter = rateLimit({ windowMs: 60 * 1000, max: 60 });
+  router.post('/sql/execute', sqlExecuteLimiter, async (req: Request, res: Response) => {
+    const { statements, maxRows, ...ref } = req.body as ConnectionRef & { statements?: unknown; maxRows?: unknown };
+    if (!Array.isArray(statements) || statements.length === 0) {
+      res.status(400).json({ error: 'statements[] is required.' });
+      return;
+    }
+    if (statements.length > MAX_STATEMENTS) {
+      res.status(400).json({ error: `At most ${MAX_STATEMENTS} statements per request.` });
+      return;
+    }
+    if (statements.some((s) => typeof s !== 'string' || !s.trim() || s.length > MAX_STATEMENT_LENGTH)) {
+      res.status(400).json({ error: `Every statement must be a non-empty string under ${MAX_STATEMENT_LENGTH} characters.` });
+      return;
+    }
+    let resolved;
+    try {
+      resolved = await resolveRef((req as AuthedRequest).userId, ref);
+    } catch (error: unknown) {
+      res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid connection' });
+      return;
+    }
+    try {
+      // Apply the saved connection's schema (CURRENT SCHEMA / search_path) so
+      // unqualified names like ORDERS resolve to DEMO.ORDERS, not USER.ORDERS.
+      const results = await runStatements(
+        resolved.dialect,
+        resolved.option,
+        statements as string[],
+        clampMaxRows(maxRows),
+        resolved.schema
+      );
+      res.json({ results });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Query execution failed';
       res.status(500).json({ error: message });
     }
   });

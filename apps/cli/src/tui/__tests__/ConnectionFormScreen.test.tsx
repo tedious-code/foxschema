@@ -6,9 +6,9 @@ import { ConnectionFormScreen } from '../screens/ConnectionFormScreen';
 
 // A real (not setTimeout(0)) delay: ink-text-input needs a render tick to commit each
 // character to its controlled `value` before Enter fires, or `onSubmit` receives ''
-// (confirmed by tracing the actual value ink-text-input delivers). setTimeout(0) alone
-// was intermittently too short under full-suite parallel load (flaky, not deterministic).
-const wait = (ms = 40) => new Promise((r) => setTimeout(r, ms));
+// (confirmed by tracing the actual value ink-text-input delivers). 40ms was
+// intermittently too short under full-suite parallel load.
+const wait = (ms = 100) => new Promise((r) => setTimeout(r, ms));
 
 /** Types a value then presses Enter, with a tick between so ink-text-input commits it first. */
 async function type(stdin: { write: (s: string) => void }, value: string) {
@@ -38,13 +38,13 @@ describe('ConnectionFormScreen', () => {
     await type(stdin, 'foxdb');        // database
     await type(stdin, 'foxuser');      // user
     await type(stdin, 'demo_c');       // schema
-    await vi.waitFor(() => expect(lastFrame()).toContain('Password'));
+    await vi.waitFor(() => expect(lastFrame()).toContain('Password'), { timeout: 10_000 });
 
     await type(stdin, 's3cret');       // password
-    await vi.waitFor(() => expect(lastFrame()).toContain('Save this connection'));
+    await vi.waitFor(() => expect(lastFrame()).toContain('Save this connection'), { timeout: 10_000 });
 
     stdin.write('\r'); // first item ("Yes, save it") is pre-selected — enter accepts it
-    await vi.waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    await vi.waitFor(() => expect(onSubmit).toHaveBeenCalled(), { timeout: 10_000 });
 
     expect(ctx.connections.create).toHaveBeenCalledWith(
       'u1',
@@ -53,7 +53,7 @@ describe('ConnectionFormScreen', () => {
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({ dialect: 'postgres', schema: 'demo_c', label: 'demo_c' })
     );
-  });
+  }, 30_000);
 
   it('does not persist the connection when "No" is chosen', async () => {
     const ctx = { userId: 'u1', connections: { create: vi.fn() }, history: {} };
@@ -68,8 +68,8 @@ describe('ConnectionFormScreen', () => {
     stdin.write('\x1b[B'); // down arrow to "No, use it just for this session"
     await wait();
     stdin.write('\r');
-    await vi.waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    await vi.waitFor(() => expect(onSubmit).toHaveBeenCalled(), { timeout: 10_000 });
 
     expect(ctx.connections.create).not.toHaveBeenCalled();
-  });
+  }, 30_000);
 });

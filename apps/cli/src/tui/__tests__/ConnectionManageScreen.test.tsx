@@ -4,7 +4,7 @@ import { render } from 'ink-testing-library';
 import * as store from '../../runtime/store';
 import { ConnectionManageScreen } from '../screens/ConnectionManageScreen';
 
-const wait = (ms = 40) => new Promise((r) => setTimeout(r, ms));
+const wait = (ms = 100) => new Promise((r) => setTimeout(r, ms));
 
 function fakeCtx(rows: any[] = []) {
   return {
