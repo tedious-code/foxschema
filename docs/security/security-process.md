@@ -30,12 +30,11 @@ Tag push  v*
         │     ├─ npm audit critical
         │     ├─ Gitleaks full scan
         │     └─ cargo audit
-        │     └─ [if all pass] → GitHub Release draft
         │
-        └─► desktop-release.yml
-              ├─ cargo audit                       ←── HARD BLOCK (gates builds)
-              ├─ matrix builds (macOS / Windows / Linux × standard|db2)
-              └─ [if all pass] → publish release
+        ├─► web-release.yml → single Docker image (linux/amd64, includes Db2)
+        │     → GHCR + Docker Hub (:latest / :vX.Y.Z)
+        │
+        └─► npm-publish.yml → public `foxschema` CLI package
 ```
 
 ---
