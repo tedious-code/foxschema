@@ -1,7 +1,7 @@
 # Build a Windows portable zip for winget from the published npm package.
-# Requires Node/npm on PATH. Output: dist/winget/foxschema-<ver>-win-x64.zip
+# Includes foxschema.exe / fox.exe launchers (winget portable forbids .cmd).
 #
-# Usage:
+# Usage (windows-latest):
 #   ./packaging/winget/build-portable.ps1 [-Version 0.1.67]
 
 param(
@@ -21,6 +21,7 @@ $outAbs = Join-Path $root $OutDir
 $stage = Join-Path $outAbs "stage"
 $extract = Join-Path $outAbs "extract"
 $zipPath = Join-Path $outAbs "foxschema-$Version-win-x64.zip"
+$launcherCs = Join-Path $root "packaging/winget/FoxschemaLauncher.cs"
 
 Remove-Item -Recurse -Force $outAbs -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
@@ -49,14 +50,37 @@ try {
   Pop-Location
 }
 
-$launcher = @"
-@echo off
-setlocal
-set "ROOT=%~dp0"
-node "%ROOT%dist\index.js" %*
-"@
-Set-Content -Encoding ASCII -Path (Join-Path $stage "foxschema.cmd") -Value $launcher
-Set-Content -Encoding ASCII -Path (Join-Path $stage "fox.cmd") -Value $launcher
+# Compile portable .exe launchers (csc ships with VS Build Tools on windows-latest)
+$csc = Get-ChildItem -Path "${env:ProgramFiles(x86)}\Microsoft Visual Studio","${env:ProgramFiles}\Microsoft Visual Studio" `
+  -Filter csc.exe -Recurse -ErrorAction SilentlyContinue |
+  Where-Object { $_.FullName -match '\\Roslyn\\b' -or $_.FullName -match '\\csc.exe$' } |
+  Select-Object -First 1 -ExpandProperty FullName
+
+if (-not $csc) {
+  # Fallback: vswhere + Developer PowerShell path
+  $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+  if (Test-Path $vswhere) {
+    $vsPath = & $vswhere -latest -products * -requires Microsoft.Net.Component.4.TargetingPack -property installationPath 2>$null
+    if (-not $vsPath) {
+      $vsPath = & $vswhere -latest -products * -property installationPath 2>$null
+    }
+    $csc = Get-ChildItem -Path $vsPath -Filter csc.exe -Recurse -ErrorAction SilentlyContinue |
+      Select-Object -First 1 -ExpandProperty FullName
+  }
+}
+
+if (-not $csc) { throw "csc.exe not found — need .NET Framework / VS Build Tools on the runner" }
+
+Write-Host "Using csc: $csc"
+$exeMain = Join-Path $stage "foxschema.exe"
+$exeFox = Join-Path $stage "fox.exe"
+& $csc /nologo /optimize+ /target:exe /out:$exeMain $launcherCs
+if ($LASTEXITCODE -ne 0) { throw "csc failed for foxschema.exe" }
+Copy-Item -Force $exeMain $exeFox
+
+# Remove any leftover cmd stubs if present
+Remove-Item -Force (Join-Path $stage "foxschema.cmd") -ErrorAction SilentlyContinue
+Remove-Item -Force (Join-Path $stage "fox.cmd") -ErrorAction SilentlyContinue
 
 if (Test-Path $zipPath) { Remove-Item -Force $zipPath }
 Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zipPath -CompressionLevel Optimal
