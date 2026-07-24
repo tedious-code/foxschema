@@ -6,8 +6,8 @@
 winget install TediousCode.FoxSchema
 ```
 
-This installs the **CLI portable zip** and depends on **Node.js LTS** (`OpenJS.NodeJS.LTS`).
-Then:
+This installs the **CLI portable zip** (`foxschema.exe` / `fox.exe`) and depends on
+**Node.js LTS** (`OpenJS.NodeJS.LTS`). Then:
 
 ```powershell
 foxschema

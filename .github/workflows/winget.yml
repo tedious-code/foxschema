@@ -173,7 +173,7 @@ jobs:
 
           - PackageIdentifier: TediousCode.FoxSchema
           - Version: ${VER}
-          - Installer: portable zip (foxschema.cmd / fox.cmd) from GitHub Releases
+          - Installer: portable zip (foxschema.exe / fox.exe) from GitHub Releases
           - Dependency: OpenJS.NodeJS.LTS (>= 22.5.0)
           - Notes: Desktop MSI / FoxSchema.DB2 packages are retired. Db2 is optional via npm ibm_db.
 

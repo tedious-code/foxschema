@@ -1,6 +1,5 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.9.0.schema.json
-# InstallerSha256 and InstallerUrl are filled by packaging/winget/fill-installer.sh
-# after the portable zip is published to the GitHub Release.
+# InstallerSha256 is filled after the portable zip is published to the GitHub Release.
 PackageIdentifier: TediousCode.FoxSchema
 PackageVersion: 0.1.67
 Platform:
@@ -9,11 +8,10 @@ MinimumOSVersion: 10.0.17763.0
 InstallerType: zip
 NestedInstallerType: portable
 NestedInstallerFiles:
-  - RelativeFilePath: foxschema.cmd
+  - RelativeFilePath: foxschema.exe
     PortableCommandAlias: foxschema
-  - RelativeFilePath: fox.cmd
+  - RelativeFilePath: fox.exe
     PortableCommandAlias: fox
-Scope: user
 UpgradeBehavior: install
 Dependencies:
   PackageDependencies:
