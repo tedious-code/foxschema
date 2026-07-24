@@ -21,6 +21,7 @@ npm install -g foxschema
 
 # Homebrew — macOS (formula in this repo)
 brew tap tedious-code/foxschema https://github.com/tedious-code/foxschema
+brew trust tedious-code/foxschema
 brew install foxschema
 
 # Docker — servers (linux/amd64, includes Db2)
