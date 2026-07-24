@@ -12,8 +12,8 @@ const VAR_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const VAR_REF_RE = /\$\{\{([A-Za-z_][A-Za-z0-9_]*)(?:\.([A-Za-z_][A-Za-z0-9_]*))?\}\}/g;
 
 /** `-- @set name` / `-- @set name = column Col` / `-- @set name = table` */
-// eslint-disable-next-line security/detect-unsafe-regex -- false positive: anchored line; bounded identifier + simple alternatives
 const SET_LINE_RE =
+  // eslint-disable-next-line security/detect-unsafe-regex -- false positive: anchored line; bounded identifier + simple alternatives
   /^--\s*@set\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:=\s*(column\s+(\S+)|table))?\s*$/i;
 
 export type SqlVariableKind = 'scalar' | 'list' | 'table';
