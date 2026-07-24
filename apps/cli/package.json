@@ -1,6 +1,6 @@
 {
   "name": "@foxschema/cli",
-  "version": "0.1.73",
+  "version": "0.1.74",
   "private": true,
   "type": "module",
   "description": "Fox Schema CLI — schema diff & migration; `foxschema` opens the local web UI",
