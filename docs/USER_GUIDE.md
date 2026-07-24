@@ -31,7 +31,8 @@ only when you explicitly apply a migration.
 **Option A — CLI (recommended on your laptop).** Install, then open the local UI:
 
 ```bash
-npm install -g foxschema          # or: brew install tedious-code/foxschema/foxschema
+npm install -g foxschema
+# or Homebrew: brew tap tedious-code/foxschema https://github.com/tedious-code/foxschema && brew install foxschema
 foxschema                         # http://localhost:3210
 foxschema shortcut                # optional Fox icon on your Desktop
 ```

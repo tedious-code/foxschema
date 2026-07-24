@@ -1,13 +1,11 @@
 # Homebrew (Fox Schema CLI)
 
-Install the CLI with Homebrew. Then open the local web UI or use the desktop shortcut.
-
-Arm64 and Intel Macs are both supported (npm installs native addons for the host arch).
+Formula lives in the **same** GitHub repo (`Formula/foxschema.rb`) — no separate tap repo.
 
 ## Install
 
 ```bash
-brew tap tedious-code/foxschema
+brew tap tedious-code/foxschema https://github.com/tedious-code/foxschema
 brew install foxschema
 foxschema                 # http://localhost:3210
 foxschema shortcut        # Fox icon on your Desktop
@@ -23,5 +21,6 @@ See also: [INSTALL.md](INSTALL.md) · maintainers: [PUBLISH.md](PUBLISH.md).
 
 ## Maintainers
 
-Formula source of truth: [`packaging/homebrew/`](../packaging/homebrew/).
-Update the tap after each npm release (see packaging README / PUBLISH.md).
+After each npm release, refresh checksums with
+[`packaging/homebrew/update-formula.sh`](../packaging/homebrew/update-formula.sh)
+and commit `Formula/foxschema.rb` on `main`.

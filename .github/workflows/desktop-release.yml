@@ -17,6 +17,6 @@ jobs:
       - name: Desktop releases are retired
         run: |
           echo "::notice::Desktop (Tauri) releases are retired."
-          echo "Install via: npm i -g foxschema | brew install tedious-code/foxschema/foxschema"
+          echo "Install via: npm i -g foxschema | brew tap tedious-code/foxschema https://github.com/tedious-code/foxschema && brew install foxschema"
           echo "Or Docker: docker pull 5nickels/foxschema:latest"
           exit 0

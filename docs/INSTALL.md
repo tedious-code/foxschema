@@ -13,7 +13,7 @@ Requires **Node.js ≥ 22.5** for npm / Homebrew / Winget paths. Docker needs no
 | Platform | Command |
 |----------|---------|
 | **npm** (macOS / Windows / Linux) | `npm install -g foxschema` |
-| **Homebrew** (macOS Arm + Intel) | `brew install tedious-code/foxschema/foxschema` |
+| **Homebrew** (macOS Arm + Intel) | `brew tap tedious-code/foxschema https://github.com/tedious-code/foxschema` then `brew install foxschema` |
 | **Winget** (Windows) | `winget install OpenJS.NodeJS.LTS` then `npm i -g foxschema` |
 | **Docker** (servers, linux/amd64) | `docker pull 5nickels/foxschema:latest` |
 | **curl / wget** (scripted npm) | see [curl / wget](#curl--wget) below |
@@ -40,8 +40,10 @@ Works on **arm64 and x64**. Use a native Node build for your CPU
 
 ## Homebrew (macOS)
 
+Formula is in this same repo (`Formula/foxschema.rb`):
+
 ```bash
-brew tap tedious-code/foxschema
+brew tap tedious-code/foxschema https://github.com/tedious-code/foxschema
 brew install foxschema
 foxschema
 foxschema shortcut        # Desktop app with fox icon
