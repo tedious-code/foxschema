@@ -28,7 +28,13 @@ brew install foxschema
 docker pull 5nickels/foxschema:latest
 ```
 
-Windows (Winget installs Node, then npm):
+Windows (Winget — after package merge):
+
+```powershell
+winget install TediousCode.FoxSchema
+```
+
+Or Node + npm:
 
 ```powershell
 winget install OpenJS.NodeJS.LTS

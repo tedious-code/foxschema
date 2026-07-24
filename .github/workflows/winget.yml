@@ -1,26 +1,175 @@
 name: Publish to WinGet
 
-# RETIRED for desktop MSI packages (TediousCode.FoxSchema / .DB2).
-# Desktop Tauri installers are no longer published.
+# One package: TediousCode.FoxSchema (CLI portable zip; depends on OpenJS.NodeJS.LTS).
+# FoxSchema.DB2 retired — do not submit.
 #
-# Windows install path: npm i -g foxschema  (Node ≥ 22.5)
-# A future winget package may wrap the npm CLI; until then this workflow is a no-op.
+# Secrets:
+#   WINGET_TOKEN — classic PAT (public_repo) for fork user huyplb
 
 on:
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
-      note:
-        description: 'Desktop MSI winget publishes are retired — use npm on Windows'
-        required: false
-        default: 'retired'
+      tag:
+        description: 'Git tag (e.g. v0.1.67)'
+        required: true
+        default: 'v0.1.67'
+      submit:
+        description: 'Open/update PR on microsoft/winget-pkgs'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
 
 jobs:
-  retired:
+  build-portable:
+    if: startsWith(github.event.release.tag_name || inputs.tag, 'v')
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+      sha256: ${{ steps.meta.outputs.sha256 }}
+      zip_name: ${{ steps.meta.outputs.zip_name }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Install & build
+        shell: bash
+        run: |
+          npm install
+          npm run build -w @foxschema/web
+          npm run build -w @foxschema/cli
+          node apps/cli/scripts/prepare-publish.mjs
+
+      - name: Pack Windows portable zip
+        shell: pwsh
+        run: ./packaging/winget/build-portable.ps1
+
+      - name: Read build metadata
+        id: meta
+        shell: pwsh
+        run: |
+          $tag = "${{ github.event.release.tag_name || inputs.tag }}"
+          $version = (Get-Content apps/cli/npm-pack/package.json | ConvertFrom-Json).version
+          $zip = "dist/winget/foxschema-$version-win-x64.zip"
+          $sha = (Get-FileHash -Algorithm SHA256 $zip).Hash
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "sha256=$sha" >> $env:GITHUB_OUTPUT
+          "zip_name=$(Split-Path $zip -Leaf)" >> $env:GITHUB_OUTPUT
+          Get-Item $zip | Format-List
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: foxschema-winget-zip
+          path: dist/winget/foxschema-*-win-x64.zip
+
+      - name: Ensure GitHub Release + upload zip
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          ZIP="dist/winget/${{ steps.meta.outputs.zip_name }}"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "Fox Schema ${TAG#v}" \
+              --notes "CLI release ${TAG}. Windows portable zip for winget; npm: foxschema@${TAG#v}."
+          fi
+          gh release upload "$TAG" "$ZIP" --clobber
+
+  submit-winget:
+    needs: build-portable
+    if: (github.event_name == 'release' || inputs.submit) && needs.build-portable.result == 'success'
     runs-on: ubuntu-latest
     steps:
-      - name: Winget MSI channel retired
+      - uses: actions/checkout@v5
+
+      - name: Prepare manifests with release URL + SHA256
+        env:
+          SHA: ${{ needs.build-portable.outputs.sha256 }}
+          VER: ${{ needs.build-portable.outputs.version }}
+          TAG: ${{ needs.build-portable.outputs.tag }}
+          ZIP: ${{ needs.build-portable.outputs.zip_name }}
         run: |
-          echo "::notice::Desktop MSI winget packages are retired (no new versions)."
-          echo "Windows: npm install -g foxschema && foxschema"
-          echo "Also: Homebrew (macOS), Docker 5nickels/foxschema:latest"
-          exit 0
+          DIR="packaging/winget/TediousCode.FoxSchema/${VER}"
+          INST="${DIR}/TediousCode.FoxSchema.installer.yaml"
+          URL="https://github.com/tedious-code/foxschema/releases/download/${TAG}/${ZIP}"
+          perl -i -pe "s|InstallerUrl: .*|InstallerUrl: ${URL}|" "$INST"
+          perl -i -pe "s|InstallerSha256: .*|InstallerSha256: ${SHA}|" "$INST"
+          mkdir -p /tmp/winget-manifests
+          cp -R "$DIR" /tmp/winget-manifests/
+          cat "$INST"
+
+      - name: Open PR on winget-pkgs (single package)
+        env:
+          GH_TOKEN: ${{ secrets.WINGET_TOKEN }}
+          VER: ${{ needs.build-portable.outputs.version }}
+        run: |
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::Missing WINGET_TOKEN — add a classic PAT (public_repo) for huyplb"
+            exit 1
+          fi
+
+          FORK_USER=huyplb
+          BRANCH="TediousCode.FoxSchema-${VER}"
+          DEST="manifests/t/TediousCode/FoxSchema/${VER}"
+
+          rm -rf /tmp/winget-pkgs
+          gh repo clone "${FORK_USER}/winget-pkgs" /tmp/winget-pkgs -- --depth 1
+          cd /tmp/winget-pkgs
+          git config user.name "foxschema-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/microsoft/winget-pkgs.git || true
+          git fetch upstream master --depth 1
+          git checkout -B "$BRANCH" upstream/master
+
+          # One product only — remove any DB2 paths if present on this branch tip
+          rm -rf manifests/t/TediousCode/FoxSchema.DB2
+
+          mkdir -p "$DEST"
+          cp /tmp/winget-manifests/"${VER}"/* "$DEST/"
+
+          git add manifests/t/TediousCode/FoxSchema
+          git add -u manifests/t/TediousCode/FoxSchema.DB2 || true
+          git commit -m "New package: TediousCode.FoxSchema version ${VER}"
+          git push -u "https://x-access-token:${GH_TOKEN}@github.com/${FORK_USER}/winget-pkgs.git" "HEAD:refs/heads/${BRANCH}" --force
+
+          # Close superseded DB2 new-package PR if still open
+          gh pr close 403112 --repo microsoft/winget-pkgs --comment "Superseded: single product TediousCode.FoxSchema (CLI). DB2 is optional via npm ibm_db — no separate winget package." || true
+
+          # Close old MSI 0.1.45 PR if still open (replaced by CLI zip)
+          gh pr close 403101 --repo microsoft/winget-pkgs --comment "Superseded by TediousCode.FoxSchema ${VER} (CLI portable zip + Node.js dependency)." || true
+
+          EXISTING=$(gh pr list --repo microsoft/winget-pkgs --head "${FORK_USER}:${BRANCH}" --json number --jq '.[0].number')
+          if [ -n "$EXISTING" ] && [ "$EXISTING" != "null" ]; then
+            echo "PR already open: #$EXISTING"
+            gh pr view "$EXISTING" --repo microsoft/winget-pkgs --json url -q .url
+          else
+            gh pr create --repo microsoft/winget-pkgs \
+              --head "${FORK_USER}:${BRANCH}" \
+              --base master \
+              --title "New package: TediousCode.FoxSchema version ${VER}" \
+              --body "$(cat <<EOF
+One Fox Schema package for Windows (CLI).
+
+- **PackageIdentifier:** TediousCode.FoxSchema
+- **Version:** ${VER}
+- **Installer:** portable zip (\`foxschema.cmd\` / \`fox.cmd\`) from GitHub Releases
+- **Dependency:** OpenJS.NodeJS.LTS (>= 22.5.0)
+- **Notes:** Desktop MSI / FoxSchema.DB2 packages are retired. Db2 support is optional via npm \`ibm_db\` in this same product.
+
+Install after merge:
+\`\`\`
+winget install TediousCode.FoxSchema
+\`\`\`
+EOF
+)"
+          fi
