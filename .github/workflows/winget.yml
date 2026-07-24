@@ -106,7 +106,7 @@ jobs:
           cp -R "$DIR" /tmp/winget-manifests/
           cat "$INST"
 
-      - name: Open PR on winget-pkgs (single package)
+      - name: Open or update PR on winget-pkgs (single package)
         env:
           GH_TOKEN: ${{ secrets.WINGET_TOKEN }}
           VER: ${{ needs.build-portable.outputs.version }}
@@ -121,35 +121,54 @@ jobs:
           DEST="manifests/t/TediousCode/FoxSchema/${VER}"
 
           rm -rf /tmp/winget-pkgs
-          gh repo clone "${FORK_USER}/winget-pkgs" /tmp/winget-pkgs -- --depth 1
+          # Sparse clone — only the TediousCode manifests tree (winget-pkgs is huge)
+          git clone --filter=blob:none --sparse --depth 1 \
+            "https://x-access-token:${GH_TOKEN}@github.com/${FORK_USER}/winget-pkgs.git" \
+            /tmp/winget-pkgs
           cd /tmp/winget-pkgs
+          git sparse-checkout set manifests/t/TediousCode
           git config user.name "foxschema-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git remote add upstream https://github.com/microsoft/winget-pkgs.git || true
           git fetch upstream master --depth 1
           git checkout -B "$BRANCH" upstream/master
+          git sparse-checkout set manifests/t/TediousCode
 
           rm -rf manifests/t/TediousCode/FoxSchema.DB2
-
           mkdir -p "$DEST"
           cp /tmp/winget-manifests/"${VER}"/* "$DEST/"
 
-          git add manifests/t/TediousCode/FoxSchema
-          git add -u manifests/t/TediousCode/FoxSchema.DB2 || true
-          git status
-          git commit -m "New package: TediousCode.FoxSchema version ${VER}"
-          git push -u "https://x-access-token:${GH_TOKEN}@github.com/${FORK_USER}/winget-pkgs.git" "HEAD:refs/heads/${BRANCH}" --force
-
-          gh pr close 403112 --repo microsoft/winget-pkgs --comment "Superseded: single product TediousCode.FoxSchema (CLI). DB2 is optional via npm ibm_db." || true
-          gh pr close 403101 --repo microsoft/winget-pkgs --comment "Superseded by TediousCode.FoxSchema ${VER} (CLI portable zip + Node.js dependency)." || true
-
-          EXISTING=$(gh pr list --repo microsoft/winget-pkgs --head "${FORK_USER}:${BRANCH}" --json number --jq '.[0].number')
-          if [ -n "$EXISTING" ] && [ "$EXISTING" != "null" ]; then
-            echo "PR already open: #$EXISTING"
-            gh pr view "$EXISTING" --repo microsoft/winget-pkgs --json url -q .url
+          git add -A manifests/t/TediousCode
+          if git diff --cached --quiet; then
+            echo "No manifest changes to commit"
           else
-            BODY_FILE=$(mktemp)
-            cat > "$BODY_FILE" <<EOF
+            git -c status.showUntrackedFiles=no commit -m "New package: TediousCode.FoxSchema version ${VER}"
+          fi
+          git push -u "https://x-access-token:${GH_TOKEN}@github.com/${FORK_USER}/winget-pkgs.git" \
+            "HEAD:refs/heads/${BRANCH}" --force
+
+          gh pr close 403112 --repo microsoft/winget-pkgs --comment "Superseded: single product TediousCode.FoxSchema (CLI)." || true
+          gh pr close 403101 --repo microsoft/winget-pkgs --comment "Superseded by TediousCode.FoxSchema ${VER} (CLI portable zip)." || true
+
+          # Prefer finding an existing PR; creating when one exists fails the job.
+          PR_URL=$(gh pr list --repo microsoft/winget-pkgs \
+            --head "${FORK_USER}:${BRANCH}" \
+            --state open \
+            --json url --jq '.[0].url // empty')
+          if [ -z "$PR_URL" ]; then
+            PR_URL=$(gh pr list --repo microsoft/winget-pkgs \
+              --search "TediousCode.FoxSchema ${VER} author:${FORK_USER}" \
+              --state open \
+              --json url --jq '.[0].url // empty')
+          fi
+
+          if [ -n "$PR_URL" ]; then
+            echo "PR already open (branch updated): $PR_URL"
+            exit 0
+          fi
+
+          BODY_FILE=$(mktemp)
+          cat > "$BODY_FILE" <<EOF
           One Fox Schema package for Windows (CLI).
 
           - PackageIdentifier: TediousCode.FoxSchema
@@ -160,10 +179,23 @@ jobs:
 
           Install after merge: winget install TediousCode.FoxSchema
           EOF
-            sed -i 's/^          //' "$BODY_FILE"
-            gh pr create --repo microsoft/winget-pkgs \
-              --head "${FORK_USER}:${BRANCH}" \
-              --base master \
-              --title "New package: TediousCode.FoxSchema version ${VER}" \
-              --body-file "$BODY_FILE"
+          sed -i 's/^          //' "$BODY_FILE"
+
+          set +e
+          CREATE_OUT=$(gh pr create --repo microsoft/winget-pkgs \
+            --head "${FORK_USER}:${BRANCH}" \
+            --base master \
+            --title "New package: TediousCode.FoxSchema version ${VER}" \
+            --body-file "$BODY_FILE" 2>&1)
+          CREATE_EC=$?
+          set -e
+          echo "$CREATE_OUT"
+          if [ "$CREATE_EC" -eq 0 ]; then
+            exit 0
           fi
+          if echo "$CREATE_OUT" | grep -qi 'already exists'; then
+            echo "$CREATE_OUT" | grep -Eo 'https://github.com/microsoft/winget-pkgs/pull/[0-9]+' || true
+            echo "::notice::PR already exists — treating as success"
+            exit 0
+          fi
+          exit "$CREATE_EC"
