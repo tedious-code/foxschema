@@ -9,7 +9,7 @@ Distribution channels (one product, no separate Db2 edition):
 | **npm** | `foxschema` on registry.npmjs.org | `.github/workflows/npm-publish.yml` on `v*` tag |
 | **Docker** | `5nickels/foxschema:latest` + `:vX.Y.Z` (linux/amd64, includes Db2) | `.github/workflows/web-release.yml` on `v*` tag |
 | **Homebrew** | `Formula/foxschema.rb` in this repo | Manual commit after npm publish |
-| **Winget** | MSI channel **retired** — document npm on Windows | — |
+| **Winget** | `TediousCode.FoxSchema` portable zip on GitHub Releases | `.github/workflows/winget.yml` on release / dispatch |
 | **Desktop Tauri** | **Retired** — do not publish | — |
 
 Version numbers are bumped automatically on merge to `main`

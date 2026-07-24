@@ -14,7 +14,7 @@ Requires **Node.js ≥ 22.5** for npm / Homebrew / Winget paths. Docker needs no
 |----------|---------|
 | **npm** (macOS / Windows / Linux) | `npm install -g foxschema` |
 | **Homebrew** (macOS Arm + Intel) | `brew tap … && brew trust tedious-code/foxschema && brew install foxschema` |
-| **Winget** (Windows) | `winget install OpenJS.NodeJS.LTS` then `npm i -g foxschema` |
+| **Winget** (Windows) | `winget install TediousCode.FoxSchema` (or Node + `npm i -g foxschema`) |
 | **Docker** (servers, linux/amd64) | `docker pull 5nickels/foxschema:latest` |
 | **curl / wget** (scripted npm) | see [curl / wget](#curl--wget) below |
 
@@ -55,15 +55,21 @@ Details: [homebrew.md](homebrew.md).
 
 ---
 
-## Windows (Winget + npm)
+## Windows (Winget)
 
-Desktop MSI packages are retired. Install Node, then the CLI:
+One package — CLI portable zip (depends on Node.js LTS):
+
+```powershell
+winget install TediousCode.FoxSchema
+foxschema
+foxschema shortcut
+```
+
+If the winget package is not merged yet:
 
 ```powershell
 winget install OpenJS.NodeJS.LTS
 npm install -g foxschema
-foxschema
-foxschema shortcut        # Desktop shortcut with fox icon
 ```
 
 Details: [winget.md](winget.md).

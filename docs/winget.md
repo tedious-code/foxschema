@@ -1,32 +1,39 @@
 # Winget / Windows install
 
-## Install (current)
+## Install (after winget-pkgs merge)
 
-Desktop MSI packages are **retired**. On Windows, install Node then the CLI:
+```powershell
+winget install TediousCode.FoxSchema
+```
+
+This installs the **CLI portable zip** and depends on **Node.js LTS** (`OpenJS.NodeJS.LTS`).
+Then:
+
+```powershell
+foxschema
+foxschema shortcut
+```
+
+## Install (today — works before winget merge)
 
 ```powershell
 winget install OpenJS.NodeJS.LTS
 npm install -g foxschema
 foxschema
-foxschema shortcut        # Fox Schema shortcut on your Desktop
 ```
 
-Requires [Node.js ≥ 22.5](https://nodejs.org/).
+## One package only
 
-Also: Docker `5nickels/foxschema:latest` (linux/amd64, includes Db2) for servers —
-see [INSTALL.md](INSTALL.md) and [DEPLOYMENT.md](DEPLOYMENT.md).
+| Package | Status |
+|---------|--------|
+| `TediousCode.FoxSchema` | Active — CLI zip, moniker `foxschema` |
+| `TediousCode.FoxSchema.DB2` | Retired — do not use |
 
-## Retired winget packages
+## Maintainers
 
-These IDs are frozen (no new versions). Prefer npm above.
+1. Tag a release (`v0.1.67`) or run **Publish to WinGet** (`workflow_dispatch`).
+2. CI builds `foxschema-<ver>-win-x64.zip`, uploads it to the GitHub Release, and opens a
+   PR on [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs).
+3. Secret: `WINGET_TOKEN` — classic PAT (`public_repo`) for `huyplb` (fork of winget-pkgs).
 
-| Package | Moniker | Status |
-|---------|---------|--------|
-| `TediousCode.FoxSchema` | `foxschema` | Retired (last MSI only) |
-| `TediousCode.FoxSchema.DB2` | `foxschemadb2` | Retired — one product now |
-
-`.github/workflows/winget.yml` is a no-op.
-
-## Future
-
-A single winget package that wraps the npm CLI may return later. Until then, use npm.
+Manifests live in [`packaging/winget/TediousCode.FoxSchema/`](../packaging/winget/TediousCode.FoxSchema/).
