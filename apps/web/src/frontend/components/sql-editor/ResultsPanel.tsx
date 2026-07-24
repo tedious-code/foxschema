@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from
 import { Loader2, Database, AlertCircle, GripVertical, RefreshCw } from 'lucide-react';
 import type { CredentialRun } from '../../store/useSqlEditorStore';
 import type { ResultsLayout } from '../../store/sqlEditorTabLogic';
-import { DataGrid, PANE_DEFAULT_PX, PANE_MIN_PX } from './DataGrid';
+import { DataGrid, PANE_DEFAULT_H_PX, PANE_DEFAULT_PX, PANE_MIN_H_PX, PANE_MIN_PX } from './DataGrid';
 import type { SqlStatementResult } from '../../api/sqlApi';
 
 interface Props {
@@ -16,6 +16,16 @@ interface Props {
   warnings?: string[];
   /** Re-run for one credential, or all when omitted. */
   onRefresh?: (connectionId?: string) => void;
+  /** Load another result page for a grid (server OFFSET; uses page cache). */
+  onPage?: (args: {
+    connectionId: string;
+    statementIndex: number;
+    pageIndex: number;
+  }) => void;
+  pageState?: Record<
+    string,
+    { pageIndex: number; hasNext: boolean; loading?: boolean; pageSize?: number }
+  >;
 }
 
 const GAP_PX = 6; // space between pane and its resize grip
@@ -35,6 +45,7 @@ type PaneItem =
       label: string;
       exportName: string;
       connectionId: string;
+      statementIndex: number;
     }
   | { key: string; kind: 'running'; label: string; connectionId: string }
   | { key: string; kind: 'error'; label: string; error: string; connectionId: string };
@@ -57,9 +68,13 @@ const ResizablePaneRow: React.FC<{
   rowKey: string;
   refreshing?: boolean;
   onRefresh?: (connectionId: string) => void;
-}> = ({ items, rowKey, refreshing, onRefresh }) => {
+  onPage?: Props['onPage'];
+  pageState?: Props['pageState'];
+}> = ({ items, rowKey, refreshing, onRefresh, onPage, pageState }) => {
   const rowRef = useRef<HTMLDivElement>(null);
   const [widths, setWidths] = useState<number[]>(() => items.map(() => PANE_DEFAULT_PX));
+  const [rowHeight, setRowHeight] = useState(PANE_DEFAULT_H_PX);
+  const [syncRow, setSyncRow] = useState<number | null>(null);
   const sizedForKey = useRef<string | null>(null);
 
   useLayoutEffect(() => {
@@ -73,6 +88,7 @@ const ResizablePaneRow: React.FC<{
       if (sizedForKey.current === rowKey) return;
       sizedForKey.current = rowKey;
       setWidths(equalWidths(items.length, w));
+      setSyncRow(null);
     };
 
     applyEqual();
@@ -120,78 +136,148 @@ const ResizablePaneRow: React.FC<{
     window.addEventListener('mouseup', onUp);
   }, [widths]);
 
+  const startRowHeightResize = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      const startY = e.clientY;
+      const startH = rowHeight;
+      const onMove = (ev: MouseEvent) => {
+        setRowHeight(Math.max(PANE_MIN_H_PX, startH + (ev.clientY - startY)));
+      };
+      const onUp = () => {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      };
+      document.body.style.cursor = 'row-resize';
+      document.body.style.userSelect = 'none';
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    },
+    [rowHeight]
+  );
+
   if (items.length === 0) return null;
 
   return (
-    <div
-      ref={rowRef}
-      className="flex overflow-x-auto overflow-y-hidden items-stretch pb-1 gap-0"
-      style={{ minHeight: '20rem', height: 'min(28rem, 55vh)' }}
-      data-testid="sql-result-pane-row"
-    >
-      {items.map((item, i) => (
-        <React.Fragment key={item.key}>
-          <div
-            className="flex flex-col min-h-0 shrink-0"
-            style={{ width: widths[i] ?? PANE_DEFAULT_PX, minWidth: PANE_MIN_PX }}
-          >
-            {item.kind === 'grid' && (
-              <DataGrid
-                result={item.result}
-                label={item.label}
-                exportName={item.exportName}
-                refreshing={refreshing}
-                onRefresh={onRefresh ? () => onRefresh(item.connectionId) : undefined}
-              />
-            )}
-            {item.kind === 'running' && (
-              <div className="flex items-center gap-2 text-xs text-slate-500 h-full px-2">
-                <Loader2 className="w-3.5 h-3.5 animate-spin" /> {item.label}
-              </div>
-            )}
-            {item.kind === 'error' && (
-              <div className="flex flex-col gap-2 h-full min-h-0">
-                <div className="flex items-center gap-2 shrink-0">
-                  <div
-                    className="text-[10px] font-bold text-slate-500 uppercase tracking-wider truncate flex-1"
-                    title={item.label}
-                  >
-                    {item.label}
+    <div className="flex flex-col min-w-0" data-testid="sql-result-pane-row-wrap">
+      <div
+        ref={rowRef}
+        className="flex overflow-x-auto overflow-y-hidden items-stretch pb-1 gap-0"
+        style={{ height: rowHeight, minHeight: PANE_MIN_H_PX }}
+        data-testid="sql-result-pane-row"
+      >
+        {items.map((item, i) => {
+          const pageKey =
+            item.kind === 'grid' ? `${item.connectionId}:${item.statementIndex}` : '';
+          const page = pageKey ? pageState?.[pageKey] : undefined;
+          return (
+            <React.Fragment key={item.key}>
+              <div
+                className="flex flex-col min-h-0 shrink-0"
+                style={{ width: widths[i] ?? PANE_DEFAULT_PX, minWidth: PANE_MIN_PX }}
+              >
+                {item.kind === 'grid' && (
+                  <DataGrid
+                    result={item.result}
+                    label={item.label}
+                    exportName={item.exportName}
+                    refreshing={refreshing}
+                    onRefresh={onRefresh ? () => onRefresh(item.connectionId) : undefined}
+                    syncScrollRow={items.filter((x) => x.kind === 'grid').length > 1 ? syncRow : null}
+                    onSyncScrollRow={
+                      items.filter((x) => x.kind === 'grid').length > 1 ? setSyncRow : undefined
+                    }
+                    pageIndex={page?.pageIndex ?? 0}
+                    pageSize={page?.pageSize}
+                    hasPrevPage={(page?.pageIndex ?? 0) > 0}
+                    hasNextPage={
+                      page?.hasNext ??
+                      (item.result.ok && item.result.truncated)
+                    }
+                    pageLoading={page?.loading}
+                    onPrevPage={
+                      onPage
+                        ? () =>
+                            onPage({
+                              connectionId: item.connectionId,
+                              statementIndex: item.statementIndex,
+                              pageIndex: Math.max(0, (page?.pageIndex ?? 0) - 1),
+                            })
+                        : undefined
+                    }
+                    onNextPage={
+                      onPage
+                        ? () =>
+                            onPage({
+                              connectionId: item.connectionId,
+                              statementIndex: item.statementIndex,
+                              pageIndex: (page?.pageIndex ?? 0) + 1,
+                            })
+                        : undefined
+                    }
+                  />
+                )}
+                {item.kind === 'running' && (
+                  <div className="flex items-center gap-2 text-xs text-slate-500 h-full px-2">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> {item.label}
                   </div>
-                  {onRefresh && (
-                    <button
-                      type="button"
-                      data-testid="sql-pane-refresh"
-                      title="Retry this server"
-                      disabled={refreshing}
-                      onClick={() => onRefresh(item.connectionId)}
-                      className="flex items-center gap-0.5 text-[10px] font-semibold text-slate-500 hover:text-cyan-400 transition shrink-0 disabled:opacity-40"
-                    >
-                      <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} /> Refresh
-                    </button>
-                  )}
-                </div>
-                <div className="flex items-start gap-2 text-xs text-rose-400 bg-rose-950/40 border border-rose-500/20 rounded-md px-3 py-2 flex-1 overflow-auto">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span className="break-all">{item.error}</span>
-                </div>
+                )}
+                {item.kind === 'error' && (
+                  <div className="flex flex-col gap-2 h-full min-h-0">
+                    <div className="flex items-center gap-2 shrink-0">
+                      <div
+                        className="text-[10px] font-bold text-slate-500 uppercase tracking-wider truncate flex-1"
+                        title={item.label}
+                      >
+                        {item.label}
+                      </div>
+                      {onRefresh && (
+                        <button
+                          type="button"
+                          data-testid="sql-pane-refresh"
+                          title="Retry this server"
+                          disabled={refreshing}
+                          onClick={() => onRefresh(item.connectionId)}
+                          className="flex items-center gap-0.5 text-[10px] font-semibold text-slate-500 hover:text-cyan-400 transition shrink-0 disabled:opacity-40"
+                        >
+                          <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} />{' '}
+                          Refresh
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex items-start gap-2 text-xs text-rose-400 bg-rose-950/40 border border-rose-500/20 rounded-md px-3 py-2 flex-1 overflow-auto">
+                      <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                      <span className="break-all">{item.error}</span>
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-          {/* Every pane — including the last — gets a resize grip */}
-          <div
-            role="separator"
-            aria-orientation="vertical"
-            aria-label={`Resize table ${i + 1}`}
-            data-testid="sql-pane-resize"
-            title="Drag to resize this table"
-            onMouseDown={(e) => startPaneResize(i, e)}
-            className="w-2 shrink-0 cursor-col-resize self-stretch mx-0.5 rounded-sm bg-slate-800 hover:bg-cyan-600/70 active:bg-cyan-500 flex items-center justify-center group"
-          >
-            <GripVertical className="w-3 h-3 text-slate-500 group-hover:text-cyan-200 pointer-events-none" />
-          </div>
-        </React.Fragment>
-      ))}
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-label={`Resize table ${i + 1}`}
+                data-testid="sql-pane-resize"
+                title="Drag to resize this table"
+                onMouseDown={(e) => startPaneResize(i, e)}
+                className="w-2 shrink-0 cursor-col-resize self-stretch mx-0.5 rounded-sm bg-slate-800 hover:bg-cyan-600/70 active:bg-cyan-500 flex items-center justify-center group"
+              >
+                <GripVertical className="w-3 h-3 text-slate-500 group-hover:text-cyan-200 pointer-events-none" />
+              </div>
+            </React.Fragment>
+          );
+        })}
+      </div>
+      <div
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Resize result row height"
+        data-testid="sql-result-row-height-resize"
+        title="Drag to resize result grid height"
+        onMouseDown={startRowHeightResize}
+        className="h-1.5 shrink-0 cursor-row-resize bg-slate-800 hover:bg-cyan-500/40 active:bg-cyan-500/60 transition-colors rounded-sm"
+      />
     </div>
   );
 };
@@ -208,6 +294,8 @@ export const ResultsPanel: React.FC<Props> = ({
   refreshing,
   warnings,
   onRefresh,
+  onPage,
+  pageState,
 }) => {
   if (runs.length === 0) {
     return (
@@ -270,6 +358,7 @@ export const ResultsPanel: React.FC<Props> = ({
               label: credentialLabel(run),
               exportName: `${run.name}-q${i + 1}`,
               connectionId: run.connectionId,
+              statementIndex: i,
             });
           }
           return (
@@ -282,6 +371,8 @@ export const ResultsPanel: React.FC<Props> = ({
                 rowKey={`side-${i}-${items.map((x) => x.key).join('|')}`}
                 refreshing={refreshing}
                 onRefresh={onRefresh}
+                onPage={onPage}
+                pageState={pageState}
               />
             </section>
           );
@@ -305,6 +396,7 @@ export const ResultsPanel: React.FC<Props> = ({
                 label: statementLabel(statements[i] ?? '', i),
                 exportName: `${run.name}-q${i + 1}`,
                 connectionId: run.connectionId,
+                statementIndex: i,
               }))
             : [];
 
@@ -342,6 +434,8 @@ export const ResultsPanel: React.FC<Props> = ({
                 rowKey={`cred-${run.connectionId}-${items.length}`}
                 refreshing={refreshing}
                 onRefresh={onRefresh}
+                onPage={onPage}
+                pageState={pageState}
               />
             )}
           </section>

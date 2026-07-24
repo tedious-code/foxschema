@@ -188,7 +188,7 @@ export const SqlVariablesPanel: React.FC = () => {
   return (
     <div className="flex flex-col gap-1.5 min-h-0 flex-1" data-testid="sql-variables">
       {error && (
-        <p className="text-[10px] text-rose-400 leading-snug" role="alert">
+        <p className="text-[12px] text-rose-400 leading-snug" role="alert">
           {error}
         </p>
       )}
@@ -199,18 +199,18 @@ export const SqlVariablesPanel: React.FC = () => {
           title="Export variables as JSON"
           data-testid="sql-variable-export"
           onClick={downloadExport}
-          className="flex items-center gap-0.5 text-[10px] text-slate-500 hover:text-cyan-400 px-1 py-0.5"
+          className="flex items-center gap-0.5 text-[13px] font-bold text-slate-400 hover:text-cyan-300 px-1 py-0.5"
         >
-          <Download className="w-3 h-3" /> Export
+          <Download className="w-3.5 h-3.5" /> Export
         </button>
         <button
           type="button"
           title="Import variables from JSON"
           data-testid="sql-variable-import"
           onClick={() => fileRef.current?.click()}
-          className="flex items-center gap-0.5 text-[10px] text-slate-500 hover:text-cyan-400 px-1 py-0.5"
+          className="flex items-center gap-0.5 text-[13px] font-bold text-slate-400 hover:text-cyan-300 px-1 py-0.5"
         >
-          <Upload className="w-3 h-3" /> Import
+          <Upload className="w-3.5 h-3.5" /> Import
         </button>
         <input
           ref={fileRef}
@@ -239,7 +239,7 @@ export const SqlVariablesPanel: React.FC = () => {
                 setError(null);
               }
             }}
-            className="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-[11px] text-slate-100 outline-none focus:border-cyan-600/50"
+            className="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-[13px] text-slate-100 outline-none focus:border-cyan-600/50"
           />
           <input
             data-testid="sql-variable-value-input"
@@ -254,9 +254,9 @@ export const SqlVariablesPanel: React.FC = () => {
                 setError(null);
               }
             }}
-            className="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-[11px] text-slate-100 outline-none focus:border-cyan-600/50"
+            className="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-[13px] text-slate-100 outline-none focus:border-cyan-600/50"
           />
-          <label className="flex items-center gap-1 text-[10px] text-slate-400">
+          <label className="flex items-center gap-1 text-[12px] text-slate-400">
             <input
               type="checkbox"
               checked={secretDraft}
@@ -272,7 +272,7 @@ export const SqlVariablesPanel: React.FC = () => {
                 setAdding(false);
                 setError(null);
               }}
-              className="text-[10px] text-slate-500 hover:text-slate-300 px-1.5 py-0.5"
+              className="text-[12px] text-slate-500 hover:text-slate-300 px-1.5 py-0.5"
             >
               Cancel
             </button>
@@ -280,7 +280,7 @@ export const SqlVariablesPanel: React.FC = () => {
               type="button"
               data-testid="sql-variable-add-confirm"
               onClick={commitAdd}
-              className="text-[10px] font-semibold text-cyan-400 hover:text-cyan-300 px-1.5 py-0.5"
+              className="text-[12px] font-semibold text-cyan-400 hover:text-cyan-300 px-1.5 py-0.5"
             >
               Save
             </button>
@@ -289,7 +289,7 @@ export const SqlVariablesPanel: React.FC = () => {
       ) : null}
 
       {variables.length === 0 && !adding ? (
-        <p className="text-[11px] text-slate-500 leading-snug">
+        <p className="text-[14px] font-medium text-slate-500 leading-snug">
           Add a scalar, use <code className="text-slate-400">-- @set</code>, or save from
           results. Refs: <code className="text-slate-400">${'{{name}}'}</code> /{' '}
           <code className="text-slate-400">${'{{name.col}}'}</code>.
@@ -301,26 +301,26 @@ export const SqlVariablesPanel: React.FC = () => {
             return (
               <li
                 key={v.id}
-                className="group flex flex-col gap-0.5 rounded px-1 py-0.5 hover:bg-slate-900/60"
+                className="group flex flex-col gap-0.5 rounded px-1 py-0.5 hover:bg-slate-800/50"
                 data-testid={`sql-variable-${v.name}`}
               >
                 <div className="flex items-start gap-1">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1 flex-wrap">
-                      <span className="text-[11px] font-semibold text-slate-200 truncate">
-                        {v.name}
-                      </span>
-                      <span className="text-[9px] uppercase tracking-wider text-slate-500 shrink-0">
-                        {v.kind}
-                      </span>
+                  <span className="text-[14px] font-bold text-slate-200 truncate">
+                    {v.name}
+                  </span>
+                  <span className="text-[12px] uppercase tracking-wider text-slate-500 shrink-0 font-bold">
+                    {v.kind}
+                  </span>
                       {v.secret && (
-                        <span className="text-[9px] uppercase tracking-wider text-amber-500/90 shrink-0">
+                        <span className="text-[11px] uppercase tracking-wider text-amber-500/90 shrink-0">
                           secret
                         </span>
                       )}
                       {hasOverrides && (
                         <span
-                          className="text-[9px] text-cyan-500/80 shrink-0"
+                          className="text-[11px] text-cyan-500/80 shrink-0"
                           title="Has per-connection overrides"
                         >
                           · override
@@ -334,9 +334,9 @@ export const SqlVariablesPanel: React.FC = () => {
                         onClick={() =>
                           setPreviewTableId((id) => (id === v.id ? null : v.id))
                         }
-                        className="mt-0.5 flex items-center gap-1 text-left text-[10px] font-mono text-slate-400 hover:text-cyan-300 truncate max-w-full"
+                        className="mt-0.5 flex items-center gap-1 text-left text-[12px] font-mono text-slate-400 hover:text-cyan-300 truncate max-w-full"
                       >
-                        <Eye className="w-3 h-3 shrink-0" />
+                        <Eye className="w-3.5 h-3.5 shrink-0" />
                         <span className="truncate">
                           {previewVariable(v)}
                           {!v.secret && v.columns && v.columns.length > 0
@@ -359,7 +359,7 @@ export const SqlVariablesPanel: React.FC = () => {
                           }
                           if (e.key === 'Escape') setEditingId(null);
                         }}
-                        className="mt-0.5 w-full bg-slate-950 border border-cyan-600/50 rounded px-1.5 py-0.5 text-[10px] font-mono text-slate-100 outline-none"
+                        className="mt-0.5 w-full bg-slate-950 border border-cyan-600/50 rounded px-1.5 py-0.5 text-[12px] font-mono text-slate-100 outline-none"
                       />
                     ) : (
                       <button
@@ -386,13 +386,13 @@ export const SqlVariablesPanel: React.FC = () => {
                             );
                           }
                         }}
-                        className="mt-0.5 block w-full text-left text-[10px] font-mono text-slate-400 hover:text-cyan-300 truncate"
+                        className="mt-0.5 block w-full text-left text-[12px] font-mono text-slate-400 hover:text-cyan-300 truncate"
                       >
                         {previewVariable(v)}
                       </button>
                     )}
                     <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5">
-                      <label className="flex items-center gap-1 text-[9px] text-slate-500">
+                      <label className="flex items-center gap-1 text-[11px] text-slate-500">
                         <input
                           type="checkbox"
                           checked={Boolean(v.secret)}
@@ -404,7 +404,7 @@ export const SqlVariablesPanel: React.FC = () => {
                       {(v.kind === 'scalar' || v.kind === 'list') && connections.length > 0 && (
                         <button
                           type="button"
-                          className="text-[9px] text-slate-500 hover:text-cyan-400"
+                          className="text-[11px] text-slate-500 hover:text-cyan-400"
                           onClick={() =>
                             setExpandedOverrides((id) => (id === v.id ? null : v.id))
                           }
@@ -420,9 +420,9 @@ export const SqlVariablesPanel: React.FC = () => {
                     title="Delete variable"
                     aria-label={`Delete ${v.name}`}
                     onClick={() => deleteVariable(v.id)}
-                    className="p-0.5 text-slate-600 hover:text-rose-400 opacity-0 group-hover:opacity-100 transition shrink-0 mt-0.5"
+                    className="p-0.5 text-slate-500 hover:text-rose-400 opacity-0 group-hover:opacity-100 transition shrink-0 mt-0.5"
                   >
-                    <Trash2 className="w-3 h-3" />
+                    <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
 
@@ -433,7 +433,7 @@ export const SqlVariablesPanel: React.FC = () => {
                       const label = c.name || c.dialect;
                       return (
                         <div key={c.id} className="flex flex-col gap-0.5">
-                          <span className="text-[9px] text-slate-500 truncate" title={label}>
+                          <span className="text-[11px] text-slate-500 truncate" title={label}>
                             {label}
                           </span>
                           <div className="flex gap-1">
@@ -470,14 +470,14 @@ export const SqlVariablesPanel: React.FC = () => {
                                   });
                                 }
                               }}
-                              className="flex-1 min-w-0 bg-slate-950 border border-slate-700 rounded px-1 py-0.5 text-[10px] font-mono text-slate-200 outline-none focus:border-cyan-600/50"
+                              className="flex-1 min-w-0 bg-slate-950 border border-slate-700 rounded px-1 py-0.5 text-[12px] font-mono text-slate-200 outline-none focus:border-cyan-600/50"
                             />
                             {o && (
                               <button
                                 type="button"
                                 title="Clear override"
                                 onClick={() => setVariableOverride(v.id, c.id, null)}
-                                className="text-[9px] text-slate-500 hover:text-rose-400 shrink-0"
+                                className="text-[11px] text-slate-500 hover:text-rose-400 shrink-0"
                               >
                                 Clear
                               </button>
@@ -490,7 +490,7 @@ export const SqlVariablesPanel: React.FC = () => {
                 )}
 
                 {previewTableId === v.id && previewVar?.kind === 'table' && (
-                  <div className="mt-1 mb-1 max-h-40 overflow-auto rounded border border-slate-800 bg-slate-950/80 text-[9px]">
+                  <div className="mt-1 mb-1 max-h-40 overflow-auto rounded border border-slate-800 bg-slate-950/80 text-[11px]">
                     {previewVar.secret ? (
                       <p className="p-1.5 text-slate-500">(secret table — values hidden)</p>
                     ) : (
@@ -526,7 +526,7 @@ export const SqlVariablesPanel: React.FC = () => {
                       </table>
                     )}
                     {(previewVar.rows?.length ?? 0) > TABLE_PREVIEW_ROWS && (
-                      <p className="px-1.5 py-0.5 text-slate-600">
+                      <p className="px-1.5 py-0.5 text-slate-500">
                         … {(previewVar.rows?.length ?? 0) - TABLE_PREVIEW_ROWS} more rows
                       </p>
                     )}
@@ -546,9 +546,9 @@ export const SqlVariablesPanel: React.FC = () => {
             setAdding(true);
             setError(null);
           }}
-          className="flex items-center gap-0.5 self-start text-[10px] font-semibold text-slate-500 hover:text-cyan-400 transition mt-0.5"
+          className="flex items-center gap-0.5 self-start text-[14px] font-bold text-slate-400 hover:text-cyan-300 transition mt-0.5"
         >
-          <Plus className="w-3 h-3" /> Add variable
+          <Plus className="w-3.5 h-3.5" /> Add variable
         </button>
       )}
     </div>

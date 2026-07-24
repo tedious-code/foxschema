@@ -19,7 +19,7 @@ interface Props {
 }
 
 const STORAGE_KEY = 'foxschema-sql-statement-strip-h';
-const ROW_PX = 26;
+const ROW_PX = 30;
 const PAD_PX = 14;
 const MIN_ROWS = 1;
 const MAX_ROWS = 12;
@@ -177,7 +177,7 @@ export const StatementStrip: React.FC<Props> = ({ statements, checked, onToggle,
   if (statements.length === 0) return null;
 
   return (
-    <div className="shrink-0 flex flex-col border-b border-slate-800 bg-slate-925/50" data-testid="sql-statement-strip">
+    <div className="shrink-0 flex flex-col border-b border-slate-800 bg-slate-900" data-testid="sql-statement-strip">
       <div className="px-3 py-1.5 flex flex-col gap-0.5 overflow-y-auto" style={{ height }}>
         {statements.map((stmt, i) => {
           const status = checkStatement(stmt);
@@ -192,13 +192,13 @@ export const StatementStrip: React.FC<Props> = ({ statements, checked, onToggle,
           return (
             <div
               key={`${stmt.start}-${stmt.end}`}
-              className="flex items-start gap-2 text-[11px] text-slate-300 hover:bg-slate-900/40 rounded px-1 py-0.5 group min-h-[1.5rem]"
+              className="flex items-start gap-2 text-[13px] font-semibold text-slate-300 hover:bg-slate-800/70 rounded px-1 py-0.5 group min-h-[1.65rem]"
             >
               <input
                 type="checkbox"
                 checked={isChecked}
                 onChange={() => onToggle(i)}
-                className="w-3 h-3 accent-cyan-500 cursor-pointer shrink-0 mt-0.5"
+                className="w-3.5 h-3.5 accent-cyan-600 cursor-pointer shrink-0 mt-0.5"
                 title={
                   checked.length === 0
                     ? 'None checked → Run uses the first statement'
@@ -219,7 +219,7 @@ export const StatementStrip: React.FC<Props> = ({ statements, checked, onToggle,
                 }}
                 className="flex-1 flex items-start gap-1.5 min-w-0 text-left cursor-pointer"
               >
-                <span className="text-slate-500 font-mono shrink-0">#{i + 1}</span>
+                <span className="text-slate-500 font-mono shrink-0 font-bold">#{i + 1}</span>
                 <span
                   className={`shrink-0 font-bold ${ok ? 'text-emerald-400' : 'text-amber-400'}`}
                   title={ok ? 'Looks complete' : status.reasons.join(' · ')}
@@ -228,10 +228,10 @@ export const StatementStrip: React.FC<Props> = ({ statements, checked, onToggle,
                 </span>
                 {dmlBadge && (
                   <span
-                    className={`shrink-0 text-[9px] font-bold uppercase tracking-wide px-1 py-0.5 rounded mt-0.5 ${
+                    className={`shrink-0 text-[10px] font-bold uppercase tracking-wide px-1 py-0.5 rounded mt-0.5 ${
                       noWhere
-                        ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-                        : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                        ? 'bg-rose-950/50 text-rose-300 border border-rose-500/40'
+                        : 'bg-amber-950/40 text-amber-300 border border-amber-500/35'
                     }`}
                     title={
                       noWhere
@@ -243,7 +243,7 @@ export const StatementStrip: React.FC<Props> = ({ statements, checked, onToggle,
                     {noWhere ? '!' : ''}
                   </span>
                 )}
-                <span className="font-mono text-slate-400 group-hover:text-slate-200 line-clamp-2 break-all">
+                <span className="font-mono text-slate-400 group-hover:text-slate-200 line-clamp-2 break-all font-medium">
                   {preview(stmt.text)}
                 </span>
               </button>
@@ -262,7 +262,7 @@ export const StatementStrip: React.FC<Props> = ({ statements, checked, onToggle,
                   e.stopPropagation();
                   void copyText(i, resolved.sql, Boolean(resolved.error));
                 }}
-                className="shrink-0 mt-0.5 p-0.5 text-slate-600 hover:text-cyan-300 opacity-0 group-hover:opacity-100 focus:opacity-100 transition disabled:opacity-30"
+                className="shrink-0 mt-0.5 p-0.5 text-slate-500 hover:text-cyan-300 opacity-0 group-hover:opacity-100 focus:opacity-100 transition disabled:opacity-30"
                 aria-label={`Copy statement ${i + 1}`}
               >
                 {isCopied ? (
@@ -282,7 +282,7 @@ export const StatementStrip: React.FC<Props> = ({ statements, checked, onToggle,
         data-testid="sql-statement-strip-resize"
         title="Drag to resize statement list"
         onMouseDown={startResize}
-        className="h-1.5 shrink-0 cursor-row-resize bg-slate-900/80 hover:bg-cyan-500/40 active:bg-cyan-500/60 transition-colors"
+        className="h-1.5 shrink-0 cursor-row-resize bg-slate-800 hover:bg-cyan-500/40 active:bg-cyan-500/50 transition-colors"
       />
 
       {popover &&

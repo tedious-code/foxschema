@@ -1,7 +1,7 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import Editor from '@monaco-editor/react';
 import { MONACO_THEME, MONACO_THEME_LIGHT, monacoLanguage } from '../../monaco-setup';
-import { useUiStore } from '../../store/uiStore';
+import { MONACO_FONT_PX, useUiStore } from '../../store/uiStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
 import { splitSqlStatements, checkStatement } from '../../lib/sql-splitter';
 import { ensureSqlCompletions } from './completion';
@@ -13,10 +13,9 @@ import {
 
 // Mirrors SqlEditor.tsx's BASE_OPTIONS (that component stays read-only-oriented;
 // this one is the editable editor with a glyph margin for statement status icons).
-const EDITOR_OPTIONS = {
+const EDITOR_OPTIONS_BASE = {
   minimap: { enabled: false },
   scrollBeyondLastLine: false,
-  fontSize: 12,
   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
   lineNumbersMinChars: 3,
   renderLineHighlight: 'line' as const,
@@ -73,7 +72,19 @@ export const SqlEditorPane: React.FC<Props> = ({
   const onSelectionChangeRef = useRef(onSelectionChange);
   onSelectionChangeRef.current = onSelectionChange;
   const monacoTheme = useUiStore((s) => s.resolvedMode) === 'light' ? MONACO_THEME_LIGHT : MONACO_THEME;
+  const fontSizePref = useUiStore((s) => s.fontSize);
+  const monacoFontSize = MONACO_FONT_PX[fontSizePref] ?? MONACO_FONT_PX.md;
   const variables = useSqlEditorStore((s) => s.variables);
+
+  const editorOptions = useMemo(
+    () => ({ ...EDITOR_OPTIONS_BASE, fontSize: monacoFontSize }),
+    [monacoFontSize]
+  );
+
+  // Keep a live editor in sync when the appearance font size changes.
+  useEffect(() => {
+    editorRef.current?.updateOptions?.({ fontSize: monacoFontSize });
+  }, [monacoFontSize]);
 
   const decorate = (text: string) => {
     const editor = editorRef.current;
@@ -193,7 +204,7 @@ export const SqlEditorPane: React.FC<Props> = ({
         });
         decorate(editor.getValue());
       }}
-      options={EDITOR_OPTIONS}
+      options={editorOptions}
     />
   );
 };

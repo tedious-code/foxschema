@@ -29,7 +29,11 @@ import { StatementStrip } from './StatementStrip';
 import { SqlBookmarksPanel } from './SqlBookmarksPanel';
 import { SqlVariablesPanel } from './SqlVariablesPanel';
 import { SqlSchemaExplorer } from './SqlSchemaExplorer';
-import { SqlSidebarSection, useSidebarSectionsOpen } from './SqlSidebarSection';
+import {
+  SqlSidebarSection,
+  useSidebarSectionHeights,
+  useSidebarSectionsOpen,
+} from './SqlSidebarSection';
 import { WriteConfirmDialog } from './WriteConfirmDialog';
 import type { RevealRequest } from './SqlEditorPane';
 
@@ -119,6 +123,7 @@ export const SqlEditorView: React.FC = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(loadSidebarCollapsed);
   const splitRef = useRef<HTMLDivElement>(null);
   const [sidebarOpen, toggleSidebar] = useSidebarSectionsOpen();
+  const [sectionHeights, setSectionHeight] = useSidebarSectionHeights();
 
   useEffect(() => {
     try {
@@ -241,7 +246,7 @@ export const SqlEditorView: React.FC = () => {
     <div className="flex-1 flex min-h-0 overflow-hidden" data-testid="sql-editor-view">
       {sidebarCollapsed ? (
         <aside
-          className="w-10 shrink-0 border-r border-slate-800 bg-slate-925/40 flex flex-col items-center py-2 gap-1"
+          className="w-10 shrink-0 border-r border-slate-800 bg-slate-900 flex flex-col items-center py-2 gap-1"
           data-testid="sql-sidebar-collapsed"
         >
           <button
@@ -250,45 +255,49 @@ export const SqlEditorView: React.FC = () => {
             title="Show sidebar"
             aria-label="Show sidebar"
             onClick={() => setSidebarCollapsed(false)}
-            className="p-1.5 rounded text-slate-500 hover:text-slate-200 hover:bg-slate-800/60 transition"
+            className="p-1.5 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800/80 transition"
           >
             <PanelLeftOpen className="w-4 h-4" />
           </button>
         </aside>
       ) : (
         <aside
-          className="relative shrink-0 border-r border-slate-800 bg-slate-925/40 overflow-hidden flex flex-col min-h-0"
+          className="relative shrink-0 border-r border-slate-800 bg-slate-900 overflow-hidden flex flex-col min-h-0"
           style={{ width: sidebarWidth }}
           data-testid="sql-sidebar"
         >
-          <div className="flex items-center justify-end px-2 py-1 border-b border-slate-800/80 shrink-0">
+          <div className="flex items-center justify-end px-2 py-1 border-b border-slate-800 shrink-0 bg-slate-900">
             <button
               type="button"
               data-testid="sql-sidebar-collapse"
               title="Hide sidebar"
               aria-label="Hide sidebar"
               onClick={() => setSidebarCollapsed(true)}
-              className="p-1 rounded text-slate-500 hover:text-slate-200 hover:bg-slate-800/60 transition"
+              className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800/80 transition"
             >
               <PanelLeftClose className="w-3.5 h-3.5" />
             </button>
           </div>
-          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          <div className="flex-1 flex flex-col min-h-0 overflow-y-auto overflow-x-hidden bg-slate-900">
             <SqlSidebarSection
               id="destinations"
               title="Destination servers"
-              icon={<Database className="w-3 h-3" />}
+              icon={<Database className="w-3.5 h-3.5" />}
               open={sidebarOpen.destinations}
               onToggle={() => toggleSidebar('destinations')}
+              height={sectionHeights.destinations}
+              onResizeHeight={(h) => setSectionHeight('destinations', h)}
             >
               <ConnectionChecklist />
             </SqlSidebarSection>
             <SqlSidebarSection
               id="bookmarks"
               title="Bookmarks"
-              icon={<Bookmark className="w-3 h-3" />}
+              icon={<Bookmark className="w-3.5 h-3.5" />}
               open={sidebarOpen.bookmarks}
               onToggle={() => toggleSidebar('bookmarks')}
+              height={sectionHeights.bookmarks}
+              onResizeHeight={(h) => setSectionHeight('bookmarks', h)}
               actions={
                 <button
                   type="button"
@@ -296,7 +305,7 @@ export const SqlEditorView: React.FC = () => {
                   title="Save current query as a bookmark (uses the tab title)"
                   disabled={!tab.sql.trim()}
                   onClick={() => saveBookmark()}
-                  className="flex items-center gap-0.5 text-[10px] font-semibold text-slate-500 hover:text-cyan-400 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="flex items-center gap-0.5 text-[11px] font-bold text-slate-400 hover:text-cyan-300 transition disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <BookmarkPlus className="w-3.5 h-3.5" /> Save
                 </button>
@@ -307,19 +316,23 @@ export const SqlEditorView: React.FC = () => {
             <SqlSidebarSection
               id="variables"
               title="Variables"
-              icon={<Braces className="w-3 h-3" />}
+              icon={<Braces className="w-3.5 h-3.5" />}
               open={sidebarOpen.variables}
               onToggle={() => toggleSidebar('variables')}
+              height={sectionHeights.variables}
+              onResizeHeight={(h) => setSectionHeight('variables', h)}
             >
               <SqlVariablesPanel />
             </SqlSidebarSection>
             <SqlSidebarSection
               id="schema"
               title="Schema"
-              icon={<Network className="w-3 h-3" />}
+              icon={<Network className="w-3.5 h-3.5" />}
               open={sidebarOpen.schema}
               onToggle={() => toggleSidebar('schema')}
               grow
+              height={sectionHeights.schema}
+              onResizeHeight={(h) => setSectionHeight('schema', h)}
             >
               <SqlSchemaExplorer />
             </SqlSidebarSection>
@@ -436,8 +449,8 @@ export const SqlEditorView: React.FC = () => {
             <span className={safeMode ? 'text-rose-300' : 'text-slate-500'}>Safe mode</span>
           </label>
 
-          <label className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-500 ml-1" title="Max rows fetched per statement">
-            Rows
+          <label className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-500 ml-1" title="Rows fetched per page (Next/Prev use this size)">
+            Rows/page
             <input
               data-testid="sql-max-rows"
               type="number"
@@ -506,6 +519,8 @@ export const SqlEditorView: React.FC = () => {
               layout={tab.layout}
               refreshing={running}
               warnings={results?.warnings}
+              pageState={results?.pageMeta}
+              onPage={(args) => void useSqlEditorStore.getState().loadResultPage(args)}
               onRefresh={(connectionId) =>
                 execute(connectionId ? { connectionIds: [connectionId] } : undefined)
               }

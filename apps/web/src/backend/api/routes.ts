@@ -23,6 +23,7 @@ import { AppSettingsStore } from '../modules/app-settings.module';
 import { SignupModule } from '../modules/signup.module';
 import { rateLimit } from './rate-limit';
 import { runStatements, clampMaxRows, MAX_STATEMENTS, MAX_STATEMENT_LENGTH } from './sql-execute';
+import { clampOffset } from './sql-page-wrap';
 import { getMetadataDbConfig, SUPPORTED_ENGINES, type DbEngine } from '../database/config';
 import { createMetadataStore } from '../database/stores/registry';
 import { keySchemeInfo } from '../cores/crypto';
@@ -365,7 +366,11 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   // caps only. Rate-limited: each call can hold a DB connection for a while.
   const sqlExecuteLimiter = rateLimit({ windowMs: 60 * 1000, max: 60 });
   router.post('/sql/execute', sqlExecuteLimiter, async (req: Request, res: Response) => {
-    const { statements, maxRows, ...ref } = req.body as ConnectionRef & { statements?: unknown; maxRows?: unknown };
+    const { statements, maxRows, offset, ...ref } = req.body as ConnectionRef & {
+      statements?: unknown;
+      maxRows?: unknown;
+      offset?: unknown;
+    };
     if (!Array.isArray(statements) || statements.length === 0) {
       res.status(400).json({ error: 'statements[] is required.' });
       return;
@@ -393,7 +398,8 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
         resolved.option,
         statements as string[],
         clampMaxRows(maxRows),
-        resolved.schema
+        resolved.schema,
+        clampOffset(offset)
       );
       res.json({ results });
     } catch (error: unknown) {

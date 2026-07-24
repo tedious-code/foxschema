@@ -1,12 +1,11 @@
-import React, { useRef, useEffect, useCallback } from 'react';
+import React, { useRef, useEffect, useCallback, useMemo } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
 import { MONACO_THEME, MONACO_THEME_LIGHT, MONACO_DIFF_THEME, MONACO_DIFF_THEME_LIGHT, monacoLanguage } from '../monaco-setup';
-import { useUiStore } from '../store/uiStore';
+import { MONACO_FONT_PX, useUiStore } from '../store/uiStore';
 
 const BASE_OPTIONS = {
   minimap: { enabled: false },
   scrollBeyondLastLine: false,
-  fontSize: 12,
   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
   lineNumbersMinChars: 3,
   renderLineHighlight: 'none' as const,
@@ -48,6 +47,17 @@ export const SqlEditor: React.FC<SqlViewerProps> = ({ value, dialect, editable =
   const editorRef = useRef<any>(null);
   const decoRef = useRef<any>(null);
   const monacoTheme = useUiStore((s) => s.resolvedMode) === 'light' ? MONACO_THEME_LIGHT : MONACO_THEME;
+  const fontSizePref = useUiStore((s) => s.fontSize);
+  const monacoFontSize = MONACO_FONT_PX[fontSizePref] ?? MONACO_FONT_PX.md;
+  const options = useMemo(
+    () => ({
+      ...BASE_OPTIONS,
+      fontSize: monacoFontSize,
+      readOnly: !editable,
+      domReadOnly: !editable,
+    }),
+    [monacoFontSize, editable]
+  );
 
   const apply = useCallback(() => {
     if (editorRef.current) decoRef.current = decorate(editorRef.current, highlight ?? '', decoRef.current);
@@ -56,6 +66,10 @@ export const SqlEditor: React.FC<SqlViewerProps> = ({ value, dialect, editable =
   useEffect(() => {
     apply();
   }, [apply, value]);
+
+  useEffect(() => {
+    editorRef.current?.updateOptions?.({ fontSize: monacoFontSize });
+  }, [monacoFontSize]);
 
   return (
     <Editor
@@ -68,7 +82,7 @@ export const SqlEditor: React.FC<SqlViewerProps> = ({ value, dialect, editable =
         editorRef.current = editor;
         apply();
       }}
-      options={{ ...BASE_OPTIONS, readOnly: !editable, domReadOnly: !editable }}
+      options={options}
     />
   );
 };
@@ -99,6 +113,8 @@ export const SqlDiffEditor: React.FC<SqlDiffProps> = ({ original, modified, dial
   const decoOrigRef = useRef<any>(null);
   const isLight = useUiStore((s) => s.resolvedMode) === 'light';
   const monacoTheme = isLight ? MONACO_DIFF_THEME_LIGHT[status] : MONACO_DIFF_THEME[status];
+  const fontSizePref = useUiStore((s) => s.fontSize);
+  const monacoFontSize = MONACO_FONT_PX[fontSizePref] ?? MONACO_FONT_PX.md;
 
   const apply = useCallback(() => {
     const diff = diffRef.current;
@@ -110,6 +126,13 @@ export const SqlDiffEditor: React.FC<SqlDiffProps> = ({ original, modified, dial
   useEffect(() => {
     apply();
   }, [apply, orig, mod]);
+
+  useEffect(() => {
+    const diff = diffRef.current;
+    if (!diff) return;
+    diff.getModifiedEditor()?.updateOptions?.({ fontSize: monacoFontSize });
+    diff.getOriginalEditor()?.updateOptions?.({ fontSize: monacoFontSize });
+  }, [monacoFontSize]);
 
   return (
     <DiffEditor
@@ -124,6 +147,7 @@ export const SqlDiffEditor: React.FC<SqlDiffProps> = ({ original, modified, dial
       }}
       options={{
         ...BASE_OPTIONS,
+        fontSize: monacoFontSize,
         readOnly: true,
         renderSideBySide: !inline,
         ignoreTrimWhitespace: false,

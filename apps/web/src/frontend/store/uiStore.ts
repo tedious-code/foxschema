@@ -56,7 +56,11 @@ export const FONT_SIZES: { id: FontSize; label: string }[] = [
   { id: 'xl', label: 'Extra Large' },
 ];
 
-const FONT_PX: Record<FontSize, string> = { sm: '14px', md: '16px', lg: '18px', xl: '20px' };
+/** Root rem / UI chrome size. */
+export const FONT_PX: Record<FontSize, string> = { sm: '14px', md: '16px', lg: '18px', xl: '20px' };
+
+/** Monaco editor pixel size — same scale as the appearance preference. */
+export const MONACO_FONT_PX: Record<FontSize, number> = { sm: 14, md: 16, lg: 18, xl: 20 };
 
 // Tailwind v4 exposes the full neutral palette + the app's slate scale as CSS
 // variables, and `bg-slate-950` etc. compile to `var(--color-slate-950)`. So we
@@ -120,7 +124,8 @@ function applyToDocument(themeMode: ThemeMode, tone: ToneId, fontSize: FontSize,
   const lit = (fam: string, shade: number) => ORIGINALS?.[`${fam}-${shade}`] ?? `var(--color-${fam}-${shade})`;
 
   // Neutral scale → chosen tone family (shifted for light). Default (slate +
-  // dark) drops overrides to use Tailwind's own slate.
+  // dark) drops overrides to use Tailwind's own slate, then we soften dark
+  // extremes below so the canvas isn't near-black and text isn't pure white.
   const neutralDefault = tone === 'slate' && !light;
   for (const s of SHADES) {
     if (neutralDefault) {
@@ -134,6 +139,19 @@ function applyToDocument(themeMode: ThemeMode, tone: ToneId, fontSize: FontSize,
   // as a bare-white, "uncoloured" page next to the panels.
   if (light) {
     root.style.setProperty('--color-slate-950', `color-mix(in oklab, ${lit(tone, 100)} 60%, ${lit(tone, 200)})`);
+  } else {
+    // Eye-friendly dark: lift pure black fills toward charcoal; mute brightest
+    // text so dark mode isn't OLED-black vs pure-white (harsh contrast).
+    const soft950 = `color-mix(in oklab, ${lit(tone, 950)} 45%, ${lit(tone, 900)})`;
+    const soft900 = `color-mix(in oklab, ${lit(tone, 900)} 65%, ${lit(tone, 800)})`;
+    const soft50 = `color-mix(in oklab, ${lit(tone, 50)} 55%, ${lit(tone, 200)})`;
+    const soft100 = `color-mix(in oklab, ${lit(tone, 100)} 60%, ${lit(tone, 200)})`;
+    const soft200 = `color-mix(in oklab, ${lit(tone, 200)} 70%, ${lit(tone, 300)})`;
+    root.style.setProperty('--color-slate-950', soft950);
+    root.style.setProperty('--color-slate-900', soft900);
+    root.style.setProperty('--color-slate-50', soft50);
+    root.style.setProperty('--color-slate-100', soft100);
+    root.style.setProperty('--color-slate-200', soft200);
   }
 
   // Colored families: in light mode remap with the same shifted scale as the
