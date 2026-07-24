@@ -1,7 +1,7 @@
 {
   "name": "@foxschema/desktop",
   "private": true,
-  "version": "0.1.74",
+  "version": "0.1.75",
   "type": "module",
   "scripts": {
     "build:frontend": "cd ../web && cross-env VITE_EDITION=community vite build --outDir ../desktop/src-tauri/frontendDist --emptyOutDir",
