@@ -13,7 +13,7 @@ class Foxschema < Formula
   homepage "https://foxschema.com"
   url "https://registry.npmjs.org/foxschema/-/foxschema-0.1.67.tgz"
   # shasum -a 256 of the npm tarball; refreshed by packaging/homebrew/update-formula.sh
-  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
+  sha256 "b721fd4f71a73dbaa9b98378d2a8aaf4f3108ae814fd2dd01d38a00946af8601"
   license "Apache-2.0"
 
   depends_on "node@22"
