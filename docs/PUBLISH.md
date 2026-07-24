@@ -8,7 +8,7 @@ Distribution channels (one product, no separate Db2 edition):
 |---------|----------|---------|
 | **npm** | `foxschema` on registry.npmjs.org | `.github/workflows/npm-publish.yml` on `v*` tag |
 | **Docker** | `5nickels/foxschema:latest` + `:vX.Y.Z` (linux/amd64, includes Db2) | `.github/workflows/web-release.yml` on `v*` tag |
-| **Homebrew** | Formula in `tedious-code/homebrew-foxschema` | Manual after npm publish |
+| **Homebrew** | `Formula/foxschema.rb` in this repo | Manual commit after npm publish |
 | **Winget** | MSI channel **retired** — document npm on Windows | — |
 | **Desktop Tauri** | **Retired** — do not publish | — |
 
@@ -57,19 +57,25 @@ gh workflow run npm-publish.yml --ref v0.1.67
 
 ---
 
-## 3. Homebrew tap
+## 3. Homebrew (same repo)
 
-After npm shows `foxschema@VERSION`:
+After npm shows `foxschema@VERSION`, update the formula in this repo and push:
 
 ```bash
 ./packaging/homebrew/update-formula.sh 0.1.67
-cp packaging/homebrew/foxschema.rb ../homebrew-foxschema/Formula/foxschema.rb
-cd ../homebrew-foxschema
-git commit -am "foxschema 0.1.67"
-git push
+git add Formula/foxschema.rb
+git commit -m "brew: foxschema 0.1.67"
+git push origin main
 ```
 
-Tap repo: `tedious-code/homebrew-foxschema` (create once). See [packaging/homebrew/README.md](../packaging/homebrew/README.md).
+Users install with:
+
+```bash
+brew tap tedious-code/foxschema https://github.com/tedious-code/foxschema
+brew install foxschema
+```
+
+See [packaging/homebrew/README.md](../packaging/homebrew/README.md).
 
 ---
 

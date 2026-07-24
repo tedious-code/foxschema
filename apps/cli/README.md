@@ -9,8 +9,9 @@ Requires **Node.js ≥ 22.5**. Full matrix: [docs/INSTALL.md](../../docs/INSTALL
 ```bash
 npm install -g foxschema
 
-# Homebrew (macOS)
-brew tap tedious-code/foxschema && brew install foxschema
+# Homebrew (macOS — formula in this repo)
+brew tap tedious-code/foxschema https://github.com/tedious-code/foxschema
+brew install foxschema
 
 # Windows: winget install OpenJS.NodeJS.LTS  then  npm i -g foxschema
 

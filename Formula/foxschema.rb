@@ -1,17 +1,17 @@
 # Homebrew formula for Fox Schema CLI (browser launcher).
-# Install:
-#   brew tap tedious-code/foxschema https://github.com/tedious-code/homebrew-foxschema
+# Same repo as the app — no separate tap repository.
+#
+#   brew tap tedious-code/foxschema https://github.com/tedious-code/foxschema
 #   brew install foxschema
 #
-# This formula installs the published npm package globally under Homebrew's
-# prefix, so both Apple Silicon and Intel Macs get the correct Node native
-# addons for their arch. One package — ibm_db is an optionalDependency of the
-# npm package. Docker 5nickels/foxschema:latest includes Db2 (linux/amd64).
+# Installs the published npm package under Homebrew's prefix so Arm and Intel
+# Macs get the correct Node native addons. ibm_db is an optionalDependency.
+# Docker: 5nickels/foxschema:latest (linux/amd64, includes Db2).
 
 class Foxschema < Formula
   desc "Fox Schema — database schema diff & migration (local web UI)"
   homepage "https://foxschema.com"
-  url "https://registry.npmjs.org/foxschema/-/foxschema-0.1.66.tgz"
+  url "https://registry.npmjs.org/foxschema/-/foxschema-0.1.67.tgz"
   # shasum -a 256 of the npm tarball; refreshed by packaging/homebrew/update-formula.sh
   sha256 "0000000000000000000000000000000000000000000000000000000000000000"
   license "Apache-2.0"

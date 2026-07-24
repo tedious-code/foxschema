@@ -80,7 +80,8 @@ apps/web/
 
 apps/desktop/           Legacy Tauri v2 shell + Node sidecar packaging
 apps/cli/               `foxschema` CLI — browser launcher (:3210), line commands, Ink TUI
-packaging/homebrew/     Homebrew formula wrapping the published npm package
+packaging/homebrew/     Scripts to refresh Formula/foxschema.rb (Homebrew, same repo)
+Formula/                Homebrew formula (tap this GitHub repo directly)
 ```
 
 **Frontend imports nothing from workspace packages** — it uses standalone copies in

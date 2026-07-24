@@ -4,7 +4,8 @@
 desktop shortcut (`foxschema shortcut`). See **[INSTALL.md](INSTALL.md)**.
 
 ```bash
-npm install -g foxschema   # or: brew install tedious-code/foxschema/foxschema
+npm install -g foxschema
+# or: brew tap tedious-code/foxschema https://github.com/tedious-code/foxschema && brew install foxschema
 foxschema                  # http://localhost:3210
 foxschema shortcut
 ```
