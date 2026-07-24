@@ -32,7 +32,9 @@ only when you explicitly apply a migration.
 
 ```bash
 npm install -g foxschema
-# or Homebrew: brew tap tedious-code/foxschema https://github.com/tedious-code/foxschema && brew install foxschema
+# or Homebrew:
+# brew tap tedious-code/foxschema https://github.com/tedious-code/foxschema
+# brew trust tedious-code/foxschema && brew install foxschema
 foxschema                         # http://localhost:3210
 foxschema shortcut                # optional Fox icon on your Desktop
 ```

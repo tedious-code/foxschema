@@ -19,7 +19,7 @@ Requires **Node.js ≥ 22.5** (npm / Homebrew). Docker needs no Node.
 # npm — macOS, Windows, Linux (arm64 + x64)
 npm install -g foxschema
 
-# Homebrew — macOS (formula in this repo)
+# Homebrew — macOS (formula in this repo; Homebrew 6+ needs trust once)
 brew tap tedious-code/foxschema https://github.com/tedious-code/foxschema
 brew trust tedious-code/foxschema
 brew install foxschema
