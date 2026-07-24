@@ -41,9 +41,9 @@ CHANGELOG.md
 !docs/security/security-process.md
 # Session work-summary plans must be tracked
 !docs/plans/*.md
-# Desktop build/publish guide must be tracked
+# Desktop build note (retired) must be tracked
 !docs/desktop-build.md
-# WinGet publish guide must be tracked
+# WinGet / Windows install guide must be tracked
 !docs/winget.md
 # Public project docs must be tracked
 !README.md
@@ -51,6 +51,8 @@ CHANGELOG.md
 !docs/ARCHITECTURE.md
 !docs/USER_GUIDE.md
 !docs/DEPLOYMENT.md
+!docs/INSTALL.md
+!docs/PUBLISH.md
 !docs/docker-hub-overview.md
 docs/demo/*
 !docs/demo/foxschema-demo.mp4

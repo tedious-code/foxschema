@@ -12,6 +12,7 @@
   "files": [
     "dist",
     "ui-dist",
+    "resources",
     "README.md"
   ],
   "scripts": {

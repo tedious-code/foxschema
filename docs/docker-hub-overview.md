@@ -27,3 +27,6 @@ docker run -d --name foxschema \
 Open http://localhost:3001
 
 Also on GHCR: `ghcr.io/tedious-code/foxschema:latest`
+
+Laptop install (npm / Homebrew / Winget): [INSTALL.md](INSTALL.md).
+Maintainers: [PUBLISH.md](PUBLISH.md).

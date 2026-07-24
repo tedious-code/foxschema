@@ -37,6 +37,10 @@ rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
 cpSync(join(cliRoot, 'dist'), join(outDir, 'dist'), { recursive: true });
 cpSync(join(cliRoot, 'ui-dist'), join(outDir, 'ui-dist'), { recursive: true });
+const resourcesSrc = join(cliRoot, 'resources');
+if (existsSync(resourcesSrc)) {
+  cpSync(resourcesSrc, join(outDir, 'resources'), { recursive: true });
+}
 
 const readmeSrc = join(cliRoot, 'README.md');
 if (existsSync(readmeSrc)) {
@@ -72,7 +76,7 @@ const publishPkg = {
   type: 'module',
   engines: srcPkg.engines,
   bin: srcPkg.bin,
-  files: ['dist', 'ui-dist', 'README.md'],
+  files: ['dist', 'ui-dist', 'resources', 'README.md'],
   dependencies: {
     '@napi-rs/keyring': srcPkg.dependencies['@napi-rs/keyring'],
     chalk: srcPkg.dependencies.chalk,

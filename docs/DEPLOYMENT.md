@@ -1,17 +1,20 @@
 # Deploying Fox Schema
 
-**Day-to-day on a laptop:** install the CLI and open the UI in your browser (no Docker required):
+**Day-to-day on a laptop:** install the CLI, open the UI in your browser, optionally add a
+desktop shortcut (`foxschema shortcut`). See **[INSTALL.md](INSTALL.md)**.
 
 ```bash
 npm install -g foxschema   # or: brew install tedious-code/foxschema/foxschema
 foxschema                  # http://localhost:3210
+foxschema shortcut
 ```
 
-See [docs/homebrew.md](homebrew.md) and the CLI README. **Desktop Tauri releases are retired** — use npm, Homebrew, or Docker.
+Tauri desktop releases are retired. Maintainers: **[PUBLISH.md](PUBLISH.md)**.
 
 **Servers / teams:** Fox Schema ships as a **single Docker image** (all dialects including
 Db2) that serves both the UI and the API on one configurable port (default **3001**).
 
+- [Install (all channels)](INSTALL.md)
 - [CLI / Homebrew](homebrew.md)
 - [Quick start (Docker)](#quick-start)
 - [Configuration (environment variables)](#configuration-environment-variables)

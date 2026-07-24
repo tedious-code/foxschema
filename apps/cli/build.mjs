@@ -113,3 +113,11 @@ if (existsSync(join(webDist, 'index.html'))) {
 } else {
   console.log('⚠ apps/web/dist missing — run `npm run build -w @foxschema/web` before publishing');
 }
+
+// Ensure icons ship with the package (Desktop shortcut command).
+const iconsSrc = join(cliRoot, 'resources', 'icons');
+if (existsSync(join(iconsSrc, 'icon.icns')) || existsSync(join(iconsSrc, 'icon.png'))) {
+  console.log('✔ resources/icons present for desktop shortcut');
+} else {
+  console.log('⚠ resources/icons missing — `foxschema shortcut` needs the fox icon files');
+}

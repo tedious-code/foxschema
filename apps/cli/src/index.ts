@@ -12,6 +12,7 @@ import { runSearch } from './commands/search';
 import { listHistory, showHistory } from './commands/history';
 import { runOpen, runStop } from './commands/open';
 import { runDrivers } from './commands/drivers';
+import { runShortcut } from './commands/shortcut';
 import { VERSION } from './version';
 
 /** Shared connection-ref options (saved name or inline) for single-connection commands. */
@@ -46,6 +47,7 @@ Examples:
   $ foxschema migrate --source prod --target staging  Dry run — preview the migration SQL
   $ foxschema tui                                     Interactive terminal UI
   $ foxschema drivers install db2                     Opt-in DB2 driver
+  $ foxschema shortcut                                Put a Fox icon on your Desktop
 `
   );
 
@@ -69,6 +71,12 @@ program
   .command('stop')
   .description('Stop the managed local UI server')
   .action(() => runStop());
+
+program
+  .command('shortcut')
+  .description('Install a Desktop shortcut with the Fox icon (reopens UI if server still running)')
+  .option('--dir <path>', 'install location (default: Desktop)')
+  .action((opts) => runShortcut({ dir: opts.dir }));
 
 program
   .command('setup')

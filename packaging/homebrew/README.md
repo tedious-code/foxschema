@@ -14,8 +14,12 @@ foxschema
 
 Requires Homebrew’s `node@22` (or newer Node 22+ on PATH after link).
 
-One formula — same npm package as `npm i -g foxschema`. Docker
-`5nickels/foxschema:latest` is the self-host image (linux/amd64, includes Db2).
+One formula — same npm package as `npm i -g foxschema`. After install:
+`foxschema shortcut` adds a Fox icon on the Desktop.
+
+Docker `5nickels/foxschema:latest` is the self-host image (linux/amd64, includes Db2).
+
+Full user docs: [docs/INSTALL.md](../../docs/INSTALL.md). Publish checklist: [docs/PUBLISH.md](../../docs/PUBLISH.md).
 
 ## Tap repository
 
