@@ -120,7 +120,9 @@ compare / migrate). It lives in the same local web UI you open with `foxschema`.
 3. Under **Destinations**, check one or more saved connections — the same SQL runs
    against every checked server (handy for comparing data across environments).
 4. Type SQL in the editor. Multiple statements are fine; use the **statement strip**
-   under the editor to enable/disable individual statements before Run.
+   under the editor to enable/disable individual statements before Run. Or **select**
+   a statement (or any SQL) in the editor — Run becomes **Run selection** and only
+   that text is executed (variables still expand).
 5. Click **Run**. Results appear below, grouped by connection (stack or side-by-side).
 
 Tips:
@@ -131,6 +133,48 @@ Tips:
   cursor. Autocomplete uses the checked connections’ schemas when available.
 - **Format** — pretty-print the buffer. **Clear** removes results for the active tab.
 - **Bookmarks** — save reusable snippets from the sidebar.
+- **Variables** — named values reused as `${{name}}` or `${{name.col}}` (table
+  column → list). Add them in the **Variables** sidebar; right-click a result
+  **cell** (scalar), **column header** (list), or **# / empty grid** (table); or
+  use leading comments so Run captures automatically — put `-- @set`
+  **immediately above** the SELECT it applies to (not below the previous query):
+
+  ```sql
+  -- @set orderid
+  SELECT id FROM "ORDER" ORDER BY id DESC FETCH FIRST 1 ROW ONLY;
+
+  -- @set ids = column id
+  SELECT id FROM ORDER_TIME WHERE orderId = ${{orderid}};
+
+  -- @set t = table
+  SELECT id, name FROM users;
+
+  SELECT * FROM ORDER_ANSWER WHERE ORDERID IN (${{ids}});
+  -- table column: ${{t.id}}   whole table: ${{t}} → VALUES (…)
+  ```
+
+  Typing `${{` / `${{name.` autocompletes names and table columns. Hover a ref for
+  its value (or `N×M table`). Hover a statement in the strip (when it uses vars) to
+  preview **query with values** and **Copy**. Statements in one Run are sequential
+  so later SQL can use vars set by earlier `@set`. Multi-destination: `@set` uses
+  the first successful server’s result. Substitution is local (values are pasted
+  into the SQL text before send — not database bind parameters). Missing/empty
+  vars fail the run with a clear error; failed `@set` shows an amber warning above
+  the results.
+
+  **Secrets** — mark a variable as secret to mask it in the sidebar, hover, and
+  statement preview. Secret **values are session-only** (not written to
+  localStorage); after reload, re-enter them or capture again with `@set` / the
+  grid. Note: substitution still embeds the value in the SQL sent to the server.
+
+  **Per connection** — scalars and lists can override the global value per saved
+  destination (expand **Per connection…** in the sidebar). Multi-destination runs
+  substitute each server with its override. `@set` and grid capture still update
+  the **global** base value.
+
+  **Export / import** — download or upload JSON from the Variables panel. Secret
+  entries export as stubs (name + flag only, no values). Click a table variable’s
+  size line to preview columns and rows.
 - **Safe mode** — when on, write/DDL statements need an extra confirmation before run.
 - **Max rows** — caps how many rows each statement returns (avoids huge result sets).
 

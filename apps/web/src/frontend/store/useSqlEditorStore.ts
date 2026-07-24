@@ -3,8 +3,24 @@ import { persist } from 'zustand/middleware';
 import { executeSql, type SqlStatementResult } from '../api/sqlApi';
 import { loadSchema } from '../api/schemaApi';
 import { isMutatingDmlStatement, isWriteStatement } from '../lib/sql-splitter';
+import {
+  applySetDirectives,
+  exportVariables,
+  isValidVariableName,
+  normalizeVariableName,
+  parseImportedVariables,
+  parseSetDirectives,
+  prepareStatement,
+  resolveVariablesForConnection,
+  stripSecretsForPersist,
+  type SqlVariable,
+  type SqlVariableExport,
+  type SqlVariableKind,
+  type VariableOverride,
+} from '../lib/sql-variables';
 import { useSyncStore } from './useSyncStore';
 import type { SchemaCacheEntry } from '../components/sql-editor/sqlEditorBridge';
+import { getSelectedSql } from '../components/sql-editor/sqlEditorBridge';
 import {
   addTab as addTabLogic,
   checkedAfterSqlChange,
@@ -14,11 +30,14 @@ import {
   hydrateTabs,
   newTabId,
   persistableTabs,
+  statementsFromSelection,
   statementsToRun,
   toggleStatementCheck,
   type ResultsLayout,
   type SqlTab,
 } from './sqlEditorTabLogic';
+
+export type { SqlVariable, SqlVariableKind, SqlVariableExport, VariableOverride };
 
 /** Dialects whose adapters are SELECT-only — writes fail with a friendly error. */
 const READONLY_DIALECTS = new Set(['sqlite', 'clickhouse']);
@@ -47,6 +66,8 @@ export interface CredentialRun {
 export interface TabResults {
   ranStatements: string[];
   runs: CredentialRun[];
+  /** Non-fatal messages (e.g. `@set` failures) for this run. */
+  warnings?: string[];
 }
 
 /** Password prompt for a connection saved without one (session-only). */
@@ -99,6 +120,8 @@ interface SqlEditorState {
   sharedConnectionIds: string[];
   /** Named saved scripts — persisted. */
   bookmarks: SqlBookmark[];
+  /** Global SQL Editor variables (`${{name}}`) — persisted. */
+  variables: SqlVariable[];
 
   activeTab: () => SqlTab;
   /** Destination server ids for the active tab (respects shareDestinations). */
@@ -125,6 +148,29 @@ interface SqlEditorState {
   openBookmark: (id: string) => void;
   renameBookmark: (id: string, title: string) => void;
   deleteBookmark: (id: string) => void;
+  /** Create or overwrite a variable by name. Returns error string or null. */
+  upsertVariable: (input: {
+    name: string;
+    kind: SqlVariableKind;
+    value?: unknown;
+    values?: unknown[];
+    columns?: string[];
+    rows?: unknown[][];
+    secret?: boolean;
+    overrides?: Record<string, VariableOverride>;
+    /** When set, rename/update that id instead of matching by name. */
+    id?: string;
+  }) => string | null;
+  deleteVariable: (id: string) => void;
+  setVariableSecret: (id: string, secret: boolean) => void;
+  setVariableOverride: (
+    id: string,
+    connectionId: string,
+    override: VariableOverride | null
+  ) => void;
+  /** Merge imported variables by name. Returns error or null. */
+  importVariables: (raw: unknown, opts?: { overwrite?: boolean }) => string | null;
+  exportVariablesJson: () => string;
 }
 
 const firstTab = createTab({ title: 'Query 1' });
@@ -147,6 +193,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
       shareDestinations: true,
       sharedConnectionIds: [],
       bookmarks: [],
+      variables: [],
 
       activeTab: () => {
         const { tabs, activeTabId } = get();
@@ -455,11 +502,15 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           return;
         }
 
-        const statements = statementsToRun(tab.sql, tab.checkedStatements);
-        if (statements.length === 0) return;
+        const selectedSql = getSelectedSql();
+        const rawStatements = selectedSql
+          ? statementsFromSelection(selectedSql)
+          : statementsToRun(tab.sql, tab.checkedStatements);
+        if (rawStatements.length === 0) return;
 
-        // Safe mode: confirm UPDATE / DELETE / MERGE (and other writes) before run.
-        const writeStatements = statements.filter((s) => isWriteStatement(s));
+        // Safe mode: confirm on stripped SQL (ignore @set lines; vars may resolve mid-run).
+        const strippedForConfirm = rawStatements.map((s) => parseSetDirectives(s).sql);
+        const writeStatements = strippedForConfirm.filter((s) => isWriteStatement(s));
         const mutatingDml = writeStatements.filter((s) => isMutatingDmlStatement(s));
         const needsConfirm =
           safeMode &&
@@ -514,14 +565,19 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           nextRuns = connections.map(runningStub);
         }
 
+        // Accumulate per-connection results as we run statements sequentially.
+        const resultsByConn = new Map<string, SqlStatementResult[]>();
+        for (const c of connections) resultsByConn.set(c.id, []);
+
         set({
           pendingWriteConfirm: null,
           runningTabId: tabId,
           resultsByTab: {
             ...get().resultsByTab,
             [tabId]: {
-              ranStatements: statements,
+              ranStatements: [],
               runs: nextRuns,
+              warnings: [],
             },
           },
         });
@@ -541,24 +597,161 @@ export const useSqlEditorStore = create<SqlEditorState>()(
             };
           });
 
-        await Promise.allSettled(
-          connections.map(async (c) => {
-            try {
-              const { results } = await executeSql(
-                { connectionId: c.id, password: sessionPasswords[c.id] || undefined },
-                statements,
-                maxRows
-              );
-              patchRun(c.id, { status: 'done', results, error: undefined });
-            } catch (error: unknown) {
+        const setRanStatements = (stmts: string[]) =>
+          set((state) => {
+            const current = state.resultsByTab[tabId];
+            if (!current) return state;
+            return {
+              resultsByTab: {
+                ...state.resultsByTab,
+                [tabId]: { ...current, ranStatements: stmts },
+              },
+            };
+          });
+
+        const appendWarning = (msg: string) =>
+          set((state) => {
+            const current = state.resultsByTab[tabId];
+            if (!current) return state;
+            return {
+              resultsByTab: {
+                ...state.resultsByTab,
+                [tabId]: {
+                  ...current,
+                  warnings: [...(current.warnings ?? []), msg],
+                },
+              },
+            };
+          });
+
+        const ranDisplay: string[] = [];
+        let aborted: string | null = null;
+
+        for (let si = 0; si < rawStatements.length; si++) {
+          const raw = rawStatements[si]!;
+          const { directives } = parseSetDirectives(raw);
+
+          type Prep =
+            | { ok: true; sql: string }
+            | { ok: false; error: string };
+          const preparedByConn = new Map<string, Prep>();
+          for (const c of connections) {
+            const vars = resolveVariablesForConnection(get().variables, c.id);
+            const prepared = prepareStatement(raw, vars);
+            preparedByConn.set(
+              c.id,
+              prepared.ok
+                ? { ok: true, sql: prepared.sql }
+                : { ok: false, error: prepared.error }
+            );
+          }
+
+          const firstOk = [...preparedByConn.values()].find((p) => p.ok);
+          const firstErr = [...preparedByConn.values()].find((p) => !p.ok);
+          if (!firstOk) {
+            aborted = firstErr && !firstErr.ok ? firstErr.error : 'Variable substitution failed';
+            for (const c of connections) {
+              const prep = preparedByConn.get(c.id)!;
+              const prev = resultsByConn.get(c.id) ?? [];
+              const filler: SqlStatementResult = {
+                ok: false,
+                error: prep.ok ? aborted : prep.error,
+                durationMs: 0,
+              };
+              while (prev.length < si) {
+                prev.push({ ok: false, error: 'Skipped', durationMs: 0 });
+              }
+              prev.push(filler);
+              resultsByConn.set(c.id, prev);
               patchRun(c.id, {
                 status: 'error',
-                error: error instanceof Error ? error.message : String(error),
-                results: undefined,
+                error: prep.ok ? aborted : prep.error,
+                results: [...prev],
               });
             }
-          })
-        );
+            break;
+          }
+
+          ranDisplay.push(firstOk.sql);
+          setRanStatements([...ranDisplay]);
+
+          await Promise.allSettled(
+            connections.map(async (c) => {
+              const prev = resultsByConn.get(c.id) ?? [];
+              const prep = preparedByConn.get(c.id)!;
+              if (!prep.ok) {
+                prev.push({ ok: false, error: prep.error, durationMs: 0 });
+                resultsByConn.set(c.id, prev);
+                patchRun(c.id, {
+                  status: 'error',
+                  error: prep.error,
+                  results: [...prev],
+                });
+                return;
+              }
+              try {
+                const { results } = await executeSql(
+                  { connectionId: c.id, password: sessionPasswords[c.id] || undefined },
+                  [prep.sql],
+                  maxRows
+                );
+                const one = results[0] ?? {
+                  ok: false as const,
+                  error: 'No result returned',
+                  durationMs: 0,
+                };
+                prev.push(one);
+                resultsByConn.set(c.id, prev);
+                const last = si === rawStatements.length - 1;
+                patchRun(c.id, {
+                  status: last ? 'done' : 'running',
+                  results: [...prev],
+                  error: undefined,
+                });
+              } catch (error: unknown) {
+                const msg = error instanceof Error ? error.message : String(error);
+                prev.push({ ok: false, error: msg, durationMs: 0 });
+                resultsByConn.set(c.id, prev);
+                patchRun(c.id, {
+                  status: 'error',
+                  error: msg,
+                  results: [...prev],
+                });
+              }
+            })
+          );
+
+          // @set from the first successful credential result (connection list order).
+          // Writes the global base value (not a per-connection override).
+          if (directives.length > 0) {
+            for (const c of connections) {
+              const res = resultsByConn.get(c.id)?.[si];
+              if (res && res.ok) {
+                const sets = applySetDirectives(directives, res);
+                if (sets.ok) {
+                  for (const u of sets.updates) {
+                    get().upsertVariable(u);
+                  }
+                } else {
+                  appendWarning(sets.error);
+                }
+                break;
+              }
+            }
+          }
+        }
+
+        // Mark any still-running connections as done.
+        for (const c of connections) {
+          const run = get().resultsByTab[tabId]?.runs.find((r) => r.connectionId === c.id);
+          if (run?.status === 'running') {
+            patchRun(c.id, {
+              status: aborted ? 'error' : 'done',
+              error: aborted ?? run.error,
+              results: resultsByConn.get(c.id),
+            });
+          }
+        }
 
         set({ runningTabId: null });
       },
@@ -642,11 +835,146 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           ),
         });
       },
+
+      upsertVariable: (input) => {
+        const name = normalizeVariableName(input.name);
+        if (!isValidVariableName(name)) {
+          return 'Name must match [A-Za-z_][A-Za-z0-9_]*';
+        }
+        const allowEmptyList = input.secret === true;
+        if (
+          input.kind === 'list' &&
+          (!input.values || input.values.length === 0) &&
+          !allowEmptyList
+        ) {
+          return 'List variable needs at least one value';
+        }
+        if (input.kind === 'table' && (!input.columns || input.columns.length === 0)) {
+          return 'Table variable needs columns';
+        }
+        const { variables } = get();
+        const byId = input.id ? variables.find((v) => v.id === input.id) : undefined;
+        const nameClash = variables.find(
+          (v) => v.name === name && (!byId || v.id !== byId.id)
+        );
+        const existing = byId ?? (!input.id ? nameClash : undefined);
+        const makeEntry = (id: string): SqlVariable => ({
+          id,
+          name,
+          kind: input.kind,
+          value: input.kind === 'scalar' ? input.value : undefined,
+          values: input.kind === 'list' ? [...(input.values ?? [])] : undefined,
+          columns: input.kind === 'table' ? [...(input.columns ?? [])] : undefined,
+          rows:
+            input.kind === 'table'
+              ? (input.rows ?? []).map((r) => [...r])
+              : undefined,
+          secret: input.secret !== undefined ? input.secret : existing?.secret,
+          overrides:
+            input.overrides !== undefined
+              ? input.overrides
+              : existing?.overrides
+                ? { ...existing.overrides }
+                : undefined,
+          updatedAt: Date.now(),
+        });
+        if (nameClash && !byId) {
+          const entry = makeEntry(nameClash.id);
+          set({
+            variables: variables.map((v) => (v.id === nameClash.id ? entry : v)),
+          });
+          return null;
+        }
+        if (nameClash && byId) {
+          return `Variable "${name}" already exists`;
+        }
+        if (byId) {
+          const entry = makeEntry(byId.id);
+          set({
+            variables: variables.map((v) => (v.id === byId.id ? entry : v)),
+          });
+          return null;
+        }
+        set({ variables: [makeEntry(newTabId()), ...variables] });
+        return null;
+      },
+
+      deleteVariable: (id) => {
+        set({ variables: get().variables.filter((v) => v.id !== id) });
+      },
+
+      setVariableSecret: (id, secret) => {
+        set({
+          variables: get().variables.map((v) =>
+            v.id === id ? { ...v, secret, updatedAt: Date.now() } : v
+          ),
+        });
+      },
+
+      setVariableOverride: (id, connectionId, override) => {
+        set({
+          variables: get().variables.map((v) => {
+            if (v.id !== id || v.kind === 'table') return v;
+            const next = { ...(v.overrides ?? {}) };
+            if (override === null) {
+              delete next[connectionId];
+            } else {
+              next[connectionId] = override;
+            }
+            return {
+              ...v,
+              overrides: Object.keys(next).length > 0 ? next : undefined,
+              updatedAt: Date.now(),
+            };
+          }),
+        });
+      },
+
+      exportVariablesJson: () =>
+        JSON.stringify(exportVariables(get().variables), null, 2),
+
+      importVariables: (raw, opts) => {
+        const parsed = parseImportedVariables(raw);
+        if (!parsed.ok) return parsed.error;
+        const overwrite = opts?.overwrite !== false;
+        for (const item of parsed.items) {
+          const existing = get().variables.find((v) => v.name === item.name);
+          if (existing && !overwrite) continue;
+          if (item.secret) {
+            const err = get().upsertVariable({
+              id: existing?.id,
+              name: item.name,
+              kind: item.kind,
+              secret: true,
+              value: item.kind === 'scalar' ? undefined : undefined,
+              values: item.kind === 'list' ? [] : undefined,
+              columns: item.kind === 'table' ? item.columns ?? existing?.columns ?? ['col'] : undefined,
+              rows: item.kind === 'table' ? [] : undefined,
+            });
+            if (err) return err;
+            continue;
+          }
+          const err = get().upsertVariable({
+            id: existing?.id,
+            name: item.name,
+            kind: item.kind,
+            secret: false,
+            value: item.value,
+            values: item.values,
+            columns: item.columns,
+            rows: item.rows,
+            overrides: item.overrides,
+          });
+          if (err) return err;
+        }
+        return null;
+      },
     }),
     {
       name: 'foxschema-sql-editor',
-      version: 3,
-      // Persist tabs + destinations mode + bookmarks. Never passwords/results.
+      version: 5,
+      // Persist tabs + destinations mode + bookmarks + variables. Never passwords/results.
+      // Secret variable payloads are stripped (session-only values).
       partialize: (state) => ({
         tabs: persistableTabs(state.tabs),
         activeTabId: state.activeTabId,
@@ -655,6 +983,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         shareDestinations: state.shareDestinations,
         sharedConnectionIds: state.sharedConnectionIds,
         bookmarks: state.bookmarks,
+        variables: stripSecretsForPersist(state.variables),
       }),
       migrate: (persisted, fromVersion) => {
         const p = (persisted ?? {}) as Record<string, unknown>;
@@ -677,6 +1006,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
               ? (p.selectedConnectionIds as string[])
               : [],
             bookmarks: [],
+            variables: [],
           };
         }
         if (fromVersion < 3) {
@@ -690,7 +1020,16 @@ export const useSqlEditorStore = create<SqlEditorState>()(
               ? first.selectedConnectionIds
               : [],
             bookmarks: [],
+            variables: [],
           };
+        }
+        if (fromVersion < 4) {
+          return { ...p, variables: [] };
+        }
+        // v5: secret/overrides fields are optional; strip any leaked secret payloads.
+        if (fromVersion < 5) {
+          const vars = Array.isArray(p.variables) ? (p.variables as SqlVariable[]) : [];
+          return { ...p, variables: stripSecretsForPersist(vars) };
         }
         return p;
       },
@@ -705,6 +1044,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           shareDestinations?: boolean;
           sharedConnectionIds?: string[];
           bookmarks?: SqlBookmark[];
+          variables?: SqlVariable[];
         };
         const tabs = hydrateTabs(Array.isArray(p.tabs) ? p.tabs : []);
         const activeTabId =
@@ -734,6 +1074,19 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           return { ...b, title: tab.title, updatedAt: Date.now() };
         });
 
+        const variables = stripSecretsForPersist(
+          Array.isArray(p.variables)
+            ? p.variables.filter(
+                (v) =>
+                  v &&
+                  typeof v.id === 'string' &&
+                  typeof v.name === 'string' &&
+                  isValidVariableName(v.name) &&
+                  (v.kind === 'scalar' || v.kind === 'list' || v.kind === 'table')
+              )
+            : []
+        );
+
         return {
           ...currentState,
           tabs: healedTabs,
@@ -746,6 +1099,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
             ? p.sharedConnectionIds.filter((id) => typeof id === 'string')
             : [],
           bookmarks: healedBookmarks,
+          variables,
         };
       },
     }

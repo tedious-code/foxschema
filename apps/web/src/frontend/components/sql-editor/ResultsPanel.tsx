@@ -12,6 +12,8 @@ interface Props {
   layout: ResultsLayout;
   /** True while any execute is in flight for this tab. */
   refreshing?: boolean;
+  /** Non-fatal run messages (e.g. `@set` failures). */
+  warnings?: string[];
   /** Re-run for one credential, or all when omitted. */
   onRefresh?: (connectionId?: string) => void;
 }
@@ -204,6 +206,7 @@ export const ResultsPanel: React.FC<Props> = ({
   statements,
   layout,
   refreshing,
+  warnings,
   onRefresh,
 }) => {
   if (runs.length === 0) {
@@ -214,10 +217,28 @@ export const ResultsPanel: React.FC<Props> = ({
     );
   }
 
+  const warningBanner =
+    warnings && warnings.length > 0 ? (
+      <div
+        className="mx-4 mt-3 flex flex-col gap-1 rounded-md border border-amber-500/30 bg-amber-950/40 px-3 py-2 text-xs text-amber-200/90"
+        data-testid="sql-results-warnings"
+        role="status"
+      >
+        {warnings.map((w, i) => (
+          <div key={i} className="flex items-start gap-2">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-400" />
+            <span className="break-all">{w}</span>
+          </div>
+        ))}
+      </div>
+    ) : null;
+
   if (layout === 'sideBySide') {
     const stmtCount = Math.max(statements.length, ...runs.map((r) => r.results?.length ?? 0), 0);
     return (
-      <div className="flex-1 overflow-y-auto flex flex-col gap-4 p-4" data-testid="sql-results-side-by-side">
+      <div className="flex-1 overflow-y-auto flex flex-col gap-4 pb-4" data-testid="sql-results-side-by-side">
+        {warningBanner}
+        <div className="flex flex-col gap-4 px-4 pt-1">
         {Array.from({ length: stmtCount }, (_, i) => {
           const items: PaneItem[] = [];
           for (const run of runs) {
@@ -265,12 +286,15 @@ export const ResultsPanel: React.FC<Props> = ({
             </section>
           );
         })}
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 overflow-y-auto flex flex-col gap-4 p-4" data-testid="sql-results-by-credential">
+    <div className="flex-1 overflow-y-auto flex flex-col gap-4 pb-4" data-testid="sql-results-by-credential">
+      {warningBanner}
+      <div className="flex flex-col gap-4 px-4 pt-1">
       {runs.map((run) => {
         const items: PaneItem[] =
           run.status === 'done' && run.results
@@ -323,6 +347,7 @@ export const ResultsPanel: React.FC<Props> = ({
           </section>
         );
       })}
+      </div>
     </div>
   );
 };

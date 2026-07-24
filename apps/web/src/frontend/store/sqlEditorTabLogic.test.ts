@@ -9,6 +9,7 @@ import {
   nextTabTitle,
   persistableTabs,
   statementsToRun,
+  statementsFromSelection,
   toggleStatementCheck,
 } from './sqlEditorTabLogic';
 
@@ -55,6 +56,24 @@ describe('sqlEditorTabLogic', () => {
     expect(statementsToRun(sql, [2, 0])).toEqual(['SELECT 1;', 'SELECT 3;']);
     expect(statementsToRun(sql, [99])).toEqual(['SELECT 1;']);
     expect(statementsToRun('', [])).toEqual([]);
+  });
+
+  it('statementsToRun keeps inter-statement -- @set on the following statement', () => {
+    const sql = `SELECT 1 AS id;
+-- @set ids = column id
+SELECT 2 AS id;`;
+    const out = statementsToRun(sql, [0, 1]);
+    expect(out[0]).toBe('SELECT 1 AS id;');
+    expect(out[1]).toContain('-- @set ids = column id');
+    expect(out[1]).toContain('SELECT 2 AS id;');
+  });
+
+  it('statementsFromSelection runs all statements in the selection', () => {
+    expect(statementsFromSelection('SELECT 1; SELECT 2;')).toEqual(['SELECT 1;', 'SELECT 2;']);
+    expect(statementsFromSelection('  SELECT * FROM t WHERE id = 1;  ')).toEqual([
+      'SELECT * FROM t WHERE id = 1;',
+    ]);
+    expect(statementsFromSelection('')).toEqual([]);
   });
 
   it('toggleStatementCheck adds/removes sorted', () => {

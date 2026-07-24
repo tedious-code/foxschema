@@ -49,6 +49,7 @@ const WRITE_KEYWORDS = new Set([
   'grant', 'revoke', 'replace', 'rename',
 ]);
 
+// eslint-disable-next-line security/detect-unsafe-regex -- false positive: anchored at ^; optional bounded identifier
 const DOLLAR_TAG_RE = /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/;
 
 /** Split a SQL buffer into `;`-terminated statements, skipping comment-only segments. */

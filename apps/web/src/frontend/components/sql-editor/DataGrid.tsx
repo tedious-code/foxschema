@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Download, GripVertical, RefreshCw } from 'lucide-react';
 import type { SqlStatementResult } from '../../api/sqlApi';
+import { columnToListValues, rowsForTableVariable } from '../../lib/sql-variables';
+import { useSqlEditorStore } from '../../store/useSqlEditorStore';
 import { downloadCsv } from '../../utils/exportCsv';
 
 const CELL_MAX = 200;
@@ -43,8 +45,11 @@ const KIND_LABEL: Record<Exclude<CellKind, 'null'>, string> = {
   string: 'text',
 };
 
+// Anchored digit/date forms — no nested quantifiers that can ReDoS.
 const ISO_DATE_RE =
+  // eslint-disable-next-line security/detect-unsafe-regex -- false positive: fully anchored, bounded optional groups
   /^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+// eslint-disable-next-line security/detect-unsafe-regex -- false positive: simple digit classes, fully anchored
 const NUMERIC_STRING_RE = /^-?\d+(\.\d+)?([eE][+-]?\d+)?$/;
 const BINARY_RE = /^0x[0-9a-fA-F…]+$/;
 
@@ -141,6 +146,7 @@ function cellDisplay(value: unknown): { text: string; title: string; isNull: boo
 
 /**
  * Result grid — virtualized rows, column-level type colors (no per-cell regex).
+ * Right-click a cell or column header to save as a SQL Editor variable.
  */
 export const DataGrid: React.FC<{
   result: SqlStatementResult;
@@ -149,11 +155,27 @@ export const DataGrid: React.FC<{
   refreshing?: boolean;
   onRefresh?: () => void;
 }> = React.memo(({ result, label, exportName = 'query-result', refreshing, onRefresh }) => {
+  const upsertVariable = useSqlEditorStore((s) => s.upsertVariable);
   const sourceColumns = result.ok ? result.columns : [];
   const sourceRows = result.ok ? result.rows : [];
   const [colOrder, setColOrder] = useState<number[]>(() => identityOrder(sourceColumns.length));
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
+  const [menu, setMenu] = useState<
+    | { kind: 'cell'; x: number; y: number; colIdx: number; value: unknown }
+    | { kind: 'column'; x: number; y: number; colIdx: number }
+    | { kind: 'grid'; x: number; y: number }
+    | null
+  >(null);
+  const [savePrompt, setSavePrompt] = useState<
+    | { mode: 'scalar'; value: unknown; defaultName: string }
+    | { mode: 'list'; colIdx: number; defaultName: string }
+    | { mode: 'table'; defaultName: string }
+    | null
+  >(null);
+  const [saveName, setSaveName] = useState('');
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const saveInputRef = useRef<HTMLInputElement>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -163,12 +185,10 @@ export const DataGrid: React.FC<{
   const colKey = sourceColumns.join('\0');
   const colWidths = useMemo(
     () => computeColWidths(sourceColumns, sourceRows),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- colKey + rowCount capture result identity cheaply
     [colKey, sourceRows.length, result.ok && result.ok ? result.rowCount : 0]
   );
   const colKinds = useMemo(
     () => computeColKinds(sourceColumns, sourceRows),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [colKey, sourceRows.length, result.ok && result.ok ? result.rowCount : 0]
   );
 
@@ -198,6 +218,52 @@ export const DataGrid: React.FC<{
   }, []);
 
   useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
+
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    window.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [menu]);
+
+  useEffect(() => {
+    if (savePrompt) {
+      setSaveName(savePrompt.defaultName);
+      setSaveError(null);
+      queueMicrotask(() => saveInputRef.current?.select());
+    }
+  }, [savePrompt]);
+
+  const commitSave = () => {
+    if (!savePrompt) return;
+    const existing = useSqlEditorStore.getState().variables.find((v) => v.name === saveName.trim());
+    if (existing && !window.confirm(`Overwrite variable "${saveName.trim()}"?`)) return;
+
+    let err: string | null;
+    if (savePrompt.mode === 'scalar') {
+      err = upsertVariable({ name: saveName, kind: 'scalar', value: savePrompt.value });
+    } else if (savePrompt.mode === 'list') {
+      const values = columnToListValues(sourceRows, savePrompt.colIdx);
+      err = upsertVariable({ name: saveName, kind: 'list', values });
+    } else {
+      err = upsertVariable({
+        name: saveName,
+        kind: 'table',
+        columns: [...sourceColumns],
+        rows: rowsForTableVariable(sourceRows),
+      });
+    }
+    if (err) {
+      setSaveError(err);
+      return;
+    }
+    setSavePrompt(null);
+    setMenu(null);
+  };
 
   if (!result.ok) {
     return (
@@ -285,6 +351,12 @@ export const DataGrid: React.FC<{
         className="fox-sql-grid flex-1 min-h-0 border border-[#cbd5e1] rounded-lg shadow-sm bg-white"
         style={{ overflowX: 'auto', overflowY: 'auto' }}
         onScroll={onScroll}
+        onContextMenu={(e) => {
+          // Empty area / row-number context: save whole result as table.
+          if ((e.target as HTMLElement).closest('td, th')) return;
+          e.preventDefault();
+          setMenu({ kind: 'grid', x: e.clientX, y: e.clientY });
+        }}
       >
         {sourceColumns.length === 0 ? (
           <div className="px-3 py-2 text-xs text-[#64748b] italic">
@@ -312,8 +384,13 @@ export const DataGrid: React.FC<{
                 <th
                   className="sticky left-0 z-20 px-1.5 py-1.5 text-center font-bold text-[#64748b] bg-[#e2e8f0] border-r border-[#cbd5e1] select-none"
                   style={{ width: ROW_NUM_PX, minWidth: ROW_NUM_PX }}
-                  title="Row number"
+                  title="Row number — right-click to save result as table"
                   aria-label="Row number"
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setMenu({ kind: 'grid', x: e.clientX, y: e.clientY });
+                  }}
                 >
                   #
                 </th>
@@ -327,7 +404,11 @@ export const DataGrid: React.FC<{
                       key={`${colIdx}-${name}`}
                       draggable
                       data-testid="sql-col-header"
-                      title={`${name} (${KIND_LABEL[kind]}) — drag to reorder`}
+                      title={`${name} (${KIND_LABEL[kind]}) — drag to reorder; right-click to save as list variable`}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setMenu({ kind: 'column', x: e.clientX, y: e.clientY, colIdx });
+                      }}
                       onDragStart={(e) => {
                         setDragFrom(visualIdx);
                         e.dataTransfer.effectAllowed = 'move';
@@ -419,6 +500,16 @@ export const DataGrid: React.FC<{
                           className={`px-3 overflow-hidden text-ellipsis ${KIND_CELL_CLASS[kind]}`}
                           style={{ width: w, minWidth: COL_MIN_PX, maxWidth: w }}
                           title={title}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            setMenu({
+                              kind: 'cell',
+                              x: e.clientX,
+                              y: e.clientY,
+                              colIdx,
+                              value: cell,
+                            });
+                          }}
                         >
                           {text}
                         </td>
@@ -444,6 +535,129 @@ export const DataGrid: React.FC<{
           <span className="text-amber-500 font-semibold">truncated — add a LIMIT for the full picture</span>
         )}
       </div>
+
+      {menu && (
+        <div
+          data-testid="sql-grid-context-menu"
+          className="fixed z-50 min-w-[160px] rounded-md border border-slate-700 bg-slate-900 shadow-lg py-1 text-[11px]"
+          style={{ left: menu.x, top: menu.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {menu.kind === 'cell' ? (
+            <>
+              <button
+                type="button"
+                className="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800"
+                onClick={() => {
+                  const colName = sourceColumns[menu.colIdx] ?? 'value';
+                  setSavePrompt({
+                    mode: 'scalar',
+                    value: menu.value,
+                    defaultName: colName.replace(/[^A-Za-z0-9_]/g, '_') || 'value',
+                  });
+                  setMenu(null);
+                }}
+              >
+                Save cell as variable…
+              </button>
+              <button
+                type="button"
+                className="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800"
+                onClick={() => {
+                  setSavePrompt({ mode: 'table', defaultName: 'result' });
+                  setMenu(null);
+                }}
+              >
+                Save result as table…
+              </button>
+            </>
+          ) : menu.kind === 'column' ? (
+            <button
+              type="button"
+              className="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800"
+              onClick={() => {
+                const colName = sourceColumns[menu.colIdx] ?? 'values';
+                setSavePrompt({
+                  mode: 'list',
+                  colIdx: menu.colIdx,
+                  defaultName: `${colName.replace(/[^A-Za-z0-9_]/g, '_') || 'values'}_list`,
+                });
+                setMenu(null);
+              }}
+            >
+              Save column as list…
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800"
+              onClick={() => {
+                setSavePrompt({
+                  mode: 'table',
+                  defaultName: 'result',
+                });
+                setMenu(null);
+              }}
+            >
+              Save result as table…
+            </button>
+          )}
+        </div>
+      )}
+
+      {savePrompt && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          data-testid="sql-variable-save-dialog"
+          onClick={() => setSavePrompt(null)}
+        >
+          <div
+            className="w-72 rounded-lg border border-slate-700 bg-slate-900 p-3 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-xs font-semibold text-slate-200 mb-2">
+              {savePrompt.mode === 'scalar'
+                ? 'Save cell as variable'
+                : savePrompt.mode === 'list'
+                  ? 'Save column as list'
+                  : 'Save result as table'}
+            </div>
+            <input
+              ref={saveInputRef}
+              value={saveName}
+              onChange={(e) => setSaveName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commitSave();
+                if (e.key === 'Escape') setSavePrompt(null);
+              }}
+              placeholder="variable_name"
+              className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100 outline-none focus:border-cyan-600/50 mb-2"
+            />
+            {saveError && (
+              <p className="text-[10px] text-rose-400 mb-2" role="alert">
+                {saveError}
+              </p>
+            )}
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setSavePrompt(null)}
+                className="text-[11px] text-slate-400 hover:text-slate-200 px-2 py-1"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-testid="sql-variable-save-confirm"
+                onClick={commitSave}
+                className="text-[11px] font-semibold text-cyan-400 hover:text-cyan-300 px-2 py-1"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 });
