@@ -1,7 +1,7 @@
 name: Publish to WinGet
 
 # One package: TediousCode.FoxSchema (CLI portable zip; depends on OpenJS.NodeJS.LTS).
-# FoxSchema.DB2 retired — do not submit.
+# Builds the zip from the published npm package (no monorepo build required).
 #
 # Secrets:
 #   WINGET_TOKEN — classic PAT (public_repo) for fork user huyplb
@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Git tag (e.g. v0.1.67)'
+        description: 'Git tag / version tag (e.g. v0.1.67)'
         required: true
         default: 'v0.1.67'
       submit:
@@ -34,35 +34,29 @@ jobs:
       zip_name: ${{ steps.meta.outputs.zip_name }}
     steps:
       - uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.release.tag_name || inputs.tag }}
 
       - uses: actions/setup-node@v5
         with:
           node-version: 22
 
-      - name: Install & build
-        shell: bash
-        run: |
-          npm install
-          npm run build -w @foxschema/web
-          npm run build -w @foxschema/cli
-          node apps/cli/scripts/prepare-publish.mjs
-
-      - name: Pack Windows portable zip
+      - name: Pack Windows portable zip from npm
+        id: pack
         shell: pwsh
-        run: ./packaging/winget/build-portable.ps1
+        run: |
+          $tag = "${{ github.event.release.tag_name || inputs.tag }}"
+          $ver = $tag.TrimStart('v')
+          ./packaging/winget/build-portable.ps1 -Version $ver
 
       - name: Read build metadata
         id: meta
         shell: pwsh
         run: |
           $tag = "${{ github.event.release.tag_name || inputs.tag }}"
-          $version = (Get-Content apps/cli/npm-pack/package.json | ConvertFrom-Json).version
-          $zip = "dist/winget/foxschema-$version-win-x64.zip"
+          $ver = $tag.TrimStart('v')
+          $zip = "dist/winget/foxschema-$ver-win-x64.zip"
           $sha = (Get-FileHash -Algorithm SHA256 $zip).Hash
           "tag=$tag" >> $env:GITHUB_OUTPUT
-          "version=$version" >> $env:GITHUB_OUTPUT
+          "version=$ver" >> $env:GITHUB_OUTPUT
           "sha256=$sha" >> $env:GITHUB_OUTPUT
           "zip_name=$(Split-Path $zip -Leaf)" >> $env:GITHUB_OUTPUT
           Get-Item $zip | Format-List
@@ -100,6 +94,10 @@ jobs:
           ZIP: ${{ needs.build-portable.outputs.zip_name }}
         run: |
           DIR="packaging/winget/TediousCode.FoxSchema/${VER}"
+          if [ ! -d "$DIR" ]; then
+            echo "::error::Missing manifests at $DIR — add packaging/winget/TediousCode.FoxSchema/${VER}/"
+            exit 1
+          fi
           INST="${DIR}/TediousCode.FoxSchema.installer.yaml"
           URL="https://github.com/tedious-code/foxschema/releases/download/${TAG}/${ZIP}"
           perl -i -pe "s|InstallerUrl: .*|InstallerUrl: ${URL}|" "$INST"
@@ -131,7 +129,6 @@ jobs:
           git fetch upstream master --depth 1
           git checkout -B "$BRANCH" upstream/master
 
-          # One product only — remove any DB2 paths if present on this branch tip
           rm -rf manifests/t/TediousCode/FoxSchema.DB2
 
           mkdir -p "$DEST"
@@ -139,13 +136,11 @@ jobs:
 
           git add manifests/t/TediousCode/FoxSchema
           git add -u manifests/t/TediousCode/FoxSchema.DB2 || true
+          git status
           git commit -m "New package: TediousCode.FoxSchema version ${VER}"
           git push -u "https://x-access-token:${GH_TOKEN}@github.com/${FORK_USER}/winget-pkgs.git" "HEAD:refs/heads/${BRANCH}" --force
 
-          # Close superseded DB2 new-package PR if still open
-          gh pr close 403112 --repo microsoft/winget-pkgs --comment "Superseded: single product TediousCode.FoxSchema (CLI). DB2 is optional via npm ibm_db — no separate winget package." || true
-
-          # Close old MSI 0.1.45 PR if still open (replaced by CLI zip)
+          gh pr close 403112 --repo microsoft/winget-pkgs --comment "Superseded: single product TediousCode.FoxSchema (CLI). DB2 is optional via npm ibm_db." || true
           gh pr close 403101 --repo microsoft/winget-pkgs --comment "Superseded by TediousCode.FoxSchema ${VER} (CLI portable zip + Node.js dependency)." || true
 
           EXISTING=$(gh pr list --repo microsoft/winget-pkgs --head "${FORK_USER}:${BRANCH}" --json number --jq '.[0].number')
@@ -165,7 +160,6 @@ jobs:
 
           Install after merge: winget install TediousCode.FoxSchema
           EOF
-            # Strip the leading spaces we added for YAML indentation
             sed -i 's/^          //' "$BODY_FILE"
             gh pr create --repo microsoft/winget-pkgs \
               --head "${FORK_USER}:${BRANCH}" \
