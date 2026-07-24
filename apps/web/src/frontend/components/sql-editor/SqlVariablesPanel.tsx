@@ -10,6 +10,29 @@ import { useSyncStore } from '../../store/useSyncStore';
 
 const TABLE_PREVIEW_ROWS = 20;
 
+/** Parse a typed scalar/list token without regex (avoids eslint unsafe-regex noise). */
+function parseTypedToken(s: string): unknown {
+  if (s === 'NULL') return null;
+  if (s === 'true') return true;
+  if (s === 'false') return false;
+  const asNum = Number(s);
+  if (
+    s.length > 0 &&
+    Number.isFinite(asNum) &&
+    !s.includes(' ') &&
+    (s[0] === '-' || (s[0]! >= '0' && s[0]! <= '9'))
+  ) {
+    return asNum;
+  }
+  if (
+    (s.startsWith("'") && s.endsWith("'")) ||
+    (s.startsWith('"') && s.endsWith('"'))
+  ) {
+    return s.slice(1, -1).replace(/''/g, "'");
+  }
+  return s;
+}
+
 function previewVariable(v: SqlVariable): string {
   if (v.secret) {
     if (isSecretUnset(v)) return '(secret · unset)';
@@ -99,19 +122,7 @@ export const SqlVariablesPanel: React.FC = () => {
         .split(',')
         .map((s) => s.trim())
         .filter((s) => s.length > 0)
-        .map((s) => {
-          if (s === 'NULL') return null;
-          if (s === 'true') return true;
-          if (s === 'false') return false;
-          if (/^-?\d+(\.\d+)?$/.test(s)) return Number(s);
-          if (
-            (s.startsWith("'") && s.endsWith("'")) ||
-            (s.startsWith('"') && s.endsWith('"'))
-          ) {
-            return s.slice(1, -1).replace(/''/g, "'");
-          }
-          return s;
-        });
+        .map(parseTypedToken);
       const err = upsertVariable({
         id,
         name: v.name,
@@ -125,16 +136,12 @@ export const SqlVariablesPanel: React.FC = () => {
         return;
       }
     } else {
-      let value: unknown = editValue;
-      if (editValue === 'NULL') value = null;
-      else if (editValue === 'true') value = true;
-      else if (editValue === 'false') value = false;
-      else if (/^-?\d+(\.\d+)?$/.test(editValue.trim())) value = Number(editValue.trim());
+      const value = parseTypedToken(editValue.trim() === '' ? editValue : editValue.trim());
       const err = upsertVariable({
         id,
         name: v.name,
         kind: 'scalar',
-        value,
+        value: editValue.trim() === '' ? editValue : value,
         secret: v.secret,
         overrides: v.overrides,
       });
@@ -454,15 +461,13 @@ export const SqlVariablesPanel: React.FC = () => {
                                   const values = raw
                                     .split(',')
                                     .map((s) => s.trim())
-                                    .filter(Boolean);
+                                    .filter(Boolean)
+                                    .map(parseTypedToken);
                                   setVariableOverride(v.id, c.id, { values });
                                 } else {
-                                  let value: unknown = raw;
-                                  if (raw === 'NULL') value = null;
-                                  else if (raw === 'true') value = true;
-                                  else if (raw === 'false') value = false;
-                                  else if (/^-?\d+(\.\d+)?$/.test(raw)) value = Number(raw);
-                                  setVariableOverride(v.id, c.id, { value });
+                                  setVariableOverride(v.id, c.id, {
+                                    value: parseTypedToken(raw),
+                                  });
                                 }
                               }}
                               className="flex-1 min-w-0 bg-slate-950 border border-slate-700 rounded px-1 py-0.5 text-[10px] font-mono text-slate-200 outline-none focus:border-cyan-600/50"

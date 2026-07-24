@@ -160,7 +160,7 @@ export const SqlEditorView: React.FC = () => {
         void ensureSchema(id);
       }
     }
-  }, [liveSelectedIds.join(','), ensureSchema]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [liveSelectedIds.join(','), ensureSchema]);
 
   const startEditorResize = useCallback((e: React.MouseEvent) => {
     e.preventDefault();

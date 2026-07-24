@@ -45,8 +45,11 @@ const KIND_LABEL: Record<Exclude<CellKind, 'null'>, string> = {
   string: 'text',
 };
 
+// Anchored digit/date forms — no nested quantifiers that can ReDoS.
+// eslint-disable-next-line security/detect-unsafe-regex -- false positive: fully anchored, bounded optional groups
 const ISO_DATE_RE =
   /^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+// eslint-disable-next-line security/detect-unsafe-regex -- false positive: simple digit classes, fully anchored
 const NUMERIC_STRING_RE = /^-?\d+(\.\d+)?([eE][+-]?\d+)?$/;
 const BINARY_RE = /^0x[0-9a-fA-F…]+$/;
 
@@ -182,12 +185,10 @@ export const DataGrid: React.FC<{
   const colKey = sourceColumns.join('\0');
   const colWidths = useMemo(
     () => computeColWidths(sourceColumns, sourceRows),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- colKey + rowCount capture result identity cheaply
     [colKey, sourceRows.length, result.ok && result.ok ? result.rowCount : 0]
   );
   const colKinds = useMemo(
     () => computeColKinds(sourceColumns, sourceRows),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [colKey, sourceRows.length, result.ok && result.ok ? result.rowCount : 0]
   );
 

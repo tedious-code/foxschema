@@ -52,6 +52,7 @@ export function ensureSqlCompletions(monaco: typeof Monaco): void {
       const prefix = (word.word || '').toLowerCase();
 
       // `${{name.` — suggest columns of a table variable.
+      // eslint-disable-next-line security/detect-unsafe-regex -- false positive: fixed `${{` prefix; bounded identifiers
       const varColMatch = /\$\{\{([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)?$/.exec(
         linePrefix
       );
@@ -97,6 +98,7 @@ export function ensureSqlCompletions(monaco: typeof Monaco): void {
       }
 
       // `${{` or `${{partial` — suggest global SQL Editor variables.
+      // eslint-disable-next-line security/detect-unsafe-regex -- false positive: fixed `${{` prefix; bounded identifier
       const varMatch = /\$\{\{([A-Za-z_][A-Za-z0-9_]*)?$/.exec(linePrefix);
       if (varMatch) {
         const partial = (varMatch[1] ?? '').toLowerCase();

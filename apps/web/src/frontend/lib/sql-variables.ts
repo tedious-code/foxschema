@@ -8,9 +8,11 @@ const VAR_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
  * Matches `${{name}}` or `${{name.col}}` — not `$var` or `${x}`.
  * Group 1 = variable name, group 2 = optional column.
  */
+// eslint-disable-next-line security/detect-unsafe-regex -- false positive: fixed `${{` prefix; identifier classes are bounded
 const VAR_REF_RE = /\$\{\{([A-Za-z_][A-Za-z0-9_]*)(?:\.([A-Za-z_][A-Za-z0-9_]*))?\}\}/g;
 
 /** `-- @set name` / `-- @set name = column Col` / `-- @set name = table` */
+// eslint-disable-next-line security/detect-unsafe-regex -- false positive: anchored line; bounded identifier + simple alternatives
 const SET_LINE_RE =
   /^--\s*@set\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:=\s*(column\s+(\S+)|table))?\s*$/i;
 

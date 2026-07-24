@@ -1,10 +1,11 @@
 import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api';
 import { expandVariableRef, type SqlVariable } from '../../lib/sql-variables';
 
-const VAR_AT = /\$\{\{([A-Za-z_][A-Za-z0-9_]*)(?:\.([A-Za-z_][A-Za-z0-9_]*))?\}\}/g;
-
 /** Leftover language HoverProviders from older builds (HMR) — dispose once. */
 const DISPOSE_KEY = '__foxschemaSqlVariableHoverDisposables';
+
+// eslint-disable-next-line security/detect-unsafe-regex -- false positive: fixed `${{` prefix; bounded identifier classes
+const VAR_AT = /\$\{\{([A-Za-z_][A-Za-z0-9_]*)(?:\.([A-Za-z_][A-Za-z0-9_]*))?\}\}/g;
 
 type Disposable = { dispose: () => void };
 
