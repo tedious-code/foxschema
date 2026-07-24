@@ -342,3 +342,9 @@ mark.fox-search-hl {
   content: '⚠';
   color: #fbbf24; /* amber-400 */
 }
+
+/* SQL Editor `${{variable}}` refs ? hover shows the value once via decoration. */
+.fox-sql-var-ref {
+  color: #34d399; /* emerald-400 */
+  font-weight: 600;
+}

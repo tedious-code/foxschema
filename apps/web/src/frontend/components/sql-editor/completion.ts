@@ -28,7 +28,7 @@ export function ensureSqlCompletions(monaco: typeof Monaco): void {
   registered = true;
 
   const provider: Monaco.languages.CompletionItemProvider = {
-    triggerCharacters: ['.'],
+    triggerCharacters: ['.', '{'],
     provideCompletionItems(model, position) {
       const word = model.getWordUntilPosition(position);
       const range: Monaco.IRange = {
@@ -45,11 +45,98 @@ export function ensureSqlCompletions(monaco: typeof Monaco): void {
         endColumn: position.column,
       });
 
-      const { sql, schemas } = getCompletionContext();
+      const { sql, schemas, variables } = getCompletionContext();
       // Prefer the live model text — context sql can lag one keystroke behind.
       const aliases = extractTableAliases(model.getValue() || sql);
       const tableIndex = buildTableIndex(schemas);
       const prefix = (word.word || '').toLowerCase();
+
+      // `${{name.` — suggest columns of a table variable.
+      const varColMatch = /\$\{\{([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)?$/.exec(
+        linePrefix
+      );
+      if (varColMatch) {
+        const varName = varColMatch[1]!;
+        const partial = (varColMatch[2] ?? '').toLowerCase();
+        const startCol = position.column - (varColMatch[2]?.length ?? 0);
+        const colRange: Monaco.IRange = {
+          startLineNumber: position.lineNumber,
+          endLineNumber: position.lineNumber,
+          startColumn: startCol,
+          endColumn: position.column,
+        };
+        const tableVar = variables.find(
+          (v) => v.name === varName && v.kind === 'table'
+        );
+        if (!tableVar) {
+          return {
+            suggestions: [
+              {
+                label: `(${varName} is not a table variable)`,
+                kind: monaco.languages.CompletionItemKind.Text,
+                insertText: '',
+                detail: 'Save a result as table, or use -- @set name = table',
+                range: colRange,
+              },
+            ],
+          };
+        }
+        const cols = (tableVar.columns ?? []).filter(
+          (c) => !partial || c.toLowerCase().startsWith(partial)
+        );
+        return {
+          suggestions: cols.map((c) => ({
+            label: c,
+            kind: monaco.languages.CompletionItemKind.Field,
+            insertText: `${c}}}`,
+            detail: `column · ${varName}`,
+            sortText: `0_${c}`,
+            range: colRange,
+          })),
+        };
+      }
+
+      // `${{` or `${{partial` — suggest global SQL Editor variables.
+      const varMatch = /\$\{\{([A-Za-z_][A-Za-z0-9_]*)?$/.exec(linePrefix);
+      if (varMatch) {
+        const partial = (varMatch[1] ?? '').toLowerCase();
+        const startCol = position.column - (varMatch[1]?.length ?? 0);
+        const varRange: Monaco.IRange = {
+          startLineNumber: position.lineNumber,
+          endLineNumber: position.lineNumber,
+          startColumn: startCol,
+          endColumn: position.column,
+        };
+        const suggestions = variables
+          .filter((v) => !partial || v.name.toLowerCase().startsWith(partial))
+          .map((v) => ({
+            label: v.name,
+            kind: monaco.languages.CompletionItemKind.Variable,
+            insertText: `${v.name}}}`,
+            detail:
+              v.kind === 'list'
+                ? `list · ${v.values?.length ?? 0} values`
+                : v.kind === 'table'
+                  ? `table · ${(v.rows?.length ?? 0)}×${(v.columns?.length ?? 0)}`
+                  : 'scalar',
+            sortText: `0_${v.name}`,
+            range: varRange,
+          }));
+        if (suggestions.length === 0) {
+          return {
+            suggestions: [
+              {
+                label: '(no variables)',
+                kind: monaco.languages.CompletionItemKind.Text,
+                insertText: '',
+                detail: 'Add one in the Variables sidebar or save a result cell',
+                range: varRange,
+              },
+            ],
+          };
+        }
+        return { suggestions };
+      }
 
       // `alias.` or `alias.partial` — keep matching after the user types past the dot.
       const dot = /([A-Za-z_][\w$]*)\.([A-Za-z_\d$]*)$/.exec(linePrefix);

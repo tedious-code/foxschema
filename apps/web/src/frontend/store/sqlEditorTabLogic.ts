@@ -1,4 +1,5 @@
 import { splitSqlStatements } from '../lib/sql-splitter';
+import { reattachSetComments } from '../lib/sql-variables';
 
 export type ResultsLayout = 'byCredential' | 'sideBySide';
 
@@ -89,16 +90,30 @@ export function checkedAfterSqlChange(
 /**
  * Statements to send on Run. Empty check set → first statement only.
  * Checked indices are sorted and de-duplicated.
+ * Re-attaches inter-statement `-- @set` comments the splitter would drop.
  */
 export function statementsToRun(sql: string, checkedStatements: number[]): string[] {
   const all = splitSqlStatements(sql);
   if (all.length === 0) return [];
-  if (checkedStatements.length === 0) return [all[0]!.text];
+  const enriched = reattachSetComments(sql, all);
+  if (checkedStatements.length === 0) return [enriched[0]!];
   const uniq = [...new Set(checkedStatements)]
-    .filter((i) => i >= 0 && i < all.length)
+    .filter((i) => i >= 0 && i < enriched.length)
     .sort((a, b) => a - b);
-  if (uniq.length === 0) return [all[0]!.text];
-  return uniq.map((i) => all[i]!.text);
+  if (uniq.length === 0) return [enriched[0]!];
+  return uniq.map((i) => enriched[i]!);
+}
+
+/**
+ * All statements inside an editor selection (selection wins over the strip).
+ * Falls back to the trimmed selection text when the splitter finds nothing.
+ */
+export function statementsFromSelection(selectedSql: string): string[] {
+  const trimmed = selectedSql.trim();
+  if (!trimmed) return [];
+  const all = splitSqlStatements(trimmed);
+  if (all.length === 0) return [trimmed];
+  return reattachSetComments(trimmed, all);
 }
 
 export function toggleStatementCheck(checked: number[], index: number): number[] {

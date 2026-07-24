@@ -3,11 +3,12 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 
 const STORAGE_KEY = 'foxschema-sql-sidebar-sections';
 
-export type SidebarSectionId = 'destinations' | 'bookmarks' | 'schema';
+export type SidebarSectionId = 'destinations' | 'bookmarks' | 'variables' | 'schema';
 
 const DEFAULT_OPEN: Record<SidebarSectionId, boolean> = {
   destinations: true,
   bookmarks: true,
+  variables: true,
   schema: true,
 };
 
@@ -19,6 +20,7 @@ function loadOpen(): Record<SidebarSectionId, boolean> {
     return {
       destinations: parsed.destinations ?? true,
       bookmarks: parsed.bookmarks ?? true,
+      variables: parsed.variables ?? true,
       schema: parsed.schema ?? true,
     };
   } catch {
@@ -49,7 +51,7 @@ export function useSidebarSectionsOpen(): [
 }
 
 /**
- * Collapsible block for the SQL Editor left sidebar (Destinations / Bookmarks / Schema).
+ * Collapsible block for the SQL Editor left sidebar (Destinations / Bookmarks / Variables / Schema).
  */
 export const SqlSidebarSection: React.FC<{
   id: SidebarSectionId;
