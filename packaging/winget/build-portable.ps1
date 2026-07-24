@@ -12,29 +12,32 @@ param(
 $ErrorActionPreference = "Stop"
 
 if (-not $Version) {
-  $Version = npm view foxschema version
+  $Version = (npm view foxschema version).Trim()
   if (-not $Version) { throw "Could not resolve foxschema version from npm" }
 }
 
-$stage = Join-Path $OutDir "stage"
-$zipName = "foxschema-$Version-win-x64.zip"
-$zipPath = Join-Path $OutDir $zipName
+$root = (Get-Location).Path
+$outAbs = Join-Path $root $OutDir
+$stage = Join-Path $outAbs "stage"
+$extract = Join-Path $outAbs "extract"
+$zipPath = Join-Path $outAbs "foxschema-$Version-win-x64.zip"
 
-Remove-Item -Recurse -Force $OutDir -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force $outAbs -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
+New-Item -ItemType Directory -Force -Path $extract | Out-Null
 
-Push-Location $OutDir
+Write-Host "npm pack foxschema@$Version"
+Push-Location $extract
 try {
-  Write-Host "npm pack foxschema@$Version"
-  npm pack "foxschema@$Version" --pack-destination .
+  npm pack "foxschema@$Version" | Out-Host
   $tgz = Get-ChildItem -Filter "foxschema-$Version.tgz" | Select-Object -First 1
   if (-not $tgz) { throw "npm pack did not produce foxschema-$Version.tgz" }
-  tar -xzf $tgz.Name
-  # npm pack extracts to package/
-  if (-not (Test-Path "package/dist/index.js")) {
+  tar -xzf $tgz.FullName
+  $pkgDir = Join-Path $extract "package"
+  if (-not (Test-Path (Join-Path $pkgDir "dist/index.js"))) {
     throw "Unexpected npm pack layout — missing package/dist/index.js"
   }
-  Copy-Item -Recurse -Force "package/*" $stage
+  Copy-Item -Path (Join-Path $pkgDir "*") -Destination $stage -Recurse -Force
 } finally {
   Pop-Location
 }
@@ -46,19 +49,14 @@ try {
   Pop-Location
 }
 
-@"
+$launcher = @"
 @echo off
 setlocal
 set "ROOT=%~dp0"
 node "%ROOT%dist\index.js" %*
-"@ | Set-Content -Encoding ASCII (Join-Path $stage "foxschema.cmd")
-
-@"
-@echo off
-setlocal
-set "ROOT=%~dp0"
-node "%ROOT%dist\index.js" %*
-"@ | Set-Content -Encoding ASCII (Join-Path $stage "fox.cmd")
+"@
+Set-Content -Encoding ASCII -Path (Join-Path $stage "foxschema.cmd") -Value $launcher
+Set-Content -Encoding ASCII -Path (Join-Path $stage "fox.cmd") -Value $launcher
 
 if (Test-Path $zipPath) { Remove-Item -Force $zipPath }
 Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zipPath -CompressionLevel Optimal
