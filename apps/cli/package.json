@@ -3,16 +3,26 @@
   "version": "0.1.66",
   "private": true,
   "type": "module",
-  "description": "Fox Schema CLI — database schema diff & migration, in your terminal",
+  "description": "Fox Schema CLI — schema diff & migration; `foxschema` opens the local web UI",
+  "license": "Apache-2.0",
   "bin": {
+    "foxschema": "dist/index.js",
     "fox": "dist/index.js"
   },
+  "files": [
+    "dist",
+    "ui-dist",
+    "resources",
+    "README.md"
+  ],
   "scripts": {
     "dev": "tsx src/index.ts",
     "fox": "tsx src/index.ts",
+    "foxschema": "tsx src/index.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "node build.mjs",
-    "build:binary": "node build-binary.mjs"
+    "build:binary": "node build-binary.mjs",
+    "prepare-publish": "node scripts/prepare-publish.mjs"
   },
   "dependencies": {
     "@foxschema/core": "*",
@@ -26,7 +36,8 @@
     "ink-select-input": "^6.2.0",
     "ink-spinner": "^5.0.0",
     "ink-text-input": "^6.0.0",
-    "react": "^19.2.0"
+    "react": "^19.2.0",
+    "tsx": "^4.22.4"
   },
   "devDependencies": {
     "@types/react": "^19.2.17",

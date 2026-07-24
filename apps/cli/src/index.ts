@@ -10,6 +10,9 @@ import { runSnapshot } from './commands/snapshot';
 import { runMigrate } from './commands/migrate';
 import { runSearch } from './commands/search';
 import { listHistory, showHistory } from './commands/history';
+import { runOpen, runStop } from './commands/open';
+import { runDrivers } from './commands/drivers';
+import { runShortcut } from './commands/shortcut';
 import { VERSION } from './version';
 
 /** Shared connection-ref options (saved name or inline) for single-connection commands. */
@@ -28,22 +31,23 @@ function withRefOptions(cmd: import('commander').Command): import('commander').C
 const program = new Command();
 
 program
-  .name('fox')
-  .description('Fox Schema CLI — database schema diff & migration, in your terminal')
+  .name('foxschema')
+  .description('Fox Schema — compare schemas, migrate, or open the local web UI')
   .version(VERSION, '-v, --version')
   .showSuggestionAfterError()
   .addHelpText(
     'after',
     `
 Examples:
-  $ fox                                             Open the interactive UI
-  $ fox connections add                             Save a connection (prompts for details)
-  $ fox compare --source prod --target staging      Diff two saved connections
-  $ fox migrate --source prod --target staging      Dry run — preview the migration SQL
-  $ fox migrate --source prod --target staging --execute --yes
-                                                     Apply the migration without confirming
-  $ fox compare --source prod --target staging --json --no-fail > diff.json
-                                                     CI-friendly JSON, always exit 0
+  $ foxschema                                         Start local UI and open the browser
+  $ foxschema open --port 3210                        Same, explicit port
+  $ foxschema stop                                    Stop the managed UI server
+  $ foxschema connections add                         Save a connection (prompts for details)
+  $ foxschema compare --source prod --target staging  Diff two saved connections
+  $ foxschema migrate --source prod --target staging  Dry run — preview the migration SQL
+  $ foxschema tui                                     Interactive terminal UI
+  $ foxschema drivers install db2                     Opt-in DB2 driver
+  $ foxschema shortcut                                Put a Fox icon on your Desktop
 `
   );
 
@@ -57,6 +61,24 @@ program
   });
 
 program
+  .command('open')
+  .description('Start the local UI server (if needed) and open it in your browser')
+  .option('--port <port>', 'listen port (default 3210)', (v) => Number(v))
+  .option('--no-open', 'start the server without opening a browser')
+  .action((opts) => runOpen({ port: opts.port, noOpen: opts.open === false }));
+
+program
+  .command('stop')
+  .description('Stop the managed local UI server')
+  .action(() => runStop());
+
+program
+  .command('shortcut')
+  .description('Install a Desktop shortcut with the Fox icon (reopens UI if server still running)')
+  .option('--dir <path>', 'install location (default: Desktop)')
+  .action((opts) => runShortcut({ dir: opts.dir }));
+
+program
   .command('setup')
   .description('Configure this install (email-bound encryption key in the OS keychain)')
   .option('--email <email>', 'email to bind the encryption key to')
@@ -64,8 +86,18 @@ program
 
 program
   .command('doctor')
-  .description('Show environment, engine wiring, and setup status')
+  .description('Show environment, drivers, UI server, and setup status')
   .action(() => runDoctor());
+
+const drivers = program.command('drivers').description('List or install database drivers');
+drivers
+  .command('list')
+  .description('Show which drivers are installed')
+  .action(() => runDrivers('list'));
+drivers
+  .command('install <name>')
+  .description('Install an opt-in driver (db2 | oracle)')
+  .action((name) => runDrivers('install', name));
 
 const connections = program.command('connections').description('Manage saved connections (credentials encrypted at rest)');
 connections.command('list').description('List saved connections').action(() => listConnections());
@@ -129,6 +161,7 @@ program
 const history = program.command('history').description('Migration run history');
 history.command('list').description('List recent migration runs').action(() => listHistory());
 history.command('show <id>').description('Show a migration run in detail').action((id) => showHistory(id));
+
 // A *computed* import target, not a string literal — this is deliberate, not
 // stylistic. esbuild can only inline a dynamic import() whose specifier is a
 // literal string; it always leaves a computed one as an opaque runtime call.
@@ -156,12 +189,11 @@ program
   .description('Launch the interactive terminal UI')
   .action(() => launchTui());
 
-// A bare `fox` (no subcommand, no flags) opens the friendlier interactive UI
-// instead of printing commander's help — that's the on-ramp for a new user.
-// `fox --help`/`-h` and any real subcommand still go through commander as usual.
+// Bare `foxschema` (no subcommand) starts the local web UI and opens the browser.
+// `foxschema --help`/`-h` and any real subcommand still go through commander.
 const bareInvocation = process.argv.length <= 2;
 
-(bareInvocation ? launchTui() : program.parseAsync(process.argv)).catch((err) => {
+(bareInvocation ? runOpen() : program.parseAsync(process.argv)).catch((err) => {
   console.error(chalk.red(friendlyError(err)));
   process.exit(1);
 });

@@ -1,15 +1,15 @@
 name: Web Release
 
-# Builds the web app's Docker image (see Dockerfile) and pushes it to:
+# Builds the single Fox Schema Docker image (UI + API, all dialects including
+# Db2) and pushes it to:
 #   - GitHub Container Registry (always): ghcr.io/tedious-code/foxschema
 #   - Docker Hub (when DOCKERHUB_* secrets are set): <user>/foxschema
 #
-# Variants: common (every dialect except Db2, multi-arch) + Db2 (amd64 only).
-# See docs/DEPLOYMENT.md.
+# One image only — no separate "common" vs "db2" tags. ibm_db has no
+# linux/arm64 build, so the image is linux/amd64. Apple Silicon hosts can pull
+# via emulation, or use the npm/Homebrew CLI instead.
 #
-# Trigger: push a version tag (e.g. `v0.1.0`), or run manually from the
-# Actions tab. Mirrors desktop-release.yml's trigger so one tag cuts both
-# releases together.
+# Trigger: push a version tag (e.g. `v0.1.0`), or run manually from Actions.
 #
 # Docker Hub secrets (repo Settings → Secrets → Actions):
 #   DOCKERHUB_USERNAME — Hub user/org that owns the foxschema repository
@@ -48,20 +48,12 @@ jobs:
           GHCR="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
           GHCR="${GHCR,,}" # lowercase (GHCR requirement)
           {
-            echo "common<<EOF"
+            echo "tags<<EOF"
             echo "${GHCR}:latest"
             echo "${GHCR}:${TAG}"
             if [ -n "${DOCKERHUB_USERNAME}" ]; then
               echo "${DOCKERHUB_USERNAME}/foxschema:latest"
               echo "${DOCKERHUB_USERNAME}/foxschema:${TAG}"
-            fi
-            echo "EOF"
-            echo "db2<<EOF"
-            echo "${GHCR}:db2-latest"
-            echo "${GHCR}:db2-${TAG}"
-            if [ -n "${DOCKERHUB_USERNAME}" ]; then
-              echo "${DOCKERHUB_USERNAME}/foxschema:db2-latest"
-              echo "${DOCKERHUB_USERNAME}/foxschema:db2-${TAG}"
             fi
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
@@ -85,25 +77,10 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # Common image is native on amd64/arm64 (see Dockerfile); building arm64
-      # here still needs emulation since GitHub-hosted runners are amd64 only.
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build & push common image (multi-arch, no Db2)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          build-args: |
-            WITH_DB2=false
-          tags: ${{ steps.tags.outputs.common }}
-
-      - name: Build & push Db2 image (amd64 only)
+      - name: Build & push image (linux/amd64, includes Db2)
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -111,4 +88,4 @@ jobs:
           push: true
           build-args: |
             WITH_DB2=true
-          tags: ${{ steps.tags.outputs.db2 }}
+          tags: ${{ steps.tags.outputs.tags }}

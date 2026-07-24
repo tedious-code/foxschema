@@ -1,10 +1,22 @@
 # Deploying Fox Schema
 
-Fox Schema's web app ships as a **single container** that serves both the UI and the API on
-one configurable port. This guide covers running it locally, on a server, and in the
-cloud.
+**Day-to-day on a laptop:** install the CLI, open the UI in your browser, optionally add a
+desktop shortcut (`foxschema shortcut`). See **[INSTALL.md](INSTALL.md)**.
 
-- [Quick start](#quick-start)
+```bash
+npm install -g foxschema   # or: brew install tedious-code/foxschema/foxschema
+foxschema                  # http://localhost:3210
+foxschema shortcut
+```
+
+Tauri desktop releases are retired. Maintainers: **[PUBLISH.md](PUBLISH.md)**.
+
+**Servers / teams:** Fox Schema ships as a **single Docker image** (all dialects including
+Db2) that serves both the UI and the API on one configurable port (default **3001**).
+
+- [Install (all channels)](INSTALL.md)
+- [CLI / Homebrew](homebrew.md)
+- [Quick start (Docker)](#quick-start)
 - [Configuration (environment variables)](#configuration-environment-variables)
 - [The encryption key](#the-encryption-key)
 - [Choosing a port](#choosing-a-port)
@@ -30,18 +42,11 @@ docker run -d --name foxschema \
 Open http://localhost:3001
 
 Defaults baked into the image: single-user mode (no login), SQLite metadata on
-`/data`, port `3001`. Keep the same volume across upgrades so saved connections
-and the encryption key survive.
+`/data`, port `3001`, **Db2 client included**. Image is **linux/amd64** only
+(`ibm_db` has no linux/arm64 build). Keep the same volume across upgrades so saved
+connections and the encryption key survive.
 
-With Db2 client driver (amd64):
-
-```bash
-docker pull 5nickels/foxschema:db2-latest
-docker run -d --name foxschema \
-  -p 3001:3001 \
-  -v foxschema_data:/data \
-  5nickels/foxschema:db2-latest
-```
+There is no separate `db2-latest` tag — `latest` is the one image.
 
 ### Optional: pin your own encryption key
 
@@ -166,81 +171,51 @@ The image is a standard single-port web server, so it runs anywhere containers d
   `API_PORT` then `PORT`). On ephemeral-disk platforms, use an external metadata DB
   (above) instead of the volume.
 
-The **common** image (default) is architecture-agnostic and runs on amd64 or arm64
-hosts. The **Db2** image is amd64-only (see below).
+The image is **linux/amd64** (includes Db2). On arm64 hosts, use emulation or the
+npm/Homebrew CLI.
 
 ## Database drivers
 
-Fox connects to your databases via per-dialect drivers. Nine of the ten dialects use
-pure-JavaScript drivers and are always included. **IBM Db2** (`ibm_db`) is the
-exception — it ships native binaries, has **no linux/arm64 build**, and pulls in a
-~1GB CLI driver — so it's split into a separate opt-in image:
+The published image includes **all dialects, including Db2** (`ibm_db`). It is
+**linux/amd64 only** because `ibm_db` has no linux/arm64 build.
 
-| | Dialects | Size (approx.) | Architecture |
-|-|----------|----------------|--------------|
-| **common** (default) | all except Db2 | ~1.2 GB | amd64 **or** arm64 |
-| **with Db2** | all ten | ~1.5 GB | linux/amd64 only |
-
-The common image is ~260 MB smaller (it drops the Db2 CLI driver) and, importantly,
-**builds and runs natively on arm64** — no emulation, no amd64 pin. It still *shows*
-Db2 in the UI; attempting a Db2 connection there just returns a clear "driver not
-installed" message, and every other dialect works.
-
-Both images are still on the large side because they ship the full `node_modules`
-(including the frontend build toolchain). Trimming that down with an esbuild backend
-bundle is a planned follow-up.
+On Apple Silicon, pull with Docker Desktop (emulation) or use the npm/Homebrew CLI
+instead. There is no separate “common” vs “db2” image.
 
 ## Pulling the published image
 
-Every tagged release (`v*`) publishes both variants via `.github/workflows/web-release.yml`
-— no local build needed.
+Every tagged release (`v*`) publishes one image via `.github/workflows/web-release.yml`.
 
-**Docker Hub** (primary public image — [5nickels/foxschema](https://hub.docker.com/repository/docker/5nickels/foxschema/tags)):
+**Docker Hub** ([5nickels/foxschema](https://hub.docker.com/repository/docker/5nickels/foxschema/tags)):
 
 ```bash
-docker pull 5nickels/foxschema:latest       # common (multi-arch)
-docker pull 5nickels/foxschema:db2-latest   # with Db2 client (amd64 only)
+docker pull 5nickels/foxschema:latest
 ```
 
-**GitHub Container Registry** (also published on each release):
+**GitHub Container Registry:**
 
 ```bash
 docker pull ghcr.io/tedious-code/foxschema:latest
-docker pull ghcr.io/tedious-code/foxschema:db2-latest
 ```
 
-CI (`.github/workflows/web-release.yml`) pushes both registries when these Actions
-secrets are set on `tedious-code/foxschema`:
+CI pushes both registries when these Actions secrets are set:
 
 | Secret | Value |
 |--------|--------|
 | `DOCKERHUB_USERNAME` | `5nickels` |
 | `DOCKERHUB_TOKEN` | Hub **Access Token** with Read & Write (not your password) |
 
-Point `docker-compose.app.yml`'s `image:` at `5nickels/foxschema:latest` instead of
-`build:` to skip building locally.
-
 ## Building the image
 
-**Common (recommended default):**
-
 ```bash
-docker build -t fox .
+docker build --platform=linux/amd64 -t foxschema .
 # or:  docker compose -f docker-compose.app.yml up -d --build
 ```
 
-**With Db2** (adds `ibm_db`; amd64 only — builds under emulation on Apple Silicon):
-
-```bash
-docker build --platform=linux/amd64 --build-arg WITH_DB2=true -t fox:db2 .
-# or overlay the override:
-docker compose -f docker-compose.app.yml -f docker-compose.db2.yml up -d --build
-```
-
-Both variants:
-- Use `npm install` (no committed lockfile), build the Vite frontend to
-  `apps/web/dist`, then run the API + static server via the production entry
+The image:
+- Uses `npm install` (no committed lockfile), builds the Vite frontend to
+  `apps/web/dist`, then runs the API + static server via
   `apps/web/src/backend/serve.ts`.
-- Run as a non-root user and expose a `/api/health` healthcheck.
-- Run TypeScript at runtime via `tsx` with full `node_modules` — an esbuild backend
-  bundle to shrink the image further is a planned follow-up.
+- Runs as a non-root user and exposes a `/api/health` healthcheck.
+- Includes Db2 by default (`WITH_DB2=true`). For a local lean build without Db2:
+  `docker build --build-arg WITH_DB2=false -t foxschema:lite .`

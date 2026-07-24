@@ -10,6 +10,7 @@ SQL to make one match the other. This guide is for **using** Fox Schema — no c
 - [Run a comparison](#run-a-comparison)
 - [Read the diff](#read-the-diff)
 - [Generate & apply a migration](#generate--apply-a-migration)
+- [SQL Editor](#sql-editor)
 - [History](#history)
 - [Troubleshooting](#troubleshooting)
 
@@ -27,24 +28,30 @@ only when you explicitly apply a migration.
 
 ## Install & run
 
-**Option A — Docker (recommended for a shared/team instance).** One command:
+**Option A — CLI (recommended on your laptop).** Install, then open the local UI:
 
 ```bash
-cp .env.example .env
-# open .env and set APP_ENCRYPTION_KEY  →  generate one with:  openssl rand -hex 32
-docker compose -f docker-compose.app.yml up -d --build
+npm install -g foxschema          # or: brew install tedious-code/foxschema/foxschema
+foxschema                         # http://localhost:3210
+foxschema shortcut                # optional Fox icon on your Desktop
 ```
 
-Then open **http://localhost:3001**. To use a different port, set `PORT=` in `.env`.
+Full install matrix (npm, Homebrew, Winget, Docker, curl/wget): [INSTALL.md](INSTALL.md).
 
-**Option B — Desktop app.** A regular macOS / Windows / Linux application; see
-[desktop-build.md](desktop-build.md). Nothing to configure — it stores its data locally.
+**Option B — Docker (shared/team server):**
+
+```bash
+docker pull 5nickels/foxschema:latest
+docker run -d --name foxschema -p 3001:3001 -v foxschema_data:/data 5nickels/foxschema:latest
+```
+
+Open **http://localhost:3001**. Details: [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## First run
 
 The first time you open Fox Schema it sets up an **encryption key** that protects the
-database passwords you save. With Docker this is the `APP_ENCRYPTION_KEY` you put in
-`.env`; on desktop it's created for you and kept in your OS keychain.
+database passwords you save. The CLI creates one under your user data directory; Docker
+auto-generates one on the `/data` volume (or use `APP_ENCRYPTION_KEY` in `.env`).
 
 > Keep that key stable. If it changes, previously saved passwords can no longer be
 > read and you'll need to re-enter them.
@@ -100,6 +107,36 @@ look (view/function bodies, for instance, aren't auto-translated).
 You can always just copy the generated SQL and run it yourself instead of applying it
 through Fox Schema.
 
+## SQL Editor
+
+Use the **SQL Editor** to run ad-hoc queries and inspect data (separate from schema
+compare / migrate). It lives in the same local web UI you open with `foxschema`.
+
+1. Open Fox Schema (`foxschema` or the Desktop shortcut).
+2. In the top toolbar, click **SQL Editor** (next to Schema Sync).
+3. Under **Destinations**, check one or more saved connections — the same SQL runs
+   against every checked server (handy for comparing data across environments).
+4. Type SQL in the editor. Multiple statements are fine; use the **statement strip**
+   under the editor to enable/disable individual statements before Run.
+5. Click **Run**. Results appear below, grouped by connection (stack or side-by-side).
+
+Tips:
+
+- **Tabs** — open several buffers; rename with double-click. SQL text is remembered
+  locally; result grids are not.
+- **Schema explorer** — browse objects on the left; click a name to insert it at the
+  cursor. Autocomplete uses the checked connections’ schemas when available.
+- **Format** — pretty-print the buffer. **Clear** removes results for the active tab.
+- **Bookmarks** — save reusable snippets from the sidebar.
+- **Safe mode** — when on, write/DDL statements need an extra confirmation before run.
+- **Max rows** — caps how many rows each statement returns (avoids huge result sets).
+
+Writes and DDL are allowed when you confirm them. Some dialects (e.g. SQLite /
+ClickHouse adapters used for SELECT-only paths) may reject writes with a clear error
+per connection cell.
+
+Switch back to **Schema Sync** anytime to compare and migrate schemas.
+
 ## History
 
 Every migration you apply is recorded — status, target, the exact script, the
@@ -112,25 +149,22 @@ re-inspect past runs. No passwords are stored in history.
 connections from where Fox Schema runs (in Docker, `localhost` means *inside the container* —
 use the host's IP or a service name, not `localhost`, to reach a DB on your machine).
 
-**Port already in use.** Change `PORT` in `.env` and restart (`docker compose -f
-docker-compose.app.yml up -d`).
+**Port already in use (CLI).** Something else is on **3210**. Stop Fox
+(`foxschema stop`) or free that port, then run `foxschema` again.
+
+**Port already in use (Docker).** Change `PORT` in `.env` and restart
+(`docker compose -f docker-compose.app.yml up -d`).
 
 **"driver not installed" for a database type.** Some drivers are optional/platform-
-specific (notably IBM Db2). See [DEPLOYMENT.md](DEPLOYMENT.md#database-drivers).
+specific (notably IBM Db2). Run `foxschema doctor`, or see
+[DEPLOYMENT.md](DEPLOYMENT.md#database-drivers).
 
-**Saved passwords stopped working.** The encryption key changed. Restore the original
-`APP_ENCRYPTION_KEY`, or re-enter the passwords.
+**Saved passwords stopped working.** The encryption key changed. For the CLI, keep the
+same data directory; for Docker, restore the original `APP_ENCRYPTION_KEY` / volume, or
+re-enter the passwords.
 
-**macOS: "'Fox Schema.app' is damaged and can't be opened."** This isn't actual
-corruption — it's Gatekeeper's response to an app that isn't notarized by Apple (which
-requires a paid Developer account). Open Terminal and run:
-
-```bash
-xattr -cr "/Applications/Fox Schema.app"
-```
-
-Then open the app normally. If it still shows an "unidentified developer" prompt instead,
-right-click the app → **Open**.
+**Desktop shortcut does nothing / browser does not open.** Run `foxschema doctor`, then
+`foxschema` from a terminal. Re-create the shortcut with `foxschema shortcut`.
 
 **Lost my saved connections/history after a restart (Docker).** The app data lives on
 the `/data` volume — make sure you didn't remove it (`docker compose down -v` deletes

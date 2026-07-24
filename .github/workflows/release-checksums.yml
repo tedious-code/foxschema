@@ -1,13 +1,8 @@
 name: Release Checksums
 
-# Runs once a GitHub Release is published (the manual "Publish release" click
-# after reviewing desktop-release.yml's draft) — downloads every asset already
-# attached, generates a SHA256SUMS.txt, and uploads it back to the same
-# release so anyone who downloads an installer can verify it wasn't
-# corrupted or tampered with in transit.
-#
-# workflow_dispatch (with a tag input) lets this be run against a release
-# that was already published before this workflow existed.
+# Optional SHA256SUMS.txt upload when a GitHub Release is published.
+# Desktop installer releases are retired; this remains useful if a tag release
+# attaches other assets (e.g. future CLI portable zips).
 
 on:
   release:
@@ -30,17 +25,27 @@ jobs:
         run: echo "tag=${{ github.event.release.tag_name || inputs.tag }}" >> "$GITHUB_OUTPUT"
 
       - name: Download release assets
+        id: assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release download "${{ steps.tag.outputs.tag }}" --repo "${{ github.repository }}" --dir assets --clobber
+        run: |
+          mkdir -p assets
+          gh release download "${{ steps.tag.outputs.tag }}" --repo "${{ github.repository }}" --dir assets --clobber || true
+          count=$(find assets -type f ! -name 'SHA256SUMS.txt' 2>/dev/null | wc -l | tr -d ' ')
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "Found $count release asset(s)"
 
       - name: Generate SHA256SUMS.txt
+        if: steps.assets.outputs.count != '0'
         run: |
           cd assets
-          sha256sum * > SHA256SUMS.txt
+          find . -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
-      - name: Upload checksums to the release
+      - name: Upload SHA256SUMS.txt
+        if: steps.assets.outputs.count != '0'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${{ steps.tag.outputs.tag }}" assets/SHA256SUMS.txt --repo "${{ github.repository }}" --clobber
+        run: |
+          gh release upload "${{ steps.tag.outputs.tag }}" assets/SHA256SUMS.txt \
+            --repo "${{ github.repository }}" --clobber

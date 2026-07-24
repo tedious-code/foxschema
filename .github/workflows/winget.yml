@@ -1,66 +1,26 @@
 name: Publish to WinGet
 
-# Submits MSI installer updates to microsoft/winget-pkgs after Desktop Release
-# publishes a GitHub Release (same `release: published` event as
-# release-checksums.yml). Uses vedantmgoyal9/winget-releaser (Komac) to open
-# version-bump PRs for both package variants.
+# RETIRED for desktop MSI packages (TediousCode.FoxSchema / .DB2).
+# Desktop Tauri installers are no longer published.
 #
-# Prerequisites (repo settings):
-#   1. Secret WINGET_TOKEN — classic PAT with `public_repo` (fine-grained not
-#      supported). Token owner must be able to push to the winget-pkgs fork.
-#   2. Fork microsoft/winget-pkgs under the account in `fork-user` below
-#      (currently huyplb — same account that opened the first package PRs).
-#   3. At least one version of each PackageIdentifier already merged in
-#      winget-pkgs (action clones the latest as a template).
-#
-# Installer filter: only the x64 WiX MSI for each variant (ignore NSIS .exe,
-# Linux/macOS assets, and the other variant's MSI).
+# Windows install path: npm i -g foxschema  (Node ≥ 22.5)
+# A future winget package may wrap the npm CLI; until then this workflow is a no-op.
 
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
-      tag:
-        description: 'Release tag to publish (e.g. v0.1.45)'
-        required: true
+      note:
+        description: 'Desktop MSI winget publishes are retired — use npm on Windows'
+        required: false
+        default: 'retired'
 
 jobs:
-  winget:
-    # Skip non-version tags (desktop-release workflow_dispatch uses desktop-<n>).
-    if: startsWith(github.event.release.tag_name || inputs.tag, 'v')
+  retired:
     runs-on: ubuntu-latest
     steps:
-      - name: Resolve release tag
-        id: tag
-        run: echo "tag=${{ github.event.release.tag_name || inputs.tag }}" >> "$GITHUB_OUTPUT"
-
-      # continue-on-error: winget publishing is best-effort and NOT release-
-      # critical. winget-releaser hard-fails ("Package … does not exist …")
-      # until the first version of each package is merged into winget-pkgs, and
-      # the initial New-Package PRs sit in Microsoft's moderator queue for days.
-      # Without this, every GitHub Release shows a red winget run for something
-      # we can't act on. The step still logs its real error for inspection; once
-      # the seed versions merge, later releases update automatically. Downside:
-      # a genuine failure after that point also won't red the run — acceptable
-      # for an optional publish channel you'd notice via a missing winget bump.
-      - name: Publish TediousCode.FoxSchema (foxschema)
-        uses: vedantmgoyal9/winget-releaser@v2
-        continue-on-error: true
-        with:
-          identifier: TediousCode.FoxSchema
-          release-tag: ${{ steps.tag.outputs.tag }}
-          # Match Fox.Schema_0.1.45_x64_en-US.msi — not Fox.Schema.DB2_…
-          installers-regex: 'Fox\.Schema_\d[\d.]*_x64_en-US\.msi$'
-          fork-user: huyplb
-          token: ${{ secrets.WINGET_TOKEN }}
-
-      - name: Publish TediousCode.FoxSchema.DB2 (foxschemadb2)
-        uses: vedantmgoyal9/winget-releaser@v2
-        continue-on-error: true
-        with:
-          identifier: TediousCode.FoxSchema.DB2
-          release-tag: ${{ steps.tag.outputs.tag }}
-          installers-regex: 'Fox\.Schema\.DB2_\d[\d.]*_x64_en-US\.msi$'
-          fork-user: huyplb
-          token: ${{ secrets.WINGET_TOKEN }}
+      - name: Winget MSI channel retired
+        run: |
+          echo "::notice::Desktop MSI winget packages are retired (no new versions)."
+          echo "Windows: npm install -g foxschema && foxschema"
+          echo "Also: Homebrew (macOS), Docker 5nickels/foxschema:latest"
+          exit 0

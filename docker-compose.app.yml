@@ -1,16 +1,13 @@
-# Fox — self-host the web app (the "common" image: every dialect except Db2).
-# Separate from the root docker-compose.yml, which spins up the 6 test databases.
+# Fox Schema — self-host the web app (single image, all dialects including Db2).
+# Separate from the root docker-compose.yml, which spins up the test databases.
 #
 # Pull-and-run (no .env needed — entrypoint auto-creates APP_ENCRYPTION_KEY on /data):
 #   docker compose -f docker-compose.app.yml up -d
 #
-# Or build locally:
+# Or build locally (linux/amd64 — ibm_db has no arm64 build):
 #   docker compose -f docker-compose.app.yml up -d --build
 #
 # Optional: set APP_ENCRYPTION_KEY in .env to pin the key yourself.
-# To include IBM Db2 (adds ~1GB, requires linux/amd64), overlay the Db2 override:
-#   docker compose -f docker-compose.app.yml -f docker-compose.db2.yml up -d --build
-#
 # Open http://localhost:${PORT}  (default 3001). See docs/DEPLOYMENT.md.
 
 services:
@@ -18,7 +15,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    # Prefer the published Hub image; `up --build` still builds locally as fox:latest.
+      args:
+        WITH_DB2: 'true'
+    platform: linux/amd64
+    # Prefer the published Hub image; `up --build` still builds locally.
     image: ${FOX_IMAGE:-5nickels/foxschema:latest}
     # Publish host ${PORT} -> the container's ${API_PORT}. Set PORT in .env to
     # avoid clashing with your other services.

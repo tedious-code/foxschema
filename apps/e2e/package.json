@@ -1,7 +1,7 @@
 {
   "name": "@foxschema/e2e",
   "private": true,
-  "version": "1.0.0",
+  "version": "0.1.66",
   "type": "module",
   "scripts": {
     "test": "vitest run --config vitest.config.ts",

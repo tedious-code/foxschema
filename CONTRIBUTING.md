@@ -12,11 +12,9 @@ fresh clone to a running app with a passing test suite.
 - **Node.js ≥ 22.5** (the app uses the built-in `node:sqlite`; Node 24 is what we
   develop on).
 - **Docker** — for the test databases and the end-to-end suite.
-- **Rust (stable)** — only if you build the desktop (Tauri) app.
-- **Windows desktop builds** also need Visual Studio Build Tools (“Desktop development
-  with C++” / MSVC), WebView2 (usually preinstalled on Win10/11), and optionally WiX
-  Toolset v3 for `.msi`. See [docs/desktop-build.md](docs/desktop-build.md) for the
-  full Windows checklist and troubleshooting.
+
+User install channels: [docs/INSTALL.md](docs/INSTALL.md). Release publish:
+[docs/PUBLISH.md](docs/PUBLISH.md).
 
 ## First-time setup
 
@@ -52,10 +50,10 @@ the Playwright E2E suite (see below).
 | Workspace | What it is |
 |-----------|------------|
 | [`packages/core`](packages/core) | The dialect-agnostic engine: introspection, diff, migration generation/execution, and all 10 dialect providers. No browser dependencies. |
-| [`apps/web`](apps/web) | Express API + React/Vite UI. Also the backend the desktop app runs. |
-| [`apps/desktop`](apps/desktop) | Tauri v2 shell wrapping the web UI as a native app. See [docs/desktop-build.md](docs/desktop-build.md). |
-| [`apps/cli`](apps/cli) | The `fox` terminal CLI + Ink TUI. |
+| [`apps/web`](apps/web) | Express API + React/Vite UI (also served by the CLI launcher and Docker). |
+| [`apps/cli`](apps/cli) | Public `foxschema` CLI — browser launcher, desktop shortcut, line commands, Ink TUI. |
 | [`apps/e2e`](apps/e2e) | Playwright E2E tests against the dockerized databases. |
+| [`apps/desktop`](apps/desktop) | Retired Tauri shell (not a release path). |
 
 The design, the migration pipeline, and the dialect system are described in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — read it before non-trivial changes.
@@ -67,12 +65,10 @@ The design, the migration pipeline, and the dialect system are described in
 npm run dev
 npm run dev:auth                  # multi-user + auth enabled
 
-# CLI / TUI
-cd apps/cli && npx tsx src/index.ts --help
+# CLI / TUI (opens local UI like the published package)
+cd apps/cli && npx tsx src/index.ts
+cd apps/cli && npx tsx src/index.ts shortcut
 cd apps/cli && npx tsx src/index.ts tui
-
-# Desktop
-cd apps/desktop && npm run dev
 
 # E2E (one dialect, or all)
 npm -w @foxschema/e2e run test:postgres
