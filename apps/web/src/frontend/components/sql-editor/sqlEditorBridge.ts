@@ -6,6 +6,8 @@ export interface SchemaCacheEntry {
   status: 'idle' | 'loading' | 'ready' | 'error';
   tables?: TableSchema[];
   error?: string;
+  /** Object types requested for this cache entry (re-fetch when scope changes). */
+  scope?: string[];
 }
 
 export interface CompletionSchemaSource {

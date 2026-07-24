@@ -10,6 +10,8 @@ const COL_MIN_PX = 96;
 const COL_DEFAULT_PX = 128;
 const COL_MAX_PX = 220;
 const COL_LONG_TEXT_PX = 200;
+/** Upper bound when double-clicking a header to fit content. */
+const COL_FIT_MAX_PX = 720;
 const ROW_NUM_PX = 48;
 /** Fixed row height for windowing (must match rendered row). */
 const ROW_H_PX = 28;
@@ -144,6 +146,17 @@ function cellDisplay(value: unknown): { text: string; title: string; isNull: boo
   return { text: raw, title: raw, isNull: false };
 }
 
+function fitWidthFor(colName: string, sampleValues: unknown[]): number {
+  const headerPx = colName.length * 8 + 40;
+  let contentPx = 0;
+  for (const v of sampleValues) {
+    if (v === null || v === undefined) continue;
+    contentPx = Math.max(contentPx, Math.min(String(v).length, 120) * 7.2);
+  }
+  const raw = Math.max(headerPx, contentPx, COL_DEFAULT_PX);
+  return Math.min(COL_FIT_MAX_PX, Math.max(COL_MIN_PX, Math.round(raw)));
+}
+
 /**
  * Result grid — virtualized rows, column-level type colors (no per-cell regex).
  * Right-click a cell or column header to save as a SQL Editor variable.
@@ -154,13 +167,45 @@ export const DataGrid: React.FC<{
   exportName?: string;
   refreshing?: boolean;
   onRefresh?: () => void;
-}> = React.memo(({ result, label, exportName = 'query-result', refreshing, onRefresh }) => {
+  /** Sync vertical scroll by row index with sibling grids in the same row. */
+  syncScrollRow?: number | null;
+  onSyncScrollRow?: (rowIndex: number) => void;
+  /** 0-based page index for server-side paging. */
+  pageIndex?: number;
+  /** Rows requested per page (Max rows / Rows/page). */
+  pageSize?: number;
+  hasPrevPage?: boolean;
+  hasNextPage?: boolean;
+  pageLoading?: boolean;
+  onPrevPage?: () => void;
+  onNextPage?: () => void;
+}> = React.memo(
+  ({
+    result,
+    label,
+    exportName = 'query-result',
+    refreshing,
+    onRefresh,
+    syncScrollRow,
+    onSyncScrollRow,
+    pageIndex = 0,
+    pageSize,
+    hasPrevPage,
+    hasNextPage,
+    pageLoading,
+    onPrevPage,
+    onNextPage,
+  }) => {
   const upsertVariable = useSqlEditorStore((s) => s.upsertVariable);
   const sourceColumns = result.ok ? result.columns : [];
   const sourceRows = result.ok ? result.rows : [];
   const [colOrder, setColOrder] = useState<number[]>(() => identityOrder(sourceColumns.length));
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
+  const [colWidths, setColWidths] = useState<number[]>(() =>
+    computeColWidths(sourceColumns, sourceRows)
+  );
+  const [fittedCols, setFittedCols] = useState<Set<number>>(() => new Set());
   const [menu, setMenu] = useState<
     | { kind: 'cell'; x: number; y: number; colIdx: number; value: unknown }
     | { kind: 'column'; x: number; y: number; colIdx: number }
@@ -181,12 +226,9 @@ export const DataGrid: React.FC<{
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportH, setViewportH] = useState(320);
   const rafRef = useRef(0);
+  const syncLock = useRef(false);
 
   const colKey = sourceColumns.join('\0');
-  const colWidths = useMemo(
-    () => computeColWidths(sourceColumns, sourceRows),
-    [colKey, sourceRows.length, result.ok && result.ok ? result.rowCount : 0]
-  );
   const colKinds = useMemo(
     () => computeColKinds(sourceColumns, sourceRows),
     [colKey, sourceRows.length, result.ok && result.ok ? result.rowCount : 0]
@@ -194,6 +236,8 @@ export const DataGrid: React.FC<{
 
   useEffect(() => {
     setColOrder(identityOrder(sourceColumns.length));
+    setColWidths(computeColWidths(sourceColumns, sourceRows));
+    setFittedCols(new Set());
     setDragFrom(null);
     setDragOver(null);
     setScrollTop(0);
@@ -210,14 +254,87 @@ export const DataGrid: React.FC<{
     return () => ro.disconnect();
   }, [result.ok, sourceColumns.length]);
 
+  useEffect(() => {
+    if (syncScrollRow == null || !scrollRef.current) return;
+    const target = syncScrollRow * ROW_H_PX;
+    if (Math.abs(scrollRef.current.scrollTop - target) < 2) return;
+    syncLock.current = true;
+    scrollRef.current.scrollTop = target;
+    setScrollTop(target);
+    requestAnimationFrame(() => {
+      syncLock.current = false;
+    });
+  }, [syncScrollRow]);
+
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
     cancelAnimationFrame(rafRef.current);
-    rafRef.current = requestAnimationFrame(() => setScrollTop(el.scrollTop));
-  }, []);
+    rafRef.current = requestAnimationFrame(() => {
+      setScrollTop(el.scrollTop);
+      if (!syncLock.current && onSyncScrollRow) {
+        onSyncScrollRow(Math.floor(el.scrollTop / ROW_H_PX));
+      }
+    });
+  }, [onSyncScrollRow]);
 
   useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
+
+  const startColResize = useCallback((colIdx: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startW = colWidths[colIdx] ?? COL_DEFAULT_PX;
+    const onMove = (ev: MouseEvent) => {
+      const next = Math.min(COL_FIT_MAX_PX, Math.max(COL_MIN_PX, startW + (ev.clientX - startX)));
+      setColWidths((prev) => {
+        const copy = [...prev];
+        while (copy.length <= colIdx) copy.push(COL_DEFAULT_PX);
+        copy[colIdx] = next;
+        return copy;
+      });
+      setFittedCols((prev) => {
+        if (!prev.has(colIdx)) return prev;
+        const n = new Set(prev);
+        n.delete(colIdx);
+        return n;
+      });
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [colWidths]);
+
+  const onHeaderDoubleClick = useCallback(
+    (colIdx: number) => {
+      const name = sourceColumns[colIdx] ?? '';
+      const sample = sourceRows.slice(0, 80).map((r) => r[colIdx]);
+      setColWidths((prev) => {
+        const copy = [...prev];
+        while (copy.length <= colIdx) copy.push(COL_DEFAULT_PX);
+        if (fittedCols.has(colIdx)) {
+          copy[colIdx] = defaultWidthFor(name, sample);
+        } else {
+          copy[colIdx] = fitWidthFor(name, sample);
+        }
+        return copy;
+      });
+      setFittedCols((prev) => {
+        const n = new Set(prev);
+        if (n.has(colIdx)) n.delete(colIdx);
+        else n.add(colIdx);
+        return n;
+      });
+    },
+    [fittedCols, sourceColumns, sourceRows]
+  );
 
   useEffect(() => {
     if (!menu) return;
@@ -348,7 +465,7 @@ export const DataGrid: React.FC<{
       <div
         ref={scrollRef}
         data-testid="sql-data-grid"
-        className="fox-sql-grid flex-1 min-h-0 border border-[#cbd5e1] rounded-lg shadow-sm bg-white"
+        className="fox-sql-grid flex-1 min-h-0 border border-slate-700/80 rounded-lg shadow-sm bg-slate-50"
         style={{ overflowX: 'auto', overflowY: 'auto' }}
         onScroll={onScroll}
         onContextMenu={(e) => {
@@ -380,9 +497,9 @@ export const DataGrid: React.FC<{
               ))}
             </colgroup>
             <thead className="sticky top-0 z-10">
-              <tr className="bg-[#e2e8f0] border-b border-[#cbd5e1] text-[#0f172a]">
+              <tr className="bg-slate-200/90 border-b border-slate-300 text-slate-800">
                 <th
-                  className="sticky left-0 z-20 px-1.5 py-1.5 text-center font-bold text-[#64748b] bg-[#e2e8f0] border-r border-[#cbd5e1] select-none"
+                  className="sticky left-0 z-20 px-1.5 py-1.5 text-center font-bold text-slate-500 bg-slate-200/90 border-r border-slate-300 select-none"
                   style={{ width: ROW_NUM_PX, minWidth: ROW_NUM_PX }}
                   title="Row number — right-click to save result as table"
                   aria-label="Row number"
@@ -404,7 +521,11 @@ export const DataGrid: React.FC<{
                       key={`${colIdx}-${name}`}
                       draggable
                       data-testid="sql-col-header"
-                      title={`${name} (${KIND_LABEL[kind]}) — drag to reorder; right-click to save as list variable`}
+                      title={`${name} (${KIND_LABEL[kind]}) — drag to reorder; double-click to fit/reset width; right-click for list variable`}
+                      onDoubleClick={(e) => {
+                        e.preventDefault();
+                        onHeaderDoubleClick(colIdx);
+                      }}
                       onContextMenu={(e) => {
                         e.preventDefault();
                         setMenu({ kind: 'column', x: e.clientX, y: e.clientY, colIdx });
@@ -448,14 +569,14 @@ export const DataGrid: React.FC<{
                         setDragOver(null);
                       }}
                       style={{ width: w, minWidth: COL_MIN_PX, maxWidth: w }}
-                      className={`px-2 py-1.5 font-bold tracking-wide text-left cursor-grab active:cursor-grabbing select-none overflow-hidden ${
+                      className={`relative px-2 py-1.5 font-bold tracking-wide text-left cursor-grab active:cursor-grabbing select-none overflow-hidden ${
                         dragFrom === visualIdx ? 'opacity-50' : ''
-                      } ${isOver ? 'bg-[#cbd5e1] ring-2 ring-inset ring-cyan-500/70' : ''}`}
+                      } ${isOver ? 'bg-slate-300 ring-2 ring-inset ring-cyan-500/60' : ''}`}
                     >
-                      <span className="inline-flex items-center gap-1 max-w-full">
-                        <GripVertical className="w-3 h-3 text-[#94a3b8] shrink-0" aria-hidden />
+                      <span className="inline-flex items-center gap-1 max-w-full pr-1">
+                        <GripVertical className="w-3 h-3 text-slate-400 shrink-0" aria-hidden />
                         <span className="min-w-0 flex flex-col leading-tight">
-                          <span className="truncate text-[#0f172a]">{name}</span>
+                          <span className="truncate text-slate-800">{name}</span>
                           <span
                             className={`text-[9px] font-semibold uppercase tracking-wider ${KIND_HEADER_CLASS[kind]}`}
                           >
@@ -463,12 +584,26 @@ export const DataGrid: React.FC<{
                           </span>
                         </span>
                       </span>
+                      <span
+                        role="separator"
+                        aria-orientation="vertical"
+                        aria-label={`Resize column ${name}`}
+                        data-testid="sql-col-resize"
+                        title="Drag to resize column"
+                        onMouseDown={(e) => startColResize(colIdx, e)}
+                        onDoubleClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          onHeaderDoubleClick(colIdx);
+                        }}
+                        className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-cyan-500/50"
+                      />
                     </th>
                   );
                 })}
               </tr>
             </thead>
-            <tbody className="font-mono bg-white">
+            <tbody className="font-mono bg-slate-50">
               {padTop > 0 && (
                 <tr aria-hidden style={{ height: padTop }}>
                   <td colSpan={colCount} className="p-0 border-0" />
@@ -476,18 +611,20 @@ export const DataGrid: React.FC<{
               )}
               {sourceRows.slice(start, end).map((row, offset) => {
                 const i = start + offset;
+                const size = pageSize && pageSize > 0 ? pageSize : sourceRows.length;
+                const absRow = pageIndex * size + i + 1;
                 return (
                   <tr
                     key={i}
-                    className="hover:bg-[#f1f5f9] group border-b border-[#e2e8f0]"
+                    className="hover:bg-slate-100/90 group border-b border-slate-200"
                     style={{ height: ROW_H_PX }}
                   >
                     <td
-                      className="sticky left-0 z-[5] px-1.5 text-center text-[10px] tabular-nums text-[#64748b] bg-white group-hover:bg-[#f1f5f9] border-r border-[#e2e8f0] select-none"
+                      className="sticky left-0 z-[5] px-1.5 text-center text-[10px] tabular-nums text-slate-500 bg-slate-50 group-hover:bg-slate-100/90 border-r border-slate-200 select-none"
                       style={{ width: ROW_NUM_PX, minWidth: ROW_NUM_PX }}
                       data-testid="sql-row-num"
                     >
-                      {i + 1}
+                      {absRow}
                     </td>
                     {order.map((colIdx) => {
                       const cell = row[colIdx];
@@ -527,12 +664,40 @@ export const DataGrid: React.FC<{
           </table>
         )}
       </div>
-      <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-500 shrink-0">
+      <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-500 shrink-0 flex-wrap">
         <span>
-          {result.rowCount} row{result.rowCount === 1 ? '' : 's'} · {result.durationMs} ms
+          {result.rowCount} row{result.rowCount === 1 ? '' : 's'}
+          {pageSize ? ` / page of ${pageSize}` : ''}
+          {typeof pageIndex === 'number' ? ` · page ${pageIndex + 1}` : ''}
+          {' · '}
+          {result.durationMs} ms
         </span>
         {result.truncated && (
-          <span className="text-amber-500 font-semibold">truncated — add a LIMIT for the full picture</span>
+          <span className="text-amber-500 font-semibold">
+            truncated — use Next page or raise Rows/page
+          </span>
+        )}
+        {(onPrevPage || onNextPage) && (
+          <span className="ml-auto flex items-center gap-1">
+            <button
+              type="button"
+              data-testid="sql-page-prev"
+              disabled={!hasPrevPage || pageLoading}
+              onClick={onPrevPage}
+              className="px-1.5 py-0.5 rounded border border-slate-300 text-slate-600 font-semibold hover:bg-slate-100 disabled:opacity-40"
+            >
+              Prev
+            </button>
+            <button
+              type="button"
+              data-testid="sql-page-next"
+              disabled={!hasNextPage || pageLoading}
+              onClick={onNextPage}
+              className="px-1.5 py-0.5 rounded border border-slate-300 text-slate-600 font-semibold hover:bg-slate-100 disabled:opacity-40"
+            >
+              {pageLoading ? '…' : 'Next'}
+            </button>
+          </span>
         )}
       </div>
 
@@ -666,3 +831,6 @@ DataGrid.displayName = 'DataGrid';
 
 export const PANE_MIN_PX = 240;
 export const PANE_DEFAULT_PX = 420;
+export const PANE_MIN_H_PX = 160;
+export const PANE_DEFAULT_H_PX = 360;
+export { ROW_H_PX };

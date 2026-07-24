@@ -3,7 +3,15 @@ import type { ConnectionRef } from './schemaApi';
 
 /** One statement's outcome from POST /sql/execute (mirrors backend sql-execute.ts). */
 export type SqlStatementResult =
-  | { ok: true; columns: string[]; rows: unknown[][]; rowCount: number; truncated: boolean; durationMs: number }
+  | {
+      ok: true;
+      columns: string[];
+      rows: unknown[][];
+      rowCount: number;
+      truncated: boolean;
+      hasNext?: boolean;
+      durationMs: number;
+    }
   | { ok: false; error: string; durationMs: number };
 
 /**
@@ -14,13 +22,14 @@ export type SqlStatementResult =
 export async function executeSql(
   ref: ConnectionRef,
   statements: string[],
-  maxRows?: number
+  maxRows?: number,
+  offset?: number
 ): Promise<{ results: SqlStatementResult[] }> {
   const res = await fetch(`${getApiBase()}/sql/execute`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify({ ...ref, statements, maxRows }),
+    body: JSON.stringify({ ...ref, statements, maxRows, offset }),
   });
   const text = await res.text();
   let data: { results?: SqlStatementResult[]; error?: string };

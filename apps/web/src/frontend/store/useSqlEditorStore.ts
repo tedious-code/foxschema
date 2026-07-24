@@ -68,6 +68,18 @@ export interface TabResults {
   runs: CredentialRun[];
   /** Non-fatal messages (e.g. `@set` failures) for this run. */
   warnings?: string[];
+  /**
+   * Per-connection prepared SQL for each statement index — used for Next/Prev page
+   * without re-substituting variables.
+   */
+  pageSqlByConnection?: Record<string, string[]>;
+  /** Cache of result pages: `${connectionId}:${statementIndex}:${pageIndex}` → result. */
+  pageCache?: Record<string, SqlStatementResult>;
+  /** UI page cursor + hasNext: `${connectionId}:${statementIndex}`. */
+  pageMeta?: Record<
+    string,
+    { pageIndex: number; hasNext: boolean; loading?: boolean; pageSize: number }
+  >;
 }
 
 /** Password prompt for a connection saved without one (session-only). */
@@ -142,6 +154,12 @@ interface SqlEditorState {
   ensureSchema: (connectionId: string, opts?: { force?: boolean }) => Promise<void>;
   /** Re-run SQL. Pass `connectionIds` to refresh only those credentials (keeps other panes). */
   execute: (opts?: { confirmedWrites?: boolean; connectionIds?: string[] }) => Promise<void>;
+  /** Load a cached or server page for one statement result grid. */
+  loadResultPage: (args: {
+    connectionId: string;
+    statementIndex: number;
+    pageIndex: number;
+  }) => Promise<void>;
   cancelWriteConfirm: () => void;
   clearResults: () => void;
   saveBookmark: (opts?: { title?: string }) => void;
@@ -389,8 +407,17 @@ export const useSqlEditorStore = create<SqlEditorState>()(
       setSafeMode: (on) => set({ safeMode: on }),
 
       ensureSchema: async (connectionId, { force = false } = {}) => {
+        const SQL_EDITOR_SCOPE = ['TABLE', 'VIEW', 'MQT', 'PROCEDURE', 'FUNCTION'] as const;
         const existing = get().schemaCache[connectionId];
-        if (!force && (existing?.status === 'ready' || existing?.status === 'loading')) return;
+        const scopeKey = SQL_EDITOR_SCOPE.join(',');
+        const scopeOk = existing?.scope?.join(',') === scopeKey;
+        if (
+          !force &&
+          scopeOk &&
+          (existing?.status === 'ready' || existing?.status === 'loading')
+        ) {
+          return;
+        }
 
         const conn = useSyncStore.getState().connections.find((c) => c.id === connectionId);
         if (!conn) {
@@ -425,19 +452,27 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         set({
           schemaCache: {
             ...get().schemaCache,
-            [connectionId]: { status: 'loading', tables: existing?.tables },
+            [connectionId]: {
+              status: 'loading',
+              tables: existing?.tables,
+              scope: [...SQL_EDITOR_SCOPE],
+            },
           },
         });
 
         try {
           const { tables } = await loadSchema(
             { connectionId, password: sessionPasswords[connectionId] || undefined },
-            ['TABLE', 'VIEW', 'MQT']
+            [...SQL_EDITOR_SCOPE]
           );
           set({
             schemaCache: {
               ...get().schemaCache,
-              [connectionId]: { status: 'ready', tables },
+              [connectionId]: {
+                status: 'ready',
+                tables,
+                scope: [...SQL_EDITOR_SCOPE],
+              },
             },
           });
         } catch (error: unknown) {
@@ -447,6 +482,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
               [connectionId]: {
                 status: 'error',
                 error: error instanceof Error ? error.message : String(error),
+                scope: [...SQL_EDITOR_SCOPE],
               },
             },
           });
@@ -567,7 +603,11 @@ export const useSqlEditorStore = create<SqlEditorState>()(
 
         // Accumulate per-connection results as we run statements sequentially.
         const resultsByConn = new Map<string, SqlStatementResult[]>();
-        for (const c of connections) resultsByConn.set(c.id, []);
+        const pageSqlByConn = new Map<string, string[]>();
+        for (const c of connections) {
+          resultsByConn.set(c.id, []);
+          pageSqlByConn.set(c.id, []);
+        }
 
         set({
           pendingWriteConfirm: null,
@@ -578,6 +618,9 @@ export const useSqlEditorStore = create<SqlEditorState>()(
               ranStatements: [],
               runs: nextRuns,
               warnings: [],
+              pageCache: {},
+              pageMeta: {},
+              pageSqlByConnection: {},
             },
           },
         });
@@ -693,7 +736,8 @@ export const useSqlEditorStore = create<SqlEditorState>()(
                 const { results } = await executeSql(
                   { connectionId: c.id, password: sessionPasswords[c.id] || undefined },
                   [prep.sql],
-                  maxRows
+                  maxRows,
+                  0
                 );
                 const one = results[0] ?? {
                   ok: false as const,
@@ -702,6 +746,10 @@ export const useSqlEditorStore = create<SqlEditorState>()(
                 };
                 prev.push(one);
                 resultsByConn.set(c.id, prev);
+                const sqlList = pageSqlByConn.get(c.id) ?? [];
+                while (sqlList.length < si) sqlList.push('');
+                sqlList[si] = prep.sql;
+                pageSqlByConn.set(c.id, sqlList);
                 const last = si === rawStatements.length - 1;
                 patchRun(c.id, {
                   status: last ? 'done' : 'running',
@@ -753,7 +801,133 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           }
         }
 
-        set({ runningTabId: null });
+        // Seed page 0 cache from this run (avoids re-fetch on Prev after Next).
+        // Pin pageSize to this run so Next/Prev stay aligned if Max rows changes later.
+        const pageCache: Record<string, SqlStatementResult> = {};
+        const pageMeta: Record<
+          string,
+          { pageIndex: number; hasNext: boolean; pageSize: number }
+        > = {};
+        const pageSqlByConnection: Record<string, string[]> = {};
+        for (const c of connections) {
+          pageSqlByConnection[c.id] = pageSqlByConn.get(c.id) ?? [];
+          const results = resultsByConn.get(c.id) ?? [];
+          results.forEach((res, si) => {
+            const key = `${c.id}:${si}`;
+            pageCache[`${key}:0`] = res;
+            pageMeta[key] = {
+              pageIndex: 0,
+              pageSize: maxRows,
+              hasNext: Boolean(res.ok && (res.hasNext || res.truncated)),
+            };
+          });
+        }
+        set((state) => {
+          const current = state.resultsByTab[tabId];
+          if (!current) return state;
+          return {
+            resultsByTab: {
+              ...state.resultsByTab,
+              [tabId]: {
+                ...current,
+                pageCache,
+                pageMeta,
+                pageSqlByConnection,
+              },
+            },
+            runningTabId: null,
+          };
+        });
+      },
+
+      loadResultPage: async ({ connectionId, statementIndex, pageIndex }) => {
+        const { resultsByTab, activeTabId, maxRows, sessionPasswords } = get();
+        const tabId = activeTabId;
+        const current = resultsByTab[tabId];
+        if (!current) return;
+        const metaKey = `${connectionId}:${statementIndex}`;
+        const cacheKey = `${metaKey}:${pageIndex}`;
+        const cached = current.pageCache?.[cacheKey];
+        const pageSize = current.pageMeta?.[metaKey]?.pageSize ?? maxRows;
+
+        const setMeta = (
+          patch: Partial<{ pageIndex: number; hasNext: boolean; loading?: boolean; pageSize: number }>
+        ) =>
+          set((state) => {
+            const cur = state.resultsByTab[tabId];
+            if (!cur) return state;
+            const prev = cur.pageMeta?.[metaKey];
+            return {
+              resultsByTab: {
+                ...state.resultsByTab,
+                [tabId]: {
+                  ...cur,
+                  pageMeta: {
+                    ...(cur.pageMeta ?? {}),
+                    [metaKey]: {
+                      pageIndex: prev?.pageIndex ?? 0,
+                      hasNext: prev?.hasNext ?? false,
+                      pageSize: prev?.pageSize ?? pageSize,
+                      ...patch,
+                    },
+                  },
+                },
+              },
+            };
+          });
+
+        const applyResult = (res: SqlStatementResult, hasNext: boolean) => {
+          set((state) => {
+            const cur = state.resultsByTab[tabId];
+            if (!cur) return state;
+            return {
+              resultsByTab: {
+                ...state.resultsByTab,
+                [tabId]: {
+                  ...cur,
+                  pageCache: { ...(cur.pageCache ?? {}), [cacheKey]: res },
+                  pageMeta: {
+                    ...(cur.pageMeta ?? {}),
+                    [metaKey]: { pageIndex, hasNext, loading: false, pageSize },
+                  },
+                  runs: cur.runs.map((r) => {
+                    if (r.connectionId !== connectionId || !r.results) return r;
+                    const results = [...r.results];
+                    results[statementIndex] = res;
+                    return { ...r, results };
+                  }),
+                },
+              },
+            };
+          });
+        };
+
+        if (cached) {
+          applyResult(cached, Boolean(cached.ok && (cached.hasNext || cached.truncated)));
+          return;
+        }
+
+        const sql = current.pageSqlByConnection?.[connectionId]?.[statementIndex];
+        if (!sql) return;
+        setMeta({ loading: true });
+        try {
+          const offset = pageIndex * pageSize;
+          const { results } = await executeSql(
+            { connectionId, password: sessionPasswords[connectionId] || undefined },
+            [sql],
+            pageSize,
+            offset
+          );
+          const one = results[0] ?? {
+            ok: false as const,
+            error: 'No result returned',
+            durationMs: 0,
+          };
+          applyResult(one, Boolean(one.ok && (one.hasNext || one.truncated)));
+        } catch (error: unknown) {
+          const msg = error instanceof Error ? error.message : String(error);
+          applyResult({ ok: false, error: msg, durationMs: 0 }, false);
+        }
       },
 
       saveBookmark: (opts) => {

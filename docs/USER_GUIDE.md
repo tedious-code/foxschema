@@ -175,8 +175,11 @@ Tips:
   **Export / import** — download or upload JSON from the Variables panel. Secret
   entries export as stubs (name + flag only, no values). Click a table variable’s
   size line to preview columns and rows.
+- **Max rows / Rows/page** — caps how many rows each statement returns per page (default
+  200). Use **Next** / **Prev** on a result grid to page through more rows;
+  visited pages stay cached in memory so going back does not re-query the server.
+  Sibling result grids from the same Run sync vertical scroll by row index.
 - **Safe mode** — when on, write/DDL statements need an extra confirmation before run.
-- **Max rows** — caps how many rows each statement returns (avoids huge result sets).
 
 Writes and DDL are allowed when you confirm them. Some dialects (e.g. SQLite /
 ClickHouse adapters used for SELECT-only paths) may reject writes with a clear error

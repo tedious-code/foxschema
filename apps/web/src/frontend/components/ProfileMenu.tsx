@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { LogOut, Palette, ChevronDown, ArrowUpCircle, Globe } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { SettingsPanel } from './SettingsPanel';
@@ -9,11 +10,16 @@ export const ProfileMenu: React.FC = () => {
   const [open, setOpen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (ref.current?.contains(t) || menuRef.current?.contains(t)) return;
+      setOpen(false);
     };
     document.addEventListener('mousedown', onClick);
     return () => document.removeEventListener('mousedown', onClick);
@@ -27,31 +33,45 @@ export const ProfileMenu: React.FC = () => {
     };
   }, []);
 
+  const placeMenu = () => {
+    const btn = buttonRef.current;
+    if (!btn) return;
+    const r = btn.getBoundingClientRect();
+    setMenuPos({ top: r.bottom + 8, right: window.innerWidth - r.right });
+  };
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setMenuPos(null);
+      return;
+    }
+    placeMenu();
+    const onReposition = () => placeMenu();
+    window.addEventListener('resize', onReposition);
+    window.addEventListener('scroll', onReposition, true);
+    return () => {
+      window.removeEventListener('resize', onReposition);
+      window.removeEventListener('scroll', onReposition, true);
+    };
+  }, [open]);
+
   if (!user) return null;
 
   const updateAvailable = !!update?.updateAvailable;
 
-  return (
-    <div ref={ref} className="relative">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 pl-2 pr-2 py-1.5 rounded-md border border-slate-700 hover:border-slate-600 hover:bg-slate-800/60 transition cursor-pointer"
-      >
-        <span className="relative w-6 h-6 rounded-full accent-grad on-accent-fg text-xs font-bold flex items-center justify-center uppercase">
-          {user.email.charAt(0)}
-          {updateAvailable && (
-            <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-amber-400 ring-2 ring-slate-900" />
-          )}
-        </span>
-        <span className="text-sm text-slate-300 max-w-[160px] truncate hidden sm:block">{user.email}</span>
-        <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
-      </button>
-
-      {open && (
-        <div className="absolute right-0 mt-2 w-64 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-50 overflow-hidden">
+  const menu = open && menuPos
+    ? createPortal(
+        <div
+          ref={menuRef}
+          data-testid="profile-menu-dropdown"
+          className="fixed w-64 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-[300] overflow-hidden"
+          style={{ top: menuPos.top, right: menuPos.right }}
+        >
           <div className="px-4 py-3 border-b border-slate-800">
             <p className="text-xs text-slate-500 uppercase tracking-wider font-bold">Signed in as</p>
-            <p className="text-sm text-slate-200 truncate" title={user.email}>{user.email}</p>
+            <p className="text-sm text-slate-200 truncate" title={user.email}>
+              {user.email}
+            </p>
           </div>
 
           {updateAvailable && (
@@ -67,6 +87,7 @@ export const ProfileMenu: React.FC = () => {
           )}
 
           <button
+            type="button"
             onClick={() => {
               setShowSettings(true);
               setOpen(false);
@@ -87,13 +108,36 @@ export const ProfileMenu: React.FC = () => {
           </a>
 
           <button
+            type="button"
             onClick={logout}
             className="w-full flex items-center gap-2.5 px-4 py-3 text-sm font-bold text-rose-400 hover:text-rose-300 hover:bg-rose-950/30 transition cursor-pointer border-t border-slate-800 bg-slate-950/40"
           >
             <LogOut className="w-4 h-4" /> Sign out
           </button>
-        </div>
-      )}
+        </div>,
+        document.body
+      )
+    : null;
+
+  return (
+    <div ref={ref} className="relative z-[200]">
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-2 pl-2 pr-2 py-1.5 rounded-md border border-slate-700 hover:border-slate-600 hover:bg-slate-800/60 transition cursor-pointer"
+      >
+        <span className="relative w-6 h-6 rounded-full accent-grad on-accent-fg text-xs font-bold flex items-center justify-center uppercase">
+          {user.email.charAt(0)}
+          {updateAvailable && (
+            <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-amber-400 ring-2 ring-slate-900" />
+          )}
+        </span>
+        <span className="text-sm text-slate-300 max-w-[160px] truncate hidden sm:block">{user.email}</span>
+        <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+      </button>
+
+      {menu}
 
       <SettingsPanel open={showSettings} onClose={() => setShowSettings(false)} />
     </div>

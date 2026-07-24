@@ -1,4 +1,5 @@
 import { ConnectionFactory, getAdapter, type ConnectionOptions } from '@foxschema/core';
+import { trimPageProbe, wrapSqlForPage } from './sql-page-wrap';
 
 /**
  * Helpers behind POST /api/sql/execute (SQL Editor). One request = one
@@ -16,6 +17,8 @@ export interface StatementResultOk {
   rowCount: number;
   /** True when the driver returned more rows than maxRows and the tail was dropped. */
   truncated: boolean;
+  /** True when another page is available (page probe). */
+  hasNext?: boolean;
   durationMs: number;
 }
 export interface StatementResultErr {
@@ -85,7 +88,8 @@ export async function runStatements(
   option: ConnectionOptions,
   statements: string[],
   maxRows: number,
-  schema?: string
+  schema?: string,
+  offset = 0
 ): Promise<StatementResult[]> {
   const schemaName = (schema ?? option.schema)?.trim() || '';
   const optionWithSchema: ConnectionOptions = schemaName
@@ -102,15 +106,47 @@ export async function runStatements(
     for (const sql of statements) {
       const started = Date.now();
       try {
+        const paged = wrapSqlForPage(sql, dialect, offset, maxRows);
         const raw = await ConnectionFactory.executeOnConnection<Record<string, unknown>>(
           dialect,
           connection,
-          sql
+          paged
         );
-        results.push({ ok: true, ...shapeRows(raw, maxRows), durationMs: Date.now() - started });
+        const shaped = shapeRows(raw, maxRows + 1);
+        const page = trimPageProbe(shaped, maxRows);
+        results.push({
+          ok: true,
+          columns: page.columns,
+          rows: page.rows,
+          rowCount: page.rowCount,
+          truncated: page.truncated,
+          hasNext: page.hasNext,
+          durationMs: Date.now() - started,
+        });
       } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : String(error);
-        results.push({ ok: false, error: message, durationMs: Date.now() - started });
+        // Fallback: run unwrapped (e.g. non-SELECT / dialect wrap rejection).
+        try {
+          const raw = await ConnectionFactory.executeOnConnection<Record<string, unknown>>(
+            dialect,
+            connection,
+            sql
+          );
+          const shaped = shapeRows(raw, maxRows);
+          results.push({
+            ok: true,
+            ...shaped,
+            hasNext: false,
+            durationMs: Date.now() - started,
+          });
+        } catch (inner: unknown) {
+          const message = inner instanceof Error ? inner.message : String(inner);
+          const wrapMsg = error instanceof Error ? error.message : String(error);
+          results.push({
+            ok: false,
+            error: offset > 0 ? `${message} (page wrap: ${wrapMsg})` : message,
+            durationMs: Date.now() - started,
+          });
+        }
       }
     }
     return results;

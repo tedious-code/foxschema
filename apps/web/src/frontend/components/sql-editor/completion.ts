@@ -8,7 +8,7 @@ const LIGHT_KEYWORDS = [
   'GROUP', 'BY', 'ORDER', 'ASC', 'DESC', 'LIMIT', 'OFFSET', 'HAVING', 'UNION',
   'ALL', 'DISTINCT', 'AS', 'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE',
   'CREATE', 'ALTER', 'DROP', 'TABLE', 'VIEW', 'INDEX', 'WITH', 'CASE', 'WHEN',
-  'THEN', 'ELSE', 'END',
+  'THEN', 'ELSE', 'END', 'CALL', 'EXECUTE', 'EXEC',
 ];
 
 const LANG_IDS = ['sql', 'pgsql', 'mysql'] as const;
@@ -140,6 +140,57 @@ export function ensureSqlCompletions(monaco: typeof Monaco): void {
         return { suggestions };
       }
 
+      // Inside `CALL proc(` / `fn(` — suggest parameters with IN / OUT / INOUT.
+      // eslint-disable-next-line security/detect-unsafe-regex -- bounded identifiers; no nested quantifiers
+      const callOpen = /(?:\bCALL\s+)?([A-Za-z_][\w$]*(?:\.[A-Za-z_][\w$]*)?)\s*\(\s*([^()]*)$/i.exec(
+        linePrefix
+      );
+      if (callOpen) {
+        const routineRef = callOpen[1]!.toLowerCase();
+        const argSoFar = callOpen[2] ?? '';
+        const argIndex = (argSoFar.match(/,/g) || []).length;
+        const afterComma = argSoFar.includes(',')
+          ? argSoFar.slice(argSoFar.lastIndexOf(',') + 1).trim()
+          : argSoFar.trim();
+        const routine = findRoutine(schemas, routineRef);
+        if (routine) {
+          const params = (routine.parameters ?? []).filter(
+            (p) => p.mode === 'IN' || p.mode === 'OUT' || p.mode === 'INOUT'
+          );
+          if (params.length > 0) {
+            const partial = afterComma.toLowerCase();
+            const startCol = position.column - afterComma.length;
+            const argRange: Monaco.IRange = {
+              startLineNumber: position.lineNumber,
+              endLineNumber: position.lineNumber,
+              startColumn: startCol,
+              endColumn: position.column,
+            };
+            const suggestions = params
+              .map((p, i) => ({ p, i }))
+              .filter(
+                ({ p, i }) =>
+                  (!partial ||
+                    p.name.toLowerCase().startsWith(partial) ||
+                    p.mode.toLowerCase().startsWith(partial)) &&
+                  // Prefer next expected arg, but still show others filtered by prefix.
+                  (i === argIndex || partial.length > 0)
+              )
+              .map(({ p, i }) => ({
+                label: `${p.mode} ${p.name || `arg${i + 1}`}`,
+                kind: monaco.languages.CompletionItemKind.Variable,
+                insertText: p.name || '?',
+                detail: `${p.mode}${p.type ? ` · ${p.type}` : ''} · arg ${i + 1}/${params.length}`,
+                sortText: `${i === argIndex ? '0' : '1'}_${String(i).padStart(2, '0')}`,
+                range: argRange,
+              }));
+            if (suggestions.length > 0) {
+              return { suggestions };
+            }
+          }
+        }
+      }
+
       // `alias.` or `alias.partial` — keep matching after the user types past the dot.
       const dot = /([A-Za-z_][\w$]*)\.([A-Za-z_\d$]*)$/.exec(linePrefix);
       if (dot) {
@@ -227,6 +278,52 @@ export function ensureSqlCompletions(monaco: typeof Monaco): void {
         }
       }
 
+      // Procedures / functions — show IN/OUT/INOUT signature in detail; insert CALL/fn(…).
+      for (const src of schemas) {
+        for (const t of src.tables) {
+          if (t.objectType !== 'PROCEDURE' && t.objectType !== 'FUNCTION') continue;
+          const key = t.name.toLowerCase();
+          const bare = key.includes('.') ? key.slice(key.lastIndexOf('.') + 1) : key;
+          if (prefix && !key.startsWith(prefix) && !bare.startsWith(prefix)) continue;
+          if (seen.has(`fn:${key}`) || seen.has(`fn:${bare}`)) continue;
+          seen.add(`fn:${key}`);
+          seen.add(`fn:${bare}`);
+          const params = (t.parameters ?? []).filter(
+            (p) => p.mode === 'IN' || p.mode === 'OUT' || p.mode === 'INOUT'
+          );
+          const sig =
+            params.length === 0
+              ? '(no params)'
+              : params
+                  .map((p) => `${p.mode} ${p.name || '?'}${p.type ? ` ${p.type}` : ''}`)
+                  .join(', ');
+          const snippetArgs = params
+            .map((p, i) => {
+              const hint = [p.mode, p.name || `arg${i + 1}`].filter(Boolean).join(' ');
+              return `\${${i + 1}:${hint}}`;
+            })
+            .join(', ');
+          const isProc = t.objectType === 'PROCEDURE';
+          const insertText = isProc
+            ? params.length
+              ? `CALL ${t.name}(${snippetArgs})`
+              : `CALL ${t.name}()`
+            : params.length
+              ? `${t.name}(${snippetArgs})`
+              : `${t.name}()`;
+          suggestions.push({
+            label: t.name,
+            kind: monaco.languages.CompletionItemKind.Function,
+            insertText,
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            detail: `${t.objectType.toLowerCase()} · ${sig}`,
+            documentation: sig,
+            sortText: `1b_${t.name}`,
+            range,
+          });
+        }
+      }
+
       for (const kw of LIGHT_KEYWORDS) {
         const low = kw.toLowerCase();
         if (seen.has(low)) continue;
@@ -292,4 +389,21 @@ function columnsForTable(index: TableIndex, tableName: string): string[] {
   }
   if (!set) return [];
   return [...set].sort((a, b) => a.localeCompare(b));
+}
+
+function findRoutine(
+  schemas: ReturnType<typeof getCompletionContext>['schemas'],
+  ref: string
+): (typeof schemas)[number]['tables'][number] | undefined {
+  const lower = ref.toLowerCase();
+  const bare = lower.includes('.') ? lower.slice(lower.lastIndexOf('.') + 1) : lower;
+  for (const src of schemas) {
+    for (const t of src.tables) {
+      if (t.objectType !== 'PROCEDURE' && t.objectType !== 'FUNCTION') continue;
+      const key = t.name.toLowerCase();
+      const tBare = key.includes('.') ? key.slice(key.lastIndexOf('.') + 1) : key;
+      if (key === lower || tBare === bare || key.endsWith('.' + bare)) return t;
+    }
+  }
+  return undefined;
 }

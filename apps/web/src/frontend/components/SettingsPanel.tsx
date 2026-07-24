@@ -57,7 +57,7 @@ export const SettingsPanel: React.FC<Props> = ({ open, onClose }) => {
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[95] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
       onClick={onClose}
     >
       <div

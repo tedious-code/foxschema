@@ -38,7 +38,7 @@ export const ConnectionChecklist: React.FC = () => {
   return (
     <div className="flex flex-col gap-1.5 min-h-0 flex-1 h-full">
       <label
-        className="flex items-start gap-2 text-[10px] text-slate-400 cursor-pointer select-none shrink-0"
+        className="flex items-start gap-2 text-[12px] text-slate-400 cursor-pointer select-none shrink-0"
         title="When on, every query tab uses the same destination servers. When off, each query has its own checklist."
       >
         <input
@@ -46,11 +46,11 @@ export const ConnectionChecklist: React.FC = () => {
           data-testid="sql-share-destinations"
           checked={shareDestinations}
           onChange={(e) => setShareDestinations(e.target.checked)}
-          className="w-3.5 h-3.5 accent-cyan-500 cursor-pointer shrink-0 mt-0.5"
+          className="w-3.5 h-3.5 accent-cyan-600 cursor-pointer shrink-0 mt-0.5"
         />
         <span>
-          <span className="font-semibold text-slate-300">Same servers for all queries</span>
-          <span className="block text-slate-500 leading-snug">
+          <span className="font-bold text-slate-200">Same servers for all queries</span>
+          <span className="block text-slate-500 leading-snug font-medium">
             {shareDestinations
               ? 'All tabs share this checklist'
               : 'Each query tab has its own destinations'}
@@ -59,7 +59,7 @@ export const ConnectionChecklist: React.FC = () => {
       </label>
 
       {connections.length === 0 ? (
-        <p className="text-xs text-slate-500">
+        <p className="text-[13px] font-medium text-slate-500">
           No saved connections yet — add one via the Credentials button in the toolbar.
         </p>
       ) : (
@@ -67,16 +67,16 @@ export const ConnectionChecklist: React.FC = () => {
           {connections.map((c) => (
             <label
               key={c.id}
-              className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none hover:text-slate-100 py-0.5 shrink-0"
+              className="flex items-center gap-2 text-[13px] font-semibold text-slate-300 cursor-pointer select-none hover:text-slate-100 hover:bg-slate-800/60 rounded px-0.5 py-0.5 shrink-0"
             >
               <input
                 type="checkbox"
                 data-testid={`sql-conn-check-${c.name || c.id}`}
                 checked={selectedConnectionIds.includes(c.id)}
                 onChange={() => toggleConnection(c.id)}
-                className="w-3.5 h-3.5 accent-cyan-500 cursor-pointer shrink-0"
+                className="w-3.5 h-3.5 accent-cyan-600 cursor-pointer shrink-0"
               />
-              <span className="font-mono text-[10px] font-bold text-slate-500 uppercase shrink-0">
+              <span className="font-mono text-[11px] font-bold text-slate-500 uppercase shrink-0">
                 [{c.dialect}]
               </span>
               <span

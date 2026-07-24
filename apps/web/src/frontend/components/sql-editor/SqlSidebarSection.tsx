@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 
 const STORAGE_KEY = 'foxschema-sql-sidebar-sections';
+const HEIGHTS_KEY = 'foxschema-sql-sidebar-section-heights';
 
 export type SidebarSectionId = 'destinations' | 'bookmarks' | 'variables' | 'schema';
 
@@ -11,6 +12,16 @@ const DEFAULT_OPEN: Record<SidebarSectionId, boolean> = {
   variables: true,
   schema: true,
 };
+
+const DEFAULT_HEIGHTS: Record<SidebarSectionId, number> = {
+  destinations: 140,
+  bookmarks: 120,
+  variables: 140,
+  schema: 220,
+};
+
+const MIN_SECTION_H = 72;
+const MAX_SECTION_H = 480;
 
 function loadOpen(): Record<SidebarSectionId, boolean> {
   try {
@@ -25,6 +36,26 @@ function loadOpen(): Record<SidebarSectionId, boolean> {
     };
   } catch {
     return { ...DEFAULT_OPEN };
+  }
+}
+
+function loadHeights(): Record<SidebarSectionId, number> {
+  try {
+    const raw = localStorage.getItem(HEIGHTS_KEY);
+    if (!raw) return { ...DEFAULT_HEIGHTS };
+    const parsed = JSON.parse(raw) as Partial<Record<SidebarSectionId, number>>;
+    const clamp = (n: unknown, fallback: number) => {
+      const v = typeof n === 'number' ? n : fallback;
+      return Math.min(MAX_SECTION_H, Math.max(MIN_SECTION_H, v));
+    };
+    return {
+      destinations: clamp(parsed.destinations, DEFAULT_HEIGHTS.destinations),
+      bookmarks: clamp(parsed.bookmarks, DEFAULT_HEIGHTS.bookmarks),
+      variables: clamp(parsed.variables, DEFAULT_HEIGHTS.variables),
+      schema: clamp(parsed.schema, DEFAULT_HEIGHTS.schema),
+    };
+  } catch {
+    return { ...DEFAULT_HEIGHTS };
   }
 }
 
@@ -50,8 +81,34 @@ export function useSidebarSectionsOpen(): [
   return [open, toggle];
 }
 
+/** Persist per-section content heights (drag handles). */
+export function useSidebarSectionHeights(): [
+  Record<SidebarSectionId, number>,
+  (id: SidebarSectionId, height: number) => void,
+] {
+  const [heights, setHeights] = useState(loadHeights);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(HEIGHTS_KEY, JSON.stringify(heights));
+    } catch {
+      /* ignore */
+    }
+  }, [heights]);
+
+  const setHeight = useCallback((id: SidebarSectionId, height: number) => {
+    setHeights((prev) => ({
+      ...prev,
+      [id]: Math.min(MAX_SECTION_H, Math.max(MIN_SECTION_H, height)),
+    }));
+  }, []);
+
+  return [heights, setHeight];
+}
+
 /**
  * Collapsible block for the SQL Editor left sidebar (Destinations / Bookmarks / Variables / Schema).
+ * Open sections are height-resizable via the bottom grip.
  */
 export const SqlSidebarSection: React.FC<{
   id: SidebarSectionId;
@@ -63,27 +120,59 @@ export const SqlSidebarSection: React.FC<{
   actions?: React.ReactNode;
   /** When expanded and this is the flex-growing section. */
   grow?: boolean;
+  height?: number;
+  onResizeHeight?: (h: number) => void;
   children: React.ReactNode;
-}> = ({ id, title, icon, open, onToggle, actions, grow, children }) => {
+}> = ({ id, title, icon, open, onToggle, actions, grow, height, onResizeHeight, children }) => {
+  const startH = useRef(0);
+
+  const startResize = useCallback(
+    (e: React.MouseEvent) => {
+      if (!onResizeHeight) return;
+      e.preventDefault();
+      startH.current = height ?? DEFAULT_HEIGHTS[id];
+      const startY = e.clientY;
+      const onMove = (ev: MouseEvent) => {
+        onResizeHeight(startH.current + (ev.clientY - startY));
+      };
+      const onUp = () => {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      };
+      document.body.style.cursor = 'row-resize';
+      document.body.style.userSelect = 'none';
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    },
+    [height, id, onResizeHeight]
+  );
+
   return (
     <div
       data-testid={`sql-sidebar-${id}`}
-      className={`border-b border-slate-800/80 flex flex-col min-h-0 ${
-        open ? (grow ? 'flex-1' : 'shrink-0 max-h-[42%]') : 'shrink-0'
+      className={`border-b border-slate-800/80 flex flex-col min-h-0 bg-slate-900 ${
+        open ? (grow && !height ? 'flex-1' : 'shrink-0') : 'shrink-0'
       }`}
+      style={
+        open && height
+          ? { height: height + 40 /* header approx */, maxHeight: MAX_SECTION_H + 40 }
+          : undefined
+      }
     >
-      <div className="flex items-center gap-1 px-3 py-2 shrink-0">
+      <div className="flex items-center gap-1 px-3 py-2 shrink-0 bg-slate-900">
         <button
           type="button"
           data-testid={`sql-sidebar-toggle-${id}`}
           aria-expanded={open}
           onClick={onToggle}
-          className="flex-1 flex items-center gap-1.5 min-w-0 text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider hover:text-slate-200 transition"
+          className="flex-1 flex items-center gap-1.5 min-w-0 text-left text-[12px] font-bold text-slate-300 uppercase tracking-wide hover:text-slate-100 transition"
         >
           {open ? (
-            <ChevronDown className="w-3 h-3 shrink-0 text-slate-500" />
+            <ChevronDown className="w-3.5 h-3.5 shrink-0 text-slate-500" />
           ) : (
-            <ChevronRight className="w-3 h-3 shrink-0 text-slate-500" />
+            <ChevronRight className="w-3.5 h-3.5 shrink-0 text-slate-500" />
           )}
           <span className="shrink-0 text-slate-500">{icon}</span>
           <span className="truncate">{title}</span>
@@ -91,7 +180,23 @@ export const SqlSidebarSection: React.FC<{
         {actions && <div className="shrink-0 flex items-center gap-1">{actions}</div>}
       </div>
       {open && (
-        <div className="px-3 pb-3 flex flex-col min-h-0 flex-1 overflow-hidden">{children}</div>
+        <div
+          className="px-3 pb-1 flex flex-col min-h-0 flex-1 overflow-hidden"
+          style={height ? { height, minHeight: MIN_SECTION_H } : undefined}
+        >
+          {children}
+        </div>
+      )}
+      {open && onResizeHeight && (
+        <div
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label={`Resize ${title}`}
+          data-testid={`sql-sidebar-resize-${id}`}
+          title="Drag to resize section"
+          onMouseDown={startResize}
+          className="h-1.5 shrink-0 cursor-row-resize bg-slate-800/60 hover:bg-cyan-500/40 active:bg-cyan-500/50 transition-colors"
+        />
       )}
     </div>
   );

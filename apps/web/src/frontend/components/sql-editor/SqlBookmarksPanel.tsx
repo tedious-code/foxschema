@@ -29,7 +29,7 @@ export const SqlBookmarksPanel: React.FC = () => {
   return (
     <div className="flex flex-col gap-1.5 min-h-0 flex-1" data-testid="sql-bookmarks">
       {bookmarks.length === 0 ? (
-        <p className="text-[11px] text-slate-500 leading-snug">
+        <p className="text-[12px] font-medium text-slate-500 leading-snug">
           Save a named script to reopen later. Rename the tab first so the bookmark keeps a clear
           title.
         </p>
@@ -38,7 +38,7 @@ export const SqlBookmarksPanel: React.FC = () => {
           {bookmarks.map((b) => (
             <li
               key={b.id}
-              className="group flex items-center gap-1 rounded px-1 py-0.5 hover:bg-slate-900/60"
+              className="group flex items-center gap-1 rounded px-1 py-0.5 hover:bg-slate-800/60"
             >
               {editingId === b.id ? (
                 <input
@@ -50,7 +50,7 @@ export const SqlBookmarksPanel: React.FC = () => {
                     if (e.key === 'Enter') commitRename();
                     if (e.key === 'Escape') setEditingId(null);
                   }}
-                  className="flex-1 min-w-0 bg-slate-950 border border-cyan-600/50 rounded px-1.5 py-0.5 text-[11px] text-slate-100 outline-none"
+                  className="flex-1 min-w-0 bg-slate-950 border border-cyan-600/50 rounded px-1.5 py-0.5 text-[12px] font-semibold text-slate-100 outline-none"
                 />
               ) : (
                 <button
@@ -58,7 +58,7 @@ export const SqlBookmarksPanel: React.FC = () => {
                   data-testid={`sql-bookmark-open-${b.id}`}
                   title={b.sql.slice(0, 200) || '(empty)'}
                   onClick={() => openBookmark(b.id)}
-                  className="flex-1 min-w-0 text-left text-[11px] text-slate-300 hover:text-cyan-300 truncate"
+                  className="flex-1 min-w-0 text-left text-[13px] font-semibold text-slate-300 hover:text-cyan-300 truncate"
                 >
                   {b.title}
                 </button>
@@ -72,9 +72,9 @@ export const SqlBookmarksPanel: React.FC = () => {
                   setEditingId(b.id);
                   setDraft(b.title);
                 }}
-                className="p-0.5 text-slate-600 hover:text-slate-300 opacity-0 group-hover:opacity-100 transition"
+                className="p-0.5 text-slate-500 hover:text-slate-200 opacity-0 group-hover:opacity-100 transition"
               >
-                <Pencil className="w-3 h-3" />
+                <Pencil className="w-3.5 h-3.5" />
               </button>
               <button
                 type="button"
@@ -85,7 +85,7 @@ export const SqlBookmarksPanel: React.FC = () => {
                   e.stopPropagation();
                   deleteBookmark(b.id);
                 }}
-                className="p-0.5 text-slate-600 hover:text-rose-400 opacity-0 group-hover:opacity-100 transition"
+                className="p-0.5 text-slate-500 hover:text-rose-400 opacity-0 group-hover:opacity-100 transition"
               >
                 <Trash2 className="w-3 h-3" />
               </button>
