@@ -2,6 +2,7 @@
 # Same repo as the app — no separate tap repository.
 #
 #   brew tap tedious-code/foxschema https://github.com/tedious-code/foxschema
+#   brew trust tedious-code/foxschema   # Homebrew 6+ (third-party taps)
 #   brew install foxschema
 #
 # Installs the published npm package under Homebrew's prefix so Arm and Intel

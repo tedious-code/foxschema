@@ -72,6 +72,7 @@ Users install with:
 
 ```bash
 brew tap tedious-code/foxschema https://github.com/tedious-code/foxschema
+brew trust tedious-code/foxschema
 brew install foxschema
 ```
 

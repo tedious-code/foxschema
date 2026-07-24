@@ -7,6 +7,7 @@ There is **no** separate `homebrew-foxschema` tap.
 
 ```bash
 brew tap tedious-code/foxschema https://github.com/tedious-code/foxschema
+brew trust tedious-code/foxschema   # required once on Homebrew 6+
 brew install foxschema
 foxschema
 foxschema shortcut   # optional Fox icon on Desktop
