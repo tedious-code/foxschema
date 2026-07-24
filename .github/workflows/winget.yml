@@ -153,23 +153,23 @@ jobs:
             echo "PR already open: #$EXISTING"
             gh pr view "$EXISTING" --repo microsoft/winget-pkgs --json url -q .url
           else
+            BODY_FILE=$(mktemp)
+            cat > "$BODY_FILE" <<EOF
+          One Fox Schema package for Windows (CLI).
+
+          - PackageIdentifier: TediousCode.FoxSchema
+          - Version: ${VER}
+          - Installer: portable zip (foxschema.cmd / fox.cmd) from GitHub Releases
+          - Dependency: OpenJS.NodeJS.LTS (>= 22.5.0)
+          - Notes: Desktop MSI / FoxSchema.DB2 packages are retired. Db2 is optional via npm ibm_db.
+
+          Install after merge: winget install TediousCode.FoxSchema
+          EOF
+            # Strip the leading spaces we added for YAML indentation
+            sed -i 's/^          //' "$BODY_FILE"
             gh pr create --repo microsoft/winget-pkgs \
               --head "${FORK_USER}:${BRANCH}" \
               --base master \
               --title "New package: TediousCode.FoxSchema version ${VER}" \
-              --body "$(cat <<EOF
-One Fox Schema package for Windows (CLI).
-
-- **PackageIdentifier:** TediousCode.FoxSchema
-- **Version:** ${VER}
-- **Installer:** portable zip (\`foxschema.cmd\` / \`fox.cmd\`) from GitHub Releases
-- **Dependency:** OpenJS.NodeJS.LTS (>= 22.5.0)
-- **Notes:** Desktop MSI / FoxSchema.DB2 packages are retired. Db2 support is optional via npm \`ibm_db\` in this same product.
-
-Install after merge:
-\`\`\`
-winget install TediousCode.FoxSchema
-\`\`\`
-EOF
-)"
+              --body-file "$BODY_FILE"
           fi
