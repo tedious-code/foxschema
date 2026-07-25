@@ -5,6 +5,7 @@ import { loadSchema } from '../api/schemaApi';
 import { isMutatingDmlStatement, isWriteStatement } from '../lib/sql-splitter';
 import type { CodeCellLast } from '../lib/codeCellExec';
 import { detectCodeCell, runCodeCell } from '../lib/codeCellRunner';
+import { buildSampleBookmarks } from '../lib/sqlEditorSamples';
 import {
   applySetDirectives,
   exportVariables,
@@ -195,6 +196,8 @@ interface SqlEditorState {
   openBookmark: (id: string) => void;
   renameBookmark: (id: string, title: string) => void;
   deleteBookmark: (id: string) => void;
+  /** Merge built-in JS/TS/Node sample bookmarks (by stable id). Returns how many were added/updated. */
+  installSampleBookmarks: () => number;
   /** Create or overwrite a variable by name. Returns error string or null. */
   upsertVariable: (input: {
     name: string;
@@ -1091,6 +1094,24 @@ export const useSqlEditorStore = create<SqlEditorState>()(
             t.bookmarkId === id ? { ...t, bookmarkId: undefined } : t
           ),
         });
+      },
+
+      installSampleBookmarks: () => {
+        const samples = buildSampleBookmarks();
+        const { bookmarks } = get();
+        const sampleIds = new Set(samples.map((s) => s.id));
+        const prevById = new Map(bookmarks.map((b) => [b.id, b]));
+        let touched = 0;
+        for (const sample of samples) {
+          const prev = prevById.get(sample.id);
+          if (!prev || prev.sql !== sample.sql || prev.title !== sample.title) {
+            touched += 1;
+          }
+        }
+        // Keep user bookmarks first; samples at the end so they stay easy to find.
+        const user = bookmarks.filter((b) => !sampleIds.has(b.id));
+        set({ bookmarks: [...user, ...samples] });
+        return touched;
       },
 
       upsertVariable: (input) => {

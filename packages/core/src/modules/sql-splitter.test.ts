@@ -1,5 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { splitSqlStatements, checkStatement, isWriteStatement, firstKeyword, extractTableAliases, isMutatingDmlStatement, dmlLacksWhere } from './sql-splitter';
+import {
+  splitSqlStatements,
+  checkStatement,
+  isWriteStatement,
+  statementVerb,
+  firstKeyword,
+  extractTableAliases,
+  isMutatingDmlStatement,
+  dmlLacksWhere,
+  parseCodeCell,
+  stripFullLineSqlComments,
+  codeCellHasReturn,
+} from './sql-splitter';
 
 describe('splitSqlStatements', () => {
   it('splits simple semicolon-terminated statements with line numbers', () => {
@@ -85,6 +97,57 @@ return { columns: ['n'], rows: [[n]] };
 -- @end`);
     expect(stmts).toHaveLength(1);
     expect(stmts[0]?.kind).toBe('ts');
+
+    const long = splitSqlStatements(`-- @typescript
+return [];
+-- @end`);
+    expect(long[0]?.kind).toBe('ts');
+
+    const jsLong = splitSqlStatements(`-- @javascript
+return [];
+-- @end`);
+    expect(jsLong[0]?.kind).toBe('js');
+  });
+
+  it('supports -- @node / -- @nodets fences', () => {
+    const node = splitSqlStatements(`-- @node
+return [{ ok: true }];
+-- @end`);
+    expect(node[0]?.kind).toBe('node');
+    expect(node[0]?.terminated).toBe(true);
+
+    const nodets = splitSqlStatements(`-- @nodets
+const n: number = 1;
+return [{ n }];
+-- @end`);
+    expect(nodets[0]?.kind).toBe('nodets');
+
+    const alias = splitSqlStatements(`-- @node-typescript
+return [];
+-- @end`);
+    expect(alias[0]?.kind).toBe('nodets');
+  });
+
+  it('treats code cells as non-writes and reports js/ts/node verb', () => {
+    const js = splitSqlStatements(`-- @js\nreturn [];\n-- @end`)[0]!;
+    expect(isWriteStatement(js.text)).toBe(false);
+    expect(statementVerb(js.text)).toBe('js');
+
+    const ts = splitSqlStatements(`-- @ts\nreturn [];\n-- @end`)[0]!;
+    expect(isWriteStatement(ts.text)).toBe(false);
+    expect(statementVerb(ts.text)).toBe('ts');
+
+    const node = splitSqlStatements(`-- @node\nreturn [];\n-- @end`)[0]!;
+    expect(isWriteStatement(node.text)).toBe(false);
+    expect(statementVerb(node.text)).toBe('node');
+  });
+
+  it('does not treat return inside comments as a real return', () => {
+    const stmts = splitSqlStatements(`-- @js
+// return nowhere
+const x = 1;
+-- @end`);
+    expect(checkStatement(stmts[0]!).reasons.join()).toMatch(/return/i);
   });
 
   it('warns when -- @end is missing', () => {
@@ -111,6 +174,23 @@ for (const r of last.rows) out.push(r);
 return out;
 -- @end`);
     expect(checkStatement(stmts[0]!)).toEqual({ level: 'ok', reasons: [] });
+  });
+
+  it('strips -- @end even when a trailing blank line follows', () => {
+    const parsed = parseCodeCell(`-- @js
+return [];
+-- @end
+`);
+    expect(parsed).toMatchObject({ kind: 'js', closed: true, body: 'return [];' });
+  });
+
+  it('stripFullLineSqlComments drops SQL -- lines that would break JS', () => {
+    expect(
+      stripFullLineSqlComments(`-- use last from prior cell
+return last;
+const n = a - b;
+`)
+    ).toBe(`return last;\nconst n = a - b;\n`);
   });
 
   it('preserves @set comments before a code fence via offsets', () => {
@@ -246,5 +326,29 @@ describe('extractTableAliases', () => {
     expect(map.order).toBe('ORDER');
     const quoted = extractTableAliases('SELECT u.x FROM "ORDER" AS u');
     expect(quoted.u).toBe('ORDER');
+  });
+});
+
+describe('codeCellHasReturn with regex literals', () => {
+  it('sees a return after a regex that ends in an escaped slash', () => {
+    // `/\//` used to read as a `//` line comment, swallowing the return.
+    expect(codeCellHasReturn(String.raw`const p = String(x).split(/\//); return [{ p }];`)).toBe(
+      true
+    );
+    expect(codeCellHasReturn(String.raw`const re = /^https:\/\//; return [{ ok: re.test(x) }];`)).toBe(
+      true
+    );
+  });
+
+  it('still ignores return inside comments and strings', () => {
+    expect(codeCellHasReturn('// return []\nconst x = 1;')).toBe(false);
+    expect(codeCellHasReturn('/* return */ const x = 1;')).toBe(false);
+    expect(codeCellHasReturn(`const s = 'return'; const t = "return";`)).toBe(false);
+    expect(codeCellHasReturn('const t = `no return here`;')).toBe(false);
+  });
+
+  it('does not mistake division for a regex', () => {
+    expect(codeCellHasReturn('const n = a / b / c; return [{ n }];')).toBe(true);
+    expect(codeCellHasReturn('const n = a / b / c;')).toBe(false);
   });
 });

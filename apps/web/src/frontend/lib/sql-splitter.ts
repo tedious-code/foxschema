@@ -9,7 +9,44 @@ export {
   dmlLacksWhere,
   parseCodeCell,
   findCodeFences,
+  stripJsStringsAndComments,
   stripCodeFenceMarkers,
   codeCellHasReturn,
+  stripFullLineSqlComments,
+  isCodeCellKind,
+  isNodeCodeCellKind,
+  codeCellNeedsTs,
+  nodeCodeCellWireKind,
+  isCodeCellLast,
+  isCodeCellVars,
+  CODE_CELL_KIND_LABEL,
 } from '@foxschema/core';
-export type { SplitStatement, StatementStatus, StatementKind } from '@foxschema/core';
+export type {
+  SplitStatement,
+  StatementStatus,
+  StatementKind,
+  CodeCellKind,
+  BrowserCodeCellKind,
+  NodeCodeCellKind,
+  TsCodeCellKind,
+  CodeCellLast,
+  CodeCellVars,
+  CodeCellOk,
+  CodeCellErr,
+  CodeCellResult,
+} from '@foxschema/core';
+
+export {
+  CODE_CELL_ALLOWED_PACKAGES,
+  parseCodeCellImports,
+  resolveCodeCellImportBindings,
+  prepareCodeCellImports,
+  normalizeCodeCellReturn,
+  cloneCodeCellLast,
+  runCodeCellBody,
+} from '@foxschema/core';
+export type {
+  CodeCellAllowedPackage,
+  CodeCellImportSpec,
+  RunCodeCellBodyArgs,
+} from '@foxschema/core';

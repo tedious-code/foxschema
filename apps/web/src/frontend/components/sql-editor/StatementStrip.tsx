@@ -4,8 +4,11 @@ import { Check, Copy } from 'lucide-react';
 import {
   checkStatement,
   dmlLacksWhere,
+  isCodeCellKind,
   isMutatingDmlStatement,
   statementVerb,
+  CODE_CELL_KIND_LABEL,
+  type CodeCellKind,
   type SplitStatement,
 } from '../../lib/sql-splitter';
 import { findVariableRefs, substituteVariables } from '../../lib/sql-variables';
@@ -45,6 +48,11 @@ const preview = (text: string, max = 120): string => {
   const compact = text.replace(/\s+/g, ' ').trim();
   return compact.length > max ? compact.slice(0, max) + '…' : compact;
 };
+
+const codeCellBadge = (kind: CodeCellKind) => ({
+  label: CODE_CELL_KIND_LABEL[kind].short,
+  title: `${CODE_CELL_KIND_LABEL[kind].long} code cell (-- @${kind} … -- @end)`,
+});
 
 const DML_BADGE: Record<string, string> = {
   update: 'UPD',
@@ -183,7 +191,8 @@ export const StatementStrip: React.FC<Props> = ({ statements, checked, onToggle,
           const status = checkStatement(stmt);
           const ok = status.level === 'ok';
           const isChecked = checked.includes(i);
-          const codeKind = stmt.kind === 'js' || stmt.kind === 'ts' ? stmt.kind : null;
+          const codeKind = isCodeCellKind(stmt.kind) ? stmt.kind : null;
+          const codeBadge = codeKind ? codeCellBadge(codeKind) : null;
           const verb = codeKind ? null : statementVerb(stmt.text);
           const dmlBadge =
             safeMode && verb && isMutatingDmlStatement(stmt.text) ? DML_BADGE[verb] : null;
@@ -227,12 +236,12 @@ export const StatementStrip: React.FC<Props> = ({ statements, checked, onToggle,
                 >
                   {ok ? '✓' : '⚠'}
                 </span>
-                {codeKind && (
+                {codeBadge && (
                   <span
                     className="shrink-0 text-[10px] font-bold uppercase tracking-wide px-1 py-0.5 rounded mt-0.5 bg-violet-950/40 text-violet-300 border border-violet-500/35"
-                    title={`${codeKind === 'ts' ? 'TypeScript' : 'JavaScript'} code cell (-- @${codeKind} … -- @end)`}
+                    title={codeBadge.title}
                   >
-                    {codeKind === 'ts' ? 'TS' : 'JS'}
+                    {codeBadge.label}
                   </span>
                 )}
                 {dmlBadge && (

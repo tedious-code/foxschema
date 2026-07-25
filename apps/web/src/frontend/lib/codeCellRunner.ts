@@ -1,14 +1,23 @@
 /**
- * Run a SQL Editor JS/TS code cell. Prefers a Web Worker; falls back to sync
- * execution when Worker is unavailable (unit tests / Node).
+ * Run a SQL Editor JS/TS/Node code cell.
+ * Browser fences (`-- @js` / `-- @ts`) use a Web Worker (in-process
+ * `executeCodeCell` fallback when Worker is unavailable); Node fences
+ * (`-- @node` / `-- @nodets`) POST to the FoxSchema server.
  */
 
-import type { SqlStatementResult } from '../api/sqlApi';
+import { runCodeCellOnServer, type SqlStatementResult } from '../api/sqlApi';
 import type { SetDirective, SqlVariable } from './sql-variables';
 import { parseSetDirectives } from './sql-variables';
-import { parseCodeCell } from './sql-splitter';
 import {
-  executeCodeCellSync,
+  parseCodeCell,
+  stripFullLineSqlComments,
+  codeCellNeedsTs,
+  isNodeCodeCellKind,
+  nodeCodeCellWireKind,
+  type CodeCellKind,
+} from './sql-splitter';
+import {
+  executeCodeCell,
   sanitizeVarsForCodeCell,
   type CodeCellLast,
   type CodeCellResult,
@@ -16,12 +25,13 @@ import {
 } from './codeCellExec';
 
 const DEFAULT_TIMEOUT_MS = 5_000;
+const DEFAULT_NODE_TIMEOUT_MS = 10_000;
 
 let nextId = 1;
 let workerCtorPromise: Promise<(new () => Worker) | null> | null = null;
 
 export type RunCodeCellArgs = {
-  /** Full statement text including `-- @js` / `-- @end` (and optional `@set` lines). */
+  /** Full statement text including fence markers (and optional `@set` lines). */
   statement: string;
   last: CodeCellLast;
   variables: SqlVariable[];
@@ -30,27 +40,27 @@ export type RunCodeCellArgs = {
 };
 
 /**
- * Detect a fenced JS/TS cell, allowing leading `-- @set` above `-- @js`/`-- @ts`.
+ * Detect a fenced code cell, allowing leading `-- @set` above the fence.
  */
 export function detectCodeCell(
   statement: string
-): { kind: 'js' | 'ts'; body: string; closed: boolean } | null {
+): { kind: CodeCellKind; body: string; closed: boolean } | null {
   const afterSets = parseSetDirectives(statement).sql;
   return parseCodeCell(afterSets) ?? parseCodeCell(statement);
 }
 
-/** Prepare body + kind from a fenced statement (strips @set + fence markers). */
+/** Prepare body + kind from a fenced statement (strips @set, fence markers, full-line SQL `--` comments). */
 export function prepareCodeCellSource(statement: string):
-  | { kind: 'js' | 'ts'; body: string; directives: SetDirective[] }
-  | { error: string } {
-  // Leading `-- @set` may sit above `-- @js` (reattachSetComments).
+  | { ok: true; kind: CodeCellKind; body: string; directives: SetDirective[] }
+  | { ok: false; error: string } {
   const leading = parseSetDirectives(statement);
   const cell = parseCodeCell(leading.sql);
-  if (!cell) return { error: 'Not a code cell' };
+  if (!cell) return { ok: false, error: 'Not a code cell' };
   const inner = parseSetDirectives(cell.body);
   return {
+    ok: true,
     kind: cell.kind,
-    body: inner.sql,
+    body: stripFullLineSqlComments(inner.sql),
     directives: [...leading.directives, ...inner.directives],
   };
 }
@@ -64,7 +74,7 @@ async function transpileTs(body: string): Promise<string> {
   const out = ts.transpileModule(body, {
     compilerOptions: {
       target: ts.ScriptTarget.ES2020,
-      module: ts.ModuleKind.None,
+      module: ts.ModuleKind.ESNext,
       strict: false,
     },
     reportDiagnostics: true,
@@ -118,28 +128,33 @@ function runInWorker(args: {
 
   return new Promise((resolve) => {
     let settled = false;
+    let worker: Worker | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const id = nextId++;
-    let worker: Worker;
-    try {
-      worker = new WorkerCtor();
-    } catch {
-      resolve(toStatementResult(executeCodeCellSync({ body, last, vars, maxRows }), started));
-      return;
-    }
 
     const finish = (result: SqlStatementResult) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      if (timer !== undefined) clearTimeout(timer);
       try {
-        worker.terminate();
+        worker?.terminate();
       } catch {
         /* ignore */
       }
       resolve(result);
     };
 
-    const timer = setTimeout(() => {
+    try {
+      worker = new WorkerCtor();
+    } catch {
+      // Worker construction failed — run in-process (no timeout enforcement here).
+      void executeCodeCell({ body, last, vars, maxRows }).then((r) => {
+        resolve(toStatementResult(r, started));
+      });
+      return;
+    }
+
+    timer = setTimeout(() => {
       finish({
         ok: false,
         error: `Code cell timed out after ${timeoutMs}ms`,
@@ -165,7 +180,7 @@ function runInWorker(args: {
 }
 
 /**
- * Execute a fenced JS/TS cell. Returns the same shape as SQL statement results.
+ * Execute a fenced code cell. Returns the same shape as SQL statement results.
  * Also returns parsed `@set` directives so the store can apply them.
  */
 export async function runCodeCell(
@@ -173,16 +188,43 @@ export async function runCodeCell(
 ): Promise<{ result: SqlStatementResult; directives: SetDirective[] }> {
   const started = Date.now();
   const prepared = prepareCodeCellSource(args.statement);
-  if ('error' in prepared) {
+  if (!prepared.ok) {
     return {
       result: { ok: false, error: prepared.error, durationMs: Date.now() - started },
       directives: [],
     };
   }
 
+  const vars = sanitizeVarsForCodeCell(args.variables);
+
+  // Node / Node-TS → server
+  if (isNodeCodeCellKind(prepared.kind)) {
+    const timeoutMs = args.timeoutMs ?? DEFAULT_NODE_TIMEOUT_MS;
+    try {
+      const result = await runCodeCellOnServer({
+        body: prepared.body,
+        kind: nodeCodeCellWireKind(prepared.kind),
+        last: args.last,
+        vars,
+        maxRows: args.maxRows,
+        timeoutMs,
+      });
+      return { result, directives: prepared.directives };
+    } catch (error: unknown) {
+      return {
+        result: {
+          ok: false,
+          error: errorMessage(error),
+          durationMs: Date.now() - started,
+        },
+        directives: prepared.directives,
+      };
+    }
+  }
+
   let body = prepared.body;
   try {
-    if (prepared.kind === 'ts') {
+    if (codeCellNeedsTs(prepared.kind)) {
       body = await transpileTs(body);
     }
   } catch (error: unknown) {
@@ -196,14 +238,13 @@ export async function runCodeCell(
     };
   }
 
-  const vars = sanitizeVarsForCodeCell(args.variables);
   const timeoutMs = args.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const execArgs = { body, last: args.last, vars, maxRows: args.maxRows };
 
   const WorkerCtor = await loadWorkerCtor();
   if (!WorkerCtor) {
     return {
-      result: toStatementResult(executeCodeCellSync(execArgs), started),
+      result: toStatementResult(await executeCodeCell(execArgs), started),
       directives: prepared.directives,
     };
   }
