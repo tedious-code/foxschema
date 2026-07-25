@@ -59,3 +59,12 @@ export function setSqlSelectionGetter(fn: SelectionGetter | null): void {
 export function getSelectedSql(): string | null {
   return selectionGetter();
 }
+
+/** CALL / function invocation args — skip RESULT / RETURN metadata. */
+export function isCallParamMode(mode: string): boolean {
+  return mode === 'IN' || mode === 'OUT' || mode === 'INOUT';
+}
+
+export function filterCallParameters<T extends { mode: string }>(params: T[]): T[] {
+  return params.filter((p) => isCallParamMode(p.mode));
+}

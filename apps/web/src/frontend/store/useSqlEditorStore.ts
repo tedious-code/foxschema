@@ -69,6 +69,11 @@ export interface TabResults {
   /** Non-fatal messages (e.g. `@set` failures) for this run. */
   warnings?: string[];
   /**
+   * Bumped on each execute start. Stale `loadResultPage` responses must not
+   * apply when this no longer matches the epoch captured at fetch start.
+   */
+  pageEpoch?: number;
+  /**
    * Per-connection prepared SQL for each statement index — used for Next/Prev page
    * without re-substituting variables.
    */
@@ -76,10 +81,31 @@ export interface TabResults {
   /** Cache of result pages: `${connectionId}:${statementIndex}:${pageIndex}` → result. */
   pageCache?: Record<string, SqlStatementResult>;
   /** UI page cursor + hasNext: `${connectionId}:${statementIndex}`. */
-  pageMeta?: Record<
-    string,
-    { pageIndex: number; hasNext: boolean; loading?: boolean; pageSize: number }
-  >;
+  pageMeta?: Record<string, ResultPageMeta>;
+}
+
+/** True when a page fetch may still write into this tab's results. */
+export function isCurrentPageEpoch(
+  expectedEpoch: number,
+  currentEpoch: number | undefined
+): boolean {
+  return currentEpoch === expectedEpoch;
+}
+
+/** Per-statement result page cursor (server OFFSET paging). */
+export interface ResultPageMeta {
+  pageIndex: number;
+  hasNext: boolean;
+  loading?: boolean;
+  pageSize: number;
+}
+
+function pageMetaKey(connectionId: string, statementIndex: number): string {
+  return `${connectionId}:${statementIndex}`;
+}
+
+function pageCacheKey(connectionId: string, statementIndex: number, pageIndex: number): string {
+  return `${pageMetaKey(connectionId, statementIndex)}:${pageIndex}`;
 }
 
 /** Password prompt for a connection saved without one (session-only). */
@@ -609,6 +635,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           pageSqlByConn.set(c.id, []);
         }
 
+        const pageEpoch = (get().resultsByTab[tabId]?.pageEpoch ?? 0) + 1;
         set({
           pendingWriteConfirm: null,
           runningTabId: tabId,
@@ -618,6 +645,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
               ranStatements: [],
               runs: nextRuns,
               warnings: [],
+              pageEpoch,
               pageCache: {},
               pageMeta: {},
               pageSqlByConnection: {},
@@ -804,17 +832,14 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         // Seed page 0 cache from this run (avoids re-fetch on Prev after Next).
         // Pin pageSize to this run so Next/Prev stay aligned if Max rows changes later.
         const pageCache: Record<string, SqlStatementResult> = {};
-        const pageMeta: Record<
-          string,
-          { pageIndex: number; hasNext: boolean; pageSize: number }
-        > = {};
+        const pageMeta: Record<string, ResultPageMeta> = {};
         const pageSqlByConnection: Record<string, string[]> = {};
         for (const c of connections) {
           pageSqlByConnection[c.id] = pageSqlByConn.get(c.id) ?? [];
           const results = resultsByConn.get(c.id) ?? [];
           results.forEach((res, si) => {
-            const key = `${c.id}:${si}`;
-            pageCache[`${key}:0`] = res;
+            const key = pageMetaKey(c.id, si);
+            pageCache[pageCacheKey(c.id, si, 0)] = res;
             pageMeta[key] = {
               pageIndex: 0,
               pageSize: maxRows,
@@ -841,21 +866,22 @@ export const useSqlEditorStore = create<SqlEditorState>()(
       },
 
       loadResultPage: async ({ connectionId, statementIndex, pageIndex }) => {
-        const { resultsByTab, activeTabId, maxRows, sessionPasswords } = get();
+        const { resultsByTab, activeTabId, maxRows, sessionPasswords, runningTabId } = get();
         const tabId = activeTabId;
         const current = resultsByTab[tabId];
-        if (!current) return;
-        const metaKey = `${connectionId}:${statementIndex}`;
-        const cacheKey = `${metaKey}:${pageIndex}`;
+        if (!current || runningTabId === tabId) return;
+        const epoch = current.pageEpoch ?? 0;
+        const metaKey = pageMetaKey(connectionId, statementIndex);
+        const cacheKey = pageCacheKey(connectionId, statementIndex, pageIndex);
         const cached = current.pageCache?.[cacheKey];
         const pageSize = current.pageMeta?.[metaKey]?.pageSize ?? maxRows;
+        const sql = current.pageSqlByConnection?.[connectionId]?.[statementIndex];
+        if (!cached && !sql) return;
 
-        const setMeta = (
-          patch: Partial<{ pageIndex: number; hasNext: boolean; loading?: boolean; pageSize: number }>
-        ) =>
+        const setMeta = (patch: Partial<ResultPageMeta>) =>
           set((state) => {
             const cur = state.resultsByTab[tabId];
-            if (!cur) return state;
+            if (!cur || !isCurrentPageEpoch(epoch, cur.pageEpoch)) return state;
             const prev = cur.pageMeta?.[metaKey];
             return {
               resultsByTab: {
@@ -879,7 +905,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         const applyResult = (res: SqlStatementResult, hasNext: boolean) => {
           set((state) => {
             const cur = state.resultsByTab[tabId];
-            if (!cur) return state;
+            if (!cur || !isCurrentPageEpoch(epoch, cur.pageEpoch)) return state;
             return {
               resultsByTab: {
                 ...state.resultsByTab,
@@ -907,14 +933,12 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           return;
         }
 
-        const sql = current.pageSqlByConnection?.[connectionId]?.[statementIndex];
-        if (!sql) return;
         setMeta({ loading: true });
         try {
           const offset = pageIndex * pageSize;
           const { results } = await executeSql(
             { connectionId, password: sessionPasswords[connectionId] || undefined },
-            [sql],
+            [sql!],
             pageSize,
             offset
           );

@@ -1,6 +1,6 @@
 import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api';
 import { extractTableAliases } from '../../lib/sql-splitter';
-import { getCompletionContext } from './sqlEditorBridge';
+import { filterCallParameters, getCompletionContext } from './sqlEditorBridge';
 
 const LIGHT_KEYWORDS = [
   'SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'FULL',
@@ -154,9 +154,7 @@ export function ensureSqlCompletions(monaco: typeof Monaco): void {
           : argSoFar.trim();
         const routine = findRoutine(schemas, routineRef);
         if (routine) {
-          const params = (routine.parameters ?? []).filter(
-            (p) => p.mode === 'IN' || p.mode === 'OUT' || p.mode === 'INOUT'
-          );
+          const params = filterCallParameters(routine.parameters ?? []);
           if (params.length > 0) {
             const partial = afterComma.toLowerCase();
             const startCol = position.column - afterComma.length;
@@ -239,11 +237,12 @@ export function ensureSqlCompletions(monaco: typeof Monaco): void {
 
       // Aliases first so `u` suggests the alias before unrelated keywords.
       for (const [alias, table] of Object.entries(aliases)) {
-        if (alias === table.toLowerCase()) continue; // skip bare table self-map
-        if (table.toLowerCase().endsWith('.' + alias)) continue;
-        const bare = table.toLowerCase().includes('.')
-          ? table.toLowerCase().slice(table.toLowerCase().lastIndexOf('.') + 1)
-          : table.toLowerCase();
+        const tableLower = table.toLowerCase();
+        if (alias === tableLower) continue; // skip bare table self-map
+        if (tableLower.endsWith('.' + alias)) continue;
+        const bare = tableLower.includes('.')
+          ? tableLower.slice(tableLower.lastIndexOf('.') + 1)
+          : tableLower;
         if (alias === bare) continue;
         if (prefix && !alias.startsWith(prefix)) continue;
         if (seen.has(alias)) continue;
@@ -288,9 +287,7 @@ export function ensureSqlCompletions(monaco: typeof Monaco): void {
           if (seen.has(`fn:${key}`) || seen.has(`fn:${bare}`)) continue;
           seen.add(`fn:${key}`);
           seen.add(`fn:${bare}`);
-          const params = (t.parameters ?? []).filter(
-            (p) => p.mode === 'IN' || p.mode === 'OUT' || p.mode === 'INOUT'
-          );
+          const params = filterCallParameters(t.parameters ?? []);
           const sig =
             params.length === 0
               ? '(no params)'
@@ -303,14 +300,9 @@ export function ensureSqlCompletions(monaco: typeof Monaco): void {
               return `\${${i + 1}:${hint}}`;
             })
             .join(', ');
-          const isProc = t.objectType === 'PROCEDURE';
-          const insertText = isProc
-            ? params.length
-              ? `CALL ${t.name}(${snippetArgs})`
-              : `CALL ${t.name}()`
-            : params.length
-              ? `${t.name}(${snippetArgs})`
-              : `${t.name}()`;
+          const callBody = params.length ? `(${snippetArgs})` : '()';
+          const insertText =
+            t.objectType === 'PROCEDURE' ? `CALL ${t.name}${callBody}` : `${t.name}${callBody}`;
           suggestions.push({
             label: t.name,
             kind: monaco.languages.CompletionItemKind.Function,

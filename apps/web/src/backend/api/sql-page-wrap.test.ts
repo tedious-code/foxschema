@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { trimPageProbe, wrapSqlForPage } from './sql-page-wrap';
+import { isPageableStatement, trimPageProbe, wrapSqlForPage } from './sql-page-wrap';
 
 describe('sql-page-wrap', () => {
   it('wraps postgres-style with LIMIT/OFFSET and +1 probe', () => {
@@ -25,5 +25,16 @@ describe('sql-page-wrap', () => {
     expect(t.rows).toEqual([[1], [2]]);
     expect(t.hasNext).toBe(true);
     expect(t.truncated).toBe(true);
+  });
+
+  it('isPageableStatement accepts SELECT / WITH…SELECT / VALUES only', () => {
+    expect(isPageableStatement('SELECT 1')).toBe(true);
+    expect(isPageableStatement('WITH c AS (SELECT 1 AS n) SELECT * FROM c')).toBe(true);
+    expect(isPageableStatement('VALUES (1), (2)')).toBe(true);
+    expect(isPageableStatement('INSERT INTO t VALUES (1)')).toBe(false);
+    expect(isPageableStatement('UPDATE t SET a = 1')).toBe(false);
+    expect(isPageableStatement('SET search_path TO public')).toBe(false);
+    expect(isPageableStatement('EXPLAIN SELECT 1')).toBe(false);
+    expect(isPageableStatement('WITH c AS (SELECT 1) INSERT INTO t SELECT * FROM c')).toBe(false);
   });
 });

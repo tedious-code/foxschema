@@ -157,6 +157,59 @@ function fitWidthFor(colName: string, sampleValues: unknown[]): number {
   return Math.min(COL_FIT_MAX_PX, Math.max(COL_MIN_PX, Math.round(raw)));
 }
 
+function savePromptTitle(mode: 'scalar' | 'list' | 'table'): string {
+  if (mode === 'scalar') return 'Save cell as variable';
+  if (mode === 'list') return 'Save column as list';
+  return 'Save result as table';
+}
+
+function GridToolbar({
+  label,
+  refreshing,
+  onRefresh,
+  onExport,
+}: {
+  label?: string;
+  refreshing?: boolean;
+  onRefresh?: () => void;
+  onExport?: () => void;
+}): React.ReactElement {
+  return (
+    <div className="flex items-center gap-2 mb-1 shrink-0">
+      {label && (
+        <div
+          className="text-[10px] font-bold text-slate-500 uppercase tracking-wider truncate flex-1"
+          title={label}
+        >
+          {label}
+        </div>
+      )}
+      {onRefresh && (
+        <button
+          type="button"
+          data-testid="sql-pane-refresh"
+          title="Refresh this server"
+          disabled={refreshing}
+          onClick={onRefresh}
+          className="flex items-center gap-0.5 text-[10px] font-semibold text-slate-500 hover:text-cyan-400 transition shrink-0 disabled:opacity-40"
+        >
+          <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} /> Refresh
+        </button>
+      )}
+      {onExport && (
+        <button
+          type="button"
+          title="Export CSV"
+          onClick={onExport}
+          className="flex items-center gap-0.5 text-[10px] font-semibold text-slate-500 hover:text-cyan-400 transition shrink-0"
+        >
+          <Download className="w-3 h-3" /> CSV
+        </button>
+      )}
+    </div>
+  );
+}
+
 /**
  * Result grid — virtualized rows, column-level type colors (no per-cell regex).
  * Right-click a cell or column header to save as a SQL Editor variable.
@@ -231,7 +284,8 @@ export const DataGrid: React.FC<{
   const colKey = sourceColumns.join('\0');
   const colKinds = useMemo(
     () => computeColKinds(sourceColumns, sourceRows),
-    [colKey, sourceRows.length, result.ok && result.ok ? result.rowCount : 0]
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- colKey captures column identity; rowCount covers data refresh
+    [colKey, sourceRows.length, result.ok ? result.rowCount : 0]
   );
 
   useEffect(() => {
@@ -385,25 +439,7 @@ export const DataGrid: React.FC<{
   if (!result.ok) {
     return (
       <div className="w-full min-w-0 flex flex-col">
-        <div className="flex items-center gap-2 mb-1 shrink-0">
-          {label && (
-            <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider truncate flex-1">
-              {label}
-            </div>
-          )}
-          {onRefresh && (
-            <button
-              type="button"
-              data-testid="sql-pane-refresh"
-              title="Refresh this server"
-              disabled={refreshing}
-              onClick={onRefresh}
-              className="flex items-center gap-0.5 text-[10px] font-semibold text-slate-500 hover:text-cyan-400 transition shrink-0 disabled:opacity-40"
-            >
-              <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} /> Refresh
-            </button>
-          )}
-        </div>
+        <GridToolbar label={label} refreshing={refreshing} onRefresh={onRefresh} />
         <div className="flex items-start gap-2 text-xs text-rose-400 bg-rose-950/40 border border-rose-500/20 rounded-md px-3 py-2">
           <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
           <span className="break-all">{result.error}</span>
@@ -433,35 +469,12 @@ export const DataGrid: React.FC<{
 
   return (
     <div className="w-full min-w-0 h-full flex flex-col min-h-0">
-      <div className="flex items-center gap-2 mb-1 shrink-0">
-        {label && (
-          <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider truncate flex-1" title={label}>
-            {label}
-          </div>
-        )}
-        {onRefresh && (
-          <button
-            type="button"
-            data-testid="sql-pane-refresh"
-            title="Refresh this server"
-            disabled={refreshing}
-            onClick={onRefresh}
-            className="flex items-center gap-0.5 text-[10px] font-semibold text-slate-500 hover:text-cyan-400 transition shrink-0 disabled:opacity-40"
-          >
-            <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} /> Refresh
-          </button>
-        )}
-        {sourceColumns.length > 0 && (
-          <button
-            type="button"
-            title="Export CSV"
-            onClick={exportOrdered}
-            className="flex items-center gap-0.5 text-[10px] font-semibold text-slate-500 hover:text-cyan-400 transition shrink-0"
-          >
-            <Download className="w-3 h-3" /> CSV
-          </button>
-        )}
-      </div>
+      <GridToolbar
+        label={label}
+        refreshing={refreshing}
+        onRefresh={onRefresh}
+        onExport={sourceColumns.length > 0 ? exportOrdered : undefined}
+      />
       <div
         ref={scrollRef}
         data-testid="sql-data-grid"
@@ -781,11 +794,7 @@ export const DataGrid: React.FC<{
             onClick={(e) => e.stopPropagation()}
           >
             <div className="text-xs font-semibold text-slate-200 mb-2">
-              {savePrompt.mode === 'scalar'
-                ? 'Save cell as variable'
-                : savePrompt.mode === 'list'
-                  ? 'Save column as list'
-                  : 'Save result as table'}
+              {savePromptTitle(savePrompt.mode)}
             </div>
             <input
               ref={saveInputRef}

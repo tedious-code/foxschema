@@ -58,6 +58,24 @@ function previewVariable(v: SqlVariable): string {
   return expandSqlLiteral(v.value);
 }
 
+function scalarEditText(v: SqlVariable): string {
+  if (v.secret || v.value === null || v.value === undefined) return '';
+  return typeof v.value === 'string' ? v.value : String(v.value);
+}
+
+function listEditText(v: SqlVariable): string {
+  if (v.secret) return '';
+  return (v.values ?? []).map(expandSqlLiteral).join(', ');
+}
+
+function parseListDraft(raw: string): unknown[] {
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+    .map(parseTypedToken);
+}
+
 /**
  * Global SQL Editor variables — `${{name}}` / `${{name.col}}`.
  * Supports secrets, per-connection overrides, table preview, export/import.
@@ -117,38 +135,26 @@ export const SqlVariablesPanel: React.FC = () => {
       setEditingId(null);
       return;
     }
-    if (kind === 'list') {
-      const parts = editValue
-        .split(',')
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0)
-        .map(parseTypedToken);
-      const err = upsertVariable({
-        id,
-        name: v.name,
-        kind: 'list',
-        values: parts,
-        secret: v.secret,
-        overrides: v.overrides,
-      });
-      if (err) {
-        setError(err);
-        return;
-      }
-    } else {
-      const value = parseTypedToken(editValue.trim() === '' ? editValue : editValue.trim());
-      const err = upsertVariable({
-        id,
-        name: v.name,
-        kind: 'scalar',
-        value: editValue.trim() === '' ? editValue : value,
-        secret: v.secret,
-        overrides: v.overrides,
-      });
-      if (err) {
-        setError(err);
-        return;
-      }
+    const base = {
+      id,
+      name: v.name,
+      secret: v.secret,
+      overrides: v.overrides,
+    };
+    const err =
+      kind === 'list'
+        ? upsertVariable({ ...base, kind: 'list', values: parseListDraft(editValue) })
+        : upsertVariable({
+            ...base,
+            kind: 'scalar',
+            value:
+              editValue.trim() === ''
+                ? editValue
+                : parseTypedToken(editValue.trim()),
+          });
+    if (err) {
+      setError(err);
+      return;
     }
     setEditingId(null);
     setError(null);
@@ -307,12 +313,12 @@ export const SqlVariablesPanel: React.FC = () => {
                 <div className="flex items-start gap-1">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1 flex-wrap">
-                  <span className="text-[14px] font-bold text-slate-200 truncate">
-                    {v.name}
-                  </span>
-                  <span className="text-[12px] uppercase tracking-wider text-slate-500 shrink-0 font-bold">
-                    {v.kind}
-                  </span>
+                      <span className="text-[14px] font-bold text-slate-200 truncate">
+                        {v.name}
+                      </span>
+                      <span className="text-[12px] uppercase tracking-wider text-slate-500 shrink-0 font-bold">
+                        {v.kind}
+                      </span>
                       {v.secret && (
                         <span className="text-[11px] uppercase tracking-wider text-amber-500/90 shrink-0">
                           secret
@@ -368,23 +374,9 @@ export const SqlVariablesPanel: React.FC = () => {
                         onClick={() => {
                           setEditingId(v.id);
                           setError(null);
-                          if (v.kind === 'list') {
-                            setEditValue(
-                              v.secret
-                                ? ''
-                                : (v.values ?? []).map(expandSqlLiteral).join(', ')
-                            );
-                          } else {
-                            setEditValue(
-                              v.secret
-                                ? ''
-                                : v.value === null || v.value === undefined
-                                  ? ''
-                                  : typeof v.value === 'string'
-                                    ? v.value
-                                    : String(v.value)
-                            );
-                          }
+                          setEditValue(
+                            v.kind === 'list' ? listEditText(v) : scalarEditText(v)
+                          );
                         }}
                         className="mt-0.5 block w-full text-left text-[12px] font-mono text-slate-400 hover:text-cyan-300 truncate"
                       >
@@ -458,12 +450,9 @@ export const SqlVariablesPanel: React.FC = () => {
                                   return;
                                 }
                                 if (v.kind === 'list') {
-                                  const values = raw
-                                    .split(',')
-                                    .map((s) => s.trim())
-                                    .filter(Boolean)
-                                    .map(parseTypedToken);
-                                  setVariableOverride(v.id, c.id, { values });
+                                  setVariableOverride(v.id, c.id, {
+                                    values: parseListDraft(raw),
+                                  });
                                 } else {
                                   setVariableOverride(v.id, c.id, {
                                     value: parseTypedToken(raw),

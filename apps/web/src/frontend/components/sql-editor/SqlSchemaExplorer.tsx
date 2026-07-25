@@ -4,7 +4,7 @@ import { useSyncStore } from '../../store/useSyncStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
 import { effectiveConnectionIds } from '../../store/sqlEditorTabLogic';
 import { TYPE_META } from '../SchemaTreePanel';
-import { insertAtCursor } from './sqlEditorBridge';
+import { filterCallParameters, insertAtCursor } from './sqlEditorBridge';
 import type { DbObjectType, TableSchema } from '../../lib/types';
 
 /** Categories shown in the SQL Editor schema browser (order = display order). */
@@ -189,17 +189,21 @@ const ObjectNode: React.FC<{
   const meta = TYPE_META[table.objectType] ?? TYPE_META.TABLE;
   const insertName = quoteIfNeeded(table.name, dialect);
   const isRoutine = table.objectType === 'PROCEDURE' || table.objectType === 'FUNCTION';
-  const params = isRoutine ? callParameters(table.parameters ?? []) : [];
+  const params = isRoutine ? filterCallParameters(table.parameters ?? []) : [];
   const columns = !isRoutine
     ? (table.columns ?? []).map((c) => ({ name: c.name, detail: c.type }))
     : [];
 
-  const insertRoutine = () => {
-    if (!isRoutine) {
-      insertAtCursor(`${insertName} `);
+  const insertObject = () => {
+    if (isRoutine) {
+      insertAtCursor(routineInsertText(insertName, table.objectType, params));
       return;
     }
-    insertAtCursor(routineInsertText(insertName, table.objectType, params));
+    insertAtCursor(`${insertName} `);
+  };
+
+  const insertIdent = (name: string) => {
+    insertAtCursor(`${quoteIfNeeded(name, dialect)} `);
   };
 
   return (
@@ -220,7 +224,7 @@ const ObjectNode: React.FC<{
               ? `Insert ${table.name}(${params.map((p) => `${p.mode} ${p.name}`).join(', ')})`
               : `Insert ${table.name}`
           }
-          onClick={insertRoutine}
+          onClick={insertObject}
           className="flex-1 flex items-center gap-1.5 min-w-0 text-left text-[12px] font-semibold text-slate-200 hover:text-cyan-300 py-0.5 truncate"
         >
           <span className="shrink-0 scale-90">{meta.icon}</span>
@@ -232,6 +236,9 @@ const ObjectNode: React.FC<{
           )}
         </button>
       </div>
+      {open && isRoutine && params.length === 0 && (
+        <p className="ml-5 text-[10px] text-slate-600 mb-1">No parameters</p>
+      )}
       {open && isRoutine && params.length > 0 && (
         <ul className="ml-5 border-l border-slate-700/80 pl-2 flex flex-col gap-0.5 mb-1">
           {params.map((p, i) => (
@@ -239,7 +246,7 @@ const ObjectNode: React.FC<{
               <button
                 type="button"
                 title={`Insert ${p.name} (${p.mode})`}
-                onClick={() => insertAtCursor(`${quoteIfNeeded(p.name, dialect)} `)}
+                onClick={() => insertIdent(p.name)}
                 className="w-full flex items-center gap-1.5 min-w-0 text-left text-[11px] font-mono font-medium text-slate-300 hover:text-cyan-300 truncate py-0.5"
               >
                 <span
@@ -256,9 +263,6 @@ const ObjectNode: React.FC<{
           ))}
         </ul>
       )}
-      {open && isRoutine && params.length === 0 && (
-        <p className="ml-5 text-[10px] text-slate-600 mb-1">No parameters</p>
-      )}
       {open && !isRoutine && columns.length > 0 && (
         <ul className="ml-5 border-l border-slate-700/80 pl-2 flex flex-col gap-0.5 mb-1">
           {columns.map((col) => (
@@ -266,7 +270,7 @@ const ObjectNode: React.FC<{
               <button
                 type="button"
                 title={`Insert ${col.name}`}
-                onClick={() => insertAtCursor(`${quoteIfNeeded(col.name, dialect)} `)}
+                onClick={() => insertIdent(col.name)}
                 className="w-full text-left text-[11px] font-mono font-medium text-slate-400 hover:text-cyan-300 truncate py-0.5"
               >
                 {col.name}
@@ -281,13 +285,6 @@ const ObjectNode: React.FC<{
     </div>
   );
 };
-
-/** Args passed in CALL / function invocation (skip RESULT / RETURN metadata). */
-function callParameters(
-  params: NonNullable<TableSchema['parameters']>
-): NonNullable<TableSchema['parameters']> {
-  return params.filter((p) => p.mode === 'IN' || p.mode === 'OUT' || p.mode === 'INOUT');
-}
 
 function modeBadgeClass(mode: string): string {
   if (mode === 'OUT') return 'bg-amber-950/50 text-amber-300 border-amber-500/35';
@@ -306,10 +303,9 @@ function routineInsertText(
       return `/* ${p.mode} ${label} */ ?`;
     })
     .join(', ');
-  if (objectType === 'PROCEDURE') {
-    return args ? `CALL ${name}(${args})` : `CALL ${name}()`;
-  }
-  return args ? `${name}(${args})` : `${name}()`;
+  const callBody = args ? `(${args})` : '()';
+  if (objectType === 'PROCEDURE') return `CALL ${name}${callBody}`;
+  return `${name}${callBody}`;
 }
 
 function quoteIfNeeded(name: string, dialect: string): string {

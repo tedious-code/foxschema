@@ -1,5 +1,5 @@
 import { ConnectionFactory, getAdapter, type ConnectionOptions } from '@foxschema/core';
-import { trimPageProbe, wrapSqlForPage } from './sql-page-wrap';
+import { isPageableStatement, trimPageProbe, wrapSqlForPage } from './sql-page-wrap';
 
 /**
  * Helpers behind POST /api/sql/execute (SQL Editor). One request = one
@@ -105,6 +105,39 @@ export async function runStatements(
     const results: StatementResult[] = [];
     for (const sql of statements) {
       const started = Date.now();
+      const pushErr = (message: string) => {
+        results.push({ ok: false, error: message, durationMs: Date.now() - started });
+      };
+      const pushUnwrappedOk = async () => {
+        const raw = await ConnectionFactory.executeOnConnection<Record<string, unknown>>(
+          dialect,
+          connection,
+          sql
+        );
+        const shaped = shapeRows(raw, maxRows);
+        results.push({
+          ok: true,
+          ...shaped,
+          hasNext: false,
+          durationMs: Date.now() - started,
+        });
+      };
+
+      // Non-SELECT/DDL/utility: never wrap (avoids a failed subquery attempt).
+      // Paging requires a wrap — fail closed when offset > 0.
+      if (!isPageableStatement(sql)) {
+        if (offset > 0) {
+          pushErr('Cannot page a non-SELECT statement');
+          continue;
+        }
+        try {
+          await pushUnwrappedOk();
+        } catch (error: unknown) {
+          pushErr(error instanceof Error ? error.message : String(error));
+        }
+        continue;
+      }
+
       try {
         const paged = wrapSqlForPage(sql, dialect, offset, maxRows);
         const raw = await ConnectionFactory.executeOnConnection<Record<string, unknown>>(
@@ -124,28 +157,19 @@ export async function runStatements(
           durationMs: Date.now() - started,
         });
       } catch (error: unknown) {
-        // Fallback: run unwrapped (e.g. non-SELECT / dialect wrap rejection).
+        const wrapMsg = error instanceof Error ? error.message : String(error);
+        // Fail closed for Next/Prev: unwrapped SQL ignores OFFSET and would
+        // re-show page 0 while the UI advances pageIndex.
+        if (offset > 0) {
+          pushErr(`Paging failed: ${wrapMsg}`);
+          continue;
+        }
+        // offset === 0 only: dialect rejected the wrap (rare) — try raw SQL.
         try {
-          const raw = await ConnectionFactory.executeOnConnection<Record<string, unknown>>(
-            dialect,
-            connection,
-            sql
-          );
-          const shaped = shapeRows(raw, maxRows);
-          results.push({
-            ok: true,
-            ...shaped,
-            hasNext: false,
-            durationMs: Date.now() - started,
-          });
+          await pushUnwrappedOk();
         } catch (inner: unknown) {
           const message = inner instanceof Error ? inner.message : String(inner);
-          const wrapMsg = error instanceof Error ? error.message : String(error);
-          results.push({
-            ok: false,
-            error: offset > 0 ? `${message} (page wrap: ${wrapMsg})` : message,
-            durationMs: Date.now() - started,
-          });
+          pushErr(`${message} (page wrap: ${wrapMsg})`);
         }
       }
     }
