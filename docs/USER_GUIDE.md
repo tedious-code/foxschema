@@ -179,15 +179,28 @@ Tips:
   200). Use **Next** / **Prev** on a result grid to page through more rows;
   visited pages stay cached in memory so going back does not re-query the server.
   Sibling result grids from the same Run sync vertical scroll by row index.
-- **Code cells (JS / TS)** — mix SQL with local transforms in the same buffer. Fence
-  a cell with `-- @js` / `-- @ts` … `-- @end` (inner semicolons are fine). You can use
-  local `let`/`const`/`var`, **functions**, and loops (`for`, `while`, `for…of`).
-  Allowlisted **imports** (bundled, no CDN): `lodash`, `lodash-es`, `date-fns` —
-  put `import` lines at the top of the cell. Cells are **isolated** (imports/functions
-  do not carry to the next cell; use `last` / `vars` to pass data). The cell receives
-  `last` (previous statement’s grid) and `vars` (non-secret Variables). **You must
-  `return`** either `{ columns, rows }` or an array of plain objects. Python is not
-  available yet.
+- **Code cells (JS / TS / Node)** — mix SQL with local transforms in the same buffer. Fence
+  a cell with `-- @js` / `-- @ts` … `-- @end` (runs in the browser; inner semicolons are fine)
+  or `-- @node` / `-- @nodets` … `-- @end` (runs on the FoxSchema **Node** server). You can use
+  local `let`/`const`/`var`, **functions**, loops (`for`, `while`, `for…of`), **`async`/`await`**,
+  and **`fetch`**. Allowlisted **imports** (bundled, no CDN): `lodash`, `lodash-es`, `date-fns` —
+  put `import` lines at the top of the cell. Prefer `//` comments inside cells (`--` is the JS
+  decrement operator). Cells are **isolated** (imports/functions do not carry to the next cell;
+  use `last` / `vars` to pass data). The cell receives `last` (previous statement’s grid) and
+  `vars` (non-secret Variables). **You must `return`** either `{ columns, rows }` or an array of
+  plain objects. Python is not available yet.
+
+  In the SQL Editor sidebar, **Bookmarks → Add samples** installs ready-made ★ Sample
+  scripts (also under `docs/examples/sql-editor/`) so you can reopen them later.
+
+  > **`-- @node` cells run code on the FoxSchema server.** They execute in a worker
+  > thread with a scrubbed environment and a hard timeout, but the JS sandbox is a
+  > guardrail against accidents, not a security boundary — a determined cell can still
+  > reach the network from the server (`fetch`) and burn CPU. On a personal/desktop
+  > install that is exactly the point. If you host FoxSchema for **multiple users**,
+  > treat the ability to run `-- @node` cells as equivalent to giving those users a
+  > shell on the server host, and only expose it to people you trust at that level.
+  > Browser cells (`-- @js` / `-- @ts`) run in the user's own tab and carry no such risk.
 
   ```sql
   SELECT id, email FROM user;
@@ -199,6 +212,16 @@ Tips:
     return { id: r[0], name: r[1], n: Number(r[0]) * 2 };
   }
   return _.map(last.rows, doubleRow);
+  -- @end
+  ```
+
+  Async + fetch (browser or Node):
+
+  ```sql
+  -- @node
+  const res = await fetch('https://httpbin.org/get');
+  const json = await res.json();
+  return [{ status: res.status, url: json.url }];
   -- @end
   ```
 

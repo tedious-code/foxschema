@@ -12,11 +12,42 @@
  * with internal semicolons split at each `;`; routine DDL belongs in the
  * migration flow, not the editor.
  *
- * Code cells: `-- @js` / `-- @ts` … `-- @end` fences are opaque (inner `;`
- * do not split) and emit a single statement with kind `'js'` | `'ts'`.
+ * Code cells: `-- @js` / `-- @ts` / `-- @node` / `-- @nodets` … `-- @end`
+ * fences are opaque (inner `;` do not split) and emit a single statement with
+ * the matching kind.
  */
 
-export type StatementKind = 'sql' | 'js' | 'ts';
+export type StatementKind = 'sql' | 'js' | 'ts' | 'node' | 'nodets';
+
+/** Browser-executed fences (`-- @js` / `-- @ts`). Also the wire `kind` for Node cells. */
+export type BrowserCodeCellKind = 'js' | 'ts';
+
+/** Server-executed fences (`-- @node` / `-- @nodets`). */
+export type NodeCodeCellKind = 'node' | 'nodets';
+
+export type CodeCellKind = BrowserCodeCellKind | NodeCodeCellKind;
+
+/** Fences whose body is TypeScript (transpiled before run). */
+export type TsCodeCellKind = Extract<CodeCellKind, 'ts' | 'nodets'>;
+
+export function isCodeCellKind(kind: StatementKind | undefined): kind is CodeCellKind {
+  return kind === 'js' || kind === 'ts' || kind === 'node' || kind === 'nodets';
+}
+
+/** True when the fence runs on the FoxSchema Node backend. */
+export function isNodeCodeCellKind(kind: CodeCellKind | undefined): kind is NodeCodeCellKind {
+  return kind === 'node' || kind === 'nodets';
+}
+
+/** True when the cell body should be TypeScript-transpiled before run. */
+export function codeCellNeedsTs(kind: CodeCellKind | undefined): kind is TsCodeCellKind {
+  return kind === 'ts' || kind === 'nodets';
+}
+
+/** Map a Node fence kind to the POST /sql/code-cell wire `kind` (`js` | `ts`). */
+export function nodeCodeCellWireKind(kind: NodeCodeCellKind): BrowserCodeCellKind {
+  return codeCellNeedsTs(kind) ? 'ts' : 'js';
+}
 
 export interface SplitStatement {
   /** Statement text from its first non-whitespace character through its terminator. */
@@ -30,8 +61,8 @@ export interface SplitStatement {
   endLine: number;
   /** True when the statement ended with a `;` (SQL) or `-- @end` (code cell). */
   terminated: boolean;
-  /** `'sql'` (default), or a fenced code cell. */
-  kind?: StatementKind;
+  /** `'sql'` or a fenced code cell — always set by the splitter. */
+  kind: StatementKind;
 }
 
 export interface StatementStatus {
@@ -59,12 +90,16 @@ const WRITE_KEYWORDS = new Set([
 // eslint-disable-next-line security/detect-unsafe-regex -- false positive: anchored at ^; optional bounded identifier
 const DOLLAR_TAG_RE = /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/;
 
-const FENCE_START_RE = /^[ \t]*--[ \t]*@(js|javascript|ts|typescript)[ \t]*$/i;
+const FENCE_START_RE =
+  /^[ \t]*--[ \t]*@(node-typescript|node-ts|nodets|node|javascript|typescript|js|ts)[ \t]*$/i;
 const FENCE_END_RE = /^[ \t]*--[ \t]*@end[ \t]*$/i;
 
-function kindFromFenceTag(tag: string): 'js' | 'ts' {
+function kindFromFenceTag(tag: string): CodeCellKind {
   const t = tag.toLowerCase();
-  return t === 'ts' || t === 'typescript' ? 'ts' : 'js';
+  if (t === 'nodets' || t === 'node-ts' || t === 'node-typescript') return 'nodets';
+  if (t === 'node') return 'node';
+  if (t === 'ts' || t === 'typescript') return 'ts';
+  return 'js';
 }
 
 /** 1-based line number of the character at `index` (0 = start of file). */
@@ -86,16 +121,16 @@ function lineBounds(sql: string, from: number): { start: number; end: number; ne
 }
 
 interface CodeFenceRange {
-  kind: 'js' | 'ts';
+  kind: CodeCellKind;
   start: number;
   end: number;
   closed: boolean;
 }
 
 /**
- * Line-oriented scan for `-- @js` / `-- @ts` … `-- @end` fences.
- * Fences are only recognized when the whole line matches (so SQL string
- * literals containing the text are unlikely to false-positive).
+ * Line-oriented scan for `-- @js` / `-- @ts` / `-- @node` / `-- @nodets` …
+ * `-- @end` fences. Fences are only recognized when the whole line matches
+ * (so SQL string literals containing the text are unlikely to false-positive).
  */
 export function findCodeFences(sql: string): CodeFenceRange[] {
   const fences: CodeFenceRange[] = [];
@@ -135,13 +170,13 @@ export function findCodeFences(sql: string): CodeFenceRange[] {
 }
 
 /**
- * True when `text` is (or starts as) a fenced JS/TS code cell.
+ * True when `text` is (or starts as) a fenced JS/TS/Node code cell.
  * Returns kind + body (fence markers stripped; leading `-- @set` may still
  * remain in body — callers typically run parseSetDirectives first).
  */
 export function parseCodeCell(
   statement: string
-): { kind: 'js' | 'ts'; body: string; closed: boolean } | null {
+): { kind: CodeCellKind; body: string; closed: boolean } | null {
   const trimmed = statement.replace(/^\s+/, '');
   const nl = trimmed.search(/\r?\n/);
   const firstLine = nl < 0 ? trimmed : trimmed.slice(0, nl);
@@ -152,6 +187,10 @@ export function parseCodeCell(
   if (nl < 0) return { kind, body: '', closed: false };
 
   const lines = trimmed.slice(nl).replace(/^\r?\n/, '').split(/\r?\n/);
+  // Trailing blank lines after `-- @end` are common; ignore them when closing.
+  while (lines.length > 0 && lines[lines.length - 1]!.trim() === '') {
+    lines.pop();
+  }
   let closed = false;
   if (lines.length > 0 && FENCE_END_RE.test(lines[lines.length - 1]!)) {
     closed = true;
@@ -163,19 +202,55 @@ export function parseCodeCell(
 /** Strip fence open/close lines from a full cell statement (after @set parse). */
 export function stripCodeFenceMarkers(
   statement: string
-): { kind: 'js' | 'ts'; body: string } | null {
+): { kind: CodeCellKind; body: string } | null {
   const parsed = parseCodeCell(statement);
   return parsed ? { kind: parsed.kind, body: parsed.body } : null;
 }
 
-/** Strip JS line/block comments and quoted strings for keyword scans. */
-function stripJsStringsAndComments(src: string): string {
+/**
+ * Characters after which a `/` starts a regex literal rather than a division.
+ * Without this, `split(/\//)` reads as a `//` line comment and swallows the
+ * rest of the line — including a trailing `return`.
+ */
+const REGEX_ALLOWED_AFTER = new Set([
+  '(', ',', '=', ':', '[', '!', '&', '|', '?', '{', '}', ';', '+', '-', '*', '%', '~', '^', '<',
+  '>', '\n',
+]);
+
+/** Skip a regex literal starting at `src[i] === '/'`; returns the index after it. */
+function skipRegexLiteral(src: string, start: number): number {
+  let i = start + 1;
+  let inClass = false;
+  while (i < src.length) {
+    const c = src[i]!;
+    if (c === '\\') {
+      i += 2;
+      continue;
+    }
+    if (c === '\n') return i; // unterminated — treat as division after all
+    if (c === '[') inClass = true;
+    else if (c === ']') inClass = false;
+    else if (c === '/' && !inClass) return i + 1;
+    i++;
+  }
+  return i;
+}
+
+/** Strip JS line/block comments, regex literals, and quoted strings for keyword scans. */
+export function stripJsStringsAndComments(src: string): string {
   let out = '';
   let i = 0;
   const n = src.length;
+  // Last non-whitespace character emitted — decides regex-vs-division below.
+  let prev = '';
   while (i < n) {
     const ch = src[i]!;
     const next = src[i + 1] ?? '';
+    if (ch === '/' && (prev === '' || REGEX_ALLOWED_AFTER.has(prev)) && next !== '/' && next !== '*') {
+      i = skipRegexLiteral(src, i);
+      out += ' ';
+      continue;
+    }
     if (ch === '/' && next === '/') {
       i += 2;
       while (i < n && src[i] !== '\n') i++;
@@ -190,6 +265,8 @@ function stripJsStringsAndComments(src: string): string {
     if (ch === "'" || ch === '"' || ch === '`') {
       const q = ch;
       out += ' ';
+      // A string is a value, so a following `/` is division, not a regex.
+      prev = 'x';
       i++;
       while (i < n) {
         if (src[i] === '\\') {
@@ -215,6 +292,7 @@ function stripJsStringsAndComments(src: string): string {
       continue;
     }
     out += ch;
+    if (!/\s/.test(ch)) prev = ch;
     i++;
   }
   return out;
@@ -226,6 +304,19 @@ function stripJsStringsAndComments(src: string): string {
  */
 export function codeCellHasReturn(body: string): boolean {
   return /\breturn\b/.test(stripJsStringsAndComments(body));
+}
+
+/**
+ * Drop full-line SQL `-- …` comments from a code-cell body.
+ * Inside JS/TS, `--` is the decrement operator — a line like
+ * `-- use last` throws "Invalid left-hand side expression in prefix operation".
+ * Prefer `//` comments in cells; this strips accidental SQL-style ones at run time.
+ */
+export function stripFullLineSqlComments(body: string): string {
+  return body
+    .split(/\r?\n/)
+    .filter((line) => !/^[ \t]*--/.test(line))
+    .join('\n');
 }
 
 /** Split a SQL-only buffer into `;`-terminated statements (no code fences). */
@@ -438,13 +529,15 @@ export function checkStatement(
 ): StatementStatus {
   const cell = parseCodeCell(stmt.text);
   const kind = stmt.kind ?? cell?.kind ?? 'sql';
-  if (kind === 'js' || kind === 'ts') {
+  if (isCodeCellKind(kind)) {
     const reasons: string[] = [];
     if (!stmt.terminated) {
       reasons.push('Missing -- @end for code cell');
     }
-    // Strip leading `-- @set` lines inside the fence before the return check.
-    const body = (cell?.body ?? '').replace(/^(?:--\s*@set[^\n]*\n)+/i, '');
+    // Strip full-line SQL `--` comments before the return check (`--` is
+    // decrement in JS). This covers `-- @set` directives too — they are
+    // full-line `--` comments, so no separate pass is needed.
+    const body = stripFullLineSqlComments(cell?.body ?? '');
     if (body.trim() && !codeCellHasReturn(body)) {
       reasons.push('Code cell must include a return statement');
     }

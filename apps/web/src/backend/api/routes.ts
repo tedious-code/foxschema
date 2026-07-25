@@ -24,6 +24,11 @@ import { SignupModule } from '../modules/signup.module';
 import { rateLimit } from './rate-limit';
 import { runStatements, clampMaxRows, MAX_STATEMENTS, MAX_STATEMENT_LENGTH } from './sql-execute';
 import { clampOffset } from './sql-page-wrap';
+import {
+  runCodeCellOnServer,
+  validateCodeCellRequest,
+  type CodeCellRequestBody,
+} from './code-cell-execute';
 import { getMetadataDbConfig, SUPPORTED_ENGINES, type DbEngine } from '../database/config';
 import { createMetadataStore } from '../database/stores/registry';
 import { keySchemeInfo } from '../cores/crypto';
@@ -404,6 +409,24 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       res.json({ results });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Query execution failed';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // SQL Editor Node code cells (`-- @node` / `-- @nodets`). No DB connection;
+  // runs allowlisted JS/TS with fetch in a worker_threads sandbox.
+  const codeCellLimiter = rateLimit({ windowMs: 60 * 1000, max: 30 });
+  router.post('/sql/code-cell', codeCellLimiter, async (req: Request, res: Response) => {
+    const validated = validateCodeCellRequest(req.body as CodeCellRequestBody);
+    if (!validated.ok) {
+      res.status(400).json({ error: validated.error });
+      return;
+    }
+    try {
+      const result = await runCodeCellOnServer(validated.value);
+      res.json(result);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Code cell execution failed';
       res.status(500).json({ error: message });
     }
   });

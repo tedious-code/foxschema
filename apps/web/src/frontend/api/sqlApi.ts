@@ -1,5 +1,6 @@
 import { getApiBase } from './apiBase';
 import type { ConnectionRef } from './schemaApi';
+import type { BrowserCodeCellKind, CodeCellLast, CodeCellVars } from '../lib/sql-splitter';
 
 /** One statement's outcome from POST /sql/execute (mirrors backend sql-execute.ts). */
 export type SqlStatementResult =
@@ -40,4 +41,99 @@ export async function executeSql(
   }
   if (!res.ok || !data.results) throw new Error(data.error || `Query failed (${res.status})`);
   return { results: data.results };
+}
+
+/** Body for POST /sql/code-cell. Wire `kind` is language only (`js`|`ts`); Node vs browser is implied by the route. */
+export type ServerCodeCellPayload = {
+  body: string;
+  kind: BrowserCodeCellKind;
+  last: CodeCellLast;
+  vars: CodeCellVars;
+  maxRows: number;
+  timeoutMs?: number;
+};
+
+function responseError(data: unknown): string | undefined {
+  if (data && typeof data === 'object' && 'error' in data) {
+    const err = (data as { error: unknown }).error;
+    if (typeof err === 'string' && err) return err;
+  }
+  return undefined;
+}
+
+function isUnknownMatrix(value: unknown): value is unknown[][] {
+  return Array.isArray(value) && value.every((r) => Array.isArray(r));
+}
+
+/** Parse a `/sql/code-cell` JSON body into `SqlStatementResult` (rejects malformed success payloads). */
+export function parseSqlStatementResult(
+  data: unknown
+): { ok: true; value: SqlStatementResult } | { ok: false; error: string } {
+  if (!data || typeof data !== 'object') {
+    return { ok: false, error: 'Invalid code cell response' };
+  }
+  const o = data as Record<string, unknown>;
+  if (typeof o.durationMs !== 'number' || !Number.isFinite(o.durationMs)) {
+    return { ok: false, error: 'Invalid code cell response (durationMs)' };
+  }
+  if (o.ok === false) {
+    if (typeof o.error !== 'string' || !o.error) {
+      return { ok: false, error: 'Invalid code cell error response' };
+    }
+    return { ok: true, value: { ok: false, error: o.error, durationMs: o.durationMs } };
+  }
+  if (o.ok !== true) {
+    return { ok: false, error: responseError(data) || 'Invalid code cell response' };
+  }
+  if (!Array.isArray(o.columns) || !o.columns.every((c) => typeof c === 'string')) {
+    return { ok: false, error: 'Invalid code cell response (columns)' };
+  }
+  if (!isUnknownMatrix(o.rows)) {
+    return { ok: false, error: 'Invalid code cell response (rows)' };
+  }
+  if (typeof o.rowCount !== 'number' || !Number.isFinite(o.rowCount)) {
+    return { ok: false, error: 'Invalid code cell response (rowCount)' };
+  }
+  if (typeof o.truncated !== 'boolean') {
+    return { ok: false, error: 'Invalid code cell response (truncated)' };
+  }
+  return {
+    ok: true,
+    value: {
+      ok: true,
+      columns: o.columns,
+      rows: o.rows,
+      rowCount: o.rowCount,
+      truncated: o.truncated,
+      hasNext: typeof o.hasNext === 'boolean' ? o.hasNext : false,
+      durationMs: o.durationMs,
+    },
+  };
+}
+
+/** Run a `-- @node` / `-- @nodets` cell on the FoxSchema server. */
+export async function runCodeCellOnServer(
+  payload: ServerCodeCellPayload
+): Promise<SqlStatementResult> {
+  const res = await fetch(`${getApiBase()}/sql/code-cell`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(payload),
+  });
+  const text = await res.text();
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error(`Invalid response from server (${res.status}): ${text.slice(0, 200)}`);
+  }
+  if (!res.ok) {
+    throw new Error(responseError(data) || `Code cell failed (${res.status})`);
+  }
+  const parsed = parseSqlStatementResult(data);
+  if (!parsed.ok) {
+    throw new Error(parsed.error);
+  }
+  return parsed.value;
 }

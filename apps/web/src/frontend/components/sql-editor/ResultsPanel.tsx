@@ -5,6 +5,7 @@ import type { ResultsLayout } from '../../store/sqlEditorTabLogic';
 import { DataGrid, PANE_DEFAULT_H_PX, PANE_DEFAULT_PX, PANE_MIN_H_PX, PANE_MIN_PX } from './DataGrid';
 import type { SqlStatementResult } from '../../api/sqlApi';
 import { detectCodeCell } from '../../lib/codeCellRunner';
+import { CODE_CELL_KIND_LABEL } from '../../lib/sql-splitter';
 
 interface Props {
   runs: CredentialRun[];
@@ -48,7 +49,7 @@ function bindAxisDrag(cursor: string, onMove: (ev: MouseEvent) => void): void {
 const statementLabel = (sql: string, index: number): string => {
   const cell = detectCodeCell(sql);
   if (cell) {
-    return `Query ${index + 1} · ${cell.kind === 'ts' ? 'TypeScript' : 'JavaScript'}`;
+    return `Query ${index + 1} · ${CODE_CELL_KIND_LABEL[cell.kind].long}`;
   }
   const compact = sql.replace(/\s+/g, ' ').trim();
   return `Query ${index + 1} · ${compact.length > 48 ? compact.slice(0, 48) + '…' : compact}`;

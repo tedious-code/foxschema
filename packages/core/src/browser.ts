@@ -34,12 +34,48 @@ export {
   dmlLacksWhere,
   parseCodeCell,
   findCodeFences,
+  stripJsStringsAndComments,
   stripCodeFenceMarkers,
   codeCellHasReturn,
+  stripFullLineSqlComments,
+  isCodeCellKind,
+  isNodeCodeCellKind,
+  codeCellNeedsTs,
+  nodeCodeCellWireKind,
 } from './modules/sql-splitter';
-export type { SplitStatement, StatementStatus, StatementKind } from './modules/sql-splitter';
+export type {
+  SplitStatement,
+  StatementStatus,
+  StatementKind,
+  CodeCellKind,
+  BrowserCodeCellKind,
+  NodeCodeCellKind,
+  TsCodeCellKind,
+} from './modules/sql-splitter';
+export type {
+  CodeCellLast,
+  CodeCellVars,
+  CodeCellOk,
+  CodeCellErr,
+  CodeCellResult,
+} from './modules/code-cell-types';
+export { isCodeCellLast, isCodeCellVars, CODE_CELL_KIND_LABEL } from './modules/code-cell-types';
 export type { SqlDialect, CanonicalType, CanonicalBase, RenderedType } from './modules/sql-dialect.interface';
 export { resolveDialect, DIALECT_MAP } from './modules/dialect-registry';
+export {
+  CODE_CELL_ALLOWED_PACKAGES,
+  parseCodeCellImports,
+  resolveCodeCellImportBindings,
+  prepareCodeCellImports,
+  normalizeCodeCellReturn,
+  cloneCodeCellLast,
+  runCodeCellBody,
+} from './modules/code-cell-exec';
+export type {
+  CodeCellAllowedPackage,
+  CodeCellImportSpec,
+  RunCodeCellBodyArgs,
+} from './modules/code-cell-exec';
 
 export { buildConnectionString, withConnectionString, DEFAULT_PORTS } from './cores/connection-string';
 export { PROVIDER_SETTINGS, getProviderSettings } from './providers/provider-settings';

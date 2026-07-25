@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 import {
-  executeCodeCellSync,
+  executeCodeCell,
   type CodeCellLast,
   type CodeCellResult,
   type CodeCellVars,
@@ -19,12 +19,16 @@ export type CodeCellWorkerResponse = { id: number } & CodeCellResult;
 const ctx: DedicatedWorkerGlobalScope = self as unknown as DedicatedWorkerGlobalScope;
 
 ctx.onmessage = (ev: MessageEvent<CodeCellWorkerRequest>) => {
-  const msg = ev.data;
-  const result = executeCodeCellSync({
-    body: msg.body,
-    last: msg.last,
-    vars: msg.vars,
-    maxRows: msg.maxRows,
-  });
-  ctx.postMessage({ id: msg.id, ...result } satisfies CodeCellWorkerResponse);
+  const { id, body, last, vars, maxRows } = ev.data;
+  void executeCodeCell({ body, last, vars, maxRows })
+    .catch((error: unknown) => ({
+      // A rejection here (import prep, structured-clone of the result) would
+      // otherwise post nothing at all and leave the caller to time out with a
+      // misleading "timed out" message instead of the real error.
+      ok: false as const,
+      error: error instanceof Error ? error.message : String(error),
+    }))
+    .then((result) => {
+      ctx.postMessage({ id, ...result } satisfies CodeCellWorkerResponse);
+    });
 };
