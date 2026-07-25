@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rmSync } from 'node:fs';
@@ -96,6 +96,93 @@ describe('runStatements against a real SQLite file', () => {
 
   it('applies the row cap with the truncated flag', async () => {
     const results = await runStatements('sqlite', { connectionString: dbPath }, ['SELECT * FROM t;'], 2);
-    expect(results[0]).toMatchObject({ ok: true, rowCount: 2, truncated: true });
+    expect(results[0]).toMatchObject({ ok: true, rowCount: 2, truncated: true, hasNext: true });
+  });
+
+  it('pages SELECT with OFFSET (page 1 is not page 0)', async () => {
+    const page0 = await runStatements(
+      'sqlite',
+      { connectionString: dbPath },
+      ['SELECT id, name FROM t ORDER BY id;'],
+      1,
+      undefined,
+      0
+    );
+    const page1 = await runStatements(
+      'sqlite',
+      { connectionString: dbPath },
+      ['SELECT id, name FROM t ORDER BY id;'],
+      1,
+      undefined,
+      1
+    );
+    expect(page0[0]).toMatchObject({ ok: true, hasNext: true });
+    expect(page1[0]).toMatchObject({ ok: true });
+    if (page0[0]!.ok && page1[0]!.ok) {
+      expect(page0[0].rows[0]).toEqual([1, 'alpha']);
+      expect(page1[0].rows[0]).toEqual([2, 'beta']);
+    }
+  });
+
+  it('runs non-SELECT unwrapped at offset 0 (no wrap attempt)', async () => {
+    const spy = vi.spyOn(ConnectionFactory, 'executeOnConnection').mockResolvedValueOnce([]);
+    try {
+      const results = await runStatements(
+        'sqlite',
+        { connectionString: dbPath },
+        [`UPDATE t SET name = 'x' WHERE id = 1;`],
+        10
+      );
+      expect(results[0]).toMatchObject({ ok: true, hasNext: false, rowCount: 0 });
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(String(spy.mock.calls[0]![2])).toMatch(/^UPDATE t/i);
+      expect(String(spy.mock.calls[0]![2])).not.toContain('_fox_page');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('rejects paging a non-SELECT when offset > 0', async () => {
+    const spy = vi.spyOn(ConnectionFactory, 'executeOnConnection');
+    try {
+      const results = await runStatements(
+        'sqlite',
+        { connectionString: dbPath },
+        [`UPDATE t SET name = 'x' WHERE id = 1;`],
+        10,
+        undefined,
+        10
+      );
+      expect(results[0]).toMatchObject({ ok: false });
+      if (!results[0]!.ok) expect(results[0].error).toMatch(/non-SELECT/i);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('does not fall back to unwrapped SQL when offset > 0 and wrap fails', async () => {
+    const spy = vi
+      .spyOn(ConnectionFactory, 'executeOnConnection')
+      .mockRejectedValueOnce(new Error('wrap boom'));
+    try {
+      const results = await runStatements(
+        'sqlite',
+        { connectionString: dbPath },
+        ['SELECT id FROM t ORDER BY id;'],
+        1,
+        undefined,
+        1
+      );
+      expect(results[0]).toMatchObject({ ok: false });
+      if (!results[0]!.ok) {
+        expect(results[0].error).toMatch(/Paging failed/i);
+        expect(results[0].error).toMatch(/wrap boom/);
+      }
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(String(spy.mock.calls[0]![2])).toContain('_fox_page');
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

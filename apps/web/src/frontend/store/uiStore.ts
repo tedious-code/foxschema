@@ -137,21 +137,18 @@ function applyToDocument(themeMode: ThemeMode, tone: ToneId, fontSize: FontSize,
   // Soften the base canvas (the largest surface) to a gentle tint between shades
   // 100 and 200: lighter than a flat gray, but enough that big areas don't read
   // as a bare-white, "uncoloured" page next to the panels.
+  const mix = (a: number, pct: number, b: number) =>
+    `color-mix(in oklab, ${lit(tone, a)} ${pct}%, ${lit(tone, b)})`;
   if (light) {
-    root.style.setProperty('--color-slate-950', `color-mix(in oklab, ${lit(tone, 100)} 60%, ${lit(tone, 200)})`);
+    root.style.setProperty('--color-slate-950', mix(100, 60, 200));
   } else {
     // Eye-friendly dark: lift pure black fills toward charcoal; mute brightest
     // text so dark mode isn't OLED-black vs pure-white (harsh contrast).
-    const soft950 = `color-mix(in oklab, ${lit(tone, 950)} 45%, ${lit(tone, 900)})`;
-    const soft900 = `color-mix(in oklab, ${lit(tone, 900)} 65%, ${lit(tone, 800)})`;
-    const soft50 = `color-mix(in oklab, ${lit(tone, 50)} 55%, ${lit(tone, 200)})`;
-    const soft100 = `color-mix(in oklab, ${lit(tone, 100)} 60%, ${lit(tone, 200)})`;
-    const soft200 = `color-mix(in oklab, ${lit(tone, 200)} 70%, ${lit(tone, 300)})`;
-    root.style.setProperty('--color-slate-950', soft950);
-    root.style.setProperty('--color-slate-900', soft900);
-    root.style.setProperty('--color-slate-50', soft50);
-    root.style.setProperty('--color-slate-100', soft100);
-    root.style.setProperty('--color-slate-200', soft200);
+    root.style.setProperty('--color-slate-950', mix(950, 45, 900));
+    root.style.setProperty('--color-slate-900', mix(900, 65, 800));
+    root.style.setProperty('--color-slate-50', mix(50, 55, 200));
+    root.style.setProperty('--color-slate-100', mix(100, 60, 200));
+    root.style.setProperty('--color-slate-200', mix(200, 70, 300));
   }
 
   // Colored families: in light mode remap with the same shifted scale as the

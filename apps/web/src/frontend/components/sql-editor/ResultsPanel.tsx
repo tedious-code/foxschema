@@ -30,6 +30,20 @@ interface Props {
 
 const GAP_PX = 6; // space between pane and its resize grip
 
+/** Attach document-level drag listeners; cleans up cursor/userSelect on mouseup. */
+function bindAxisDrag(cursor: string, onMove: (ev: MouseEvent) => void): void {
+  const onUp = () => {
+    window.removeEventListener('mousemove', onMove);
+    window.removeEventListener('mouseup', onUp);
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  };
+  document.body.style.cursor = cursor;
+  document.body.style.userSelect = 'none';
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('mouseup', onUp);
+}
+
 const statementLabel = (sql: string, index: number): string => {
   const compact = sql.replace(/\s+/g, ' ').trim();
   return `Query ${index + 1} · ${compact.length > 48 ? compact.slice(0, 48) + '…' : compact}`;
@@ -115,7 +129,7 @@ const ResizablePaneRow: React.FC<{
     e.stopPropagation();
     const startX = e.clientX;
     const startW = widths[index] ?? PANE_DEFAULT_PX;
-    const onMove = (ev: MouseEvent) => {
+    bindAxisDrag('col-resize', (ev) => {
       const next = Math.max(PANE_MIN_PX, startW + (ev.clientX - startX));
       setWidths((prev) => {
         if (prev[index] === next) return prev;
@@ -123,17 +137,7 @@ const ResizablePaneRow: React.FC<{
         copy[index] = next;
         return copy;
       });
-    };
-    const onUp = () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    });
   }, [widths]);
 
   const startRowHeightResize = useCallback(
@@ -141,24 +145,16 @@ const ResizablePaneRow: React.FC<{
       e.preventDefault();
       const startY = e.clientY;
       const startH = rowHeight;
-      const onMove = (ev: MouseEvent) => {
+      bindAxisDrag('row-resize', (ev) => {
         setRowHeight(Math.max(PANE_MIN_H_PX, startH + (ev.clientY - startY)));
-      };
-      const onUp = () => {
-        window.removeEventListener('mousemove', onMove);
-        window.removeEventListener('mouseup', onUp);
-        document.body.style.cursor = '';
-        document.body.style.userSelect = '';
-      };
-      document.body.style.cursor = 'row-resize';
-      document.body.style.userSelect = 'none';
-      window.addEventListener('mousemove', onMove);
-      window.addEventListener('mouseup', onUp);
+      });
     },
     [rowHeight]
   );
 
   if (items.length === 0) return null;
+
+  const syncScroll = items.filter((x) => x.kind === 'grid').length > 1;
 
   return (
     <div className="flex flex-col min-w-0" data-testid="sql-result-pane-row-wrap">
@@ -172,6 +168,7 @@ const ResizablePaneRow: React.FC<{
           const pageKey =
             item.kind === 'grid' ? `${item.connectionId}:${item.statementIndex}` : '';
           const page = pageKey ? pageState?.[pageKey] : undefined;
+          const pageIndex = page?.pageIndex ?? 0;
           return (
             <React.Fragment key={item.key}>
               <div
@@ -185,35 +182,30 @@ const ResizablePaneRow: React.FC<{
                     exportName={item.exportName}
                     refreshing={refreshing}
                     onRefresh={onRefresh ? () => onRefresh(item.connectionId) : undefined}
-                    syncScrollRow={items.filter((x) => x.kind === 'grid').length > 1 ? syncRow : null}
-                    onSyncScrollRow={
-                      items.filter((x) => x.kind === 'grid').length > 1 ? setSyncRow : undefined
-                    }
-                    pageIndex={page?.pageIndex ?? 0}
+                    syncScrollRow={syncScroll ? syncRow : null}
+                    onSyncScrollRow={syncScroll ? setSyncRow : undefined}
+                    pageIndex={pageIndex}
                     pageSize={page?.pageSize}
-                    hasPrevPage={(page?.pageIndex ?? 0) > 0}
-                    hasNextPage={
-                      page?.hasNext ??
-                      (item.result.ok && item.result.truncated)
-                    }
-                    pageLoading={page?.loading}
+                    hasPrevPage={!refreshing && Boolean(page) && pageIndex > 0}
+                    hasNextPage={!refreshing && Boolean(page?.hasNext)}
+                    pageLoading={Boolean(refreshing || page?.loading)}
                     onPrevPage={
-                      onPage
+                      onPage && page && !refreshing
                         ? () =>
                             onPage({
                               connectionId: item.connectionId,
                               statementIndex: item.statementIndex,
-                              pageIndex: Math.max(0, (page?.pageIndex ?? 0) - 1),
+                              pageIndex: Math.max(0, pageIndex - 1),
                             })
                         : undefined
                     }
                     onNextPage={
-                      onPage
+                      onPage && page && !refreshing
                         ? () =>
                             onPage({
                               connectionId: item.connectionId,
                               statementIndex: item.statementIndex,
-                              pageIndex: (page?.pageIndex ?? 0) + 1,
+                              pageIndex: pageIndex + 1,
                             })
                         : undefined
                     }

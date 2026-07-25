@@ -46,12 +46,11 @@ export const ProfileMenu: React.FC = () => {
       return;
     }
     placeMenu();
-    const onReposition = () => placeMenu();
-    window.addEventListener('resize', onReposition);
-    window.addEventListener('scroll', onReposition, true);
+    window.addEventListener('resize', placeMenu);
+    window.addEventListener('scroll', placeMenu, true);
     return () => {
-      window.removeEventListener('resize', onReposition);
-      window.removeEventListener('scroll', onReposition, true);
+      window.removeEventListener('resize', placeMenu);
+      window.removeEventListener('scroll', placeMenu, true);
     };
   }, [open]);
 

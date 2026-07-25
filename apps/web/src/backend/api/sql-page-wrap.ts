@@ -3,10 +3,25 @@
  * Fetches `limit + 1` rows so the caller can detect `hasNext` without a COUNT.
  */
 
+import { statementVerb } from '@foxschema/core';
+
+/** Verbs that can appear as a subquery in `SELECT * FROM (…)` for paging. */
+const PAGEABLE_VERBS = new Set(['select', 'values']);
+
 export function clampOffset(v: unknown): number {
   const n = typeof v === 'number' ? Math.floor(v) : Number.NaN;
   if (!Number.isFinite(n) || n < 0) return 0;
   return Math.min(n, 1_000_000);
+}
+
+/**
+ * True when the statement is safe to wrap for OFFSET/LIMIT paging
+ * (SELECT / VALUES, including `WITH … AS (…) SELECT …`).
+ * Writes, DDL, SET, SHOW, EXPLAIN, CALL, etc. are not pageable.
+ */
+export function isPageableStatement(sql: string): boolean {
+  const verb = statementVerb(sql);
+  return verb !== null && PAGEABLE_VERBS.has(verb);
 }
 
 /**
