@@ -60,6 +60,71 @@ describe('splitSqlStatements', () => {
     expect(stmts).toHaveLength(1);
     expect(stmts[0].text).toBe("SELECT 'a\\';b' FROM t;");
   });
+
+  it('keeps JS/TS fences as one statement (inner semicolons ok)', () => {
+    const sql = `SELECT 1 AS id;
+-- @js
+const x = 1; const y = 2;
+return { columns: ['n'], rows: [[x + y]] };
+-- @end
+SELECT 2;`;
+    const stmts = splitSqlStatements(sql);
+    expect(stmts).toHaveLength(3);
+    expect(stmts[0]).toMatchObject({ kind: 'sql', text: 'SELECT 1 AS id;' });
+    expect(stmts[1]?.kind).toBe('js');
+    expect(stmts[1]?.terminated).toBe(true);
+    expect(stmts[1]?.text).toContain('const x = 1;');
+    expect(stmts[1]?.text).toContain('-- @end');
+    expect(stmts[2]).toMatchObject({ kind: 'sql', text: 'SELECT 2;' });
+  });
+
+  it('supports -- @ts / -- @typescript fences', () => {
+    const stmts = splitSqlStatements(`-- @ts
+const n: number = 1;
+return { columns: ['n'], rows: [[n]] };
+-- @end`);
+    expect(stmts).toHaveLength(1);
+    expect(stmts[0]?.kind).toBe('ts');
+  });
+
+  it('warns when -- @end is missing', () => {
+    const stmts = splitSqlStatements(`-- @js
+return last;`);
+    expect(stmts).toHaveLength(1);
+    expect(stmts[0]?.terminated).toBe(false);
+    expect(checkStatement(stmts[0]!).level).toBe('warn');
+    expect(checkStatement(stmts[0]!).reasons.join()).toMatch(/@end/);
+  });
+
+  it('warns when a closed code cell has no return', () => {
+    const stmts = splitSqlStatements(`-- @js
+const x = 1;
+-- @end`);
+    expect(checkStatement(stmts[0]!).level).toBe('warn');
+    expect(checkStatement(stmts[0]!).reasons.join()).toMatch(/return/i);
+  });
+
+  it('ok for a closed code cell with return + locals/loop', () => {
+    const stmts = splitSqlStatements(`-- @js
+const out = [];
+for (const r of last.rows) out.push(r);
+return out;
+-- @end`);
+    expect(checkStatement(stmts[0]!)).toEqual({ level: 'ok', reasons: [] });
+  });
+
+  it('preserves @set comments before a code fence via offsets', () => {
+    const sql = `SELECT 1;
+-- @set src = table
+-- @js
+return last;
+-- @end`;
+    const stmts = splitSqlStatements(sql);
+    expect(stmts).toHaveLength(2);
+    expect(stmts[1]?.kind).toBe('js');
+    // Gap comments live before the fence start; reattachSetComments restores them.
+    expect(sql.slice(stmts[0]!.end, stmts[1]!.start)).toContain('-- @set src = table');
+  });
 });
 
 describe('checkStatement', () => {

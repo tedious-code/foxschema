@@ -179,6 +179,29 @@ Tips:
   200). Use **Next** / **Prev** on a result grid to page through more rows;
   visited pages stay cached in memory so going back does not re-query the server.
   Sibling result grids from the same Run sync vertical scroll by row index.
+- **Code cells (JS / TS)** — mix SQL with local transforms in the same buffer. Fence
+  a cell with `-- @js` / `-- @ts` … `-- @end` (inner semicolons are fine). You can use
+  local `let`/`const`/`var`, **functions**, and loops (`for`, `while`, `for…of`).
+  Allowlisted **imports** (bundled, no CDN): `lodash`, `lodash-es`, `date-fns` —
+  put `import` lines at the top of the cell. Cells are **isolated** (imports/functions
+  do not carry to the next cell; use `last` / `vars` to pass data). The cell receives
+  `last` (previous statement’s grid) and `vars` (non-secret Variables). **You must
+  `return`** either `{ columns, rows }` or an array of plain objects. Python is not
+  available yet.
+
+  ```sql
+  SELECT id, email FROM user;
+
+  -- @js
+  import _ from 'lodash';
+
+  function doubleRow(r) {
+    return { id: r[0], name: r[1], n: Number(r[0]) * 2 };
+  }
+  return _.map(last.rows, doubleRow);
+  -- @end
+  ```
+
 - **Safe mode** — when on, write/DDL statements need an extra confirmation before run.
 
 Writes and DDL are allowed when you confirm them. Some dialects (e.g. SQLite /

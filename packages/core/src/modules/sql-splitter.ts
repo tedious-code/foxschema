@@ -11,7 +11,12 @@
  * Known v1 limitation: procedural bodies (CREATE PROCEDURE … BEGIN … END)
  * with internal semicolons split at each `;`; routine DDL belongs in the
  * migration flow, not the editor.
+ *
+ * Code cells: `-- @js` / `-- @ts` … `-- @end` fences are opaque (inner `;`
+ * do not split) and emit a single statement with kind `'js'` | `'ts'`.
  */
+
+export type StatementKind = 'sql' | 'js' | 'ts';
 
 export interface SplitStatement {
   /** Statement text from its first non-whitespace character through its terminator. */
@@ -23,8 +28,10 @@ export interface SplitStatement {
   startLine: number;
   /** 1-based line of the statement's last character. */
   endLine: number;
-  /** True when the statement ended with a `;`. */
+  /** True when the statement ended with a `;` (SQL) or `-- @end` (code cell). */
   terminated: boolean;
+  /** `'sql'` (default), or a fenced code cell. */
+  kind?: StatementKind;
 }
 
 export interface StatementStatus {
@@ -52,8 +59,177 @@ const WRITE_KEYWORDS = new Set([
 // eslint-disable-next-line security/detect-unsafe-regex -- false positive: anchored at ^; optional bounded identifier
 const DOLLAR_TAG_RE = /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/;
 
-/** Split a SQL buffer into `;`-terminated statements, skipping comment-only segments. */
-export function splitSqlStatements(sql: string): SplitStatement[] {
+const FENCE_START_RE = /^[ \t]*--[ \t]*@(js|javascript|ts|typescript)[ \t]*$/i;
+const FENCE_END_RE = /^[ \t]*--[ \t]*@end[ \t]*$/i;
+
+function kindFromFenceTag(tag: string): 'js' | 'ts' {
+  const t = tag.toLowerCase();
+  return t === 'ts' || t === 'typescript' ? 'ts' : 'js';
+}
+
+/** 1-based line number of the character at `index` (0 = start of file). */
+function lineAtOffset(sql: string, index: number): number {
+  let line = 1;
+  const end = Math.min(Math.max(0, index), sql.length);
+  for (let i = 0; i < end; i++) {
+    if (sql[i] === '\n') line++;
+  }
+  return line;
+}
+
+/** Next line bounds starting at `from` (`end` exclusive of newline; `next` after it). */
+function lineBounds(sql: string, from: number): { start: number; end: number; next: number } {
+  const len = sql.length;
+  const end = sql.indexOf('\n', from);
+  if (end < 0) return { start: from, end: len, next: len };
+  return { start: from, end, next: end + 1 };
+}
+
+interface CodeFenceRange {
+  kind: 'js' | 'ts';
+  start: number;
+  end: number;
+  closed: boolean;
+}
+
+/**
+ * Line-oriented scan for `-- @js` / `-- @ts` … `-- @end` fences.
+ * Fences are only recognized when the whole line matches (so SQL string
+ * literals containing the text are unlikely to false-positive).
+ */
+export function findCodeFences(sql: string): CodeFenceRange[] {
+  const fences: CodeFenceRange[] = [];
+  let i = 0;
+  const len = sql.length;
+  while (i < len) {
+    const { start: lineStart, end: lineEnd, next } = lineBounds(sql, i);
+    const startMatch = FENCE_START_RE.exec(sql.slice(lineStart, lineEnd));
+    if (!startMatch) {
+      i = next;
+      continue;
+    }
+
+    const kind = kindFromFenceTag(startMatch[1]!);
+    let j = next;
+    let closed = false;
+    let fenceEnd = len;
+    while (j < len) {
+      const inner = lineBounds(sql, j);
+      const line = sql.slice(inner.start, inner.end);
+      if (FENCE_END_RE.test(line)) {
+        closed = true;
+        fenceEnd = inner.next;
+        break;
+      }
+      if (FENCE_START_RE.test(line)) {
+        // Nested start without @end — close previous at this line (unterminated).
+        fenceEnd = inner.start;
+        break;
+      }
+      j = inner.next;
+    }
+    fences.push({ kind, start: lineStart, end: fenceEnd, closed });
+    i = fenceEnd;
+  }
+  return fences;
+}
+
+/**
+ * True when `text` is (or starts as) a fenced JS/TS code cell.
+ * Returns kind + body (fence markers stripped; leading `-- @set` may still
+ * remain in body — callers typically run parseSetDirectives first).
+ */
+export function parseCodeCell(
+  statement: string
+): { kind: 'js' | 'ts'; body: string; closed: boolean } | null {
+  const trimmed = statement.replace(/^\s+/, '');
+  const nl = trimmed.search(/\r?\n/);
+  const firstLine = nl < 0 ? trimmed : trimmed.slice(0, nl);
+  const startMatch = FENCE_START_RE.exec(firstLine);
+  if (!startMatch) return null;
+
+  const kind = kindFromFenceTag(startMatch[1]!);
+  if (nl < 0) return { kind, body: '', closed: false };
+
+  const lines = trimmed.slice(nl).replace(/^\r?\n/, '').split(/\r?\n/);
+  let closed = false;
+  if (lines.length > 0 && FENCE_END_RE.test(lines[lines.length - 1]!)) {
+    closed = true;
+    lines.pop();
+  }
+  return { kind, body: lines.join('\n'), closed };
+}
+
+/** Strip fence open/close lines from a full cell statement (after @set parse). */
+export function stripCodeFenceMarkers(
+  statement: string
+): { kind: 'js' | 'ts'; body: string } | null {
+  const parsed = parseCodeCell(statement);
+  return parsed ? { kind: parsed.kind, body: parsed.body } : null;
+}
+
+/** Strip JS line/block comments and quoted strings for keyword scans. */
+function stripJsStringsAndComments(src: string): string {
+  let out = '';
+  let i = 0;
+  const n = src.length;
+  while (i < n) {
+    const ch = src[i]!;
+    const next = src[i + 1] ?? '';
+    if (ch === '/' && next === '/') {
+      i += 2;
+      while (i < n && src[i] !== '\n') i++;
+      continue;
+    }
+    if (ch === '/' && next === '*') {
+      i += 2;
+      while (i < n - 1 && !(src[i] === '*' && src[i + 1] === '/')) i++;
+      i = Math.min(n, i + 2);
+      continue;
+    }
+    if (ch === "'" || ch === '"' || ch === '`') {
+      const q = ch;
+      out += ' ';
+      i++;
+      while (i < n) {
+        if (src[i] === '\\') {
+          i += 2;
+          continue;
+        }
+        if (src[i] === q) {
+          i++;
+          break;
+        }
+        if (q === '`' && src[i] === '$' && src[i + 1] === '{') {
+          i += 2;
+          let depth = 1;
+          while (i < n && depth > 0) {
+            if (src[i] === '{') depth++;
+            else if (src[i] === '}') depth--;
+            i++;
+          }
+          continue;
+        }
+        i++;
+      }
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
+/**
+ * True when a JS/TS cell body contains a `return` statement (not inside a
+ * string/comment). Code cells must return a grid value.
+ */
+export function codeCellHasReturn(body: string): boolean {
+  return /\breturn\b/.test(stripJsStringsAndComments(body));
+}
+
+/** Split a SQL-only buffer into `;`-terminated statements (no code fences). */
+function splitSqlOnly(sql: string): SplitStatement[] {
   const out: SplitStatement[] = [];
   const len = sql.length;
 
@@ -96,6 +272,7 @@ export function splitSqlStatements(sql: string): SplitStatement[] {
       startLine: codeStartLine,
       endLine,
       terminated,
+      kind: 'sql',
     });
     reset();
   };
@@ -177,6 +354,53 @@ export function splitSqlStatements(sql: string): SplitStatement[] {
   return out;
 }
 
+function remapSqlGap(
+  gap: string,
+  baseOffset: number,
+  baseLine: number
+): SplitStatement[] {
+  return splitSqlOnly(gap).map((s) => ({
+    ...s,
+    kind: 'sql' as const,
+    start: s.start + baseOffset,
+    end: s.end + baseOffset,
+    startLine: baseLine + s.startLine - 1,
+    endLine: baseLine + s.endLine - 1,
+  }));
+}
+
+/** Split a SQL buffer into `;`-terminated statements, skipping comment-only segments. */
+export function splitSqlStatements(sql: string): SplitStatement[] {
+  const fences = findCodeFences(sql);
+  if (fences.length === 0) return splitSqlOnly(sql);
+
+  const out: SplitStatement[] = [];
+  let cursor = 0;
+  for (const f of fences) {
+    if (f.start > cursor) {
+      const gap = sql.slice(cursor, f.start);
+      out.push(...remapSqlGap(gap, cursor, lineAtOffset(sql, cursor)));
+    }
+    // Trim trailing whitespace from fence end for display, keep closed flag.
+    let realEnd = f.end;
+    while (realEnd > f.start && /\s/.test(sql[realEnd - 1]!)) realEnd--;
+    out.push({
+      text: sql.slice(f.start, realEnd),
+      start: f.start,
+      end: realEnd,
+      startLine: lineAtOffset(sql, f.start),
+      endLine: lineAtOffset(sql, Math.max(f.start, realEnd - 1)),
+      terminated: f.closed,
+      kind: f.kind,
+    });
+    cursor = f.end;
+  }
+  if (cursor < sql.length) {
+    out.push(...remapSqlGap(sql.slice(cursor), cursor, lineAtOffset(sql, cursor)));
+  }
+  return out;
+}
+
 /** First code word of a statement (lowercased), skipping leading comments/whitespace/parens. */
 export function firstKeyword(text: string): string | null {
   let mode: Mode = 'code';
@@ -209,7 +433,24 @@ export function firstKeyword(text: string): string | null {
  * complete" — balanced quoting/parens, known leading keyword, terminated with
  * a semicolon — NOT that the statement will execute.
  */
-export function checkStatement(stmt: Pick<SplitStatement, 'text' | 'terminated'>): StatementStatus {
+export function checkStatement(
+  stmt: Pick<SplitStatement, 'text' | 'terminated'> & { kind?: StatementKind }
+): StatementStatus {
+  const cell = parseCodeCell(stmt.text);
+  const kind = stmt.kind ?? cell?.kind ?? 'sql';
+  if (kind === 'js' || kind === 'ts') {
+    const reasons: string[] = [];
+    if (!stmt.terminated) {
+      reasons.push('Missing -- @end for code cell');
+    }
+    // Strip leading `-- @set` lines inside the fence before the return check.
+    const body = (cell?.body ?? '').replace(/^(?:--\s*@set[^\n]*\n)+/i, '');
+    if (body.trim() && !codeCellHasReturn(body)) {
+      reasons.push('Code cell must include a return statement');
+    }
+    return { level: reasons.length ? 'warn' : 'ok', reasons };
+  }
+
   const reasons: string[] = [];
   const text = stmt.text;
 
@@ -276,6 +517,7 @@ export function checkStatement(stmt: Pick<SplitStatement, 'text' | 'terminated'>
  * mutating verb — EXPLAIN does not apply the change.
  */
 export function isWriteStatement(text: string): boolean {
+  if (parseCodeCell(text)) return false;
   const kw = firstKeyword(text);
   if (!kw) return false;
   if (WRITE_KEYWORDS.has(kw)) return true;
@@ -289,6 +531,8 @@ export function isWriteStatement(text: string): boolean {
 
 /** Leading verb after skipping WITH CTEs (lowercased), or null. */
 export function statementVerb(text: string): string | null {
+  const cell = parseCodeCell(text);
+  if (cell) return cell.kind;
   const kw = firstKeyword(text);
   if (!kw) return null;
   if (kw === 'explain') return 'explain';

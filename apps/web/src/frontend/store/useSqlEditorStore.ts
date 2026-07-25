@@ -3,6 +3,8 @@ import { persist } from 'zustand/middleware';
 import { executeSql, type SqlStatementResult } from '../api/sqlApi';
 import { loadSchema } from '../api/schemaApi';
 import { isMutatingDmlStatement, isWriteStatement } from '../lib/sql-splitter';
+import type { CodeCellLast } from '../lib/codeCellExec';
+import { detectCodeCell, runCodeCell } from '../lib/codeCellRunner';
 import {
   applySetDirectives,
   exportVariables,
@@ -13,6 +15,7 @@ import {
   prepareStatement,
   resolveVariablesForConnection,
   stripSecretsForPersist,
+  type SetDirective,
   type SqlVariable,
   type SqlVariableExport,
   type SqlVariableKind,
@@ -698,8 +701,81 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         const ranDisplay: string[] = [];
         let aborted: string | null = null;
 
+        const lastGridFrom = (prev: SqlStatementResult[]): CodeCellLast => {
+          const prior = prev[prev.length - 1];
+          return prior?.ok
+            ? { columns: prior.columns, rows: prior.rows, rowCount: prior.rowCount }
+            : null;
+        };
+
+        const setPageSql = (connectionId: string, index: number, sql: string) => {
+          const sqlList = pageSqlByConn.get(connectionId) ?? [];
+          while (sqlList.length < index) sqlList.push('');
+          sqlList[index] = sql;
+          pageSqlByConn.set(connectionId, sqlList);
+        };
+
+        const applySetsFromFirstOk = (directives: SetDirective[], index: number) => {
+          if (directives.length === 0) return;
+          for (const c of connections) {
+            const res = resultsByConn.get(c.id)?.[index];
+            if (!res?.ok) continue;
+            const sets = applySetDirectives(directives, res);
+            if (sets.ok) {
+              for (const u of sets.updates) get().upsertVariable(u);
+            } else {
+              appendWarning(sets.error);
+            }
+            break;
+          }
+        };
+
         for (let si = 0; si < rawStatements.length; si++) {
           const raw = rawStatements[si]!;
+
+          if (detectCodeCell(raw)) {
+            ranDisplay.push(raw);
+            setRanStatements([...ranDisplay]);
+
+            let codeDirectives: SetDirective[] = [];
+            const isLastStmt = si === rawStatements.length - 1;
+
+            await Promise.allSettled(
+              connections.map(async (c) => {
+                const prev = resultsByConn.get(c.id) ?? [];
+                try {
+                  const { result, directives } = await runCodeCell({
+                    statement: raw,
+                    last: lastGridFrom(prev),
+                    variables: resolveVariablesForConnection(get().variables, c.id),
+                    maxRows,
+                  });
+                  codeDirectives = directives;
+                  prev.push(result);
+                  resultsByConn.set(c.id, prev);
+                  setPageSql(c.id, si, ''); // code cells are not re-pageable
+                  patchRun(c.id, {
+                    status: isLastStmt ? 'done' : 'running',
+                    results: [...prev],
+                    error: result.ok ? undefined : result.error,
+                  });
+                } catch (error: unknown) {
+                  const msg = error instanceof Error ? error.message : String(error);
+                  prev.push({ ok: false, error: msg, durationMs: 0 });
+                  resultsByConn.set(c.id, prev);
+                  patchRun(c.id, {
+                    status: 'error',
+                    error: msg,
+                    results: [...prev],
+                  });
+                }
+              })
+            );
+
+            applySetsFromFirstOk(codeDirectives, si);
+            continue;
+          }
+
           const { directives } = parseSetDirectives(raw);
 
           type Prep =
@@ -774,10 +850,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
                 };
                 prev.push(one);
                 resultsByConn.set(c.id, prev);
-                const sqlList = pageSqlByConn.get(c.id) ?? [];
-                while (sqlList.length < si) sqlList.push('');
-                sqlList[si] = prep.sql;
-                pageSqlByConn.set(c.id, sqlList);
+                setPageSql(c.id, si, prep.sql);
                 const last = si === rawStatements.length - 1;
                 patchRun(c.id, {
                   status: last ? 'done' : 'running',
@@ -799,22 +872,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
 
           // @set from the first successful credential result (connection list order).
           // Writes the global base value (not a per-connection override).
-          if (directives.length > 0) {
-            for (const c of connections) {
-              const res = resultsByConn.get(c.id)?.[si];
-              if (res && res.ok) {
-                const sets = applySetDirectives(directives, res);
-                if (sets.ok) {
-                  for (const u of sets.updates) {
-                    get().upsertVariable(u);
-                  }
-                } else {
-                  appendWarning(sets.error);
-                }
-                break;
-              }
-            }
-          }
+          applySetsFromFirstOk(directives, si);
         }
 
         // Mark any still-running connections as done.
@@ -840,10 +898,11 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           results.forEach((res, si) => {
             const key = pageMetaKey(c.id, si);
             pageCache[pageCacheKey(c.id, si, 0)] = res;
+            const pageable = Boolean(pageSqlByConnection[c.id]?.[si]);
             pageMeta[key] = {
               pageIndex: 0,
               pageSize: maxRows,
-              hasNext: Boolean(res.ok && (res.hasNext || res.truncated)),
+              hasNext: pageable && Boolean(res.ok && (res.hasNext || res.truncated)),
             };
           });
         }
