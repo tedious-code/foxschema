@@ -183,7 +183,8 @@ export const StatementStrip: React.FC<Props> = ({ statements, checked, onToggle,
           const status = checkStatement(stmt);
           const ok = status.level === 'ok';
           const isChecked = checked.includes(i);
-          const verb = statementVerb(stmt.text);
+          const codeKind = stmt.kind === 'js' || stmt.kind === 'ts' ? stmt.kind : null;
+          const verb = codeKind ? null : statementVerb(stmt.text);
           const dmlBadge =
             safeMode && verb && isMutatingDmlStatement(stmt.text) ? DML_BADGE[verb] : null;
           const noWhere = dmlBadge ? dmlLacksWhere(stmt.text) : false;
@@ -226,6 +227,14 @@ export const StatementStrip: React.FC<Props> = ({ statements, checked, onToggle,
                 >
                   {ok ? '✓' : '⚠'}
                 </span>
+                {codeKind && (
+                  <span
+                    className="shrink-0 text-[10px] font-bold uppercase tracking-wide px-1 py-0.5 rounded mt-0.5 bg-violet-950/40 text-violet-300 border border-violet-500/35"
+                    title={`${codeKind === 'ts' ? 'TypeScript' : 'JavaScript'} code cell (-- @${codeKind} … -- @end)`}
+                  >
+                    {codeKind === 'ts' ? 'TS' : 'JS'}
+                  </span>
+                )}
                 {dmlBadge && (
                   <span
                     className={`shrink-0 text-[10px] font-bold uppercase tracking-wide px-1 py-0.5 rounded mt-0.5 ${

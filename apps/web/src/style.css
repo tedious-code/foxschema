@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  /* User-tunable accent (Appearance settings). Default: cyan → indigo. */
+  /* User-tunable accent (Appearance settings). Default: cyan ? indigo. */
   --accent: #06b6d4;
   --accent-strong: #4f46e5;
 }
@@ -58,7 +58,7 @@
 
 /* Colored palette families used in the UI. Defined explicitly so the
    light-mode inversion (e.g. --color-cyan-50 -> var(--color-cyan-950))
-   resolves — Tailwind tree-shakes unused shades. */
+   resolves ? Tailwind tree-shakes unused shades. */
 :root {
   --color-orange-50: oklch(98% 0.016 73.684);
   --color-orange-100: oklch(95.4% 0.038 75.164);
@@ -214,10 +214,10 @@
 .accent-grad:hover { filter: brightness(1.07); }
 
 /* Fixed, non-inverting near-black for text/icons that sit ON the bright accent
-   gradient — so it stays dark (readable) in both light and dark themes. */
+   gradient ? so it stays dark (readable) in both light and dark themes. */
 .on-accent-fg { color: #020617; }
 
-/* In light mode the accent (tuned for dark backgrounds) is too pale as text —
+/* In light mode the accent (tuned for dark backgrounds) is too pale as text ?
    darken + saturate it so labels stay legible on near-white surfaces. */
 [data-theme="light"] .accent-text { filter: brightness(0.62) saturate(1.3); }
 
@@ -313,7 +313,7 @@
   animation: indeterminateProgress 1.2s ease-in-out infinite;
 }
 
-/* Search keyword highlight — used both by the object browser / Schema Blueprint
+/* Search keyword highlight ? used both by the object browser / Schema Blueprint
    (<mark>) and inside Monaco. Accent-tinted so it stands out in light & dark. */
 .fox-search-hl {
   background-color: color-mix(in oklab, var(--accent) 40%, transparent);
@@ -335,11 +335,11 @@ mark.fox-search-hl {
   font-weight: 700;
 }
 .fox-stmt-glyph-ok::after {
-  content: '✓';
+  content: '?';
   color: #34d399; /* emerald-400 */
 }
 .fox-stmt-glyph-warn::after {
-  content: '⚠';
+  content: '?';
   color: #fbbf24; /* amber-400 */
 }
 
@@ -347,4 +347,55 @@ mark.fox-search-hl {
 .fox-sql-var-ref {
   color: #34d399; /* emerald-400 */
   font-weight: 600;
+}
+
+/*
+ * Result DataGrid is a light "paper" surface. Soft-dark remaps --color-slate-50/100/200
+ * toward gray, which made tables muddy with dark cell ink. Pin literal colors here.
+ */
+.fox-sql-grid {
+  --fox-grid-bg: #f8fafc;
+  --fox-grid-bg-header: #e2e8f0;
+  --fox-grid-bg-hover: #f1f5f9;
+  --fox-grid-border: #cbd5e1;
+  --fox-grid-border-soft: #e2e8f0;
+  --fox-grid-ink: #1e293b;
+  --fox-grid-muted: #64748b;
+  background-color: var(--fox-grid-bg) !important;
+  border-color: var(--fox-grid-border) !important;
+  color: var(--fox-grid-ink);
+}
+.fox-sql-grid thead tr,
+.fox-sql-grid thead th {
+  background-color: var(--fox-grid-bg-header) !important;
+  border-color: var(--fox-grid-border) !important;
+  color: var(--fox-grid-ink) !important;
+}
+.fox-sql-grid thead th .text-slate-800 {
+  color: inherit;
+}
+.fox-sql-grid thead th .text-slate-500,
+.fox-sql-grid thead th .text-slate-400 {
+  color: var(--fox-grid-muted) !important;
+}
+.fox-sql-grid tbody {
+  background-color: var(--fox-grid-bg) !important;
+}
+.fox-sql-grid tbody tr {
+  border-color: var(--fox-grid-border-soft) !important;
+}
+.fox-sql-grid tbody tr:hover {
+  background-color: var(--fox-grid-bg-hover) !important;
+}
+.fox-sql-grid tbody td {
+  border-color: var(--fox-grid-border-soft) !important;
+}
+.fox-sql-grid tbody td.bg-slate-50,
+.fox-sql-grid tbody td[data-testid='sql-row-num'] {
+  background-color: var(--fox-grid-bg) !important;
+  color: var(--fox-grid-muted) !important;
+  border-color: var(--fox-grid-border-soft) !important;
+}
+.fox-sql-grid tbody tr:hover td[data-testid='sql-row-num'] {
+  background-color: var(--fox-grid-bg-hover) !important;
 }

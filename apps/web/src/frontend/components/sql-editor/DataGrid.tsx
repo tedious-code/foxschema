@@ -478,7 +478,7 @@ export const DataGrid: React.FC<{
       <div
         ref={scrollRef}
         data-testid="sql-data-grid"
-        className="fox-sql-grid flex-1 min-h-0 border border-slate-700/80 rounded-lg shadow-sm bg-slate-50"
+        className="fox-sql-grid flex-1 min-h-0 border border-slate-300 rounded-lg shadow-sm bg-slate-50"
         style={{ overflowX: 'auto', overflowY: 'auto' }}
         onScroll={onScroll}
         onContextMenu={(e) => {
@@ -677,7 +677,7 @@ export const DataGrid: React.FC<{
           </table>
         )}
       </div>
-      <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-500 shrink-0 flex-wrap">
+      <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-400 shrink-0 flex-wrap">
         <span>
           {result.rowCount} row{result.rowCount === 1 ? '' : 's'}
           {pageSize ? ` / page of ${pageSize}` : ''}
@@ -686,7 +686,7 @@ export const DataGrid: React.FC<{
           {result.durationMs} ms
         </span>
         {result.truncated && (
-          <span className="text-amber-500 font-semibold">
+          <span className="text-amber-400 font-semibold">
             truncated — use Next page or raise Rows/page
           </span>
         )}
@@ -697,7 +697,7 @@ export const DataGrid: React.FC<{
               data-testid="sql-page-prev"
               disabled={!hasPrevPage || pageLoading}
               onClick={onPrevPage}
-              className="px-1.5 py-0.5 rounded border border-slate-300 text-slate-600 font-semibold hover:bg-slate-100 disabled:opacity-40"
+              className="px-1.5 py-0.5 rounded border border-slate-600 text-slate-300 font-semibold hover:bg-slate-800 disabled:opacity-40"
             >
               Prev
             </button>
@@ -706,7 +706,7 @@ export const DataGrid: React.FC<{
               data-testid="sql-page-next"
               disabled={!hasNextPage || pageLoading}
               onClick={onNextPage}
-              className="px-1.5 py-0.5 rounded border border-slate-300 text-slate-600 font-semibold hover:bg-slate-100 disabled:opacity-40"
+              className="px-1.5 py-0.5 rounded border border-slate-600 text-slate-300 font-semibold hover:bg-slate-800 disabled:opacity-40"
             >
               {pageLoading ? '…' : 'Next'}
             </button>

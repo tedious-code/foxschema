@@ -4,6 +4,7 @@ import type { CredentialRun } from '../../store/useSqlEditorStore';
 import type { ResultsLayout } from '../../store/sqlEditorTabLogic';
 import { DataGrid, PANE_DEFAULT_H_PX, PANE_DEFAULT_PX, PANE_MIN_H_PX, PANE_MIN_PX } from './DataGrid';
 import type { SqlStatementResult } from '../../api/sqlApi';
+import { detectCodeCell } from '../../lib/codeCellRunner';
 
 interface Props {
   runs: CredentialRun[];
@@ -45,6 +46,10 @@ function bindAxisDrag(cursor: string, onMove: (ev: MouseEvent) => void): void {
 }
 
 const statementLabel = (sql: string, index: number): string => {
+  const cell = detectCodeCell(sql);
+  if (cell) {
+    return `Query ${index + 1} · ${cell.kind === 'ts' ? 'TypeScript' : 'JavaScript'}`;
+  }
   const compact = sql.replace(/\s+/g, ' ').trim();
   return `Query ${index + 1} · ${compact.length > 48 ? compact.slice(0, 48) + '…' : compact}`;
 };
