@@ -17,6 +17,7 @@ import {
   substituteVariables,
   type SqlVariable,
   SQL_VARIABLE_LIST_MAX,
+  SQL_VARIABLE_TABLE_MAX,
 } from './sql-variables';
 
 function scalar(name: string, value: unknown, extra?: Partial<SqlVariable>): SqlVariable {
@@ -217,6 +218,54 @@ SELECT 3 AS a, 4 AS b;`;
           ],
         },
       ],
+    });
+  });
+
+  it('applySetDirectives refuses incomplete column/table captures (paged results)', () => {
+    const page = {
+      columns: ['id'],
+      rows: [[1], [2]],
+      hasNext: true,
+      truncated: true,
+    };
+    // Scalar only needs the first cell — still ok on a partial page.
+    expect(applySetDirectives([{ mode: 'scalar', name: 'x' }], page)).toEqual({
+      ok: true,
+      updates: [{ name: 'x', kind: 'scalar', value: 1 }],
+    });
+    expect(
+      applySetDirectives([{ mode: 'column', name: 'ids', column: 'id' }], page)
+    ).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/incomplete/i),
+    });
+    expect(applySetDirectives([{ mode: 'table', name: 't' }], page)).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/incomplete/i),
+    });
+  });
+
+  it('applySetDirectives refuses silent list/table cap truncation', () => {
+    const listRows = Array.from({ length: SQL_VARIABLE_LIST_MAX + 1 }, (_, i) => [i]);
+    expect(
+      applySetDirectives([{ mode: 'column', name: 'ids', column: 'id' }], {
+        columns: ['id'],
+        rows: listRows,
+      })
+    ).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/max 500/i),
+    });
+
+    const tableRows = Array.from({ length: SQL_VARIABLE_TABLE_MAX + 1 }, (_, i) => [i]);
+    expect(
+      applySetDirectives([{ mode: 'table', name: 't' }], {
+        columns: ['id'],
+        rows: tableRows,
+      })
+    ).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/max 500/i),
     });
   });
 

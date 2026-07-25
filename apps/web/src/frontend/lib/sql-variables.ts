@@ -518,15 +518,44 @@ export type ApplySetResult =
   | { ok: true; updates: SetUpdate[] }
   | { ok: false; error: string };
 
+/** True when the result grid is not the full statement output (page/cap). */
+function resultIsIncomplete(result: {
+  truncated?: boolean;
+  hasNext?: boolean;
+}): boolean {
+  return Boolean(result.hasNext || result.truncated);
+}
+
+/** Count non-null cells in a result column (no list-cap early exit). */
+function countNonNullColumnValues(rows: unknown[][], colIndex: number): number {
+  let n = 0;
+  for (const row of rows) {
+    const cell = row[colIndex];
+    if (cell !== null && cell !== undefined) n += 1;
+  }
+  return n;
+}
+
 /**
  * Build variable upserts from @set directives + a successful statement result.
+ *
+ * Scalar capture uses only the first cell, so a paged/truncated grid is fine.
+ * Column/table capture must see the full result — fail closed when the grid is
+ * incomplete or would silently exceed the list/table caps (otherwise later
+ * `${{…}}` expansion runs against a partial variable with no error).
  */
 export function applySetDirectives(
   directives: SetDirective[],
-  result: { columns: string[]; rows: unknown[][] }
+  result: {
+    columns: string[];
+    rows: unknown[][];
+    truncated?: boolean;
+    hasNext?: boolean;
+  }
 ): ApplySetResult {
   if (directives.length === 0) return { ok: true, updates: [] };
   const updates: SetUpdate[] = [];
+  const incomplete = resultIsIncomplete(result);
 
   for (const d of directives) {
     if (d.mode === 'scalar') {
@@ -544,11 +573,24 @@ export function applySetDirectives(
       continue;
     }
     if (d.mode === 'column') {
+      if (incomplete) {
+        return {
+          ok: false,
+          error: `@set ${d.name}: result is incomplete (more rows available) — increase Max rows or narrow the query before capturing`,
+        };
+      }
       const idx = columnIndex(result.columns, d.column);
       if (idx < 0) {
         return {
           ok: false,
           error: `@set ${d.name}: column "${d.column}" not in result`,
+        };
+      }
+      const nonNullCount = countNonNullColumnValues(result.rows, idx);
+      if (nonNullCount > SQL_VARIABLE_LIST_MAX) {
+        return {
+          ok: false,
+          error: `@set ${d.name}: column "${d.column}" has ${nonNullCount} values (max ${SQL_VARIABLE_LIST_MAX}) — narrow the query before capturing`,
         };
       }
       const values = columnToListValues(result.rows, idx);
@@ -565,12 +607,23 @@ export function applySetDirectives(
     if (result.columns.length === 0) {
       return { ok: false, error: `@set ${d.name}: result has no columns` };
     }
-    const rows = result.rows.slice(0, SQL_VARIABLE_TABLE_MAX);
+    if (incomplete) {
+      return {
+        ok: false,
+        error: `@set ${d.name}: result is incomplete (more rows available) — increase Max rows or narrow the query before capturing`,
+      };
+    }
+    if (result.rows.length > SQL_VARIABLE_TABLE_MAX) {
+      return {
+        ok: false,
+        error: `@set ${d.name}: result has ${result.rows.length} rows (max ${SQL_VARIABLE_TABLE_MAX}) — narrow the query before capturing`,
+      };
+    }
     updates.push({
       name: d.name,
       kind: 'table',
       columns: [...result.columns],
-      rows,
+      rows: result.rows.map((r) => [...r]),
     });
   }
 
