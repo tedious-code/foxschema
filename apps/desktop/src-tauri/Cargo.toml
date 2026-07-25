@@ -1,6 +1,6 @@
 [package]
 name = "foxschema-desktop"
-version = "0.1.82"
+version = "0.1.83"
 description = "FoxSchema desktop (Community edition)"
 authors = ["huyplb@live.com"]
 license = ""
