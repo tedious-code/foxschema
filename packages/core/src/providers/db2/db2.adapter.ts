@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import { ConnectionOptions, DriverAdapter } from '../../interfaces/schema-provider.interface';
 import { assertSafeIdentifier } from '../../cores/sql-identifier';
+import { BoundedPoolCache, disposePoolEndOrClose } from '../../cores/pool-cache';
 import { setupDb2ClientEnv } from './db2.env';
 
 const nodeRequire = createRequire(import.meta.url);
@@ -13,7 +14,7 @@ class Db2Adapter implements DriverAdapter {
   readonly dialect = 'db2';
   readonly packageName = 'ibm_db';
 
-  private pools = new Map<string, any>();
+  private pools = new BoundedPoolCache<any>(disposePoolEndOrClose);
   private driver: any;
 
   private load(): any {
@@ -41,18 +42,17 @@ class Db2Adapter implements DriverAdapter {
       );
     }
 
-    let pool = this.pools.get(connectionString);
-    if (!pool) {
-      pool = new ibmdb.Pool();
-      if (typeof pool.setMaxPoolSize === 'function') pool.setMaxPoolSize(options.pool?.max ?? 10);
-      if (typeof pool.setConnectTimeout === 'function' && options.timeout?.connectMs) {
-        pool.setConnectTimeout(Math.ceil(options.timeout.connectMs / 1000));
+    const pool = await this.pools.getOrCreate(connectionString, () => {
+      const created = new ibmdb.Pool();
+      if (typeof created.setMaxPoolSize === 'function') created.setMaxPoolSize(options.pool?.max ?? 10);
+      if (typeof created.setConnectTimeout === 'function' && options.timeout?.connectMs) {
+        created.setConnectTimeout(Math.ceil(options.timeout.connectMs / 1000));
       }
-      if (typeof pool.setIdleTimeout === 'function' && options.pool?.idleTimeoutMs) {
-        pool.setIdleTimeout(Math.ceil(options.pool.idleTimeoutMs / 1000));
+      if (typeof created.setIdleTimeout === 'function' && options.pool?.idleTimeoutMs) {
+        created.setIdleTimeout(Math.ceil(options.pool.idleTimeoutMs / 1000));
       }
-      this.pools.set(connectionString, pool);
-    }
+      return created;
+    });
 
     return new Promise((resolve, reject) =>
       pool.open(connectionString, (err: Error | null, conn: any) => (err ? reject(err) : resolve(conn)))
@@ -100,13 +100,7 @@ class Db2Adapter implements DriverAdapter {
   }
 
   async closeAll(): Promise<void> {
-    const pools = Array.from(this.pools.values());
-    this.pools.clear();
-    await Promise.all(
-      pools.map((p) =>
-        typeof p.close === 'function' ? new Promise<void>((resolve) => p.close(() => resolve())) : Promise.resolve()
-      )
-    );
+    await this.pools.clear();
   }
 }
 

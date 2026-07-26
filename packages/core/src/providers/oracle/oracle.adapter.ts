@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module';
 import { ConnectionOptions, DriverAdapter } from '../../interfaces/schema-provider.interface';
+import { BoundedPoolCache, disposePoolEndOrClose } from '../../cores/pool-cache';
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -16,7 +17,7 @@ class OracleAdapter implements DriverAdapter {
   readonly dialect = 'oracle';
   readonly packageName = 'oracledb';
 
-  private pools = new Map<string, any>();
+  private pools = new BoundedPoolCache<any>(disposePoolEndOrClose);
   private driver: any;
 
   private load(): any {
@@ -56,9 +57,8 @@ class OracleAdapter implements DriverAdapter {
     // catalog queries ran under the wrong account and returned zero objects —
     // the compare then reported every target object as ADDED.
     const poolKey = `${options.username ?? ''}@${connectionString}`;
-    let pool = this.pools.get(poolKey);
-    if (!pool) {
-      pool = await oracledb.createPool({
+    const pool = await this.pools.getOrCreate(poolKey, () =>
+      oracledb.createPool({
         user: options.username || '',
         password: options.password || '',
         connectString: connectionString,
@@ -66,9 +66,8 @@ class OracleAdapter implements DriverAdapter {
         poolMin: options.pool?.min ?? 1,
         poolTimeout: Math.ceil((options.pool?.idleTimeoutMs ?? 60000) / 1000),
         connectTimeout: Math.ceil((options.timeout?.connectMs ?? 15000) / 1000),
-      });
-      this.pools.set(poolKey, pool);
-    }
+      })
+    );
     const conn = await pool.getConnection();
     return { _type: 'pool', pool, conn };
   }
@@ -107,9 +106,7 @@ class OracleAdapter implements DriverAdapter {
   }
 
   async closeAll(): Promise<void> {
-    const pools = Array.from(this.pools.values());
-    this.pools.clear();
-    await Promise.all(pools.map((p) => (typeof p.close === 'function' ? p.close() : Promise.resolve())));
+    await this.pools.clear();
   }
 }
 

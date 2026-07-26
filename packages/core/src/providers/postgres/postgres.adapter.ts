@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import { ConnectionOptions, DriverAdapter } from '../../interfaces/schema-provider.interface';
 import { assertSafeIdentifier } from '../../cores/sql-identifier';
+import { BoundedPoolCache, disposePoolEndOrClose } from '../../cores/pool-cache';
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -9,7 +10,7 @@ class PostgresAdapter implements DriverAdapter {
   readonly dialect = 'postgres';
   readonly packageName = 'pg';
 
-  private pools = new Map<string, any>();
+  private pools = new BoundedPoolCache<any>(disposePoolEndOrClose);
   private driver: any;
 
   private load(): any {
@@ -25,10 +26,9 @@ class PostgresAdapter implements DriverAdapter {
   }
 
   async acquire(connectionString: string, options: ConnectionOptions, _pooled: boolean): Promise<any> {
-    let pool = this.pools.get(connectionString);
-    if (!pool) {
+    const pool = await this.pools.getOrCreate(connectionString, () => {
       const pg = this.load();
-      pool = new pg.Pool({
+      return new pg.Pool({
         connectionString,
         max: options.pool?.max ?? 10,
         min: options.pool?.min ?? 1,
@@ -43,8 +43,7 @@ class PostgresAdapter implements DriverAdapter {
             }
           : false,
       });
-      this.pools.set(connectionString, pool);
-    }
+    });
     // pg clients reset transaction state on release, so pooling is safe for migrations too
     return pool.connect();
   }
@@ -76,9 +75,7 @@ class PostgresAdapter implements DriverAdapter {
   }
 
   async closeAll(): Promise<void> {
-    const pools = Array.from(this.pools.values());
-    this.pools.clear();
-    await Promise.all(pools.map((p) => (typeof p.end === 'function' ? p.end() : Promise.resolve())));
+    await this.pools.clear();
   }
 }
 

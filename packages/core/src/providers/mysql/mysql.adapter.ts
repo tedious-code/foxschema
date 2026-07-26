@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module';
 import { ConnectionOptions, DriverAdapter } from '../../interfaces/schema-provider.interface';
+import { BoundedPoolCache, disposePoolEndOrClose } from '../../cores/pool-cache';
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -12,7 +13,7 @@ class MysqlAdapter implements DriverAdapter {
   readonly dialect = 'mysql';
   readonly packageName = 'mysql2';
 
-  private pools = new Map<string, any>();
+  private pools = new BoundedPoolCache<any>(disposePoolEndOrClose);
   private driver: any;
 
   private load(): any {
@@ -54,18 +55,16 @@ class MysqlAdapter implements DriverAdapter {
       return conn;
     }
 
-    let pool = this.pools.get(connectionString);
-    if (!pool) {
-      pool = mysql.createPool({
+    const pool = await this.pools.getOrCreate(connectionString, () =>
+      mysql.createPool({
         uri: connectionString,
         ssl,
         connectionLimit: options.pool?.max ?? 10,
         connectTimeout: options.timeout?.connectMs ?? 10000,
         waitForConnections: true,
         multipleStatements: false,
-      });
-      this.pools.set(connectionString, pool);
-    }
+      })
+    );
     return pool.getConnection();
   }
 
@@ -101,9 +100,7 @@ class MysqlAdapter implements DriverAdapter {
   }
 
   async closeAll(): Promise<void> {
-    const pools = Array.from(this.pools.values());
-    this.pools.clear();
-    await Promise.all(pools.map((p) => (typeof p.end === 'function' ? p.end() : Promise.resolve())));
+    await this.pools.clear();
   }
 }
 

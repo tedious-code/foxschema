@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module';
 import { ConnectionOptions, DriverAdapter } from '../../interfaces/schema-provider.interface';
+import { BoundedPoolCache, disposePoolEndOrClose } from '../../cores/pool-cache';
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -11,7 +12,7 @@ class AzureSqlAdapter implements DriverAdapter {
   readonly dialect = 'azuresql';
   readonly packageName = 'mssql';
 
-  private pools = new Map<string, any>();
+  private pools = new BoundedPoolCache<any>(disposePoolEndOrClose);
   private driver: any;
 
   private load(): any {
@@ -50,12 +51,11 @@ class AzureSqlAdapter implements DriverAdapter {
 
   async acquire(connectionString: string, options: ConnectionOptions, _pooled: boolean): Promise<MssqlHandle> {
     const mssql = this.load();
-    let pool = this.pools.get(connectionString);
-    if (!pool) {
-      pool = new mssql.ConnectionPool(this.buildConfig(options));
-      await pool.connect();
-      this.pools.set(connectionString, pool);
-    }
+    const pool = await this.pools.getOrCreate(connectionString, async () => {
+      const created = new mssql.ConnectionPool(this.buildConfig(options));
+      await created.connect();
+      return created;
+    });
     return { _type: 'pool', pool };
   }
 
@@ -98,9 +98,7 @@ class AzureSqlAdapter implements DriverAdapter {
   }
 
   async closeAll(): Promise<void> {
-    const pools = Array.from(this.pools.values());
-    this.pools.clear();
-    await Promise.all(pools.map((p) => (typeof p.close === 'function' ? p.close() : Promise.resolve())));
+    await this.pools.clear();
   }
 }
 

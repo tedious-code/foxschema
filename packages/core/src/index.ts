@@ -92,6 +92,7 @@ export { MigrationModule } from './modules/migration.module';
 export { ConnectionFactory } from './cores/connection-factory';
 export { DriverDetector } from './cores/driver-detector';
 export { assertSafeIdentifier } from './cores/sql-identifier';
+export { BoundedPoolCache, disposePoolEndOrClose } from './cores/pool-cache';
 export { setupDb2ClientEnv } from './providers/db2/db2.env';
 export {
   resolveFkReferencedColumns,

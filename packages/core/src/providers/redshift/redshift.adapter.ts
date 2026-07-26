@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import { ConnectionOptions, DriverAdapter } from '../../interfaces/schema-provider.interface';
 import { assertSafeIdentifier } from '../../cores/sql-identifier';
+import { BoundedPoolCache, disposePoolEndOrClose } from '../../cores/pool-cache';
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -8,7 +9,7 @@ class RedshiftAdapter implements DriverAdapter {
   readonly dialect = 'redshift';
   readonly packageName = 'pg';
 
-  private pools = new Map<string, any>();
+  private pools = new BoundedPoolCache<any>(disposePoolEndOrClose);
   private driver: any;
 
   private load(): any {
@@ -24,10 +25,9 @@ class RedshiftAdapter implements DriverAdapter {
   }
 
   async acquire(connectionString: string, options: ConnectionOptions, _pooled: boolean): Promise<any> {
-    let pool = this.pools.get(connectionString);
-    if (!pool) {
+    const pool = await this.pools.getOrCreate(connectionString, () => {
       const pg = this.load();
-      pool = new pg.Pool({
+      return new pg.Pool({
         connectionString,
         max: options.pool?.max ?? 5,
         min: options.pool?.min ?? 1,
@@ -37,8 +37,7 @@ class RedshiftAdapter implements DriverAdapter {
           ? { rejectUnauthorized: options.ssl.rejectUnauthorized ?? false }
           : false,
       });
-      this.pools.set(connectionString, pool);
-    }
+    });
     return pool.connect();
   }
 
@@ -68,9 +67,7 @@ class RedshiftAdapter implements DriverAdapter {
   }
 
   async closeAll(): Promise<void> {
-    const pools = Array.from(this.pools.values());
-    this.pools.clear();
-    await Promise.all(pools.map((p) => (typeof p.end === 'function' ? p.end() : Promise.resolve())));
+    await this.pools.clear();
   }
 }
 
