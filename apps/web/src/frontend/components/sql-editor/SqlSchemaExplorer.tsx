@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Loader2, RefreshCw } from 'lucide-react';
+import { ChevronDown, ChevronRight, Columns3, Loader2, Plus, RefreshCw } from 'lucide-react';
 import { useSyncStore } from '../../store/useSyncStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
 import { effectiveConnectionIds } from '../../store/sqlEditorTabLogic';
@@ -7,6 +7,7 @@ import { TYPE_META } from '../SchemaTreePanel';
 import { filterCallParameters, insertAtCursor } from './sqlEditorBridge';
 import type { DbObjectType, TableSchema } from '../../lib/types';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
+import { TableBlueprintModal, type BlueprintMode } from './TableBlueprintModal';
 
 /** Categories shown in the SQL Editor schema browser (order = display order). */
 const EXPLORER_GROUPS: { type: DbObjectType; title: string }[] = [
@@ -44,6 +45,8 @@ export const SqlSchemaExplorer: React.FC = () => {
     PROCEDURE: true,
     FUNCTION: true,
   });
+  const [blueprintTable, setBlueprintTable] = useState<TableSchema | null>(null);
+  const [blueprintMode, setBlueprintMode] = useState<BlueprintMode>('edit');
 
   useEffect(() => {
     if (explorerId && connections.some((c) => c.id === explorerId)) return;
@@ -99,6 +102,19 @@ export const SqlSchemaExplorer: React.FC = () => {
             </select>
             <button
               type="button"
+              title="Create new table"
+              disabled={!explorerId}
+              data-testid="sql-new-table"
+              onClick={() => {
+                setBlueprintMode('create');
+                setBlueprintTable(null);
+              }}
+              className="p-1.5 rounded text-slate-500 hover:text-emerald-300 hover:bg-slate-800/70 disabled:opacity-40 transition"
+            >
+              <Plus className="w-3.5 h-3.5 text-emerald-400" strokeWidth={SQL_ICON_STROKE} />
+            </button>
+            <button
+              type="button"
               title="Reload schema"
               disabled={!explorerId || entry?.status === 'loading'}
               onClick={() => explorerId && void ensureSchema(explorerId, { force: true })}
@@ -142,15 +158,15 @@ export const SqlSchemaExplorer: React.FC = () => {
                     className="w-full flex items-center gap-1.5 px-0.5 py-1 text-left sticky top-0 bg-slate-900 z-[1]"
                   >
                     {open ? (
-                      <ChevronDown className="w-3.5 h-3.5 text-emerald-400 shrink-0" strokeWidth={SQL_ICON_STROKE} />
+                      <ChevronDown className="w-4 h-4 text-emerald-400 shrink-0" strokeWidth={SQL_ICON_STROKE} />
                     ) : (
-                      <ChevronRight className="w-3.5 h-3.5 text-emerald-400 shrink-0" strokeWidth={SQL_ICON_STROKE} />
+                      <ChevronRight className="w-4 h-4 text-emerald-400 shrink-0" strokeWidth={SQL_ICON_STROKE} />
                     )}
-                    <span className="shrink-0 scale-90">{meta.icon}</span>
-                    <span className={`text-[11px] font-bold uppercase tracking-wider ${meta.color}`}>
+                    <span className="shrink-0">{meta.icon}</span>
+                    <span className={`text-[12px] font-bold uppercase tracking-wider ${meta.color}`}>
                       {g.title}
                     </span>
-                    <span className="text-[11px] font-mono text-slate-500">({items.length})</span>
+                    <span className="text-[12px] font-mono text-slate-500">({items.length})</span>
                     <span className="flex-1 h-px bg-slate-800/80 ml-1" />
                   </button>
                   {open && (
@@ -167,6 +183,14 @@ export const SqlSchemaExplorer: React.FC = () => {
                             })
                           }
                           dialect={conn?.dialect ?? 'sql'}
+                          onOpenBlueprint={
+                            t.objectType === 'TABLE' || t.objectType === 'MQT'
+                              ? () => {
+                                  setBlueprintMode('edit');
+                                  setBlueprintTable(t);
+                                }
+                              : undefined
+                          }
                         />
                       ))}
                     </div>
@@ -175,6 +199,19 @@ export const SqlSchemaExplorer: React.FC = () => {
               );
             })}
           </div>
+
+          {(blueprintMode === 'create' || blueprintTable) && explorerId && (
+            <TableBlueprintModal
+              connectionId={explorerId}
+              table={blueprintTable}
+              mode={blueprintMode}
+              dialect={conn?.dialect ?? 'sql'}
+              onClose={() => {
+                setBlueprintTable(null);
+                setBlueprintMode('edit');
+              }}
+            />
+          )}
         </>
       )}
     </div>
@@ -186,7 +223,8 @@ const ObjectNode: React.FC<{
   open: boolean;
   onToggle: () => void;
   dialect: string;
-}> = ({ table, open, onToggle, dialect }) => {
+  onOpenBlueprint?: () => void;
+}> = ({ table, open, onToggle, dialect, onOpenBlueprint }) => {
   const meta = TYPE_META[table.objectType] ?? TYPE_META.TABLE;
   const insertName = quoteIfNeeded(table.name, dialect);
   const isRoutine = table.objectType === 'PROCEDURE' || table.objectType === 'FUNCTION';
@@ -217,9 +255,9 @@ const ObjectNode: React.FC<{
           aria-label={open ? 'Collapse' : 'Expand'}
         >
           {open ? (
-            <ChevronDown className="w-3.5 h-3.5 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
+            <ChevronDown className="w-4 h-4 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
           ) : (
-            <ChevronRight className="w-3.5 h-3.5 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
+            <ChevronRight className="w-4 h-4 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
           )}
         </button>
         <button
@@ -230,38 +268,52 @@ const ObjectNode: React.FC<{
               : `Insert ${table.name}`
           }
           onClick={insertObject}
-          className="flex-1 flex items-center gap-1.5 min-w-0 text-left text-[12px] font-semibold text-slate-200 hover:text-cyan-300 py-0.5 truncate"
+          className="flex-1 flex items-center gap-1.5 min-w-0 text-left text-[13px] font-semibold text-slate-200 hover:text-cyan-300 py-1 truncate"
         >
-          <span className="shrink-0 scale-90">{meta.icon}</span>
+          <span className="shrink-0">{meta.icon}</span>
           <span className="truncate font-mono font-bold">{table.name}</span>
           {isRoutine && params.length > 0 && (
-            <span className="shrink-0 text-[10px] font-mono font-medium text-slate-500 truncate max-w-[40%]">
+            <span className="shrink-0 text-[11px] font-mono font-medium text-slate-500 truncate max-w-[40%]">
               ({params.length})
             </span>
           )}
         </button>
+        {onOpenBlueprint && (
+          <button
+            type="button"
+            title="Open table blueprint"
+            data-testid="sql-open-blueprint"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenBlueprint();
+            }}
+            className="p-1 rounded text-slate-500 hover:text-violet-300 hover:bg-slate-800/80 opacity-70 group-hover:opacity-100 transition shrink-0"
+          >
+            <Columns3 className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+          </button>
+        )}
       </div>
       {open && isRoutine && params.length === 0 && (
-        <p className="ml-5 text-[10px] text-slate-600 mb-1">No parameters</p>
+        <p className="ml-6 text-[12px] text-slate-600 mb-1">No parameters</p>
       )}
       {open && isRoutine && params.length > 0 && (
-        <ul className="ml-5 border-l border-slate-700/80 pl-2 flex flex-col gap-0.5 mb-1">
+        <ul className="ml-6 border-l border-slate-700/80 pl-2.5 flex flex-col gap-0.5 mb-1">
           {params.map((p, i) => (
             <li key={`${p.mode}-${p.name}-${i}`}>
               <button
                 type="button"
                 title={`Insert ${p.name} (${p.mode})`}
                 onClick={() => insertIdent(p.name)}
-                className="w-full flex items-center gap-1.5 min-w-0 text-left text-[11px] font-mono font-medium text-slate-300 hover:text-cyan-300 truncate py-0.5"
+                className="w-full flex items-center gap-1.5 min-w-0 text-left text-[12.5px] font-mono font-medium text-slate-300 hover:text-cyan-300 truncate py-1"
               >
                 <span
-                  className={`shrink-0 text-[9px] font-bold uppercase tracking-wide px-1 py-0.5 rounded border ${modeBadgeClass(p.mode)}`}
+                  className={`shrink-0 text-[10px] font-bold uppercase tracking-wide px-1 py-0.5 rounded border ${modeBadgeClass(p.mode)}`}
                 >
                   {p.mode}
                 </span>
                 <span className="truncate font-bold">{p.name || `(arg ${i + 1})`}</span>
                 {p.type ? (
-                  <span className="text-slate-500 ml-auto shrink-0 font-sans text-[10px]">{p.type}</span>
+                  <span className="text-slate-500 ml-auto shrink-0 font-sans text-[11px]">{p.type}</span>
                 ) : null}
               </button>
             </li>
@@ -269,18 +321,18 @@ const ObjectNode: React.FC<{
         </ul>
       )}
       {open && !isRoutine && columns.length > 0 && (
-        <ul className="ml-5 border-l border-slate-700/80 pl-2 flex flex-col gap-0.5 mb-1">
+        <ul className="ml-6 border-l border-slate-700/80 pl-2.5 flex flex-col gap-0.5 mb-1">
           {columns.map((col) => (
             <li key={col.name}>
               <button
                 type="button"
                 title={`Insert ${col.name}`}
                 onClick={() => insertIdent(col.name)}
-                className="w-full text-left text-[11px] font-mono font-medium text-slate-400 hover:text-cyan-300 truncate py-0.5"
+                className="w-full text-left text-[12.5px] font-mono font-medium text-slate-300 hover:text-cyan-300 truncate py-1"
               >
                 {col.name}
                 {col.detail ? (
-                  <span className="text-slate-600 ml-1 font-sans">{col.detail}</span>
+                  <span className="text-slate-500 ml-1.5 font-sans text-[12px]">{col.detail}</span>
                 ) : null}
               </button>
             </li>
