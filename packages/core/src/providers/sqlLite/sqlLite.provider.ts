@@ -100,15 +100,23 @@ export class SqliteProvider implements SchemaProvider {
       }
 
       const tableIdxs: DbIndex[] = [];
-      const fkGroups = new Map<number, { table: string; froms: string[] }>();
-      for (const fk of rawFkList) {
-        const g = fkGroups.get(fk.id) ?? { table: fk.table, froms: [] };
+      const fkGroups = new Map<number, { table: string; froms: string[]; tos: string[] }>();
+      const orderedFks = [...rawFkList].sort((a, b) => a.id - b.id || a.seq - b.seq);
+      for (const fk of orderedFks) {
+        const g = fkGroups.get(fk.id) ?? { table: fk.table, froms: [], tos: [] };
         g.froms.push(fk.from);
+        g.tos.push(fk.to);
         fkGroups.set(fk.id, g);
       }
       const fkList: DbForeignKey[] = [];
       for (const [, info] of fkGroups) {
-        fkList.push({ name: `fk_${t.name}_${info.table}`, columns: info.froms, referencedSchema: '', referencedTable: info.table });
+        fkList.push({
+          name: `fk_${t.name}_${info.table}`,
+          columns: info.froms,
+          referencedSchema: '',
+          referencedTable: info.table,
+          referencedColumns: info.tos,
+        });
       }
 
       for (const ix of rawIdxList) {

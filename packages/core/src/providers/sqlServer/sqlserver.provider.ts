@@ -42,7 +42,15 @@ function normalizeSSDefault(raw: string | null): string | undefined {
 interface SsTableRaw { table_name: string; }
 interface SsColumnRaw { table_name: string; column_name: string; ordinal: number; type_name: string; max_length: number; precision: number; scale: number; is_nullable: boolean; is_identity: boolean; default_value: string | null; is_view: boolean; collation_name: string | null; }
 interface SsPkRaw { table_name: string; constraint_name: string; column_name: string; col_seq: number; }
-interface SsFkRaw { table_name: string; constraint_name: string; column_name: string; ref_schema: string; ref_table: string; col_seq: number; }
+interface SsFkRaw {
+  table_name: string;
+  constraint_name: string;
+  column_name: string;
+  ref_column_name: string;
+  ref_schema: string;
+  ref_table: string;
+  col_seq: number;
+}
 interface SsUcRaw { table_name: string; constraint_name: string; column_name: string; col_seq: number; }
 interface SsIndexRaw { table_name: string; index_name: string; is_primary_key: boolean; is_unique: boolean; is_unique_constraint: boolean; column_name: string; col_seq: number; }
 interface SsViewRaw { view_name: string; definition: string; }
@@ -192,8 +200,9 @@ export class SqlServerProvider implements SchemaProvider {
       ),
       exec<SsFkRaw>(
         `SELECT t.name AS table_name, fk.name AS constraint_name,
-                c.name AS column_name, rs.name AS ref_schema,
-                rt.name AS ref_table, fkc.constraint_column_id AS col_seq
+                c.name AS column_name, rc.name AS ref_column_name,
+                rs.name AS ref_schema, rt.name AS ref_table,
+                fkc.constraint_column_id AS col_seq
          FROM sys.foreign_keys fk
          JOIN sys.tables t ON t.object_id = fk.parent_object_id
          JOIN sys.schemas sc ON sc.schema_id = t.schema_id
@@ -201,6 +210,7 @@ export class SqlServerProvider implements SchemaProvider {
          JOIN sys.columns c ON c.object_id = fk.parent_object_id AND c.column_id = fkc.parent_column_id
          JOIN sys.tables rt ON rt.object_id = fk.referenced_object_id
          JOIN sys.schemas rs ON rs.schema_id = rt.schema_id
+         JOIN sys.columns rc ON rc.object_id = fk.referenced_object_id AND rc.column_id = fkc.referenced_column_id
          WHERE sc.name = @p0
          ORDER BY t.name, fk.name, fkc.constraint_column_id`,
         [s]
@@ -346,14 +356,30 @@ export class SqlServerProvider implements SchemaProvider {
     }
 
     // 4. FKs (grouped by constraint name)
-    const fkGroups = new Map<string, { table: string; cols: string[]; rSchema: string; rTable: string }>();
+    const fkGroups = new Map<
+      string,
+      { table: string; cols: string[]; refCols: string[]; rSchema: string; rTable: string }
+    >();
     for (const fk of rawFks) {
-      const g = fkGroups.get(fk.constraint_name) ?? { table: fk.table_name, cols: [], rSchema: fk.ref_schema, rTable: fk.ref_table };
+      const g = fkGroups.get(fk.constraint_name) ?? {
+        table: fk.table_name,
+        cols: [],
+        refCols: [],
+        rSchema: fk.ref_schema,
+        rTable: fk.ref_table,
+      };
       g.cols.push(fk.column_name);
+      g.refCols.push(fk.ref_column_name);
       fkGroups.set(fk.constraint_name, g);
     }
     for (const [name, info] of fkGroups) {
-      const mapped: DbForeignKey = { name, columns: info.cols, referencedSchema: info.rSchema, referencedTable: info.rTable };
+      const mapped: DbForeignKey = {
+        name,
+        columns: info.cols,
+        referencedSchema: info.rSchema,
+        referencedTable: info.rTable,
+        referencedColumns: info.refCols,
+      };
       if (tables[info.table]) tables[info.table].foreignKeys.push(mapped);
       (foreignKeys[info.table] ??= []).push(mapped);
     }

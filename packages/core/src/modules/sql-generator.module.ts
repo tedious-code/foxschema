@@ -269,7 +269,8 @@ export class SqlGeneratorModule {
     }
 
     for (const fk of table.foreignKeys) {
-      sql += `ALTER TABLE ${table.name} ADD CONSTRAINT ${fk.name} FOREIGN KEY (${fk.columns.join(', ')}) REFERENCES ${fk.referencedTable} (${fk.referencedColumns.join(', ')});\n`;
+      const refCols = fk.referencedColumns ?? [];
+      sql += `ALTER TABLE ${table.name} ADD CONSTRAINT ${fk.name} FOREIGN KEY (${fk.columns.join(', ')}) REFERENCES ${fk.referencedTable} (${refCols.join(', ')});\n`;
     }
 
     for (const trg of table.triggers ?? []) {

@@ -1125,7 +1125,7 @@ export const ObjectDetailPanel: React.FC = () => {
                       <tr key={fk.name} className="hover:bg-slate-900/10">
                         <td className="p-3 text-slate-200 font-semibold font-mono">{highlightMatch(fk.name, query)}</td>
                         <td className="p-3 text-slate-400 font-mono">{info?.columns.join(', ')}</td>
-                        <td className="p-3 text-slate-400 font-mono">{info?.referencedTable} ({info?.referencedColumns.join(', ')})</td>
+                        <td className="p-3 text-slate-400 font-mono">{info?.referencedTable} ({(info?.referencedColumns ?? []).join(', ')})</td>
                         <td className="p-3 text-right">{opBadge}</td>
                       </tr>
                     );

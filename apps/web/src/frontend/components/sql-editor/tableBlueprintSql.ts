@@ -15,6 +15,100 @@ export function quoteIdent(name: string, dialect: string): string {
   return '"' + name.replace(/"/g, '""') + '"';
 }
 
+/**
+ * Quote a possibly schema-qualified table ref (`schema.table` → `"schema"."table"`).
+ * Never wraps the whole `a.b` string as one identifier.
+ */
+export function quoteTableRef(name: string, dialect: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return trimmed;
+  return trimmed
+    .split('.')
+    .map((part) => quoteIdent(part.replace(/^["`\[\]]+|["`\[\]]+$/g, ''), dialect))
+    .join('.');
+}
+
+/** Prefix `schema.` when the name is bare and the dialect uses schemas. */
+export function qualifyTableName(
+  tableName: string,
+  schema: string | undefined,
+  dialectName: string
+): string {
+  const name = tableName.trim();
+  if (!name) return name;
+  if (name.includes('.')) return name;
+  const sch = schema?.trim();
+  if (!sch) return name;
+  const d = dialectName.toLowerCase();
+  if (d === 'sqlite' || d === 'clickhouse') return name;
+  return `${sch}.${name}`;
+}
+
+/** True when a statement is only a review/comment (not executable DDL). */
+export function isReviewOnlySql(stmt: string): boolean {
+  const lines = stmt
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return true;
+  return lines.every((l) => l.startsWith('--'));
+}
+
+/** Executable statements only (drops pure `-- review:` / comment blocks). */
+export function executableSqlStatements(stmts: string[]): string[] {
+  return stmts.filter((s) => !isReviewOnlySql(s));
+}
+
+/** Qualify then quote a table reference for DDL. */
+export function qualifiedQuotedTable(
+  tableName: string,
+  schema: string | undefined,
+  dialectName: string
+): string {
+  return quoteTableRef(qualifyTableName(tableName, schema, dialectName), dialectName);
+}
+
+/**
+ * Align referenced columns to local FK columns by name (e.g. `test1_id2` → `id2`),
+ * falling back to PK order when counts match.
+ */
+export function matchFkReferencedColumns(
+  localColumns: string[],
+  pkColumns: string[],
+  refColumnNames: string[]
+): string[] {
+  if (localColumns.length === 0) return [];
+  const pool = pkColumns.length > 0 ? pkColumns : refColumnNames;
+  const used = new Set<string>();
+  const matched: string[] = [];
+
+  const findHit = (local: string, candidates: string[]): string | undefined => {
+    const l = local.toLowerCase();
+    const exact = candidates.find((c) => !used.has(c) && c.toLowerCase() === l);
+    if (exact) return exact;
+    // Suffix match only with an underscore boundary (`test1_id2` → `id2`).
+    // Bare endsWith would map `paid` → `id` incorrectly.
+    return candidates.find((c) => {
+      if (used.has(c)) return false;
+      const r = c.toLowerCase();
+      return r.length >= 1 && l.endsWith(`_${r}`);
+    });
+  };
+
+  for (const local of localColumns) {
+    const hit =
+      findHit(local, pool) ??
+      (pkColumns.length > 0 ? findHit(local, refColumnNames) : undefined);
+    if (!hit) break;
+    used.add(hit);
+    matched.push(hit);
+  }
+
+  if (matched.length === localColumns.length) return matched;
+  if (pkColumns.length === localColumns.length) return [...pkColumns];
+  return [];
+}
+
 export type BlueprintColumnOp =
   | { kind: 'add'; column: ColumnInfo }
   | { kind: 'modify'; name: string; previous: ColumnInfo; next: ColumnInfo }
@@ -578,11 +672,12 @@ export function generatePkAlterSql(
   dialectName: string,
   previous: string[],
   next: string[],
-  pkName?: string
+  pkName?: string,
+  schema?: string
 ): string[] {
   if (sameStringList(previous, next)) return [];
   const dialect = resolveDialect(dialectName);
-  const qTable = quoteIdent(tableName, dialectName);
+  const qTable = qualifiedQuotedTable(tableName, schema, dialectName);
   const stmts: string[] = [];
   if (previous.length > 0) {
     const qPk =
@@ -609,11 +704,12 @@ export function generatePkAlterSql(
 export function generateBlueprintAlterSql(
   tableName: string,
   dialectName: string,
-  ops: BlueprintColumnOp[]
+  ops: BlueprintColumnOp[],
+  schema?: string
 ): string[] {
   if (ops.length === 0) return [];
   const dialect = resolveDialect(dialectName);
-  const qTable = quoteIdent(tableName, dialectName);
+  const qTable = qualifiedQuotedTable(tableName, schema, dialectName);
   const stmts: string[] = [];
 
   for (const op of ops) {
@@ -687,7 +783,9 @@ function createTableBody(
   columns: ColumnInfo[],
   pkColumns: string[],
   dialectName: string,
-  pkName?: string
+  pkName?: string,
+  foreignKeys?: BlueprintFkDraft[],
+  schema?: string
 ): string {
   const lines = columns.map((c) => `  ${buildColumnDef(c, dialectName)}`);
   if (pkColumns.length > 0) {
@@ -698,27 +796,38 @@ function createTableBody(
         : '';
     lines.push(`  ${constraint}PRIMARY KEY (${cols})`);
   }
+  for (const fk of foreignKeys ?? []) {
+    const line = formatForeignKeyConstraintLine(fk, dialectName, schema);
+    if (line) lines.push(`  ${line}`);
+  }
   return `(\n${lines.join(',\n')}\n)`;
 }
 
 /**
  * CREATE TABLE with existence guard (IF NOT EXISTS or dialect equivalent).
+ * Optional `foreignKeys` are inlined when the dialect supports CREATE-table FKs
+ * (required for SQLite, which cannot ALTER ADD CONSTRAINT).
  */
 export function generateCreateTableSql(
   tableName: string,
   columns: ColumnInfo[],
   pkColumns: string[],
   dialectName: string,
-  pkName?: string
+  pkName?: string,
+  foreignKeys?: BlueprintFkDraft[],
+  schema?: string
 ): string[] {
   const name = tableName.trim();
   if (!name || columns.length === 0) return [];
-  const qTable = quoteIdent(name, dialectName);
-  const body = createTableBody(columns, pkColumns, dialectName, pkName);
+  const qTable = qualifiedQuotedTable(name, schema, dialectName);
+  const support = dialectFkConstraintSupport(dialectName);
+  const inlineFks = support.createInline ? foreignKeys : undefined;
+  const body = createTableBody(columns, pkColumns, dialectName, pkName, inlineFks, schema);
   const d = dialectName.toLowerCase();
+  const objectIdName = qualifyTableName(name, schema, dialectName);
 
   if (d === 'sqlserver' || d === 'azuresql') {
-    const escaped = name.replace(/'/g, "''");
+    const escaped = objectIdName.replace(/'/g, "''");
     return [
       `IF OBJECT_ID(N'${escaped}', N'U') IS NULL\nCREATE TABLE ${qTable} ${body};`,
     ];
@@ -740,11 +849,15 @@ export function generateCreateTableSql(
 /**
  * DROP TABLE with existence guard via dialect hook when available.
  */
-export function generateDropTableSql(tableName: string, dialectName: string): string[] {
+export function generateDropTableSql(
+  tableName: string,
+  dialectName: string,
+  schema?: string
+): string[] {
   const name = tableName.trim();
   if (!name) return [];
   const dialect = resolveDialect(dialectName);
-  const qTable = quoteIdent(name, dialectName);
+  const qTable = qualifiedQuotedTable(name, schema, dialectName);
   if (dialect.dropTableStatement) {
     return [dialect.dropTableStatement(qTable)];
   }
@@ -759,14 +872,21 @@ export function generateTableBlueprintSql(args: {
   previousPk: string[];
   nextPk: string[];
   pkName?: string;
+  schema?: string;
 }): string[] {
-  const colStmts = generateBlueprintAlterSql(args.tableName, args.dialect, args.columnOps);
+  const colStmts = generateBlueprintAlterSql(
+    args.tableName,
+    args.dialect,
+    args.columnOps,
+    args.schema
+  );
   const pkStmts = generatePkAlterSql(
     args.tableName,
     args.dialect,
     args.previousPk,
     args.nextPk,
-    args.pkName
+    args.pkName,
+    args.schema
   );
   // PK drop before column drops that remove PK cols; PK add after column adds.
   // Practical order: column drops that aren't PK-only → drop PK → column mods/adds → add PK
@@ -787,13 +907,413 @@ export function generateTableBlueprintSql(args: {
       args.dialect,
       args.previousPk,
       [],
-      args.pkName
+      args.pkName,
+      args.schema
     );
     const addPk =
       args.nextPk.length > 0
-        ? generatePkAlterSql(args.tableName, args.dialect, [], args.nextPk, args.pkName)
+        ? generatePkAlterSql(
+            args.tableName,
+            args.dialect,
+            [],
+            args.nextPk,
+            args.pkName,
+            args.schema
+          )
         : [];
     return [...dropPk, ...colStmts, ...addPk];
   }
   return [...colStmts, ...pkStmts];
+}
+
+// ── Foreign keys & triggers ───────────────────────────────────────────────────
+
+export type FkReferentialAction =
+  | 'NO ACTION'
+  | 'CASCADE'
+  | 'SET NULL'
+  | 'SET DEFAULT'
+  | 'RESTRICT';
+
+export type BlueprintFkDraft = {
+  name: string;
+  columns: string[];
+  referencedTable: string;
+  referencedColumns: string[];
+  onDelete?: FkReferentialAction;
+  onUpdate?: FkReferentialAction;
+};
+
+export type BlueprintTriggerDraft = {
+  name: string;
+  timing: string;
+  event: string;
+  definition: string;
+};
+
+/** Suggest a constraint name from table + first local column. */
+export function suggestFkName(tableName: string, columns: string[]): string {
+  const col = columns[0] || 'col';
+  const bare = tableName.replace(/^.*\./, '').replace(/[^A-Za-z0-9_]/g, '_');
+  const c = col.replace(/[^A-Za-z0-9_]/g, '_');
+  return `fk_${bare}_${c}`.toLowerCase().slice(0, 60);
+}
+
+export function suggestTriggerName(
+  tableName: string,
+  timing: string,
+  event: string
+): string {
+  const bare = tableName.replace(/^.*\./, '').replace(/[^A-Za-z0-9_]/g, '_');
+  const t = timing.split(/\s+/)[0]?.toLowerCase() || 'trg';
+  const e = event.split(/\s+/)[0]?.toLowerCase() || 'evt';
+  return `trg_${bare}_${t}_${e}`.toLowerCase().slice(0, 60);
+}
+
+/** Referential actions offered in the FK form (subset every dialect accepts reasonably). */
+export function dialectFkActions(dialectName: string): FkReferentialAction[] {
+  const d = dialectName.toLowerCase();
+  if (d === 'clickhouse') return [];
+  if (d === 'sqlite') return ['NO ACTION', 'CASCADE', 'SET NULL', 'RESTRICT'];
+  return ['NO ACTION', 'CASCADE', 'SET NULL', 'SET DEFAULT', 'RESTRICT'];
+}
+
+/**
+ * Per-dialect support for FOREIGN KEY constraints on one or more columns.
+ * Verified against every entry in `DIALECT_MAP` (core dialect registry).
+ *
+ * Two concerns:
+ * - **Support** (`alterAdd` / `createInline` / `composite`) — can this dialect emit FKs?
+ * - **Emission** — callers choose CREATE-inline vs ALTER ADD; formatting is shared.
+ */
+export type FkConstraintSupport = {
+  /** `ALTER TABLE … ADD CONSTRAINT … FOREIGN KEY (cols…)` */
+  alterAdd: boolean;
+  /** Table-level `FOREIGN KEY (cols…) REFERENCES …` inside `CREATE TABLE` */
+  createInline: boolean;
+  /** Composite FKs (2+ columns on each side) */
+  composite: boolean;
+  hint: string;
+};
+
+const FK_FULL: Omit<FkConstraintSupport, 'hint'> = {
+  alterAdd: true,
+  createInline: true,
+  composite: true,
+};
+
+export function dialectFkConstraintSupport(dialectName: string): FkConstraintSupport {
+  const d = dialectName.toLowerCase();
+  switch (d) {
+    case 'clickhouse':
+      return {
+        alterAdd: false,
+        createInline: false,
+        composite: false,
+        hint: 'ClickHouse has no foreign-key constraints.',
+      };
+    case 'sqlite':
+      return {
+        alterAdd: false,
+        createInline: true,
+        composite: true,
+        hint: 'SQLite: declare FOREIGN KEY in CREATE TABLE only (no ALTER ADD). One or more columns OK.',
+      };
+    case 'redshift':
+      return {
+        ...FK_FULL,
+        hint: 'Redshift accepts FK syntax (informational). Single or composite columns OK.',
+      };
+    case 'duckdb':
+      return {
+        ...FK_FULL,
+        hint: 'DuckDB: FOREIGN KEY on one or more columns via CREATE or ALTER.',
+      };
+    case 'mysql':
+    case 'mariadb':
+    case 'tidb':
+      return {
+        ...FK_FULL,
+        hint: 'MySQL/MariaDB/TiDB: ADD CONSTRAINT FOREIGN KEY; composite supported.',
+      };
+    case 'postgres':
+    case 'cockroachdb':
+    case 'yugabytedb':
+      return {
+        ...FK_FULL,
+        hint: 'PostgreSQL-compatible: ADD CONSTRAINT FOREIGN KEY; composite supported.',
+      };
+    case 'sqlserver':
+    case 'azuresql':
+      return {
+        ...FK_FULL,
+        hint: 'SQL Server / Azure SQL: ADD CONSTRAINT FOREIGN KEY; composite supported.',
+      };
+    case 'oracle':
+      return {
+        ...FK_FULL,
+        hint: 'Oracle: ADD CONSTRAINT FOREIGN KEY; composite supported.',
+      };
+    case 'db2':
+      return {
+        ...FK_FULL,
+        hint: 'DB2: ADD CONSTRAINT FOREIGN KEY; composite supported.',
+      };
+    default:
+      return {
+        ...FK_FULL,
+        hint: 'FOREIGN KEY on one or more columns via CREATE or ALTER.',
+      };
+  }
+}
+
+/** Structural completeness of an FK draft (name, columns, matching ref columns). */
+function fkDraftIsComplete(fk: BlueprintFkDraft): boolean {
+  return (
+    !!fk.name.trim() &&
+    fk.columns.length > 0 &&
+    !!fk.referencedTable.trim() &&
+    fk.referencedColumns.length > 0 &&
+    fk.columns.length === fk.referencedColumns.length
+  );
+}
+
+/** ON DELETE / ON UPDATE clause fragment (shared by CREATE inline + ALTER ADD). */
+function fkActionClauses(fk: BlueprintFkDraft): string {
+  let sql = '';
+  if (fk.onDelete && fk.onDelete !== 'NO ACTION') {
+    sql += ` ON DELETE ${fk.onDelete}`;
+  }
+  if (fk.onUpdate && fk.onUpdate !== 'NO ACTION') {
+    sql += ` ON UPDATE ${fk.onUpdate}`;
+  }
+  return sql;
+}
+
+/**
+ * Table-level `CONSTRAINT name FOREIGN KEY (…) REFERENCES …` line (no trailing comma).
+ * Formats only — callers gate on createInline / alterAdd / composite.
+ */
+export function formatForeignKeyConstraintLine(
+  fk: BlueprintFkDraft,
+  dialectName: string,
+  schema?: string
+): string | null {
+  if (!fkDraftIsComplete(fk)) return null;
+  const support = dialectFkConstraintSupport(dialectName);
+  if (fk.columns.length > 1 && !support.composite) return null;
+
+  const qFk = quoteIdent(fk.name.trim(), dialectName);
+  const cols = fk.columns.map((c) => quoteIdent(c, dialectName)).join(', ');
+  const refTable = qualifiedQuotedTable(fk.referencedTable.trim(), schema, dialectName);
+  const refCols = fk.referencedColumns.map((c) => quoteIdent(c, dialectName)).join(', ');
+  return (
+    `CONSTRAINT ${qFk} FOREIGN KEY (${cols}) REFERENCES ${refTable} (${refCols})` +
+    fkActionClauses(fk)
+  );
+}
+
+export function generateAddForeignKeySql(
+  tableName: string,
+  dialectName: string,
+  fk: BlueprintFkDraft,
+  schema?: string
+): string[] {
+  const name = tableName.trim();
+  if (!name || !fk.name.trim() || fk.columns.length === 0 || !fk.referencedTable.trim()) {
+    return [];
+  }
+  if (fk.referencedColumns.length === 0) return [];
+  if (fk.columns.length !== fk.referencedColumns.length) {
+    return [
+      `-- review: FK ${fk.name}: local (${fk.columns.length}) and referenced (${fk.referencedColumns.length}) column counts must match`,
+    ];
+  }
+
+  const support = dialectFkConstraintSupport(dialectName);
+  if (!support.alterAdd) {
+    if (!support.createInline) {
+      return [
+        `-- review: ${dialectName} does not support FOREIGN KEY constraints (${fk.name})`,
+      ];
+    }
+    return [
+      `-- review: ${dialectName} cannot ALTER TABLE ADD FOREIGN KEY (${fk.name}) — include in CREATE TABLE or recreate ${name}`,
+    ];
+  }
+  if (fk.columns.length > 1 && !support.composite) {
+    return [
+      `-- review: ${dialectName} does not support composite FOREIGN KEY (${fk.name})`,
+    ];
+  }
+
+  const qTable = qualifiedQuotedTable(name, schema, dialectName);
+  const line = formatForeignKeyConstraintLine(fk, dialectName, schema);
+  if (!line) return [];
+  return [`ALTER TABLE ${qTable} ADD ${line};`];
+}
+
+export function generateDropForeignKeySql(
+  tableName: string,
+  dialectName: string,
+  fkName: string,
+  schema?: string
+): string[] {
+  const name = tableName.trim();
+  if (!name || !fkName.trim()) return [];
+  const dialect = resolveDialect(dialectName);
+  const qTable = qualifiedQuotedTable(name, schema, dialectName);
+  const qFk = quoteIdent(fkName.trim(), dialectName);
+  if (dialect.dropForeignKeyStatement) {
+    return [dialect.dropForeignKeyStatement(qTable, qFk)];
+  }
+  return [`ALTER TABLE ${qTable} DROP CONSTRAINT IF EXISTS ${qFk};`];
+}
+
+export type TriggerFormMeta = {
+  timings: string[];
+  events: string[];
+  bodyPlaceholder: string;
+  hint: string;
+};
+
+export function dialectTriggerForm(dialectName: string): TriggerFormMeta {
+  const d = dialectName.toLowerCase();
+  if (d === 'mysql' || d === 'mariadb' || d === 'tidb') {
+    return {
+      timings: ['BEFORE', 'AFTER'],
+      events: ['INSERT', 'UPDATE', 'DELETE'],
+      bodyPlaceholder: 'BEGIN\n  -- e.g. SET NEW.updated_at = NOW();\nEND',
+      hint: 'MySQL/MariaDB: FOR EACH ROW body between BEGIN … END.',
+    };
+  }
+  if (d === 'oracle') {
+    return {
+      timings: ['BEFORE', 'AFTER', 'INSTEAD OF'],
+      events: ['INSERT', 'UPDATE', 'DELETE'],
+      bodyPlaceholder: 'BEGIN\n  -- PL/SQL body\n  NULL;\nEND;',
+      hint: 'Oracle: CREATE OR REPLACE TRIGGER with PL/SQL body.',
+    };
+  }
+  if (d === 'postgres' || d === 'cockroachdb' || d === 'yugabytedb') {
+    return {
+      timings: ['BEFORE', 'AFTER', 'INSTEAD OF'],
+      events: ['INSERT', 'UPDATE', 'DELETE'],
+      bodyPlaceholder:
+        '-- Paste function name, or full EXECUTE FUNCTION …()\nEXECUTE FUNCTION your_trigger_fn();',
+      hint: 'Postgres-family triggers call a FUNCTION — create the function first, then reference it here.',
+    };
+  }
+  if (d === 'sqlserver' || d === 'azuresql') {
+    return {
+      timings: ['AFTER', 'INSTEAD OF'],
+      events: ['INSERT', 'UPDATE', 'DELETE'],
+      bodyPlaceholder: 'BEGIN\n  -- T-SQL body\nEND;',
+      hint: 'SQL Server: AFTER or INSTEAD OF triggers (no BEFORE).',
+    };
+  }
+  if (d === 'sqlite') {
+    return {
+      timings: ['BEFORE', 'AFTER', 'INSTEAD OF'],
+      events: ['INSERT', 'UPDATE', 'DELETE'],
+      bodyPlaceholder: 'BEGIN\n  -- SQL statements\nEND;',
+      hint: 'SQLite: FOR EACH ROW trigger body.',
+    };
+  }
+  return {
+    timings: ['BEFORE', 'AFTER'],
+    events: ['INSERT', 'UPDATE', 'DELETE'],
+    bodyPlaceholder: 'BEGIN\n  -- trigger body\nEND;',
+    hint: 'Dialect-specific CREATE TRIGGER statement.',
+  };
+}
+
+export function generateCreateTriggerSql(
+  tableName: string,
+  dialectName: string,
+  trg: BlueprintTriggerDraft,
+  schema?: string
+): string[] {
+  const name = tableName.trim();
+  if (!name || !trg.name.trim() || !trg.definition.trim()) return [];
+  const dialect = resolveDialect(dialectName);
+  const qTable = qualifiedQuotedTable(name, schema, dialectName);
+  const spec = {
+    name: quoteIdent(trg.name.trim(), dialectName),
+    timing: trg.timing,
+    event: trg.event,
+    definition: trg.definition.trim(),
+  };
+  const viaDialect = dialect.createTriggerStatement?.(spec, qTable);
+  if (viaDialect) return [viaDialect.endsWith(';') ? viaDialect : `${viaDialect};`];
+
+  const d = dialectName.toLowerCase();
+  const timing = (trg.timing || 'AFTER').toUpperCase();
+  const event = (trg.event || 'INSERT').toUpperCase();
+  const body = trg.definition.trim();
+
+  if (d === 'postgres' || d === 'cockroachdb' || d === 'yugabytedb') {
+    // Body is expected to be EXECUTE FUNCTION … or a full clause.
+    const exec = /^EXECUTE\b/i.test(body) ? body : `EXECUTE FUNCTION ${body}`;
+    return [
+      `CREATE TRIGGER ${spec.name}\n${timing} ${event} ON ${qTable}\nFOR EACH ROW\n${exec};`,
+    ];
+  }
+  if (d === 'sqlserver' || d === 'azuresql') {
+    return [
+      `CREATE TRIGGER ${spec.name} ON ${qTable}\n${timing} ${event}\nAS\n${body};`,
+    ];
+  }
+  if (d === 'clickhouse') {
+    return [`-- review: ClickHouse trigger support is limited — review before running`];
+  }
+  return [
+    `CREATE TRIGGER ${spec.name} ${timing} ${event} ON ${qTable}\nFOR EACH ROW\n${body};`,
+  ];
+}
+
+export function generateDropTriggerSql(
+  tableName: string,
+  dialectName: string,
+  triggerName: string,
+  schema?: string
+): string[] {
+  const name = tableName.trim();
+  if (!name || !triggerName.trim()) return [];
+  const dialect = resolveDialect(dialectName);
+  const qTable = qualifiedQuotedTable(name, schema, dialectName);
+  const qTrg = quoteIdent(triggerName.trim(), dialectName);
+  if (dialect.dropTriggerStatement) {
+    return [dialect.dropTriggerStatement(qTrg, qTable)];
+  }
+  return [`DROP TRIGGER IF EXISTS ${qTrg};`];
+}
+
+/** Append FK / trigger statements after column + PK alters. */
+export function appendFkTriggerSql(
+  base: string[],
+  args: {
+    tableName: string;
+    dialect: string;
+    schema?: string;
+    addFks?: BlueprintFkDraft[];
+    dropFkNames?: string[];
+    addTriggers?: BlueprintTriggerDraft[];
+    dropTriggerNames?: string[];
+  }
+): string[] {
+  const out = [...base];
+  for (const n of args.dropFkNames ?? []) {
+    out.push(...generateDropForeignKeySql(args.tableName, args.dialect, n, args.schema));
+  }
+  for (const n of args.dropTriggerNames ?? []) {
+    out.push(...generateDropTriggerSql(args.tableName, args.dialect, n, args.schema));
+  }
+  for (const fk of args.addFks ?? []) {
+    out.push(...generateAddForeignKeySql(args.tableName, args.dialect, fk, args.schema));
+  }
+  for (const trg of args.addTriggers ?? []) {
+    out.push(...generateCreateTriggerSql(args.tableName, args.dialect, trg, args.schema));
+  }
+  return out;
 }

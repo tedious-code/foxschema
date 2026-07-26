@@ -18,6 +18,25 @@ const EXPLORER_GROUPS: { type: DbObjectType; title: string }[] = [
   { type: 'FUNCTION', title: 'Functions' },
 ];
 
+const EXPLORER_CONN_KEY = 'foxschema-sql-schema-explorer-connection';
+
+function readStoredExplorerId(): string {
+  try {
+    return localStorage.getItem(EXPLORER_CONN_KEY)?.trim() || '';
+  } catch {
+    return '';
+  }
+}
+
+function writeStoredExplorerId(id: string): void {
+  try {
+    if (id) localStorage.setItem(EXPLORER_CONN_KEY, id);
+    else localStorage.removeItem(EXPLORER_CONN_KEY);
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
 /**
  * Slim schema tree for the SQL Editor. Categorized TABLE / VIEW / MQT /
  * PROCEDURE / FUNCTION — click a name to insert at the Monaco cursor.
@@ -36,7 +55,7 @@ export const SqlSchemaExplorer: React.FC = () => {
     (id) => connections.some((c) => c.id === id)
   );
 
-  const [explorerId, setExplorerId] = useState<string>('');
+  const [explorerId, setExplorerId] = useState<string>(() => readStoredExplorerId());
   const [expandedObj, setExpandedObj] = useState<Record<string, boolean>>({});
   const [expandedGroup, setExpandedGroup] = useState<Record<string, boolean>>({
     TABLE: true,
@@ -48,10 +67,25 @@ export const SqlSchemaExplorer: React.FC = () => {
   const [blueprintTable, setBlueprintTable] = useState<TableSchema | null>(null);
   const [blueprintMode, setBlueprintMode] = useState<BlueprintMode>('edit');
 
+  const selectExplorerId = (id: string) => {
+    setExplorerId(id);
+    writeStoredExplorerId(id);
+  };
+
   useEffect(() => {
-    if (explorerId && connections.some((c) => c.id === explorerId)) return;
-    const next = preferredIds[0] ?? connections[0]?.id ?? '';
-    setExplorerId(next);
+    if (explorerId && connections.some((c) => c.id === explorerId)) {
+      // Keep a valid selection in storage (e.g. after first hydrate).
+      writeStoredExplorerId(explorerId);
+      return;
+    }
+    const stored = readStoredExplorerId();
+    const next =
+      (stored && connections.some((c) => c.id === stored) ? stored : '') ||
+      preferredIds[0] ||
+      connections[0]?.id ||
+      '';
+    if (next !== explorerId) setExplorerId(next);
+    if (next) writeStoredExplorerId(next);
   }, [connections, preferredIds, explorerId]);
 
   useEffect(() => {
@@ -90,7 +124,7 @@ export const SqlSchemaExplorer: React.FC = () => {
           <div className="flex items-center gap-1">
             <select
               value={explorerId}
-              onChange={(e) => setExplorerId(e.target.value)}
+              onChange={(e) => selectExplorerId(e.target.value)}
               className="flex-1 min-w-0 bg-slate-950/80 border border-slate-700 rounded-md px-2 py-1 text-[12px] font-semibold text-slate-200 outline-none focus:border-cyan-600"
               aria-label="Schema connection"
             >

@@ -79,3 +79,9 @@ export type {
 
 export { buildConnectionString, withConnectionString, DEFAULT_PORTS } from './cores/connection-string';
 export { PROVIDER_SETTINGS, getProviderSettings } from './providers/provider-settings';
+export {
+  resolveFkReferencedColumns,
+  normalizeForeignKeyInfo,
+  normalizeTableSchema,
+  normalizeTableSchemas,
+} from './cores/schema-to-tables';

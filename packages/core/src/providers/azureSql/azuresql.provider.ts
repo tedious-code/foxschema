@@ -46,7 +46,15 @@ interface AzColumnRaw {
   collation_name: string | null;
 }
 interface AzPkRaw { table_name: string; constraint_name: string; column_name: string; col_seq: number; }
-interface AzFkRaw { table_name: string; constraint_name: string; column_name: string; ref_schema: string; ref_table: string; col_seq: number; }
+interface AzFkRaw {
+  table_name: string;
+  constraint_name: string;
+  column_name: string;
+  ref_column_name: string;
+  ref_schema: string;
+  ref_table: string;
+  col_seq: number;
+}
 interface AzUcRaw { table_name: string; constraint_name: string; column_name: string; col_seq: number; }
 interface AzIndexRaw { table_name: string; index_name: string; is_primary_key: boolean; is_unique: boolean; column_name: string; col_seq: number; }
 interface AzViewRaw { view_name: string; definition: string; }
@@ -197,7 +205,8 @@ export class AzureSqlProvider implements SchemaProvider {
       ),
       exec<AzFkRaw>(
         `SELECT t.name AS table_name, fk.name AS constraint_name,
-                c.name AS column_name, rs.name AS ref_schema, rt.name AS ref_table,
+                c.name AS column_name, rc.name AS ref_column_name,
+                rs.name AS ref_schema, rt.name AS ref_table,
                 fkc.constraint_column_id AS col_seq
          FROM sys.foreign_keys fk
          JOIN sys.tables t ON t.object_id = fk.parent_object_id
@@ -206,6 +215,7 @@ export class AzureSqlProvider implements SchemaProvider {
          JOIN sys.columns c ON c.object_id = fk.parent_object_id AND c.column_id = fkc.parent_column_id
          JOIN sys.tables rt ON rt.object_id = fk.referenced_object_id
          JOIN sys.schemas rs ON rs.schema_id = rt.schema_id
+         JOIN sys.columns rc ON rc.object_id = fk.referenced_object_id AND rc.column_id = fkc.referenced_column_id
          WHERE sc.name = @p0
          ORDER BY t.name, fk.name, fkc.constraint_column_id`,
         [s]
@@ -349,14 +359,30 @@ export class AzureSqlProvider implements SchemaProvider {
     }
 
     // 4. FKs
-    const fkGroups = new Map<string, { table: string; cols: string[]; rSchema: string; rTable: string }>();
+    const fkGroups = new Map<
+      string,
+      { table: string; cols: string[]; refCols: string[]; rSchema: string; rTable: string }
+    >();
     for (const fk of rawFks) {
-      const g = fkGroups.get(fk.constraint_name) ?? { table: fk.table_name, cols: [], rSchema: fk.ref_schema, rTable: fk.ref_table };
+      const g = fkGroups.get(fk.constraint_name) ?? {
+        table: fk.table_name,
+        cols: [],
+        refCols: [],
+        rSchema: fk.ref_schema,
+        rTable: fk.ref_table,
+      };
       g.cols.push(fk.column_name);
+      g.refCols.push(fk.ref_column_name);
       fkGroups.set(fk.constraint_name, g);
     }
     for (const [name, info] of fkGroups) {
-      const mapped: DbForeignKey = { name, columns: info.cols, referencedSchema: info.rSchema, referencedTable: info.rTable };
+      const mapped: DbForeignKey = {
+        name,
+        columns: info.cols,
+        referencedSchema: info.rSchema,
+        referencedTable: info.rTable,
+        referencedColumns: info.refCols,
+      };
       if (tables[info.table]) tables[info.table].foreignKeys.push(mapped);
       (foreignKeys[info.table] ??= []).push(mapped);
     }

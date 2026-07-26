@@ -8,15 +8,24 @@ import {
   dialectBooleanDefaultOptions,
   dialectIdentitySupport,
   diffBlueprintColumns,
+  generateAddForeignKeySql,
   generateBlueprintAlterSql,
   generateCreateTableSql,
+  generateCreateTriggerSql,
+  generateDropForeignKeySql,
   generateDropTableSql,
+  generateDropTriggerSql,
   generatePkAlterSql,
   generateTableBlueprintSql,
+  dialectFkConstraintSupport,
+  matchFkReferencedColumns,
+  quoteTableRef,
+  qualifyTableName,
   isIntegerAutoIncrementType,
   listDialectDataTypes,
   parseTypeSize,
   quoteIdent,
+  suggestFkName,
 } from './tableBlueprintSql';
 
 const col = (partial: Partial<ColumnInfo> & Pick<ColumnInfo, 'name' | 'type'>): ColumnInfo => ({
@@ -283,6 +292,218 @@ describe('create / drop table', () => {
   it('uses dialect drop hook for oracle', () => {
     const sql = generateDropTableSql('products', 'oracle');
     expect(sql[0]).toMatch(/DROP TABLE/i);
+  });
+});
+
+describe('foreign keys & triggers', () => {
+  it('suggests fk name', () => {
+    expect(suggestFkName('orders', ['customer_id'])).toBe('fk_orders_customer_id');
+  });
+
+  it('generates ADD FOREIGN KEY with ON DELETE', () => {
+    const sql = generateAddForeignKeySql('orders', 'postgres', {
+      name: 'fk_orders_customer',
+      columns: ['customer_id'],
+      referencedTable: 'customers',
+      referencedColumns: ['id'],
+      onDelete: 'CASCADE',
+      onUpdate: 'NO ACTION',
+    });
+    expect(sql).toHaveLength(1);
+    expect(sql[0]).toContain('ADD CONSTRAINT fk_orders_customer FOREIGN KEY (customer_id)');
+    expect(sql[0]).toContain('REFERENCES customers (id)');
+    expect(sql[0]).toContain('ON DELETE CASCADE');
+    expect(sql[0]).not.toContain('ON UPDATE');
+  });
+
+  it('generates composite ADD FOREIGN KEY', () => {
+    const sql = generateAddForeignKeySql('order_items', 'mysql', {
+      name: 'fk_oi_prod',
+      columns: ['tenant_id', 'product_id'],
+      referencedTable: 'products',
+      referencedColumns: ['tenant_id', 'id'],
+      onDelete: 'CASCADE',
+    });
+    expect(sql[0]).toContain('FOREIGN KEY (tenant_id, product_id)');
+    expect(sql[0]).toContain('REFERENCES products (tenant_id, id)');
+    expect(sql[0]).toContain('ON DELETE CASCADE');
+  });
+
+  it('quotes schema.table as separate idents and qualifies with connection schema', () => {
+    expect(quoteTableRef('mcve.test1', 'postgres')).toBe('mcve.test1');
+    expect(quoteTableRef('My Schema.Odd-Table', 'postgres')).toBe('"My Schema"."Odd-Table"');
+    expect(qualifyTableName('test1', 'mcve', 'postgres')).toBe('mcve.test1');
+    expect(qualifyTableName('mcve.test1', 'other', 'postgres')).toBe('mcve.test1');
+
+    const sql = generateAddForeignKeySql(
+      'test2',
+      'postgres',
+      {
+        name: 'fk_test2_test1',
+        columns: ['test1_id2', 'test1_id1'],
+        referencedTable: 'test1',
+        referencedColumns: ['id2', 'id1'],
+      },
+      'mcve'
+    );
+    expect(sql[0]).toBe(
+      'ALTER TABLE mcve.test2 ADD CONSTRAINT fk_test2_test1 FOREIGN KEY (test1_id2, test1_id1) REFERENCES mcve.test1 (id2, id1);'
+    );
+  });
+
+  it('aligns referenced columns by local name suffix (not bare PK order)', () => {
+    expect(
+      matchFkReferencedColumns(
+        ['test1_id2', 'test1_id1'],
+        ['id1', 'id2'],
+        ['id1', 'id2', 'name']
+      )
+    ).toEqual(['id2', 'id1']);
+  });
+
+  it('does not map paid → id via bare suffix', () => {
+    expect(
+      matchFkReferencedColumns(['paid', 'order_id'], ['id', 'order_id'], ['id', 'order_id'])
+    ).toEqual(['id', 'order_id']); // falls back to PK order when name match fails for paid
+    expect(
+      matchFkReferencedColumns(['user_id'], ['id'], ['id'])
+    ).toEqual(['id']);
+  });
+
+  it('reviews mismatched column counts', () => {
+    const sql = generateAddForeignKeySql('t', 'postgres', {
+      name: 'fk_bad',
+      columns: ['a', 'b'],
+      referencedTable: 'p',
+      referencedColumns: ['x'],
+    });
+    expect(sql[0]).toMatch(/-- review:/);
+    expect(sql[0]).toMatch(/column counts must match/);
+  });
+
+  it('sqlite ALTER ADD FK is review-only; CREATE TABLE inlines composite FK', () => {
+    const alter = generateAddForeignKeySql('child', 'sqlite', {
+      name: 'fk_child_parent',
+      columns: ['a', 'b'],
+      referencedTable: 'parent',
+      referencedColumns: ['x', 'y'],
+    });
+    expect(alter[0]).toMatch(/-- review:/);
+    expect(alter[0]).toMatch(/cannot ALTER TABLE ADD FOREIGN KEY/i);
+
+    const create = generateCreateTableSql(
+      'child',
+      [col({ name: 'a', type: 'int' }), col({ name: 'b', type: 'int' })],
+      [],
+      'sqlite',
+      undefined,
+      [
+        {
+          name: 'fk_child_parent',
+          columns: ['a', 'b'],
+          referencedTable: 'parent',
+          referencedColumns: ['x', 'y'],
+        },
+      ]
+    );
+    expect(create[0]).toContain('CONSTRAINT fk_child_parent FOREIGN KEY (a, b)');
+    expect(create[0]).toContain('REFERENCES parent (x, y)');
+  });
+
+  it('clickhouse has no FK support', () => {
+    expect(dialectFkConstraintSupport('clickhouse')).toMatchObject({
+      alterAdd: false,
+      createInline: false,
+      composite: false,
+    });
+    const sql = generateAddForeignKeySql('t', 'clickhouse', {
+      name: 'fk_x',
+      columns: ['a'],
+      referencedTable: 'p',
+      referencedColumns: ['id'],
+    });
+    expect(sql[0]).toMatch(/-- review:/);
+  });
+
+  it('every registered dialect declares FK support for one or more columns', () => {
+    const dialects = [
+      'db2',
+      'postgres',
+      'mysql',
+      'mariadb',
+      'sqlserver',
+      'oracle',
+      'sqlite',
+      'redshift',
+      'clickhouse',
+      'azuresql',
+      'cockroachdb',
+      'yugabytedb',
+      'tidb',
+      'duckdb',
+    ];
+    const compositeFk = {
+      name: 'fk_c',
+      columns: ['a', 'b'],
+      referencedTable: 'parent',
+      referencedColumns: ['x', 'y'],
+      onDelete: 'CASCADE' as const,
+    };
+    for (const d of dialects) {
+      const support = dialectFkConstraintSupport(d);
+      expect(support, d).toBeDefined();
+      if (support.alterAdd) {
+        expect(support.composite, d).toBe(true);
+        const sql = generateAddForeignKeySql('child', d, compositeFk);
+        expect(sql[0], d).toContain('FOREIGN KEY (a, b)');
+        expect(sql[0], d).toContain('REFERENCES parent (x, y)');
+      } else if (support.createInline) {
+        expect(support.composite, d).toBe(true);
+        const create = generateCreateTableSql(
+          'child',
+          [col({ name: 'a', type: 'int' }), col({ name: 'b', type: 'int' })],
+          [],
+          d,
+          undefined,
+          [compositeFk]
+        );
+        expect(create.some((s) => s.includes('FOREIGN KEY (a, b)')), d).toBe(true);
+      } else {
+        expect(d).toBe('clickhouse');
+      }
+    }
+  });
+
+  it('generates DROP FOREIGN KEY via mysql dialect', () => {
+    const sql = generateDropForeignKeySql('orders', 'mysql', 'fk_orders_customer');
+    expect(sql[0]).toMatch(/DROP FOREIGN KEY/i);
+  });
+
+  it('generates mysql CREATE TRIGGER', () => {
+    const sql = generateCreateTriggerSql('orders', 'mysql', {
+      name: 'trg_orders_bi',
+      timing: 'BEFORE',
+      event: 'INSERT',
+      definition: 'BEGIN\n  SET NEW.updated_at = NOW();\nEND',
+    });
+    expect(sql[0]).toContain('CREATE TRIGGER trg_orders_bi BEFORE INSERT ON orders');
+    expect(sql[0]).toContain('FOR EACH ROW');
+  });
+
+  it('generates postgres trigger with EXECUTE FUNCTION', () => {
+    const sql = generateCreateTriggerSql('orders', 'postgres', {
+      name: 'trg_orders_ai',
+      timing: 'AFTER',
+      event: 'INSERT',
+      definition: 'EXECUTE FUNCTION audit_orders()',
+    });
+    expect(sql[0]).toContain('CREATE TRIGGER trg_orders_ai');
+    expect(sql[0]).toContain('EXECUTE FUNCTION audit_orders()');
+  });
+
+  it('generates drop trigger', () => {
+    const sql = generateDropTriggerSql('orders', 'mysql', 'trg_orders_bi');
+    expect(sql[0]).toMatch(/DROP TRIGGER/i);
   });
 });
 

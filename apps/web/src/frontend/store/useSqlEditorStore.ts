@@ -1281,7 +1281,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
     }),
     {
       name: 'foxschema-sql-editor',
-      version: 5,
+      version: 6,
       // Persist tabs + destinations mode + bookmarks + variables. Never passwords/results.
       // Secret variable payloads are stripped (session-only values).
       partialize: (state) => ({
@@ -1339,6 +1339,25 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         if (fromVersion < 5) {
           const vars = Array.isArray(p.variables) ? (p.variables as SqlVariable[]) : [];
           return { ...p, variables: stripSecretsForPersist(vars) };
+        }
+        // v6: table-blueprint / composite-FK era — keep editor persist stable; coerce
+        // arrays so older partial blobs still hydrate. Schema FK shapes are normalized
+        // server-side via normalizeTableSchemas (not stored in this persist key).
+        if (fromVersion < 6) {
+          const vars = Array.isArray(p.variables) ? (p.variables as SqlVariable[]) : [];
+          return {
+            ...p,
+            tabs: Array.isArray(p.tabs) ? p.tabs : [],
+            bookmarks: Array.isArray(p.bookmarks) ? p.bookmarks : [],
+            sharedConnectionIds: Array.isArray(p.sharedConnectionIds)
+              ? p.sharedConnectionIds
+              : [],
+            variables: stripSecretsForPersist(vars),
+            safeMode: typeof p.safeMode === 'boolean' ? p.safeMode : true,
+            shareDestinations:
+              typeof p.shareDestinations === 'boolean' ? p.shareDestinations : true,
+            maxRows: typeof p.maxRows === 'number' ? p.maxRows : 200,
+          };
         }
         return p;
       },

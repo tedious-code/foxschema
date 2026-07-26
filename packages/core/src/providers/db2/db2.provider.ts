@@ -38,6 +38,7 @@ import {
   Db2UserTypeRaw,
   Db2AttributeRaw
 } from "./db2.interface";
+import { resolveFkReferencedColumns } from '../../cores/schema-to-tables';
 
 export class Db2Provider implements SchemaProvider {
   readonly provider = 'db2';
@@ -149,8 +150,11 @@ export class Db2Provider implements SchemaProvider {
           name: fk.name,
           columns: fk.columns,
           referencedTable: fk.referencedTable,
-          // DB2 FKs reference the parent's PK/unique key; PK columns cover the common case
-          referencedColumns: pkColumnsOf(dbSchema.tables[fk.referencedTable]),
+          referencedColumns: resolveFkReferencedColumns(
+            fk.columns,
+            fk.referencedColumns,
+            pkColumnsOf(dbSchema.tables[fk.referencedTable])
+          ),
         })),
       });
     }
@@ -321,11 +325,16 @@ export class Db2Provider implements SchemaProvider {
         ),
         ConnectionFactory.executeOnConnection<Db2ForeignKeyRaw>(
           this.provider, conn,
-          `SELECT R.TABNAME, R.CONSTNAME, K.COLNAME, R.REFTABSCHEMA, R.REFTABNAME 
-           FROM SYSCAT.REFERENCES R 
-           JOIN SYSCAT.KEYCOLUSE K ON R.CONSTNAME = K.CONSTNAME AND R.TABSCHEMA = K.TABSCHEMA 
-           WHERE R.TABSCHEMA = ? 
-           ORDER BY R.TABNAME`,
+          `SELECT R.TABNAME, R.CONSTNAME, K.COLNAME, RK.COLNAME AS REFCOLNAME,
+                  R.REFTABSCHEMA, R.REFTABNAME
+           FROM SYSCAT.REFERENCES R
+           JOIN SYSCAT.KEYCOLUSE K
+             ON R.CONSTNAME = K.CONSTNAME AND R.TABSCHEMA = K.TABSCHEMA
+           JOIN SYSCAT.KEYCOLUSE RK
+             ON R.REFKEYNAME = RK.CONSTNAME AND R.REFTABSCHEMA = RK.TABSCHEMA
+            AND K.COLSEQ = RK.COLSEQ
+           WHERE R.TABSCHEMA = ?
+           ORDER BY R.TABNAME, R.CONSTNAME, K.COLSEQ`,
           [schemaName]
         ),
         ConnectionFactory.executeOnConnection<Db2UniqueConstraintRaw>(
@@ -488,17 +497,23 @@ export class Db2Provider implements SchemaProvider {
       }
 
       // 4. Process Foreign Keys
-      const tempFkGroups = new Map<string, { table: string; cols: string[]; rSchema: string; rTable: string }>();
+      const tempFkGroups = new Map<
+        string,
+        { table: string; cols: string[]; refCols: string[]; rSchema: string; rTable: string }
+      >();
       for (const fk of rawForeignKeys) {
         if (!tempFkGroups.has(fk.CONSTNAME)) {
           tempFkGroups.set(fk.CONSTNAME, {
             table: fk.TABNAME,
             cols: [],
+            refCols: [],
             rSchema: fk.REFTABSCHEMA,
-            rTable: fk.REFTABNAME
+            rTable: fk.REFTABNAME,
           });
         }
-        tempFkGroups.get(fk.CONSTNAME)!.cols.push(fk.COLNAME);
+        const g = tempFkGroups.get(fk.CONSTNAME)!;
+        g.cols.push(fk.COLNAME);
+        g.refCols.push(fk.REFCOLNAME);
       }
 
       for (const [constName, info] of tempFkGroups.entries()) {
@@ -506,7 +521,8 @@ export class Db2Provider implements SchemaProvider {
           name: constName,
           columns: info.cols,
           referencedSchema: info.rSchema,
-          referencedTable: info.rTable
+          referencedTable: info.rTable,
+          referencedColumns: info.refCols,
         };
 
         if (tables[info.table]) {

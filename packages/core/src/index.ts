@@ -93,6 +93,16 @@ export { ConnectionFactory } from './cores/connection-factory';
 export { DriverDetector } from './cores/driver-detector';
 export { assertSafeIdentifier } from './cores/sql-identifier';
 export { setupDb2ClientEnv } from './providers/db2/db2.env';
+export {
+  resolveFkReferencedColumns,
+  normalizeForeignKeyInfo,
+  normalizeTableSchema,
+  normalizeTableSchemas,
+  dbSchemaToTableSchemas,
+  rolesToTableSchemas,
+  groupRoleRows,
+  roleSkippedWarning,
+} from './cores/schema-to-tables';
 
 // Provider/adapter registries
 export { getAdapter, ADAPTERS } from './providers/adapter-registry';

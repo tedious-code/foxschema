@@ -1,4 +1,11 @@
-import { DbSchema, DbTable, TableSchema, DbRole, DbRoleMember } from '../interfaces';
+import {
+  DbSchema,
+  DbTable,
+  TableSchema,
+  DbRole,
+  DbRoleMember,
+  ForeignKeyInfo,
+} from '../interfaces';
 
 /**
  * Map roles into the `TableSchema` shape the compare engine consumes. Members
@@ -33,6 +40,82 @@ export function groupRoleRows(
 export function roleSkippedWarning(dialect: string, error: unknown): string {
   const msg = error instanceof Error ? error.message : String(error);
   return `Roles could not be read for ${dialect} — the connected user may lack privileges on the role catalog. (${msg})`;
+}
+
+/**
+ * Prefer catalog-aligned referenced columns when the count matches the local
+ * side; otherwise fall back to the parent table's PK (common single/composite case).
+ */
+export function resolveFkReferencedColumns(
+  localColumns: string[],
+  catalogReferencedColumns: string[] | undefined,
+  parentPkColumns: string[]
+): string[] {
+  if (catalogReferencedColumns?.length === localColumns.length) {
+    return catalogReferencedColumns;
+  }
+  return parentPkColumns;
+}
+
+/**
+ * Upgrade-safe FK shape: older payloads may omit `referencedColumns`.
+ * Fills from parent PK columns when available, else `[]`.
+ */
+export function normalizeForeignKeyInfo(
+  fk: {
+    name: string;
+    columns?: string[];
+    referencedTable: string;
+    referencedColumns?: string[];
+  },
+  parentPkColumns: string[] = []
+): ForeignKeyInfo {
+  const columns = Array.isArray(fk.columns) ? fk.columns : [];
+  return {
+    name: fk.name,
+    columns,
+    referencedTable: fk.referencedTable,
+    referencedColumns: resolveFkReferencedColumns(
+      columns,
+      fk.referencedColumns,
+      parentPkColumns
+    ),
+  };
+}
+
+/** Normalize every FK on a table when the parent schema map is unavailable. */
+export function normalizeTableSchema(table: TableSchema): TableSchema {
+  return {
+    ...table,
+    foreignKeys: (table.foreignKeys ?? []).map((fk) => normalizeForeignKeyInfo(fk, [])),
+  };
+}
+
+/**
+ * Normalize a full schema list. Builds a name→PK map so FK referencedColumns
+ * omitted by older providers/clients fall back to the real parent PK.
+ */
+export function normalizeTableSchemas(tables: TableSchema[]): TableSchema[] {
+  const pkByName = new Map<string, string[]>();
+  for (const t of tables) {
+    const pk =
+      t.primaryKey?.columns ??
+      t.columns.filter((c) => c.primaryKey).map((c) => c.name);
+    if (pk.length) pkByName.set(t.name, pk);
+    // Also index bare name if somehow qualified (defensive).
+    const bare = t.name.includes('.') ? t.name.replace(/^.*\./, '') : '';
+    if (bare && !pkByName.has(bare)) pkByName.set(bare, pk);
+  }
+  return tables.map((t) => ({
+    ...t,
+    foreignKeys: (t.foreignKeys ?? []).map((fk) => {
+      const parentPk =
+        pkByName.get(fk.referencedTable) ??
+        pkByName.get(fk.referencedTable.replace(/^.*\./, '')) ??
+        [];
+      return normalizeForeignKeyInfo(fk, parentPk);
+    }),
+  }));
 }
 
 /**
@@ -95,8 +178,11 @@ export function dbSchemaToTableSchemas(dbSchema: DbSchema): TableSchema[] {
         name: fk.name,
         columns: fk.columns,
         referencedTable: fk.referencedTable,
-        // FKs reference the parent's PK/unique key; PK columns cover the common case.
-        referencedColumns: pkColumnsOf(dbSchema.tables[fk.referencedTable]),
+        referencedColumns: resolveFkReferencedColumns(
+          fk.columns,
+          fk.referencedColumns,
+          pkColumnsOf(dbSchema.tables[fk.referencedTable])
+        ),
       })),
     });
   }

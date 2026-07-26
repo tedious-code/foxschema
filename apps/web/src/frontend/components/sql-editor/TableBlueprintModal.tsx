@@ -20,28 +20,42 @@ import { executeSql } from '../../api/sqlApi';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
 import { insertAtCursor } from './sqlEditorBridge';
 import { WriteConfirmDialog } from './WriteConfirmDialog';
+import { SchemaAutocomplete } from './SchemaAutocomplete';
 import {
+  appendFkTriggerSql,
   applyTypeSize,
   classifyColumnType,
   columnTypeKindClasses,
   defaultDialectColumnType,
   dialectBooleanDefaultOptions,
   dialectColumnConstraints,
+  dialectFkActions,
+  dialectFkConstraintSupport,
   dialectIdentitySupport,
+  dialectTriggerForm,
   diffBlueprintColumns,
   generateCreateTableSql,
   generateDropTableSql,
   generateTableBlueprintSql,
+  executableSqlStatements,
   isBooleanBitType,
   isIntegerAutoIncrementType,
   listDialectDataTypes,
+  matchFkReferencedColumns,
   parseTypeSize,
   pkColumnsFromTable,
   sameStringList,
+  suggestFkName,
+  suggestTriggerName,
   withAutoIncrement,
+  type BlueprintFkDraft,
+  type BlueprintTriggerDraft,
+  type FkReferentialAction,
 } from './tableBlueprintSql';
+import type { ForeignKeyInfo, TriggerInfo } from '../../lib/types';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
 import { TYPE_META } from '../SchemaTreePanel';
+import { useSyncStore } from '../../store/useSyncStore';
 
 export type BlueprintMode = 'edit' | 'create';
 
@@ -52,6 +66,27 @@ interface Props {
   /** Existing table to edit; omit / null for create-new mode. */
   table: TableSchema | null;
   mode?: BlueprintMode;
+}
+
+function emptyFkDraft(): BlueprintFkDraft {
+  return {
+    name: '',
+    columns: [],
+    referencedTable: '',
+    referencedColumns: [],
+    onDelete: 'NO ACTION',
+    onUpdate: 'NO ACTION',
+  };
+}
+
+function emptyTriggerDraft(dialect: string): BlueprintTriggerDraft {
+  const meta = dialectTriggerForm(dialect);
+  return {
+    name: '',
+    timing: meta.timings[0] ?? 'AFTER',
+    event: meta.events[0] ?? 'INSERT',
+    definition: '',
+  };
 }
 
 type BlueprintColumn = ColumnInfo & { unique?: boolean };
@@ -70,6 +105,55 @@ function cloneColumns(cols: ColumnInfo[]): BlueprintColumn[] {
   return cols.map((c) => ({ ...c, unique: false }));
 }
 
+/** Match a cached table by exact, case-insensitive, or bare (schema-stripped) name. */
+function findTableByName(
+  tables: TableSchema[],
+  name: string
+): TableSchema | undefined {
+  const trimmed = name.trim();
+  if (!trimmed) return undefined;
+  const lower = trimmed.toLowerCase();
+  const bare = trimmed.replace(/^.*\./, '').toLowerCase();
+  return (
+    tables.find((t) => t.name === trimmed) ??
+    tables.find((t) => t.name.toLowerCase() === lower) ??
+    tables.find((t) => t.name.toLowerCase() === bare)
+  );
+}
+
+/** Toggle a name in an ordered list; `multi` false replaces with a single selection. */
+function toggleOrderedName(list: string[], name: string, multi: boolean): string[] {
+  if (list.includes(name)) return list.filter((c) => c !== name);
+  return multi ? [...list, name] : [name];
+}
+
+/** Swap a name one step within an ordered list. */
+function moveOrderedName(list: string[], name: string, dir: -1 | 1): string[] {
+  const i = list.indexOf(name);
+  if (i < 0) return list;
+  const j = i + dir;
+  if (j < 0 || j >= list.length) return list;
+  const next = [...list];
+  [next[i], next[j]] = [next[j]!, next[i]!];
+  return next;
+}
+
+/**
+ * Auto-align referenced columns to local FK columns via name matching
+ * (e.g. `test1_id2` → `id2`), preferring the parent PK pool.
+ */
+function syncFkRefColumns(
+  localCols: string[],
+  table: TableSchema | undefined
+): string[] {
+  if (!table) return [];
+  return matchFkReferencedColumns(
+    localCols,
+    pkColumnsFromTable(table),
+    table.columns.map((c) => c.name)
+  );
+}
+
 /**
  * One-viewport vertical blueprint: columns (with dialect identity), composite PK,
  * FKs/triggers (edit), create / drop table with existence-safe SQL.
@@ -86,6 +170,9 @@ export const TableBlueprintModal: React.FC<Props> = ({
   const sessionPasswords = useSqlEditorStore((s) => s.sessionPasswords);
   const safeMode = useSqlEditorStore((s) => s.safeMode);
   const cachedTables = useSqlEditorStore((s) => s.schemaCache[connectionId]?.tables);
+  const connectionSchema = useSyncStore(
+    (s) => s.connections.find((c) => c.id === connectionId)?.schema?.trim() || ''
+  );
 
   const liveTable =
     mode === 'edit' && table
@@ -110,6 +197,20 @@ export const TableBlueprintModal: React.FC<Props> = ({
   const [confirmWrite, setConfirmWrite] = useState(false);
   const [confirmDrop, setConfirmDrop] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+
+  const [pendingFks, setPendingFks] = useState<BlueprintFkDraft[]>([]);
+  const [droppedFkNames, setDroppedFkNames] = useState<Set<string>>(() => new Set());
+  const [addingFk, setAddingFk] = useState(false);
+  const [fkForm, setFkForm] = useState<BlueprintFkDraft>(() => emptyFkDraft());
+
+  const [pendingTriggers, setPendingTriggers] = useState<BlueprintTriggerDraft[]>([]);
+  const [droppedTriggerNames, setDroppedTriggerNames] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [addingTrigger, setAddingTrigger] = useState(false);
+  const [triggerForm, setTriggerForm] = useState<BlueprintTriggerDraft>(() =>
+    emptyTriggerDraft(dialect)
+  );
 
   useEffect(() => {
     if (mode === 'create') {
@@ -137,10 +238,40 @@ export const TableBlueprintModal: React.FC<Props> = ({
     setEditForm(null);
     setAdding(false);
     setError(null);
-  }, [mode, liveTable]);
+    setPendingFks([]);
+    setDroppedFkNames(new Set());
+    setAddingFk(false);
+    setFkForm(emptyFkDraft());
+    setPendingTriggers([]);
+    setDroppedTriggerNames(new Set());
+    setAddingTrigger(false);
+    setTriggerForm(emptyTriggerDraft(dialect));
+  }, [mode, liveTable, dialect]);
 
   const tableName = mode === 'create' ? createName.trim() : (liveTable?.name ?? '');
   const activeColumns = draft.filter((c) => !dropped.has(c.name));
+
+  const refTableOptions = useMemo(() => {
+    const list = (cachedTables ?? []).filter(
+      (t) =>
+        (t.objectType === 'TABLE' || t.objectType === 'MQT') &&
+        t.name.toLowerCase() !== tableName.toLowerCase()
+    );
+    return [...list].sort((a, b) => a.name.localeCompare(b.name));
+  }, [cachedTables, tableName]);
+
+  const fkRefTable = findTableByName(refTableOptions, fkForm.referencedTable);
+  const fkRefColumns = fkRefTable?.columns ?? [];
+  const fkRefPk = fkRefTable ? pkColumnsFromTable(fkRefTable) : [];
+
+  const refTableAutocompleteOptions = useMemo(
+    () =>
+      refTableOptions.map((t) => ({
+        value: t.name,
+        hint: `${t.columns.length} col${t.columns.length === 1 ? '' : 's'}`,
+      })),
+    [refTableOptions]
+  );
 
   const columnOps = useMemo(
     () => (mode === 'create' ? [] : diffBlueprintColumns(original, draft, dropped)),
@@ -148,16 +279,37 @@ export const TableBlueprintModal: React.FC<Props> = ({
   );
 
   const statements = useMemo(() => {
-    if (mode === 'create') {
-      return generateCreateTableSql(tableName, activeColumns, draftPk, dialect);
-    }
-    return generateTableBlueprintSql({
+    const fkSupport = dialectFkConstraintSupport(dialect);
+    // SQLite (and similar): fold FKs into CREATE TABLE; everyone else uses ALTER ADD after.
+    const inlineOnCreate = mode === 'create' && !fkSupport.alterAdd && fkSupport.createInline;
+    const base =
+      mode === 'create'
+        ? generateCreateTableSql(
+            tableName,
+            activeColumns,
+            draftPk,
+            dialect,
+            undefined,
+            inlineOnCreate ? pendingFks : undefined,
+            connectionSchema
+          )
+        : generateTableBlueprintSql({
+            tableName,
+            dialect,
+            columnOps,
+            previousPk: originalPk,
+            nextPk: draftPk.filter((n) => activeColumns.some((c) => c.name === n)),
+            pkName: liveTable?.primaryKey?.name,
+            schema: connectionSchema,
+          });
+    return appendFkTriggerSql(base, {
       tableName,
       dialect,
-      columnOps,
-      previousPk: originalPk,
-      nextPk: draftPk.filter((n) => activeColumns.some((c) => c.name === n)),
-      pkName: liveTable?.primaryKey?.name,
+      schema: connectionSchema,
+      addFks: inlineOnCreate ? [] : pendingFks,
+      dropFkNames: [...droppedFkNames],
+      addTriggers: pendingTriggers,
+      dropTriggerNames: [...droppedTriggerNames],
     });
   }, [
     mode,
@@ -168,24 +320,144 @@ export const TableBlueprintModal: React.FC<Props> = ({
     columnOps,
     originalPk,
     liveTable?.primaryKey?.name,
+    pendingFks,
+    droppedFkNames,
+    pendingTriggers,
+    droppedTriggerNames,
+    connectionSchema,
   ]);
 
   const dropStatements = useMemo(
-    () => (mode === 'edit' && tableName ? generateDropTableSql(tableName, dialect) : []),
-    [mode, tableName, dialect]
+    () =>
+      mode === 'edit' && tableName
+        ? generateDropTableSql(tableName, dialect, connectionSchema)
+        : [],
+    [mode, tableName, dialect, connectionSchema]
   );
 
   const sqlText = statements.join('\n');
   const hasOps =
     mode === 'create'
-      ? statements.length > 0 && !!tableName && activeColumns.length > 0
+      ? !!tableName &&
+        activeColumns.length > 0 &&
+        (statements.length > 0 ||
+          pendingFks.length > 0 ||
+          pendingTriggers.length > 0)
       : statements.length > 0;
   const pkDirty = mode === 'edit' && !sameStringList(originalPk, draftPk);
 
   const meta = TYPE_META.TABLE;
-  const fks = liveTable?.foreignKeys ?? [];
-  const triggers = liveTable?.triggers ?? [];
+  const existingFks = (liveTable?.foreignKeys ?? []).filter(
+    (fk) => !droppedFkNames.has(fk.name)
+  );
+  const existingTriggers = (liveTable?.triggers ?? []).filter(
+    (trg) => !droppedTriggerNames.has(trg.name)
+  );
   const identityUi = dialectIdentitySupport(dialect);
+  const triggerMeta = dialectTriggerForm(dialect);
+  const fkActions = dialectFkActions(dialect);
+  const fkSupport = dialectFkConstraintSupport(dialect);
+  const fkMulti = fkSupport.composite;
+
+  const toggleFkLocalColumn = (name: string) => {
+    setFkForm((prev) => {
+      const columns = toggleOrderedName(prev.columns, name, fkMulti);
+      const table = findTableByName(refTableOptions, prev.referencedTable);
+      const matched = syncFkRefColumns(columns, table);
+      return {
+        ...prev,
+        columns,
+        referencedColumns: matched.length > 0 ? matched : prev.referencedColumns,
+        name: prev.name || suggestFkName(tableName || 'table', columns),
+      };
+    });
+  };
+
+  const moveFkLocal = (name: string, dir: -1 | 1) => {
+    setFkForm((prev) => ({
+      ...prev,
+      columns: moveOrderedName(prev.columns, name, dir),
+    }));
+  };
+
+  const toggleFkRefColumn = (name: string) => {
+    setFkForm((prev) => ({
+      ...prev,
+      referencedColumns: toggleOrderedName(prev.referencedColumns, name, fkMulti),
+    }));
+  };
+
+  const moveFkRef = (name: string, dir: -1 | 1) => {
+    setFkForm((prev) => ({
+      ...prev,
+      referencedColumns: moveOrderedName(prev.referencedColumns, name, dir),
+    }));
+  };
+
+  const saveFk = () => {
+    const name = fkForm.name.trim() || suggestFkName(tableName || 'table', fkForm.columns);
+    if (fkForm.columns.length === 0) {
+      setError('Pick at least one local column for the foreign key');
+      return;
+    }
+    if (!fkForm.referencedTable.trim()) {
+      setError('Pick a referenced table');
+      return;
+    }
+    const aligned =
+      fkForm.referencedColumns.length === fkForm.columns.length
+        ? fkForm.referencedColumns
+        : syncFkRefColumns(fkForm.columns, fkRefTable);
+    const refCols =
+      aligned.length > 0
+        ? aligned
+        : fkRefPk.length === fkForm.columns.length
+          ? fkRefPk
+          : fkRefColumns[0]
+            ? [fkRefColumns[0].name]
+            : [];
+    if (refCols.length === 0) {
+      setError('Pick referenced column(s)');
+      return;
+    }
+    if (refCols.length !== fkForm.columns.length) {
+      setError('Local and referenced column counts must match');
+      return;
+    }
+    setPendingFks((list) => [
+      ...list,
+      {
+        ...fkForm,
+        name,
+        // Keep schema.table when the user typed a qualified ref; bare names
+        // are qualified later via connectionSchema in SQL generation.
+        referencedTable: fkForm.referencedTable.trim(),
+        referencedColumns: refCols,
+      },
+    ]);
+    setFkForm(emptyFkDraft());
+    setAddingFk(false);
+    setError(null);
+  };
+
+  const saveTrigger = () => {
+    const name =
+      triggerForm.name.trim() ||
+      suggestTriggerName(tableName || 'table', triggerForm.timing, triggerForm.event);
+    const body = triggerForm.definition.trim();
+    if (!body) {
+      setError('Trigger body is required');
+      return;
+    }
+    if (body === triggerMeta.bodyPlaceholder.trim()) {
+      setError('Replace the trigger body placeholder with real SQL');
+      return;
+    }
+    setPendingTriggers((list) => [...list, { ...triggerForm, name, definition: body }]);
+    setTriggerForm(emptyTriggerDraft(dialect));
+    setAddingTrigger(false);
+    setError(null);
+  };
 
   const syncPkFlags = (pk: string[]) => {
     setDraftPk(pk);
@@ -308,6 +580,13 @@ export const TableBlueprintModal: React.FC<Props> = ({
 
   const runApply = async (stmts: string[] = statements, closeOnSuccess = mode === 'create') => {
     if (stmts.length === 0 || applying) return;
+    const toRun = executableSqlStatements(stmts);
+    if (toRun.length === 0) {
+      setError(
+        'Nothing executable to apply — only review comments (e.g. unsupported FK on this dialect). Use Insert SQL to copy them.'
+      );
+      return;
+    }
     setApplying(true);
     setError(null);
     setConfirmWrite(false);
@@ -315,7 +594,7 @@ export const TableBlueprintModal: React.FC<Props> = ({
     try {
       const { results } = await executeSql(
         { connectionId, password: sessionPasswords[connectionId] || undefined },
-        stmts
+        toRun
       );
       const failed = results.find((r) => !r.ok);
       if (failed && !failed.ok) {
@@ -351,15 +630,17 @@ export const TableBlueprintModal: React.FC<Props> = ({
     <>
       <div
         data-testid="table-blueprint-modal"
-        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+        className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/55 backdrop-blur-[2px] p-4"
         onClick={onClose}
       >
         <div
-          className="w-full max-w-3xl max-h-[90vh] flex flex-col bg-slate-900 border border-slate-800 rounded-xl shadow-2xl overflow-hidden"
+          className="w-full max-w-3xl max-h-[90vh] flex flex-col rounded-2xl overflow-hidden border border-cyan-400/25 shadow-2xl shadow-cyan-950/30 bg-gradient-to-b from-slate-800 via-slate-800/95 to-slate-900"
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="px-5 py-3.5 border-b border-slate-800 bg-slate-950/50 flex items-center gap-2.5 shrink-0">
-            <span className="shrink-0">{meta.icon}</span>
+          <div className="px-5 py-3.5 border-b border-cyan-400/20 bg-gradient-to-r from-sky-500/15 via-cyan-500/10 to-violet-500/15 flex items-center gap-2.5 shrink-0">
+            <span className="shrink-0 p-1.5 rounded-lg bg-cyan-400/15 ring-1 ring-cyan-400/30">
+              {meta.icon}
+            </span>
             <div className="min-w-0 flex-1">
               {mode === 'create' ? (
                 <input
@@ -367,19 +648,19 @@ export const TableBlueprintModal: React.FC<Props> = ({
                   onChange={(e) => setCreateName(e.target.value)}
                   placeholder="new_table_name"
                   data-testid="blueprint-table-name"
-                  className="w-full bg-transparent border-b border-slate-700 focus:border-cyan-500 outline-none text-slate-100 font-bold text-base font-mono py-0.5"
+                  className="w-full bg-transparent border-b border-cyan-400/35 focus:border-cyan-300 outline-none text-slate-50 font-bold text-base font-mono py-0.5"
                 />
               ) : (
-                <h2 className="text-slate-100 font-bold text-base font-mono truncate">
+                <h2 className="text-slate-50 font-bold text-base font-mono truncate">
                   {liveTable?.name}
                 </h2>
               )}
-              <p className="text-[11px] text-slate-500 font-semibold uppercase tracking-wide">
+              <p className="text-[11px] text-cyan-200/70 font-semibold uppercase tracking-wide">
                 {mode === 'create' ? 'Create table' : 'Table blueprint'} · {dialect}
               </p>
             </div>
             {toast && (
-              <span className="text-[11px] font-semibold text-emerald-400 flex items-center gap-1 shrink-0">
+              <span className="text-[11px] font-semibold text-emerald-300 flex items-center gap-1 shrink-0">
                 <Check className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} /> {toast}
               </span>
             )}
@@ -387,20 +668,20 @@ export const TableBlueprintModal: React.FC<Props> = ({
               type="button"
               title="Close"
               onClick={onClose}
-              className="p-1.5 rounded text-slate-500 hover:text-slate-200 hover:bg-slate-800 transition"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-white/10 transition"
             >
               <X className="w-4 h-4" strokeWidth={SQL_ICON_STROKE} />
             </button>
           </div>
 
-          <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-5">
+          <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4">
             {/* Columns */}
             <section>
               <div className="flex items-center justify-between gap-2 mb-2.5">
-                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-                  <Columns3 className="w-3.5 h-3.5 text-cyan-400" strokeWidth={SQL_ICON_STROKE} />
+                <h3 className="text-xs font-bold text-sky-300/90 uppercase tracking-wider flex items-center gap-2">
+                  <Columns3 className="w-3.5 h-3.5 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
                   Columns
-                  <span className="text-slate-600 font-mono normal-case">({draft.length})</span>
+                  <span className="text-sky-500/60 font-mono normal-case">({draft.length})</span>
                 </h3>
                 {!adding && (
                   <button
@@ -410,14 +691,14 @@ export const TableBlueprintModal: React.FC<Props> = ({
                       setEditingName(null);
                       setAddForm(emptyColumn(dialect));
                     }}
-                    className="flex items-center gap-1 text-[11px] font-bold text-emerald-400 hover:text-emerald-300 px-2 py-1 rounded border border-emerald-500/30 bg-emerald-950/30"
+                    className="flex items-center gap-1 text-[11px] font-bold text-emerald-300 hover:text-emerald-200 px-2.5 py-1 rounded-lg border border-emerald-400/35 bg-emerald-500/15"
                   >
                     <Plus className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} /> Add column
                   </button>
                 )}
               </div>
 
-              <div className="bg-slate-950/60 border border-slate-800/80 rounded-lg overflow-hidden divide-y divide-slate-800/80">
+              <div className="bg-sky-950/25 border border-sky-400/20 rounded-xl overflow-hidden divide-y divide-sky-400/10 shadow-inner">
                 {draft.map((col) => {
                   const isDropped = dropped.has(col.name);
                   const isEditing = editingName === col.name;
@@ -545,15 +826,15 @@ export const TableBlueprintModal: React.FC<Props> = ({
 
             {/* Primary key (composite) */}
             <section>
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center gap-2">
+              <h3 className="text-xs font-bold text-amber-300/90 uppercase tracking-wider mb-2.5 flex items-center gap-2">
                 <KeyRound className="w-3.5 h-3.5 text-amber-400" strokeWidth={SQL_ICON_STROKE} />
                 Primary key
                 {pkDirty && (
-                  <span className="text-[10px] font-bold text-amber-400 normal-case">changed</span>
+                  <span className="text-[10px] font-bold text-amber-300 normal-case">changed</span>
                 )}
               </h3>
-              <div className="bg-slate-950/60 border border-slate-800/80 rounded-lg p-3 space-y-2">
-                <p className="text-[11px] text-slate-500">
+              <div className="bg-amber-950/20 border border-amber-400/25 rounded-xl p-3 space-y-2">
+                <p className="text-[11px] text-amber-100/50">
                   Check columns to build a single or composite key. Order matters — use arrows to
                   reorder.
                 </p>
@@ -610,118 +891,644 @@ export const TableBlueprintModal: React.FC<Props> = ({
                   </ul>
                 )}
                 {draftPk.length > 0 && (
-                  <p className="text-[12px] font-mono text-amber-200/90 pt-1 border-t border-slate-800">
+                  <p className="text-[12px] font-mono text-amber-200/90 pt-1 border-t border-amber-400/20">
                     PRIMARY KEY ({draftPk.join(', ')})
                   </p>
                 )}
               </div>
             </section>
 
-            {/* FK / triggers — edit mode only */}
-            {mode === 'edit' && (
-              <>
-                <section>
-                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 bg-purple-500 rounded-full" />
-                    Foreign keys
-                    <span className="text-slate-600 font-mono normal-case">({fks.length})</span>
-                  </h3>
-                  <div className="bg-slate-950/60 border border-slate-800/80 rounded-lg overflow-hidden">
-                    {fks.length === 0 ? (
-                      <p className="px-3 py-3 text-[12px] text-slate-500">No foreign keys</p>
-                    ) : (
-                      <ul className="divide-y divide-slate-800/80">
-                        {fks.map((fk) => (
-                          <li key={fk.name} className="px-3 py-2.5 text-[12.5px]">
-                            <span className="font-mono font-semibold text-slate-200">{fk.name}</span>
-                            <span className="text-slate-500 mx-1.5">·</span>
-                            <span className="font-mono text-slate-400">
-                              ({fk.columns.join(', ')}) → {fk.referencedTable}(
-                              {fk.referencedColumns.join(', ')})
+            {/* Foreign keys */}
+            <section>
+              <div className="flex items-center justify-between gap-2 mb-2.5">
+                <h3 className="text-xs font-bold text-violet-300/90 uppercase tracking-wider flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-violet-400 rounded-full shadow-[0_0_8px_rgba(167,139,250,0.6)]" />
+                  Foreign keys
+                  <span className="text-violet-400/50 font-mono normal-case">
+                    ({existingFks.length + pendingFks.length})
+                  </span>
+                </h3>
+                {!addingFk && (fkSupport.alterAdd || fkSupport.createInline) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAddingFk(true);
+                      setAddingTrigger(false);
+                      const cols = activeColumns[0] ? [activeColumns[0].name] : [];
+                      setFkForm({
+                        ...emptyFkDraft(),
+                        columns: cols,
+                        name: suggestFkName(tableName || 'table', cols),
+                      });
+                    }}
+                    className="flex items-center gap-1 text-[11px] font-bold text-violet-200 hover:text-violet-100 px-2.5 py-1 rounded-lg border border-violet-400/35 bg-violet-500/15"
+                  >
+                    <Plus className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} /> Add foreign key
+                  </button>
+                )}
+              </div>
+              <div className="bg-violet-950/20 border border-violet-400/25 rounded-xl overflow-hidden">
+                {existingFks.length === 0 && pendingFks.length === 0 && !addingFk ? (
+                  <p className="px-3 py-3 text-[12px] text-slate-500">
+                    {fkSupport.createInline || fkSupport.alterAdd
+                      ? 'No foreign keys — link one or more columns to another table’s key.'
+                      : fkSupport.hint}
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-slate-800/80">
+                    {existingFks.map((fk: ForeignKeyInfo) => (
+                      <li
+                        key={fk.name}
+                        className="px-3 py-2.5 text-[12.5px] flex items-start gap-2"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <span className="font-mono font-semibold text-slate-200">{fk.name}</span>
+                          <span className="text-slate-500 mx-1.5">·</span>
+                          <span className="font-mono text-slate-400">
+                            ({fk.columns.join(', ')}) → {fk.referencedTable}(
+                            {(fk.referencedColumns ?? []).join(', ')})
+                          </span>
+                        </div>
+                        {mode === 'edit' && (
+                          <button
+                            type="button"
+                            title="Drop foreign key"
+                            onClick={() =>
+                              setDroppedFkNames((s) => new Set(s).add(fk.name))
+                            }
+                            className="p-1 text-slate-500 hover:text-rose-400 shrink-0"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                    {[...droppedFkNames].map((n) => (
+                      <li
+                        key={`drop-fk-${n}`}
+                        className="px-3 py-2 text-[12px] text-rose-300/90 flex items-center gap-2 bg-rose-950/20"
+                      >
+                        <span className="line-through font-mono">{n}</span>
+                        <span className="text-[10px] font-bold uppercase">drop</span>
+                        <button
+                          type="button"
+                          className="ml-auto text-[10px] font-bold text-slate-300"
+                          onClick={() =>
+                            setDroppedFkNames((s) => {
+                              const n2 = new Set(s);
+                              n2.delete(n);
+                              return n2;
+                            })
+                          }
+                        >
+                          Undo
+                        </button>
+                      </li>
+                    ))}
+                    {pendingFks.map((fk, i) => (
+                      <li
+                        key={`pending-fk-${fk.name}-${i}`}
+                        className="px-3 py-2.5 text-[12.5px] flex items-start gap-2 bg-emerald-950/15"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <span className="text-[9px] font-bold uppercase text-emerald-400 mr-1.5">
+                            new
+                          </span>
+                          <span className="font-mono font-semibold text-slate-200">{fk.name}</span>
+                          <span className="text-slate-500 mx-1.5">·</span>
+                          <span className="font-mono text-slate-400">
+                            ({fk.columns.join(', ')}) → {fk.referencedTable}(
+                            {(fk.referencedColumns ?? []).join(', ')})
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          title="Remove"
+                          onClick={() =>
+                            setPendingFks((list) => list.filter((_, j) => j !== i))
+                          }
+                          className="p-1 text-slate-500 hover:text-rose-400 shrink-0"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {addingFk && (
+                  <div
+                    className="px-3 py-3 border-t border-violet-400/20 space-y-2.5 bg-violet-500/10"
+                    data-testid="blueprint-fk-form"
+                  >
+                    <p className="text-[11px] text-violet-100/75">
+                      Select one or more local columns and matching parent columns (order
+                      matters for composite keys).{' '}
+                      <span className="text-violet-200/55">{fkSupport.hint}</span>
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <label className="flex flex-col gap-0.5 sm:col-span-2">
+                        <span className="text-[10px] font-bold text-violet-300/70 uppercase">
+                          Constraint name
+                        </span>
+                        <input
+                          value={fkForm.name}
+                          onChange={(e) => setFkForm({ ...fkForm, name: e.target.value })}
+                          placeholder={suggestFkName(tableName || 'table', fkForm.columns)}
+                          className="bg-white/5 border border-violet-400/30 rounded-lg px-2.5 py-1.5 text-[12px] font-mono text-slate-100 outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-400/20"
+                        />
+                      </label>
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10px] font-bold text-violet-300/70 uppercase">
+                          Local column{fkMulti ? 's' : ''}
+                        </span>
+                        {activeColumns.length === 0 ? (
+                          <p className="text-[11px] text-slate-500">Add columns first</p>
+                        ) : (
+                          <ul className="space-y-0.5 max-h-36 overflow-y-auto rounded-lg border border-violet-400/25 bg-white/5 p-1.5">
+                            {activeColumns.map((c) => {
+                              const on = fkForm.columns.includes(c.name);
+                              const idx = fkForm.columns.indexOf(c.name);
+                              return (
+                                <li
+                                  key={c.name}
+                                  className="flex items-center gap-1.5 text-[12px] font-mono"
+                                >
+                                  <label className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      checked={on}
+                                      onChange={() => toggleFkLocalColumn(c.name)}
+                                      className="w-3.5 h-3.5 accent-violet-500"
+                                    />
+                                    <span className="text-slate-100 truncate">{c.name}</span>
+                                    <span className="text-slate-500 truncate">{c.type}</span>
+                                  </label>
+                                  {on && fkMulti && (
+                                    <span className="flex items-center gap-0.5 shrink-0">
+                                      <span className="text-[10px] text-violet-300/80 font-bold w-4 text-center">
+                                        {idx + 1}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        title="Move up"
+                                        disabled={idx <= 0}
+                                        onClick={() => moveFkLocal(c.name, -1)}
+                                        className="p-0.5 text-slate-500 hover:text-slate-200 disabled:opacity-30"
+                                      >
+                                        <ArrowUp className="w-3 h-3" strokeWidth={SQL_ICON_STROKE} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        title="Move down"
+                                        disabled={idx >= fkForm.columns.length - 1}
+                                        onClick={() => moveFkLocal(c.name, 1)}
+                                        className="p-0.5 text-slate-500 hover:text-slate-200 disabled:opacity-30"
+                                      >
+                                        <ArrowDown
+                                          className="w-3 h-3"
+                                          strokeWidth={SQL_ICON_STROKE}
+                                        />
+                                      </button>
+                                    </span>
+                                  )}
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10px] font-bold text-violet-300/70 uppercase">
+                          References table
+                        </span>
+                        <SchemaAutocomplete
+                          data-testid="blueprint-fk-ref-table"
+                          value={fkForm.referencedTable}
+                          options={refTableAutocompleteOptions}
+                          placeholder="Type table name…"
+                          onChange={(name) => {
+                            const t = findTableByName(refTableOptions, name);
+                            const referencedColumns = syncFkRefColumns(
+                              fkForm.columns,
+                              t
+                            );
+                            setFkForm({
+                              ...fkForm,
+                              referencedTable: t?.name ?? name.trim().replace(/^.*\./, ''),
+                              referencedColumns,
+                            });
+                          }}
+                        />
+                        {fkForm.referencedTable.trim() && (
+                          <>
+                            <span className="text-[10px] font-bold text-violet-300/70 uppercase mt-1">
+                              References column{fkMulti ? 's' : ''}
                             </span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
+                            {fkRefColumns.length === 0 ? (
+                              <p className="text-[11px] text-slate-500">
+                                No columns cached for this table
+                              </p>
+                            ) : (
+                              <ul className="space-y-0.5 max-h-36 overflow-y-auto rounded-lg border border-violet-400/25 bg-white/5 p-1.5">
+                                {fkRefColumns.map((c) => {
+                                  const on = fkForm.referencedColumns.includes(c.name);
+                                  const idx = fkForm.referencedColumns.indexOf(c.name);
+                                  return (
+                                    <li
+                                      key={c.name}
+                                      className="flex items-center gap-1.5 text-[12px] font-mono"
+                                    >
+                                      <label className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer">
+                                        <input
+                                          type="checkbox"
+                                          checked={on}
+                                          onChange={() => toggleFkRefColumn(c.name)}
+                                          className="w-3.5 h-3.5 accent-violet-500"
+                                        />
+                                        <span className="text-slate-100 truncate">{c.name}</span>
+                                        <span className="text-slate-500 truncate">
+                                          {c.type}
+                                          {fkRefPk.includes(c.name) ? ' · PK' : ''}
+                                        </span>
+                                      </label>
+                                      {on && fkMulti && (
+                                        <span className="flex items-center gap-0.5 shrink-0">
+                                          <span className="text-[10px] text-violet-300/80 font-bold w-4 text-center">
+                                            {idx + 1}
+                                          </span>
+                                          <button
+                                            type="button"
+                                            title="Move up"
+                                            disabled={idx <= 0}
+                                            onClick={() => moveFkRef(c.name, -1)}
+                                            className="p-0.5 text-slate-500 hover:text-slate-200 disabled:opacity-30"
+                                          >
+                                            <ArrowUp
+                                              className="w-3 h-3"
+                                              strokeWidth={SQL_ICON_STROKE}
+                                            />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            title="Move down"
+                                            disabled={
+                                              idx >= fkForm.referencedColumns.length - 1
+                                            }
+                                            onClick={() => moveFkRef(c.name, 1)}
+                                            className="p-0.5 text-slate-500 hover:text-slate-200 disabled:opacity-30"
+                                          >
+                                            <ArrowDown
+                                              className="w-3 h-3"
+                                              strokeWidth={SQL_ICON_STROKE}
+                                            />
+                                          </button>
+                                        </span>
+                                      )}
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            )}
+                          </>
+                        )}
+                      </div>
+                      {fkActions.length > 0 && (
+                        <>
+                          <label className="flex flex-col gap-0.5">
+                            <span className="text-[10px] font-bold text-violet-300/70 uppercase">
+                              On delete
+                            </span>
+                            <select
+                              value={fkForm.onDelete ?? 'NO ACTION'}
+                              onChange={(e) =>
+                                setFkForm({
+                                  ...fkForm,
+                                  onDelete: e.target.value as FkReferentialAction,
+                                })
+                              }
+                              className="bg-white/5 border border-violet-400/30 rounded-lg px-2.5 py-1.5 text-[12px] font-mono text-slate-100 outline-none"
+                            >
+                              {fkActions.map((a) => (
+                                <option key={a} value={a}>
+                                  {a}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="flex flex-col gap-0.5">
+                            <span className="text-[10px] font-bold text-violet-300/70 uppercase">
+                              On update
+                            </span>
+                            <select
+                              value={fkForm.onUpdate ?? 'NO ACTION'}
+                              onChange={(e) =>
+                                setFkForm({
+                                  ...fkForm,
+                                  onUpdate: e.target.value as FkReferentialAction,
+                                })
+                              }
+                              className="bg-white/5 border border-violet-400/30 rounded-lg px-2.5 py-1.5 text-[12px] font-mono text-slate-100 outline-none"
+                            >
+                              {fkActions.map((a) => (
+                                <option key={a} value={a}>
+                                  {a}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </>
+                      )}
+                    </div>
+                    <div className="flex justify-end gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setAddingFk(false)}
+                        className="px-2.5 py-1 text-[11px] font-semibold text-slate-400"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={saveFk}
+                        className="px-2.5 py-1 text-[11px] font-bold rounded border border-purple-500/40 text-purple-200 bg-purple-950/50"
+                      >
+                        Add FK
+                      </button>
+                    </div>
                   </div>
-                </section>
+                )}
+              </div>
+            </section>
 
-                <section>
-                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 bg-amber-500 rounded-full" />
-                    Triggers
-                    <span className="text-slate-600 font-mono normal-case">({triggers.length})</span>
-                  </h3>
-                  <div className="bg-slate-950/60 border border-slate-800/80 rounded-lg overflow-hidden">
-                    {triggers.length === 0 ? (
-                      <p className="px-3 py-3 text-[12px] text-slate-500">No triggers</p>
-                    ) : (
-                      <ul className="divide-y divide-slate-800/80">
-                        {triggers.map((trg) => {
-                          const open = !!expandedTrig[trg.name];
-                          return (
-                            <li key={trg.name}>
+            {/* Triggers */}
+            <section>
+              <div className="flex items-center justify-between gap-2 mb-2.5">
+                <h3 className="text-xs font-bold text-orange-300/90 uppercase tracking-wider flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-orange-400 rounded-full shadow-[0_0_8px_rgba(251,146,60,0.55)]" />
+                  Triggers
+                  <span className="text-orange-400/50 font-mono normal-case">
+                    ({existingTriggers.length + pendingTriggers.length})
+                  </span>
+                </h3>
+                {!addingTrigger && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAddingTrigger(true);
+                      setAddingFk(false);
+                      const draft = emptyTriggerDraft(dialect);
+                      setTriggerForm({
+                        ...draft,
+                        name: suggestTriggerName(
+                          tableName || 'table',
+                          draft.timing,
+                          draft.event
+                        ),
+                      });
+                    }}
+                    className="flex items-center gap-1 text-[11px] font-bold text-orange-200 hover:text-orange-100 px-2.5 py-1 rounded-lg border border-orange-400/35 bg-orange-500/15"
+                  >
+                    <Plus className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} /> Create trigger
+                  </button>
+                )}
+              </div>
+              <div className="bg-orange-950/15 border border-orange-400/25 rounded-xl overflow-hidden">
+                {existingTriggers.length === 0 &&
+                pendingTriggers.length === 0 &&
+                !addingTrigger ? (
+                  <p className="px-3 py-3 text-[12px] text-slate-500">
+                    No triggers — run logic before/after INSERT, UPDATE, or DELETE.
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-slate-800/80">
+                    {existingTriggers.map((trg: TriggerInfo) => {
+                      const open = !!expandedTrig[trg.name];
+                      return (
+                        <li key={trg.name}>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedTrig((m) => ({ ...m, [trg.name]: !open }))
+                              }
+                              className="flex-1 flex items-center gap-2 px-3 py-2.5 text-left hover:bg-slate-900/40 min-w-0"
+                            >
+                              {open ? (
+                                <ChevronDown
+                                  className="w-3.5 h-3.5 text-slate-500 shrink-0"
+                                  strokeWidth={SQL_ICON_STROKE}
+                                />
+                              ) : (
+                                <ChevronRight
+                                  className="w-3.5 h-3.5 text-slate-500 shrink-0"
+                                  strokeWidth={SQL_ICON_STROKE}
+                                />
+                              )}
+                              <span className="font-mono font-semibold text-[12.5px] text-slate-200 truncate">
+                                {trg.name}
+                              </span>
+                              <span className="text-[11px] text-slate-500 ml-auto shrink-0">
+                                {[trg.timing, trg.event].filter(Boolean).join(' ') || '—'}
+                              </span>
+                            </button>
+                            {mode === 'edit' && (
                               <button
                                 type="button"
+                                title="Drop trigger"
                                 onClick={() =>
-                                  setExpandedTrig((m) => ({ ...m, [trg.name]: !open }))
+                                  setDroppedTriggerNames((s) => new Set(s).add(trg.name))
                                 }
-                                className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-slate-900/40"
+                                className="p-1.5 mr-2 text-slate-500 hover:text-rose-400 shrink-0"
                               >
-                                {open ? (
-                                  <ChevronDown
-                                    className="w-3.5 h-3.5 text-slate-500 shrink-0"
-                                    strokeWidth={SQL_ICON_STROKE}
-                                  />
-                                ) : (
-                                  <ChevronRight
-                                    className="w-3.5 h-3.5 text-slate-500 shrink-0"
-                                    strokeWidth={SQL_ICON_STROKE}
-                                  />
-                                )}
-                                <span className="font-mono font-semibold text-[12.5px] text-slate-200 truncate">
-                                  {trg.name}
-                                </span>
-                                <span className="text-[11px] text-slate-500 ml-auto shrink-0">
-                                  {[trg.timing, trg.event].filter(Boolean).join(' ') || '—'}
-                                </span>
+                                <Trash2 className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
                               </button>
-                              {open && (
-                                <pre className="px-3 pb-3 text-[11px] font-mono text-slate-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
-                                  {trg.definition?.trim() || '(no definition)'}
-                                </pre>
-                              )}
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    )}
+                            )}
+                          </div>
+                          {open && (
+                            <pre className="px-3 pb-3 text-[11px] font-mono text-slate-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                              {trg.definition?.trim() || '(no definition)'}
+                            </pre>
+                          )}
+                        </li>
+                      );
+                    })}
+                    {[...droppedTriggerNames].map((n) => (
+                      <li
+                        key={`drop-trg-${n}`}
+                        className="px-3 py-2 text-[12px] text-rose-300/90 flex items-center gap-2 bg-rose-950/20"
+                      >
+                        <span className="line-through font-mono">{n}</span>
+                        <span className="text-[10px] font-bold uppercase">drop</span>
+                        <button
+                          type="button"
+                          className="ml-auto text-[10px] font-bold text-slate-300"
+                          onClick={() =>
+                            setDroppedTriggerNames((s) => {
+                              const n2 = new Set(s);
+                              n2.delete(n);
+                              return n2;
+                            })
+                          }
+                        >
+                          Undo
+                        </button>
+                      </li>
+                    ))}
+                    {pendingTriggers.map((trg, i) => (
+                      <li
+                        key={`pending-trg-${trg.name}-${i}`}
+                        className="px-3 py-2.5 text-[12.5px] flex items-start gap-2 bg-emerald-950/15"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <span className="text-[9px] font-bold uppercase text-emerald-400 mr-1.5">
+                            new
+                          </span>
+                          <span className="font-mono font-semibold text-slate-200">{trg.name}</span>
+                          <span className="text-slate-500 ml-1.5 text-[11px]">
+                            {trg.timing} {trg.event}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setPendingTriggers((list) => list.filter((_, j) => j !== i))
+                          }
+                          className="p-1 text-slate-500 hover:text-rose-400 shrink-0"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {addingTrigger && (
+                  <div
+                    className="px-3 py-3 border-t border-slate-800 space-y-2.5 bg-amber-950/15"
+                    data-testid="blueprint-trigger-form"
+                  >
+                    <p className="text-[11px] text-amber-200/80">{triggerMeta.hint}</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <label className="flex flex-col gap-0.5 sm:col-span-1">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase">Name</span>
+                        <input
+                          value={triggerForm.name}
+                          onChange={(e) =>
+                            setTriggerForm({ ...triggerForm, name: e.target.value })
+                          }
+                          className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[12px] font-mono text-slate-200 outline-none focus:border-amber-500"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-0.5">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase">
+                          Timing
+                        </span>
+                        <select
+                          value={triggerForm.timing}
+                          onChange={(e) =>
+                            setTriggerForm({
+                              ...triggerForm,
+                              timing: e.target.value,
+                              name:
+                                triggerForm.name ||
+                                suggestTriggerName(
+                                  tableName || 'table',
+                                  e.target.value,
+                                  triggerForm.event
+                                ),
+                            })
+                          }
+                          className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[12px] font-mono text-slate-200 outline-none"
+                        >
+                          {triggerMeta.timings.map((t) => (
+                            <option key={t} value={t}>
+                              {t}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="flex flex-col gap-0.5">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase">
+                          Event
+                        </span>
+                        <select
+                          value={triggerForm.event}
+                          onChange={(e) =>
+                            setTriggerForm({
+                              ...triggerForm,
+                              event: e.target.value,
+                              name:
+                                triggerForm.name ||
+                                suggestTriggerName(
+                                  tableName || 'table',
+                                  triggerForm.timing,
+                                  e.target.value
+                                ),
+                            })
+                          }
+                          className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[12px] font-mono text-slate-200 outline-none"
+                        >
+                          {triggerMeta.events.map((ev) => (
+                            <option key={ev} value={ev}>
+                              {ev}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                    <label className="flex flex-col gap-0.5">
+                      <span className="text-[10px] font-bold text-slate-500 uppercase">Body</span>
+                      <textarea
+                        value={triggerForm.definition}
+                        onChange={(e) =>
+                          setTriggerForm({ ...triggerForm, definition: e.target.value })
+                        }
+                        placeholder={triggerMeta.bodyPlaceholder}
+                        rows={5}
+                        className="bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-[12px] font-mono text-slate-200 outline-none focus:border-amber-500 resize-y min-h-[6rem]"
+                      />
+                    </label>
+                    <div className="flex justify-end gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setAddingTrigger(false)}
+                        className="px-2.5 py-1 text-[11px] font-semibold text-slate-400"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={saveTrigger}
+                        className="px-2.5 py-1 text-[11px] font-bold rounded border border-amber-500/40 text-amber-200 bg-amber-950/50"
+                      >
+                        Add trigger
+                      </button>
+                    </div>
                   </div>
-                </section>
-              </>
-            )}
+                )}
+              </div>
+            </section>
 
             {identityUi.hint && (
               <p className="text-[11px] text-slate-500">{identityUi.hint}</p>
             )}
           </div>
 
-          <div className="shrink-0 border-t border-slate-800 bg-slate-950/70 px-5 py-3 space-y-2.5">
+          <div className="shrink-0 border-t border-cyan-400/20 bg-gradient-to-r from-sky-500/10 via-slate-800/80 to-violet-500/10 px-5 py-3 space-y-2.5">
             {error && (
               <p
-                className="text-[12px] text-rose-400 font-medium break-words"
+                className="text-[12px] text-rose-300 font-medium break-words"
                 data-testid="blueprint-error"
               >
                 {error}
               </p>
             )}
-            <div className="bg-slate-950 border border-slate-800 rounded-md px-3 py-2 max-h-28 overflow-y-auto">
+            <div className="bg-cyan-950/30 border border-cyan-400/25 rounded-xl px-3 py-2 max-h-28 overflow-y-auto">
               {hasOps ? (
-                <pre className="text-[11px] font-mono text-cyan-200/90 whitespace-pre-wrap break-words">
+                <pre className="text-[11px] font-mono text-cyan-100/90 whitespace-pre-wrap break-words">
                   {sqlText}
                 </pre>
               ) : (
-                <p className="text-[11px] text-slate-600">
+                <p className="text-[11px] text-slate-500">
                   {mode === 'create'
                     ? 'Enter a table name and at least one column'
                     : 'No pending changes'}
