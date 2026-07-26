@@ -2,7 +2,7 @@
   "name": "foxschema",
   "author": "huyplb@live.com",
   "private": true,
-  "version": "0.1.89",
+  "version": "0.1.90",
   "type": "module",
   "license": "Apache-2.0",
   "workspaces": [
