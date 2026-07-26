@@ -1,4 +1,4 @@
-import { getApiBase } from './apiBase';
+import { getApiBase, parseJsonResponse } from './apiBase';
 import type { ConnectionRef } from './schemaApi';
 import type { BrowserCodeCellKind, CodeCellLast, CodeCellVars } from '../lib/sql-splitter';
 
@@ -32,14 +32,8 @@ export async function executeSql(
     credentials: 'include',
     body: JSON.stringify({ ...ref, statements, maxRows, offset }),
   });
-  const text = await res.text();
-  let data: { results?: SqlStatementResult[]; error?: string };
-  try {
-    data = JSON.parse(text);
-  } catch {
-    throw new Error(`Invalid response from server (${res.status}): ${text.slice(0, 200)}`);
-  }
-  if (!res.ok || !data.results) throw new Error(data.error || `Query failed (${res.status})`);
+  const data = await parseJsonResponse<{ results?: SqlStatementResult[]; error?: string }>(res);
+  if (!data.results) throw new Error(data.error || `Query failed (${res.status})`);
   return { results: data.results };
 }
 
@@ -121,16 +115,7 @@ export async function runCodeCellOnServer(
     credentials: 'include',
     body: JSON.stringify(payload),
   });
-  const text = await res.text();
-  let data: unknown;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    throw new Error(`Invalid response from server (${res.status}): ${text.slice(0, 200)}`);
-  }
-  if (!res.ok) {
-    throw new Error(responseError(data) || `Code cell failed (${res.status})`);
-  }
+  const data = await parseJsonResponse<unknown>(res);
   const parsed = parseSqlStatementResult(data);
   if (!parsed.ok) {
     throw new Error(parsed.error);

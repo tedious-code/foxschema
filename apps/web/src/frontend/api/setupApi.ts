@@ -1,4 +1,4 @@
-import { isTauri, invokeTauri, getApiBase } from './apiBase';
+import { isTauri, invokeTauri, getApiBase, parseJsonResponse } from './apiBase';
 
 export type DbEngine = 'sqlite' | 'postgres' | 'mysql';
 
@@ -57,8 +57,7 @@ export interface AppInfo {
 
 export async function fetchAppInfo(): Promise<AppInfo> {
   const res = await fetch(`${getApiBase()}/app-info`, { credentials: 'include' });
-  if (!res.ok) throw new Error('Failed to load app info');
-  return res.json();
+  return parseJsonResponse<AppInfo>(res);
 }
 
 /** Validate a candidate engine/URL before switching (no effect on the live store). */
@@ -73,7 +72,12 @@ export async function testDbConnection(
     credentials: 'include',
     body: JSON.stringify({ engine, url, path }),
   });
-  return res.json();
+  // Soft: UI shows error from body even when status is non-OK.
+  try {
+    return await parseJsonResponse<{ ok: boolean; error?: string }>(res);
+  } catch (err: unknown) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 /**

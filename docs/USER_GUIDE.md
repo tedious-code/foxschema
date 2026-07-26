@@ -166,6 +166,22 @@ Tips:
   statement preview. Secret **values are session-only** (not written to
   localStorage); after reload, re-enter them or capture again with `@set` / the
   grid. Note: substitution still embeds the value in the SQL sent to the server.
+  Secret variables **are available in code cells** as `vars.<name>.value` (for API
+  tokens, etc.). `-- @node` cells send those values to the FoxSchema server worker
+  under the same trust model as Node cells generally.
+
+  **App Secrets vault** — use the **Secrets** sidebar to **Fetch** a key via a
+  **named cloud credential** (Credentials → Cloud providers — e.g. “Prod AWS”),
+  or **manually** enter a secret key. Secrets are registered as **Variables** with
+  the secret flag — the UI shows **••••** only. On Fetch / Refresh / Run, FoxSchema
+  resolves cloud refs with that credential’s tokens (or the host default chain when
+  no credential is linked). Optional host packages:
+  `@aws-sdk/client-secrets-manager`, `@google-cloud/secret-manager`,
+  `@azure/keyvault-secrets` + `@azure/identity`.
+
+  Vault secrets also merge into `vars` / `${{name}}` for that Run. A session Variable
+  with the **same name wins** over a vault-only entry. Multi-user hosts should treat
+  vault + cloud credentials as high privilege.
 
   **Per connection** — scalars and lists can override the global value per saved
   destination (expand **Per connection…** in the sidebar). Multi-destination runs
@@ -183,15 +199,17 @@ Tips:
   a cell with `-- @js` / `-- @ts` … `-- @end` (runs in the browser; inner semicolons are fine)
   or `-- @node` / `-- @nodets` … `-- @end` (runs on the FoxSchema **Node** server). You can use
   local `let`/`const`/`var`, **functions**, loops (`for`, `while`, `for…of`), **`async`/`await`**,
-  and **`fetch`**. Allowlisted **imports** (bundled, no CDN): `lodash`, `lodash-es`, `date-fns` —
-  put `import` lines at the top of the cell. Prefer `//` comments inside cells (`--` is the JS
-  decrement operator). Cells are **isolated** (imports/functions do not carry to the next cell;
-  use `last` / `vars` to pass data). The cell receives `last` (previous statement’s grid) and
-  `vars` (non-secret Variables). **You must `return`** either `{ columns, rows }` or an array of
-  plain objects. Python is not available yet.
+  and **`fetch`** (headers, query string, JSON body). Allowlisted **imports** (bundled, no CDN):
+  `lodash`, `lodash-es`, `date-fns` — put `import` lines at the top of the cell. Prefer `//`
+  comments inside cells (`--` is the JS decrement operator). Cells are **isolated**
+  (imports/functions do not carry to the next cell; use `last` / `vars` to pass data).
+  The cell receives `last` (previous statement’s grid) and `vars` (Variables **including
+  secrets**, plus App Secrets vault entries for the Run). **You must `return`** either
+  `{ columns, rows }` or an array of plain objects. Python is not available yet.
 
   In the SQL Editor sidebar, **Bookmarks → Add samples** installs ready-made ★ Sample
-  scripts (also under `docs/examples/sql-editor/`) so you can reopen them later.
+  scripts (also under `docs/examples/sql-editor/`) — including API POST with
+  headers/query/body and Bearer from `vars.apiToken`.
 
   > **`-- @node` cells run code on the FoxSchema server.** They execute in a worker
   > thread with a scrubbed environment and a hard timeout, but the JS sandbox is a

@@ -343,59 +343,57 @@ mark.fox-search-hl {
   color: #fbbf24; /* amber-400 */
 }
 
-/* SQL Editor `${{variable}}` refs ? hover shows the value once via decoration. */
-.fox-sql-var-ref {
-  color: #34d399; /* emerald-400 */
-  font-weight: 600;
+/*
+ * SQL Editor `${{variable}}` refs — one tinted unit (overrides Monaco SQL token
+ * colors on `$` / braces so the whole ref reads clearly).
+ *   emerald = normal variable
+ *   amber   = secret
+ *   rose    = unknown / missing name
+ */
+.monaco-editor .fox-sql-var-ref {
+  font-weight: 700 !important;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+.monaco-editor .fox-sql-var-ref-ok {
+  color: #059669 !important; /* emerald-600 — light editor */
+  background-color: rgba(16, 185, 129, 0.16) !important;
+}
+.monaco-editor .fox-sql-var-ref-secret {
+  color: #b45309 !important; /* amber-700 — light editor */
+  background-color: rgba(245, 158, 11, 0.22) !important;
+}
+.monaco-editor .fox-sql-var-ref-missing {
+  color: #be123c !important; /* rose-700 — light editor */
+  background-color: rgba(244, 63, 94, 0.14) !important;
+  text-decoration: underline wavy rgba(244, 63, 94, 0.55);
+  text-underline-offset: 2px;
+}
+[data-theme='dark'] .monaco-editor .fox-sql-var-ref-ok {
+  color: #34d399 !important;
+  background-color: rgba(52, 211, 153, 0.18) !important;
+}
+[data-theme='dark'] .monaco-editor .fox-sql-var-ref-secret {
+  color: #fbbf24 !important;
+  background-color: rgba(251, 191, 36, 0.2) !important;
+}
+[data-theme='dark'] .monaco-editor .fox-sql-var-ref-missing {
+  color: #fb7185 !important;
+  background-color: rgba(251, 113, 133, 0.16) !important;
 }
 
 /*
- * Result DataGrid is a light "paper" surface. Soft-dark remaps --color-slate-50/100/200
- * toward gray, which made tables muddy with dark cell ink. Pin literal colors here.
+ * Result DataGrid is a light "paper" surface. Soft-dark remaps --color-slate-*
+ * toward gray, so the grid uses its own CSS variables (not theme slate tokens).
+ * DataGrid.tsx reads these via bg-[var(--fox-grid-*)] — keep vars here only.
  */
 .fox-sql-grid {
   --fox-grid-bg: #f8fafc;
   --fox-grid-bg-header: #e2e8f0;
   --fox-grid-bg-hover: #f1f5f9;
+  --fox-grid-bg-header-active: #cbd5e1;
   --fox-grid-border: #cbd5e1;
   --fox-grid-border-soft: #e2e8f0;
   --fox-grid-ink: #1e293b;
   --fox-grid-muted: #64748b;
-  background-color: var(--fox-grid-bg) !important;
-  border-color: var(--fox-grid-border) !important;
-  color: var(--fox-grid-ink);
-}
-.fox-sql-grid thead tr,
-.fox-sql-grid thead th {
-  background-color: var(--fox-grid-bg-header) !important;
-  border-color: var(--fox-grid-border) !important;
-  color: var(--fox-grid-ink) !important;
-}
-.fox-sql-grid thead th .text-slate-800 {
-  color: inherit;
-}
-.fox-sql-grid thead th .text-slate-500,
-.fox-sql-grid thead th .text-slate-400 {
-  color: var(--fox-grid-muted) !important;
-}
-.fox-sql-grid tbody {
-  background-color: var(--fox-grid-bg) !important;
-}
-.fox-sql-grid tbody tr {
-  border-color: var(--fox-grid-border-soft) !important;
-}
-.fox-sql-grid tbody tr:hover {
-  background-color: var(--fox-grid-bg-hover) !important;
-}
-.fox-sql-grid tbody td {
-  border-color: var(--fox-grid-border-soft) !important;
-}
-.fox-sql-grid tbody td.bg-slate-50,
-.fox-sql-grid tbody td[data-testid='sql-row-num'] {
-  background-color: var(--fox-grid-bg) !important;
-  color: var(--fox-grid-muted) !important;
-  border-color: var(--fox-grid-border-soft) !important;
-}
-.fox-sql-grid tbody tr:hover td[data-testid='sql-row-num'] {
-  background-color: var(--fox-grid-bg-hover) !important;
 }

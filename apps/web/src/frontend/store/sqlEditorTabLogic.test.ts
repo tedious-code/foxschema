@@ -6,6 +6,7 @@ import {
   createTab,
   effectiveConnectionIds,
   hydrateTabs,
+  moveTab,
   nextTabTitle,
   persistableTabs,
   statementsToRun,
@@ -20,6 +21,17 @@ describe('sqlEditorTabLogic', () => {
     expect(next.tabs).toHaveLength(2);
     expect(next.tabs[1]!.title).toBe('Query 2');
     expect(next.activeTabId).toBe(next.tabs[1]!.id);
+  });
+
+  it('moveTab reorders by index and no-ops out of range', () => {
+    const a = createTab({ title: 'A' });
+    const b = createTab({ title: 'B' });
+    const c = createTab({ title: 'C' });
+    expect(moveTab([a, b, c], 0, 2).map((t) => t.id)).toEqual([b.id, c.id, a.id]);
+    expect(moveTab([a, b, c], 2, 0).map((t) => t.id)).toEqual([c.id, a.id, b.id]);
+    expect(moveTab([a, b, c], 1, 1)).toEqual([a, b, c]);
+    expect(moveTab([a, b, c], -1, 1)).toEqual([a, b, c]);
+    expect(moveTab([a, b, c], 0, 9)).toEqual([a, b, c]);
   });
 
   it('nextTabTitle skips ahead of existing Query numbers', () => {
@@ -43,11 +55,9 @@ describe('sqlEditorTabLogic', () => {
   });
 
   it('checkedAfterSqlChange resets when statement count changes', () => {
-    expect(checkedAfterSqlChange('SELECT 1;', 'SELECT 1; SELECT 2;', [0])).toEqual([]);
-    expect(checkedAfterSqlChange('SELECT 1; SELECT 2;', 'SELECT 1; SELECT 2;', [0, 1])).toEqual([
-      0, 1,
-    ]);
-    expect(checkedAfterSqlChange('SELECT 1; SELECT 2;', 'SELECT 1; SELECT 2;', [0, 9])).toEqual([0]);
+    expect(checkedAfterSqlChange(1, 2, [0])).toEqual([]);
+    expect(checkedAfterSqlChange(2, 2, [0, 1])).toEqual([0, 1]);
+    expect(checkedAfterSqlChange(2, 2, [0, 9])).toEqual([0]);
   });
 
   it('statementsToRun uses first statement when none checked', () => {
@@ -81,19 +91,21 @@ SELECT 2 AS id;`;
     expect(toggleStatementCheck([0, 2], 0)).toEqual([2]);
   });
 
-  it('persistableTabs drops checkedStatements; hydrate restores empty checks', () => {
+  it('persistableTabs drops ephemeral fields; hydrate restores checks + statementCount', () => {
     const tab = createTab({
       title: 'Q',
-      sql: 'SELECT 1',
+      sql: 'SELECT 1; SELECT 2;',
       checkedStatements: [0, 1],
       layout: 'sideBySide',
     });
     const persisted = persistableTabs([tab]);
     expect(persisted[0]).not.toHaveProperty('checkedStatements');
+    expect(persisted[0]).not.toHaveProperty('statementCount');
     expect(persisted[0]!.layout).toBe('sideBySide');
 
     const hydrated = hydrateTabs(persisted as any);
     expect(hydrated[0]!.checkedStatements).toEqual([]);
+    expect(hydrated[0]!.statementCount).toBe(2);
     expect(hydrated[0]!.layout).toBe('sideBySide');
   });
 

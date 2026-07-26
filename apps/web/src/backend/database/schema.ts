@@ -108,6 +108,61 @@ const MIGRATIONS: Migration[] = [
       ];
     },
   },
+  {
+    id: 4,
+    name: 'app_secrets',
+    statements: (d) => {
+      const t = types(d);
+      return [
+        `CREATE TABLE IF NOT EXISTS app_secrets (
+           id ${t.id} PRIMARY KEY,
+           user_id ${t.id} NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+           name ${t.str} NOT NULL,
+           source ${t.str} NOT NULL,
+           encrypted_value ${t.big},
+           cloud_ref ${t.big},
+           updated_at ${t.ts} NOT NULL
+         )`,
+        `CREATE UNIQUE INDEX idx_app_secrets_user_name ON app_secrets(user_id, name)`,
+        `CREATE INDEX idx_app_secrets_user ON app_secrets(user_id)`,
+      ];
+    },
+  },
+  {
+    id: 5,
+    name: 'cloud_provider_credentials',
+    statements: (d) => {
+      const t = types(d);
+      return [
+        `CREATE TABLE IF NOT EXISTS cloud_provider_credentials (
+           id ${t.id} PRIMARY KEY,
+           user_id ${t.id} NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+           provider ${t.str} NOT NULL,
+           encrypted_config ${t.big} NOT NULL,
+           updated_at ${t.ts} NOT NULL
+         )`,
+        `CREATE UNIQUE INDEX idx_cloud_provider_creds_user ON cloud_provider_credentials(user_id, provider)`,
+      ];
+    },
+  },
+  {
+    id: 6,
+    name: 'cloud_provider_credentials_named',
+    statements: (d) => {
+      const t = types(d);
+      const dropIndex =
+        d === 'mysql'
+          ? 'DROP INDEX idx_cloud_provider_creds_user ON cloud_provider_credentials'
+          : 'DROP INDEX IF EXISTS idx_cloud_provider_creds_user';
+      return [
+        `ALTER TABLE cloud_provider_credentials ADD COLUMN name ${t.str}`,
+        // Backfill: one row per provider historically → use provider id as display name
+        `UPDATE cloud_provider_credentials SET name = provider WHERE name IS NULL OR name = ''`,
+        dropIndex,
+        `CREATE UNIQUE INDEX idx_cloud_provider_creds_user_name ON cloud_provider_credentials(user_id, name)`,
+      ];
+    },
+  },
 ];
 
 /**
@@ -134,7 +189,12 @@ export async function runMigrations(store: MetadataStore): Promise<void> {
       try {
         await store.exec(stmt);
       } catch (err) {
-        if (/^\s*CREATE INDEX/i.test(stmt)) continue; // tolerate re-create on retry
+        // Tolerate re-create on retry / partial apply (indexes + additive columns).
+        if (/^\s*CREATE INDEX/i.test(stmt)) continue;
+        if (/^\s*ALTER TABLE\b/i.test(stmt) && /duplicate column|already exists/i.test(String(err))) {
+          continue;
+        }
+        if (/^\s*DROP INDEX\b/i.test(stmt)) continue;
         throw err;
       }
     }

@@ -184,6 +184,238 @@ return [{
 -- @end
 `,
   },
+  {
+    id: 'sample-ts-async-fetch',
+    title: '★ Sample · TS async fetch',
+    sql: `-- @ts
+type HttpBinGet = { url?: string; origin?: string };
+
+const res = await fetch('https://httpbin.org/get');
+const json = (await res.json()) as HttpBinGet;
+return [{
+  status: res.status,
+  url: json.url ?? '',
+  origin: json.origin ?? '',
+  runtime: 'browser-ts',
+}];
+-- @end
+`,
+  },
+  {
+    id: 'sample-nodets-async-fetch',
+    title: '★ Sample · Node-TS async fetch',
+    sql: `-- @nodets
+type HttpBinGet = { url?: string; origin?: string };
+
+const res = await fetch('https://httpbin.org/get');
+const json = (await res.json()) as HttpBinGet;
+return [{
+  status: res.status,
+  url: json.url ?? '',
+  origin: json.origin ?? '',
+  runtime: 'node-ts',
+}];
+-- @end
+`,
+  },
+  {
+    id: 'sample-node-sql-transform',
+    title: '★ Sample · SQL → Node transform',
+    sql: `${DEMO_PEOPLE_SQL};
+
+-- @node
+import _ from 'lodash';
+
+return _.map(last.rows, (r) => ({
+  id: Number(r[0]),
+  email: String(r[1]),
+  domain: String(r[1]).split('@')[1] || '',
+  runtime: 'node',
+}));
+-- @end
+`,
+  },
+  {
+    id: 'sample-js-set-vars',
+    title: '★ Sample · @set + vars',
+    sql: `${DEMO_PEOPLE_SQL};
+
+-- @js
+-- @set people = table
+return last.rows.map((r) => ({ id: Number(r[0]), email: r[1] }));
+-- @end
+
+-- @js
+// Prefer vars.people after @set (last is the previous cell's grid too).
+const grid = vars.people;
+if (!grid) return [];
+return grid.rows.map((r) => ({
+  id: r[0],
+  email: r[1],
+  fromVars: true,
+}));
+-- @end
+`,
+  },
+  {
+    id: 'sample-js-promise-all',
+    title: '★ Sample · JS Promise.all fetch',
+    sql: `-- @js
+const urls = [
+  'https://httpbin.org/uuid',
+  'https://httpbin.org/uuid',
+];
+const results = await Promise.all(
+  urls.map(async (url) => {
+    const res = await fetch(url);
+    const json = await res.json();
+    return { status: res.status, uuid: json.uuid ?? '' };
+  })
+);
+return results;
+-- @end
+`,
+  },
+  {
+    id: 'sample-js-lodash-aggregate',
+    title: '★ Sample · JS lodash aggregate',
+    sql: `SELECT 'a' AS kind, 10 AS n
+UNION ALL
+SELECT 'a', 5
+UNION ALL
+SELECT 'b', 7
+UNION ALL
+SELECT 'b', 3;
+
+-- @js
+import { groupBy, sumBy } from 'lodash-es';
+
+const rows = last.rows.map((r) => ({
+  kind: String(r[0]),
+  n: Number(r[1]),
+}));
+const byKind = groupBy(rows, 'kind');
+return Object.keys(byKind).map((kind) => ({
+  kind,
+  count: byKind[kind].length,
+  total: sumBy(byKind[kind], 'n'),
+}));
+-- @end
+`,
+  },
+  {
+    id: 'sample-js-columns-rows',
+    title: '★ Sample · JS { columns, rows }',
+    sql: `${DEMO_PEOPLE_SQL};
+
+-- @js
+// Explicit grid shape (alternative to returning objects).
+return {
+  columns: ['id', 'email', 'upper'],
+  rows: last.rows.map((r) => [
+    Number(r[0]),
+    String(r[1]),
+    String(r[1]).toUpperCase(),
+  ]),
+};
+-- @end
+`,
+  },
+  {
+    id: 'sample-js-api-post',
+    title: '★ Sample · JS API POST (headers/query/body)',
+    sql: `-- @js
+// Query string, custom headers, and JSON body (httpbin echoes them back).
+const url = new URL('https://httpbin.org/post');
+url.searchParams.set('source', 'foxschema');
+url.searchParams.set('demo', '1');
+
+const res = await fetch(url.toString(), {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-FoxSchema-Client': 'sql-editor',
+    Authorization: 'Bearer demo-token',
+  },
+  body: JSON.stringify({
+    action: 'ping',
+    items: [1, 2, 3],
+  }),
+});
+const json = await res.json();
+return [{
+  status: res.status,
+  querySource: json.args?.source ?? '',
+  queryDemo: json.args?.demo ?? '',
+  authHeader: json.headers?.Authorization ?? json.headers?.authorization ?? '',
+  bodyAction: json.json?.action ?? '',
+  bodyItemCount: Array.isArray(json.json?.items) ? json.json.items.length : 0,
+}];
+-- @end
+`,
+  },
+  {
+    id: 'sample-js-api-bearer-secret',
+    title: '★ Sample · JS API Bearer from secret',
+    sql: `-- Add Variables → apiToken (check Secret) and set a session value, or create
+-- an App Secret named apiToken (Secrets sidebar). Then Run.
+
+-- @js
+const token = vars.apiToken?.value;
+if (token === undefined || token === null || String(token).length === 0) {
+  return [{
+    ok: false,
+    hint: 'Set secret variable or App Secret named apiToken, then re-run',
+  }];
+}
+
+const url = new URL('https://httpbin.org/post');
+url.searchParams.set('via', 'secret-var');
+
+const res = await fetch(url.toString(), {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    Authorization: 'Bearer ' + String(token),
+  },
+  body: JSON.stringify({ hello: 'foxschema' }),
+});
+const json = await res.json();
+return [{
+  status: res.status,
+  authEcho: json.headers?.Authorization ?? json.headers?.authorization ?? '',
+  bodyHello: json.json?.hello ?? '',
+}];
+-- @end
+`,
+  },
+  {
+    id: 'sample-node-api-post',
+    title: '★ Sample · Node API POST (headers/query/body)',
+    sql: `-- @node
+const url = new URL('https://httpbin.org/post');
+url.searchParams.set('source', 'foxschema-node');
+
+const res = await fetch(url.toString(), {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-FoxSchema-Runtime': 'node',
+    Authorization: 'Bearer demo-token',
+  },
+  body: JSON.stringify({ action: 'ping', runtime: 'node' }),
+});
+const json = await res.json();
+return [{
+  status: res.status,
+  querySource: json.args?.source ?? '',
+  authHeader: json.headers?.Authorization ?? json.headers?.authorization ?? '',
+  bodyAction: json.json?.action ?? '',
+  runtime: 'node',
+}];
+-- @end
+`,
+  },
 ];
 
 export function buildSampleBookmarks(now = Date.now()): Array<{

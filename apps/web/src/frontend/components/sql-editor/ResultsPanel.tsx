@@ -6,6 +6,7 @@ import { DataGrid, PANE_DEFAULT_H_PX, PANE_DEFAULT_PX, PANE_MIN_H_PX, PANE_MIN_P
 import type { SqlStatementResult } from '../../api/sqlApi';
 import { detectCodeCell } from '../../lib/codeCellRunner';
 import { CODE_CELL_KIND_LABEL } from '../../lib/sql-splitter';
+import { SQL_ICON_STROKE } from './sqlIconStyle';
 
 interface Props {
   runs: CredentialRun[];
@@ -219,7 +220,7 @@ const ResizablePaneRow: React.FC<{
                 )}
                 {item.kind === 'running' && (
                   <div className="flex items-center gap-2 text-xs text-slate-500 h-full px-2">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> {item.label}
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" strokeWidth={SQL_ICON_STROKE} /> {item.label}
                   </div>
                 )}
                 {item.kind === 'error' && (
@@ -240,13 +241,13 @@ const ResizablePaneRow: React.FC<{
                           onClick={() => onRefresh(item.connectionId)}
                           className="flex items-center gap-0.5 text-[10px] font-semibold text-slate-500 hover:text-cyan-400 transition shrink-0 disabled:opacity-40"
                         >
-                          <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} />{' '}
+                          <RefreshCw className={`w-3 h-3 text-cyan-400 ${refreshing ? 'animate-spin' : ''}`} strokeWidth={SQL_ICON_STROKE} />{' '}
                           Refresh
                         </button>
                       )}
                     </div>
                     <div className="flex items-start gap-2 text-xs text-rose-400 bg-rose-950/40 border border-rose-500/20 rounded-md px-3 py-2 flex-1 overflow-auto">
-                      <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                      <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" strokeWidth={SQL_ICON_STROKE} />
                       <span className="break-all">{item.error}</span>
                     </div>
                   </div>
@@ -261,7 +262,7 @@ const ResizablePaneRow: React.FC<{
                 onMouseDown={(e) => startPaneResize(i, e)}
                 className="w-2 shrink-0 cursor-col-resize self-stretch mx-0.5 rounded-sm bg-slate-800 hover:bg-cyan-600/70 active:bg-cyan-500 flex items-center justify-center group"
               >
-                <GripVertical className="w-3 h-3 text-slate-500 group-hover:text-cyan-200 pointer-events-none" />
+                <GripVertical className="w-3 h-3 text-cyan-400 group-hover:text-cyan-200 pointer-events-none" strokeWidth={SQL_ICON_STROKE} />
               </div>
             </React.Fragment>
           );
@@ -298,7 +299,7 @@ export const ResultsPanel: React.FC<Props> = ({
   if (runs.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center text-slate-600 text-xs gap-2">
-        <Database className="w-4 h-4" /> Run a query to see results here — one row per checked credential.
+        <Database className="w-4 h-4 text-sky-400" strokeWidth={SQL_ICON_STROKE} /> Run a query to see results here — one row per checked credential.
       </div>
     );
   }
@@ -312,7 +313,7 @@ export const ResultsPanel: React.FC<Props> = ({
       >
         {warnings.map((w, i) => (
           <div key={i} className="flex items-start gap-2">
-            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-400" />
+            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-400" strokeWidth={SQL_ICON_STROKE} />
             <span className="break-all">{w}</span>
           </div>
         ))}
@@ -401,10 +402,10 @@ export const ResultsPanel: React.FC<Props> = ({
         return (
           <section key={run.connectionId} className="flex flex-col gap-2 min-w-0">
             <header className="flex items-center gap-2 text-xs font-bold text-slate-200 shrink-0">
-              <Database className="w-3.5 h-3.5 text-slate-500" />
+              <Database className="w-3.5 h-3.5 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
               {run.name}
               <span className="text-[10px] font-semibold text-slate-500 uppercase">[{run.dialect}]</span>
-              {run.status === 'running' && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-500" />}
+              {run.status === 'running' && <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" strokeWidth={SQL_ICON_STROKE} />}
               {onRefresh && run.status !== 'running' && (
                 <button
                   type="button"
@@ -414,14 +415,14 @@ export const ResultsPanel: React.FC<Props> = ({
                   onClick={() => onRefresh(run.connectionId)}
                   className="ml-auto flex items-center gap-0.5 text-[10px] font-semibold text-slate-500 hover:text-cyan-400 transition disabled:opacity-40"
                 >
-                  <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} /> Refresh
+                  <RefreshCw className={`w-3 h-3 text-cyan-400 ${refreshing ? 'animate-spin' : ''}`} strokeWidth={SQL_ICON_STROKE} /> Refresh
                 </button>
               )}
             </header>
 
             {run.status === 'error' && (
               <div className="flex items-start gap-2 text-xs text-rose-400 bg-rose-950/40 border border-rose-500/20 rounded-md px-3 py-2 max-w-2xl">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" strokeWidth={SQL_ICON_STROKE} />
                 <span className="break-all">{run.error}</span>
               </div>
             )}

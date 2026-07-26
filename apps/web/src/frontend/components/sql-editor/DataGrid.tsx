@@ -4,6 +4,7 @@ import type { SqlStatementResult } from '../../api/sqlApi';
 import { columnToListValues, rowsForTableVariable } from '../../lib/sql-variables';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
 import { downloadCsv } from '../../utils/exportCsv';
+import { SQL_ICON_STROKE } from './sqlIconStyle';
 
 const CELL_MAX = 200;
 const COL_MIN_PX = 96;
@@ -193,7 +194,7 @@ function GridToolbar({
           onClick={onRefresh}
           className="flex items-center gap-0.5 text-[10px] font-semibold text-slate-500 hover:text-cyan-400 transition shrink-0 disabled:opacity-40"
         >
-          <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} /> Refresh
+          <RefreshCw className={`w-3 h-3 text-cyan-400 ${refreshing ? 'animate-spin' : ''}`} strokeWidth={SQL_ICON_STROKE} /> Refresh
         </button>
       )}
       {onExport && (
@@ -203,7 +204,7 @@ function GridToolbar({
           onClick={onExport}
           className="flex items-center gap-0.5 text-[10px] font-semibold text-slate-500 hover:text-cyan-400 transition shrink-0"
         >
-          <Download className="w-3 h-3" /> CSV
+          <Download className="w-3 h-3 text-sky-400" strokeWidth={SQL_ICON_STROKE} /> CSV
         </button>
       )}
     </div>
@@ -441,7 +442,7 @@ export const DataGrid: React.FC<{
       <div className="w-full min-w-0 flex flex-col">
         <GridToolbar label={label} refreshing={refreshing} onRefresh={onRefresh} />
         <div className="flex items-start gap-2 text-xs text-rose-400 bg-rose-950/40 border border-rose-500/20 rounded-md px-3 py-2">
-          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" strokeWidth={SQL_ICON_STROKE} />
           <span className="break-all">{result.error}</span>
         </div>
       </div>
@@ -478,7 +479,7 @@ export const DataGrid: React.FC<{
       <div
         ref={scrollRef}
         data-testid="sql-data-grid"
-        className="fox-sql-grid flex-1 min-h-0 border border-slate-300 rounded-lg shadow-sm bg-slate-50"
+        className="fox-sql-grid flex-1 min-h-0 border border-[var(--fox-grid-border)] rounded-lg shadow-sm bg-[var(--fox-grid-bg)] text-[var(--fox-grid-ink)]"
         style={{ overflowX: 'auto', overflowY: 'auto' }}
         onScroll={onScroll}
         onContextMenu={(e) => {
@@ -489,7 +490,7 @@ export const DataGrid: React.FC<{
         }}
       >
         {sourceColumns.length === 0 ? (
-          <div className="px-3 py-2 text-xs text-[#64748b] italic">
+          <div className="px-3 py-2 text-xs text-[var(--fox-grid-muted)] italic">
             0 rows (column names unavailable for empty results)
           </div>
         ) : (
@@ -510,9 +511,9 @@ export const DataGrid: React.FC<{
               ))}
             </colgroup>
             <thead className="sticky top-0 z-10">
-              <tr className="bg-slate-200/90 border-b border-slate-300 text-slate-800">
+              <tr className="bg-[var(--fox-grid-bg-header)] border-b border-[var(--fox-grid-border)] text-[var(--fox-grid-ink)]">
                 <th
-                  className="sticky left-0 z-20 px-1.5 py-1.5 text-center font-bold text-slate-500 bg-slate-200/90 border-r border-slate-300 select-none"
+                  className="sticky left-0 z-20 px-1.5 py-1.5 text-center font-bold text-[var(--fox-grid-muted)] bg-[var(--fox-grid-bg-header)] border-r border-[var(--fox-grid-border)] select-none"
                   style={{ width: ROW_NUM_PX, minWidth: ROW_NUM_PX }}
                   title="Row number — right-click to save result as table"
                   aria-label="Row number"
@@ -582,14 +583,14 @@ export const DataGrid: React.FC<{
                         setDragOver(null);
                       }}
                       style={{ width: w, minWidth: COL_MIN_PX, maxWidth: w }}
-                      className={`relative px-2 py-1.5 font-bold tracking-wide text-left cursor-grab active:cursor-grabbing select-none overflow-hidden ${
+                      className={`relative px-2 py-1.5 font-bold tracking-wide text-left cursor-grab active:cursor-grabbing select-none overflow-hidden bg-[var(--fox-grid-bg-header)] ${
                         dragFrom === visualIdx ? 'opacity-50' : ''
-                      } ${isOver ? 'bg-slate-300 ring-2 ring-inset ring-cyan-500/60' : ''}`}
+                      } ${isOver ? 'bg-[var(--fox-grid-bg-header-active)] ring-2 ring-inset ring-cyan-500/60' : ''}`}
                     >
                       <span className="inline-flex items-center gap-1 max-w-full pr-1">
-                        <GripVertical className="w-3 h-3 text-slate-400 shrink-0" aria-hidden />
+                        <GripVertical className="w-3 h-3 text-cyan-500 shrink-0" strokeWidth={SQL_ICON_STROKE} aria-hidden />
                         <span className="min-w-0 flex flex-col leading-tight">
-                          <span className="truncate text-slate-800">{name}</span>
+                          <span className="truncate text-[var(--fox-grid-ink)]">{name}</span>
                           <span
                             className={`text-[9px] font-semibold uppercase tracking-wider ${KIND_HEADER_CLASS[kind]}`}
                           >
@@ -616,7 +617,7 @@ export const DataGrid: React.FC<{
                 })}
               </tr>
             </thead>
-            <tbody className="font-mono bg-slate-50">
+            <tbody className="font-mono bg-[var(--fox-grid-bg)]">
               {padTop > 0 && (
                 <tr aria-hidden style={{ height: padTop }}>
                   <td colSpan={colCount} className="p-0 border-0" />
@@ -629,11 +630,11 @@ export const DataGrid: React.FC<{
                 return (
                   <tr
                     key={i}
-                    className="hover:bg-slate-100/90 group border-b border-slate-200"
+                    className="hover:bg-[var(--fox-grid-bg-hover)] group border-b border-[var(--fox-grid-border-soft)]"
                     style={{ height: ROW_H_PX }}
                   >
                     <td
-                      className="sticky left-0 z-[5] px-1.5 text-center text-[10px] tabular-nums text-slate-500 bg-slate-50 group-hover:bg-slate-100/90 border-r border-slate-200 select-none"
+                      className="sticky left-0 z-[5] px-1.5 text-center text-[10px] tabular-nums text-[var(--fox-grid-muted)] bg-[var(--fox-grid-bg)] group-hover:bg-[var(--fox-grid-bg-hover)] border-r border-[var(--fox-grid-border-soft)] select-none"
                       style={{ width: ROW_NUM_PX, minWidth: ROW_NUM_PX }}
                       data-testid="sql-row-num"
                     >

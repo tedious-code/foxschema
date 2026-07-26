@@ -1,4 +1,4 @@
-import { getApiBase } from './apiBase';
+import { getApiBase, parseJsonResponse } from './apiBase';
 
 export type MigrationRunStatus = 'RUNNING' | 'SUCCESS' | 'PARTIAL_SUCCESS' | 'FAILED' | 'ROLLED_BACK';
 
@@ -35,9 +35,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { 'Content-Type': 'application/json' },
     ...init,
   });
-  const data = (await res.json().catch(() => ({}))) as T & { error?: string };
-  if (!res.ok) throw new Error((data as { error?: string }).error || res.statusText);
-  return data;
+  return parseJsonResponse<T>(res, { allowEmpty: true });
 }
 
 export async function apiListMigrations(): Promise<MigrationRunSummary[]> {

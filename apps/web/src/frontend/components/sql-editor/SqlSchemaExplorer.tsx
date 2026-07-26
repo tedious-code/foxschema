@@ -6,6 +6,7 @@ import { effectiveConnectionIds } from '../../store/sqlEditorTabLogic';
 import { TYPE_META } from '../SchemaTreePanel';
 import { filterCallParameters, insertAtCursor } from './sqlEditorBridge';
 import type { DbObjectType, TableSchema } from '../../lib/types';
+import { SQL_ICON_STROKE } from './sqlIconStyle';
 
 /** Categories shown in the SQL Editor schema browser (order = display order). */
 const EXPLORER_GROUPS: { type: DbObjectType; title: string }[] = [
@@ -104,9 +105,9 @@ export const SqlSchemaExplorer: React.FC = () => {
               className="p-1.5 rounded text-slate-500 hover:text-slate-200 hover:bg-slate-800/70 disabled:opacity-40 transition"
             >
               {entry?.status === 'loading' ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" strokeWidth={SQL_ICON_STROKE} />
               ) : (
-                <RefreshCw className="w-3.5 h-3.5" />
+                <RefreshCw className="w-3.5 h-3.5 text-cyan-400" strokeWidth={SQL_ICON_STROKE} />
               )}
             </button>
           </div>
@@ -116,7 +117,7 @@ export const SqlSchemaExplorer: React.FC = () => {
           )}
           {entry?.status === 'loading' && totalCount === 0 && (
             <p className="text-[12px] font-medium text-slate-500 flex items-center gap-1.5">
-              <Loader2 className="w-3 h-3 animate-spin" /> Loading…
+              <Loader2 className="w-3 h-3 animate-spin text-cyan-400" strokeWidth={SQL_ICON_STROKE} /> Loading…
             </p>
           )}
           {entry?.status === 'ready' && totalCount === 0 && (
@@ -141,9 +142,9 @@ export const SqlSchemaExplorer: React.FC = () => {
                     className="w-full flex items-center gap-1.5 px-0.5 py-1 text-left sticky top-0 bg-slate-900 z-[1]"
                   >
                     {open ? (
-                      <ChevronDown className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                      <ChevronDown className="w-3.5 h-3.5 text-emerald-400 shrink-0" strokeWidth={SQL_ICON_STROKE} />
                     ) : (
-                      <ChevronRight className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                      <ChevronRight className="w-3.5 h-3.5 text-emerald-400 shrink-0" strokeWidth={SQL_ICON_STROKE} />
                     )}
                     <span className="shrink-0 scale-90">{meta.icon}</span>
                     <span className={`text-[11px] font-bold uppercase tracking-wider ${meta.color}`}>
@@ -215,7 +216,11 @@ const ObjectNode: React.FC<{
           className="p-0.5 text-slate-500 hover:text-slate-300"
           aria-label={open ? 'Collapse' : 'Expand'}
         >
-          {open ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+          {open ? (
+            <ChevronDown className="w-3.5 h-3.5 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
+          ) : (
+            <ChevronRight className="w-3.5 h-3.5 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
+          )}
         </button>
         <button
           type="button"

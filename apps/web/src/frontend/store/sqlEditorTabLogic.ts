@@ -13,6 +13,11 @@ export interface SqlTab {
    * statement only" (agreed default). Not persisted.
    */
   checkedStatements: number[];
+  /**
+   * Cached `splitSqlStatements(sql).length` so setSql can update checks
+   * without a second parse of the previous buffer. Not persisted.
+   */
+  statementCount: number;
   layout: ResultsLayout;
   /** When set, renaming the tab also renames this bookmark (and vice versa). */
   bookmarkId?: string;
@@ -25,12 +30,17 @@ export function newTabId(): string {
 }
 
 export function createTab(partial?: Partial<SqlTab>): SqlTab {
+  const sql = partial?.sql ?? '';
   return {
     id: partial?.id ?? newTabId(),
     title: partial?.title ?? 'Query 1',
-    sql: partial?.sql ?? '',
+    sql,
     selectedConnectionIds: partial?.selectedConnectionIds ?? [],
     checkedStatements: partial?.checkedStatements ?? [],
+    statementCount:
+      typeof partial?.statementCount === 'number'
+        ? partial.statementCount
+        : splitSqlStatements(sql).length,
     layout: partial?.layout ?? 'byCredential',
     bookmarkId: partial?.bookmarkId,
   };
@@ -49,6 +59,23 @@ export function nextTabTitle(tabs: SqlTab[]): string {
 export function addTab(tabs: SqlTab[]): { tabs: SqlTab[]; activeTabId: string } {
   const tab = createTab({ title: nextTabTitle(tabs) });
   return { tabs: [...tabs, tab], activeTabId: tab.id };
+}
+
+/** Move a tab from one index to another (no-op when indices are equal/out of range). */
+export function moveTab(tabs: SqlTab[], fromIndex: number, toIndex: number): SqlTab[] {
+  if (
+    fromIndex === toIndex ||
+    fromIndex < 0 ||
+    toIndex < 0 ||
+    fromIndex >= tabs.length ||
+    toIndex >= tabs.length
+  ) {
+    return tabs;
+  }
+  const next = [...tabs];
+  const [moved] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, moved!);
+  return next;
 }
 
 /**
@@ -75,14 +102,13 @@ export function closeTab(
 /**
  * When the statement count changes, clear checks so we don't keep stale
  * indices. Same count → keep checks, pruning any out-of-range index.
+ * Callers pass counts from a single split (avoid re-parsing SQL here).
  */
 export function checkedAfterSqlChange(
-  prevSql: string,
-  nextSql: string,
+  prevCount: number,
+  nextCount: number,
   prevChecked: number[]
 ): number[] {
-  const prevCount = splitSqlStatements(prevSql).length;
-  const nextCount = splitSqlStatements(nextSql).length;
   if (prevCount !== nextCount) return [];
   return prevChecked.filter((i) => i >= 0 && i < nextCount);
 }
@@ -132,8 +158,8 @@ export function effectiveConnectionIds(
   return shareDestinations ? sharedConnectionIds : tab.selectedConnectionIds;
 }
 
-/** Persistable tab slice (no checkedStatements / results). */
-export function persistableTabs(tabs: SqlTab[]): Array<Omit<SqlTab, 'checkedStatements'>> {
+/** Persistable tab slice (no checkedStatements / statementCount / results). */
+export function persistableTabs(tabs: SqlTab[]): Array<Omit<SqlTab, 'checkedStatements' | 'statementCount'>> {
   return tabs.map(({ id, title, sql, selectedConnectionIds, layout, bookmarkId }) => ({
     id,
     title,
@@ -144,7 +170,7 @@ export function persistableTabs(tabs: SqlTab[]): Array<Omit<SqlTab, 'checkedStat
   }));
 }
 
-/** Rehydrate persisted tabs — restore empty checkedStatements. */
+/** Rehydrate persisted tabs — restore empty checks + recompute statementCount. */
 export function hydrateTabs(
   raw: Array<Partial<SqlTab> & Pick<SqlTab, 'id'>>
 ): SqlTab[] {

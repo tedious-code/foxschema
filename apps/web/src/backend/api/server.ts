@@ -8,7 +8,9 @@ import { createApiRoutes } from './routes';
 import { createAuthRoutes, authGuard, localUserGuard } from './auth.routes';
 import { createSsoRoutes } from './sso.routes';
 import { createConnectionStoreRoutes } from './connection-store.routes';
+import { createAppSecretsRoutes } from './app-secrets.routes';
 import { createUserRoutes } from './user.routes';
+import { AppSecretsStore } from '../modules/app-secrets.module';
 
 // Default to single-user (no auth). Set LOCAL_SINGLE_USER=false + AUTH_REQUIRED=true
 // in the environment to enable multi-user auth for self-hosted deployments.
@@ -72,6 +74,7 @@ export function createApp() {
   // is off during the transition.
   const connectionStore = new ConnectionStore();
   app.use('/api/connections', userGuard, createConnectionStoreRoutes(connectionStore));
+  app.use('/api/app-secrets', userGuard, createAppSecretsRoutes(new AppSecretsStore()));
   app.use('/api/user', userGuard, createUserRoutes(new UserModule()));
 
   // Everything else requires a session once AUTH_REQUIRED is enabled. It stays

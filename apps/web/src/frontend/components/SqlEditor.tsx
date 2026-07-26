@@ -1,19 +1,7 @@
 import React, { useRef, useEffect, useCallback, useMemo } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
-import { MONACO_THEME, MONACO_THEME_LIGHT, MONACO_DIFF_THEME, MONACO_DIFF_THEME_LIGHT, monacoLanguage } from '../monaco-setup';
+import { MONACO_THEME, MONACO_THEME_LIGHT, MONACO_DIFF_THEME, MONACO_DIFF_THEME_LIGHT, monacoLanguage, MONACO_EDITOR_BASE_OPTIONS } from '../monaco-setup';
 import { MONACO_FONT_PX, useUiStore } from '../store/uiStore';
-
-const BASE_OPTIONS = {
-  minimap: { enabled: false },
-  scrollBeyondLastLine: false,
-  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-  lineNumbersMinChars: 3,
-  renderLineHighlight: 'none' as const,
-  scrollbar: { alwaysConsumeMouseWheel: false },
-  padding: { top: 8, bottom: 8 },
-  // Watch the container size — without this the editor renders blank inside flex layouts
-  automaticLayout: true,
-};
 
 /**
  * Highlight every (case-insensitive) occurrence of `term` in a Monaco editor,
@@ -51,7 +39,8 @@ export const SqlEditor: React.FC<SqlViewerProps> = ({ value, dialect, editable =
   const monacoFontSize = MONACO_FONT_PX[fontSizePref] ?? MONACO_FONT_PX.md;
   const options = useMemo(
     () => ({
-      ...BASE_OPTIONS,
+      ...MONACO_EDITOR_BASE_OPTIONS,
+      renderLineHighlight: 'none' as const,
       fontSize: monacoFontSize,
       readOnly: !editable,
       domReadOnly: !editable,
@@ -146,7 +135,8 @@ export const SqlDiffEditor: React.FC<SqlDiffProps> = ({ original, modified, dial
         apply();
       }}
       options={{
-        ...BASE_OPTIONS,
+        ...MONACO_EDITOR_BASE_OPTIONS,
+        renderLineHighlight: 'none' as const,
         fontSize: monacoFontSize,
         readOnly: true,
         renderSideBySide: !inline,

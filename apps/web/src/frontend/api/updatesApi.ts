@@ -1,4 +1,4 @@
-import { getApiBase } from './apiBase';
+import { getApiBase, parseJsonResponseOrNull } from './apiBase';
 
 export interface UpdateInfo {
   current: string;
@@ -13,8 +13,7 @@ export interface UpdateInfo {
 export async function checkForUpdates(): Promise<UpdateInfo | null> {
   try {
     const res = await fetch(`${getApiBase()}/updates/check`, { credentials: 'include' });
-    if (!res.ok) return null;
-    return (await res.json()) as UpdateInfo;
+    return await parseJsonResponseOrNull<UpdateInfo>(res);
   } catch {
     return null;
   }

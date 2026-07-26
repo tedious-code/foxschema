@@ -26,6 +26,14 @@ const EditorFallback: React.FC = () => (
 
 const ddlGenerator = new SqlGeneratorModule();
 
+/** Skip synchronous format on huge DDL (same gate as Migration SQL tab). */
+const FORMAT_SQL_MAX = 50_000;
+
+function formatSqlBounded(sql: string, dialect: string): string {
+  if (!sql || sql.length > FORMAT_SQL_MAX) return sql;
+  return formatSql(sql, dialect);
+}
+
 // Persisted "skip the deploy confirmation" preference.
 const SKIP_DEPLOY_CONFIRM_KEY = 'foxschema-skip-deploy-confirm';
 
@@ -249,9 +257,62 @@ export const ObjectDetailPanel: React.FC = () => {
   // NOTE: must stay above any early return — hooks run unconditionally every render.
   const formattedSql = useMemo(() => {
     if (activeTab !== 'SQL' || !generatedSql) return generatedSql ?? '';
-    if (generatedSql.length > 50000) return generatedSql;
-    return formatSql(generatedSql, targetConfig.dialect);
+    return formatSqlBounded(generatedSql, targetConfig.dialect);
   }, [activeTab, generatedSql, targetConfig.dialect]);
+
+  // Blueprint definition viewer — memoize so re-renders (search, checkboxes) don't reformat.
+  const blueprintDefinitionSql = useMemo(() => {
+    if (!selectedTable || selectedTable.objectType === 'TABLE') return '';
+    const src = selectedTable.sourceTable?.definition;
+    const tgt = selectedTable.targetTable?.definition;
+    if (src) return formatSqlBounded(src, sourceConfig.dialect);
+    if (tgt) return formatSqlBounded(tgt ?? '', targetConfig.dialect);
+    return '';
+  }, [selectedTable, sourceConfig.dialect, targetConfig.dialect]);
+
+  // Non-table DDL Diff sides — only when that tab is open.
+  const ddlDiffSides = useMemo(() => {
+    if (!selectedTable || selectedTable.objectType === 'TABLE' || activeTab !== 'DDL_DIFF') {
+      return { sourceDdl: '', targetDdl: '' };
+    }
+    const stripSchemas = (ddl: string) => {
+      const schemas = [sourceConfig.schema, targetConfig.schema].filter(Boolean);
+      let out = ddl;
+      for (const s of schemas) {
+        out = out.replace(new RegExp(`\\b${s}\\.`, 'gi'), '');
+        out = out.replace(new RegExp(`"${s}"\\s*\\.\\s*`, 'gi'), '');
+      }
+      return out;
+    };
+    const rawSource = selectedTable.sourceTable
+      ? ddlGenerator.generateObjectDdl(selectedTable.sourceTable, sourceConfig.dialect)
+      : '';
+    const rawTarget = selectedTable.targetTable
+      ? ddlGenerator.generateObjectDdl(selectedTable.targetTable, targetConfig.dialect)
+      : '';
+    return {
+      sourceDdl: stripSchemas(formatSqlBounded(rawSource, sourceConfig.dialect)),
+      targetDdl: stripSchemas(formatSqlBounded(rawTarget, targetConfig.dialect)),
+    };
+  }, [selectedTable, activeTab, sourceConfig.dialect, sourceConfig.schema, targetConfig.dialect, targetConfig.schema]);
+
+  // Expanded trigger DDL diffs — format only when a row is open.
+  const formattedTriggerDdls = useMemo(() => {
+    if (!selectedTable) return {} as Record<string, { oldDdl: string; newDdl: string }>;
+    const out: Record<string, { oldDdl: string; newDdl: string }> = {};
+    for (const trg of selectedTable.triggerDiffs ?? []) {
+      if (!expandedTriggers[trg.name]) continue;
+      out[trg.name] = {
+        oldDdl: trg.target?.definition
+          ? formatSqlBounded(trg.target.definition, targetConfig.dialect).trim()
+          : '',
+        newDdl: trg.source?.definition
+          ? formatSqlBounded(trg.source.definition, sourceConfig.dialect).trim()
+          : '',
+      };
+    }
+    return out;
+  }, [selectedTable, expandedTriggers, sourceConfig.dialect, targetConfig.dialect]);
 
   if (!selectedTable) {
     return (
@@ -303,40 +364,26 @@ export const ObjectDetailPanel: React.FC = () => {
   const renderDdlDiff = () => {
     // Catalog definitions are often a single unreadable line — format non-table
     // DDL on both sides so the diff compares structure, not whitespace.
-    // Strip schema qualifiers from both sides before diffing: Postgres stores
-    // view/function bodies with schema-prefixed table names (APP.ORDERS) while
-    // the source may not, producing false-positive diff lines that aren't real
-    // structural changes. Schema names belong in the Migration SQL tab, not here.
-    const stripSchemas = (ddl: string) => {
-      const schemas = [sourceConfig.schema, targetConfig.schema].filter(Boolean);
-      let out = ddl;
-      for (const s of schemas) {
-        // Match schema. or "schema". — word-boundary before, dot after
-        out = out.replace(new RegExp(`\\b${s}\\.`, 'gi'), '');
-        out = out.replace(new RegExp(`"${s}"\\s*\\.\\s*`, 'gi'), '');
-      }
-      return out;
-    };
-
+    // Schema qualifiers are stripped in `ddlDiffSides` (false positives across dialects).
     const isTable = selectedTable.objectType === 'TABLE';
 
     // Tables: status-driven colouring from columnDiffs (aligns by column name, colours
     // by what the migration DOES — see buildTableDdlDiffLines). Everything else
     // (views/functions/triggers/sequences) keeps the Monaco text diff.
+    const stripSchemas = (ddl: string) => {
+      const schemas = [sourceConfig.schema, targetConfig.schema].filter(Boolean);
+      let out = ddl;
+      for (const s of schemas) {
+        out = out.replace(new RegExp(`\\b${s}\\.`, 'gi'), '');
+        out = out.replace(new RegExp(`"${s}"\\s*\\.\\s*`, 'gi'), '');
+      }
+      return out;
+    };
     const tableLines = isTable
       ? buildTableDdlDiffLines(selectedTable, sourceConfig.dialect, targetConfig.dialect, stripSchemas)
       : [];
     const q = searchTerm.trim().toLowerCase();
-
-    const rawSource = !isTable && selectedTable.sourceTable
-      ? ddlGenerator.generateObjectDdl(selectedTable.sourceTable, sourceConfig.dialect)
-      : '';
-    const rawTarget = !isTable && selectedTable.targetTable
-      ? ddlGenerator.generateObjectDdl(selectedTable.targetTable, targetConfig.dialect)
-      : '';
-    const sourceDdl = stripSchemas(formatSql(rawSource, sourceConfig.dialect));
-    const targetDdl = stripSchemas(formatSql(rawTarget, targetConfig.dialect));
-
+    const { sourceDdl, targetDdl } = ddlDiffSides;
     return (
       <div className="flex-1 flex flex-col min-h-0 bg-slate-950/90 border-t border-slate-850">
         {/* Diff header */}
@@ -973,11 +1020,7 @@ export const ObjectDetailPanel: React.FC = () => {
                 <SqlEditor
                   highlight={searchTerm}
                   dialect={selectedTable.sourceTable?.definition ? sourceConfig.dialect : targetConfig.dialect}
-                  value={
-                    selectedTable.sourceTable?.definition
-                      ? formatSql(selectedTable.sourceTable.definition, sourceConfig.dialect)
-                      : formatSql(selectedTable.targetTable?.definition ?? '', targetConfig.dialect)
-                  }
+                  value={blueprintDefinitionSql}
                 />
               </Suspense>
             </div>
@@ -1136,8 +1179,7 @@ export const ObjectDetailPanel: React.FC = () => {
                         info ? `${info.timing ?? ''} ${info.event ?? ''}`.trim() || 'present' : null;
 
                       const isExpanded = !!expandedTriggers[trg.name];
-                      const oldDdl = trg.target?.definition ? formatSql(trg.target.definition, targetConfig.dialect).trim() : '';
-                      const newDdl = trg.source?.definition ? formatSql(trg.source.definition, sourceConfig.dialect).trim() : '';
+                      const { oldDdl = '', newDdl = '' } = formattedTriggerDdls[trg.name] ?? {};
                       // A one-sided trigger diffs against '' — drop the resulting blank line
                       const ddlLines = isExpanded
                         ? diffLines(oldDdl, newDdl, { ignoreCase }).filter((l) => !(l.text === '' && (oldDdl === '' || newDdl === '')))
@@ -1324,7 +1366,7 @@ export const ObjectDetailPanel: React.FC = () => {
                 ? 'bg-emerald-950/40 text-emerald-400 border border-emerald-500/25 cursor-default'
                 : executeBlockReason
                 ? 'bg-slate-800 text-slate-500 border border-slate-700/50 cursor-not-allowed'
-                : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 on-accent-fg cursor-pointer shadow-emerald-500/5'
+                : 'accent-grad on-accent-fg cursor-pointer shadow-emerald-500/5'
             }`}
           >
             {isMigrating ? (

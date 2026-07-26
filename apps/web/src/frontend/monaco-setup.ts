@@ -7,6 +7,7 @@ import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution';
 import 'monaco-editor/esm/vs/basic-languages/pgsql/pgsql.contribution';
 import 'monaco-editor/esm/vs/basic-languages/mysql/mysql.contribution';
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
+import { FOXSCHEMA_SQL_LANG } from './lib/foxschemaSqlLanguage';
 
 // SQL highlighting runs on the main thread (basic-languages); only the core
 // editor worker is needed for edit operations, diffing, etc.
@@ -22,9 +23,9 @@ loader.config({ monaco });
  * green = brand-new object, amber = an existing object's definition changed,
  * red = the object is being dropped. */
 const DIFF_HUE: Record<'ADDED' | 'MODIFIED' | 'REMOVED', string> = {
-  ADDED: '#22c55e',    // green-500
+  ADDED: '#22c55e', // green-500
   MODIFIED: '#f59e0b', // amber-500
-  REMOVED: '#ef4444',  // red-500
+  REMOVED: '#ef4444', // red-500
 };
 
 function diffColors(hex: string, dark: boolean) {
@@ -54,6 +55,31 @@ const BASE_LIGHT_COLORS = {
   'editorGutter.background': '#ffffff',
 };
 
+/** Shared token colors so SQL keywords / strings / numbers read clearly. */
+const TOKEN_RULES_DARK: monaco.editor.ITokenThemeRule[] = [
+  { token: 'comment', foreground: '64748b' },
+  { token: 'comment.fence', foreground: '94a3b8', fontStyle: 'bold' },
+  { token: 'keyword', foreground: '22d3ee' },
+  { token: 'operator', foreground: '94a3b8' },
+  { token: 'number', foreground: 'fbbf24' },
+  { token: 'string', foreground: '34d399' },
+  { token: 'predefined', foreground: 'a78bfa' },
+  { token: 'identifier', foreground: 'e2e8f0' },
+  { token: 'delimiter', foreground: '94a3b8' },
+];
+
+const TOKEN_RULES_LIGHT: monaco.editor.ITokenThemeRule[] = [
+  { token: 'comment', foreground: '64748b' },
+  { token: 'comment.fence', foreground: '475569', fontStyle: 'bold' },
+  { token: 'keyword', foreground: '0891b2' },
+  { token: 'operator', foreground: '64748b' },
+  { token: 'number', foreground: 'b45309' },
+  { token: 'string', foreground: '047857' },
+  { token: 'predefined', foreground: '7c3aed' },
+  { token: 'identifier', foreground: '0f172a' },
+  { token: 'delimiter', foreground: '64748b' },
+];
+
 /** Shared dark theme tuned to the app's slate palette — default/MODIFIED variant. */
 export const MONACO_THEME = 'schemaSyncDark';
 /** Light counterpart, used when the app theme resolves to light. */
@@ -62,14 +88,14 @@ export const MONACO_THEME_LIGHT = 'schemaSyncLight';
 monaco.editor.defineTheme(MONACO_THEME, {
   base: 'vs-dark',
   inherit: true,
-  rules: [],
+  rules: TOKEN_RULES_DARK,
   colors: { ...BASE_DARK_COLORS, ...diffColors(DIFF_HUE.MODIFIED, true) },
 });
 
 monaco.editor.defineTheme(MONACO_THEME_LIGHT, {
   base: 'vs',
   inherit: true,
-  rules: [],
+  rules: TOKEN_RULES_LIGHT,
   colors: { ...BASE_LIGHT_COLORS, ...diffColors(DIFF_HUE.MODIFIED, false) },
 });
 
@@ -89,29 +115,44 @@ export const MONACO_DIFF_THEME_LIGHT: Record<'ADDED' | 'MODIFIED' | 'REMOVED', s
 monaco.editor.defineTheme(MONACO_DIFF_THEME.ADDED, {
   base: 'vs-dark',
   inherit: true,
-  rules: [],
+  rules: TOKEN_RULES_DARK,
   colors: { ...BASE_DARK_COLORS, ...diffColors(DIFF_HUE.ADDED, true) },
 });
 monaco.editor.defineTheme(MONACO_DIFF_THEME_LIGHT.ADDED, {
   base: 'vs',
   inherit: true,
-  rules: [],
+  rules: TOKEN_RULES_LIGHT,
   colors: { ...BASE_LIGHT_COLORS, ...diffColors(DIFF_HUE.ADDED, false) },
 });
 monaco.editor.defineTheme(MONACO_DIFF_THEME.REMOVED, {
   base: 'vs-dark',
   inherit: true,
-  rules: [],
+  rules: TOKEN_RULES_DARK,
   colors: { ...BASE_DARK_COLORS, ...diffColors(DIFF_HUE.REMOVED, true) },
 });
 monaco.editor.defineTheme(MONACO_DIFF_THEME_LIGHT.REMOVED, {
   base: 'vs',
   inherit: true,
-  rules: [],
+  rules: TOKEN_RULES_LIGHT,
   colors: { ...BASE_LIGHT_COLORS, ...diffColors(DIFF_HUE.REMOVED, false) },
 });
 
-/** Map an app dialect to a Monaco language id. */
+/** Shared Monaco editor defaults (DDL viewer + SQL Editor pane). */
+export const MONACO_EDITOR_BASE_OPTIONS = {
+  minimap: { enabled: false },
+  scrollBeyondLastLine: false,
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  lineNumbersMinChars: 3,
+  scrollbar: { alwaysConsumeMouseWheel: false },
+  padding: { top: 8, bottom: 8 },
+  // Without this Monaco can render blank inside flex layouts.
+  automaticLayout: true,
+} as const;
+
+/**
+ * Map an app dialect to a Monaco language id.
+ * SQL Editor upgrades to {@link FOXSCHEMA_SQL_LANG} after lazy registration.
+ */
 export function monacoLanguage(dialect: string): string {
   switch (dialect.toLowerCase()) {
     case 'mysql':
@@ -122,3 +163,5 @@ export function monacoLanguage(dialect: string): string {
       return 'sql';
   }
 }
+
+export { FOXSCHEMA_SQL_LANG };

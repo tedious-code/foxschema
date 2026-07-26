@@ -1,11 +1,13 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { executeSql, type SqlStatementResult } from '../api/sqlApi';
+import { resolveAppSecrets } from '../api/appSecretsApi';
 import { loadSchema } from '../api/schemaApi';
-import { isMutatingDmlStatement, isWriteStatement } from '../lib/sql-splitter';
+import { isMutatingDmlStatement, isWriteStatement, splitSqlStatements } from '../lib/sql-splitter';
 import type { CodeCellLast } from '../lib/codeCellExec';
 import { detectCodeCell, runCodeCell } from '../lib/codeCellRunner';
 import { buildSampleBookmarks } from '../lib/sqlEditorSamples';
+import { mergeVaultSecretsIntoVariables } from '../lib/mergeVaultSecrets';
 import {
   applySetDirectives,
   exportVariables,
@@ -32,6 +34,7 @@ import {
   createTab,
   effectiveConnectionIds,
   hydrateTabs,
+  moveTab as moveTabLogic,
   newTabId,
   persistableTabs,
   statementsFromSelection,
@@ -178,6 +181,8 @@ interface SqlEditorState {
   closeTab: (id: string) => void;
   setActiveTab: (id: string) => void;
   renameTab: (id: string, title: string) => void;
+  /** Drag-reorder query tabs. No-op when indices are equal/out of range. */
+  moveTab: (fromIndex: number, toIndex: number) => void;
   submitSessionPassword: (password: string) => void;
   cancelPasswordPrompt: () => void;
   setMaxRows: (n: number) => void;
@@ -261,10 +266,17 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         set({
           tabs: tabs.map((t) => {
             if (t.id !== activeTabId) return t;
+            // One split of the new buffer; previous count is cached on the tab.
+            const statementCount = splitSqlStatements(sql).length;
             return {
               ...t,
               sql,
-              checkedStatements: checkedAfterSqlChange(t.sql, sql, t.checkedStatements),
+              statementCount,
+              checkedStatements: checkedAfterSqlChange(
+                t.statementCount,
+                statementCount,
+                t.checkedStatements
+              ),
             };
           }),
         });
@@ -365,6 +377,11 @@ export const useSqlEditorStore = create<SqlEditorState>()(
 
       setActiveTab: (id) => {
         if (get().tabs.some((t) => t.id === id)) set({ activeTabId: id });
+      },
+
+      moveTab: (fromIndex, toIndex) => {
+        const next = moveTabLogic(get().tabs, fromIndex, toIndex);
+        if (next !== get().tabs) set({ tabs: next });
       },
 
       renameTab: (id, title) => {
@@ -701,6 +718,20 @@ export const useSqlEditorStore = create<SqlEditorState>()(
             };
           });
 
+        // Vault secrets (local + cloud) merge into vars for this Run; session Variables win on name clash.
+        let runVariables = get().variables;
+        try {
+          const vault = await resolveAppSecrets();
+          for (const [name, msg] of Object.entries(vault.errors)) {
+            appendWarning(`Secret "${name}": ${msg}`);
+          }
+          runVariables = mergeVaultSecretsIntoVariables(get().variables, vault.secrets);
+        } catch (err: unknown) {
+          appendWarning(
+            `App Secrets unavailable: ${err instanceof Error ? err.message : String(err)}`
+          );
+        }
+
         const ranDisplay: string[] = [];
         let aborted: string | null = null;
 
@@ -750,7 +781,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
                   const { result, directives } = await runCodeCell({
                     statement: raw,
                     last: lastGridFrom(prev),
-                    variables: resolveVariablesForConnection(get().variables, c.id),
+                    variables: resolveVariablesForConnection(runVariables, c.id),
                     maxRows,
                   });
                   codeDirectives = directives;
@@ -786,7 +817,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
             | { ok: false; error: string };
           const preparedByConn = new Map<string, Prep>();
           for (const c of connections) {
-            const vars = resolveVariablesForConnection(get().variables, c.id);
+            const vars = resolveVariablesForConnection(runVariables, c.id);
             const prepared = prepareStatement(raw, vars);
             preparedByConn.set(
               c.id,
