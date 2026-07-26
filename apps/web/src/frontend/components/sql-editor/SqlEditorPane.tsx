@@ -1,33 +1,19 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Editor from '@monaco-editor/react';
-import { MONACO_THEME, MONACO_THEME_LIGHT, monacoLanguage } from '../../monaco-setup';
+import {
+  MONACO_THEME,
+  MONACO_THEME_LIGHT,
+  monacoLanguage,
+  FOXSCHEMA_SQL_LANG,
+  MONACO_EDITOR_BASE_OPTIONS,
+} from '../../monaco-setup';
+import { ensureFoxschemaSqlLanguage } from '../../lib/foxschemaSqlLanguage';
 import { MONACO_FONT_PX, useUiStore } from '../../store/uiStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
-import { splitSqlStatements, checkStatement } from '../../lib/sql-splitter';
+import { splitSqlStatements, checkStatement, type SplitStatement } from '../../lib/sql-splitter';
 import { ensureSqlCompletions } from './completion';
 import { setSqlInsertHandler, setSqlSelectionGetter } from './sqlEditorBridge';
-import {
-  buildVariableHoverDecorations,
-  disposeLegacyVariableHovers,
-} from './variableHover';
-
-// Mirrors SqlEditor.tsx's BASE_OPTIONS (that component stays read-only-oriented;
-// this one is the editable editor with a glyph margin for statement status icons).
-const EDITOR_OPTIONS_BASE = {
-  minimap: { enabled: false },
-  scrollBeyondLastLine: false,
-  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-  lineNumbersMinChars: 3,
-  renderLineHighlight: 'line' as const,
-  scrollbar: { alwaysConsumeMouseWheel: false },
-  padding: { top: 8, bottom: 8 },
-  automaticLayout: true,
-  glyphMargin: true,
-  tabSize: 2,
-  // Schema-aware suggestions from completion.ts (tables / columns / keywords).
-  quickSuggestions: { other: true, comments: false, strings: false },
-  suggestOnTriggerCharacters: true,
-};
+import { buildVariableHoverDecorations } from './variableHover';
 
 export interface RevealRequest {
   startLine: number;
@@ -38,6 +24,8 @@ export interface RevealRequest {
 
 interface Props {
   value: string;
+  /** Pre-split statements from the parent (one parse per keystroke). */
+  statements: SplitStatement[];
   dialect: string;
   onChange: (value: string) => void;
   /** Ctrl/Cmd+Enter shortcut → run. */
@@ -49,13 +37,14 @@ interface Props {
 }
 
 /**
- * Editable Monaco pane for the SQL Editor. Splits the buffer (debounced) and
- * decorates each statement's first line with a gutter icon: green ✓ = looks
- * complete, amber ⚠ = incomplete (unclosed quote/parens, missing final `;`,
- * unknown leading keyword). Heuristic only — not validation.
+ * Editable Monaco pane for the SQL Editor. Uses parent-provided statement
+ * splits and decorates each statement's first line with a gutter icon: green ✓
+ * = looks complete, amber ⚠ = incomplete (unclosed quote/parens, missing final
+ * `;`, unknown leading keyword). Heuristic only — not validation.
  */
 export const SqlEditorPane: React.FC<Props> = ({
   value,
+  statements,
   dialect,
   onChange,
   onRun,
@@ -75,9 +64,18 @@ export const SqlEditorPane: React.FC<Props> = ({
   const fontSizePref = useUiStore((s) => s.fontSize);
   const monacoFontSize = MONACO_FONT_PX[fontSizePref] ?? MONACO_FONT_PX.md;
   const variables = useSqlEditorStore((s) => s.variables);
+  const [editorLanguage, setEditorLanguage] = useState(() => monacoLanguage(dialect));
 
   const editorOptions = useMemo(
-    () => ({ ...EDITOR_OPTIONS_BASE, fontSize: monacoFontSize }),
+    () => ({
+      ...MONACO_EDITOR_BASE_OPTIONS,
+      renderLineHighlight: 'line' as const,
+      fontSize: monacoFontSize,
+      glyphMargin: true,
+      tabSize: 2,
+      quickSuggestions: { other: true, comments: false, strings: false },
+      suggestOnTriggerCharacters: true,
+    }),
     [monacoFontSize]
   );
 
@@ -86,17 +84,16 @@ export const SqlEditorPane: React.FC<Props> = ({
     editorRef.current?.updateOptions?.({ fontSize: monacoFontSize });
   }, [monacoFontSize]);
 
-  const decorate = (text: string) => {
+  const decorate = (text: string, stmts: SplitStatement[]) => {
     const editor = editorRef.current;
     const monaco = monacoRef.current;
     if (!editor) return;
-    const statements = splitSqlStatements(text);
     decoRef.current?.clear?.();
-    if (!statements.length) {
+    if (!stmts.length) {
       decoRef.current = null;
     } else {
       decoRef.current = editor.createDecorationsCollection(
-        statements.map((stmt) => {
+        stmts.map((stmt) => {
           const status = checkStatement(stmt);
           const ok = status.level === 'ok';
           return {
@@ -126,14 +123,14 @@ export const SqlEditorPane: React.FC<Props> = ({
     }
   };
 
-  // Re-decorate (debounced) whenever the buffer or variables change.
+  // Re-decorate (debounced) whenever the buffer, splits, or variables change.
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => decorate(value), 200);
+    debounceRef.current = setTimeout(() => decorate(value, statements), 200);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [value, variables]);
+  }, [value, statements, variables]);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -153,25 +150,36 @@ export const SqlEditorPane: React.FC<Props> = ({
   }, [reveal]);
 
   useEffect(() => {
-    disposeLegacyVariableHovers();
     return () => {
       setSqlInsertHandler(null);
       setSqlSelectionGetter(null);
     };
   }, []);
 
+  useEffect(() => {
+    setEditorLanguage((prev) =>
+      prev === FOXSCHEMA_SQL_LANG ? prev : monacoLanguage(dialect)
+    );
+  }, [dialect]);
+
   return (
     <Editor
       height="100%"
       theme={monacoTheme}
-      language={monacoLanguage(dialect)}
+      language={editorLanguage}
       value={value}
       onChange={(v) => onChange(v ?? '')}
       onMount={(editor, monaco) => {
         editorRef.current = editor;
         monacoRef.current = monaco;
-        disposeLegacyVariableHovers();
         ensureSqlCompletions(monaco);
+        // Upgrade to SQL+JS/TS highlighting after packs load (never block mount).
+        void ensureFoxschemaSqlLanguage(monaco).then((ok) => {
+          if (!ok) return;
+          setEditorLanguage(FOXSCHEMA_SQL_LANG);
+          const model = editor.getModel();
+          if (model) monaco.editor.setModelLanguage(model, FOXSCHEMA_SQL_LANG);
+        });
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => onRunRef.current?.());
         setSqlSelectionGetter(() => {
           const ed = editorRef.current;
@@ -202,7 +210,7 @@ export const SqlEditorPane: React.FC<Props> = ({
           ed.executeEdits('schema-insert', [{ range, text, forceMoveMarkers: true }]);
           ed.focus();
         });
-        decorate(editor.getValue());
+        decorate(editor.getValue(), statements);
       }}
       options={editorOptions}
     />

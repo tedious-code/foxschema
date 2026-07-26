@@ -1,10 +1,9 @@
-import { isTauri, getApiBase } from './apiBase';
+import { isTauri, getApiBase, parseJsonResponse } from './apiBase';
 
 /** Whether the first-run signup wizard has already been resolved (submitted or skipped). */
 export async function getSignupState(): Promise<{ shown: boolean }> {
   const res = await fetch(`${getApiBase()}/signup/state`, { credentials: 'include' });
-  if (!res.ok) throw new Error('Failed to load signup state');
-  return res.json();
+  return parseJsonResponse<{ shown: boolean }>(res);
 }
 
 export async function submitSignup(email: string): Promise<{ ok: boolean; error?: string }> {
@@ -14,7 +13,12 @@ export async function submitSignup(email: string): Promise<{ ok: boolean; error?
     credentials: 'include',
     body: JSON.stringify({ email, source: isTauri() ? 'desktop' : 'web' }),
   });
-  return res.json();
+  // Soft: UI shows error from body even when status is non-OK.
+  try {
+    return await parseJsonResponse<{ ok: boolean; error?: string }>(res);
+  } catch (err: unknown) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 export async function skipSignup(): Promise<void> {

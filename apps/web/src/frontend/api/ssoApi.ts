@@ -1,4 +1,4 @@
-import { getApiBase } from './apiBase';
+import { getApiBase, parseJsonResponseOrNull } from './apiBase';
 
 export type SsoProviderId = 'google' | 'microsoft' | 'github';
 
@@ -11,9 +11,8 @@ export interface SsoProvider {
 export async function fetchSsoProviders(): Promise<SsoProvider[]> {
   try {
     const res = await fetch(`${getApiBase()}/auth/sso/providers`, { credentials: 'include' });
-    if (!res.ok) return [];
-    const data = (await res.json()) as { providers?: SsoProvider[] };
-    return Array.isArray(data.providers) ? data.providers : [];
+    const data = await parseJsonResponseOrNull<{ providers?: SsoProvider[] }>(res);
+    return Array.isArray(data?.providers) ? data.providers : [];
   } catch {
     return [];
   }

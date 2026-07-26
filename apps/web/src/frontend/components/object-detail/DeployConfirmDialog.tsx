@@ -58,7 +58,7 @@ export const DeployConfirmDialog: React.FC<Props> = ({ open, dialect, count, don
           <button
             data-testid="deploy-confirm-btn"
             onClick={onConfirm}
-            className="px-4 py-2 text-xs font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 on-accent-fg rounded transition shadow flex items-center gap-1.5"
+            className="px-4 py-2 text-xs font-bold accent-grad on-accent-fg rounded transition shadow flex items-center gap-1.5"
           >
             <Play className="w-3.5 h-3.5 fill-current" /> Execute
           </button>

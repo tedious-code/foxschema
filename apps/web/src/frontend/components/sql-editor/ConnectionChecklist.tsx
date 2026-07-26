@@ -4,6 +4,7 @@ import { KeyRound } from 'lucide-react';
 import { useSyncStore } from '../../store/useSyncStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
 import { effectiveConnectionIds } from '../../store/sqlEditorTabLogic';
+import { SQL_ICON_STROKE } from './sqlIconStyle';
 
 /**
  * Destination-server checklist. When "Same servers for all queries" is on,
@@ -105,7 +106,7 @@ export const ConnectionChecklist: React.FC = () => {
               onClick={(e) => e.stopPropagation()}
             >
               <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
-                <KeyRound className="w-4 h-4 text-amber-400" /> Password for “{pendingPassword.name}”
+                <KeyRound className="w-4 h-4 text-amber-400" strokeWidth={SQL_ICON_STROKE} /> Password for “{pendingPassword.name}”
               </h3>
               <p className="text-xs text-slate-400">
                 This connection was saved without a password. Enter it for this session only — it is

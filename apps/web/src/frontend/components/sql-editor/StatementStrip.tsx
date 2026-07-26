@@ -13,6 +13,7 @@ import {
 } from '../../lib/sql-splitter';
 import { findVariableRefs, substituteVariables } from '../../lib/sql-variables';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
+import { SQL_ICON_STROKE } from './sqlIconStyle';
 
 interface Props {
   statements: SplitStatement[];
@@ -284,9 +285,9 @@ export const StatementStrip: React.FC<Props> = ({ statements, checked, onToggle,
                 aria-label={`Copy statement ${i + 1}`}
               >
                 {isCopied ? (
-                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  <Check className="w-3.5 h-3.5 text-emerald-400" strokeWidth={SQL_ICON_STROKE} />
                 ) : (
-                  <Copy className="w-3.5 h-3.5" />
+                  <Copy className="w-3.5 h-3.5 text-cyan-400" strokeWidth={SQL_ICON_STROKE} />
                 )}
               </button>
             </div>
@@ -328,11 +329,11 @@ export const StatementStrip: React.FC<Props> = ({ statements, checked, onToggle,
               >
                 {copiedIndex === popover.index ? (
                   <>
-                    <Check className="w-3 h-3 text-emerald-400" /> Copied
+                    <Check className="w-3 h-3 text-emerald-400" strokeWidth={SQL_ICON_STROKE} /> Copied
                   </>
                 ) : (
                   <>
-                    <Copy className="w-3 h-3" /> Copy
+                    <Copy className="w-3 h-3 text-cyan-400" strokeWidth={SQL_ICON_STROKE} /> Copy
                   </>
                 )}
               </button>

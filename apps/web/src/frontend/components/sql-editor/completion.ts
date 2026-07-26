@@ -11,7 +11,7 @@ const LIGHT_KEYWORDS = [
   'THEN', 'ELSE', 'END', 'CALL', 'EXECUTE', 'EXEC',
 ];
 
-const LANG_IDS = ['sql', 'pgsql', 'mysql'] as const;
+const LANG_IDS = ['sql', 'pgsql', 'mysql', 'foxschema-sql'] as const;
 
 let registered = false;
 
@@ -111,19 +111,24 @@ export function ensureSqlCompletions(monaco: typeof Monaco): void {
         };
         const suggestions = variables
           .filter((v) => !partial || v.name.toLowerCase().startsWith(partial))
-          .map((v) => ({
-            label: v.name,
-            kind: monaco.languages.CompletionItemKind.Variable,
-            insertText: `${v.name}}}`,
-            detail:
+          .map((v) => {
+            const kindDetail =
               v.kind === 'list'
                 ? `list · ${v.values?.length ?? 0} values`
                 : v.kind === 'table'
                   ? `table · ${(v.rows?.length ?? 0)}×${(v.columns?.length ?? 0)}`
-                  : 'scalar',
-            sortText: `0_${v.name}`,
-            range: varRange,
-          }));
+                  : 'scalar';
+            return {
+              label: v.name,
+              kind: v.secret
+                ? monaco.languages.CompletionItemKind.Constant
+                : monaco.languages.CompletionItemKind.Variable,
+              insertText: `${v.name}}}`,
+              detail: v.secret ? `secret · ${kindDetail}` : kindDetail,
+              sortText: `${v.secret ? '0' : '1'}_${v.name}`,
+              range: varRange,
+            };
+          });
         if (suggestions.length === 0) {
           return {
             suggestions: [

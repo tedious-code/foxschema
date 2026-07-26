@@ -7,7 +7,7 @@ import type {
   MigrationEvent,
   TableSchema,
 } from '../lib/types';
-import { getApiBase } from './apiBase';
+import { getApiBase, parseJsonResponse } from './apiBase';
 
 
 /** Either a saved connection (resolved server-side) or an inline ad-hoc option. */
@@ -57,33 +57,6 @@ export function invalidateCache(prefix?: string): void {
   }
 }
 
-async function parseJson<T>(res: Response): Promise<T> {
-  const text = await res.text();
-  if (!text.trim()) {
-    throw new Error(
-      res.status === 502 || res.status === 504 || res.type === 'opaque'
-        ? 'API server unreachable — run `npm run dev` from the repo root (starts both the API and UI).'
-        : `Empty response from server (${res.status} ${res.statusText || 'unknown'})`
-    );
-  }
-
-  let data: T & { error?: string };
-  try {
-    data = JSON.parse(text) as T & { error?: string };
-  } catch {
-    throw new Error(`Invalid response from server (${res.status}): ${text.slice(0, 200)}`);
-  }
-
-  if (!res.ok) {
-    throw new Error(
-      typeof data === 'object' && data && 'error' in data && data.error
-        ? data.error
-        : res.statusText
-    );
-  }
-  return data;
-}
-
 /** Runs the schema comparison server-side and returns only the diff result. */
 export async function compareSchemas(
   source: ConnectionRef,
@@ -93,7 +66,7 @@ export async function compareSchemas(
   // De-dupe concurrent identical compares (e.g. double-click); never cached
   const key = `compare:${JSON.stringify({ source, target, scope })}`;
   return idempotent(key, async () =>
-    parseJson<SchemaCompareResult>(
+    parseJsonResponse<SchemaCompareResult>(
       await fetch(`${getApiBase()}/compare`, {
         method: 'POST',
         credentials: 'include',
@@ -112,7 +85,7 @@ export async function loadSchema(
   // De-dupe concurrent identical loads (e.g. double-click); never cached
   const key = `load:${JSON.stringify({ ref, scope })}`;
   return idempotent(key, async () =>
-    parseJson<{ tables: TableSchema[]; warnings?: string[] }>(
+    parseJsonResponse<{ tables: TableSchema[]; warnings?: string[] }>(
       await fetch(`${getApiBase()}/schema/load`, {
         method: 'POST',
         credentials: 'include',
@@ -128,7 +101,7 @@ export async function checkDriver(dialect: string): Promise<DriverInfo> {
   return idempotent(
     `driver:${dialect}`,
     async () =>
-      parseJson<DriverInfo>(
+      parseJsonResponse<DriverInfo>(
         await fetch(`${getApiBase()}/driver/check?dialect=${encodeURIComponent(dialect)}`)
       ),
     30000
@@ -136,7 +109,7 @@ export async function checkDriver(dialect: string): Promise<DriverInfo> {
 }
 
 export async function installDriver(dialect: string): Promise<{ success: boolean; stdout?: string; error?: string }> {
-  const result = await parseJson<{ success: boolean; stdout?: string; error?: string }>(
+  const result = await parseJsonResponse<{ success: boolean; stdout?: string; error?: string }>(
     await fetch(`${getApiBase()}/driver/install`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -157,12 +130,7 @@ export async function testConnection(ref: ConnectionRef): Promise<{ version?: st
     body: JSON.stringify(ref),
   });
 
-  const data = (await res.json()) as { success: boolean; version?: string; error?: string };
-
-  if (!res.ok) {
-    throw new Error(data.error ?? res.statusText);
-  }
-
+  const data = await parseJsonResponse<{ success: boolean; version?: string; error?: string }>(res);
   if (!data.success) {
     throw new Error(data.error ?? 'Connection test returned false');
   }
@@ -177,7 +145,7 @@ export async function fetchSchemaList(ref: ConnectionRef): Promise<string[]> {
   return idempotent(
     key,
     async () => {
-      const data = await parseJson<{ schemas: string[] }>(
+      const data = await parseJsonResponse<{ schemas: string[] }>(
         await fetch(`${getApiBase()}/schema/list`, {
           method: 'POST',
           credentials: 'include',

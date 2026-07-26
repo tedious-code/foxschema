@@ -41,11 +41,10 @@ type VarLike = {
   rows?: unknown[][];
 };
 
-/** Drop secret variables; shape the rest for the cell scope. */
+/** Drop nothing for secrets — API tokens must be usable in cells. Shape for cell scope. */
 export function sanitizeVarsForCodeCell(variables: VarLike[]): CodeCellVars {
   const out: CodeCellVars = {};
   for (const v of variables) {
-    if (v.secret) continue;
     if (v.kind === 'scalar') {
       out[v.name] = { kind: 'scalar', value: v.value };
     } else if (v.kind === 'list') {

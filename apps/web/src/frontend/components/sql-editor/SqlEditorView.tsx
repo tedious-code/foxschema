@@ -13,13 +13,14 @@ import {
   Network,
   Shield,
   Braces,
+  KeyRound,
   PanelLeftClose,
   PanelLeftOpen,
 } from 'lucide-react';
 import { useSyncStore } from '../../store/useSyncStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
 import { splitSqlStatements, type SplitStatement } from '../../lib/sql-splitter';
-import { formatSql } from '../../utils/formatSql';
+import { formatEditorSql } from '../../utils/formatSql';
 import { effectiveConnectionIds } from '../../store/sqlEditorTabLogic';
 import { setCompletionContextGetter } from './sqlEditorBridge';
 import { ConnectionChecklist } from './ConnectionChecklist';
@@ -28,6 +29,8 @@ import { ResultsPanel } from './ResultsPanel';
 import { StatementStrip } from './StatementStrip';
 import { SqlBookmarksPanel } from './SqlBookmarksPanel';
 import { SqlVariablesPanel } from './SqlVariablesPanel';
+import { SqlSecretsPanel, type SqlSecretsPanelHandle } from './SqlSecretsPanel';
+import { SQL_ICON_STROKE } from './sqlIconStyle';
 import { SqlSchemaExplorer } from './SqlSchemaExplorer';
 import {
   SqlSidebarSection,
@@ -41,7 +44,7 @@ const SqlEditorPane = lazy(() => import('./SqlEditorPane'));
 
 const EditorFallback: React.FC = () => (
   <div className="flex-1 flex items-center justify-center text-slate-600">
-    <Loader2 className="w-5 h-5 animate-spin" />
+    <Loader2 className="w-5 h-5 animate-spin text-cyan-400" strokeWidth={SQL_ICON_STROKE} />
   </div>
 );
 
@@ -95,6 +98,7 @@ export const SqlEditorView: React.FC = () => {
   const closeTab = useSqlEditorStore((s) => s.closeTab);
   const setActiveTab = useSqlEditorStore((s) => s.setActiveTab);
   const renameTab = useSqlEditorStore((s) => s.renameTab);
+  const moveTab = useSqlEditorStore((s) => s.moveTab);
   const ensureSchema = useSqlEditorStore((s) => s.ensureSchema);
   const setMaxRows = useSqlEditorStore((s) => s.setMaxRows);
   const maxRows = useSqlEditorStore((s) => s.maxRows);
@@ -124,6 +128,17 @@ export const SqlEditorView: React.FC = () => {
   const splitRef = useRef<HTMLDivElement>(null);
   const [sidebarOpen, toggleSidebar] = useSidebarSectionsOpen();
   const [sectionHeights, setSectionHeight] = useSidebarSectionHeights();
+  const secretsPanelRef = useRef<SqlSecretsPanelHandle>(null);
+  const [secretsRefreshing, setSecretsRefreshing] = useState(false);
+
+  const onSecretsRefresh = useCallback(async () => {
+    setSecretsRefreshing(true);
+    try {
+      await secretsPanelRef.current?.refresh();
+    } finally {
+      setSecretsRefreshing(false);
+    }
+  }, []);
 
   useEffect(() => {
     try {
@@ -238,15 +253,17 @@ export const SqlEditorView: React.FC = () => {
   };
 
   const onFormat = () => {
-    const formatted = formatSql(tab.sql, dialect);
-    if (formatted !== tab.sql) setSql(formatted);
+    void (async () => {
+      const formatted = await formatEditorSql(tab.sql, dialect);
+      if (formatted !== tab.sql) setSql(formatted);
+    })();
   };
 
   return (
     <div className="flex-1 flex min-h-0 overflow-hidden" data-testid="sql-editor-view">
       {sidebarCollapsed ? (
         <aside
-          className="w-10 shrink-0 border-r border-slate-800 bg-slate-900 flex flex-col items-center py-2 gap-1"
+          className="w-10 shrink-0 border-r border-[#e2e8f0] bg-white flex flex-col items-center py-2 gap-1"
           data-testid="sql-sidebar-collapsed"
         >
           <button
@@ -255,34 +272,34 @@ export const SqlEditorView: React.FC = () => {
             title="Show sidebar"
             aria-label="Show sidebar"
             onClick={() => setSidebarCollapsed(false)}
-            className="p-1.5 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800/80 transition"
+            className="p-1.5 rounded text-[#64748b] hover:text-[#0f172a] hover:bg-[#f1f5f9] transition"
           >
-            <PanelLeftOpen className="w-4 h-4" />
+            <PanelLeftOpen className="w-4 h-4 text-[#0284c7]" strokeWidth={SQL_ICON_STROKE} />
           </button>
         </aside>
       ) : (
         <aside
-          className="relative shrink-0 border-r border-slate-800 bg-slate-900 overflow-hidden flex flex-col min-h-0"
+          className="relative shrink-0 border-r border-[#e2e8f0] bg-white overflow-hidden flex flex-col min-h-0"
           style={{ width: sidebarWidth }}
           data-testid="sql-sidebar"
         >
-          <div className="flex items-center justify-end px-2 py-1 border-b border-slate-800 shrink-0 bg-slate-900">
+          <div className="flex items-center justify-end px-2 py-1 border-b border-[#e2e8f0] shrink-0 bg-white">
             <button
               type="button"
               data-testid="sql-sidebar-collapse"
               title="Hide sidebar"
               aria-label="Hide sidebar"
               onClick={() => setSidebarCollapsed(true)}
-              className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800/80 transition"
+              className="p-1 rounded text-[#64748b] hover:text-[#0f172a] hover:bg-[#f1f5f9] transition"
             >
-              <PanelLeftClose className="w-3.5 h-3.5" />
+              <PanelLeftClose className="w-3.5 h-3.5 text-[#0284c7]" strokeWidth={SQL_ICON_STROKE} />
             </button>
           </div>
-          <div className="flex-1 flex flex-col min-h-0 overflow-y-auto overflow-x-hidden bg-slate-900">
+          <div className="flex-1 flex flex-col min-h-0 overflow-y-auto overflow-x-hidden bg-white">
             <SqlSidebarSection
               id="destinations"
               title="Destination servers"
-              icon={<Database className="w-3.5 h-3.5" />}
+              icon={<Database className="text-[#0284c7]" strokeWidth={SQL_ICON_STROKE} />}
               open={sidebarOpen.destinations}
               onToggle={() => toggleSidebar('destinations')}
               height={sectionHeights.destinations}
@@ -293,7 +310,7 @@ export const SqlEditorView: React.FC = () => {
             <SqlSidebarSection
               id="bookmarks"
               title="Bookmarks"
-              icon={<Bookmark className="w-3.5 h-3.5" />}
+              icon={<Bookmark className="text-[#f59e0b]" strokeWidth={SQL_ICON_STROKE} />}
               open={sidebarOpen.bookmarks}
               onToggle={() => toggleSidebar('bookmarks')}
               height={sectionHeights.bookmarks}
@@ -305,9 +322,9 @@ export const SqlEditorView: React.FC = () => {
                   title="Save current query as a bookmark (uses the tab title)"
                   disabled={!tab.sql.trim()}
                   onClick={() => saveBookmark()}
-                  className="flex items-center gap-0.5 text-[11px] font-bold text-slate-400 hover:text-cyan-300 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="flex items-center gap-0.5 text-[12px] font-bold text-[#d97706] hover:text-[#b45309] transition disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  <BookmarkPlus className="w-3.5 h-3.5" /> Save
+                  <BookmarkPlus className="w-3.5 h-3.5 text-[#f59e0b]" strokeWidth={SQL_ICON_STROKE} /> Save
                 </button>
               }
             >
@@ -316,7 +333,7 @@ export const SqlEditorView: React.FC = () => {
             <SqlSidebarSection
               id="variables"
               title="Variables"
-              icon={<Braces className="w-3.5 h-3.5" />}
+              icon={<Braces className="text-[#7c3aed]" strokeWidth={SQL_ICON_STROKE} />}
               open={sidebarOpen.variables}
               onToggle={() => toggleSidebar('variables')}
               height={sectionHeights.variables}
@@ -325,9 +342,36 @@ export const SqlEditorView: React.FC = () => {
               <SqlVariablesPanel />
             </SqlSidebarSection>
             <SqlSidebarSection
+              id="secrets"
+              title="Secrets"
+              icon={<KeyRound className="text-[#d97706]" strokeWidth={SQL_ICON_STROKE} />}
+              open={sidebarOpen.secrets}
+              onToggle={() => toggleSidebar('secrets')}
+              height={sectionHeights.secrets}
+              onResizeHeight={(h) => setSectionHeight('secrets', h)}
+              actions={
+                <button
+                  type="button"
+                  data-testid="sql-secrets-refresh"
+                  title="Re-fetch cloud secrets into Variables"
+                  disabled={secretsRefreshing}
+                  onClick={() => void onSecretsRefresh()}
+                  className="flex items-center gap-0.5 text-[12px] font-bold text-[#0284c7] hover:text-[#0369a1] transition disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <RefreshCw
+                    className={`w-3.5 h-3.5 text-[#0284c7] ${secretsRefreshing ? 'animate-spin' : ''}`}
+                    strokeWidth={SQL_ICON_STROKE}
+                  />
+                  Refresh
+                </button>
+              }
+            >
+              <SqlSecretsPanel ref={secretsPanelRef} />
+            </SqlSidebarSection>
+            <SqlSidebarSection
               id="schema"
               title="Schema"
-              icon={<Network className="w-3.5 h-3.5" />}
+              icon={<Network className="text-[#059669]" strokeWidth={SQL_ICON_STROKE} />}
               open={sidebarOpen.schema}
               onToggle={() => toggleSidebar('schema')}
               grow
@@ -357,6 +401,7 @@ export const SqlEditorView: React.FC = () => {
           onClose={closeTab}
           onAdd={addTab}
           onRename={renameTab}
+          onMove={moveTab}
         />
 
         <div className="flex items-center gap-2 px-4 py-2 border-b border-slate-800 bg-slate-900/60 shrink-0">
@@ -367,11 +412,15 @@ export const SqlEditorView: React.FC = () => {
             title={runTitle}
             className={`flex items-center gap-1.5 px-4 py-1.5 rounded text-xs font-bold transition shadow ${
               canRun
-                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 on-accent-fg cursor-pointer'
+                ? 'accent-grad on-accent-fg cursor-pointer'
                 : 'bg-slate-800 text-slate-500 border border-slate-700/50 cursor-not-allowed'
             }`}
           >
-            {running ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+            {running ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-200" strokeWidth={SQL_ICON_STROKE} />
+            ) : (
+              <Play className="w-3.5 h-3.5 fill-current text-emerald-50" strokeWidth={SQL_ICON_STROKE} />
+            )}
             {hasSelection ? 'Run selection' : 'Run'}
           </button>
           <button
@@ -382,17 +431,21 @@ export const SqlEditorView: React.FC = () => {
             title={results ? 'Refresh results (re-run on all checked servers)' : 'Run a query first'}
             className="flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 transition disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${running ? 'animate-spin' : ''}`} /> Refresh
+            <RefreshCw
+              className={`w-3.5 h-3.5 text-cyan-400 ${running ? 'animate-spin' : ''}`}
+              strokeWidth={SQL_ICON_STROKE}
+            />{' '}
+            Refresh
           </button>
           <button
             type="button"
             data-testid="sql-format-btn"
             onClick={onFormat}
             disabled={!tab.sql.trim()}
-            title="Format SQL"
+            title="Format SQL and JS/TS code cells"
             className="flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 transition disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            <AlignLeft className="w-3.5 h-3.5" /> Format
+            <AlignLeft className="w-3.5 h-3.5 text-violet-400" strokeWidth={SQL_ICON_STROKE} /> Format
           </button>
           <button
             type="button"
@@ -402,7 +455,7 @@ export const SqlEditorView: React.FC = () => {
             title="Bookmark this query (uses the tab title)"
             className="flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 transition disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            <BookmarkPlus className="w-3.5 h-3.5" /> Bookmark
+            <BookmarkPlus className="w-3.5 h-3.5 text-amber-400" strokeWidth={SQL_ICON_STROKE} /> Bookmark
           </button>
 
           <div className="flex items-center rounded border border-slate-800 overflow-hidden ml-1">
@@ -417,7 +470,7 @@ export const SqlEditorView: React.FC = () => {
                   : 'text-slate-500 hover:text-slate-300'
               }`}
             >
-              <Rows3 className="w-3 h-3" /> By cred
+              <Rows3 className="w-3 h-3 text-cyan-400" strokeWidth={SQL_ICON_STROKE} /> By cred
             </button>
             <button
               type="button"
@@ -430,7 +483,7 @@ export const SqlEditorView: React.FC = () => {
                   : 'text-slate-500 hover:text-slate-300'
               }`}
             >
-              <Columns2 className="w-3 h-3" /> Side-by-side
+              <Columns2 className="w-3 h-3 text-sky-400" strokeWidth={SQL_ICON_STROKE} /> Side-by-side
             </button>
           </div>
 
@@ -445,7 +498,10 @@ export const SqlEditorView: React.FC = () => {
               onChange={(e) => setSafeMode(e.target.checked)}
               className="w-3.5 h-3.5 accent-rose-500 cursor-pointer"
             />
-            <Shield className={`w-3 h-3 ${safeMode ? 'text-rose-400' : 'text-slate-600'}`} />
+            <Shield
+              className={`w-3 h-3 ${safeMode ? 'text-rose-400' : 'text-slate-500'}`}
+              strokeWidth={SQL_ICON_STROKE}
+            />
             <span className={safeMode ? 'text-rose-300' : 'text-slate-500'}>Safe mode</span>
           </label>
 
@@ -476,7 +532,7 @@ export const SqlEditorView: React.FC = () => {
               onClick={clearResults}
               className="flex items-center gap-1 text-[11px] font-semibold text-slate-500 hover:text-slate-300 transition"
             >
-              <Eraser className="w-3 h-3" /> Clear results
+              <Eraser className="w-3 h-3 text-orange-400" strokeWidth={SQL_ICON_STROKE} /> Clear results
             </button>
           )}
         </div>
@@ -486,6 +542,7 @@ export const SqlEditorView: React.FC = () => {
             <Suspense fallback={<EditorFallback />}>
               <SqlEditorPane
                 value={tab.sql}
+                statements={statements}
                 dialect={dialect}
                 onChange={setSql}
                 onRun={() => execute()}

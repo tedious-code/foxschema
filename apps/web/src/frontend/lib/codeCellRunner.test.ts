@@ -85,11 +85,12 @@ return out;
     ]);
   });
 
-  it('omits secret variables from the cell scope', async () => {
+  it('includes secret variables in the cell scope', async () => {
     const { result } = await runCodeCell({
       statement: `-- @js
 return [{
   hasToken: Object.prototype.hasOwnProperty.call(vars, 'token'),
+  token: vars.token.value,
   n: vars.n.value,
 }];
 -- @end`,
@@ -108,7 +109,7 @@ return [{
       maxRows: 10,
     });
     expect(result).toMatchObject({ ok: true });
-    if (result.ok) expect(result.rows).toEqual([[false, 42]]);
+    if (result.ok) expect(result.rows).toEqual([[true, 'secret', 42]]);
   });
 
   it('returns an error for non-code statements', async () => {

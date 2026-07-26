@@ -7,6 +7,7 @@ import {
   isMutatingDmlStatement,
   statementVerb,
 } from '../../lib/sql-splitter';
+import { SQL_ICON_STROKE } from './sqlIconStyle';
 
 interface Props {
   writeStatements: string[];
@@ -67,7 +68,7 @@ export const WriteConfirmDialog: React.FC<Props> = ({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-6 py-4 border-b border-slate-800 bg-slate-950/40 flex items-center gap-2.5">
-          <ShieldAlert className="w-5 h-5 text-rose-400 shrink-0" />
+          <ShieldAlert className="w-5 h-5 text-rose-400 shrink-0" strokeWidth={SQL_ICON_STROKE} />
           <h2 className="text-slate-100 font-bold text-base">{title}</h2>
         </div>
         <div className="p-6 space-y-3">
@@ -76,7 +77,7 @@ export const WriteConfirmDialog: React.FC<Props> = ({
               data-testid="sql-safe-dml-warn"
               className="flex items-start gap-2 text-xs text-rose-100/90 bg-rose-950/50 border border-rose-500/30 rounded-md px-3 py-2"
             >
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" strokeWidth={SQL_ICON_STROKE} />
               <div>
                 <p className="font-semibold text-rose-300 mb-0.5">
                   {mutating.length} UPDATE / DELETE / MERGE statement
@@ -96,7 +97,7 @@ export const WriteConfirmDialog: React.FC<Props> = ({
               data-testid="sql-safe-no-where-warn"
               className="flex items-start gap-2 text-xs text-amber-100/90 bg-amber-950/50 border border-amber-500/35 rounded-md px-3 py-2"
             >
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" strokeWidth={SQL_ICON_STROKE} />
               <div>
                 <p className="font-semibold text-amber-300 mb-0.5">
                   {missingWhere.length} statement{missingWhere.length === 1 ? '' : 's'} without a
@@ -126,7 +127,7 @@ export const WriteConfirmDialog: React.FC<Props> = ({
               data-testid="sql-readonly-write-warn"
               className="flex items-start gap-2 text-xs text-amber-200/90 bg-amber-950/40 border border-amber-500/25 rounded-md px-3 py-2"
             >
-              <Info className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+              <Info className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" strokeWidth={SQL_ICON_STROKE} />
               <div>
                 <p className="font-semibold text-amber-300 mb-0.5">
                   Read-only adapters will reject these writes
@@ -181,7 +182,7 @@ export const WriteConfirmDialog: React.FC<Props> = ({
             onClick={onConfirm}
             className="px-4 py-2 text-xs font-bold bg-gradient-to-r from-rose-600 to-orange-600 hover:from-rose-500 hover:to-orange-500 on-accent-fg rounded transition shadow flex items-center gap-1.5"
           >
-            <Play className="w-3.5 h-3.5 fill-current" /> Run anyway
+            <Play className="w-3.5 h-3.5 fill-current text-emerald-50" strokeWidth={SQL_ICON_STROKE} /> Run anyway
           </button>
         </div>
       </div>

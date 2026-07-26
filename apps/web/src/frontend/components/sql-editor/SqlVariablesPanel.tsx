@@ -7,6 +7,7 @@ import {
 } from '../../lib/sql-variables';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
 import { useSyncStore } from '../../store/useSyncStore';
+import { SQL_ICON_STROKE } from './sqlIconStyle';
 
 const TABLE_PREVIEW_ROWS = 20;
 
@@ -207,7 +208,7 @@ export const SqlVariablesPanel: React.FC = () => {
           onClick={downloadExport}
           className="flex items-center gap-0.5 text-[13px] font-bold text-slate-400 hover:text-cyan-300 px-1 py-0.5"
         >
-          <Download className="w-3.5 h-3.5" /> Export
+          <Download className="w-3.5 h-3.5 text-sky-400" strokeWidth={SQL_ICON_STROKE} /> Export
         </button>
         <button
           type="button"
@@ -216,7 +217,7 @@ export const SqlVariablesPanel: React.FC = () => {
           onClick={() => fileRef.current?.click()}
           className="flex items-center gap-0.5 text-[13px] font-bold text-slate-400 hover:text-cyan-300 px-1 py-0.5"
         >
-          <Upload className="w-3.5 h-3.5" /> Import
+          <Upload className="w-3.5 h-3.5 text-violet-400" strokeWidth={SQL_ICON_STROKE} /> Import
         </button>
         <input
           ref={fileRef}
@@ -342,7 +343,7 @@ export const SqlVariablesPanel: React.FC = () => {
                         }
                         className="mt-0.5 flex items-center gap-1 text-left text-[12px] font-mono text-slate-400 hover:text-cyan-300 truncate max-w-full"
                       >
-                        <Eye className="w-3.5 h-3.5 shrink-0" />
+                        <Eye className="w-3.5 h-3.5 shrink-0 text-cyan-400" strokeWidth={SQL_ICON_STROKE} />
                         <span className="truncate">
                           {previewVariable(v)}
                           {!v.secret && v.columns && v.columns.length > 0
@@ -414,7 +415,7 @@ export const SqlVariablesPanel: React.FC = () => {
                     onClick={() => deleteVariable(v.id)}
                     className="p-0.5 text-slate-500 hover:text-rose-400 opacity-0 group-hover:opacity-100 transition shrink-0 mt-0.5"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className="w-3.5 h-3.5 text-rose-400" strokeWidth={SQL_ICON_STROKE} />
                   </button>
                 </div>
 
@@ -537,7 +538,7 @@ export const SqlVariablesPanel: React.FC = () => {
           }}
           className="flex items-center gap-0.5 self-start text-[14px] font-bold text-slate-400 hover:text-cyan-300 transition mt-0.5"
         >
-          <Plus className="w-3.5 h-3.5" /> Add variable
+          <Plus className="w-3.5 h-3.5 text-emerald-400" strokeWidth={SQL_ICON_STROKE} /> Add variable
         </button>
       )}
     </div>

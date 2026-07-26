@@ -56,6 +56,55 @@ describe('SQL Editor sample bookmarks', () => {
     expect(result.rows).toEqual([[2, 1]]);
   });
 
+  it('runs the lodash aggregate sample against a synthetic prior grid', async () => {
+    const sample = SQL_EDITOR_SAMPLE_BOOKMARKS.find((s) => s.id === 'sample-js-lodash-aggregate');
+    expect(sample).toBeTruthy();
+    const stmts = splitSqlStatements(sample!.sql);
+    const js = stmts.find((s) => s.kind === 'js');
+    expect(js).toBeTruthy();
+    const { result } = await runCodeCell({
+      statement: js!.text,
+      last: {
+        columns: ['kind', 'n'],
+        rows: [
+          ['a', 10],
+          ['a', 5],
+          ['b', 7],
+          ['b', 3],
+        ],
+        rowCount: 4,
+      },
+      variables: [],
+      maxRows: 100,
+    });
+    if (!result.ok) throw new Error(result.error);
+    expect(result.rows).toEqual([
+      ['a', 2, 15],
+      ['b', 2, 10],
+    ]);
+  });
+
+  it('runs the explicit columns/rows sample against a synthetic prior grid', async () => {
+    const sample = SQL_EDITOR_SAMPLE_BOOKMARKS.find((s) => s.id === 'sample-js-columns-rows');
+    expect(sample).toBeTruthy();
+    const stmts = splitSqlStatements(sample!.sql);
+    const js = stmts.find((s) => s.kind === 'js');
+    expect(js).toBeTruthy();
+    const { result } = await runCodeCell({
+      statement: js!.text,
+      last: {
+        columns: ['id', 'email'],
+        rows: [[1, 'alice@example.com']],
+        rowCount: 1,
+      },
+      variables: [],
+      maxRows: 100,
+    });
+    if (!result.ok) throw new Error(result.error);
+    expect(result.columns).toEqual(['id', 'email', 'upper']);
+    expect(result.rows).toEqual([[1, 'alice@example.com', 'ALICE@EXAMPLE.COM']]);
+  });
+
   it('runs map-last body against a synthetic prior grid', async () => {
     const sample = SQL_EDITOR_SAMPLE_BOOKMARKS.find((s) => s.id === 'sample-js-map-last');
     expect(sample).toBeTruthy();

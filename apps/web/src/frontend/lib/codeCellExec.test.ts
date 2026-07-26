@@ -8,7 +8,7 @@ import {
 import { prepareCodeCellSource } from './codeCellRunner';
 
 describe('sanitizeVarsForCodeCell', () => {
-  it('omits secret variables', () => {
+  it('includes secret variables for API tokens in cells', () => {
     const vars = sanitizeVarsForCodeCell([
       { name: 'token', kind: 'scalar', value: 'secret', secret: true },
       { name: 'n', kind: 'scalar', value: 3 },
@@ -20,7 +20,7 @@ describe('sanitizeVarsForCodeCell', () => {
         rows: [[1]],
       },
     ]);
-    expect(vars.token).toBeUndefined();
+    expect(vars.token).toEqual({ kind: 'scalar', value: 'secret' });
     expect(vars.n).toEqual({ kind: 'scalar', value: 3 });
     expect(vars.ids).toEqual({ kind: 'list', values: [1, 2] });
     expect(vars.t).toEqual({ kind: 'table', columns: ['a'], rows: [[1]] });
