@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { isPageableStatement, trimPageProbe, wrapSqlForPage } from './sql-page-wrap';
+import {
+  hasTopLevelOrderBy,
+  isPageableStatement,
+  trimPageProbe,
+  wrapSqlForPage,
+} from './sql-page-wrap';
 
 describe('sql-page-wrap', () => {
   it('wraps postgres-style with LIMIT/OFFSET and +1 probe', () => {
@@ -8,10 +13,40 @@ describe('sql-page-wrap', () => {
     );
   });
 
-  it('wraps sqlserver with ORDER BY OFFSET FETCH', () => {
+  it('wraps sqlserver without ORDER BY using dummy ORDER BY + OFFSET FETCH', () => {
     const sql = wrapSqlForPage('SELECT id FROM t', 'sqlserver', 0, 10);
     expect(sql).toContain('OFFSET 0 ROWS FETCH NEXT 11 ROWS ONLY');
     expect(sql).toContain('ORDER BY (SELECT NULL)');
+  });
+
+  it('uses T-SQL OFFSET/FETCH for azuresql (not MySQL LIMIT)', () => {
+    const sql = wrapSqlForPage('SELECT id FROM t', 'azuresql', 20, 10);
+    expect(sql).toContain('OFFSET 20 ROWS FETCH NEXT 11 ROWS ONLY');
+    expect(sql).not.toMatch(/\bLIMIT\b/i);
+  });
+
+  it('appends OFFSET/FETCH when T-SQL query already has top-level ORDER BY', () => {
+    const sql = wrapSqlForPage('SELECT id FROM t ORDER BY id', 'sqlserver', 10, 5);
+    expect(sql).toBe('SELECT id FROM t ORDER BY id OFFSET 10 ROWS FETCH NEXT 6 ROWS ONLY');
+  });
+
+  it('appends OFFSET/FETCH for azuresql ORDER BY queries', () => {
+    const sql = wrapSqlForPage(
+      'SELECT id, name FROM dbo.users ORDER BY name;',
+      'azuresql',
+      0,
+      50
+    );
+    expect(sql).toBe(
+      'SELECT id, name FROM dbo.users ORDER BY name OFFSET 0 ROWS FETCH NEXT 51 ROWS ONLY'
+    );
+  });
+
+  it('hasTopLevelOrderBy ignores ORDER BY inside subqueries/strings', () => {
+    expect(hasTopLevelOrderBy('SELECT id FROM t ORDER BY id')).toBe(true);
+    expect(hasTopLevelOrderBy('SELECT * FROM (SELECT id FROM t ORDER BY id) x')).toBe(false);
+    expect(hasTopLevelOrderBy("SELECT 'ORDER BY' AS s FROM t")).toBe(false);
+    expect(hasTopLevelOrderBy('SELECT id FROM t -- ORDER BY id')).toBe(false);
   });
 
   it('trimPageProbe drops probe row and sets hasNext', () => {
