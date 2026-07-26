@@ -53,7 +53,7 @@
     "@aws-sdk/client-secrets-manager": "^3.787.0",
     "@azure/identity": "^4.9.1",
     "@azure/keyvault-secrets": "^4.9.0",
-    "@google-cloud/secret-manager": "^5.6.0",
+    "@google-cloud/secret-manager": "^6.3.0",
     "ibm_db": "^4.0.1"
   },
   "devDependencies": {
