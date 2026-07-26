@@ -704,7 +704,7 @@ describe('SqlGeneratorModule FK dependency order (Kahn)', () => {
     });
     const child = tableSchema({
       name: 'child',
-      columns: [{ name: 'parent_id', type: 'INTEGER', nullable: true }],
+      columns: [{ name: 'parent_id', type: 'INTEGER', nullable: true, primaryKey: false }],
       foreignKeys: [
         {
           name: 'fk_child',
@@ -741,7 +741,7 @@ describe('SqlGeneratorModule FK dependency order (Kahn)', () => {
   it('emits review comment when FK cycle remains', () => {
     const a = tableSchema({
       name: 'a',
-      columns: [{ name: 'b_id', type: 'INTEGER', nullable: true }],
+      columns: [{ name: 'b_id', type: 'INTEGER', nullable: true, primaryKey: false }],
       foreignKeys: [
         { name: 'fk_a_b', columns: ['b_id'], referencedTable: 'b', referencedColumns: ['id'] },
       ],
@@ -750,7 +750,7 @@ describe('SqlGeneratorModule FK dependency order (Kahn)', () => {
       name: 'b',
       columns: [
         { name: 'id', type: 'INTEGER', nullable: false, primaryKey: true },
-        { name: 'a_id', type: 'INTEGER', nullable: true },
+        { name: 'a_id', type: 'INTEGER', nullable: true, primaryKey: false },
       ],
       foreignKeys: [
         { name: 'fk_b_a', columns: ['a_id'], referencedTable: 'a', referencedColumns: ['b_id'] },
@@ -786,7 +786,7 @@ describe('SqlGeneratorModule foreign key hardening', () => {
     const ddl = gen.generateObjectDdl(
       tableSchema({
         name: 'child',
-        columns: [{ name: 'parent_id', type: 'INTEGER', nullable: true }],
+        columns: [{ name: 'parent_id', type: 'INTEGER', nullable: true, primaryKey: false }],
         foreignKeys: [
           {
             name: 'fk_child_parent',
@@ -806,8 +806,8 @@ describe('SqlGeneratorModule foreign key hardening', () => {
       tableSchema({
         name: 'child',
         columns: [
-          { name: 'a', type: 'INTEGER', nullable: true },
-          { name: 'b', type: 'INTEGER', nullable: true },
+          { name: 'a', type: 'INTEGER', nullable: true, primaryKey: false },
+          { name: 'b', type: 'INTEGER', nullable: true, primaryKey: false },
         ],
         foreignKeys: [
           {
@@ -827,7 +827,7 @@ describe('SqlGeneratorModule foreign key hardening', () => {
     const ddl = gen.generateObjectDdl(
       tableSchema({
         name: 'child',
-        columns: [{ name: 'parent_id', type: 'INTEGER', nullable: true }],
+        columns: [{ name: 'parent_id', type: 'INTEGER', nullable: true, primaryKey: false }],
         foreignKeys: [
           {
             name: 'fk_ok',
