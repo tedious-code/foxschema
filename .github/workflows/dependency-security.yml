@@ -2,8 +2,8 @@ name: Dependency Security
 
 # Runs on every PR and every push to main.
 # Hard-blocks on Critical npm vulnerabilities.
-# Hard-blocks on any Rust advisory (cargo audit).
 # Warns on High npm vulnerabilities (non-blocking — devDep false positives are common).
+# Tauri/cargo audit is not run — desktop releases are retired.
 
 on:
   pull_request:
@@ -75,30 +75,3 @@ jobs:
       # server/CLI filesystem operations use variable paths by design.
       - name: Run ESLint security rules
         run: npx eslint .
-
-  # ── Rust / cargo audit ─────────────────────────────────────────────────────
-  cargo-audit:
-    name: cargo audit
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Cargo registry
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: cargo-audit-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
-          restore-keys: cargo-audit-
-
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked --quiet
-
-      - name: Run cargo audit
-        working-directory: apps/desktop/src-tauri
-        run: cargo audit

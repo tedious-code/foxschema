@@ -18,17 +18,3 @@ updates:
         update-types:
           - minor
           - patch
-
-  # Rust / Cargo — covers the Tauri desktop app dependencies.
-  - package-ecosystem: cargo
-    directory: /apps/desktop/src-tauri
-    schedule:
-      interval: weekly
-      day: monday
-      time: "08:00"
-      timezone: "America/Edmonton"
-    open-pull-requests-limit: 3
-    labels:
-      - dependencies
-      - security
-      - rust

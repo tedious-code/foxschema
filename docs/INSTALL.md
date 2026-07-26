@@ -4,7 +4,7 @@ Fox Schema is a **local web app** launched from the CLI. After install you run
 `foxschema` (or double-click the **Fox Schema** desktop shortcut) to open
 **http://localhost:3210** in your browser.
 
-Requires **Node.js ≥ 22.5** for npm / Homebrew / Winget paths. Docker needs no Node.
+Requires **Node.js ≥ 22.5** for npm / Homebrew paths. Docker needs no Node.
 
 ---
 
@@ -14,7 +14,7 @@ Requires **Node.js ≥ 22.5** for npm / Homebrew / Winget paths. Docker needs no
 |----------|---------|
 | **npm** (macOS / Windows / Linux) | `npm install -g foxschema` |
 | **Homebrew** (macOS Arm + Intel) | `brew tap … && brew trust tedious-code/foxschema && brew install foxschema` |
-| **Winget** (Windows) | `winget install TediousCode.FoxSchema` (or Node + `npm i -g foxschema`) |
+| **Windows** | Install Node (`winget install OpenJS.NodeJS.LTS`), then `npm i -g foxschema` |
 | **Docker** (servers, linux/amd64) | `docker pull 5nickels/foxschema:latest` |
 | **curl / wget** (scripted npm) | see [curl / wget](#curl--wget) below |
 
@@ -55,24 +55,16 @@ Details: [homebrew.md](homebrew.md).
 
 ---
 
-## Windows (Winget)
+## Windows
 
-One package — CLI portable zip (depends on Node.js LTS):
-
-```powershell
-winget install TediousCode.FoxSchema
-foxschema
-foxschema shortcut
-```
-
-If the winget package is not merged yet:
+Install Node, then the CLI from npm:
 
 ```powershell
 winget install OpenJS.NodeJS.LTS
 npm install -g foxschema
+foxschema
+foxschema shortcut
 ```
-
-Details: [winget.md](winget.md).
 
 ---
 

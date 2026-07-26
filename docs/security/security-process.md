@@ -12,8 +12,7 @@ Pull Request opened / pushed
         ├─► dependency-security.yml
         │     ├─ npm audit --audit-level=critical  ←── HARD BLOCK
         │     ├─ npm audit --audit-level=high      ←── warn only
-        │     ├─ ESLint security rules             ←── HARD BLOCK on error
-        │     └─ cargo audit                       ←── HARD BLOCK
+        │     └─ ESLint security rules             ←── HARD BLOCK on error
         │
         └─► secret-scan.yml (diff mode)            ←── HARD BLOCK
 
@@ -28,8 +27,7 @@ Tag push  v*
         │     ├─ unit tests
         │     ├─ ESLint security
         │     ├─ npm audit critical
-        │     ├─ Gitleaks full scan
-        │     └─ cargo audit
+        │     └─ Gitleaks full scan
         │
         ├─► web-release.yml → single Docker image (linux/amd64, includes Db2)
         │     → GHCR + Docker Hub (:latest / :vX.Y.Z)
@@ -48,7 +46,6 @@ Tag push  v*
 | `npm audit --audit-level=critical` | Blocks PR | Production deps only (`--omit=dev`) |
 | `npm audit --audit-level=high` | Warning only | devDep false positives are common |
 | ESLint security rules | Blocks PR | `--max-warnings 0` enforced |
-| `cargo audit` | Blocks PR | Covers Tauri desktop Rust deps |
 
 **Why `--omit=dev` for critical?** Test tools (vitest, selenium-webdriver, esbuild) often carry high/critical advisories for code paths that are never reachable in production. Without `--omit=dev`, false positives block developer PRs for issues with no real attack surface.
 
