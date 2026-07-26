@@ -285,8 +285,7 @@ export const DataGrid: React.FC<{
   const colKey = sourceColumns.join('\0');
   const colKinds = useMemo(
     () => computeColKinds(sourceColumns, sourceRows),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- colKey captures column identity; rowCount covers data refresh
-    [colKey, sourceRows.length, result.ok ? result.rowCount : 0]
+    [colKey, sourceColumns, sourceRows]
   );
 
   useEffect(() => {

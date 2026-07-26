@@ -1,7 +1,7 @@
 /**
  * Resolve secrets from AWS Secrets Manager / GCP Secret Manager / Azure Key Vault.
- * Uses stored per-user provider credentials when provided; otherwise the host’s
- * default credential chain. SDKs are optionalDependencies.
+ * Prefer stored per-user provider credentials. Host default chains are only
+ * allowed in single-user mode (or when ALLOW_HOST_CLOUD_CREDENTIALS=true).
  */
 
 export type CloudSecretSource = 'aws' | 'gcp' | 'azure';
@@ -52,6 +52,59 @@ export type CloudProviderCredentials =
   | GcpProviderCredentials
   | AzureProviderCredentials;
 
+/** True when host IAM / ADC / DefaultAzureCredential may be used without user keys. */
+export function allowHostCloudCredentials(): boolean {
+  if (process.env.ALLOW_HOST_CLOUD_CREDENTIALS === 'true') return true;
+  // LOCAL_SINGLE_USER defaults to true (desktop / personal CLI).
+  return process.env.LOCAL_SINGLE_USER !== 'false';
+}
+
+/**
+ * Azure Key Vault URLs only — HTTPS + known vault hostnames (blocks SSRF /
+ * token exfiltration via attacker-controlled vaultUrl).
+ */
+export function assertAzureVaultUrl(vaultUrl: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(vaultUrl);
+  } catch {
+    throw new Error('Invalid Azure Key Vault URL');
+  }
+  if (parsed.protocol !== 'https:') {
+    throw new Error('Azure Key Vault URL must use HTTPS');
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error('Azure Key Vault URL must not include credentials');
+  }
+  if (parsed.port && parsed.port !== '443') {
+    throw new Error('Azure Key Vault URL must use the default HTTPS port');
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (
+    host === 'localhost' ||
+    host.endsWith('.localhost') ||
+    host === '127.0.0.1' ||
+    host === '::1'
+  ) {
+    throw new Error('Azure Key Vault URL hostname is not allowed');
+  }
+  // Reject raw IPv4 / IPv6
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(':')) {
+    throw new Error('Azure Key Vault URL must use a vault hostname, not an IP');
+  }
+  const allowedSuffixes = [
+    '.vault.azure.net',
+    '.vault.azure.cn',
+    '.vault.usgovcloudapi.net',
+    '.vault.microsoftazure.de',
+  ];
+  if (!allowedSuffixes.some((sfx) => host.endsWith(sfx) && host.length > sfx.length)) {
+    throw new Error(
+      'Azure Key Vault URL hostname must be *.vault.azure.net (or a known sovereign-cloud vault endpoint)'
+    );
+  }
+}
+
 export function parseCloudRef(raw: string | null | undefined): CloudSecretRef | null {
   if (!raw) return null;
   try {
@@ -80,10 +133,23 @@ export function serializeCloudRef(ref: CloudSecretRef): string {
   });
 }
 
+function requireProviderCreds(
+  providerCreds: CloudProviderCredentials | undefined,
+  source: CloudSecretSource
+): void {
+  if (providerCreds) return;
+  if (allowHostCloudCredentials()) return;
+  throw new Error(
+    `Cloud secret resolve for ${source} requires saved Credentials → Cloud providers credentials ` +
+      `(host IAM is disabled on multi-user hosts; set ALLOW_HOST_CLOUD_CREDENTIALS=true only if intentional)`
+  );
+}
+
 async function resolveAws(
   ref: CloudSecretRef,
   providerCreds?: CloudProviderCredentials
 ): Promise<string> {
+  requireProviderCreds(providerCreds, 'aws');
   let SecretsManagerClient: typeof import('@aws-sdk/client-secrets-manager').SecretsManagerClient;
   let GetSecretValueCommand: typeof import('@aws-sdk/client-secrets-manager').GetSecretValueCommand;
   try {
@@ -127,6 +193,7 @@ async function resolveGcp(
   ref: CloudSecretRef,
   providerCreds?: CloudProviderCredentials
 ): Promise<string> {
+  requireProviderCreds(providerCreds, 'gcp');
   let SecretManagerServiceClient: typeof import('@google-cloud/secret-manager').SecretManagerServiceClient;
   try {
     const mod = await import('@google-cloud/secret-manager');
@@ -169,6 +236,8 @@ async function resolveAzure(
   if (!ref.vaultUrl) {
     throw new Error('Azure Key Vault secrets require cloud_ref.vaultUrl');
   }
+  assertAzureVaultUrl(ref.vaultUrl);
+  requireProviderCreds(providerCreds, 'azure');
   let SecretClient: typeof import('@azure/keyvault-secrets').SecretClient;
   let DefaultAzureCredential: typeof import('@azure/identity').DefaultAzureCredential;
   let ClientSecretCredential: typeof import('@azure/identity').ClientSecretCredential;

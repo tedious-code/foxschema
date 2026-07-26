@@ -342,13 +342,13 @@ export const SqlEditorView: React.FC = () => {
               <SqlVariablesPanel />
             </SqlSidebarSection>
             <SqlSidebarSection
-              id="secrets"
+              id="vault"
               title="Secrets"
               icon={<KeyRound className="text-[#d97706]" strokeWidth={SQL_ICON_STROKE} />}
-              open={sidebarOpen.secrets}
-              onToggle={() => toggleSidebar('secrets')}
-              height={sectionHeights.secrets}
-              onResizeHeight={(h) => setSectionHeight('secrets', h)}
+              open={sidebarOpen.vault}
+              onToggle={() => toggleSidebar('vault')}
+              height={sectionHeights.vault}
+              onResizeHeight={(h) => setSectionHeight('vault', h)}
               actions={
                 <button
                   type="button"
