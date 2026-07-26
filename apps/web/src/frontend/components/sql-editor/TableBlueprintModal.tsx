@@ -42,6 +42,8 @@ import {
   isIntegerAutoIncrementType,
   listDialectDataTypes,
   matchFkReferencedColumns,
+  moveFkColumnsLockstep,
+  moveOrderedName,
   parseTypeSize,
   pkColumnsFromTable,
   sameStringList,
@@ -125,17 +127,6 @@ function findTableByName(
 function toggleOrderedName(list: string[], name: string, multi: boolean): string[] {
   if (list.includes(name)) return list.filter((c) => c !== name);
   return multi ? [...list, name] : [name];
-}
-
-/** Swap a name one step within an ordered list. */
-function moveOrderedName(list: string[], name: string, dir: -1 | 1): string[] {
-  const i = list.indexOf(name);
-  if (i < 0) return list;
-  const j = i + dir;
-  if (j < 0 || j >= list.length) return list;
-  const next = [...list];
-  [next[i], next[j]] = [next[j]!, next[i]!];
-  return next;
 }
 
 /**
@@ -374,10 +365,16 @@ export const TableBlueprintModal: React.FC<Props> = ({
   };
 
   const moveFkLocal = (name: string, dir: -1 | 1) => {
-    setFkForm((prev) => ({
-      ...prev,
-      columns: moveOrderedName(prev.columns, name, dir),
-    }));
+    setFkForm((prev) => {
+      const next = moveFkColumnsLockstep(
+        prev.columns,
+        prev.referencedColumns,
+        name,
+        dir,
+        (cols) => syncFkRefColumns(cols, fkRefTable)
+      );
+      return { ...prev, ...next };
+    });
   };
 
   const toggleFkRefColumn = (name: string) => {

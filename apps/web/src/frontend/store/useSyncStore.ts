@@ -109,6 +109,13 @@ export const useSyncStore = create<SyncState>()(
       selectedSourceConnectionId: state.selectedSourceConnectionId === id ? null : state.selectedSourceConnectionId,
       selectedTargetConnectionId: state.selectedTargetConnectionId === id ? null : state.selectedTargetConnectionId,
     }));
+    // Drop SQL Editor schema cache for the removed credential (session-only).
+    const { useSqlEditorStore } = await import('./useSqlEditorStore');
+    const cache = useSqlEditorStore.getState().schemaCache;
+    if (cache[id]) {
+      const { [id]: _removed, ...rest } = cache;
+      useSqlEditorStore.setState({ schemaCache: rest });
+    }
   },
 
   setShowConnectionModal: (showConnectionModal) => set({ showConnectionModal }),

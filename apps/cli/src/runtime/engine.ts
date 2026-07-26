@@ -1,4 +1,4 @@
-import { ConnectionModule, MigrationModule } from '@foxschema/core';
+import { ConnectionModule, MigrationModule, normalizeTableSchemas } from '@foxschema/core';
 import { CompareModule, SqlGeneratorModule, type ConnectionOptions, type DbObjectType, type TableSchema, type TableDiff } from '@foxschema/core';
 
 // Shared engine singletons — the same modules the web/desktop apps use.
@@ -18,7 +18,7 @@ export async function loadScopedTables(
   if (!provider.getTables) {
     throw new Error(`The "${dialect}" provider can't list objects.`);
   }
-  const tables = await provider.getTables(option, schema);
+  const tables = normalizeTableSchemas(await provider.getTables(option, schema));
   return scope && scope.length ? tables.filter((t) => scope.includes(t.objectType)) : tables;
 }
 

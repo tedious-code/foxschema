@@ -1,6 +1,6 @@
 import { resolveDialect } from '../../lib/migration-validation';
 import type { ColumnInfo, TableSchema } from '../../lib/types';
-import type { CanonicalBase, CanonicalType } from '@foxschema/core';
+import { dialectSupportsFk, type CanonicalBase, type CanonicalType } from '@foxschema/core';
 
 /** Quote an identifier when it is not a plain SQL name. */
 export function quoteIdent(name: string, dialect: string): string {
@@ -107,6 +107,46 @@ export function matchFkReferencedColumns(
   if (matched.length === localColumns.length) return matched;
   if (pkColumns.length === localColumns.length) return [...pkColumns];
   return [];
+}
+
+/** Swap a name one step within an ordered list. */
+export function moveOrderedName(list: string[], name: string, dir: -1 | 1): string[] {
+  const i = list.indexOf(name);
+  if (i < 0) return list;
+  const j = i + dir;
+  if (j < 0 || j >= list.length) return list;
+  const next = [...list];
+  [next[i], next[j]] = [next[j]!, next[i]!];
+  return next;
+}
+
+/**
+ * Reorder a local FK column and keep `referencedColumns` aligned by index.
+ * When lengths already match, both arrays move in lockstep; otherwise
+ * `resync` (if provided) rebuilds referenced columns from the new local order.
+ */
+export function moveFkColumnsLockstep(
+  columns: string[],
+  referencedColumns: string[],
+  name: string,
+  dir: -1 | 1,
+  resync?: (cols: string[]) => string[]
+): { columns: string[]; referencedColumns: string[] } {
+  const i = columns.indexOf(name);
+  if (i < 0) return { columns, referencedColumns };
+  const j = i + dir;
+  if (j < 0 || j >= columns.length) return { columns, referencedColumns };
+
+  const nextColumns = moveOrderedName(columns, name, dir);
+  if (referencedColumns.length === columns.length) {
+    const nextRefs = [...referencedColumns];
+    [nextRefs[i], nextRefs[j]] = [nextRefs[j]!, nextRefs[i]!];
+    return { columns: nextColumns, referencedColumns: nextRefs };
+  }
+  if (resync) {
+    return { columns: nextColumns, referencedColumns: resync(nextColumns) };
+  }
+  return { columns: nextColumns, referencedColumns };
 }
 
 export type BlueprintColumnOp =
@@ -996,75 +1036,9 @@ export type FkConstraintSupport = {
   hint: string;
 };
 
-const FK_FULL: Omit<FkConstraintSupport, 'hint'> = {
-  alterAdd: true,
-  createInline: true,
-  composite: true,
-};
-
+/** Delegates to the core dialect × FK bitmatrix. */
 export function dialectFkConstraintSupport(dialectName: string): FkConstraintSupport {
-  const d = dialectName.toLowerCase();
-  switch (d) {
-    case 'clickhouse':
-      return {
-        alterAdd: false,
-        createInline: false,
-        composite: false,
-        hint: 'ClickHouse has no foreign-key constraints.',
-      };
-    case 'sqlite':
-      return {
-        alterAdd: false,
-        createInline: true,
-        composite: true,
-        hint: 'SQLite: declare FOREIGN KEY in CREATE TABLE only (no ALTER ADD). One or more columns OK.',
-      };
-    case 'redshift':
-      return {
-        ...FK_FULL,
-        hint: 'Redshift accepts FK syntax (informational). Single or composite columns OK.',
-      };
-    case 'duckdb':
-      return {
-        ...FK_FULL,
-        hint: 'DuckDB: FOREIGN KEY on one or more columns via CREATE or ALTER.',
-      };
-    case 'mysql':
-    case 'mariadb':
-    case 'tidb':
-      return {
-        ...FK_FULL,
-        hint: 'MySQL/MariaDB/TiDB: ADD CONSTRAINT FOREIGN KEY; composite supported.',
-      };
-    case 'postgres':
-    case 'cockroachdb':
-    case 'yugabytedb':
-      return {
-        ...FK_FULL,
-        hint: 'PostgreSQL-compatible: ADD CONSTRAINT FOREIGN KEY; composite supported.',
-      };
-    case 'sqlserver':
-    case 'azuresql':
-      return {
-        ...FK_FULL,
-        hint: 'SQL Server / Azure SQL: ADD CONSTRAINT FOREIGN KEY; composite supported.',
-      };
-    case 'oracle':
-      return {
-        ...FK_FULL,
-        hint: 'Oracle: ADD CONSTRAINT FOREIGN KEY; composite supported.',
-      };
-    case 'db2':
-      return {
-        ...FK_FULL,
-        hint: 'DB2: ADD CONSTRAINT FOREIGN KEY; composite supported.',
-      };
-    default:
-      return {
-        ...FK_FULL,
-        hint: 'FOREIGN KEY on one or more columns via CREATE or ALTER.',
-      };
-  }
+  return dialectSupportsFk(dialectName);
 }
 
 /** Structural completeness of an FK draft (name, columns, matching ref columns). */

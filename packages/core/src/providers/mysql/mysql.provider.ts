@@ -255,8 +255,10 @@ export class MysqlProvider implements SchemaProvider {
             rSchema: k.REFERENCED_TABLE_SCHEMA ?? db,
             rTable: k.REFERENCED_TABLE_NAME,
           };
+          // Always pair local/ref in constraint order so sparse REFERENCED_COLUMN_NAME
+          // cannot desync the two arrays (drop incomplete groups below).
           g.cols.push(k.COLUMN_NAME);
-          if (k.REFERENCED_COLUMN_NAME) g.refCols.push(k.REFERENCED_COLUMN_NAME);
+          g.refCols.push(k.REFERENCED_COLUMN_NAME ?? '');
           fkGroups.set(id, g);
         } else if (k.CONSTRAINT_NAME === 'PRIMARY') {
           if (tables[k.TABLE_NAME]) tables[k.TABLE_NAME].primaryKey.push(k.COLUMN_NAME);
@@ -269,6 +271,13 @@ export class MysqlProvider implements SchemaProvider {
         }
       }
       for (const [, info] of fkGroups) {
+        if (
+          info.cols.length === 0 ||
+          info.cols.length !== info.refCols.length ||
+          info.refCols.some((c) => !c)
+        ) {
+          continue;
+        }
         const mapped: DbForeignKey = {
           name: info.name,
           columns: info.cols,

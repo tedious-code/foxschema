@@ -1,6 +1,6 @@
 import { confirm } from '@inquirer/prompts';
 import chalk from 'chalk';
-import type { TableDiff } from '@foxschema/core';
+import { normalizeTableSchemas, type TableDiff } from '@foxschema/core';
 import { ensureSourceTarget, resolveRef } from '../runtime/connectionRef';
 import { friendlyError } from '../format/friendlyError';
 import { compareModule, connectionModule, filterIndexDiffs, loadScopedTables, migrationModule, parseScope, sqlGenerator } from '../runtime/engine';
@@ -130,7 +130,7 @@ export async function runMigrate(opts: MigrateOptions): Promise<void> {
   try {
     const provider = connectionModule.getProvider(tgt.dialect);
     if (provider.getTables) {
-      const objs = await provider.getTables(tgt.option, tgt.schema);
+      const objs = normalizeTableSchemas(await provider.getTables(tgt.option, tgt.schema));
       snapshotDdl =
         `-- Target snapshot (pre-migration) · ${new Date().toISOString()}\n\n` +
         objs.map((o) => sqlGenerator.generateObjectDdl(o)).join('\n');

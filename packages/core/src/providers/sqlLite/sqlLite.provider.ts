@@ -73,15 +73,39 @@ export class SqliteProvider implements SchemaProvider {
     const indexColumns: Record<string, never[]> = {};
     const views: Record<string, DbView[]> = {};
 
-    // Per-table introspection (cannot be parallelized easily — PRAGMA takes
-    // the table name inline, not as a bind parameter in all SQLite drivers)
-    for (const t of rawTables) {
-      // table_info — columns
-      const rawCols = await exec<SqliteColRaw>(`PRAGMA table_info("${t.name.replace(/"/g, '""')}")`);
-      // index_list — indexes on this table
-      const rawIdxList = await exec<SqliteIdxRaw>(`PRAGMA index_list("${t.name.replace(/"/g, '""')}")`);
-      // foreign_key_list — FK references
-      const rawFkList = await exec<SqliteFkRaw>(`PRAGMA foreign_key_list("${t.name.replace(/"/g, '""')}")`);
+    // Bound PRAGMA fan-out so large DBs don't open N+1 storms serially forever.
+    const PRAGMA_CONCURRENCY = 12;
+    const qIdent = (name: string) => `"${name.replace(/"/g, '""')}"`;
+
+    const mapPool = async <T, R>(items: T[], concurrency: number, fn: (item: T) => Promise<R>): Promise<R[]> => {
+      if (items.length === 0) return [];
+      const results = new Array<R>(items.length);
+      let next = 0;
+      const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+        while (next < items.length) {
+          const i = next++;
+          results[i] = await fn(items[i]!);
+        }
+      });
+      await Promise.all(workers);
+      return results;
+    };
+
+    type TableLoad = {
+      name: string;
+      colMap: Record<string, DbColumn>;
+      colList: DbColumn[];
+      pkCols: string[];
+      fkList: DbForeignKey[];
+      tableIdxs: DbIndex[];
+    };
+
+    const loadedTables = await mapPool(rawTables, PRAGMA_CONCURRENCY, async (t): Promise<TableLoad> => {
+      const [rawCols, rawIdxList, rawFkList] = await Promise.all([
+        exec<SqliteColRaw>(`PRAGMA table_info(${qIdent(t.name)})`),
+        exec<SqliteIdxRaw>(`PRAGMA index_list(${qIdent(t.name)})`),
+        exec<SqliteFkRaw>(`PRAGMA foreign_key_list(${qIdent(t.name)})`),
+      ]);
 
       const pkCols = rawCols.filter((c) => c.pk > 0).sort((a, b) => a.pk - b.pk).map((c) => c.name);
 
@@ -99,7 +123,6 @@ export class SqliteProvider implements SchemaProvider {
         colList.push(mapped);
       }
 
-      const tableIdxs: DbIndex[] = [];
       const fkGroups = new Map<number, { table: string; froms: string[]; tos: string[] }>();
       const orderedFks = [...rawFkList].sort((a, b) => a.id - b.id || a.seq - b.seq);
       for (const fk of orderedFks) {
@@ -119,29 +142,48 @@ export class SqliteProvider implements SchemaProvider {
         });
       }
 
-      for (const ix of rawIdxList) {
-        // Skip auto-created indexes for PRIMARY KEY and UNIQUE constraints (origin='pk'/'u')
-        if (ix.origin === 'pk') continue;
-        const rawIdxCols = await exec<SqliteIdxColRaw>(`PRAGMA index_info("${ix.name.replace(/"/g, '""')}")`);
+      const idxCandidates = rawIdxList.filter((ix) => ix.origin !== 'pk');
+      const tableIdxs = await mapPool(idxCandidates, PRAGMA_CONCURRENCY, async (ix) => {
+        const rawIdxCols = await exec<SqliteIdxColRaw>(`PRAGMA index_info(${qIdent(ix.name)})`);
         const ixCols = rawIdxCols.sort((a, b) => a.seqno - b.seqno).map((c) => c.name);
-        tableIdxs.push({ name: ix.name, uniqueRule: ix.unique ? 'U' : 'D', columns: ixCols });
-      }
+        return { name: ix.name, uniqueRule: ix.unique ? 'U' : 'D', columns: ixCols } satisfies DbIndex;
+      });
 
-      tables[t.name] = { name: t.name, columns: colMap, primaryKey: pkCols, foreignKeys: fkList, uniqueConstraints: [], indexes: tableIdxs };
-      columns[t.name] = colList;
+      return { name: t.name, colMap, colList, pkCols, fkList, tableIdxs };
+    });
+
+    for (const t of loadedTables) {
+      tables[t.name] = {
+        name: t.name,
+        columns: t.colMap,
+        primaryKey: t.pkCols,
+        foreignKeys: t.fkList,
+        uniqueConstraints: [],
+        indexes: t.tableIdxs,
+      };
+      columns[t.name] = t.colList;
       primaryKeys[t.name] = [];
-      foreignKeys[t.name] = fkList;
-      indexes[t.name] = tableIdxs;
+      foreignKeys[t.name] = t.fkList;
+      indexes[t.name] = t.tableIdxs;
     }
 
-    // Views
-    for (const vw of rawViews) {
-      const rawVwCols = await exec<SqliteColRaw>(`PRAGMA table_info("${vw.name.replace(/"/g, '""')}")`);
+    // Views — also batched
+    const loadedViews = await mapPool(rawViews, PRAGMA_CONCURRENCY, async (vw) => {
+      const rawVwCols = await exec<SqliteColRaw>(`PRAGMA table_info(${qIdent(vw.name)})`);
       const viewColumns: Record<string, DbColumn> = {};
       for (const col of rawVwCols) {
         viewColumns[col.name] = { name: col.name, type: col.type || 'TEXT', nullable: true, defaultValue: undefined };
       }
-      (views[vw.name] ??= []).push({ name: vw.name, schema: '', definition: vw.sql ?? '', columns: viewColumns, indexes: [] });
+      return { name: vw.name, sql: vw.sql, viewColumns };
+    });
+    for (const vw of loadedViews) {
+      (views[vw.name] ??= []).push({
+        name: vw.name,
+        schema: '',
+        definition: vw.sql ?? '',
+        columns: vw.viewColumns,
+        indexes: [],
+      });
     }
 
     // Triggers

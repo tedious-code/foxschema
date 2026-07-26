@@ -14,7 +14,7 @@ const COL_LONG_TEXT_PX = 200;
 /** Upper bound when double-clicking a header to fit content. */
 const COL_FIT_MAX_PX = 720;
 const ROW_NUM_PX = 48;
-/** Fixed row height for windowing (must match rendered row). */
+/** Fixed row height for windowing (must match rendered row). Off-screen pages live in pageCache LRU, not the DOM. */
 const ROW_H_PX = 28;
 const OVERSCAN = 8;
 

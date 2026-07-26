@@ -1,6 +1,12 @@
 import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api';
 import { extractTableAliases } from '../../lib/sql-splitter';
 import { filterCallParameters, getCompletionContext } from './sqlEditorBridge';
+import {
+  buildSchemaTries,
+  schemaRevision,
+  trieCollect,
+  type SchemaTrieBundle,
+} from './completionTrie';
 
 const LIGHT_KEYWORDS = [
   'SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'FULL',
@@ -14,6 +20,15 @@ const LIGHT_KEYWORDS = [
 const LANG_IDS = ['sql', 'pgsql', 'mysql', 'foxschema-sql'] as const;
 
 let registered = false;
+/** Rebuilt when schemaCache revision changes. */
+let cachedTries: SchemaTrieBundle | null = null;
+
+function triesFor(schemas: ReturnType<typeof getCompletionContext>['schemas']): SchemaTrieBundle {
+  const rev = schemaRevision(schemas);
+  if (cachedTries && cachedTries.revision === rev) return cachedTries;
+  cachedTries = buildSchemaTries(schemas);
+  return cachedTries;
+}
 
 /**
  * Register completion providers once per Monaco language id. Suggestions read
@@ -49,6 +64,7 @@ export function ensureSqlCompletions(monaco: typeof Monaco): void {
       // Prefer the live model text — context sql can lag one keystroke behind.
       const aliases = extractTableAliases(model.getValue() || sql);
       const tableIndex = buildTableIndex(schemas);
+      const tries = triesFor(schemas);
       const prefix = (word.word || '').toLowerCase();
 
       // `${{name.` — suggest columns of a table variable.
@@ -200,9 +216,18 @@ export function ensureSqlCompletions(monaco: typeof Monaco): void {
         const ref = dot[1]!.toLowerCase();
         const partial = (dot[2] ?? '').toLowerCase();
         const tableName = aliases[ref] ?? ref;
-        const cols = columnsForTable(tableIndex, tableName).filter(
-          (name) => !partial || name.toLowerCase().startsWith(partial)
-        );
+        const colTrie =
+          tries.columnsByTable.get(tableName.toLowerCase()) ??
+          tries.columnsByTable.get(
+            tableName.toLowerCase().includes('.')
+              ? tableName.toLowerCase().slice(tableName.toLowerCase().lastIndexOf('.') + 1)
+              : tableName.toLowerCase()
+          );
+        const cols = colTrie
+          ? trieCollect(colTrie, partial)
+          : columnsForTable(tableIndex, tableName).filter(
+              (name) => !partial || name.toLowerCase().startsWith(partial)
+            );
         // Replace only the column fragment after the dot (not the alias).
         const colRange: Monaco.IRange = {
           startLineNumber: position.lineNumber,
@@ -262,24 +287,24 @@ export function ensureSqlCompletions(monaco: typeof Monaco): void {
         });
       }
 
-      for (const src of schemas) {
-        for (const t of src.tables) {
-          if (t.objectType !== 'TABLE' && t.objectType !== 'VIEW' && t.objectType !== 'MQT') continue;
-          const key = t.name.toLowerCase();
-          const bare = key.includes('.') ? key.slice(key.lastIndexOf('.') + 1) : key;
-          if (prefix && !key.startsWith(prefix) && !bare.startsWith(prefix)) continue;
-          if (seen.has(key) || seen.has(bare)) continue;
-          seen.add(key);
-          seen.add(bare);
-          suggestions.push({
-            label: t.name,
-            kind: monaco.languages.CompletionItemKind.Class,
-            insertText: t.name,
-            detail: t.objectType.toLowerCase(),
-            sortText: `1_${t.name}`,
-            range,
-          });
-        }
+      const tableNames = trieCollect(tries.tables, prefix);
+      for (const name of tableNames) {
+        const key = name.toLowerCase();
+        const bare = key.includes('.') ? key.slice(key.lastIndexOf('.') + 1) : key;
+        if (seen.has(key) || seen.has(bare)) continue;
+        seen.add(key);
+        seen.add(bare);
+        const meta = schemas
+          .flatMap((s) => s.tables)
+          .find((t) => t.name.toLowerCase() === key);
+        suggestions.push({
+          label: name,
+          kind: monaco.languages.CompletionItemKind.Class,
+          insertText: name,
+          detail: (meta?.objectType ?? 'TABLE').toLowerCase(),
+          sortText: `1_${name}`,
+          range,
+        });
       }
 
       // Procedures / functions — show IN/OUT/INOUT signature in detail; insert CALL/fn(…).

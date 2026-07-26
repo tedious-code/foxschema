@@ -19,6 +19,7 @@ import {
   generateTableBlueprintSql,
   dialectFkConstraintSupport,
   matchFkReferencedColumns,
+  moveFkColumnsLockstep,
   quoteTableRef,
   qualifyTableName,
   isIntegerAutoIncrementType,
@@ -518,5 +519,30 @@ describe('generateTableBlueprintSql', () => {
     });
     expect(sql.some((s) => s.includes('ADD COLUMN b'))).toBe(true);
     expect(sql.some((s) => s.includes('PRIMARY KEY (a, b)'))).toBe(true);
+  });
+});
+
+describe('moveFkColumnsLockstep', () => {
+  it('permutes referencedColumns with local columns when lengths match', () => {
+    const next = moveFkColumnsLockstep(
+      ['a_id', 'b_id'],
+      ['a', 'b'],
+      'a_id',
+      1
+    );
+    expect(next.columns).toEqual(['b_id', 'a_id']);
+    expect(next.referencedColumns).toEqual(['b', 'a']);
+  });
+
+  it('calls resync when referencedColumns length differs', () => {
+    const next = moveFkColumnsLockstep(
+      ['a_id', 'b_id'],
+      ['a'],
+      'a_id',
+      1,
+      (cols) => cols.map((c) => c.replace(/_id$/, ''))
+    );
+    expect(next.columns).toEqual(['b_id', 'a_id']);
+    expect(next.referencedColumns).toEqual(['b', 'a']);
   });
 });

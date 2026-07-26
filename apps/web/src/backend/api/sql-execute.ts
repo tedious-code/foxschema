@@ -158,19 +158,9 @@ export async function runStatements(
         });
       } catch (error: unknown) {
         const wrapMsg = error instanceof Error ? error.message : String(error);
-        // Fail closed for Next/Prev: unwrapped SQL ignores OFFSET and would
-        // re-show page 0 while the UI advances pageIndex.
-        if (offset > 0) {
-          pushErr(`Paging failed: ${wrapMsg}`);
-          continue;
-        }
-        // offset === 0 only: dialect rejected the wrap (rare) — try raw SQL.
-        try {
-          await pushUnwrappedOk();
-        } catch (inner: unknown) {
-          const message = inner instanceof Error ? inner.message : String(inner);
-          pushErr(`${message} (page wrap: ${wrapMsg})`);
-        }
+        // Fail closed for all pageable statements: raw fallback can materialize
+        // an unbounded result set before shapeRows truncates, and ignores OFFSET.
+        pushErr(`Paging failed: ${wrapMsg}`);
       }
     }
     return results;
