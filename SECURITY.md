@@ -53,7 +53,6 @@ Out of scope:
 Automated security checks run on every pull request and every push to `main`:
 
 - **npm audit** — blocks merges on Critical npm vulnerabilities
-- **cargo audit** — blocks merges on RustSec advisories
 - **Gitleaks** — detects committed secrets
 - **ESLint security rules** — static analysis for injection patterns and unsafe regex
 - **CodeQL** — weekly deep analysis (SQL injection, path traversal, prototype pollution)

@@ -1,7 +1,7 @@
 name: Desktop Release
 
 # RETIRED — desktop (Tauri) installers are no longer published.
-# Distribution is CLI-first: npm, Homebrew, Winget (CLI), and Docker.
+# Distribution is CLI-first: npm, Homebrew, and Docker.
 # See README.md and docs/DEPLOYMENT.md.
 #
 # This workflow is kept only so old workflow links do not 404. It does not

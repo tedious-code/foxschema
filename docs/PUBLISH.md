@@ -9,8 +9,8 @@ Distribution channels (one product, no separate Db2 edition):
 | **npm** | `foxschema` on registry.npmjs.org | `.github/workflows/npm-publish.yml` on `v*` tag |
 | **Docker** | `5nickels/foxschema:latest` + `:vX.Y.Z` (linux/amd64, includes Db2) | `.github/workflows/web-release.yml` on `v*` tag |
 | **Homebrew** | `Formula/foxschema.rb` in this repo | Manual commit after npm publish |
-| **Winget** | `TediousCode.FoxSchema` portable zip on GitHub Releases | `.github/workflows/winget.yml` on release / dispatch |
 | **Desktop Tauri** | **Retired** — do not publish | — |
+| **Winget** | **Retired** — do not publish | — |
 
 Version numbers are bumped automatically on merge to `main`
 (`.github/workflows/version-bump.yml`). Do **not** bump version in feature PRs.
@@ -95,8 +95,8 @@ foxschema shortcut
 ## 5. What not to publish
 
 - Do **not** run Desktop Release (retired).
+- Do **not** publish to Winget (retired).
 - Do **not** publish separate `db2-latest` / `FoxSchema.DB2` packages.
-- Do **not** open new winget MSI PRs for Tauri installers.
 
 ---
 
