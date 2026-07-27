@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Columns3, Loader2, Plus, RefreshCw } from 'lucide-react';
 import { useSyncStore } from '../../store/useSyncStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
@@ -9,6 +9,11 @@ import { filterCallParameters, insertAtCursor } from './sqlEditorBridge';
 import type { DbObjectType, TableSchema } from '../../lib/types';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
 import { TableBlueprintModal, type BlueprintMode } from './TableBlueprintModal';
+
+/** Imperative API for the Schema section header (New table). */
+export interface SqlSchemaExplorerHandle {
+  openCreateTable: () => void;
+}
 
 /** Categories shown in the SQL Editor schema browser (order = display order). */
 const EXPLORER_GROUPS: { type: DbObjectType; title: string }[] = [
@@ -42,7 +47,10 @@ function writeStoredExplorerId(id: string): void {
  * Slim schema tree for the SQL Editor. Categorized TABLE / VIEW / MQT /
  * PROCEDURE / FUNCTION — click a name to insert at the Monaco cursor.
  */
-export const SqlSchemaExplorer: React.FC = () => {
+export const SqlSchemaExplorer = forwardRef<SqlSchemaExplorerHandle>(function SqlSchemaExplorer(
+  _props,
+  ref
+) {
   const connections = useSyncStore((s) => s.connections);
   const connectionsLoaded = useSyncStore((s) => s.connectionsLoaded);
   const tabs = useSqlEditorStore((s) => s.tabs);
@@ -82,6 +90,8 @@ export const SqlSchemaExplorer: React.FC = () => {
     setBlueprintMode('create');
     setBlueprintTable(null);
   };
+
+  useImperativeHandle(ref, () => ({ openCreateTable }), []);
 
   useEffect(() => {
     // After refresh, connections starts [] until loadConnections finishes.
@@ -293,7 +303,7 @@ export const SqlSchemaExplorer: React.FC = () => {
       )}
     </div>
   );
-};
+});
 
 const ObjectNode: React.FC<{
   table: TableSchema;
@@ -323,12 +333,12 @@ const ObjectNode: React.FC<{
   };
 
   return (
-    <div>
-      <div className="flex items-center gap-0.5 group">
+    <div className="min-w-0">
+      <div className="flex items-center gap-0.5 min-w-0">
         <button
           type="button"
           onClick={onToggle}
-          className="p-0.5 text-slate-500 hover:text-slate-300"
+          className="p-0.5 text-slate-500 hover:text-slate-300 shrink-0"
           aria-label={open ? 'Collapse' : 'Expand'}
         >
           {open ? (
@@ -342,17 +352,9 @@ const ObjectNode: React.FC<{
           title={
             isRoutine
               ? `Insert ${table.name}(${params.map((p) => `${p.mode} ${p.name}`).join(', ')})`
-              : onOpenBlueprint
-                ? `Insert ${table.name} (double-click to edit table)`
-                : `Insert ${table.name}`
+              : `Insert ${table.name}`
           }
           onClick={insertObject}
-          onDoubleClick={(e) => {
-            if (!onOpenBlueprint) return;
-            e.preventDefault();
-            e.stopPropagation();
-            onOpenBlueprint();
-          }}
           className="flex-1 flex items-center gap-1.5 min-w-0 text-left text-[13px] font-semibold text-slate-200 hover:text-cyan-300 py-1 truncate"
         >
           <span className="shrink-0">{meta.icon}</span>
@@ -363,22 +365,22 @@ const ObjectNode: React.FC<{
             </span>
           )}
         </button>
-        {onOpenBlueprint && (
-          <button
-            type="button"
-            title="Open table blueprint — add/edit columns"
-            data-testid="sql-open-blueprint"
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenBlueprint();
-            }}
-            className="inline-flex items-center gap-0.5 px-1.5 py-1 rounded text-[10px] font-bold uppercase tracking-wide text-violet-200 bg-violet-950/50 border border-violet-700/40 hover:bg-violet-900/60 transition shrink-0"
-          >
-            <Columns3 className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
-            Edit
-          </button>
-        )}
       </div>
+      {onOpenBlueprint && (
+        <button
+          type="button"
+          title="Open table blueprint — add/edit columns"
+          data-testid="sql-open-blueprint"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenBlueprint();
+          }}
+          className="ml-6 mb-0.5 inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold text-violet-200 bg-violet-950/60 border border-violet-600/50 hover:bg-violet-900/70 transition"
+        >
+          <Columns3 className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+          Edit table
+        </button>
+      )}
       {open && isRoutine && params.length === 0 && (
         <p className="ml-6 text-[12px] text-slate-600 mb-1">No parameters</p>
       )}

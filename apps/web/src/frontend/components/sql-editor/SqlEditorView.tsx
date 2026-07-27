@@ -16,6 +16,7 @@ import {
   KeyRound,
   PanelLeftClose,
   PanelLeftOpen,
+  Plus,
 } from 'lucide-react';
 import { useSyncStore } from '../../store/useSyncStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
@@ -31,7 +32,7 @@ import { SqlBookmarksPanel } from './SqlBookmarksPanel';
 import { SqlVariablesPanel } from './SqlVariablesPanel';
 import { SqlSecretsPanel, type SqlSecretsPanelHandle } from './SqlSecretsPanel';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
-import { SqlSchemaExplorer } from './SqlSchemaExplorer';
+import { SqlSchemaExplorer, type SqlSchemaExplorerHandle } from './SqlSchemaExplorer';
 import {
   SqlSidebarSection,
   useSidebarSectionHeights,
@@ -129,6 +130,7 @@ export const SqlEditorView: React.FC = () => {
   const [sidebarOpen, toggleSidebar] = useSidebarSectionsOpen();
   const [sectionHeights, setSectionHeight] = useSidebarSectionHeights();
   const secretsPanelRef = useRef<SqlSecretsPanelHandle>(null);
+  const schemaExplorerRef = useRef<SqlSchemaExplorerHandle>(null);
   const [secretsRefreshing, setSecretsRefreshing] = useState(false);
 
   const onSecretsRefresh = useCallback(async () => {
@@ -377,8 +379,20 @@ export const SqlEditorView: React.FC = () => {
               grow
               height={sectionHeights.schema}
               onResizeHeight={(h) => setSectionHeight('schema', h)}
+              actions={
+                <button
+                  type="button"
+                  data-testid="sql-schema-new-table"
+                  title="Create table — opens blueprint to add columns"
+                  onClick={() => schemaExplorerRef.current?.openCreateTable()}
+                  className="flex items-center gap-0.5 text-[12px] font-bold text-[#059669] hover:text-[#047857] transition"
+                >
+                  <Plus className="w-3.5 h-3.5 text-[#059669]" strokeWidth={SQL_ICON_STROKE} />
+                  New table
+                </button>
+              }
             >
-              <SqlSchemaExplorer />
+              <SqlSchemaExplorer ref={schemaExplorerRef} />
             </SqlSidebarSection>
           </div>
           <div
