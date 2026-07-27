@@ -169,6 +169,75 @@ export class SqlEditorPage {
     return this.page.locator('[data-testid="sql-schema-explorer"]').isVisible();
   }
 
+  /** Expand TABLES group and open the blueprint for a table by name. */
+  async openTableBlueprint(tableName: string): Promise<void> {
+    await this.dismissOverlays();
+    await this.closeBlueprint().catch(() => undefined);
+    const explorer = this.page.locator('[data-testid="sql-schema-explorer"]');
+    await explorer.waitFor({ state: 'visible', timeout: 15_000 });
+    // Expand TABLES group only when the table name is not already visible
+    // (a second click would collapse it).
+    const alreadyVisible = await explorer.getByText(tableName, { exact: true }).count();
+    if (alreadyVisible === 0) {
+      const group = explorer.locator('[data-testid="sql-schema-group-TABLE"]');
+      if (await group.count()) {
+        await group.locator('button').first().click().catch(() => undefined);
+      }
+    }
+    await this.page.waitForFunction(
+      (name) => {
+        const root = document.querySelector('[data-testid="sql-schema-explorer"]');
+        return !!root && new RegExp(name, 'i').test(root.textContent ?? '');
+      },
+      tableName,
+      { timeout: 45_000 }
+    );
+    // Prefer the blueprint button nearest the table name label.
+    const nameLabel = explorer.getByText(tableName, { exact: true }).first();
+    await nameLabel.scrollIntoViewIfNeeded();
+    const row = nameLabel.locator('xpath=ancestor::div[contains(@class,"group")][1]');
+    await row.hover();
+    await row.locator('[data-testid="sql-open-blueprint"]').click({ force: true });
+    await waitFor(this.page, '[data-testid="table-blueprint-modal"]', 15_000);
+  }
+
+  async openNewTableBlueprint(): Promise<void> {
+    await this.dismissOverlays();
+    await clickWhen(this.page, '[data-testid="sql-new-table"]');
+    await waitFor(this.page, '[data-testid="table-blueprint-modal"]', 15_000);
+  }
+
+  async blueprintInsertSql(): Promise<void> {
+    await clickWhen(this.page, '[data-testid="blueprint-insert-sql"]');
+  }
+
+  async closeBlueprint(): Promise<void> {
+    const modal = this.page.locator('[data-testid="table-blueprint-modal"]');
+    if (!(await modal.isVisible().catch(() => false))) return;
+    const closeBtn = this.page.locator('[data-testid="blueprint-close"]');
+    if (await closeBtn.isVisible().catch(() => false)) {
+      await closeBtn.click();
+    } else {
+      // Click the backdrop (outer modal shell closes on click).
+      await modal.click({ position: { x: 4, y: 4 } });
+    }
+    await modal.waitFor({ state: 'detached', timeout: 8_000 });
+  }
+
+  async clickPageNext(): Promise<void> {
+    await clickWhen(this.page, '[data-testid="sql-page-next"]');
+  }
+
+  async clickPagePrev(): Promise<void> {
+    await clickWhen(this.page, '[data-testid="sql-page-prev"]');
+  }
+
+  async pageNextEnabled(): Promise<boolean> {
+    const btn = this.page.locator('[data-testid="sql-page-next"]');
+    if (!(await btn.isVisible().catch(() => false))) return false;
+    return !(await btn.isDisabled());
+  }
+
   /** Wipe persisted editor tabs so tests start from a clean Query 1. */
   async resetPersistedEditorState(): Promise<void> {
     await this.page.evaluate(() => {

@@ -664,6 +664,7 @@ export const TableBlueprintModal: React.FC<Props> = ({
             <button
               type="button"
               title="Close"
+              data-testid="blueprint-close"
               onClick={onClose}
               className="p-1.5 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-white/10 transition"
             >
