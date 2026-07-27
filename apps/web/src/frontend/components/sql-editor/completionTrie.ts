@@ -51,15 +51,30 @@ export type SchemaTrieBundle = {
   columnsByTable: Map<string, TrieNode>; // lower table key → column trie
 };
 
-/** Stable revision from connection ids + table/column counts. */
+/**
+ * Stable revision from connection ids + table/column *names* (and object types).
+ * Counts alone miss renames and swap-in-place metadata changes.
+ */
 export function schemaRevision(
-  schemas: Array<{ connectionId: string; tables: Array<{ name: string; columns?: Array<{ name: string }> }> }>
+  schemas: Array<{
+    connectionId: string;
+    tables: Array<{
+      name: string;
+      objectType?: string;
+      columns?: Array<{ name: string }>;
+    }>;
+  }>
 ): string {
   return schemas
     .map((s) => {
-      const n = s.tables.length;
-      const cols = s.tables.reduce((acc, t) => acc + (t.columns?.length ?? 0), 0);
-      return `${s.connectionId}:${n}:${cols}`;
+      const tables = [...s.tables]
+        .map((t) => {
+          const cols = [...(t.columns ?? []).map((c) => c.name)].sort().join(',');
+          return `${t.objectType ?? ''}:${t.name}(${cols})`;
+        })
+        .sort()
+        .join(';');
+      return `${s.connectionId}:{${tables}}`;
     })
     .join('|');
 }

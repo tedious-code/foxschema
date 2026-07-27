@@ -29,17 +29,49 @@ const CACHE_MAX_ENTRIES = 64;
 const inflight = new Map<string, Promise<unknown>>();
 const cache = new Map<string, { at: number; value: unknown; ttlMs: number }>();
 
-/** Stable cache key that never embeds password or connectionString. */
+/**
+ * Non-secret fingerprint for cache partitioning (djb2). Distinguishes different
+ * session passwords / connection strings without embedding their plaintext.
+ */
+export function nonSecretFingerprint(value: string): string {
+  let h = 5381;
+  for (let i = 0; i < value.length; i++) {
+    h = ((h << 5) + h) ^ value.charCodeAt(i);
+  }
+  // Unsigned 32-bit hex — short, stable, never the original secret.
+  return (h >>> 0).toString(16);
+}
+
+/** Strip userinfo from a URI-like connection string before fingerprinting. */
+function connectionStringFingerprint(connectionString: string | undefined): string {
+  const raw = connectionString?.trim() ?? '';
+  if (!raw) return '0';
+  // `scheme://user:pass@host/...` → drop credentials; bare paths (sqlite) stay.
+  const scrubbed = raw.replace(/\/\/([^/@]+)@/g, '//');
+  return nonSecretFingerprint(scrubbed);
+}
+
+/**
+ * Stable cache key that never embeds password or connectionString plaintext.
+ * Includes schema and a password fingerprint so different schemas / session
+ * passwords do not share inflight or TTL cache entries.
+ */
 export function cacheKeyForRef(ref: ConnectionRef): string {
-  if (ref.connectionId) return `id:${ref.connectionId}`;
+  const schema = ref.schema ?? ref.option?.schema ?? '';
+  const pwFp = nonSecretFingerprint(ref.password ?? ref.option?.password ?? '');
   const o = ref.option;
+  if (ref.connectionId) {
+    return `id:${ref.connectionId}|schema:${schema}|pw:${pwFp}`;
+  }
   return [
     ref.dialect ?? '',
     o?.host ?? '',
     o?.port ?? '',
     o?.database ?? '',
-    ref.schema ?? o?.schema ?? '',
+    schema,
     o?.username ?? '',
+    `cs:${connectionStringFingerprint(o?.connectionString)}`,
+    `pw:${pwFp}`,
   ].join('|');
 }
 
