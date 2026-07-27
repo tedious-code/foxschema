@@ -1133,7 +1133,7 @@ export const TableBlueprintModal: React.FC<Props> = ({
             </section>
 
             {/* Indexes */}
-            <section>
+            <section data-testid="blueprint-indexes">
               <div className="flex items-center justify-between gap-2 mb-2.5">
                 <h3 className="text-xs font-bold text-sky-300/90 uppercase tracking-wider flex items-center gap-2">
                   <span className="w-1.5 h-1.5 bg-sky-400 rounded-full shadow-[0_0_8px_rgba(56,189,248,0.55)]" />
@@ -1145,6 +1145,7 @@ export const TableBlueprintModal: React.FC<Props> = ({
                 {!indexFormOpen && indexSupport.create && (
                   <button
                     type="button"
+                    data-testid="blueprint-add-index"
                     onClick={openAddIndex}
                     className="flex items-center gap-1 text-[11px] font-bold text-sky-200 hover:text-sky-100 px-2.5 py-1 rounded-lg border border-sky-400/35 bg-sky-500/15"
                   >
@@ -1302,13 +1303,17 @@ export const TableBlueprintModal: React.FC<Props> = ({
                 )}
 
                 {indexFormOpen && (
-                  <div className="border-t border-sky-400/20 px-3 py-3 space-y-2.5 bg-sky-950/25">
+                  <div
+                    className="border-t border-sky-400/20 px-3 py-3 space-y-2.5 bg-sky-950/25"
+                    data-testid="blueprint-index-form"
+                  >
                     <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
                       <label className="block min-w-0">
                         <span className="text-[10px] font-bold uppercase text-slate-500">
                           Index name
                         </span>
                         <input
+                          data-testid="blueprint-index-name"
                           value={indexForm.name}
                           onChange={(e) =>
                             setIndexForm({ ...indexForm, name: e.target.value })
@@ -1494,6 +1499,7 @@ export const TableBlueprintModal: React.FC<Props> = ({
                       </button>
                       <button
                         type="button"
+                        data-testid="blueprint-index-save"
                         onClick={saveIndex}
                         className="px-2.5 py-1 text-[11px] font-bold rounded border border-sky-500/40 text-sky-200 bg-sky-950/50"
                       >
