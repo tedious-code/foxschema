@@ -63,6 +63,11 @@ export interface IndexInfo {
    * tell the two apart (e.g. SQL Server `sys.indexes.is_unique_constraint`).
    */
   constraint?: boolean;
+  /**
+   * Partial / filtered index predicate without the WHERE keyword (when known).
+   * Not all providers populate this yet.
+   */
+  filter?: string;
 }
 
 export interface ForeignKeyInfo {
