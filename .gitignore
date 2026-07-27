@@ -48,6 +48,8 @@ CHANGELOG.md
 # Public project docs must be tracked
 !README.md
 !CONTRIBUTING.md
+# Agent onboarding notes must be tracked
+!AGENTS.md
 !docs/ARCHITECTURE.md
 !docs/USER_GUIDE.md
 !docs/DEPLOYMENT.md

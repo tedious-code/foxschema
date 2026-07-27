@@ -1,0 +1,50 @@
+# AGENTS.md
+
+Fox Schema (`foxschema`) is a database schema diff & migration tool: an npm-workspaces
+monorepo delivered as a web app (`apps/web` = Express API + React/Vite UI), a CLI
+(`apps/cli`), and the dialect engine (`packages/core`). See `README.md` and
+`CONTRIBUTING.md` for the product overview and the canonical dev/test/build commands.
+
+## Cursor Cloud specific instructions
+
+Standard commands live in `CONTRIBUTING.md` and `package.json` scripts (`npm run dev`,
+`npm test` / `npx vitest run`, `cd apps/web && npx tsc --noEmit`, `npm run lint`,
+`npm run build`). Notes below are only the non-obvious cloud caveats.
+
+### Node version (important)
+- This project needs **Node 24** (matches the maintainers' runtime; `package.json`
+  engines is `>=22.5`). The environment is already configured so `node` resolves to
+  **v24** in every shell (a symlink in `/usr/local/cargo/bin`, which is first on `PATH`,
+  points at the nvm-installed Node 24; nvm `default` is also 24).
+- Do **not** switch to the base image's `/exec-daemon/node` (v22.14): under it the three
+  SQL-editor "code cell" worker tests in
+  `apps/web/src/backend/api/code-cell-execute.test.ts` fail with `Unknown file extension
+  ".ts"` (tsx-in-`worker_threads` incompatibility on that Node). On Node 24 the full
+  suite is green.
+- `better-sqlite3` ships N-API prebuilds (ABI-stable), so its native addon works across
+  Node 22/24 without reinstalling — a Node switch alone does not require `npm install`.
+
+### Running the app
+- `npm run dev` runs the Express API (`:3001`) and Vite UI (`:5173`) together; open the
+  UI at http://localhost:5173. API liveness: `GET http://localhost:3001/api/health`
+  → `{"ok":true}`. Default mode is single-user (no login).
+- Vite prints a "Failed to run dependency scan … monaco-editor/esm/…" warning on startup.
+  It is **non-fatal** — Monaco is installed and the SQL editor works; ignore it.
+
+### Databases / Docker
+- **Docker is not installed** in this environment. Everything in `docker-compose.yml`
+  (Postgres/MySQL/MariaDB/SQL Server/Oracle/Db2/CockroachDB/Yugabyte test DBs) and the
+  Dockerized dialect E2E suites (`npm run test:e2e:*`) therefore require installing
+  Docker first.
+- You do **not** need Docker to exercise the core compare/migrate engine: SQLite is
+  file-based. Seed the demo DBs with `bash scripts/seed/seed-all.sh sqlite` (creates
+  `/tmp/foxschema-sqlite/demo_a.db` and `demo_b.db`), then compare those two file paths
+  as two SQLite connections (Dialect = SQLite, Database Name = the `.db` path; host/
+  port/user/pass are ignored). `POST /api/compare` also accepts inline SQLite options.
+
+### Lint
+- `npm run lint` currently exits non-zero due to **one pre-existing error** in
+  `apps/web/src/frontend/components/sql-editor/DataGrid.tsx`: `Definition for rule
+  'react-hooks/exhaustive-deps' was not found` (the eslint config references a
+  react-hooks rule whose plugin isn't loaded). This is unrelated to environment setup —
+  don't assume you broke lint. The other ~49 items are pre-existing `security/*` warnings.
