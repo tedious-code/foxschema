@@ -10,6 +10,7 @@ import {
   DriverDetector,
   buildConnectionString,
   normalizeTableSchemas,
+  getProviderSettings,
   type MigrationStep,
   type ConnectionOptions,
   type DbObjectType,
@@ -358,6 +359,13 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     const { scope, ...ref } = req.body as ConnectionRef & { scope: DbObjectType[] };
     try {
       const { dialect, option, schema } = await resolveRef((req as AuthedRequest).userId, ref);
+      const settings = getProviderSettings(dialect);
+      if (settings.schemaRequired && !schema?.trim()) {
+        res.status(400).json({
+          error: `${settings.label} requires a schema. Load schemas for the connection, then pick one before browsing or editing tables.`,
+        });
+        return;
+      }
       const { tables, warnings } = await loadScopedTables(dialect, option, schema, scope);
       res.json(warnings.length ? { tables, warnings } : { tables });
     } catch (error: unknown) {

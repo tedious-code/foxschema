@@ -1,3 +1,5 @@
+import { buildConnectionString as coreBuildConnectionString } from '@foxschema/core';
+
 export type Dialect = 'postgres' | 'mysql' | 'mariadb' | 'db2' | 'sqlserver' | 'oracle' | 'sqlite' | 'redshift' | 'clickhouse' | 'azuresql' | 'cockroachdb' | 'yugabytedb' | 'tidb' | 'duckdb';
 
 export interface ConnectionOptions {
@@ -87,13 +89,10 @@ const db2Settings: ProviderSettings = {
   defaultPort: 50000,
   defaultSchema: '',
   schemaRequired: true,
+  // Delegate to core so pasted strings always get Authentication=SERVER /
+  // CurrentSchema (verbatim early-return caused SQL1042C / empty browse on Windows).
   buildConnectionString(o) {
-    if (o.connectionString?.trim()) return o.connectionString.trim();
-    const host = o.host || 'localhost';
-    const port = o.port || this.defaultPort;
-    let cs = `DATABASE=${o.database || ''};HOSTNAME=${host};PORT=${port};PROTOCOL=TCPIP;UID=${o.username || ''};PWD=${o.password || ''};Authentication=SERVER;`;
-    if (o.schema) cs += `CurrentSchema=${o.schema.toUpperCase()};`;
-    return cs;
+    return coreBuildConnectionString('db2', o);
   },
 };
 
