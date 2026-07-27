@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, Columns3, Loader2, Plus, RefreshCw } from 'l
 import { useSyncStore } from '../../store/useSyncStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
 import { effectiveConnectionIds } from '../../store/sqlEditorTabLogic';
+import { getProviderSettings } from '../../lib/provider-settings';
 import { TYPE_META } from '../SchemaTreePanel';
 import { filterCallParameters, insertAtCursor } from './sqlEditorBridge';
 import type { DbObjectType, TableSchema } from '../../lib/types';
@@ -77,6 +78,11 @@ export const SqlSchemaExplorer: React.FC = () => {
     writeStoredExplorerId(id);
   };
 
+  const openCreateTable = () => {
+    setBlueprintMode('create');
+    setBlueprintTable(null);
+  };
+
   useEffect(() => {
     // After refresh, connections starts [] until loadConnections finishes.
     // Do not clear a persisted explorerId during that empty-list window.
@@ -123,6 +129,17 @@ export const SqlSchemaExplorer: React.FC = () => {
   );
 
   const conn = connections.find((c) => c.id === explorerId);
+  let schemaMissingHint: string | null = null;
+  if (conn) {
+    try {
+      const settings = getProviderSettings(conn.dialect);
+      if (settings.schemaRequired && !conn.schema?.trim()) {
+        schemaMissingHint = `${settings.label} needs a schema on the connection. Edit it under Credentials, pick a schema, then reload.`;
+      }
+    } catch {
+      /* unknown dialect */
+    }
+  }
 
   return (
     <div className="flex flex-col gap-2 min-h-0 flex-1" data-testid="sql-schema-explorer">
@@ -147,16 +164,14 @@ export const SqlSchemaExplorer: React.FC = () => {
             </select>
             <button
               type="button"
-              title="Create new table"
+              title="Create new table (opens table blueprint)"
               disabled={!explorerId}
               data-testid="sql-new-table"
-              onClick={() => {
-                setBlueprintMode('create');
-                setBlueprintTable(null);
-              }}
-              className="p-1.5 rounded text-slate-500 hover:text-emerald-300 hover:bg-slate-800/70 disabled:opacity-40 transition"
+              onClick={openCreateTable}
+              className="inline-flex items-center gap-1 shrink-0 px-2 py-1 rounded-md text-[11px] font-bold text-emerald-300 bg-emerald-950/40 border border-emerald-700/50 hover:bg-emerald-900/50 disabled:opacity-40 transition"
             >
-              <Plus className="w-3.5 h-3.5 text-emerald-400" strokeWidth={SQL_ICON_STROKE} />
+              <Plus className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+              New
             </button>
             <button
               type="button"
@@ -173,6 +188,11 @@ export const SqlSchemaExplorer: React.FC = () => {
             </button>
           </div>
 
+          {schemaMissingHint && (
+            <p className="text-[11px] text-amber-300 break-words font-medium" data-testid="sql-schema-missing">
+              {schemaMissingHint}
+            </p>
+          )}
           {entry?.status === 'error' && (
             <p className="text-[11px] text-rose-400 break-words font-medium">{entry.error}</p>
           )}
@@ -181,10 +201,22 @@ export const SqlSchemaExplorer: React.FC = () => {
               <Loader2 className="w-3 h-3 animate-spin text-cyan-400" strokeWidth={SQL_ICON_STROKE} /> Loading…
             </p>
           )}
-          {entry?.status === 'ready' && totalCount === 0 && (
-            <p className="text-[12px] font-medium text-slate-500">
-              No tables, views, procedures, or functions in this schema.
-            </p>
+          {entry?.status === 'ready' && totalCount === 0 && !schemaMissingHint && (
+            <div className="flex flex-col gap-2 py-1" data-testid="sql-schema-empty">
+              <p className="text-[12px] font-medium text-slate-500">
+                No tables in this schema yet. Use New to open the table blueprint and add columns.
+              </p>
+              <button
+                type="button"
+                data-testid="sql-new-table-empty"
+                disabled={!explorerId}
+                onClick={openCreateTable}
+                className="self-start inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[12px] font-bold text-emerald-200 bg-emerald-950/50 border border-emerald-600/40 hover:bg-emerald-900/60 disabled:opacity-40"
+              >
+                <Plus className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+                Create table
+              </button>
+            </div>
           )}
 
           <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-1.5 pr-0.5">
@@ -310,9 +342,17 @@ const ObjectNode: React.FC<{
           title={
             isRoutine
               ? `Insert ${table.name}(${params.map((p) => `${p.mode} ${p.name}`).join(', ')})`
-              : `Insert ${table.name}`
+              : onOpenBlueprint
+                ? `Insert ${table.name} (double-click to edit table)`
+                : `Insert ${table.name}`
           }
           onClick={insertObject}
+          onDoubleClick={(e) => {
+            if (!onOpenBlueprint) return;
+            e.preventDefault();
+            e.stopPropagation();
+            onOpenBlueprint();
+          }}
           className="flex-1 flex items-center gap-1.5 min-w-0 text-left text-[13px] font-semibold text-slate-200 hover:text-cyan-300 py-1 truncate"
         >
           <span className="shrink-0">{meta.icon}</span>
@@ -326,15 +366,16 @@ const ObjectNode: React.FC<{
         {onOpenBlueprint && (
           <button
             type="button"
-            title="Open table blueprint"
+            title="Open table blueprint — add/edit columns"
             data-testid="sql-open-blueprint"
             onClick={(e) => {
               e.stopPropagation();
               onOpenBlueprint();
             }}
-            className="p-1 rounded text-slate-500 hover:text-violet-300 hover:bg-slate-800/80 opacity-70 group-hover:opacity-100 transition shrink-0"
+            className="inline-flex items-center gap-0.5 px-1.5 py-1 rounded text-[10px] font-bold uppercase tracking-wide text-violet-200 bg-violet-950/50 border border-violet-700/40 hover:bg-violet-900/60 transition shrink-0"
           >
             <Columns3 className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+            Edit
           </button>
         )}
       </div>
