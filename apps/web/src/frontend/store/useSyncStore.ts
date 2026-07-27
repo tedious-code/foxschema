@@ -41,6 +41,7 @@ export const useSyncStore = create<SyncState>()(
   },
   
   connections: [],
+  connectionsLoaded: false,
   selectedSourceConnectionId: null,
   selectedTargetConnectionId: null,
   showConnectionModal: false,
@@ -83,9 +84,48 @@ export const useSyncStore = create<SyncState>()(
   // --- Actions ---
   loadConnections: async () => {
     try {
-      set({ connections: await apiListConnections() });
+      const list = await apiListConnections();
+      const { selectedSourceConnectionId, selectedTargetConnectionId } = get();
+      const patch: Partial<SyncState> = { connections: list, connectionsLoaded: true };
+
+      // Restore persisted source/target picks (IDs only — never passwords).
+      // Skip auto-test: session passwords are gone after refresh.
+      const restore = (side: 'source' | 'target', id: string | null) => {
+        if (!id) return;
+        const conn = list.find((c) => c.id === id);
+        if (!conn) {
+          if (side === 'source') patch.selectedSourceConnectionId = null;
+          else patch.selectedTargetConnectionId = null;
+          return;
+        }
+        const config: ConnectionConfig = {
+          dialect: conn.dialect as ConnectionConfig['dialect'],
+          option: {
+            host: conn.host,
+            port: conn.port,
+            database: conn.database,
+            username: conn.username,
+            schema: conn.schema,
+          },
+          schema: conn.schema ?? '',
+          connectionId: id,
+        };
+        if (side === 'source') {
+          patch.selectedSourceConnectionId = id;
+          patch.sourceConfig = config;
+          patch.sourceConnected = false;
+        } else {
+          patch.selectedTargetConnectionId = id;
+          patch.targetConfig = config;
+          patch.targetConnected = false;
+        }
+      };
+      restore('source', selectedSourceConnectionId);
+      restore('target', selectedTargetConnectionId);
+      set(patch);
     } catch (e) {
       console.error('Failed to load saved connections:', e);
+      set({ connectionsLoaded: true });
     }
   },
 
@@ -504,13 +544,14 @@ export const useSyncStore = create<SyncState>()(
     }),
     {
       name: 'schema-sync-storage',
-      version: 4,
-      // Persist only the object-type scope. Connections live server-side now,
-      // and we deliberately do NOT persist configs — credentials must never
-      // touch localStorage (saved connections reload from the server on sign-in).
+      version: 5,
+      // Persist object-type scope + selected connection IDs only. Never persist
+      // configs/passwords — credentials reload from the server on sign-in.
       partialize: (state) => ({
         selectedObjectTypes: state.selectedObjectTypes,
         nonDestructive: state.nonDestructive,
+        selectedSourceConnectionId: state.selectedSourceConnectionId,
+        selectedTargetConnectionId: state.selectedTargetConnectionId,
       }),
       migrate: (persisted: any, version) => {
         const ensure = (type: string) => {
@@ -523,6 +564,7 @@ export const useSyncStore = create<SyncState>()(
         if (version < 2) ensure('TRIGGER');
         if (version < 3) { ensure('SEQUENCE'); ensure('TYPE'); }
         if (version < 4) { ensure('MQT'); ensure('ROLE'); }
+        // v5: selected source/target connection ids (no credentials).
         return persisted;
       },
     }

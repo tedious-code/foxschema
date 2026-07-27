@@ -43,6 +43,7 @@ function writeStoredExplorerId(id: string): void {
  */
 export const SqlSchemaExplorer: React.FC = () => {
   const connections = useSyncStore((s) => s.connections);
+  const connectionsLoaded = useSyncStore((s) => s.connectionsLoaded);
   const tabs = useSqlEditorStore((s) => s.tabs);
   const activeTabId = useSqlEditorStore((s) => s.activeTabId);
   const schemaCache = useSqlEditorStore((s) => s.schemaCache);
@@ -51,8 +52,12 @@ export const SqlSchemaExplorer: React.FC = () => {
   const sharedConnectionIds = useSqlEditorStore((s) => s.sharedConnectionIds);
 
   const tab = tabs.find((t) => t.id === activeTabId) ?? tabs[0]!;
-  const preferredIds = effectiveConnectionIds(tab, shareDestinations, sharedConnectionIds).filter(
-    (id) => connections.some((c) => c.id === id)
+  const preferredIds = useMemo(
+    () =>
+      effectiveConnectionIds(tab, shareDestinations, sharedConnectionIds).filter((id) =>
+        connections.some((c) => c.id === id)
+      ),
+    [tab, shareDestinations, sharedConnectionIds, connections]
   );
 
   const [explorerId, setExplorerId] = useState<string>(() => readStoredExplorerId());
@@ -73,6 +78,10 @@ export const SqlSchemaExplorer: React.FC = () => {
   };
 
   useEffect(() => {
+    // After refresh, connections starts [] until loadConnections finishes.
+    // Do not clear a persisted explorerId during that empty-list window.
+    if (connections.length === 0) return;
+
     if (explorerId && connections.some((c) => c.id === explorerId)) {
       // Keep a valid selection in storage (e.g. after first hydrate).
       writeStoredExplorerId(explorerId);
@@ -117,7 +126,9 @@ export const SqlSchemaExplorer: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-2 min-h-0 flex-1" data-testid="sql-schema-explorer">
-      {connections.length === 0 ? (
+      {!connectionsLoaded ? (
+        <p className="text-xs font-medium text-slate-500">Loading connections…</p>
+      ) : connections.length === 0 ? (
         <p className="text-xs font-medium text-slate-500">Save a connection to browse its tables.</p>
       ) : (
         <>

@@ -12,6 +12,7 @@ import { SQL_ICON_STROKE } from './sqlIconStyle';
  */
 export const ConnectionChecklist: React.FC = () => {
   const connections = useSyncStore((s) => s.connections);
+  const connectionsLoaded = useSyncStore((s) => s.connectionsLoaded);
   const tabs = useSqlEditorStore((s) => s.tabs);
   const activeTabId = useSqlEditorStore((s) => s.activeTabId);
   const shareDestinations = useSqlEditorStore((s) => s.shareDestinations);
@@ -59,7 +60,9 @@ export const ConnectionChecklist: React.FC = () => {
         </span>
       </label>
 
-      {connections.length === 0 ? (
+      {!connectionsLoaded ? (
+        <p className="text-[13px] font-medium text-slate-500">Loading connections…</p>
+      ) : connections.length === 0 ? (
         <p className="text-[13px] font-medium text-slate-500">
           No saved connections yet — add one via the Credentials button in the toolbar.
         </p>

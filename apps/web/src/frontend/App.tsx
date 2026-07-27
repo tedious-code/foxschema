@@ -74,14 +74,37 @@ const App: React.FC = () => {
     init();
   }, [init, apply]);
 
-  // Once signed in, load the user's saved connections and appearance
+  // Once signed in, load the user's saved connections and appearance.
+  // Wait for sync-store persist rehydrate so selected connection IDs are
+  // restored before loadConnections reapplies source/target configs.
   useEffect(() => {
-    if (status === 'ready') {
-      useSyncStore.getState().loadConnections();
+    if (status !== 'ready') return;
+
+    let cancelled = false;
+    const load = () => {
+      if (cancelled) return;
+      void useSyncStore.getState().loadConnections();
       apiGetPreferences()
-        .then((p) => hydrateFromServer(p.theme))
+        .then((p) => {
+          if (!cancelled) hydrateFromServer(p.theme);
+        })
         .catch(() => undefined);
+    };
+
+    if (useSyncStore.persist.hasHydrated()) {
+      load();
+      return () => {
+        cancelled = true;
+      };
     }
+
+    const unsub = useSyncStore.persist.onFinishHydration(() => {
+      load();
+    });
+    return () => {
+      cancelled = true;
+      unsub();
+    };
   }, [status, hydrateFromServer]);
 
   if (status === 'loading') {
