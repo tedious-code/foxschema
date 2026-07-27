@@ -613,12 +613,23 @@ describe('blueprint indexes', () => {
         },
       ],
     });
-    expect(sql[0]).toBe('-- base');
-    expect(sql[1]).toMatch(/DROP INDEX/i);
-    expect(sql[1]).toContain('ix_old');
+    expect(sql[0]).toMatch(/DROP INDEX/i);
+    expect(sql[0]).toContain('ix_old');
+    expect(sql[1]).toBe('-- base');
     expect(sql.some((s) => s.includes('CREATE INDEX ix_new') && s.includes('a DESC'))).toBe(
       true
     );
+  });
+
+  it('emits DROP INDEX before column alters when both are present', () => {
+    const sql = appendFkTriggerSql(['ALTER TABLE orders DROP COLUMN stale;'], {
+      tableName: 'orders',
+      dialect: 'postgres',
+      dropIndexes: [{ name: 'ix_stale' }],
+    });
+    expect(sql[0]).toMatch(/DROP INDEX/i);
+    expect(sql[0]).toContain('ix_stale');
+    expect(sql[1]).toContain('DROP COLUMN stale');
   });
 });
 

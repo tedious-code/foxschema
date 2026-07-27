@@ -238,6 +238,9 @@ export const TableBlueprintModal: React.FC<Props> = ({
   const [addingIndex, setAddingIndex] = useState(false);
   const [editingPendingIndex, setEditingPendingIndex] = useState<number | null>(null);
   const [replacingExistingIndex, setReplacingExistingIndex] = useState<string | null>(null);
+  /** True when editing a live index whose WHERE filter was not loaded from catalog. */
+  const [indexFilterUnknown, setIndexFilterUnknown] = useState(false);
+  const [confirmNoFilter, setConfirmNoFilter] = useState(false);
   const [indexForm, setIndexForm] = useState<BlueprintIndexDraft>(() => emptyIndexDraft());
 
   const [pendingTriggers, setPendingTriggers] = useState<BlueprintTriggerDraft[]>([]);
@@ -284,6 +287,8 @@ export const TableBlueprintModal: React.FC<Props> = ({
     setAddingIndex(false);
     setEditingPendingIndex(null);
     setReplacingExistingIndex(null);
+    setIndexFilterUnknown(false);
+    setConfirmNoFilter(false);
     setIndexForm(emptyIndexDraft());
     setPendingTriggers([]);
     setDroppedTriggerNames(new Set());
@@ -508,6 +513,8 @@ export const TableBlueprintModal: React.FC<Props> = ({
     setAddingIndex(false);
     setEditingPendingIndex(null);
     setReplacingExistingIndex(null);
+    setIndexFilterUnknown(false);
+    setConfirmNoFilter(false);
     setIndexForm(emptyIndexDraft());
   };
 
@@ -516,6 +523,8 @@ export const TableBlueprintModal: React.FC<Props> = ({
     setAddingTrigger(false);
     setEditingPendingIndex(null);
     setReplacingExistingIndex(null);
+    setIndexFilterUnknown(false);
+    setConfirmNoFilter(false);
     setAddingIndex(true);
     const cols = activeColumns[0] ? [activeColumns[0].name] : [];
     const unique = false;
@@ -534,6 +543,11 @@ export const TableBlueprintModal: React.FC<Props> = ({
     setAddingIndex(false);
     setEditingPendingIndex(null);
     setReplacingExistingIndex(idx.name);
+    // Catalog loaders rarely populate IndexInfo.filter yet — treat missing as unknown
+    // so we don't silently recreate a partial index without its WHERE clause.
+    const unknown = indexSupport.filter && idx.filter == null;
+    setIndexFilterUnknown(!!unknown);
+    setConfirmNoFilter(false);
     setIndexForm(indexInfoToDraft(idx));
   };
 
@@ -543,12 +557,16 @@ export const TableBlueprintModal: React.FC<Props> = ({
     setAddingFk(false);
     setAddingTrigger(false);
     setAddingIndex(false);
-    setReplacingExistingIndex(null);
+    setReplacingExistingIndex(draftIdx.replaces ?? null);
+    // Pending drafts already carry an explicit filter (or none).
+    setIndexFilterUnknown(false);
+    setConfirmNoFilter(false);
     setEditingPendingIndex(i);
     setIndexForm({
       ...draftIdx,
       columns: [...draftIdx.columns],
       orders: normalizeOrders(draftIdx.columns, draftIdx.orders),
+      filter: draftIdx.filter ?? '',
     });
   };
 
@@ -620,15 +638,26 @@ export const TableBlueprintModal: React.FC<Props> = ({
       setError('This dialect does not support filtered/partial indexes');
       return;
     }
+    if (indexFilterUnknown && !filter && !confirmNoFilter) {
+      setError(
+        'Original WHERE filter is unknown from catalog. Enter the predicate, or confirm this index has no filter.'
+      );
+      return;
+    }
     const name =
       indexForm.name.trim() ||
       suggestIndexName(tableName || 'table', indexForm.columns, indexForm.unique);
+    const replaces =
+      editingPendingIndex !== null
+        ? pendingIndexes[editingPendingIndex]?.replaces
+        : replacingExistingIndex ?? undefined;
     const next: BlueprintIndexDraft = {
       ...indexForm,
       name,
       orders: normalizeOrders(indexForm.columns, indexForm.orders),
       filter: filter || undefined,
       constraint: indexForm.unique ? indexForm.constraint : undefined,
+      replaces,
     };
     if (editingPendingIndex !== null) {
       setPendingIndexes((list) =>
@@ -1199,13 +1228,18 @@ export const TableBlueprintModal: React.FC<Props> = ({
                         <button
                           type="button"
                           className="ml-auto text-[10px] font-bold text-slate-300"
-                          onClick={() =>
+                          onClick={() => {
                             setDroppedIndexNames((s) => {
                               const n2 = new Set(s);
                               n2.delete(n);
                               return n2;
-                            })
-                          }
+                            });
+                            // Undo a replace-edit: also remove the pending CREATE that
+                            // would collide with the restored live index.
+                            setPendingIndexes((list) =>
+                              list.filter((p) => p.replaces !== n)
+                            );
+                          }}
                         >
                           Undo
                         </button>
@@ -1218,7 +1252,7 @@ export const TableBlueprintModal: React.FC<Props> = ({
                       >
                         <div className="min-w-0 flex-1">
                           <span className="text-[9px] font-bold uppercase text-emerald-400 mr-1.5">
-                            new
+                            {idx.replaces ? 'replace' : 'new'}
                           </span>
                           <span className="font-mono font-semibold text-slate-200">
                             {idx.name}
@@ -1246,9 +1280,17 @@ export const TableBlueprintModal: React.FC<Props> = ({
                           <button
                             type="button"
                             title="Remove"
-                            onClick={() =>
-                              setPendingIndexes((list) => list.filter((_, j) => j !== i))
-                            }
+                            onClick={() => {
+                              const removed = pendingIndexes[i];
+                              setPendingIndexes((list) => list.filter((_, j) => j !== i));
+                              if (removed?.replaces) {
+                                setDroppedIndexNames((s) => {
+                                  const n2 = new Set(s);
+                                  n2.delete(removed.replaces!);
+                                  return n2;
+                                });
+                              }
+                            }}
                             className="p-1 text-slate-500 hover:text-rose-400"
                           >
                             <Trash2 className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
@@ -1403,23 +1445,43 @@ export const TableBlueprintModal: React.FC<Props> = ({
                     </div>
 
                     {indexSupport.filter && (
-                      <label className="block">
-                        <span className="text-[10px] font-bold uppercase text-slate-500">
-                          Filter (optional)
-                        </span>
-                        <input
-                          value={indexForm.filter ?? ''}
-                          onChange={(e) =>
-                            setIndexForm({ ...indexForm, filter: e.target.value })
-                          }
-                          placeholder="e.g. status = 'active' AND deleted_at IS NULL"
-                          className="mt-0.5 w-full rounded-lg border border-slate-700 bg-slate-950/70 px-2.5 py-1.5 text-[12.5px] font-mono text-slate-100 placeholder:text-slate-600"
-                        />
-                        <span className="mt-0.5 block text-[10px] text-slate-500">
-                          Partial / filtered index — rows matching this predicate only (no WHERE
-                          keyword).
-                        </span>
-                      </label>
+                      <div className="space-y-1.5">
+                        <label className="block">
+                          <span className="text-[10px] font-bold uppercase text-slate-500">
+                            Filter (optional)
+                          </span>
+                          <input
+                            value={indexForm.filter ?? ''}
+                            onChange={(e) => {
+                              setIndexForm({ ...indexForm, filter: e.target.value });
+                              if (e.target.value.trim()) setConfirmNoFilter(false);
+                            }}
+                            placeholder="e.g. status = 'active' AND deleted_at IS NULL"
+                            className="mt-0.5 w-full rounded-lg border border-slate-700 bg-slate-950/70 px-2.5 py-1.5 text-[12.5px] font-mono text-slate-100 placeholder:text-slate-600"
+                          />
+                          <span className="mt-0.5 block text-[10px] text-slate-500">
+                            Partial / filtered index — rows matching this predicate only (no WHERE
+                            keyword).
+                          </span>
+                        </label>
+                        {indexFilterUnknown && !(indexForm.filter ?? '').trim() && (
+                          <div className="rounded-lg border border-amber-400/35 bg-amber-950/25 px-2.5 py-2 space-y-1.5">
+                            <p className="text-[11px] text-amber-100/90">
+                              Catalog did not load a WHERE filter for this index. Enter the
+                              predicate if it is partial, or confirm it has none before saving.
+                            </p>
+                            <label className="flex items-center gap-2 text-[12px] text-amber-50/90 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={confirmNoFilter}
+                                onChange={(e) => setConfirmNoFilter(e.target.checked)}
+                                className="rounded border-slate-600"
+                              />
+                              Confirm this index has no filter
+                            </label>
+                          </div>
+                        )}
+                      </div>
                     )}
 
                     <div className="flex justify-end gap-1.5">

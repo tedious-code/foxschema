@@ -1290,6 +1290,11 @@ export type BlueprintIndexDraft = {
    * ALTER TABLE ADD/DROP CONSTRAINT rather than CREATE/DROP INDEX.
    */
   constraint?: boolean;
+  /**
+   * When this pending create replaces an existing index, the live name that
+   * will be dropped. Used so Undo-drop / Remove-pending stay consistent.
+   */
+  replaces?: string;
 };
 
 /** Suggest an index name from table + first column. */
@@ -1420,7 +1425,12 @@ export function generateDropIndexSql(
   return [`DROP INDEX IF EXISTS ${qIdx};`];
 }
 
-/** Append FK / trigger / index statements after column + PK alters. */
+/**
+ * Compose column/PK alters with FK / trigger / index DDL.
+ * Drops (indexes, FKs, triggers) run *before* `base` so DROP COLUMN cannot
+ * precede DROP INDEX / DROP FK that still reference the column.
+ * Creates run after `base`.
+ */
 export function appendFkTriggerSql(
   base: string[],
   args: {
@@ -1435,28 +1445,30 @@ export function appendFkTriggerSql(
     dropIndexes?: Array<{ name: string; constraint?: boolean }>;
   }
 ): string[] {
-  const out = [...base];
+  const drops: string[] = [];
   for (const idx of args.dropIndexes ?? []) {
-    out.push(
+    drops.push(
       ...generateDropIndexSql(args.tableName, args.dialect, idx.name, args.schema, {
         constraint: idx.constraint,
       })
     );
   }
   for (const n of args.dropFkNames ?? []) {
-    out.push(...generateDropForeignKeySql(args.tableName, args.dialect, n, args.schema));
+    drops.push(...generateDropForeignKeySql(args.tableName, args.dialect, n, args.schema));
   }
   for (const n of args.dropTriggerNames ?? []) {
-    out.push(...generateDropTriggerSql(args.tableName, args.dialect, n, args.schema));
+    drops.push(...generateDropTriggerSql(args.tableName, args.dialect, n, args.schema));
   }
+
+  const creates: string[] = [];
   for (const idx of args.addIndexes ?? []) {
-    out.push(...generateCreateIndexSql(args.tableName, args.dialect, idx, args.schema));
+    creates.push(...generateCreateIndexSql(args.tableName, args.dialect, idx, args.schema));
   }
   for (const fk of args.addFks ?? []) {
-    out.push(...generateAddForeignKeySql(args.tableName, args.dialect, fk, args.schema));
+    creates.push(...generateAddForeignKeySql(args.tableName, args.dialect, fk, args.schema));
   }
   for (const trg of args.addTriggers ?? []) {
-    out.push(...generateCreateTriggerSql(args.tableName, args.dialect, trg, args.schema));
+    creates.push(...generateCreateTriggerSql(args.tableName, args.dialect, trg, args.schema));
   }
-  return out;
+  return [...drops, ...base, ...creates];
 }
