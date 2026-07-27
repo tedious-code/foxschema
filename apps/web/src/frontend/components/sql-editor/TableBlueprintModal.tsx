@@ -32,6 +32,7 @@ import {
   dialectFkActions,
   dialectFkConstraintSupport,
   dialectIdentitySupport,
+  dialectIndexSupport,
   dialectTriggerForm,
   diffBlueprintColumns,
   generateCreateTableSql,
@@ -48,13 +49,16 @@ import {
   pkColumnsFromTable,
   sameStringList,
   suggestFkName,
+  suggestIndexName,
   suggestTriggerName,
   withAutoIncrement,
   type BlueprintFkDraft,
+  type BlueprintIndexDraft,
   type BlueprintTriggerDraft,
   type FkReferentialAction,
+  type IndexColumnOrder,
 } from './tableBlueprintSql';
-import type { ForeignKeyInfo, TriggerInfo } from '../../lib/types';
+import type { ForeignKeyInfo, IndexInfo, TriggerInfo } from '../../lib/types';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
 import { TYPE_META } from '../SchemaTreePanel';
 import { useSyncStore } from '../../store/useSyncStore';
@@ -79,6 +83,39 @@ function emptyFkDraft(): BlueprintFkDraft {
     onDelete: 'NO ACTION',
     onUpdate: 'NO ACTION',
   };
+}
+
+function emptyIndexDraft(): BlueprintIndexDraft {
+  return {
+    name: '',
+    columns: [],
+    orders: [],
+    unique: false,
+  };
+}
+
+function indexInfoToDraft(idx: IndexInfo): BlueprintIndexDraft {
+  return {
+    name: idx.name,
+    columns: [...idx.columns],
+    orders: idx.columns.map(() => 'ASC' as IndexColumnOrder),
+    unique: !!idx.unique,
+    constraint: idx.constraint,
+  };
+}
+
+function normalizeOrders(
+  columns: string[],
+  orders: IndexColumnOrder[] | undefined
+): IndexColumnOrder[] {
+  return columns.map((_, i) => (orders?.[i] === 'DESC' ? 'DESC' : 'ASC'));
+}
+
+function formatIndexCols(idx: { columns: string[]; orders?: IndexColumnOrder[] }): string {
+  const orders = normalizeOrders(idx.columns, idx.orders);
+  return idx.columns
+    .map((c, i) => `${c} ${orders[i] ?? 'ASC'}`)
+    .join(', ');
 }
 
 function emptyTriggerDraft(dialect: string): BlueprintTriggerDraft {
@@ -194,6 +231,13 @@ export const TableBlueprintModal: React.FC<Props> = ({
   const [addingFk, setAddingFk] = useState(false);
   const [fkForm, setFkForm] = useState<BlueprintFkDraft>(() => emptyFkDraft());
 
+  const [pendingIndexes, setPendingIndexes] = useState<BlueprintIndexDraft[]>([]);
+  const [droppedIndexNames, setDroppedIndexNames] = useState<Set<string>>(() => new Set());
+  const [addingIndex, setAddingIndex] = useState(false);
+  const [editingPendingIndex, setEditingPendingIndex] = useState<number | null>(null);
+  const [replacingExistingIndex, setReplacingExistingIndex] = useState<string | null>(null);
+  const [indexForm, setIndexForm] = useState<BlueprintIndexDraft>(() => emptyIndexDraft());
+
   const [pendingTriggers, setPendingTriggers] = useState<BlueprintTriggerDraft[]>([]);
   const [droppedTriggerNames, setDroppedTriggerNames] = useState<Set<string>>(
     () => new Set()
@@ -233,6 +277,12 @@ export const TableBlueprintModal: React.FC<Props> = ({
     setDroppedFkNames(new Set());
     setAddingFk(false);
     setFkForm(emptyFkDraft());
+    setPendingIndexes([]);
+    setDroppedIndexNames(new Set());
+    setAddingIndex(false);
+    setEditingPendingIndex(null);
+    setReplacingExistingIndex(null);
+    setIndexForm(emptyIndexDraft());
     setPendingTriggers([]);
     setDroppedTriggerNames(new Set());
     setAddingTrigger(false);
@@ -301,6 +351,11 @@ export const TableBlueprintModal: React.FC<Props> = ({
       dropFkNames: [...droppedFkNames],
       addTriggers: pendingTriggers,
       dropTriggerNames: [...droppedTriggerNames],
+      addIndexes: pendingIndexes,
+      dropIndexes: [...droppedIndexNames].map((n) => {
+        const live = (liveTable?.indices ?? []).find((i) => i.name === n);
+        return { name: n, constraint: live?.constraint };
+      }),
     });
   }, [
     mode,
@@ -311,10 +366,13 @@ export const TableBlueprintModal: React.FC<Props> = ({
     columnOps,
     originalPk,
     liveTable?.primaryKey?.name,
+    liveTable?.indices,
     pendingFks,
     droppedFkNames,
     pendingTriggers,
     droppedTriggerNames,
+    pendingIndexes,
+    droppedIndexNames,
     connectionSchema,
   ]);
 
@@ -333,6 +391,7 @@ export const TableBlueprintModal: React.FC<Props> = ({
         activeColumns.length > 0 &&
         (statements.length > 0 ||
           pendingFks.length > 0 ||
+          pendingIndexes.length > 0 ||
           pendingTriggers.length > 0)
       : statements.length > 0;
   const pkDirty = mode === 'edit' && !sameStringList(originalPk, draftPk);
@@ -340,6 +399,9 @@ export const TableBlueprintModal: React.FC<Props> = ({
   const meta = TYPE_META.TABLE;
   const existingFks = (liveTable?.foreignKeys ?? []).filter(
     (fk) => !droppedFkNames.has(fk.name)
+  );
+  const existingIndexes = (liveTable?.indices ?? []).filter(
+    (idx) => !droppedIndexNames.has(idx.name)
   );
   const existingTriggers = (liveTable?.triggers ?? []).filter(
     (trg) => !droppedTriggerNames.has(trg.name)
@@ -349,6 +411,9 @@ export const TableBlueprintModal: React.FC<Props> = ({
   const fkActions = dialectFkActions(dialect);
   const fkSupport = dialectFkConstraintSupport(dialect);
   const fkMulti = fkSupport.composite;
+  const indexSupport = dialectIndexSupport(dialect);
+  const indexFormOpen =
+    addingIndex || editingPendingIndex !== null || !!replacingExistingIndex;
 
   const toggleFkLocalColumn = (name: string) => {
     setFkForm((prev) => {
@@ -434,6 +499,140 @@ export const TableBlueprintModal: React.FC<Props> = ({
     ]);
     setFkForm(emptyFkDraft());
     setAddingFk(false);
+    setError(null);
+  };
+
+  const closeIndexForm = () => {
+    setAddingIndex(false);
+    setEditingPendingIndex(null);
+    setReplacingExistingIndex(null);
+    setIndexForm(emptyIndexDraft());
+  };
+
+  const openAddIndex = () => {
+    setAddingFk(false);
+    setAddingTrigger(false);
+    setEditingPendingIndex(null);
+    setReplacingExistingIndex(null);
+    setAddingIndex(true);
+    const cols = activeColumns[0] ? [activeColumns[0].name] : [];
+    const unique = false;
+    setIndexForm({
+      ...emptyIndexDraft(),
+      columns: cols,
+      orders: cols.map(() => 'ASC' as IndexColumnOrder),
+      unique,
+      name: suggestIndexName(tableName || 'table', cols, unique),
+    });
+  };
+
+  const openEditExistingIndex = (idx: IndexInfo) => {
+    setAddingFk(false);
+    setAddingTrigger(false);
+    setAddingIndex(false);
+    setEditingPendingIndex(null);
+    setReplacingExistingIndex(idx.name);
+    setIndexForm(indexInfoToDraft(idx));
+  };
+
+  const openEditPendingIndex = (i: number) => {
+    const draftIdx = pendingIndexes[i];
+    if (!draftIdx) return;
+    setAddingFk(false);
+    setAddingTrigger(false);
+    setAddingIndex(false);
+    setReplacingExistingIndex(null);
+    setEditingPendingIndex(i);
+    setIndexForm({
+      ...draftIdx,
+      columns: [...draftIdx.columns],
+      orders: normalizeOrders(draftIdx.columns, draftIdx.orders),
+    });
+  };
+
+  const toggleIndexColumn = (colName: string) => {
+    setIndexForm((prev) => {
+      if (prev.columns.includes(colName)) {
+        const i = prev.columns.indexOf(colName);
+        const columns = prev.columns.filter((c) => c !== colName);
+        return {
+          ...prev,
+          columns,
+          orders: prev.orders.filter((_, j) => j !== i),
+          name:
+            prev.name.trim() ||
+            suggestIndexName(tableName || 'table', columns, prev.unique),
+        };
+      }
+      const columns = [...prev.columns, colName];
+      return {
+        ...prev,
+        columns,
+        orders: [...normalizeOrders(prev.columns, prev.orders), 'ASC'],
+        name:
+          prev.name.trim() ||
+          suggestIndexName(tableName || 'table', columns, prev.unique),
+      };
+    });
+  };
+
+  const moveIndexColumn = (colName: string, dir: -1 | 1) => {
+    setIndexForm((prev) => {
+      const i = prev.columns.indexOf(colName);
+      if (i < 0) return prev;
+      const j = i + dir;
+      if (j < 0 || j >= prev.columns.length) return prev;
+      const columns = [...prev.columns];
+      const orders = normalizeOrders(prev.columns, prev.orders);
+      [columns[i], columns[j]] = [columns[j]!, columns[i]!];
+      [orders[i], orders[j]] = [orders[j]!, orders[i]!];
+      return { ...prev, columns, orders };
+    });
+  };
+
+  const setIndexColumnOrder = (colName: string, order: IndexColumnOrder) => {
+    setIndexForm((prev) => {
+      const i = prev.columns.indexOf(colName);
+      if (i < 0) return prev;
+      const orders = normalizeOrders(prev.columns, prev.orders);
+      orders[i] = order;
+      return { ...prev, orders };
+    });
+  };
+
+  const saveIndex = () => {
+    if (indexForm.columns.length === 0) {
+      setError('Pick at least one column for the index');
+      return;
+    }
+    if (indexForm.unique && !indexSupport.unique) {
+      setError(indexSupport.hint || 'This dialect does not support UNIQUE indexes');
+      return;
+    }
+    if (!indexForm.unique && !indexSupport.acceptDuplicates) {
+      setError(indexSupport.hint || 'This dialect does not support non-unique indexes');
+      return;
+    }
+    const name =
+      indexForm.name.trim() ||
+      suggestIndexName(tableName || 'table', indexForm.columns, indexForm.unique);
+    const next: BlueprintIndexDraft = {
+      ...indexForm,
+      name,
+      orders: normalizeOrders(indexForm.columns, indexForm.orders),
+      constraint: indexForm.unique ? indexForm.constraint : undefined,
+    };
+    if (editingPendingIndex !== null) {
+      setPendingIndexes((list) =>
+        list.map((item, j) => (j === editingPendingIndex ? next : item))
+      );
+    } else {
+      if (replacingExistingIndex) {
+        setDroppedIndexNames((s) => new Set(s).add(replacingExistingIndex));
+      }
+      setPendingIndexes((list) => [...list, next]);
+    }
+    closeIndexForm();
     setError(null);
   };
 
@@ -896,6 +1095,314 @@ export const TableBlueprintModal: React.FC<Props> = ({
               </div>
             </section>
 
+            {/* Indexes */}
+            <section>
+              <div className="flex items-center justify-between gap-2 mb-2.5">
+                <h3 className="text-xs font-bold text-sky-300/90 uppercase tracking-wider flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-sky-400 rounded-full shadow-[0_0_8px_rgba(56,189,248,0.55)]" />
+                  Indexes
+                  <span className="text-sky-400/50 font-mono normal-case">
+                    ({existingIndexes.length + pendingIndexes.length})
+                  </span>
+                </h3>
+                {!indexFormOpen && indexSupport.create && (
+                  <button
+                    type="button"
+                    onClick={openAddIndex}
+                    className="flex items-center gap-1 text-[11px] font-bold text-sky-200 hover:text-sky-100 px-2.5 py-1 rounded-lg border border-sky-400/35 bg-sky-500/15"
+                  >
+                    <Plus className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} /> Add index
+                  </button>
+                )}
+              </div>
+              <div className="bg-sky-950/20 border border-sky-400/25 rounded-xl overflow-hidden">
+                {existingIndexes.length === 0 &&
+                pendingIndexes.length === 0 &&
+                !indexFormOpen ? (
+                  <p className="px-3 py-3 text-[12px] text-slate-500">
+                    {indexSupport.create
+                      ? 'No indexes — add UNIQUE (reject duplicates) or non-unique (accept duplicates), with ASC/DESC per column.'
+                      : indexSupport.hint}
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-slate-800/80">
+                    {existingIndexes.map((idx: IndexInfo) => (
+                      <li
+                        key={idx.name}
+                        className="px-3 py-2.5 text-[12.5px] flex items-start gap-2"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <span className="font-mono font-semibold text-slate-200">
+                            {idx.name}
+                          </span>
+                          <span className="text-slate-500 mx-1.5">·</span>
+                          <span className="text-[10px] font-bold uppercase tracking-wide text-sky-300/80">
+                            {idx.unique ? 'unique' : 'duplicates ok'}
+                          </span>
+                          {idx.constraint ? (
+                            <span className="ml-1.5 text-[10px] font-bold uppercase text-amber-300/80">
+                              constraint
+                            </span>
+                          ) : null}
+                          <div className="font-mono text-slate-400 mt-0.5">
+                            ({idx.columns.join(', ')})
+                          </div>
+                        </div>
+                        {mode === 'edit' && (
+                          <div className="flex items-center gap-0.5 shrink-0">
+                            {indexSupport.create && (
+                              <button
+                                type="button"
+                                title="Edit index"
+                                onClick={() => openEditExistingIndex(idx)}
+                                className="p-1 text-slate-500 hover:text-sky-300"
+                              >
+                                <Pencil className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+                              </button>
+                            )}
+                            {indexSupport.drop && (
+                              <button
+                                type="button"
+                                title="Drop index"
+                                onClick={() =>
+                                  setDroppedIndexNames((s) => new Set(s).add(idx.name))
+                                }
+                                className="p-1 text-slate-500 hover:text-rose-400"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                    {[...droppedIndexNames].map((n) => (
+                      <li
+                        key={`drop-idx-${n}`}
+                        className="px-3 py-2 text-[12px] text-rose-300/90 flex items-center gap-2 bg-rose-950/20"
+                      >
+                        <span className="line-through font-mono">{n}</span>
+                        <span className="text-[10px] font-bold uppercase">drop</span>
+                        <button
+                          type="button"
+                          className="ml-auto text-[10px] font-bold text-slate-300"
+                          onClick={() =>
+                            setDroppedIndexNames((s) => {
+                              const n2 = new Set(s);
+                              n2.delete(n);
+                              return n2;
+                            })
+                          }
+                        >
+                          Undo
+                        </button>
+                      </li>
+                    ))}
+                    {pendingIndexes.map((idx, i) => (
+                      <li
+                        key={`pending-idx-${idx.name}-${i}`}
+                        className="px-3 py-2.5 text-[12.5px] flex items-start gap-2 bg-emerald-950/15"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <span className="text-[9px] font-bold uppercase text-emerald-400 mr-1.5">
+                            new
+                          </span>
+                          <span className="font-mono font-semibold text-slate-200">
+                            {idx.name}
+                          </span>
+                          <span className="text-slate-500 mx-1.5">·</span>
+                          <span className="text-[10px] font-bold uppercase tracking-wide text-sky-300/80">
+                            {idx.unique ? 'unique' : 'duplicates ok'}
+                          </span>
+                          <div className="font-mono text-slate-400 mt-0.5">
+                            ({formatIndexCols(idx)})
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-0.5 shrink-0">
+                          <button
+                            type="button"
+                            title="Edit"
+                            onClick={() => openEditPendingIndex(i)}
+                            className="p-1 text-slate-500 hover:text-sky-300"
+                          >
+                            <Pencil className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+                          </button>
+                          <button
+                            type="button"
+                            title="Remove"
+                            onClick={() =>
+                              setPendingIndexes((list) => list.filter((_, j) => j !== i))
+                            }
+                            className="p-1 text-slate-500 hover:text-rose-400"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {indexFormOpen && (
+                  <div className="border-t border-sky-400/20 px-3 py-3 space-y-2.5 bg-sky-950/25">
+                    <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
+                      <label className="block min-w-0">
+                        <span className="text-[10px] font-bold uppercase text-slate-500">
+                          Index name
+                        </span>
+                        <input
+                          value={indexForm.name}
+                          onChange={(e) =>
+                            setIndexForm({ ...indexForm, name: e.target.value })
+                          }
+                          className="mt-0.5 w-full rounded-lg border border-slate-700 bg-slate-950/70 px-2.5 py-1.5 text-[12.5px] font-mono text-slate-100"
+                        />
+                      </label>
+                      <div className="flex flex-col justify-end gap-1">
+                        {indexSupport.unique && indexSupport.acceptDuplicates ? (
+                          <label className="flex items-center gap-2 text-[12px] text-slate-300 cursor-pointer select-none px-1 py-1.5">
+                            <input
+                              type="checkbox"
+                              checked={indexForm.unique}
+                              onChange={(e) => {
+                                const unique = e.target.checked;
+                                setIndexForm((prev) => ({
+                                  ...prev,
+                                  unique,
+                                  constraint: unique ? prev.constraint : undefined,
+                                  name:
+                                    prev.name.trim() ||
+                                    suggestIndexName(
+                                      tableName || 'table',
+                                      prev.columns,
+                                      unique
+                                    ),
+                                }));
+                              }}
+                              className="rounded border-slate-600"
+                            />
+                            <span>
+                              Unique
+                              <span className="text-slate-500 ml-1">
+                                {indexForm.unique
+                                  ? '(reject duplicates)'
+                                  : '(accept duplicates)'}
+                              </span>
+                            </span>
+                          </label>
+                        ) : indexSupport.unique ? (
+                          <p className="text-[11px] text-slate-400 px-1">Unique only</p>
+                        ) : (
+                          <p className="text-[11px] text-slate-400 px-1">
+                            Non-unique only (accept duplicates)
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div>
+                      <span className="text-[10px] font-bold uppercase text-slate-500">
+                        Columns
+                      </span>
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        {activeColumns.map((c) => {
+                          const on = indexForm.columns.includes(c.name);
+                          const ord =
+                            indexForm.orders[indexForm.columns.indexOf(c.name)] ?? 'ASC';
+                          return (
+                            <div
+                              key={c.name}
+                              className={`inline-flex items-center gap-0.5 rounded-lg border text-[11px] font-mono ${
+                                on
+                                  ? 'border-sky-400/50 bg-sky-500/20 text-sky-100'
+                                  : 'border-slate-700 bg-slate-900/50 text-slate-400'
+                              }`}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => toggleIndexColumn(c.name)}
+                                className="px-2 py-1"
+                              >
+                                {c.name}
+                              </button>
+                              {on && (
+                                <>
+                                  {indexSupport.columnOrder && (
+                                    <button
+                                      type="button"
+                                      title={`Order: ${ord} (click to toggle)`}
+                                      onClick={() =>
+                                        setIndexColumnOrder(
+                                          c.name,
+                                          ord === 'ASC' ? 'DESC' : 'ASC'
+                                        )
+                                      }
+                                      className="px-1.5 py-1 border-l border-sky-400/30 text-[10px] font-bold text-sky-200/90 hover:text-white"
+                                    >
+                                      {ord}
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    title="Move earlier"
+                                    onClick={() => moveIndexColumn(c.name, -1)}
+                                    className="p-1 border-l border-sky-400/30 text-slate-400 hover:text-white"
+                                  >
+                                    <ArrowUp
+                                      className="w-3 h-3"
+                                      strokeWidth={SQL_ICON_STROKE}
+                                    />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    title="Move later"
+                                    onClick={() => moveIndexColumn(c.name, 1)}
+                                    className="p-1 border-l border-sky-400/30 text-slate-400 hover:text-white"
+                                  >
+                                    <ArrowDown
+                                      className="w-3 h-3"
+                                      strokeWidth={SQL_ICON_STROKE}
+                                    />
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {indexForm.columns.length > 0 && (
+                        <p className="mt-1.5 font-mono text-[11px] text-slate-400">
+                          ({formatIndexCols(indexForm)})
+                        </p>
+                      )}
+                      {!indexSupport.columnOrder && (
+                        <p className="mt-1 text-[11px] text-slate-500">{indexSupport.hint}</p>
+                      )}
+                    </div>
+
+                    <div className="flex justify-end gap-1.5">
+                      <button
+                        type="button"
+                        onClick={closeIndexForm}
+                        className="px-2.5 py-1 text-[11px] font-semibold text-slate-400"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={saveIndex}
+                        className="px-2.5 py-1 text-[11px] font-bold rounded border border-sky-500/40 text-sky-200 bg-sky-950/50"
+                      >
+                        {editingPendingIndex !== null || replacingExistingIndex
+                          ? 'Save index'
+                          : 'Add index'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
+
             {/* Foreign keys */}
             <section>
               <div className="flex items-center justify-between gap-2 mb-2.5">
@@ -912,6 +1419,7 @@ export const TableBlueprintModal: React.FC<Props> = ({
                     onClick={() => {
                       setAddingFk(true);
                       setAddingTrigger(false);
+                      closeIndexForm();
                       const cols = activeColumns[0] ? [activeColumns[0].name] : [];
                       setFkForm({
                         ...emptyFkDraft(),
@@ -1274,6 +1782,7 @@ export const TableBlueprintModal: React.FC<Props> = ({
                     onClick={() => {
                       setAddingTrigger(true);
                       setAddingFk(false);
+                      closeIndexForm();
                       const draft = emptyTriggerDraft(dialect);
                       setTriggerForm({
                         ...draft,

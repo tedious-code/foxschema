@@ -7,12 +7,15 @@ import {
   defaultDialectColumnType,
   dialectBooleanDefaultOptions,
   dialectIdentitySupport,
+  dialectIndexSupport,
   diffBlueprintColumns,
   generateAddForeignKeySql,
   generateBlueprintAlterSql,
+  generateCreateIndexSql,
   generateCreateTableSql,
   generateCreateTriggerSql,
   generateDropForeignKeySql,
+  generateDropIndexSql,
   generateDropTableSql,
   generateDropTriggerSql,
   generatePkAlterSql,
@@ -27,6 +30,8 @@ import {
   parseTypeSize,
   quoteIdent,
   suggestFkName,
+  suggestIndexName,
+  appendFkTriggerSql,
 } from './tableBlueprintSql';
 
 const col = (partial: Partial<ColumnInfo> & Pick<ColumnInfo, 'name' | 'type'>): ColumnInfo => ({
@@ -505,6 +510,91 @@ describe('foreign keys & triggers', () => {
   it('generates drop trigger', () => {
     const sql = generateDropTriggerSql('orders', 'mysql', 'trg_orders_bi');
     expect(sql[0]).toMatch(/DROP TRIGGER/i);
+  });
+});
+
+describe('blueprint indexes', () => {
+  it('suggests unique vs non-unique index names', () => {
+    expect(suggestIndexName('orders', ['customer_id'], false)).toBe('ix_orders_customer_id');
+    expect(suggestIndexName('orders', ['customer_id'], true)).toBe('ux_orders_customer_id');
+  });
+
+  it('emits CREATE INDEX with ASC/DESC and UNIQUE', () => {
+    const sql = generateCreateIndexSql('orders', 'postgres', {
+      name: 'ix_orders_created',
+      columns: ['created_at', 'id'],
+      orders: ['DESC', 'ASC'],
+      unique: false,
+    });
+    expect(sql[0]).toBe(
+      'CREATE INDEX ix_orders_created ON orders (created_at DESC, id ASC);'
+    );
+
+    const ux = generateCreateIndexSql('orders', 'mysql', {
+      name: 'ux_orders_email',
+      columns: ['email'],
+      orders: ['ASC'],
+      unique: true,
+    });
+    expect(ux[0]).toBe('CREATE UNIQUE INDEX ux_orders_email ON orders (email ASC);');
+  });
+
+  it('emits SQL Server unique constraint when constraint flag is set', () => {
+    const sql = generateCreateIndexSql('orders', 'sqlserver', {
+      name: 'UQ_orders_code',
+      columns: ['code'],
+      orders: ['ASC'],
+      unique: true,
+      constraint: true,
+    });
+    expect(sql[0]).toMatch(/ALTER TABLE orders ADD CONSTRAINT UQ_orders_code UNIQUE \(code\);/);
+  });
+
+  it('emits DROP INDEX via dialect (MySQL ON table, SQL Server constraint)', () => {
+    const mysql = generateDropIndexSql('orders', 'mysql', 'ix_orders_created');
+    expect(mysql[0]).toMatch(/DROP INDEX ix_orders_created ON orders/i);
+
+    const ss = generateDropIndexSql('orders', 'sqlserver', 'UQ_orders_code', undefined, {
+      constraint: true,
+    });
+    expect(ss[0]).toMatch(/ALTER TABLE orders DROP CONSTRAINT UQ_orders_code/i);
+  });
+
+  it('reviews ClickHouse / Redshift create and drop', () => {
+    for (const d of ['clickhouse', 'redshift']) {
+      expect(dialectIndexSupport(d).create).toBe(false);
+      const create = generateCreateIndexSql('t', d, {
+        name: 'ix_t_a',
+        columns: ['a'],
+        orders: ['ASC'],
+        unique: false,
+      });
+      expect(create[0]).toMatch(/^-- review:/);
+      const drop = generateDropIndexSql('t', d, 'ix_t_a');
+      expect(drop[0]).toMatch(/^-- review:/);
+    }
+  });
+
+  it('appends drop then create index around FKs', () => {
+    const sql = appendFkTriggerSql(['-- base'], {
+      tableName: 'orders',
+      dialect: 'postgres',
+      dropIndexes: [{ name: 'ix_old' }],
+      addIndexes: [
+        {
+          name: 'ix_new',
+          columns: ['a'],
+          orders: ['DESC'],
+          unique: false,
+        },
+      ],
+    });
+    expect(sql[0]).toBe('-- base');
+    expect(sql[1]).toMatch(/DROP INDEX/i);
+    expect(sql[1]).toContain('ix_old');
+    expect(sql.some((s) => s.includes('CREATE INDEX ix_new') && s.includes('a DESC'))).toBe(
+      true
+    );
   });
 });
 

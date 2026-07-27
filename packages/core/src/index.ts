@@ -23,6 +23,8 @@ export { findDropDependencies } from './modules/dependency-scan';
 export type { DropDependency, DropDependencyOptions } from './modules/dependency-scan';
 export { dialectSupportsFk } from './modules/dialect-fk-support';
 export type { FkFeatureSupport } from './modules/dialect-fk-support';
+export { dialectSupportsIndex } from './modules/dialect-index-support';
+export type { IndexFeatureSupport } from './modules/dialect-index-support';
 export { findMissingFkTargets, findNarrowingTypeChanges, extractReviewNotices, validateMigrationPlan } from './modules/migration-validation';
 export type { ValidationIssue, ValidationSeverity, ValidationCode } from './modules/migration-validation';
 export { CROSS_DIALECT_READINESS } from './modules/cross-dialect-readiness';

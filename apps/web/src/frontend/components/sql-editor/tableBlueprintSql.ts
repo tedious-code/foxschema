@@ -1,6 +1,12 @@
 import { resolveDialect } from '../../lib/migration-validation';
 import type { ColumnInfo, TableSchema } from '../../lib/types';
-import { dialectSupportsFk, type CanonicalBase, type CanonicalType } from '@foxschema/core';
+import {
+  dialectSupportsFk,
+  dialectSupportsIndex,
+  type CanonicalBase,
+  type CanonicalType,
+  type IndexFeatureSupport,
+} from '@foxschema/core';
 
 /** Quote an identifier when it is not a plain SQL name. */
 export function quoteIdent(name: string, dialect: string): string {
@@ -1263,7 +1269,139 @@ export function generateDropTriggerSql(
   return [`DROP TRIGGER IF EXISTS ${qTrg};`];
 }
 
-/** Append FK / trigger statements after column + PK alters. */
+// ── Indexes ───────────────────────────────────────────────────────────────────
+
+export type IndexColumnOrder = 'ASC' | 'DESC';
+
+export type BlueprintIndexDraft = {
+  name: string;
+  columns: string[];
+  /** Parallel to `columns`; defaults to ASC when missing. */
+  orders: IndexColumnOrder[];
+  /** true = UNIQUE (reject duplicates); false = accept duplicates */
+  unique: boolean;
+  /**
+   * SQL Server / Azure SQL: unique-constraint-backed index must use
+   * ALTER TABLE ADD/DROP CONSTRAINT rather than CREATE/DROP INDEX.
+   */
+  constraint?: boolean;
+};
+
+/** Suggest an index name from table + first column. */
+export function suggestIndexName(tableName: string, columns: string[], unique: boolean): string {
+  const col = columns[0] || 'col';
+  const bare = tableName.replace(/^.*\./, '').replace(/[^A-Za-z0-9_]/g, '_');
+  const c = col.replace(/[^A-Za-z0-9_]/g, '_');
+  const prefix = unique ? 'ux' : 'ix';
+  return `${prefix}_${bare}_${c}`.toLowerCase().slice(0, 60);
+}
+
+/** Delegates to the core dialect × index bitmatrix. */
+export function dialectIndexSupport(dialectName: string): IndexFeatureSupport {
+  return dialectSupportsIndex(dialectName);
+}
+
+function normalizeIndexOrders(
+  columns: string[],
+  orders: IndexColumnOrder[] | undefined
+): IndexColumnOrder[] {
+  return columns.map((_, i) => (orders?.[i] === 'DESC' ? 'DESC' : 'ASC'));
+}
+
+function formatIndexColumnList(
+  draft: BlueprintIndexDraft,
+  dialectName: string,
+  support: IndexFeatureSupport
+): string {
+  const orders = normalizeIndexOrders(draft.columns, draft.orders);
+  return draft.columns
+    .map((c, i) => {
+      const q = quoteIdent(c, dialectName);
+      if (!support.columnOrder) return q;
+      return `${q} ${orders[i] ?? 'ASC'}`;
+    })
+    .join(', ');
+}
+
+function indexDraftIsComplete(idx: BlueprintIndexDraft): boolean {
+  return !!idx.name.trim() && idx.columns.length > 0;
+}
+
+export function generateCreateIndexSql(
+  tableName: string,
+  dialectName: string,
+  idx: BlueprintIndexDraft,
+  schema?: string
+): string[] {
+  const name = tableName.trim();
+  if (!name || !indexDraftIsComplete(idx)) return [];
+
+  const support = dialectIndexSupport(dialectName);
+  if (!support.create) {
+    return [
+      `-- review: ${dialectName} does not support CREATE INDEX (${idx.name.trim()}) — ${support.hint}`,
+    ];
+  }
+  if (idx.unique && !support.unique) {
+    return [
+      `-- review: ${dialectName} does not support UNIQUE indexes (${idx.name.trim()})`,
+    ];
+  }
+  if (!idx.unique && !support.acceptDuplicates) {
+    return [
+      `-- review: ${dialectName} does not support non-unique indexes (${idx.name.trim()})`,
+    ];
+  }
+
+  const qTable = qualifiedQuotedTable(name, schema, dialectName);
+  const qName = quoteIdent(idx.name.trim(), dialectName);
+  const d = dialectName.toLowerCase();
+
+  // SQL Server unique constraints must round-trip as constraints, not indexes.
+  if (idx.unique && idx.constraint && (d === 'sqlserver' || d === 'azuresql')) {
+    const cols = idx.columns.map((c) => quoteIdent(c, dialectName)).join(', ');
+    return [`ALTER TABLE ${qTable} ADD CONSTRAINT ${qName} UNIQUE (${cols});`];
+  }
+
+  const colList = formatIndexColumnList(idx, dialectName, support);
+  const uniqueStr = idx.unique ? ' UNIQUE' : '';
+  return [`CREATE${uniqueStr} INDEX ${qName} ON ${qTable} (${colList});`];
+}
+
+export function generateDropIndexSql(
+  tableName: string,
+  dialectName: string,
+  indexName: string,
+  schema?: string,
+  opts?: { constraint?: boolean }
+): string[] {
+  const name = tableName.trim();
+  if (!name || !indexName.trim()) return [];
+
+  const support = dialectIndexSupport(dialectName);
+  if (!support.drop) {
+    return [
+      `-- review: ${dialectName} does not support DROP INDEX (${indexName.trim()}) — ${support.hint}`,
+    ];
+  }
+
+  const dialect = resolveDialect(dialectName);
+  const qTable = qualifiedQuotedTable(name, schema, dialectName);
+  const qIdx = quoteIdent(indexName.trim(), dialectName);
+  if (dialect.dropIndexStatement) {
+    return [
+      dialect.dropIndexStatement(qIdx, qTable, {
+        name: qIdx,
+        columns: [],
+        unique: !!opts?.constraint,
+        constraint: opts?.constraint,
+      }),
+    ];
+  }
+  return [`DROP INDEX IF EXISTS ${qIdx};`];
+}
+
+/** Append FK / trigger / index statements after column + PK alters. */
 export function appendFkTriggerSql(
   base: string[],
   args: {
@@ -1274,14 +1412,26 @@ export function appendFkTriggerSql(
     dropFkNames?: string[];
     addTriggers?: BlueprintTriggerDraft[];
     dropTriggerNames?: string[];
+    addIndexes?: BlueprintIndexDraft[];
+    dropIndexes?: Array<{ name: string; constraint?: boolean }>;
   }
 ): string[] {
   const out = [...base];
+  for (const idx of args.dropIndexes ?? []) {
+    out.push(
+      ...generateDropIndexSql(args.tableName, args.dialect, idx.name, args.schema, {
+        constraint: idx.constraint,
+      })
+    );
+  }
   for (const n of args.dropFkNames ?? []) {
     out.push(...generateDropForeignKeySql(args.tableName, args.dialect, n, args.schema));
   }
   for (const n of args.dropTriggerNames ?? []) {
     out.push(...generateDropTriggerSql(args.tableName, args.dialect, n, args.schema));
+  }
+  for (const idx of args.addIndexes ?? []) {
+    out.push(...generateCreateIndexSql(args.tableName, args.dialect, idx, args.schema));
   }
   for (const fk of args.addFks ?? []) {
     out.push(...generateAddForeignKeySql(args.tableName, args.dialect, fk, args.schema));
