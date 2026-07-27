@@ -539,6 +539,30 @@ describe('blueprint indexes', () => {
     expect(ux[0]).toBe('CREATE UNIQUE INDEX ux_orders_email ON orders (email ASC);');
   });
 
+  it('emits WHERE filter on dialects that support partial indexes', () => {
+    const sql = generateCreateIndexSql('orders', 'postgres', {
+      name: 'ix_orders_active',
+      columns: ['customer_id'],
+      orders: ['ASC'],
+      unique: false,
+      filter: "status = 'active'",
+    });
+    expect(sql[0]).toBe(
+      "CREATE INDEX ix_orders_active ON orders (customer_id ASC) WHERE status = 'active';"
+    );
+
+    const mysql = generateCreateIndexSql('orders', 'mysql', {
+      name: 'ix_orders_active',
+      columns: ['customer_id'],
+      orders: ['ASC'],
+      unique: false,
+      filter: "status = 'active'",
+    });
+    expect(mysql[0]).toMatch(/^-- review:/);
+    expect(dialectIndexSupport('sqlite').filter).toBe(true);
+    expect(dialectIndexSupport('mysql').filter).toBe(false);
+  });
+
   it('emits SQL Server unique constraint when constraint flag is set', () => {
     const sql = generateCreateIndexSql('orders', 'sqlserver', {
       name: 'UQ_orders_code',

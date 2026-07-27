@@ -114,7 +114,8 @@ export const sqlServerSqlDialect: SqlDialect = {
       return `ALTER TABLE ${qualifiedTable} ADD CONSTRAINT ${index.name} UNIQUE (${index.columns.join(', ')});`;
     }
     const uniqueStr = index.unique ? ' UNIQUE' : '';
-    return `CREATE${uniqueStr} INDEX ${index.name} ON ${qualifiedTable} (${index.columns.join(', ')});`;
+    const whereClause = index.filter?.trim() ? ` WHERE ${index.filter.trim()}` : '';
+    return `CREATE${uniqueStr} INDEX ${index.name} ON ${qualifiedTable} (${index.columns.join(', ')})${whereClause};`;
   },
 
   dropTriggerStatement(triggerName: string, qualifiedTable: string): string {

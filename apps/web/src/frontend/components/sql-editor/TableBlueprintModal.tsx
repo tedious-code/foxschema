@@ -91,6 +91,7 @@ function emptyIndexDraft(): BlueprintIndexDraft {
     columns: [],
     orders: [],
     unique: false,
+    filter: '',
   };
 }
 
@@ -100,6 +101,7 @@ function indexInfoToDraft(idx: IndexInfo): BlueprintIndexDraft {
     columns: [...idx.columns],
     orders: idx.columns.map(() => 'ASC' as IndexColumnOrder),
     unique: !!idx.unique,
+    filter: idx.filter ?? '',
     constraint: idx.constraint,
   };
 }
@@ -613,6 +615,11 @@ export const TableBlueprintModal: React.FC<Props> = ({
       setError(indexSupport.hint || 'This dialect does not support non-unique indexes');
       return;
     }
+    const filter = indexForm.filter?.trim() || '';
+    if (filter && !indexSupport.filter) {
+      setError('This dialect does not support filtered/partial indexes');
+      return;
+    }
     const name =
       indexForm.name.trim() ||
       suggestIndexName(tableName || 'table', indexForm.columns, indexForm.unique);
@@ -620,6 +627,7 @@ export const TableBlueprintModal: React.FC<Props> = ({
       ...indexForm,
       name,
       orders: normalizeOrders(indexForm.columns, indexForm.orders),
+      filter: filter || undefined,
       constraint: indexForm.unique ? indexForm.constraint : undefined,
     };
     if (editingPendingIndex !== null) {
@@ -1121,7 +1129,9 @@ export const TableBlueprintModal: React.FC<Props> = ({
                 !indexFormOpen ? (
                   <p className="px-3 py-3 text-[12px] text-slate-500">
                     {indexSupport.create
-                      ? 'No indexes — add UNIQUE (reject duplicates) or non-unique (accept duplicates), with ASC/DESC per column.'
+                      ? indexSupport.filter
+                        ? 'No indexes — add UNIQUE or non-unique, ASC/DESC, and optional WHERE filter.'
+                        : 'No indexes — add UNIQUE (reject duplicates) or non-unique (accept duplicates), with ASC/DESC per column.'
                       : indexSupport.hint}
                   </p>
                 ) : (
@@ -1146,6 +1156,9 @@ export const TableBlueprintModal: React.FC<Props> = ({
                           ) : null}
                           <div className="font-mono text-slate-400 mt-0.5">
                             ({idx.columns.join(', ')})
+                            {idx.filter?.trim() ? (
+                              <span className="text-sky-300/70"> WHERE {idx.filter.trim()}</span>
+                            ) : null}
                           </div>
                         </div>
                         {mode === 'edit' && (
@@ -1216,6 +1229,9 @@ export const TableBlueprintModal: React.FC<Props> = ({
                           </span>
                           <div className="font-mono text-slate-400 mt-0.5">
                             ({formatIndexCols(idx)})
+                            {idx.filter?.trim() ? (
+                              <span className="text-sky-300/70"> WHERE {idx.filter.trim()}</span>
+                            ) : null}
                           </div>
                         </div>
                         <div className="flex items-center gap-0.5 shrink-0">
@@ -1373,12 +1389,38 @@ export const TableBlueprintModal: React.FC<Props> = ({
                       {indexForm.columns.length > 0 && (
                         <p className="mt-1.5 font-mono text-[11px] text-slate-400">
                           ({formatIndexCols(indexForm)})
+                          {indexForm.filter?.trim() && indexSupport.filter ? (
+                            <span className="text-sky-300/70">
+                              {' '}
+                              WHERE {indexForm.filter.trim()}
+                            </span>
+                          ) : null}
                         </p>
                       )}
                       {!indexSupport.columnOrder && (
                         <p className="mt-1 text-[11px] text-slate-500">{indexSupport.hint}</p>
                       )}
                     </div>
+
+                    {indexSupport.filter && (
+                      <label className="block">
+                        <span className="text-[10px] font-bold uppercase text-slate-500">
+                          Filter (optional)
+                        </span>
+                        <input
+                          value={indexForm.filter ?? ''}
+                          onChange={(e) =>
+                            setIndexForm({ ...indexForm, filter: e.target.value })
+                          }
+                          placeholder="e.g. status = 'active' AND deleted_at IS NULL"
+                          className="mt-0.5 w-full rounded-lg border border-slate-700 bg-slate-950/70 px-2.5 py-1.5 text-[12.5px] font-mono text-slate-100 placeholder:text-slate-600"
+                        />
+                        <span className="mt-0.5 block text-[10px] text-slate-500">
+                          Partial / filtered index — rows matching this predicate only (no WHERE
+                          keyword).
+                        </span>
+                      </label>
+                    )}
 
                     <div className="flex justify-end gap-1.5">
                       <button

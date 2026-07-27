@@ -1281,6 +1281,11 @@ export type BlueprintIndexDraft = {
   /** true = UNIQUE (reject duplicates); false = accept duplicates */
   unique: boolean;
   /**
+   * Partial / filtered index predicate (without the WHERE keyword), e.g.
+   * `status = 'active'`. Emitted only when the dialect supports `filter`.
+   */
+  filter?: string;
+  /**
    * SQL Server / Azure SQL: unique-constraint-backed index must use
    * ALTER TABLE ADD/DROP CONSTRAINT rather than CREATE/DROP INDEX.
    */
@@ -1353,19 +1358,33 @@ export function generateCreateIndexSql(
     ];
   }
 
+  const filterPred = idx.filter?.trim() ?? '';
+  if (filterPred && !support.filter) {
+    return [
+      `-- review: ${dialectName} does not support filtered/partial indexes (${idx.name.trim()}) — omit WHERE or recreate without a filter`,
+    ];
+  }
+
   const qTable = qualifiedQuotedTable(name, schema, dialectName);
   const qName = quoteIdent(idx.name.trim(), dialectName);
   const d = dialectName.toLowerCase();
 
   // SQL Server unique constraints must round-trip as constraints, not indexes.
+  // Constraints cannot carry a WHERE filter — use a unique filtered index instead.
   if (idx.unique && idx.constraint && (d === 'sqlserver' || d === 'azuresql')) {
+    if (filterPred) {
+      return [
+        `-- review: ${idx.name.trim()}: unique constraints cannot include a WHERE filter — create a UNIQUE INDEX with filter instead`,
+      ];
+    }
     const cols = idx.columns.map((c) => quoteIdent(c, dialectName)).join(', ');
     return [`ALTER TABLE ${qTable} ADD CONSTRAINT ${qName} UNIQUE (${cols});`];
   }
 
   const colList = formatIndexColumnList(idx, dialectName, support);
   const uniqueStr = idx.unique ? ' UNIQUE' : '';
-  return [`CREATE${uniqueStr} INDEX ${qName} ON ${qTable} (${colList});`];
+  const whereClause = filterPred ? ` WHERE ${filterPred}` : '';
+  return [`CREATE${uniqueStr} INDEX ${qName} ON ${qTable} (${colList})${whereClause};`];
 }
 
 export function generateDropIndexSql(

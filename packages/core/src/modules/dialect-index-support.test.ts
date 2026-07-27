@@ -11,6 +11,7 @@ describe('dialectSupportsIndex', () => {
         unique: false,
         acceptDuplicates: false,
         columnOrder: false,
+        filter: false,
       });
     }
   });
@@ -40,11 +41,37 @@ describe('dialectSupportsIndex', () => {
     }
   });
 
+  it('supports filtered/partial WHERE only on dialects that allow it', () => {
+    for (const d of [
+      'postgres',
+      'cockroachdb',
+      'yugabytedb',
+      'sqlserver',
+      'azuresql',
+      'sqlite',
+    ]) {
+      expect(dialectSupportsIndex(d).filter, d).toBe(true);
+    }
+    for (const d of [
+      'mysql',
+      'mariadb',
+      'tidb',
+      'oracle',
+      'db2',
+      'duckdb',
+      'clickhouse',
+      'redshift',
+    ]) {
+      expect(dialectSupportsIndex(d).filter, d).toBe(false);
+    }
+  });
+
   it('covers every registry dialect id', () => {
     for (const key of Object.keys(DIALECT_MAP)) {
       const support = dialectSupportsIndex(key);
       expect(support.create || support.hint.length > 0, key).toBe(true);
       expect(typeof support.columnOrder, key).toBe('boolean');
+      expect(typeof support.filter, key).toBe('boolean');
     }
   });
 });

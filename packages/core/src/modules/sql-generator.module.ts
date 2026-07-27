@@ -226,7 +226,8 @@ export class SqlGeneratorModule {
   private createIndexSql(idx: IndexInfo, qualifiedTable: string, dialect?: SqlDialect): string {
     if (dialect?.createIndexStatement) return dialect.createIndexStatement(idx, qualifiedTable);
     const uniqueStr = idx.unique ? ' UNIQUE' : '';
-    return `CREATE${uniqueStr} INDEX ${idx.name} ON ${qualifiedTable} (${idx.columns.join(', ')});`;
+    const whereClause = idx.filter?.trim() ? ` WHERE ${idx.filter.trim()}` : '';
+    return `CREATE${uniqueStr} INDEX ${idx.name} ON ${qualifiedTable} (${idx.columns.join(', ')})${whereClause};`;
   }
 
   /**
