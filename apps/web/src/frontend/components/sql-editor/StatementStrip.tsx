@@ -45,9 +45,16 @@ function loadHeight(): number {
   return defaultHeight();
 }
 
-const preview = (text: string, max = 120): string => {
-  const compact = text.replace(/\s+/g, ' ').trim();
-  return compact.length > max ? compact.slice(0, max) + '…' : compact;
+const preview = (text: string, max = 120, codeKind?: CodeCellKind | null): string => {
+  let source = text;
+  if (codeKind) {
+    // Drop fence markers so the strip shows the cell body, not `-- @node` / `-- @end`.
+    source = source
+      .replace(/^\s*--\s*@(?:js|ts|javascript|typescript|node|nodets|node-typescript)\b[^\n]*\n?/i, '')
+      .replace(/\n?\s*--\s*@end\s*$/i, '');
+  }
+  const compact = source.replace(/\s+/g, ' ').trim();
+  return compact.length > max ? compact.slice(0, max) + '…' : compact || text.replace(/\s+/g, ' ').trim();
 };
 
 const codeCellBadge = (kind: CodeCellKind) => ({
@@ -237,12 +244,19 @@ export const StatementStrip: React.FC<Props> = ({ statements, checked, onToggle,
                 >
                   {ok ? '✓' : '⚠'}
                 </span>
-                {codeBadge && (
+                {codeBadge ? (
                   <span
                     className="shrink-0 text-[10px] font-bold uppercase tracking-wide px-1 py-0.5 rounded mt-0.5 bg-violet-950/40 text-violet-300 border border-violet-500/35"
                     title={codeBadge.title}
                   >
                     {codeBadge.label}
+                  </span>
+                ) : (
+                  <span
+                    className="shrink-0 text-[10px] font-bold uppercase tracking-wide px-1 py-0.5 rounded mt-0.5 bg-sky-950/40 text-sky-300 border border-sky-500/35"
+                    title="SQL statement"
+                  >
+                    SQL
                   </span>
                 )}
                 {dmlBadge && (
@@ -263,7 +277,7 @@ export const StatementStrip: React.FC<Props> = ({ statements, checked, onToggle,
                   </span>
                 )}
                 <span className="font-mono text-slate-400 group-hover:text-slate-200 line-clamp-2 break-all font-medium">
-                  {preview(stmt.text)}
+                  {preview(stmt.text, 120, codeKind)}
                 </span>
               </button>
               <button

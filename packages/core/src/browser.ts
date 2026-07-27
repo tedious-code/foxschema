@@ -18,6 +18,8 @@ export { SqlGeneratorModule } from './modules/sql-generator.module';
 export type { MigrationStep, SchemaMapping } from './modules/sql-generator.module';
 export { findDropDependencies } from './modules/dependency-scan';
 export type { DropDependency, DropDependencyOptions } from './modules/dependency-scan';
+export { dialectSupportsFk } from './modules/dialect-fk-support';
+export type { FkFeatureSupport } from './modules/dialect-fk-support';
 export { findMissingFkTargets, findNarrowingTypeChanges, extractReviewNotices, validateMigrationPlan } from './modules/migration-validation';
 export type { ValidationIssue, ValidationSeverity, ValidationCode } from './modules/migration-validation';
 export { CROSS_DIALECT_READINESS } from './modules/cross-dialect-readiness';
@@ -79,3 +81,9 @@ export type {
 
 export { buildConnectionString, withConnectionString, DEFAULT_PORTS } from './cores/connection-string';
 export { PROVIDER_SETTINGS, getProviderSettings } from './providers/provider-settings';
+export {
+  resolveFkReferencedColumns,
+  normalizeForeignKeyInfo,
+  normalizeTableSchema,
+  normalizeTableSchemas,
+} from './cores/schema-to-tables';

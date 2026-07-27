@@ -115,6 +115,75 @@ function pageCacheKey(connectionId: string, statementIndex: number, pageIndex: n
   return `${pageMetaKey(connectionId, statementIndex)}:${pageIndex}`;
 }
 
+/** Max cached pages per statement (current page + a few neighbors). */
+const MAX_PAGES_PER_STATEMENT = 5;
+/** Soft TTL for loaded schema explorer entries. */
+const SCHEMA_CACHE_TTL_MS = 15 * 60 * 1000;
+/** Max connections kept in schemaCache (LRU by loadedAt). */
+const SCHEMA_CACHE_MAX = 8;
+/** Cap persisted tab/bookmark SQL to avoid QuotaExceededError. */
+export const MAX_PERSISTED_SQL_CHARS = 256 * 1024;
+/** Cap persisted bookmark count. */
+export const MAX_PERSISTED_BOOKMARKS = 100;
+
+/** Keep at most `maxPages` pages for one statement, preferring those near `keepAroundPage`. */
+export function boundPageCache(
+  cache: Record<string, SqlStatementResult>,
+  connectionId: string,
+  statementIndex: number,
+  keepAroundPage: number,
+  maxPages = MAX_PAGES_PER_STATEMENT
+): Record<string, SqlStatementResult> {
+  const prefix = `${pageMetaKey(connectionId, statementIndex)}:`;
+  const keys = Object.keys(cache).filter((k) => k.startsWith(prefix));
+  if (keys.length <= maxPages) return cache;
+  const ranked = keys
+    .map((k) => {
+      const page = Number(k.slice(prefix.length));
+      return { k, page, dist: Math.abs(page - keepAroundPage) };
+    })
+    .sort((a, b) => b.dist - a.dist || b.page - a.page);
+  const next = { ...cache };
+  while (ranked.length > maxPages) {
+    const drop = ranked.shift();
+    if (!drop) break;
+    delete next[drop.k];
+  }
+  return next;
+}
+
+export function truncatePersistedSql(sql: string, max = MAX_PERSISTED_SQL_CHARS): string {
+  if (sql.length <= max) return sql;
+  return sql.slice(0, max);
+}
+
+/** Drop expired schema entries and enforce max connection count (LRU by loadedAt). */
+export function pruneSchemaCache(
+  cache: Record<string, SchemaCacheEntry>,
+  now = Date.now()
+): Record<string, SchemaCacheEntry> {
+  const next: Record<string, SchemaCacheEntry> = {};
+  for (const [id, entry] of Object.entries(cache)) {
+    if (
+      entry.status === 'ready' &&
+      typeof entry.loadedAt === 'number' &&
+      now - entry.loadedAt >= SCHEMA_CACHE_TTL_MS
+    ) {
+      continue;
+    }
+    next[id] = entry;
+  }
+  const ready = Object.entries(next)
+    .filter(([, e]) => e.status === 'ready')
+    .sort((a, b) => (a[1].loadedAt ?? 0) - (b[1].loadedAt ?? 0));
+  while (ready.length > SCHEMA_CACHE_MAX) {
+    const drop = ready.shift();
+    if (!drop) break;
+    delete next[drop[0]];
+  }
+  return next;
+}
+
 /** Password prompt for a connection saved without one (session-only). */
 export interface PendingPasswordPrompt {
   id: string;
@@ -457,13 +526,21 @@ export const useSqlEditorStore = create<SqlEditorState>()(
 
       ensureSchema: async (connectionId, { force = false } = {}) => {
         const SQL_EDITOR_SCOPE = ['TABLE', 'VIEW', 'MQT', 'PROCEDURE', 'FUNCTION'] as const;
+        const prunedStart = pruneSchemaCache(get().schemaCache);
+        if (Object.keys(prunedStart).length !== Object.keys(get().schemaCache).length) {
+          set({ schemaCache: prunedStart });
+        }
         const existing = get().schemaCache[connectionId];
         const scopeKey = SQL_EDITOR_SCOPE.join(',');
         const scopeOk = existing?.scope?.join(',') === scopeKey;
+        const fresh =
+          existing?.status === 'ready' &&
+          typeof existing.loadedAt === 'number' &&
+          Date.now() - existing.loadedAt < SCHEMA_CACHE_TTL_MS;
         if (
           !force &&
           scopeOk &&
-          (existing?.status === 'ready' || existing?.status === 'loading')
+          (existing?.status === 'loading' || (existing?.status === 'ready' && fresh))
         ) {
           return;
         }
@@ -471,10 +548,10 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         const conn = useSyncStore.getState().connections.find((c) => c.id === connectionId);
         if (!conn) {
           set({
-            schemaCache: {
+            schemaCache: pruneSchemaCache({
               ...get().schemaCache,
               [connectionId]: { status: 'error', error: 'Connection not found' },
-            },
+            }),
           });
           return;
         }
@@ -487,26 +564,26 @@ export const useSqlEditorStore = create<SqlEditorState>()(
               name: conn.name || conn.dialect,
               resumeExecute: false,
             },
-            schemaCache: {
+            schemaCache: pruneSchemaCache({
               ...get().schemaCache,
               [connectionId]: {
                 status: 'error',
                 error: 'Password required — enter it when prompted, then reload schema.',
               },
-            },
+            }),
           });
           return;
         }
 
         set({
-          schemaCache: {
+          schemaCache: pruneSchemaCache({
             ...get().schemaCache,
             [connectionId]: {
               status: 'loading',
               tables: existing?.tables,
               scope: [...SQL_EDITOR_SCOPE],
             },
-          },
+          }),
         });
 
         try {
@@ -515,25 +592,26 @@ export const useSqlEditorStore = create<SqlEditorState>()(
             [...SQL_EDITOR_SCOPE]
           );
           set({
-            schemaCache: {
+            schemaCache: pruneSchemaCache({
               ...get().schemaCache,
               [connectionId]: {
                 status: 'ready',
                 tables,
                 scope: [...SQL_EDITOR_SCOPE],
+                loadedAt: Date.now(),
               },
-            },
+            }),
           });
         } catch (error: unknown) {
           set({
-            schemaCache: {
+            schemaCache: pruneSchemaCache({
               ...get().schemaCache,
               [connectionId]: {
                 status: 'error',
                 error: error instanceof Error ? error.message : String(error),
                 scope: [...SQL_EDITOR_SCOPE],
               },
-            },
+            }),
           });
         }
       },
@@ -923,7 +1001,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
 
         // Seed page 0 cache from this run (avoids re-fetch on Prev after Next).
         // Pin pageSize to this run so Next/Prev stay aligned if Max rows changes later.
-        const pageCache: Record<string, SqlStatementResult> = {};
+        let pageCache: Record<string, SqlStatementResult> = {};
         const pageMeta: Record<string, ResultPageMeta> = {};
         const pageSqlByConnection: Record<string, string[]> = {};
         for (const c of connections) {
@@ -932,6 +1010,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           results.forEach((res, si) => {
             const key = pageMetaKey(c.id, si);
             pageCache[pageCacheKey(c.id, si, 0)] = res;
+            pageCache = boundPageCache(pageCache, c.id, si, 0);
             const pageable = Boolean(pageSqlByConnection[c.id]?.[si]);
             pageMeta[key] = {
               pageIndex: 0,
@@ -999,16 +1078,24 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           set((state) => {
             const cur = state.resultsByTab[tabId];
             if (!cur || !isCurrentPageEpoch(epoch, cur.pageEpoch)) return state;
+            const merged = { ...(cur.pageCache ?? {}), [cacheKey]: res };
+            const pageCache = boundPageCache(
+              merged,
+              connectionId,
+              statementIndex,
+              pageIndex
+            );
             return {
               resultsByTab: {
                 ...state.resultsByTab,
                 [tabId]: {
                   ...cur,
-                  pageCache: { ...(cur.pageCache ?? {}), [cacheKey]: res },
+                  pageCache,
                   pageMeta: {
                     ...(cur.pageMeta ?? {}),
                     [metaKey]: { pageIndex, hasNext, loading: false, pageSize },
                   },
+                  // Keep only the current page on runs.results; pageCache holds revisits.
                   runs: cur.runs.map((r) => {
                     if (r.connectionId !== connectionId || !r.results) return r;
                     const results = [...r.results];
@@ -1281,19 +1368,29 @@ export const useSqlEditorStore = create<SqlEditorState>()(
     }),
     {
       name: 'foxschema-sql-editor',
-      version: 5,
+      version: 6,
       // Persist tabs + destinations mode + bookmarks + variables. Never passwords/results.
       // Secret variable payloads are stripped (session-only values).
-      partialize: (state) => ({
-        tabs: persistableTabs(state.tabs),
-        activeTabId: state.activeTabId,
-        maxRows: state.maxRows,
-        safeMode: state.safeMode,
-        shareDestinations: state.shareDestinations,
-        sharedConnectionIds: state.sharedConnectionIds,
-        bookmarks: state.bookmarks,
-        variables: stripSecretsForPersist(state.variables),
-      }),
+      partialize: (state) => {
+        const tabs = persistableTabs(state.tabs).map((t) => ({
+          ...t,
+          sql: truncatePersistedSql(t.sql),
+        }));
+        const bookmarks = [...state.bookmarks]
+          .sort((a, b) => b.updatedAt - a.updatedAt)
+          .slice(0, MAX_PERSISTED_BOOKMARKS)
+          .map((b) => ({ ...b, sql: truncatePersistedSql(b.sql) }));
+        return {
+          tabs,
+          activeTabId: state.activeTabId,
+          maxRows: state.maxRows,
+          safeMode: state.safeMode,
+          shareDestinations: state.shareDestinations,
+          sharedConnectionIds: state.sharedConnectionIds,
+          bookmarks,
+          variables: stripSecretsForPersist(state.variables),
+        };
+      },
       migrate: (persisted, fromVersion) => {
         const p = (persisted ?? {}) as Record<string, unknown>;
         // v1: flat { sql, selectedConnectionIds, maxRows }
@@ -1340,6 +1437,25 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           const vars = Array.isArray(p.variables) ? (p.variables as SqlVariable[]) : [];
           return { ...p, variables: stripSecretsForPersist(vars) };
         }
+        // v6: table-blueprint / composite-FK era — keep editor persist stable; coerce
+        // arrays so older partial blobs still hydrate. Schema FK shapes are normalized
+        // server-side via normalizeTableSchemas (not stored in this persist key).
+        if (fromVersion < 6) {
+          const vars = Array.isArray(p.variables) ? (p.variables as SqlVariable[]) : [];
+          return {
+            ...p,
+            tabs: Array.isArray(p.tabs) ? p.tabs : [],
+            bookmarks: Array.isArray(p.bookmarks) ? p.bookmarks : [],
+            sharedConnectionIds: Array.isArray(p.sharedConnectionIds)
+              ? p.sharedConnectionIds
+              : [],
+            variables: stripSecretsForPersist(vars),
+            safeMode: typeof p.safeMode === 'boolean' ? p.safeMode : true,
+            shareDestinations:
+              typeof p.shareDestinations === 'boolean' ? p.shareDestinations : true,
+            maxRows: typeof p.maxRows === 'number' ? p.maxRows : 200,
+          };
+        }
         return p;
       },
       // Always rehydrate checkedStatements (not persisted) and drop malformed tabs.
@@ -1361,21 +1477,26 @@ export const useSqlEditorStore = create<SqlEditorState>()(
             ? p.activeTabId
             : tabs[0]!.id;
         const bookmarks = Array.isArray(p.bookmarks)
-          ? p.bookmarks.filter(
-              (b) =>
-                b &&
-                typeof b.id === 'string' &&
-                typeof b.title === 'string' &&
-                typeof b.sql === 'string'
-            )
+          ? p.bookmarks
+              .filter(
+                (b) =>
+                  b &&
+                  typeof b.id === 'string' &&
+                  typeof b.title === 'string' &&
+                  typeof b.sql === 'string'
+              )
+              .map((b) => ({ ...b, sql: truncatePersistedSql(b.sql) }))
+              .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+              .slice(0, MAX_PERSISTED_BOOKMARKS)
           : [];
 
         // Relink tabs↔bookmarks by unique SQL match, and sync bookmark title to the tab.
         const healedTabs = tabs.map((t) => {
-          if (t.bookmarkId && bookmarks.some((b) => b.id === t.bookmarkId)) return t;
-          const matches = bookmarks.filter((b) => b.sql === t.sql);
-          if (matches.length !== 1) return t;
-          return { ...t, bookmarkId: matches[0]!.id };
+          const capped = { ...t, sql: truncatePersistedSql(t.sql) };
+          if (capped.bookmarkId && bookmarks.some((b) => b.id === capped.bookmarkId)) return capped;
+          const matches = bookmarks.filter((b) => b.sql === capped.sql);
+          if (matches.length !== 1) return capped;
+          return { ...capped, bookmarkId: matches[0]!.id };
         });
         const healedBookmarks = bookmarks.map((b) => {
           const tab = healedTabs.find((t) => t.bookmarkId === b.id);

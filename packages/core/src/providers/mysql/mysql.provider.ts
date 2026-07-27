@@ -44,7 +44,15 @@ function normalizeDefault(columnType: string, raw: string | null): string | unde
 // information_schema raw shapes (column names normalized to lower-case by mysql2)
 interface MyTableRaw { TABLE_NAME: string; TABLE_TYPE: string; }
 interface MyColumnRaw { TABLE_NAME: string; COLUMN_NAME: string; COLUMN_TYPE: string; IS_NULLABLE: string; COLUMN_DEFAULT: string | null; EXTRA: string; COLUMN_KEY: string; ORDINAL_POSITION: number; COLLATION_NAME: string | null; }
-interface MyKeyRaw { TABLE_NAME: string; CONSTRAINT_NAME: string; COLUMN_NAME: string; ORDINAL_POSITION: number; REFERENCED_TABLE_SCHEMA: string | null; REFERENCED_TABLE_NAME: string | null; }
+interface MyKeyRaw {
+  TABLE_NAME: string;
+  CONSTRAINT_NAME: string;
+  COLUMN_NAME: string;
+  ORDINAL_POSITION: number;
+  REFERENCED_TABLE_SCHEMA: string | null;
+  REFERENCED_TABLE_NAME: string | null;
+  REFERENCED_COLUMN_NAME: string | null;
+}
 interface MyIndexRaw { TABLE_NAME: string; INDEX_NAME: string; NON_UNIQUE: number; COLUMN_NAME: string; SEQ_IN_INDEX: number; COLLATION: string | null; }
 interface MyViewRaw { TABLE_NAME: string; VIEW_DEFINITION: string; }
 interface MyTriggerRaw { TRIGGER_NAME: string; EVENT_OBJECT_TABLE: string; ACTION_TIMING: string; EVENT_MANIPULATION: string; ACTION_STATEMENT: string; }
@@ -148,7 +156,7 @@ export class MysqlProvider implements SchemaProvider {
         ),
         exec<MyKeyRaw>(
           `SELECT TABLE_NAME, CONSTRAINT_NAME, COLUMN_NAME, ORDINAL_POSITION,
-                  REFERENCED_TABLE_SCHEMA, REFERENCED_TABLE_NAME
+                  REFERENCED_TABLE_SCHEMA, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
            FROM information_schema.KEY_COLUMN_USAGE
            WHERE TABLE_SCHEMA = ?
            ORDER BY TABLE_NAME, CONSTRAINT_NAME, ORDINAL_POSITION`,
@@ -232,12 +240,25 @@ export class MysqlProvider implements SchemaProvider {
       }
 
       // 3. Keys — PRIMARY → PK; rows with a referenced table → FK (grouped per constraint)
-      const fkGroups = new Map<string, { name: string; table: string; cols: string[]; rSchema: string; rTable: string }>();
+      const fkGroups = new Map<
+        string,
+        { name: string; table: string; cols: string[]; refCols: string[]; rSchema: string; rTable: string }
+      >();
       for (const k of rawKeys) {
         if (k.REFERENCED_TABLE_NAME) {
           const id = `${k.TABLE_NAME}.${k.CONSTRAINT_NAME}`;
-          const g = fkGroups.get(id) ?? { name: k.CONSTRAINT_NAME, table: k.TABLE_NAME, cols: [], rSchema: k.REFERENCED_TABLE_SCHEMA ?? db, rTable: k.REFERENCED_TABLE_NAME };
+          const g = fkGroups.get(id) ?? {
+            name: k.CONSTRAINT_NAME,
+            table: k.TABLE_NAME,
+            cols: [],
+            refCols: [],
+            rSchema: k.REFERENCED_TABLE_SCHEMA ?? db,
+            rTable: k.REFERENCED_TABLE_NAME,
+          };
+          // Always pair local/ref in constraint order so sparse REFERENCED_COLUMN_NAME
+          // cannot desync the two arrays (drop incomplete groups below).
           g.cols.push(k.COLUMN_NAME);
+          g.refCols.push(k.REFERENCED_COLUMN_NAME ?? '');
           fkGroups.set(id, g);
         } else if (k.CONSTRAINT_NAME === 'PRIMARY') {
           if (tables[k.TABLE_NAME]) tables[k.TABLE_NAME].primaryKey.push(k.COLUMN_NAME);
@@ -250,7 +271,20 @@ export class MysqlProvider implements SchemaProvider {
         }
       }
       for (const [, info] of fkGroups) {
-        const mapped: DbForeignKey = { name: info.name, columns: info.cols, referencedSchema: info.rSchema, referencedTable: info.rTable };
+        if (
+          info.cols.length === 0 ||
+          info.cols.length !== info.refCols.length ||
+          info.refCols.some((c) => !c)
+        ) {
+          continue;
+        }
+        const mapped: DbForeignKey = {
+          name: info.name,
+          columns: info.cols,
+          referencedSchema: info.rSchema,
+          referencedTable: info.rTable,
+          referencedColumns: info.refCols,
+        };
         if (tables[info.table]) tables[info.table].foreignKeys.push(mapped);
         (foreignKeys[info.table] ??= []).push(mapped);
       }

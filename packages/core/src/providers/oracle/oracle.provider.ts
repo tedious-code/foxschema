@@ -315,7 +315,16 @@ export class OracleProvider implements SchemaProvider {
       } else if (con.CONSTRAINT_TYPE === 'R') {
         // R_CONSTRAINT_NAME points to the PK/UK of the referenced table
         const refTable = con.R_CONSTRAINT_NAME ? (consTableMap.get(con.R_CONSTRAINT_NAME) ?? '') : '';
-        const mapped: DbForeignKey = { name: con.CONSTRAINT_NAME, columns: cols, referencedSchema: con.R_OWNER ?? owner, referencedTable: refTable };
+        const refCols = con.R_CONSTRAINT_NAME
+          ? (consColMap.get(con.R_CONSTRAINT_NAME) ?? [])
+          : [];
+        const mapped: DbForeignKey = {
+          name: con.CONSTRAINT_NAME,
+          columns: cols,
+          referencedSchema: con.R_OWNER ?? owner,
+          referencedTable: refTable,
+          referencedColumns: refCols,
+        };
         if (tables[con.TABLE_NAME]) tables[con.TABLE_NAME].foreignKeys.push(mapped);
         (foreignKeys[con.TABLE_NAME] ??= []).push(mapped);
       }

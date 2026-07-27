@@ -9,6 +9,7 @@ import {
   SqlGeneratorModule,
   DriverDetector,
   buildConnectionString,
+  normalizeTableSchemas,
   type MigrationStep,
   type ConnectionOptions,
   type DbObjectType,
@@ -170,7 +171,8 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     }
 
     const scoped = scope?.length ? tables.filter((t) => scope.includes(t.objectType)) : tables;
-    return { tables: scoped, warnings };
+    // Upgrade path: older providers / cached shapes may omit FK referencedColumns.
+    return { tables: normalizeTableSchemas(scoped), warnings };
   }
 
   router.get('/health', (_req: Request, res: Response) => {
@@ -532,7 +534,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       // 1. Snapshot the target schema DDL before touching anything
       const provider = connectionModule.getProvider(dialect);
       if (provider.getTables) {
-        const targetObjects = await provider.getTables(option, schema);
+        const targetObjects = normalizeTableSchemas(await provider.getTables(option, schema));
         let snapshot = `-- =========================================================================\n`;
         snapshot += `-- Target schema snapshot (pre-migration)\n`;
         snapshot += `-- Schema: ${schema}  |  Taken At: ${new Date().toISOString()}\n`;

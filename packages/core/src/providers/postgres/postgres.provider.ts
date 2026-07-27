@@ -28,7 +28,15 @@ import {
 interface PgTableRaw { table_name: string; relkind: string; tablespace: string | null; definition: string | null; }
 interface PgColumnRaw { table_name: string; column_name: string; ordinal: number; data_type: string; not_null: boolean; default_value: string | null; identity: string; relkind: string; collation: string | null; }
 interface PgKeyRaw { table_name: string; constraint_name: string; column_name: string; col_seq: number; }
-interface PgFkRaw { table_name: string; constraint_name: string; column_name: string; ref_schema: string; ref_table: string; col_seq: number; }
+interface PgFkRaw {
+  table_name: string;
+  constraint_name: string;
+  column_name: string;
+  ref_column_name: string;
+  ref_schema: string;
+  ref_table: string;
+  col_seq: number;
+}
 interface PgIndexRaw { table_name: string; index_name: string; is_primary: boolean; is_unique: boolean; column_name: string; col_seq: number; }
 interface PgViewRaw { view_name: string; definition: string; }
 interface PgTriggerRaw { trigger_name: string; table_name: string; tgtype: number; definition: string; }
@@ -200,7 +208,7 @@ export class PostgresProvider implements SchemaProvider {
         ),
         exec<PgFkRaw>(
           `SELECT cl.relname AS table_name, con.conname AS constraint_name,
-                  att.attname AS column_name,
+                  att.attname AS column_name, refatt.attname AS ref_column_name,
                   refn.nspname AS ref_schema, refcl.relname AS ref_table,
                   ord.n AS col_seq
            FROM pg_constraint con
@@ -208,8 +216,9 @@ export class PostgresProvider implements SchemaProvider {
            JOIN pg_namespace n ON n.oid = cl.relnamespace
            JOIN pg_class refcl ON refcl.oid = con.confrelid
            JOIN pg_namespace refn ON refn.oid = refcl.relnamespace
-           JOIN LATERAL unnest(con.conkey) WITH ORDINALITY AS ord(attnum, n) ON true
+           JOIN LATERAL unnest(con.conkey, con.confkey) WITH ORDINALITY AS ord(attnum, refattnum, n) ON true
            JOIN pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = ord.attnum
+           JOIN pg_attribute refatt ON refatt.attrelid = con.confrelid AND refatt.attnum = ord.refattnum
            WHERE con.contype = 'f' AND n.nspname = $1
            ORDER BY cl.relname, con.conname, ord.n`,
           [schemaName]
@@ -370,14 +379,30 @@ export class PostgresProvider implements SchemaProvider {
       }
 
       // 4. Foreign keys (grouped per constraint, columns in key order)
-      const fkGroups = new Map<string, { table: string; cols: string[]; rSchema: string; rTable: string }>();
+      const fkGroups = new Map<
+        string,
+        { table: string; cols: string[]; refCols: string[]; rSchema: string; rTable: string }
+      >();
       for (const fk of rawForeignKeys) {
-        const g = fkGroups.get(fk.constraint_name) ?? { table: fk.table_name, cols: [], rSchema: fk.ref_schema, rTable: fk.ref_table };
+        const g = fkGroups.get(fk.constraint_name) ?? {
+          table: fk.table_name,
+          cols: [],
+          refCols: [],
+          rSchema: fk.ref_schema,
+          rTable: fk.ref_table,
+        };
         g.cols.push(fk.column_name);
+        g.refCols.push(fk.ref_column_name);
         fkGroups.set(fk.constraint_name, g);
       }
       for (const [name, info] of fkGroups) {
-        const mapped: DbForeignKey = { name, columns: info.cols, referencedSchema: info.rSchema, referencedTable: info.rTable };
+        const mapped: DbForeignKey = {
+          name,
+          columns: info.cols,
+          referencedSchema: info.rSchema,
+          referencedTable: info.rTable,
+          referencedColumns: info.refCols,
+        };
         if (tables[info.table]) tables[info.table].foreignKeys.push(mapped);
         (foreignKeys[info.table] ??= []).push(mapped);
       }

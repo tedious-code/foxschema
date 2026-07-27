@@ -10,7 +10,7 @@ import {
 import { ensureFoxschemaSqlLanguage } from '../../lib/foxschemaSqlLanguage';
 import { MONACO_FONT_PX, useUiStore } from '../../store/uiStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
-import { splitSqlStatements, checkStatement, type SplitStatement } from '../../lib/sql-splitter';
+import { checkStatement, type SplitStatement } from '../../lib/sql-splitter';
 import { ensureSqlCompletions } from './completion';
 import { setSqlInsertHandler, setSqlSelectionGetter } from './sqlEditorBridge';
 import { buildVariableHoverDecorations } from './variableHover';

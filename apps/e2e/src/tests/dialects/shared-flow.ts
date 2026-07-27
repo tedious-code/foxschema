@@ -20,11 +20,21 @@ import { ConnectionModal } from '../../pages/ConnectionModal.js';
 import { MigrationPage } from '../../pages/MigrationPage.js';
 import type { DbConfig } from '../../helpers/db-config.js';
 
+export interface DialectFlowOptions {
+  /**
+   * Skip execute/history steps. Used for dialects whose adapter is SELECT-only
+   * in the SQL Editor / e2e path (e.g. SQLite) so compare still gets coverage.
+   */
+  skipMigration?: boolean;
+}
+
 export function runDialectFlow(
   dialectLabel: string,
   getSource: () => DbConfig,
-  getTarget: () => DbConfig
+  getTarget: () => DbConfig,
+  options: DialectFlowOptions = {}
 ): void {
+  const skipMigration = !!options.skipMigration;
   let driver: Page;
   let app: AppPage;
   let modal: ConnectionModal;
@@ -92,7 +102,7 @@ export function runDialectFlow(
 
   // ── 4. Migrate ──────────────────────────────────────────────────────────
 
-  it('execute button is present', async () => {
+  it.skipIf(skipMigration)('execute button is present', async () => {
     const diffItems = await app.getDiffCount();
     if (diffItems === 0) {
       console.log(`[${dialectLabel}] No diff objects — skipping execute step`);
@@ -111,7 +121,7 @@ export function runDialectFlow(
     expect(await migration.isExecuteEnabled()).toBe(true);
   });
 
-  it('executes migration (non-destructive)', async () => {
+  it.skipIf(skipMigration)('executes migration (non-destructive)', async () => {
     const diffItems = await app.getDiffCount();
     if (diffItems === 0) {
       console.log(`[${dialectLabel}] No diff objects — skipping migration`);
@@ -143,7 +153,7 @@ export function runDialectFlow(
     expect(result, `Migration did not complete successfully`).toBe('complete');
   });
 
-  it('no SEVERE console errors after migration', async () => {
+  it.skipIf(skipMigration)('no SEVERE console errors after migration', async () => {
     const errors = getErrors().filter((e) => e.level === 'SEVERE');
     if (errors.length) await saveScreenshot(driver, `${dialectLabel}_post_migrate_error`);
     expect(errors, errors.map((e) => e.message).join('\n')).toHaveLength(0);
@@ -151,7 +161,7 @@ export function runDialectFlow(
 
   // ── 5. History ──────────────────────────────────────────────────────────
 
-  it('migration history shows the run', async () => {
+  it.skipIf(skipMigration)('migration history shows the run', async () => {
     await migration.openHistory();
     expect(await migration.isHistoryVisible()).toBe(true);
 

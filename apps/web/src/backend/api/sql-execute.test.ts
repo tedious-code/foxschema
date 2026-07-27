@@ -185,4 +185,28 @@ describe('runStatements against a real SQLite file', () => {
       spy.mockRestore();
     }
   });
+
+  it('fails closed at offset 0 when page wrap fails (no raw fallback)', async () => {
+    const spy = vi
+      .spyOn(ConnectionFactory, 'executeOnConnection')
+      .mockRejectedValueOnce(new Error('wrap boom'));
+    try {
+      const results = await runStatements(
+        'sqlite',
+        { connectionString: dbPath },
+        ['SELECT id FROM t ORDER BY id;'],
+        1,
+        undefined,
+        0
+      );
+      expect(results[0]).toMatchObject({ ok: false });
+      if (!results[0]!.ok) {
+        expect(results[0].error).toMatch(/Paging failed/i);
+        expect(results[0].error).toMatch(/wrap boom/);
+      }
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });

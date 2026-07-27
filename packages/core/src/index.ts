@@ -21,6 +21,8 @@ export { SqlGeneratorModule } from './modules/sql-generator.module';
 export type { MigrationStep, SchemaMapping } from './modules/sql-generator.module';
 export { findDropDependencies } from './modules/dependency-scan';
 export type { DropDependency, DropDependencyOptions } from './modules/dependency-scan';
+export { dialectSupportsFk } from './modules/dialect-fk-support';
+export type { FkFeatureSupport } from './modules/dialect-fk-support';
 export { findMissingFkTargets, findNarrowingTypeChanges, extractReviewNotices, validateMigrationPlan } from './modules/migration-validation';
 export type { ValidationIssue, ValidationSeverity, ValidationCode } from './modules/migration-validation';
 export { CROSS_DIALECT_READINESS } from './modules/cross-dialect-readiness';
@@ -92,7 +94,18 @@ export { MigrationModule } from './modules/migration.module';
 export { ConnectionFactory } from './cores/connection-factory';
 export { DriverDetector } from './cores/driver-detector';
 export { assertSafeIdentifier } from './cores/sql-identifier';
+export { BoundedPoolCache, disposePoolEndOrClose } from './cores/pool-cache';
 export { setupDb2ClientEnv } from './providers/db2/db2.env';
+export {
+  resolveFkReferencedColumns,
+  normalizeForeignKeyInfo,
+  normalizeTableSchema,
+  normalizeTableSchemas,
+  dbSchemaToTableSchemas,
+  rolesToTableSchemas,
+  groupRoleRows,
+  roleSkippedWarning,
+} from './cores/schema-to-tables';
 
 // Provider/adapter registries
 export { getAdapter, ADAPTERS } from './providers/adapter-registry';

@@ -5,13 +5,13 @@ import { SQL_ICON_STROKE } from './sqlIconStyle';
 const STORAGE_KEY = 'foxschema-sql-sidebar-sections';
 const HEIGHTS_KEY = 'foxschema-sql-sidebar-section-heights';
 
-export type SidebarSectionId = 'destinations' | 'bookmarks' | 'variables' | 'secrets' | 'schema';
+export type SidebarSectionId = 'destinations' | 'bookmarks' | 'variables' | 'vault' | 'schema';
 
 const DEFAULT_OPEN: Record<SidebarSectionId, boolean> = {
   destinations: true,
   bookmarks: true,
   variables: true,
-  secrets: true,
+  vault: true,
   schema: true,
 };
 
@@ -19,7 +19,7 @@ const DEFAULT_HEIGHTS: Record<SidebarSectionId, number> = {
   destinations: 140,
   bookmarks: 120,
   variables: 140,
-  secrets: 160,
+  vault: 160,
   schema: 220,
 };
 
@@ -35,7 +35,8 @@ function loadOpen(): Record<SidebarSectionId, boolean> {
       destinations: parsed.destinations ?? true,
       bookmarks: parsed.bookmarks ?? true,
       variables: parsed.variables ?? true,
-      secrets: parsed.secrets ?? true,
+      // Prefer `vault`; accept legacy `secrets` key from older localStorage.
+      vault: parsed.vault ?? (parsed as { secrets?: boolean }).secrets ?? true,
       schema: parsed.schema ?? true,
     };
   } catch {
@@ -56,7 +57,10 @@ function loadHeights(): Record<SidebarSectionId, number> {
       destinations: clamp(parsed.destinations, DEFAULT_HEIGHTS.destinations),
       bookmarks: clamp(parsed.bookmarks, DEFAULT_HEIGHTS.bookmarks),
       variables: clamp(parsed.variables, DEFAULT_HEIGHTS.variables),
-      secrets: clamp(parsed.secrets, DEFAULT_HEIGHTS.secrets),
+      vault: clamp(
+        parsed.vault ?? (parsed as { secrets?: number }).secrets,
+        DEFAULT_HEIGHTS.vault
+      ),
       schema: clamp(parsed.schema, DEFAULT_HEIGHTS.schema),
     };
   } catch {

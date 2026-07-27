@@ -69,6 +69,7 @@ export interface ForeignKeyInfo {
   name: string;
   columns: string[];
   referencedTable: string;
+  /** Parent key columns in constraint order. Always present after normalizeTableSchemas. */
   referencedColumns: string[];
 }
 
@@ -134,7 +135,18 @@ export interface DbTable {
 }
 
 export interface DbColumn { name: string; type: string; length?: number; scale?: number; nullable: boolean; defaultValue?: string; identity?: boolean; identityGeneration?: string; collation?: string; }
-export interface DbForeignKey { name: string; columns: string[]; referencedSchema: string; referencedTable: string; }
+export interface DbForeignKey {
+  name: string;
+  columns: string[];
+  referencedSchema: string;
+  referencedTable: string;
+  /**
+   * Parent key columns in constraint order (1:1 with `columns`).
+   * Optional for upgrade compat: older catalog loads / serialized shapes may omit it;
+   * `resolveFkReferencedColumns` / `normalizeTableSchemas` fill from the parent PK.
+   */
+  referencedColumns?: string[];
+}
 export interface DbPrimaryKey { name: string; constName: string; column: string; colSeq: number; }
 export interface DbUniqueConstraint { name: string; columns: string[]; }
 export interface DbIndex { name: string; uniqueRule: string; columns: string[]; constraint?: boolean; }

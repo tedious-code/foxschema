@@ -78,7 +78,11 @@ console.log(bar + '\n');
 
 // Always run SQL Editor suites first (self-seeding SQLite; no Docker required).
 const ALWAYS = [
-  { key: 'sql-editor', file: 'src/tests/sql-editor-smoke.test.ts src/tests/sql-editor-sqlite.test.ts', label: 'SQL Editor' },
+  {
+    key: 'sql-editor',
+    file: 'src/tests/sql-editor-smoke.test.ts src/tests/sql-editor-sqlite.test.ts src/tests/sql-editor-blueprint.test.ts',
+    label: 'SQL Editor',
+  },
 ];
 
 for (const suite of ALWAYS) {

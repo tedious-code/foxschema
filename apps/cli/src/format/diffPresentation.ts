@@ -78,7 +78,7 @@ export function describeIndex(i: IndexDiff): string {
 
 export function describeFk(f: ForeignKeyDiff): string {
   const side = f.target ?? f.source;
-  return side ? `(${side.columns.join(', ')}) → ${side.referencedTable}(${side.referencedColumns.join(', ')})` : '';
+  return side ? `(${side.columns.join(', ')}) → ${side.referencedTable}(${(side.referencedColumns ?? []).join(', ')})` : '';
 }
 
 export function describeTrigger(t: TriggerDiff): string {

@@ -695,3 +695,151 @@ describe('SqlGeneratorModule materialized views (MQT)', () => {
     expect(stmts).toEqual(['DROP MATERIALIZED VIEW IF EXISTS mv_test;']);
   });
 });
+
+describe('SqlGeneratorModule FK dependency order (Kahn)', () => {
+  it('creates parent before child when child has FK to parent', () => {
+    const parent = tableSchema({
+      name: 'parent',
+      columns: [{ name: 'id', type: 'INTEGER', nullable: false, primaryKey: true }],
+    });
+    const child = tableSchema({
+      name: 'child',
+      columns: [{ name: 'parent_id', type: 'INTEGER', nullable: true, primaryKey: false }],
+      foreignKeys: [
+        {
+          name: 'fk_child',
+          columns: ['parent_id'],
+          referencedTable: 'parent',
+          referencedColumns: ['id'],
+        },
+      ],
+    });
+    const diffs: TableDiff[] = [
+      {
+        tableName: 'CHILD',
+        objectType: 'TABLE',
+        status: 'ADDED',
+        columnDiffs: [],
+        indexDiffs: [],
+        foreignKeyDiffs: [],
+        sourceTable: child,
+      },
+      {
+        tableName: 'PARENT',
+        objectType: 'TABLE',
+        status: 'ADDED',
+        columnDiffs: [],
+        indexDiffs: [],
+        foreignKeyDiffs: [],
+        sourceTable: parent,
+      },
+    ];
+    const names = gen.generateMigrationPlan(diffs, 'postgres').map((s) => s.objectName);
+    expect(names.indexOf('PARENT')).toBeLessThan(names.indexOf('CHILD'));
+  });
+
+  it('emits review comment when FK cycle remains', () => {
+    const a = tableSchema({
+      name: 'a',
+      columns: [{ name: 'b_id', type: 'INTEGER', nullable: true, primaryKey: false }],
+      foreignKeys: [
+        { name: 'fk_a_b', columns: ['b_id'], referencedTable: 'b', referencedColumns: ['id'] },
+      ],
+    });
+    const b = tableSchema({
+      name: 'b',
+      columns: [
+        { name: 'id', type: 'INTEGER', nullable: false, primaryKey: true },
+        { name: 'a_id', type: 'INTEGER', nullable: true, primaryKey: false },
+      ],
+      foreignKeys: [
+        { name: 'fk_b_a', columns: ['a_id'], referencedTable: 'a', referencedColumns: ['b_id'] },
+      ],
+    });
+    const diffs: TableDiff[] = [
+      {
+        tableName: 'A',
+        objectType: 'TABLE',
+        status: 'ADDED',
+        columnDiffs: [],
+        indexDiffs: [],
+        foreignKeyDiffs: [],
+        sourceTable: a,
+      },
+      {
+        tableName: 'B',
+        objectType: 'TABLE',
+        status: 'ADDED',
+        columnDiffs: [],
+        indexDiffs: [],
+        foreignKeyDiffs: [],
+        sourceTable: b,
+      },
+    ];
+    const stmts = gen.generateMigrationPlan(diffs, 'postgres').flatMap((s) => s.statements);
+    expect(stmts.some((s) => s.includes('-- review: FK cycle'))).toBe(true);
+  });
+});
+
+describe('SqlGeneratorModule foreign key hardening', () => {
+  it('emits review comment instead of REFERENCES t () when referencedColumns empty', () => {
+    const ddl = gen.generateObjectDdl(
+      tableSchema({
+        name: 'child',
+        columns: [{ name: 'parent_id', type: 'INTEGER', nullable: true, primaryKey: false }],
+        foreignKeys: [
+          {
+            name: 'fk_child_parent',
+            columns: ['parent_id'],
+            referencedTable: 'parent',
+            referencedColumns: [],
+          },
+        ],
+      })
+    );
+    expect(ddl).toContain('-- review: skip FK fk_child_parent');
+    expect(ddl).not.toContain('REFERENCES parent ()');
+  });
+
+  it('emits review comment when referencedColumns length mismatches columns', () => {
+    const ddl = gen.generateObjectDdl(
+      tableSchema({
+        name: 'child',
+        columns: [
+          { name: 'a', type: 'INTEGER', nullable: true, primaryKey: false },
+          { name: 'b', type: 'INTEGER', nullable: true, primaryKey: false },
+        ],
+        foreignKeys: [
+          {
+            name: 'fk_bad',
+            columns: ['a', 'b'],
+            referencedTable: 'parent',
+            referencedColumns: ['id'],
+          },
+        ],
+      })
+    );
+    expect(ddl).toContain('-- review: skip FK fk_bad');
+    expect(ddl).not.toMatch(/REFERENCES parent \(/);
+  });
+
+  it('emits valid ADD FK when columns and referencedColumns align', () => {
+    const ddl = gen.generateObjectDdl(
+      tableSchema({
+        name: 'child',
+        columns: [{ name: 'parent_id', type: 'INTEGER', nullable: true, primaryKey: false }],
+        foreignKeys: [
+          {
+            name: 'fk_ok',
+            columns: ['parent_id'],
+            referencedTable: 'parent',
+            referencedColumns: ['id'],
+          },
+        ],
+      })
+    );
+    expect(ddl).toContain(
+      'ALTER TABLE child ADD CONSTRAINT fk_ok FOREIGN KEY (parent_id) REFERENCES parent (id);'
+    );
+  });
+});

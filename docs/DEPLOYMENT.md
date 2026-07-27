@@ -81,6 +81,7 @@ docker compose -f docker-compose.app.yml up -d
 | `APP_KEY_SCHEME` | `v1` | `v1` = key used directly. `v2` = key bound to `APP_USER_EMAIL` (anti-copy); leave `v1` for stateless servers. |
 | `LOCAL_SINGLE_USER` | `true` | `true` = no login (open, single user). `false` = real accounts. |
 | `AUTH_REQUIRED` | `false` | `true` = every request needs a session. Pair with `LOCAL_SINGLE_USER=false`. |
+| `ALLOW_HOST_CLOUD_CREDENTIALS` | off | When `true`, cloud secret resolve may use the host IAM/ADC chain without saved user credentials. **Keep off** on multi-user hosts. |
 | `SSO_*` | — | OAuth for Google / Microsoft / GitHub (see below). |
 | `NODE_ENV` | `production` | Set in the image; enforces that `APP_ENCRYPTION_KEY` is present. |
 
@@ -159,6 +160,13 @@ SSO_MICROSOFT_TENANT=common
 ```
 
 Set each provider's OAuth redirect/callback to `${SSO_REDIRECT_BASE}/api/auth/sso/<provider>/callback`.
+
+**App Secrets / cloud credentials on multi-user hosts:** with `LOCAL_SINGLE_USER=false`,
+resolving AWS/GCP/Azure secrets requires a saved credential under **Credentials → Cloud
+providers** for that user. Host instance profiles / ADC are **not** used unless you
+explicitly set `ALLOW_HOST_CLOUD_CREDENTIALS=true` (not recommended on shared servers).
+Azure `vaultUrl` values must be HTTPS `*.vault.azure.net` (or known sovereign-cloud vault
+hostnames).
 
 **Always terminate TLS** (via your reverse proxy or platform) for any internet-facing
 deployment — Fox Schema handles database credentials.

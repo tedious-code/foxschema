@@ -8,6 +8,8 @@ export interface SchemaCacheEntry {
   error?: string;
   /** Object types requested for this cache entry (re-fetch when scope changes). */
   scope?: string[];
+  /** Wall-clock ms when this entry became ready (TTL / LRU). */
+  loadedAt?: number;
 }
 
 export interface CompletionSchemaSource {

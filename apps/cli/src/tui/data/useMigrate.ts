@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { MigrationEvent, MigrationStep, TableDiff } from '@foxschema/core';
+import { normalizeTableSchemas, type MigrationEvent, type MigrationStep, type TableDiff } from '@foxschema/core';
 import { connectionModule, migrationModule, sqlGenerator } from '../../runtime/engine';
 import { getContext } from '../../runtime/store';
 import { friendlyError } from '../../format/friendlyError';
@@ -95,7 +95,7 @@ export function useMigrate(
       try {
         const provider = connectionModule.getProvider(target.dialect);
         if (provider.getTables) {
-          const objs = await provider.getTables(target.option, target.schema);
+          const objs = normalizeTableSchemas(await provider.getTables(target.option, target.schema));
           snapshotDdl = `-- Target snapshot (pre-migration) · ${new Date().toISOString()}\n\n` + objs.map((o) => sqlGenerator.generateObjectDdl(o)).join('\n');
         }
         await migrationModule.execute(target.dialect, target.option, target.schema, steps, send, { continueOnError });

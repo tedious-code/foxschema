@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { getStore } from '../database/store';
 import { encryptSecret, decryptSecret } from '../cores/crypto';
 import {
+  assertAzureVaultUrl,
   parseCloudRef,
   resolveCloudSecret,
   serializeCloudRef,
@@ -99,11 +100,14 @@ export class AppSecretsStore {
       if (input.source === 'azure' && !input.cloudRef.vaultUrl?.trim()) {
         throw new Error('Azure secrets require cloudRef.vaultUrl');
       }
+      if (input.source === 'azure' && input.cloudRef.vaultUrl) {
+        assertAzureVaultUrl(input.cloudRef.vaultUrl.trim());
+      }
       cloudRefJson = serializeCloudRef({
         secretId: input.cloudRef.secretId.trim(),
         credentialId: input.cloudRef.credentialId,
         region: input.cloudRef.region,
-        vaultUrl: input.cloudRef.vaultUrl,
+        vaultUrl: input.cloudRef.vaultUrl?.trim(),
         version: input.cloudRef.version,
       });
     }
@@ -154,7 +158,7 @@ export class AppSecretsStore {
     }
 
     let encryptedValue = existing.encrypted_value;
-    let cloudRefJson = existing.cloud_ref;
+    let cloudRefJson: string | null;
 
     if (nextSource === 'local') {
       cloudRefJson = null;
@@ -177,6 +181,10 @@ export class AppSecretsStore {
       if (!merged.secretId) throw new Error('Cloud secrets require cloudRef.secretId');
       if (nextSource === 'azure' && !merged.vaultUrl?.trim()) {
         throw new Error('Azure secrets require cloudRef.vaultUrl');
+      }
+      if (nextSource === 'azure' && merged.vaultUrl) {
+        assertAzureVaultUrl(merged.vaultUrl.trim());
+        merged.vaultUrl = merged.vaultUrl.trim();
       }
       cloudRefJson = serializeCloudRef(merged);
     }

@@ -27,8 +27,13 @@ interface RsColumnRaw {
 }
 interface RsPkRaw { table_name: string; constraint_name: string; column_name: string; ordinal_position: number; }
 interface RsFkRaw {
-  table_name: string; constraint_name: string; column_name: string;
-  ref_schema: string; ref_table: string; ordinal_position: number;
+  table_name: string;
+  constraint_name: string;
+  column_name: string;
+  ref_schema: string;
+  ref_table: string;
+  ref_column_name: string;
+  ordinal_position: number;
 }
 interface RsViewRaw { view_name: string; definition: string | null; }
 interface RsRoutineRaw { name: string; kind: string; definition: string | null; specific_name: string; }
@@ -104,16 +109,23 @@ export class RedshiftProvider implements SchemaProvider {
         [schemaName]
       ),
       exec<RsFkRaw>(
-        `SELECT tc.table_name, tc.constraint_name, kcu.column_name,
+        `SELECT kcu.table_name, tc.constraint_name, kcu.column_name,
                 ccu.table_schema AS ref_schema, ccu.table_name AS ref_table,
+                ccu.column_name AS ref_column_name,
                 kcu.ordinal_position
          FROM information_schema.table_constraints tc
          JOIN information_schema.key_column_usage kcu
-           ON tc.constraint_name = kcu.constraint_name AND tc.constraint_schema = kcu.constraint_schema
-         JOIN information_schema.constraint_column_usage ccu
-           ON ccu.constraint_name = tc.constraint_name AND ccu.constraint_schema = tc.constraint_schema
+           ON tc.constraint_name = kcu.constraint_name
+          AND tc.constraint_schema = kcu.constraint_schema
+         JOIN information_schema.referential_constraints rc
+           ON tc.constraint_name = rc.constraint_name
+          AND tc.constraint_schema = rc.constraint_schema
+         JOIN information_schema.key_column_usage ccu
+           ON rc.unique_constraint_name = ccu.constraint_name
+          AND rc.unique_constraint_schema = ccu.constraint_schema
+          AND kcu.position_in_unique_constraint = ccu.ordinal_position
          WHERE tc.constraint_schema = $1 AND tc.constraint_type = 'FOREIGN KEY'
-         ORDER BY tc.table_name, kcu.ordinal_position`,
+         ORDER BY kcu.table_name, tc.constraint_name, kcu.ordinal_position`,
         [schemaName]
       ),
       exec<RsViewRaw>(
@@ -188,15 +200,32 @@ export class RedshiftProvider implements SchemaProvider {
     }
 
     // Foreign keys (group by constraint name)
-    const fkGroups = new Map<string, { name: string; table: string; cols: string[]; rSchema: string; rTable: string }>();
+    const fkGroups = new Map<
+      string,
+      { name: string; table: string; cols: string[]; refCols: string[]; rSchema: string; rTable: string }
+    >();
     for (const r of rawFks) {
       const id = `${r.table_name}.${r.constraint_name}`;
-      const g = fkGroups.get(id) ?? { name: r.constraint_name, table: r.table_name, cols: [], rSchema: r.ref_schema, rTable: r.ref_table };
+      const g = fkGroups.get(id) ?? {
+        name: r.constraint_name,
+        table: r.table_name,
+        cols: [],
+        refCols: [],
+        rSchema: r.ref_schema,
+        rTable: r.ref_table,
+      };
       g.cols.push(r.column_name);
+      g.refCols.push(r.ref_column_name);
       fkGroups.set(id, g);
     }
     for (const [, info] of fkGroups) {
-      const fk: DbForeignKey = { name: info.name, columns: info.cols, referencedSchema: info.rSchema, referencedTable: info.rTable };
+      const fk: DbForeignKey = {
+        name: info.name,
+        columns: info.cols,
+        referencedSchema: info.rSchema,
+        referencedTable: info.rTable,
+        referencedColumns: info.refCols,
+      };
       if (tables[info.table]) tables[info.table].foreignKeys.push(fk);
       (foreignKeys[info.table] ??= []).push(fk);
     }

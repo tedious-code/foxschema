@@ -20,24 +20,102 @@ export interface ConnectionRef {
   password?: string;
 }
 
+const CACHE_MAX_ENTRIES = 64;
+
 // --- Idempotency layer -----------------------------------------------------
 // Collapses duplicate work so the UI (which re-checks drivers/schemas on many
 // state changes) doesn't hammer the backend: concurrent identical requests
 // share one promise, and idempotent reads are cached for a short TTL.
 const inflight = new Map<string, Promise<unknown>>();
-const cache = new Map<string, { at: number; value: unknown }>();
+const cache = new Map<string, { at: number; value: unknown; ttlMs: number }>();
+
+/**
+ * Non-secret fingerprint for cache partitioning (djb2). Distinguishes different
+ * session passwords / connection strings without embedding their plaintext.
+ */
+export function nonSecretFingerprint(value: string): string {
+  let h = 5381;
+  for (let i = 0; i < value.length; i++) {
+    h = ((h << 5) + h) ^ value.charCodeAt(i);
+  }
+  // Unsigned 32-bit hex — short, stable, never the original secret.
+  return (h >>> 0).toString(16);
+}
+
+/** Strip userinfo from a URI-like connection string before fingerprinting. */
+function connectionStringFingerprint(connectionString: string | undefined): string {
+  const raw = connectionString?.trim() ?? '';
+  if (!raw) return '0';
+  // `scheme://user:pass@host/...` → drop credentials; bare paths (sqlite) stay.
+  const scrubbed = raw.replace(/\/\/([^/@]+)@/g, '//');
+  return nonSecretFingerprint(scrubbed);
+}
+
+/**
+ * Stable cache key that never embeds password or connectionString plaintext.
+ * Includes schema and a password fingerprint so different schemas / session
+ * passwords do not share inflight or TTL cache entries.
+ */
+export function cacheKeyForRef(ref: ConnectionRef): string {
+  const schema = ref.schema ?? ref.option?.schema ?? '';
+  const pwFp = nonSecretFingerprint(ref.password ?? ref.option?.password ?? '');
+  const o = ref.option;
+  if (ref.connectionId) {
+    return `id:${ref.connectionId}|schema:${schema}|pw:${pwFp}`;
+  }
+  return [
+    ref.dialect ?? '',
+    o?.host ?? '',
+    o?.port ?? '',
+    o?.database ?? '',
+    schema,
+    o?.username ?? '',
+    `cs:${connectionStringFingerprint(o?.connectionString)}`,
+    `pw:${pwFp}`,
+  ].join('|');
+}
+
+function pruneCache(now = Date.now()): void {
+  for (const [key, hit] of cache) {
+    if (hit.ttlMs > 0 && now - hit.at >= hit.ttlMs) cache.delete(key);
+  }
+  while (cache.size > CACHE_MAX_ENTRIES) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
+}
+
+function cacheGet(key: string, ttlMs: number): unknown | undefined {
+  if (ttlMs <= 0) return undefined;
+  const hit = cache.get(key);
+  if (!hit) return undefined;
+  if (Date.now() - hit.at >= ttlMs) {
+    cache.delete(key);
+    return undefined;
+  }
+  // Refresh LRU order
+  cache.delete(key);
+  cache.set(key, hit);
+  return hit.value;
+}
+
+function cacheSet(key: string, value: unknown, ttlMs: number): void {
+  if (ttlMs <= 0) return;
+  cache.delete(key);
+  cache.set(key, { at: Date.now(), value, ttlMs });
+  pruneCache();
+}
 
 function idempotent<T>(key: string, run: () => Promise<T>, ttlMs = 0): Promise<T> {
-  if (ttlMs > 0) {
-    const hit = cache.get(key);
-    if (hit && Date.now() - hit.at < ttlMs) return Promise.resolve(hit.value as T);
-  }
+  const cached = cacheGet(key, ttlMs);
+  if (cached !== undefined) return Promise.resolve(cached as T);
   const pending = inflight.get(key);
   if (pending) return pending as Promise<T>;
 
   const promise = run()
     .then((value) => {
-      if (ttlMs > 0) cache.set(key, { at: Date.now(), value });
+      cacheSet(key, value, ttlMs);
       return value;
     })
     .finally(() => inflight.delete(key));
@@ -64,7 +142,7 @@ export async function compareSchemas(
   scope: DbObjectType[]
 ): Promise<SchemaCompareResult> {
   // De-dupe concurrent identical compares (e.g. double-click); never cached
-  const key = `compare:${JSON.stringify({ source, target, scope })}`;
+  const key = `compare:${cacheKeyForRef(source)}:${cacheKeyForRef(target)}:${scope.join(',')}`;
   return idempotent(key, async () =>
     parseJsonResponse<SchemaCompareResult>(
       await fetch(`${getApiBase()}/compare`, {
@@ -83,7 +161,7 @@ export async function loadSchema(
   scope: DbObjectType[]
 ): Promise<{ tables: TableSchema[]; warnings?: string[] }> {
   // De-dupe concurrent identical loads (e.g. double-click); never cached
-  const key = `load:${JSON.stringify({ ref, scope })}`;
+  const key = `load:${cacheKeyForRef(ref)}:${scope.join(',')}`;
   return idempotent(key, async () =>
     parseJsonResponse<{ tables: TableSchema[]; warnings?: string[] }>(
       await fetch(`${getApiBase()}/schema/load`, {
@@ -141,7 +219,7 @@ export async function testConnection(ref: ConnectionRef): Promise<{ version?: st
 export async function fetchSchemaList(ref: ConnectionRef): Promise<string[]> {
   // Short cache: schema lists are stable within a session; dedupes the
   // back-to-back loads triggered by connect + compare-refresh
-  const key = `schemas:${ref.connectionId ?? `${ref.dialect}:${ref.option?.connectionString ?? `${ref.option?.host}/${ref.option?.database}`}`}`;
+  const key = `schemas:${cacheKeyForRef(ref)}`;
   return idempotent(
     key,
     async () => {

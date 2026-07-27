@@ -146,6 +146,7 @@ export class DuckDbProvider implements SchemaProvider {
           columns: cols,
           referencedSchema: '',
           referencedTable: c.referenced_table ?? '',
+          referencedColumns: listItems(c.referenced_column_names),
         };
         t.foreignKeys.push(fk);
         (foreignKeys[c.table_name] ??= []).push(fk);

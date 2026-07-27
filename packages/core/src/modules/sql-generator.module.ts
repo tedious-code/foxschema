@@ -46,6 +46,9 @@ const PROCEDURAL_TYPES: ReadonlySet<DbObjectType> = new Set(['VIEW', 'FUNCTION',
 const ROUTINE_TYPES: ReadonlySet<DbObjectType> = new Set(['FUNCTION', 'PROCEDURE']);
 
 export class SqlGeneratorModule {
+  /** Table keys left in an FK cycle after Kahn sort (uppercase bare names). */
+  private fkCycleKeys = new Set<string>();
+
   /**
    * Source catalog definitions qualify names with the source schema (HUY.GPX_FILE);
    * deploying into a different schema requires rewriting those qualifiers.
@@ -226,6 +229,32 @@ export class SqlGeneratorModule {
     return `CREATE${uniqueStr} INDEX ${idx.name} ON ${qualifiedTable} (${idx.columns.join(', ')});`;
   }
 
+  /**
+   * Emit ADD FOREIGN KEY DDL, or a `-- review:` comment when referenced columns
+   * are missing / length-mismatched (avoids `REFERENCES t ()`).
+   */
+  private addForeignKeySql(
+    qualifiedTable: string,
+    constraintName: string,
+    columns: string[],
+    referencedTable: string,
+    referencedColumns: string[] | undefined,
+    multiline = false
+  ): string {
+    const refCols = referencedColumns ?? [];
+    const label = constraintName || '(unnamed)';
+    if (columns.length === 0 || refCols.length !== columns.length) {
+      return `-- review: skip FK ${label} — referenced columns missing or length mismatch`;
+    }
+    const fkBody = multiline
+      ? `FOREIGN KEY (${columns.join(', ')}) REFERENCES ${referencedTable} (${refCols.join(', ')})`
+      : `FOREIGN KEY (${columns.join(', ')}) REFERENCES ${referencedTable} (${refCols.join(', ')})`;
+    if (multiline) {
+      return `ALTER TABLE ${qualifiedTable} ADD CONSTRAINT ${constraintName} \n  ${fkBody};`;
+    }
+    return `ALTER TABLE ${qualifiedTable} ADD CONSTRAINT ${constraintName} ${fkBody};`;
+  }
+
   private renderCreateSequence(table: TableSchema, dialect?: SqlDialect): string {
     const s = table.sequence ?? {};
     const name = table.name;
@@ -269,7 +298,14 @@ export class SqlGeneratorModule {
     }
 
     for (const fk of table.foreignKeys) {
-      sql += `ALTER TABLE ${table.name} ADD CONSTRAINT ${fk.name} FOREIGN KEY (${fk.columns.join(', ')}) REFERENCES ${fk.referencedTable} (${fk.referencedColumns.join(', ')});\n`;
+      sql +=
+        this.addForeignKeySql(
+          table.name,
+          fk.name,
+          fk.columns,
+          fk.referencedTable,
+          fk.referencedColumns
+        ) + `\n`;
     }
 
     for (const trg of table.triggers ?? []) {
@@ -326,6 +362,16 @@ export class SqlGeneratorModule {
 
     if ((obj.objectType === 'TABLE' || obj.objectType === 'MQT') && source) {
       const typeWarnings: string[] = [];
+      const cycleKey = (source.name ?? obj.tableName)
+        .replace(/^"?[^".]+"?\./, '')
+        .replace(/"/g, '')
+        .toUpperCase();
+      if (this.fkCycleKeys.has(cycleKey)) {
+        const cycleList = [...this.fkCycleKeys].sort().join(', ');
+        statements.push(
+          `-- review: FK cycle involving ${cycleList} — create order may fail; break the cycle manually`
+        );
+      }
       // Postgres matviews (definition captured + dialect hook available) render as a
       // true CREATE MATERIALIZED VIEW; DB2 MQTs and any other MQT without a captured
       // backing query fall back to the plain CREATE TABLE shape used before this hook
@@ -363,7 +409,14 @@ export class SqlGeneratorModule {
 
       for (const fk of source.foreignKeys) {
         statements.push(
-          `ALTER TABLE ${name} ADD CONSTRAINT ${this.bareName(fk.name)} \n  FOREIGN KEY (${fk.columns.join(', ')}) REFERENCES ${this.qualify(fk.referencedTable, mapping)} (${fk.referencedColumns.join(', ')});`
+          this.addForeignKeySql(
+            name,
+            this.bareName(fk.name),
+            fk.columns,
+            this.qualify(fk.referencedTable, mapping),
+            fk.referencedColumns,
+            true
+          )
         );
       }
 
@@ -539,7 +592,13 @@ export class SqlGeneratorModule {
         const info = fk.source;
         if (!info) continue;
         statements.push(
-          `ALTER TABLE ${tableName} ADD CONSTRAINT ${this.bareName(fk.name)} FOREIGN KEY (${info.columns.join(', ')}) REFERENCES ${this.qualify(info.referencedTable, mapping)} (${info.referencedColumns.join(', ')});`
+          this.addForeignKeySql(
+            tableName,
+            this.bareName(fk.name),
+            info.columns,
+            this.qualify(info.referencedTable, mapping),
+            info.referencedColumns
+          )
         );
       }
 
@@ -645,32 +704,67 @@ export class SqlGeneratorModule {
   /**
    * Sort newly-added TABLE objects in FK dependency order so referenced tables are
    * always created before the tables that reference them. Non-TABLE objects (views,
-   * procedures, etc.) are appended after all tables. Cycles are broken arbitrarily.
+   * procedures, etc.) are appended after all tables.
+   *
+   * Uses Kahn's algorithm; if a cycle remains, those tables are appended with a
+   * `-- review:` notice on the first table in the residual set.
    */
   private sortAddedByDependency(added: TableDiff[]): TableDiff[] {
     const tables = added.filter((o) => o.objectType === 'TABLE');
     const others = added.filter((o) => o.objectType !== 'TABLE');
+    if (tables.length === 0) return [...others];
+
+    const bare = (name: string) =>
+      name.replace(/^"?[^".]+"?\./, '').replace(/"/g, '').toUpperCase();
 
     const byKey = new Map<string, TableDiff>(
-      tables.map((t) => [t.tableName.toUpperCase(), t])
+      tables.map((t) => [bare(t.tableName), t])
     );
-    const visited = new Set<string>();
-    const result: TableDiff[] = [];
-
-    const visit = (obj: TableDiff) => {
-      const key = obj.tableName.toUpperCase();
-      if (visited.has(key)) return;
-      visited.add(key);
+    // Edge: child → parent (child depends on parent). Indegree counts parents
+    // that must be created first for each child... Kahn wants indegree = number
+    // of unmet prerequisites, so we model edges parent→child (parent before child).
+    const indegree = new Map<string, number>();
+    const dependents = new Map<string, string[]>(); // parent → children
+    for (const key of byKey.keys()) {
+      indegree.set(key, 0);
+      dependents.set(key, []);
+    }
+    for (const obj of tables) {
+      const child = bare(obj.tableName);
       for (const fk of obj.sourceTable?.foreignKeys ?? []) {
-        // Strip schema prefix and quotes so "appdb.orders" and "orders" both match.
-        const refKey = fk.referencedTable.replace(/^"?[^".]+"?\./, '').replace(/"/g, '').toUpperCase();
-        const dep = byKey.get(refKey);
-        if (dep) visit(dep);
+        const parent = bare(fk.referencedTable);
+        if (!byKey.has(parent) || parent === child) continue;
+        dependents.get(parent)!.push(child);
+        indegree.set(child, (indegree.get(child) ?? 0) + 1);
       }
-      result.push(obj);
-    };
+    }
 
-    for (const t of tables) visit(t);
+    const queue: string[] = [];
+    for (const [key, deg] of indegree) {
+      if (deg === 0) queue.push(key);
+    }
+    queue.sort(); // stable-ish for tests
+
+    const result: TableDiff[] = [];
+    const placed = new Set<string>();
+    while (queue.length > 0) {
+      const key = queue.shift()!;
+      if (placed.has(key)) continue;
+      placed.add(key);
+      const obj = byKey.get(key);
+      if (obj) result.push(obj);
+      for (const child of dependents.get(key) ?? []) {
+        const next = (indegree.get(child) ?? 1) - 1;
+        indegree.set(child, next);
+        if (next === 0) queue.push(child);
+      }
+    }
+
+    // Residual cycle — append remaining tables; createObjectStatements emits review.
+    const residual = tables.filter((t) => !placed.has(bare(t.tableName)));
+    this.fkCycleKeys = new Set(residual.map((t) => bare(t.tableName)));
+    result.push(...residual);
+
     return [...result, ...others];
   }
 
