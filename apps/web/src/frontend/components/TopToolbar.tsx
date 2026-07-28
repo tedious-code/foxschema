@@ -4,8 +4,11 @@ import { useSyncStore } from '../store/useSyncStore';
 import { useUiStore } from '../store/uiStore';
 import { ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, CheckCircle2, Zap, Settings, KeyRound, History, Search, X, Layers, GitCompareArrows, Terminal } from 'lucide-react';
 import { Brand } from './Brand';
-import ProfileMenu from './ProfileMenu';
+// Support both default and named exports (avoids blank-page Vite/HMR mismatches).
+import ProfileMenuDefault, { ProfileMenu as ProfileMenuNamed } from './ProfileMenu';
 import { CredentialManager } from './CredentialManager';
+
+const ProfileMenu = ProfileMenuNamed ?? ProfileMenuDefault;
 import { MigrationHistory } from './MigrationHistory';
 import { TYPE_META, TYPE_ORDER } from './SchemaTreePanel';
 import type { DbObjectType } from '../lib/types';
