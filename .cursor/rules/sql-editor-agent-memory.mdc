@@ -60,6 +60,7 @@ FoxSchema = schema diff/migration + SQL Editor. Destinations checklist, Schema e
 - VIEW/PROCEDURE/FUNCTION → `objectSourceScript` into editor (view-only).
 - DataGrid light paper tokens (`--fox-grid-*`).
 - Vite: `host: true`, `strictPort: true`, `allowedHosts: true`; `index.html` dark inline shell.
+- **JS cell highlighting**: `ensureFoxschemaSqlLanguage` must use a **module-local** ready flag — writing `__foxschemaSqlLanguageRegistered` onto the Monaco ESM namespace throws (`Cannot assign to property … of [object Module]`), which aborted the upgrade to `foxschema-sql` and left plain SQL colors (no JS keyword colors).
 
 ## Gotchas
 - Prefer **Node 24** (`AGENTS.md`). After switching Node, `npm rebuild better-sqlite3`.
