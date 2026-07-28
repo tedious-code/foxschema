@@ -28,6 +28,9 @@ Standard commands live in `CONTRIBUTING.md` and `package.json` scripts (`npm run
 - `npm run dev` runs the Express API (`:3001`) and Vite UI (`:5173`) together; open the
   UI at http://localhost:5173. API liveness: `GET http://localhost:3001/api/health`
   → `{"ok":true}`. Default mode is single-user (no login).
+- Vite is configured with `server.host: true` and `server.allowedHosts: true` so
+  `http://127.0.0.1:5173` works (not only IPv6 localhost) and Cursor/cloud
+  port-forward Host headers are not rejected with 403 (which looks like a blank page).
 - Vite prints a "Failed to run dependency scan … monaco-editor/esm/…" warning on startup.
   It is **non-fatal** — Monaco is installed and the SQL editor works; ignore it.
 
