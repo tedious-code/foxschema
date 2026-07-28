@@ -1,0 +1,35 @@
+---
+description: Session memory for SQL Editor work on agent branch (PR #117)
+alwaysApply: true
+---
+
+# SQL Editor agent memory (PR #117)
+
+Branch: `cursor/cloud-agent-1785109452769-k0unh` · Base: `main` · PR: https://github.com/tedious-code/foxschema/pull/117
+
+## Product context
+FoxSchema = schema diff/migration tool. SQL Editor has Destination servers checklist, Schema explorer, Monaco editor, code cells (`-- @js` / `-- @ts` / `-- @node` / `-- @nodets`), and table blueprint (Indexes between PK and FKs).
+
+## Shipped on this branch (recent)
+- **Indexes** in table blueprint (add/edit/drop, ASC/DESC, unique, WHERE) + e2e
+- **Persist selected connections** across refresh (`schema-sync-storage` v5 IDs only; wait for rehydrate)
+- **DB2 Windows login**: `Authentication=SERVER`, ODBC brace-escape, GSKit PATH strip
+- **New table / Edit table** always visible (not hover-only)
+- **DataGrid light mode**: white paper, stronger borders, zebra (`--fox-grid-bg-stripe`)
+- **Schema ↔ Destination sync**: Schema dropdown `ensureConnectionSelected`; Dest changes move explorer onto a checked credential
+- **Run empty editor**: allowed when destinations checked (0 statement results)
+- **Run code cells with 0 destinations**: `canExecuteWithoutDestination` + `LOCAL_CODE_RUN_TARGET` (`__local__` / Local [editor]); SQL still needs a destination
+
+## Review findings (2026-07-28)
+
+### Bugbot (fix)
+1. **Schema sync vs password prompt (medium)** — `SqlSchemaExplorer.tsx`: selecting a passwordless credential while other dests are checked can reset `explorerId` to `preferredIds[0]` before password completes; explorer stays on old connection.
+2. **Stale explorer id when connections empty (medium)** — same file: `connections.length === 0` early-return never clears persisted `explorerId` after all credentials deleted; Create table can open against a missing id. Distinguish loading (`!connectionsLoaded`) from truly empty.
+
+### Security
+No medium+ issues. Local code-cell path does not send `__local__` to `/sql/execute`; auth still via `userId` + `resolveRef`. Passwords stay session-only.
+
+## Gotchas
+- Agent branch binding: keep work on `cursor/cloud-agent-1785109452769-k0unh` so the user’s live UI matches the PR tip; stale Vite tabs need hard refresh.
+- Do not commit `foxflow.sqlite*` or `apps/e2e/.env`.
+- Prefer Node 24 (see root `AGENTS.md`).
