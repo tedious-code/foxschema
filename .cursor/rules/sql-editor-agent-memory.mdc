@@ -19,6 +19,7 @@ FoxSchema = schema diff/migration tool. SQL Editor has Destination servers check
 - **Schema ↔ Destination sync**: Schema dropdown `ensureConnectionSelected`; Dest changes move explorer onto a checked credential
 - **Run empty editor**: allowed when destinations checked (0 statement results)
 - **Run code cells with 0 destinations**: `canExecuteWithoutDestination` + `LOCAL_CODE_RUN_TARGET` (`__local__` / Local [editor]); SQL still needs a destination
+- **View / Procedure / Function source**: click name or **View source** opens definition into the editor via `setSql` (`objectSourceScript.ts`). No edit form this version. TABLE/MQT keep blueprint.
 
 ## Review findings (2026-07-28)
 
