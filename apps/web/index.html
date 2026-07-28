@@ -7,7 +7,16 @@
     <title>Fox Schema</title>
   </head>
   <body>
-    <div id="app"></div>
+    <!-- Visible until React mounts. If this stays forever, JS failed to load. -->
+    <div id="app">
+      <div
+        id="boot-fallback"
+        style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:#020617;color:#94a3b8;font-family:system-ui,sans-serif;font-size:14px;margin:0"
+      >
+        <div style="font-weight:700;color:#e2e8f0;font-size:18px">Fox Schema</div>
+        <div>Loading…</div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -1,3 +1,4 @@
+import { detectCodeCell } from '../lib/codeCellRunner';
 import { splitSqlStatements } from '../lib/sql-splitter';
 import { reattachSetComments } from '../lib/sql-variables';
 
@@ -142,6 +143,27 @@ export function statementsFromSelection(selectedSql: string): string[] {
   return reattachSetComments(trimmed, all);
 }
 
+/**
+ * True when every statement is a JS/TS/Node code cell — no Destination server
+ * is required (cells run in the browser worker or on the FoxSchema Node host).
+ */
+export function canExecuteWithoutDestination(statements: string[]): boolean {
+  if (statements.length === 0) return false;
+  return statements.every((s) => detectCodeCell(s) != null);
+}
+
+/**
+ * Statements the Run button would send for the active tab (selection overrides strip).
+ */
+export function resolveRunStatements(
+  sql: string,
+  checkedStatements: number[],
+  selectedSql: string | null | undefined
+): string[] {
+  if (selectedSql?.trim()) return statementsFromSelection(selectedSql);
+  return statementsToRun(sql, checkedStatements);
+}
+
 export function toggleStatementCheck(checked: number[], index: number): number[] {
   return checked.includes(index) ? checked.filter((i) => i !== index) : [...checked, index].sort((a, b) => a - b);
 }
@@ -156,6 +178,21 @@ export function effectiveConnectionIds(
   sharedConnectionIds: string[]
 ): string[] {
   return shareDestinations ? sharedConnectionIds : tab.selectedConnectionIds;
+}
+
+/** Shared-vs-per-tab destination write used by toggle / ensure / password submit. */
+export function destinationIdsPatch(
+  shareDestinations: boolean,
+  tabs: SqlTab[],
+  activeTabId: string,
+  ids: string[]
+): { sharedConnectionIds: string[] } | { tabs: SqlTab[] } {
+  if (shareDestinations) return { sharedConnectionIds: ids };
+  return {
+    tabs: tabs.map((t) =>
+      t.id === activeTabId ? { ...t, selectedConnectionIds: ids } : t
+    ),
+  };
 }
 
 /** Persistable tab slice (no checkedStatements / statementCount / results). */

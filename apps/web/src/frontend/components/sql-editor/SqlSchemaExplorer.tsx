@@ -1,13 +1,19 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Columns3, Loader2, Plus, RefreshCw } from 'lucide-react';
+import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from 'react';
+import { ChevronDown, ChevronRight, Columns3, FileCode2, Loader2, Plus, RefreshCw } from 'lucide-react';
 import { useSyncStore } from '../../store/useSyncStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
-import { effectiveConnectionIds } from '../../store/sqlEditorTabLogic';
+import { getProviderSettings } from '../../lib/provider-settings';
 import { TYPE_META } from '../SchemaTreePanel';
 import { filterCallParameters, insertAtCursor } from './sqlEditorBridge';
 import type { DbObjectType, TableSchema } from '../../lib/types';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
 import { TableBlueprintModal, type BlueprintMode } from './TableBlueprintModal';
+import { isScriptableObject, objectSourceScript } from './objectSourceScript';
+
+/** Imperative API for the Schema section header (New table). */
+export interface SqlSchemaExplorerHandle {
+  openCreateTable: () => void;
+}
 
 /** Categories shown in the SQL Editor schema browser (order = display order). */
 const EXPLORER_GROUPS: { type: DbObjectType; title: string }[] = [
@@ -39,20 +45,39 @@ function writeStoredExplorerId(id: string): void {
 
 /**
  * Slim schema tree for the SQL Editor. Categorized TABLE / VIEW / MQT /
- * PROCEDURE / FUNCTION — click a name to insert at the Monaco cursor.
+ * PROCEDURE / FUNCTION.
+ *
+ * TABLE / MQT: click inserts the name; Edit table opens the blueprint.
+ * VIEW / PROCEDURE / FUNCTION: click opens the source script in the editor
+ * (view-only — no edit form in this version).
+ *
+ * The connection dropdown stays in sync with Destination servers: picking a
+ * schema credential checks it as a destination, and changing destinations
+ * moves the explorer onto a checked credential when needed.
  */
-export const SqlSchemaExplorer: React.FC = () => {
+export const SqlSchemaExplorer = forwardRef<SqlSchemaExplorerHandle>(function SqlSchemaExplorer(
+  _props,
+  ref
+) {
   const connections = useSyncStore((s) => s.connections);
+  const connectionsLoaded = useSyncStore((s) => s.connectionsLoaded);
   const tabs = useSqlEditorStore((s) => s.tabs);
   const activeTabId = useSqlEditorStore((s) => s.activeTabId);
   const schemaCache = useSqlEditorStore((s) => s.schemaCache);
   const ensureSchema = useSqlEditorStore((s) => s.ensureSchema);
   const shareDestinations = useSqlEditorStore((s) => s.shareDestinations);
   const sharedConnectionIds = useSqlEditorStore((s) => s.sharedConnectionIds);
+  const ensureConnectionSelected = useSqlEditorStore((s) => s.ensureConnectionSelected);
+  const pendingPasswordId = useSqlEditorStore((s) => s.pendingPassword?.id);
+  const setSql = useSqlEditorStore((s) => s.setSql);
 
   const tab = tabs.find((t) => t.id === activeTabId) ?? tabs[0]!;
-  const preferredIds = effectiveConnectionIds(tab, shareDestinations, sharedConnectionIds).filter(
-    (id) => connections.some((c) => c.id === id)
+  const selectedDestinationIds = shareDestinations
+    ? sharedConnectionIds
+    : tab.selectedConnectionIds;
+  const preferredIds = useMemo(
+    () => selectedDestinationIds.filter((id) => connections.some((c) => c.id === id)),
+    [selectedDestinationIds, connections]
   );
 
   const [explorerId, setExplorerId] = useState<string>(() => readStoredExplorerId());
@@ -70,23 +95,58 @@ export const SqlSchemaExplorer: React.FC = () => {
   const selectExplorerId = (id: string) => {
     setExplorerId(id);
     writeStoredExplorerId(id);
+    if (id) ensureConnectionSelected(id);
   };
 
+  const openCreateTable = () => {
+    setBlueprintMode('create');
+    setBlueprintTable(null);
+  };
+
+  useImperativeHandle(ref, () => ({ openCreateTable }), []);
+
   useEffect(() => {
-    if (explorerId && connections.some((c) => c.id === explorerId)) {
-      // Keep a valid selection in storage (e.g. after first hydrate).
+    if (!connectionsLoaded) return;
+
+    if (connections.length === 0) {
+      if (explorerId) {
+        setExplorerId('');
+        writeStoredExplorerId('');
+      }
+      return;
+    }
+
+    // Keep explorer on a password-pending credential until the prompt resolves.
+    if (pendingPasswordId && pendingPasswordId === explorerId) return;
+
+    if (explorerId && preferredIds.includes(explorerId)) {
       writeStoredExplorerId(explorerId);
       return;
     }
+
+    if (preferredIds.length > 0) {
+      const next = preferredIds[0]!;
+      if (next !== explorerId) {
+        setExplorerId(next);
+        writeStoredExplorerId(next);
+      }
+      return;
+    }
+
+    if (explorerId && connections.some((c) => c.id === explorerId)) {
+      writeStoredExplorerId(explorerId);
+      return;
+    }
+
     const stored = readStoredExplorerId();
     const next =
       (stored && connections.some((c) => c.id === stored) ? stored : '') ||
-      preferredIds[0] ||
       connections[0]?.id ||
       '';
     if (next !== explorerId) setExplorerId(next);
     if (next) writeStoredExplorerId(next);
-  }, [connections, preferredIds, explorerId]);
+    else writeStoredExplorerId('');
+  }, [connectionsLoaded, connections, preferredIds, explorerId, pendingPasswordId]);
 
   useEffect(() => {
     if (!explorerId) return;
@@ -114,10 +174,23 @@ export const SqlSchemaExplorer: React.FC = () => {
   );
 
   const conn = connections.find((c) => c.id === explorerId);
+  let schemaMissingHint: string | null = null;
+  if (conn) {
+    try {
+      const settings = getProviderSettings(conn.dialect);
+      if (settings.schemaRequired && !conn.schema?.trim()) {
+        schemaMissingHint = `${settings.label} needs a schema on the connection. Edit it under Credentials, pick a schema, then reload.`;
+      }
+    } catch {
+      /* unknown dialect */
+    }
+  }
 
   return (
     <div className="flex flex-col gap-2 min-h-0 flex-1" data-testid="sql-schema-explorer">
-      {connections.length === 0 ? (
+      {!connectionsLoaded ? (
+        <p className="text-xs font-medium text-slate-500">Loading connections…</p>
+      ) : connections.length === 0 ? (
         <p className="text-xs font-medium text-slate-500">Save a connection to browse its tables.</p>
       ) : (
         <>
@@ -127,6 +200,8 @@ export const SqlSchemaExplorer: React.FC = () => {
               onChange={(e) => selectExplorerId(e.target.value)}
               className="flex-1 min-w-0 bg-slate-950/80 border border-slate-700 rounded-md px-2 py-1 text-[12px] font-semibold text-slate-200 outline-none focus:border-cyan-600"
               aria-label="Schema connection"
+              data-testid="sql-schema-connection"
+              title="Schema for this connection — stays in sync with Destination servers"
             >
               {connections.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -136,16 +211,14 @@ export const SqlSchemaExplorer: React.FC = () => {
             </select>
             <button
               type="button"
-              title="Create new table"
+              title="Create new table (opens table blueprint)"
               disabled={!explorerId}
               data-testid="sql-new-table"
-              onClick={() => {
-                setBlueprintMode('create');
-                setBlueprintTable(null);
-              }}
-              className="p-1.5 rounded text-slate-500 hover:text-emerald-300 hover:bg-slate-800/70 disabled:opacity-40 transition"
+              onClick={openCreateTable}
+              className="inline-flex items-center gap-1 shrink-0 px-2 py-1 rounded-md text-[11px] font-bold text-emerald-300 bg-emerald-950/40 border border-emerald-700/50 hover:bg-emerald-900/50 disabled:opacity-40 transition"
             >
-              <Plus className="w-3.5 h-3.5 text-emerald-400" strokeWidth={SQL_ICON_STROKE} />
+              <Plus className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+              New
             </button>
             <button
               type="button"
@@ -162,6 +235,11 @@ export const SqlSchemaExplorer: React.FC = () => {
             </button>
           </div>
 
+          {schemaMissingHint && (
+            <p className="text-[11px] text-amber-300 break-words font-medium" data-testid="sql-schema-missing">
+              {schemaMissingHint}
+            </p>
+          )}
           {entry?.status === 'error' && (
             <p className="text-[11px] text-rose-400 break-words font-medium">{entry.error}</p>
           )}
@@ -170,10 +248,22 @@ export const SqlSchemaExplorer: React.FC = () => {
               <Loader2 className="w-3 h-3 animate-spin text-cyan-400" strokeWidth={SQL_ICON_STROKE} /> Loading…
             </p>
           )}
-          {entry?.status === 'ready' && totalCount === 0 && (
-            <p className="text-[12px] font-medium text-slate-500">
-              No tables, views, procedures, or functions in this schema.
-            </p>
+          {entry?.status === 'ready' && totalCount === 0 && !schemaMissingHint && (
+            <div className="flex flex-col gap-2 py-1" data-testid="sql-schema-empty">
+              <p className="text-[12px] font-medium text-slate-500">
+                No tables in this schema yet. Use New to open the table blueprint and add columns.
+              </p>
+              <button
+                type="button"
+                data-testid="sql-new-table-empty"
+                disabled={!explorerId}
+                onClick={openCreateTable}
+                className="self-start inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[12px] font-bold text-emerald-200 bg-emerald-950/50 border border-emerald-600/40 hover:bg-emerald-900/60 disabled:opacity-40"
+              >
+                <Plus className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+                Create table
+              </button>
+            </div>
           )}
 
           <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-1.5 pr-0.5">
@@ -225,6 +315,11 @@ export const SqlSchemaExplorer: React.FC = () => {
                                 }
                               : undefined
                           }
+                          onOpenSource={
+                            isScriptableObject(t.objectType)
+                              ? () => setSql(objectSourceScript(t, conn?.dialect ?? 'sql'))
+                              : undefined
+                          }
                         />
                       ))}
                     </div>
@@ -250,7 +345,7 @@ export const SqlSchemaExplorer: React.FC = () => {
       )}
     </div>
   );
-};
+});
 
 const ObjectNode: React.FC<{
   table: TableSchema;
@@ -258,7 +353,8 @@ const ObjectNode: React.FC<{
   onToggle: () => void;
   dialect: string;
   onOpenBlueprint?: () => void;
-}> = ({ table, open, onToggle, dialect, onOpenBlueprint }) => {
+  onOpenSource?: () => void;
+}> = ({ table, open, onToggle, dialect, onOpenBlueprint, onOpenSource }) => {
   const meta = TYPE_META[table.objectType] ?? TYPE_META.TABLE;
   const insertName = quoteIfNeeded(table.name, dialect);
   const isRoutine = table.objectType === 'PROCEDURE' || table.objectType === 'FUNCTION';
@@ -266,6 +362,7 @@ const ObjectNode: React.FC<{
   const columns = !isRoutine
     ? (table.columns ?? []).map((c) => ({ name: c.name, detail: c.type }))
     : [];
+  const opensSource = Boolean(onOpenSource);
 
   const insertObject = () => {
     if (isRoutine) {
@@ -275,17 +372,25 @@ const ObjectNode: React.FC<{
     insertAtCursor(`${insertName} `);
   };
 
+  const onNameClick = () => {
+    if (onOpenSource) {
+      onOpenSource();
+      return;
+    }
+    insertObject();
+  };
+
   const insertIdent = (name: string) => {
     insertAtCursor(`${quoteIfNeeded(name, dialect)} `);
   };
 
   return (
-    <div>
-      <div className="flex items-center gap-0.5 group">
+    <div className="min-w-0">
+      <div className="flex items-center gap-0.5 min-w-0">
         <button
           type="button"
           onClick={onToggle}
-          className="p-0.5 text-slate-500 hover:text-slate-300"
+          className="p-0.5 text-slate-500 hover:text-slate-300 shrink-0"
           aria-label={open ? 'Collapse' : 'Expand'}
         >
           {open ? (
@@ -296,12 +401,15 @@ const ObjectNode: React.FC<{
         </button>
         <button
           type="button"
+          data-testid={opensSource ? 'sql-open-object-source' : undefined}
           title={
-            isRoutine
-              ? `Insert ${table.name}(${params.map((p) => `${p.mode} ${p.name}`).join(', ')})`
-              : `Insert ${table.name}`
+            opensSource
+              ? `Open ${table.objectType.toLowerCase()} source in editor`
+              : isRoutine
+                ? `Insert ${table.name}(${params.map((p) => `${p.mode} ${p.name}`).join(', ')})`
+                : `Insert ${table.name}`
           }
-          onClick={insertObject}
+          onClick={onNameClick}
           className="flex-1 flex items-center gap-1.5 min-w-0 text-left text-[13px] font-semibold text-slate-200 hover:text-cyan-300 py-1 truncate"
         >
           <span className="shrink-0">{meta.icon}</span>
@@ -312,21 +420,37 @@ const ObjectNode: React.FC<{
             </span>
           )}
         </button>
-        {onOpenBlueprint && (
-          <button
-            type="button"
-            title="Open table blueprint"
-            data-testid="sql-open-blueprint"
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenBlueprint();
-            }}
-            className="p-1 rounded text-slate-500 hover:text-violet-300 hover:bg-slate-800/80 opacity-70 group-hover:opacity-100 transition shrink-0"
-          >
-            <Columns3 className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
-          </button>
-        )}
       </div>
+      {onOpenBlueprint && (
+        <button
+          type="button"
+          title="Open table blueprint — add/edit columns"
+          data-testid="sql-open-blueprint"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenBlueprint();
+          }}
+          className="ml-6 mb-0.5 inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold text-violet-200 bg-violet-950/60 border border-violet-600/50 hover:bg-violet-900/70 transition"
+        >
+          <Columns3 className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+          Edit table
+        </button>
+      )}
+      {opensSource && (
+        <button
+          type="button"
+          title="Open source script in the editor (view only)"
+          data-testid="sql-open-object-source-btn"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenSource?.();
+          }}
+          className="ml-6 mb-0.5 inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold text-sky-200 bg-sky-950/60 border border-sky-600/50 hover:bg-sky-900/70 transition"
+        >
+          <FileCode2 className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+          View source
+        </button>
+      )}
       {open && isRoutine && params.length === 0 && (
         <p className="ml-6 text-[12px] text-slate-600 mb-1">No parameters</p>
       )}

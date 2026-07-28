@@ -1,9 +1,9 @@
-import React, { useEffect } from 'react';
+import React, { Suspense, lazy, useEffect } from 'react';
 import { TopToolbar } from './components/TopToolbar';
 import { SchemaTreePanel } from './components/SchemaTreePanel';
 import { ObjectDetailPanel } from './components/ObjectDetailPanel';
-import { SqlEditorView } from './components/sql-editor/SqlEditorView';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { LoadingScreen } from './components/LoadingScreen';
 import { AuthPage } from './components/AuthPage';
 import { OnboardingWizard } from './components/OnboardingWizard';
 import { useSyncStore } from './store/useSyncStore';
@@ -11,6 +11,10 @@ import { useAuthStore } from './store/authStore';
 import { useUiStore } from './store/uiStore';
 import { apiGetPreferences } from './api/authApi';
 import { AlertCircle, AlertTriangle, Loader2, X } from 'lucide-react';
+
+const SqlEditorView = lazy(() =>
+  import('./components/sql-editor/SqlEditorView').then((m) => ({ default: m.SqlEditorView }))
+);
 
 const Workspace: React.FC = () => {
   const { errorMsg, warnings, dismissWarnings } = useSyncStore();
@@ -48,7 +52,9 @@ const Workspace: React.FC = () => {
       <main className="flex-1 flex min-h-0 overflow-hidden">
         {activeView === 'sqlEditor' ? (
           <ErrorBoundary>
-            <SqlEditorView />
+            <Suspense fallback={<LoadingScreen />}>
+              <SqlEditorView />
+            </Suspense>
           </ErrorBoundary>
         ) : (
           <>
@@ -74,14 +80,37 @@ const App: React.FC = () => {
     init();
   }, [init, apply]);
 
-  // Once signed in, load the user's saved connections and appearance
+  // Once signed in, load the user's saved connections and appearance.
+  // Wait for sync-store persist rehydrate so selected connection IDs are
+  // restored before loadConnections reapplies source/target configs.
   useEffect(() => {
-    if (status === 'ready') {
-      useSyncStore.getState().loadConnections();
+    if (status !== 'ready') return;
+
+    let cancelled = false;
+    const load = () => {
+      if (cancelled) return;
+      void useSyncStore.getState().loadConnections();
       apiGetPreferences()
-        .then((p) => hydrateFromServer(p.theme))
+        .then((p) => {
+          if (!cancelled) hydrateFromServer(p.theme);
+        })
         .catch(() => undefined);
+    };
+
+    if (useSyncStore.persist.hasHydrated()) {
+      load();
+      return () => {
+        cancelled = true;
+      };
     }
+
+    const unsub = useSyncStore.persist.onFinishHydration(() => {
+      load();
+    });
+    return () => {
+      cancelled = true;
+      unsub();
+    };
   }, [status, hydrateFromServer]);
 
   if (status === 'loading') {

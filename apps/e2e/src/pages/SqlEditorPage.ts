@@ -192,18 +192,23 @@ export class SqlEditorPage {
       tableName,
       { timeout: 45_000 }
     );
-    // Prefer the blueprint button nearest the table name label.
+    // Edit table sits under the name (always visible — no hover / group class).
     const nameLabel = explorer.getByText(tableName, { exact: true }).first();
     await nameLabel.scrollIntoViewIfNeeded();
-    const row = nameLabel.locator('xpath=ancestor::div[contains(@class,"group")][1]');
-    await row.hover();
+    const row = nameLabel.locator('xpath=ancestor::div[./button[@data-testid="sql-open-blueprint"] or .//button[@data-testid="sql-open-blueprint"]][1]');
     await row.locator('[data-testid="sql-open-blueprint"]').click({ force: true });
     await waitFor(this.page, '[data-testid="table-blueprint-modal"]', 15_000);
   }
 
   async openNewTableBlueprint(): Promise<void> {
     await this.dismissOverlays();
-    await clickWhen(this.page, '[data-testid="sql-new-table"]');
+    // Prefer Schema header action; fall back to explorer New control.
+    const header = this.page.locator('[data-testid="sql-schema-new-table"]');
+    if (await header.count()) {
+      await header.click();
+    } else {
+      await clickWhen(this.page, '[data-testid="sql-new-table"]');
+    }
     await waitFor(this.page, '[data-testid="table-blueprint-modal"]', 15_000);
   }
 

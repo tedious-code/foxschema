@@ -84,11 +84,18 @@ export async function runDriversInstall(name: string): Promise<void> {
   const cwd = webWorkspaceRoot();
 
   // Prefer installing into the @foxschema/web package directory.
+  // ibm_db must run install scripts (--foreground-scripts) or clidriver never
+  // downloads and Windows connects fail with SQL1042C / missing native binding.
+  const npmArgs =
+    entry.pkg === 'ibm_db'
+      ? ['install', 'ibm_db@4.0.1', '--foreground-scripts', '--prefix', cwd]
+      : ['install', entry.pkg, '--foreground-scripts', '--prefix', cwd];
+
   await new Promise<void>((resolve, reject) => {
-    const child = spawn('npm', ['install', entry.pkg, '--prefix', cwd], {
+    const child = spawn('npm', npmArgs, {
       stdio: 'inherit',
       shell: process.platform === 'win32',
-      env: process.env,
+      env: { ...process.env, npm_config_ignore_scripts: '' },
     });
     child.on('error', reject);
     child.on('exit', (code) => {

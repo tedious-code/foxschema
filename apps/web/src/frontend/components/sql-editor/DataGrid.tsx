@@ -626,14 +626,18 @@ export const DataGrid: React.FC<{
                 const i = start + offset;
                 const size = pageSize && pageSize > 0 ? pageSize : sourceRows.length;
                 const absRow = pageIndex * size + i + 1;
+                const stripe = i % 2 === 1;
+                const rowBg = stripe
+                  ? 'bg-[var(--fox-grid-bg-stripe)]'
+                  : 'bg-[var(--fox-grid-bg)]';
                 return (
                   <tr
                     key={i}
-                    className="hover:bg-[var(--fox-grid-bg-hover)] group border-b border-[var(--fox-grid-border-soft)]"
+                    className={`${rowBg} hover:bg-[var(--fox-grid-bg-hover)] group border-b border-[var(--fox-grid-border-soft)]`}
                     style={{ height: ROW_H_PX }}
                   >
                     <td
-                      className="sticky left-0 z-[5] px-1.5 text-center text-[10px] tabular-nums text-[var(--fox-grid-muted)] bg-[var(--fox-grid-bg)] group-hover:bg-[var(--fox-grid-bg-hover)] border-r border-[var(--fox-grid-border-soft)] select-none"
+                      className={`sticky left-0 z-[5] px-1.5 text-center text-[10px] tabular-nums text-[var(--fox-grid-muted)] ${rowBg} group-hover:bg-[var(--fox-grid-bg-hover)] border-r border-[var(--fox-grid-border-soft)] select-none`}
                       style={{ width: ROW_NUM_PX, minWidth: ROW_NUM_PX }}
                       data-testid="sql-row-num"
                     >
@@ -647,7 +651,7 @@ export const DataGrid: React.FC<{
                       return (
                         <td
                           key={colIdx}
-                          className={`px-3 overflow-hidden text-ellipsis ${KIND_CELL_CLASS[kind]}`}
+                          className={`px-3 overflow-hidden text-ellipsis ${rowBg} group-hover:bg-[var(--fox-grid-bg-hover)] ${KIND_CELL_CLASS[kind]}`}
                           style={{ width: w, minWidth: COL_MIN_PX, maxWidth: w }}
                           title={title}
                           onContextMenu={(e) => {

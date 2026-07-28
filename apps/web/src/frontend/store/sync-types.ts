@@ -32,6 +32,8 @@ export interface SyncState {
   targetConfig: ConnectionConfig;
 
   connections: SavedConnectionSummary[];
+  /** False until the first loadConnections() attempt finishes (refresh race guard). */
+  connectionsLoaded: boolean;
   selectedSourceConnectionId: string | null;
   selectedTargetConnectionId: string | null;
 

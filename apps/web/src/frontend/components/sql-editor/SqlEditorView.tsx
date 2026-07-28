@@ -16,13 +16,14 @@ import {
   KeyRound,
   PanelLeftClose,
   PanelLeftOpen,
+  Plus,
 } from 'lucide-react';
 import { useSyncStore } from '../../store/useSyncStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
 import { splitSqlStatements, type SplitStatement } from '../../lib/sql-splitter';
 import { formatEditorSql } from '../../utils/formatSql';
-import { effectiveConnectionIds } from '../../store/sqlEditorTabLogic';
-import { setCompletionContextGetter } from './sqlEditorBridge';
+import { effectiveConnectionIds, canExecuteWithoutDestination, resolveRunStatements } from '../../store/sqlEditorTabLogic';
+import { getSelectedSql, setCompletionContextGetter } from './sqlEditorBridge';
 import { ConnectionChecklist } from './ConnectionChecklist';
 import { EditorTabBar } from './EditorTabBar';
 import { ResultsPanel } from './ResultsPanel';
@@ -31,7 +32,7 @@ import { SqlBookmarksPanel } from './SqlBookmarksPanel';
 import { SqlVariablesPanel } from './SqlVariablesPanel';
 import { SqlSecretsPanel, type SqlSecretsPanelHandle } from './SqlSecretsPanel';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
-import { SqlSchemaExplorer } from './SqlSchemaExplorer';
+import { SqlSchemaExplorer, type SqlSchemaExplorerHandle } from './SqlSchemaExplorer';
 import {
   SqlSidebarSection,
   useSidebarSectionHeights,
@@ -129,6 +130,7 @@ export const SqlEditorView: React.FC = () => {
   const [sidebarOpen, toggleSidebar] = useSidebarSectionsOpen();
   const [sectionHeights, setSectionHeight] = useSidebarSectionHeights();
   const secretsPanelRef = useRef<SqlSecretsPanelHandle>(null);
+  const schemaExplorerRef = useRef<SqlSchemaExplorerHandle>(null);
   const [secretsRefreshing, setSecretsRefreshing] = useState(false);
 
   const onSecretsRefresh = useCallback(async () => {
@@ -231,22 +233,26 @@ export const SqlEditorView: React.FC = () => {
   const firstSelected = connections.find((c) => liveSelectedIds.includes(c.id));
   const dialect = firstSelected?.dialect ?? 'sql';
 
-  const runCount =
-    tab.checkedStatements.length === 0
-      ? statements.length > 0
-        ? 1
-        : 0
-      : tab.checkedStatements.filter((i) => i >= 0 && i < statements.length).length ||
-        (statements.length > 0 ? 1 : 0);
-
-  const canRun = !runningTabId && liveSelectedIds.length > 0 && (hasSelection || runCount > 0);
-  const runTitle = !liveSelectedIds.length
-    ? 'Check at least one destination server to run against'
-    : hasSelection
+  const selectedSqlForRun = hasSelection ? getSelectedSql() : null;
+  const runStatements = useMemo(
+    () => resolveRunStatements(tab.sql, tab.checkedStatements, selectedSqlForRun),
+    [tab.sql, tab.checkedStatements, selectedSqlForRun]
+  );
+  const canRunLocal = useMemo(
+    () => canExecuteWithoutDestination(runStatements),
+    [runStatements]
+  );
+  const runCount = runStatements.length;
+  const canRun = !runningTabId && (liveSelectedIds.length > 0 || canRunLocal);
+  const runTitle = liveSelectedIds.length
+    ? hasSelection
       ? 'Run the selected SQL  (⌘/Ctrl+Enter)'
       : !runCount
-        ? 'Write a SQL statement first'
-        : `Run ${runCount} statement(s) against ${liveSelectedIds.length} server(s)  (⌘/Ctrl+Enter)`;
+        ? `Run with empty editor against ${liveSelectedIds.length} server(s)  (⌘/Ctrl+Enter)`
+        : `Run ${runCount} statement(s) against ${liveSelectedIds.length} server(s)  (⌘/Ctrl+Enter)`
+    : canRunLocal
+      ? `Run ${runCount} code cell(s) locally — no destination needed  (⌘/Ctrl+Enter)`
+      : 'Check at least one destination server to run SQL, or use a JS/TS/Node code cell';
 
   const onReveal = (stmt: SplitStatement) => {
     setReveal({ startLine: stmt.startLine, endLine: stmt.endLine, nonce: Date.now() });
@@ -377,8 +383,20 @@ export const SqlEditorView: React.FC = () => {
               grow
               height={sectionHeights.schema}
               onResizeHeight={(h) => setSectionHeight('schema', h)}
+              actions={
+                <button
+                  type="button"
+                  data-testid="sql-schema-new-table"
+                  title="Create table — opens blueprint to add columns"
+                  onClick={() => schemaExplorerRef.current?.openCreateTable()}
+                  className="flex items-center gap-0.5 text-[12px] font-bold text-[#059669] hover:text-[#047857] transition"
+                >
+                  <Plus className="w-3.5 h-3.5 text-[#059669]" strokeWidth={SQL_ICON_STROKE} />
+                  New table
+                </button>
+              }
             >
-              <SqlSchemaExplorer />
+              <SqlSchemaExplorer ref={schemaExplorerRef} />
             </SqlSidebarSection>
           </div>
           <div

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { executeSql, type SqlStatementResult } from '../api/sqlApi';
+import type { SavedConnectionSummary } from '../api/authApi';
 import { resolveAppSecrets } from '../api/appSecretsApi';
 import { loadSchema } from '../api/schemaApi';
 import { isMutatingDmlStatement, isWriteStatement, splitSqlStatements } from '../lib/sql-splitter';
@@ -32,13 +33,14 @@ import {
   checkedAfterSqlChange,
   closeTab as closeTabLogic,
   createTab,
+  destinationIdsPatch,
   effectiveConnectionIds,
   hydrateTabs,
   moveTab as moveTabLogic,
   newTabId,
   persistableTabs,
-  statementsFromSelection,
-  statementsToRun,
+  canExecuteWithoutDestination,
+  resolveRunStatements,
   toggleStatementCheck,
   type ResultsLayout,
   type SqlTab,
@@ -48,6 +50,16 @@ export type { SqlVariable, SqlVariableKind, SqlVariableExport, VariableOverride 
 
 /** Dialects whose adapters are SELECT-only — writes fail with a friendly error. */
 const READONLY_DIALECTS = new Set(['sqlite', 'clickhouse']);
+
+type ExecutionTarget = Pick<SavedConnectionSummary, 'id' | 'name' | 'dialect' | 'hasPassword'>;
+
+/** Synthetic run target when executing code cells with no Destination checked. */
+const LOCAL_CODE_RUN_TARGET: ExecutionTarget = {
+  id: '__local__',
+  name: 'Local',
+  dialect: 'editor',
+  hasPassword: true,
+};
 
 /** Saved SQL script bookmark (persisted). */
 export interface SqlBookmark {
@@ -242,6 +254,12 @@ interface SqlEditorState {
   activeConnectionIds: () => string[];
   setSql: (sql: string) => void;
   toggleConnection: (id: string) => void;
+  /**
+   * Ensure a destination credential is checked for the active tab (add-only).
+   * Used to keep the Schema explorer selection aligned with Destination servers.
+   * May open the session-password prompt when the credential has no stored password.
+   */
+  ensureConnectionSelected: (id: string) => void;
   setShareDestinations: (share: boolean) => void;
   setSafeMode: (on: boolean) => void;
   toggleStatement: (index: number) => void;
@@ -373,30 +391,34 @@ export const useSqlEditorStore = create<SqlEditorState>()(
       },
 
       toggleConnection: (id) => {
-        const { tabs, activeTabId, sessionPasswords, shareDestinations, sharedConnectionIds } =
-          get();
+        const { tabs, activeTabId, shareDestinations, sharedConnectionIds } = get();
         const tab = tabs.find((t) => t.id === activeTabId);
         if (!tab) return;
 
         const current = shareDestinations ? sharedConnectionIds : tab.selectedConnectionIds;
-        const selected = current.includes(id);
-
-        const applyIds = (ids: string[]) => {
-          if (shareDestinations) {
-            set({ sharedConnectionIds: ids });
-          } else {
-            set({
-              tabs: tabs.map((t) =>
-                t.id === activeTabId ? { ...t, selectedConnectionIds: ids } : t
-              ),
-            });
-          }
-        };
-
-        if (selected) {
-          applyIds(current.filter((x) => x !== id));
+        if (current.includes(id)) {
+          set(
+            destinationIdsPatch(
+              shareDestinations,
+              tabs,
+              activeTabId,
+              current.filter((x) => x !== id)
+            )
+          );
           return;
         }
+
+        get().ensureConnectionSelected(id);
+      },
+
+      ensureConnectionSelected: (id) => {
+        const { tabs, activeTabId, sessionPasswords, shareDestinations, sharedConnectionIds } =
+          get();
+        const tab = tabs.find((t) => t.id === activeTabId);
+        if (!tab || !id) return;
+
+        const current = shareDestinations ? sharedConnectionIds : tab.selectedConnectionIds;
+        if (current.includes(id)) return;
 
         const conn = useSyncStore.getState().connections.find((c) => c.id === id);
         if (conn && !conn.hasPassword && !sessionPasswords[id]) {
@@ -410,7 +432,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           return;
         }
 
-        applyIds([...current, id]);
+        set(destinationIdsPatch(shareDestinations, tabs, activeTabId, [...current, id]));
         void get().ensureSchema(id);
       },
 
@@ -491,25 +513,17 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         if (!pendingPassword) return;
         const { id, resumeExecute, connectionIds } = pendingPassword;
 
-        let nextShared = sharedConnectionIds;
-        let nextTabs = tabs;
-        if (shareDestinations) {
-          if (!sharedConnectionIds.includes(id)) {
-            nextShared = [...sharedConnectionIds, id];
-          }
-        } else {
-          nextTabs = tabs.map((t) => {
-            if (t.id !== activeTabId) return t;
-            if (t.selectedConnectionIds.includes(id)) return t;
-            return { ...t, selectedConnectionIds: [...t.selectedConnectionIds, id] };
-          });
-        }
+        const current = shareDestinations
+          ? sharedConnectionIds
+          : (tabs.find((t) => t.id === activeTabId)?.selectedConnectionIds ?? []);
+        const destPatch = current.includes(id)
+          ? {}
+          : destinationIdsPatch(shareDestinations, tabs, activeTabId, [...current, id]);
 
         set({
           sessionPasswords: { ...get().sessionPasswords, [id]: password },
-          tabs: nextTabs,
-          sharedConnectionIds: nextShared,
           pendingPassword: null,
+          ...destPatch,
         });
         if (resumeExecute) {
           void get().execute(connectionIds?.length ? { connectionIds } : undefined);
@@ -644,11 +658,24 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         const selected = useSyncStore
           .getState()
           .connections.filter((c) => destIds.includes(c.id));
-        const connections =
+        const selectedConnections =
           connectionIds && connectionIds.length > 0
             ? selected.filter((c) => connectionIds.includes(c.id))
             : selected;
-        if (connections.length === 0) return;
+
+        const selectedSql = getSelectedSql();
+        const rawStatements = resolveRunStatements(
+          tab.sql,
+          tab.checkedStatements,
+          selectedSql
+        );
+
+        // Code cells (JS/TS/Node) can run with no Destination; SQL still needs one.
+        let connections: ExecutionTarget[] = selectedConnections;
+        if (connections.length === 0) {
+          if (!canExecuteWithoutDestination(rawStatements)) return;
+          connections = [LOCAL_CODE_RUN_TARGET];
+        }
 
         const needingPassword = connections.find(
           (c) => !c.hasPassword && !sessionPasswords[c.id]
@@ -664,12 +691,6 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           });
           return;
         }
-
-        const selectedSql = getSelectedSql();
-        const rawStatements = selectedSql
-          ? statementsFromSelection(selectedSql)
-          : statementsToRun(tab.sql, tab.checkedStatements);
-        if (rawStatements.length === 0) return;
 
         // Safe mode: confirm on stripped SQL (ignore @set lines; vars may resolve mid-run).
         const strippedForConfirm = rawStatements.map((s) => parseSetDirectives(s).sql);

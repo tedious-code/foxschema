@@ -11,6 +11,9 @@ import {
   persistableTabs,
   statementsToRun,
   statementsFromSelection,
+  canExecuteWithoutDestination,
+  resolveRunStatements,
+  destinationIdsPatch,
   toggleStatementCheck,
 } from './sqlEditorTabLogic';
 
@@ -86,6 +89,24 @@ SELECT 2 AS id;`;
     expect(statementsFromSelection('')).toEqual([]);
   });
 
+  it('canExecuteWithoutDestination allows pure code cells only', () => {
+    expect(canExecuteWithoutDestination([])).toBe(false);
+    expect(canExecuteWithoutDestination(['SELECT 1;'])).toBe(false);
+    expect(canExecuteWithoutDestination(['-- @node\nreturn [];\n-- @end'])).toBe(true);
+    expect(canExecuteWithoutDestination(['-- @js\nreturn [];\n-- @end'])).toBe(true);
+    expect(
+      canExecuteWithoutDestination(['-- @node\nreturn [];\n-- @end', 'SELECT 1;'])
+    ).toBe(false);
+  });
+
+  it('resolveRunStatements prefers selection over strip checks', () => {
+    const sql = 'SELECT 1; SELECT 2;';
+    expect(resolveRunStatements(sql, [1], null)).toEqual(['SELECT 2;']);
+    expect(resolveRunStatements(sql, [1], '-- @js\nreturn 1;\n-- @end')).toEqual([
+      '-- @js\nreturn 1;\n-- @end',
+    ]);
+  });
+
   it('toggleStatementCheck adds/removes sorted', () => {
     expect(toggleStatementCheck([0], 2)).toEqual([0, 2]);
     expect(toggleStatementCheck([0, 2], 0)).toEqual([2]);
@@ -113,5 +134,20 @@ SELECT 2 AS id;`;
     const tab = createTab({ selectedConnectionIds: ['a'] });
     expect(effectiveConnectionIds(tab, false, ['b'])).toEqual(['a']);
     expect(effectiveConnectionIds(tab, true, ['b', 'c'])).toEqual(['b', 'c']);
+  });
+
+  it('destinationIdsPatch writes shared or active-tab ids', () => {
+    const a = createTab({ title: 'A', selectedConnectionIds: ['x'] });
+    const b = createTab({ title: 'B', selectedConnectionIds: ['y'] });
+    expect(destinationIdsPatch(true, [a, b], a.id, ['p', 'q'])).toEqual({
+      sharedConnectionIds: ['p', 'q'],
+    });
+    const tabPatch = destinationIdsPatch(false, [a, b], a.id, ['p']);
+    expect(tabPatch).toEqual({
+      tabs: [
+        { ...a, selectedConnectionIds: ['p'] },
+        b,
+      ],
+    });
   });
 });

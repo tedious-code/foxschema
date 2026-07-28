@@ -2,7 +2,7 @@ import { createRequire } from 'node:module';
 import { ConnectionOptions, DriverAdapter } from '../../interfaces/schema-provider.interface';
 import { assertSafeIdentifier } from '../../cores/sql-identifier';
 import { BoundedPoolCache, disposePoolEndOrClose } from '../../cores/pool-cache';
-import { setupDb2ClientEnv } from './db2.env';
+import { setupDb2ClientEnv, hasDb2Clidriver } from './db2.env';
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -20,12 +20,22 @@ class Db2Adapter implements DriverAdapter {
   private load(): any {
     if (this.driver) return this.driver;
     setupDb2ClientEnv(); // point at the bundled clidriver before native load
+    if (!hasDb2Clidriver()) {
+      throw new Error(
+        'ibm_db is installed but its CLI driver (clidriver) is missing. ' +
+          'On Windows this usually means scripts were skipped — reinstall with: ' +
+          'npm install ibm_db@4.0.1 --foreground-scripts  (or: foxschema drivers install db2)'
+      );
+    }
     try {
       const mod = nodeRequire(this.packageName);
       this.driver = mod.default ?? mod;
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
-      throw new Error(`Database driver "${this.packageName}" is not installed for db2. Install it with: npm install ${this.packageName} — ${message}`);
+      throw new Error(
+        `Database driver "${this.packageName}" is not installed for db2. ` +
+          `Install it with: npm install ${this.packageName} --foreground-scripts — ${message}`
+      );
     }
     return this.driver;
   }

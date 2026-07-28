@@ -146,6 +146,56 @@ describe.skipIf(!ready)('SQL Editor · blueprint + paging (SQLite)', () => {
     expect(editorText.toLowerCase()).toMatch(/create\s*table/);
   });
 
+  it('Indexes section can add a UNIQUE index on a column', async () => {
+    await sql.openNewTableBlueprint();
+    const modal = driver.locator('[data-testid="table-blueprint-modal"]');
+    expect(await modal.isVisible()).toBe(true);
+    await driver.locator('[data-testid="blueprint-table-name"]').fill(`t_idx_${RUN}`);
+
+    await modal.getByRole('button', { name: /add column/i }).click();
+    await waitForColumnForm(driver);
+    await modal.locator('[data-testid="blueprint-column-form"] input').first().fill('email');
+    await modal.getByRole('button', { name: /^save$/i }).click();
+    await driver.waitForFunction(() => {
+      const m = document.querySelector('[data-testid="table-blueprint-modal"]');
+      return !!m && /email/i.test(m.textContent ?? '') && !m.querySelector('[data-testid="blueprint-column-form"]');
+    });
+
+    const indexes = modal.locator('[data-testid="blueprint-indexes"]');
+    expect(await indexes.isVisible()).toBe(true);
+    await indexes.locator('[data-testid="blueprint-add-index"]').click();
+    await driver.waitForSelector('[data-testid="blueprint-index-form"]', { timeout: 5_000 });
+
+    // openAddIndex already selects the first column — only toggle email on if missing.
+    const form = modal.locator('[data-testid="blueprint-index-form"]');
+    const formText = await form.innerText();
+    if (!/\(email/i.test(formText)) {
+      await form.getByRole('button', { name: /^email$/i }).click();
+    }
+    const unique = form.locator('input[type="checkbox"]').first();
+    if (await unique.count()) {
+      if (!(await unique.isChecked())) await unique.check();
+    }
+    await modal.locator('[data-testid="blueprint-index-save"]').click();
+
+    await driver.waitForFunction(() => {
+      const root = document.querySelector('[data-testid="blueprint-indexes"]');
+      if (!root) return false;
+      if (root.querySelector('[data-testid="blueprint-index-form"]')) return false;
+      return /email/i.test(root.textContent ?? '');
+    }, { timeout: 5_000 });
+
+    await sql.blueprintInsertSql();
+    await sql.closeBlueprint().catch(() => undefined);
+    await driver.waitForTimeout(500);
+    const editorText = await driver.evaluate(() => {
+      const lines = document.querySelector('.monaco-editor .view-lines');
+      const ta = document.querySelector('.monaco-editor textarea') as HTMLTextAreaElement | null;
+      return `${lines?.textContent ?? ''}\n${ta?.value ?? ''}`;
+    });
+    expect(editorText.toLowerCase()).toMatch(/create\s+unique\s+index|create\s+index/);
+  });
+
   it('pages SELECT results with Next/Prev', async () => {
     await driver.locator('[data-testid="sql-max-rows"]').fill('2');
     await sql.setSql('SELECT id1, id2, label FROM parent ORDER BY id1;');

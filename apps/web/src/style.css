@@ -386,14 +386,30 @@ mark.fox-search-hl {
  * Result DataGrid is a light "paper" surface. Soft-dark remaps --color-slate-*
  * toward gray, so the grid uses its own CSS variables (not theme slate tokens).
  * DataGrid.tsx reads these via bg-[var(--fox-grid-*)] — keep vars here only.
+ *
+ * Defaults suit the dark app chrome (paper contrast). Light mode boosts borders
+ * + zebra stripes so rows stay readable on a light canvas.
  */
 .fox-sql-grid {
   --fox-grid-bg: #f8fafc;
+  --fox-grid-bg-stripe: #f1f5f9;
   --fox-grid-bg-header: #e2e8f0;
-  --fox-grid-bg-hover: #f1f5f9;
+  --fox-grid-bg-hover: #e2e8f0;
   --fox-grid-bg-header-active: #cbd5e1;
   --fox-grid-border: #cbd5e1;
   --fox-grid-border-soft: #e2e8f0;
   --fox-grid-ink: #1e293b;
   --fox-grid-muted: #64748b;
+}
+
+[data-theme='light'] .fox-sql-grid {
+  --fox-grid-bg: #ffffff;
+  --fox-grid-bg-stripe: #e2e8f0;
+  --fox-grid-bg-header: #cbd5e1;
+  --fox-grid-bg-hover: #bae6fd;
+  --fox-grid-bg-header-active: #94a3b8;
+  --fox-grid-border: #64748b;
+  --fox-grid-border-soft: #94a3b8;
+  --fox-grid-ink: #0f172a;
+  --fox-grid-muted: #334155;
 }
