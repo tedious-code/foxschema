@@ -1169,10 +1169,20 @@ export function dialectTriggerForm(dialectName: string): TriggerFormMeta {
   }
   if (d === 'oracle') {
     return {
-      timings: ['BEFORE', 'AFTER', 'INSTEAD OF'],
+      // Oracle's own TRIGGER_TYPE vocabulary — the row/statement half is not
+      // decoration: oracleSqlDialect.createTriggerStatement emits FOR EACH ROW
+      // only when the timing says so. A bare 'BEFORE' builds a statement-level
+      // trigger, and any :NEW/:OLD in the body then fails with PLS-00049.
+      timings: [
+        'BEFORE EACH ROW',
+        'AFTER EACH ROW',
+        'BEFORE STATEMENT',
+        'AFTER STATEMENT',
+        'INSTEAD OF',
+      ],
       events: ['INSERT', 'UPDATE', 'DELETE'],
       bodyPlaceholder: 'BEGIN\n  -- PL/SQL body\n  NULL;\nEND;',
-      hint: 'Oracle: CREATE OR REPLACE TRIGGER with PL/SQL body.',
+      hint: 'Oracle: CREATE OR REPLACE TRIGGER with PL/SQL body. Use EACH ROW for :NEW/:OLD.',
     };
   }
   if (d === 'postgres' || d === 'cockroachdb' || d === 'yugabytedb') {

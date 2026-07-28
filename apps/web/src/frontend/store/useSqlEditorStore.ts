@@ -8,6 +8,8 @@ import { isMutatingDmlStatement, isWriteStatement, splitSqlStatements } from '..
 import type { CodeCellLast } from '../lib/codeCellExec';
 import { detectCodeCell, runCodeCell } from '../lib/codeCellRunner';
 import { buildSampleBookmarks } from '../lib/sqlEditorSamples';
+import { buildForeignKeyDrilldown, buildTablePreview } from '../lib/tablePreview';
+import type { ForeignKeyInfo } from '../lib/types';
 import { mergeVaultSecretsIntoVariables } from '../lib/mergeVaultSecrets';
 import {
   applySetDirectives,
@@ -211,6 +213,28 @@ export interface ReadonlyWriteTarget {
   dialect: string;
 }
 
+export interface DataPeekEntry {
+  id: string;
+  /** Heading, e.g. `public.users` or `customers · id = 7`. */
+  title: string;
+  /** Table the rows came from — drives the FK links on this grid. */
+  tableName: string;
+  sql: string;
+  params: unknown[];
+  status: 'loading' | 'ready' | 'error';
+  result?: SqlStatementResult;
+  error?: string;
+}
+
+export interface DataPeekState {
+  connectionId: string;
+  dialect: string;
+  entries: DataPeekEntry[];
+}
+
+/** Rows fetched per peek grid — a peek is a glance, not a report. */
+const DATA_PEEK_ROWS = 50;
+
 interface SqlEditorState {
   tabs: SqlTab[];
   activeTabId: string;
@@ -290,6 +314,23 @@ interface SqlEditorState {
   deleteBookmark: (id: string) => void;
   /** Merge built-in JS/TS/Node sample bookmarks (by stable id). Returns how many were added/updated. */
   installSampleBookmarks: () => number;
+
+  /**
+   * Cmd/Ctrl-click data peek: a stack of grids, each drilled from the one above
+   * via a foreign key. Never persisted — it is a look, not a document.
+   */
+  dataPeek: DataPeekState | null;
+  openDataPeek: (connectionId: string, tableName: string) => Promise<void>;
+  drillDataPeek: (
+    fromEntryId: string,
+    fk: ForeignKeyInfo,
+    values: unknown[]
+  ) => Promise<void>;
+  closeDataPeek: () => void;
+  /** Drop `entryId` and every grid below it (click a breadcrumb to go back). */
+  closeDataPeekFrom: (entryId: string) => void;
+  /** Internal: (re)run one peek entry's query. */
+  runDataPeekEntry: (entryId: string) => Promise<void>;
   /** Create or overwrite a variable by name. Returns error string or null. */
   upsertVariable: (input: {
     name: string;
@@ -882,6 +923,10 @@ export const useSqlEditorStore = create<SqlEditorState>()(
                     last: lastGridFrom(prev),
                     variables: resolveVariablesForConnection(runVariables, c.id),
                     maxRows,
+                    // A `-- @node` cell's `sql` runs on the same credential the
+                    // rest of the run uses, under the same Safe-mode policy.
+                    ref: { connectionId: c.id, password: sessionPasswords[c.id] || undefined },
+                    allowWrites: !safeMode,
                   });
                   codeDirectives = directives;
                   prev.push(result);
@@ -1233,6 +1278,102 @@ export const useSqlEditorStore = create<SqlEditorState>()(
             t.bookmarkId === id ? { ...t, bookmarkId: undefined } : t
           ),
         });
+      },
+
+      dataPeek: null,
+
+      openDataPeek: async (connectionId, tableName) => {
+        const conn = useSyncStore.getState().connections.find((c) => c.id === connectionId);
+        if (!conn) return;
+        const built = buildTablePreview(tableName, conn.dialect);
+        const entry: DataPeekEntry = {
+          id: `peek-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          title: tableName,
+          tableName,
+          sql: built.sql,
+          params: built.params,
+          status: 'loading',
+        };
+        set({ dataPeek: { connectionId, dialect: conn.dialect, entries: [entry] } });
+        await get().runDataPeekEntry(entry.id);
+      },
+
+      drillDataPeek: async (fromEntryId, fk, values) => {
+        const peek = get().dataPeek;
+        if (!peek) return;
+        const built = buildForeignKeyDrilldown(fk, values, peek.dialect);
+        if (!built) return;
+        const label = (fk.referencedColumns ?? [])
+          .map((c, i) => `${c} = ${String(values[i])}`)
+          .join(', ');
+        const entry: DataPeekEntry = {
+          id: `peek-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          title: `${fk.referencedTable} · ${label}`,
+          tableName: fk.referencedTable,
+          sql: built.sql,
+          params: built.params,
+          status: 'loading',
+        };
+        // Drilling from a grid mid-stack replaces everything below it, so the
+        // stack always reads as one path rather than a branching history.
+        const from = peek.entries.findIndex((e) => e.id === fromEntryId);
+        const kept = from >= 0 ? peek.entries.slice(0, from + 1) : peek.entries;
+        set({ dataPeek: { ...peek, entries: [...kept, entry] } });
+        await get().runDataPeekEntry(entry.id);
+      },
+
+      runDataPeekEntry: async (entryId) => {
+        const peek = get().dataPeek;
+        if (!peek) return;
+        const entry = peek.entries.find((e) => e.id === entryId);
+        if (!entry) return;
+        const patch = (next: Partial<DataPeekEntry>) => {
+          const cur = get().dataPeek;
+          if (!cur) return;
+          set({
+            dataPeek: {
+              ...cur,
+              entries: cur.entries.map((e) => (e.id === entryId ? { ...e, ...next } : e)),
+            },
+          });
+        };
+        try {
+          const { results } = await executeSql(
+            {
+              connectionId: peek.connectionId,
+              password: get().sessionPasswords[peek.connectionId] || undefined,
+            },
+            [entry.sql],
+            DATA_PEEK_ROWS,
+            0,
+            [entry.params]
+          );
+          const result = results[0];
+          if (!result) {
+            patch({ status: 'error', error: 'No result returned' });
+            return;
+          }
+          patch(
+            result.ok
+              ? { status: 'ready', result }
+              : { status: 'error', error: result.error, result }
+          );
+        } catch (error: unknown) {
+          patch({ status: 'error', error: error instanceof Error ? error.message : String(error) });
+        }
+      },
+
+      closeDataPeek: () => set({ dataPeek: null }),
+
+      closeDataPeekFrom: (entryId) => {
+        const peek = get().dataPeek;
+        if (!peek) return;
+        const idx = peek.entries.findIndex((e) => e.id === entryId);
+        if (idx <= 0) {
+          set({ dataPeek: null });
+          return;
+        }
+        set({ dataPeek: { ...peek, entries: peek.entries.slice(0, idx) } });
       },
 
       installSampleBookmarks: () => {

@@ -83,3 +83,9 @@ apps/cli/npm-pack/
 !apps/cli/README.md
 !docs/homebrew.md
 
+
+# FoxFlow's local SQLite DB (sibling project) — never belongs in this repo.
+# Its credentials/variables tables can hold real secrets.
+foxflow.sqlite
+foxflow.sqlite-shm
+foxflow.sqlite-wal

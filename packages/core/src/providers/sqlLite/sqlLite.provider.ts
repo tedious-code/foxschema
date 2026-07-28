@@ -1,5 +1,5 @@
 import { ConnectionFactory } from '../../cores/connection-factory';
-import { dbSchemaToTableSchemas } from '../../cores/schema-to-tables';
+import { dbSchemaToTableSchemas, groupForeignKeyRows } from '../../cores/schema-to-tables';
 import {
   SchemaProvider,
   ConnectionOptions,
@@ -18,7 +18,7 @@ interface SqliteMasterRaw { name: string; sql: string | null; tbl_name?: string;
 interface SqliteColRaw { cid: number; name: string; type: string; notnull: number; dflt_value: string | null; pk: number; }
 interface SqliteIdxRaw { seq: number; name: string; unique: number; origin: string; partial: number; }
 interface SqliteIdxColRaw { seqno: number; cid: number; name: string; }
-interface SqliteFkRaw { id: number; seq: number; table: string; from: string; to: string; }
+interface SqliteFkRaw { id: number; seq: number; table: string; from: string; to: string | null; }
 
 export class SqliteProvider implements SchemaProvider {
   readonly provider = 'sqlite';
@@ -123,24 +123,19 @@ export class SqliteProvider implements SchemaProvider {
         colList.push(mapped);
       }
 
-      const fkGroups = new Map<number, { table: string; froms: string[]; tos: string[] }>();
+      // `to` is NULL for `REFERENCES parent` with no column list — SQLite means
+      // "the parent's PK". groupForeignKeyRows drops those, so the shared
+      // resolver fills them from the real parent PK instead of emitting nulls.
       const orderedFks = [...rawFkList].sort((a, b) => a.id - b.id || a.seq - b.seq);
-      for (const fk of orderedFks) {
-        const g = fkGroups.get(fk.id) ?? { table: fk.table, froms: [], tos: [] };
-        g.froms.push(fk.from);
-        g.tos.push(fk.to);
-        fkGroups.set(fk.id, g);
-      }
-      const fkList: DbForeignKey[] = [];
-      for (const [, info] of fkGroups) {
-        fkList.push({
-          name: `fk_${t.name}_${info.table}`,
-          columns: info.froms,
-          referencedSchema: '',
-          referencedTable: info.table,
-          referencedColumns: info.tos,
-        });
-      }
+      const fkList: DbForeignKey[] = groupForeignKeyRows(orderedFks, (fk) => ({
+        key: String(fk.id),
+        name: `fk_${t.name}_${fk.table}`,
+        table: t.name,
+        column: fk.from,
+        referencedSchema: '',
+        referencedTable: fk.table,
+        referencedColumn: fk.to,
+      })).map((g) => g.fk);
 
       const idxCandidates = rawIdxList.filter((ix) => ix.origin !== 'pk');
       const tableIdxs = await mapPool(idxCandidates, PRAGMA_CONCURRENCY, async (ix) => {

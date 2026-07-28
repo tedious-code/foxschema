@@ -131,6 +131,13 @@ Tips:
   locally; result grids are not.
 - **Schema explorer** — browse objects on the left; click a name to insert it at the
   cursor. Autocomplete uses the checked connections’ schemas when available.
+- **Data peek (Cmd/Ctrl-click)** — hold **Cmd** (macOS) or **Ctrl** (Windows/Linux)
+  and click a table, view or MQT in the schema explorer to see its rows straight
+  away, without writing a query. Foreign-key cells are underlined: click one and
+  the related parent rows open as another grid **below**, so you can follow a
+  relationship a few hops. The breadcrumb at the top walks back, **Esc** closes.
+  Values are sent as bind parameters, so a cell containing a quote is handled
+  correctly. Peeks fetch 50 rows and are read-only — nothing is written.
 - **Format** — pretty-print the buffer. **Clear** removes results for the active tab.
 - **Bookmarks** — save reusable snippets from the sidebar.
 - **Variables** — named values reused as `${{name}}` or `${{name.col}}` (table
@@ -219,6 +226,35 @@ Tips:
   > treat the ability to run `-- @node` cells as equivalent to giving those users a
   > shell on the server host, and only expose it to people you trust at that level.
   > Browser cells (`-- @js` / `-- @ts`) run in the user's own tab and carry no such risk.
+
+  **Running SQL from a Node cell.** `-- @node` / `-- @nodets` cells get a `sql`
+  tagged template bound to the credential the run is using. Interpolations become
+  **bind parameters**, so values never become SQL text:
+
+  ```sql
+  -- @node
+  const rows = [
+    { id: 2, email: "o'brien@x.com", note: null },
+    { id: 3, email: 'ada@x.com', note: 'new' },
+  ];
+  await sql`INSERT INTO ${sql.id('accounts')} ${sql.values(rows)}`;
+  return await sql`SELECT id, email FROM accounts WHERE id IN ${[2, 3]}`;
+  -- @end
+  ```
+
+  | Form | Produces |
+  | --- | --- |
+  | `${value}` | one bind parameter (`$1` / `?` / `:1` per dialect) |
+  | `${[a, b]}` | an `IN` list — `($1, $2)` |
+  | `sql.values(rows)` | `("a", "b") VALUES ($1, $2), ($3, $4)` from objects |
+  | `sql.id('schema', 't')` | a quoted identifier (engines cannot bind these) |
+  | `sql.raw(text)` | verbatim text — the one unescaped form, use deliberately |
+
+  A value containing `'`, a `null`, a `Date` or an object is safe in every form
+  except `sql.raw`. **Safe mode applies**: with it on, a cell's write/DDL
+  statement is rejected server-side — turn it off to let cells write. Each
+  `await sql` is its own round trip and may land on a different pooled
+  connection, so transactions and temp tables do not carry across calls.
 
   ```sql
   SELECT id, email FROM user;

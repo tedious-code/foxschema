@@ -1,5 +1,5 @@
 import { ConnectionFactory } from '../../cores/connection-factory';
-import { dbSchemaToTableSchemas, rolesToTableSchemas, roleSkippedWarning } from '../../cores/schema-to-tables';
+import { dbSchemaToTableSchemas, rolesToTableSchemas, roleSkippedWarning, groupForeignKeyRows } from '../../cores/schema-to-tables';
 import {
   SchemaProvider,
   RoleLoadResult,
@@ -359,32 +359,17 @@ export class AzureSqlProvider implements SchemaProvider {
     }
 
     // 4. FKs
-    const fkGroups = new Map<
-      string,
-      { table: string; cols: string[]; refCols: string[]; rSchema: string; rTable: string }
-    >();
-    for (const fk of rawFks) {
-      const g = fkGroups.get(fk.constraint_name) ?? {
-        table: fk.table_name,
-        cols: [],
-        refCols: [],
-        rSchema: fk.ref_schema,
-        rTable: fk.ref_table,
-      };
-      g.cols.push(fk.column_name);
-      g.refCols.push(fk.ref_column_name);
-      fkGroups.set(fk.constraint_name, g);
-    }
-    for (const [name, info] of fkGroups) {
-      const mapped: DbForeignKey = {
-        name,
-        columns: info.cols,
-        referencedSchema: info.rSchema,
-        referencedTable: info.rTable,
-        referencedColumns: info.refCols,
-      };
-      if (tables[info.table]) tables[info.table].foreignKeys.push(mapped);
-      (foreignKeys[info.table] ??= []).push(mapped);
+    for (const { table, fk: mapped } of groupForeignKeyRows(rawFks, (fk) => ({
+      key: fk.constraint_name,
+      name: fk.constraint_name,
+      table: fk.table_name,
+      column: fk.column_name,
+      referencedSchema: fk.ref_schema,
+      referencedTable: fk.ref_table,
+      referencedColumn: fk.ref_column_name,
+    }))) {
+      if (tables[table]) tables[table].foreignKeys.push(mapped);
+      (foreignKeys[table] ??= []).push(mapped);
     }
 
     // 5. Unique constraints

@@ -6,6 +6,7 @@
  */
 
 import { runCodeCellOnServer, type SqlStatementResult } from '../api/sqlApi';
+import type { ConnectionRef } from '../api/schemaApi';
 import type { SetDirective, SqlVariable } from './sql-variables';
 import { parseSetDirectives } from './sql-variables';
 import {
@@ -37,6 +38,13 @@ export type RunCodeCellArgs = {
   variables: SqlVariable[];
   maxRows: number;
   timeoutMs?: number;
+  /**
+   * Connection a `-- @node` cell's `sql` bridge runs against. Browser cells
+   * (`-- @js` / `-- @ts`) have no bridge and ignore this.
+   */
+  ref?: ConnectionRef;
+  /** Mirrors Safe mode; the server rejects writes from `sql` when false. */
+  allowWrites?: boolean;
 };
 
 /**
@@ -208,6 +216,8 @@ export async function runCodeCell(
         vars,
         maxRows: args.maxRows,
         timeoutMs,
+        ref: args.ref,
+        allowWrites: args.allowWrites,
       });
       return { result, directives: prepared.directives };
     } catch (error: unknown) {

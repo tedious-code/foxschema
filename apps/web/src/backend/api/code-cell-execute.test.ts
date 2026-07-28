@@ -150,3 +150,94 @@ describe('runCodeCellOnServer (worker_threads sandbox)', () => {
     if (!result.ok) expect(result.error).toMatch(/timed out/i);
   }, 15_000);
 });
+
+describe('code cell SQL bridge', () => {
+  /** Capture what the parent was asked to run, and reply with canned rows. */
+  function stubRunner(rows: Record<string, unknown>[] = []) {
+    const calls: { text: string; params: unknown[] }[] = [];
+    const runQuery = async (text: string, params: unknown[]) => {
+      calls.push({ text, params });
+      return rows;
+    };
+    return { calls, runQuery };
+  }
+
+  async function runCell(
+    body: string,
+    opts: Parameters<typeof runCodeCellOnServer>[1],
+    timeoutMs = 20_000
+  ) {
+    const v = validateCodeCellRequest({
+      body,
+      kind: 'js',
+      last: null,
+      vars: {},
+      maxRows: 50,
+      timeoutMs,
+    });
+    if (!v.ok) throw new Error(v.error);
+    return runCodeCellOnServer(v.value, opts);
+  }
+
+  it('binds interpolations instead of inlining them', async () => {
+    const { calls, runQuery } = stubRunner([{ who: "O'Brien" }]);
+    const result = await runCell(
+      'return await sql`SELECT * FROM t WHERE name = ${"O\'Brien"} AND id = ${7}`;',
+      { dialect: 'postgres', allowWrites: false, runQuery }
+    );
+    if (!result.ok) throw new Error(result.error);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.text).toBe('SELECT * FROM t WHERE name = $1 AND id = $2');
+    expect(calls[0]!.params).toEqual(["O'Brien", 7]);
+    expect(result.rows).toEqual([["O'Brien"]]);
+  }, 30_000);
+
+  it('builds a parameterized bulk INSERT from JS objects', async () => {
+    const { calls, runQuery } = stubRunner();
+    const result = await runCell(
+      "const v=[{id:1,email:\"a'b\"},{id:2,email:'c'}];" +
+        'await sql`INSERT INTO ${sql.id("accounts")} ${sql.values(v)}`;' +
+        'return [{ done: true }];',
+      { dialect: 'sqlite', allowWrites: true, runQuery }
+    );
+    if (!result.ok) throw new Error(result.error);
+    expect(calls[0]!.text).toBe('INSERT INTO "accounts" ("id", "email") VALUES (?, ?), (?, ?)');
+    expect(calls[0]!.params).toEqual([1, "a'b", 2, 'c']);
+  }, 30_000);
+
+  it('surfaces a query error to the cell as a catchable rejection', async () => {
+    const runQuery = async () => {
+      throw new Error('no such table: ghost');
+    };
+    const result = await runCell(
+      'try { await sql`SELECT 1 FROM ghost`; return [{ caught: false }]; }' +
+        ' catch (e) { return [{ caught: true, msg: String(e.message) }]; }',
+      { dialect: 'sqlite', allowWrites: false, runQuery }
+    );
+    if (!result.ok) throw new Error(result.error);
+    expect(result.rows[0]![0]).toBe(true);
+    expect(String(result.rows[0]![1])).toContain('no such table: ghost');
+  }, 30_000);
+
+  it('reports a missing connection instead of hanging', async () => {
+    const result = await runCell('return await sql`SELECT 1`;', { dialect: 'sqlite' });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/no connection/i);
+  }, 30_000);
+
+  it('does not count database time against the cell timeout', async () => {
+    // 3 × 2s of query time (6s) under a 4s cell budget. If the clock ran during
+    // bridged queries this would time out; the budget is still generous enough
+    // to absorb worker cold-start when the whole suite runs in parallel.
+    const runQuery = async () => {
+      await new Promise((r) => setTimeout(r, 2000));
+      return [{ n: 1 }];
+    };
+    const result = await runCell(
+      'for (let i=0;i<3;i++) { await sql`SELECT 1`; } return [{ ok: true }];',
+      { dialect: 'sqlite', allowWrites: false, runQuery },
+      4000
+    );
+    expect(result.ok).toBe(true);
+  }, 45_000);
+});

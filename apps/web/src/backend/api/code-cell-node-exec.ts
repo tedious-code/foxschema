@@ -51,6 +51,14 @@ export function executeCodeCellNode(args: {
   last: CodeCellLast;
   vars: CodeCellVars;
   maxRows: number;
+  /** Query bridge exposed to the cell as `sql`; omitted when unavailable. */
+  sql?: unknown;
 }): Promise<CodeCellResult> {
-  return runCodeCellBody({ ...args, preamble: SANDBOX_PREAMBLE, modules: MODULES });
+  const { sql, ...rest } = args;
+  return runCodeCellBody({
+    ...rest,
+    preamble: SANDBOX_PREAMBLE,
+    modules: MODULES,
+    extraBindings: sql ? { sql } : undefined,
+  });
 }

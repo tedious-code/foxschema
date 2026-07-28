@@ -1,5 +1,5 @@
 import { ConnectionFactory } from '../../cores/connection-factory';
-import { dbSchemaToTableSchemas } from '../../cores/schema-to-tables';
+import { dbSchemaToTableSchemas, groupForeignKeyRows } from '../../cores/schema-to-tables';
 import {
   SchemaProvider,
   ConnectionOptions,
@@ -32,7 +32,8 @@ interface RsFkRaw {
   column_name: string;
   ref_schema: string;
   ref_table: string;
-  ref_column_name: string;
+  /** Absent on the constraint_column_usage fallback — parent PK is used instead. */
+  ref_column_name?: string;
   ordinal_position: number;
 }
 interface RsViewRaw { view_name: string; definition: string | null; }
@@ -108,6 +109,14 @@ export class RedshiftProvider implements SchemaProvider {
          ORDER BY tc.table_name, kcu.ordinal_position`,
         [schemaName]
       ),
+      // Preferred: resolve each FK column to its exact parent column via
+      // referential_constraints + position_in_unique_constraint. Redshift's
+      // information_schema is derived from PostgreSQL 8.0 and does not always
+      // populate position_in_unique_constraint; when it is NULL the join
+      // predicate matches nothing and every FK would silently disappear. Fall
+      // back to the older constraint_column_usage form (referenced table only,
+      // parent columns filled from the parent PK downstream) rather than
+      // reporting a schema with no foreign keys at all.
       exec<RsFkRaw>(
         `SELECT kcu.table_name, tc.constraint_name, kcu.column_name,
                 ccu.table_schema AS ref_schema, ccu.table_name AS ref_table,
@@ -127,6 +136,22 @@ export class RedshiftProvider implements SchemaProvider {
          WHERE tc.constraint_schema = $1 AND tc.constraint_type = 'FOREIGN KEY'
          ORDER BY kcu.table_name, tc.constraint_name, kcu.ordinal_position`,
         [schemaName]
+      ).then((rows) =>
+        rows.length > 0
+          ? rows
+          : exec<RsFkRaw>(
+              `SELECT tc.table_name, tc.constraint_name, kcu.column_name,
+                      ccu.table_schema AS ref_schema, ccu.table_name AS ref_table,
+                      kcu.ordinal_position
+               FROM information_schema.table_constraints tc
+               JOIN information_schema.key_column_usage kcu
+                 ON tc.constraint_name = kcu.constraint_name AND tc.constraint_schema = kcu.constraint_schema
+               JOIN information_schema.constraint_column_usage ccu
+                 ON ccu.constraint_name = tc.constraint_name AND ccu.constraint_schema = tc.constraint_schema
+               WHERE tc.constraint_schema = $1 AND tc.constraint_type = 'FOREIGN KEY'
+               ORDER BY tc.table_name, kcu.ordinal_position`,
+              [schemaName]
+            )
       ),
       exec<RsViewRaw>(
         `SELECT table_name AS view_name, view_definition AS definition
@@ -200,34 +225,18 @@ export class RedshiftProvider implements SchemaProvider {
     }
 
     // Foreign keys (group by constraint name)
-    const fkGroups = new Map<
-      string,
-      { name: string; table: string; cols: string[]; refCols: string[]; rSchema: string; rTable: string }
-    >();
-    for (const r of rawFks) {
-      const id = `${r.table_name}.${r.constraint_name}`;
-      const g = fkGroups.get(id) ?? {
-        name: r.constraint_name,
-        table: r.table_name,
-        cols: [],
-        refCols: [],
-        rSchema: r.ref_schema,
-        rTable: r.ref_table,
-      };
-      g.cols.push(r.column_name);
-      g.refCols.push(r.ref_column_name);
-      fkGroups.set(id, g);
-    }
-    for (const [, info] of fkGroups) {
-      const fk: DbForeignKey = {
-        name: info.name,
-        columns: info.cols,
-        referencedSchema: info.rSchema,
-        referencedTable: info.rTable,
-        referencedColumns: info.refCols,
-      };
-      if (tables[info.table]) tables[info.table].foreignKeys.push(fk);
-      (foreignKeys[info.table] ??= []).push(fk);
+    for (const { table, fk } of groupForeignKeyRows(rawFks, (r) => ({
+      // Redshift constraint names are only unique per table.
+      key: `${r.table_name}.${r.constraint_name}`,
+      name: r.constraint_name,
+      table: r.table_name,
+      column: r.column_name,
+      referencedSchema: r.ref_schema,
+      referencedTable: r.ref_table,
+      referencedColumn: r.ref_column_name,
+    }))) {
+      if (tables[table]) tables[table].foreignKeys.push(fk);
+      (foreignKeys[table] ??= []).push(fk);
     }
 
     // Views
