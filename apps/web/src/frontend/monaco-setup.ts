@@ -7,7 +7,7 @@ import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution';
 import 'monaco-editor/esm/vs/basic-languages/pgsql/pgsql.contribution';
 import 'monaco-editor/esm/vs/basic-languages/mysql/mysql.contribution';
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
-import { FOXSCHEMA_SQL_LANG } from './lib/foxschemaSqlLanguage';
+import { FOXSCHEMA_SQL_LANG, FOXSCRIPT_LANG } from './lib/foxschemaSqlLanguage';
 
 // SQL highlighting runs on the main thread (basic-languages); only the core
 // editor worker is needed for edit operations, diffing, etc.
@@ -66,6 +66,9 @@ const TOKEN_RULES_DARK: monaco.editor.ITokenThemeRule[] = [
   { token: 'predefined', foreground: 'a78bfa' },
   { token: 'identifier', foreground: 'e2e8f0' },
   { token: 'delimiter', foreground: '94a3b8' },
+  // FoxScript semantic tokens (tables / columns from schema cache)
+  { token: 'type', foreground: '67e8f9' },
+  { token: 'property', foreground: 'fcd34d' },
 ];
 
 const TOKEN_RULES_LIGHT: monaco.editor.ITokenThemeRule[] = [
@@ -78,6 +81,8 @@ const TOKEN_RULES_LIGHT: monaco.editor.ITokenThemeRule[] = [
   { token: 'predefined', foreground: '7c3aed' },
   { token: 'identifier', foreground: '0f172a' },
   { token: 'delimiter', foreground: '64748b' },
+  { token: 'type', foreground: '0e7490' },
+  { token: 'property', foreground: 'a16207' },
 ];
 
 /** Shared dark theme tuned to the app's slate palette — default/MODIFIED variant. */
@@ -151,7 +156,8 @@ export const MONACO_EDITOR_BASE_OPTIONS = {
 
 /**
  * Map an app dialect to a Monaco language id.
- * SQL Editor upgrades to {@link FOXSCHEMA_SQL_LANG} after lazy registration.
+ * SQL Editor upgrades to {@link FOXSCRIPT_LANG} (or legacy
+ * {@link FOXSCHEMA_SQL_LANG}) after lazy registration.
  */
 export function monacoLanguage(dialect: string): string {
   switch (dialect.toLowerCase()) {
@@ -164,4 +170,4 @@ export function monacoLanguage(dialect: string): string {
   }
 }
 
-export { FOXSCHEMA_SQL_LANG };
+export { FOXSCHEMA_SQL_LANG, FOXSCRIPT_LANG };

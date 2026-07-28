@@ -1,5 +1,5 @@
 ---
-description: Session memory for SQL Editor — data peek, Node sql bridge, FK fixes (main ≥0.1.100)
+description: Session memory for SQL Editor — FoxScript spine + notebook cells (main ≥0.1.100)
 alwaysApply: true
 ---
 
@@ -9,6 +9,15 @@ Base: `main` · Feature merge: PR #121 (`feat/sql-editor-data-peek-and-sql-bridg
 
 ## Product context
 FoxSchema = schema diff/migration + SQL Editor. Destinations checklist, Schema explorer, Monaco, code cells (`-- @js` / `-- @ts` / `-- @node` / `-- @nodets`), table blueprint, bookmarks/samples.
+
+## FoxScript (language spine)
+- **Language id**: prefer Monaco `foxscript` (legacy alias `foxschema-sql` still registered). Both share one Monarch fence tokenizer.
+- **AST**: `packages/core/.../foxscript-ast.ts` — `parseFoxScript` / `compileFoxScriptPlan` compose `splitSqlStatements` + `checkStatement` (no second scanner).
+- **Markers**: `foxscriptDiagnostics.ts` → `setModelMarkers` (missing `@end`, missing `return`, incomplete SQL).
+- **Virtual docs**: `foxscriptVirtualDocs.ts` — in-memory JS/TS models + `last`/`vars`/`sql` hover/complete prelude. Full TS worker diagnostics deferred.
+- **Semantic tokens**: `foxscriptSemanticTokens.ts` — table/column names from `schemaCache` in SQL blocks only; call `refreshFoxscriptSemanticTokens` when cache changes.
+- **Execution**: still maps to existing `execute` / statement text. Do **not** replace the runner with a plan interpreter unless behavior-preserving. Deferred: `@python`, “never execute raw source”.
+- **Monarch flag**: module-local ready flag only — never write onto Monaco ESM exports.
 
 ## New in 0.1.100+ (learn these)
 
@@ -60,10 +69,10 @@ FoxSchema = schema diff/migration + SQL Editor. Destinations checklist, Schema e
 - VIEW/PROCEDURE/FUNCTION → `objectSourceScript` into editor (view-only).
 - DataGrid light paper tokens (`--fox-grid-*`).
 - Vite: `host: true`, `strictPort: true`, `allowedHosts: true`; `index.html` dark inline shell.
-- **JS cell highlighting**: `ensureFoxschemaSqlLanguage` must use a **module-local** ready flag — writing `__foxschemaSqlLanguageRegistered` onto the Monaco ESM namespace throws (`Cannot assign to property … of [object Module]`), which aborted the upgrade to `foxschema-sql` and left plain SQL colors (no JS keyword colors).
+- **JS cell highlighting**: `ensureFoxschemaSqlLanguage` must use a **module-local** ready flag — never write onto Monaco ESM exports (throws and leaves plain SQL colors).
 
 ## Gotchas
 - Prefer **Node 24** (`AGENTS.md`). After switching Node, `npm rebuild better-sqlite3`.
 - Do not commit `foxflow.sqlite*` or `apps/e2e/.env`.
-- Vitest baseline on tip: **607 passed**, 2 skipped.
-- Skipped larger follow-ups: batch N×M `/sql/execute`; `sql.transaction()`; shared `liveConnectionIds` helper.
+- Vitest baseline on tip: **607 passed**, 2 skipped (+ FoxScript AST tests).
+- Skipped larger follow-ups: batch N×M `/sql/execute`; `sql.transaction()`; shared `liveConnectionIds` helper; FoxScript TS worker diagnostics; `@python`.

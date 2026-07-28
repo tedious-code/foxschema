@@ -4,14 +4,24 @@ import {
   MONACO_THEME,
   MONACO_THEME_LIGHT,
   monacoLanguage,
-  FOXSCHEMA_SQL_LANG,
+  FOXSCRIPT_LANG,
   MONACO_EDITOR_BASE_OPTIONS,
 } from '../../monaco-setup';
 import { ensureFoxschemaSqlLanguage } from '../../lib/foxschemaSqlLanguage';
+import {
+  disposeFoxscriptVirtualDocs,
+  ensureFoxscriptVirtualProviders,
+  syncFoxscriptVirtualDocs,
+} from '../../lib/foxscriptVirtualDocs';
+import {
+  ensureFoxscriptSemanticTokens,
+  refreshFoxscriptSemanticTokens,
+} from '../../lib/foxscriptSemanticTokens';
 import { MONACO_FONT_PX, useUiStore } from '../../store/uiStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
 import { checkStatement, isCodeCellKind, type SplitStatement } from '../../lib/sql-splitter';
 import { ensureSqlCompletions } from './completion';
+import { applyFoxscriptMarkers, clearFoxscriptMarkers } from './foxscriptDiagnostics';
 import { setSqlInsertHandler, setSqlSelectionGetter } from './sqlEditorBridge';
 import { buildVariableHoverDecorations } from './variableHover';
 
@@ -39,6 +49,7 @@ interface Props {
 /**
  * Editable Monaco pane for the SQL Editor. Notebook-style cell banding spans
  * each statement's line range; the glyph margin shows ✓ / ⚠ on the first line.
+ * Model language is FoxScript (`foxscript`) once Monarch + packs load.
  */
 export const SqlEditorPane: React.FC<Props> = ({
   value,
@@ -62,6 +73,7 @@ export const SqlEditorPane: React.FC<Props> = ({
   const fontSizePref = useUiStore((s) => s.fontSize);
   const monacoFontSize = MONACO_FONT_PX[fontSizePref] ?? MONACO_FONT_PX.md;
   const variables = useSqlEditorStore((s) => s.variables);
+  const schemaCache = useSqlEditorStore((s) => s.schemaCache);
   const [editorLanguage, setEditorLanguage] = useState(() => monacoLanguage(dialect));
 
   const editorOptions = useMemo(
@@ -73,6 +85,7 @@ export const SqlEditorPane: React.FC<Props> = ({
       tabSize: 2,
       quickSuggestions: { other: true, comments: false, strings: false },
       suggestOnTriggerCharacters: true,
+      'semanticHighlighting.enabled': true,
     }),
     [monacoFontSize]
   );
@@ -140,6 +153,12 @@ export const SqlEditorPane: React.FC<Props> = ({
       varDecoRef.current =
         varDecos.length > 0 ? editor.createDecorationsCollection(varDecos) : null;
     }
+
+    const model = editor.getModel?.();
+    if (monaco && model) {
+      applyFoxscriptMarkers(monaco, model);
+      syncFoxscriptVirtualDocs(monaco, model);
+    }
   };
 
   // Re-decorate (debounced) whenever the buffer, splits, or variables change.
@@ -150,6 +169,11 @@ export const SqlEditorPane: React.FC<Props> = ({
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [value, statements, variables]);
+
+  // Schema load → refresh table/column semantic tokens.
+  useEffect(() => {
+    refreshFoxscriptSemanticTokens();
+  }, [schemaCache]);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -172,12 +196,19 @@ export const SqlEditorPane: React.FC<Props> = ({
     return () => {
       setSqlInsertHandler(null);
       setSqlSelectionGetter(null);
+      const editor = editorRef.current;
+      const monaco = monacoRef.current;
+      const model = editor?.getModel?.();
+      if (monaco && model) {
+        clearFoxscriptMarkers(monaco, model);
+        disposeFoxscriptVirtualDocs(model);
+      }
     };
   }, []);
 
   useEffect(() => {
     setEditorLanguage((prev) =>
-      prev === FOXSCHEMA_SQL_LANG ? prev : monacoLanguage(dialect)
+      prev === FOXSCRIPT_LANG ? prev : monacoLanguage(dialect)
     );
   }, [dialect]);
 
@@ -192,12 +223,18 @@ export const SqlEditorPane: React.FC<Props> = ({
         editorRef.current = editor;
         monacoRef.current = monaco;
         ensureSqlCompletions(monaco);
-        // Upgrade to SQL+JS/TS highlighting after packs load (never block mount).
+        ensureFoxscriptVirtualProviders(monaco);
+        ensureFoxscriptSemanticTokens(monaco, () => useSqlEditorStore.getState().schemaCache);
+        // Upgrade to FoxScript (SQL+JS/TS) highlighting after packs load.
         void ensureFoxschemaSqlLanguage(monaco).then((ok) => {
           if (!ok) return;
-          setEditorLanguage(FOXSCHEMA_SQL_LANG);
+          setEditorLanguage(FOXSCRIPT_LANG);
           const model = editor.getModel();
-          if (model) monaco.editor.setModelLanguage(model, FOXSCHEMA_SQL_LANG);
+          if (model) {
+            monaco.editor.setModelLanguage(model, FOXSCRIPT_LANG);
+            applyFoxscriptMarkers(monaco, model);
+            syncFoxscriptVirtualDocs(monaco, model);
+          }
         });
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => onRunRef.current?.());
         setSqlSelectionGetter(() => {

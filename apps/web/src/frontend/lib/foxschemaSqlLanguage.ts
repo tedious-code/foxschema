@@ -1,7 +1,10 @@
 import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api';
 
-/** Monaco language id for the SQL Editor (SQL + embedded JS/TS code cells). */
+/** Legacy id — kept for compatibility with existing completions / themes. */
 export const FOXSCHEMA_SQL_LANG = 'foxschema-sql';
+
+/** FoxScript document language (SQL-first + embedded code cells). */
+export const FOXSCRIPT_LANG = 'foxscript';
 
 /** Module-local flag — do NOT write onto the `monaco` namespace (ESM exports are non-extensible). */
 let foxschemaSqlLanguageReady = false;
@@ -19,11 +22,57 @@ const EMBEDDED_BODY: Monaco.languages.IMonarchLanguageRule[] = [
   [/.*$/, ''],
 ];
 
+function registerLanguageId(monaco: typeof Monaco, id: string, aliases: string[]): void {
+  if (!monaco.languages.getLanguages().some((l) => l.id === id)) {
+    monaco.languages.register({ id, aliases });
+  }
+}
+
+function applyMonarch(
+  monaco: typeof Monaco,
+  id: string,
+  sqlConf: Monaco.languages.LanguageConfiguration,
+  sqlLanguage: MonarchLang
+): void {
+  monaco.languages.setLanguageConfiguration(id, sqlConf);
+  const base = sqlLanguage;
+  const tokenizer = { ...(base.tokenizer ?? {}) } as MonarchLang['tokenizer'] &
+    Record<string, Monaco.languages.IMonarchLanguageRule[]>;
+  const root = [...(tokenizer.root ?? [])];
+
+  monaco.languages.setMonarchTokensProvider(id, {
+    ...base,
+    tokenizer: {
+      ...tokenizer,
+      root: [
+        [
+          '^[ \\t]*--[ \\t]*@@(?:node-typescript|node-ts|nodets|typescript|ts)[ \\t]*$',
+          {
+            token: 'comment.fence',
+            next: '@tsEmbedded',
+            nextEmbedded: 'text/typescript',
+          },
+        ],
+        [
+          '^[ \\t]*--[ \\t]*@@(?:javascript|js|node)[ \\t]*$',
+          {
+            token: 'comment.fence',
+            next: '@jsEmbedded',
+            nextEmbedded: 'text/javascript',
+          },
+        ],
+        ...root,
+      ],
+      jsEmbedded: EMBEDDED_BODY,
+      tsEmbedded: EMBEDDED_BODY,
+    },
+  });
+}
+
 /**
- * Register `foxschema-sql`: base SQL highlighting with JavaScript/TypeScript
- * embedded inside `-- @js` / `-- @ts` / `-- @node` / `-- @nodets` … `-- @end`.
- * Loads JS/TS language packs lazily so a hard refresh does not pull them into
- * the critical Monaco startup path.
+ * Register `foxscript` + `foxschema-sql`: SQL highlighting with JavaScript /
+ * TypeScript embedded inside `-- @js` / `-- @ts` / `-- @node` / `-- @nodets`
+ * … `-- @end`. Prefer `foxscript` as the editor model language going forward.
  */
 export async function ensureFoxschemaSqlLanguage(
   monaco: typeof Monaco
@@ -39,47 +88,10 @@ export async function ensureFoxschemaSqlLanguage(
       'monaco-editor/esm/vs/basic-languages/sql/sql'
     );
 
-    // Idempotent if a prior attempt registered before failing the old flag write.
-    if (!monaco.languages.getLanguages().some((l) => l.id === FOXSCHEMA_SQL_LANG)) {
-      monaco.languages.register({
-        id: FOXSCHEMA_SQL_LANG,
-        aliases: ['FoxSchema SQL'],
-      });
-    }
-    monaco.languages.setLanguageConfiguration(FOXSCHEMA_SQL_LANG, sqlConf);
-
-    const base = sqlLanguage as MonarchLang;
-    const tokenizer = { ...(base.tokenizer ?? {}) } as MonarchLang['tokenizer'] &
-      Record<string, Monaco.languages.IMonarchLanguageRule[]>;
-    const root = [...(tokenizer.root ?? [])];
-
-    monaco.languages.setMonarchTokensProvider(FOXSCHEMA_SQL_LANG, {
-      ...base,
-      tokenizer: {
-        ...tokenizer,
-        root: [
-          [
-            '^[ \\t]*--[ \\t]*@@(?:node-typescript|node-ts|nodets|typescript|ts)[ \\t]*$',
-            {
-              token: 'comment.fence',
-              next: '@tsEmbedded',
-              nextEmbedded: 'text/typescript',
-            },
-          ],
-          [
-            '^[ \\t]*--[ \\t]*@@(?:javascript|js|node)[ \\t]*$',
-            {
-              token: 'comment.fence',
-              next: '@jsEmbedded',
-              nextEmbedded: 'text/javascript',
-            },
-          ],
-          ...root,
-        ],
-        jsEmbedded: EMBEDDED_BODY,
-        tsEmbedded: EMBEDDED_BODY,
-      },
-    });
+    registerLanguageId(monaco, FOXSCHEMA_SQL_LANG, ['FoxSchema SQL']);
+    registerLanguageId(monaco, FOXSCRIPT_LANG, ['FoxScript']);
+    applyMonarch(monaco, FOXSCHEMA_SQL_LANG, sqlConf, sqlLanguage as MonarchLang);
+    applyMonarch(monaco, FOXSCRIPT_LANG, sqlConf, sqlLanguage as MonarchLang);
 
     foxschemaSqlLanguageReady = true;
     return true;

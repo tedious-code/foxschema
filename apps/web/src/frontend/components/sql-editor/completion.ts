@@ -17,7 +17,7 @@ const LIGHT_KEYWORDS = [
   'THEN', 'ELSE', 'END', 'CALL', 'EXECUTE', 'EXEC',
 ];
 
-const LANG_IDS = ['sql', 'pgsql', 'mysql', 'foxschema-sql'] as const;
+const LANG_IDS = ['sql', 'pgsql', 'mysql', 'foxschema-sql', 'foxscript'] as const;
 
 let registered = false;
 /** Rebuilt when schemaCache revision changes. */

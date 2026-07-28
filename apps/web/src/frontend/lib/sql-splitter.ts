@@ -80,5 +80,23 @@ export {
   makeSqlQuery,
   placeholderStyleFor,
   quoteSqlIdentifier,
+  parseFoxScript,
+  compileFoxScriptPlan,
+  foxScriptExecutableTexts,
 } from '@foxschema/core';
-export type { SqlQuery, SqlTag, RenderedSql, SqlPlaceholderStyle } from '@foxschema/core';
+export type {
+  SqlQuery,
+  SqlTag,
+  RenderedSql,
+  SqlPlaceholderStyle,
+  FoxScriptBlock,
+  FoxScriptCodeBlock,
+  FoxScriptSqlBlock,
+  FoxScriptDocument,
+  FoxScriptDiagnostic,
+  FoxScriptExecutionPlan,
+  FoxScriptPlanStep,
+  FoxScriptRange,
+  FoxScriptBlockKind,
+  CodeFenceRange,
+} from '@foxschema/core';
