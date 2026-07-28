@@ -1,43 +1,60 @@
 ---
-description: Session memory for SQL Editor work on agent branch (PR #117)
+description: Session memory for SQL Editor — data peek, Node sql bridge, FK fixes (main ≥0.1.100)
 alwaysApply: true
 ---
 
-# SQL Editor agent memory (PR #117)
+# SQL Editor agent memory (main ≥ 0.1.100)
 
-Branch: `cursor/cloud-agent-1785109452769-k0unh` · Base: `main` · PR: https://github.com/tedious-code/foxschema/pull/117
+Base: `main` · Feature merge: PR #121 (`feat/sql-editor-data-peek-and-sql-bridge`) · Blank-page harden: PR #120
 
 ## Product context
-FoxSchema = schema diff/migration tool. SQL Editor has Destination servers checklist, Schema explorer, Monaco editor, code cells (`-- @js` / `-- @ts` / `-- @node` / `-- @nodets`), and table blueprint (Indexes between PK and FKs).
+FoxSchema = schema diff/migration + SQL Editor. Destinations checklist, Schema explorer, Monaco, code cells (`-- @js` / `-- @ts` / `-- @node` / `-- @nodets`), table blueprint, bookmarks/samples.
 
-## Shipped on this branch (recent)
-- **Indexes** in table blueprint (add/edit/drop, ASC/DESC, unique, WHERE) + e2e
-- **Persist selected connections** across refresh (`schema-sync-storage` v5 IDs only; wait for rehydrate)
-- **DB2 Windows login**: `Authentication=SERVER`, ODBC brace-escape, GSKit PATH strip
-- **New table / Edit table** always visible (not hover-only)
-- **DataGrid light mode**: white paper, stronger borders, zebra (`--fox-grid-bg-stripe`)
-- **Schema ↔ Destination sync**: Schema dropdown `ensureConnectionSelected`; Dest changes move explorer onto a checked credential
-- **Run empty editor**: allowed when destinations checked (0 statement results)
-- **Run code cells with 0 destinations**: `canExecuteWithoutDestination` + `LOCAL_CODE_RUN_TARGET` (`__local__` / Local [editor]); SQL still needs a destination
-- **View / Procedure / Function source**: click name or **View source** opens definition into the editor via `setSql` (`objectSourceScript.ts`). No edit form this version. TABLE/MQT keep blueprint.
+## New in 0.1.100 (learn these)
 
-## Review findings (2026-07-28)
+### 1. Data peek (Cmd/Ctrl-click)
+- **UI**: `DataPeekPanel.tsx` — modal grids + breadcrumb; Esc closes.
+- **Trigger**: Schema explorer Cmd/Ctrl-click on TABLE / VIEW / MQT → `openDataPeek`.
+- **Queries**: `tablePreview.ts` builds SQL via `sqlTag` / `renderSqlQuery` (bound params, never string paste).
+  - `buildTablePreview` → `SELECT * FROM <quoted id>` (paging/cap from `/sql/execute`).
+  - `buildForeignKeyDrilldown` → parent WHERE with bound cell values; null if FK cols unusable.
+  - `foreignKeyLinksFor` — case-insensitive column match (Oracle/Db2 fold).
+- **Drill**: FK cell click → `drillDataPeek` stacks another grid; use **row index** (not 1-based display #).
+- **Store**: `useSqlEditorStore` `dataPeek` / `openDataPeek` / `drillDataPeek` / `closeDataPeek` / `closeDataPeekFrom`.
+- Match drilled table names both qualified (`public.customers`) and bare against schema cache.
 
-### Bugbot (fix) — addressed in /simplify
-1. **Schema sync vs password prompt** — Skip destination auto-follow while `pendingPassword.id === explorerId`.
-2. **Stale explorer id when connections empty** — Gate on `connectionsLoaded`; clear explorer id when loaded empty.
+### 2. Node `sql` bridge (`-- @node` / `-- @nodets`)
+**Design**: worker has **no DB handle**. Cell calls `sql\`...\``; worker renders to `{ text, params }` and posts `cell-query` to the API parent; parent runs SQL and replies `cell-query-result`.
 
-### Security
-No medium+ issues. Local code-cell path does not send `__local__` to `/sql/execute`; auth still via `userId` + `resolveRef`. Passwords stay session-only.
+| Piece | Role |
+| --- | --- |
+| `packages/core/.../sql-template.ts` | `sqlTag`, `renderSqlQuery`, placeholders (`$n` / `?` / `:n`), `sql.id` / `sql.values` / `sql.list` / `sql.raw` |
+| `code-cell-bridge.ts` | Message protocol + `MAX_CELL_QUERY_ROWS` (10_000) |
+| `code-cell-thread.ts` | Worker: scrub `process.env`, expose `sql` binding, proxy queries |
+| `code-cell-query.ts` | `makeCellQueryRunner` — Safe mode write check **per statement**, execute via `ConnectionFactory` |
+| `code-cell-execute.ts` | Parent worker lifecycle; **pause cell timeout while query in flight** (DB time unbounded; JS loop still timed) |
 
-## Simplify cleanup (same day)
-- `destinationIdsPatch` shared by toggle / ensure / password submit
-- Memoized `runStatements` / `canRunLocal`; `runCount` derived from resolved statements
-- Slim `ExecutionTarget` / `LOCAL_CODE_RUN_TARGET` (no fake `createdAt`, no id special-case for password)
-- Schema explorer deps use destination id list (not whole tab) to avoid SQL-edit localStorage churn
+**Semantics agents must not break**:
+- Interpolations are **bind params**, never text. Bare arrays → `IN (...)`. `sql.raw` is the only unescaped path.
+- `allowWrites: !safeMode` enforced server-side (cells can't be statically analyzed).
+- Each `await sql` is its own round trip / pooled connection — **no cross-call transactions or temp tables**.
+- Samples: `sample-node-sql-basics`, `injection-safe`, `bulk-load`, `migrate`, `chunked` in `sqlEditorSamples.ts`.
+- Browser samples must tolerate `last === null` (statement-strip solo run).
+
+### 3. FK + SQLite write correctness
+- `resolveFkReferencedColumns`: require real identifier strings (not just arity) — SQLite `PRAGMA foreign_key_list` can yield `[null]`.
+- Shared `groupForeignKeyRows` across providers (Postgres/SQL Server/Azure/Redshift/SQLite…).
+- SQLite adapter: **read-write** open, `fileMustExist: true`, use `.run()` for non-SELECT (was `.all()`-only / readonly → all writes failed).
+
+## Earlier SQL Editor memory (still true)
+- Schema ↔ Destination sync (`ensureConnectionSelected`; hold explorer while password prompt).
+- Run empty editor with destinations; pure code cells with 0 destinations (`LOCAL_CODE_RUN_TARGET`).
+- VIEW/PROCEDURE/FUNCTION → `objectSourceScript` into editor (view-only).
+- DataGrid light paper tokens (`--fox-grid-*`).
+- Vite: `host: true`, `strictPort: true`, `allowedHosts: true`; `index.html` dark inline shell.
 
 ## Gotchas
-- Agent branch binding: keep work on `cursor/cloud-agent-1785109452769-k0unh` so the user’s live UI matches the PR tip; stale Vite tabs need hard refresh.
+- Prefer **Node 24** (`AGENTS.md`). After switching Node, `npm rebuild better-sqlite3`.
 - Do not commit `foxflow.sqlite*` or `apps/e2e/.env`.
-- Prefer Node 24 (see root `AGENTS.md`).
-- Skipped larger refactors: batching N×M `/sql/execute`, cross-component `liveConnectionIds` helper.
+- Vitest baseline on tip: **607 passed**, 2 skipped.
+- Skipped larger follow-ups: batch N×M `/sql/execute`; `sql.transaction()`; shared `liveConnectionIds` helper.
