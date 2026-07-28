@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module';
 import { ConnectionOptions, DriverAdapter } from '../../interfaces/schema-provider.interface';
+import { credentialedCacheKey } from '../../cores/pool-cache';
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -25,17 +26,29 @@ class ClickHouseAdapter implements DriverAdapter {
   }
 
   async acquire(connectionString: string, options: ConnectionOptions, _pooled: boolean): Promise<any> {
-    if (this.clients.has(connectionString)) return this.clients.get(connectionString)!;
+    // ClickHouse connection strings are only http(s)://host:port — username,
+    // password, and database are separate createClient options. Keying by URL
+    // alone reused the first client for every database/user on that host.
+    const username = options.username || 'default';
+    const password = options.password || '';
+    const database = options.database || options.schema || 'default';
+    const clientKey = credentialedCacheKey({
+      connectionString,
+      username,
+      password,
+      database,
+    });
+    if (this.clients.has(clientKey)) return this.clients.get(clientKey)!;
     const { createClient } = this.load();
     const client = createClient({
       url: connectionString,
-      username: options.username || 'default',
-      password: options.password || '',
-      database: options.database || options.schema || 'default',
+      username,
+      password,
+      database,
       request_timeout: options.timeout?.queryMs ?? 30000,
       compression: { response: true, request: false },
     });
-    this.clients.set(connectionString, client);
+    this.clients.set(clientKey, client);
     return client;
   }
 

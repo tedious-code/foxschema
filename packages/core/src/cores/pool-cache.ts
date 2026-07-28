@@ -11,8 +11,39 @@ export type PoolDispose<T> = (pool: T) => void | Promise<void>;
 const DEFAULT_MAX_POOLS = 16;
 const DEFAULT_IDLE_TTL_MS = 10 * 60 * 1000;
 
+/**
+ * Non-secret fingerprint for cache partitioning (djb2). Distinguishes different
+ * passwords without embedding plaintext in logs or debug output.
+ */
+export function nonSecretFingerprint(value: string): string {
+  let h = 5381;
+  for (let i = 0; i < value.length; i++) {
+    h = ((h << 5) + h) ^ value.charCodeAt(i);
+  }
+  return (h >>> 0).toString(16);
+}
+
+/**
+ * Cache key for adapters whose connection string omits username/password/database
+ * (Oracle Easy Connect, ClickHouse HTTP URL). Including a password fingerprint
+ * prevents wrong-password reuse of an existing authenticated pool/client.
+ */
+export function credentialedCacheKey(parts: {
+  connectionString: string;
+  username?: string;
+  password?: string;
+  database?: string;
+}): string {
+  const u = parts.username ?? '';
+  const db = parts.database ?? '';
+  const pw = nonSecretFingerprint(parts.password ?? '');
+  return `${parts.connectionString}|u:${u}|db:${db}|pw:${pw}`;
+}
+
 export class BoundedPoolCache<T> {
   private readonly entries = new Map<string, { pool: T; lastUsed: number }>();
+  /** In-flight creations so concurrent getOrCreate for the same key share one pool. */
+  private readonly pending = new Map<string, Promise<T>>();
   private readonly maxPools: number;
   private readonly idleTtlMs: number;
   private readonly dispose: PoolDispose<T>;
@@ -48,13 +79,39 @@ export class BoundedPoolCache<T> {
     const existing = this.peek(key);
     if (existing !== undefined) return existing;
 
-    while (this.entries.size >= this.maxPools) {
-      await this.evictOldest();
-    }
+    const inflight = this.pending.get(key);
+    if (inflight) return inflight;
 
-    const pool = await create();
-    this.entries.set(key, { pool, lastUsed: Date.now() });
-    return pool;
+    const createPromise = (async () => {
+      try {
+        // Another waiter may have finished while we were scheduling.
+        const raced = this.peek(key);
+        if (raced !== undefined) return raced;
+
+        while (this.entries.size >= this.maxPools) {
+          await this.evictOldest();
+        }
+
+        const again = this.peek(key);
+        if (again !== undefined) return again;
+
+        const pool = await create();
+        const winner = this.entries.get(key);
+        if (winner) {
+          // Duplicate create (should be rare); keep the stored pool, dispose ours.
+          await Promise.resolve(this.dispose(pool));
+          winner.lastUsed = Date.now();
+          return winner.pool;
+        }
+        this.entries.set(key, { pool, lastUsed: Date.now() });
+        return pool;
+      } finally {
+        this.pending.delete(key);
+      }
+    })();
+
+    this.pending.set(key, createPromise);
+    return createPromise;
   }
 
   async clear(): Promise<void> {

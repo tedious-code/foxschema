@@ -1,6 +1,10 @@
 import { createRequire } from 'node:module';
 import { ConnectionOptions, DriverAdapter } from '../../interfaces/schema-provider.interface';
-import { BoundedPoolCache, disposePoolEndOrClose } from '../../cores/pool-cache';
+import {
+  BoundedPoolCache,
+  credentialedCacheKey,
+  disposePoolEndOrClose,
+} from '../../cores/pool-cache';
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -49,14 +53,16 @@ class OracleAdapter implements DriverAdapter {
       return { _type: 'tx', conn };
     }
 
-    // Key pools by user AND connect string. Oracle's connect string
-    // (host:port/service) carries no username — it's passed separately — and
-    // source/target routinely connect to the SAME service as DIFFERENT users
-    // (schema-per-user model, e.g. demo_a vs demo_b). Keying by connect string
-    // alone made the second user silently reuse the first user's pool, so its
-    // catalog queries ran under the wrong account and returned zero objects —
-    // the compare then reported every target object as ADDED.
-    const poolKey = `${options.username ?? ''}@${connectionString}`;
+    // Key pools by user, connect string, AND password fingerprint. Oracle's
+    // Easy Connect string (host:port/service) carries no username/password —
+    // those are passed separately. Username alone was not enough: a later
+    // request with the same user@service but a wrong/rotated password reused
+    // the authenticated pool (auth bypass / stale credentials).
+    const poolKey = credentialedCacheKey({
+      connectionString,
+      username: options.username || '',
+      password: options.password || '',
+    });
     const pool = await this.pools.getOrCreate(poolKey, () =>
       oracledb.createPool({
         user: options.username || '',
