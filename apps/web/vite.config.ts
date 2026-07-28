@@ -28,6 +28,9 @@ export default defineConfig({
     // makes http://127.0.0.1:5173 fail with ERR_CONNECTION_REFUSED.
     host: true,
     port: 5173,
+    // Cursor / cloud port-forwards send a non-localhost Host header; Vite 8
+    // rejects those with 403 ("Blocked request…") → blank page in the browser.
+    allowedHosts: true,
     proxy: {
       '/api': {
         target: 'http://localhost:3001',
