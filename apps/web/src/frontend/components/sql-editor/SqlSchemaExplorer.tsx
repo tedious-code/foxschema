@@ -46,6 +46,10 @@ function writeStoredExplorerId(id: string): void {
 /**
  * Slim schema tree for the SQL Editor. Categorized TABLE / VIEW / MQT /
  * PROCEDURE / FUNCTION — click a name to insert at the Monaco cursor.
+ *
+ * The connection dropdown stays in sync with Destination servers: picking a
+ * schema credential checks it as a destination, and changing destinations
+ * moves the explorer onto a checked credential when needed.
  */
 export const SqlSchemaExplorer = forwardRef<SqlSchemaExplorerHandle>(function SqlSchemaExplorer(
   _props,
@@ -182,6 +186,8 @@ export const SqlSchemaExplorer = forwardRef<SqlSchemaExplorerHandle>(function Sq
               onChange={(e) => selectExplorerId(e.target.value)}
               className="flex-1 min-w-0 bg-slate-950/80 border border-slate-700 rounded-md px-2 py-1 text-[12px] font-semibold text-slate-200 outline-none focus:border-cyan-600"
               aria-label="Schema connection"
+              data-testid="sql-schema-connection"
+              title="Schema for this connection — stays in sync with Destination servers"
             >
               {connections.map((c) => (
                 <option key={c.id} value={c.id}>
