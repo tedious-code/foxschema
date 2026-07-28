@@ -2,7 +2,6 @@ import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useState } 
 import { ChevronDown, ChevronRight, Columns3, Loader2, Plus, RefreshCw } from 'lucide-react';
 import { useSyncStore } from '../../store/useSyncStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
-import { effectiveConnectionIds } from '../../store/sqlEditorTabLogic';
 import { getProviderSettings } from '../../lib/provider-settings';
 import { TYPE_META } from '../SchemaTreePanel';
 import { filterCallParameters, insertAtCursor } from './sqlEditorBridge';
@@ -64,14 +63,15 @@ export const SqlSchemaExplorer = forwardRef<SqlSchemaExplorerHandle>(function Sq
   const shareDestinations = useSqlEditorStore((s) => s.shareDestinations);
   const sharedConnectionIds = useSqlEditorStore((s) => s.sharedConnectionIds);
   const ensureConnectionSelected = useSqlEditorStore((s) => s.ensureConnectionSelected);
+  const pendingPasswordId = useSqlEditorStore((s) => s.pendingPassword?.id);
 
   const tab = tabs.find((t) => t.id === activeTabId) ?? tabs[0]!;
+  const selectedDestinationIds = shareDestinations
+    ? sharedConnectionIds
+    : tab.selectedConnectionIds;
   const preferredIds = useMemo(
-    () =>
-      effectiveConnectionIds(tab, shareDestinations, sharedConnectionIds).filter((id) =>
-        connections.some((c) => c.id === id)
-      ),
-    [tab, shareDestinations, sharedConnectionIds, connections]
+    () => selectedDestinationIds.filter((id) => connections.some((c) => c.id === id)),
+    [selectedDestinationIds, connections]
   );
 
   const [explorerId, setExplorerId] = useState<string>(() => readStoredExplorerId());
@@ -89,7 +89,6 @@ export const SqlSchemaExplorer = forwardRef<SqlSchemaExplorerHandle>(function Sq
   const selectExplorerId = (id: string) => {
     setExplorerId(id);
     writeStoredExplorerId(id);
-    // Keep Destination servers aligned with the Schema menu selection.
     if (id) ensureConnectionSelected(id);
   };
 
@@ -101,25 +100,33 @@ export const SqlSchemaExplorer = forwardRef<SqlSchemaExplorerHandle>(function Sq
   useImperativeHandle(ref, () => ({ openCreateTable }), []);
 
   useEffect(() => {
-    // After refresh, connections starts [] until loadConnections finishes.
-    // Do not clear a persisted explorerId during that empty-list window.
-    if (connections.length === 0) return;
+    if (!connectionsLoaded) return;
 
-    // Stay on the current Schema selection when it is still a checked destination.
+    if (connections.length === 0) {
+      if (explorerId) {
+        setExplorerId('');
+        writeStoredExplorerId('');
+      }
+      return;
+    }
+
+    // Keep explorer on a password-pending credential until the prompt resolves.
+    if (pendingPasswordId && pendingPasswordId === explorerId) return;
+
     if (explorerId && preferredIds.includes(explorerId)) {
       writeStoredExplorerId(explorerId);
       return;
     }
 
-    // Destination checklist changed — follow the first checked credential.
     if (preferredIds.length > 0) {
       const next = preferredIds[0]!;
-      if (next !== explorerId) setExplorerId(next);
-      writeStoredExplorerId(next);
+      if (next !== explorerId) {
+        setExplorerId(next);
+        writeStoredExplorerId(next);
+      }
       return;
     }
 
-    // No destinations checked: keep a valid explorer id when possible.
     if (explorerId && connections.some((c) => c.id === explorerId)) {
       writeStoredExplorerId(explorerId);
       return;
@@ -132,7 +139,8 @@ export const SqlSchemaExplorer = forwardRef<SqlSchemaExplorerHandle>(function Sq
       '';
     if (next !== explorerId) setExplorerId(next);
     if (next) writeStoredExplorerId(next);
-  }, [connections, preferredIds, explorerId]);
+    else writeStoredExplorerId('');
+  }, [connectionsLoaded, connections, preferredIds, explorerId, pendingPasswordId]);
 
   useEffect(() => {
     if (!explorerId) return;

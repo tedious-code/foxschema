@@ -13,6 +13,7 @@ import {
   statementsFromSelection,
   canExecuteWithoutDestination,
   resolveRunStatements,
+  destinationIdsPatch,
   toggleStatementCheck,
 } from './sqlEditorTabLogic';
 
@@ -133,5 +134,20 @@ SELECT 2 AS id;`;
     const tab = createTab({ selectedConnectionIds: ['a'] });
     expect(effectiveConnectionIds(tab, false, ['b'])).toEqual(['a']);
     expect(effectiveConnectionIds(tab, true, ['b', 'c'])).toEqual(['b', 'c']);
+  });
+
+  it('destinationIdsPatch writes shared or active-tab ids', () => {
+    const a = createTab({ title: 'A', selectedConnectionIds: ['x'] });
+    const b = createTab({ title: 'B', selectedConnectionIds: ['y'] });
+    expect(destinationIdsPatch(true, [a, b], a.id, ['p', 'q'])).toEqual({
+      sharedConnectionIds: ['p', 'q'],
+    });
+    const tabPatch = destinationIdsPatch(false, [a, b], a.id, ['p']);
+    expect(tabPatch).toEqual({
+      tabs: [
+        { ...a, selectedConnectionIds: ['p'] },
+        b,
+      ],
+    });
   });
 });

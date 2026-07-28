@@ -180,6 +180,21 @@ export function effectiveConnectionIds(
   return shareDestinations ? sharedConnectionIds : tab.selectedConnectionIds;
 }
 
+/** Shared-vs-per-tab destination write used by toggle / ensure / password submit. */
+export function destinationIdsPatch(
+  shareDestinations: boolean,
+  tabs: SqlTab[],
+  activeTabId: string,
+  ids: string[]
+): { sharedConnectionIds: string[] } | { tabs: SqlTab[] } {
+  if (shareDestinations) return { sharedConnectionIds: ids };
+  return {
+    tabs: tabs.map((t) =>
+      t.id === activeTabId ? { ...t, selectedConnectionIds: ids } : t
+    ),
+  };
+}
+
 /** Persistable tab slice (no checkedStatements / statementCount / results). */
 export function persistableTabs(tabs: SqlTab[]): Array<Omit<SqlTab, 'checkedStatements' | 'statementCount'>> {
   return tabs.map(({ id, title, sql, selectedConnectionIds, layout, bookmarkId }) => ({

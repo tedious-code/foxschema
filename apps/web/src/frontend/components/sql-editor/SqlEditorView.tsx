@@ -233,20 +233,16 @@ export const SqlEditorView: React.FC = () => {
   const firstSelected = connections.find((c) => liveSelectedIds.includes(c.id));
   const dialect = firstSelected?.dialect ?? 'sql';
 
-  const runCount =
-    tab.checkedStatements.length === 0
-      ? statements.length > 0
-        ? 1
-        : 0
-      : tab.checkedStatements.filter((i) => i >= 0 && i < statements.length).length ||
-        (statements.length > 0 ? 1 : 0);
-
-  const runStatements = resolveRunStatements(
-    tab.sql,
-    tab.checkedStatements,
-    hasSelection ? getSelectedSql() : null
+  const selectedSqlForRun = hasSelection ? getSelectedSql() : null;
+  const runStatements = useMemo(
+    () => resolveRunStatements(tab.sql, tab.checkedStatements, selectedSqlForRun),
+    [tab.sql, tab.checkedStatements, selectedSqlForRun]
   );
-  const canRunLocal = canExecuteWithoutDestination(runStatements);
+  const canRunLocal = useMemo(
+    () => canExecuteWithoutDestination(runStatements),
+    [runStatements]
+  );
+  const runCount = runStatements.length;
   const canRun = !runningTabId && (liveSelectedIds.length > 0 || canRunLocal);
   const runTitle = liveSelectedIds.length
     ? hasSelection
@@ -255,7 +251,7 @@ export const SqlEditorView: React.FC = () => {
         ? `Run with empty editor against ${liveSelectedIds.length} server(s)  (⌘/Ctrl+Enter)`
         : `Run ${runCount} statement(s) against ${liveSelectedIds.length} server(s)  (⌘/Ctrl+Enter)`
     : canRunLocal
-      ? `Run ${runStatements.length} code cell(s) locally — no destination needed  (⌘/Ctrl+Enter)`
+      ? `Run ${runCount} code cell(s) locally — no destination needed  (⌘/Ctrl+Enter)`
       : 'Check at least one destination server to run SQL, or use a JS/TS/Node code cell';
 
   const onReveal = (stmt: SplitStatement) => {
