@@ -7,13 +7,13 @@ import { Brand } from './Brand';
 // Support both default and named exports (avoids blank-page Vite/HMR mismatches).
 import ProfileMenuDefault, { ProfileMenu as ProfileMenuNamed } from './ProfileMenu';
 import { CredentialManager } from './CredentialManager';
-
-const ProfileMenu = ProfileMenuNamed ?? ProfileMenuDefault;
 import { MigrationHistory } from './MigrationHistory';
 import { TYPE_META, TYPE_ORDER } from './SchemaTreePanel';
 import type { DbObjectType } from '../lib/types';
 import { PROVIDER_SETTINGS } from '../lib/provider-settings';
 import { ConnectionModal } from './ConnectionModal';
+
+const ProfileMenu = ProfileMenuNamed ?? ProfileMenuDefault;
 
 const dialectOptions = Object.values(PROVIDER_SETTINGS);
 
