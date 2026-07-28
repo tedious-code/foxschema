@@ -690,7 +690,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         const rawStatements = selectedSql
           ? statementsFromSelection(selectedSql)
           : statementsToRun(tab.sql, tab.checkedStatements);
-        if (rawStatements.length === 0) return;
+        // Empty editor / selection is allowed — completes with 0 statement results.
 
         // Safe mode: confirm on stripped SQL (ignore @set lines; vars may resolve mid-run).
         const strippedForConfirm = rawStatements.map((s) => parseSetDirectives(s).sql);

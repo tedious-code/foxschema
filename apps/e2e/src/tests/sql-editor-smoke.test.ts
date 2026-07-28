@@ -46,7 +46,7 @@ describe('SQL Editor smoke', () => {
     expect(await sql.tabCount()).toBe(before + 1);
   });
 
-  it('Run stays disabled with no SQL / no checked connections', async () => {
+  it('Run stays disabled with no checked connections', async () => {
     const btn = driver.locator('[data-testid="sql-run-btn"]');
     expect(await btn.isDisabled()).toBe(true);
   });

@@ -241,13 +241,13 @@ export const SqlEditorView: React.FC = () => {
       : tab.checkedStatements.filter((i) => i >= 0 && i < statements.length).length ||
         (statements.length > 0 ? 1 : 0);
 
-  const canRun = !runningTabId && liveSelectedIds.length > 0 && (hasSelection || runCount > 0);
+  const canRun = !runningTabId && liveSelectedIds.length > 0;
   const runTitle = !liveSelectedIds.length
     ? 'Check at least one destination server to run against'
     : hasSelection
       ? 'Run the selected SQL  (⌘/Ctrl+Enter)'
       : !runCount
-        ? 'Write a SQL statement first'
+        ? `Run with empty editor against ${liveSelectedIds.length} server(s)  (⌘/Ctrl+Enter)`
         : `Run ${runCount} statement(s) against ${liveSelectedIds.length} server(s)  (⌘/Ctrl+Enter)`;
 
   const onReveal = (stmt: SplitStatement) => {
