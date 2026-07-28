@@ -1,5 +1,5 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Columns3, Loader2, Plus, RefreshCw } from 'lucide-react';
+import { ChevronDown, ChevronRight, Columns3, FileCode2, Loader2, Plus, RefreshCw } from 'lucide-react';
 import { useSyncStore } from '../../store/useSyncStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
 import { getProviderSettings } from '../../lib/provider-settings';
@@ -8,6 +8,7 @@ import { filterCallParameters, insertAtCursor } from './sqlEditorBridge';
 import type { DbObjectType, TableSchema } from '../../lib/types';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
 import { TableBlueprintModal, type BlueprintMode } from './TableBlueprintModal';
+import { isScriptableObject, objectSourceScript } from './objectSourceScript';
 
 /** Imperative API for the Schema section header (New table). */
 export interface SqlSchemaExplorerHandle {
@@ -44,7 +45,11 @@ function writeStoredExplorerId(id: string): void {
 
 /**
  * Slim schema tree for the SQL Editor. Categorized TABLE / VIEW / MQT /
- * PROCEDURE / FUNCTION — click a name to insert at the Monaco cursor.
+ * PROCEDURE / FUNCTION.
+ *
+ * TABLE / MQT: click inserts the name; Edit table opens the blueprint.
+ * VIEW / PROCEDURE / FUNCTION: click opens the source script in the editor
+ * (view-only — no edit form in this version).
  *
  * The connection dropdown stays in sync with Destination servers: picking a
  * schema credential checks it as a destination, and changing destinations
@@ -64,6 +69,7 @@ export const SqlSchemaExplorer = forwardRef<SqlSchemaExplorerHandle>(function Sq
   const sharedConnectionIds = useSqlEditorStore((s) => s.sharedConnectionIds);
   const ensureConnectionSelected = useSqlEditorStore((s) => s.ensureConnectionSelected);
   const pendingPasswordId = useSqlEditorStore((s) => s.pendingPassword?.id);
+  const setSql = useSqlEditorStore((s) => s.setSql);
 
   const tab = tabs.find((t) => t.id === activeTabId) ?? tabs[0]!;
   const selectedDestinationIds = shareDestinations
@@ -309,6 +315,11 @@ export const SqlSchemaExplorer = forwardRef<SqlSchemaExplorerHandle>(function Sq
                                 }
                               : undefined
                           }
+                          onOpenSource={
+                            isScriptableObject(t.objectType)
+                              ? () => setSql(objectSourceScript(t, conn?.dialect ?? 'sql'))
+                              : undefined
+                          }
                         />
                       ))}
                     </div>
@@ -342,7 +353,8 @@ const ObjectNode: React.FC<{
   onToggle: () => void;
   dialect: string;
   onOpenBlueprint?: () => void;
-}> = ({ table, open, onToggle, dialect, onOpenBlueprint }) => {
+  onOpenSource?: () => void;
+}> = ({ table, open, onToggle, dialect, onOpenBlueprint, onOpenSource }) => {
   const meta = TYPE_META[table.objectType] ?? TYPE_META.TABLE;
   const insertName = quoteIfNeeded(table.name, dialect);
   const isRoutine = table.objectType === 'PROCEDURE' || table.objectType === 'FUNCTION';
@@ -350,6 +362,7 @@ const ObjectNode: React.FC<{
   const columns = !isRoutine
     ? (table.columns ?? []).map((c) => ({ name: c.name, detail: c.type }))
     : [];
+  const opensSource = Boolean(onOpenSource);
 
   const insertObject = () => {
     if (isRoutine) {
@@ -357,6 +370,14 @@ const ObjectNode: React.FC<{
       return;
     }
     insertAtCursor(`${insertName} `);
+  };
+
+  const onNameClick = () => {
+    if (onOpenSource) {
+      onOpenSource();
+      return;
+    }
+    insertObject();
   };
 
   const insertIdent = (name: string) => {
@@ -380,12 +401,15 @@ const ObjectNode: React.FC<{
         </button>
         <button
           type="button"
+          data-testid={opensSource ? 'sql-open-object-source' : undefined}
           title={
-            isRoutine
-              ? `Insert ${table.name}(${params.map((p) => `${p.mode} ${p.name}`).join(', ')})`
-              : `Insert ${table.name}`
+            opensSource
+              ? `Open ${table.objectType.toLowerCase()} source in editor`
+              : isRoutine
+                ? `Insert ${table.name}(${params.map((p) => `${p.mode} ${p.name}`).join(', ')})`
+                : `Insert ${table.name}`
           }
-          onClick={insertObject}
+          onClick={onNameClick}
           className="flex-1 flex items-center gap-1.5 min-w-0 text-left text-[13px] font-semibold text-slate-200 hover:text-cyan-300 py-1 truncate"
         >
           <span className="shrink-0">{meta.icon}</span>
@@ -410,6 +434,21 @@ const ObjectNode: React.FC<{
         >
           <Columns3 className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
           Edit table
+        </button>
+      )}
+      {opensSource && (
+        <button
+          type="button"
+          title="Open source script in the editor (view only)"
+          data-testid="sql-open-object-source-btn"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenSource?.();
+          }}
+          className="ml-6 mb-0.5 inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold text-sky-200 bg-sky-950/60 border border-sky-600/50 hover:bg-sky-900/70 transition"
+        >
+          <FileCode2 className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+          View source
         </button>
       )}
       {open && isRoutine && params.length === 0 && (
