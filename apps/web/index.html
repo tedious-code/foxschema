@@ -1,10 +1,14 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" style="background:#020617">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Fox Schema</title>
+    <!-- Inline so the first paint is never a white flash before CSS/JS load. -->
+    <style>
+      html, body { margin: 0; background: #020617; color: #94a3b8; }
+    </style>
   </head>
   <body>
     <!-- Visible until React mounts. If this stays forever, JS failed to load. -->

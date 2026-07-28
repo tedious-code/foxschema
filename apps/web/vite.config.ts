@@ -28,6 +28,8 @@ export default defineConfig({
     // makes http://127.0.0.1:5173 fail with ERR_CONNECTION_REFUSED.
     host: true,
     port: 5173,
+    // Don't silently hop to 5174+ — Cursor / agent previews pin :5173.
+    strictPort: true,
     // Cursor / cloud port-forwards send a non-localhost Host header; Vite 8
     // rejects those with 403 ("Blocked request…") → blank page in the browser.
     allowedHosts: true,
