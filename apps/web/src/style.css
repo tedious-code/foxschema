@@ -404,12 +404,12 @@ mark.fox-search-hl {
 
 [data-theme='light'] .fox-sql-grid {
   --fox-grid-bg: #ffffff;
-  --fox-grid-bg-stripe: #f1f5f9;
-  --fox-grid-bg-header: #e2e8f0;
-  --fox-grid-bg-hover: #e0f2fe;
-  --fox-grid-bg-header-active: #cbd5e1;
-  --fox-grid-border: #94a3b8;
-  --fox-grid-border-soft: #cbd5e1;
+  --fox-grid-bg-stripe: #e2e8f0;
+  --fox-grid-bg-header: #cbd5e1;
+  --fox-grid-bg-hover: #bae6fd;
+  --fox-grid-bg-header-active: #94a3b8;
+  --fox-grid-border: #64748b;
+  --fox-grid-border-soft: #94a3b8;
   --fox-grid-ink: #0f172a;
-  --fox-grid-muted: #475569;
+  --fox-grid-muted: #334155;
 }
