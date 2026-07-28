@@ -8,7 +8,8 @@ const FLAG = '__foxschemaSqlLanguageRegistered';
 type MonarchLang = Monaco.languages.IMonarchLanguage;
 
 const FENCE_END_RULE: Monaco.languages.IMonarchLanguageRule = [
-  /^[ \t]*--[ \t]*@end[ \t]*$/,
+  // String form + `@@` so Monarch treats `@` as literal (not an attribute ref).
+  '^[ \\t]*--[ \\t]*@@end[ \\t]*$',
   { token: 'comment.fence', next: '@pop', nextEmbedded: '@pop' },
 ];
 
@@ -55,7 +56,7 @@ export async function ensureFoxschemaSqlLanguage(
         ...tokenizer,
         root: [
           [
-            /^[ \t]*--[ \t]*@(?:node-typescript|node-ts|nodets|typescript|ts)[ \t]*$/,
+            '^[ \\t]*--[ \\t]*@@(?:node-typescript|node-ts|nodets|typescript|ts)[ \\t]*$',
             {
               token: 'comment.fence',
               next: '@tsEmbedded',
@@ -63,7 +64,7 @@ export async function ensureFoxschemaSqlLanguage(
             },
           ],
           [
-            /^[ \t]*--[ \t]*@(?:javascript|js|node)[ \t]*$/,
+            '^[ \\t]*--[ \\t]*@@(?:javascript|js|node)[ \\t]*$',
             {
               token: 'comment.fence',
               next: '@jsEmbedded',

@@ -1,9 +1,9 @@
-import React, { useEffect } from 'react';
+import React, { Suspense, lazy, useEffect } from 'react';
 import { TopToolbar } from './components/TopToolbar';
 import { SchemaTreePanel } from './components/SchemaTreePanel';
 import { ObjectDetailPanel } from './components/ObjectDetailPanel';
-import { SqlEditorView } from './components/sql-editor/SqlEditorView';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { LoadingScreen } from './components/LoadingScreen';
 import { AuthPage } from './components/AuthPage';
 import { OnboardingWizard } from './components/OnboardingWizard';
 import { useSyncStore } from './store/useSyncStore';
@@ -11,6 +11,10 @@ import { useAuthStore } from './store/authStore';
 import { useUiStore } from './store/uiStore';
 import { apiGetPreferences } from './api/authApi';
 import { AlertCircle, AlertTriangle, Loader2, X } from 'lucide-react';
+
+const SqlEditorView = lazy(() =>
+  import('./components/sql-editor/SqlEditorView').then((m) => ({ default: m.SqlEditorView }))
+);
 
 const Workspace: React.FC = () => {
   const { errorMsg, warnings, dismissWarnings } = useSyncStore();
@@ -48,7 +52,9 @@ const Workspace: React.FC = () => {
       <main className="flex-1 flex min-h-0 overflow-hidden">
         {activeView === 'sqlEditor' ? (
           <ErrorBoundary>
-            <SqlEditorView />
+            <Suspense fallback={<LoadingScreen />}>
+              <SqlEditorView />
+            </Suspense>
           </ErrorBoundary>
         ) : (
           <>
