@@ -10,7 +10,7 @@ import {
 import { ensureFoxschemaSqlLanguage } from '../../lib/foxschemaSqlLanguage';
 import { MONACO_FONT_PX, useUiStore } from '../../store/uiStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
-import { checkStatement, type SplitStatement } from '../../lib/sql-splitter';
+import { checkStatement, isCodeCellKind, type SplitStatement } from '../../lib/sql-splitter';
 import { ensureSqlCompletions } from './completion';
 import { setSqlInsertHandler, setSqlSelectionGetter } from './sqlEditorBridge';
 import { buildVariableHoverDecorations } from './variableHover';
@@ -37,10 +37,8 @@ interface Props {
 }
 
 /**
- * Editable Monaco pane for the SQL Editor. Uses parent-provided statement
- * splits and decorates each statement's first line with a gutter icon: green ✓
- * = looks complete, amber ⚠ = incomplete (unclosed quote/parens, missing final
- * `;`, unknown leading keyword). Heuristic only — not validation.
+ * Editable Monaco pane for the SQL Editor. Notebook-style cell banding spans
+ * each statement's line range; the glyph margin shows ✓ / ⚠ on the first line.
  */
 export const SqlEditorPane: React.FC<Props> = ({
   value,
@@ -92,26 +90,47 @@ export const SqlEditorPane: React.FC<Props> = ({
     if (!stmts.length) {
       decoRef.current = null;
     } else {
-      decoRef.current = editor.createDecorationsCollection(
-        stmts.map((stmt) => {
-          const status = checkStatement(stmt);
-          const ok = status.level === 'ok';
-          return {
-            range: {
-              startLineNumber: stmt.startLine,
-              startColumn: 1,
-              endLineNumber: stmt.startLine,
-              endColumn: 1,
+      const decorations: object[] = [];
+      for (const stmt of stmts) {
+        const status = checkStatement(stmt);
+        const ok = status.level === 'ok';
+        const code = isCodeCellKind(stmt.kind);
+        decorations.push({
+          range: {
+            startLineNumber: stmt.startLine,
+            startColumn: 1,
+            endLineNumber: stmt.startLine,
+            endColumn: 1,
+          },
+          options: {
+            glyphMarginClassName: ok ? 'fox-stmt-glyph-ok' : 'fox-stmt-glyph-warn',
+            glyphMarginHoverMessage: {
+              value: ok
+                ? code
+                  ? 'Code cell looks complete — use the strip ▶ to run this cell'
+                  : 'Statement looks complete — use the strip ▶ to run this cell'
+                : status.reasons.join(' · '),
             },
-            options: {
-              glyphMarginClassName: ok ? 'fox-stmt-glyph-ok' : 'fox-stmt-glyph-warn',
-              glyphMarginHoverMessage: {
-                value: ok ? 'Statement looks complete' : status.reasons.join(' · '),
-              },
-            },
-          };
-        })
-      );
+            stickiness: 1,
+          },
+        });
+        // Whole-cell band (Jupyter-like visual boundary in the single buffer).
+        decorations.push({
+          range: {
+            startLineNumber: stmt.startLine,
+            startColumn: 1,
+            endLineNumber: stmt.endLine,
+            endColumn: 1,
+          },
+          options: {
+            isWholeLine: true,
+            className: code ? 'fox-cell-band-code' : 'fox-cell-band-sql',
+            linesDecorationsClassName: code ? 'fox-cell-edge-code' : 'fox-cell-edge-sql',
+            stickiness: 1,
+          },
+        });
+      }
+      decoRef.current = editor.createDecorationsCollection(decorations);
     }
 
     varDecoRef.current?.clear?.();

@@ -10,7 +10,15 @@ Base: `main` · Feature merge: PR #121 (`feat/sql-editor-data-peek-and-sql-bridg
 ## Product context
 FoxSchema = schema diff/migration + SQL Editor. Destinations checklist, Schema explorer, Monaco, code cells (`-- @js` / `-- @ts` / `-- @node` / `-- @nodets`), table blueprint, bookmarks/samples.
 
-## New in 0.1.100 (learn these)
+## New in 0.1.100+ (learn these)
+
+### Notebook-style cells (Monaco + strip)
+- **One Monaco buffer** still; `splitSqlStatements` defines cells.
+- **Cell banding** in Monaco: `.fox-cell-band-sql` / `.fox-cell-band-code` + left edge.
+- **Statement strip**: Jupyter-like `In [n]:`, kind badge, per-cell **▶** → `execute({ statementIndices: [i] })`.
+- Toolbar Run still uses strip checkboxes / selection; per-cell Play ignores both.
+- Results side-by-side labels: `Out [n]: …` (`sql-result-stmt-${i}`).
+- Password / Safe-mode confirm preserve `statementIndices` on resume.
 
 ### 1. Data peek (Cmd/Ctrl-click)
 - **UI**: `DataPeekPanel.tsx` — modal grids + breadcrumb; Esc closes.

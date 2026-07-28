@@ -63,12 +63,16 @@ describe('sqlEditorTabLogic', () => {
     expect(checkedAfterSqlChange(2, 2, [0, 9])).toEqual([0]);
   });
 
-  it('statementsToRun uses first statement when none checked', () => {
+  it('statementsToRun supports single-index per-cell Play', () => {
     const sql = 'SELECT 1; SELECT 2; SELECT 3;';
-    expect(statementsToRun(sql, [])).toEqual(['SELECT 1;']);
-    expect(statementsToRun(sql, [2, 0])).toEqual(['SELECT 1;', 'SELECT 3;']);
-    expect(statementsToRun(sql, [99])).toEqual(['SELECT 1;']);
-    expect(statementsToRun('', [])).toEqual([]);
+    expect(statementsToRun(sql, [1])).toEqual(['SELECT 2;']);
+  });
+
+  it('resolveRunStatements ignores selection when caller already narrowed checks', () => {
+    // Per-cell Play uses statementsToRun directly; resolve still prefers selection.
+    const sql = 'SELECT 1; SELECT 2;';
+    expect(resolveRunStatements(sql, [1], null)).toEqual(['SELECT 2;']);
+    expect(resolveRunStatements(sql, [1], 'SELECT 9')).toEqual(['SELECT 9']);
   });
 
   it('statementsToRun keeps inter-statement -- @set on the following statement', () => {

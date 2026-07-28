@@ -583,8 +583,10 @@ export const SqlEditorView: React.FC = () => {
           <StatementStrip
             statements={statements}
             checked={tab.checkedStatements}
+            running={running}
             onToggle={toggleStatement}
             onReveal={onReveal}
+            onRunCell={(index) => void execute({ statementIndices: [index] })}
           />
 
           <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
@@ -614,6 +616,7 @@ export const SqlEditorView: React.FC = () => {
             execute({
               confirmedWrites: true,
               connectionIds: pendingWriteConfirm.connectionIds,
+              statementIndices: pendingWriteConfirm.statementIndices,
             })
           }
         />

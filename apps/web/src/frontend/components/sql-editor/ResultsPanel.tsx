@@ -50,10 +50,10 @@ function bindAxisDrag(cursor: string, onMove: (ev: MouseEvent) => void): void {
 const statementLabel = (sql: string, index: number): string => {
   const cell = detectCodeCell(sql);
   if (cell) {
-    return `Query ${index + 1} · ${CODE_CELL_KIND_LABEL[cell.kind].long}`;
+    return `Out [${index + 1}]: ${CODE_CELL_KIND_LABEL[cell.kind].long}`;
   }
   const compact = sql.replace(/\s+/g, ' ').trim();
-  return `Query ${index + 1} · ${compact.length > 48 ? compact.slice(0, 48) + '…' : compact}`;
+  return `Out [${index + 1}]: ${compact.length > 48 ? compact.slice(0, 48) + '…' : compact}`;
 };
 
 const credentialLabel = (run: CredentialRun): string => `${run.name} [${run.dialect}]`;
@@ -361,8 +361,12 @@ export const ResultsPanel: React.FC<Props> = ({
             });
           }
           return (
-            <section key={i} className="flex flex-col gap-2 min-w-0">
-              <header className="text-xs font-bold text-slate-200 shrink-0">
+            <section
+              key={i}
+              className="flex flex-col gap-2 min-w-0"
+              data-testid={`sql-result-stmt-${i}`}
+            >
+              <header className="text-xs font-bold text-slate-200 shrink-0 font-mono tracking-tight">
                 {statementLabel(statements[i] ?? '', i)}
               </header>
               <ResizablePaneRow
