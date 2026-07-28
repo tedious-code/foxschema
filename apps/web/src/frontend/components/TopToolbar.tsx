@@ -4,7 +4,7 @@ import { useSyncStore } from '../store/useSyncStore';
 import { useUiStore } from '../store/uiStore';
 import { ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, CheckCircle2, Zap, Settings, KeyRound, History, Search, X, Layers, GitCompareArrows, Terminal } from 'lucide-react';
 import { Brand } from './Brand';
-import { ProfileMenu } from './ProfileMenu';
+import ProfileMenu from './ProfileMenu';
 import { CredentialManager } from './CredentialManager';
 import { MigrationHistory } from './MigrationHistory';
 import { TYPE_META, TYPE_ORDER } from './SchemaTreePanel';

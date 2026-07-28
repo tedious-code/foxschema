@@ -1,11 +1,16 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { LogOut, Palette, ChevronDown, ArrowUpCircle, Globe } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { SettingsPanel } from './SettingsPanel';
 import { checkForUpdates, type UpdateInfo } from '../api/updatesApi';
 
-export const ProfileMenu: React.FC = () => {
+// Lazy so a SettingsPanel/HMR failure cannot empty this module's exports
+// (which surfaces as: ProfileMenu.tsx does not provide export named 'ProfileMenu').
+const SettingsPanel = lazy(() =>
+  import('./SettingsPanel').then((m) => ({ default: m.SettingsPanel }))
+);
+
+export function ProfileMenu(): React.ReactElement | null {
   const { user, logout } = useAuthStore();
   const [open, setOpen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -138,7 +143,13 @@ export const ProfileMenu: React.FC = () => {
 
       {menu}
 
-      <SettingsPanel open={showSettings} onClose={() => setShowSettings(false)} />
+      {showSettings && (
+        <Suspense fallback={null}>
+          <SettingsPanel open={showSettings} onClose={() => setShowSettings(false)} />
+        </Suspense>
+      )}
     </div>
   );
-};
+}
+
+export default ProfileMenu;
