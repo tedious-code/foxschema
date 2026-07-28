@@ -59,6 +59,7 @@ export const SqlSchemaExplorer = forwardRef<SqlSchemaExplorerHandle>(function Sq
   const ensureSchema = useSqlEditorStore((s) => s.ensureSchema);
   const shareDestinations = useSqlEditorStore((s) => s.shareDestinations);
   const sharedConnectionIds = useSqlEditorStore((s) => s.sharedConnectionIds);
+  const ensureConnectionSelected = useSqlEditorStore((s) => s.ensureConnectionSelected);
 
   const tab = tabs.find((t) => t.id === activeTabId) ?? tabs[0]!;
   const preferredIds = useMemo(
@@ -84,6 +85,8 @@ export const SqlSchemaExplorer = forwardRef<SqlSchemaExplorerHandle>(function Sq
   const selectExplorerId = (id: string) => {
     setExplorerId(id);
     writeStoredExplorerId(id);
+    // Keep Destination servers aligned with the Schema menu selection.
+    if (id) ensureConnectionSelected(id);
   };
 
   const openCreateTable = () => {
@@ -98,15 +101,29 @@ export const SqlSchemaExplorer = forwardRef<SqlSchemaExplorerHandle>(function Sq
     // Do not clear a persisted explorerId during that empty-list window.
     if (connections.length === 0) return;
 
-    if (explorerId && connections.some((c) => c.id === explorerId)) {
-      // Keep a valid selection in storage (e.g. after first hydrate).
+    // Stay on the current Schema selection when it is still a checked destination.
+    if (explorerId && preferredIds.includes(explorerId)) {
       writeStoredExplorerId(explorerId);
       return;
     }
+
+    // Destination checklist changed — follow the first checked credential.
+    if (preferredIds.length > 0) {
+      const next = preferredIds[0]!;
+      if (next !== explorerId) setExplorerId(next);
+      writeStoredExplorerId(next);
+      return;
+    }
+
+    // No destinations checked: keep a valid explorer id when possible.
+    if (explorerId && connections.some((c) => c.id === explorerId)) {
+      writeStoredExplorerId(explorerId);
+      return;
+    }
+
     const stored = readStoredExplorerId();
     const next =
       (stored && connections.some((c) => c.id === stored) ? stored : '') ||
-      preferredIds[0] ||
       connections[0]?.id ||
       '';
     if (next !== explorerId) setExplorerId(next);

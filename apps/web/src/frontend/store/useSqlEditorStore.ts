@@ -242,6 +242,12 @@ interface SqlEditorState {
   activeConnectionIds: () => string[];
   setSql: (sql: string) => void;
   toggleConnection: (id: string) => void;
+  /**
+   * Ensure a destination credential is checked for the active tab (add-only).
+   * Used to keep the Schema explorer selection aligned with Destination servers.
+   * May open the session-password prompt when the credential has no stored password.
+   */
+  ensureConnectionSelected: (id: string) => void;
   setShareDestinations: (share: boolean) => void;
   setSafeMode: (on: boolean) => void;
   toggleStatement: (index: number) => void;
@@ -373,15 +379,13 @@ export const useSqlEditorStore = create<SqlEditorState>()(
       },
 
       toggleConnection: (id) => {
-        const { tabs, activeTabId, sessionPasswords, shareDestinations, sharedConnectionIds } =
-          get();
+        const { tabs, activeTabId, shareDestinations, sharedConnectionIds } = get();
         const tab = tabs.find((t) => t.id === activeTabId);
         if (!tab) return;
 
         const current = shareDestinations ? sharedConnectionIds : tab.selectedConnectionIds;
-        const selected = current.includes(id);
-
-        const applyIds = (ids: string[]) => {
+        if (current.includes(id)) {
+          const ids = current.filter((x) => x !== id);
           if (shareDestinations) {
             set({ sharedConnectionIds: ids });
           } else {
@@ -391,12 +395,20 @@ export const useSqlEditorStore = create<SqlEditorState>()(
               ),
             });
           }
-        };
-
-        if (selected) {
-          applyIds(current.filter((x) => x !== id));
           return;
         }
+
+        get().ensureConnectionSelected(id);
+      },
+
+      ensureConnectionSelected: (id) => {
+        const { tabs, activeTabId, sessionPasswords, shareDestinations, sharedConnectionIds } =
+          get();
+        const tab = tabs.find((t) => t.id === activeTabId);
+        if (!tab || !id) return;
+
+        const current = shareDestinations ? sharedConnectionIds : tab.selectedConnectionIds;
+        if (current.includes(id)) return;
 
         const conn = useSyncStore.getState().connections.find((c) => c.id === id);
         if (conn && !conn.hasPassword && !sessionPasswords[id]) {
@@ -410,7 +422,16 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           return;
         }
 
-        applyIds([...current, id]);
+        const ids = [...current, id];
+        if (shareDestinations) {
+          set({ sharedConnectionIds: ids });
+        } else {
+          set({
+            tabs: tabs.map((t) =>
+              t.id === activeTabId ? { ...t, selectedConnectionIds: ids } : t
+            ),
+          });
+        }
         void get().ensureSchema(id);
       },
 
