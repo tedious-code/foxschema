@@ -22,14 +22,21 @@ FoxSchema = schema diff/migration tool. SQL Editor has Destination servers check
 
 ## Review findings (2026-07-28)
 
-### Bugbot (fix)
-1. **Schema sync vs password prompt (medium)** — `SqlSchemaExplorer.tsx`: selecting a passwordless credential while other dests are checked can reset `explorerId` to `preferredIds[0]` before password completes; explorer stays on old connection.
-2. **Stale explorer id when connections empty (medium)** — same file: `connections.length === 0` early-return never clears persisted `explorerId` after all credentials deleted; Create table can open against a missing id. Distinguish loading (`!connectionsLoaded`) from truly empty.
+### Bugbot (fix) — addressed in /simplify
+1. **Schema sync vs password prompt** — Skip destination auto-follow while `pendingPassword.id === explorerId`.
+2. **Stale explorer id when connections empty** — Gate on `connectionsLoaded`; clear explorer id when loaded empty.
 
 ### Security
 No medium+ issues. Local code-cell path does not send `__local__` to `/sql/execute`; auth still via `userId` + `resolveRef`. Passwords stay session-only.
+
+## Simplify cleanup (same day)
+- `destinationIdsPatch` shared by toggle / ensure / password submit
+- Memoized `runStatements` / `canRunLocal`; `runCount` derived from resolved statements
+- Slim `ExecutionTarget` / `LOCAL_CODE_RUN_TARGET` (no fake `createdAt`, no id special-case for password)
+- Schema explorer deps use destination id list (not whole tab) to avoid SQL-edit localStorage churn
 
 ## Gotchas
 - Agent branch binding: keep work on `cursor/cloud-agent-1785109452769-k0unh` so the user’s live UI matches the PR tip; stale Vite tabs need hard refresh.
 - Do not commit `foxflow.sqlite*` or `apps/e2e/.env`.
 - Prefer Node 24 (see root `AGENTS.md`).
+- Skipped larger refactors: batching N×M `/sql/execute`, cross-component `liveConnectionIds` helper.
