@@ -46,7 +46,7 @@ const MIXED_IMPORT_RE = /^import\s+[A-Za-z_$][\w$]*\s*,\s*\{/;
 const IMPORT_STMT_RE = /^import(?=[\s{*'"])/;
 
 /** Sandbox parameter names an import may not shadow. */
-const RESERVED_BINDINGS = new Set(['last', 'vars']);
+const RESERVED_BINDINGS = new Set(['last', 'vars', 'sql']);
 
 const IDENTIFIER_RE = /^[A-Za-z_$][\w$]*$/;
 
@@ -324,6 +324,11 @@ export interface RunCodeCellBodyArgs {
   preamble: string;
   /** Allowlisted package namespaces for this runtime, keyed by import specifier. */
   modules: Record<string, object>;
+  /**
+   * Extra names to expose in the cell scope (e.g. `sql` for the query bridge).
+   * Reserved like `last`/`vars`: an import may not shadow them.
+   */
+  extraBindings?: Record<string, unknown>;
 }
 
 /**
@@ -358,9 +363,23 @@ export async function runCodeCellBody(args: RunCodeCellBodyArgs): Promise<CodeCe
   }
   const bindingValues = bindingNames.map((n) => prepared.bindings[n]);
 
+  const extraNames = Object.keys(args.extraBindings ?? {});
+  const extraValues = extraNames.map((n) => args.extraBindings![n]);
+
   try {
-    const fn = new AsyncFunction('last', 'vars', ...bindingNames, `${args.preamble}${body}`);
-    const raw = await fn(cloneCodeCellLast(args.last), args.vars, ...bindingValues);
+    const fn = new AsyncFunction(
+      'last',
+      'vars',
+      ...extraNames,
+      ...bindingNames,
+      `${args.preamble}${body}`
+    );
+    const raw = await fn(
+      cloneCodeCellLast(args.last),
+      args.vars,
+      ...extraValues,
+      ...bindingValues
+    );
     return normalizeCodeCellReturn(raw, args.maxRows);
   } catch (error: unknown) {
     return { ok: false, error: errorMessage(error) };

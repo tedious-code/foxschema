@@ -7,6 +7,11 @@ import {
 import { prepareCodeCellSource, runCodeCell } from './codeCellRunner';
 import { executeCodeCell } from './codeCellExec';
 
+/** Normalize a raw cell result to the `{ ok }` shape the assertions use. */
+function toStatementLike(r: Awaited<ReturnType<typeof executeCodeCell>>) {
+  return r.ok ? { ok: true as const } : { ok: false as const, error: r.error };
+}
+
 describe('SQL Editor sample bookmarks', () => {
   it('exposes stable ids and non-empty SQL', () => {
     const ids = new Set(SQL_EDITOR_SAMPLE_BOOKMARKS.map((s) => s.id));
@@ -164,4 +169,37 @@ return last.rows.map((r) => ({ id: r[0], domain: String(r[1]).split('@')[1] }));
     if (!result.ok) throw new Error(result.error);
     expect(result.rows).toEqual([[1, 'example.com']]);
   });
+
+  /**
+   * The statement strip lets you run a single cell, so `last` is null whenever
+   * the cell runs without its companion SELECT. Every sample must degrade to an
+   * empty grid rather than "Cannot read properties of null (reading 'rows')".
+   */
+  it('every browser sample survives running standalone (last = null)', async () => {
+    const cells = SQL_EDITOR_SAMPLE_BOOKMARKS.flatMap((sample) =>
+      splitSqlStatements(sample.sql)
+        .filter((st) => st.kind === 'js' || st.kind === 'ts')
+        .map((st) => ({ id: sample.id, text: st.text }))
+    ).filter((c) => !/\bfetch\s*\(/.test(c.text)); // skip network samples
+
+    expect(cells.length).toBeGreaterThan(5);
+
+    for (const cell of cells) {
+      const prepared = prepareCodeCellSource(cell.text);
+      expect(prepared.ok, cell.id).toBe(true);
+      if (!prepared.ok) continue;
+      const body =
+        prepared.kind === 'ts'
+          ? (await runCodeCell({ statement: cell.text, last: null, variables: [], maxRows: 50 }))
+          : null;
+      const result = body
+        ? body.result
+        : toStatementLike(
+            await executeCodeCell({ body: prepared.body, last: null, vars: {}, maxRows: 50 })
+          );
+      if (!result.ok) {
+        throw new Error(`${cell.id} failed with last=null: ${result.error}`);
+      }
+    }
+  }, 20_000);
 });

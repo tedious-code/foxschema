@@ -24,13 +24,15 @@ export async function executeSql(
   ref: ConnectionRef,
   statements: string[],
   maxRows?: number,
-  offset?: number
+  offset?: number,
+  /** Bind parameters per statement, aligned by index. */
+  params?: unknown[][]
 ): Promise<{ results: SqlStatementResult[] }> {
   const res = await fetch(`${getApiBase()}/sql/execute`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify({ ...ref, statements, maxRows, offset }),
+    body: JSON.stringify({ ...ref, statements, maxRows, offset, params }),
   });
   const data = await parseJsonResponse<{ results?: SqlStatementResult[]; error?: string }>(res);
   if (!data.results) throw new Error(data.error || `Query failed (${res.status})`);
@@ -45,6 +47,13 @@ export type ServerCodeCellPayload = {
   vars: CodeCellVars;
   maxRows: number;
   timeoutMs?: number;
+  /**
+   * Connection the cell's `sql` bridge runs against. Omit to run a cell with
+   * no database access (it still executes; `sql` just reports no connection).
+   */
+  ref?: ConnectionRef;
+  /** Mirrors Safe mode — the server rejects write/DDL from `sql` when false. */
+  allowWrites?: boolean;
 };
 
 function responseError(data: unknown): string | undefined {
@@ -109,11 +118,13 @@ export function parseSqlStatementResult(
 export async function runCodeCellOnServer(
   payload: ServerCodeCellPayload
 ): Promise<SqlStatementResult> {
+  const { ref, ...rest } = payload;
   const res = await fetch(`${getApiBase()}/sql/code-cell`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify(payload),
+    // The ref is flattened onto the request body (same shape /sql/execute takes).
+    body: JSON.stringify({ ...ref, ...rest }),
   });
   const data = await parseJsonResponse<unknown>(res);
   const parsed = parseSqlStatementResult(data);

@@ -30,7 +30,9 @@ import {
   runCodeCellOnServer,
   validateCodeCellRequest,
   type CodeCellRequestBody,
+  type CellQueryRunner,
 } from './code-cell-execute';
+import { makeCellQueryRunner } from './code-cell-query';
 import { getMetadataDbConfig, SUPPORTED_ENGINES, type DbEngine } from '../database/config';
 import { createMetadataStore } from '../database/stores/registry';
 import { keySchemeInfo } from '../cores/crypto';
@@ -381,10 +383,11 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   // caps only. Rate-limited: each call can hold a DB connection for a while.
   const sqlExecuteLimiter = rateLimit({ windowMs: 60 * 1000, max: 60 });
   router.post('/sql/execute', sqlExecuteLimiter, async (req: Request, res: Response) => {
-    const { statements, maxRows, offset, ...ref } = req.body as ConnectionRef & {
+    const { statements, maxRows, offset, params, ...ref } = req.body as ConnectionRef & {
       statements?: unknown;
       maxRows?: unknown;
       offset?: unknown;
+      params?: unknown;
     };
     if (!Array.isArray(statements) || statements.length === 0) {
       res.status(400).json({ error: 'statements[] is required.' });
@@ -396,6 +399,13 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     }
     if (statements.some((s) => typeof s !== 'string' || !s.trim() || s.length > MAX_STATEMENT_LENGTH)) {
       res.status(400).json({ error: `Every statement must be a non-empty string under ${MAX_STATEMENT_LENGTH} characters.` });
+      return;
+    }
+    // Optional bind parameters, one array per statement. Anything else is a
+    // client bug — reject rather than silently dropping the values, which would
+    // send a statement whose placeholders have nothing to bind to.
+    if (params !== undefined && (!Array.isArray(params) || params.some((p) => !Array.isArray(p)))) {
+      res.status(400).json({ error: 'params must be an array of arrays (one per statement).' });
       return;
     }
     let resolved;
@@ -414,7 +424,8 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
         statements as string[],
         clampMaxRows(maxRows),
         resolved.schema,
-        clampOffset(offset)
+        clampOffset(offset),
+        (params as unknown[][] | undefined) ?? []
       );
       res.json({ results });
     } catch (error: unknown) {
@@ -427,13 +438,27 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   // runs allowlisted JS/TS with fetch in a worker_threads sandbox.
   const codeCellLimiter = rateLimit({ windowMs: 60 * 1000, max: 30 });
   router.post('/sql/code-cell', codeCellLimiter, async (req: Request, res: Response) => {
-    const validated = validateCodeCellRequest(req.body as CodeCellRequestBody);
+    const body = req.body as CodeCellRequestBody & ConnectionRef & { allowWrites?: boolean };
+    const validated = validateCodeCellRequest(body);
     if (!validated.ok) {
       res.status(400).json({ error: validated.error });
       return;
     }
     try {
-      const result = await runCodeCellOnServer(validated.value);
+      // A cell only gets a `sql` bridge when it was run against a credential.
+      // Without one it still executes — it just cannot reach a database.
+      let dialect: string | undefined;
+      let runQuery: CellQueryRunner | undefined;
+      if (body.connectionId || (body.dialect && body.option)) {
+        const resolved = await resolveRef((req as AuthedRequest).userId, body);
+        dialect = resolved.dialect;
+        runQuery = makeCellQueryRunner(resolved, body.allowWrites === true);
+      }
+      const result = await runCodeCellOnServer(validated.value, {
+        dialect,
+        allowWrites: body.allowWrites === true,
+        runQuery,
+      });
       res.json(result);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Code cell execution failed';

@@ -32,7 +32,11 @@ class SqliteAdapter implements DriverAdapter {
     const Database = this.load();
     let db = this.dbs.get(connectionString);
     if (!db) {
-      db = new Database(connectionString, { readonly: true });
+      // Read-write: the SQL editor runs user DDL/DML against SQLite too, and a
+      // read-only handle fails those with "attempt to write a readonly
+      // database". fileMustExist keeps a typo'd path from silently creating an
+      // empty database instead of reporting that the file is missing.
+      db = new Database(connectionString, { fileMustExist: true });
       this.dbs.set(connectionString, db);
     }
     return db;
@@ -44,6 +48,13 @@ class SqliteAdapter implements DriverAdapter {
 
   async query<T = Record<string, unknown>>(db: any, sql: string, params: readonly unknown[]): Promise<T[]> {
     const stmt = db.prepare(sql);
+    // better-sqlite3 splits the API by statement kind: `.all()` throws
+    // "This statement does not return data. Use run() instead" for anything
+    // that isn't a SELECT-like read. `stmt.reader` tells us which to call.
+    if (!stmt.reader) {
+      stmt.run(...params);
+      return [] as T[];
+    }
     return stmt.all(...params) as T[];
   }
 

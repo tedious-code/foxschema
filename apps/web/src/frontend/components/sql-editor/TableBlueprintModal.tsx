@@ -299,14 +299,15 @@ export const TableBlueprintModal: React.FC<Props> = ({
   const tableName = mode === 'create' ? createName.trim() : (liveTable?.name ?? '');
   const activeColumns = draft.filter((c) => !dropped.has(c.name));
 
+  // The table being edited stays in the list: self-referencing FKs
+  // (employees.manager_id → employees.id) are ordinary, and excluding it left
+  // both the picker and the ref-column list unable to offer them at all.
   const refTableOptions = useMemo(() => {
     const list = (cachedTables ?? []).filter(
-      (t) =>
-        (t.objectType === 'TABLE' || t.objectType === 'MQT') &&
-        t.name.toLowerCase() !== tableName.toLowerCase()
+      (t) => t.objectType === 'TABLE' || t.objectType === 'MQT'
     );
     return [...list].sort((a, b) => a.name.localeCompare(b.name));
-  }, [cachedTables, tableName]);
+  }, [cachedTables]);
 
   const fkRefTable = findTableByName(refTableOptions, fkForm.referencedTable);
   const fkRefColumns = fkRefTable?.columns ?? [];
@@ -477,14 +478,11 @@ export const TableBlueprintModal: React.FC<Props> = ({
       fkForm.referencedColumns.length === fkForm.columns.length
         ? fkForm.referencedColumns
         : syncFkRefColumns(fkForm.columns, fkRefTable);
+    // No last-ditch guess here. Falling back to the parent's *first* column
+    // satisfies the arity check below for a single-column FK and silently
+    // builds a constraint against a column that is almost never a key.
     const refCols =
-      aligned.length > 0
-        ? aligned
-        : fkRefPk.length === fkForm.columns.length
-          ? fkRefPk
-          : fkRefColumns[0]
-            ? [fkRefColumns[0].name]
-            : [];
+      aligned.length > 0 ? aligned : fkRefPk.length === fkForm.columns.length ? fkRefPk : [];
     if (refCols.length === 0) {
       setError('Pick referenced column(s)');
       return;
@@ -820,6 +818,10 @@ export const TableBlueprintModal: React.FC<Props> = ({
       );
       return;
     }
+    // A mixed batch runs the executable part and drops the rest. Saying only
+    // "Applied" would hide that (e.g. on SQLite the column lands but the FK
+    // never does), so carry the count through to the success message.
+    const skipped = stmts.length - toRun.length;
     setApplying(true);
     setError(null);
     setConfirmWrite(false);
@@ -835,8 +837,12 @@ export const TableBlueprintModal: React.FC<Props> = ({
         return;
       }
       await ensureSchema(connectionId, { force: true });
-      setToast('Applied — schema refreshed');
-      setTimeout(() => setToast(null), 2500);
+      setToast(
+        skipped > 0
+          ? `Applied ${toRun.length} statement${toRun.length === 1 ? '' : 's'} — ${skipped} skipped, not supported on this dialect (use Insert SQL to review)`
+          : 'Applied — schema refreshed'
+      );
+      setTimeout(() => setToast(null), skipped > 0 ? 6000 : 2500);
       if (closeOnSuccess) onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -1730,7 +1736,11 @@ export const TableBlueprintModal: React.FC<Props> = ({
                             );
                             setFkForm({
                               ...fkForm,
-                              referencedTable: t?.name ?? name.trim().replace(/^.*\./, ''),
+                              // Keep a typed qualifier ("ref.countries") intact:
+                              // qualifyTableName leaves dotted names alone, so
+                              // stripping it here re-qualified the FK into the
+                              // connection's own schema instead.
+                              referencedTable: t?.name ?? name.trim(),
                               referencedColumns,
                             });
                           }}

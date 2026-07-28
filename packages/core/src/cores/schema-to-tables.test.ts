@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { dbSchemaToTableSchemas, normalizeTableSchemas } from './schema-to-tables';
+import {
+  dbSchemaToTableSchemas,
+  normalizeTableSchemas,
+  resolveFkReferencedColumns,
+  groupForeignKeyRows,
+} from './schema-to-tables';
 import type { DbSchema, DbTable } from '../interfaces';
 
 function emptySchema(tables: Record<string, DbTable>): DbSchema {
@@ -138,5 +143,66 @@ describe('normalizeTableSchemas', () => {
       },
     ]);
     expect(tables[1]!.foreignKeys[0]!.referencedColumns).toEqual(['id1', 'id2']);
+  });
+});
+
+describe('resolveFkReferencedColumns', () => {
+  it('uses catalog columns when every entry is a real identifier', () => {
+    expect(resolveFkReferencedColumns(['a'], ['id'], ['pk'])).toEqual(['id']);
+  });
+
+  it('falls back to the parent PK when the catalog reports a NULL column', () => {
+    // SQLite's PRAGMA foreign_key_list yields `to = NULL` for `REFERENCES parent`
+    // with no column list — same arity as the child side, no usable name.
+    const nulls = [null] as unknown as string[];
+    expect(resolveFkReferencedColumns(['parent_id'], nulls, ['id'])).toEqual(['id']);
+    expect(resolveFkReferencedColumns(['parent_id'], [''], ['id'])).toEqual(['id']);
+  });
+
+  it('falls back when the arity does not match', () => {
+    expect(resolveFkReferencedColumns(['a', 'b'], ['id'], ['x', 'y'])).toEqual(['x', 'y']);
+  });
+});
+
+describe('groupForeignKeyRows', () => {
+  const rows = [
+    { c: 'fk_a', t: 'orders', col: 'cust_id', rt: 'customers', rc: 'id' },
+    { c: 'fk_b', t: 'lines', col: 'order_id', rt: 'orders', rc: 'id' },
+    { c: 'fk_b', t: 'lines', col: 'seq', rt: 'orders', rc: 'seq' },
+  ];
+  const pick = (r: (typeof rows)[number]) => ({
+    key: r.c,
+    name: r.c,
+    table: r.t,
+    column: r.col,
+    referencedSchema: 'public',
+    referencedTable: r.rt,
+    referencedColumn: r.rc,
+  });
+
+  it('folds composite keys in row order', () => {
+    const out = groupForeignKeyRows(rows, pick);
+    expect(out).toHaveLength(2);
+    expect(out[1]!.table).toBe('lines');
+    expect(out[1]!.fk.columns).toEqual(['order_id', 'seq']);
+    expect(out[1]!.fk.referencedColumns).toEqual(['id', 'seq']);
+  });
+
+  it('drops parent columns entirely when the catalog reports none', () => {
+    const out = groupForeignKeyRows(
+      [{ ...rows[0]!, rc: null as unknown as string }],
+      pick
+    );
+    expect(out[0]!.fk.columns).toEqual(['cust_id']);
+    expect(out[0]!.fk.referencedColumns).toEqual([]);
+  });
+
+  it('drops a partially-reported parent side rather than misaligning it', () => {
+    const out = groupForeignKeyRows(
+      [rows[1]!, { ...rows[2]!, rc: null as unknown as string }],
+      pick
+    );
+    expect(out[0]!.fk.columns).toEqual(['order_id', 'seq']);
+    expect(out[0]!.fk.referencedColumns).toEqual([]);
   });
 });

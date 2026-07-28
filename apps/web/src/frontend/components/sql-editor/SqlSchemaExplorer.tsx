@@ -8,6 +8,7 @@ import { filterCallParameters, insertAtCursor } from './sqlEditorBridge';
 import type { DbObjectType, TableSchema } from '../../lib/types';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
 import { TableBlueprintModal, type BlueprintMode } from './TableBlueprintModal';
+import { DataPeekPanel } from './DataPeekPanel';
 import { isScriptableObject, objectSourceScript } from './objectSourceScript';
 
 /** Imperative API for the Schema section header (New table). */
@@ -25,6 +26,13 @@ const EXPLORER_GROUPS: { type: DbObjectType; title: string }[] = [
 ];
 
 const EXPLORER_CONN_KEY = 'foxschema-sql-schema-explorer-connection';
+
+/** Cmd on macOS, Ctrl elsewhere — used in titles so the hint matches the key. */
+export function peekModifierLabel(): string {
+  const platform =
+    typeof navigator === 'undefined' ? '' : navigator.platform || navigator.userAgent || '';
+  return /mac|iphone|ipad/i.test(platform) ? 'Cmd' : 'Ctrl';
+}
 
 function readStoredExplorerId(): string {
   try {
@@ -65,6 +73,7 @@ export const SqlSchemaExplorer = forwardRef<SqlSchemaExplorerHandle>(function Sq
   const activeTabId = useSqlEditorStore((s) => s.activeTabId);
   const schemaCache = useSqlEditorStore((s) => s.schemaCache);
   const ensureSchema = useSqlEditorStore((s) => s.ensureSchema);
+  const openDataPeek = useSqlEditorStore((s) => s.openDataPeek);
   const shareDestinations = useSqlEditorStore((s) => s.shareDestinations);
   const sharedConnectionIds = useSqlEditorStore((s) => s.sharedConnectionIds);
   const ensureConnectionSelected = useSqlEditorStore((s) => s.ensureConnectionSelected);
@@ -315,6 +324,12 @@ export const SqlSchemaExplorer = forwardRef<SqlSchemaExplorerHandle>(function Sq
                                 }
                               : undefined
                           }
+                          canPeek={
+                            t.objectType === 'TABLE' ||
+                            t.objectType === 'MQT' ||
+                            t.objectType === 'VIEW'
+                          }
+                          onPeek={(name) => explorerId && void openDataPeek(explorerId, name)}
                           onOpenSource={
                             isScriptableObject(t.objectType)
                               ? () => setSql(objectSourceScript(t, conn?.dialect ?? 'sql'))
@@ -341,6 +356,8 @@ export const SqlSchemaExplorer = forwardRef<SqlSchemaExplorerHandle>(function Sq
               }}
             />
           )}
+
+          <DataPeekPanel />
         </>
       )}
     </div>
@@ -353,8 +370,11 @@ const ObjectNode: React.FC<{
   onToggle: () => void;
   dialect: string;
   onOpenBlueprint?: () => void;
+  /** Data peek is only meaningful for row-bearing objects (not routines). */
+  canPeek?: boolean;
+  onPeek?: (tableName: string) => void;
   onOpenSource?: () => void;
-}> = ({ table, open, onToggle, dialect, onOpenBlueprint, onOpenSource }) => {
+}> = ({ table, open, onToggle, dialect, onOpenBlueprint, onOpenSource, canPeek, onPeek }) => {
   const meta = TYPE_META[table.objectType] ?? TYPE_META.TABLE;
   const insertName = quoteIfNeeded(table.name, dialect);
   const isRoutine = table.objectType === 'PROCEDURE' || table.objectType === 'FUNCTION';
@@ -372,7 +392,13 @@ const ObjectNode: React.FC<{
     insertAtCursor(`${insertName} `);
   };
 
-  const onNameClick = () => {
+  const onNameClick = (e: React.MouseEvent) => {
+    // Cmd (macOS) / Ctrl (Windows, Linux) + click = quick data peek.
+    if (canPeek && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      onPeek?.(table.name);
+      return;
+    }
     if (onOpenSource) {
       onOpenSource();
       return;
@@ -401,13 +427,15 @@ const ObjectNode: React.FC<{
         </button>
         <button
           type="button"
-          data-testid={opensSource ? 'sql-open-object-source' : undefined}
+          data-testid={opensSource ? 'sql-open-object-source' : `sql-explorer-object-${table.name}`}
           title={
             opensSource
               ? `Open ${table.objectType.toLowerCase()} source in editor`
               : isRoutine
                 ? `Insert ${table.name}(${params.map((p) => `${p.mode} ${p.name}`).join(', ')})`
-                : `Insert ${table.name}`
+                : canPeek
+                  ? `Insert ${table.name} — ${peekModifierLabel()}-click to peek at its data`
+                  : `Insert ${table.name}`
           }
           onClick={onNameClick}
           className="flex-1 flex items-center gap-1.5 min-w-0 text-left text-[13px] font-semibold text-slate-200 hover:text-cyan-300 py-1 truncate"
