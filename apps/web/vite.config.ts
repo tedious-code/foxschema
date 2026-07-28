@@ -24,6 +24,10 @@ export default defineConfig({
     dedupe: ['react', 'react-dom'],
   },
   server: {
+    // Bind IPv4 + IPv6. Default Node listen can end up on [::1] only, which
+    // makes http://127.0.0.1:5173 fail with ERR_CONNECTION_REFUSED.
+    host: true,
+    port: 5173,
     proxy: {
       '/api': {
         target: 'http://localhost:3001',

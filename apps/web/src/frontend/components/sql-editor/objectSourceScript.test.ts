@@ -3,14 +3,14 @@ import { isScriptableObject, objectSourceScript } from './objectSourceScript';
 import type { TableSchema } from '../../lib/types';
 
 function view(partial: Partial<TableSchema> & Pick<TableSchema, 'name'>): TableSchema {
+  const { name, ...rest } = partial;
   return {
-    name: partial.name,
+    name,
     objectType: 'VIEW',
     columns: [],
     indexes: [],
     foreignKeys: [],
-    definition: partial.definition,
-    ...partial,
+    ...rest,
   } as TableSchema;
 }
 
