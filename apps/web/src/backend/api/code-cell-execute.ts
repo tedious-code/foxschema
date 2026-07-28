@@ -8,6 +8,18 @@ import { fileURLToPath } from 'node:url';
 import type { BrowserCodeCellKind } from '@foxschema/core';
 import { isCodeCellLast, isCodeCellVars } from '@foxschema/core';
 import type { CodeCellLast, CodeCellResult, CodeCellVars } from './code-cell-node-exec';
+import {
+  isCellDoneMessage,
+  isCellQueryRequest,
+  type CellQueryRequest,
+  type CellQueryResponse,
+} from './code-cell-bridge';
+
+/** Runs one bridged statement for a cell and returns rows as objects. */
+export type CellQueryRunner = (
+  text: string,
+  params: unknown[]
+) => Promise<Record<string, unknown>[]>;
 import { clampMaxRows } from './sql-execute';
 
 export const MAX_CODE_CELL_LENGTH = 100_000;
@@ -113,11 +125,42 @@ function runInWorkerThread(args: {
   vars: CodeCellVars;
   maxRows: number;
   timeoutMs: number;
+  dialect?: string;
+  allowWrites?: boolean;
+  /** Runs one bridged `sql` statement. Absent = the cell has no connection. */
+  runQuery?: CellQueryRunner;
 }): Promise<CodeCellResult> {
   return new Promise((resolve) => {
     let settled = false;
     let worker: Worker | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    /** Bridged queries in flight; the cell clock is paused while > 0. */
+    let inFlight = 0;
+
+    const startTimer = () => {
+      timer = setTimeout(() => {
+        settle({ ok: false, error: `Code cell timed out after ${args.timeoutMs}ms` });
+      }, args.timeoutMs);
+    };
+
+    // The timeout budgets the *cell's own* work. A bridged query is the
+    // database's time, not the cell's, and can legitimately outlast it — so
+    // stop the clock while one is outstanding. Without this, any cell doing
+    // real migration work is killed mid-statement. The budget restarts fresh
+    // after each query rather than resuming its remainder: total DB time is
+    // deliberately unbounded, while a runaway loop between queries is still
+    // caught within one full budget.
+    const pauseClock = () => {
+      inFlight += 1;
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
+    };
+    const resumeClock = () => {
+      inFlight = Math.max(0, inFlight - 1);
+      if (inFlight === 0 && !settled && timer === undefined) startTimer();
+    };
 
     const settle = (result: CodeCellResult) => {
       if (settled) return;
@@ -150,6 +193,8 @@ function runInWorkerThread(args: {
           last: args.last,
           vars: args.vars,
           maxRows: args.maxRows,
+          dialect: args.dialect,
+          allowWrites: args.allowWrites,
         },
         execArgv,
       });
@@ -158,14 +203,40 @@ function runInWorkerThread(args: {
       return;
     }
 
-    timer = setTimeout(() => {
-      settle({
-        ok: false,
-        error: `Code cell timed out after ${args.timeoutMs}ms`,
-      });
-    }, args.timeoutMs);
+    startTimer();
 
-    worker.on('message', (msg: CodeCellResult) => settle(msg));
+    const answerQuery = async (req: CellQueryRequest) => {
+      pauseClock();
+      const reply = (res: CellQueryResponse) => {
+        try {
+          worker?.postMessage(res);
+        } catch {
+          /* worker already gone */
+        }
+      };
+      try {
+        if (!args.runQuery) throw new Error('This cell has no connection — select a credential first');
+        const rows = await args.runQuery(req.text, req.params);
+        reply({ type: 'cell-query-result', id: req.id, ok: true, rows, rowCount: rows.length });
+      } catch (error: unknown) {
+        reply({ type: 'cell-query-result', id: req.id, ok: false, error: errorMessage(error) });
+      } finally {
+        resumeClock();
+      }
+    };
+
+    worker.on('message', (msg: unknown) => {
+      if (isCellQueryRequest(msg)) {
+        void answerQuery(msg);
+        return;
+      }
+      if (isCellDoneMessage(msg)) {
+        settle(msg.result as CodeCellResult);
+        return;
+      }
+      // Older shape (bare result) — keep accepting it.
+      settle(msg as CodeCellResult);
+    });
     worker.on('error', (error) => {
       if (!settled) failed(errorMessage(error));
     });
@@ -180,7 +251,8 @@ function runInWorkerThread(args: {
  * Transpile (if needed) and execute a code cell on Node (worker_threads + timeout).
  */
 export async function runCodeCellOnServer(
-  validated: ValidatedCodeCell
+  validated: ValidatedCodeCell,
+  options?: { dialect?: string; allowWrites?: boolean; runQuery?: CellQueryRunner }
 ): Promise<CodeCellResult & { durationMs: number }> {
   const started = Date.now();
   let body = validated.body;
@@ -202,6 +274,9 @@ export async function runCodeCellOnServer(
     vars: validated.vars,
     maxRows: validated.maxRows,
     timeoutMs: validated.timeoutMs,
+    dialect: options?.dialect,
+    allowWrites: options?.allowWrites,
+    runQuery: options?.runQuery,
   });
   return { ...result, durationMs: Date.now() - started };
 }

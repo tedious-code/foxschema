@@ -1,6 +1,7 @@
 import {
   DbSchema,
   DbTable,
+  DbForeignKey,
   TableSchema,
   DbRole,
   DbRoleMember,
@@ -51,10 +52,62 @@ export function resolveFkReferencedColumns(
   catalogReferencedColumns: string[] | undefined,
   parentPkColumns: string[]
 ): string[] {
-  if (catalogReferencedColumns?.length === localColumns.length) {
-    return catalogReferencedColumns;
+  // Arity alone is not enough: SQLite's `PRAGMA foreign_key_list` reports a
+  // NULL `to` when the child FK omits the parent column list, which arrives
+  // here as `[null]` — right length, no usable name. Require every entry to be
+  // a real identifier before trusting the catalog over the parent PK.
+  const usable =
+    catalogReferencedColumns?.length === localColumns.length &&
+    catalogReferencedColumns.every((c) => typeof c === 'string' && c.trim() !== '');
+  return usable ? catalogReferencedColumns : parentPkColumns;
+}
+
+/** One catalog row of a (possibly composite) foreign key, provider-agnostic. */
+export interface FkRow {
+  /** Groups rows into one constraint — usually the constraint name. */
+  key: string;
+  name: string;
+  /** Table the constraint belongs to (the child side). */
+  table: string;
+  /** Child column for this row. */
+  column: string;
+  referencedSchema: string;
+  referencedTable: string;
+  /** Parent column, when the catalog reports one. */
+  referencedColumn?: string | null;
+}
+
+/**
+ * Fold flat catalog rows into one `DbForeignKey` per constraint, preserving
+ * row order for composite keys. Every provider was hand-rolling this same
+ * Map-accumulate loop; sharing it also means the "a NULL parent column is not
+ * a column" rule (SQLite's PRAGMA, Redshift's fallback query) lives in exactly
+ * one place instead of being re-derived per dialect.
+ */
+export function groupForeignKeyRows<T>(
+  rows: readonly T[],
+  pick: (row: T) => FkRow
+): { table: string; fk: DbForeignKey }[] {
+  const groups = new Map<string, { row: FkRow; cols: string[]; refCols: string[] }>();
+  for (const raw of rows) {
+    const r = pick(raw);
+    const g = groups.get(r.key) ?? { row: r, cols: [], refCols: [] };
+    g.cols.push(r.column);
+    if (r.referencedColumn) g.refCols.push(r.referencedColumn);
+    groups.set(r.key, g);
   }
-  return parentPkColumns;
+  return [...groups.values()].map(({ row, cols, refCols }) => ({
+    table: row.table,
+    fk: {
+      name: row.name,
+      columns: cols,
+      referencedSchema: row.referencedSchema,
+      referencedTable: row.referencedTable,
+      // Partial parent columns are worse than none — downstream
+      // resolveFkReferencedColumns fills from the parent PK instead.
+      referencedColumns: refCols.length === cols.length ? refCols : [],
+    },
+  }));
 }
 
 /**
@@ -80,14 +133,6 @@ export function normalizeForeignKeyInfo(
       fk.referencedColumns,
       parentPkColumns
     ),
-  };
-}
-
-/** Normalize every FK on a table when the parent schema map is unavailable. */
-export function normalizeTableSchema(table: TableSchema): TableSchema {
-  return {
-    ...table,
-    foreignKeys: (table.foreignKeys ?? []).map((fk) => normalizeForeignKeyInfo(fk, [])),
   };
 }
 

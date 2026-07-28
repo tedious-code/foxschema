@@ -67,6 +67,16 @@ export { isCodeCellLast, isCodeCellVars, CODE_CELL_KIND_LABEL } from './modules/
 export type { SqlDialect, CanonicalType, CanonicalBase, RenderedType } from './modules/sql-dialect.interface';
 export { resolveDialect, DIALECT_MAP } from './modules/dialect-registry';
 export {
+  sqlTag,
+  renderSqlQuery,
+  isSqlQuery,
+  makeSqlQuery,
+  placeholderStyleFor,
+  renderPlaceholder,
+  quoteSqlIdentifier,
+} from './modules/sql-template';
+export type { SqlQuery, SqlTag, RenderedSql, SqlPlaceholderStyle } from './modules/sql-template';
+export {
   CODE_CELL_ALLOWED_PACKAGES,
   parseCodeCellImports,
   resolveCodeCellImportBindings,
@@ -86,6 +96,5 @@ export { PROVIDER_SETTINGS, getProviderSettings } from './providers/provider-set
 export {
   resolveFkReferencedColumns,
   normalizeForeignKeyInfo,
-  normalizeTableSchema,
   normalizeTableSchemas,
 } from './cores/schema-to-tables';

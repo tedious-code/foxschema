@@ -25,9 +25,12 @@ export const SQL_EDITOR_SAMPLE_BOOKMARKS: SqlEditorSample[] = [
 
 -- @js
 -- @set doubled = table
+// last is null when no statement ran before this cell — guard so running
+// the cell on its own reports an empty grid instead of a TypeError.
+const src = last?.rows ?? [];
 return {
   columns: ['id', 'email', 'n'],
-  rows: last.rows.map((r) => [r[0], r[1], Number(r[0]) * 2]),
+  rows: src.map((r) => [r[0], r[1], Number(r[0]) * 2]),
 };
 -- @end
 `,
@@ -40,7 +43,7 @@ return {
 -- @js
 const out = [];
 const factor = 2;
-for (const r of last.rows) {
+for (const r of last?.rows ?? []) {
   const id = Number(r[0]);
   out.push({ id, email: r[1], n: id * factor });
 }
@@ -59,7 +62,7 @@ import _ from 'lodash';
 function doubleRow(r) {
   return { id: r[0], email: r[1], n: Number(r[0]) * 2 };
 }
-return _.map(last.rows, doubleRow);
+return _.map(last?.rows ?? [], doubleRow);
 -- @end
 `,
   },
@@ -73,7 +76,7 @@ SELECT '2021-06-15';
 -- @js
 import { format, parseISO } from 'date-fns';
 
-return last.rows.map((r) => ({
+return (last?.rows ?? []).map((r) => ({
   day: r[0],
   stamped: format(parseISO(String(r[0])), 'yyyy-MM-dd'),
 }));
@@ -103,7 +106,7 @@ return out;
 
 -- @js
 -- @set step1 = table
-return last.rows.map((r) => ({ id: Number(r[0]), email: r[1] }));
+return (last?.rows ?? []).map((r) => ({ id: Number(r[0]), email: r[1] }));
 -- @end
 
 -- @js
@@ -126,12 +129,13 @@ return rows.map((r) => ({
 function isOdd(n) {
   return n % 2 === 1;
 }
+const rows = last?.rows ?? [];
 const out = [];
 let i = 0;
-while (i < last.rows.length) {
-  const id = Number(last.rows[i][0]);
+while (i < rows.length) {
+  const id = Number(rows[i][0]);
   if (isOdd(id)) {
-    out.push({ id, email: last.rows[i][1], kind: 'odd' });
+    out.push({ id, email: rows[i][1], kind: 'odd' });
   }
   i++;
 }
@@ -226,7 +230,8 @@ return [{
 -- @node
 import _ from 'lodash';
 
-return _.map(last.rows, (r) => ({
+// Guarded so the cell also runs standalone (no preceding SELECT).
+return _.map(last?.rows ?? [], (r) => ({
   id: Number(r[0]),
   email: String(r[1]),
   domain: String(r[1]).split('@')[1] || '',
@@ -242,7 +247,7 @@ return _.map(last.rows, (r) => ({
 
 -- @js
 -- @set people = table
-return last.rows.map((r) => ({ id: Number(r[0]), email: r[1] }));
+return (last?.rows ?? []).map((r) => ({ id: Number(r[0]), email: r[1] }));
 -- @end
 
 -- @js
@@ -290,7 +295,7 @@ SELECT 'b', 3;
 -- @js
 import { groupBy, sumBy } from 'lodash-es';
 
-const rows = last.rows.map((r) => ({
+const rows = (last?.rows ?? []).map((r) => ({
   kind: String(r[0]),
   n: Number(r[1]),
 }));
@@ -312,7 +317,7 @@ return Object.keys(byKind).map((kind) => ({
 // Explicit grid shape (alternative to returning objects).
 return {
   columns: ['id', 'email', 'upper'],
-  rows: last.rows.map((r) => [
+  rows: (last?.rows ?? []).map((r) => [
     Number(r[0]),
     String(r[1]),
     String(r[1]).toUpperCase(),
@@ -413,6 +418,116 @@ return [{
   bodyAction: json.json?.action ?? '',
   runtime: 'node',
 }];
+-- @end
+`,
+  },
+  {
+    id: 'sample-node-sql-basics',
+    title: '★ Sample · Node sql`` parameterized read',
+    sql: `-- Needs a checked credential — \`sql\` runs on it. Read-only, safe with Safe mode ON.
+
+-- @node
+// Every \${...} becomes a bind parameter, so a value can never become SQL.
+// The apostrophe below would break a hand-built string; here it is just data.
+const email = "o'brien@example.com";
+const id = 42;
+
+const rows = await sql\`SELECT \${id} AS id, \${email} AS email\`;
+return rows;
+-- @end
+`,
+  },
+  {
+    id: 'sample-node-sql-injection-safe',
+    title: '★ Sample · Node sql`` injection is impossible',
+    sql: `-- Read-only demo: a classic injection payload stays an ordinary string value.
+
+-- @node
+const evil = "1; DROP TABLE accounts; --";
+
+// Bound as one parameter — the server never sees it as SQL.
+const rows = await sql\`SELECT \${evil} AS attempted, 'table still here' AS status\`;
+return rows;
+-- @end
+`,
+  },
+  {
+    id: 'sample-node-sql-bulk-load',
+    title: '★ Sample · Node bulk load from JS values',
+    sql: `-- WRITES — turn Safe mode OFF to run. Written for Postgres / MySQL / SQLite /
+-- SQL Server (Oracle and Db2 spell DROP ... IF EXISTS differently).
+
+-- @node
+const values = [
+  { id: 1, email: "o'brien@example.com", note: null },
+  { id: 2, email: 'ada@example.com', note: 'new' },
+  { id: 3, email: 'grace@example.com', note: null },
+];
+
+await sql\`DROP TABLE IF EXISTS fox_demo_accounts\`;
+await sql\`CREATE TABLE fox_demo_accounts (id INTEGER, email VARCHAR(200), note VARCHAR(200))\`;
+
+// One statement, all rows, every value bound: ("id","email","note") VALUES (?,?,?), ...
+await sql\`INSERT INTO \${sql.id('fox_demo_accounts')} \${sql.values(values)}\`;
+
+return await sql\`SELECT id, email, note FROM fox_demo_accounts ORDER BY id\`;
+-- @end
+`,
+  },
+  {
+    id: 'sample-node-sql-migrate',
+    title: '★ Sample · Node migrate: read → reshape → write',
+    sql: `-- WRITES — turn Safe mode OFF. Run the "bulk load" sample first to create
+-- fox_demo_accounts. This is the shape most data migrations take.
+
+-- @node
+// Rows come back as objects keyed by column name. Some engines fold names to
+// upper case (Oracle/Db2), so read defensively when writing cross-dialect.
+const src = await sql\`SELECT id, email FROM fox_demo_accounts ORDER BY id\`;
+
+const rows = src.map((r) => {
+  const email = String(r.email ?? r.EMAIL ?? '');
+  return {
+    id: Number(r.id ?? r.ID),
+    email: email.toLowerCase(),
+    domain: email.split('@')[1] ?? '',
+  };
+});
+
+await sql\`DROP TABLE IF EXISTS fox_demo_accounts_v2\`;
+await sql\`CREATE TABLE fox_demo_accounts_v2 (id INTEGER, email VARCHAR(200), domain VARCHAR(200))\`;
+await sql\`INSERT INTO \${sql.id('fox_demo_accounts_v2')} \${sql.values(rows)}\`;
+
+return await sql\`SELECT id, email, domain FROM fox_demo_accounts_v2 ORDER BY id\`;
+-- @end
+`,
+  },
+  {
+    id: 'sample-node-sql-chunked',
+    title: '★ Sample · Node chunked insert + IN list',
+    sql: `-- WRITES — turn Safe mode OFF. Loads 250 rows in batches, then reads a few back.
+
+-- @node
+const table = 'fox_demo_bulk';
+const all = Array.from({ length: 250 }, (_, i) => ({ id: i + 1, name: 'row ' + (i + 1) }));
+
+await sql\`DROP TABLE IF EXISTS fox_demo_bulk\`;
+await sql\`CREATE TABLE fox_demo_bulk (id INTEGER, name VARCHAR(100))\`;
+
+// Batch rather than one giant statement — engines cap bind parameters per call.
+const CHUNK = 50;
+let inserted = 0;
+for (let i = 0; i < all.length; i += CHUNK) {
+  const chunk = all.slice(i, i + CHUNK);
+  await sql\`INSERT INTO \${sql.id(table)} \${sql.values(chunk)}\`;
+  inserted += chunk.length;
+}
+
+// A bare array expands to an IN list: (?, ?, ?)
+const sample = await sql\`SELECT id, name FROM \${sql.id(table)} WHERE id IN \${[1, 125, 250]} ORDER BY id\`;
+
+// Keep one uniform shape so the grid has no ragged columns.
+return sample.map((r) => ({ id: r.id, name: r.name, inserted }));
 -- @end
 `,
   },

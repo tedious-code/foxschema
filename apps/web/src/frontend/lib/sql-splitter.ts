@@ -72,3 +72,13 @@ export function splitSqlStatements(sql: string): SplitStatement[] {
   SPLIT_CACHE.set(sql, stmts);
   return stmts;
 }
+
+export {
+  sqlTag,
+  renderSqlQuery,
+  isSqlQuery,
+  makeSqlQuery,
+  placeholderStyleFor,
+  quoteSqlIdentifier,
+} from '@foxschema/core';
+export type { SqlQuery, SqlTag, RenderedSql, SqlPlaceholderStyle } from '@foxschema/core';

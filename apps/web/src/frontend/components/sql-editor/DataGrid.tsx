@@ -233,6 +233,12 @@ export const DataGrid: React.FC<{
   pageLoading?: boolean;
   onPrevPage?: () => void;
   onNextPage?: () => void;
+  /**
+   * Column indexes whose cells act as drill-through links (foreign keys in the
+   * data peek). Value is the parent table name, used for the tooltip.
+   */
+  linkColumns?: Map<number, string>;
+  onLinkClick?: (colIdx: number, rowIdx: number) => void;
 }> = React.memo(
   ({
     result,
@@ -249,6 +255,8 @@ export const DataGrid: React.FC<{
     pageLoading,
     onPrevPage,
     onNextPage,
+    linkColumns,
+    onLinkClick,
   }) => {
   const upsertVariable = useSqlEditorStore((s) => s.upsertVariable);
   const sourceColumns = result.ok ? result.columns : [];
@@ -665,7 +673,22 @@ export const DataGrid: React.FC<{
                             });
                           }}
                         >
-                          {text}
+                          {linkColumns?.has(colIdx) && !isNull ? (
+                            <button
+                              type="button"
+                              data-testid={`grid-fk-link-${i}-${colIdx}`}
+                              title={`Show ${linkColumns.get(colIdx)} for ${text}`}
+                              // `i` indexes the rows array; `absRow` is the
+                              // 1-based number shown in the # column and would
+                              // read the NEXT row's value.
+                              onClick={() => onLinkClick?.(colIdx, i)}
+                              className="underline decoration-dotted underline-offset-2 text-cyan-300 hover:text-cyan-200"
+                            >
+                              {text}
+                            </button>
+                          ) : (
+                            text
+                          )}
                         </td>
                       );
                     })}

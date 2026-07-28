@@ -88,8 +88,14 @@ export function assertAzureVaultUrl(vaultUrl: string): void {
   ) {
     throw new Error('Azure Key Vault URL hostname is not allowed');
   }
-  // Reject raw IPv4 / IPv6
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(':')) {
+  // Reject raw IPv4 / IPv6. Split rather than match `^\d{1,3}(\.\d{1,3}){3}$`:
+  // that pattern is linear in practice (every quantifier is bounded and both
+  // ends anchored), but security/detect-unsafe-regex flags the repeated group
+  // and failed CI on every PR. Splitting states the same rule with no regex
+  // ambiguity to argue about.
+  const octets = host.split('.');
+  const isRawIpv4 = octets.length === 4 && octets.every((o) => /^\d{1,3}$/.test(o));
+  if (isRawIpv4 || host.includes(':')) {
     throw new Error('Azure Key Vault URL must use a vault hostname, not an IP');
   }
   const allowedSuffixes = [

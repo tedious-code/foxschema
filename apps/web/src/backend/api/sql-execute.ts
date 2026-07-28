@@ -89,7 +89,9 @@ export async function runStatements(
   statements: string[],
   maxRows: number,
   schema?: string,
-  offset = 0
+  offset = 0,
+  /** Bind parameters per statement, aligned by index. Missing = no params. */
+  paramsList: readonly (readonly unknown[])[] = []
 ): Promise<StatementResult[]> {
   const schemaName = (schema ?? option.schema)?.trim() || '';
   const optionWithSchema: ConnectionOptions = schemaName
@@ -103,8 +105,11 @@ export async function runStatements(
     }
 
     const results: StatementResult[] = [];
-    for (const sql of statements) {
+    for (const [index, sql] of statements.entries()) {
       const started = Date.now();
+      // Placeholders survive the paging wrap (it only nests the SQL in a
+      // subquery), so the same positional params apply on either path.
+      const params = paramsList[index] ?? [];
       const pushErr = (message: string) => {
         results.push({ ok: false, error: message, durationMs: Date.now() - started });
       };
@@ -112,7 +117,8 @@ export async function runStatements(
         const raw = await ConnectionFactory.executeOnConnection<Record<string, unknown>>(
           dialect,
           connection,
-          sql
+          sql,
+          params
         );
         const shaped = shapeRows(raw, maxRows);
         results.push({
@@ -143,7 +149,8 @@ export async function runStatements(
         const raw = await ConnectionFactory.executeOnConnection<Record<string, unknown>>(
           dialect,
           connection,
-          paged
+          paged,
+          params
         );
         const shaped = shapeRows(raw, maxRows + 1);
         const page = trimPageProbe(shaped, maxRows);
