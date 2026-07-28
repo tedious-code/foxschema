@@ -4,6 +4,7 @@ import {
   findCodeFences,
   type CodeCellKind,
 } from '../lib/sql-splitter';
+import { parseSetDirectives, type SetDirective } from '../lib/sql-variables';
 
 const LANGUAGE_BY_DIALECT: Record<string, NonNullable<FormatOptionsWithLanguage['language']>> = {
   db2: 'db2',
@@ -102,24 +103,39 @@ function loadPrettier(): Promise<PrettierBundle> {
   return prettierBundle;
 }
 
+function formatSetDirectiveLine(d: SetDirective): string {
+  if (d.mode === 'scalar') return `-- @set ${d.name}`;
+  if (d.mode === 'table') return `-- @set ${d.name} = table`;
+  return `-- @set ${d.name} = column ${d.column}`;
+}
+
 /** Format a JS/TS code-cell body with Prettier (browser standalone). */
 export async function formatCodeCellBody(
   body: string,
   kind: CodeCellKind
 ): Promise<string> {
   if (!body.trim()) return body;
-  try {
-    const { format: prettierFormat, estree, babel, typescript } = await loadPrettier();
-    const ts = codeCellNeedsTs(kind);
-    const formatted = await prettierFormat(body, {
-      ...PRETTIER_OPTS,
-      parser: ts ? 'typescript' : 'babel',
-      plugins: [ts ? typescript : babel, estree] as never[],
-    });
-    return formatted.replace(/\n$/, '');
-  } catch {
-    return body;
+  // `-- @set …` lives inside the fence but is not JS — peel it off so Prettier
+  // can parse the real cell body (samples like "JS map last rows" put @set here).
+  const { directives, sql: jsBody } = parseSetDirectives(body);
+  let formatted = jsBody;
+  if (jsBody.trim()) {
+    try {
+      const { format: prettierFormat, estree, babel, typescript } = await loadPrettier();
+      const ts = codeCellNeedsTs(kind);
+      const pretty = await prettierFormat(jsBody, {
+        ...PRETTIER_OPTS,
+        parser: ts ? 'typescript' : 'babel',
+        plugins: [ts ? typescript : babel, estree] as never[],
+      });
+      formatted = pretty.replace(/\n$/, '');
+    } catch {
+      formatted = jsBody;
+    }
   }
+  if (directives.length === 0) return formatted;
+  const header = directives.map(formatSetDirectiveLine).join('\n');
+  return formatted.length > 0 ? `${header}\n${formatted}` : header;
 }
 
 function reassembleFence(parts: FenceParts, formattedBody: string): string {

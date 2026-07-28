@@ -254,16 +254,38 @@ export const SqlEditorView: React.FC = () => {
       ? `Run ${runCount} code cell(s) locally — no destination needed  (⌘/Ctrl+Enter)`
       : 'Check at least one destination server to run SQL, or use a JS/TS/Node code cell';
 
+  const [formatNote, setFormatNote] = useState<string | null>(null);
+  const formatNoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const onReveal = (stmt: SplitStatement) => {
     setReveal({ startLine: stmt.startLine, endLine: stmt.endLine, nonce: Date.now() });
   };
 
   const onFormat = () => {
     void (async () => {
-      const formatted = await formatEditorSql(tab.sql, dialect);
-      if (formatted !== tab.sql) setSql(formatted);
+      const before = tab.sql;
+      const formatted = await formatEditorSql(before, dialect);
+      if (formatted !== before) setSql(formatted);
+      const fences = (before.match(/^\s*--\s*@(?:js|ts|node|nodets)\b/gim) ?? []).length;
+      const note =
+        formatted === before
+          ? fences > 0
+            ? 'Already formatted (SQL + Prettier JS/TS)'
+            : 'Already formatted'
+          : fences > 0
+            ? `Formatted SQL + ${fences} JS/TS cell${fences === 1 ? '' : 's'} (Prettier)`
+            : 'Formatted SQL';
+      setFormatNote(note);
+      if (formatNoteTimer.current) clearTimeout(formatNoteTimer.current);
+      formatNoteTimer.current = setTimeout(() => setFormatNote(null), 2800);
     })();
   };
+
+  useEffect(() => {
+    return () => {
+      if (formatNoteTimer.current) clearTimeout(formatNoteTimer.current);
+    };
+  }, []);
 
   return (
     <div className="flex-1 flex min-h-0 overflow-hidden" data-testid="sql-editor-view">
@@ -460,11 +482,21 @@ export const SqlEditorView: React.FC = () => {
             data-testid="sql-format-btn"
             onClick={onFormat}
             disabled={!tab.sql.trim()}
-            title="Format SQL and JS/TS code cells"
+            title="Pretty-print SQL (sql-formatter) and JS/TS/Node cells (Prettier)"
             className="flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 transition disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            <AlignLeft className="w-3.5 h-3.5 text-violet-400" strokeWidth={SQL_ICON_STROKE} /> Format
+            <AlignLeft className="w-3.5 h-3.5 text-teal-400" strokeWidth={SQL_ICON_STROKE} /> Format
+            SQL+JS
           </button>
+          {formatNote && (
+            <span
+              data-testid="sql-format-note"
+              className="text-[10px] font-semibold text-teal-300/90 animate-pulse max-w-[14rem] truncate"
+              title={formatNote}
+            >
+              {formatNote}
+            </span>
+          )}
           <button
             type="button"
             data-testid="sql-bookmark-save-toolbar"

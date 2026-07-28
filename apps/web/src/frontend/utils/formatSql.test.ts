@@ -41,6 +41,16 @@ describe('formatCodeCellBody', () => {
     const bad = 'const x = {';
     expect(await formatCodeCellBody(bad, 'js')).toBe(bad);
   });
+
+  it('keeps leading -- @set and still prettier-formats the JS body', async () => {
+    const out = await formatCodeCellBody(
+      `-- @set doubled = table\nconst src=last?.rows??[];return{columns:['id','n'],rows:src.map((r)=>[r[0],Number(r[0])*2])};`,
+      'js'
+    );
+    expect(out.startsWith('-- @set doubled = table')).toBe(true);
+    expect(out).toContain('const src = last?.rows ?? [];');
+    expect(out).toContain('Number(r[0]) * 2');
+  });
 });
 
 describe('formatEditorSql', () => {
@@ -66,5 +76,21 @@ return Object.keys(byKind).map((kind)=>({kind,count:byKind[kind].length,total:su
     expect(out).toContain('kind: String(r[0]),');
     expect(out).toContain("total: sumBy(byKind[kind], 'n'),");
     expect(out.trimEnd().endsWith('-- @end')).toBe(true);
+  });
+
+  it('formats the ★ map-last sample (SQL + @set + minified JS)', async () => {
+    const input = `SELECT 1 AS id, 'alice@example.com' AS email
+UNION ALL
+SELECT 2, 'bob@example.com';
+
+-- @js
+-- @set doubled = table
+const src=last?.rows??[];return{columns:['id','email','n'],rows:src.map((r)=>[r[0],r[1],Number(r[0])*2])};
+-- @end
+`;
+    const out = await formatEditorSql(input, 'sqlite');
+    expect(out).toContain('-- @set doubled = table');
+    expect(out).toContain('const src = last?.rows ?? [];');
+    expect(out).toContain("columns: ['id', 'email', 'n'],");
   });
 });
