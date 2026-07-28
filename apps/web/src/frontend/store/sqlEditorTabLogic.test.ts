@@ -11,6 +11,8 @@ import {
   persistableTabs,
   statementsToRun,
   statementsFromSelection,
+  canExecuteWithoutDestination,
+  resolveRunStatements,
   toggleStatementCheck,
 } from './sqlEditorTabLogic';
 
@@ -84,6 +86,24 @@ SELECT 2 AS id;`;
       'SELECT * FROM t WHERE id = 1;',
     ]);
     expect(statementsFromSelection('')).toEqual([]);
+  });
+
+  it('canExecuteWithoutDestination allows pure code cells only', () => {
+    expect(canExecuteWithoutDestination([])).toBe(false);
+    expect(canExecuteWithoutDestination(['SELECT 1;'])).toBe(false);
+    expect(canExecuteWithoutDestination(['-- @node\nreturn [];\n-- @end'])).toBe(true);
+    expect(canExecuteWithoutDestination(['-- @js\nreturn [];\n-- @end'])).toBe(true);
+    expect(
+      canExecuteWithoutDestination(['-- @node\nreturn [];\n-- @end', 'SELECT 1;'])
+    ).toBe(false);
+  });
+
+  it('resolveRunStatements prefers selection over strip checks', () => {
+    const sql = 'SELECT 1; SELECT 2;';
+    expect(resolveRunStatements(sql, [1], null)).toEqual(['SELECT 2;']);
+    expect(resolveRunStatements(sql, [1], '-- @js\nreturn 1;\n-- @end')).toEqual([
+      '-- @js\nreturn 1;\n-- @end',
+    ]);
   });
 
   it('toggleStatementCheck adds/removes sorted', () => {

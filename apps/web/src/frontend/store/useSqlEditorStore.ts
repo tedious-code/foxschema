@@ -37,8 +37,8 @@ import {
   moveTab as moveTabLogic,
   newTabId,
   persistableTabs,
-  statementsFromSelection,
-  statementsToRun,
+  canExecuteWithoutDestination,
+  resolveRunStatements,
   toggleStatementCheck,
   type ResultsLayout,
   type SqlTab,
@@ -48,6 +48,15 @@ export type { SqlVariable, SqlVariableKind, SqlVariableExport, VariableOverride 
 
 /** Dialects whose adapters are SELECT-only — writes fail with a friendly error. */
 const READONLY_DIALECTS = new Set(['sqlite', 'clickhouse']);
+
+/** Synthetic run target when executing code cells with no Destination checked. */
+const LOCAL_CODE_RUN_TARGET = {
+  id: '__local__',
+  name: 'Local',
+  dialect: 'editor',
+  hasPassword: true,
+  createdAt: '',
+} as const;
 
 /** Saved SQL script bookmark (persisted). */
 export interface SqlBookmark {
@@ -665,14 +674,33 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         const selected = useSyncStore
           .getState()
           .connections.filter((c) => destIds.includes(c.id));
-        const connections =
+        const selectedConnections =
           connectionIds && connectionIds.length > 0
             ? selected.filter((c) => connectionIds.includes(c.id))
             : selected;
-        if (connections.length === 0) return;
+
+        const selectedSql = getSelectedSql();
+        const rawStatements = resolveRunStatements(
+          tab.sql,
+          tab.checkedStatements,
+          selectedSql
+        );
+
+        // Code cells (JS/TS/Node) can run with no Destination; SQL still needs one.
+        type RunTarget = {
+          id: string;
+          name: string;
+          dialect: string;
+          hasPassword?: boolean;
+        };
+        let connections: RunTarget[] = selectedConnections;
+        if (connections.length === 0) {
+          if (!canExecuteWithoutDestination(rawStatements)) return;
+          connections = [LOCAL_CODE_RUN_TARGET];
+        }
 
         const needingPassword = connections.find(
-          (c) => !c.hasPassword && !sessionPasswords[c.id]
+          (c) => c.id !== LOCAL_CODE_RUN_TARGET.id && !c.hasPassword && !sessionPasswords[c.id]
         );
         if (needingPassword) {
           set({
@@ -686,10 +714,6 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           return;
         }
 
-        const selectedSql = getSelectedSql();
-        const rawStatements = selectedSql
-          ? statementsFromSelection(selectedSql)
-          : statementsToRun(tab.sql, tab.checkedStatements);
         // Empty editor / selection is allowed — completes with 0 statement results.
 
         // Safe mode: confirm on stripped SQL (ignore @set lines; vars may resolve mid-run).

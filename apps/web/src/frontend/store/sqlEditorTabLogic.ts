@@ -1,3 +1,4 @@
+import { detectCodeCell } from '../lib/codeCellRunner';
 import { splitSqlStatements } from '../lib/sql-splitter';
 import { reattachSetComments } from '../lib/sql-variables';
 
@@ -140,6 +141,27 @@ export function statementsFromSelection(selectedSql: string): string[] {
   const all = splitSqlStatements(trimmed);
   if (all.length === 0) return [trimmed];
   return reattachSetComments(trimmed, all);
+}
+
+/**
+ * True when every statement is a JS/TS/Node code cell — no Destination server
+ * is required (cells run in the browser worker or on the FoxSchema Node host).
+ */
+export function canExecuteWithoutDestination(statements: string[]): boolean {
+  if (statements.length === 0) return false;
+  return statements.every((s) => detectCodeCell(s) != null);
+}
+
+/**
+ * Statements the Run button would send for the active tab (selection overrides strip).
+ */
+export function resolveRunStatements(
+  sql: string,
+  checkedStatements: number[],
+  selectedSql: string | null | undefined
+): string[] {
+  if (selectedSql?.trim()) return statementsFromSelection(selectedSql);
+  return statementsToRun(sql, checkedStatements);
 }
 
 export function toggleStatementCheck(checked: number[], index: number): number[] {
