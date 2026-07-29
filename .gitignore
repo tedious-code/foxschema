@@ -56,9 +56,13 @@ CHANGELOG.md
 !docs/INSTALL.md
 !docs/PUBLISH.md
 !docs/docker-hub-overview.md
+!docs/RELEASE_0.2.0.md
 docs/demo/*
 !docs/demo/foxschema-demo.mp4
 !docs/demo/foxschema-demo.gif
+!docs/demo/cross-dialect-sqlite-postgres.gif
+!docs/demo/sql-editor.gif
+!docs/demo/sql-editor.png
 
 # Desktop (Tauri) build artifacts
 apps/desktop/src-tauri/target/
