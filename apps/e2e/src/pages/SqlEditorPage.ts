@@ -192,7 +192,7 @@ export class SqlEditorPage {
       tableName,
       { timeout: 45_000 }
     );
-    // Edit table sits under the name (always visible — no hover / group class).
+    // Edit sits on the right of the object row (always visible).
     const nameLabel = explorer.getByText(tableName, { exact: true }).first();
     await nameLabel.scrollIntoViewIfNeeded();
     const row = nameLabel.locator('xpath=ancestor::div[./button[@data-testid="sql-open-blueprint"] or .//button[@data-testid="sql-open-blueprint"]][1]');
