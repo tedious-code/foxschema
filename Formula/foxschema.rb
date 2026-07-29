@@ -10,7 +10,7 @@
 # Docker: 5nickels/foxschema:latest (linux/amd64, includes Db2).
 
 class Foxschema < Formula
-  desc "Fox Schema — database schema diff & migration (local web UI)"
+  desc "Fox Schema — schema diff, migrations, and SQL Editor (local web UI)"
   homepage "https://foxschema.com"
   url "https://registry.npmjs.org/foxschema/-/foxschema-0.1.81.tgz"
   # shasum -a 256 of the npm tarball; refreshed by packaging/homebrew/update-formula.sh
@@ -23,6 +23,17 @@ class Foxschema < Formula
     system "npm", "install", "-ddd", "--global", "--build-from-source",
            "--prefix=#{libexec}", "foxschema@#{version}"
     bin.install_symlink Dir["#{libexec}/bin/*"]
+  end
+
+  def caveats
+    <<~EOS
+      Fox Schema opens a local web UI (Schema Sync + SQL Editor).
+
+        foxschema
+
+      Demo GIFs: https://github.com/tedious-code/foxschema/tree/main/docs/demo
+      Docker (linux/amd64, includes Db2): docker pull 5nickels/foxschema:latest
+    EOS
   end
 
   test do

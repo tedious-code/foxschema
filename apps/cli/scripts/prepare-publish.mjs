@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 /**
+ * Fox Schema (foxschema)
+ * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Prepare a publishable folder for the public `foxschema` npm package.
  * The CLI build already inlines @foxschema/core + @foxschema/web; published
  * deps are only native drivers + CLI runtime libs (no private workspace pkgs).
@@ -20,8 +24,10 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const cliRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const repoRoot = resolve(cliRoot, '..', '..');
 const outDir = join(cliRoot, 'npm-pack');
 const srcPkg = JSON.parse(readFileSync(join(cliRoot, 'package.json'), 'utf8'));
+const rootPkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
 const webPkg = JSON.parse(
   readFileSync(resolve(cliRoot, '..', 'web', 'package.json'), 'utf8')
 );
@@ -48,35 +54,72 @@ if (existsSync(readmeSrc)) {
 } else {
   writeFileSync(
     join(outDir, 'README.md'),
-    `# foxschema
-
-Fox Schema CLI — schema diff & migration.
-
-\`\`\`bash
-npm install -g foxschema
-foxschema
-\`\`\`
-
-Opens http://localhost:3210 with the local UI + API.
-
-See https://github.com/tedious-code/foxschema
-`
+    `# foxschema\n\nSee https://github.com/tedious-code/foxschema\n`
   );
 }
+
+for (const name of ['LICENSE', 'NOTICE']) {
+  const src = join(repoRoot, name);
+  if (existsSync(src)) cpSync(src, join(outDir, name));
+}
+
+// Tip for npm / editors: TypeScript origin + ESM entry (CLI is not a require()-able lib).
+const typesStub = `/**
+ * Fox Schema CLI — TypeScript declarations for the published \`foxschema\` package.
+ * Runtime entry is ESM (\`dist/index.js\`, \`"type": "module"\`).
+ * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
+ * SPDX-License-Identifier: Apache-2.0
+ */
+export {};
+`;
+writeFileSync(join(outDir, 'dist', 'index.d.ts'), typesStub);
 
 const publishPkg = {
   name: 'foxschema',
   version: srcPkg.version,
-  description: srcPkg.description,
+  description:
+    srcPkg.description ||
+    'Fox Schema — schema diff, migration SQL, and a rich SQL Editor (TypeScript / Node ESM)',
   license: srcPkg.license || 'Apache-2.0',
-  homepage: srcPkg.homepage,
-  bugs: srcPkg.bugs,
-  repository: srcPkg.repository,
-  keywords: srcPkg.keywords,
+  author: rootPkg.author || 'Huy Phan <huyplb@gmail.com>',
+  homepage: 'https://foxschema.com',
+  bugs: rootPkg.bugs || 'https://github.com/tedious-code/foxschema/issues',
+  repository: {
+    type: 'git',
+    url: 'git+https://github.com/tedious-code/foxschema.git',
+  },
+  keywords: [
+    'foxschema',
+    'sql',
+    'sql-editor',
+    'schema',
+    'migration',
+    'diff',
+    'typescript',
+    'esm',
+    'postgres',
+    'mysql',
+    'sqlserver',
+    'oracle',
+    'db2',
+    'sqlite',
+    'database',
+  ],
   type: 'module',
-  engines: srcPkg.engines,
+  // Helps npm / IDEs show TypeScript + ESM (CLI bin is the primary entry).
+  main: './dist/index.js',
+  module: './dist/index.js',
+  types: './dist/index.d.ts',
+  exports: {
+    '.': {
+      types: './dist/index.d.ts',
+      import: './dist/index.js',
+      default: './dist/index.js',
+    },
+  },
+  engines: rootPkg.engines || { node: '>=22.5' },
   bin: srcPkg.bin,
-  files: ['dist', 'ui-dist', 'resources', 'README.md'],
+  files: ['dist', 'ui-dist', 'resources', 'README.md', 'LICENSE', 'NOTICE'],
   dependencies: {
     '@napi-rs/keyring': srcPkg.dependencies['@napi-rs/keyring'],
     chalk: srcPkg.dependencies.chalk,
@@ -88,7 +131,6 @@ const publishPkg = {
     'ink-spinner': srcPkg.dependencies['ink-spinner'],
     'ink-text-input': srcPkg.dependencies['ink-text-input'],
     react: srcPkg.dependencies.react,
-    // Drivers left external by the esbuild bundles:
     pg: webPkg.dependencies.pg,
     mysql2: webPkg.dependencies.mysql2,
     mssql: webPkg.dependencies.mssql,
@@ -98,8 +140,6 @@ const publishPkg = {
     '@duckdb/node-api': webPkg.dependencies['@duckdb/node-api'],
   },
   optionalDependencies: {
-    // Single package — ibm_db installs on supported platforms (win/mac/linux x64).
-    // Unsupported platforms (e.g. linux/arm64) skip install without failing npm.
     ibm_db: webPkg.optionalDependencies?.ibm_db || '^4.0.1',
   },
   publishConfig: { access: 'public' },
@@ -107,3 +147,4 @@ const publishPkg = {
 
 writeFileSync(join(outDir, 'package.json'), JSON.stringify(publishPkg, null, 2) + '\n');
 console.log(`✔ prepared ${outDir} (foxschema@${publishPkg.version})`);
+console.log(`  type=module · types=dist/index.d.ts · keywords include typescript`);

@@ -1,16 +1,18 @@
 name: Version Bump
 
 # Runs on every push to main (i.e. every merged PR).
-# Reads the current 0.0.BUILD from root package.json, increments BUILD by 1,
-# and writes the new version back to all package.json, tauri.conf.json, and Cargo.toml files.
+# Increments the patch (0.2.N → 0.2.N+1). Skipped for `chore: bump` / `chore: release` / `[no bump]`.
 on:
   push:
     branches: [main]
 
 jobs:
   bump:
-    # Skip when the push is the version-bump commit itself (avoids infinite loop).
-    if: "!startsWith(github.event.head_commit.message, 'chore: bump version')"
+    # Skip bot bumps and intentional release commits (e.g. 0.2.0).
+    if: >-
+      ${{ !startsWith(github.event.head_commit.message, 'chore: bump version')
+          && !startsWith(github.event.head_commit.message, 'chore: release')
+          && !contains(github.event.head_commit.message, '[no bump]') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -28,9 +30,11 @@ jobs:
         id: ver
         run: |
           CURRENT=$(jq -r '.version' package.json)
+          MAJOR=$(echo "$CURRENT" | cut -d. -f1)
+          MINOR=$(echo "$CURRENT" | cut -d. -f2)
           BUILD=$(echo "$CURRENT" | cut -d. -f3)
           NEW_BUILD=$((BUILD + 1))
-          NEW="${CURRENT%.*}.$NEW_BUILD"
+          NEW="${MAJOR}.${MINOR}.${NEW_BUILD}"
           echo "new=$NEW" >> "$GITHUB_OUTPUT"
           echo "Bumping $CURRENT → $NEW"
 

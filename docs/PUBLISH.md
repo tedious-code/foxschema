@@ -12,39 +12,51 @@ Distribution channels (one product, no separate Db2 edition):
 | **Desktop Tauri** | **Retired** — do not publish | — |
 | **Winget** | **Retired** — do not publish | — |
 
-Version numbers are bumped automatically on merge to `main`
-(`.github/workflows/version-bump.yml`). Do **not** bump version in feature PRs.
+Patch versions are bumped automatically on merge to `main`
+(`.github/workflows/version-bump.yml`). For a **minor/major** release (e.g. `0.2.0`
+SQL Editor), set the version in a `chore: release 0.2.0` commit so the auto-bump
+is skipped, merge, then tag.
+
+Demo GIFs for README / npm / docs: `docs/demo/*.gif` (Schema Sync + SQL Editor).
 
 ---
 
 ## 1. Merge to `main`
 
-CI bumps `0.1.N` → `0.1.N+1` (e.g. `0.1.66` → `0.1.67`).
+- Patch: CI bumps `0.2.N` → `0.2.N+1` after ordinary merges.
+- Minor/major: merge a PR that already sets `0.2.0` with message
+  `chore: release 0.2.0` (or include `[no bump]`).
 
 ---
 
 ## 2. Tag the release
 
-Tag the commit that has the version you want to publish (usually the bump commit):
+Tag the commit that has the version you want to publish:
 
 ```bash
 git fetch origin main
 git checkout main && git pull
-# package.json should show the new version, e.g. 0.1.67
-git tag v0.1.67
-git push origin v0.1.67
+# package.json should show e.g. 0.2.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 That starts:
 
-- **Web Release** → Docker Hub + GHCR (`latest` and `v0.1.67`)
+- **Web Release** → Docker Hub + GHCR (`latest` and `v0.2.0`)
 - **npm Publish** → needs repo secret `NPM_TOKEN`
+
+The npm package ships with:
+
+- Rich README (SQL Editor + Schema Sync GIFs via raw GitHub URLs)
+- `"type": "module"` + `types` / `exports` so npm shows TypeScript + ESM
+- `LICENSE` + `NOTICE`
 
 Or run manually:
 
 ```bash
-gh workflow run web-release.yml --ref v0.1.67
-gh workflow run npm-publish.yml --ref v0.1.67
+gh workflow run web-release.yml --ref v0.2.0
+gh workflow run npm-publish.yml --ref v0.2.0
 ```
 
 ### Secrets
@@ -62,9 +74,9 @@ gh workflow run npm-publish.yml --ref v0.1.67
 After npm shows `foxschema@VERSION`, update the formula in this repo and push:
 
 ```bash
-./packaging/homebrew/update-formula.sh 0.1.67
+./packaging/homebrew/update-formula.sh 0.2.0
 git add Formula/foxschema.rb
-git commit -m "brew: foxschema 0.1.67"
+git commit -m "brew: foxschema 0.2.0"
 git push origin main
 ```
 
@@ -84,6 +96,8 @@ See [packaging/homebrew/README.md](../packaging/homebrew/README.md).
 
 ```bash
 npm view foxschema version
+npm view foxschema types
+npm view foxschema type
 docker pull 5nickels/foxschema:latest
 npm install -g foxschema@latest
 foxschema doctor

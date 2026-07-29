@@ -2,12 +2,20 @@
 
 # Fox Schema
 
-**Compare two database schemas, see exactly what differs, and generate the migration SQL to make them match — across 10 SQL dialects.**
+**Compare schemas · generate migrations · run SQL — across 10 dialects.**
 
-Install the CLI, then open the **local web UI** in your browser (or double-click the
-Fox desktop shortcut). Self-host with **Docker** when you need a server.
+Install once, then open the local web UI (`foxschema`) for **Schema Sync** and the
+**SQL Editor**. Self-host with Docker when you need a server.
 
-[foxschema.com](https://foxschema.com) · [Install](docs/INSTALL.md) · [Publish](docs/PUBLISH.md) · [User guide](docs/USER_GUIDE.md) · [Deploy](docs/DEPLOYMENT.md) · [Contributing](CONTRIBUTING.md)
+[foxschema.com](https://foxschema.com) · [Install](docs/INSTALL.md) · [User guide](docs/USER_GUIDE.md) · [Publish](docs/PUBLISH.md) · [Contributing](CONTRIBUTING.md)
+
+<p>
+  <a href="https://www.npmjs.com/package/foxschema"><img alt="npm" src="https://img.shields.io/npm/v/foxschema.svg?logo=npm" /></a>
+  <a href="https://hub.docker.com/r/5nickels/foxschema"><img alt="Docker" src="https://img.shields.io/docker/v/5nickels/foxschema?label=docker&logo=docker" /></a>
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5+-3178C6?logo=typescript&logoColor=white" />
+  <img alt="Node ESM" src="https://img.shields.io/badge/Node-ESM%20%2B%20CJS%20deps-339933?logo=nodedotjs&logoColor=white" />
+  <img alt="License" src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" />
+</p>
 
 </div>
 
@@ -35,7 +43,7 @@ winget install OpenJS.NodeJS.LTS
 npm install -g foxschema
 ```
 
-Full matrix (curl/wget, shortcut, troubleshooting): **[docs/INSTALL.md](docs/INSTALL.md)**.
+Full matrix: **[docs/INSTALL.md](docs/INSTALL.md)**.
 
 ## Use the app
 
@@ -46,10 +54,6 @@ foxschema stop            # stop the background server
 foxschema doctor
 ```
 
-**Desktop shortcut:** after install, run `foxschema shortcut`. Double-click **Fox Schema**
-anytime to open the UI. If you closed the browser without `stop`, the server is still
-running — the shortcut just reopens the browser.
-
 Headless / CI:
 
 ```bash
@@ -57,6 +61,42 @@ foxschema compare --source a --target b
 foxschema migrate --source a --target b
 foxschema tui
 ```
+
+## SQL Editor (0.2)
+
+A full query workbench next to Schema Sync — not a thin prompt.
+
+![SQL Editor — multi-destination run, Data Peek, FoxScript](docs/demo/sql-editor.gif)
+
+| Feature | What you get |
+|---------|----------------|
+| **Multi-destination Run** | Same SQL against every checked connection; By-cred or Side-by-side results |
+| **Notebook cells** | SQL + `-- @js` / `-- @ts` / `-- @node` cells with per-cell ▶ and `Out [n]` |
+| **FoxScript** | Monaco language, fences, markers, schema-aware tokens |
+| **Data Peek** | Cmd/Ctrl-click a table in Schema, or click rust FK cells in results |
+| **Peek tools** | WHERE / ORDER BY / LIMIT, Prev/Next, drag ⋮⋮ to arrange, resize |
+| **Schema explorer** | Insert names, autocomplete, edit table / view source |
+| **Variables & secrets** | `${{name}}`, `@set`, session secrets, code-cell `vars` |
+| **Safe mode** | Confirm writes; bookmarks & samples included |
+
+Walkthrough: [User guide → SQL Editor](docs/USER_GUIDE.md#sql-editor).
+
+## Schema Sync
+
+Point Fox at a **source** and a **target**. It introspects both, shows a color-coded
+diff, then generates DDL to align the target (dry-run by default).
+
+![Fox Schema demo — connect, compare, migration SQL](docs/demo/foxschema-demo.gif)
+
+- **Schema diff** — tables, columns, keys, indexes, constraints, views, routines…
+- **Migration generation** — reviewable target-dialect DDL
+- **Cross-dialect aware** — fewer false positives (e.g. Postgres → MySQL)
+- **Safe apply** — dry-run default; skip-on-error optional; history recorded
+- **Credentials encrypted at rest** — passwords never returned to the browser
+
+Cross-dialect demo:
+
+![Cross-dialect compare](docs/demo/cross-dialect-sqlite-postgres.gif)
 
 ## Docker (self-host)
 
@@ -69,35 +109,20 @@ docker run -d --name foxschema \
 
 Open **http://localhost:3001**. Guide: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
-## What it does
-
-Point Fox at a **source** and a **target** database. It introspects both, shows a
-color-coded diff — tables, columns, keys, indexes, constraints, views, sequences,
-functions, procedures, triggers, roles — then generates DDL to align the target,
-with dry-run by default and optional apply + history.
-
-- **Schema diff** — grouped, searchable; drill into column/index/FK changes.
-- **Migration generation** — reviewable target-dialect DDL.
-- **SQL Editor** — run queries against one or more saved connections; multi-tab,
-  statement strip, schema explorer (see [User guide](docs/USER_GUIDE.md#sql-editor)).
-- **Cross-dialect aware** — fewer false positives across e.g. Postgres → MySQL.
-- **Safe apply** — dry-run by default; skip-on-error optional; history recorded.
-- **Credentials encrypted at rest** — passwords never returned to the browser.
-
-## Demo
-
-![Fox Schema demo — connect, compare, migration SQL, execute, history](docs/demo/foxschema-demo.gif)
-
 ## Supported dialects
 
 PostgreSQL · MySQL · MariaDB · SQL Server · Azure SQL · Oracle · IBM Db2 ·
 SQLite · ClickHouse · Amazon Redshift
 
-One product — no separate “Db2 edition”. Docker image includes Db2 on linux/amd64.
+One product — Docker image includes Db2 on linux/amd64.
+
+## Package notes (npm)
+
+The published `foxschema` CLI is built from **TypeScript** and ships as **Node ESM**
+(`"type": "module"`) with a `types` entry for tooling. Native drivers may load as
+CommonJS at runtime. Requires **Node ≥ 22.5**.
 
 ## How it's built
-
-npm workspaces:
 
 | Workspace | Role |
 |-----------|------|
@@ -106,12 +131,11 @@ npm workspaces:
 | `apps/cli` | `foxschema` CLI, desktop shortcut, TUI |
 | `apps/e2e` | Playwright tests against dockerized databases |
 
-Maintainers: [docs/PUBLISH.md](docs/PUBLISH.md) · [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) ·
-[packages/core/src/providers/DIALECTS.md](packages/core/src/providers/DIALECTS.md).
+Maintainers: [docs/PUBLISH.md](docs/PUBLISH.md) · [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## License
 
-Copyright 2024–2026 Huy Phan `<huyplb@live.com>` and [tedious-code](https://github.com/tedious-code)
+Copyright 2024–2026 Huy Phan `<huyplb@gmail.com>` and [tedious-code](https://github.com/tedious-code)
 contributors. See [NOTICE](NOTICE) and [LICENSE](LICENSE) (Apache-2.0).
 
 Keep copyright / NOTICE / LICENSE when you fork or redistribute — stripping
