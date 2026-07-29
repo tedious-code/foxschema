@@ -169,6 +169,7 @@ const PeekGrid: React.FC<{
   onClose?: () => void;
 }> = ({ entry, tables, variant, showFkHint, onClose }) => {
   const drillDataPeek = useSqlEditorStore((s) => s.drillDataPeek);
+  const pageDataPeekEntry = useSqlEditorStore((s) => s.pageDataPeekEntry);
 
   const table = useMemo(() => {
     if (!tables) return undefined;
@@ -231,25 +232,31 @@ const PeekGrid: React.FC<{
 
       <PeekFilterBar entry={entry} disabled={entry.status === 'loading'} />
 
-      {entry.status === 'loading' && (
+      {entry.status === 'loading' && !entry.result && (
         <div className="flex items-center gap-2 px-1 py-4 text-[12px] text-slate-400">
           <Loader2 className="w-3.5 h-3.5 animate-spin" strokeWidth={SQL_ICON_STROKE} />
           Loading {entry.title}…
         </div>
       )}
 
-      {(entry.status === 'error' || (entry.status === 'ready' && !entry.result)) && (
+      {(entry.status === 'error' || (entry.status !== 'loading' && !entry.result)) && (
         <div className="mx-0.5 my-1 rounded border border-rose-500/40 bg-rose-950/30 px-3 py-2 text-[12px] text-rose-300">
           {entry.error ?? 'Preview failed'}
         </div>
       )}
 
-      {entry.status === 'ready' && entry.result && (
+      {entry.result?.ok && (
         <div className="flex-1 min-h-0 flex flex-col">
           <DataGrid
             result={entry.result}
             exportName={entry.tableName}
+            pageIndex={entry.pageIndex}
             pageSize={entry.limit}
+            pageLoading={entry.status === 'loading'}
+            hasPrevPage={entry.pageIndex > 0}
+            hasNextPage={Boolean(entry.result.hasNext ?? entry.result.truncated)}
+            onPrevPage={() => void pageDataPeekEntry(entry.id, Math.max(0, entry.pageIndex - 1))}
+            onNextPage={() => void pageDataPeekEntry(entry.id, entry.pageIndex + 1)}
             linkColumns={linkColumns.size > 0 ? linkColumns : undefined}
             onLinkClick={onLinkClick}
           />

@@ -14,6 +14,7 @@ function entry(
     whereClause: '',
     orderByClause: '',
     limit: 50,
+    pageIndex: 0,
     sql: 'SELECT 1',
     params: [],
     status: 'ready',

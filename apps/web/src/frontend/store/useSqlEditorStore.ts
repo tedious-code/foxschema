@@ -241,6 +241,8 @@ export interface DataPeekEntry {
   orderByClause: string;
   /** Rows/page for this peek panel (sent as execute page size). */
   limit: number;
+  /** 0-based page for server OFFSET paging. */
+  pageIndex: number;
   /** Composed SQL actually executed. */
   sql: string;
   params: unknown[];
@@ -408,6 +410,8 @@ interface SqlEditorState {
   updateDataPeekFilters: (entryId: string, patch: DataPeekFilterPatch) => Promise<void>;
   /** Persist a dragged panel height. */
   setDataPeekPanelHeight: (entryId: string, heightPx: number) => void;
+  /** Load another OFFSET page for one peek panel. */
+  pageDataPeekEntry: (entryId: string, pageIndex: number) => Promise<void>;
   /** Internal: (re)run one peek entry's query. */
   runDataPeekEntry: (entryId: string) => Promise<void>;
   /** Create or overwrite a variable by name. Returns error string or null. */
@@ -1418,6 +1422,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           whereClause: '',
           orderByClause: '',
           limit: DATA_PEEK_ROWS,
+          pageIndex: 0,
           sql: composed.sql,
           params: composed.params,
           status: 'loading',
@@ -1446,6 +1451,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           whereClause: '',
           orderByClause: '',
           limit: DATA_PEEK_ROWS,
+          pageIndex: 0,
           sql: composed.sql,
           params: composed.params,
           status: 'loading',
@@ -1488,6 +1494,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
                       whereClause,
                       orderByClause,
                       limit,
+                      pageIndex: 0,
                       status: 'error' as const,
                       error: composed.error,
                     }
@@ -1507,6 +1514,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
                     whereClause,
                     orderByClause,
                     limit,
+                    pageIndex: 0,
                     sql: composed.sql,
                     params: composed.params,
                     status: 'loading' as const,
@@ -1533,6 +1541,26 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         });
       },
 
+      pageDataPeekEntry: async (entryId, pageIndex) => {
+        const peek = get().dataPeek;
+        if (!peek) return;
+        const entry = peek.entries.find((e) => e.id === entryId);
+        if (!entry) return;
+        const nextPage = Math.max(0, Math.floor(pageIndex));
+        if (nextPage === entry.pageIndex && entry.status === 'ready') return;
+        set({
+          dataPeek: {
+            ...peek,
+            entries: peek.entries.map((e) =>
+              e.id === entryId
+                ? { ...e, pageIndex: nextPage, status: 'loading' as const, error: undefined }
+                : e
+            ),
+          },
+        });
+        await get().runDataPeekEntry(entryId);
+      },
+
       runDataPeekEntry: async (entryId) => {
         const peek = get().dataPeek;
         if (!peek) return;
@@ -1550,6 +1578,8 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         };
         try {
           const pageSize = Math.min(5000, Math.max(1, entry.limit || DATA_PEEK_ROWS));
+          const pageIndex = Math.max(0, entry.pageIndex || 0);
+          const offset = pageIndex * pageSize;
           const { results } = await executeSql(
             {
               connectionId: peek.connectionId,
@@ -1557,7 +1587,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
             },
             [entry.sql],
             pageSize,
-            0,
+            offset,
             [entry.params]
           );
           const result = results[0];
