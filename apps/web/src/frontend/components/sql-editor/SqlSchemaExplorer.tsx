@@ -457,10 +457,10 @@ const ObjectNode: React.FC<{
               e.stopPropagation();
               onOpenBlueprint();
             }}
-            className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold text-violet-200 bg-violet-950/60 border border-violet-600/50 hover:bg-violet-900/70 transition"
+            className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold text-violet-200 bg-violet-950/60 border border-violet-600/50 hover:bg-violet-900/70 transition whitespace-nowrap"
           >
             <Columns3 className="w-3 h-3" strokeWidth={SQL_ICON_STROKE} />
-            Edit
+            Edit table
           </button>
         )}
         {opensSource && (
@@ -472,10 +472,10 @@ const ObjectNode: React.FC<{
               e.stopPropagation();
               onOpenSource?.();
             }}
-            className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold text-sky-200 bg-sky-950/60 border border-sky-600/50 hover:bg-sky-900/70 transition"
+            className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold text-sky-200 bg-sky-950/60 border border-sky-600/50 hover:bg-sky-900/70 transition whitespace-nowrap"
           >
             <FileCode2 className="w-3 h-3" strokeWidth={SQL_ICON_STROKE} />
-            Source
+            View source
           </button>
         )}
       </div>
