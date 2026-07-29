@@ -1,6 +1,6 @@
 /**
  * Fox Schema (foxschema)
- * Copyright 2024-2026 Huy Ph <huyplb@gmail.com>
+ * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
  * SPDX-License-Identifier: Apache-2.0
  *
  * Queries behind data peek (schema Cmd/Ctrl-click, or FK click in editor results).

@@ -180,7 +180,7 @@ END OF TERMS AND CONDITIONS
 ## Copyright Notice
 
 ```
-Copyright 2024-2026 Huy Ph <huyplb@gmail.com>
+Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
 Copyright 2024-2026 tedious-code contributors
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -208,7 +208,7 @@ Add the following boilerplate notice at the top of each source file
 ```
 /*
  * Fox Schema (foxschema)
- * Copyright 2024-2026 Huy Ph <huyplb@gmail.com>
+ * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.

@@ -111,7 +111,7 @@ Maintainers: [docs/PUBLISH.md](docs/PUBLISH.md) · [docs/ARCHITECTURE.md](docs/A
 
 ## License
 
-Copyright 2024–2026 Huy Ph `<huyplb@gmail.com>` and [tedious-code](https://github.com/tedious-code)
+Copyright 2024–2026 Huy Phan `<huyplb@gmail.com>` and [tedious-code](https://github.com/tedious-code)
 contributors. See [NOTICE](NOTICE) and [LICENSE](LICENSE) (Apache-2.0).
 
 Keep copyright / NOTICE / LICENSE when you fork or redistribute — stripping

@@ -1,6 +1,6 @@
 /**
  * Fox Schema (foxschema)
- * Copyright 2024-2026 Huy Ph <huyplb@gmail.com>
+ * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
  * SPDX-License-Identifier: Apache-2.0
  *
  * Result DataGrid (paper surface, paging, FK drill links for Data Peek).
