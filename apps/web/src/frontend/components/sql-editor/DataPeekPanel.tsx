@@ -314,8 +314,8 @@ const PeekGrid: React.FC<{
           />
           {showFkHint && linkColumns.size > 0 && (
             <p className="mt-1 px-1 shrink-0 text-[10px] text-slate-500">
-              Underlined rust-colored cells are foreign keys — click several to open more panels;
-              scroll this window to move between them.
+              Underlined rust-colored cells are foreign keys — click several to open more panels.
+              Drag the ⋮⋮ handle to arrange; scroll to move between them.
             </p>
           )}
         </div>
