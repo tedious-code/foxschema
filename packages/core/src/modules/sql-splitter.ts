@@ -120,7 +120,7 @@ function lineBounds(sql: string, from: number): { start: number; end: number; ne
   return { start: from, end, next: end + 1 };
 }
 
-interface CodeFenceRange {
+export interface CodeFenceRange {
   kind: CodeCellKind;
   start: number;
   end: number;

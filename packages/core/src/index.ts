@@ -58,7 +58,24 @@ export type {
   BrowserCodeCellKind,
   NodeCodeCellKind,
   TsCodeCellKind,
+  CodeFenceRange,
 } from './modules/sql-splitter';
+export {
+  parseFoxScript,
+  compileFoxScriptPlan,
+  foxScriptExecutableTexts,
+} from './modules/foxscript-ast';
+export type {
+  FoxScriptBlock,
+  FoxScriptCodeBlock,
+  FoxScriptSqlBlock,
+  FoxScriptDocument,
+  FoxScriptDiagnostic,
+  FoxScriptExecutionPlan,
+  FoxScriptPlanStep,
+  FoxScriptRange,
+  FoxScriptBlockKind,
+} from './modules/foxscript-ast';
 export type {
   CodeCellLast,
   CodeCellVars,

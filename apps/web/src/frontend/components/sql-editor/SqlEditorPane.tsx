@@ -4,14 +4,27 @@ import {
   MONACO_THEME,
   MONACO_THEME_LIGHT,
   monacoLanguage,
-  FOXSCHEMA_SQL_LANG,
+  FOXSCRIPT_LANG,
   MONACO_EDITOR_BASE_OPTIONS,
 } from '../../monaco-setup';
 import { ensureFoxschemaSqlLanguage } from '../../lib/foxschemaSqlLanguage';
+import {
+  disposeFoxscriptVirtualDocs,
+  ensureFoxscriptVirtualProviders,
+  syncFoxscriptVirtualDocs,
+} from '../../lib/foxscriptVirtualDocs';
+import {
+  ensureFoxscriptSemanticTokens,
+  refreshFoxscriptSemanticTokens,
+} from '../../lib/foxscriptSemanticTokens';
 import { MONACO_FONT_PX, useUiStore } from '../../store/uiStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
-import { checkStatement, isCodeCellKind, type SplitStatement } from '../../lib/sql-splitter';
+import {
+  parseFoxScript,
+  type SplitStatement,
+} from '../../lib/sql-splitter';
 import { ensureSqlCompletions } from './completion';
+import { applyFoxscriptMarkers, clearFoxscriptMarkers } from './foxscriptDiagnostics';
 import { setSqlInsertHandler, setSqlSelectionGetter } from './sqlEditorBridge';
 import { buildVariableHoverDecorations } from './variableHover';
 
@@ -24,7 +37,7 @@ export interface RevealRequest {
 
 interface Props {
   value: string;
-  /** Pre-split statements from the parent (one parse per keystroke). */
+  /** Pre-split statements from the parent (kept for API compatibility / strip). */
   statements: SplitStatement[];
   dialect: string;
   onChange: (value: string) => void;
@@ -39,10 +52,10 @@ interface Props {
 /**
  * Editable Monaco pane for the SQL Editor. Notebook-style cell banding spans
  * each statement's line range; the glyph margin shows ✓ / ⚠ on the first line.
+ * Model language is FoxScript (`foxscript`) once Monarch + packs load.
  */
 export const SqlEditorPane: React.FC<Props> = ({
   value,
-  statements,
   dialect,
   onChange,
   onRun,
@@ -62,6 +75,7 @@ export const SqlEditorPane: React.FC<Props> = ({
   const fontSizePref = useUiStore((s) => s.fontSize);
   const monacoFontSize = MONACO_FONT_PX[fontSizePref] ?? MONACO_FONT_PX.md;
   const variables = useSqlEditorStore((s) => s.variables);
+  const schemaCache = useSqlEditorStore((s) => s.schemaCache);
   const [editorLanguage, setEditorLanguage] = useState(() => monacoLanguage(dialect));
 
   const editorOptions = useMemo(
@@ -73,6 +87,7 @@ export const SqlEditorPane: React.FC<Props> = ({
       tabSize: 2,
       quickSuggestions: { other: true, comments: false, strings: false },
       suggestOnTriggerCharacters: true,
+      'semanticHighlighting.enabled': true,
     }),
     [monacoFontSize]
   );
@@ -82,31 +97,35 @@ export const SqlEditorPane: React.FC<Props> = ({
     editorRef.current?.updateOptions?.({ fontSize: monacoFontSize });
   }, [monacoFontSize]);
 
-  const decorate = (text: string, stmts: SplitStatement[]) => {
+  const decorate = (text: string) => {
     const editor = editorRef.current;
     const monaco = monacoRef.current;
     if (!editor) return;
+
+    // One FoxScript parse drives glyphs, markers, and virtual docs.
+    const fox = parseFoxScript(text);
+
     decoRef.current?.clear?.();
-    if (!stmts.length) {
+    if (!fox.blocks.length) {
       decoRef.current = null;
     } else {
       const decorations: object[] = [];
-      for (const stmt of stmts) {
-        const status = checkStatement(stmt);
+      for (const block of fox.blocks) {
+        const status = block.status;
         const ok = status.level === 'ok';
-        const code = isCodeCellKind(stmt.kind);
+        const isCode = block.type === 'code';
         decorations.push({
           range: {
-            startLineNumber: stmt.startLine,
+            startLineNumber: block.range.startLine,
             startColumn: 1,
-            endLineNumber: stmt.startLine,
+            endLineNumber: block.range.startLine,
             endColumn: 1,
           },
           options: {
             glyphMarginClassName: ok ? 'fox-stmt-glyph-ok' : 'fox-stmt-glyph-warn',
             glyphMarginHoverMessage: {
               value: ok
-                ? code
+                ? isCode
                   ? 'Code cell looks complete — use the strip ▶ to run this cell'
                   : 'Statement looks complete — use the strip ▶ to run this cell'
                 : status.reasons.join(' · '),
@@ -114,18 +133,17 @@ export const SqlEditorPane: React.FC<Props> = ({
             stickiness: 1,
           },
         });
-        // Whole-cell band (Jupyter-like visual boundary in the single buffer).
         decorations.push({
           range: {
-            startLineNumber: stmt.startLine,
+            startLineNumber: block.range.startLine,
             startColumn: 1,
-            endLineNumber: stmt.endLine,
+            endLineNumber: block.range.endLine,
             endColumn: 1,
           },
           options: {
             isWholeLine: true,
-            className: code ? 'fox-cell-band-code' : 'fox-cell-band-sql',
-            linesDecorationsClassName: code ? 'fox-cell-edge-code' : 'fox-cell-edge-sql',
+            className: isCode ? 'fox-cell-band-code' : 'fox-cell-band-sql',
+            linesDecorationsClassName: isCode ? 'fox-cell-edge-code' : 'fox-cell-edge-sql',
             stickiness: 1,
           },
         });
@@ -140,16 +158,27 @@ export const SqlEditorPane: React.FC<Props> = ({
       varDecoRef.current =
         varDecos.length > 0 ? editor.createDecorationsCollection(varDecos) : null;
     }
+
+    const model = editor.getModel?.();
+    if (monaco && model) {
+      applyFoxscriptMarkers(monaco, model, fox);
+      syncFoxscriptVirtualDocs(monaco, model, fox);
+    }
   };
 
-  // Re-decorate (debounced) whenever the buffer, splits, or variables change.
+  // Re-decorate (debounced) whenever the buffer or variables change.
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => decorate(value, statements), 200);
+    debounceRef.current = setTimeout(() => decorate(value), 200);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [value, statements, variables]);
+  }, [value, variables]);
+
+  // Schema load → refresh table/column semantic tokens.
+  useEffect(() => {
+    refreshFoxscriptSemanticTokens();
+  }, [schemaCache]);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -172,12 +201,19 @@ export const SqlEditorPane: React.FC<Props> = ({
     return () => {
       setSqlInsertHandler(null);
       setSqlSelectionGetter(null);
+      const editor = editorRef.current;
+      const monaco = monacoRef.current;
+      const model = editor?.getModel?.();
+      if (monaco && model) {
+        clearFoxscriptMarkers(monaco, model);
+        disposeFoxscriptVirtualDocs(model);
+      }
     };
   }, []);
 
   useEffect(() => {
     setEditorLanguage((prev) =>
-      prev === FOXSCHEMA_SQL_LANG ? prev : monacoLanguage(dialect)
+      prev === FOXSCRIPT_LANG ? prev : monacoLanguage(dialect)
     );
   }, [dialect]);
 
@@ -192,12 +228,19 @@ export const SqlEditorPane: React.FC<Props> = ({
         editorRef.current = editor;
         monacoRef.current = monaco;
         ensureSqlCompletions(monaco);
-        // Upgrade to SQL+JS/TS highlighting after packs load (never block mount).
+        ensureFoxscriptVirtualProviders(monaco);
+        ensureFoxscriptSemanticTokens(monaco, () => useSqlEditorStore.getState().schemaCache);
+        // Upgrade to FoxScript (SQL+JS/TS) highlighting after packs load.
         void ensureFoxschemaSqlLanguage(monaco).then((ok) => {
           if (!ok) return;
-          setEditorLanguage(FOXSCHEMA_SQL_LANG);
+          setEditorLanguage(FOXSCRIPT_LANG);
           const model = editor.getModel();
-          if (model) monaco.editor.setModelLanguage(model, FOXSCHEMA_SQL_LANG);
+          if (model) {
+            monaco.editor.setModelLanguage(model, FOXSCRIPT_LANG);
+            const fox = parseFoxScript(model.getValue());
+            applyFoxscriptMarkers(monaco, model, fox);
+            syncFoxscriptVirtualDocs(monaco, model, fox);
+          }
         });
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => onRunRef.current?.());
         setSqlSelectionGetter(() => {
@@ -229,7 +272,7 @@ export const SqlEditorPane: React.FC<Props> = ({
           ed.executeEdits('schema-insert', [{ range, text, forceMoveMarkers: true }]);
           ed.focus();
         });
-        decorate(editor.getValue(), statements);
+        decorate(editor.getValue());
       }}
       options={editorOptions}
     />
