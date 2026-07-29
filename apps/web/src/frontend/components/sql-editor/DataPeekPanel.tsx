@@ -7,10 +7,10 @@ import { DataGrid } from './DataGrid';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
 import type { TableSchema } from '../../lib/types';
 
-const DEFAULT_HEIGHT_ROOT = 460;
-/** FK drill panels stack full-width; keep them tall enough for a usable grid. */
-const DEFAULT_HEIGHT_DRILL = 400;
-const MIN_PANEL_HEIGHT = 220;
+const DEFAULT_HEIGHT_ROOT = 360;
+/** FK drill panels stack full-width; main body scrolls when many are open. */
+const DEFAULT_HEIGHT_DRILL = 320;
+const MIN_PANEL_HEIGHT = 200;
 const MAX_PANEL_HEIGHT = 900;
 
 /**
@@ -207,7 +207,7 @@ const PeekGrid: React.FC<{
 
   return (
     <div
-      className="px-2 pb-1 flex flex-col min-h-0 w-full"
+      className="px-2 pb-1 flex flex-col w-full shrink-0"
       style={{ height: heightPx }}
       data-testid={`data-peek-grid-${entry.id}`}
     >
@@ -255,8 +255,8 @@ const PeekGrid: React.FC<{
           />
           {showFkHint && linkColumns.size > 0 && (
             <p className="mt-1 px-1 shrink-0 text-[10px] text-slate-500">
-              Underlined rust-colored cells are foreign keys — click orderID and technicianID to open
-              both panels stacked below.
+              Underlined rust-colored cells are foreign keys — click several to open more panels;
+              scroll this window to move between them.
             </p>
           )}
         </div>
@@ -272,6 +272,8 @@ export const DataPeekPanel: React.FC = () => {
   const closeDataPeek = useSqlEditorStore((s) => s.closeDataPeek);
   const closeDataPeekFrom = useSqlEditorStore((s) => s.closeDataPeekFrom);
   const schemaCache = useSqlEditorStore((s) => s.schemaCache);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const lastEntryCount = useRef(0);
 
   useEffect(() => {
     if (!dataPeek) return;
@@ -282,10 +284,33 @@ export const DataPeekPanel: React.FC = () => {
     return () => window.removeEventListener('keydown', onKey);
   }, [dataPeek, closeDataPeek]);
 
+  // When a new FK panel opens, scroll the main peek body so it comes into view.
+  useEffect(() => {
+    if (!dataPeek) {
+      lastEntryCount.current = 0;
+      return;
+    }
+    const count = dataPeek.entries.length;
+    if (count > lastEntryCount.current) {
+      const last = dataPeek.entries[count - 1];
+      requestAnimationFrame(() => {
+        const el = last
+          ? scrollRef.current?.querySelector(`[data-testid="data-peek-grid-${last.id}"]`)
+          : null;
+        el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      });
+    }
+    lastEntryCount.current = count;
+  }, [dataPeek]);
+
   if (!dataPeek) return null;
   const tables = schemaCache[dataPeek.connectionId]?.tables;
-  const root = dataPeek.entries.find((e) => !e.parentId) ?? dataPeek.entries[0];
-  const drills = dataPeek.entries.filter((e) => e.parentId);
+  // Keep open order: root first, then drills as opened (supports many stacked panels).
+  const ordered = [
+    ...dataPeek.entries.filter((e) => !e.parentId),
+    ...dataPeek.entries.filter((e) => e.parentId),
+  ];
+  const rootId = ordered.find((e) => !e.parentId)?.id;
 
   return createPortal(
     <div
@@ -336,33 +361,34 @@ export const DataPeekPanel: React.FC = () => {
           </button>
         </div>
 
-        <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2 py-1">
-          {root && (
-            <PeekGrid
-              entry={root}
-              tables={tables}
-              variant="root"
-              showFkHint
-            />
-          )}
-          {drills.length > 0 && (
-            <div className="px-1 flex flex-col gap-3" data-testid="data-peek-drills">
-              {drills.map((e) => (
+        <div
+          ref={scrollRef}
+          className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain"
+          data-testid="data-peek-scroll"
+        >
+          <div className="flex flex-col gap-3 py-2 px-1">
+            {ordered.map((e) => {
+              const isRoot = e.id === rootId;
+              return (
                 <div
                   key={e.id}
-                  className="min-w-0 w-full rounded-lg border border-slate-800 bg-slate-950/40"
+                  className={
+                    isRoot
+                      ? 'min-w-0 w-full shrink-0'
+                      : 'min-w-0 w-full shrink-0 rounded-lg border border-slate-800 bg-slate-950/40'
+                  }
                 >
                   <PeekGrid
                     entry={e}
                     tables={tables}
-                    variant="drill"
-                    showFkHint={false}
-                    onClose={() => closeDataPeekFrom(e.id)}
+                    variant={isRoot ? 'root' : 'drill'}
+                    showFkHint={isRoot}
+                    onClose={isRoot ? undefined : () => closeDataPeekFrom(e.id)}
                   />
                 </div>
-              ))}
-            </div>
-          )}
+              );
+            })}
+          </div>
         </div>
       </div>
     </div>,
