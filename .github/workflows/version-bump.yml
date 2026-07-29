@@ -29,6 +29,19 @@ jobs:
       - name: Compute new version
         id: ver
         run: |
+          # Skip intentional releases (merge commits rarely keep "chore: release"
+          # as subject — also scan recent subjects / PR branch names).
+          RECENT=$(git log -8 --pretty=%s)
+          if echo "$RECENT" | grep -qiE '^chore: release|\[no bump\]'; then
+            echo "Skipping bump (recent chore: release / [no bump])"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if echo "$RECENT" | grep -qiE 'Merge pull request .*release|Merge pull request .*0-2-0'; then
+            echo "Skipping bump (release merge)"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           CURRENT=$(jq -r '.version' package.json)
           MAJOR=$(echo "$CURRENT" | cut -d. -f1)
           MINOR=$(echo "$CURRENT" | cut -d. -f2)
@@ -36,9 +49,11 @@ jobs:
           NEW_BUILD=$((BUILD + 1))
           NEW="${MAJOR}.${MINOR}.${NEW_BUILD}"
           echo "new=$NEW" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
           echo "Bumping $CURRENT → $NEW"
 
       - name: Update package.json files
+        if: steps.ver.outputs.skip != 'true'
         run: |
           V=${{ steps.ver.outputs.new }}
           for f in \
@@ -51,6 +66,7 @@ jobs:
           done
 
       - name: Update tauri.conf.json
+        if: steps.ver.outputs.skip != 'true'
         run: |
           V=${{ steps.ver.outputs.new }}
           jq --arg v "$V" '.version = $v' \
@@ -60,12 +76,14 @@ jobs:
                apps/desktop/src-tauri/tauri.conf.json
 
       - name: Update Cargo.toml
+        if: steps.ver.outputs.skip != 'true'
         run: |
           V=${{ steps.ver.outputs.new }}
           sed -i "s/^version = \".*\"/version = \"$V\"/" \
             apps/desktop/src-tauri/Cargo.toml
 
       - name: Commit and push
+        if: steps.ver.outputs.skip != 'true'
         run: |
           V=${{ steps.ver.outputs.new }}
           git config user.name "github-actions[bot]"
