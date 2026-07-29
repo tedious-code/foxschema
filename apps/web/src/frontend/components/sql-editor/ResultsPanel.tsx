@@ -12,6 +12,8 @@ interface Props {
   runs: CredentialRun[];
   /** The statements the run executed, for grid labels ("Query 1 · SELECT …"). */
   statements: string[];
+  /** 0-based source cell indices aligned with `statements` (for Out [n]). */
+  statementIndices?: number[];
   layout: ResultsLayout;
   /** True while any execute is in flight for this tab. */
   refreshing?: boolean;
@@ -47,13 +49,13 @@ function bindAxisDrag(cursor: string, onMove: (ev: MouseEvent) => void): void {
   window.addEventListener('mouseup', onUp);
 }
 
-const statementLabel = (sql: string, index: number): string => {
+const statementLabel = (sql: string, outNumber: number): string => {
   const cell = detectCodeCell(sql);
   if (cell) {
-    return `Out [${index + 1}]: ${CODE_CELL_KIND_LABEL[cell.kind].long}`;
+    return `Out [${outNumber}]: ${CODE_CELL_KIND_LABEL[cell.kind].long}`;
   }
   const compact = sql.replace(/\s+/g, ' ').trim();
-  return `Out [${index + 1}]: ${compact.length > 48 ? compact.slice(0, 48) + '…' : compact}`;
+  return `Out [${outNumber}]: ${compact.length > 48 ? compact.slice(0, 48) + '…' : compact}`;
 };
 
 const credentialLabel = (run: CredentialRun): string => `${run.name} [${run.dialect}]`;
@@ -289,6 +291,7 @@ const ResizablePaneRow: React.FC<{
 export const ResultsPanel: React.FC<Props> = ({
   runs,
   statements,
+  statementIndices,
   layout,
   refreshing,
   warnings,
@@ -296,6 +299,8 @@ export const ResultsPanel: React.FC<Props> = ({
   onPage,
   pageState,
 }) => {
+  const outNumber = (i: number) => (statementIndices?.[i] ?? i) + 1;
+  const outTestId = (i: number) => statementIndices?.[i] ?? i;
   if (runs.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center text-slate-600 text-xs gap-2">
@@ -364,10 +369,10 @@ export const ResultsPanel: React.FC<Props> = ({
             <section
               key={i}
               className="flex flex-col gap-2 min-w-0"
-              data-testid={`sql-result-stmt-${i}`}
+              data-testid={`sql-result-stmt-${outTestId(i)}`}
             >
               <header className="text-xs font-bold text-slate-200 shrink-0 font-mono tracking-tight">
-                {statementLabel(statements[i] ?? '', i)}
+                {statementLabel(statements[i] ?? '', outNumber(i))}
               </header>
               <ResizablePaneRow
                 items={items}
@@ -396,7 +401,7 @@ export const ResultsPanel: React.FC<Props> = ({
                 key: `${run.connectionId}-q${i}`,
                 kind: 'grid' as const,
                 result,
-                label: statementLabel(statements[i] ?? '', i),
+                label: statementLabel(statements[i] ?? '', outNumber(i)),
                 exportName: `${run.name}-q${i + 1}`,
                 connectionId: run.connectionId,
                 statementIndex: i,

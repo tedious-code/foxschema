@@ -91,8 +91,8 @@ const WRITE_KEYWORDS = new Set([
 const DOLLAR_TAG_RE = /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/;
 
 const FENCE_START_RE =
-  /^[ \t]*--[ \t]*@(node-typescript|node-ts|nodets|node|javascript|typescript|js|ts)[ \t]*$/i;
-const FENCE_END_RE = /^[ \t]*--[ \t]*@end[ \t]*$/i;
+  /^[ \t]*--[ \t]*@(node-typescript|node-ts|nodets|node|javascript|typescript|js|ts)[ \t]*\r?$/i;
+const FENCE_END_RE = /^[ \t]*--[ \t]*@end[ \t]*\r?$/i;
 
 function kindFromFenceTag(tag: string): CodeCellKind {
   const t = tag.toLowerCase();
