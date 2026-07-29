@@ -265,6 +265,11 @@ export interface DataPeekEntry {
   drillKey?: string;
   /** Optional manual panel height (px); drag handle updates this. */
   panelHeightPx?: number;
+  /**
+   * Monotonic run id so a slow older execute can't overwrite a newer
+   * filter/page result (e.g. clear WHERE then a late filtered response arrives).
+   */
+  runGeneration?: number;
 }
 
 export interface DataPeekFilterPatch {
@@ -1562,6 +1567,8 @@ export const useSqlEditorStore = create<SqlEditorState>()(
                       orderByClause,
                       limit,
                       pageIndex: 0,
+                      // Invalidate any in-flight execute for this panel.
+                      runGeneration: (e.runGeneration ?? 0) + 1,
                       status: 'error' as const,
                       error: composed.error,
                     }
@@ -1584,6 +1591,8 @@ export const useSqlEditorStore = create<SqlEditorState>()(
                     pageIndex: 0,
                     sql: composed.sql,
                     params: composed.params,
+                    // Invalidate any in-flight execute for this panel.
+                    runGeneration: (e.runGeneration ?? 0) + 1,
                     status: 'loading' as const,
                     error: undefined,
                   }
@@ -1628,7 +1637,13 @@ export const useSqlEditorStore = create<SqlEditorState>()(
             ...peek,
             entries: peek.entries.map((e) =>
               e.id === entryId
-                ? { ...e, pageIndex: nextPage, status: 'loading' as const, error: undefined }
+                ? {
+                    ...e,
+                    pageIndex: nextPage,
+                    runGeneration: (e.runGeneration ?? 0) + 1,
+                    status: 'loading' as const,
+                    error: undefined,
+                  }
                 : e
             ),
           },
@@ -1641,9 +1656,26 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         if (!peek) return;
         const entry = peek.entries.find((e) => e.id === entryId);
         if (!entry) return;
-        const patch = (next: Partial<DataPeekEntry>) => {
+        const runGeneration = (entry.runGeneration ?? 0) + 1;
+        const sql = entry.sql;
+        const params = entry.params;
+        const pageSize = Math.min(5000, Math.max(1, entry.limit || DATA_PEEK_ROWS));
+        const pageIndex = Math.max(0, entry.pageIndex || 0);
+        const offset = pageIndex * pageSize;
+        // Mark this generation before awaiting so concurrent runs can detect staleness.
+        set({
+          dataPeek: {
+            ...peek,
+            entries: peek.entries.map((e) =>
+              e.id === entryId ? { ...e, runGeneration, status: 'loading' as const } : e
+            ),
+          },
+        });
+        const patchIfCurrent = (next: Partial<DataPeekEntry>) => {
           const cur = get().dataPeek;
           if (!cur) return;
+          const live = cur.entries.find((e) => e.id === entryId);
+          if (!live || (live.runGeneration ?? 0) !== runGeneration) return;
           set({
             dataPeek: {
               ...cur,
@@ -1652,31 +1684,31 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           });
         };
         try {
-          const pageSize = Math.min(5000, Math.max(1, entry.limit || DATA_PEEK_ROWS));
-          const pageIndex = Math.max(0, entry.pageIndex || 0);
-          const offset = pageIndex * pageSize;
           const { results } = await executeSql(
             {
               connectionId: peek.connectionId,
               password: get().sessionPasswords[peek.connectionId] || undefined,
             },
-            [entry.sql],
+            [sql],
             pageSize,
             offset,
-            [entry.params]
+            [params]
           );
           const result = results[0];
           if (!result) {
-            patch({ status: 'error', error: 'No result returned' });
+            patchIfCurrent({ status: 'error', error: 'No result returned' });
             return;
           }
-          patch(
+          patchIfCurrent(
             result.ok
               ? { status: 'ready', result }
               : { status: 'error', error: result.error, result }
           );
         } catch (error: unknown) {
-          patch({ status: 'error', error: error instanceof Error ? error.message : String(error) });
+          patchIfCurrent({
+            status: 'error',
+            error: error instanceof Error ? error.message : String(error),
+          });
         }
       },
 

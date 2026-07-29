@@ -6,7 +6,7 @@
  * Quick data peek: Cmd/Ctrl-click a table in the schema explorer to see its
  * rows without writing a query. Foreign-key cells are links — each FK column
  * can open its own panel below (siblings stack; same column replaces).
- * Each panel has WHERE / ORDER BY / LIMIT and a drag resize handle.
+ * Each panel has WHERE / ORDER BY / LIMIT (auto-applies on edit/blur) and a drag resize handle.
  * Editor result grids can open the same peek via rust FK cell clicks.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -35,6 +35,14 @@ const PeekFilterBar: React.FC<{
   const [where, setWhere] = useState(entry.whereClause);
   const [orderBy, setOrderBy] = useState(entry.orderByClause);
   const [limit, setLimit] = useState(String(entry.limit));
+  // Refs so Apply / debounce always read the latest draft (Enter right after
+  // clear must not re-submit the previous WHERE).
+  const whereRef = useRef(where);
+  const orderByRef = useRef(orderBy);
+  const limitRef = useRef(limit);
+  whereRef.current = where;
+  orderByRef.current = orderBy;
+  limitRef.current = limit;
 
   useEffect(() => {
     setWhere(entry.whereClause);
@@ -43,13 +51,59 @@ const PeekFilterBar: React.FC<{
   }, [entry.id, entry.whereClause, entry.orderByClause, entry.limit]);
 
   const apply = useCallback(() => {
-    const parsed = Number.parseInt(limit, 10);
+    const draftWhere = whereRef.current;
+    const draftOrderBy = orderByRef.current;
+    const draftLimit = limitRef.current;
+    const parsed = Number.parseInt(draftLimit, 10);
+    const nextLimit = Number.isFinite(parsed) ? parsed : entry.limit;
+    // Skip no-op applies (e.g. blur after an already-committed clear).
+    if (
+      draftWhere === entry.whereClause &&
+      draftOrderBy === entry.orderByClause &&
+      nextLimit === entry.limit
+    ) {
+      return;
+    }
     void updateDataPeekFilters(entry.id, {
-      whereClause: where,
-      orderByClause: orderBy,
-      limit: Number.isFinite(parsed) ? parsed : entry.limit,
+      whereClause: draftWhere,
+      orderByClause: draftOrderBy,
+      limit: nextLimit,
     });
-  }, [entry.id, entry.limit, where, orderBy, limit, updateDataPeekFilters]);
+  }, [
+    entry.id,
+    entry.limit,
+    entry.whereClause,
+    entry.orderByClause,
+    updateDataPeekFilters,
+  ]);
+
+  // Debounced auto-apply so clearing WHERE / editing filters refreshes the
+  // grid without requiring a manual Apply click.
+  useEffect(() => {
+    const parsed = Number.parseInt(limit, 10);
+    const nextLimit = Number.isFinite(parsed) ? parsed : entry.limit;
+    if (
+      where === entry.whereClause &&
+      orderBy === entry.orderByClause &&
+      nextLimit === entry.limit
+    ) {
+      return;
+    }
+    // Clearing WHERE should refresh promptly; other edits can wait briefly.
+    const delay = where.trim() === '' && entry.whereClause.trim() !== '' ? 120 : 450;
+    const timer = window.setTimeout(() => {
+      apply();
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [
+    where,
+    orderBy,
+    limit,
+    entry.whereClause,
+    entry.orderByClause,
+    entry.limit,
+    apply,
+  ]);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
@@ -75,6 +129,7 @@ const PeekFilterBar: React.FC<{
           disabled={disabled}
           onChange={(e) => setWhere(e.target.value)}
           onKeyDown={onKeyDown}
+          onBlur={() => apply()}
           className="w-full min-w-0 rounded border border-slate-700 bg-slate-950 px-1.5 py-1 text-[11px] font-mono text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-cyan-600"
         />
       </label>
@@ -90,6 +145,7 @@ const PeekFilterBar: React.FC<{
           disabled={disabled}
           onChange={(e) => setOrderBy(e.target.value)}
           onKeyDown={onKeyDown}
+          onBlur={() => apply()}
           className="w-full min-w-0 rounded border border-slate-700 bg-slate-950 px-1.5 py-1 text-[11px] font-mono text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-cyan-600"
         />
       </label>
@@ -106,6 +162,7 @@ const PeekFilterBar: React.FC<{
           disabled={disabled}
           onChange={(e) => setLimit(e.target.value)}
           onKeyDown={onKeyDown}
+          onBlur={() => apply()}
           className="w-16 rounded border border-slate-700 bg-slate-950 px-1.5 py-1 text-[11px] font-mono text-slate-100 focus:outline-none focus:border-cyan-600"
         />
       </label>
@@ -290,7 +347,8 @@ const PeekGrid: React.FC<{
         )}
       </div>
 
-      <PeekFilterBar entry={entry} disabled={entry.status === 'loading'} />
+      {/* Keep filters editable while a page reloads so clearing WHERE can apply. */}
+      <PeekFilterBar entry={entry} />
 
       {entry.status === 'loading' && !entry.result && (
         <div className="flex items-center gap-2 px-1 py-4 text-[12px] text-slate-400">

@@ -32,7 +32,7 @@ FoxSchema = schema diff/migration + SQL Editor. Destinations checklist, Schema e
 - Password / Safe-mode confirm preserve `statementIndices` on resume.
 
 ### 1. Data peek (Cmd/Ctrl-click + result FK)
-- **UI**: `DataPeekPanel.tsx` — modal grids; Esc closes. Each panel: WHERE / ORDER BY / LIMIT + drag resize + arrange grip. Mounted from `SqlEditorView` (not only Schema).
+- **UI**: `DataPeekPanel.tsx` — modal grids; Esc closes. Each panel: WHERE / ORDER BY / LIMIT (debounced auto-apply + blur/Enter/Apply) + drag resize + arrange grip. Mounted from `SqlEditorView` (not only Schema).
 - **Triggers**:
   - Schema explorer Cmd/Ctrl-click TABLE / VIEW / MQT → `openDataPeek`.
   - Editor result FK cell (rust underline) → `openDataPeekFromFk` (`ResultsPanel` / `foreignKeyLinksForSql`).

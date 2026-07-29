@@ -120,6 +120,19 @@ describe('composePeekSql', () => {
     });
   });
 
+  it('omits user WHERE when cleared so the base peek returns all matching rows', () => {
+    const base = 'SELECT * FROM "TECHNICIAN" WHERE "ID" = $1';
+    const filtered = composePeekSql(base, [34], { where: 'ARCHIVED = false' });
+    expect(filtered).toEqual({
+      sql: 'SELECT * FROM "TECHNICIAN" WHERE "ID" = $1 AND (ARCHIVED = false)',
+      params: [34],
+    });
+    const cleared = composePeekSql(base, [34], { where: '   ' });
+    expect(cleared).toEqual({ sql: base, params: [34] });
+    const rootCleared = composePeekSql('SELECT * FROM "t"', [], { where: '' });
+    expect(rootCleared).toEqual({ sql: 'SELECT * FROM "t"', params: [] });
+  });
+
   it('rejects multi-statement and comment filters', () => {
     expect(isSafePeekClause('a = 1; DROP TABLE t')).toBe(false);
     expect(composePeekSql('SELECT * FROM t', [], { where: '1=1; --' })).toEqual({
