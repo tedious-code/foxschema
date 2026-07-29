@@ -233,6 +233,13 @@ export interface DataPeekEntry {
   status: 'loading' | 'ready' | 'error';
   result?: SqlStatementResult;
   error?: string;
+  /** Parent peek this drill opened from (root has no parent). */
+  parentId?: string;
+  /**
+   * Stable slot for sibling drills from the same parent + FK column.
+   * Re-clicking the same FK replaces this panel; other FK columns stack.
+   */
+  drillKey?: string;
 }
 
 export interface DataPeekState {
@@ -243,6 +250,32 @@ export interface DataPeekState {
 
 /** Rows fetched per peek grid — a peek is a glance, not a report. */
 const DATA_PEEK_ROWS = 50;
+
+/** Drop an entry and any drills that descend from it. */
+export function removeDataPeekSubtree(
+  entries: DataPeekEntry[],
+  rootId: string
+): DataPeekEntry[] {
+  const drop = new Set<string>([rootId]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const e of entries) {
+      if (e.parentId && drop.has(e.parentId) && !drop.has(e.id)) {
+        drop.add(e.id);
+        grew = true;
+      }
+    }
+  }
+  return entries.filter((e) => !drop.has(e.id));
+}
+
+function dataPeekDrillKey(
+  fromEntryId: string,
+  fk: { referencedTable: string; columns?: string[] }
+): string {
+  return `${fromEntryId}|${fk.referencedTable}|${(fk.columns ?? []).join(',')}`;
+}
 
 interface SqlEditorState {
   tabs: SqlTab[];
@@ -1368,6 +1401,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         const label = (fk.referencedColumns ?? [])
           .map((c, i) => `${c} = ${String(values[i])}`)
           .join(', ');
+        const drillKey = dataPeekDrillKey(fromEntryId, fk);
         const entry: DataPeekEntry = {
           id: `peek-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           title: `${fk.referencedTable} · ${label}`,
@@ -1375,12 +1409,17 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           sql: built.sql,
           params: built.params,
           status: 'loading',
+          parentId: fromEntryId,
+          drillKey,
         };
-        // Drilling from a grid mid-stack replaces everything below it, so the
-        // stack always reads as one path rather than a branching history.
-        const from = peek.entries.findIndex((e) => e.id === fromEntryId);
-        const kept = from >= 0 ? peek.entries.slice(0, from + 1) : peek.entries;
-        set({ dataPeek: { ...peek, entries: [...kept, entry] } });
+        // Same FK column → replace that panel (and its children). Other FK
+        // columns from the same parent stay open as sibling peeks.
+        let entries = peek.entries;
+        const existing = entries.find((e) => e.drillKey === drillKey);
+        if (existing) {
+          entries = removeDataPeekSubtree(entries, existing.id);
+        }
+        set({ dataPeek: { ...peek, entries: [...entries, entry] } });
         await get().runDataPeekEntry(entry.id);
       },
 
@@ -1430,12 +1469,19 @@ export const useSqlEditorStore = create<SqlEditorState>()(
       closeDataPeekFrom: (entryId) => {
         const peek = get().dataPeek;
         if (!peek) return;
-        const idx = peek.entries.findIndex((e) => e.id === entryId);
-        if (idx <= 0) {
+        const target = peek.entries.find((e) => e.id === entryId);
+        if (!target) return;
+        // Closing the root dismisses the whole peek.
+        if (!target.parentId) {
           set({ dataPeek: null });
           return;
         }
-        set({ dataPeek: { ...peek, entries: peek.entries.slice(0, idx) } });
+        set({
+          dataPeek: {
+            ...peek,
+            entries: removeDataPeekSubtree(peek.entries, entryId),
+          },
+        });
       },
 
       installSampleBookmarks: () => {

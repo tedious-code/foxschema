@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronRight, Loader2, X } from 'lucide-react';
+import { Loader2, X } from 'lucide-react';
 import { useSqlEditorStore, type DataPeekEntry } from '../../store/useSqlEditorStore';
 import { foreignKeyLinksFor } from '../../lib/tablePreview';
 import { DataGrid } from './DataGrid';
@@ -9,21 +9,19 @@ import type { TableSchema } from '../../lib/types';
 
 /**
  * Quick data peek: Cmd/Ctrl-click a table in the schema explorer to see its
- * rows without writing a query. Foreign-key cells are links — clicking one
- * appends the parent's rows as another grid below, so you can follow a
- * relationship a couple of hops without leaving the popup.
+ * rows without writing a query. Foreign-key cells are links — each FK column
+ * can open its own panel below (siblings stack; same column replaces).
  */
 const PeekGrid: React.FC<{
   entry: DataPeekEntry;
   tables: TableSchema[] | undefined;
-  isLast: boolean;
-}> = ({ entry, tables, isLast }) => {
+  /** Shorter height when several panels share the modal. */
+  compact: boolean;
+  showFkHint: boolean;
+  onClose?: () => void;
+}> = ({ entry, tables, compact, showFkHint, onClose }) => {
   const drillDataPeek = useSqlEditorStore((s) => s.drillDataPeek);
 
-  // A drilled entry's table comes from `fk.referencedTable`, which several
-  // catalogs report schema-qualified ("public.customers") while the cache is
-  // keyed on the bare name. Match on both, or the second hop silently loses
-  // its own FK links.
   const table = useMemo(() => {
     if (!tables) return undefined;
     const wanted = entry.tableName.toLowerCase();
@@ -56,6 +54,10 @@ const PeekGrid: React.FC<{
     [links, entry, drillDataPeek]
   );
 
+  const heightClass = compact
+    ? 'h-[min(34vh,300px)]'
+    : 'h-[min(52vh,460px)]';
+
   if (entry.status === 'loading') {
     return (
       <div className="flex items-center gap-2 px-3 py-6 text-[12px] text-slate-400">
@@ -75,20 +77,37 @@ const PeekGrid: React.FC<{
 
   return (
     <div
-      className="px-2 pb-2 h-[min(58vh,520px)] flex flex-col min-h-0"
+      className={`px-2 pb-2 ${heightClass} flex flex-col min-h-0`}
       data-testid={`data-peek-grid-${entry.id}`}
     >
+      <div className="flex items-center gap-2 mb-1 shrink-0 min-w-0">
+        <span className="text-[12px] font-semibold text-slate-200 truncate flex-1" title={entry.title}>
+          {entry.title}
+        </span>
+        {onClose && (
+          <button
+            type="button"
+            data-testid={`data-peek-close-panel-${entry.id}`}
+            title="Close this panel"
+            aria-label={`Close ${entry.title}`}
+            onClick={onClose}
+            className="p-0.5 text-slate-500 hover:text-slate-200 shrink-0"
+          >
+            <X className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+          </button>
+        )}
+      </div>
       <DataGrid
         result={entry.result}
-        label={entry.title}
         exportName={entry.tableName}
         pageSize={undefined}
         linkColumns={linkColumns.size > 0 ? linkColumns : undefined}
         onLinkClick={onLinkClick}
       />
-      {isLast && linkColumns.size > 0 && (
+      {showFkHint && linkColumns.size > 0 && (
         <p className="mt-1 px-1 shrink-0 text-[10px] text-slate-500">
-          Underlined cells are foreign keys — click one to open the related rows below.
+          Underlined cells are foreign keys — each column opens its own panel below (e.g. order,
+          technician, and lifecycle can all stay open).
         </p>
       )}
     </div>
@@ -112,48 +131,45 @@ export const DataPeekPanel: React.FC = () => {
 
   if (!dataPeek) return null;
   const tables = schemaCache[dataPeek.connectionId]?.tables;
+  const root = dataPeek.entries.find((e) => !e.parentId) ?? dataPeek.entries[0];
+  const drills = dataPeek.entries.filter((e) => e.parentId);
+  const multi = dataPeek.entries.length > 1;
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-3 sm:p-5"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-2 sm:p-4"
       data-testid="data-peek"
       onClick={closeDataPeek}
     >
       <div
-        className="flex flex-col w-[min(96vw,1400px)] max-h-[min(92vh,900px)] rounded-xl border border-slate-700 bg-slate-900 shadow-2xl overflow-hidden"
+        className="flex flex-col w-[min(98vw,1480px)] h-[min(94vh,920px)] rounded-xl border border-slate-700 bg-slate-900 shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-800 shrink-0">
-          <span className="text-[11px] font-bold uppercase tracking-wide text-cyan-400">
+          <span className="text-[11px] font-bold uppercase tracking-wide text-cyan-400 shrink-0">
             Data peek
           </span>
-          {/* Breadcrumb of the drill path; click a crumb to go back to it. */}
-          <div className="flex items-center gap-1 min-w-0 flex-1 overflow-x-auto">
-            {dataPeek.entries.map((e, i) => (
-              <React.Fragment key={e.id}>
-                {i > 0 && (
-                  <ChevronRight
-                    className="w-3 h-3 text-slate-600 shrink-0"
-                    strokeWidth={SQL_ICON_STROKE}
-                  />
+          <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-x-auto">
+            {dataPeek.entries.map((e) => (
+              <span
+                key={e.id}
+                className="inline-flex items-center gap-1 shrink-0 max-w-[14rem] rounded-md border border-slate-700 bg-slate-950/60 px-1.5 py-0.5"
+                title={e.title}
+              >
+                <span className="truncate text-[11px] font-semibold text-slate-300">{e.title}</span>
+                {e.parentId && (
+                  <button
+                    type="button"
+                    data-testid={`data-peek-crumb-close-${e.id}`}
+                    title="Close panel"
+                    aria-label={`Close ${e.title}`}
+                    onClick={() => closeDataPeekFrom(e.id)}
+                    className="text-slate-500 hover:text-slate-200"
+                  >
+                    <X className="w-3 h-3" strokeWidth={SQL_ICON_STROKE} />
+                  </button>
                 )}
-                <button
-                  type="button"
-                  data-testid={`data-peek-crumb-${i}`}
-                  title={i === 0 ? e.title : `Back to ${e.title}`}
-                  onClick={() => {
-                    const next = dataPeek.entries[i + 1];
-                    if (next) closeDataPeekFrom(next.id);
-                  }}
-                  className={`shrink-0 max-w-[16rem] truncate text-[12px] font-semibold ${
-                    i === dataPeek.entries.length - 1
-                      ? 'text-slate-200'
-                      : 'text-slate-400 hover:text-cyan-300'
-                  }`}
-                >
-                  {e.title}
-                </button>
-              </React.Fragment>
+              </span>
             ))}
           </div>
           <button
@@ -168,15 +184,42 @@ export const DataPeekPanel: React.FC = () => {
           </button>
         </div>
 
-        <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-1">
-          {dataPeek.entries.map((e, i) => (
+        <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2 py-1">
+          {root && (
             <PeekGrid
-              key={e.id}
-              entry={e}
+              entry={root}
               tables={tables}
-              isLast={i === dataPeek.entries.length - 1}
+              compact={multi}
+              showFkHint
             />
-          ))}
+          )}
+          {drills.length > 0 && (
+            <div
+              className={`px-1 grid gap-2 ${
+                drills.length === 1
+                  ? 'grid-cols-1'
+                  : drills.length === 2
+                    ? 'grid-cols-1 lg:grid-cols-2'
+                    : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'
+              }`}
+              data-testid="data-peek-drills"
+            >
+              {drills.map((e) => (
+                <div
+                  key={e.id}
+                  className="min-w-0 rounded-lg border border-slate-800 bg-slate-950/40"
+                >
+                  <PeekGrid
+                    entry={e}
+                    tables={tables}
+                    compact
+                    showFkHint={false}
+                    onClose={() => closeDataPeekFrom(e.id)}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>,
