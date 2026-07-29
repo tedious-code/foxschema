@@ -4,6 +4,8 @@ import {
   buildTablePreview,
   buildForeignKeyDrilldown,
   foreignKeyLinksFor,
+  composePeekSql,
+  isSafePeekClause,
 } from './tablePreview';
 import type { ForeignKeyInfo, TableSchema } from './types';
 
@@ -94,5 +96,33 @@ describe('foreignKeyLinksFor', () => {
 
   it('returns nothing when the table has no FKs', () => {
     expect(foreignKeyLinksFor(undefined, ['a'])).toEqual([]);
+  });
+});
+
+describe('composePeekSql', () => {
+  it('ANDs a WHERE onto a base SELECT', () => {
+    const q = composePeekSql('SELECT * FROM "t"', [], { where: 'ARCHIVED = false' });
+    expect(q).toEqual({
+      sql: 'SELECT * FROM "t" WHERE (ARCHIVED = false)',
+      params: [],
+    });
+  });
+
+  it('ANDs onto an existing FK WHERE and keeps bound params', () => {
+    const q = composePeekSql('SELECT * FROM "TECHNICIAN" WHERE "ID" = $1', [34], {
+      where: 'ARCHIVED = false',
+      orderBy: 'CREATEDAT DESC',
+    });
+    expect(q).toEqual({
+      sql: 'SELECT * FROM "TECHNICIAN" WHERE "ID" = $1 AND (ARCHIVED = false) ORDER BY CREATEDAT DESC',
+      params: [34],
+    });
+  });
+
+  it('rejects multi-statement and comment filters', () => {
+    expect(isSafePeekClause('a = 1; DROP TABLE t')).toBe(false);
+    expect(composePeekSql('SELECT * FROM t', [], { where: '1=1; --' })).toEqual({
+      error: 'WHERE must be a single predicate (no ; or comments)',
+    });
   });
 });

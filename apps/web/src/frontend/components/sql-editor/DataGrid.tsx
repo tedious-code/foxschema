@@ -682,9 +682,8 @@ export const DataGrid: React.FC<{
                               // 1-based number shown in the # column and would
                               // read the NEXT row's value.
                               onClick={() => onLinkClick?.(colIdx, i)}
-                              // Keep the cell's type color (numbers stay dark navy).
-                              // Underline alone marks the FK — pale cyan was unreadable on paper.
-                              className={`underline decoration-dotted underline-offset-2 decoration-[var(--fox-grid-link)] font-semibold ${KIND_CELL_CLASS[kind]}`}
+                              // Rust ID color + solid underline — pale cyan was unreadable.
+                              className="underline decoration-solid underline-offset-2 decoration-2 decoration-[var(--fox-grid-link)] text-[var(--fox-grid-link)] font-bold hover:brightness-110"
                             >
                               {text}
                             </button>

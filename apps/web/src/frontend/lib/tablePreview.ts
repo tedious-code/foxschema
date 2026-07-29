@@ -113,3 +113,60 @@ export function foreignKeyLinksFor(
   }
   return links;
 }
+
+/**
+ * Free-text WHERE / ORDER BY for Data Peek. Rejects multi-statement and
+ * comment tricks so a filter box can't smuggle a second command.
+ */
+export function isSafePeekClause(clause: string): boolean {
+  const t = clause.trim();
+  if (!t) return true;
+  if (/[;]/.test(t)) return false;
+  if (/--/.test(t)) return false;
+  if (/\/\*|\*\//.test(t)) return false;
+  return true;
+}
+
+export interface PeekFilterClauses {
+  /** Predicate only — no leading WHERE. ANDed onto the base query. */
+  where?: string;
+  /** Sort list only — no leading ORDER BY. */
+  orderBy?: string;
+}
+
+/**
+ * Layer optional user filters onto a peek base query (`SELECT * FROM …`
+ * or a bound FK drill). Params stay those of the base; the filter text is
+ * not parameterized (same trust model as typing SQL in the editor).
+ */
+export function composePeekSql(
+  baseSql: string,
+  baseParams: unknown[],
+  filters: PeekFilterClauses = {}
+): PreviewQuery | { error: string } {
+  const where = (filters.where ?? '').trim();
+  const orderBy = (filters.orderBy ?? '').trim();
+  if (!isSafePeekClause(where)) {
+    return { error: 'WHERE must be a single predicate (no ; or comments)' };
+  }
+  if (!isSafePeekClause(orderBy)) {
+    return { error: 'ORDER BY must be a sort list (no ; or comments)' };
+  }
+
+  let sql = baseSql.trim().replace(/;+\s*$/, '');
+  if (where) {
+    // Simple detection is enough: peek bases are SELECT * FROM … [WHERE …].
+    if (/\bWHERE\b/i.test(sql)) {
+      sql = `${sql} AND (${where})`;
+    } else {
+      sql = `${sql} WHERE (${where})`;
+    }
+  }
+  if (orderBy) {
+    if (/\bORDER\s+BY\b/i.test(sql)) {
+      return { error: 'Base peek already has ORDER BY — clear it before adding one' };
+    }
+    sql = `${sql} ORDER BY ${orderBy}`;
+  }
+  return { sql, params: baseParams };
+}

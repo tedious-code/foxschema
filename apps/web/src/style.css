@@ -422,7 +422,8 @@ mark.fox-search-hl {
   --fox-grid-boolean: #5b21b6;
   --fox-grid-datetime: #115e59;
   --fox-grid-binary: #9a3412;
-  --fox-grid-link: #075985;
+  /* FK / ID references — rust, distinct from navy numbers. */
+  --fox-grid-link: #9a3412;
 }
 
 [data-theme='light'] .fox-sql-grid {
@@ -439,5 +440,5 @@ mark.fox-search-hl {
   --fox-grid-boolean: #5b21b6;
   --fox-grid-datetime: #115e59;
   --fox-grid-binary: #9a3412;
-  --fox-grid-link: #0c4a6e;
+  --fox-grid-link: #9a3412;
 }
