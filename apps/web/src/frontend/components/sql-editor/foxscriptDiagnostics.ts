@@ -7,7 +7,8 @@ import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api';
 import {
   parseFoxScript,
   type FoxScriptDiagnostic,
-} from '@foxschema/core';
+  type FoxScriptDocument,
+} from '../../lib/sql-splitter';
 import { FOXSCRIPT_LANG, FOXSCHEMA_SQL_LANG } from '../../lib/foxschemaSqlLanguage';
 
 const OWNER = 'foxscript';
@@ -34,18 +35,22 @@ function toMarker(
   };
 }
 
-/** Apply FoxScript structural markers on a model (debounced by caller). */
+/**
+ * Apply FoxScript structural markers on a model.
+ * Pass `doc` when the caller already parsed the buffer (one-parse decorate path).
+ */
 export function applyFoxscriptMarkers(
   monaco: typeof Monaco,
-  model: Monaco.editor.ITextModel
+  model: Monaco.editor.ITextModel,
+  doc?: FoxScriptDocument
 ): void {
   const lang = model.getLanguageId();
   if (lang !== FOXSCRIPT_LANG && lang !== FOXSCHEMA_SQL_LANG) {
     monaco.editor.setModelMarkers(model, OWNER, []);
     return;
   }
-  const doc = parseFoxScript(model.getValue());
-  const markers = doc.diagnostics
+  const fox = doc ?? parseFoxScript(model.getValue());
+  const markers = fox.diagnostics
     .filter((d) => d.code !== 'empty-document')
     .map((d) => toMarker(monaco, d));
   monaco.editor.setModelMarkers(model, OWNER, markers);

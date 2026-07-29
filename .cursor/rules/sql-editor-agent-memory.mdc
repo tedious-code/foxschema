@@ -13,8 +13,10 @@ FoxSchema = schema diff/migration + SQL Editor. Destinations checklist, Schema e
 ## FoxScript (language spine)
 - **Language id**: prefer Monaco `foxscript` (legacy alias `foxschema-sql` still registered). Both share one Monarch fence tokenizer.
 - **AST**: `packages/core/.../foxscript-ast.ts` — `parseFoxScript` / `compileFoxScriptPlan` compose `splitSqlStatements` + `checkStatement` (no second scanner).
+- **Web cache**: `apps/web/.../sql-splitter.ts` LRU-wraps `parseFoxScript` (same idea as split cache). IDE paths must import from the web facade, not `@foxschema/core` directly.
+- **One-parse decorate**: `SqlEditorPane` parses once per tick and passes the doc into markers + virtual docs; glyphs use `doc.blocks[].status`.
+- **Virtual docs**: update models in place (`setValue`) — do not dispose/recreate on every keystroke.
 - **Markers**: `foxscriptDiagnostics.ts` → `setModelMarkers` (missing `@end`, missing `return`, incomplete SQL).
-- **Virtual docs**: `foxscriptVirtualDocs.ts` — in-memory JS/TS models + `last`/`vars`/`sql` hover/complete prelude. Full TS worker diagnostics deferred.
 - **Semantic tokens**: `foxscriptSemanticTokens.ts` — table/column names from `schemaCache` in SQL blocks only; call `refreshFoxscriptSemanticTokens` when cache changes.
 - **Execution**: still maps to existing `execute` / statement text. Do **not** replace the runner with a plan interpreter unless behavior-preserving. Deferred: `@python`, “never execute raw source”.
 - **Monarch flag**: module-local ready flag only — never write onto Monaco ESM exports.

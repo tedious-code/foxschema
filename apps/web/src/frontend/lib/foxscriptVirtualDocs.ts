@@ -11,7 +11,11 @@
  */
 
 import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api';
-import { parseFoxScript, type FoxScriptCodeBlock } from '@foxschema/core';
+import {
+  parseFoxScript,
+  type FoxScriptCodeBlock,
+  type FoxScriptDocument,
+} from './sql-splitter';
 
 const PRELUDE_JS = `/** FoxScript cell prelude — injected for IntelliSense only */
 /** @typedef {{ columns: string[], rows: unknown[][], rowCount: number }} FoxGrid */
@@ -51,10 +55,13 @@ export type FoxscriptVirtualDoc = {
   uri: Monaco.Uri;
   model: Monaco.editor.ITextModel;
   blockIndex: number;
+  kind: FoxScriptCodeBlock['kind'];
   /** Character length of the prelude prepended to the cell body. */
   preludeLength: number;
   /** Start offset of the cell body in the parent FoxScript document. */
   bodyStartInParent: number;
+  /** End offset (exclusive-ish) of the cell body in the parent document. */
+  bodyEndInParent: number;
 };
 
 const docsByParent = new WeakMap<Monaco.editor.ITextModel, FoxscriptVirtualDoc[]>();
@@ -67,50 +74,91 @@ function languageFor(kind: FoxScriptCodeBlock['kind']): string {
   return kind === 'ts' || kind === 'nodets' ? 'typescript' : 'javascript';
 }
 
-function bodyStartOffset(parentValue: string, block: FoxScriptCodeBlock): number {
-  // Body begins after the opening fence line within block.text.
+/** Body span inside the parent buffer (after open fence, before `-- @end`). */
+export function codeBlockBodyRange(block: FoxScriptCodeBlock): {
+  start: number;
+  end: number;
+} {
   const openNl = block.text.indexOf('\n');
-  if (openNl < 0) return block.range.start;
-  return block.range.start + openNl + 1;
+  const start = openNl < 0 ? block.range.start : block.range.start + openNl + 1;
+  if (!block.terminated) return { start, end: block.range.end };
+  const m = /\n[ \t]*--[ \t]*@end[ \t]*[^\n]*$/i.exec(block.text);
+  if (!m || m.index === undefined) return { start, end: block.range.end };
+  return { start, end: block.range.start + m.index };
+}
+
+function cellUri(
+  monaco: typeof Monaco,
+  parentUri: string,
+  blockIndex: number
+): Monaco.Uri {
+  return monaco.Uri.parse(
+    `inmemory://foxscript/${encodeURIComponent(parentUri)}/cell-${blockIndex}`
+  );
 }
 
 /**
  * Sync in-memory models for every code block in `parent`.
- * Returns the active virtual docs (caller may register providers once).
+ * Updates models in place when the cell index/kind are stable (no dispose thrash).
+ * Pass `fox` when the caller already parsed the buffer.
  */
 export function syncFoxscriptVirtualDocs(
   monaco: typeof Monaco,
-  parent: Monaco.editor.ITextModel
+  parent: Monaco.editor.ITextModel,
+  fox?: FoxScriptDocument
 ): FoxscriptVirtualDoc[] {
+  const doc = fox ?? parseFoxScript(parent.getValue());
   const prev = docsByParent.get(parent) ?? [];
-  for (const d of prev) d.model.dispose();
-
-  const doc = parseFoxScript(parent.getValue());
+  const prevByIndex = new Map(prev.map((d) => [d.blockIndex, d]));
   const next: FoxscriptVirtualDoc[] = [];
   const parentUri = parent.uri.toString(true);
+  const keep = new Set<number>();
 
   for (const block of doc.blocks) {
     if (block.type !== 'code') continue;
+    keep.add(block.index);
     const prelude = preludeFor(block.kind);
-    const uri = monaco.Uri.parse(
-      `inmemory://foxscript/${encodeURIComponent(parentUri)}/cell-${block.index}.${
-        block.kind === 'ts' || block.kind === 'nodets' ? 'ts' : 'js'
-      }`
-    );
-    const existing = monaco.editor.getModel(uri);
-    existing?.dispose();
-    const model = monaco.editor.createModel(
-      prelude + block.body,
-      languageFor(block.kind),
-      uri
-    );
+    const lang = languageFor(block.kind);
+    const content = prelude + block.body;
+    const { start, end } = codeBlockBodyRange(block);
+    const existing = prevByIndex.get(block.index);
+
+    if (existing && !existing.model.isDisposed()) {
+      const kindFamilyChanged = languageFor(existing.kind) !== lang;
+      if (!kindFamilyChanged) {
+        if (existing.model.getValue() !== content) {
+          existing.model.setValue(content);
+        }
+        if (existing.model.getLanguageId() !== lang) {
+          monaco.editor.setModelLanguage(existing.model, lang);
+        }
+        existing.kind = block.kind;
+        existing.preludeLength = prelude.length;
+        existing.bodyStartInParent = start;
+        existing.bodyEndInParent = end;
+        next.push(existing);
+        continue;
+      }
+      existing.model.dispose();
+    }
+
+    const uri = cellUri(monaco, parentUri, block.index);
+    const stale = monaco.editor.getModel(uri);
+    stale?.dispose();
+    const model = monaco.editor.createModel(content, lang, uri);
     next.push({
       uri,
       model,
       blockIndex: block.index,
+      kind: block.kind,
       preludeLength: prelude.length,
-      bodyStartInParent: bodyStartOffset(parent.getValue(), block),
+      bodyStartInParent: start,
+      bodyEndInParent: end,
     });
+  }
+
+  for (const d of prev) {
+    if (!keep.has(d.blockIndex) && !d.model.isDisposed()) d.model.dispose();
   }
 
   docsByParent.set(parent, next);
@@ -125,7 +173,9 @@ export function getFoxscriptVirtualDocs(
 
 export function disposeFoxscriptVirtualDocs(parent: Monaco.editor.ITextModel): void {
   const prev = docsByParent.get(parent) ?? [];
-  for (const d of prev) d.model.dispose();
+  for (const d of prev) {
+    if (!d.model.isDisposed()) d.model.dispose();
+  }
   docsByParent.delete(parent);
 }
 
@@ -136,17 +186,12 @@ export function projectToVirtualDoc(
 ): { doc: FoxscriptVirtualDoc; position: Monaco.Position } | null {
   const offset = parent.getOffsetAt(position);
   const docs = getFoxscriptVirtualDocs(parent);
-  const fox = parseFoxScript(parent.getValue());
   for (const doc of docs) {
-    const block = fox.blocks[doc.blockIndex];
-    if (!block || block.type !== 'code') continue;
-    const bodyStart = doc.bodyStartInParent;
-    const bodyEnd = block.terminated
-      ? block.range.end - (block.text.match(/\n[^\n]*--\s*@end[^\n]*$/i)?.[0]?.length ?? 0)
-      : block.range.end;
-    if (offset < bodyStart || offset > bodyEnd) continue;
-    const localOffset = doc.preludeLength + (offset - bodyStart);
-    const pos = doc.model.getPositionAt(Math.max(0, Math.min(localOffset, doc.model.getValueLength())));
+    if (offset < doc.bodyStartInParent || offset > doc.bodyEndInParent) continue;
+    const localOffset = doc.preludeLength + (offset - doc.bodyStartInParent);
+    const pos = doc.model.getPositionAt(
+      Math.max(0, Math.min(localOffset, doc.model.getValueLength()))
+    );
     return { doc, position: pos };
   }
   return null;
