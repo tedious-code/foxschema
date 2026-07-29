@@ -55,9 +55,9 @@ function writeStoredExplorerId(id: string): void {
  * Slim schema tree for the SQL Editor. Categorized TABLE / VIEW / MQT /
  * PROCEDURE / FUNCTION.
  *
- * TABLE / MQT: click inserts the name; Edit table opens the blueprint.
+ * TABLE / MQT: click inserts the name; trailing Edit opens the blueprint.
  * VIEW / PROCEDURE / FUNCTION: click opens the source script in the editor
- * (view-only — no edit form in this version).
+ * (view-only — no edit form in this version); trailing Source also opens it.
  *
  * The connection dropdown stays in sync with Destination servers: picking a
  * schema credential checks it as a destination, and changing destinations
@@ -448,37 +448,37 @@ const ObjectNode: React.FC<{
             </span>
           )}
         </button>
+        {onOpenBlueprint && (
+          <button
+            type="button"
+            title="Open table blueprint — add/edit columns"
+            data-testid="sql-open-blueprint"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenBlueprint();
+            }}
+            className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold text-violet-200 bg-violet-950/60 border border-violet-600/50 hover:bg-violet-900/70 transition whitespace-nowrap"
+          >
+            <Columns3 className="w-3 h-3" strokeWidth={SQL_ICON_STROKE} />
+            Edit table
+          </button>
+        )}
+        {opensSource && (
+          <button
+            type="button"
+            title="Open source script in the editor (view only)"
+            data-testid="sql-open-object-source-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenSource?.();
+            }}
+            className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold text-sky-200 bg-sky-950/60 border border-sky-600/50 hover:bg-sky-900/70 transition whitespace-nowrap"
+          >
+            <FileCode2 className="w-3 h-3" strokeWidth={SQL_ICON_STROKE} />
+            View source
+          </button>
+        )}
       </div>
-      {onOpenBlueprint && (
-        <button
-          type="button"
-          title="Open table blueprint — add/edit columns"
-          data-testid="sql-open-blueprint"
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpenBlueprint();
-          }}
-          className="ml-6 mb-0.5 inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold text-violet-200 bg-violet-950/60 border border-violet-600/50 hover:bg-violet-900/70 transition"
-        >
-          <Columns3 className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
-          Edit table
-        </button>
-      )}
-      {opensSource && (
-        <button
-          type="button"
-          title="Open source script in the editor (view only)"
-          data-testid="sql-open-object-source-btn"
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpenSource?.();
-          }}
-          className="ml-6 mb-0.5 inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold text-sky-200 bg-sky-950/60 border border-sky-600/50 hover:bg-sky-900/70 transition"
-        >
-          <FileCode2 className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
-          View source
-        </button>
-      )}
       {open && isRoutine && params.length === 0 && (
         <p className="ml-6 text-[12px] text-slate-600 mb-1">No parameters</p>
       )}

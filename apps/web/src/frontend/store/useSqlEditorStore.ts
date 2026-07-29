@@ -43,6 +43,7 @@ import {
   persistableTabs,
   canExecuteWithoutDestination,
   resolveRunStatements,
+  statementsToRun,
   toggleStatementCheck,
   type ResultsLayout,
   type SqlTab,
@@ -206,6 +207,8 @@ export interface PendingPasswordPrompt {
   resumeExecute: boolean;
   /** When set, resume only refreshes these credentials. */
   connectionIds?: string[];
+  /** When set, resume runs only these statement indices (per-cell Play). */
+  statementIndices?: number[];
 }
 
 export interface ReadonlyWriteTarget {
@@ -254,6 +257,8 @@ interface SqlEditorState {
     readonlyTargets: ReadonlyWriteTarget[];
     /** When set, confirm resumes execute for only these credentials. */
     connectionIds?: string[];
+    /** When set, confirm resumes execute for only these statement indices. */
+    statementIndices?: number[];
   } | null;
   pendingPassword: PendingPasswordPrompt | null;
   maxRows: number;
@@ -298,8 +303,17 @@ interface SqlEditorState {
   cancelPasswordPrompt: () => void;
   setMaxRows: (n: number) => void;
   ensureSchema: (connectionId: string, opts?: { force?: boolean }) => Promise<void>;
-  /** Re-run SQL. Pass `connectionIds` to refresh only those credentials (keeps other panes). */
-  execute: (opts?: { confirmedWrites?: boolean; connectionIds?: string[] }) => Promise<void>;
+  /**
+   * Re-run SQL.
+   * - `connectionIds` — refresh only those credentials (keeps other panes).
+   * - `statementIndices` — run only these split indices (per-cell Play; ignores
+   *   strip checks and editor selection).
+   */
+  execute: (opts?: {
+    confirmedWrites?: boolean;
+    connectionIds?: string[];
+    statementIndices?: number[];
+  }) => Promise<void>;
   /** Load a cached or server page for one statement result grid. */
   loadResultPage: (args: {
     connectionId: string;
@@ -552,7 +566,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         const { pendingPassword, tabs, activeTabId, shareDestinations, sharedConnectionIds } =
           get();
         if (!pendingPassword) return;
-        const { id, resumeExecute, connectionIds } = pendingPassword;
+        const { id, resumeExecute, connectionIds, statementIndices } = pendingPassword;
 
         const current = shareDestinations
           ? sharedConnectionIds
@@ -567,7 +581,10 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           ...destPatch,
         });
         if (resumeExecute) {
-          void get().execute(connectionIds?.length ? { connectionIds } : undefined);
+          void get().execute({
+            ...(connectionIds?.length ? { connectionIds } : {}),
+            ...(statementIndices?.length ? { statementIndices } : {}),
+          });
         } else {
           void get().ensureSchema(id, { force: true });
         }
@@ -679,7 +696,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         set({ resultsByTab: rest });
       },
 
-      execute: async ({ confirmedWrites = false, connectionIds } = {}) => {
+      execute: async ({ confirmedWrites = false, connectionIds, statementIndices } = {}) => {
         const {
           tabs,
           activeTabId,
@@ -704,12 +721,11 @@ export const useSqlEditorStore = create<SqlEditorState>()(
             ? selected.filter((c) => connectionIds.includes(c.id))
             : selected;
 
-        const selectedSql = getSelectedSql();
-        const rawStatements = resolveRunStatements(
-          tab.sql,
-          tab.checkedStatements,
-          selectedSql
-        );
+        // Per-cell Play: run exactly those indices (ignore strip checks + selection).
+        const rawStatements =
+          statementIndices && statementIndices.length > 0
+            ? statementsToRun(tab.sql, statementIndices)
+            : resolveRunStatements(tab.sql, tab.checkedStatements, getSelectedSql());
 
         // Code cells (JS/TS/Node) can run with no Destination; SQL still needs one.
         let connections: ExecutionTarget[] = selectedConnections;
@@ -728,6 +744,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
               name: needingPassword.name || needingPassword.dialect,
               resumeExecute: true,
               connectionIds: connectionIds?.length ? connectionIds : undefined,
+              statementIndices: statementIndices?.length ? statementIndices : undefined,
             },
           });
           return;
@@ -752,6 +769,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
               credentialCount: connections.length,
               readonlyTargets,
               connectionIds: connectionIds?.length ? connectionIds : undefined,
+              statementIndices: statementIndices?.length ? statementIndices : undefined,
             },
           });
           return;

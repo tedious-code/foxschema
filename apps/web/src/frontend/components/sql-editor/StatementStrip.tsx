@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, Copy } from 'lucide-react';
+import { Check, Copy, Play } from 'lucide-react';
 import {
   checkStatement,
   dmlLacksWhere,
@@ -18,16 +18,20 @@ import { SQL_ICON_STROKE } from './sqlIconStyle';
 interface Props {
   statements: SplitStatement[];
   checked: number[];
+  /** True while this tab's execute is in flight — disables per-cell Play. */
+  running?: boolean;
   onToggle: (index: number) => void;
   onReveal: (stmt: SplitStatement) => void;
+  /** Jupyter-style per-cell run (one statement index). */
+  onRunCell?: (index: number) => void;
 }
 
 const STORAGE_KEY = 'foxschema-sql-statement-strip-h';
-const ROW_PX = 30;
+const ROW_PX = 34;
 const PAD_PX = 14;
 const MIN_ROWS = 1;
 const MAX_ROWS = 12;
-const DEFAULT_ROWS = 2;
+const DEFAULT_ROWS = 3;
 
 const defaultHeight = () => ROW_PX * DEFAULT_ROWS + PAD_PX;
 const minHeight = () => ROW_PX * MIN_ROWS + PAD_PX;
@@ -90,10 +94,18 @@ type PopoverState = {
 };
 
 /**
- * Per-statement run strip. Hover opens a pinned-style preview of query-with-values
- * (overlaps the row so the pointer can reach Copy). Each row also has its own Copy.
+ * Notebook-style statement strip (Jupyter-inspired): each row is a cell with
+ * In [n], kind badge, preview, and a per-cell Play — same splitter/run pipeline
+ * as the toolbar Run.
  */
-export const StatementStrip: React.FC<Props> = ({ statements, checked, onToggle, onReveal }) => {
+export const StatementStrip: React.FC<Props> = ({
+  statements,
+  checked,
+  running = false,
+  onToggle,
+  onReveal,
+  onRunCell,
+}) => {
   const [height, setHeight] = useState(loadHeight);
   const safeMode = useSqlEditorStore((s) => s.safeMode);
   const variables = useSqlEditorStore((s) => s.variables);
@@ -193,8 +205,8 @@ export const StatementStrip: React.FC<Props> = ({ statements, checked, onToggle,
   if (statements.length === 0) return null;
 
   return (
-    <div className="shrink-0 flex flex-col border-b border-slate-800 bg-slate-900" data-testid="sql-statement-strip">
-      <div className="px-3 py-1.5 flex flex-col gap-0.5 overflow-y-auto" style={{ height }}>
+    <div className="shrink-0 flex flex-col border-b border-slate-800 bg-slate-950" data-testid="sql-statement-strip">
+      <div className="px-2 py-1.5 flex flex-col gap-1 overflow-y-auto" style={{ height }}>
         {statements.map((stmt, i) => {
           const status = checkStatement(stmt);
           const ok = status.level === 'ok';
@@ -207,22 +219,40 @@ export const StatementStrip: React.FC<Props> = ({ statements, checked, onToggle,
           const noWhere = dmlBadge ? dmlLacksWhere(stmt.text) : false;
           const resolved = resolveSql(stmt.text, variables);
           const isCopied = copiedIndex === i;
+          const accent = codeKind
+            ? 'border-l-teal-400/80 bg-teal-950/20'
+            : 'border-l-sky-400/80 bg-sky-950/15';
           return (
             <div
               key={`${stmt.start}-${stmt.end}`}
-              className="flex items-start gap-2 text-[13px] font-semibold text-slate-300 hover:bg-slate-800/70 rounded px-1 py-0.5 group min-h-[1.65rem]"
+              data-testid={`sql-statement-cell-${i}`}
+              className={`flex items-start gap-1.5 text-[13px] font-semibold text-slate-300 rounded-r-md border-l-[3px] ${accent} hover:bg-slate-800/50 px-1.5 py-1 group min-h-[2rem]`}
             >
+              <button
+                type="button"
+                data-testid={`sql-statement-run-${i}`}
+                title={`Run cell ${i + 1}`}
+                disabled={running || !onRunCell}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRunCell?.(i);
+                }}
+                className="shrink-0 mt-0.5 p-1 rounded-md text-slate-400 hover:text-cyan-200 hover:bg-cyan-500/15 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                aria-label={`Run cell ${i + 1}`}
+              >
+                <Play className="w-3.5 h-3.5 fill-current" strokeWidth={SQL_ICON_STROKE} />
+              </button>
               <input
                 type="checkbox"
                 checked={isChecked}
                 onChange={() => onToggle(i)}
-                className="w-3.5 h-3.5 accent-cyan-600 cursor-pointer shrink-0 mt-0.5"
+                className="w-3.5 h-3.5 accent-cyan-600 cursor-pointer shrink-0 mt-1.5"
                 title={
                   checked.length === 0
-                    ? 'None checked → Run uses the first statement'
-                    : 'Include this statement when running'
+                    ? 'None checked → toolbar Run uses the first cell'
+                    : 'Include this cell in toolbar Run'
                 }
-                aria-label={`Statement ${i + 1}`}
+                aria-label={`Include cell ${i + 1} in batch Run`}
               />
               <button
                 type="button"
@@ -237,7 +267,12 @@ export const StatementStrip: React.FC<Props> = ({ statements, checked, onToggle,
                 }}
                 className="flex-1 flex items-start gap-1.5 min-w-0 text-left cursor-pointer"
               >
-                <span className="text-slate-500 font-mono shrink-0 font-bold">#{i + 1}</span>
+                <span
+                  className="text-slate-500 font-mono shrink-0 font-bold tabular-nums"
+                  title="Cell input index (notebook-style)"
+                >
+                  In&nbsp;[{i + 1}]:
+                </span>
                 <span
                   className={`shrink-0 font-bold ${ok ? 'text-emerald-400' : 'text-amber-400'}`}
                   title={ok ? 'Looks complete' : status.reasons.join(' · ')}
@@ -246,7 +281,7 @@ export const StatementStrip: React.FC<Props> = ({ statements, checked, onToggle,
                 </span>
                 {codeBadge ? (
                   <span
-                    className="shrink-0 text-[10px] font-bold uppercase tracking-wide px-1 py-0.5 rounded mt-0.5 bg-violet-950/40 text-violet-300 border border-violet-500/35"
+                    className="shrink-0 text-[10px] font-bold uppercase tracking-wide px-1 py-0.5 rounded mt-0.5 bg-teal-950/50 text-teal-300 border border-teal-500/35"
                     title={codeBadge.title}
                   >
                     {codeBadge.label}
@@ -296,7 +331,7 @@ export const StatementStrip: React.FC<Props> = ({ statements, checked, onToggle,
                   void copyText(i, resolved.sql, Boolean(resolved.error));
                 }}
                 className="shrink-0 mt-0.5 p-0.5 text-slate-500 hover:text-cyan-300 opacity-0 group-hover:opacity-100 focus:opacity-100 transition disabled:opacity-30"
-                aria-label={`Copy statement ${i + 1}`}
+                aria-label={`Copy cell ${i + 1}`}
               >
                 {isCopied ? (
                   <Check className="w-3.5 h-3.5 text-emerald-400" strokeWidth={SQL_ICON_STROKE} />

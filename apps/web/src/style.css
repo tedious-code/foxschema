@@ -324,8 +324,7 @@ mark.fox-search-hl {
   color: inherit;
 }
 
-/* SQL Editor gutter statement-status glyphs (Monaco glyph margin). The icon is
-   drawn with ::after content so no image assets are needed. */
+/* SQL Editor gutter statement-status glyphs (Monaco glyph margin). */
 .fox-stmt-glyph-ok::after,
 .fox-stmt-glyph-warn::after {
   display: block;
@@ -335,12 +334,30 @@ mark.fox-search-hl {
   font-weight: 700;
 }
 .fox-stmt-glyph-ok::after {
-  content: '?';
+  content: '✓';
   color: #34d399; /* emerald-400 */
 }
 .fox-stmt-glyph-warn::after {
-  content: '?';
+  content: '⚠';
   color: #fbbf24; /* amber-400 */
+}
+
+/* Notebook-style cell banding inside the single Monaco buffer. */
+.monaco-editor .fox-cell-band-sql {
+  background: rgba(56, 189, 248, 0.055); /* sky */
+}
+.monaco-editor .fox-cell-band-code {
+  background: rgba(45, 212, 191, 0.07); /* teal */
+}
+.monaco-editor .fox-cell-edge-sql {
+  background: #38bdf8;
+  width: 3px !important;
+  margin-left: 3px;
+}
+.monaco-editor .fox-cell-edge-code {
+  background: #2dd4bf;
+  width: 3px !important;
+  margin-left: 3px;
 }
 
 /*
