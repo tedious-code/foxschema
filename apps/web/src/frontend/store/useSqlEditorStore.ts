@@ -294,6 +294,27 @@ export function removeDataPeekSubtree(
   return entries.filter((e) => !drop.has(e.id));
 }
 
+/** Move one peek panel in the stacked list (visual arrange). */
+export function moveDataPeekEntry(
+  entries: DataPeekEntry[],
+  fromIndex: number,
+  toIndex: number
+): DataPeekEntry[] {
+  if (
+    fromIndex === toIndex ||
+    fromIndex < 0 ||
+    toIndex < 0 ||
+    fromIndex >= entries.length ||
+    toIndex >= entries.length
+  ) {
+    return entries;
+  }
+  const next = [...entries];
+  const [moved] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, moved!);
+  return next;
+}
+
 function dataPeekDrillKey(
   fromEntryId: string,
   fk: { referencedTable: string; columns?: string[] }
@@ -410,6 +431,8 @@ interface SqlEditorState {
   updateDataPeekFilters: (entryId: string, patch: DataPeekFilterPatch) => Promise<void>;
   /** Persist a dragged panel height. */
   setDataPeekPanelHeight: (entryId: string, heightPx: number) => void;
+  /** Drag panels to rearrange the vertical stack. */
+  reorderDataPeekEntries: (fromIndex: number, toIndex: number) => void;
   /** Load another OFFSET page for one peek panel. */
   pageDataPeekEntry: (entryId: string, pageIndex: number) => Promise<void>;
   /** Internal: (re)run one peek entry's query. */
@@ -1539,6 +1562,14 @@ export const useSqlEditorStore = create<SqlEditorState>()(
             ),
           },
         });
+      },
+
+      reorderDataPeekEntries: (fromIndex, toIndex) => {
+        const peek = get().dataPeek;
+        if (!peek) return;
+        const entries = moveDataPeekEntry(peek.entries, fromIndex, toIndex);
+        if (entries === peek.entries) return;
+        set({ dataPeek: { ...peek, entries } });
       },
 
       pageDataPeekEntry: async (entryId, pageIndex) => {

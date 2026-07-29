@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { removeDataPeekSubtree, type DataPeekEntry } from '../../store/useSqlEditorStore';
+import {
+  moveDataPeekEntry,
+  removeDataPeekSubtree,
+  type DataPeekEntry,
+} from '../../store/useSqlEditorStore';
 
 function entry(
   id: string,
@@ -30,5 +34,14 @@ describe('removeDataPeekSubtree', () => {
     const techUser = entry('user', { parentId: 'tech', drillKey: 'tech|USER|USERID' });
     const next = removeDataPeekSubtree([root, tech, order, techUser], 'tech');
     expect(next.map((e) => e.id)).toEqual(['root', 'order']);
+  });
+});
+
+describe('moveDataPeekEntry', () => {
+  it('reorders panels so users can arrange stacked grids', () => {
+    const list = [entry('root'), entry('a', { parentId: 'root' }), entry('b', { parentId: 'root' })];
+    expect(moveDataPeekEntry(list, 2, 0).map((e) => e.id)).toEqual(['b', 'root', 'a']);
+    expect(moveDataPeekEntry(list, 0, 2).map((e) => e.id)).toEqual(['a', 'b', 'root']);
+    expect(moveDataPeekEntry(list, 1, 1)).toBe(list);
   });
 });

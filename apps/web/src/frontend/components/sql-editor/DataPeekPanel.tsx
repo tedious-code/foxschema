@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Loader2, X } from 'lucide-react';
+import { GripVertical, Loader2, X } from 'lucide-react';
 import { useSqlEditorStore, type DataPeekEntry } from '../../store/useSqlEditorStore';
 import { foreignKeyLinksFor } from '../../lib/tablePreview';
 import { DataGrid } from './DataGrid';
@@ -166,8 +166,30 @@ const PeekGrid: React.FC<{
   /** Root table vs FK drill — drills get a taller default for usable grids. */
   variant: 'root' | 'drill';
   showFkHint: boolean;
+  dragIndex: number;
+  isDragging: boolean;
+  isDragOver: boolean;
+  onDragStart: (index: number) => void;
+  onDragOver: (index: number) => void;
+  onDragLeave: (index: number) => void;
+  onDrop: (fromIndex: number, toIndex: number) => void;
+  onDragEnd: () => void;
   onClose?: () => void;
-}> = ({ entry, tables, variant, showFkHint, onClose }) => {
+}> = ({
+  entry,
+  tables,
+  variant,
+  showFkHint,
+  dragIndex,
+  isDragging,
+  isDragOver,
+  onDragStart,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  onDragEnd,
+  onClose,
+}) => {
   const drillDataPeek = useSqlEditorStore((s) => s.drillDataPeek);
   const pageDataPeekEntry = useSqlEditorStore((s) => s.pageDataPeekEntry);
 
@@ -208,11 +230,41 @@ const PeekGrid: React.FC<{
 
   return (
     <div
-      className="px-2 pb-1 flex flex-col w-full shrink-0"
+      className={`px-2 pb-1 flex flex-col w-full shrink-0 transition-opacity ${
+        isDragging ? 'opacity-50' : ''
+      } ${isDragOver ? 'ring-2 ring-cyan-500/50 rounded-lg' : ''}`}
       style={{ height: heightPx }}
       data-testid={`data-peek-grid-${entry.id}`}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        onDragOver(dragIndex);
+      }}
+      onDragLeave={() => onDragLeave(dragIndex)}
+      onDrop={(e) => {
+        e.preventDefault();
+        const from =
+          Number.parseInt(e.dataTransfer.getData('text/plain'), 10);
+        if (Number.isFinite(from)) onDrop(from, dragIndex);
+      }}
     >
-      <div className="flex items-center gap-2 mb-1 shrink-0 min-w-0">
+      <div className="flex items-center gap-1.5 mb-1 shrink-0 min-w-0">
+        <button
+          type="button"
+          draggable
+          data-testid={`data-peek-drag-${entry.id}`}
+          title="Drag to rearrange panels"
+          aria-label={`Reorder ${entry.title}`}
+          onDragStart={(e) => {
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', String(dragIndex));
+            onDragStart(dragIndex);
+          }}
+          onDragEnd={onDragEnd}
+          className="p-0.5 text-slate-500 hover:text-cyan-400 cursor-grab active:cursor-grabbing shrink-0"
+        >
+          <GripVertical className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+        </button>
         <span className="text-[12px] font-semibold text-slate-200 truncate flex-1" title={entry.title}>
           {entry.title}
         </span>
@@ -278,9 +330,12 @@ export const DataPeekPanel: React.FC = () => {
   const dataPeek = useSqlEditorStore((s) => s.dataPeek);
   const closeDataPeek = useSqlEditorStore((s) => s.closeDataPeek);
   const closeDataPeekFrom = useSqlEditorStore((s) => s.closeDataPeekFrom);
+  const reorderDataPeekEntries = useSqlEditorStore((s) => s.reorderDataPeekEntries);
   const schemaCache = useSqlEditorStore((s) => s.schemaCache);
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastEntryCount = useRef(0);
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [dragOver, setDragOver] = useState<number | null>(null);
 
   useEffect(() => {
     if (!dataPeek) return;
@@ -312,12 +367,7 @@ export const DataPeekPanel: React.FC = () => {
 
   if (!dataPeek) return null;
   const tables = schemaCache[dataPeek.connectionId]?.tables;
-  // Keep open order: root first, then drills as opened (supports many stacked panels).
-  const ordered = [
-    ...dataPeek.entries.filter((e) => !e.parentId),
-    ...dataPeek.entries.filter((e) => e.parentId),
-  ];
-  const rootId = ordered.find((e) => !e.parentId)?.id;
+  const entries = dataPeek.entries;
 
   return createPortal(
     <div
@@ -334,7 +384,7 @@ export const DataPeekPanel: React.FC = () => {
             Data peek
           </span>
           <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-x-auto">
-            {dataPeek.entries.map((e) => (
+            {entries.map((e) => (
               <span
                 key={e.id}
                 className="inline-flex items-center gap-1 shrink-0 max-w-[14rem] rounded-md border border-slate-700 bg-slate-950/60 px-1.5 py-0.5"
@@ -356,6 +406,9 @@ export const DataPeekPanel: React.FC = () => {
               </span>
             ))}
           </div>
+          <span className="hidden sm:inline text-[10px] text-slate-500 shrink-0">
+            Drag ⋮⋮ to arrange
+          </span>
           <button
             type="button"
             data-testid="data-peek-close"
@@ -374,8 +427,8 @@ export const DataPeekPanel: React.FC = () => {
           data-testid="data-peek-scroll"
         >
           <div className="flex flex-col gap-3 py-2 px-1">
-            {ordered.map((e) => {
-              const isRoot = e.id === rootId;
+            {entries.map((e, index) => {
+              const isRoot = !e.parentId;
               return (
                 <div
                   key={e.id}
@@ -390,6 +443,27 @@ export const DataPeekPanel: React.FC = () => {
                     tables={tables}
                     variant={isRoot ? 'root' : 'drill'}
                     showFkHint={isRoot}
+                    dragIndex={index}
+                    isDragging={dragFrom === index}
+                    isDragOver={dragOver === index && dragFrom !== null && dragFrom !== index}
+                    onDragStart={setDragFrom}
+                    onDragOver={(i) => {
+                      if (dragOver !== i) setDragOver(i);
+                    }}
+                    onDragLeave={(i) => {
+                      if (dragOver === i) setDragOver(null);
+                    }}
+                    onDrop={(fromIdx, toIndex) => {
+                      if (fromIdx !== toIndex) {
+                        reorderDataPeekEntries(fromIdx, toIndex);
+                      }
+                      setDragFrom(null);
+                      setDragOver(null);
+                    }}
+                    onDragEnd={() => {
+                      setDragFrom(null);
+                      setDragOver(null);
+                    }}
                     onClose={isRoot ? undefined : () => closeDataPeekFrom(e.id)}
                   />
                 </div>
