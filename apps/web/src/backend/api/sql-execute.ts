@@ -144,8 +144,8 @@ export async function runStatements(
         continue;
       }
 
+      const paged = wrapSqlForPage(sql, dialect, offset, maxRows);
       try {
-        const paged = wrapSqlForPage(sql, dialect, offset, maxRows);
         const raw = await ConnectionFactory.executeOnConnection<Record<string, unknown>>(
           dialect,
           connection,
@@ -167,7 +167,9 @@ export async function runStatements(
         const wrapMsg = error instanceof Error ? error.message : String(error);
         // Fail closed for all pageable statements: raw fallback can materialize
         // an unbounded result set before shapeRows truncates, and ignores OFFSET.
-        pushErr(`Paging failed: ${wrapMsg}`);
+        // Include the wrapped SQL so DB2 alias / dialect issues are diagnosable.
+        const preview = paged.length > 240 ? `${paged.slice(0, 240)}…` : paged;
+        pushErr(`Paging failed: ${wrapMsg}\nWrapped SQL: ${preview}`);
       }
     }
     return results;
