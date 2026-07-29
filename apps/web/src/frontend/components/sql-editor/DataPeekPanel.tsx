@@ -74,7 +74,10 @@ const PeekGrid: React.FC<{
   }
 
   return (
-    <div className="px-2 pb-2" data-testid={`data-peek-grid-${entry.id}`}>
+    <div
+      className="px-2 pb-2 h-[min(58vh,520px)] flex flex-col min-h-0"
+      data-testid={`data-peek-grid-${entry.id}`}
+    >
       <DataGrid
         result={entry.result}
         label={entry.title}
@@ -84,7 +87,7 @@ const PeekGrid: React.FC<{
         onLinkClick={onLinkClick}
       />
       {isLast && linkColumns.size > 0 && (
-        <p className="mt-1 px-1 text-[10px] text-slate-500">
+        <p className="mt-1 px-1 shrink-0 text-[10px] text-slate-500">
           Underlined cells are foreign keys — click one to open the related rows below.
         </p>
       )}
@@ -112,12 +115,12 @@ export const DataPeekPanel: React.FC = () => {
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-6"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-3 sm:p-5"
       data-testid="data-peek"
       onClick={closeDataPeek}
     >
       <div
-        className="flex flex-col w-full max-w-6xl max-h-full rounded-xl border border-slate-700 bg-slate-900 shadow-2xl overflow-hidden"
+        className="flex flex-col w-[min(96vw,1400px)] max-h-[min(92vh,900px)] rounded-xl border border-slate-700 bg-slate-900 shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-800 shrink-0">
@@ -165,7 +168,7 @@ export const DataPeekPanel: React.FC = () => {
           </button>
         </div>
 
-        <div className="flex flex-col gap-1 overflow-y-auto min-h-0">
+        <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-1">
           {dataPeek.entries.map((e, i) => (
             <PeekGrid
               key={e.id}

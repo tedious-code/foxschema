@@ -24,20 +24,20 @@ const LONG_TEXT_NAME =
 type CellKind = 'null' | 'number' | 'boolean' | 'datetime' | 'binary' | 'string';
 
 const KIND_CELL_CLASS: Record<CellKind, string> = {
-  null: 'italic text-[#94a3b8]',
-  number: 'text-[#1d4ed8]',
-  boolean: 'text-[#7c3aed]',
-  datetime: 'text-[#0f766e]',
-  binary: 'text-[#b45309]',
-  string: 'text-[#1e293b]',
+  null: 'italic text-[var(--fox-grid-muted)]',
+  number: 'tabular-nums text-[var(--fox-grid-number)] font-semibold',
+  boolean: 'text-[var(--fox-grid-boolean)]',
+  datetime: 'text-[var(--fox-grid-datetime)]',
+  binary: 'text-[var(--fox-grid-binary)]',
+  string: 'text-[var(--fox-grid-ink)]',
 };
 
 const KIND_HEADER_CLASS: Record<Exclude<CellKind, 'null'>, string> = {
-  number: 'text-[#1d4ed8]',
-  boolean: 'text-[#7c3aed]',
-  datetime: 'text-[#0f766e]',
-  binary: 'text-[#b45309]',
-  string: 'text-[#64748b]',
+  number: 'text-[var(--fox-grid-number)]',
+  boolean: 'text-[var(--fox-grid-boolean)]',
+  datetime: 'text-[var(--fox-grid-datetime)]',
+  binary: 'text-[var(--fox-grid-binary)]',
+  string: 'text-[var(--fox-grid-muted)]',
 };
 
 const KIND_LABEL: Record<Exclude<CellKind, 'null'>, string> = {
@@ -682,7 +682,7 @@ export const DataGrid: React.FC<{
                               // 1-based number shown in the # column and would
                               // read the NEXT row's value.
                               onClick={() => onLinkClick?.(colIdx, i)}
-                              className="underline decoration-dotted underline-offset-2 text-cyan-300 hover:text-cyan-200"
+                              className="underline decoration-dotted underline-offset-2 text-[var(--fox-grid-link)] hover:brightness-125 font-semibold"
                             >
                               {text}
                             </button>

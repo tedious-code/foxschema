@@ -417,6 +417,12 @@ mark.fox-search-hl {
   --fox-grid-border-soft: #e2e8f0;
   --fox-grid-ink: #1e293b;
   --fox-grid-muted: #64748b;
+  /* High-contrast type colors on paper (avoid washed cyan/blue). */
+  --fox-grid-number: #1e3a8a;
+  --fox-grid-boolean: #5b21b6;
+  --fox-grid-datetime: #115e59;
+  --fox-grid-binary: #9a3412;
+  --fox-grid-link: #075985;
 }
 
 [data-theme='light'] .fox-sql-grid {
@@ -429,4 +435,9 @@ mark.fox-search-hl {
   --fox-grid-border-soft: #94a3b8;
   --fox-grid-ink: #0f172a;
   --fox-grid-muted: #334155;
+  --fox-grid-number: #1e3a8a;
+  --fox-grid-boolean: #5b21b6;
+  --fox-grid-datetime: #115e59;
+  --fox-grid-binary: #9a3412;
+  --fox-grid-link: #0c4a6e;
 }
