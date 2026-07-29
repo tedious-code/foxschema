@@ -2,6 +2,11 @@
 
 Public image: [5nickels/foxschema](https://hub.docker.com/repository/docker/5nickels/foxschema/tags)
 
+**Schema Sync + SQL Editor** in one container (compare/migrate schemas, run
+multi-destination SQL, Data Peek, FoxScript notebook cells).
+
+Demo: https://raw.githubusercontent.com/tedious-code/foxschema/main/docs/demo/sql-editor.gif
+
 ## Tags (single image)
 
 | Tag | Notes |
@@ -24,9 +29,9 @@ docker run -d --name foxschema \
   5nickels/foxschema:latest
 ```
 
-Open http://localhost:3001
+Open http://localhost:3001 — use **SQL Editor** in the top toolbar next to Schema Sync.
 
 Also on GHCR: `ghcr.io/tedious-code/foxschema:latest`
 
-Laptop install (npm / Homebrew / Winget): [INSTALL.md](INSTALL.md).
+Laptop install (npm / Homebrew): [INSTALL.md](INSTALL.md).
 Maintainers: [PUBLISH.md](PUBLISH.md).

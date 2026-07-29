@@ -1,9 +1,9 @@
 {
   "name": "@foxschema/cli",
-  "version": "0.1.105",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Fox Schema CLI — schema diff & migration; `foxschema` opens the local web UI",
+  "description": "Fox Schema CLI — schema diff, migrations, and a rich SQL Editor (TypeScript / Node ESM)",
   "license": "Apache-2.0",
   "bin": {
     "foxschema": "dist/index.js",
@@ -44,5 +44,22 @@
     "esbuild": "^0.28.1",
     "ink-testing-library": "^4.0.0",
     "postject": "^1.0.0-alpha.6"
-  }
+  },
+  "author": "Huy Phan <huyplb@gmail.com>",
+  "homepage": "https://foxschema.com",
+  "bugs": "https://github.com/tedious-code/foxschema/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tedious-code/foxschema.git"
+  },
+  "keywords": [
+    "foxschema",
+    "sql",
+    "sql-editor",
+    "schema",
+    "migration",
+    "typescript",
+    "esm",
+    "database"
+  ]
 }
