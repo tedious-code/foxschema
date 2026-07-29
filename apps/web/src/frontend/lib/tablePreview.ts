@@ -147,8 +147,6 @@ export function tableNamesFromSql(sql: string): string[] {
   while ((m = re.exec(sql)) !== null) {
     const raw = m[1];
     if (!raw) continue;
-    const table = raw.trim().replace(/^["`\[]|["`\]]$/g, '').replace(/""/g, '"');
-    // Strip wrapping quotes more carefully via same rules as aliases helper.
     const cleaned = stripSqlIdent(raw);
     if (!cleaned) continue;
     const key = cleaned.toLowerCase();
