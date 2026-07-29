@@ -7,8 +7,11 @@ import { DataGrid } from './DataGrid';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
 import type { TableSchema } from '../../lib/types';
 
-const DEFAULT_HEIGHT_COMPACT = 280;
-const DEFAULT_HEIGHT_ROOT = 420;
+const DEFAULT_HEIGHT_ROOT = 460;
+/** FK drill panels stack full-width; keep them tall enough for a usable grid. */
+const DEFAULT_HEIGHT_DRILL = 400;
+const MIN_PANEL_HEIGHT = 220;
+const MAX_PANEL_HEIGHT = 900;
 
 /**
  * Quick data peek: Cmd/Ctrl-click a table in the schema explorer to see its
@@ -127,7 +130,10 @@ const PeekResizeHandle: React.FC<{
     const target = e.currentTarget;
     target.setPointerCapture(e.pointerId);
     const onMove = (ev: PointerEvent) => {
-      const next = startH.current + (ev.clientY - startY.current);
+      const next = Math.min(
+        MAX_PANEL_HEIGHT,
+        Math.max(MIN_PANEL_HEIGHT, startH.current + (ev.clientY - startY.current))
+      );
       setDataPeekPanelHeight(entryId, next);
     };
     const onUp = (ev: PointerEvent) => {
@@ -146,10 +152,10 @@ const PeekResizeHandle: React.FC<{
       aria-label="Resize data peek panel"
       data-testid={`data-peek-resize-${entryId}`}
       onPointerDown={onPointerDown}
-      className="h-2 shrink-0 cursor-ns-resize flex items-center justify-center group"
+      className="h-2.5 shrink-0 cursor-ns-resize flex items-center justify-center group"
       title="Drag to resize"
     >
-      <span className="block h-0.5 w-10 rounded-full bg-slate-600 group-hover:bg-cyan-500" />
+      <span className="block h-1 w-12 rounded-full bg-slate-600 group-hover:bg-cyan-500" />
     </div>
   );
 };
@@ -157,11 +163,11 @@ const PeekResizeHandle: React.FC<{
 const PeekGrid: React.FC<{
   entry: DataPeekEntry;
   tables: TableSchema[] | undefined;
-  /** Shorter default height when several panels share the modal. */
-  compact: boolean;
+  /** Root table vs FK drill — drills get a taller default for usable grids. */
+  variant: 'root' | 'drill';
   showFkHint: boolean;
   onClose?: () => void;
-}> = ({ entry, tables, compact, showFkHint, onClose }) => {
+}> = ({ entry, tables, variant, showFkHint, onClose }) => {
   const drillDataPeek = useSqlEditorStore((s) => s.drillDataPeek);
 
   const table = useMemo(() => {
@@ -197,11 +203,11 @@ const PeekGrid: React.FC<{
   );
 
   const heightPx =
-    entry.panelHeightPx ?? (compact ? DEFAULT_HEIGHT_COMPACT : DEFAULT_HEIGHT_ROOT);
+    entry.panelHeightPx ?? (variant === 'drill' ? DEFAULT_HEIGHT_DRILL : DEFAULT_HEIGHT_ROOT);
 
   return (
     <div
-      className="px-2 pb-1 flex flex-col min-h-0"
+      className="px-2 pb-1 flex flex-col min-h-0 w-full"
       style={{ height: heightPx }}
       data-testid={`data-peek-grid-${entry.id}`}
     >
@@ -280,16 +286,15 @@ export const DataPeekPanel: React.FC = () => {
   const tables = schemaCache[dataPeek.connectionId]?.tables;
   const root = dataPeek.entries.find((e) => !e.parentId) ?? dataPeek.entries[0];
   const drills = dataPeek.entries.filter((e) => e.parentId);
-  const multi = dataPeek.entries.length > 1;
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-2 sm:p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-1.5 sm:p-3"
       data-testid="data-peek"
       onClick={closeDataPeek}
     >
       <div
-        className="flex flex-col w-[min(98vw,1480px)] h-[min(94vh,920px)] rounded-xl border border-slate-700 bg-slate-900 shadow-2xl overflow-hidden"
+        className="flex flex-col w-[min(99vw,1680px)] h-[min(96vh,980px)] rounded-xl border border-slate-700 bg-slate-900 shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-800 shrink-0">
@@ -336,21 +341,21 @@ export const DataPeekPanel: React.FC = () => {
             <PeekGrid
               entry={root}
               tables={tables}
-              compact={multi}
+              variant="root"
               showFkHint
             />
           )}
           {drills.length > 0 && (
-            <div className="px-1 flex flex-col gap-2" data-testid="data-peek-drills">
+            <div className="px-1 flex flex-col gap-3" data-testid="data-peek-drills">
               {drills.map((e) => (
                 <div
                   key={e.id}
-                  className="min-w-0 rounded-lg border border-slate-800 bg-slate-950/40"
+                  className="min-w-0 w-full rounded-lg border border-slate-800 bg-slate-950/40"
                 >
                   <PeekGrid
                     entry={e}
                     tables={tables}
-                    compact
+                    variant="drill"
                     showFkHint={false}
                     onClose={() => closeDataPeekFrom(e.id)}
                   />

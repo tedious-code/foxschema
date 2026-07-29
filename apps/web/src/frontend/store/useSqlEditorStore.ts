@@ -1522,7 +1522,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
       setDataPeekPanelHeight: (entryId, heightPx) => {
         const peek = get().dataPeek;
         if (!peek) return;
-        const clamped = Math.min(900, Math.max(140, Math.round(heightPx)));
+        const clamped = Math.min(900, Math.max(220, Math.round(heightPx)));
         set({
           dataPeek: {
             ...peek,
