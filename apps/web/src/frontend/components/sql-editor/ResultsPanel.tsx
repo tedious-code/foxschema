@@ -1,11 +1,20 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+/**
+ * Fox Schema (foxschema)
+ * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Results for one SQL Editor tab (By cred / Side-by-side layouts).
+ * Foreign-key cells can open Data Peek when schema FKs match the statement.
+ */
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Database, AlertCircle, GripVertical, RefreshCw } from 'lucide-react';
-import type { CredentialRun } from '../../store/useSqlEditorStore';
+import { useSqlEditorStore, type CredentialRun } from '../../store/useSqlEditorStore';
 import type { ResultsLayout } from '../../store/sqlEditorTabLogic';
 import { DataGrid, PANE_DEFAULT_H_PX, PANE_DEFAULT_PX, PANE_MIN_H_PX, PANE_MIN_PX } from './DataGrid';
 import type { SqlStatementResult } from '../../api/sqlApi';
 import { detectCodeCell } from '../../lib/codeCellRunner';
 import { CODE_CELL_KIND_LABEL } from '../../lib/sql-splitter';
+import { foreignKeyLinksForSql } from '../../lib/tablePreview';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
 
 interface Props {
@@ -69,6 +78,8 @@ type PaneItem =
       exportName: string;
       connectionId: string;
       statementIndex: number;
+      /** SQL that produced this grid — used for FK → Data Peek links. */
+      statementSql?: string;
     }
   | { key: string; kind: 'running'; label: string; connectionId: string }
   | { key: string; kind: 'error'; label: string; error: string; connectionId: string };
@@ -81,10 +92,153 @@ function equalWidths(count: number, containerW: number): number[] {
   return Array.from({ length: count }, () => each);
 }
 
+const PaneBody: React.FC<{
+  item: PaneItem;
+  refreshing?: boolean;
+  onRefresh?: (connectionId: string) => void;
+  onPage?: Props['onPage'];
+  pageState?: Props['pageState'];
+  syncScrollRow?: number | null;
+  onSyncScrollRow?: (row: number | null) => void;
+}> = ({
+  item,
+  refreshing,
+  onRefresh,
+  onPage,
+  pageState,
+  syncScrollRow = null,
+  onSyncScrollRow,
+}) => {
+  const schemaCache = useSqlEditorStore((s) => s.schemaCache);
+  const openDataPeekFromFk = useSqlEditorStore((s) => s.openDataPeekFromFk);
+
+  const fkLinks = useMemo(() => {
+    if (item.kind !== 'grid' || !item.result.ok || !item.statementSql) return [];
+    const tables = schemaCache[item.connectionId]?.tables;
+    return foreignKeyLinksForSql(item.statementSql, tables, item.result.columns);
+  }, [item, schemaCache]);
+
+  const linkColumns = useMemo(() => {
+    if (fkLinks.length === 0) return undefined;
+    const map = new Map<number, string>();
+    for (const l of fkLinks) map.set(l.columnIndex, l.fk.referencedTable);
+    return map;
+  }, [fkLinks]);
+
+  const onLinkClick = useCallback(
+    (colIdx: number, rowIdx: number) => {
+      if (item.kind !== 'grid' || !item.result.ok) return;
+      const link = fkLinks.find((l) => l.columnIndex === colIdx);
+      if (!link) return;
+      const row = item.result.rows[rowIdx];
+      if (!row) return;
+      void openDataPeekFromFk(
+        item.connectionId,
+        link.fk,
+        link.valueIndexes.map((i) => row[i])
+      );
+    },
+    [item, fkLinks, openDataPeekFromFk]
+  );
+
+  if (item.kind === 'grid') {
+    const pageKey = `${item.connectionId}:${item.statementIndex}`;
+    const page = pageState?.[pageKey];
+    const pageIndex = page?.pageIndex ?? 0;
+    return (
+      <div className="flex flex-col min-h-0 h-full">
+        <DataGrid
+          result={item.result}
+          label={item.label}
+          exportName={item.exportName}
+          refreshing={refreshing}
+          onRefresh={onRefresh ? () => onRefresh(item.connectionId) : undefined}
+          syncScrollRow={onSyncScrollRow ? syncScrollRow : null}
+          onSyncScrollRow={onSyncScrollRow}
+          pageIndex={pageIndex}
+          pageSize={page?.pageSize}
+          hasPrevPage={!refreshing && Boolean(page) && pageIndex > 0}
+          hasNextPage={!refreshing && Boolean(page?.hasNext)}
+          pageLoading={Boolean(refreshing || page?.loading)}
+          onPrevPage={
+            onPage && page && !refreshing
+              ? () =>
+                  onPage({
+                    connectionId: item.connectionId,
+                    statementIndex: item.statementIndex,
+                    pageIndex: Math.max(0, pageIndex - 1),
+                  })
+              : undefined
+          }
+          onNextPage={
+            onPage && page && !refreshing
+              ? () =>
+                  onPage({
+                    connectionId: item.connectionId,
+                    statementIndex: item.statementIndex,
+                    pageIndex: pageIndex + 1,
+                  })
+              : undefined
+          }
+          linkColumns={linkColumns}
+          onLinkClick={linkColumns ? onLinkClick : undefined}
+        />
+        {linkColumns && linkColumns.size > 0 && (
+          <p
+            className="mt-0.5 px-0.5 shrink-0 text-[10px] text-slate-500"
+            data-testid="sql-results-fk-hint"
+          >
+            Underlined rust cells are foreign keys — click one to open Data Peek (related rows).
+          </p>
+        )}
+      </div>
+    );
+  }
+  if (item.kind === 'running') {
+    return (
+      <div className="flex items-center gap-2 text-xs text-slate-500 h-full px-2">
+        <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" strokeWidth={SQL_ICON_STROKE} />{' '}
+        {item.label}
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-2 h-full min-h-0">
+      <div className="flex items-center gap-2 shrink-0">
+        <div
+          className="text-[10px] font-bold text-slate-500 uppercase tracking-wider truncate flex-1"
+          title={item.label}
+        >
+          {item.label}
+        </div>
+        {onRefresh && (
+          <button
+            type="button"
+            data-testid="sql-pane-refresh"
+            title="Retry this server"
+            disabled={refreshing}
+            onClick={() => onRefresh(item.connectionId)}
+            className="flex items-center gap-0.5 text-[10px] font-semibold text-slate-500 hover:text-cyan-400 transition shrink-0 disabled:opacity-40"
+          >
+            <RefreshCw
+              className={`w-3 h-3 text-cyan-400 ${refreshing ? 'animate-spin' : ''}`}
+              strokeWidth={SQL_ICON_STROKE}
+            />{' '}
+            Refresh
+          </button>
+        )}
+      </div>
+      <div className="flex items-start gap-2 text-xs text-rose-400 bg-rose-950/40 border border-rose-500/20 rounded-md px-3 py-2 flex-1 overflow-auto">
+        <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" strokeWidth={SQL_ICON_STROKE} />
+        <span className="break-all">{item.error}</span>
+      </div>
+    </div>
+  );
+};
+
 /**
- * Horizontal row of result panes. Every table has its own drag grip on the
- * right edge — widths are independent (growing one does not crush neighbors;
- * the row scrolls when panes exceed the viewport).
+ * Horizontal row of result panes (side-by-side layout). Every table has its own
+ * drag grip on the right edge — widths are independent.
  */
 const ResizablePaneRow: React.FC<{
   items: PaneItem[];
@@ -173,102 +327,38 @@ const ResizablePaneRow: React.FC<{
         style={{ height: rowHeight, minHeight: PANE_MIN_H_PX }}
         data-testid="sql-result-pane-row"
       >
-        {items.map((item, i) => {
-          const pageKey =
-            item.kind === 'grid' ? `${item.connectionId}:${item.statementIndex}` : '';
-          const page = pageKey ? pageState?.[pageKey] : undefined;
-          const pageIndex = page?.pageIndex ?? 0;
-          return (
-            <React.Fragment key={item.key}>
-              <div
-                className="flex flex-col min-h-0 shrink-0"
-                style={{ width: widths[i] ?? PANE_DEFAULT_PX, minWidth: PANE_MIN_PX }}
-              >
-                {item.kind === 'grid' && (
-                  <DataGrid
-                    result={item.result}
-                    label={item.label}
-                    exportName={item.exportName}
-                    refreshing={refreshing}
-                    onRefresh={onRefresh ? () => onRefresh(item.connectionId) : undefined}
-                    syncScrollRow={syncScroll ? syncRow : null}
-                    onSyncScrollRow={syncScroll ? setSyncRow : undefined}
-                    pageIndex={pageIndex}
-                    pageSize={page?.pageSize}
-                    hasPrevPage={!refreshing && Boolean(page) && pageIndex > 0}
-                    hasNextPage={!refreshing && Boolean(page?.hasNext)}
-                    pageLoading={Boolean(refreshing || page?.loading)}
-                    onPrevPage={
-                      onPage && page && !refreshing
-                        ? () =>
-                            onPage({
-                              connectionId: item.connectionId,
-                              statementIndex: item.statementIndex,
-                              pageIndex: Math.max(0, pageIndex - 1),
-                            })
-                        : undefined
-                    }
-                    onNextPage={
-                      onPage && page && !refreshing
-                        ? () =>
-                            onPage({
-                              connectionId: item.connectionId,
-                              statementIndex: item.statementIndex,
-                              pageIndex: pageIndex + 1,
-                            })
-                        : undefined
-                    }
-                  />
-                )}
-                {item.kind === 'running' && (
-                  <div className="flex items-center gap-2 text-xs text-slate-500 h-full px-2">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" strokeWidth={SQL_ICON_STROKE} /> {item.label}
-                  </div>
-                )}
-                {item.kind === 'error' && (
-                  <div className="flex flex-col gap-2 h-full min-h-0">
-                    <div className="flex items-center gap-2 shrink-0">
-                      <div
-                        className="text-[10px] font-bold text-slate-500 uppercase tracking-wider truncate flex-1"
-                        title={item.label}
-                      >
-                        {item.label}
-                      </div>
-                      {onRefresh && (
-                        <button
-                          type="button"
-                          data-testid="sql-pane-refresh"
-                          title="Retry this server"
-                          disabled={refreshing}
-                          onClick={() => onRefresh(item.connectionId)}
-                          className="flex items-center gap-0.5 text-[10px] font-semibold text-slate-500 hover:text-cyan-400 transition shrink-0 disabled:opacity-40"
-                        >
-                          <RefreshCw className={`w-3 h-3 text-cyan-400 ${refreshing ? 'animate-spin' : ''}`} strokeWidth={SQL_ICON_STROKE} />{' '}
-                          Refresh
-                        </button>
-                      )}
-                    </div>
-                    <div className="flex items-start gap-2 text-xs text-rose-400 bg-rose-950/40 border border-rose-500/20 rounded-md px-3 py-2 flex-1 overflow-auto">
-                      <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" strokeWidth={SQL_ICON_STROKE} />
-                      <span className="break-all">{item.error}</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div
-                role="separator"
-                aria-orientation="vertical"
-                aria-label={`Resize table ${i + 1}`}
-                data-testid="sql-pane-resize"
-                title="Drag to resize this table"
-                onMouseDown={(e) => startPaneResize(i, e)}
-                className="w-2 shrink-0 cursor-col-resize self-stretch mx-0.5 rounded-sm bg-slate-800 hover:bg-cyan-600/70 active:bg-cyan-500 flex items-center justify-center group"
-              >
-                <GripVertical className="w-3 h-3 text-cyan-400 group-hover:text-cyan-200 pointer-events-none" strokeWidth={SQL_ICON_STROKE} />
-              </div>
-            </React.Fragment>
-          );
-        })}
+        {items.map((item, i) => (
+          <React.Fragment key={item.key}>
+            <div
+              className="flex flex-col min-h-0 shrink-0"
+              style={{ width: widths[i] ?? PANE_DEFAULT_PX, minWidth: PANE_MIN_PX }}
+            >
+              <PaneBody
+                item={item}
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                onPage={onPage}
+                pageState={pageState}
+                syncScrollRow={syncScroll ? syncRow : null}
+                onSyncScrollRow={syncScroll ? setSyncRow : undefined}
+              />
+            </div>
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label={`Resize table ${i + 1}`}
+              data-testid="sql-pane-resize"
+              title="Drag to resize this table"
+              onMouseDown={(e) => startPaneResize(i, e)}
+              className="w-2 shrink-0 cursor-col-resize self-stretch mx-0.5 rounded-sm bg-slate-800 hover:bg-cyan-600/70 active:bg-cyan-500 flex items-center justify-center group"
+            >
+              <GripVertical
+                className="w-3 h-3 text-cyan-400 group-hover:text-cyan-200 pointer-events-none"
+                strokeWidth={SQL_ICON_STROKE}
+              />
+            </div>
+          </React.Fragment>
+        ))}
       </div>
       <div
         role="separator"
@@ -284,9 +374,84 @@ const ResizablePaneRow: React.FC<{
 };
 
 /**
- * Results for one tab. `byCredential` stacks credentials (each row's statement
- * grids side by side). `sideBySide` stacks statements (credential grids as
- * columns). Every result table is independently resizable.
+ * Vertical stack of full-width result panes (By cred layout). Each statement
+ * gets its own height grip — no horizontal side-by-side.
+ */
+const StackedPaneColumn: React.FC<{
+  items: PaneItem[];
+  refreshing?: boolean;
+  onRefresh?: (connectionId: string) => void;
+  onPage?: Props['onPage'];
+  pageState?: Props['pageState'];
+}> = ({ items, refreshing, onRefresh, onPage, pageState }) => {
+  const [heights, setHeights] = useState<number[]>(() => items.map(() => PANE_DEFAULT_H_PX));
+
+  useEffect(() => {
+    setHeights((prev) => {
+      if (prev.length === items.length) return prev;
+      if (prev.length < items.length) {
+        return [
+          ...prev,
+          ...Array.from({ length: items.length - prev.length }, () => PANE_DEFAULT_H_PX),
+        ];
+      }
+      return prev.slice(0, items.length);
+    });
+  }, [items.length]);
+
+  const startHeightResize = useCallback((index: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startY = e.clientY;
+    const startH = heights[index] ?? PANE_DEFAULT_H_PX;
+    bindAxisDrag('row-resize', (ev) => {
+      const next = Math.max(PANE_MIN_H_PX, startH + (ev.clientY - startY));
+      setHeights((prev) => {
+        if (prev[index] === next) return prev;
+        const copy = [...prev];
+        copy[index] = next;
+        return copy;
+      });
+    });
+  }, [heights]);
+
+  if (items.length === 0) return null;
+
+  return (
+    <div className="flex flex-col gap-3 min-w-0" data-testid="sql-result-pane-stack">
+      {items.map((item, i) => (
+        <div key={item.key} className="flex flex-col min-w-0" data-testid={`sql-result-stack-item-${i}`}>
+          <div
+            className="flex flex-col min-h-0 min-w-0"
+            style={{ height: heights[i] ?? PANE_DEFAULT_H_PX, minHeight: PANE_MIN_H_PX }}
+          >
+            <PaneBody
+              item={item}
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              onPage={onPage}
+              pageState={pageState}
+            />
+          </div>
+          <div
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label={`Resize Out table ${i + 1} height`}
+            data-testid="sql-result-stack-height-resize"
+            title="Drag to resize this result height"
+            onMouseDown={(e) => startHeightResize(i, e)}
+            className="h-1.5 shrink-0 cursor-row-resize bg-slate-800 hover:bg-cyan-500/40 active:bg-cyan-500/60 transition-colors rounded-sm mt-1"
+          />
+        </div>
+      ))}
+    </div>
+  );
+};
+
+/**
+ * Results for one tab. `byCredential` stacks credentials, and statement grids
+ * under each credential are also stacked vertically (not side by side).
+ * `sideBySide` stacks statements with credential grids as columns.
  */
 export const ResultsPanel: React.FC<Props> = ({
   runs,
@@ -303,8 +468,15 @@ export const ResultsPanel: React.FC<Props> = ({
   const outTestId = (i: number) => statementIndices?.[i] ?? i;
   if (runs.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center text-slate-600 text-xs gap-2">
-        <Database className="w-4 h-4 text-sky-400" strokeWidth={SQL_ICON_STROKE} /> Run a query to see results here — one row per checked credential.
+      <div className="flex-1 flex flex-col items-center justify-center text-slate-600 text-xs gap-2 px-6 text-center">
+        <div className="flex items-center gap-2">
+          <Database className="w-4 h-4 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
+          Run a query to see results here — one section per checked credential.
+        </div>
+        <p className="max-w-md text-[11px] text-slate-500 leading-relaxed" data-testid="sql-results-peek-instruction">
+          Tip: after Run, underlined rust foreign-key cells open <span className="text-slate-400">Data Peek</span>.
+          Or Cmd/Ctrl-click a table in Schema to peek without writing SQL.
+        </p>
       </div>
     );
   }
@@ -363,6 +535,7 @@ export const ResultsPanel: React.FC<Props> = ({
               exportName: `${run.name}-q${i + 1}`,
               connectionId: run.connectionId,
               statementIndex: i,
+              statementSql: statements[i],
             });
           }
           return (
@@ -405,6 +578,7 @@ export const ResultsPanel: React.FC<Props> = ({
                 exportName: `${run.name}-q${i + 1}`,
                 connectionId: run.connectionId,
                 statementIndex: i,
+                statementSql: statements[i],
               }))
             : [];
 
@@ -437,9 +611,8 @@ export const ResultsPanel: React.FC<Props> = ({
             )}
 
             {run.status === 'done' && items.length > 0 && (
-              <ResizablePaneRow
+              <StackedPaneColumn
                 items={items}
-                rowKey={`cred-${run.connectionId}-${items.length}`}
                 refreshing={refreshing}
                 onRefresh={onRefresh}
                 onPage={onPage}

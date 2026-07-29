@@ -1,5 +1,9 @@
 /**
- * Queries behind the schema-explorer data peek (Cmd/Ctrl-click a table).
+ * Fox Schema (foxschema)
+ * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Queries behind data peek (schema Cmd/Ctrl-click, or FK click in editor results).
  *
  * Everything here goes through the `sql` template engine, so a drill-down value
  * taken from a grid cell is bound, never pasted into the statement — the value
@@ -112,4 +116,161 @@ export function foreignKeyLinksFor(
     links.push({ columnIndex: valueIndexes[0]!, fk, valueIndexes });
   }
   return links;
+}
+
+/** Resolve a table name (qualified or bare) against the schema cache. */
+export function findCachedTable(
+  tables: TableSchema[] | undefined,
+  name: string
+): TableSchema | undefined {
+  if (!tables?.length || !name.trim()) return undefined;
+  const wanted = name.toLowerCase();
+  const bare = wanted.includes('.') ? wanted.slice(wanted.lastIndexOf('.') + 1) : wanted;
+  return (
+    tables.find((t) => t.name.toLowerCase() === wanted) ??
+    tables.find((t) => {
+      const n = t.name.toLowerCase();
+      return (n.includes('.') ? n.slice(n.lastIndexOf('.') + 1) : n) === bare;
+    })
+  );
+}
+
+/**
+ * Tables referenced in a statement (FROM/JOIN/UPDATE/INTO only).
+ * Uses a stricter scan than {@link extractTableAliases} so
+ * `SELECT a, b FROM t` is not mistaken for a comma-FROM list.
+ */
+export function tableNamesFromSql(sql: string): string[] {
+  if (!sql.trim()) return [];
+  const ident =
+    '(?:"[^"]+"|`[^`]+`|\\[[^\\]]+\\]|[A-Za-z_][\\w$]*(?:\\.[A-Za-z_][\\w$]*)*)';
+  const re = new RegExp(`\\b(?:FROM|JOIN|UPDATE|INTO)\\s+(${ident})`, 'gi');
+  const names: string[] = [];
+  const seen = new Set<string>();
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(sql)) !== null) {
+    const raw = m[1];
+    if (!raw) continue;
+    const cleaned = stripSqlIdent(raw);
+    if (!cleaned) continue;
+    const key = cleaned.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    names.push(cleaned);
+  }
+  return names;
+}
+
+function stripSqlIdent(raw: string): string {
+  const s = raw.trim();
+  if (s.length >= 2) {
+    const a = s[0];
+    const b = s[s.length - 1];
+    if ((a === '"' && b === '"') || (a === '`' && b === '`') || (a === '[' && b === ']')) {
+      return s.slice(1, -1).replace(/""/g, '"');
+    }
+  }
+  return s;
+}
+
+/**
+ * Tables referenced in a statement, matched against the schema cache — used to
+ * offer FK links on editor result grids.
+ */
+export function tablesFromSql(
+  sql: string,
+  tables: TableSchema[] | undefined
+): TableSchema[] {
+  if (!sql.trim() || !tables?.length) return [];
+  const out: TableSchema[] = [];
+  const seen = new Set<string>();
+  for (const name of tableNamesFromSql(sql)) {
+    const table = findCachedTable(tables, name);
+    if (!table) continue;
+    const key = table.name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(table);
+  }
+  return out;
+}
+
+/**
+ * FK links for a result set given the statement SQL + schema tables.
+ * First table that claims a column wins when joins share FK column names.
+ */
+export function foreignKeyLinksForSql(
+  sql: string,
+  tables: TableSchema[] | undefined,
+  resultColumns: string[]
+): FkColumnLink[] {
+  const matched = tablesFromSql(sql, tables);
+  if (matched.length === 0) return [];
+  const links: FkColumnLink[] = [];
+  const claimed = new Set<number>();
+  for (const table of matched) {
+    for (const link of foreignKeyLinksFor(table, resultColumns)) {
+      if (claimed.has(link.columnIndex)) continue;
+      claimed.add(link.columnIndex);
+      links.push(link);
+    }
+  }
+  return links;
+}
+
+/**
+ * Free-text WHERE / ORDER BY for Data Peek. Rejects multi-statement and
+ * comment tricks so a filter box can't smuggle a second command.
+ */
+export function isSafePeekClause(clause: string): boolean {
+  const t = clause.trim();
+  if (!t) return true;
+  if (/[;]/.test(t)) return false;
+  if (/--/.test(t)) return false;
+  if (/\/\*|\*\//.test(t)) return false;
+  return true;
+}
+
+export interface PeekFilterClauses {
+  /** Predicate only — no leading WHERE. ANDed onto the base query. */
+  where?: string;
+  /** Sort list only — no leading ORDER BY. */
+  orderBy?: string;
+}
+
+/**
+ * Layer optional user filters onto a peek base query (`SELECT * FROM …`
+ * or a bound FK drill). Params stay those of the base; the filter text is
+ * not parameterized (same trust model as typing SQL in the editor).
+ */
+export function composePeekSql(
+  baseSql: string,
+  baseParams: unknown[],
+  filters: PeekFilterClauses = {}
+): PreviewQuery | { error: string } {
+  const where = (filters.where ?? '').trim();
+  const orderBy = (filters.orderBy ?? '').trim();
+  if (!isSafePeekClause(where)) {
+    return { error: 'WHERE must be a single predicate (no ; or comments)' };
+  }
+  if (!isSafePeekClause(orderBy)) {
+    return { error: 'ORDER BY must be a sort list (no ; or comments)' };
+  }
+
+  let sql = baseSql.trim().replace(/;+\s*$/, '');
+  if (where) {
+    // Simple detection is enough: peek bases are SELECT * FROM … [WHERE …].
+    if (/\bWHERE\b/i.test(sql)) {
+      sql = `${sql} AND (${where})`;
+    } else {
+      sql = `${sql} WHERE (${where})`;
+    }
+  }
+  if (orderBy) {
+    if (/\bORDER\s+BY\b/i.test(sql)) {
+      return { error: 'Base peek already has ORDER BY — clear it before adding one' };
+    }
+    sql = `${sql} ORDER BY ${orderBy}`;
+  }
+  return { sql, params: baseParams };
 }

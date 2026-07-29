@@ -131,13 +131,15 @@ Tips:
   locally; result grids are not.
 - **Schema explorer** — browse objects on the left; click a name to insert it at the
   cursor. Autocomplete uses the checked connections’ schemas when available.
-- **Data peek (Cmd/Ctrl-click)** — hold **Cmd** (macOS) or **Ctrl** (Windows/Linux)
-  and click a table, view or MQT in the schema explorer to see its rows straight
-  away, without writing a query. Foreign-key cells are underlined: click one and
-  the related parent rows open as another grid **below**, so you can follow a
-  relationship a few hops. The breadcrumb at the top walks back, **Esc** closes.
-  Values are sent as bind parameters, so a cell containing a quote is handled
-  correctly. Peeks fetch 50 rows and are read-only — nothing is written.
+- **Data peek** — two ways in:
+  - **Schema:** hold **Cmd** (macOS) or **Ctrl** (Windows/Linux) and click a
+    table, view or MQT to see its rows without writing a query.
+  - **Results:** after Run, foreign-key cells are underlined in rust — click one
+    to open the related parent rows in Data Peek.
+  In the peek window you can follow more FKs (panels stack and scroll), edit
+  WHERE / ORDER BY / LIMIT, use Prev/Next, drag ⋮⋮ to rearrange, and resize.
+  **Esc** closes. Values are bind parameters. Peeks fetch a page of rows and are
+  read-only.
 - **Format** — pretty-print the buffer. **Clear** removes results for the active tab.
 - **Bookmarks** — save reusable snippets from the sidebar.
 - **Variables** — named values reused as `${{name}}` or `${{name.col}}` (table

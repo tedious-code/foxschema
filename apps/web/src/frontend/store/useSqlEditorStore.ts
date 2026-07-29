@@ -1,3 +1,10 @@
+/**
+ * Fox Schema (foxschema)
+ * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * SQL Editor client store (tabs, execute, schema cache, Data Peek).
+ */
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { executeSql, type SqlStatementResult } from '../api/sqlApi';
@@ -8,7 +15,11 @@ import { isMutatingDmlStatement, isWriteStatement, splitSqlStatements } from '..
 import type { CodeCellLast } from '../lib/codeCellExec';
 import { detectCodeCell, runCodeCell } from '../lib/codeCellRunner';
 import { buildSampleBookmarks } from '../lib/sqlEditorSamples';
-import { buildForeignKeyDrilldown, buildTablePreview } from '../lib/tablePreview';
+import {
+  buildForeignKeyDrilldown,
+  buildTablePreview,
+  composePeekSql,
+} from '../lib/tablePreview';
 import type { ForeignKeyInfo } from '../lib/types';
 import { mergeVaultSecretsIntoVariables } from '../lib/mergeVaultSecrets';
 import {
@@ -228,11 +239,38 @@ export interface DataPeekEntry {
   title: string;
   /** Table the rows came from — drives the FK links on this grid. */
   tableName: string;
+  /** Bound base query before user WHERE / ORDER BY filters. */
+  baseSql: string;
+  baseParams: unknown[];
+  /** User filter text (no leading WHERE). */
+  whereClause: string;
+  /** User sort text (no leading ORDER BY). */
+  orderByClause: string;
+  /** Rows/page for this peek panel (sent as execute page size). */
+  limit: number;
+  /** 0-based page for server OFFSET paging. */
+  pageIndex: number;
+  /** Composed SQL actually executed. */
   sql: string;
   params: unknown[];
   status: 'loading' | 'ready' | 'error';
   result?: SqlStatementResult;
   error?: string;
+  /** Parent peek this drill opened from (root has no parent). */
+  parentId?: string;
+  /**
+   * Stable slot for sibling drills from the same parent + FK column.
+   * Re-clicking the same FK replaces this panel; other FK columns stack.
+   */
+  drillKey?: string;
+  /** Optional manual panel height (px); drag handle updates this. */
+  panelHeightPx?: number;
+}
+
+export interface DataPeekFilterPatch {
+  whereClause?: string;
+  orderByClause?: string;
+  limit?: number;
 }
 
 export interface DataPeekState {
@@ -243,6 +281,53 @@ export interface DataPeekState {
 
 /** Rows fetched per peek grid — a peek is a glance, not a report. */
 const DATA_PEEK_ROWS = 50;
+
+/** Drop an entry and any drills that descend from it. */
+export function removeDataPeekSubtree(
+  entries: DataPeekEntry[],
+  rootId: string
+): DataPeekEntry[] {
+  const drop = new Set<string>([rootId]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const e of entries) {
+      if (e.parentId && drop.has(e.parentId) && !drop.has(e.id)) {
+        drop.add(e.id);
+        grew = true;
+      }
+    }
+  }
+  return entries.filter((e) => !drop.has(e.id));
+}
+
+/** Move one peek panel in the stacked list (visual arrange). */
+export function moveDataPeekEntry(
+  entries: DataPeekEntry[],
+  fromIndex: number,
+  toIndex: number
+): DataPeekEntry[] {
+  if (
+    fromIndex === toIndex ||
+    fromIndex < 0 ||
+    toIndex < 0 ||
+    fromIndex >= entries.length ||
+    toIndex >= entries.length
+  ) {
+    return entries;
+  }
+  const next = [...entries];
+  const [moved] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, moved!);
+  return next;
+}
+
+function dataPeekDrillKey(
+  fromEntryId: string,
+  fk: { referencedTable: string; columns?: string[] }
+): string {
+  return `${fromEntryId}|${fk.referencedTable}|${(fk.columns ?? []).join(',')}`;
+}
 
 interface SqlEditorState {
   tabs: SqlTab[];
@@ -341,6 +426,15 @@ interface SqlEditorState {
    */
   dataPeek: DataPeekState | null;
   openDataPeek: (connectionId: string, tableName: string) => Promise<void>;
+  /**
+   * Open Data Peek from an editor-result FK cell (no schema Cmd/Ctrl-click).
+   * Seeds the stack with the parent rows for that key.
+   */
+  openDataPeekFromFk: (
+    connectionId: string,
+    fk: ForeignKeyInfo,
+    values: unknown[]
+  ) => Promise<void>;
   drillDataPeek: (
     fromEntryId: string,
     fk: ForeignKeyInfo,
@@ -349,6 +443,14 @@ interface SqlEditorState {
   closeDataPeek: () => void;
   /** Drop `entryId` and every grid below it (click a breadcrumb to go back). */
   closeDataPeekFrom: (entryId: string) => void;
+  /** Apply WHERE / ORDER BY / LIMIT on one peek panel and re-run. */
+  updateDataPeekFilters: (entryId: string, patch: DataPeekFilterPatch) => Promise<void>;
+  /** Persist a dragged panel height. */
+  setDataPeekPanelHeight: (entryId: string, heightPx: number) => void;
+  /** Drag panels to rearrange the vertical stack. */
+  reorderDataPeekEntries: (fromIndex: number, toIndex: number) => void;
+  /** Load another OFFSET page for one peek panel. */
+  pageDataPeekEntry: (entryId: string, pageIndex: number) => Promise<void>;
   /** Internal: (re)run one peek entry's query. */
   runDataPeekEntry: (entryId: string) => Promise<void>;
   /** Create or overwrite a variable by name. Returns error string or null. */
@@ -1348,12 +1450,48 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         const conn = useSyncStore.getState().connections.find((c) => c.id === connectionId);
         if (!conn) return;
         const built = buildTablePreview(tableName, conn.dialect);
+        const composed = composePeekSql(built.sql, built.params, {});
+        if ('error' in composed) return;
         const entry: DataPeekEntry = {
           id: `peek-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           title: tableName,
           tableName,
-          sql: built.sql,
-          params: built.params,
+          baseSql: built.sql,
+          baseParams: built.params,
+          whereClause: '',
+          orderByClause: '',
+          limit: DATA_PEEK_ROWS,
+          pageIndex: 0,
+          sql: composed.sql,
+          params: composed.params,
+          status: 'loading',
+        };
+        set({ dataPeek: { connectionId, dialect: conn.dialect, entries: [entry] } });
+        await get().runDataPeekEntry(entry.id);
+      },
+
+      openDataPeekFromFk: async (connectionId, fk, values) => {
+        const conn = useSyncStore.getState().connections.find((c) => c.id === connectionId);
+        if (!conn) return;
+        const built = buildForeignKeyDrilldown(fk, values, conn.dialect);
+        if (!built) return;
+        const composed = composePeekSql(built.sql, built.params, {});
+        if ('error' in composed) return;
+        const label = (fk.referencedColumns ?? [])
+          .map((c, i) => `${c} = ${String(values[i])}`)
+          .join(', ');
+        const entry: DataPeekEntry = {
+          id: `peek-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          title: `${fk.referencedTable} · ${label}`,
+          tableName: fk.referencedTable,
+          baseSql: built.sql,
+          baseParams: built.params,
+          whereClause: '',
+          orderByClause: '',
+          limit: DATA_PEEK_ROWS,
+          pageIndex: 0,
+          sql: composed.sql,
+          params: composed.params,
           status: 'loading',
         };
         set({ dataPeek: { connectionId, dialect: conn.dialect, entries: [entry] } });
@@ -1365,23 +1503,137 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         if (!peek) return;
         const built = buildForeignKeyDrilldown(fk, values, peek.dialect);
         if (!built) return;
+        const composed = composePeekSql(built.sql, built.params, {});
+        if ('error' in composed) return;
         const label = (fk.referencedColumns ?? [])
           .map((c, i) => `${c} = ${String(values[i])}`)
           .join(', ');
+        const drillKey = dataPeekDrillKey(fromEntryId, fk);
         const entry: DataPeekEntry = {
           id: `peek-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           title: `${fk.referencedTable} · ${label}`,
           tableName: fk.referencedTable,
-          sql: built.sql,
-          params: built.params,
+          baseSql: built.sql,
+          baseParams: built.params,
+          whereClause: '',
+          orderByClause: '',
+          limit: DATA_PEEK_ROWS,
+          pageIndex: 0,
+          sql: composed.sql,
+          params: composed.params,
           status: 'loading',
+          parentId: fromEntryId,
+          drillKey,
         };
-        // Drilling from a grid mid-stack replaces everything below it, so the
-        // stack always reads as one path rather than a branching history.
-        const from = peek.entries.findIndex((e) => e.id === fromEntryId);
-        const kept = from >= 0 ? peek.entries.slice(0, from + 1) : peek.entries;
-        set({ dataPeek: { ...peek, entries: [...kept, entry] } });
+        // Same FK column → replace that panel (and its children). Other FK
+        // columns from the same parent stay open as sibling peeks.
+        let entries = peek.entries;
+        const existing = entries.find((e) => e.drillKey === drillKey);
+        if (existing) {
+          entries = removeDataPeekSubtree(entries, existing.id);
+        }
+        set({ dataPeek: { ...peek, entries: [...entries, entry] } });
         await get().runDataPeekEntry(entry.id);
+      },
+
+      updateDataPeekFilters: async (entryId, patch) => {
+        const peek = get().dataPeek;
+        if (!peek) return;
+        const entry = peek.entries.find((e) => e.id === entryId);
+        if (!entry) return;
+        const whereClause = patch.whereClause ?? entry.whereClause;
+        const orderByClause = patch.orderByClause ?? entry.orderByClause;
+        let limit = patch.limit ?? entry.limit;
+        if (!Number.isFinite(limit) || limit < 1) limit = 1;
+        limit = Math.min(5000, Math.floor(limit));
+        const composed = composePeekSql(entry.baseSql, entry.baseParams, {
+          where: whereClause,
+          orderBy: orderByClause,
+        });
+        if ('error' in composed) {
+          set({
+            dataPeek: {
+              ...peek,
+              entries: peek.entries.map((e) =>
+                e.id === entryId
+                  ? {
+                      ...e,
+                      whereClause,
+                      orderByClause,
+                      limit,
+                      pageIndex: 0,
+                      status: 'error' as const,
+                      error: composed.error,
+                    }
+                  : e
+              ),
+            },
+          });
+          return;
+        }
+        set({
+          dataPeek: {
+            ...peek,
+            entries: peek.entries.map((e) =>
+              e.id === entryId
+                ? {
+                    ...e,
+                    whereClause,
+                    orderByClause,
+                    limit,
+                    pageIndex: 0,
+                    sql: composed.sql,
+                    params: composed.params,
+                    status: 'loading' as const,
+                    error: undefined,
+                  }
+                : e
+            ),
+          },
+        });
+        await get().runDataPeekEntry(entryId);
+      },
+
+      setDataPeekPanelHeight: (entryId, heightPx) => {
+        const peek = get().dataPeek;
+        if (!peek) return;
+        const clamped = Math.min(900, Math.max(220, Math.round(heightPx)));
+        set({
+          dataPeek: {
+            ...peek,
+            entries: peek.entries.map((e) =>
+              e.id === entryId ? { ...e, panelHeightPx: clamped } : e
+            ),
+          },
+        });
+      },
+
+      reorderDataPeekEntries: (fromIndex, toIndex) => {
+        const peek = get().dataPeek;
+        if (!peek) return;
+        const entries = moveDataPeekEntry(peek.entries, fromIndex, toIndex);
+        if (entries === peek.entries) return;
+        set({ dataPeek: { ...peek, entries } });
+      },
+
+      pageDataPeekEntry: async (entryId, pageIndex) => {
+        const peek = get().dataPeek;
+        if (!peek) return;
+        const entry = peek.entries.find((e) => e.id === entryId);
+        if (!entry) return;
+        const nextPage = Math.max(0, Math.floor(pageIndex));
+        if (nextPage === entry.pageIndex && entry.status === 'ready') return;
+        set({
+          dataPeek: {
+            ...peek,
+            entries: peek.entries.map((e) =>
+              e.id === entryId
+                ? { ...e, pageIndex: nextPage, status: 'loading' as const, error: undefined }
+                : e
+            ),
+          },
+        });
+        await get().runDataPeekEntry(entryId);
       },
 
       runDataPeekEntry: async (entryId) => {
@@ -1400,14 +1652,17 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           });
         };
         try {
+          const pageSize = Math.min(5000, Math.max(1, entry.limit || DATA_PEEK_ROWS));
+          const pageIndex = Math.max(0, entry.pageIndex || 0);
+          const offset = pageIndex * pageSize;
           const { results } = await executeSql(
             {
               connectionId: peek.connectionId,
               password: get().sessionPasswords[peek.connectionId] || undefined,
             },
             [entry.sql],
-            DATA_PEEK_ROWS,
-            0,
+            pageSize,
+            offset,
             [entry.params]
           );
           const result = results[0];
@@ -1430,12 +1685,19 @@ export const useSqlEditorStore = create<SqlEditorState>()(
       closeDataPeekFrom: (entryId) => {
         const peek = get().dataPeek;
         if (!peek) return;
-        const idx = peek.entries.findIndex((e) => e.id === entryId);
-        if (idx <= 0) {
+        const target = peek.entries.find((e) => e.id === entryId);
+        if (!target) return;
+        // Closing the root dismisses the whole peek.
+        if (!target.parentId) {
           set({ dataPeek: null });
           return;
         }
-        set({ dataPeek: { ...peek, entries: peek.entries.slice(0, idx) } });
+        set({
+          dataPeek: {
+            ...peek,
+            entries: removeDataPeekSubtree(peek.entries, entryId),
+          },
+        });
       },
 
       installSampleBookmarks: () => {

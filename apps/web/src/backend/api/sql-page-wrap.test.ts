@@ -9,8 +9,16 @@ import {
 describe('sql-page-wrap', () => {
   it('wraps postgres-style with LIMIT/OFFSET and +1 probe', () => {
     expect(wrapSqlForPage('SELECT 1;', 'postgres', 40, 20)).toBe(
-      'SELECT * FROM (SELECT 1) AS _fox_page LIMIT 21 OFFSET 40'
+      'SELECT * FROM (SELECT 1) AS fox_page LIMIT 21 OFFSET 40'
     );
+  });
+
+  it('wraps db2 without a leading-underscore alias (SQL20521N)', () => {
+    const sql = wrapSqlForPage('select * from USER order by id DESC', 'db2', 0, 200);
+    expect(sql).toBe(
+      'SELECT * FROM (select * from USER order by id DESC) AS fox_page OFFSET 0 ROWS FETCH FIRST 201 ROWS ONLY'
+    );
+    expect(sql).not.toMatch(/_fox_page/);
   });
 
   it('wraps sqlserver without ORDER BY using dummy ORDER BY + OFFSET FETCH', () => {

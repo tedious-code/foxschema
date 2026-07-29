@@ -27,6 +27,7 @@ import { getSelectedSql, setCompletionContextGetter } from './sqlEditorBridge';
 import { ConnectionChecklist } from './ConnectionChecklist';
 import { EditorTabBar } from './EditorTabBar';
 import { ResultsPanel } from './ResultsPanel';
+import { DataPeekPanel } from './DataPeekPanel';
 import { StatementStrip } from './StatementStrip';
 import { SqlBookmarksPanel } from './SqlBookmarksPanel';
 import { SqlVariablesPanel } from './SqlVariablesPanel';
@@ -511,7 +512,7 @@ export const SqlEditorView: React.FC = () => {
           <div className="flex items-center rounded border border-slate-800 overflow-hidden ml-1">
             <button
               type="button"
-              title="By credential"
+              title="By credential — statements stacked vertically"
               data-testid="sql-layout-by-credential"
               onClick={() => setLayout('byCredential')}
               className={`flex items-center gap-1 px-2 py-1 text-[10px] font-bold transition ${
@@ -655,6 +656,8 @@ export const SqlEditorView: React.FC = () => {
           }
         />
       )}
+      {/* Always mounted so FK clicks from results work even when Schema is collapsed. */}
+      <DataPeekPanel />
     </div>
   );
 };

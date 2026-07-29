@@ -1,3 +1,10 @@
+/**
+ * Fox Schema (foxschema)
+ * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Result DataGrid (paper surface, paging, FK drill links for Data Peek).
+ */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Download, GripVertical, RefreshCw } from 'lucide-react';
 import type { SqlStatementResult } from '../../api/sqlApi';
@@ -24,20 +31,20 @@ const LONG_TEXT_NAME =
 type CellKind = 'null' | 'number' | 'boolean' | 'datetime' | 'binary' | 'string';
 
 const KIND_CELL_CLASS: Record<CellKind, string> = {
-  null: 'italic text-[#94a3b8]',
-  number: 'text-[#1d4ed8]',
-  boolean: 'text-[#7c3aed]',
-  datetime: 'text-[#0f766e]',
-  binary: 'text-[#b45309]',
-  string: 'text-[#1e293b]',
+  null: 'italic text-[var(--fox-grid-muted)]',
+  number: 'tabular-nums text-[var(--fox-grid-number)] font-semibold',
+  boolean: 'text-[var(--fox-grid-boolean)]',
+  datetime: 'text-[var(--fox-grid-datetime)]',
+  binary: 'text-[var(--fox-grid-binary)]',
+  string: 'text-[var(--fox-grid-ink)]',
 };
 
 const KIND_HEADER_CLASS: Record<Exclude<CellKind, 'null'>, string> = {
-  number: 'text-[#1d4ed8]',
-  boolean: 'text-[#7c3aed]',
-  datetime: 'text-[#0f766e]',
-  binary: 'text-[#b45309]',
-  string: 'text-[#64748b]',
+  number: 'text-[var(--fox-grid-number)]',
+  boolean: 'text-[var(--fox-grid-boolean)]',
+  datetime: 'text-[var(--fox-grid-datetime)]',
+  binary: 'text-[var(--fox-grid-binary)]',
+  string: 'text-[var(--fox-grid-muted)]',
 };
 
 const KIND_LABEL: Record<Exclude<CellKind, 'null'>, string> = {
@@ -682,7 +689,8 @@ export const DataGrid: React.FC<{
                               // 1-based number shown in the # column and would
                               // read the NEXT row's value.
                               onClick={() => onLinkClick?.(colIdx, i)}
-                              className="underline decoration-dotted underline-offset-2 text-cyan-300 hover:text-cyan-200"
+                              // Rust ID color + solid underline — pale cyan was unreadable.
+                              className="underline decoration-solid underline-offset-2 decoration-2 decoration-[var(--fox-grid-link)] text-[var(--fox-grid-link)] font-bold hover:brightness-110"
                             >
                               {text}
                             </button>

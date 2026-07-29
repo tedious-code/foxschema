@@ -180,7 +180,8 @@ describe('runStatements against a real SQLite file', () => {
         expect(results[0].error).toMatch(/wrap boom/);
       }
       expect(spy).toHaveBeenCalledTimes(1);
-      expect(String(spy.mock.calls[0]![2])).toContain('_fox_page');
+      expect(String(spy.mock.calls[0]![2])).toContain('fox_page');
+      expect(String(spy.mock.calls[0]![2])).not.toContain('_fox_page');
     } finally {
       spy.mockRestore();
     }
