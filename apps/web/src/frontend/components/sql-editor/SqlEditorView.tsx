@@ -511,7 +511,7 @@ export const SqlEditorView: React.FC = () => {
           <div className="flex items-center rounded border border-slate-800 overflow-hidden ml-1">
             <button
               type="button"
-              title="By credential"
+              title="By credential — statements stacked vertically"
               data-testid="sql-layout-by-credential"
               onClick={() => setLayout('byCredential')}
               className={`flex items-center gap-1 px-2 py-1 text-[10px] font-bold transition ${
