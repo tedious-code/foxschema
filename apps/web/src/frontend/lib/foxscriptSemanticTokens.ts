@@ -79,15 +79,16 @@ export function ensureFoxscriptSemanticTokens(
 
       const doc = parseFoxScript(model.getValue());
       const builder: number[] = [];
+      // Monaco semantic tokens use 0-based line/character (LSP-style deltas).
       let prevLine = 0;
       let prevChar = 0;
 
-      const pushToken = (line: number, char: number, length: number, typeIdx: number) => {
-        const deltaLine = line - prevLine;
-        const deltaChar = deltaLine === 0 ? char - prevChar : char;
+      const pushToken = (line0: number, char0: number, length: number, typeIdx: number) => {
+        const deltaLine = line0 - prevLine;
+        const deltaChar = deltaLine === 0 ? char0 - prevChar : char0;
         builder.push(deltaLine, deltaChar, length, typeIdx, 0);
-        prevLine = line;
-        prevChar = char;
+        prevLine = line0;
+        prevChar = char0;
       };
 
       for (const block of doc.blocks) {
@@ -105,7 +106,7 @@ export function ensureFoxscriptSemanticTokens(
             if (tables.has(lower)) typeIdx = 0; // type → table
             else if (columns.has(lower)) typeIdx = 1; // property → column
             if (typeIdx < 0) continue;
-            pushToken(line, m.index + 1, word.length, typeIdx);
+            pushToken(line - 1, m.index, word.length, typeIdx);
           }
         }
       }

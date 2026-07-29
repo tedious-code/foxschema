@@ -119,8 +119,10 @@ export function syncFoxscriptVirtualDocs(
     keep.add(block.index);
     const prelude = preludeFor(block.kind);
     const lang = languageFor(block.kind);
-    const content = prelude + block.body;
     const { start, end } = codeBlockBodyRange(block);
+    // Slice parent text (keeps CRLF) so cursor projection matches Windows buffers.
+    const bodyText = parent.getValue().slice(start, end);
+    const content = prelude + bodyText;
     const existing = prevByIndex.get(block.index);
 
     if (existing && !existing.model.isDisposed()) {

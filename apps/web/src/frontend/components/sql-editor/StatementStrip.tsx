@@ -20,6 +20,8 @@ interface Props {
   checked: number[];
   /** True while this tab's execute is in flight — disables per-cell Play. */
   running?: boolean;
+  /** When true, SQL cells need a Destination (code cells still run). */
+  sqlNeedsDestination?: boolean;
   onToggle: (index: number) => void;
   onReveal: (stmt: SplitStatement) => void;
   /** Jupyter-style per-cell run (one statement index). */
@@ -102,6 +104,7 @@ export const StatementStrip: React.FC<Props> = ({
   statements,
   checked,
   running = false,
+  sqlNeedsDestination = false,
   onToggle,
   onReveal,
   onRunCell,
@@ -212,6 +215,7 @@ export const StatementStrip: React.FC<Props> = ({
           const ok = status.level === 'ok';
           const isChecked = checked.includes(i);
           const codeKind = isCodeCellKind(stmt.kind) ? stmt.kind : null;
+          const playBlocked = sqlNeedsDestination && !codeKind;
           const codeBadge = codeKind ? codeCellBadge(codeKind) : null;
           const verb = codeKind ? null : statementVerb(stmt.text);
           const dmlBadge =
@@ -231,8 +235,12 @@ export const StatementStrip: React.FC<Props> = ({
               <button
                 type="button"
                 data-testid={`sql-statement-run-${i}`}
-                title={`Run cell ${i + 1}`}
-                disabled={running || !onRunCell}
+                title={
+                  playBlocked
+                    ? 'Check a Destination server to run SQL cells'
+                    : `Run cell ${i + 1}`
+                }
+                disabled={running || !onRunCell || playBlocked}
                 onClick={(e) => {
                   e.stopPropagation();
                   onRunCell?.(i);

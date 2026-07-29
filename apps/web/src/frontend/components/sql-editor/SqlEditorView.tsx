@@ -616,6 +616,7 @@ export const SqlEditorView: React.FC = () => {
             statements={statements}
             checked={tab.checkedStatements}
             running={running}
+            sqlNeedsDestination={liveSelectedIds.length === 0}
             onToggle={toggleStatement}
             onReveal={onReveal}
             onRunCell={(index) => void execute({ statementIndices: [index] })}
@@ -625,6 +626,7 @@ export const SqlEditorView: React.FC = () => {
             <ResultsPanel
               runs={results?.runs ?? []}
               statements={results?.ranStatements ?? []}
+              statementIndices={results?.ranStatementIndices}
               layout={tab.layout}
               refreshing={running}
               warnings={results?.warnings}

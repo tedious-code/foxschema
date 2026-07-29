@@ -32,4 +32,14 @@ return 1;
     expect(body).toContain('return 1;');
     expect(body).not.toMatch(/@end/i);
   });
+
+  it('preserves CRLF body spans for projection', () => {
+    const source = "-- @js\r\nreturn 1;\r\n-- @end\r\n";
+    const doc = parseFoxScript(source);
+    const block = doc.blocks[0];
+    expect(block?.type).toBe('code');
+    if (block?.type !== 'code') return;
+    const { start, end } = codeBlockBodyRange(block);
+    expect(source.slice(start, end)).toBe('return 1;\r');
+  });
 });

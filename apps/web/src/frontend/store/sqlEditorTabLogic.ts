@@ -131,6 +131,18 @@ export function statementsToRun(sql: string, checkedStatements: number[]): strin
   return uniq.map((i) => enriched[i]!);
 }
 
+/** Source cell indices matching {@link statementsToRun} (for Out [n] labels). */
+export function indicesToRun(sql: string, checkedStatements: number[]): number[] {
+  const all = splitSqlStatements(sql);
+  if (all.length === 0) return [];
+  if (checkedStatements.length === 0) return [0];
+  const uniq = [...new Set(checkedStatements)]
+    .filter((i) => i >= 0 && i < all.length)
+    .sort((a, b) => a - b);
+  if (uniq.length === 0) return [0];
+  return uniq;
+}
+
 /**
  * All statements inside an editor selection (selection wins over the strip).
  * Falls back to the trimmed selection text when the splitter finds nothing.

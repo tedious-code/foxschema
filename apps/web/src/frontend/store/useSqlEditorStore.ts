@@ -42,6 +42,7 @@ import {
   newTabId,
   persistableTabs,
   canExecuteWithoutDestination,
+  indicesToRun,
   resolveRunStatements,
   statementsToRun,
   toggleStatementCheck,
@@ -87,6 +88,11 @@ export interface CredentialRun {
 
 export interface TabResults {
   ranStatements: string[];
+  /**
+   * 0-based source cell indices aligned with `ranStatements` (for `Out [n]`).
+   * Omitted for selection runs where indices are local to the selection.
+   */
+  ranStatementIndices?: number[];
   runs: CredentialRun[];
   /** Non-fatal messages (e.g. `@set` failures) for this run. */
   warnings?: string[];
@@ -722,15 +728,45 @@ export const useSqlEditorStore = create<SqlEditorState>()(
             : selected;
 
         // Per-cell Play: run exactly those indices (ignore strip checks + selection).
+        const selectedSql = getSelectedSql();
+        const fromSelection =
+          !(statementIndices && statementIndices.length > 0) && Boolean(selectedSql?.trim());
         const rawStatements =
           statementIndices && statementIndices.length > 0
             ? statementsToRun(tab.sql, statementIndices)
-            : resolveRunStatements(tab.sql, tab.checkedStatements, getSelectedSql());
+            : resolveRunStatements(tab.sql, tab.checkedStatements, selectedSql);
+        // Align Out [n] with In [n] when running from strip / Play (not selection).
+        const sourceIndices = fromSelection
+          ? null
+          : indicesToRun(
+              tab.sql,
+              statementIndices && statementIndices.length > 0
+                ? statementIndices
+                : tab.checkedStatements
+            );
 
         // Code cells (JS/TS/Node) can run with no Destination; SQL still needs one.
         let connections: ExecutionTarget[] = selectedConnections;
         if (connections.length === 0) {
-          if (!canExecuteWithoutDestination(rawStatements)) return;
+          if (!canExecuteWithoutDestination(rawStatements)) {
+            const prev = get().resultsByTab[tab.id];
+            set({
+              resultsByTab: {
+                ...get().resultsByTab,
+                [tab.id]: {
+                  ranStatements: prev?.ranStatements ?? [],
+                  ranStatementIndices: prev?.ranStatementIndices,
+                  runs: prev?.runs ?? [],
+                  warnings: ['Check a Destination server to run SQL cells.'],
+                  pageEpoch: prev?.pageEpoch,
+                  pageCache: prev?.pageCache,
+                  pageMeta: prev?.pageMeta,
+                  pageSqlByConnection: prev?.pageSqlByConnection,
+                },
+              },
+            });
+            return;
+          }
           connections = [LOCAL_CODE_RUN_TARGET];
         }
 
@@ -824,6 +860,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
             ...get().resultsByTab,
             [tabId]: {
               ranStatements: [],
+              ranStatementIndices: [],
               runs: nextRuns,
               warnings: [],
               pageEpoch,
@@ -849,14 +886,18 @@ export const useSqlEditorStore = create<SqlEditorState>()(
             };
           });
 
-        const setRanStatements = (stmts: string[]) =>
+        const setRanStatements = (stmts: string[], indices: number[]) =>
           set((state) => {
             const current = state.resultsByTab[tabId];
             if (!current) return state;
             return {
               resultsByTab: {
                 ...state.resultsByTab,
-                [tabId]: { ...current, ranStatements: stmts },
+                [tabId]: {
+                  ...current,
+                  ranStatements: stmts,
+                  ranStatementIndices: indices,
+                },
               },
             };
           });
@@ -891,6 +932,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         }
 
         const ranDisplay: string[] = [];
+        const ranIndexDisplay: number[] = [];
         let aborted: string | null = null;
 
         const lastGridFrom = (prev: SqlStatementResult[]): CodeCellLast => {
@@ -927,7 +969,8 @@ export const useSqlEditorStore = create<SqlEditorState>()(
 
           if (detectCodeCell(raw)) {
             ranDisplay.push(raw);
-            setRanStatements([...ranDisplay]);
+            ranIndexDisplay.push(sourceIndices?.[si] ?? si);
+            setRanStatements([...ranDisplay], [...ranIndexDisplay]);
 
             let codeDirectives: SetDirective[] = [];
             const isLastStmt = si === rawStatements.length - 1;
@@ -1016,7 +1059,8 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           }
 
           ranDisplay.push(firstOk.sql);
-          setRanStatements([...ranDisplay]);
+          ranIndexDisplay.push(sourceIndices?.[si] ?? si);
+          setRanStatements([...ranDisplay], [...ranIndexDisplay]);
 
           await Promise.allSettled(
             connections.map(async (c) => {

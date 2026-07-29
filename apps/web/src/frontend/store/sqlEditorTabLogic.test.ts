@@ -11,6 +11,7 @@ import {
   persistableTabs,
   statementsToRun,
   statementsFromSelection,
+  indicesToRun,
   canExecuteWithoutDestination,
   resolveRunStatements,
   destinationIdsPatch,
@@ -91,6 +92,14 @@ SELECT 2 AS id;`;
       'SELECT * FROM t WHERE id = 1;',
     ]);
     expect(statementsFromSelection('')).toEqual([]);
+  });
+
+  it('indicesToRun matches statementsToRun order', () => {
+    const sql = `SELECT 1;
+SELECT 2;
+SELECT 3;`;
+    expect(indicesToRun(sql, [2, 0])).toEqual([0, 2]);
+    expect(indicesToRun(sql, [])).toEqual([0]);
   });
 
   it('canExecuteWithoutDestination allows pure code cells only', () => {

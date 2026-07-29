@@ -1,5 +1,6 @@
 import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api';
 import { extractTableAliases } from '../../lib/sql-splitter';
+import { projectToVirtualDoc } from '../../lib/foxscriptVirtualDocs';
 import { filterCallParameters, getCompletionContext } from './sqlEditorBridge';
 import {
   buildSchemaTries,
@@ -45,6 +46,10 @@ export function ensureSqlCompletions(monaco: typeof Monaco): void {
   const provider: Monaco.languages.CompletionItemProvider = {
     triggerCharacters: ['.', '{'],
     provideCompletionItems(model, position) {
+      // Inside `-- @js` / `-- @ts` fences, FoxScript virtual-doc providers own suggest.
+      if (projectToVirtualDoc(model, position)) {
+        return { suggestions: [] };
+      }
       const word = model.getWordUntilPosition(position);
       const range: Monaco.IRange = {
         startLineNumber: position.lineNumber,
