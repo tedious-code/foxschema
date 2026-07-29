@@ -250,7 +250,7 @@ const PeekGrid: React.FC<{
           {showFkHint && linkColumns.size > 0 && (
             <p className="mt-1 px-1 shrink-0 text-[10px] text-slate-500">
               Underlined rust-colored cells are foreign keys — click orderID and technicianID to open
-              both panels below.
+              both panels stacked below.
             </p>
           )}
         </div>
@@ -341,16 +341,7 @@ export const DataPeekPanel: React.FC = () => {
             />
           )}
           {drills.length > 0 && (
-            <div
-              className={`px-1 grid gap-2 ${
-                drills.length === 1
-                  ? 'grid-cols-1'
-                  : drills.length === 2
-                    ? 'grid-cols-1 lg:grid-cols-2'
-                    : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'
-              }`}
-              data-testid="data-peek-drills"
-            >
+            <div className="px-1 flex flex-col gap-2" data-testid="data-peek-drills">
               {drills.map((e) => (
                 <div
                   key={e.id}
