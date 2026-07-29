@@ -31,18 +31,16 @@ FoxSchema = schema diff/migration + SQL Editor. Destinations checklist, Schema e
 - Results labels: `Out [n]: …` (`sql-result-stmt-${i}` in side-by-side; By cred stacks Out grids vertically per credential).
 - Password / Safe-mode confirm preserve `statementIndices` on resume.
 
-### 1. Data peek (Cmd/Ctrl-click)
-- **UI**: `DataPeekPanel.tsx` — modal grids; Esc closes. Each panel: WHERE / ORDER BY / LIMIT + drag resize.
-- **Trigger**: Schema explorer Cmd/Ctrl-click on TABLE / VIEW / MQT → `openDataPeek`.
-- **Queries**: `tablePreview.ts` builds SQL via `sqlTag` / `renderSqlQuery` (bound params, never string paste).
-  - `buildTablePreview` → `SELECT * FROM <quoted id>` (paging/cap from `/sql/execute`).
-  - `buildForeignKeyDrilldown` → parent WHERE with bound cell values; null if FK cols unusable.
-  - `composePeekSql` / `isSafePeekClause` — user WHERE/ORDER BY layered onto base (reject `;` / comments).
-  - `foreignKeyLinksFor` — case-insensitive column match (Oracle/Db2 fold).
-- **Drill**: FK cell click → `drillDataPeek` stacks another grid (siblings by `drillKey`); use **row index**.
-- **Store**: `dataPeek` / `openDataPeek` / `drillDataPeek` / `updateDataPeekFilters` / `setDataPeekPanelHeight` / `closeDataPeek` / `closeDataPeekFrom`.
-- **FK color**: `--fox-grid-link` rust `#9a3412` + solid underline (not pale cyan).
-- Match drilled table names both qualified (`public.customers`) and bare against schema cache.
+### 1. Data peek (Cmd/Ctrl-click + result FK)
+- **UI**: `DataPeekPanel.tsx` — modal grids; Esc closes. Each panel: WHERE / ORDER BY / LIMIT + drag resize + arrange grip. Mounted from `SqlEditorView` (not only Schema).
+- **Triggers**:
+  - Schema explorer Cmd/Ctrl-click TABLE / VIEW / MQT → `openDataPeek`.
+  - Editor result FK cell (rust underline) → `openDataPeekFromFk` (`ResultsPanel` / `foreignKeyLinksForSql`).
+- **Queries**: `tablePreview.ts` — `buildTablePreview`, `buildForeignKeyDrilldown`, `composePeekSql`, `foreignKeyLinksFor` / `foreignKeyLinksForSql` / `tablesFromSql`.
+- **Drill**: FK cell → `drillDataPeek` stacks panels (`drillKey` siblings); use **row index**.
+- **Store**: `dataPeek` / `openDataPeek` / `openDataPeekFromFk` / `drillDataPeek` / `updateDataPeekFilters` / `pageDataPeekEntry` / `reorderDataPeekEntries` / `setDataPeekPanelHeight` / close APIs.
+- **FK color**: `--fox-grid-link` rust `#9a3412` + solid underline.
+- Match drilled table names both qualified and bare against schema cache.
 
 ### 2. Node `sql` bridge (`-- @node` / `-- @nodets`)
 **Design**: worker has **no DB handle**. Cell calls `sql\`...\``; worker renders to `{ text, params }` and posts `cell-query` to the API parent; parent runs SQL and replies `cell-query-result`.

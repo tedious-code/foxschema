@@ -1,11 +1,12 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Database, AlertCircle, GripVertical, RefreshCw } from 'lucide-react';
-import type { CredentialRun } from '../../store/useSqlEditorStore';
+import { useSqlEditorStore, type CredentialRun } from '../../store/useSqlEditorStore';
 import type { ResultsLayout } from '../../store/sqlEditorTabLogic';
 import { DataGrid, PANE_DEFAULT_H_PX, PANE_DEFAULT_PX, PANE_MIN_H_PX, PANE_MIN_PX } from './DataGrid';
 import type { SqlStatementResult } from '../../api/sqlApi';
 import { detectCodeCell } from '../../lib/codeCellRunner';
 import { CODE_CELL_KIND_LABEL } from '../../lib/sql-splitter';
+import { foreignKeyLinksForSql } from '../../lib/tablePreview';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
 
 interface Props {
@@ -69,6 +70,8 @@ type PaneItem =
       exportName: string;
       connectionId: string;
       statementIndex: number;
+      /** SQL that produced this grid — used for FK → Data Peek links. */
+      statementSql?: string;
     }
   | { key: string; kind: 'running'; label: string; connectionId: string }
   | { key: string; kind: 'error'; label: string; error: string; connectionId: string };
@@ -98,45 +101,89 @@ const PaneBody: React.FC<{
   syncScrollRow = null,
   onSyncScrollRow,
 }) => {
+  const schemaCache = useSqlEditorStore((s) => s.schemaCache);
+  const openDataPeekFromFk = useSqlEditorStore((s) => s.openDataPeekFromFk);
+
+  const fkLinks = useMemo(() => {
+    if (item.kind !== 'grid' || !item.result.ok || !item.statementSql) return [];
+    const tables = schemaCache[item.connectionId]?.tables;
+    return foreignKeyLinksForSql(item.statementSql, tables, item.result.columns);
+  }, [item, schemaCache]);
+
+  const linkColumns = useMemo(() => {
+    if (fkLinks.length === 0) return undefined;
+    const map = new Map<number, string>();
+    for (const l of fkLinks) map.set(l.columnIndex, l.fk.referencedTable);
+    return map;
+  }, [fkLinks]);
+
+  const onLinkClick = useCallback(
+    (colIdx: number, rowIdx: number) => {
+      if (item.kind !== 'grid' || !item.result.ok) return;
+      const link = fkLinks.find((l) => l.columnIndex === colIdx);
+      if (!link) return;
+      const row = item.result.rows[rowIdx];
+      if (!row) return;
+      void openDataPeekFromFk(
+        item.connectionId,
+        link.fk,
+        link.valueIndexes.map((i) => row[i])
+      );
+    },
+    [item, fkLinks, openDataPeekFromFk]
+  );
+
   if (item.kind === 'grid') {
     const pageKey = `${item.connectionId}:${item.statementIndex}`;
     const page = pageState?.[pageKey];
     const pageIndex = page?.pageIndex ?? 0;
     return (
-      <DataGrid
-        result={item.result}
-        label={item.label}
-        exportName={item.exportName}
-        refreshing={refreshing}
-        onRefresh={onRefresh ? () => onRefresh(item.connectionId) : undefined}
-        syncScrollRow={onSyncScrollRow ? syncScrollRow : null}
-        onSyncScrollRow={onSyncScrollRow}
-        pageIndex={pageIndex}
-        pageSize={page?.pageSize}
-        hasPrevPage={!refreshing && Boolean(page) && pageIndex > 0}
-        hasNextPage={!refreshing && Boolean(page?.hasNext)}
-        pageLoading={Boolean(refreshing || page?.loading)}
-        onPrevPage={
-          onPage && page && !refreshing
-            ? () =>
-                onPage({
-                  connectionId: item.connectionId,
-                  statementIndex: item.statementIndex,
-                  pageIndex: Math.max(0, pageIndex - 1),
-                })
-            : undefined
-        }
-        onNextPage={
-          onPage && page && !refreshing
-            ? () =>
-                onPage({
-                  connectionId: item.connectionId,
-                  statementIndex: item.statementIndex,
-                  pageIndex: pageIndex + 1,
-                })
-            : undefined
-        }
-      />
+      <div className="flex flex-col min-h-0 h-full">
+        <DataGrid
+          result={item.result}
+          label={item.label}
+          exportName={item.exportName}
+          refreshing={refreshing}
+          onRefresh={onRefresh ? () => onRefresh(item.connectionId) : undefined}
+          syncScrollRow={onSyncScrollRow ? syncScrollRow : null}
+          onSyncScrollRow={onSyncScrollRow}
+          pageIndex={pageIndex}
+          pageSize={page?.pageSize}
+          hasPrevPage={!refreshing && Boolean(page) && pageIndex > 0}
+          hasNextPage={!refreshing && Boolean(page?.hasNext)}
+          pageLoading={Boolean(refreshing || page?.loading)}
+          onPrevPage={
+            onPage && page && !refreshing
+              ? () =>
+                  onPage({
+                    connectionId: item.connectionId,
+                    statementIndex: item.statementIndex,
+                    pageIndex: Math.max(0, pageIndex - 1),
+                  })
+              : undefined
+          }
+          onNextPage={
+            onPage && page && !refreshing
+              ? () =>
+                  onPage({
+                    connectionId: item.connectionId,
+                    statementIndex: item.statementIndex,
+                    pageIndex: pageIndex + 1,
+                  })
+              : undefined
+          }
+          linkColumns={linkColumns}
+          onLinkClick={linkColumns ? onLinkClick : undefined}
+        />
+        {linkColumns && linkColumns.size > 0 && (
+          <p
+            className="mt-0.5 px-0.5 shrink-0 text-[10px] text-slate-500"
+            data-testid="sql-results-fk-hint"
+          >
+            Underlined rust cells are foreign keys — click one to open Data Peek (related rows).
+          </p>
+        )}
+      </div>
     );
   }
   if (item.kind === 'running') {
@@ -413,8 +460,15 @@ export const ResultsPanel: React.FC<Props> = ({
   const outTestId = (i: number) => statementIndices?.[i] ?? i;
   if (runs.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center text-slate-600 text-xs gap-2">
-        <Database className="w-4 h-4 text-sky-400" strokeWidth={SQL_ICON_STROKE} /> Run a query to see results here — one section per checked credential.
+      <div className="flex-1 flex flex-col items-center justify-center text-slate-600 text-xs gap-2 px-6 text-center">
+        <div className="flex items-center gap-2">
+          <Database className="w-4 h-4 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
+          Run a query to see results here — one section per checked credential.
+        </div>
+        <p className="max-w-md text-[11px] text-slate-500 leading-relaxed" data-testid="sql-results-peek-instruction">
+          Tip: after Run, underlined rust foreign-key cells open <span className="text-slate-400">Data Peek</span>.
+          Or Cmd/Ctrl-click a table in Schema to peek without writing SQL.
+        </p>
       </div>
     );
   }
@@ -473,6 +527,7 @@ export const ResultsPanel: React.FC<Props> = ({
               exportName: `${run.name}-q${i + 1}`,
               connectionId: run.connectionId,
               statementIndex: i,
+              statementSql: statements[i],
             });
           }
           return (
@@ -515,6 +570,7 @@ export const ResultsPanel: React.FC<Props> = ({
                 exportName: `${run.name}-q${i + 1}`,
                 connectionId: run.connectionId,
                 statementIndex: i,
+                statementSql: statements[i],
               }))
             : [];
 

@@ -419,6 +419,15 @@ interface SqlEditorState {
    */
   dataPeek: DataPeekState | null;
   openDataPeek: (connectionId: string, tableName: string) => Promise<void>;
+  /**
+   * Open Data Peek from an editor-result FK cell (no schema Cmd/Ctrl-click).
+   * Seeds the stack with the parent rows for that key.
+   */
+  openDataPeekFromFk: (
+    connectionId: string,
+    fk: ForeignKeyInfo,
+    values: unknown[]
+  ) => Promise<void>;
   drillDataPeek: (
     fromEntryId: string,
     fk: ForeignKeyInfo,
@@ -1440,6 +1449,34 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           id: `peek-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           title: tableName,
           tableName,
+          baseSql: built.sql,
+          baseParams: built.params,
+          whereClause: '',
+          orderByClause: '',
+          limit: DATA_PEEK_ROWS,
+          pageIndex: 0,
+          sql: composed.sql,
+          params: composed.params,
+          status: 'loading',
+        };
+        set({ dataPeek: { connectionId, dialect: conn.dialect, entries: [entry] } });
+        await get().runDataPeekEntry(entry.id);
+      },
+
+      openDataPeekFromFk: async (connectionId, fk, values) => {
+        const conn = useSyncStore.getState().connections.find((c) => c.id === connectionId);
+        if (!conn) return;
+        const built = buildForeignKeyDrilldown(fk, values, conn.dialect);
+        if (!built) return;
+        const composed = composePeekSql(built.sql, built.params, {});
+        if ('error' in composed) return;
+        const label = (fk.referencedColumns ?? [])
+          .map((c, i) => `${c} = ${String(values[i])}`)
+          .join(', ');
+        const entry: DataPeekEntry = {
+          id: `peek-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          title: `${fk.referencedTable} · ${label}`,
+          tableName: fk.referencedTable,
           baseSql: built.sql,
           baseParams: built.params,
           whereClause: '',

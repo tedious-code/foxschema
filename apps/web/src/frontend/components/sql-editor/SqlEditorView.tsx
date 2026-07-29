@@ -27,6 +27,7 @@ import { getSelectedSql, setCompletionContextGetter } from './sqlEditorBridge';
 import { ConnectionChecklist } from './ConnectionChecklist';
 import { EditorTabBar } from './EditorTabBar';
 import { ResultsPanel } from './ResultsPanel';
+import { DataPeekPanel } from './DataPeekPanel';
 import { StatementStrip } from './StatementStrip';
 import { SqlBookmarksPanel } from './SqlBookmarksPanel';
 import { SqlVariablesPanel } from './SqlVariablesPanel';
@@ -655,6 +656,8 @@ export const SqlEditorView: React.FC = () => {
           }
         />
       )}
+      {/* Always mounted so FK clicks from results work even when Schema is collapsed. */}
+      <DataPeekPanel />
     </div>
   );
 };

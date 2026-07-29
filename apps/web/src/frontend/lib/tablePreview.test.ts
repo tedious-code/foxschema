@@ -4,6 +4,7 @@ import {
   buildTablePreview,
   buildForeignKeyDrilldown,
   foreignKeyLinksFor,
+  foreignKeyLinksForSql,
   composePeekSql,
   isSafePeekClause,
 } from './tablePreview';
@@ -124,5 +125,39 @@ describe('composePeekSql', () => {
     expect(composePeekSql('SELECT * FROM t', [], { where: '1=1; --' })).toEqual({
       error: 'WHERE must be a single predicate (no ; or comments)',
     });
+  });
+});
+
+describe('foreignKeyLinksForSql', () => {
+  const orders = {
+    name: 'orders',
+    objectType: 'TABLE',
+    columns: [],
+    indices: [],
+    foreignKeys: [
+      {
+        name: 'fk1',
+        columns: ['customer_id'],
+        referencedTable: 'customers',
+        referencedColumns: ['id'],
+      },
+    ],
+  } as unknown as TableSchema;
+
+  it('links result FK columns from the statement’s FROM table', () => {
+    const links = foreignKeyLinksForSql(
+      'SELECT id, customer_id FROM orders',
+      [orders],
+      ['id', 'customer_id']
+    );
+    expect(links).toHaveLength(1);
+    expect(links[0]!.columnIndex).toBe(1);
+    expect(links[0]!.fk.referencedTable).toBe('customers');
+  });
+
+  it('returns nothing when schema is missing the table', () => {
+    expect(
+      foreignKeyLinksForSql('SELECT * FROM orders', [], ['customer_id'])
+    ).toEqual([]);
   });
 });

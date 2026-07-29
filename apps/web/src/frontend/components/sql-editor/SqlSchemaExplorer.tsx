@@ -8,7 +8,6 @@ import { filterCallParameters, insertAtCursor } from './sqlEditorBridge';
 import type { DbObjectType, TableSchema } from '../../lib/types';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
 import { TableBlueprintModal, type BlueprintMode } from './TableBlueprintModal';
-import { DataPeekPanel } from './DataPeekPanel';
 import { isScriptableObject, objectSourceScript } from './objectSourceScript';
 
 /** Imperative API for the Schema section header (New table). */
@@ -357,7 +356,6 @@ export const SqlSchemaExplorer = forwardRef<SqlSchemaExplorerHandle>(function Sq
             />
           )}
 
-          <DataPeekPanel />
         </>
       )}
     </div>

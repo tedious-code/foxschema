@@ -1,5 +1,5 @@
 /**
- * Queries behind the schema-explorer data peek (Cmd/Ctrl-click a table).
+ * Queries behind data peek (schema Cmd/Ctrl-click, or FK click in editor results).
  *
  * Everything here goes through the `sql` template engine, so a drill-down value
  * taken from a grid cell is bound, never pasted into the statement — the value
@@ -110,6 +110,108 @@ export function foreignKeyLinksFor(
     // built from a partial key and match the wrong parent rows.
     if (valueIndexes.some((i) => i < 0)) continue;
     links.push({ columnIndex: valueIndexes[0]!, fk, valueIndexes });
+  }
+  return links;
+}
+
+/** Resolve a table name (qualified or bare) against the schema cache. */
+export function findCachedTable(
+  tables: TableSchema[] | undefined,
+  name: string
+): TableSchema | undefined {
+  if (!tables?.length || !name.trim()) return undefined;
+  const wanted = name.toLowerCase();
+  const bare = wanted.includes('.') ? wanted.slice(wanted.lastIndexOf('.') + 1) : wanted;
+  return (
+    tables.find((t) => t.name.toLowerCase() === wanted) ??
+    tables.find((t) => {
+      const n = t.name.toLowerCase();
+      return (n.includes('.') ? n.slice(n.lastIndexOf('.') + 1) : n) === bare;
+    })
+  );
+}
+
+/**
+ * Tables referenced in a statement (FROM/JOIN/UPDATE/INTO only).
+ * Uses a stricter scan than {@link extractTableAliases} so
+ * `SELECT a, b FROM t` is not mistaken for a comma-FROM list.
+ */
+export function tableNamesFromSql(sql: string): string[] {
+  if (!sql.trim()) return [];
+  const ident =
+    '(?:"[^"]+"|`[^`]+`|\\[[^\\]]+\\]|[A-Za-z_][\\w$]*(?:\\.[A-Za-z_][\\w$]*)*)';
+  const re = new RegExp(`\\b(?:FROM|JOIN|UPDATE|INTO)\\s+(${ident})`, 'gi');
+  const names: string[] = [];
+  const seen = new Set<string>();
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(sql)) !== null) {
+    const raw = m[1];
+    if (!raw) continue;
+    const table = raw.trim().replace(/^["`\[]|["`\]]$/g, '').replace(/""/g, '"');
+    // Strip wrapping quotes more carefully via same rules as aliases helper.
+    const cleaned = stripSqlIdent(raw);
+    if (!cleaned) continue;
+    const key = cleaned.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    names.push(cleaned);
+  }
+  return names;
+}
+
+function stripSqlIdent(raw: string): string {
+  const s = raw.trim();
+  if (s.length >= 2) {
+    const a = s[0];
+    const b = s[s.length - 1];
+    if ((a === '"' && b === '"') || (a === '`' && b === '`') || (a === '[' && b === ']')) {
+      return s.slice(1, -1).replace(/""/g, '"');
+    }
+  }
+  return s;
+}
+
+/**
+ * Tables referenced in a statement, matched against the schema cache — used to
+ * offer FK links on editor result grids.
+ */
+export function tablesFromSql(
+  sql: string,
+  tables: TableSchema[] | undefined
+): TableSchema[] {
+  if (!sql.trim() || !tables?.length) return [];
+  const out: TableSchema[] = [];
+  const seen = new Set<string>();
+  for (const name of tableNamesFromSql(sql)) {
+    const table = findCachedTable(tables, name);
+    if (!table) continue;
+    const key = table.name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(table);
+  }
+  return out;
+}
+
+/**
+ * FK links for a result set given the statement SQL + schema tables.
+ * First table that claims a column wins when joins share FK column names.
+ */
+export function foreignKeyLinksForSql(
+  sql: string,
+  tables: TableSchema[] | undefined,
+  resultColumns: string[]
+): FkColumnLink[] {
+  const matched = tablesFromSql(sql, tables);
+  if (matched.length === 0) return [];
+  const links: FkColumnLink[] = [];
+  const claimed = new Set<number>();
+  for (const table of matched) {
+    for (const link of foreignKeyLinksFor(table, resultColumns)) {
+      if (claimed.has(link.columnIndex)) continue;
+      claimed.add(link.columnIndex);
+      links.push(link);
+    }
   }
   return links;
 }
