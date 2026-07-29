@@ -1,6 +1,9 @@
 /**
  * Wrap a statement so the engine returns a page (LIMIT/OFFSET).
  * Fetches `limit + 1` rows so the caller can detect `hasNext` without a COUNT.
+ *
+ * Alias must not start with `_` — DB2 treats `_…` as a conditional-compilation
+ * directive (SQL20521N). Keep a plain letter-led name for all dialects.
  */
 
 import { statementVerb } from '@foxschema/core';
@@ -10,6 +13,9 @@ const PAGEABLE_VERBS = new Set(['select', 'values']);
 
 /** Dialects that use T-SQL OFFSET/FETCH (not MySQL/Postgres LIMIT). */
 const TSQL_DIALECTS = new Set(['sqlserver', 'mssql', 'azuresql']);
+
+/** Derived-table alias for page wraps (no leading underscore — see file header). */
+const PAGE_ALIAS = 'fox_page';
 
 export function clampOffset(v: unknown): number {
   const n = typeof v === 'number' ? Math.floor(v) : Number.NaN;
@@ -135,16 +141,16 @@ export function wrapSqlForPage(
     if (hasTopLevelOrderBy(inner)) {
       return `${inner} ${fetch}`;
     }
-    return `SELECT * FROM (${inner}) AS _fox_page ORDER BY (SELECT NULL) ${fetch}`;
+    return `SELECT * FROM (${inner}) AS ${PAGE_ALIAS} ORDER BY (SELECT NULL) ${fetch}`;
   }
   if (d === 'oracle') {
-    return `SELECT * FROM (${inner}) _fox_page OFFSET ${offset} ROWS FETCH NEXT ${fetchLimit} ROWS ONLY`;
+    return `SELECT * FROM (${inner}) ${PAGE_ALIAS} OFFSET ${offset} ROWS FETCH NEXT ${fetchLimit} ROWS ONLY`;
   }
   if (d === 'db2') {
-    return `SELECT * FROM (${inner}) AS _fox_page OFFSET ${offset} ROWS FETCH FIRST ${fetchLimit} ROWS ONLY`;
+    return `SELECT * FROM (${inner}) AS ${PAGE_ALIAS} OFFSET ${offset} ROWS FETCH FIRST ${fetchLimit} ROWS ONLY`;
   }
   // Postgres, MySQL, MariaDB, SQLite, Cockroach, Yugabyte, TiDB, DuckDB, ClickHouse-ish
-  return `SELECT * FROM (${inner}) AS _fox_page LIMIT ${fetchLimit} OFFSET ${offset}`;
+  return `SELECT * FROM (${inner}) AS ${PAGE_ALIAS} LIMIT ${fetchLimit} OFFSET ${offset}`;
 }
 
 /** After shaping, drop the probe row and set truncated/hasNext. */
