@@ -531,6 +531,246 @@ return sample.map((r) => ({ id: r.id, name: r.name, inserted }));
 -- @end
 `,
   },
+  {
+    id: 'sample-foxscript-notebook',
+    title: '★ Sample · FoxScript notebook (SQL ↔ JS)',
+    sql: `-- FoxScript = one buffer, many cells. Use the strip ▶ to run one cell, or Run all.
+
+SELECT 'east' AS region, 10 AS n
+UNION ALL
+SELECT 'west', 7
+UNION ALL
+SELECT 'east', 3;
+
+-- @js
+-- @set byRegion = table
+const rows = (last?.rows ?? []).map((r) => ({
+  region: String(r[0]),
+  n: Number(r[1]),
+}));
+const totals = {};
+for (const r of rows) {
+  totals[r.region] = (totals[r.region] ?? 0) + r.n;
+}
+return Object.keys(totals).map((region) => ({ region, total: totals[region] }));
+-- @end
+
+SELECT 'bonus' AS label, 2 AS n;
+
+-- @js
+// last is the SELECT above; vars.byRegion still holds the earlier aggregate.
+const bonus = Number(last?.rows?.[0]?.[1] ?? 0);
+const prior = vars.byRegion?.rows ?? [];
+return prior.map((r) => ({
+  region: r[0],
+  total: Number(r[1]) + bonus,
+  withBonus: true,
+}));
+-- @end
+`,
+  },
+  {
+    id: 'sample-js-set-column',
+    title: '★ Sample · @set column → vars values',
+    sql: `-- @set ids = column id
+${DEMO_PEOPLE_SQL};
+
+-- @js
+// After the SELECT, ids are available as vars.ids.values (and last still has the grid).
+const fromVar = vars.ids?.values ?? [];
+const fromLast = (last?.rows ?? []).map((r) => Number(r[0]));
+const ids = fromVar.length ? fromVar.map(Number) : fromLast;
+return ids.map((id) => ({ id, doubled: id * 2 }));
+-- @end
+`,
+  },
+  {
+    id: 'sample-js-multi-sql-then-js',
+    title: '★ Sample · multi-SQL then one JS',
+    sql: `SELECT 1 AS wave, 'a' AS label
+UNION ALL
+SELECT 1, 'b';
+
+SELECT 2 AS wave, 'c' AS label
+UNION ALL
+SELECT 2, 'd';
+
+-- @js
+// last is only the final SELECT — earlier grids are gone unless you @set them.
+const rows = (last?.rows ?? []).map((r) => ({
+  wave: Number(r[0]),
+  label: String(r[1]),
+}));
+return [{ wave: rows[0]?.wave ?? null, count: rows.length, labels: rows.map((r) => r.label).join(',') }];
+-- @end
+`,
+  },
+  {
+    id: 'sample-js-reduce-pivot',
+    title: '★ Sample · JS reduce pivot',
+    sql: `SELECT 'a' AS kind, 10 AS n
+UNION ALL
+SELECT 'a', 5
+UNION ALL
+SELECT 'b', 7;
+
+-- @js
+const pivot = (last?.rows ?? []).reduce((acc, r) => {
+  const kind = String(r[0]);
+  acc[kind] = (acc[kind] ?? 0) + Number(r[1]);
+  return acc;
+}, {});
+return Object.keys(pivot).map((kind) => ({ kind, total: pivot[kind] }));
+-- @end
+`,
+  },
+  {
+    id: 'sample-js-unique-domains',
+    title: '★ Sample · JS unique email domains',
+    sql: `${DEMO_PEOPLE_SQL}
+UNION ALL
+SELECT 4, 'dana@example.com';
+
+-- @js
+const domains = new Set(
+  (last?.rows ?? []).map((r) => String(r[1]).split('@')[1] || '')
+);
+return [...domains].filter(Boolean).sort().map((domain) => ({ domain }));
+-- @end
+`,
+  },
+  {
+    id: 'sample-js-try-catch',
+    title: '★ Sample · JS try/catch soft fail',
+    sql: `-- @js
+try {
+  const bad = JSON.parse('{not json');
+  return [{ ok: true, value: bad }];
+} catch (err) {
+  return [{
+    ok: false,
+    error: err instanceof Error ? err.message : String(err),
+  }];
+}
+-- @end
+`,
+  },
+  {
+    id: 'sample-ts-interfaces',
+    title: '★ Sample · TS interfaces + narrow',
+    sql: `${DEMO_PEOPLE_SQL};
+
+-- @ts
+interface Person {
+  id: number;
+  email: string;
+}
+
+function toPerson(r: unknown[]): Person {
+  return { id: Number(r[0]), email: String(r[1]) };
+}
+
+const people: Person[] = (last?.rows ?? []).map(toPerson);
+return people.filter((p) => p.email.includes('@')).map((p) => ({
+  id: p.id,
+  handle: p.email.split('@')[0] ?? '',
+}));
+-- @end
+`,
+  },
+  {
+    id: 'sample-node-sql-list-raw',
+    title: '★ Sample · Node sql.list + sql.raw',
+    sql: `-- Read-only. sql.list binds an IN list; sql.raw is the escape hatch (use sparingly).
+
+-- @node
+const ids = [1, 2, 3];
+const order = sql.raw('id ASC');
+
+const rows = await sql\`
+  SELECT x AS id
+  FROM (
+    SELECT 1 AS x UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4
+  ) t
+  WHERE x IN \${sql.list(ids)}
+  ORDER BY \${order}
+\`;
+return rows;
+-- @end
+`,
+  },
+  {
+    id: 'sample-nodets-sql-typed',
+    title: '★ Sample · Node-TS sql`` typed rows',
+    sql: `-- Needs a checked credential. Read-only, Safe mode friendly.
+
+-- @nodets
+type Row = { id: number; email: string };
+
+const email = "o'brien@example.com";
+const rows = (await sql\`SELECT \${42} AS id, \${email} AS email\`) as Row[];
+
+return rows.map((r) => ({
+  id: Number(r.id),
+  email: String(r.email),
+  runtime: 'node-ts',
+}));
+-- @end
+`,
+  },
+  {
+    id: 'sample-node-sql-then-js-shape',
+    title: '★ Sample · Node sql`` then reshape',
+    sql: `-- Needs a checked credential. Two queries in one cell, then a clean grid.
+
+-- @node
+const a = await sql\`SELECT 1 AS n, 'alpha' AS label\`;
+const b = await sql\`SELECT 2 AS n, 'beta' AS label\`;
+const merged = [...a, ...b].map((r) => ({
+  n: Number(r.n ?? r.N),
+  label: String(r.label ?? r.LABEL ?? ''),
+  tag: 'merged',
+}));
+return merged;
+-- @end
+`,
+  },
+  {
+    id: 'sample-js-json-roundtrip',
+    title: '★ Sample · JS JSON round-trip',
+    sql: `${DEMO_PEOPLE_SQL};
+
+-- @js
+const payload = {
+  people: (last?.rows ?? []).map((r) => ({ id: Number(r[0]), email: String(r[1]) })),
+};
+const encoded = JSON.stringify(payload);
+const decoded = JSON.parse(encoded);
+return (decoded.people ?? []).map((p) => ({
+  id: p.id,
+  email: p.email,
+  bytes: encoded.length,
+}));
+-- @end
+`,
+  },
+  {
+    id: 'sample-js-play-one-cell',
+    title: '★ Sample · strip ▶ one cell at a time',
+    sql: `-- Tip: click ▶ on In [2] alone — last is null, so the cell must guard.
+
+SELECT 100 AS seed;
+
+-- @js
+const seed = Number(last?.rows?.[0]?.[0] ?? 0);
+return [
+  { step: 1, value: seed },
+  { step: 2, value: seed + 1 },
+  { step: 3, value: seed + 2 },
+];
+-- @end
+`,
+  },
 ];
 
 export function buildSampleBookmarks(now = Date.now()): Array<{
