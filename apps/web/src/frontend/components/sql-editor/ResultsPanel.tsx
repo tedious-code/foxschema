@@ -1,3 +1,11 @@
+/**
+ * Fox Schema (foxschema)
+ * Copyright 2024-2026 Huy Ph <huyplb@gmail.com>
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Results for one SQL Editor tab (By cred / Side-by-side layouts).
+ * Foreign-key cells can open Data Peek when schema FKs match the statement.
+ */
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Database, AlertCircle, GripVertical, RefreshCw } from 'lucide-react';
 import { useSqlEditorStore, type CredentialRun } from '../../store/useSqlEditorStore';

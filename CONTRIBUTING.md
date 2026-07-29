@@ -121,7 +121,13 @@ A few rules that have bitten people before (the full set is in [CLAUDE.md](CLAUD
 1. Branch off `main`.
 2. Keep the change focused; update docs and tests alongside code.
 3. Ensure the correctness gates pass (`tsc --noEmit` + `vitest run`).
-4. Write a clear PR description: what changed, why, and how you verified it.
+4. Write a **short, user-facing** PR description: what the user gets, why it
+   matters, and how you verified it. Prefer a limited summary on GitHub — do
+   **not** paste long internal implementation plans, agent transcripts, or
+   speculative design dumps into public PR bodies.
+5. Keep copyright / `NOTICE` / `LICENSE` intact. Prefer the SPDX header in
+   [docs/COPYRIGHT_HEADER.txt](docs/COPYRIGHT_HEADER.txt) on new source files.
+   Authorship: Huy Ph `<huyplb@gmail.com>` (see [NOTICE](NOTICE)).
 
 Bug reports and feature ideas → open a GitHub issue. Security vulnerabilities →
 **do not** open a public issue; follow [SECURITY.md](SECURITY.md).

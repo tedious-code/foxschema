@@ -1,4 +1,8 @@
 /**
+ * Fox Schema (foxschema)
+ * Copyright 2024-2026 Huy Ph <huyplb@gmail.com>
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Wrap a statement so the engine returns a page (LIMIT/OFFSET).
  * Fetches `limit + 1` rows so the caller can detect `hasNext` without a COUNT.
  *

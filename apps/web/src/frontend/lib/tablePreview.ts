@@ -1,4 +1,8 @@
 /**
+ * Fox Schema (foxschema)
+ * Copyright 2024-2026 Huy Ph <huyplb@gmail.com>
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Queries behind data peek (schema Cmd/Ctrl-click, or FK click in editor results).
  *
  * Everything here goes through the `sql` template engine, so a drill-down value

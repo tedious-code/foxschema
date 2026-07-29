@@ -1,3 +1,14 @@
+/**
+ * Fox Schema (foxschema)
+ * Copyright 2024-2026 Huy Ph <huyplb@gmail.com>
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Quick data peek: Cmd/Ctrl-click a table in the schema explorer to see its
+ * rows without writing a query. Foreign-key cells are links — each FK column
+ * can open its own panel below (siblings stack; same column replaces).
+ * Each panel has WHERE / ORDER BY / LIMIT and a drag resize handle.
+ * Editor result grids can open the same peek via rust FK cell clicks.
+ */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { GripVertical, Loader2, X } from 'lucide-react';
@@ -14,10 +25,7 @@ const MIN_PANEL_HEIGHT = 200;
 const MAX_PANEL_HEIGHT = 900;
 
 /**
- * Quick data peek: Cmd/Ctrl-click a table in the schema explorer to see its
- * rows without writing a query. Foreign-key cells are links — each FK column
- * can open its own panel below (siblings stack; same column replaces).
- * Each panel has WHERE / ORDER BY / LIMIT and a drag resize handle.
+ * Quick data peek UI (see file header).
  */
 const PeekFilterBar: React.FC<{
   entry: DataPeekEntry;

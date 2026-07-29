@@ -1,3 +1,10 @@
+/**
+ * Fox Schema (foxschema)
+ * Copyright 2024-2026 Huy Ph <huyplb@gmail.com>
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * SQL Editor client store (tabs, execute, schema cache, Data Peek).
+ */
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { executeSql, type SqlStatementResult } from '../api/sqlApi';

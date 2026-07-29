@@ -1,3 +1,10 @@
+/**
+ * Fox Schema (foxschema)
+ * Copyright 2024-2026 Huy Ph <huyplb@gmail.com>
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Result DataGrid (paper surface, paging, FK drill links for Data Peek).
+ */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Download, GripVertical, RefreshCw } from 'lucide-react';
 import type { SqlStatementResult } from '../../api/sqlApi';
