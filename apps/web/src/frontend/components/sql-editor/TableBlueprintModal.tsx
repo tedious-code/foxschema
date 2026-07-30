@@ -145,6 +145,62 @@ function formatIndexCols(idx: { columns: string[]; orders?: IndexColumnOrder[] }
     .join(', ');
 }
 
+/** Collapse long index column lists in the blueprint index rows. */
+const INDEX_COLS_COLLAPSE_AFTER = 3;
+
+function IndexColumnsLine(props: {
+  columns: string[];
+  orders?: IndexColumnOrder[];
+  filter?: string;
+  expanded: boolean;
+  onToggle: () => void;
+  testId?: string;
+}): React.ReactElement {
+  const { columns, orders, filter, expanded, onToggle, testId } = props;
+  const formatted = columns.map((c, i) => {
+    const ord = orders?.[i];
+    return ord && ord !== 'ASC' ? `${c} ${ord}` : c;
+  });
+  const needsCollapse = formatted.length > INDEX_COLS_COLLAPSE_AFTER;
+  const shown =
+    !needsCollapse || expanded
+      ? formatted
+      : formatted.slice(0, INDEX_COLS_COLLAPSE_AFTER);
+  const hidden = needsCollapse && !expanded ? formatted.length - INDEX_COLS_COLLAPSE_AFTER : 0;
+
+  return (
+    <div className="mt-1 min-w-0" data-testid={testId}>
+      <div className="font-mono text-[11px] text-slate-400 break-words">
+        ({shown.join(', ')}
+        {hidden > 0 ? `, …` : ''}
+        )
+        {filter?.trim() ? (
+          <span className="text-sky-300/70"> WHERE {filter.trim()}</span>
+        ) : null}
+      </div>
+      {needsCollapse && (
+        <button
+          type="button"
+          onClick={onToggle}
+          className="mt-0.5 inline-flex items-center gap-0.5 text-[10px] font-bold text-sky-300/90 hover:text-sky-200"
+        >
+          {expanded ? (
+            <>
+              <ChevronDown className="w-3 h-3" strokeWidth={SQL_ICON_STROKE} />
+              Hide columns
+            </>
+          ) : (
+            <>
+              <ChevronRight className="w-3 h-3" strokeWidth={SQL_ICON_STROKE} />
+              Show {hidden} more column{hidden === 1 ? '' : 's'}
+            </>
+          )}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function emptyTriggerDraft(dialect: string): BlueprintTriggerDraft {
   const meta = dialectTriggerForm(dialect);
   return {
@@ -247,6 +303,8 @@ export const TableBlueprintModal: React.FC<Props> = ({
   const [adding, setAdding] = useState(false);
   const [addForm, setAddForm] = useState<BlueprintColumn>(() => emptyColumn(dialect));
   const [expandedTrig, setExpandedTrig] = useState<Record<string, boolean>>({});
+  /** Expand full column lists on indexes with many columns. */
+  const [expandedIndexCols, setExpandedIndexCols] = useState<Record<string, boolean>>({});
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmWrite, setConfirmWrite] = useState(false);
@@ -360,6 +418,7 @@ export const TableBlueprintModal: React.FC<Props> = ({
     setDroppedTriggerNames(new Set());
     setAddingTrigger(false);
     setTriggerForm(emptyTriggerDraft(dialect));
+    setExpandedIndexCols({});
     setFragStatus('idle');
     setFragRows({});
     setFragDefrag({});
@@ -1293,23 +1352,16 @@ export const TableBlueprintModal: React.FC<Props> = ({
                   </h3>
                   {mode === 'edit' && existingIndexes.length > 0 && (
                     <p
-                      className="mt-1 text-[11px] text-slate-400"
+                      className="mt-1 text-[11px] text-slate-500"
                       data-testid="blueprint-frag-legend"
                       title={fragSupport.hint}
                     >
-                      Fragmentation % and Defragment actions appear on each index below
-                      {fragStatus === 'loading'
-                        ? ' — loading…'
-                        : fragMode
-                          ? ` — ${fragMode}${fragSource === 'custom' ? ' (custom SQL)' : ''} probe`
-                          : fragStatus === 'error' || fragStatus === 'unsupported'
-                            ? ' — probe needs custom SQL'
-                            : ''}
-                      . {'<10%'} ok · 10–30% reorganize · ≥30% rebuild.
+                      % = fragmentation · Defragment inserts rebuild/reorg SQL
+                      {fragStatus === 'loading' ? ' · loading…' : ''}
                     </p>
                   )}
                 </div>
-                <div className="flex items-center gap-1.5 shrink-0">
+                <div className="flex flex-wrap items-center justify-end gap-1.5 shrink-0">
                   {mode === 'edit' && existingIndexes.length > 0 && (
                     <button
                       type="button"
@@ -1324,7 +1376,7 @@ export const TableBlueprintModal: React.FC<Props> = ({
                       ) : (
                         <RefreshCw className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
                       )}
-                      Refresh fragmentation
+                      Refresh %
                     </button>
                   )}
                   {!indexFormOpen && indexSupport.create && (
@@ -1416,8 +1468,8 @@ export const TableBlueprintModal: React.FC<Props> = ({
                     {mode === 'edit' && existingIndexes.length > 0 && (
                       <li className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500 flex items-center gap-2 bg-slate-950/40">
                         <span className="min-w-0 flex-1">Index</span>
-                        <span className="w-[4.5rem] text-right shrink-0">%</span>
-                        <span className="w-[6.5rem] text-right shrink-0">Defragment</span>
+                        <span className="w-14 text-center shrink-0">%</span>
+                        <span className="w-16 text-center shrink-0">Defrag</span>
                         <span className="w-14 shrink-0" />
                       </li>
                     )}
@@ -1437,48 +1489,46 @@ export const TableBlueprintModal: React.FC<Props> = ({
                         });
                       const needsDefrag =
                         severity === 'warn' || severity === 'critical';
+                      const colsOpen = !!expandedIndexCols[idx.name];
                       return (
                       <li
                         key={idx.name}
-                        className="px-3 py-2.5 text-[12.5px] flex items-start gap-2"
+                        className="px-3 py-2.5 text-[12.5px]"
                         data-testid={`blueprint-index-row-${idx.name}`}
                       >
-                        <div className="min-w-0 flex-1">
-                          <span className="font-mono font-semibold text-slate-200">
-                            {idx.name}
-                          </span>
-                          <span className="text-slate-500 mx-1.5">·</span>
-                          <span className="text-[10px] font-bold uppercase tracking-wide text-sky-300/80">
-                            {idx.unique ? 'unique' : 'duplicates ok'}
-                          </span>
-                          {idx.constraint ? (
-                            <span className="ml-1.5 text-[10px] font-bold uppercase text-amber-300/80">
-                              constraint
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="min-w-0 flex-1">
+                            <span className="font-mono font-semibold text-slate-200 truncate inline-block max-w-full align-bottom">
+                              {idx.name}
                             </span>
-                          ) : null}
-                          <div className="font-mono text-slate-400 mt-0.5">
-                            ({idx.columns.join(', ')})
-                            {idx.filter?.trim() ? (
-                              <span className="text-sky-300/70"> WHERE {idx.filter.trim()}</span>
+                            <span className="text-slate-500 mx-1.5">·</span>
+                            <span className="text-[10px] font-bold uppercase tracking-wide text-sky-300/80">
+                              {idx.unique ? 'unique' : 'duplicates ok'}
+                            </span>
+                            {idx.constraint ? (
+                              <span className="ml-1.5 text-[10px] font-bold uppercase text-amber-300/80">
+                                constraint
+                              </span>
                             ) : null}
+                            <span className="ml-1.5 text-[10px] text-slate-500 tabular-nums">
+                              {idx.columns.length} col{idx.columns.length === 1 ? '' : 's'}
+                            </span>
                           </div>
-                        </div>
-                        {mode === 'edit' && (
-                          <>
-                            <div
-                              data-testid={`blueprint-index-frag-${idx.name}`}
-                              title={
-                                frag?.pageCount != null
-                                  ? `Fragmentation · ${fragSupport.hint} · ${frag.pageCount} pages`
-                                  : `Fragmentation · ${fragSupport.hint}`
-                              }
-                              className={`w-[4.5rem] shrink-0 text-right rounded-md border px-2 py-1.5 text-[13px] font-bold tabular-nums leading-none ${fragBadgeClass(severity)}`}
-                            >
-                              {fragStatus === 'loading' && !frag
-                                ? '…'
-                                : formatFragPct(frag?.fragmentationPercent)}
-                            </div>
-                            <div className="w-[6.5rem] shrink-0 flex justify-end">
+                          {mode === 'edit' && (
+                            <>
+                              <div
+                                data-testid={`blueprint-index-frag-${idx.name}`}
+                                title={
+                                  frag?.pageCount != null
+                                    ? `Fragmentation · ${fragSupport.hint} · ${frag.pageCount} pages`
+                                    : `Fragmentation · ${fragSupport.hint}`
+                                }
+                                className={`w-14 shrink-0 text-center rounded-md border px-1.5 py-1 text-[12px] font-bold tabular-nums leading-none ${fragBadgeClass(severity)}`}
+                              >
+                                {fragStatus === 'loading' && !frag
+                                  ? '…'
+                                  : formatFragPct(frag?.fragmentationPercent)}
+                              </div>
                               {defragSql.length > 0 ? (
                                 <button
                                   type="button"
@@ -1489,57 +1539,67 @@ export const TableBlueprintModal: React.FC<Props> = ({
                                     setToast('Defragment SQL inserted into editor');
                                     setTimeout(() => setToast(null), 2000);
                                   }}
-                                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-1.5 text-[11px] font-bold ${
+                                  className={`inline-flex items-center gap-1 shrink-0 rounded-md border px-2 py-1 text-[11px] font-bold ${
                                     needsDefrag
                                       ? 'border-amber-400/50 bg-amber-500/20 text-amber-100 hover:bg-amber-500/30'
                                       : 'border-slate-600/60 bg-slate-900/50 text-slate-300 hover:text-white hover:border-slate-500'
                                   }`}
                                 >
                                   <Wrench className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
-                                  Defragment
+                                  Defrag
                                 </button>
-                              ) : (
-                                <span className="text-[10px] text-slate-600 self-center">—</span>
-                              )}
+                              ) : null}
+                              <div className="flex items-center gap-0.5 shrink-0">
+                                {indexSupport.create && (
+                                  <button
+                                    type="button"
+                                    title="Edit index"
+                                    onClick={() => openEditExistingIndex(idx)}
+                                    className="p-1 text-slate-500 hover:text-sky-300"
+                                  >
+                                    <Pencil className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+                                  </button>
+                                )}
+                                {indexSupport.drop && (
+                                  <button
+                                    type="button"
+                                    title="Drop index"
+                                    onClick={() =>
+                                      setDroppedIndexNames((s) => new Set(s).add(idx.name))
+                                    }
+                                    className="p-1 text-slate-500 hover:text-rose-400"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+                                  </button>
+                                )}
+                              </div>
+                            </>
+                          )}
+                          {mode !== 'edit' && indexSupport.create && (
+                            <div className="flex items-center gap-0.5 shrink-0">
+                              <button
+                                type="button"
+                                title="Edit index"
+                                onClick={() => openEditExistingIndex(idx)}
+                                className="p-1 text-slate-500 hover:text-sky-300"
+                              >
+                                <Pencil className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+                              </button>
                             </div>
-                            <div className="flex items-center gap-0.5 shrink-0 w-14 justify-end">
-                              {indexSupport.create && (
-                                <button
-                                  type="button"
-                                  title="Edit index"
-                                  onClick={() => openEditExistingIndex(idx)}
-                                  className="p-1 text-slate-500 hover:text-sky-300"
-                                >
-                                  <Pencil className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
-                                </button>
-                              )}
-                              {indexSupport.drop && (
-                                <button
-                                  type="button"
-                                  title="Drop index"
-                                  onClick={() =>
-                                    setDroppedIndexNames((s) => new Set(s).add(idx.name))
-                                  }
-                                  className="p-1 text-slate-500 hover:text-rose-400"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
-                                </button>
-                              )}
-                            </div>
-                          </>
-                        )}
-                        {mode !== 'edit' && indexSupport.create && (
-                          <div className="flex items-center gap-0.5 shrink-0">
-                            <button
-                              type="button"
-                              title="Edit index"
-                              onClick={() => openEditExistingIndex(idx)}
-                              className="p-1 text-slate-500 hover:text-sky-300"
-                            >
-                              <Pencil className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
-                            </button>
-                          </div>
-                        )}
+                          )}
+                        </div>
+                        <IndexColumnsLine
+                          columns={idx.columns}
+                          filter={idx.filter}
+                          expanded={colsOpen}
+                          testId={`blueprint-index-cols-${idx.name}`}
+                          onToggle={() =>
+                            setExpandedIndexCols((s) => ({
+                              ...s,
+                              [idx.name]: !s[idx.name],
+                            }))
+                          }
+                        />
                       </li>
                       );
                     })}
@@ -1573,54 +1633,66 @@ export const TableBlueprintModal: React.FC<Props> = ({
                     {pendingIndexes.map((idx, i) => (
                       <li
                         key={`pending-idx-${idx.name}-${i}`}
-                        className="px-3 py-2.5 text-[12.5px] flex items-start gap-2 bg-emerald-950/15"
+                        className="px-3 py-2.5 text-[12.5px] bg-emerald-950/15"
                       >
-                        <div className="min-w-0 flex-1">
-                          <span className="text-[9px] font-bold uppercase text-emerald-400 mr-1.5">
-                            {idx.replaces ? 'replace' : 'new'}
-                          </span>
-                          <span className="font-mono font-semibold text-slate-200">
-                            {idx.name}
-                          </span>
-                          <span className="text-slate-500 mx-1.5">·</span>
-                          <span className="text-[10px] font-bold uppercase tracking-wide text-sky-300/80">
-                            {idx.unique ? 'unique' : 'duplicates ok'}
-                          </span>
-                          <div className="font-mono text-slate-400 mt-0.5">
-                            ({formatIndexCols(idx)})
-                            {idx.filter?.trim() ? (
-                              <span className="text-sky-300/70"> WHERE {idx.filter.trim()}</span>
-                            ) : null}
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="min-w-0 flex-1">
+                            <span className="text-[9px] font-bold uppercase text-emerald-400 mr-1.5">
+                              {idx.replaces ? 'replace' : 'new'}
+                            </span>
+                            <span className="font-mono font-semibold text-slate-200">
+                              {idx.name}
+                            </span>
+                            <span className="text-slate-500 mx-1.5">·</span>
+                            <span className="text-[10px] font-bold uppercase tracking-wide text-sky-300/80">
+                              {idx.unique ? 'unique' : 'duplicates ok'}
+                            </span>
+                            <span className="ml-1.5 text-[10px] text-slate-500 tabular-nums">
+                              {idx.columns.length} col{idx.columns.length === 1 ? '' : 's'}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-0.5 shrink-0">
+                            <button
+                              type="button"
+                              title="Edit"
+                              onClick={() => openEditPendingIndex(i)}
+                              className="p-1 text-slate-500 hover:text-sky-300"
+                            >
+                              <Pencil className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+                            </button>
+                            <button
+                              type="button"
+                              title="Remove"
+                              onClick={() => {
+                                const removed = pendingIndexes[i];
+                                setPendingIndexes((list) => list.filter((_, j) => j !== i));
+                                if (removed?.replaces) {
+                                  setDroppedIndexNames((s) => {
+                                    const n2 = new Set(s);
+                                    n2.delete(removed.replaces!);
+                                    return n2;
+                                  });
+                                }
+                              }}
+                              className="p-1 text-slate-500 hover:text-rose-400"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+                            </button>
                           </div>
                         </div>
-                        <div className="flex items-center gap-0.5 shrink-0">
-                          <button
-                            type="button"
-                            title="Edit"
-                            onClick={() => openEditPendingIndex(i)}
-                            className="p-1 text-slate-500 hover:text-sky-300"
-                          >
-                            <Pencil className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
-                          </button>
-                          <button
-                            type="button"
-                            title="Remove"
-                            onClick={() => {
-                              const removed = pendingIndexes[i];
-                              setPendingIndexes((list) => list.filter((_, j) => j !== i));
-                              if (removed?.replaces) {
-                                setDroppedIndexNames((s) => {
-                                  const n2 = new Set(s);
-                                  n2.delete(removed.replaces!);
-                                  return n2;
-                                });
-                              }
-                            }}
-                            className="p-1 text-slate-500 hover:text-rose-400"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
-                          </button>
-                        </div>
+                        <IndexColumnsLine
+                          columns={idx.columns}
+                          orders={idx.orders}
+                          filter={idx.filter}
+                          expanded={!!expandedIndexCols[`pending:${i}:${idx.name}`]}
+                          testId={`blueprint-pending-index-cols-${i}`}
+                          onToggle={() =>
+                            setExpandedIndexCols((s) => {
+                              const key = `pending:${i}:${idx.name}`;
+                              return { ...s, [key]: !s[key] };
+                            })
+                          }
+                        />
                       </li>
                     ))}
                   </ul>
