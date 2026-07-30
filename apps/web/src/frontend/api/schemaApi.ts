@@ -7,7 +7,7 @@ import type {
   MigrationEvent,
   TableSchema,
 } from '../lib/types';
-import { getApiBase, parseJsonResponse } from './apiBase';
+import { getApiBase, parseJsonBody, parseJsonResponse } from './apiBase';
 
 
 /** Either a saved connection (resolved server-side) or an inline ad-hoc option. */
@@ -172,6 +172,67 @@ export async function loadSchema(
       })
     )
   );
+}
+
+export type IndexFragmentationApiRow = {
+  indexName: string;
+  fragmentationPercent: number | null;
+  pageCount?: number | null;
+};
+
+export type IndexFragmentationResponse = {
+  rows: IndexFragmentationApiRow[];
+  source: 'default' | 'custom';
+  mode: 'physical' | 'estimated' | 'unsupported';
+  support?: {
+    mode: string;
+    query: boolean;
+    defrag: boolean;
+    hint: string;
+    customSqlHint: string;
+  };
+  defrag?: Record<string, string[]>;
+  customSqlTemplate?: string;
+  warning?: string;
+  error?: string;
+  defaultFailed?: boolean;
+};
+
+/**
+ * Fetch per-index fragmentation % for Edit Table. Tries dialect default first;
+ * pass `customSql` to retry when the default probe fails (or `preferCustom`).
+ */
+export async function fetchIndexFragmentation(
+  ref: ConnectionRef,
+  opts: {
+    table: string;
+    schema?: string;
+    customSql?: string;
+    preferCustom?: boolean;
+  }
+): Promise<IndexFragmentationResponse> {
+  const res = await fetch(`${getApiBase()}/schema/index-fragmentation`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ...ref,
+      table: opts.table,
+      schema: opts.schema,
+      customSql: opts.customSql,
+      preferCustom: opts.preferCustom,
+    }),
+  });
+  // Use parseJsonBody so failed probes still expose customSqlTemplate / support.
+  const data = await parseJsonBody<IndexFragmentationResponse & { error?: string }>(res);
+  if (!res.ok) {
+    const err = new Error(data.error || `Index fragmentation failed (${res.status})`) as Error & {
+      payload?: IndexFragmentationResponse;
+    };
+    err.payload = data;
+    throw err;
+  }
+  return data;
 }
 
 export async function checkDriver(dialect: string): Promise<DriverInfo> {

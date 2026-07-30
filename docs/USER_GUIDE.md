@@ -131,6 +131,9 @@ Tips:
   locally; result grids are not.
 - **Schema explorer** — browse objects on the left; click a name to insert it at the
   cursor. Autocomplete uses the checked connections’ schemas when available.
+  **Edit table** shows each index’s fragmentation % (dialect probe; paste custom
+  SELECT if the default fails) and a wrench to insert rebuild/reorg/optimize SQL
+  when fragmentation is elevated.
 - **Data peek** — two ways in:
   - **Schema:** hold **Cmd** (macOS) or **Ctrl** (Windows/Linux) and click a
     table, view or MQT to see its rows without writing a query.
