@@ -1357,7 +1357,11 @@ export const TableBlueprintModal: React.FC<Props> = ({
                       title={fragSupport.hint}
                     >
                       % = fragmentation · Defragment inserts rebuild/reorg SQL
-                      {fragStatus === 'loading' ? ' · loading…' : ''}
+                      {fragStatus === 'loading'
+                        ? ' · loading…'
+                        : fragMode
+                          ? ` · ${fragMode}${fragSource === 'custom' ? ' (custom)' : ''}`
+                          : ''}
                     </p>
                   )}
                 </div>
