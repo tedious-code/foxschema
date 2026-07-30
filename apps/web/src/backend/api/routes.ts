@@ -11,18 +11,14 @@ import {
   buildConnectionString,
   normalizeTableSchemas,
   getProviderSettings,
-  ConnectionFactory,
-  buildIndexFragmentationQuery,
-  buildIndexFragmentationCustomTemplate,
-  buildIndexDefragSql,
   dialectSupportsIndexFragmentation,
-  normalizeIndexFragmentationRows,
-  isSafeIndexFragmentationCustomSql,
+  buildIndexFragmentationCustomTemplate,
   type MigrationStep,
   type ConnectionOptions,
   type DbObjectType,
   type TableSchema,
 } from '@foxschema/core';
+import { probeTableFragmentation, mapPool } from './index-fragmentation';
 
 // apps/web/src/backend/api → monorepo root (npm workspaces live here)
 const WORKSPACE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../..');
@@ -394,7 +390,6 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       table?: unknown;
       schema?: unknown;
       customSql?: unknown;
-      /** When true, skip the default probe and run customSql only. */
       preferCustom?: unknown;
     };
     const table = typeof body.table === 'string' ? body.table.trim() : '';
@@ -406,153 +401,105 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     const preferCustom = body.preferCustom === true;
     try {
       const resolved = await resolveRef((req as AuthedRequest).userId, body);
-      const dialect = resolved.dialect;
       const schema =
         (typeof body.schema === 'string' && body.schema.trim()) || resolved.schema || '';
-      const support = dialectSupportsIndexFragmentation(dialect);
-      const customTemplate = buildIndexFragmentationCustomTemplate({
-        dialect,
+      const probed = await probeTableFragmentation({
+        dialect: resolved.dialect,
+        option: resolved.option,
         schema,
         table,
+        customSql,
+        preferCustom,
       });
-
-      const runProbe = async (
-        sql: string,
-        params: unknown[],
-        source: 'default' | 'custom',
-        mode: 'physical' | 'estimated' | 'unsupported'
-      ) => {
-        const raw = await ConnectionFactory.executeQuery<Record<string, unknown>>(
-          dialect,
-          resolved.option,
-          sql,
-          params
-        );
-        const rows = normalizeIndexFragmentationRows(raw);
-        const defrag: Record<string, string[]> = {};
-        for (const row of rows) {
-          const stmts = buildIndexDefragSql({
-            dialect,
-            schema,
-            table,
-            indexName: row.indexName,
-            fragmentationPercent: row.fragmentationPercent,
-          });
-          if (stmts.length) defrag[row.indexName] = stmts;
-        }
-        return {
-          rows,
-          source,
-          mode: source === 'custom' ? ('estimated' as const) : mode,
-          support,
-          defrag,
-          customSqlTemplate: customTemplate,
-        };
-      };
-
-      if (preferCustom || (!support.query && customSql)) {
-        if (!customSql) {
-          res.status(400).json({
-            error: support.query
-              ? 'customSql is required when preferCustom is set.'
-              : support.hint,
-            support,
-            customSqlTemplate: customTemplate,
-          });
-          return;
-        }
-        const safe = isSafeIndexFragmentationCustomSql(customSql);
-        if (safe !== true) {
-          res.status(400).json({ error: safe, support, customSqlTemplate: customTemplate });
-          return;
-        }
-        const result = await runProbe(customSql.replace(/;+\s*$/, ''), [], 'custom', support.mode);
-        res.json(result);
+      if (!probed.ok) {
+        const { status, ...rest } = probed.failure;
+        res.status(status).json(rest);
         return;
       }
-
-      const built = buildIndexFragmentationQuery({ dialect, schema, table });
-      if ('error' in built) {
-        if (customSql) {
-          const safe = isSafeIndexFragmentationCustomSql(customSql);
-          if (safe !== true) {
-            res.status(400).json({
-              error: `${built.error} Custom SQL rejected: ${safe}`,
-              support,
-              customSqlTemplate: customTemplate,
-            });
-            return;
-          }
-          const result = await runProbe(
-            customSql.replace(/;+\s*$/, ''),
-            [],
-            'custom',
-            support.mode
-          );
-          res.json({ ...result, warning: built.error });
-          return;
-        }
-        res.status(400).json({
-          error: built.error,
-          support,
-          customSqlTemplate: customTemplate,
-        });
-        return;
-      }
-
-      try {
-        const result = await runProbe(built.sql, built.params, 'default', built.mode);
-        res.json(result);
-      } catch (defaultErr: unknown) {
-        const defaultMessage =
-          defaultErr instanceof Error ? defaultErr.message : 'Default fragmentation query failed';
-        if (!customSql) {
-          res.status(500).json({
-            error: defaultMessage,
-            support,
-            customSqlTemplate: customTemplate,
-            defaultFailed: true,
-          });
-          return;
-        }
-        const safe = isSafeIndexFragmentationCustomSql(customSql);
-        if (safe !== true) {
-          res.status(400).json({
-            error: `Default probe failed (${defaultMessage}). Custom SQL rejected: ${safe}`,
-            support,
-            customSqlTemplate: customTemplate,
-            defaultFailed: true,
-          });
-          return;
-        }
-        try {
-          const result = await runProbe(
-            customSql.replace(/;+\s*$/, ''),
-            [],
-            'custom',
-            support.mode
-          );
-          res.json({
-            ...result,
-            warning: `Default probe failed (${defaultMessage}); used custom SQL.`,
-          });
-        } catch (customErr: unknown) {
-          const customMessage =
-            customErr instanceof Error ? customErr.message : 'Custom fragmentation query failed';
-          res.status(500).json({
-            error: `Default probe failed (${defaultMessage}). Custom SQL failed (${customMessage}).`,
-            support,
-            customSqlTemplate: customTemplate,
-            defaultFailed: true,
-          });
-        }
-      }
+      res.json(probed.value);
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : 'Failed to load index fragmentation';
       res.status(500).json({ error: message });
     }
   });
+
+  /**
+   * Batch index fragmentation for Utilities → Index Management.
+   * Probes many tables (capped) with bounded concurrency on one connection ref.
+   */
+  const indexFragBatchLimiter = rateLimit({ windowMs: 60 * 1000, max: 10 });
+  router.post(
+    '/schema/index-fragmentation-batch',
+    indexFragBatchLimiter,
+    async (req: Request, res: Response) => {
+      const body = req.body as ConnectionRef & {
+        tables?: unknown;
+        schema?: unknown;
+      };
+      const tables = Array.isArray(body.tables)
+        ? body.tables
+            .filter((t): t is string => typeof t === 'string')
+            .map((t) => t.trim())
+            .filter(Boolean)
+        : [];
+      if (tables.length === 0) {
+        res.status(400).json({ error: 'tables[] is required.' });
+        return;
+      }
+      if (tables.length > 80) {
+        res.status(400).json({ error: 'At most 80 tables per batch request.' });
+        return;
+      }
+      try {
+        const resolved = await resolveRef((req as AuthedRequest).userId, body);
+        const schema =
+          (typeof body.schema === 'string' && body.schema.trim()) || resolved.schema || '';
+        const support = dialectSupportsIndexFragmentation(resolved.dialect);
+        const results = await mapPool(tables, 3, async (table) => {
+          const probed = await probeTableFragmentation({
+            dialect: resolved.dialect,
+            option: resolved.option,
+            schema,
+            table,
+          });
+          if (!probed.ok) {
+            return {
+              table,
+              ok: false as const,
+              error: probed.failure.error,
+              rows: [],
+              defrag: {} as Record<string, string[]>,
+            };
+          }
+          return {
+            table,
+            ok: true as const,
+            rows: probed.value.rows,
+            defrag: probed.value.defrag,
+            mode: probed.value.mode,
+            source: probed.value.source,
+            warning: probed.value.warning,
+          };
+        });
+        res.json({
+          support,
+          dialect: resolved.dialect,
+          schema,
+          results,
+          customSqlTemplate: buildIndexFragmentationCustomTemplate({
+            dialect: resolved.dialect,
+            schema,
+            table: tables[0]!,
+          }),
+        });
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error ? error.message : 'Failed to load index fragmentation batch';
+        res.status(500).json({ error: message });
+      }
+    }
+  );
 
   // SQL Editor: run ad-hoc statements against ONE credential and return shaped
   // row results. The frontend fans out across selected credentials with one

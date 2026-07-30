@@ -235,6 +235,48 @@ export async function fetchIndexFragmentation(
   return data;
 }
 
+export type IndexFragmentationBatchTableResult = {
+  table: string;
+  ok: boolean;
+  error?: string;
+  rows: IndexFragmentationApiRow[];
+  defrag: Record<string, string[]>;
+  mode?: 'physical' | 'estimated' | 'unsupported';
+  source?: 'default' | 'custom';
+  warning?: string;
+};
+
+export type IndexFragmentationBatchResponse = {
+  dialect: string;
+  schema: string;
+  support?: IndexFragmentationResponse['support'];
+  results: IndexFragmentationBatchTableResult[];
+  customSqlTemplate?: string;
+  error?: string;
+};
+
+/** Batch probe for Utilities → Index Management (up to 80 tables). */
+export async function fetchIndexFragmentationBatch(
+  ref: ConnectionRef,
+  opts: { tables: string[]; schema?: string }
+): Promise<IndexFragmentationBatchResponse> {
+  const res = await fetch(`${getApiBase()}/schema/index-fragmentation-batch`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ...ref,
+      tables: opts.tables,
+      schema: opts.schema,
+    }),
+  });
+  const data = await parseJsonBody<IndexFragmentationBatchResponse & { error?: string }>(res);
+  if (!res.ok) {
+    throw new Error(data.error || `Index fragmentation batch failed (${res.status})`);
+  }
+  return data;
+}
+
 export async function checkDriver(dialect: string): Promise<DriverInfo> {
   // Driver-installed status rarely changes — cache for 30s, dedupe concurrent checks
   return idempotent(

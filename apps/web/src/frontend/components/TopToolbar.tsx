@@ -1,13 +1,14 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSyncStore } from '../store/useSyncStore';
 import { useUiStore } from '../store/uiStore';
-import { ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, CheckCircle2, Zap, Settings, KeyRound, History, Search, X, Layers, GitCompareArrows, Terminal } from 'lucide-react';
+import { ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, CheckCircle2, Zap, Settings, KeyRound, History, Search, X, Layers, GitCompareArrows, Terminal, Wrench, Database } from 'lucide-react';
 import { Brand } from './Brand';
 // Support both default and named exports (avoids blank-page Vite/HMR mismatches).
 import ProfileMenuDefault, { ProfileMenu as ProfileMenuNamed } from './ProfileMenu';
 import { CredentialManager } from './CredentialManager';
 import { MigrationHistory } from './MigrationHistory';
+import { IndexManagementModal } from './utilities/IndexManagementModal';
 import { TYPE_META, TYPE_ORDER } from './SchemaTreePanel';
 import type { DbObjectType } from '../lib/types';
 import { PROVIDER_SETTINGS } from '../lib/provider-settings';
@@ -53,7 +54,19 @@ export const TopToolbar: React.FC = () => {
   const [activeModalTarget, setActiveModalTarget] = useState<'source' | 'target' | null>(null);
   const [showCredentials, setShowCredentials] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showUtilities, setShowUtilities] = useState(false);
+  const [showIndexManagement, setShowIndexManagement] = useState(false);
+  const utilitiesRef = useRef<HTMLDivElement>(null);
   const { activeView, setActiveView } = useUiStore();
+
+  useEffect(() => {
+    if (!showUtilities) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!utilitiesRef.current?.contains(e.target as Node)) setShowUtilities(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [showUtilities]);
 
   // A saved connection created without a stored password ("Save password" left
   // unticked) has no password to apply automatically — selecting it from either
@@ -145,6 +158,34 @@ export const TopToolbar: React.FC = () => {
           >
             <History className="w-4 h-4" /> History
           </button>
+          <div className="relative" ref={utilitiesRef}>
+            <button
+              data-testid="utilities-btn"
+              onClick={() => setShowUtilities((v) => !v)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-base font-semibold text-amber-300/90 hover:text-amber-200 border border-slate-700 hover:border-amber-500/40 rounded-md transition cursor-pointer"
+            >
+              <Wrench className="w-4 h-4" /> Utilities
+            </button>
+            {showUtilities && (
+              <div
+                data-testid="utilities-menu"
+                className="absolute right-0 mt-1.5 w-56 rounded-lg border border-slate-700 bg-slate-900 shadow-xl z-50 py-1"
+              >
+                <button
+                  type="button"
+                  data-testid="utilities-index-management"
+                  onClick={() => {
+                    setShowUtilities(false);
+                    setShowIndexManagement(true);
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800 text-left"
+                >
+                  <Database className="w-4 h-4 text-amber-400" />
+                  Index Management
+                </button>
+              </div>
+            )}
+          </div>
           {compareResult && activeView === 'sync' && (
             <button
               onClick={resetSync}
@@ -481,6 +522,11 @@ export const TopToolbar: React.FC = () => {
       <CredentialManager open={showCredentials} onClose={() => setShowCredentials(false)} />
 
       <MigrationHistory open={showHistory} onClose={() => setShowHistory(false)} />
+
+      <IndexManagementModal
+        open={showIndexManagement}
+        onClose={() => setShowIndexManagement(false)}
+      />
 
       {pendingPassword && createPortal(
         <div
