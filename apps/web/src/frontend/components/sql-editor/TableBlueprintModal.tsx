@@ -70,6 +70,7 @@ import { SQL_ICON_STROKE } from './sqlIconStyle';
 import { TYPE_META } from '../SchemaTreePanel';
 import { useSyncStore } from '../../store/useSyncStore';
 import {
+  buildIndexDefragSql,
   buildIndexFragmentationCustomTemplate,
   dialectSupportsIndexFragmentation,
   fragmentationSeverity,
@@ -1282,26 +1283,33 @@ export const TableBlueprintModal: React.FC<Props> = ({
             {/* Indexes */}
             <section data-testid="blueprint-indexes">
               <div className="flex items-center justify-between gap-2 mb-2.5">
-                <h3 className="text-xs font-bold text-sky-300/90 uppercase tracking-wider flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 bg-sky-400 rounded-full shadow-[0_0_8px_rgba(56,189,248,0.55)]" />
-                  Indexes
-                  <span className="text-sky-400/50 font-mono normal-case">
-                    ({existingIndexes.length + pendingIndexes.length})
-                  </span>
+                <div className="min-w-0">
+                  <h3 className="text-xs font-bold text-sky-300/90 uppercase tracking-wider flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 bg-sky-400 rounded-full shadow-[0_0_8px_rgba(56,189,248,0.55)]" />
+                    Indexes
+                    <span className="text-sky-400/50 font-mono normal-case">
+                      ({existingIndexes.length + pendingIndexes.length})
+                    </span>
+                  </h3>
                   {mode === 'edit' && existingIndexes.length > 0 && (
-                    <span
-                      className="text-[10px] font-semibold normal-case tracking-normal text-slate-500"
+                    <p
+                      className="mt-1 text-[11px] text-slate-400"
+                      data-testid="blueprint-frag-legend"
                       title={fragSupport.hint}
                     >
+                      Fragmentation % and Defragment actions appear on each index below
                       {fragStatus === 'loading'
-                        ? '· frag…'
+                        ? ' — loading…'
                         : fragMode
-                          ? `· frag ${fragMode}${fragSource === 'custom' ? ' (custom)' : ''}`
-                          : ''}
-                    </span>
+                          ? ` — ${fragMode}${fragSource === 'custom' ? ' (custom SQL)' : ''} probe`
+                          : fragStatus === 'error' || fragStatus === 'unsupported'
+                            ? ' — probe needs custom SQL'
+                            : ''}
+                      . {'<10%'} ok · 10–30% reorganize · ≥30% rebuild.
+                    </p>
                   )}
-                </h3>
-                <div className="flex items-center gap-1.5">
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
                   {mode === 'edit' && existingIndexes.length > 0 && (
                     <button
                       type="button"
@@ -1309,14 +1317,14 @@ export const TableBlueprintModal: React.FC<Props> = ({
                       title="Refresh index fragmentation"
                       onClick={() => void loadIndexFragmentation()}
                       disabled={fragStatus === 'loading'}
-                      className="flex items-center gap-1 text-[11px] font-bold text-slate-300 hover:text-sky-100 px-2 py-1 rounded-lg border border-slate-600/50 bg-slate-900/40 disabled:opacity-50"
+                      className="flex items-center gap-1 text-[11px] font-bold text-slate-200 hover:text-white px-2.5 py-1 rounded-lg border border-amber-400/40 bg-amber-500/15 disabled:opacity-50"
                     >
                       {fragStatus === 'loading' ? (
                         <Loader2 className="w-3.5 h-3.5 animate-spin" strokeWidth={SQL_ICON_STROKE} />
                       ) : (
                         <RefreshCw className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
                       )}
-                      Frag
+                      Refresh fragmentation
                     </button>
                   )}
                   {!indexFormOpen && indexSupport.create && (
@@ -1405,12 +1413,30 @@ export const TableBlueprintModal: React.FC<Props> = ({
                   </p>
                 ) : (
                   <ul className="divide-y divide-slate-800/80">
+                    {mode === 'edit' && existingIndexes.length > 0 && (
+                      <li className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500 flex items-center gap-2 bg-slate-950/40">
+                        <span className="min-w-0 flex-1">Index</span>
+                        <span className="w-[7.5rem] text-right shrink-0">Fragmentation</span>
+                        <span className="w-[6.5rem] text-right shrink-0">Defragment</span>
+                        <span className="w-14 shrink-0" />
+                      </li>
+                    )}
                     {existingIndexes.map((idx: IndexInfo) => {
                       const frag =
                         fragRows[idx.name] ?? fragRows[idx.name.toLowerCase()];
                       const severity = fragmentationSeverity(frag?.fragmentationPercent);
                       const defragSql =
-                        fragDefrag[idx.name] ?? fragDefrag[idx.name.toLowerCase()] ?? [];
+                        fragDefrag[idx.name] ??
+                        fragDefrag[idx.name.toLowerCase()] ??
+                        buildIndexDefragSql({
+                          dialect,
+                          schema: connectionSchema,
+                          table: tableName,
+                          indexName: idx.name,
+                          fragmentationPercent: frag?.fragmentationPercent,
+                        });
+                      const needsDefrag =
+                        severity === 'warn' || severity === 'critical';
                       return (
                       <li
                         key={idx.name}
@@ -1430,21 +1456,6 @@ export const TableBlueprintModal: React.FC<Props> = ({
                               constraint
                             </span>
                           ) : null}
-                          {mode === 'edit' && fragStatus !== 'idle' && (
-                            <span
-                              data-testid={`blueprint-index-frag-${idx.name}`}
-                              title={
-                                frag?.pageCount != null
-                                  ? `${fragSupport.hint} · ${frag.pageCount} pages`
-                                  : fragSupport.hint
-                              }
-                              className={`ml-1.5 inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-bold tabular-nums ${fragBadgeClass(severity)}`}
-                            >
-                              {fragStatus === 'loading' && !frag
-                                ? '…'
-                                : `frag ${formatFragPct(frag?.fragmentationPercent)}`}
-                            </span>
-                          )}
                           <div className="font-mono text-slate-400 mt-0.5">
                             ({idx.columns.join(', ')})
                             {idx.filter?.trim() ? (
@@ -1453,45 +1464,85 @@ export const TableBlueprintModal: React.FC<Props> = ({
                           </div>
                         </div>
                         {mode === 'edit' && (
-                          <div className="flex items-center gap-0.5 shrink-0">
-                            {defragSql.length > 0 &&
-                              (severity === 'warn' || severity === 'critical') && (
+                          <>
+                            <div
+                              data-testid={`blueprint-index-frag-${idx.name}`}
+                              title={
+                                frag?.pageCount != null
+                                  ? `${fragSupport.hint} · ${frag.pageCount} pages`
+                                  : fragSupport.hint
+                              }
+                              className={`w-[7.5rem] shrink-0 text-right rounded-md border px-2 py-1.5 ${fragBadgeClass(severity)}`}
+                            >
+                              <div className="text-[9px] font-bold uppercase tracking-wide opacity-80">
+                                Fragmentation
+                              </div>
+                              <div className="text-[13px] font-bold tabular-nums leading-tight">
+                                {fragStatus === 'loading' && !frag
+                                  ? '…'
+                                  : formatFragPct(frag?.fragmentationPercent)}
+                              </div>
+                            </div>
+                            <div className="w-[6.5rem] shrink-0 flex justify-end">
+                              {defragSql.length > 0 ? (
                                 <button
                                   type="button"
-                                  title="Insert defragment / rebuild SQL into the editor"
+                                  title={defragSql.join('\n')}
                                   data-testid={`blueprint-index-defrag-${idx.name}`}
                                   onClick={() => {
                                     insertAtCursor(defragSql.join('\n') + '\n');
-                                    setToast('Defrag SQL inserted into editor');
+                                    setToast('Defragment SQL inserted into editor');
                                     setTimeout(() => setToast(null), 2000);
                                   }}
-                                  className="p-1 text-amber-400/80 hover:text-amber-200"
+                                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-1.5 text-[11px] font-bold ${
+                                    needsDefrag
+                                      ? 'border-amber-400/50 bg-amber-500/20 text-amber-100 hover:bg-amber-500/30'
+                                      : 'border-slate-600/60 bg-slate-900/50 text-slate-300 hover:text-white hover:border-slate-500'
+                                  }`}
                                 >
                                   <Wrench className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+                                  Defragment
+                                </button>
+                              ) : (
+                                <span className="text-[10px] text-slate-600 self-center">—</span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-0.5 shrink-0 w-14 justify-end">
+                              {indexSupport.create && (
+                                <button
+                                  type="button"
+                                  title="Edit index"
+                                  onClick={() => openEditExistingIndex(idx)}
+                                  className="p-1 text-slate-500 hover:text-sky-300"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
                                 </button>
                               )}
-                            {indexSupport.create && (
-                              <button
-                                type="button"
-                                title="Edit index"
-                                onClick={() => openEditExistingIndex(idx)}
-                                className="p-1 text-slate-500 hover:text-sky-300"
-                              >
-                                <Pencil className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
-                              </button>
-                            )}
-                            {indexSupport.drop && (
-                              <button
-                                type="button"
-                                title="Drop index"
-                                onClick={() =>
-                                  setDroppedIndexNames((s) => new Set(s).add(idx.name))
-                                }
-                                className="p-1 text-slate-500 hover:text-rose-400"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
-                              </button>
-                            )}
+                              {indexSupport.drop && (
+                                <button
+                                  type="button"
+                                  title="Drop index"
+                                  onClick={() =>
+                                    setDroppedIndexNames((s) => new Set(s).add(idx.name))
+                                  }
+                                  className="p-1 text-slate-500 hover:text-rose-400"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+                                </button>
+                              )}
+                            </div>
+                          </>
+                        )}
+                        {mode !== 'edit' && indexSupport.create && (
+                          <div className="flex items-center gap-0.5 shrink-0">
+                            <button
+                              type="button"
+                              title="Edit index"
+                              onClick={() => openEditExistingIndex(idx)}
+                              className="p-1 text-slate-500 hover:text-sky-300"
+                            >
+                              <Pencil className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+                            </button>
                           </div>
                         )}
                       </li>
