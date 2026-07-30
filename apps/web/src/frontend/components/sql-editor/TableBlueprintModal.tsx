@@ -1416,7 +1416,7 @@ export const TableBlueprintModal: React.FC<Props> = ({
                     {mode === 'edit' && existingIndexes.length > 0 && (
                       <li className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500 flex items-center gap-2 bg-slate-950/40">
                         <span className="min-w-0 flex-1">Index</span>
-                        <span className="w-[7.5rem] text-right shrink-0">Fragmentation</span>
+                        <span className="w-[4.5rem] text-right shrink-0">%</span>
                         <span className="w-[6.5rem] text-right shrink-0">Defragment</span>
                         <span className="w-14 shrink-0" />
                       </li>
@@ -1469,19 +1469,14 @@ export const TableBlueprintModal: React.FC<Props> = ({
                               data-testid={`blueprint-index-frag-${idx.name}`}
                               title={
                                 frag?.pageCount != null
-                                  ? `${fragSupport.hint} · ${frag.pageCount} pages`
-                                  : fragSupport.hint
+                                  ? `Fragmentation · ${fragSupport.hint} · ${frag.pageCount} pages`
+                                  : `Fragmentation · ${fragSupport.hint}`
                               }
-                              className={`w-[7.5rem] shrink-0 text-right rounded-md border px-2 py-1.5 ${fragBadgeClass(severity)}`}
+                              className={`w-[4.5rem] shrink-0 text-right rounded-md border px-2 py-1.5 text-[13px] font-bold tabular-nums leading-none ${fragBadgeClass(severity)}`}
                             >
-                              <div className="text-[9px] font-bold uppercase tracking-wide opacity-80">
-                                Fragmentation
-                              </div>
-                              <div className="text-[13px] font-bold tabular-nums leading-tight">
-                                {fragStatus === 'loading' && !frag
-                                  ? '…'
-                                  : formatFragPct(frag?.fragmentationPercent)}
-                              </div>
+                              {fragStatus === 'loading' && !frag
+                                ? '…'
+                                : formatFragPct(frag?.fragmentationPercent)}
                             </div>
                             <div className="w-[6.5rem] shrink-0 flex justify-end">
                               {defragSql.length > 0 ? (
