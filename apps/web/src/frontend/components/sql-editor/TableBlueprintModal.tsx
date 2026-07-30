@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ArrowDown,
@@ -12,11 +12,18 @@ import {
   Pencil,
   Play,
   Plus,
+  RefreshCw,
   Trash2,
+  Wrench,
   X,
 } from 'lucide-react';
 import type { ColumnInfo, TableSchema } from '../../lib/types';
 import { executeSql } from '../../api/sqlApi';
+import {
+  fetchIndexFragmentation,
+  type IndexFragmentationApiRow,
+  type IndexFragmentationResponse,
+} from '../../api/schemaApi';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
 import { insertAtCursor } from './sqlEditorBridge';
 import { WriteConfirmDialog } from './WriteConfirmDialog';
@@ -62,6 +69,23 @@ import type { ForeignKeyInfo, IndexInfo, TriggerInfo } from '../../lib/types';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
 import { TYPE_META } from '../SchemaTreePanel';
 import { useSyncStore } from '../../store/useSyncStore';
+import {
+  buildIndexFragmentationCustomTemplate,
+  dialectSupportsIndexFragmentation,
+  fragmentationSeverity,
+} from '@foxschema/core';
+
+function fragBadgeClass(severity: ReturnType<typeof fragmentationSeverity>): string {
+  if (severity === 'ok') return 'text-emerald-300/90 border-emerald-500/40 bg-emerald-950/40';
+  if (severity === 'warn') return 'text-amber-200 border-amber-500/40 bg-amber-950/40';
+  if (severity === 'critical') return 'text-rose-200 border-rose-500/45 bg-rose-950/45';
+  return 'text-slate-400 border-slate-600/50 bg-slate-900/50';
+}
+
+function formatFragPct(pct: number | null | undefined): string {
+  if (pct == null || !Number.isFinite(pct)) return 'n/a';
+  return `${pct < 10 ? pct.toFixed(1) : Math.round(pct)}%`;
+}
 
 export type BlueprintMode = 'edit' | 'create';
 
@@ -252,6 +276,40 @@ export const TableBlueprintModal: React.FC<Props> = ({
     emptyTriggerDraft(dialect)
   );
 
+  const [fragStatus, setFragStatus] = useState<
+    'idle' | 'loading' | 'ready' | 'error' | 'unsupported'
+  >('idle');
+  const [fragRows, setFragRows] = useState<Record<string, IndexFragmentationApiRow>>({});
+  const [fragDefrag, setFragDefrag] = useState<Record<string, string[]>>({});
+  const [fragError, setFragError] = useState<string | null>(null);
+  const [fragWarning, setFragWarning] = useState<string | null>(null);
+  const [fragSource, setFragSource] = useState<'default' | 'custom' | null>(null);
+  const [fragMode, setFragMode] = useState<string | null>(null);
+  const [showCustomFrag, setShowCustomFrag] = useState(false);
+  const [customFragSql, setCustomFragSql] = useState('');
+  const [customFragTemplate, setCustomFragTemplate] = useState('');
+
+  const fragSupport = useMemo(
+    () => dialectSupportsIndexFragmentation(dialect),
+    [dialect]
+  );
+
+  const applyFragResponse = useCallback((data: IndexFragmentationResponse) => {
+    const map: Record<string, IndexFragmentationApiRow> = {};
+    for (const row of data.rows ?? []) {
+      map[row.indexName] = row;
+      map[row.indexName.toLowerCase()] = row;
+    }
+    setFragRows(map);
+    setFragDefrag(data.defrag ?? {});
+    setFragSource(data.source);
+    setFragMode(data.mode);
+    setFragWarning(data.warning ?? null);
+    if (data.customSqlTemplate) setCustomFragTemplate(data.customSqlTemplate);
+    setFragStatus('ready');
+    setFragError(null);
+  }, []);
+
   useEffect(() => {
     if (mode === 'create') {
       setCreateName('');
@@ -264,6 +322,13 @@ export const TableBlueprintModal: React.FC<Props> = ({
       setEditForm(null);
       setAdding(false);
       setError(null);
+      setFragStatus('idle');
+      setFragRows({});
+      setFragDefrag({});
+      setFragError(null);
+      setFragWarning(null);
+      setShowCustomFrag(false);
+      setCustomFragSql('');
       return;
     }
     if (!liveTable) return;
@@ -294,10 +359,86 @@ export const TableBlueprintModal: React.FC<Props> = ({
     setDroppedTriggerNames(new Set());
     setAddingTrigger(false);
     setTriggerForm(emptyTriggerDraft(dialect));
+    setFragStatus('idle');
+    setFragRows({});
+    setFragDefrag({});
+    setFragError(null);
+    setFragWarning(null);
+    setShowCustomFrag(false);
+    setCustomFragSql('');
   }, [mode, liveTable, dialect]);
 
   const tableName = mode === 'create' ? createName.trim() : (liveTable?.name ?? '');
   const activeColumns = draft.filter((c) => !dropped.has(c.name));
+
+  const loadIndexFragmentation = useCallback(
+    async (opts?: { customSql?: string; preferCustom?: boolean }) => {
+      if (mode !== 'edit' || !tableName) return;
+      setFragStatus('loading');
+      setFragError(null);
+      try {
+        const data = await fetchIndexFragmentation(
+          {
+            connectionId,
+            password: sessionPasswords[connectionId] || undefined,
+            schema: connectionSchema || undefined,
+          },
+          {
+            table: tableName,
+            schema: connectionSchema || undefined,
+            customSql: opts?.customSql,
+            preferCustom: opts?.preferCustom,
+          }
+        );
+        applyFragResponse(data);
+      } catch (err: unknown) {
+        const payload =
+          err && typeof err === 'object' && 'payload' in err
+            ? (err as { payload?: IndexFragmentationResponse }).payload
+            : undefined;
+        const message = err instanceof Error ? err.message : String(err);
+        const template =
+          payload?.customSqlTemplate ||
+          buildIndexFragmentationCustomTemplate({
+            dialect,
+            schema: connectionSchema,
+            table: tableName,
+          });
+        setCustomFragTemplate(template);
+        if (!fragSupport.query && !opts?.customSql) {
+          setFragStatus('unsupported');
+          setFragError(payload?.support?.hint || fragSupport.hint || message);
+          setShowCustomFrag(true);
+          setCustomFragSql((prev) => prev || template);
+          return;
+        }
+        setFragStatus('error');
+        setFragError(message);
+        setShowCustomFrag(true);
+        setCustomFragSql((prev) => prev || template);
+      }
+    },
+    [
+      mode,
+      tableName,
+      connectionId,
+      sessionPasswords,
+      connectionSchema,
+      applyFragResponse,
+      dialect,
+      fragSupport.query,
+      fragSupport.hint,
+    ]
+  );
+
+  useEffect(() => {
+    if (mode !== 'edit' || !tableName) return;
+    if (!(liveTable?.indices?.length)) {
+      setFragStatus('idle');
+      return;
+    }
+    void loadIndexFragmentation();
+  }, [mode, tableName, liveTable?.indices?.length, liveTable?.name, loadIndexFragmentation]);
 
   // The table being edited stays in the list: self-referencing FKs
   // (employees.manager_id → employees.id) are ordinary, and excluding it left
@@ -1147,18 +1288,110 @@ export const TableBlueprintModal: React.FC<Props> = ({
                   <span className="text-sky-400/50 font-mono normal-case">
                     ({existingIndexes.length + pendingIndexes.length})
                   </span>
+                  {mode === 'edit' && existingIndexes.length > 0 && (
+                    <span
+                      className="text-[10px] font-semibold normal-case tracking-normal text-slate-500"
+                      title={fragSupport.hint}
+                    >
+                      {fragStatus === 'loading'
+                        ? '· frag…'
+                        : fragMode
+                          ? `· frag ${fragMode}${fragSource === 'custom' ? ' (custom)' : ''}`
+                          : ''}
+                    </span>
+                  )}
                 </h3>
-                {!indexFormOpen && indexSupport.create && (
+                <div className="flex items-center gap-1.5">
+                  {mode === 'edit' && existingIndexes.length > 0 && (
+                    <button
+                      type="button"
+                      data-testid="blueprint-refresh-frag"
+                      title="Refresh index fragmentation"
+                      onClick={() => void loadIndexFragmentation()}
+                      disabled={fragStatus === 'loading'}
+                      className="flex items-center gap-1 text-[11px] font-bold text-slate-300 hover:text-sky-100 px-2 py-1 rounded-lg border border-slate-600/50 bg-slate-900/40 disabled:opacity-50"
+                    >
+                      {fragStatus === 'loading' ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" strokeWidth={SQL_ICON_STROKE} />
+                      ) : (
+                        <RefreshCw className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+                      )}
+                      Frag
+                    </button>
+                  )}
+                  {!indexFormOpen && indexSupport.create && (
+                    <button
+                      type="button"
+                      data-testid="blueprint-add-index"
+                      onClick={openAddIndex}
+                      className="flex items-center gap-1 text-[11px] font-bold text-sky-200 hover:text-sky-100 px-2.5 py-1 rounded-lg border border-sky-400/35 bg-sky-500/15"
+                    >
+                      <Plus className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} /> Add index
+                    </button>
+                  )}
+                </div>
+              </div>
+              {mode === 'edit' && (fragError || fragWarning || showCustomFrag) && (
+                <div
+                  className="mb-2 rounded-lg border border-amber-500/30 bg-amber-950/25 px-2.5 py-2 text-[11px] text-amber-100/90 space-y-1.5"
+                  data-testid="blueprint-frag-custom"
+                >
+                  {fragError ? <p className="text-rose-200/90">{fragError}</p> : null}
+                  {fragWarning ? <p>{fragWarning}</p> : null}
+                  <p className="text-slate-400">
+                    Default probe failed or unsupported — paste a SELECT that returns{' '}
+                    <span className="font-mono text-slate-300">index_name</span>,{' '}
+                    <span className="font-mono text-slate-300">fragmentation_percent</span>
+                    {fragSupport.customSqlHint ? `. ${fragSupport.customSqlHint}` : '.'}
+                  </p>
                   <button
                     type="button"
-                    data-testid="blueprint-add-index"
-                    onClick={openAddIndex}
-                    className="flex items-center gap-1 text-[11px] font-bold text-sky-200 hover:text-sky-100 px-2.5 py-1 rounded-lg border border-sky-400/35 bg-sky-500/15"
+                    className="text-[11px] font-bold text-sky-300 hover:text-sky-200"
+                    onClick={() => {
+                      setShowCustomFrag((v) => !v);
+                      if (!customFragSql) {
+                        setCustomFragSql(
+                          customFragTemplate ||
+                            buildIndexFragmentationCustomTemplate({
+                              dialect,
+                              schema: connectionSchema,
+                              table: tableName,
+                            })
+                        );
+                      }
+                    }}
                   >
-                    <Plus className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} /> Add index
+                    {showCustomFrag ? 'Hide custom SQL' : 'Use custom SQL'}
                   </button>
-                )}
-              </div>
+                  {showCustomFrag && (
+                    <div className="space-y-1.5">
+                      <textarea
+                        data-testid="blueprint-frag-custom-sql"
+                        value={customFragSql}
+                        onChange={(e) => setCustomFragSql(e.target.value)}
+                        rows={6}
+                        className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 font-mono text-[11px] text-slate-200 outline-none focus:border-sky-600"
+                        spellCheck={false}
+                      />
+                      <button
+                        type="button"
+                        data-testid="blueprint-frag-run-custom"
+                        disabled={fragStatus === 'loading' || !customFragSql.trim()}
+                        onClick={() =>
+                          void loadIndexFragmentation({
+                            customSql: customFragSql,
+                            preferCustom: true,
+                          })
+                        }
+                        className="inline-flex items-center gap-1 rounded-md border border-sky-500/40 bg-sky-500/15 px-2 py-1 text-[11px] font-bold text-sky-100 hover:bg-sky-500/25 disabled:opacity-50"
+                      >
+                        <Play className="w-3 h-3" strokeWidth={SQL_ICON_STROKE} />
+                        Run custom probe
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="bg-sky-950/20 border border-sky-400/25 rounded-xl overflow-hidden">
                 {existingIndexes.length === 0 &&
                 pendingIndexes.length === 0 &&
@@ -1172,10 +1405,17 @@ export const TableBlueprintModal: React.FC<Props> = ({
                   </p>
                 ) : (
                   <ul className="divide-y divide-slate-800/80">
-                    {existingIndexes.map((idx: IndexInfo) => (
+                    {existingIndexes.map((idx: IndexInfo) => {
+                      const frag =
+                        fragRows[idx.name] ?? fragRows[idx.name.toLowerCase()];
+                      const severity = fragmentationSeverity(frag?.fragmentationPercent);
+                      const defragSql =
+                        fragDefrag[idx.name] ?? fragDefrag[idx.name.toLowerCase()] ?? [];
+                      return (
                       <li
                         key={idx.name}
                         className="px-3 py-2.5 text-[12.5px] flex items-start gap-2"
+                        data-testid={`blueprint-index-row-${idx.name}`}
                       >
                         <div className="min-w-0 flex-1">
                           <span className="font-mono font-semibold text-slate-200">
@@ -1190,6 +1430,21 @@ export const TableBlueprintModal: React.FC<Props> = ({
                               constraint
                             </span>
                           ) : null}
+                          {mode === 'edit' && fragStatus !== 'idle' && (
+                            <span
+                              data-testid={`blueprint-index-frag-${idx.name}`}
+                              title={
+                                frag?.pageCount != null
+                                  ? `${fragSupport.hint} · ${frag.pageCount} pages`
+                                  : fragSupport.hint
+                              }
+                              className={`ml-1.5 inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-bold tabular-nums ${fragBadgeClass(severity)}`}
+                            >
+                              {fragStatus === 'loading' && !frag
+                                ? '…'
+                                : `frag ${formatFragPct(frag?.fragmentationPercent)}`}
+                            </span>
+                          )}
                           <div className="font-mono text-slate-400 mt-0.5">
                             ({idx.columns.join(', ')})
                             {idx.filter?.trim() ? (
@@ -1199,6 +1454,22 @@ export const TableBlueprintModal: React.FC<Props> = ({
                         </div>
                         {mode === 'edit' && (
                           <div className="flex items-center gap-0.5 shrink-0">
+                            {defragSql.length > 0 &&
+                              (severity === 'warn' || severity === 'critical') && (
+                                <button
+                                  type="button"
+                                  title="Insert defragment / rebuild SQL into the editor"
+                                  data-testid={`blueprint-index-defrag-${idx.name}`}
+                                  onClick={() => {
+                                    insertAtCursor(defragSql.join('\n') + '\n');
+                                    setToast('Defrag SQL inserted into editor');
+                                    setTimeout(() => setToast(null), 2000);
+                                  }}
+                                  className="p-1 text-amber-400/80 hover:text-amber-200"
+                                >
+                                  <Wrench className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+                                </button>
+                              )}
                             {indexSupport.create && (
                               <button
                                 type="button"
@@ -1224,7 +1495,8 @@ export const TableBlueprintModal: React.FC<Props> = ({
                           </div>
                         )}
                       </li>
-                    ))}
+                      );
+                    })}
                     {[...droppedIndexNames].map((n) => (
                       <li
                         key={`drop-idx-${n}`}

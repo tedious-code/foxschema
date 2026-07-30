@@ -11,6 +11,13 @@ import {
   buildConnectionString,
   normalizeTableSchemas,
   getProviderSettings,
+  ConnectionFactory,
+  buildIndexFragmentationQuery,
+  buildIndexFragmentationCustomTemplate,
+  buildIndexDefragSql,
+  dialectSupportsIndexFragmentation,
+  normalizeIndexFragmentationRows,
+  isSafeIndexFragmentationCustomSql,
   type MigrationStep,
   type ConnectionOptions,
   type DbObjectType,
@@ -372,6 +379,177 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       res.json(warnings.length ? { tables, warnings } : { tables });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Failed to load schema';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * Index fragmentation % for Edit Table (DBA guidance).
+   * Tries the dialect default probe first; on failure accepts `customSql`
+   * (single SELECT returning index_name + fragmentation_percent).
+   */
+  const indexFragLimiter = rateLimit({ windowMs: 60 * 1000, max: 30 });
+  router.post('/schema/index-fragmentation', indexFragLimiter, async (req: Request, res: Response) => {
+    const body = req.body as ConnectionRef & {
+      table?: unknown;
+      schema?: unknown;
+      customSql?: unknown;
+      /** When true, skip the default probe and run customSql only. */
+      preferCustom?: unknown;
+    };
+    const table = typeof body.table === 'string' ? body.table.trim() : '';
+    if (!table) {
+      res.status(400).json({ error: 'table is required.' });
+      return;
+    }
+    const customSql = typeof body.customSql === 'string' ? body.customSql.trim() : '';
+    const preferCustom = body.preferCustom === true;
+    try {
+      const resolved = await resolveRef((req as AuthedRequest).userId, body);
+      const dialect = resolved.dialect;
+      const schema =
+        (typeof body.schema === 'string' && body.schema.trim()) || resolved.schema || '';
+      const support = dialectSupportsIndexFragmentation(dialect);
+      const customTemplate = buildIndexFragmentationCustomTemplate({
+        dialect,
+        schema,
+        table,
+      });
+
+      const runProbe = async (
+        sql: string,
+        params: unknown[],
+        source: 'default' | 'custom',
+        mode: 'physical' | 'estimated' | 'unsupported'
+      ) => {
+        const raw = await ConnectionFactory.executeQuery<Record<string, unknown>>(
+          dialect,
+          resolved.option,
+          sql,
+          params
+        );
+        const rows = normalizeIndexFragmentationRows(raw);
+        const defrag: Record<string, string[]> = {};
+        for (const row of rows) {
+          const stmts = buildIndexDefragSql({
+            dialect,
+            schema,
+            table,
+            indexName: row.indexName,
+            fragmentationPercent: row.fragmentationPercent,
+          });
+          if (stmts.length) defrag[row.indexName] = stmts;
+        }
+        return {
+          rows,
+          source,
+          mode: source === 'custom' ? ('estimated' as const) : mode,
+          support,
+          defrag,
+          customSqlTemplate: customTemplate,
+        };
+      };
+
+      if (preferCustom || (!support.query && customSql)) {
+        if (!customSql) {
+          res.status(400).json({
+            error: support.query
+              ? 'customSql is required when preferCustom is set.'
+              : support.hint,
+            support,
+            customSqlTemplate: customTemplate,
+          });
+          return;
+        }
+        const safe = isSafeIndexFragmentationCustomSql(customSql);
+        if (safe !== true) {
+          res.status(400).json({ error: safe, support, customSqlTemplate: customTemplate });
+          return;
+        }
+        const result = await runProbe(customSql.replace(/;+\s*$/, ''), [], 'custom', support.mode);
+        res.json(result);
+        return;
+      }
+
+      const built = buildIndexFragmentationQuery({ dialect, schema, table });
+      if ('error' in built) {
+        if (customSql) {
+          const safe = isSafeIndexFragmentationCustomSql(customSql);
+          if (safe !== true) {
+            res.status(400).json({
+              error: `${built.error} Custom SQL rejected: ${safe}`,
+              support,
+              customSqlTemplate: customTemplate,
+            });
+            return;
+          }
+          const result = await runProbe(
+            customSql.replace(/;+\s*$/, ''),
+            [],
+            'custom',
+            support.mode
+          );
+          res.json({ ...result, warning: built.error });
+          return;
+        }
+        res.status(400).json({
+          error: built.error,
+          support,
+          customSqlTemplate: customTemplate,
+        });
+        return;
+      }
+
+      try {
+        const result = await runProbe(built.sql, built.params, 'default', built.mode);
+        res.json(result);
+      } catch (defaultErr: unknown) {
+        const defaultMessage =
+          defaultErr instanceof Error ? defaultErr.message : 'Default fragmentation query failed';
+        if (!customSql) {
+          res.status(500).json({
+            error: defaultMessage,
+            support,
+            customSqlTemplate: customTemplate,
+            defaultFailed: true,
+          });
+          return;
+        }
+        const safe = isSafeIndexFragmentationCustomSql(customSql);
+        if (safe !== true) {
+          res.status(400).json({
+            error: `Default probe failed (${defaultMessage}). Custom SQL rejected: ${safe}`,
+            support,
+            customSqlTemplate: customTemplate,
+            defaultFailed: true,
+          });
+          return;
+        }
+        try {
+          const result = await runProbe(
+            customSql.replace(/;+\s*$/, ''),
+            [],
+            'custom',
+            support.mode
+          );
+          res.json({
+            ...result,
+            warning: `Default probe failed (${defaultMessage}); used custom SQL.`,
+          });
+        } catch (customErr: unknown) {
+          const customMessage =
+            customErr instanceof Error ? customErr.message : 'Custom fragmentation query failed';
+          res.status(500).json({
+            error: `Default probe failed (${defaultMessage}). Custom SQL failed (${customMessage}).`,
+            support,
+            customSqlTemplate: customTemplate,
+            defaultFailed: true,
+          });
+        }
+      }
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to load index fragmentation';
       res.status(500).json({ error: message });
     }
   });
