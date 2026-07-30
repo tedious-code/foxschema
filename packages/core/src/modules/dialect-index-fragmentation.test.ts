@@ -146,6 +146,18 @@ describe('custom SQL safety', () => {
     ).toMatch(/single statement/i);
   });
 
+  it('rejects data-modifying CTEs that still end in SELECT', () => {
+    expect(
+      isSafeIndexFragmentationCustomSql(
+        `WITH wiped AS (
+          DELETE FROM orders
+          RETURNING 'idx'::text AS index_name, 0::float AS fragmentation_percent
+        )
+        SELECT * FROM wiped`
+      )
+    ).toMatch(/read-only/i);
+  });
+
   it('builds a non-empty custom template per major dialect', () => {
     for (const d of ['sqlserver', 'postgres', 'mysql', 'db2', 'oracle', 'sqlite']) {
       expect(buildIndexFragmentationCustomTemplate({ dialect: d, schema: 's', table: 't' })).toMatch(
