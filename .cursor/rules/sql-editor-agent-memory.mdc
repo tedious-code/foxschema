@@ -34,6 +34,7 @@ FoxSchema = schema diff/migration + SQL Editor. Destinations checklist, Schema e
 ### 1. Data peek (Cmd/Ctrl-click + result FK)
 - **UI**: `DataPeekPanel.tsx` — modal grids; Esc closes. Each panel: WHERE / ORDER BY / LIMIT (debounced auto-apply + blur/Enter/Apply) + drag resize + arrange grip. Mounted from `SqlEditorView` (not only Schema).
 - **Index fragmentation (Edit table)**: `dialect-index-fragmentation.ts` + `POST /schema/index-fragmentation`; shown on `TableBlueprintModal` index rows. Default dialect probe, then custom SELECT fallback (`index_name`, `fragmentation_percent`). Defrag SQL via wrench when warn/critical.
+- **Utilities → Index Management**: `TopToolbar` Utilities menu → `IndexManagementModal`. Credential dropdown, indexes grouped by table, filter table/%, `POST /schema/index-fragmentation-batch`, defragment selected or filtered via `executeSql`.
 - **Triggers**:
   - Schema explorer Cmd/Ctrl-click TABLE / VIEW / MQT → `openDataPeek`.
   - Editor result FK cell (rust underline) → `openDataPeekFromFk` (`ResultsPanel` / `foreignKeyLinksForSql`).
