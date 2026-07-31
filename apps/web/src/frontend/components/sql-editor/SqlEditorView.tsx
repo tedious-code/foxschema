@@ -417,14 +417,14 @@ export const SqlEditorView: React.FC = () => {
               open={sidebarOpen.utilities}
               onToggle={() => toggleSidebar('utilities')}
             >
-              <div className="px-2 pb-2 flex flex-col gap-1">
+              <div className="px-1 pb-2 flex flex-col gap-0.5">
                 <button
                   type="button"
                   data-testid="utilities-index-management"
                   onClick={() => setShowIndexManagement(true)}
-                  className="w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] font-semibold text-[#0f172a] hover:bg-[#fff7ed] border border-transparent hover:border-[#fdba74]/40"
+                  className="w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] font-semibold text-slate-100 hover:bg-slate-800 hover:text-white border border-transparent hover:border-amber-500/35"
                 >
-                  <Database className="w-3.5 h-3.5 text-[#d97706]" strokeWidth={SQL_ICON_STROKE} />
+                  <Database className="w-3.5 h-3.5 text-amber-400 shrink-0" strokeWidth={SQL_ICON_STROKE} />
                   Index Management
                 </button>
                 <button
@@ -434,45 +434,45 @@ export const SqlEditorView: React.FC = () => {
                     setCloneTableInitial(null);
                     setShowCloneTable(true);
                   }}
-                  className="w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] font-semibold text-[#0f172a] hover:bg-[#fff7ed] border border-transparent hover:border-[#fdba74]/40"
+                  className="w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] font-semibold text-slate-100 hover:bg-slate-800 hover:text-white border border-transparent hover:border-amber-500/35"
                 >
-                  <Copy className="w-3.5 h-3.5 text-[#d97706]" strokeWidth={SQL_ICON_STROKE} />
+                  <Copy className="w-3.5 h-3.5 text-amber-400 shrink-0" strokeWidth={SQL_ICON_STROKE} />
                   Clone Table
                 </button>
                 <button
                   type="button"
                   data-testid="utilities-connection-pool"
                   onClick={() => setServerInsightsTab('pool')}
-                  className="w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] font-semibold text-[#0f172a] hover:bg-[#fff7ed] border border-transparent hover:border-[#fdba74]/40"
+                  className="w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] font-semibold text-slate-100 hover:bg-slate-800 hover:text-white border border-transparent hover:border-amber-500/35"
                 >
-                  <Activity className="w-3.5 h-3.5 text-[#d97706]" strokeWidth={SQL_ICON_STROKE} />
+                  <Activity className="w-3.5 h-3.5 text-amber-400 shrink-0" strokeWidth={SQL_ICON_STROKE} />
                   Connection Pool
                 </button>
                 <button
                   type="button"
                   data-testid="utilities-user-connections"
                   onClick={() => setServerInsightsTab('sessions')}
-                  className="w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] font-semibold text-[#0f172a] hover:bg-[#fff7ed] border border-transparent hover:border-[#fdba74]/40"
+                  className="w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] font-semibold text-slate-100 hover:bg-slate-800 hover:text-white border border-transparent hover:border-amber-500/35"
                 >
-                  <Users className="w-3.5 h-3.5 text-[#d97706]" strokeWidth={SQL_ICON_STROKE} />
+                  <Users className="w-3.5 h-3.5 text-amber-400 shrink-0" strokeWidth={SQL_ICON_STROKE} />
                   User Connections
                 </button>
                 <button
                   type="button"
                   data-testid="utilities-system-info"
                   onClick={() => setServerInsightsTab('system')}
-                  className="w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] font-semibold text-[#0f172a] hover:bg-[#fff7ed] border border-transparent hover:border-[#fdba74]/40"
+                  className="w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] font-semibold text-slate-100 hover:bg-slate-800 hover:text-white border border-transparent hover:border-amber-500/35"
                 >
-                  <Cpu className="w-3.5 h-3.5 text-[#d97706]" strokeWidth={SQL_ICON_STROKE} />
+                  <Cpu className="w-3.5 h-3.5 text-amber-400 shrink-0" strokeWidth={SQL_ICON_STROKE} />
                   System Info
                 </button>
                 <button
                   type="button"
                   data-testid="utilities-object-sizes"
                   onClick={() => setServerInsightsTab('sizes')}
-                  className="w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] font-semibold text-[#0f172a] hover:bg-[#fff7ed] border border-transparent hover:border-[#fdba74]/40"
+                  className="w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] font-semibold text-slate-100 hover:bg-slate-800 hover:text-white border border-transparent hover:border-amber-500/35"
                 >
-                  <HardDrive className="w-3.5 h-3.5 text-[#d97706]" strokeWidth={SQL_ICON_STROKE} />
+                  <HardDrive className="w-3.5 h-3.5 text-amber-400 shrink-0" strokeWidth={SQL_ICON_STROKE} />
                   Table & Index Size
                 </button>
               </div>

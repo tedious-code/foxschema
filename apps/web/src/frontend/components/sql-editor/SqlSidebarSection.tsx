@@ -27,7 +27,7 @@ const DEFAULT_HEIGHTS: Record<SidebarSectionId, number> = {
   bookmarks: 120,
   variables: 140,
   vault: 160,
-  utilities: 140,
+  utilities: 280,
   schema: 220,
 };
 
