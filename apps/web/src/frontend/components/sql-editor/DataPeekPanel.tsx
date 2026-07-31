@@ -31,6 +31,7 @@ import {
   buildPeekUpdate,
   draftToArray,
   draftToRowValues,
+  originalRowForPeekEdit,
   peekRowToDraft,
   type PeekWritePlan,
 } from '../../lib/rowDml';
@@ -298,6 +299,8 @@ const PeekGrid: React.FC<{
     mode: PeekRowEditorMode;
     draft: Record<string, string>;
     rowIndex: number | null;
+    /** Row values at edit-open time (UPDATE must not re-key off a refreshed grid). */
+    originalRow?: unknown[];
   } | null>(null);
   const [pendingWrite, setPendingWrite] = useState<PeekWritePlan | null>(null);
   const [writeError, setWriteError] = useState<string | null>(null);
@@ -333,7 +336,8 @@ const PeekGrid: React.FC<{
   }, [entry.id, entry.pageIndex]);
 
   useEffect(() => {
-    // Grid refresh (filters, reload): keep an open editor / confirm; only clear selection.
+    // Grid refresh (filters, reload): keep an open editor / confirm; only clear
+    // selection. Edit submits use `editor.originalRow`, not liveRows[rowIndex].
     if (editor || pendingWrite) return;
     setSelectedRowIndex(null);
   }, [entry.result, editor, pendingWrite]);
@@ -456,6 +460,8 @@ const PeekGrid: React.FC<{
       mode: 'edit',
       draft: peekRowToDraft(entry.result.columns, row),
       rowIndex: selectedRowIndex,
+      // Snapshot keys/values now — filter refresh must not retarget the UPDATE.
+      originalRow: row.slice(),
     });
   };
 
@@ -495,8 +501,7 @@ const PeekGrid: React.FC<{
     if (!editability.editable || !entry.result?.ok || !editor) return;
     const cols = entry.result.columns;
     if (editor.mode === 'edit') {
-      if (editor.rowIndex == null) return;
-      const original = entry.result.rows[editor.rowIndex];
+      const original = originalRowForPeekEdit(editor, entry.result.rows);
       if (!original) return;
       const plan = buildPeekUpdate({
         tableName: entry.tableName,

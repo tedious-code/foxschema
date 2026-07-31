@@ -101,6 +101,20 @@ export function assertPeekKeyValuesPresent(
   return null;
 }
 
+/**
+ * Baseline row for a Data Peek UPDATE.
+ * Prefer the snapshot taken when the editor opened — a filter/order refresh can
+ * reshuffle `liveRows` so `rowIndex` no longer points at the edited key.
+ */
+export function originalRowForPeekEdit(
+  editor: { originalRow?: unknown[] | null; rowIndex: number | null },
+  liveRows: unknown[][]
+): unknown[] | undefined {
+  if (editor.originalRow) return editor.originalRow;
+  if (editor.rowIndex == null) return undefined;
+  return liveRows[editor.rowIndex];
+}
+
 export function assessPeekEditability(opts: {
   dialect: string;
   table: TableSchema | undefined;
