@@ -10,6 +10,7 @@ import { useSyncStore } from './store/useSyncStore';
 import { useAuthStore } from './store/authStore';
 import { useUiStore } from './store/uiStore';
 import { apiGetPreferences } from './api/authApi';
+import { ToastHost } from './components/ToastHost';
 import { AlertCircle, AlertTriangle, Loader2, X } from 'lucide-react';
 
 const SqlEditorView = lazy(() =>
@@ -92,6 +93,7 @@ const Workspace: React.FC = () => {
           </>
         )}
       </main>
+      <ToastHost />
     </div>
   );
 };

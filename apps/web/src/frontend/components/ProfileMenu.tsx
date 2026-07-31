@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { LogOut, Palette, ChevronDown, ArrowUpCircle, Globe, Shield } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { checkForUpdates, type UpdateInfo } from '../api/updatesApi';
+import { maybeToastUpdateAvailable } from '../lib/updateToast';
 import { AdminAccessPanel } from './AdminAccessPanel';
 
 // Lazy so a SettingsPanel/HMR failure cannot empty this module's exports
@@ -36,7 +37,11 @@ export function ProfileMenu(): React.ReactElement | null {
 
   useEffect(() => {
     let alive = true;
-    checkForUpdates().then((u) => alive && setUpdate(u));
+    checkForUpdates().then((u) => {
+      if (!alive) return;
+      setUpdate(u);
+      maybeToastUpdateAvailable(u);
+    });
     return () => {
       alive = false;
     };

@@ -1,16 +1,19 @@
 import React, { useEffect, useState } from 'react';
 import { RefreshCw, CheckCircle2, ArrowUpCircle, Loader2 } from 'lucide-react';
 import { checkForUpdates, type UpdateInfo } from '../api/updatesApi';
+import { toastUpdateCheckResult } from '../lib/updateToast';
 
 /** Current version + a "check for updates" control, in Settings. */
 export const UpdatesSettings: React.FC = () => {
   const [info, setInfo] = useState<UpdateInfo | null>(null);
   const [checking, setChecking] = useState(false);
 
-  const run = async () => {
+  const run = async (opts?: { toast?: boolean }) => {
     setChecking(true);
     try {
-      setInfo(await checkForUpdates());
+      const next = await checkForUpdates();
+      setInfo(next);
+      if (opts?.toast) toastUpdateCheckResult(next);
     } finally {
       setChecking(false);
     }
@@ -44,7 +47,8 @@ export const UpdatesSettings: React.FC = () => {
       </div>
       <button
         type="button"
-        onClick={run}
+        data-testid="updates-check-btn"
+        onClick={() => void run({ toast: true })}
         disabled={checking}
         className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 font-semibold bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-md transition disabled:opacity-50"
       >
