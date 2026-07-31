@@ -247,6 +247,165 @@ export class SqlEditorPage {
   async resetPersistedEditorState(): Promise<void> {
     await this.page.evaluate(() => {
       localStorage.removeItem('foxschema-sql-editor');
+      localStorage.removeItem('foxschema-sql-sidebar-sections');
+      localStorage.removeItem('foxschema-sql-sidebar-section-heights');
     });
+  }
+
+  /** Ensure a sidebar section is expanded (Destinations / Utilities / Schema / …). */
+  async ensureSidebarSectionOpen(id: string): Promise<void> {
+    await this.dismissOverlays();
+    const section = this.page.locator(`[data-testid="sql-sidebar-${id}"]`);
+    await section.waitFor({ state: 'visible', timeout: 10_000 });
+    const toggle = this.page.locator(`[data-testid="sql-sidebar-toggle-${id}"]`);
+    // Content for utilities is the Index Management button.
+    const openProbe =
+      id === 'utilities'
+        ? section.locator('[data-testid="utilities-index-management"]')
+        : section.locator(`[data-testid="sql-sidebar-${id}"] >> visible=true`);
+    if (id === 'utilities') {
+      if (await section.locator('[data-testid="utilities-index-management"]').isVisible().catch(() => false)) {
+        return;
+      }
+      await toggle.click();
+      await section.locator('[data-testid="utilities-index-management"]').waitFor({
+        state: 'visible',
+        timeout: 5_000,
+      });
+      return;
+    }
+    void openProbe;
+    // Generic: if toggle says collapsed, click once.
+    const aria = await toggle.getAttribute('aria-expanded').catch(() => null);
+    if (aria === 'false') await toggle.click();
+  }
+
+  async openIndexManagement(): Promise<void> {
+    await this.ensureSidebarSectionOpen('utilities');
+    await clickWhen(this.page, '[data-testid="utilities-index-management"]');
+    await waitFor(this.page, '[data-testid="index-management-modal"]', 15_000);
+  }
+
+  async closeIndexManagement(): Promise<void> {
+    const modal = this.page.locator('[data-testid="index-management-modal"]');
+    if (!(await modal.isVisible().catch(() => false))) return;
+    await modal.locator('button[aria-label="Close"]').click().catch(async () => {
+      await modal.click({ position: { x: 4, y: 4 } });
+    });
+    await modal.waitFor({ state: 'detached', timeout: 8_000 }).catch(() => undefined);
+  }
+
+  async openCloneTable(preselectTable?: string): Promise<void> {
+    await this.dismissOverlays();
+    if (preselectTable) {
+      await this.openCloneTableFromSchema(preselectTable);
+      return;
+    }
+    await this.ensureSidebarSectionOpen('utilities');
+    await clickWhen(this.page, '[data-testid="utilities-clone-table"]');
+    await waitFor(this.page, '[data-testid="clone-table-modal"]', 15_000);
+  }
+
+  /** Schema explorer → Clone on a table row. */
+  async openCloneTableFromSchema(tableName: string): Promise<void> {
+    await this.dismissOverlays();
+    const explorer = this.page.locator('[data-testid="sql-schema-explorer"]');
+    await explorer.waitFor({ state: 'visible', timeout: 15_000 });
+    const alreadyVisible = await explorer.getByText(tableName, { exact: true }).count();
+    if (alreadyVisible === 0) {
+      const group = explorer.locator('[data-testid="sql-schema-group-TABLE"]');
+      if (await group.count()) {
+        await group.locator('button').first().click().catch(() => undefined);
+      }
+    }
+    await this.page.waitForFunction(
+      (name) => {
+        const root = document.querySelector('[data-testid="sql-schema-explorer"]');
+        return !!root && new RegExp(name, 'i').test(root.textContent ?? '');
+      },
+      tableName,
+      { timeout: 45_000 }
+    );
+    const nameLabel = explorer.getByText(tableName, { exact: true }).first();
+    await nameLabel.scrollIntoViewIfNeeded();
+    const row = nameLabel.locator(
+      'xpath=ancestor::div[./button[@data-testid="sql-open-clone-table"] or .//button[@data-testid="sql-open-clone-table"]][1]'
+    );
+    await row.locator('[data-testid="sql-open-clone-table"]').click({ force: true });
+    await waitFor(this.page, '[data-testid="clone-table-modal"]', 15_000);
+  }
+
+  async closeCloneTable(): Promise<void> {
+    const modal = this.page.locator('[data-testid="clone-table-modal"]');
+    if (!(await modal.isVisible().catch(() => false))) return;
+    await modal.locator('button[aria-label="Close"]').click().catch(async () => {
+      await modal.getByRole('button', { name: /^close$/i }).click();
+    });
+    await modal.waitFor({ state: 'detached', timeout: 8_000 }).catch(() => undefined);
+  }
+
+  /** Pick credential in Clone Table / Index Management by visible name substring. */
+  async selectUtilityConnection(nameSubstring: string, selectTestId: string): Promise<void> {
+    const select = this.page.locator(`[data-testid="${selectTestId}"]`);
+    await select.waitFor({ state: 'visible', timeout: 10_000 });
+    const value = await select.evaluate((el, want) => {
+      const sel = el as HTMLSelectElement;
+      const opt = [...sel.options].find((o) =>
+        o.textContent?.toLowerCase().includes(want.toLowerCase())
+      );
+      return opt?.value ?? '';
+    }, nameSubstring);
+    if (!value) {
+      throw new Error(`No credential option matching "${nameSubstring}" in ${selectTestId}`);
+    }
+    await select.selectOption(value);
+  }
+
+  async waitForCloneTableOption(tableName: string, timeoutMs = 30_000): Promise<void> {
+    await this.page.waitForFunction(
+      (name) => {
+        const sel = document.querySelector(
+          '[data-testid="clone-table-name"]'
+        ) as HTMLSelectElement | null;
+        return !!sel && [...sel.options].some((o) => o.value === name);
+      },
+      tableName,
+      { timeout: timeoutMs }
+    );
+  }
+
+  async loadCloneTables(connectionName: string, tableName: string): Promise<void> {
+    await this.selectUtilityConnection(connectionName, 'clone-table-connection');
+    await this.page.locator('[data-testid="clone-table-load"]').click();
+    await this.page.waitForFunction(
+      () => {
+        const status = document.querySelector('[data-testid="clone-status"]')?.textContent ?? '';
+        const err = document.querySelector('[data-testid="clone-error"]')?.textContent ?? '';
+        const sel = document.querySelector(
+          '[data-testid="clone-table-name"]'
+        ) as HTMLSelectElement | null;
+        const opts = sel ? [...sel.options].map((o) => o.value).filter(Boolean) : [];
+        return err.length > 0 || /loaded/i.test(status) || opts.length > 0;
+      },
+      { timeout: 45_000 }
+    );
+    const debug = await this.page.evaluate(() => {
+      const status = document.querySelector('[data-testid="clone-status"]')?.textContent ?? '';
+      const err = document.querySelector('[data-testid="clone-error"]')?.textContent ?? '';
+      const sel = document.querySelector(
+        '[data-testid="clone-table-name"]'
+      ) as HTMLSelectElement | null;
+      const opts = sel
+        ? [...sel.options].map((o) => ({ value: o.value, label: o.textContent }))
+        : [];
+      return { status, err, opts };
+    });
+    if (debug.err.trim()) throw new Error(`Clone Table load failed: ${debug.err}`);
+    if (!debug.opts.some((o) => o.value === tableName)) {
+      throw new Error(
+        `Clone Table missing option "${tableName}". status=${debug.status} opts=${JSON.stringify(debug.opts)}`
+      );
+    }
+    await this.page.locator('[data-testid="clone-table-name"]').selectOption(tableName);
   }
 }

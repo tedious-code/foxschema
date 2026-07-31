@@ -24,7 +24,6 @@ import {
   executableSqlStatements,
   findInboundForeignKeyTables,
   generateCloneTableSql,
-  nextArchiveTableName,
 } from '../sql-editor/tableBlueprintSql';
 
 interface Props {
@@ -35,6 +34,8 @@ interface Props {
 }
 
 const LS_CONN = 'foxschema-utilities-clone-table-connection';
+/** Matches backend `MAX_STATEMENTS` in sql-execute.ts — Apply chunks at this size. */
+const EXECUTE_BATCH_SIZE = 25;
 
 export const CloneTableModal: React.FC<Props> = ({
   open,
@@ -61,22 +62,32 @@ export const CloneTableModal: React.FC<Props> = ({
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [confirmApply, setConfirmApply] = useState(false);
+  const wasOpen = React.useRef(false);
 
+  // Initialize only when the modal opens — do not reset when `connections`
+  // re-emits after schema load (that cleared the table picker mid-flight).
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      wasOpen.current = false;
+      return;
+    }
+    if (wasOpen.current) return;
+    wasOpen.current = true;
     const saved = localStorage.getItem(LS_CONN) || '';
     const fallback = connections[0]?.id || '';
     const next = connections.some((c) => c.id === saved) ? saved : fallback;
     setConnectionId(next);
+    setTableName(initialTableName?.trim() || '');
     setError(null);
     setStatus(null);
     setConfirmApply(false);
     setPasswordDraft('');
-  }, [open, connections]);
+  }, [open, connections, initialTableName]);
 
+  // If opened from Schema with a table name after mount, honor it once.
   useEffect(() => {
-    if (!open) return;
-    if (initialTableName) setTableName(initialTableName);
+    if (!open || !initialTableName?.trim()) return;
+    setTableName(initialTableName.trim());
   }, [open, initialTableName]);
 
   const conn = connections.find((c) => c.id === connectionId) || null;
@@ -92,20 +103,12 @@ export const CloneTableModal: React.FC<Props> = ({
 
   const selected = tables.find((t) => t.name === tableName) || null;
   const existingNames = useMemo(() => tables.map((t) => t.name), [tables]);
-
-  const indexSupport = useMemo(
-    () => dialectIndexSupport(conn?.dialect || ''),
-    [conn?.dialect]
-  );
-  const fkSupport = useMemo(
-    () => dialectFkConstraintSupport(conn?.dialect || ''),
-    [conn?.dialect]
-  );
+  const dialect = conn?.dialect || '';
+  const indexSupport = dialectIndexSupport(dialect);
+  const fkSupport = dialectFkConstraintSupport(dialect);
 
   const plan = useMemo(() => {
-    if (!selected || !conn) {
-      return null;
-    }
+    if (!selected || !conn) return null;
     return generateCloneTableSql({
       table: selected,
       dialect: conn.dialect,
@@ -130,19 +133,10 @@ export const CloneTableModal: React.FC<Props> = ({
     fkSupport.createInline,
   ]);
 
-  const previewName = useMemo(() => {
-    if (!tableName) return '';
-    const picked = nextArchiveTableName(tableName, existingNames, {
-      suffixMode,
-      startNumber,
-    });
-    return picked.error ? '' : picked.archiveName;
-  }, [tableName, existingNames, suffixMode, startNumber]);
-
-  const inbound = useMemo(() => {
-    if (!selected) return [];
-    return findInboundForeignKeyTables(tables, selected.name);
-  }, [selected, tables]);
+  const inbound = useMemo(
+    () => (selected ? findInboundForeignKeyTables(tables, selected.name) : []),
+    [selected, tables]
+  );
 
   const executable = useMemo(
     () => (plan ? executableSqlStatements(plan.statements) : []),
@@ -160,48 +154,41 @@ export const CloneTableModal: React.FC<Props> = ({
       const entry = useSqlEditorStore.getState().schemaCache[connectionId];
       if (entry?.status === 'error') {
         setError(entry.error || 'Failed to load schema');
-      } else {
-        const n = (entry?.tables ?? []).filter(
-          (t) => t.objectType === 'TABLE' || t.objectType === 'MQT'
-        ).length;
-        setStatus(`Loaded ${n} table(s) from schema catalog.`);
-        if (initialTableName) {
-          setTableName(initialTableName);
-        } else if (!tableName && entry?.tables?.[0]) {
-          const first = entry.tables.find(
-            (t) => t.objectType === 'TABLE' || t.objectType === 'MQT'
-          );
-          if (first) setTableName(first.name);
-        }
+        return;
       }
+      const list = (entry?.tables ?? []).filter(
+        (t) => t.objectType === 'TABLE' || t.objectType === 'MQT'
+      );
+      setStatus(`Loaded ${list.length} table(s) from schema catalog.`);
+      setTableName((prev) => {
+        if (initialTableName?.trim()) return initialTableName.trim();
+        if (prev && list.some((t) => t.name === prev)) return prev;
+        return list[0]?.name ?? '';
+      });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoadingSchema(false);
     }
-  }, [
-    connectionId,
-    ensureConnectionSelected,
-    ensureSchema,
-    initialTableName,
-    tableName,
-  ]);
+  }, [connectionId, ensureConnectionSelected, ensureSchema, initialTableName]);
 
   useEffect(() => {
     if (!open || !connectionId) return;
     if (cache?.status === 'ready' && (cache.tables?.length ?? 0) > 0) {
-      if (initialTableName) setTableName(initialTableName);
-      else if (!tableName) {
+      setTableName((prev) => {
+        if (initialTableName?.trim()) return initialTableName.trim();
+        if (prev) return prev;
         const first = (cache.tables ?? []).find(
           (t) => t.objectType === 'TABLE' || t.objectType === 'MQT'
         );
-        if (first) setTableName(first.name);
-      }
+        return first?.name ?? '';
+      });
       return;
     }
     void loadSchema();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- load once per open/connection
-  }, [open, connectionId]);
+    // Only react to connection / open — not cache.tables identity churn.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, connectionId, loadSchema, initialTableName]);
 
   const runClone = useCallback(async () => {
     if (!connectionId || !conn || !plan || plan.error || executable.length === 0) return;
@@ -212,27 +199,43 @@ export const CloneTableModal: React.FC<Props> = ({
     setRunning(true);
     setError(null);
     setStatus(null);
+    const live = bareLabel(selected?.name || '');
+    const archive = plan.archiveName;
+    const ref = {
+      connectionId,
+      password: sessionPasswords[connectionId] || undefined,
+      schema: conn.schema?.trim() || undefined,
+    };
     try {
-      const result = await executeSql(
-        {
-          connectionId,
-          password: sessionPasswords[connectionId] || undefined,
-          schema: conn.schema?.trim() || undefined,
-        },
-        executable
-      );
-      const failed = result.results.find((r) => !r.ok);
-      if (failed && !failed.ok) {
-        setError(failed.error || 'Clone failed');
-        return;
+      // Stop on first failure; chunk to backend MAX_STATEMENTS.
+      let ran = 0;
+      for (let i = 0; i < executable.length; i += EXECUTE_BATCH_SIZE) {
+        const batch = executable.slice(i, i + EXECUTE_BATCH_SIZE);
+        const result = await executeSql(ref, batch);
+        for (let j = 0; j < result.results.length; j++) {
+          const r = result.results[j]!;
+          if (r.ok) {
+            ran += 1;
+            continue;
+          }
+          setError(
+            `${r.error || 'Clone failed'} — stopped after ${ran}/${executable.length} statements. ` +
+              `If rename already ran, ${live} may only exist as ${archive}. ` +
+              `Recover: rename ${archive} back to ${live}, or Insert SQL and finish manually.`
+          );
+          return;
+        }
       }
       await ensureSchema(connectionId, { force: true });
       setStatus(
-        `Cloned: ${bareLabel(selected?.name || '')} data kept as ${plan.archiveName}; empty ${bareLabel(selected?.name || '')} recreated.`
+        `Cloned: ${live} data kept as ${archive}; empty ${live} recreated.`
       );
       setConfirmApply(false);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(
+        `${err instanceof Error ? err.message : String(err)} — ` +
+          `if rename already ran, recover by renaming ${archive} → ${live} or Insert SQL.`
+      );
     } finally {
       setRunning(false);
     }
@@ -347,7 +350,9 @@ export const CloneTableModal: React.FC<Props> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    if (!passwordDraft.trim()) return;
+                    if (!connectionId || !passwordDraft.trim()) return;
+                    // ensureConnectionSelected sets pendingPassword; submit stores it.
+                    ensureConnectionSelected(connectionId);
                     submitSessionPassword(passwordDraft);
                     setPasswordDraft('');
                   }}
@@ -415,13 +420,18 @@ export const CloneTableModal: React.FC<Props> = ({
                   className="w-20 rounded-lg border border-slate-700 bg-slate-950/70 px-2 py-1 text-[13px] font-mono text-slate-100 disabled:opacity-40"
                 />
               </div>
-              {previewName ? (
+              {plan?.archiveName && !plan.error ? (
                 <p className="text-[12px] text-amber-100/90 font-mono" data-testid="clone-archive-preview">
-                  {bareLabel(tableName)} → <span className="text-amber-200 font-bold">{previewName}</span>
+                  {bareLabel(tableName)} →{' '}
+                  <span className="text-amber-200 font-bold">{plan.archiveName}</span>
                   {' · '}
                   new empty <span className="text-emerald-300 font-bold">{bareLabel(tableName)}</span>
                 </p>
               ) : null}
+              <p className="text-[11px] text-slate-500">
+                Apply is not transactional: if it stops mid-way after rename, recover by renaming
+                the archive back or finishing via Insert SQL.
+              </p>
             </div>
 
             <div className="rounded-xl border border-slate-700/80 bg-slate-950/40 p-3 space-y-2.5">
@@ -567,7 +577,10 @@ export const CloneTableModal: React.FC<Props> = ({
           writeStatements={executable}
           credentialCount={1}
           onCancel={() => setConfirmApply(false)}
-          onConfirm={() => void runClone()}
+          onConfirm={() => {
+            setConfirmApply(false);
+            void runClone();
+          }}
         />
       )}
     </>,
