@@ -759,9 +759,48 @@ describe('clone / archive table', () => {
       keepForeignKeys: false,
     });
     const sql = plan.statements.join('\n');
-    expect(sql).toContain('keepIndexes=false');
-    expect(sql).toContain('keepForeignKeys=false');
     expect(sql).not.toMatch(/CREATE INDEX ix_orders_customer ON public\.orders/);
+    expect(sql).not.toContain('fk_orders_customer');
+    expect(sql).toContain('ALTER TABLE public.orders RENAME TO orders_1');
+    expect(sql).toContain('CREATE TABLE public.orders');
+  });
+
+  it('cockroachdb/yugabytedb free archive index names like postgres', () => {
+    const plan = generateCloneTableSql({
+      table: orders,
+      dialect: 'cockroachdb',
+      schema: 'public',
+      existingTableNames: ['orders'],
+      keepIndexes: true,
+      keepForeignKeys: true,
+    });
+    const sql = plan.statements.join('\n');
+    expect(sql).toContain('ALTER INDEX ix_orders_customer RENAME TO');
+    expect(sql).toContain('DROP CONSTRAINT');
+  });
+
+  it('sqlserver renames archive constraints/indexes before recreate', () => {
+    const plan = generateCloneTableSql({
+      table: {
+        ...orders,
+        indices: [
+          {
+            name: 'ux_orders_note',
+            columns: ['note'],
+            unique: true,
+            constraint: true,
+          },
+        ],
+      },
+      dialect: 'sqlserver',
+      schema: 'dbo',
+      existingTableNames: ['orders'],
+      keepIndexes: true,
+      keepForeignKeys: false,
+    });
+    const sql = plan.statements.join('\n');
+    expect(sql).toContain('sp_rename');
+    expect(sql).toMatch(/ux_orders_note_h1|orders_pkey_h1/);
   });
 
   it('findInboundForeignKeyTables lists children', () => {

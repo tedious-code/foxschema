@@ -1580,36 +1580,42 @@ export function generateRenameTableSql(
   return [`ALTER TABLE ${fromQ} RENAME TO ${toQ};`];
 }
 
+/** Schema-unique index/constraint names — must free them on the archive before recreate. */
+const SCHEMA_UNIQUE_INDEX_DIALECTS = new Set([
+  'postgres',
+  'postgresql',
+  'cockroachdb',
+  'yugabytedb',
+  'oracle',
+  'redshift',
+  'duckdb',
+  'sqlite',
+  'sqlserver',
+  'azuresql',
+  'db2',
+]);
+
+/** Schema/db-unique FK names — drop from archive when recreating on the live table. */
+const SCHEMA_UNIQUE_FK_DIALECTS = new Set([
+  'postgres',
+  'postgresql',
+  'cockroachdb',
+  'yugabytedb',
+  'oracle',
+  'mysql',
+  'mariadb',
+  'tidb',
+  'sqlserver',
+  'azuresql',
+  'db2',
+]);
+
 function dialectNeedsIndexRenameOnArchive(dialectName: string): boolean {
-  const d = dialectName.toLowerCase();
-  return (
-    d === 'postgres' ||
-    d === 'postgresql' ||
-    d === 'cockroach' ||
-    d === 'yugabyte' ||
-    d === 'oracle' ||
-    d === 'redshift' ||
-    d === 'duckdb' ||
-    d === 'sqlite'
-  );
+  return SCHEMA_UNIQUE_INDEX_DIALECTS.has(dialectName.toLowerCase());
 }
 
 function dialectNeedsFkDropOnArchive(dialectName: string): boolean {
-  const d = dialectName.toLowerCase();
-  // Schema/db-unique FK names — free them before recreating on the new table.
-  return (
-    d === 'postgres' ||
-    d === 'postgresql' ||
-    d === 'cockroach' ||
-    d === 'yugabyte' ||
-    d === 'oracle' ||
-    d === 'mysql' ||
-    d === 'mariadb' ||
-    d === 'tidb' ||
-    d === 'sqlserver' ||
-    d === 'azuresql' ||
-    d === 'db2'
-  );
+  return SCHEMA_UNIQUE_FK_DIALECTS.has(dialectName.toLowerCase());
 }
 
 function archiveSuffixName(objectName: string, archiveNumber: number): string {
@@ -1821,10 +1827,7 @@ export function generateCloneTableSql(args: CloneTableOptions): CloneTablePlan {
       stmts.push(`-- Rename PK constraint on archive so ${bare} can reuse ${pkName}`);
       stmts.push(...renames);
     }
-  } else if (
-    dialectNeedsIndexRenameOnArchive(dialect) &&
-    pkColumnsFromTable(table).length > 0
-  ) {
+  } else if (dialectNeedsIndexRenameOnArchive(dialect) && pkCols.length > 0) {
     const guessed = `${bare}_pkey`;
     const newPk = archiveSuffixName(guessed, archiveNumber);
     stmts.push(
@@ -1832,37 +1835,29 @@ export function generateCloneTableSql(args: CloneTableOptions): CloneTablePlan {
     );
   }
 
-  const sqliteIndexRecreates: BlueprintIndexDraft[] = [];
+  const dLower = dialect.toLowerCase();
   if (keepIndexes && indexes.length > 0 && dialectNeedsIndexRenameOnArchive(dialect)) {
     stmts.push(`-- Rename/move indexes on archive ${archiveName} so names can be reused`);
     for (const idx of indexes) {
+      const newName = archiveSuffixName(idx.name, archiveNumber);
       if (idx.constraint) {
-        const newName = archiveSuffixName(idx.name, archiveNumber);
-        const renames = generateRenameConstraintSql(
-          archiveName,
-          idx.name,
-          newName,
-          dialect,
-          schema
+        stmts.push(
+          ...generateRenameConstraintSql(archiveName, idx.name, newName, dialect, schema)
         );
-        if (renames.length) stmts.push(...renames);
         continue;
       }
-      const newName = archiveSuffixName(idx.name, archiveNumber);
       stmts.push(...generateRenameIndexSql(idx.name, newName, archiveName, dialect, schema));
-      if (dialect.toLowerCase() === 'sqlite') {
-        sqliteIndexRecreates.push({
-          ...indexInfoToCloneDraft(idx),
-          name: newName,
-        });
+      // SQLite has no RENAME INDEX — recreate under the suffixed name after DROP.
+      if (dLower === 'sqlite') {
+        stmts.push(
+          ...generateCreateIndexSql(
+            archiveName,
+            dialect,
+            { ...indexInfoToCloneDraft(idx), name: newName },
+            schema
+          )
+        );
       }
-    }
-  }
-
-  // SQLite: recreate archive indexes under the suffixed names after DROP INDEX.
-  if (sqliteIndexRecreates.length > 0) {
-    for (const idx of sqliteIndexRecreates) {
-      stmts.push(...generateCreateIndexSql(archiveName, dialect, idx, schema));
     }
   }
 
@@ -1889,8 +1884,6 @@ export function generateCloneTableSql(args: CloneTableOptions): CloneTablePlan {
     for (const idx of indexes) {
       stmts.push(...generateCreateIndexSql(bare, dialect, indexInfoToCloneDraft(idx), schema));
     }
-  } else {
-    stmts.push(`-- indexes not recreated on ${bare} (keepIndexes=false)`);
   }
 
   // 5) Outbound FKs via ALTER on dialects that support it.
@@ -1900,13 +1893,7 @@ export function generateCloneTableSql(args: CloneTableOptions): CloneTablePlan {
     }
   } else if (keepForeignKeys && !fkSupport.createInline && !fkSupport.alterAdd) {
     stmts.push(`-- review: ${dialect} does not support foreign keys — skipped`);
-  } else if (!keepForeignKeys) {
-    stmts.push(`-- foreign keys not recreated on ${bare} (keepForeignKeys=false)`);
   }
-
-  stmts.push(
-    `-- Inbound FKs from other tables still reference ${archiveName} after rename — update those constraints before dropping the archive if needed`
-  );
 
   return {
     archiveName,
