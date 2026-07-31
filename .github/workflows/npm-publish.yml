@@ -1,7 +1,7 @@
 name: npm Publish
 
 # Publishes the public `foxschema` CLI package (browser launcher + line commands).
-# Trigger: version tag `v*` (same as desktop/web releases), or workflow_dispatch.
+# Trigger: version tag `v*`, GitHub Release published, or workflow_dispatch.
 #
 # Secrets:
 #   NPM_TOKEN — Automation token with publish rights to the `foxschema` package
@@ -10,6 +10,8 @@ on:
   push:
     tags:
       - 'v*'
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       tag:
@@ -25,7 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ inputs.tag || github.event.release.tag_name || github.ref }}
 
       - uses: actions/setup-node@v5
         with:

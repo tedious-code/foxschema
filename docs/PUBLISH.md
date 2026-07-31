@@ -46,6 +46,10 @@ That starts:
 - **Web Release** → Docker Hub + GHCR (`latest` and `v0.2.0`)
 - **npm Publish** → needs repo secret `NPM_TOKEN`
 
+If a tag push does not start those workflows (some bot pushes are ignored),
+**publish a GitHub Release** for the same tag — both workflows also listen for
+`release: published`.
+
 The npm package ships with:
 
 - Rich README (SQL Editor + Schema Sync GIFs via raw GitHub URLs)
@@ -57,6 +61,7 @@ Or run manually:
 ```bash
 gh workflow run web-release.yml --ref v0.2.0
 gh workflow run npm-publish.yml --ref v0.2.0
+# or: gh release create v0.2.0 --generate-notes
 ```
 
 ### Secrets
