@@ -17,6 +17,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
+  Wrench,
 } from 'lucide-react';
 import { useSyncStore } from '../../store/useSyncStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
@@ -40,6 +41,7 @@ import {
   useSidebarSectionsOpen,
 } from './SqlSidebarSection';
 import { WriteConfirmDialog } from './WriteConfirmDialog';
+import { IndexManagementModal } from '../utilities/IndexManagementModal';
 import type { RevealRequest } from './SqlEditorPane';
 
 const SqlEditorPane = lazy(() => import('./SqlEditorPane'));
@@ -133,6 +135,7 @@ export const SqlEditorView: React.FC = () => {
   const secretsPanelRef = useRef<SqlSecretsPanelHandle>(null);
   const schemaExplorerRef = useRef<SqlSchemaExplorerHandle>(null);
   const [secretsRefreshing, setSecretsRefreshing] = useState(false);
+  const [showIndexManagement, setShowIndexManagement] = useState(false);
 
   const onSecretsRefresh = useCallback(async () => {
     setSecretsRefreshing(true);
@@ -398,6 +401,25 @@ export const SqlEditorView: React.FC = () => {
               <SqlSecretsPanel ref={secretsPanelRef} />
             </SqlSidebarSection>
             <SqlSidebarSection
+              id="utilities"
+              title="Utilities"
+              icon={<Wrench className="text-[#d97706]" strokeWidth={SQL_ICON_STROKE} />}
+              open={sidebarOpen.utilities}
+              onToggle={() => toggleSidebar('utilities')}
+            >
+              <div className="px-2 pb-2 flex flex-col gap-1">
+                <button
+                  type="button"
+                  data-testid="utilities-index-management"
+                  onClick={() => setShowIndexManagement(true)}
+                  className="w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] font-semibold text-[#0f172a] hover:bg-[#fff7ed] border border-transparent hover:border-[#fdba74]/40"
+                >
+                  <Database className="w-3.5 h-3.5 text-[#d97706]" strokeWidth={SQL_ICON_STROKE} />
+                  Index Management
+                </button>
+              </div>
+            </SqlSidebarSection>
+            <SqlSidebarSection
               id="schema"
               title="Schema"
               icon={<Network className="text-[#059669]" strokeWidth={SQL_ICON_STROKE} />}
@@ -658,6 +680,10 @@ export const SqlEditorView: React.FC = () => {
       )}
       {/* Always mounted so FK clicks from results work even when Schema is collapsed. */}
       <DataPeekPanel />
+      <IndexManagementModal
+        open={showIndexManagement}
+        onClose={() => setShowIndexManagement(false)}
+      />
     </div>
   );
 };
