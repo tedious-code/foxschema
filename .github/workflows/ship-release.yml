@@ -1,0 +1,140 @@
+name: Ship Release
+
+# Publishes npm + Docker when a GitHub Release is published, or via
+# repository_dispatch (event_type: ship-release, client_payload.tag: vX.Y.Z).
+# Complements tag-push triggers on npm-publish / web-release (some bot tag
+# pushes do not enqueue those workflows).
+
+on:
+  release:
+    types: [published]
+  repository_dispatch:
+    types: [ship-release]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Git tag to ship (e.g. v0.2.4)'
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  resolve-tag:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - id: tag
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          DISPATCH_TAG: ${{ github.event.client_payload.tag }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [ "$EVENT_NAME" = "release" ] && [ -n "$RELEASE_TAG" ]; then
+            TAG="$RELEASE_TAG"
+          elif [ "$EVENT_NAME" = "repository_dispatch" ] && [ -n "$DISPATCH_TAG" ]; then
+            TAG="$DISPATCH_TAG"
+          elif [ -n "$INPUT_TAG" ]; then
+            TAG="$INPUT_TAG"
+          else
+            echo "No tag resolved for event=$EVENT_NAME" >&2
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Shipping $TAG"
+
+  npm:
+    needs: resolve-tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.resolve-tag.outputs.tag }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Install workspace
+        run: npm install
+
+      - name: Build web UI + CLI
+        run: |
+          npm run build -w @foxschema/web
+          npm run build -w @foxschema/cli
+
+      - name: Prepare npm pack folder
+        run: node apps/cli/scripts/prepare-publish.mjs
+
+      - name: Publish to npm
+        working-directory: apps/cli/npm-pack
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
+
+  docker:
+    needs: resolve-tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.resolve-tag.outputs.tag }}
+
+      - name: Compose image tags
+        id: tags
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          TAG: ${{ needs.resolve-tag.outputs.tag }}
+        run: |
+          GHCR="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          GHCR="${GHCR,,}"
+          {
+            echo "tags<<EOF"
+            echo "${GHCR}:latest"
+            echo "${GHCR}:${TAG}"
+            if [ -n "${DOCKERHUB_USERNAME}" ]; then
+              echo "${DOCKERHUB_USERNAME}/foxschema:latest"
+              echo "${DOCKERHUB_USERNAME}/foxschema:${TAG}"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          if [ -n "${DOCKERHUB_USERNAME}" ]; then
+            echo "push_dockerhub=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "push_dockerhub=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        if: steps.tags.outputs.push_dockerhub == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push image (linux/amd64, includes Db2)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            WITH_DB2=true
+          tags: ${{ steps.tags.outputs.tags }}

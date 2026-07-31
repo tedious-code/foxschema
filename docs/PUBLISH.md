@@ -47,8 +47,14 @@ That starts:
 - **npm Publish** → needs repo secret `NPM_TOKEN`
 
 If a tag push does not start those workflows (some bot pushes are ignored),
-**publish a GitHub Release** for the same tag — both workflows also listen for
-`release: published`.
+use **Ship Release** (`.github/workflows/ship-release.yml`):
+
+```bash
+# Preferred: publish/edit a GitHub Release for the tag, or:
+gh api -X POST repos/tedious-code/foxschema/dispatches \
+  -f event_type=ship-release \
+  -f 'client_payload[tag]=v0.2.0'
+```
 
 The npm package ships with:
 
