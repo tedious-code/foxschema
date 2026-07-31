@@ -7,6 +7,7 @@ import {
 import type { CloudSecretRef } from '../modules/cloud-secrets';
 import { isCloudSecretSource } from '../modules/cloud-secrets';
 import { AuthedRequest } from './auth.routes';
+import { requirePermissions } from './rbac.middleware';
 
 function parseSecretBody(body: unknown): Partial<AppSecretInput> {
   const b = (body ?? {}) as Record<string, unknown>;
@@ -40,15 +41,15 @@ export function createAppSecretsRoutes(
 ): Router {
   const router = Router();
 
-  router.get('/', async (req: AuthedRequest, res: Response) => {
+  router.get('/', requirePermissions('secrets.view'), async (req: AuthedRequest, res: Response) => {
     res.json({ secrets: await store.list(req.userId!) });
   });
 
-  router.get('/providers', async (req: AuthedRequest, res: Response) => {
+  router.get('/providers', requirePermissions('secrets.view'), async (req: AuthedRequest, res: Response) => {
     res.json({ providers: await providers.list(req.userId!) });
   });
 
-  router.post('/providers', async (req: AuthedRequest, res: Response) => {
+  router.post('/providers', requirePermissions('secrets.create'), async (req: AuthedRequest, res: Response) => {
     const body = (req.body ?? {}) as {
       name?: unknown;
       provider?: unknown;
@@ -75,7 +76,7 @@ export function createAppSecretsRoutes(
     }
   });
 
-  router.put('/providers/:id', async (req: AuthedRequest, res: Response) => {
+  router.put('/providers/:id', requirePermissions('secrets.edit'), async (req: AuthedRequest, res: Response) => {
     const body = (req.body ?? {}) as {
       name?: unknown;
       credentials?: CloudProviderCredentials;
@@ -98,12 +99,12 @@ export function createAppSecretsRoutes(
     }
   });
 
-  router.delete('/providers/:id', async (req: AuthedRequest, res: Response) => {
+  router.delete('/providers/:id', requirePermissions('secrets.delete'), async (req: AuthedRequest, res: Response) => {
     const removed = await providers.remove(req.userId!, String(req.params.id));
     res.status(removed ? 200 : 404).json({ ok: removed });
   });
 
-  router.post('/', async (req: AuthedRequest, res: Response) => {
+  router.post('/', requirePermissions('secrets.create'), async (req: AuthedRequest, res: Response) => {
     const input = parseSecretBody(req.body);
     if (!input.name || !input.source) {
       res.status(400).json({ error: 'name and source are required' });
@@ -125,7 +126,7 @@ export function createAppSecretsRoutes(
     }
   });
 
-  router.post('/resolve', async (req: AuthedRequest, res: Response) => {
+  router.post('/resolve', requirePermissions('secrets.view'), async (req: AuthedRequest, res: Response) => {
     const names = Array.isArray((req.body as { names?: unknown })?.names)
       ? ((req.body as { names: unknown[] }).names.filter((n) => typeof n === 'string') as string[])
       : undefined;
@@ -139,7 +140,7 @@ export function createAppSecretsRoutes(
     }
   });
 
-  router.put('/:id', async (req: AuthedRequest, res: Response) => {
+  router.put('/:id', requirePermissions('secrets.edit'), async (req: AuthedRequest, res: Response) => {
     const input = parseSecretBody(req.body);
     try {
       const updated = await store.update(req.userId!, String(req.params.id), input);
@@ -155,7 +156,7 @@ export function createAppSecretsRoutes(
     }
   });
 
-  router.delete('/:id', async (req: AuthedRequest, res: Response) => {
+  router.delete('/:id', requirePermissions('secrets.delete'), async (req: AuthedRequest, res: Response) => {
     const removed = await store.remove(req.userId!, String(req.params.id));
     res.status(removed ? 200 : 404).json({ ok: removed });
   });

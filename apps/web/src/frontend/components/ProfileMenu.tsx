@@ -1,8 +1,9 @@
 import React, { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { LogOut, Palette, ChevronDown, ArrowUpCircle, Globe } from 'lucide-react';
+import { LogOut, Palette, ChevronDown, ArrowUpCircle, Globe, Shield } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { checkForUpdates, type UpdateInfo } from '../api/updatesApi';
+import { AdminAccessPanel } from './AdminAccessPanel';
 
 // Lazy so a SettingsPanel/HMR failure cannot empty this module's exports
 // (which surfaces as: ProfileMenu.tsx does not provide export named 'ProfileMenu').
@@ -11,9 +12,12 @@ const SettingsPanel = lazy(() =>
 );
 
 export function ProfileMenu(): React.ReactElement | null {
-  const { user, logout } = useAuthStore();
+  const { user, logout, localSingleUser } = useAuthStore();
+  const canAdminUsers = useAuthStore((s) => s.can('admin.users'));
+  const canAdminRoles = useAuthStore((s) => s.can('admin.roles'));
   const [open, setOpen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
@@ -76,6 +80,11 @@ export function ProfileMenu(): React.ReactElement | null {
             <p className="text-sm text-slate-200 truncate" title={user.email}>
               {user.email}
             </p>
+            {user.role && (
+              <p className="text-[11px] text-amber-300/90 mt-0.5 capitalize" data-testid="profile-role">
+                Role: {user.role}
+              </p>
+            )}
           </div>
 
           {updateAvailable && (
@@ -101,6 +110,20 @@ export function ProfileMenu(): React.ReactElement | null {
             <Palette className="w-4 h-4" /> User Preference
           </button>
 
+          {(canAdminUsers || canAdminRoles) && (
+            <button
+              type="button"
+              data-testid="profile-access-control"
+              onClick={() => {
+                setShowAdmin(true);
+                setOpen(false);
+              }}
+              className="w-full flex items-center gap-2 px-4 py-3 text-sm font-semibold text-slate-300 hover:text-slate-100 hover:bg-slate-800/60 transition cursor-pointer"
+            >
+              <Shield className="w-4 h-4" /> Access control
+            </button>
+          )}
+
           <a
             href="https://foxschema.com"
             target="_blank"
@@ -111,13 +134,15 @@ export function ProfileMenu(): React.ReactElement | null {
             <Globe className="w-4 h-4" /> foxschema.com
           </a>
 
-          <button
-            type="button"
-            onClick={logout}
-            className="w-full flex items-center gap-2.5 px-4 py-3 text-sm font-bold text-rose-400 hover:text-rose-300 hover:bg-rose-950/30 transition cursor-pointer border-t border-slate-800 bg-slate-950/40"
-          >
-            <LogOut className="w-4 h-4" /> Sign out
-          </button>
+          {!localSingleUser && (
+            <button
+              type="button"
+              onClick={logout}
+              className="w-full flex items-center gap-2.5 px-4 py-3 text-sm font-bold text-rose-400 hover:text-rose-300 hover:bg-rose-950/30 transition cursor-pointer border-t border-slate-800 bg-slate-950/40"
+            >
+              <LogOut className="w-4 h-4" /> Sign out
+            </button>
+          )}
         </div>,
         document.body
       )
@@ -148,6 +173,7 @@ export function ProfileMenu(): React.ReactElement | null {
           <SettingsPanel open={showSettings} onClose={() => setShowSettings(false)} />
         </Suspense>
       )}
+      <AdminAccessPanel open={showAdmin} onClose={() => setShowAdmin(false)} />
     </div>
   );
 }

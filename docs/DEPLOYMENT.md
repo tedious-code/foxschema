@@ -14,6 +14,19 @@ foxschema shortcut
 
 Maintainers: **[PUBLISH.md](PUBLISH.md)**.
 
+### Multi-user login + RBAC
+
+For team installs, require login and enable roles (`admin` / `editor` / `viewer`):
+
+```bash
+LOCAL_SINGLE_USER=false
+# AUTH_REQUIRED defaults to true when LOCAL_SINGLE_USER=false
+```
+
+- First registered account becomes **admin**; later signups default to **viewer**.
+- Admins configure role permissions and assign users under **Profile → Access control**.
+- Permissions cover Schema Sync (browse / compare / migrate), SQL Editor (sidebar, variables, writes, datagrid, code cells), Utilities, and Secrets.
+
 **Servers / teams:** Fox Schema ships as a **single Docker image** (all dialects including
 Db2) that serves both the UI and the API on one configurable port (default **3001**).
 

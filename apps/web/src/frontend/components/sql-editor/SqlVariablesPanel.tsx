@@ -7,6 +7,7 @@ import {
 } from '../../lib/sql-variables';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
 import { useSyncStore } from '../../store/useSyncStore';
+import { useAuthStore } from '../../store/authStore';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
 
 const TABLE_PREVIEW_ROWS = 20;
@@ -82,6 +83,8 @@ function parseListDraft(raw: string): unknown[] {
  * Supports secrets, per-connection overrides, table preview, export/import.
  */
 export const SqlVariablesPanel: React.FC = () => {
+  const canWrite = useAuthStore((s) => s.can('editor.variables.write'));
+  const canDelete = useAuthStore((s) => s.can('editor.variables.delete'));
   const variables = useSqlEditorStore((s) => s.variables);
   const upsertVariable = useSqlEditorStore((s) => s.upsertVariable);
   const deleteVariable = useSqlEditorStore((s) => s.deleteVariable);
@@ -407,16 +410,18 @@ export const SqlVariablesPanel: React.FC = () => {
                       )}
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    data-testid={`sql-variable-delete-${v.name}`}
-                    title="Delete variable"
-                    aria-label={`Delete ${v.name}`}
-                    onClick={() => deleteVariable(v.id)}
-                    className="p-0.5 text-slate-500 hover:text-rose-400 opacity-0 group-hover:opacity-100 transition shrink-0 mt-0.5"
-                  >
-                    <Trash2 className="w-3.5 h-3.5 text-rose-400" strokeWidth={SQL_ICON_STROKE} />
-                  </button>
+                  {canDelete && (
+                    <button
+                      type="button"
+                      data-testid={`sql-variable-delete-${v.name}`}
+                      title="Delete variable"
+                      aria-label={`Delete ${v.name}`}
+                      onClick={() => deleteVariable(v.id)}
+                      className="p-0.5 text-slate-500 hover:text-rose-400 opacity-0 group-hover:opacity-100 transition shrink-0 mt-0.5"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-rose-400" strokeWidth={SQL_ICON_STROKE} />
+                    </button>
+                  )}
                 </div>
 
                 {expandedOverrides === v.id && (v.kind === 'scalar' || v.kind === 'list') && (
@@ -528,7 +533,7 @@ export const SqlVariablesPanel: React.FC = () => {
         </ul>
       )}
 
-      {!adding && (
+      {!adding && canWrite && (
         <button
           type="button"
           data-testid="sql-variable-add"

@@ -12,6 +12,7 @@ import { TYPE_META, TYPE_ORDER } from './SchemaTreePanel';
 import type { DbObjectType } from '../lib/types';
 import { PROVIDER_SETTINGS } from '../lib/provider-settings';
 import { ConnectionModal } from './ConnectionModal';
+import { useAuthStore } from '../store/authStore';
 
 const ProfileMenu = ProfileMenuNamed ?? ProfileMenuDefault;
 
@@ -54,6 +55,9 @@ export const TopToolbar: React.FC = () => {
   const [showCredentials, setShowCredentials] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const { activeView, setActiveView } = useUiStore();
+  const canSchemaBrowse = useAuthStore((s) => s.can('schema.browse'));
+  const canSchemaCompare = useAuthStore((s) => s.can('schema.compare'));
+  const canEditorAccess = useAuthStore((s) => s.can('editor.access'));
 
   // A saved connection created without a stored password ("Save password" left
   // unticked) has no password to apply automatically — selecting it from either
@@ -112,24 +116,28 @@ export const TopToolbar: React.FC = () => {
         <div className="flex items-center gap-3">
           {/* Workspace view switcher: Schema Sync (compare/browse) vs SQL Editor */}
           <div className="flex items-center rounded-md border border-slate-700 overflow-hidden">
-            <button
-              data-testid="view-sync-btn"
-              onClick={() => setActiveView('sync')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold transition cursor-pointer ${
-                activeView === 'sync' ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <GitCompareArrows className="w-4 h-4" /> Schema Sync
-            </button>
-            <button
-              data-testid="view-sql-editor-btn"
-              onClick={() => setActiveView('sqlEditor')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold transition cursor-pointer border-l border-slate-700 ${
-                activeView === 'sqlEditor' ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Terminal className="w-4 h-4" /> SQL Editor
-            </button>
+            {(canSchemaBrowse || canSchemaCompare) && (
+              <button
+                data-testid="view-sync-btn"
+                onClick={() => setActiveView('sync')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold transition cursor-pointer ${
+                  activeView === 'sync' ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <GitCompareArrows className="w-4 h-4" /> Schema Sync
+              </button>
+            )}
+            {canEditorAccess && (
+              <button
+                data-testid="view-sql-editor-btn"
+                onClick={() => setActiveView('sqlEditor')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold transition cursor-pointer border-l border-slate-700 ${
+                  activeView === 'sqlEditor' ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Terminal className="w-4 h-4" /> SQL Editor
+              </button>
+            )}
           </div>
           <button
             data-testid="credentials-btn"
@@ -234,7 +242,7 @@ export const TopToolbar: React.FC = () => {
               </button>
             )}
 
-            {sourceConnected && (
+            {sourceConnected && canSchemaBrowse && (
               <button
                 onClick={() => browseSchema('source')}
                 disabled={isBrowsing || selectedObjectTypes.length === 0}
@@ -331,7 +339,7 @@ export const TopToolbar: React.FC = () => {
               </button>
             )}
 
-            {targetConnected && (
+            {targetConnected && canSchemaBrowse && (
               <button
                 onClick={() => browseSchema('target')}
                 disabled={isBrowsing || selectedObjectTypes.length === 0}
@@ -430,10 +438,27 @@ export const TopToolbar: React.FC = () => {
           <button
             data-testid="compare-btn"
             onClick={runSchemaComparison}
-            disabled={isComparing || !sourceConnected || !targetConnected || selectedObjectTypes.length === 0 || sameConfig}
-            title={sameConfig ? 'Source and target point to the same database and schema' : undefined}
+            disabled={
+              !canSchemaCompare ||
+              isComparing ||
+              !sourceConnected ||
+              !targetConnected ||
+              selectedObjectTypes.length === 0 ||
+              sameConfig
+            }
+            title={
+              !canSchemaCompare
+                ? 'Your role cannot compare schemas'
+                : sameConfig
+                  ? 'Source and target point to the same database and schema'
+                  : undefined
+            }
             className={`flex items-center gap-2 px-5 py-2 rounded-lg text-base font-bold transition shadow-lg ${
-              sourceConnected && targetConnected && selectedObjectTypes.length > 0 && !sameConfig
+              canSchemaCompare &&
+              sourceConnected &&
+              targetConnected &&
+              selectedObjectTypes.length > 0 &&
+              !sameConfig
                 ? 'accent-grad on-accent-fg shadow-indigo-500/10 cursor-pointer'
                 : 'bg-slate-850 text-slate-500 cursor-not-allowed border border-slate-800/50'
             }`}

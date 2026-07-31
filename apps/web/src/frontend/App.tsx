@@ -19,6 +19,31 @@ const SqlEditorView = lazy(() =>
 const Workspace: React.FC = () => {
   const { errorMsg, warnings, dismissWarnings } = useSyncStore();
   const activeView = useUiStore((s) => s.activeView);
+  const setActiveView = useUiStore((s) => s.setActiveView);
+  const canEditorAccess = useAuthStore((s) => s.can('editor.access'));
+  const canSchemaBrowse = useAuthStore((s) => s.can('schema.browse'));
+  const canSchemaCompare = useAuthStore((s) => s.can('schema.compare'));
+
+  useEffect(() => {
+    if (activeView === 'sqlEditor' && !canEditorAccess) {
+      setActiveView('sync');
+    }
+    if (
+      activeView === 'sync' &&
+      !canSchemaBrowse &&
+      !canSchemaCompare &&
+      canEditorAccess
+    ) {
+      setActiveView('sqlEditor');
+    }
+  }, [
+    activeView,
+    canEditorAccess,
+    canSchemaBrowse,
+    canSchemaCompare,
+    setActiveView,
+  ]);
+
   return (
     <div className="h-screen flex flex-col bg-slate-950 text-slate-100 antialiased overflow-hidden">
       <TopToolbar />

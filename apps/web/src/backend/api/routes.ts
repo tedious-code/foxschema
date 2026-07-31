@@ -13,6 +13,7 @@ import {
   getProviderSettings,
   dialectSupportsIndexFragmentation,
   buildIndexFragmentationCustomTemplate,
+  isWriteStatement,
   type MigrationStep,
   type ConnectionOptions,
   type DbObjectType,
@@ -42,6 +43,7 @@ import { getMetadataDbConfig, SUPPORTED_ENGINES, type DbEngine } from '../databa
 import { createMetadataStore } from '../database/stores/registry';
 import { keySchemeInfo } from '../cores/crypto';
 import type { AuthedRequest } from './auth.routes';
+import { denyUnless, requirePermissions } from './rbac.middleware';
 
 /**
  * A connection reference: either a saved connection (resolved server-side so the
@@ -343,7 +345,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     }
   });
 
-  router.post('/schema/list', async (req: Request, res: Response) => {
+  router.post('/schema/list', requirePermissions('schema.browse'), async (req: Request, res: Response) => {
     try {
       const { dialect, option } = await resolveRef((req as AuthedRequest).userId, req.body as ConnectionRef);
       const provider = connectionModule.getProvider(dialect);
@@ -361,7 +363,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   // Load a single schema's scoped objects (no comparison) — for the browse/search
   // mode. Uses resolveRef so saved connections work, and applies the object-type
   // scope just like /compare does for each side.
-  router.post('/schema/load', async (req: Request, res: Response) => {
+  router.post('/schema/load', requirePermissions('schema.browse'), async (req: Request, res: Response) => {
     const { scope, ...ref } = req.body as ConnectionRef & { scope: DbObjectType[] };
     try {
       const { dialect, option, schema } = await resolveRef((req as AuthedRequest).userId, ref);
@@ -386,7 +388,11 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
    * (single SELECT returning index_name + fragmentation_percent).
    */
   const indexFragLimiter = rateLimit({ windowMs: 60 * 1000, max: 30 });
-  router.post('/schema/index-fragmentation', indexFragLimiter, async (req: Request, res: Response) => {
+  router.post(
+    '/schema/index-fragmentation',
+    indexFragLimiter,
+    requirePermissions('utility.access'),
+    async (req: Request, res: Response) => {
     const body = req.body as ConnectionRef & {
       table?: unknown;
       schema?: unknown;
@@ -433,6 +439,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   router.post(
     '/schema/index-fragmentation-batch',
     indexFragBatchLimiter,
+    requirePermissions('utility.access'),
     async (req: Request, res: Response) => {
       const body = req.body as ConnectionRef & {
         tables?: unknown;
@@ -507,7 +514,11 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
    * One connection ref + kind; dialect probes live in @foxschema/core.
    */
   const dbaUtilityLimiter = rateLimit({ windowMs: 60 * 1000, max: 30 });
-  router.post('/schema/dba-utility', dbaUtilityLimiter, async (req: Request, res: Response) => {
+  router.post(
+    '/schema/dba-utility',
+    dbaUtilityLimiter,
+    requirePermissions('utility.access'),
+    async (req: Request, res: Response) => {
     const body = req.body as ConnectionRef & {
       kind?: unknown;
       schema?: unknown;
@@ -558,6 +569,10 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       res.status(400).json({ error: 'statements[] is required.' });
       return;
     }
+    const authed = req as AuthedRequest;
+    if (denyUnless(authed, res, 'editor.run')) return;
+    const writes = (statements as string[]).some((s) => isWriteStatement(s));
+    if (writes && denyUnless(authed, res, 'editor.write')) return;
     if (statements.length > MAX_STATEMENTS) {
       res.status(400).json({ error: `At most ${MAX_STATEMENTS} statements per request.` });
       return;
@@ -604,6 +619,9 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   const codeCellLimiter = rateLimit({ windowMs: 60 * 1000, max: 30 });
   router.post('/sql/code-cell', codeCellLimiter, async (req: Request, res: Response) => {
     const body = req.body as CodeCellRequestBody & ConnectionRef & { allowWrites?: boolean };
+    const authed = req as AuthedRequest;
+    if (denyUnless(authed, res, 'editor.advanced')) return;
+    if (body.allowWrites === true && denyUnless(authed, res, 'editor.write')) return;
     const validated = validateCodeCellRequest(body);
     if (!validated.ok) {
       res.status(400).json({ error: validated.error });
@@ -631,7 +649,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     }
   });
 
-  router.post('/compare', async (req: Request, res: Response) => {
+  router.post('/compare', requirePermissions('schema.compare'), async (req: Request, res: Response) => {
     const { source, target, scope } = req.body as {
       source: ConnectionRef;
       target: ConnectionRef;
@@ -665,7 +683,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     }
   });
 
-  router.post('/migration/execute', async (req: Request, res: Response) => {
+  router.post('/migration/execute', requirePermissions('schema.migrate'), async (req: Request, res: Response) => {
     const { steps, continueOnError, ...ref } = req.body as ConnectionRef & { steps: MigrationStep[]; continueOnError?: boolean };
     let dialect: string;
     let option: ConnectionOptions;

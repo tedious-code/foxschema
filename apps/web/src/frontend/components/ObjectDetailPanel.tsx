@@ -1,5 +1,6 @@
 import React, { useState, useMemo, Suspense, lazy } from 'react';
 import { useSyncStore } from '../store/useSyncStore';
+import { useAuthStore } from '../store/authStore';
 import { Code, Play, RefreshCw, FileText, CheckCircle2, ChevronRight, ChevronDown, KeyRound, Copy, GitCompareArrows, AlertTriangle } from 'lucide-react';
 import { SqlGeneratorModule } from '../lib/sql-generator';
 import { findDropDependencies } from '../lib/dependency-scan';
@@ -157,6 +158,7 @@ function buildTableDdlDiffLines(
 }
 
 export const ObjectDetailPanel: React.FC = () => {
+  const canMigrate = useAuthStore((s) => s.can('schema.migrate'));
   const {
     selectedTable,
     generatedSql,
@@ -1355,12 +1357,17 @@ export const ObjectDetailPanel: React.FC = () => {
             data-testid="execute-btn"
             onClick={handleExecuteClick}
             disabled={
+              !canMigrate ||
               isComparing || isMigrating || migrationExecuted || includedCount === 0 ||
               !targetConnected || hasUnresolvedDropDeps ||
               (hasDestructiveDrops && !destructiveDropsAcked) ||
               (deploysRoutineToMySql && !mysqlRiskAcked)
             }
-            title={executeBlockReason ?? `Deploy ${includedCount} object(s) to target`}
+            title={
+              !canMigrate
+                ? 'Your role cannot execute migrations'
+                : executeBlockReason ?? `Deploy ${includedCount} object(s) to target`
+            }
             className={`flex items-center gap-1.5 px-4 py-1.5 rounded text-xs font-bold transition shadow ${
               migrationExecuted
                 ? 'bg-emerald-950/40 text-emerald-400 border border-emerald-500/25 cursor-default'

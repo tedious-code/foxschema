@@ -1,8 +1,18 @@
+/**
+ * Fox Schema (foxschema)
+ * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
+ * SPDX-License-Identifier: Apache-2.0
+ */
 import { Router, Request, Response, NextFunction } from 'express';
-import { AuthModule, SESSION_COOKIE, SESSION_MAX_AGE_MS } from '../modules/auth.module';
+import { AuthModule, SESSION_COOKIE, SESSION_MAX_AGE_MS, type AuthUser } from '../modules/auth.module';
+import type { AppRole, Permission } from '../../shared/permissions';
+import { attachAuthUser } from './rbac.middleware';
 
 export interface AuthedRequest extends Request {
   userId?: string;
+  appRole?: AppRole;
+  permissions?: Set<Permission>;
+  authUser?: AuthUser;
 }
 
 /** Minimal cookie reader (avoids a cookie-parser dependency). */
@@ -70,7 +80,7 @@ export function createAuthRoutes(auth: AuthModule): Router {
   return router;
 }
 
-/** Guard for protected routes — attaches userId or 401s. */
+/** Guard for protected routes — attaches userId + RBAC or 401s. */
 export function authGuard(auth: AuthModule) {
   return async (req: AuthedRequest, res: Response, next: NextFunction) => {
     try {
@@ -79,7 +89,8 @@ export function authGuard(auth: AuthModule) {
         res.status(401).json({ error: 'Authentication required' });
         return;
       }
-      req.userId = user.id;
+      attachAuthUser(user, req);
+      req.authUser = user;
       next();
     } catch (err) {
       next(err);
@@ -88,13 +99,15 @@ export function authGuard(auth: AuthModule) {
 }
 
 /**
- * Local single-user guard (community desktop): skips cookies/login and attaches
- * the singleton local user, so per-user routes work without an auth flow.
+ * Local single-user guard: skips cookies/login and attaches the singleton
+ * local user as admin so per-user routes work without an auth flow.
  */
 export function localUserGuard(auth: AuthModule) {
   return async (req: AuthedRequest, _res: Response, next: NextFunction) => {
     try {
-      req.userId = (await auth.ensureLocalUser()).id;
+      const user = await auth.ensureLocalUser();
+      attachAuthUser(user, req);
+      req.authUser = user;
       next();
     } catch (err) {
       next(err);

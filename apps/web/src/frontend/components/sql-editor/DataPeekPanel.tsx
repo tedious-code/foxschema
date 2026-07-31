@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { useSqlEditorStore, type DataPeekEntry } from '../../store/useSqlEditorStore';
 import { useSyncStore } from '../../store/useSyncStore';
+import { useAuthStore } from '../../store/authStore';
 import { foreignKeyLinksFor } from '../../lib/tablePreview';
 import {
   assessPeekEditability,
@@ -293,6 +294,10 @@ const PeekGrid: React.FC<{
   const sessionPasswords = useSqlEditorStore((s) => s.sessionPasswords);
   const connections = useSyncStore((s) => s.connections);
   const conn = connections.find((c) => c.id === connectionId);
+  const canInsert = useAuthStore((s) => s.can('editor.datagrid.insert'));
+  const canUpdate = useAuthStore((s) => s.can('editor.datagrid.update'));
+  const canDelete = useAuthStore((s) => s.can('editor.datagrid.delete'));
+  const canWriteSql = useAuthStore((s) => s.can('editor.write'));
 
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
   const [editor, setEditor] = useState<{
@@ -442,7 +447,7 @@ const PeekGrid: React.FC<{
   );
 
   const openAdd = () => {
-    if (!editability.editable || !table || !entry.result?.ok) return;
+    if (!editability.editable || !canWriteSql || !canInsert || !table || !entry.result?.ok) return;
     setEditor({
       mode: 'add',
       draft: peekRowToDraft(entry.result.columns, null, {
@@ -453,7 +458,7 @@ const PeekGrid: React.FC<{
   };
 
   const openEdit = () => {
-    if (!editability.editable || !table || !entry.result?.ok || selectedRowIndex == null) return;
+    if (!editability.editable || !canWriteSql || !canUpdate || !table || !entry.result?.ok || selectedRowIndex == null) return;
     const row = entry.result.rows[selectedRowIndex];
     if (!row) return;
     setEditor({
@@ -466,7 +471,7 @@ const PeekGrid: React.FC<{
   };
 
   const openClone = () => {
-    if (!editability.editable || !table || !entry.result?.ok || selectedRowIndex == null) return;
+    if (!editability.editable || !canWriteSql || !canInsert || !table || !entry.result?.ok || selectedRowIndex == null) return;
     const row = entry.result.rows[selectedRowIndex];
     if (!row) return;
     setEditor({
@@ -480,7 +485,7 @@ const PeekGrid: React.FC<{
   };
 
   const openDelete = () => {
-    if (!editability.editable || !entry.result?.ok || selectedRowIndex == null) return;
+    if (!editability.editable || !canWriteSql || !canDelete || !entry.result?.ok || selectedRowIndex == null) return;
     const row = entry.result.rows[selectedRowIndex];
     if (!row) return;
     const plan = buildPeekDelete({
@@ -531,7 +536,9 @@ const PeekGrid: React.FC<{
     queueOrRun(plan);
   };
 
-  const canMutateRow = editability.editable && selectedRowIndex != null && Boolean(selectedRow);
+  const gridWritable = editability.editable && canWriteSql;
+  const canMutateRow = gridWritable && selectedRowIndex != null && Boolean(selectedRow);
+  const showCrud = gridWritable && entry.result?.ok && table && (canInsert || canUpdate || canDelete);
 
   return (
     <div
@@ -572,52 +579,60 @@ const PeekGrid: React.FC<{
         <span className="text-[12px] font-semibold text-slate-200 truncate flex-1" title={entry.title}>
           {entry.title}
         </span>
-        {editability.editable && entry.result?.ok && table && (
+        {showCrud && (
           <div className="flex items-center gap-0.5 shrink-0" data-testid={`data-peek-crud-${entry.id}`}>
-            <button
-              type="button"
-              data-testid={`data-peek-add-${entry.id}`}
-              title="Add row"
-              aria-label="Add row"
-              disabled={writing}
-              onClick={openAdd}
-              className="p-1 rounded text-slate-400 hover:text-emerald-300 hover:bg-slate-800 disabled:opacity-40"
-            >
-              <Plus className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
-            </button>
-            <button
-              type="button"
-              data-testid={`data-peek-edit-${entry.id}`}
-              title="Edit selected row"
-              aria-label="Edit selected row"
-              disabled={!canMutateRow || writing}
-              onClick={openEdit}
-              className="p-1 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 disabled:opacity-40"
-            >
-              <Pencil className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
-            </button>
-            <button
-              type="button"
-              data-testid={`data-peek-clone-${entry.id}`}
-              title="Clone selected row"
-              aria-label="Clone selected row"
-              disabled={!canMutateRow || writing}
-              onClick={openClone}
-              className="p-1 rounded text-slate-400 hover:text-amber-300 hover:bg-slate-800 disabled:opacity-40"
-            >
-              <Copy className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
-            </button>
-            <button
-              type="button"
-              data-testid={`data-peek-delete-${entry.id}`}
-              title="Delete selected row"
-              aria-label="Delete selected row"
-              disabled={!canMutateRow || writing}
-              onClick={openDelete}
-              className="p-1 rounded text-slate-400 hover:text-rose-300 hover:bg-slate-800 disabled:opacity-40"
-            >
-              <Trash2 className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
-            </button>
+            {canInsert && (
+              <button
+                type="button"
+                data-testid={`data-peek-add-${entry.id}`}
+                title="Add row"
+                aria-label="Add row"
+                disabled={writing}
+                onClick={openAdd}
+                className="p-1 rounded text-slate-400 hover:text-emerald-300 hover:bg-slate-800 disabled:opacity-40"
+              >
+                <Plus className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+              </button>
+            )}
+            {canUpdate && (
+              <button
+                type="button"
+                data-testid={`data-peek-edit-${entry.id}`}
+                title="Edit selected row"
+                aria-label="Edit selected row"
+                disabled={!canMutateRow || writing}
+                onClick={openEdit}
+                className="p-1 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 disabled:opacity-40"
+              >
+                <Pencil className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+              </button>
+            )}
+            {canInsert && (
+              <button
+                type="button"
+                data-testid={`data-peek-clone-${entry.id}`}
+                title="Clone selected row"
+                aria-label="Clone selected row"
+                disabled={!canMutateRow || writing}
+                onClick={openClone}
+                className="p-1 rounded text-slate-400 hover:text-amber-300 hover:bg-slate-800 disabled:opacity-40"
+              >
+                <Copy className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+              </button>
+            )}
+            {canDelete && (
+              <button
+                type="button"
+                data-testid={`data-peek-delete-${entry.id}`}
+                title="Delete selected row"
+                aria-label="Delete selected row"
+                disabled={!canMutateRow || writing}
+                onClick={openDelete}
+                className="p-1 rounded text-slate-400 hover:text-rose-300 hover:bg-slate-800 disabled:opacity-40"
+              >
+                <Trash2 className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+              </button>
+            )}
           </div>
         )}
         {!editability.editable && editability.reason && entry.result?.ok && (
@@ -682,7 +697,7 @@ const PeekGrid: React.FC<{
             linkColumns={linkColumns.size > 0 ? linkColumns : undefined}
             onLinkClick={onLinkClick}
             selectedRowIndex={selectedRowIndex}
-            onSelectRow={editability.editable ? setSelectedRowIndex : undefined}
+            onSelectRow={gridWritable && (canInsert || canUpdate || canDelete) ? setSelectedRowIndex : undefined}
           />
           {showFkHint && linkColumns.size > 0 && (
             <p className="mt-1 px-1 shrink-0 text-[10px] text-slate-500">

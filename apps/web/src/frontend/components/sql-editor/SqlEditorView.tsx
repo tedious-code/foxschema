@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { useSyncStore } from '../../store/useSyncStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
+import { useAuthStore } from '../../store/authStore';
 import { splitSqlStatements, type SplitStatement } from '../../lib/sql-splitter';
 import { formatEditorSql } from '../../utils/formatSql';
 import { effectiveConnectionIds, canExecuteWithoutDestination, resolveRunStatements } from '../../store/sqlEditorTabLogic';
@@ -94,6 +95,16 @@ function loadSidebarCollapsed(): boolean {
  * statement strip, layout toggle, Format/CSV. Results are per-tab and not persisted.
  */
 export const SqlEditorView: React.FC = () => {
+  const canEditorDestinations = useAuthStore((s) => s.can('editor.sidebar.destinations'));
+  const canEditorBookmarks = useAuthStore((s) => s.can('editor.sidebar.bookmarks'));
+  const canEditorVariables = useAuthStore((s) => s.can('editor.sidebar.variables'));
+  const canEditorSecrets = useAuthStore((s) => s.can('editor.sidebar.secrets'));
+  const canEditorUtilities = useAuthStore((s) => s.can('editor.sidebar.utilities'));
+  const canUtilityAccess = useAuthStore((s) => s.can('utility.access'));
+  const canEditorSchema = useAuthStore((s) => s.can('editor.sidebar.schema'));
+  const canSecretsView = useAuthStore((s) => s.can('secrets.view'));
+  const canVariablesRead = useAuthStore((s) => s.can('editor.variables.read'));
+
   const connections = useSyncStore((s) => s.connections);
   const tabs = useSqlEditorStore((s) => s.tabs);
   const activeTabId = useSqlEditorStore((s) => s.activeTabId);
@@ -340,6 +351,7 @@ export const SqlEditorView: React.FC = () => {
             </button>
           </div>
           <div className="flex-1 flex flex-col min-h-0 overflow-y-auto overflow-x-hidden bg-slate-950">
+            {canEditorDestinations && (
             <SqlSidebarSection
               id="destinations"
               title="Destination servers"
@@ -351,6 +363,8 @@ export const SqlEditorView: React.FC = () => {
             >
               <ConnectionChecklist />
             </SqlSidebarSection>
+            )}
+            {canEditorBookmarks && (
             <SqlSidebarSection
               id="bookmarks"
               title="Bookmarks"
@@ -374,6 +388,8 @@ export const SqlEditorView: React.FC = () => {
             >
               <SqlBookmarksPanel />
             </SqlSidebarSection>
+            )}
+            {canEditorVariables && canVariablesRead && (
             <SqlSidebarSection
               id="variables"
               title="Variables"
@@ -385,6 +401,8 @@ export const SqlEditorView: React.FC = () => {
             >
               <SqlVariablesPanel />
             </SqlSidebarSection>
+            )}
+            {canEditorSecrets && canSecretsView && (
             <SqlSidebarSection
               id="vault"
               title="Secrets"
@@ -412,6 +430,8 @@ export const SqlEditorView: React.FC = () => {
             >
               <SqlSecretsPanel ref={secretsPanelRef} />
             </SqlSidebarSection>
+            )}
+            {canEditorUtilities && canUtilityAccess && (
             <SqlSidebarSection
               id="utilities"
               title="Utilities"
@@ -479,6 +499,8 @@ export const SqlEditorView: React.FC = () => {
                 </button>
               </div>
             </SqlSidebarSection>
+            )}
+            {canEditorSchema && (
             <SqlSidebarSection
               id="schema"
               title="Schema"
@@ -509,6 +531,7 @@ export const SqlEditorView: React.FC = () => {
                 }}
               />
             </SqlSidebarSection>
+            )}
           </div>
           <div
             role="separator"

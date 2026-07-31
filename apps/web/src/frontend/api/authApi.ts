@@ -1,9 +1,17 @@
+/**
+ * Fox Schema (foxschema)
+ * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
+ * SPDX-License-Identifier: Apache-2.0
+ */
 import { getApiBase, parseJsonResponse } from './apiBase';
+import type { AppRole, Permission, PermissionMeta } from '../lib/permissions';
 
 export interface AuthUser {
   id: string;
   email: string;
   onboardingCompleted: boolean;
+  role: AppRole;
+  permissions: Permission[];
 }
 
 export interface UserPreferences {
@@ -14,6 +22,12 @@ export interface UserPreferences {
   onboardingCompleted: boolean;
 }
 
+export interface AppConfig {
+  localSingleUser: boolean;
+  authRequired: boolean;
+  rbac: boolean;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${getApiBase()}${path}`, {
     credentials: 'include',
@@ -21,6 +35,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   });
   return parseJsonResponse<T>(res, { allowEmpty: true });
+}
+
+/** Public SPA boot config (login required?). */
+export async function apiAppConfig(): Promise<AppConfig> {
+  try {
+    return await request<AppConfig>('/config');
+  } catch {
+    return { localSingleUser: true, authRequired: false, rbac: false };
+  }
 }
 
 /** Current session, or null if not signed in. */
@@ -66,6 +89,39 @@ export async function apiPutPreferences(prefs: Partial<UserPreferences>): Promis
   return preferences;
 }
 
+export async function apiAdminListUsers(): Promise<{
+  users: Array<{ id: string; email: string; role: AppRole; createdAt: string }>;
+  roles: AppRole[];
+}> {
+  return request('/admin/users');
+}
+
+export async function apiAdminSetUserRole(userId: string, role: AppRole): Promise<void> {
+  await request(`/admin/users/${encodeURIComponent(userId)}/role`, {
+    method: 'PUT',
+    body: JSON.stringify({ role }),
+  });
+}
+
+export async function apiAdminRolePermissions(): Promise<{
+  matrix: Record<AppRole, Permission[]>;
+  catalog: PermissionMeta[];
+  roles: AppRole[];
+}> {
+  return request('/admin/role-permissions');
+}
+
+export async function apiAdminSetRolePermissions(
+  role: AppRole,
+  permissions: Permission[]
+): Promise<Permission[]> {
+  const { permissions: next } = await request<{ role: AppRole; permissions: Permission[] }>(
+    `/admin/role-permissions/${encodeURIComponent(role)}`,
+    { method: 'PUT', body: JSON.stringify({ permissions }) }
+  );
+  return next;
+}
+
 // --- Saved connections (server-side, credentials encrypted at rest) ---------
 export interface SavedConnectionSummary {
   id: string;
@@ -102,12 +158,18 @@ export async function apiCreateConnection(input: {
 
 export async function apiUpdateConnection(
   id: string,
-  input: { name?: string; dialect: string; schema?: string; option: Record<string, unknown>; savePassword?: boolean }
+  input: {
+    name?: string;
+    dialect: string;
+    schema?: string;
+    option: Record<string, unknown>;
+    savePassword?: boolean;
+  }
 ): Promise<SavedConnectionSummary> {
-  const { connection } = await request<{ connection: SavedConnectionSummary }>(`/connections/${id}`, {
-    method: 'PUT',
-    body: JSON.stringify(input),
-  });
+  const { connection } = await request<{ connection: SavedConnectionSummary }>(
+    `/connections/${id}`,
+    { method: 'PUT', body: JSON.stringify(input) }
+  );
   return connection;
 }
 

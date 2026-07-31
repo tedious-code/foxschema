@@ -163,6 +163,23 @@ const MIGRATIONS: Migration[] = [
       ];
     },
   },
+  {
+    id: 7,
+    name: 'rbac_app_roles',
+    statements: (d) => {
+      const t = types(d);
+      return [
+        // App RBAC role (admin | editor | viewer). Distinct from onboarding user_preferences.role.
+        `ALTER TABLE users ADD COLUMN app_role ${t.str}`,
+        `UPDATE users SET app_role = 'admin' WHERE app_role IS NULL OR app_role = ''`,
+        `CREATE TABLE IF NOT EXISTS role_permissions (
+           role ${t.str} NOT NULL,
+           permission ${t.str} NOT NULL,
+           PRIMARY KEY (role, permission)
+         )`,
+      ];
+    },
+  },
 ];
 
 /**
