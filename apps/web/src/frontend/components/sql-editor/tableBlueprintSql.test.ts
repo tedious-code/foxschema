@@ -32,6 +32,11 @@ import {
   suggestFkName,
   suggestIndexName,
   appendFkTriggerSql,
+  nextArchiveTableName,
+  generateRenameTableSql,
+  generateCloneTableSql,
+  findInboundForeignKeyTables,
+  executableSqlStatements,
 } from './tableBlueprintSql';
 
 const col = (partial: Partial<ColumnInfo> & Pick<ColumnInfo, 'name' | 'type'>): ColumnInfo => ({
@@ -669,5 +674,114 @@ describe('moveFkColumnsLockstep', () => {
     );
     expect(next.columns).toEqual(['b_id', 'a_id']);
     expect(next.referencedColumns).toEqual(['b', 'a']);
+  });
+});
+
+describe('clone / archive table', () => {
+  const orders = {
+    name: 'orders',
+    objectType: 'TABLE' as const,
+    columns: [
+      col({ name: 'id', type: 'integer', nullable: false, primaryKey: true }),
+      col({ name: 'customer_id', type: 'integer', nullable: false }),
+      col({ name: 'note', type: 'text', nullable: true }),
+    ],
+    indices: [
+      { name: 'ix_orders_customer', columns: ['customer_id'], unique: false },
+    ],
+    foreignKeys: [
+      {
+        name: 'fk_orders_customer',
+        columns: ['customer_id'],
+        referencedTable: 'customers',
+        referencedColumns: ['id'],
+      },
+    ],
+    primaryKey: { name: 'orders_pkey', columns: ['id'] },
+  };
+
+  it('nextArchiveTableName continues from highest suffix', () => {
+    expect(
+      nextArchiveTableName('orders', ['orders', 'orders_1', 'orders_3'], { suffixMode: 'auto' })
+    ).toMatchObject({ archiveName: 'orders_4', number: 4 });
+    expect(
+      nextArchiveTableName('orders', ['orders'], { suffixMode: 'fixed', startNumber: 1 })
+    ).toMatchObject({ archiveName: 'orders_1', number: 1 });
+    expect(
+      nextArchiveTableName('orders', ['orders', 'orders_1'], {
+        suffixMode: 'fixed',
+        startNumber: 1,
+      }).error
+    ).toMatch(/already exists/i);
+  });
+
+  it('generateRenameTableSql is dialect-aware', () => {
+    expect(generateRenameTableSql('orders', 'orders_1', 'postgres', 'public')).toEqual([
+      'ALTER TABLE public.orders RENAME TO orders_1;',
+    ]);
+    expect(generateRenameTableSql('orders', 'orders_1', 'mysql', 'app')).toEqual([
+      'RENAME TABLE app.orders TO app.orders_1;',
+    ]);
+    expect(generateRenameTableSql('orders', 'orders_1', 'sqlserver', 'dbo')[0]).toContain(
+      'sp_rename'
+    );
+  });
+
+  it('generateCloneTableSql renames then recreates empty table with indexes and FKs', () => {
+    const plan = generateCloneTableSql({
+      table: orders,
+      dialect: 'postgres',
+      schema: 'public',
+      existingTableNames: ['orders', 'customers'],
+      suffixMode: 'auto',
+      startNumber: 1,
+      keepIndexes: true,
+      keepForeignKeys: true,
+    });
+    expect(plan.error).toBeUndefined();
+    expect(plan.archiveName).toBe('orders_1');
+    const sql = plan.statements.join('\n');
+    expect(sql).toContain('ALTER TABLE public.orders RENAME TO orders_1');
+    expect(sql).toContain('CREATE TABLE public.orders');
+    expect(sql).not.toContain('IF NOT EXISTS');
+    expect(sql).toContain('CREATE INDEX ix_orders_customer ON public.orders');
+    expect(sql).toContain('FOREIGN KEY');
+    expect(executableSqlStatements(plan.statements).length).toBeGreaterThan(2);
+  });
+
+  it('generateCloneTableSql can skip indexes and FKs', () => {
+    const plan = generateCloneTableSql({
+      table: orders,
+      dialect: 'postgres',
+      schema: 'public',
+      existingTableNames: ['orders'],
+      keepIndexes: false,
+      keepForeignKeys: false,
+    });
+    const sql = plan.statements.join('\n');
+    expect(sql).toContain('keepIndexes=false');
+    expect(sql).toContain('keepForeignKeys=false');
+    expect(sql).not.toMatch(/CREATE INDEX ix_orders_customer ON public\.orders/);
+  });
+
+  it('findInboundForeignKeyTables lists children', () => {
+    const tables = [
+      orders,
+      {
+        name: 'order_items',
+        objectType: 'TABLE' as const,
+        columns: [col({ name: 'id', type: 'integer' })],
+        indices: [],
+        foreignKeys: [
+          {
+            name: 'fk_items_orders',
+            columns: ['order_id'],
+            referencedTable: 'orders',
+            referencedColumns: ['id'],
+          },
+        ],
+      },
+    ];
+    expect(findInboundForeignKeyTables(tables, 'orders')).toEqual(['order_items']);
   });
 });

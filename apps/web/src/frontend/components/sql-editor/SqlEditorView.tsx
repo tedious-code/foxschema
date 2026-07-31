@@ -17,6 +17,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
+  Copy,
   Wrench,
 } from 'lucide-react';
 import { useSyncStore } from '../../store/useSyncStore';
@@ -42,6 +43,7 @@ import {
 } from './SqlSidebarSection';
 import { WriteConfirmDialog } from './WriteConfirmDialog';
 import { IndexManagementModal } from '../utilities/IndexManagementModal';
+import { CloneTableModal } from '../utilities/CloneTableModal';
 import type { RevealRequest } from './SqlEditorPane';
 
 const SqlEditorPane = lazy(() => import('./SqlEditorPane'));
@@ -136,6 +138,8 @@ export const SqlEditorView: React.FC = () => {
   const schemaExplorerRef = useRef<SqlSchemaExplorerHandle>(null);
   const [secretsRefreshing, setSecretsRefreshing] = useState(false);
   const [showIndexManagement, setShowIndexManagement] = useState(false);
+  const [showCloneTable, setShowCloneTable] = useState(false);
+  const [cloneTableInitial, setCloneTableInitial] = useState<string | null>(null);
 
   const onSecretsRefresh = useCallback(async () => {
     setSecretsRefreshing(true);
@@ -417,6 +421,18 @@ export const SqlEditorView: React.FC = () => {
                   <Database className="w-3.5 h-3.5 text-[#d97706]" strokeWidth={SQL_ICON_STROKE} />
                   Index Management
                 </button>
+                <button
+                  type="button"
+                  data-testid="utilities-clone-table"
+                  onClick={() => {
+                    setCloneTableInitial(null);
+                    setShowCloneTable(true);
+                  }}
+                  className="w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] font-semibold text-[#0f172a] hover:bg-[#fff7ed] border border-transparent hover:border-[#fdba74]/40"
+                >
+                  <Copy className="w-3.5 h-3.5 text-[#d97706]" strokeWidth={SQL_ICON_STROKE} />
+                  Clone Table
+                </button>
               </div>
             </SqlSidebarSection>
             <SqlSidebarSection
@@ -441,7 +457,13 @@ export const SqlEditorView: React.FC = () => {
                 </button>
               }
             >
-              <SqlSchemaExplorer ref={schemaExplorerRef} />
+              <SqlSchemaExplorer
+                ref={schemaExplorerRef}
+                onCloneTable={(name) => {
+                  setCloneTableInitial(name);
+                  setShowCloneTable(true);
+                }}
+              />
             </SqlSidebarSection>
           </div>
           <div
@@ -683,6 +705,14 @@ export const SqlEditorView: React.FC = () => {
       <IndexManagementModal
         open={showIndexManagement}
         onClose={() => setShowIndexManagement(false)}
+      />
+      <CloneTableModal
+        open={showCloneTable}
+        initialTableName={cloneTableInitial}
+        onClose={() => {
+          setShowCloneTable(false);
+          setCloneTableInitial(null);
+        }}
       />
     </div>
   );
