@@ -10,6 +10,7 @@ import {
   buildPeekInsert,
   buildPeekUpdate,
   draftToArray,
+  originalRowForPeekEdit,
   resolvePeekKeyColumns,
 } from './rowDml';
 import type { TableSchema } from './types';
@@ -101,6 +102,31 @@ describe('rowDml', () => {
 
   it('draftToArray preserves numeric types from original', () => {
     expect(draftToArray(['id', 'email'], { id: '3', email: 'x' }, [1, 'a'])).toEqual([3, 'x']);
+  });
+
+  it('originalRowForPeekEdit prefers the edit-open snapshot over a reshuffled grid', () => {
+    const snapshot = [1, 'a@x.com', 'Ada'];
+    const liveRows = [
+      [2, 'b@x.com', 'Bob'],
+      [1, 'a@x.com', 'Ada'],
+    ];
+    expect(
+      originalRowForPeekEdit({ originalRow: snapshot, rowIndex: 0 }, liveRows)
+    ).toBe(snapshot);
+
+    const keys = resolvePeekKeyColumns(usersTable, ['id', 'email', 'name']);
+    const plan = buildPeekUpdate({
+      tableName: 'public.users',
+      dialect: 'postgres',
+      columns: ['id', 'email', 'name'],
+      originalRow: originalRowForPeekEdit({ originalRow: snapshot, rowIndex: 0 }, liveRows)!,
+      draftRow: [1, 'a@x.com', 'Ada Lovelace'],
+      keyColumns: keys,
+    });
+    expect('error' in plan).toBe(false);
+    if ('error' in plan) return;
+    // WHERE must keep id=1 (snapshot), not id=2 now sitting at rowIndex 0.
+    expect(plan.params).toEqual(['Ada Lovelace', 1]);
   });
 
   it('rejects NULL key values for UPDATE/DELETE', () => {
