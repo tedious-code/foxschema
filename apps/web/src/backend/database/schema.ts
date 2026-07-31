@@ -180,7 +180,56 @@ const MIGRATIONS: Migration[] = [
       ];
     },
   },
+  {
+    // No DDL — runMigrations uses this id as the hook point to suppress the
+    // first-open email wizard on installs that already have Fox data (covers
+    // upgrades that already applied migration 7 before the suppress logic landed).
+    id: 8,
+    name: 'suppress_signup_wizard_on_used_install',
+    statements: () => [],
+  },
 ];
+
+const SIGNUP_WIZARD_SHOWN_KEY = 'signup.wizard_shown';
+
+/** True when the metadata DB already has user-created data (not a greenfield boot). */
+async function installLooksUsed(store: MetadataStore): Promise<boolean> {
+  const connections = await store.get<{ n: number }>(
+    'SELECT COUNT(*) AS n FROM connections'
+  );
+  if (Number(connections?.n) > 0) return true;
+  const runs = await store.get<{ n: number }>('SELECT COUNT(*) AS n FROM migration_runs');
+  if (Number(runs?.n) > 0) return true;
+  const settings = await store.get<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM app_settings WHERE "key" != ?`,
+    [SIGNUP_WIZARD_SHOWN_KEY]
+  );
+  return Number(settings?.n) > 0;
+}
+
+/**
+ * Existing installs upgrading into the first-open email wizard should not be
+ * prompted — only brand-new metadata DBs (all migrations applied in one go)
+ * show it. Called when migration 7 lands on a DB that already had earlier
+ * migrations applied.
+ */
+async function suppressSignupWizardForExistingInstall(store: MetadataStore): Promise<void> {
+  const row = await store.get<{ value: string | null }>(
+    'SELECT "value" FROM app_settings WHERE "key" = ?',
+    [SIGNUP_WIZARD_SHOWN_KEY]
+  );
+  if (row?.value === 'true') return;
+  await store.upsert(
+    'app_settings',
+    ['key'],
+    {
+      key: SIGNUP_WIZARD_SHOWN_KEY,
+      value: 'true',
+      updated_at: new Date().toISOString(),
+    },
+    ['value', 'updated_at']
+  );
+}
 
 /**
  * Apply pending migrations. Idempotent: tables use IF NOT EXISTS and applied ids
@@ -199,6 +248,9 @@ export async function runMigrations(store: MetadataStore): Promise<void> {
 
   const appliedRows = await store.all<{ id: number }>('SELECT id FROM schema_migrations');
   const applied = new Set(appliedRows.map((r) => Number(r.id)));
+  // Any prior migration means this is an upgrade of an existing install, not a
+  // greenfield first boot (where every migration runs in a single pass).
+  const upgradingExistingInstall = applied.size > 0;
 
   for (const m of MIGRATIONS) {
     if (applied.has(m.id)) continue;
@@ -220,5 +272,15 @@ export async function runMigrations(store: MetadataStore): Promise<void> {
       m.name,
       new Date().toISOString(),
     ]);
+    // Migration 7 ships with the first-open email wizard. Suppress that wizard
+    // for installs that already had Fox data before this upgrade.
+    if (m.id === 7 && upgradingExistingInstall) {
+      await suppressSignupWizardForExistingInstall(store);
+    }
+    // Migration 8: same suppress for used installs that already had migration 7
+    // (e.g. mid-stream upgrades) without re-prompting greenfield first boots.
+    if (m.id === 8 && (await installLooksUsed(store))) {
+      await suppressSignupWizardForExistingInstall(store);
+    }
   }
 }

@@ -106,10 +106,19 @@ docker compose -f docker-compose.app.yml up -d
 
 ### First-open email subscriber wizard
 
-On first UI boot (before login), Fox can show a skippable welcome form that collects an
-email for product updates. Routes are public: `GET /api/signup/state`, `POST /api/signup`,
-`POST /api/signup/skip`. Configure `SIGNUP_WEBHOOK_URL` (+ optional secret) so submissions
-reach foxschema.com; otherwise subscribe still works for local dismiss.
+On **first UI boot of a brand-new install** (before login), Fox can show a skippable
+welcome form that collects an email for product updates. Routes are public:
+`GET /api/signup/state`, `POST /api/signup`, `POST /api/signup/skip`. Configure
+`SIGNUP_WEBHOOK_URL` (+ optional secret) so submissions reach foxschema.com;
+otherwise subscribe still dismisses locally.
+
+**Existing installs:** upgrading keeps your `/data` (or `APP_DB_*`) metadata DB.
+The upgrade migration marks the wizard as already shown, so people who already
+use Fox are not interrupted. Only greenfield metadata DBs see the prompt.
+
+**RBAC upgrade:** existing `users` rows get `app_role = admin`. Default
+`LOCAL_SINGLE_USER=true` still means no login. Switching later to
+`LOCAL_SINGLE_USER=false` keeps those admins; new registrations become viewers.
 
 ## The encryption key
 
