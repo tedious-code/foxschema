@@ -114,6 +114,22 @@ foxschema doctor
 foxschema shortcut
 ```
 
+### In-app update toast (npm)
+
+After publish, installed CLIs check
+`https://registry.npmjs.org/foxschema/latest` on UI boot (and from
+**User Preference → Check**). When npm `latest` is newer than the running
+`APP_VERSION`:
+
+- **Local CLI (`foxschema open`)** — toast / Settings offer **Update now**, which
+  runs `npm install -g foxschema@latest` and relaunches the UI.
+- **Docker / locked-down hosts** — toast offers **Copy command** instead
+  (`npm install -g foxschema@latest`).
+
+No extra feed hosting is required for the npm channel. Override with
+`UPDATE_FEED_URL` only if you need a custom/GitHub feed; set `off` to disable.
+Set `FOXSCHEMA_SELF_UPDATE=false` to force the copy-command path.
+
 ---
 
 ## 5. What not to publish

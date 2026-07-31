@@ -1,6 +1,14 @@
+/**
+ * Fox Schema (foxschema)
+ * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
+ * SPDX-License-Identifier: Apache-2.0
+ */
 import { randomUUID } from 'node:crypto';
 import { getStore } from '../database/store';
 import { hashPassword, verifyPassword, newToken } from '../cores/crypto';
+import { RbacModule } from './rbac.module';
+import type { AppRole, Permission } from '../../shared/permissions';
+import { isAppRole } from '../../shared/permissions';
 
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
 
@@ -8,6 +16,10 @@ export interface AuthUser {
   id: string;
   email: string;
   onboardingCompleted: boolean;
+  /** App RBAC role (admin | editor | viewer). */
+  role: AppRole;
+  /** Effective permissions for this user (from role grants). */
+  permissions: Permission[];
 }
 
 function validateCredentials(email: string, password: string): void {
@@ -20,6 +32,17 @@ function validateCredentials(email: string, password: string): void {
 }
 
 export class AuthModule {
+  private rbac = new RbacModule();
+
+  private async enrich(user: {
+    id: string;
+    email: string;
+    onboardingCompleted: boolean;
+  }): Promise<AuthUser> {
+    const { role, permissions } = await this.rbac.permissionsForUser(user.id);
+    return { ...user, role, permissions };
+  }
+
   /** Create an account and start a session (register auto-logs-in). */
   async register(email: string, password: string): Promise<{ user: AuthUser; token: string }> {
     validateCredentials(email, password);
@@ -29,46 +52,48 @@ export class AuthModule {
     const existing = await store.get('SELECT id FROM users WHERE email = ?', [normalized]);
     if (existing) throw new Error('An account with this email already exists.');
 
-    const id = randomUUID();
-    await store.run('INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)', [
-      id,
-      normalized,
-      hashPassword(password),
-      new Date().toISOString(),
-    ]);
+    // First account on the install becomes admin; later signups default to viewer.
+    const countRow = await store.get<{ n: number }>('SELECT COUNT(*) AS n FROM users');
+    const role: AppRole = Number(countRow?.n ?? 0) === 0 ? 'admin' : 'viewer';
 
-    return { user: { id, email: normalized, onboardingCompleted: false }, token: await this.createSession(id) };
+    const id = randomUUID();
+    await store.run(
+      'INSERT INTO users (id, email, password_hash, created_at, app_role) VALUES (?, ?, ?, ?, ?)',
+      [id, normalized, hashPassword(password), new Date().toISOString(), role]
+    );
+
+    const user = await this.enrich({ id, email: normalized, onboardingCompleted: false });
+    return { user, token: await this.createSession(id) };
   }
 
   async login(email: string, password: string): Promise<{ user: AuthUser; token: string }> {
     const store = await getStore();
     const normalized = (email ?? '').trim().toLowerCase();
-    const row = await store.get<{ id: string; email: string; password_hash: string; onboarding_completed: number }>(
-      'SELECT id, email, password_hash, onboarding_completed FROM users WHERE email = ?',
-      [normalized]
-    );
+    const row = await store.get<{
+      id: string;
+      email: string;
+      password_hash: string;
+      onboarding_completed: number;
+    }>('SELECT id, email, password_hash, onboarding_completed FROM users WHERE email = ?', [
+      normalized,
+    ]);
 
     // Same error whether the email or password is wrong (no account enumeration)
     if (!row || !verifyPassword(password ?? '', row.password_hash)) {
       throw new Error('Invalid email or password.');
     }
 
-    return {
-      user: { id: row.id, email: row.email, onboardingCompleted: !!row.onboarding_completed },
-      token: await this.createSession(row.id),
-    };
+    const user = await this.enrich({
+      id: row.id,
+      email: row.email,
+      onboardingCompleted: !!row.onboarding_completed,
+    });
+    return { user, token: await this.createSession(row.id) };
   }
 
   /**
-   * Local single-user mode (community desktop): return the singleton local
-   * user, creating it on first call. There is no password login — the desktop
-   * app itself is the authenticated boundary, so the stored hash is random and
-   * unusable.
-   */
-  /**
    * Log in via a verified external identity (SSO): find the user by email or
-   * create a passwordless account, then start a session. The provider has
-   * already verified the email, so there's no password check.
+   * create a passwordless account, then start a session.
    */
   async loginWithEmail(email: string): Promise<{ user: AuthUser; token: string }> {
     const store = await getStore();
@@ -79,46 +104,53 @@ export class AuthModule {
       [normalized]
     );
     if (!row) {
+      const countRow = await store.get<{ n: number }>('SELECT COUNT(*) AS n FROM users');
+      const role: AppRole = Number(countRow?.n ?? 0) === 0 ? 'admin' : 'viewer';
       const id = randomUUID();
-      await store.run('INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)', [
-        id,
-        normalized,
-        hashPassword(randomUUID()), // unusable password — SSO-only account
-        new Date().toISOString(),
-      ]);
+      await store.run(
+        'INSERT INTO users (id, email, password_hash, created_at, app_role) VALUES (?, ?, ?, ?, ?)',
+        [id, normalized, hashPassword(randomUUID()), new Date().toISOString(), role]
+      );
       row = { id, email: normalized, onboarding_completed: 0 };
     }
-    return {
-      user: { id: row.id, email: row.email, onboardingCompleted: !!row.onboarding_completed },
-      token: await this.createSession(row.id),
-    };
+    const user = await this.enrich({
+      id: row.id,
+      email: row.email,
+      onboardingCompleted: !!row.onboarding_completed,
+    });
+    return { user, token: await this.createSession(row.id) };
   }
 
+  /**
+   * Local single-user mode: return the singleton local user (always admin).
+   */
   async ensureLocalUser(): Promise<AuthUser> {
     const store = await getStore();
-    // The bound email from the one-time setup (key is derived from it); falls
-    // back to the legacy default for installs created before setup existed.
     const boundEmail = (process.env.APP_USER_EMAIL || '').trim().toLowerCase();
     const email = boundEmail || 'local@foxschema.app';
     const find = (e: string) =>
-      store.get<{ id: string; email: string; onboarding_completed: number }>(
-        'SELECT id, email, onboarding_completed FROM users WHERE email = ?',
+      store.get<{ id: string; email: string; onboarding_completed: number; app_role: string | null }>(
+        'SELECT id, email, onboarding_completed, app_role FROM users WHERE email = ?',
         [e]
       );
-    // Prefer an existing user (bound email, then legacy) so a migrated install
-    // keeps its data instead of orphaning connections under a new user row.
-    const existing = (await find(email)) || (boundEmail ? await find('local@foxschema.app') : undefined);
+    const existing =
+      (await find(email)) || (boundEmail ? await find('local@foxschema.app') : undefined);
     if (existing) {
-      return { id: existing.id, email: existing.email, onboardingCompleted: !!existing.onboarding_completed };
+      if (!isAppRole(existing.app_role) || existing.app_role !== 'admin') {
+        await store.run("UPDATE users SET app_role = 'admin' WHERE id = ?", [existing.id]);
+      }
+      return this.enrich({
+        id: existing.id,
+        email: existing.email,
+        onboardingCompleted: !!existing.onboarding_completed,
+      });
     }
     const id = randomUUID();
-    await store.run('INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)', [
-      id,
-      email,
-      hashPassword(randomUUID()),
-      new Date().toISOString(),
-    ]);
-    return { id, email, onboardingCompleted: false };
+    await store.run(
+      'INSERT INTO users (id, email, password_hash, created_at, app_role) VALUES (?, ?, ?, ?, ?)',
+      [id, email, hashPassword(randomUUID()), new Date().toISOString(), 'admin']
+    );
+    return this.enrich({ id, email, onboardingCompleted: false });
   }
 
   async logout(token: string | undefined): Promise<void> {
@@ -148,7 +180,11 @@ export class AuthModule {
     );
     if (!user) return null;
 
-    return { id: user.id, email: user.email, onboardingCompleted: !!user.onboarding_completed };
+    return this.enrich({
+      id: user.id,
+      email: user.email,
+      onboardingCompleted: !!user.onboarding_completed,
+    });
   }
 
   private async createSession(userId: string): Promise<string> {

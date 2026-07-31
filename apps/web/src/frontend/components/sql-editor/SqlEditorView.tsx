@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { useSyncStore } from '../../store/useSyncStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
+import { useAuthStore } from '../../store/authStore';
 import { splitSqlStatements, type SplitStatement } from '../../lib/sql-splitter';
 import { formatEditorSql } from '../../utils/formatSql';
 import { effectiveConnectionIds, canExecuteWithoutDestination, resolveRunStatements } from '../../store/sqlEditorTabLogic';
@@ -62,6 +63,7 @@ const EditorFallback: React.FC = () => (
 const UTIL_MENU_BTN =
   'w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] font-semibold text-slate-100 hover:bg-slate-800 hover:text-slate-50 border border-transparent hover:border-amber-500/35';
 const UTIL_MENU_ICON = 'w-3.5 h-3.5 text-amber-400 shrink-0';
+const EDITOR_PCT_MIN = 15;
 const EDITOR_PCT_MAX = 70;
 const EDITOR_PCT_DEFAULT = 26;
 
@@ -94,6 +96,16 @@ function loadSidebarCollapsed(): boolean {
  * statement strip, layout toggle, Format/CSV. Results are per-tab and not persisted.
  */
 export const SqlEditorView: React.FC = () => {
+  const canEditorDestinations = useAuthStore((s) => s.can('editor.sidebar.destinations'));
+  const canEditorBookmarks = useAuthStore((s) => s.can('editor.sidebar.bookmarks'));
+  const canEditorVariables = useAuthStore((s) => s.can('editor.sidebar.variables'));
+  const canEditorSecrets = useAuthStore((s) => s.can('editor.sidebar.secrets'));
+  const canEditorUtilities = useAuthStore((s) => s.can('editor.sidebar.utilities'));
+  const canUtilityAccess = useAuthStore((s) => s.can('utility.access'));
+  const canEditorSchema = useAuthStore((s) => s.can('editor.sidebar.schema'));
+  const canSecretsView = useAuthStore((s) => s.can('secrets.view'));
+  const canVariablesRead = useAuthStore((s) => s.can('editor.variables.read'));
+
   const connections = useSyncStore((s) => s.connections);
   const tabs = useSqlEditorStore((s) => s.tabs);
   const activeTabId = useSqlEditorStore((s) => s.activeTabId);
@@ -146,7 +158,6 @@ export const SqlEditorView: React.FC = () => {
   const [secretsRefreshing, setSecretsRefreshing] = useState(false);
   const [showIndexManagement, setShowIndexManagement] = useState(false);
   const [showCloneTable, setShowCloneTable] = useState(false);
-  const [cloneTableInitial, setCloneTableInitial] = useState<string | null>(null);
   const [serverInsightsTab, setServerInsightsTab] = useState<ServerInsightsTab | null>(null);
 
   const onSecretsRefresh = useCallback(async () => {
@@ -340,6 +351,7 @@ export const SqlEditorView: React.FC = () => {
             </button>
           </div>
           <div className="flex-1 flex flex-col min-h-0 overflow-y-auto overflow-x-hidden bg-slate-950">
+            {canEditorDestinations && (
             <SqlSidebarSection
               id="destinations"
               title="Destination servers"
@@ -351,6 +363,8 @@ export const SqlEditorView: React.FC = () => {
             >
               <ConnectionChecklist />
             </SqlSidebarSection>
+            )}
+            {canEditorBookmarks && (
             <SqlSidebarSection
               id="bookmarks"
               title="Bookmarks"
@@ -374,6 +388,8 @@ export const SqlEditorView: React.FC = () => {
             >
               <SqlBookmarksPanel />
             </SqlSidebarSection>
+            )}
+            {canEditorVariables && canVariablesRead && (
             <SqlSidebarSection
               id="variables"
               title="Variables"
@@ -385,6 +401,8 @@ export const SqlEditorView: React.FC = () => {
             >
               <SqlVariablesPanel />
             </SqlSidebarSection>
+            )}
+            {canEditorSecrets && canSecretsView && (
             <SqlSidebarSection
               id="vault"
               title="Secrets"
@@ -412,6 +430,8 @@ export const SqlEditorView: React.FC = () => {
             >
               <SqlSecretsPanel ref={secretsPanelRef} />
             </SqlSidebarSection>
+            )}
+            {canEditorUtilities && canUtilityAccess && (
             <SqlSidebarSection
               id="utilities"
               title="Utilities"
@@ -432,10 +452,7 @@ export const SqlEditorView: React.FC = () => {
                 <button
                   type="button"
                   data-testid="utilities-clone-table"
-                  onClick={() => {
-                    setCloneTableInitial(null);
-                    setShowCloneTable(true);
-                  }}
+                  onClick={() => setShowCloneTable(true)}
                   className={UTIL_MENU_BTN}
                 >
                   <Copy className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
@@ -479,6 +496,8 @@ export const SqlEditorView: React.FC = () => {
                 </button>
               </div>
             </SqlSidebarSection>
+            )}
+            {canEditorSchema && (
             <SqlSidebarSection
               id="schema"
               title="Schema"
@@ -501,14 +520,9 @@ export const SqlEditorView: React.FC = () => {
                 </button>
               }
             >
-              <SqlSchemaExplorer
-                ref={schemaExplorerRef}
-                onCloneTable={(name) => {
-                  setCloneTableInitial(name);
-                  setShowCloneTable(true);
-                }}
-              />
+              <SqlSchemaExplorer ref={schemaExplorerRef} />
             </SqlSidebarSection>
+            )}
           </div>
           <div
             role="separator"
@@ -750,14 +764,7 @@ export const SqlEditorView: React.FC = () => {
         open={showIndexManagement}
         onClose={() => setShowIndexManagement(false)}
       />
-      <CloneTableModal
-        open={showCloneTable}
-        initialTableName={cloneTableInitial}
-        onClose={() => {
-          setShowCloneTable(false);
-          setCloneTableInitial(null);
-        }}
-      />
+      <CloneTableModal open={showCloneTable} onClose={() => setShowCloneTable(false)} />
       <ServerInsightsModal
         open={serverInsightsTab != null}
         initialTab={serverInsightsTab ?? 'pool'}

@@ -10,6 +10,7 @@ import chalk from 'chalk';
 import { ensureUiEnv } from '../runtime/ensureUiEnv';
 import { openBrowser } from '../runtime/openBrowser';
 import { resolveStaticDir, resolveUiServerEntry } from '../runtime/resolvePaths';
+import { readCliPackageVersion } from '../runtime/packageVersion';
 import {
   DEFAULT_UI_PORT,
   PID_FILE,
@@ -136,6 +137,11 @@ export async function runOpen(opts: OpenOptions = {}): Promise<void> {
       APP_DB_URL: process.env.APP_DB_URL,
       APP_USER_EMAIL: process.env.APP_USER_EMAIL,
       EDITION: process.env.EDITION || 'community',
+      // Compare against the installed npm package version; feed defaults to
+      // registry.npmjs.org/foxschema/latest inside the web update checker.
+      APP_VERSION: readCliPackageVersion(),
+      // Enable one-click "Update now" (npm install -g foxschema@latest).
+      FOXSCHEMA_SELF_UPDATE: process.env.FOXSCHEMA_SELF_UPDATE || 'true',
     },
   });
 

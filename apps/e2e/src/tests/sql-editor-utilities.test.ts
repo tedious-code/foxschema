@@ -174,8 +174,8 @@ describe.skipIf(!ready)('SQL Editor · Utilities + Clone Table (SQLite)', () => 
     expect(editorText.toLowerCase()).toMatch(/create\s+table/);
   });
 
-  it('Schema Clone opens modal with the table pre-selected', async () => {
-    await sql.openCloneTableFromSchema('customers');
+  it('Clone Table from Utilities selects a table and shows archive preview', async () => {
+    await sql.openCloneTable();
     const modal = driver.locator('[data-testid="clone-table-modal"]');
     expect(await modal.isVisible()).toBe(true);
     await sql.loadCloneTables(NAME, 'customers');
@@ -183,7 +183,7 @@ describe.skipIf(!ready)('SQL Editor · Utilities + Clone Table (SQLite)', () => 
     expect(await driver.locator('[data-testid="clone-archive-preview"]').innerText()).toMatch(
       /customers_1/i
     );
-    await saveScreenshot(driver, 'sql-editor-clone-from-schema');
+    await saveScreenshot(driver, 'sql-editor-clone-from-utilities');
   });
 
   it('Edit table opens index form under the selected index row', async () => {
@@ -256,7 +256,7 @@ describe.skipIf(!ready)('SQL Editor · Utilities + Clone Table (SQLite)', () => 
     await driver.locator('[data-testid="server-insights-refresh"]').click();
     await driver.waitForTimeout(1500);
     const modal = driver.locator('[data-testid="server-insights-modal"]');
-    await expect(modal).toBeVisible();
+    expect(await modal.isVisible()).toBe(true);
     await saveSeoScreenshot(driver, 'sql-editor-server-insights-system');
 
     await driver.locator('[data-testid="server-insights-tab-sizes"]').click();

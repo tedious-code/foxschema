@@ -1,3 +1,8 @@
+/**
+ * Fox Schema (foxschema)
+ * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
+ * SPDX-License-Identifier: Apache-2.0
+ */
 import { create } from 'zustand';
 import {
   apiMe,
@@ -5,29 +10,40 @@ import {
   apiRegister,
   apiLogout,
   apiPutPreferences,
+  apiAppConfig,
   type AuthUser,
   type UserPreferences,
 } from '../api/authApi';
+import type { Permission } from '../lib/permissions';
+import { userCan } from '../lib/permissions';
+
 type AuthStatus = 'loading' | 'anon' | 'onboarding' | 'ready';
 
-// Single-user mode: no login required. The backend attaches a local user to
-// every request automatically. Set LOCAL_SINGLE_USER=false in the environment
-// to enable multi-user auth for self-hosted deployments.
-const LOCAL_SINGLE_USER = true;
-const LOCAL_USER: AuthUser = { id: 'local', email: 'local@foxschema.app', onboardingCompleted: true };
+const LOCAL_USER: AuthUser = {
+  id: 'local',
+  email: 'local@foxschema.app',
+  onboardingCompleted: true,
+  role: 'admin',
+  permissions: [],
+};
 
 interface AuthState {
   status: AuthStatus;
   user: AuthUser | null;
   error: string | null;
   busy: boolean;
+  /** True when the API runs in local single-user mode (no login UI). */
+  localSingleUser: boolean;
+  authRequired: boolean;
 
   init: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   completeOnboarding: (prefs: Partial<UserPreferences>) => Promise<void>;
+  refreshMe: () => Promise<void>;
   clearError: () => void;
+  can: (permission: Permission) => boolean;
 }
 
 function statusFor(user: AuthUser | null): AuthStatus {
@@ -40,13 +56,37 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   error: null,
   busy: false,
+  localSingleUser: true,
+  authRequired: false,
+
+  can: (permission) => userCan(get().user, permission),
 
   init: async () => {
-    if (LOCAL_SINGLE_USER) {
+    const cfg = await apiAppConfig();
+    set({
+      localSingleUser: cfg.localSingleUser,
+      authRequired: cfg.authRequired,
+    });
+    if (cfg.localSingleUser) {
+      // Prefer server-enriched local user (real id + permissions) when available.
+      const me = await apiMe();
+      if (me) {
+        set({ user: me, status: statusFor(me) });
+        return;
+      }
       set({ user: LOCAL_USER, status: 'ready' });
       return;
     }
     const user = await apiMe();
+    set({ user, status: statusFor(user) });
+  },
+
+  refreshMe: async () => {
+    const user = await apiMe();
+    if (!user && get().localSingleUser) {
+      set({ user: LOCAL_USER, status: 'ready' });
+      return;
+    }
     set({ user, status: statusFor(user) });
   },
 
@@ -55,8 +95,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       const user = await apiLogin(email, password);
       set({ user, status: statusFor(user), busy: false });
-    } catch (e: any) {
-      set({ error: e.message || 'Login failed', busy: false });
+    } catch (e: unknown) {
+      set({
+        error: e instanceof Error ? e.message : 'Login failed',
+        busy: false,
+      });
     }
   },
 
@@ -65,8 +108,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       const user = await apiRegister(email, password);
       set({ user, status: statusFor(user), busy: false });
-    } catch (e: any) {
-      set({ error: e.message || 'Registration failed', busy: false });
+    } catch (e: unknown) {
+      set({
+        error: e instanceof Error ? e.message : 'Registration failed',
+        busy: false,
+      });
     }
   },
 
@@ -85,8 +131,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         status: 'ready',
         busy: false,
       });
-    } catch (e: any) {
-      set({ error: e.message || 'Could not save preferences', busy: false });
+    } catch (e: unknown) {
+      set({
+        error: e instanceof Error ? e.message : 'Could not save preferences',
+        busy: false,
+      });
     }
   },
 

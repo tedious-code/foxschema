@@ -13,6 +13,7 @@ import {
   getProviderSettings,
   dialectSupportsIndexFragmentation,
   buildIndexFragmentationCustomTemplate,
+  isWriteStatement,
   type MigrationStep,
   type ConnectionOptions,
   type DbObjectType,
@@ -27,7 +28,6 @@ const WORKSPACE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../.
 import { ConnectionStore } from '../modules/connection-store.module';
 import { MigrationHistoryStore, type MigrationObjectResult, type MigrationRunStatus } from '../modules/migration-history.module';
 import { AppSettingsStore } from '../modules/app-settings.module';
-import { SignupModule } from '../modules/signup.module';
 import { rateLimit } from './rate-limit';
 import { runStatements, clampMaxRows, MAX_STATEMENTS, MAX_STATEMENT_LENGTH } from './sql-execute';
 import { clampOffset } from './sql-page-wrap';
@@ -42,6 +42,15 @@ import { getMetadataDbConfig, SUPPORTED_ENGINES, type DbEngine } from '../databa
 import { createMetadataStore } from '../database/stores/registry';
 import { keySchemeInfo } from '../cores/crypto';
 import type { AuthedRequest } from './auth.routes';
+import { denyUnless, requirePermissions } from './rbac.middleware';
+import {
+  applyNpmGlobalUpdate,
+  canSelfUpdate,
+  checkForUpdate,
+  clearUpdateCache,
+  MANUAL_UPDATE_COMMAND,
+  scheduleUiRelaunch,
+} from '../modules/updates.module';
 
 /**
  * A connection reference: either a saved connection (resolved server-side so the
@@ -60,67 +69,6 @@ interface ConnectionRef {
   password?: string;
 }
 
-/** Current app version (overridable via APP_VERSION). */
-const APP_VERSION = process.env.APP_VERSION || '1.0.0';
-
-/** Returns true if dotted-numeric version `a` is greater than `b`. */
-function isNewer(a: string, b: string): boolean {
-  const pa = a.split('.').map((n) => parseInt(n, 10) || 0);
-  const pb = b.split('.').map((n) => parseInt(n, 10) || 0);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const x = pa[i] ?? 0;
-    const y = pb[i] ?? 0;
-    if (x !== y) return x > y;
-  }
-  return false;
-}
-
-interface UpdateInfo {
-  current: string;
-  latest: string;
-  updateAvailable: boolean;
-  url?: string;
-  notes?: string;
-  configured: boolean;
-  checkedAt: number;
-}
-let updateCache: UpdateInfo | null = null;
-const UPDATE_TTL_MS = 60 * 60 * 1000; // 1h — don't hammer the feed
-
-/**
- * Check a configurable release feed (UPDATE_FEED_URL) for a newer version.
- * Accepts a simple `{ version, url, notes }` JSON or a GitHub releases object
- * (`{ tag_name, html_url, body }`). No-ops cleanly when no feed is configured.
- */
-async function checkForUpdate(): Promise<UpdateInfo> {
-  if (updateCache && Date.now() - updateCache.checkedAt < UPDATE_TTL_MS) return updateCache;
-  const feed = process.env.UPDATE_FEED_URL;
-  const base: UpdateInfo = {
-    current: APP_VERSION,
-    latest: APP_VERSION,
-    updateAvailable: false,
-    configured: !!feed,
-    checkedAt: Date.now(),
-  };
-  if (!feed) return (updateCache = base);
-  try {
-    const res = await fetch(feed, { headers: { Accept: 'application/json', 'User-Agent': 'FoxSchema' } });
-    if (!res.ok) throw new Error(String(res.status));
-    const data = (await res.json()) as { version?: string; tag_name?: string; url?: string; html_url?: string; notes?: string; body?: string };
-    const latest = (data.version || data.tag_name || '').replace(/^v/i, '').trim();
-    const info: UpdateInfo = {
-      ...base,
-      latest: latest || APP_VERSION,
-      updateAvailable: !!latest && isNewer(latest, APP_VERSION),
-      url: data.url || data.html_url || undefined,
-      notes: data.notes || data.body || undefined,
-    };
-    return (updateCache = info);
-  } catch {
-    return base; // don't cache transient failures
-  }
-}
-
 export function createApiRoutes(connectionModule: ConnectionModule, connectionStore: ConnectionStore): Router {
   const router = Router();
   const compareModule = new CompareModule();
@@ -128,7 +76,6 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   const sqlGenerator = new SqlGeneratorModule();
   const migrationHistory = new MigrationHistoryStore();
   const appSettings = new AppSettingsStore();
-  const signupModule = new SignupModule(appSettings);
 
   /** Resolve a ConnectionRef to concrete credentials (decrypting a saved one). */
   async function resolveRef(
@@ -187,35 +134,37 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     res.json({ ok: true });
   });
 
-  // In-app update check — compares the running version against a release feed.
+  // In-app update check — compares the running version against npm (default).
   router.get('/updates/check', async (_req: Request, res: Response) => {
     res.json(await checkForUpdate());
   });
 
-  // First-run "stay in the loop" wizard — see modules/signup.module.ts.
-  // The write endpoints fan out to an external side effect (WordPress post +
-  // notification email), so cap them per IP: legit use is one or two calls
-  // (submit, maybe a retry, or skip), 10 / 15 min leaves generous headroom
-  // while stopping a flood. Shared bucket across submit + skip.
-  const signupLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10 });
-
-  router.get('/signup/state', async (_req: Request, res: Response) => {
-    res.json(await signupModule.getState());
-  });
-
-  router.post('/signup', signupLimiter, async (req: Request, res: Response) => {
-    const { email } = req.body as { email?: string; source?: string };
-    if (!email) {
-      res.status(400).json({ ok: false, error: 'Email is required.' });
+  // One-click self-update for local npm CLI installs (`foxschema open`).
+  // Runs `npm install -g foxschema@latest`, then relaunches the UI server.
+  router.post('/updates/apply', async (_req: Request, res: Response) => {
+    if (!canSelfUpdate()) {
+      res.status(403).json({
+        ok: false,
+        error:
+          'Automatic update is only available for local CLI installs. ' +
+          `Run in a terminal: ${MANUAL_UPDATE_COMMAND}`,
+        upgradeCommand: MANUAL_UPDATE_COMMAND,
+      });
       return;
     }
-    res.json(await signupModule.submit(email, 'web'));
+    const result = await applyNpmGlobalUpdate();
+    if (!result.ok) {
+      res.status(500).json(result);
+      return;
+    }
+    clearUpdateCache();
+    res.json(result);
+    // Respond first, then exit + relaunch so the client can start polling.
+    scheduleUiRelaunch();
   });
 
-  router.post('/signup/skip', signupLimiter, async (_req: Request, res: Response) => {
-    await signupModule.skip();
-    res.json({ ok: true });
-  });
+  // First-open email subscriber wizard lives on public /api/signup/* (see
+  // signup.routes.ts) so it works before login when AUTH_REQUIRED=true.
 
   // Non-secret info about where the app's metadata DB lives and how the
   // credential-encryption key is bound — for the "Database & Security" settings
@@ -343,7 +292,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     }
   });
 
-  router.post('/schema/list', async (req: Request, res: Response) => {
+  router.post('/schema/list', requirePermissions('schema.browse'), async (req: Request, res: Response) => {
     try {
       const { dialect, option } = await resolveRef((req as AuthedRequest).userId, req.body as ConnectionRef);
       const provider = connectionModule.getProvider(dialect);
@@ -361,7 +310,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   // Load a single schema's scoped objects (no comparison) — for the browse/search
   // mode. Uses resolveRef so saved connections work, and applies the object-type
   // scope just like /compare does for each side.
-  router.post('/schema/load', async (req: Request, res: Response) => {
+  router.post('/schema/load', requirePermissions('schema.browse'), async (req: Request, res: Response) => {
     const { scope, ...ref } = req.body as ConnectionRef & { scope: DbObjectType[] };
     try {
       const { dialect, option, schema } = await resolveRef((req as AuthedRequest).userId, ref);
@@ -386,7 +335,11 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
    * (single SELECT returning index_name + fragmentation_percent).
    */
   const indexFragLimiter = rateLimit({ windowMs: 60 * 1000, max: 30 });
-  router.post('/schema/index-fragmentation', indexFragLimiter, async (req: Request, res: Response) => {
+  router.post(
+    '/schema/index-fragmentation',
+    indexFragLimiter,
+    requirePermissions('utility.access'),
+    async (req: Request, res: Response) => {
     const body = req.body as ConnectionRef & {
       table?: unknown;
       schema?: unknown;
@@ -433,6 +386,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   router.post(
     '/schema/index-fragmentation-batch',
     indexFragBatchLimiter,
+    requirePermissions('utility.access'),
     async (req: Request, res: Response) => {
       const body = req.body as ConnectionRef & {
         tables?: unknown;
@@ -507,7 +461,11 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
    * One connection ref + kind; dialect probes live in @foxschema/core.
    */
   const dbaUtilityLimiter = rateLimit({ windowMs: 60 * 1000, max: 30 });
-  router.post('/schema/dba-utility', dbaUtilityLimiter, async (req: Request, res: Response) => {
+  router.post(
+    '/schema/dba-utility',
+    dbaUtilityLimiter,
+    requirePermissions('utility.access'),
+    async (req: Request, res: Response) => {
     const body = req.body as ConnectionRef & {
       kind?: unknown;
       schema?: unknown;
@@ -558,6 +516,10 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       res.status(400).json({ error: 'statements[] is required.' });
       return;
     }
+    const authed = req as AuthedRequest;
+    if (denyUnless(authed, res, 'editor.run')) return;
+    const writes = (statements as string[]).some((s) => isWriteStatement(s));
+    if (writes && denyUnless(authed, res, 'editor.write')) return;
     if (statements.length > MAX_STATEMENTS) {
       res.status(400).json({ error: `At most ${MAX_STATEMENTS} statements per request.` });
       return;
@@ -604,6 +566,9 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   const codeCellLimiter = rateLimit({ windowMs: 60 * 1000, max: 30 });
   router.post('/sql/code-cell', codeCellLimiter, async (req: Request, res: Response) => {
     const body = req.body as CodeCellRequestBody & ConnectionRef & { allowWrites?: boolean };
+    const authed = req as AuthedRequest;
+    if (denyUnless(authed, res, 'editor.advanced')) return;
+    if (body.allowWrites === true && denyUnless(authed, res, 'editor.write')) return;
     const validated = validateCodeCellRequest(body);
     if (!validated.ok) {
       res.status(400).json({ error: validated.error });
@@ -631,7 +596,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     }
   });
 
-  router.post('/compare', async (req: Request, res: Response) => {
+  router.post('/compare', requirePermissions('schema.compare'), async (req: Request, res: Response) => {
     const { source, target, scope } = req.body as {
       source: ConnectionRef;
       target: ConnectionRef;
@@ -665,7 +630,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     }
   });
 
-  router.post('/migration/execute', async (req: Request, res: Response) => {
+  router.post('/migration/execute', requirePermissions('schema.migrate'), async (req: Request, res: Response) => {
     const { steps, continueOnError, ...ref } = req.body as ConnectionRef & { steps: MigrationStep[]; continueOnError?: boolean };
     let dialect: string;
     let option: ConnectionOptions;

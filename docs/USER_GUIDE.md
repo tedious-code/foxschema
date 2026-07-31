@@ -52,9 +52,13 @@ Open **http://localhost:3001**. Details: [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## First run
 
-The first time you open Fox Schema it sets up an **encryption key** that protects the
-database passwords you save. The CLI creates one under your user data directory; Docker
-auto-generates one on the `/data` volume (or use `APP_ENCRYPTION_KEY` in `.env`).
+The first time you open the UI, Fox Schema may show a short **welcome wizard** asking
+for your email so you can get product updates (new dialects, releases). It is optional —
+use **Skip for now** if you prefer. It only appears once per install.
+
+Fox also sets up an **encryption key** that protects the database passwords you save.
+The CLI creates one under your user data directory; Docker auto-generates one on the
+`/data` volume (or use `APP_ENCRYPTION_KEY` in `.env`).
 
 > Keep that key stable. If it changes, previously saved passwords can no longer be
 > read and you'll need to re-enter them.

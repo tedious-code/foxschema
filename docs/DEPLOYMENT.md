@@ -14,6 +14,20 @@ foxschema shortcut
 
 Maintainers: **[PUBLISH.md](PUBLISH.md)**.
 
+### Multi-user login + RBAC
+
+For team installs, require login and enable roles (`admin` / `editor` / `viewer`):
+
+```bash
+LOCAL_SINGLE_USER=false
+# AUTH_REQUIRED defaults to true when LOCAL_SINGLE_USER=false
+```
+
+- First UI open can still show the **email subscriber wizard** (public; before login).
+- First registered account becomes **admin**; later signups default to **viewer**.
+- Admins configure role permissions and assign users under **Profile → Access control**.
+- Permissions cover Schema Sync (browse / compare / migrate), SQL Editor (sidebar, variables, writes, datagrid, code cells), Utilities, and Secrets.
+
 **Servers / teams:** Fox Schema ships as a **single Docker image** (all dialects including
 Db2) that serves both the UI and the API on one configurable port (default **3001**).
 
@@ -80,13 +94,34 @@ docker compose -f docker-compose.app.yml up -d
 | `APP_DB_URL` | — | Connection URL for the metadata store when engine is `postgres`/`mysql`. |
 | `APP_KEY_SCHEME` | `v1` | `v1` = key used directly. `v2` = key bound to `APP_USER_EMAIL` (anti-copy); leave `v1` for stateless servers. |
 | `LOCAL_SINGLE_USER` | `true` | `true` = no login (open, single user). `false` = real accounts. |
-| `AUTH_REQUIRED` | `false` | `true` = every request needs a session. Pair with `LOCAL_SINGLE_USER=false`. |
+| `AUTH_REQUIRED` | see note | When `LOCAL_SINGLE_USER=false`, defaults to **true** (login required). Set `AUTH_REQUIRED=false` only if you intentionally want open API access. |
+| `SIGNUP_WEBHOOK_URL` | — | Optional. First-open email subscriber wizard posts here (WordPress `/foxschema/v1/signup`). Without it, subscribe still dismisses the wizard locally. |
+| `SIGNUP_WEBHOOK_SECRET` | — | Optional shared secret sent as `X-Foxschema-Signup-Secret`. |
+| `UPDATE_FEED_URL` | npm `foxschema/latest` | Release feed for in-app update toasts. Default is the npm registry (CLI publish channel). Set `off` to disable. |
+| `APP_VERSION` | from `package.json` | Running version compared against the feed. The CLI sets this from the installed npm package. |
+| `FOXSCHEMA_SELF_UPDATE` | `true` via CLI open | When `true`, UI can run `npm install -g foxschema@latest`. Off in Docker / set `false` to require a manual terminal upgrade. |
 | `ALLOW_HOST_CLOUD_CREDENTIALS` | off | When `true`, cloud secret resolve may use the host IAM/ADC chain without saved user credentials. **Keep off** on multi-user hosts. |
 | `SSO_*` | — | OAuth for Google / Microsoft / GitHub (see below). |
 | `NODE_ENV` | `production` | Set in the image; enforces that `APP_ENCRYPTION_KEY` is present. |
 
-> The app also reads `APP_USER_EMAIL` (only for the `v2` key scheme) and
-> `UPDATE_FEED_URL` (optional release-check feed). Neither is needed for a basic deploy.
+> The app also reads `APP_USER_EMAIL` (only for the `v2` key scheme).
+> Update checks default to the npm `foxschema` registry feed (see below).
+
+### First-open email subscriber wizard
+
+On **first UI boot of a brand-new install** (before login), Fox can show a skippable
+welcome form that collects an email for product updates. Routes are public:
+`GET /api/signup/state`, `POST /api/signup`, `POST /api/signup/skip`. Configure
+`SIGNUP_WEBHOOK_URL` (+ optional secret) so submissions reach foxschema.com;
+otherwise subscribe still dismisses locally.
+
+**Existing installs:** upgrading keeps your `/data` (or `APP_DB_*`) metadata DB.
+The upgrade migration marks the wizard as already shown, so people who already
+use Fox are not interrupted. Only greenfield metadata DBs see the prompt.
+
+**RBAC upgrade:** existing `users` rows get `app_role = admin`. Default
+`LOCAL_SINGLE_USER=true` still means no login. Switching later to
+`LOCAL_SINGLE_USER=false` keeps those admins; new registrations become viewers.
 
 ## The encryption key
 

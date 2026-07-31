@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { getMetadataDbConfig } from './config';
 import { createMetadataStore } from './stores/registry';
 import { runMigrations } from './schema';
+import { seedDefaultRolePermissions } from '../modules/rbac.module';
 import type { MetadataStore } from './stores/types';
 
 // Default SQLite location, anchored to this module so it's independent of the
@@ -25,6 +26,7 @@ export function getStore(): Promise<MetadataStore> {
     const store = createMetadataStore(cfg);
     await store.init();
     await runMigrations(store);
+    await seedDefaultRolePermissions(store);
     return store;
   })().catch((err) => {
     storePromise = null; // allow a retry after a failed connect/migrate

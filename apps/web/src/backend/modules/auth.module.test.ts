@@ -17,7 +17,17 @@ describe('AuthModule', () => {
     const { user, token } = await auth.register('Alice@Example.com', 'password123');
     expect(user.email).toBe('alice@example.com'); // normalized
     expect(user.onboardingCompleted).toBe(false);
+    // First account on a fresh install is admin with full permissions.
+    expect(user.role).toBe('admin');
+    expect(user.permissions.length).toBeGreaterThan(0);
     expect((await auth.getUserByToken(token))?.id).toBe(user.id);
+  });
+
+  it('assigns viewer to subsequent registrations', async () => {
+    const { user } = await auth.register('viewer2@example.com', 'password123');
+    expect(user.role).toBe('viewer');
+    expect(user.permissions).not.toContain('admin.users');
+    expect(user.permissions).toContain('editor.run');
   });
 
   it('rejects a duplicate email', async () => {
