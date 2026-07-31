@@ -20,10 +20,27 @@ describe('dialectSupportsIndexFragmentation', () => {
     expect(dialectSupportsIndexFragmentation('azuresql').mode).toBe('physical');
   });
 
-  it('marks SQLite / Redshift unsupported', () => {
-    for (const d of ['sqlite', 'redshift', 'clickhouse', 'duckdb']) {
-      expect(dialectSupportsIndexFragmentation(d).query, d).toBe(false);
-      expect(dialectSupportsIndexFragmentation(d).mode, d).toBe('unsupported');
+  it('enables a probe for every registered dialect', () => {
+    for (const d of [
+      'sqlserver',
+      'azuresql',
+      'postgres',
+      'cockroachdb',
+      'yugabytedb',
+      'mysql',
+      'mariadb',
+      'tidb',
+      'db2',
+      'oracle',
+      'sqlite',
+      'duckdb',
+      'clickhouse',
+      'redshift',
+    ]) {
+      const s = dialectSupportsIndexFragmentation(d);
+      expect(s.query, d).toBe(true);
+      expect(s.mode, d).not.toBe('unsupported');
+      expect(s.customSqlHint, d).toMatch(/index_name/i);
     }
   });
 });
@@ -62,18 +79,49 @@ describe('buildIndexFragmentationQuery', () => {
     expect(q.sql).toMatch(/pgstattuple/);
   });
 
+  it('builds probes for formerly unsupported dialects', () => {
+    const sqlite = buildIndexFragmentationQuery({ dialect: 'sqlite', table: 'orders' });
+    expect('error' in sqlite).toBe(false);
+    if (!('error' in sqlite)) {
+      expect(sqlite.mode).toBe('estimated');
+      expect(sqlite.sql).toMatch(/sqlite_master/i);
+      expect(sqlite.params).toEqual(['orders']);
+    }
+
+    const duck = buildIndexFragmentationQuery({
+      dialect: 'duckdb',
+      schema: 'main',
+      table: 't',
+    });
+    expect('error' in duck).toBe(false);
+    if (!('error' in duck)) {
+      expect(duck.sql).toMatch(/duckdb_indexes/i);
+      expect(duck.params).toEqual(['t', 'main']);
+    }
+
+    const ch = buildIndexFragmentationQuery({
+      dialect: 'clickhouse',
+      schema: 'default',
+      table: 'events',
+    });
+    expect('error' in ch).toBe(false);
+    if (!('error' in ch)) {
+      expect(ch.sql).toMatch(/data_skipping_indices/i);
+    }
+
+    const rs = buildIndexFragmentationQuery({ dialect: 'redshift', table: 'fact' });
+    expect('error' in rs).toBe(false);
+    if (!('error' in rs)) {
+      expect(rs.sql).toMatch(/WHERE 1 = 0/i);
+    }
+  });
+
   it('requires schema for MySQL and DB2', () => {
     expect(buildIndexFragmentationQuery({ dialect: 'mysql', table: 't' })).toEqual({
       error: 'MySQL-family fragmentation probe needs a schema (database) name.',
     });
     expect(buildIndexFragmentationQuery({ dialect: 'db2', table: 'T' })).toEqual({
       error: 'DB2 fragmentation probe needs a schema name.',
-    });
-  });
-
-  it('rejects unsupported dialects', () => {
-    expect(buildIndexFragmentationQuery({ dialect: 'sqlite', table: 't' })).toMatchObject({
-      error: expect.stringMatching(/SQLite/i),
     });
   });
 });
@@ -132,6 +180,24 @@ describe('fragmentationSeverity / defrag SQL', () => {
       })
     ).toEqual(['OPTIMIZE TABLE `app`.`users`;']);
   });
+
+  it('suggests REINDEX on SQLite and OPTIMIZE on ClickHouse', () => {
+    expect(
+      buildIndexDefragSql({
+        dialect: 'sqlite',
+        table: 'orders',
+        indexName: 'ix_orders_customer',
+      })
+    ).toEqual(['REINDEX "ix_orders_customer";', '-- Or whole DB: VACUUM;']);
+    expect(
+      buildIndexDefragSql({
+        dialect: 'clickhouse',
+        schema: 'default',
+        table: 'events',
+        indexName: 'idx_ts',
+      })
+    ).toEqual(['OPTIMIZE TABLE `default`.`events` FINAL;']);
+  });
 });
 
 describe('custom SQL safety', () => {
@@ -159,7 +225,17 @@ describe('custom SQL safety', () => {
   });
 
   it('builds a non-empty custom template per major dialect', () => {
-    for (const d of ['sqlserver', 'postgres', 'mysql', 'db2', 'oracle', 'sqlite']) {
+    for (const d of [
+      'sqlserver',
+      'postgres',
+      'mysql',
+      'db2',
+      'oracle',
+      'sqlite',
+      'duckdb',
+      'clickhouse',
+      'redshift',
+    ]) {
       expect(buildIndexFragmentationCustomTemplate({ dialect: d, schema: 's', table: 't' })).toMatch(
         /index_name/i
       );

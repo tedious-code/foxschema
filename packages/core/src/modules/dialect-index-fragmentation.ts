@@ -1,16 +1,18 @@
 /**
  * Dialect-aware index fragmentation probes for DBA guidance in Edit Table.
  *
- * Default queries vary by engine quality:
+ * Every registered dialect has a default probe (physical or estimated). Engines
+ * without a native fragmentation metric still return index names with a null
+ * percent so Refresh % / Utilities work everywhere; admins can paste custom SQL
+ * that returns `index_name` + `fragmentation_percent` (+ optional `page_count`).
+ *
+ * Quality ladder:
  * - SQL Server / Azure SQL: physical % via dm_db_index_physical_stats
  * - PostgreSQL family: leaf_fragmentation via pgstattuple (extension; may fail)
  * - MySQL family: table-level DATA_FREE ratio applied per index (estimate)
  * - DB2: empty-leaf ratio from SYSCAT.INDEXES (estimate)
  * - Oracle: weak estimate from ALL_INDEXES stats (prefer custom ANALYZE)
- * - SQLite / DuckDB / ClickHouse / Redshift: unsupported — use custom SQL
- *
- * Callers should try the default query, then accept admin-supplied custom SQL
- * that returns `index_name` + `fragmentation_percent` (+ optional `page_count`).
+ * - SQLite / DuckDB / ClickHouse / Redshift: catalog listing + optional estimates
  */
 
 import { isWriteStatement } from './sql-splitter';
@@ -119,40 +121,41 @@ const SUPPORT: Record<string, IndexFragmentationSupport> = {
     customSqlHint: CUSTOM_HINT,
   },
   sqlite: {
-    mode: 'unsupported',
-    query: false,
-    defrag: false,
-    hint: 'SQLite has no index fragmentation metric — supply custom SQL if you have an extension.',
+    mode: 'estimated',
+    query: true,
+    defrag: true,
+    hint: 'SQLite: lists indexes (no native fragmentation %). Use custom SQL / dbstat for page sizes; Defrag suggests REINDEX.',
     customSqlHint: CUSTOM_HINT,
   },
   duckdb: {
-    mode: 'unsupported',
-    query: false,
-    defrag: false,
-    hint: 'DuckDB has no index fragmentation metric — supply custom SQL if needed.',
+    mode: 'estimated',
+    query: true,
+    defrag: true,
+    hint: 'DuckDB: lists indexes from duckdb_indexes() (no native %). Prefer custom SQL for ART / zone-map stats.',
     customSqlHint: CUSTOM_HINT,
   },
   clickhouse: {
-    mode: 'unsupported',
-    query: false,
-    defrag: false,
-    hint: 'ClickHouse has no traditional secondary-index fragmentation — supply custom SQL if needed.',
+    mode: 'estimated',
+    query: true,
+    defrag: true,
+    hint: 'ClickHouse: data-skipping indices from system.data_skipping_indices (no B-tree %). OPTIMIZE TABLE for merges.',
     customSqlHint: CUSTOM_HINT,
   },
   redshift: {
-    mode: 'unsupported',
-    query: false,
-    defrag: false,
-    hint: 'Redshift has no secondary indexes — fragmentation probe is unsupported.',
+    mode: 'estimated',
+    query: true,
+    defrag: true,
+    hint: 'Redshift: no secondary indexes — probe returns empty; use VACUUM / ANALYZE (custom SQL for unsorted %).',
     customSqlHint: CUSTOM_HINT,
   },
 };
 
+/** Unknown dialects still get a probe attempt via custom SQL templates. */
 const DEFAULT_UNSUPPORTED: IndexFragmentationSupport = {
-  mode: 'unsupported',
-  query: false,
+  mode: 'estimated',
+  query: true,
   defrag: false,
-  hint: 'No built-in index fragmentation probe for this dialect — supply custom SQL.',
+  hint: 'Generic dialect: try the default listing probe, then paste custom SQL for a real %.',
   customSqlHint: CUSTOM_HINT,
 };
 
@@ -331,7 +334,93 @@ ORDER BY INDEX_NAME
     };
   }
 
-  return { error: support.hint };
+  if (dialect === 'sqlite') {
+    // SQLite has no native fragmentation %; list indexes so Refresh % works.
+    // Custom SQL / dbstat can add page_count when the VTAB is compiled in.
+    return {
+      mode: 'estimated',
+      params: [table],
+      sql: `
+SELECT
+  name AS index_name,
+  CAST(NULL AS REAL) AS fragmentation_percent,
+  CAST(NULL AS INTEGER) AS page_count
+FROM sqlite_master
+WHERE type = 'index'
+  AND tbl_name = ?
+  AND IFNULL(name, '') NOT LIKE 'sqlite_%'
+ORDER BY name
+`.trim(),
+    };
+  }
+
+  if (dialect === 'duckdb') {
+    return {
+      mode: 'estimated',
+      params: schema ? [table, schema] : [table],
+      sql: schema
+        ? `
+SELECT
+  index_name AS index_name,
+  CAST(NULL AS DOUBLE) AS fragmentation_percent,
+  CAST(NULL AS BIGINT) AS page_count
+FROM duckdb_indexes()
+WHERE table_name = ?
+  AND schema_name = ?
+ORDER BY index_name
+`.trim()
+        : `
+SELECT
+  index_name AS index_name,
+  CAST(NULL AS DOUBLE) AS fragmentation_percent,
+  CAST(NULL AS BIGINT) AS page_count
+FROM duckdb_indexes()
+WHERE table_name = ?
+ORDER BY index_name
+`.trim(),
+    };
+  }
+
+  if (dialect === 'clickhouse') {
+    const db = schema || 'default';
+    return {
+      mode: 'estimated',
+      params: [db, table],
+      sql: `
+SELECT
+  name AS index_name,
+  CAST(NULL AS Float64) AS fragmentation_percent,
+  CAST(NULL AS UInt64) AS page_count
+FROM system.data_skipping_indices
+WHERE database = ?
+  AND table = ?
+ORDER BY name
+`.trim(),
+    };
+  }
+
+  if (dialect === 'redshift') {
+    // Redshift has no secondary indexes; return an empty typed result set so
+    // Refresh % succeeds and the UI can show custom VACUUM / unsorted probes.
+    return {
+      mode: 'estimated',
+      params: [],
+      sql: `
+SELECT
+  CAST(NULL AS VARCHAR(128)) AS index_name,
+  CAST(NULL AS FLOAT) AS fragmentation_percent,
+  CAST(NULL AS BIGINT) AS page_count
+WHERE 1 = 0
+`.trim(),
+    };
+  }
+
+  // Generic fallback: empty typed result — custom SQL still available.
+  return {
+    mode: 'estimated',
+    params: [],
+    sql: `SELECT CAST(NULL AS VARCHAR(128)) AS index_name, CAST(NULL AS FLOAT) AS fragmentation_percent WHERE 1 = 0`,
+  };
 }
 
 function pickField(row: Record<string, unknown>, keys: string[]): unknown {
@@ -450,6 +539,25 @@ export function buildIndexDefragSql(opts: {
     return [`ALTER INDEX ${qIndexQualified} REBUILD;`];
   }
 
+  if (dialect === 'sqlite') {
+    return [`REINDEX ${qIndex};`, `-- Or whole DB: VACUUM;`];
+  }
+
+  if (dialect === 'duckdb') {
+    return [`CHECKPOINT;`];
+  }
+
+  if (dialect === 'clickhouse') {
+    return [`OPTIMIZE TABLE ${qTable} FINAL;`];
+  }
+
+  if (dialect === 'redshift') {
+    return [
+      `VACUUM ${qTable};`,
+      `ANALYZE ${qTable};`,
+    ];
+  }
+
   return [];
 }
 
@@ -505,6 +613,39 @@ WHERE TABSCHEMA = '${sch.toUpperCase()}' AND TABNAME = '${tbl.toUpperCase()}';`;
 SELECT name AS index_name,
        ROUND(del_lf_rows_len / NULLIF(lf_rows_len, 0) * 100, 2) AS fragmentation_percent
 FROM index_stats;`;
+  }
+
+  if (dialect === 'sqlite') {
+    return `-- Optional: page sizes via dbstat (SQLITE_ENABLE_DBSTAT_VTAB)
+SELECT m.name AS index_name,
+       CAST(NULL AS REAL) AS fragmentation_percent,
+       (SELECT SUM(pgsize) FROM dbstat d WHERE d.name = m.name) AS page_count
+FROM sqlite_master m
+WHERE m.type = 'index' AND m.tbl_name = '${tbl}' AND m.name NOT LIKE 'sqlite_%';`;
+  }
+
+  if (dialect === 'duckdb') {
+    return `SELECT index_name AS index_name,
+       CAST(NULL AS DOUBLE) AS fragmentation_percent
+FROM duckdb_indexes()
+WHERE table_name = '${tbl}'${
+      schema ? ` AND schema_name = '${sch}'` : ''
+    };`;
+  }
+
+  if (dialect === 'clickhouse') {
+    return `SELECT name AS index_name,
+       CAST(NULL AS Float64) AS fragmentation_percent
+FROM system.data_skipping_indices
+WHERE database = '${sch}' AND table = '${tbl}';`;
+  }
+
+  if (dialect === 'redshift') {
+    return `-- Redshift has no secondary indexes; unsorted block % example:
+SELECT 'unsorted' AS index_name,
+       CAST(unsorted AS float) AS fragmentation_percent
+FROM svv_table_info
+WHERE schema = '${sch}' AND "table" = '${tbl}';`;
   }
 
   return `SELECT 'idx_name' AS index_name, 0 AS fragmentation_percent;`;
