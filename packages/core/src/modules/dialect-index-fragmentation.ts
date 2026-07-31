@@ -13,6 +13,7 @@
  * that returns `index_name` + `fragmentation_percent` (+ optional `page_count`).
  */
 
+import { isWriteStatement } from './sql-splitter';
 import { quoteSqlIdentifier } from './sql-template';
 
 export type IndexFragmentationMode = 'physical' | 'estimated' | 'unsupported';
@@ -511,7 +512,8 @@ FROM index_stats;`;
 
 /**
  * Reject obviously unsafe custom probes on the stats endpoint.
- * Same trust model as the SQL editor for SELECTs, but refuse writes / multi-statements.
+ * Same trust model as the SQL editor for SELECTs, but refuse writes / multi-statements
+ * — including PostgreSQL data-modifying CTEs that still end in SELECT.
  */
 export function isSafeIndexFragmentationCustomSql(sql: string): true | string {
   const t = sql.trim();
@@ -529,6 +531,10 @@ export function isSafeIndexFragmentationCustomSql(sql: string): true | string {
     .trim();
   if (!/^(with|select)\b/i.test(stripped)) {
     return 'Custom SQL must be a SELECT (or WITH … SELECT) statement.';
+  }
+  // `WITH x AS (DELETE … RETURNING …) SELECT …` starts with WITH/SELECT but writes.
+  if (isWriteStatement(stripped)) {
+    return 'Custom SQL must be read-only (no INSERT/UPDATE/DELETE/DDL, including in CTEs).';
   }
   return true;
 }

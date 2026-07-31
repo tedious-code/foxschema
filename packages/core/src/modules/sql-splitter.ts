@@ -606,16 +606,26 @@ export function checkStatement(
 /**
  * True when the statement modifies data or schema (confirmation-worthy).
  * Leading WRITE keywords count; so do CTE wrappers whose main verb is a write
- * (`WITH … AS (…) INSERT …`). `EXPLAIN …` stays non-write even when it wraps a
+ * (`WITH … AS (…) INSERT …`), and data-modifying CTEs whose outer verb is a
+ * read (`WITH x AS (DELETE … RETURNING …) SELECT * FROM x`) — PostgreSQL
+ * executes the DELETE. `EXPLAIN …` stays non-write even when it wraps a
  * mutating verb — EXPLAIN does not apply the change.
  */
 export function isWriteStatement(text: string): boolean {
   if (parseCodeCell(text)) return false;
+  return sqlTextIsWrite(text);
+}
+
+/** Recursive write check used for nested WITH bodies (no code-cell gate). */
+function sqlTextIsWrite(text: string): boolean {
   const kw = firstKeyword(text);
   if (!kw) return false;
   if (WRITE_KEYWORDS.has(kw)) return true;
   if (kw === 'explain') return false;
   if (kw === 'with') {
+    for (const body of withCteBodies(text)) {
+      if (sqlTextIsWrite(body)) return true;
+    }
     const after = keywordAfterWithCtes(text);
     return after !== null && WRITE_KEYWORDS.has(after);
   }
@@ -636,12 +646,27 @@ export function statementVerb(text: string): string | null {
 const MUTATING_DML = new Set(['update', 'delete', 'merge']);
 
 /**
- * True for UPDATE / DELETE / MERGE (including `WITH … AS (…) UPDATE …`).
+ * True for UPDATE / DELETE / MERGE (including `WITH … AS (…) UPDATE …` and
+ * data-modifying CTEs that return rows via SELECT).
  * Used by SQL Editor safe mode to warn before data-mutating DML.
  */
 export function isMutatingDmlStatement(text: string): boolean {
-  const verb = statementVerb(text);
-  return verb !== null && MUTATING_DML.has(verb);
+  if (parseCodeCell(text)) return false;
+  return sqlTextIsMutatingDml(text);
+}
+
+function sqlTextIsMutatingDml(text: string): boolean {
+  const kw = firstKeyword(text);
+  if (!kw || kw === 'explain') return false;
+  if (MUTATING_DML.has(kw)) return true;
+  if (kw === 'with') {
+    for (const body of withCteBodies(text)) {
+      if (sqlTextIsMutatingDml(body)) return true;
+    }
+    const after = keywordAfterWithCtes(text);
+    return after !== null && MUTATING_DML.has(after);
+  }
+  return false;
 }
 
 /**
@@ -732,7 +757,30 @@ function stripIdentQuotes(raw: string): string {
  * keyword (SELECT / INSERT / …). Returns null when the CTE list cannot be
  * walked (malformed or still open).
  */
+/**
+ * Walk leading `WITH [RECURSIVE] name AS (…), …` and return each CTE body
+ * (inner text between the AS parentheses). Empty when the lead is not WITH
+ * or the CTE list cannot be scanned.
+ */
+function withCteBodies(text: string): string[] {
+  const bodies: string[] = [];
+  walkWithCtes(text, (body) => {
+    bodies.push(body);
+  });
+  return bodies;
+}
+
+/** Leading verb after the WITH CTE list, or null if unscannable. */
 function keywordAfterWithCtes(text: string): string | null {
+  const after = walkWithCtes(text);
+  return after === null ? null : firstKeyword(after);
+}
+
+/**
+ * Scan `WITH [RECURSIVE] cte AS (body) [, …]` then return the remainder after
+ * the CTE list (main statement text). Invokes `onBody` for each CTE body.
+ */
+function walkWithCtes(text: string, onBody?: (body: string) => void): string | null {
   let i = 0;
   // Skip to the end of the leading WITH keyword.
   const lead = firstKeywordSpan(text);
@@ -762,16 +810,18 @@ function keywordAfterWithCtes(text: string): string | null {
 
     const open = skipWsAndComments(text, i);
     if (open >= text.length || text[open] !== '(') return null;
-    i = skipBalancedParens(text, open);
-    if (i < 0) return null;
+    const close = skipBalancedParens(text, open);
+    if (close < 0) return null;
+    onBody?.(text.slice(open + 1, close - 1));
+    i = close;
 
     const afterCte = skipWsAndComments(text, i);
     if (afterCte < text.length && text[afterCte] === ',') {
       i = afterCte + 1;
       continue;
     }
-    // Main verb follows.
-    return firstKeyword(text.slice(afterCte));
+    // Main statement follows.
+    return text.slice(afterCte);
   }
   return null;
 }

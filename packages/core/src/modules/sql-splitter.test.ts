@@ -252,6 +252,17 @@ describe('isWriteStatement / firstKeyword', () => {
       expect(isWriteStatement(w)).toBe(true);
     }
   });
+  it('classifies data-modifying CTEs that return via SELECT as writes', () => {
+    for (const w of [
+      'WITH wiped AS (DELETE FROM orders RETURNING id) SELECT * FROM wiped;',
+      'WITH u AS (UPDATE t SET n = 1 RETURNING *) SELECT * FROM u;',
+      'WITH i AS (INSERT INTO t VALUES (1) RETURNING id) SELECT * FROM i;',
+      // Nested WITH whose inner CTE mutates.
+      'WITH outer AS (WITH inner AS (DELETE FROM t RETURNING id) SELECT * FROM inner) SELECT * FROM outer;',
+    ]) {
+      expect(isWriteStatement(w)).toBe(true);
+    }
+  });
   it('classifies reads and no-keyword text as non-writes', () => {
     for (const r of ['SELECT 1;', 'WITH x AS (SELECT 1) SELECT * FROM x;', 'EXPLAIN DELETE FROM t;', '???']) {
       expect(isWriteStatement(r)).toBe(false);
@@ -274,6 +285,9 @@ describe('isMutatingDmlStatement / dmlLacksWhere', () => {
       )
     ).toBe(true);
     expect(isMutatingDmlStatement('WITH x AS (SELECT 1) DELETE FROM t;')).toBe(true);
+    expect(
+      isMutatingDmlStatement('WITH wiped AS (DELETE FROM orders RETURNING id) SELECT * FROM wiped;')
+    ).toBe(true);
     expect(isMutatingDmlStatement('INSERT INTO t VALUES (1);')).toBe(false);
     expect(isMutatingDmlStatement('SELECT 1;')).toBe(false);
   });
