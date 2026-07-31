@@ -27,7 +27,7 @@ const DEFAULT_HEIGHTS: Record<SidebarSectionId, number> = {
   bookmarks: 120,
   variables: 140,
   vault: 160,
-  utilities: 140,
+  utilities: 280,
   schema: 220,
 };
 
@@ -172,7 +172,7 @@ export const SqlSidebarSection: React.FC<{
   return (
     <div
       data-testid={`sql-sidebar-${id}`}
-      className={`border-b border-[#e2e8f0] flex flex-col min-h-0 bg-white ${
+      className={`border-b border-slate-800 flex flex-col min-h-0 bg-slate-950 ${
         open ? (grow && !height ? 'flex-1' : 'shrink-0') : 'shrink-0'
       }`}
       style={
@@ -181,18 +181,18 @@ export const SqlSidebarSection: React.FC<{
           : undefined
       }
     >
-      <div className="flex items-center gap-1 px-3 py-2.5 shrink-0 bg-white">
+      <div className="flex items-center gap-1 px-3 py-2.5 shrink-0 bg-slate-950">
         <button
           type="button"
           data-testid={`sql-sidebar-toggle-${id}`}
           aria-expanded={open}
           onClick={onToggle}
-          className="flex-1 flex items-center gap-2 min-w-0 text-left text-[13px] font-bold uppercase tracking-wide text-[#334155] hover:text-[#0f172a] transition"
+          className="flex-1 flex items-center gap-2 min-w-0 text-left text-[13px] font-bold uppercase tracking-wide text-slate-300 hover:text-slate-100 transition"
         >
           {open ? (
-            <ChevronDown className="w-4 h-4 shrink-0 text-sky-600" strokeWidth={SQL_ICON_STROKE} />
+            <ChevronDown className="w-4 h-4 shrink-0 text-sky-500" strokeWidth={SQL_ICON_STROKE} />
           ) : (
-            <ChevronRight className="w-4 h-4 shrink-0 text-sky-600" strokeWidth={SQL_ICON_STROKE} />
+            <ChevronRight className="w-4 h-4 shrink-0 text-sky-500" strokeWidth={SQL_ICON_STROKE} />
           )}
           <span className="shrink-0 flex items-center [&_svg]:w-4 [&_svg]:h-4 [&_svg]:stroke-[2.5]">{icon}</span>
           <span className="truncate">{title}</span>
@@ -215,7 +215,7 @@ export const SqlSidebarSection: React.FC<{
           data-testid={`sql-sidebar-resize-${id}`}
           title="Drag to resize section"
           onMouseDown={startResize}
-          className="h-1.5 shrink-0 cursor-row-resize bg-slate-200 hover:bg-cyan-500/40 active:bg-cyan-500/50 transition-colors"
+          className="h-1.5 shrink-0 cursor-row-resize bg-slate-800 hover:bg-cyan-500/40 active:bg-cyan-500/50 transition-colors"
         />
       )}
     </div>

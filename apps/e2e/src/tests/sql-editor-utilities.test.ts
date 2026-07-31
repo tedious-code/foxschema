@@ -249,4 +249,25 @@ describe.skipIf(!ready)('SQL Editor · Utilities + Clone Table (SQLite)', () => 
     const explorerText = await driver.locator('[data-testid="sql-schema-explorer"]').innerText();
     expect(explorerText).toMatch(/orders_1/i);
   });
+
+  it('Server Insights opens system info and table sizes on SQLite', async () => {
+    await sql.openServerInsights('system');
+    await sql.selectUtilityConnection(NAME, 'server-insights-connection');
+    await driver.locator('[data-testid="server-insights-refresh"]').click();
+    await driver.waitForTimeout(1500);
+    const modal = driver.locator('[data-testid="server-insights-modal"]');
+    await expect(modal).toBeVisible();
+    await saveSeoScreenshot(driver, 'sql-editor-server-insights-system');
+
+    await driver.locator('[data-testid="server-insights-tab-sizes"]').click();
+    await driver.waitForTimeout(1500);
+    await saveSeoScreenshot(driver, 'sql-editor-server-insights-sizes');
+
+    await driver.locator('[data-testid="server-insights-tab-pool"]').click();
+    await driver.waitForTimeout(400);
+    const body = await modal.innerText();
+    expect(body.toLowerCase()).toMatch(/embedded|does not|unsupported|no server/i);
+
+    await sql.closeServerInsights();
+  });
 });

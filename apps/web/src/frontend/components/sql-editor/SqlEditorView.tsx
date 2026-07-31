@@ -19,6 +19,10 @@ import {
   Plus,
   Copy,
   Wrench,
+  Users,
+  Cpu,
+  HardDrive,
+  Activity,
 } from 'lucide-react';
 import { useSyncStore } from '../../store/useSyncStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
@@ -44,6 +48,7 @@ import {
 import { WriteConfirmDialog } from './WriteConfirmDialog';
 import { IndexManagementModal } from '../utilities/IndexManagementModal';
 import { CloneTableModal } from '../utilities/CloneTableModal';
+import { ServerInsightsModal, type ServerInsightsTab } from '../utilities/ServerInsightsModal';
 import type { RevealRequest } from './SqlEditorPane';
 
 const SqlEditorPane = lazy(() => import('./SqlEditorPane'));
@@ -54,7 +59,9 @@ const EditorFallback: React.FC = () => (
   </div>
 );
 
-const EDITOR_PCT_MIN = 15;
+const UTIL_MENU_BTN =
+  'w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] font-semibold text-slate-100 hover:bg-slate-800 hover:text-slate-50 border border-transparent hover:border-amber-500/35';
+const UTIL_MENU_ICON = 'w-3.5 h-3.5 text-amber-400 shrink-0';
 const EDITOR_PCT_MAX = 70;
 const EDITOR_PCT_DEFAULT = 26;
 
@@ -140,6 +147,7 @@ export const SqlEditorView: React.FC = () => {
   const [showIndexManagement, setShowIndexManagement] = useState(false);
   const [showCloneTable, setShowCloneTable] = useState(false);
   const [cloneTableInitial, setCloneTableInitial] = useState<string | null>(null);
+  const [serverInsightsTab, setServerInsightsTab] = useState<ServerInsightsTab | null>(null);
 
   const onSecretsRefresh = useCallback(async () => {
     setSecretsRefreshing(true);
@@ -299,7 +307,7 @@ export const SqlEditorView: React.FC = () => {
     <div className="flex-1 flex min-h-0 overflow-hidden" data-testid="sql-editor-view">
       {sidebarCollapsed ? (
         <aside
-          className="w-10 shrink-0 border-r border-[#e2e8f0] bg-white flex flex-col items-center py-2 gap-1"
+          className="w-10 shrink-0 border-r border-slate-800 bg-slate-950 flex flex-col items-center py-2 gap-1"
           data-testid="sql-sidebar-collapsed"
         >
           <button
@@ -308,30 +316,30 @@ export const SqlEditorView: React.FC = () => {
             title="Show sidebar"
             aria-label="Show sidebar"
             onClick={() => setSidebarCollapsed(false)}
-            className="p-1.5 rounded text-[#64748b] hover:text-[#0f172a] hover:bg-[#f1f5f9] transition"
+            className="p-1.5 rounded text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition"
           >
-            <PanelLeftOpen className="w-4 h-4 text-[#0284c7]" strokeWidth={SQL_ICON_STROKE} />
+            <PanelLeftOpen className="w-4 h-4 text-sky-500" strokeWidth={SQL_ICON_STROKE} />
           </button>
         </aside>
       ) : (
         <aside
-          className="relative shrink-0 border-r border-[#e2e8f0] bg-white overflow-hidden flex flex-col min-h-0"
+          className="relative shrink-0 border-r border-slate-800 bg-slate-950 overflow-hidden flex flex-col min-h-0"
           style={{ width: sidebarWidth }}
           data-testid="sql-sidebar"
         >
-          <div className="flex items-center justify-end px-2 py-1 border-b border-[#e2e8f0] shrink-0 bg-white">
+          <div className="flex items-center justify-end px-2 py-1 border-b border-slate-800 shrink-0 bg-slate-950">
             <button
               type="button"
               data-testid="sql-sidebar-collapse"
               title="Hide sidebar"
               aria-label="Hide sidebar"
               onClick={() => setSidebarCollapsed(true)}
-              className="p-1 rounded text-[#64748b] hover:text-[#0f172a] hover:bg-[#f1f5f9] transition"
+              className="p-1 rounded text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition"
             >
-              <PanelLeftClose className="w-3.5 h-3.5 text-[#0284c7]" strokeWidth={SQL_ICON_STROKE} />
+              <PanelLeftClose className="w-3.5 h-3.5 text-sky-500" strokeWidth={SQL_ICON_STROKE} />
             </button>
           </div>
-          <div className="flex-1 flex flex-col min-h-0 overflow-y-auto overflow-x-hidden bg-white">
+          <div className="flex-1 flex flex-col min-h-0 overflow-y-auto overflow-x-hidden bg-slate-950">
             <SqlSidebarSection
               id="destinations"
               title="Destination servers"
@@ -411,14 +419,14 @@ export const SqlEditorView: React.FC = () => {
               open={sidebarOpen.utilities}
               onToggle={() => toggleSidebar('utilities')}
             >
-              <div className="px-2 pb-2 flex flex-col gap-1">
+              <div className="px-1 pb-2 flex flex-col gap-0.5">
                 <button
                   type="button"
                   data-testid="utilities-index-management"
                   onClick={() => setShowIndexManagement(true)}
-                  className="w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] font-semibold text-[#0f172a] hover:bg-[#fff7ed] border border-transparent hover:border-[#fdba74]/40"
+                  className={UTIL_MENU_BTN}
                 >
-                  <Database className="w-3.5 h-3.5 text-[#d97706]" strokeWidth={SQL_ICON_STROKE} />
+                  <Database className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
                   Index Management
                 </button>
                 <button
@@ -428,10 +436,46 @@ export const SqlEditorView: React.FC = () => {
                     setCloneTableInitial(null);
                     setShowCloneTable(true);
                   }}
-                  className="w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] font-semibold text-[#0f172a] hover:bg-[#fff7ed] border border-transparent hover:border-[#fdba74]/40"
+                  className={UTIL_MENU_BTN}
                 >
-                  <Copy className="w-3.5 h-3.5 text-[#d97706]" strokeWidth={SQL_ICON_STROKE} />
+                  <Copy className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
                   Clone Table
+                </button>
+                <button
+                  type="button"
+                  data-testid="utilities-connection-pool"
+                  onClick={() => setServerInsightsTab('pool')}
+                  className={UTIL_MENU_BTN}
+                >
+                  <Activity className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
+                  Connection Pool
+                </button>
+                <button
+                  type="button"
+                  data-testid="utilities-user-connections"
+                  onClick={() => setServerInsightsTab('sessions')}
+                  className={UTIL_MENU_BTN}
+                >
+                  <Users className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
+                  User Connections
+                </button>
+                <button
+                  type="button"
+                  data-testid="utilities-system-info"
+                  onClick={() => setServerInsightsTab('system')}
+                  className={UTIL_MENU_BTN}
+                >
+                  <Cpu className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
+                  System Info
+                </button>
+                <button
+                  type="button"
+                  data-testid="utilities-object-sizes"
+                  onClick={() => setServerInsightsTab('sizes')}
+                  className={UTIL_MENU_BTN}
+                >
+                  <HardDrive className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
+                  Table & Index Size
                 </button>
               </div>
             </SqlSidebarSection>
@@ -713,6 +757,11 @@ export const SqlEditorView: React.FC = () => {
           setShowCloneTable(false);
           setCloneTableInitial(null);
         }}
+      />
+      <ServerInsightsModal
+        open={serverInsightsTab != null}
+        initialTab={serverInsightsTab ?? 'pool'}
+        onClose={() => setServerInsightsTab(null)}
       />
     </div>
   );
