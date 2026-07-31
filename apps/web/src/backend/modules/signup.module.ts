@@ -29,7 +29,7 @@ export class SignupModule {
    * misconfigured) leaves the wizard showing next launch instead of silently
    * dropping the signup, since capturing it is the entire point of this flow.
    */
-  async submit(email: string, source: 'web' = 'web'): Promise<{ ok: boolean; error?: string }> {
+  async submit(email: string, source: 'web' | 'cli' = 'web'): Promise<{ ok: boolean; error?: string }> {
     // The wizard is a one-time flow: once it's been resolved (submitted or
     // skipped) there's nothing more to forward. Short-circuiting here caps the
     // outbound side effects (WordPress post + notification email) to essentially

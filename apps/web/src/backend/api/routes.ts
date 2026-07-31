@@ -28,7 +28,6 @@ const WORKSPACE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../.
 import { ConnectionStore } from '../modules/connection-store.module';
 import { MigrationHistoryStore, type MigrationObjectResult, type MigrationRunStatus } from '../modules/migration-history.module';
 import { AppSettingsStore } from '../modules/app-settings.module';
-import { SignupModule } from '../modules/signup.module';
 import { rateLimit } from './rate-limit';
 import { runStatements, clampMaxRows, MAX_STATEMENTS, MAX_STATEMENT_LENGTH } from './sql-execute';
 import { clampOffset } from './sql-page-wrap';
@@ -130,7 +129,6 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   const sqlGenerator = new SqlGeneratorModule();
   const migrationHistory = new MigrationHistoryStore();
   const appSettings = new AppSettingsStore();
-  const signupModule = new SignupModule(appSettings);
 
   /** Resolve a ConnectionRef to concrete credentials (decrypting a saved one). */
   async function resolveRef(
@@ -194,30 +192,8 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     res.json(await checkForUpdate());
   });
 
-  // First-run "stay in the loop" wizard — see modules/signup.module.ts.
-  // The write endpoints fan out to an external side effect (WordPress post +
-  // notification email), so cap them per IP: legit use is one or two calls
-  // (submit, maybe a retry, or skip), 10 / 15 min leaves generous headroom
-  // while stopping a flood. Shared bucket across submit + skip.
-  const signupLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10 });
-
-  router.get('/signup/state', async (_req: Request, res: Response) => {
-    res.json(await signupModule.getState());
-  });
-
-  router.post('/signup', signupLimiter, async (req: Request, res: Response) => {
-    const { email } = req.body as { email?: string; source?: string };
-    if (!email) {
-      res.status(400).json({ ok: false, error: 'Email is required.' });
-      return;
-    }
-    res.json(await signupModule.submit(email, 'web'));
-  });
-
-  router.post('/signup/skip', signupLimiter, async (_req: Request, res: Response) => {
-    await signupModule.skip();
-    res.json({ ok: true });
-  });
+  // First-open email subscriber wizard lives on public /api/signup/* (see
+  // signup.routes.ts) so it works before login when AUTH_REQUIRED=true.
 
   // Non-secret info about where the app's metadata DB lives and how the
   // credential-encryption key is bound — for the "Database & Security" settings

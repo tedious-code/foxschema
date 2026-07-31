@@ -23,6 +23,7 @@ LOCAL_SINGLE_USER=false
 # AUTH_REQUIRED defaults to true when LOCAL_SINGLE_USER=false
 ```
 
+- First UI open can still show the **email subscriber wizard** (public; before login).
 - First registered account becomes **admin**; later signups default to **viewer**.
 - Admins configure role permissions and assign users under **Profile → Access control**.
 - Permissions cover Schema Sync (browse / compare / migrate), SQL Editor (sidebar, variables, writes, datagrid, code cells), Utilities, and Secrets.
@@ -93,13 +94,22 @@ docker compose -f docker-compose.app.yml up -d
 | `APP_DB_URL` | — | Connection URL for the metadata store when engine is `postgres`/`mysql`. |
 | `APP_KEY_SCHEME` | `v1` | `v1` = key used directly. `v2` = key bound to `APP_USER_EMAIL` (anti-copy); leave `v1` for stateless servers. |
 | `LOCAL_SINGLE_USER` | `true` | `true` = no login (open, single user). `false` = real accounts. |
-| `AUTH_REQUIRED` | `false` | `true` = every request needs a session. Pair with `LOCAL_SINGLE_USER=false`. |
+| `AUTH_REQUIRED` | see note | When `LOCAL_SINGLE_USER=false`, defaults to **true** (login required). Set `AUTH_REQUIRED=false` only if you intentionally want open API access. |
+| `SIGNUP_WEBHOOK_URL` | — | Optional. First-open email subscriber wizard posts here (WordPress `/foxschema/v1/signup`). Without it, subscribe still dismisses the wizard locally. |
+| `SIGNUP_WEBHOOK_SECRET` | — | Optional shared secret sent as `X-Foxschema-Signup-Secret`. |
 | `ALLOW_HOST_CLOUD_CREDENTIALS` | off | When `true`, cloud secret resolve may use the host IAM/ADC chain without saved user credentials. **Keep off** on multi-user hosts. |
 | `SSO_*` | — | OAuth for Google / Microsoft / GitHub (see below). |
 | `NODE_ENV` | `production` | Set in the image; enforces that `APP_ENCRYPTION_KEY` is present. |
 
 > The app also reads `APP_USER_EMAIL` (only for the `v2` key scheme) and
 > `UPDATE_FEED_URL` (optional release-check feed). Neither is needed for a basic deploy.
+
+### First-open email subscriber wizard
+
+On first UI boot (before login), Fox can show a skippable welcome form that collects an
+email for product updates. Routes are public: `GET /api/signup/state`, `POST /api/signup`,
+`POST /api/signup/skip`. Configure `SIGNUP_WEBHOOK_URL` (+ optional secret) so submissions
+reach foxschema.com; otherwise subscribe still works for local dismiss.
 
 ## The encryption key
 

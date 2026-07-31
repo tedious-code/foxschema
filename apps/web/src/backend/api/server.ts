@@ -16,6 +16,7 @@ import { createConnectionStoreRoutes } from './connection-store.routes';
 import { createAppSecretsRoutes } from './app-secrets.routes';
 import { createUserRoutes } from './user.routes';
 import { createAdminRoutes } from './admin.routes';
+import { createSignupRoutes } from './signup.routes';
 import { AppSecretsStore } from '../modules/app-secrets.module';
 
 // Default to single-user (no login). Set LOCAL_SINGLE_USER=false to enable
@@ -69,6 +70,8 @@ export function createApp() {
   const auth = new AuthModule();
   app.use('/api/auth/sso', createSsoRoutes(auth));
   app.use('/api/auth', createAuthRoutes(auth));
+  // First-open email subscriber wizard — must stay public (before login).
+  app.use('/api/signup', createSignupRoutes());
 
   const userGuard = LOCAL_SINGLE_USER ? localUserGuard(auth) : authGuard(auth);
 

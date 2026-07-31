@@ -1,13 +1,20 @@
+/**
+ * Fox Schema (foxschema)
+ * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * First-open welcome wizard: optional email subscriber capture (WordPress webhook).
+ * Shown once per install before login / workspace. Skippable.
+ */
 import React, { useState } from 'react';
-import { Loader2, AlertCircle, Mail } from 'lucide-react';
+import { Loader2, AlertCircle, Mail, Sparkles } from 'lucide-react';
 import { submitSignup, skipSignup } from '../api/signupApi';
 import { Brand } from './Brand';
 
 /**
- * One-time, skippable first-run prompt: "stay in the loop" email capture.
- * Shown after any required setup (desktop's silent key-binding step) resolves,
- * on both web and desktop. Submitting or skipping both dismiss it for good —
- * see signupApi.ts / backend modules/signup.module.ts.
+ * One-time, skippable first-run prompt: collect a subscriber email when the
+ * app is opened for the first time. Submitting or skipping dismisses it for
+ * the install (see signup.module.ts).
  */
 export const SignupWizard: React.FC<{ onDone: () => void }> = ({ onDone }) => {
   const [email, setEmail] = useState('');
@@ -44,53 +51,85 @@ export const SignupWizard: React.FC<{ onDone: () => void }> = ({ onDone }) => {
   };
 
   return (
-    <div className="h-screen flex items-center justify-center bg-slate-950 text-slate-100 p-4">
-      <div className="w-full max-w-md flex flex-col items-center gap-6">
-        <Brand logoSize={48} textClassName="text-2xl font-bold" subtitle={false} />
+    <div
+      data-testid="signup-wizard"
+      className="h-screen flex items-center justify-center bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900 text-slate-100 p-4"
+    >
+      <div className="w-full max-w-lg flex flex-col items-center gap-7">
+        <Brand logoSize={52} textClassName="text-2xl font-bold" subtitle={false} />
 
-        <form onSubmit={submit} className="w-full bg-slate-900/60 border border-slate-800 rounded-xl p-6 flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5 items-center text-center">
-            <h1 className="text-base font-bold">Stay in the loop</h1>
-            <p className="text-sm text-slate-400">
-              Get notified about new dialects, releases, and features. No spam — unsubscribe anytime.
+        <form
+          onSubmit={submit}
+          className="w-full rounded-2xl border border-cyan-500/20 bg-slate-900/70 shadow-2xl shadow-cyan-950/30 overflow-hidden"
+        >
+          <div className="px-6 pt-6 pb-4 border-b border-slate-800/80 bg-gradient-to-r from-cyan-500/10 via-transparent to-transparent">
+            <div className="flex items-center gap-2 text-cyan-300/90 text-[11px] font-bold uppercase tracking-wider mb-2">
+              <Sparkles className="w-3.5 h-3.5" />
+              Welcome
+            </div>
+            <h1 className="text-xl font-bold text-slate-50">Get product updates</h1>
+            <p className="mt-1.5 text-sm text-slate-400 leading-relaxed">
+              Drop your email to hear about new dialects, releases, and features. Optional —
+              skip anytime. No spam; unsubscribe whenever you like.
             </p>
           </div>
 
-          <input
-            type="email"
-            required
-            autoFocus
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="your@email.com"
-            className="w-full bg-slate-950 border border-slate-800 focus:border-cyan-500 rounded-md px-3 py-2.5 text-sm outline-none"
-          />
+          <div className="px-6 py-5 flex flex-col gap-3.5">
+            <label className="block">
+              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                Email
+              </span>
+              <input
+                type="email"
+                required
+                autoFocus
+                data-testid="signup-wizard-email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="your@email.com"
+                className="mt-1 w-full bg-slate-950 border border-slate-700 focus:border-cyan-500 rounded-lg px-3 py-2.5 text-sm outline-none"
+              />
+            </label>
 
-          {error && (
-            <div className="flex items-start gap-2 text-xs text-rose-400 bg-rose-950/40 border border-rose-500/20 rounded-md px-3 py-2">
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-              <span>{error}</span>
-            </div>
-          )}
+            {error && (
+              <div
+                data-testid="signup-wizard-error"
+                className="flex items-start gap-2 text-xs text-rose-400 bg-rose-950/40 border border-rose-500/20 rounded-md px-3 py-2"
+              >
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{error}</span>
+              </div>
+            )}
 
-          <button
-            type="submit"
-            disabled={busy !== null}
-            className="w-full accent-grad on-accent-fg font-semibold text-sm rounded-md px-4 py-2.5 flex items-center justify-center gap-2 disabled:opacity-50"
-          >
-            {busy === 'submit' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
-            Notify me
-          </button>
+            <button
+              type="submit"
+              data-testid="signup-wizard-submit"
+              disabled={busy !== null}
+              className="w-full accent-grad on-accent-fg font-semibold text-sm rounded-lg px-4 py-2.5 flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {busy === 'submit' ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Mail className="w-4 h-4" />
+              )}
+              Subscribe & continue
+            </button>
 
-          <button
-            type="button"
-            onClick={skip}
-            disabled={busy !== null}
-            className="text-xs font-semibold text-slate-400 hover:text-slate-200 transition cursor-pointer disabled:opacity-50"
-          >
-            {busy === 'skip' ? 'Skipping…' : 'Skip for now'}
-          </button>
+            <button
+              type="button"
+              data-testid="signup-wizard-skip"
+              onClick={skip}
+              disabled={busy !== null}
+              className="text-xs font-semibold text-slate-400 hover:text-slate-200 transition cursor-pointer disabled:opacity-50 py-1"
+            >
+              {busy === 'skip' ? 'Skipping…' : 'Skip for now'}
+            </button>
+          </div>
         </form>
+
+        <p className="text-[11px] text-slate-600 text-center max-w-sm">
+          Shown once on first open. Your email is used only for Fox Schema product updates.
+        </p>
       </div>
     </div>
   );
