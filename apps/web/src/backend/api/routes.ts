@@ -17,8 +17,10 @@ import {
   type ConnectionOptions,
   type DbObjectType,
   type TableSchema,
+  type DbaUtilityKind,
 } from '@foxschema/core';
 import { probeTableFragmentation, mapPool } from './index-fragmentation';
+import { probeDbaUtility } from './dba-utilities';
 
 // apps/web/src/backend/api → monorepo root (npm workspaces live here)
 const WORKSPACE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../..');
@@ -500,6 +502,45 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       }
     }
   );
+
+  /**
+   * DBA utilities: connection pool, user sessions, system info, object sizes.
+   * One connection ref + kind; dialect probes live in @foxschema/core.
+   */
+  const dbaUtilityLimiter = rateLimit({ windowMs: 60 * 1000, max: 30 });
+  router.post('/schema/dba-utility', dbaUtilityLimiter, async (req: Request, res: Response) => {
+    const body = req.body as ConnectionRef & {
+      kind?: unknown;
+      schema?: unknown;
+    };
+    const kindRaw = typeof body.kind === 'string' ? body.kind.trim() : '';
+    const allowed: DbaUtilityKind[] = ['pool', 'sessions', 'system', 'sizes'];
+    if (!allowed.includes(kindRaw as DbaUtilityKind)) {
+      res.status(400).json({ error: 'kind must be one of: pool, sessions, system, sizes.' });
+      return;
+    }
+    const kind = kindRaw as DbaUtilityKind;
+    try {
+      const resolved = await resolveRef((req as AuthedRequest).userId, body);
+      const schema =
+        (typeof body.schema === 'string' && body.schema.trim()) || resolved.schema || '';
+      const probed = await probeDbaUtility({
+        dialect: resolved.dialect,
+        option: resolved.option,
+        kind,
+        schema,
+      });
+      if (!probed.ok) {
+        const { status, ...rest } = probed.failure;
+        res.status(status).json(rest);
+        return;
+      }
+      res.json({ ...probed.value, dialect: resolved.dialect, schema });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to run DBA utility';
+      res.status(500).json({ error: message });
+    }
+  });
 
   // SQL Editor: run ad-hoc statements against ONE credential and return shaped
   // row results. The frontend fans out across selected credentials with one

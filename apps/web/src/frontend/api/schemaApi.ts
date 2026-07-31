@@ -277,6 +277,86 @@ export async function fetchIndexFragmentationBatch(
   return data;
 }
 
+export type DbaUtilityKindApi = 'pool' | 'sessions' | 'system' | 'sizes';
+
+export type DbaUtilityResponse = {
+  kind: DbaUtilityKindApi;
+  dialect: string;
+  schema: string;
+  mode: 'native' | 'estimated' | 'unsupported';
+  support?: {
+    mode: 'native' | 'estimated' | 'unsupported';
+    query: boolean;
+    hint: string;
+  };
+  pool?: {
+    maxConnections: number | null;
+    currentConnections: number | null;
+    activeConnections: number | null;
+    availableConnections: number | null;
+    waitCount: number | null;
+    details: Array<{ key: string; value: string }>;
+  };
+  sessions?: Array<{
+    sessionId: string;
+    userName: string | null;
+    clientHost: string | null;
+    databaseName: string | null;
+    state: string | null;
+    waitEvent: string | null;
+    queryText: string | null;
+    connectedAt: string | null;
+    applicationName: string | null;
+  }>;
+  system?: {
+    cpuCount: number | null;
+    cpuUsagePercent: number | null;
+    memoryTotalBytes: number | null;
+    memoryUsedBytes: number | null;
+    memoryAvailableBytes: number | null;
+    storageTotalBytes: number | null;
+    storageUsedBytes: number | null;
+    storageAvailableBytes: number | null;
+    uptimeSeconds: number | null;
+    serverVersion: string | null;
+    details: Array<{ key: string; value: string }>;
+  };
+  sizes?: Array<{
+    schemaName: string | null;
+    objectName: string;
+    objectType: 'table' | 'index' | 'other';
+    tableName: string | null;
+    totalBytes: number | null;
+    dataBytes: number | null;
+    indexBytes: number | null;
+    rowCount: number | null;
+  }>;
+  warning?: string;
+  error?: string;
+};
+
+/** Utilities → Server Insights (pool / sessions / system / sizes). */
+export async function fetchDbaUtility(
+  ref: ConnectionRef,
+  opts: { kind: DbaUtilityKindApi; schema?: string }
+): Promise<DbaUtilityResponse> {
+  const res = await fetch(`${getApiBase()}/schema/dba-utility`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ...ref,
+      kind: opts.kind,
+      schema: opts.schema,
+    }),
+  });
+  const data = await parseJsonBody<DbaUtilityResponse & { error?: string }>(res);
+  if (!res.ok) {
+    throw new Error(data.error || `DBA utility failed (${res.status})`);
+  }
+  return data;
+}
+
 export async function checkDriver(dialect: string): Promise<DriverInfo> {
   // Driver-installed status rarely changes — cache for 30s, dedupe concurrent checks
   return idempotent(

@@ -19,6 +19,10 @@ import {
   Plus,
   Copy,
   Wrench,
+  Users,
+  Cpu,
+  HardDrive,
+  Activity,
 } from 'lucide-react';
 import { useSyncStore } from '../../store/useSyncStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
@@ -44,6 +48,7 @@ import {
 import { WriteConfirmDialog } from './WriteConfirmDialog';
 import { IndexManagementModal } from '../utilities/IndexManagementModal';
 import { CloneTableModal } from '../utilities/CloneTableModal';
+import { ServerInsightsModal, type ServerInsightsTab } from '../utilities/ServerInsightsModal';
 import type { RevealRequest } from './SqlEditorPane';
 
 const SqlEditorPane = lazy(() => import('./SqlEditorPane'));
@@ -140,6 +145,7 @@ export const SqlEditorView: React.FC = () => {
   const [showIndexManagement, setShowIndexManagement] = useState(false);
   const [showCloneTable, setShowCloneTable] = useState(false);
   const [cloneTableInitial, setCloneTableInitial] = useState<string | null>(null);
+  const [serverInsightsTab, setServerInsightsTab] = useState<ServerInsightsTab | null>(null);
 
   const onSecretsRefresh = useCallback(async () => {
     setSecretsRefreshing(true);
@@ -433,6 +439,42 @@ export const SqlEditorView: React.FC = () => {
                   <Copy className="w-3.5 h-3.5 text-[#d97706]" strokeWidth={SQL_ICON_STROKE} />
                   Clone Table
                 </button>
+                <button
+                  type="button"
+                  data-testid="utilities-connection-pool"
+                  onClick={() => setServerInsightsTab('pool')}
+                  className="w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] font-semibold text-[#0f172a] hover:bg-[#fff7ed] border border-transparent hover:border-[#fdba74]/40"
+                >
+                  <Activity className="w-3.5 h-3.5 text-[#d97706]" strokeWidth={SQL_ICON_STROKE} />
+                  Connection Pool
+                </button>
+                <button
+                  type="button"
+                  data-testid="utilities-user-connections"
+                  onClick={() => setServerInsightsTab('sessions')}
+                  className="w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] font-semibold text-[#0f172a] hover:bg-[#fff7ed] border border-transparent hover:border-[#fdba74]/40"
+                >
+                  <Users className="w-3.5 h-3.5 text-[#d97706]" strokeWidth={SQL_ICON_STROKE} />
+                  User Connections
+                </button>
+                <button
+                  type="button"
+                  data-testid="utilities-system-info"
+                  onClick={() => setServerInsightsTab('system')}
+                  className="w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] font-semibold text-[#0f172a] hover:bg-[#fff7ed] border border-transparent hover:border-[#fdba74]/40"
+                >
+                  <Cpu className="w-3.5 h-3.5 text-[#d97706]" strokeWidth={SQL_ICON_STROKE} />
+                  System Info
+                </button>
+                <button
+                  type="button"
+                  data-testid="utilities-object-sizes"
+                  onClick={() => setServerInsightsTab('sizes')}
+                  className="w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] font-semibold text-[#0f172a] hover:bg-[#fff7ed] border border-transparent hover:border-[#fdba74]/40"
+                >
+                  <HardDrive className="w-3.5 h-3.5 text-[#d97706]" strokeWidth={SQL_ICON_STROKE} />
+                  Table & Index Size
+                </button>
               </div>
             </SqlSidebarSection>
             <SqlSidebarSection
@@ -713,6 +755,11 @@ export const SqlEditorView: React.FC = () => {
           setShowCloneTable(false);
           setCloneTableInitial(null);
         }}
+      />
+      <ServerInsightsModal
+        open={serverInsightsTab != null}
+        initialTab={serverInsightsTab ?? 'pool'}
+        onClose={() => setServerInsightsTab(null)}
       />
     </div>
   );

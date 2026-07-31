@@ -286,6 +286,32 @@ export class SqlEditorPage {
     await waitFor(this.page, '[data-testid="index-management-modal"]', 15_000);
   }
 
+  async openServerInsights(
+    tab: 'pool' | 'sessions' | 'system' | 'sizes' = 'system'
+  ): Promise<void> {
+    await this.ensureSidebarSectionOpen('utilities');
+    const testId =
+      tab === 'pool'
+        ? 'utilities-connection-pool'
+        : tab === 'sessions'
+          ? 'utilities-user-connections'
+          : tab === 'system'
+            ? 'utilities-system-info'
+            : 'utilities-object-sizes';
+    await clickWhen(this.page, `[data-testid="${testId}"]`);
+    await waitFor(this.page, '[data-testid="server-insights-modal"]', 15_000);
+    await waitFor(this.page, `[data-testid="server-insights-tab-${tab}"]`, 5_000);
+  }
+
+  async closeServerInsights(): Promise<void> {
+    const modal = this.page.locator('[data-testid="server-insights-modal"]');
+    if (!(await modal.isVisible().catch(() => false))) return;
+    await modal.locator('button[aria-label="Close"]').click().catch(async () => {
+      await this.page.keyboard.press('Escape');
+    });
+    await modal.waitFor({ state: 'detached', timeout: 8_000 }).catch(() => undefined);
+  }
+
   async closeIndexManagement(): Promise<void> {
     const modal = this.page.locator('[data-testid="index-management-modal"]');
     if (!(await modal.isVisible().catch(() => false))) return;

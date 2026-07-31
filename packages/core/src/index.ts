@@ -42,6 +42,25 @@ export type {
   IndexFragmentationMode,
   IndexFragmentationSeverity,
 } from './modules/dialect-index-fragmentation';
+export {
+  dialectSupportsDbaUtility,
+  buildDbaUtilityQuery,
+  normalizeConnectionPoolRows,
+  normalizeUserSessionRows,
+  normalizeSystemInfoRows,
+  normalizeObjectSizeRows,
+  formatBytes,
+} from './modules/dialect-dba-utilities';
+export type {
+  DbaProbeMode,
+  DbaUtilityKind,
+  DbaUtilitySupport,
+  DbaUtilityQuery,
+  ConnectionPoolInfo,
+  UserSessionRow,
+  SystemInfoMetric,
+  ObjectSizeRow,
+} from './modules/dialect-dba-utilities';
 export { findMissingFkTargets, findNarrowingTypeChanges, extractReviewNotices, validateMigrationPlan } from './modules/migration-validation';
 export type { ValidationIssue, ValidationSeverity, ValidationCode } from './modules/migration-validation';
 export { CROSS_DIALECT_READINESS } from './modules/cross-dialect-readiness';
