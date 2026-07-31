@@ -246,6 +246,9 @@ export const DataGrid: React.FC<{
    */
   linkColumns?: Map<number, string>;
   onLinkClick?: (colIdx: number, rowIdx: number) => void;
+  /** Highlight a selected result row (Data Peek edit). */
+  selectedRowIndex?: number | null;
+  onSelectRow?: (rowIdx: number) => void;
 }> = React.memo(
   ({
     result,
@@ -264,6 +267,8 @@ export const DataGrid: React.FC<{
     onNextPage,
     linkColumns,
     onLinkClick,
+    selectedRowIndex = null,
+    onSelectRow,
   }) => {
   const upsertVariable = useSqlEditorStore((s) => s.upsertVariable);
   const sourceColumns = result.ok ? result.columns : [];
@@ -642,14 +647,21 @@ export const DataGrid: React.FC<{
                 const size = pageSize && pageSize > 0 ? pageSize : sourceRows.length;
                 const absRow = pageIndex * size + i + 1;
                 const stripe = i % 2 === 1;
-                const rowBg = stripe
-                  ? 'bg-[var(--fox-grid-bg-stripe)]'
-                  : 'bg-[var(--fox-grid-bg)]';
+                const selected = selectedRowIndex === i;
+                const rowBg = selected
+                  ? 'bg-amber-500/15'
+                  : stripe
+                    ? 'bg-[var(--fox-grid-bg-stripe)]'
+                    : 'bg-[var(--fox-grid-bg)]';
                 return (
                   <tr
                     key={i}
-                    className={`${rowBg} hover:bg-[var(--fox-grid-bg-hover)] group border-b border-[var(--fox-grid-border-soft)]`}
+                    data-testid={selected ? `sql-row-selected-${i}` : `sql-row-${i}`}
+                    className={`${rowBg} hover:bg-[var(--fox-grid-bg-hover)] group border-b border-[var(--fox-grid-border-soft)] ${
+                      onSelectRow ? 'cursor-pointer' : ''
+                    } ${selected ? 'ring-1 ring-inset ring-amber-500/40' : ''}`}
                     style={{ height: ROW_H_PX }}
+                    onClick={() => onSelectRow?.(i)}
                   >
                     <td
                       className={`sticky left-0 z-[5] px-1.5 text-center text-[10px] tabular-nums text-[var(--fox-grid-muted)] ${rowBg} group-hover:bg-[var(--fox-grid-bg-hover)] border-r border-[var(--fox-grid-border-soft)] select-none`}
@@ -688,7 +700,10 @@ export const DataGrid: React.FC<{
                               // `i` indexes the rows array; `absRow` is the
                               // 1-based number shown in the # column and would
                               // read the NEXT row's value.
-                              onClick={() => onLinkClick?.(colIdx, i)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onLinkClick?.(colIdx, i);
+                              }}
                               // Rust ID color + solid underline — pale cyan was unreadable.
                               className="underline decoration-solid underline-offset-2 decoration-2 decoration-[var(--fox-grid-link)] text-[var(--fox-grid-link)] font-bold hover:brightness-110"
                             >
