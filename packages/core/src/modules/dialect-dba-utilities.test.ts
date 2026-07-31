@@ -100,4 +100,15 @@ describe('dialect-dba-utilities', () => {
     expect(formatBytes(2048)).toBe('2.0 KB');
     expect(formatBytes(5 * 1024 * 1024)).toBe('5.0 MB');
   });
+
+  it('builds DB2 sizes with total >= data and index rows', () => {
+    const q = buildDbaUtilityQuery({ dialect: 'db2', kind: 'sizes', schema: 'CARTER' });
+    expect('sql' in q).toBe(true);
+    if (!('sql' in q)) return;
+    expect(q.sql).toMatch(/FPAGES/);
+    expect(q.sql).toMatch(/NLEAF/);
+    expect(q.sql).toMatch(/PAGESIZE/);
+    expect(q.sql).toMatch(/'index'/);
+    expect(q.params).toEqual(['CARTER', 'CARTER']);
+  });
 });

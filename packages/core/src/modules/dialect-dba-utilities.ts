@@ -150,7 +150,7 @@ function supportMap(
           ? 'DB2: MAXAPPLS and application counts.'
           : kind === 'sessions'
             ? 'DB2: MON_GET_CONNECTION / SYSIBMADM.APPLICATIONS.'
-            : 'DB2: SYSCAT.TABLES / INDEXES card + NPAGES estimates.',
+            : 'DB2: SYSCAT.TABLES FPAGES + SYSCAT.INDEXES NLEAF × tablespace page size.',
   };
   const sqlite: DbaUtilitySupport = {
     mode: kind === 'sizes' || kind === 'system' ? 'estimated' : 'unsupported',
@@ -792,40 +792,67 @@ SELECT * FROM (
     };
   }
   if (f === 'db2') {
+    // FPAGES = allocated pages (use for data). NPAGES can be lower and must not
+    // be used as "total" or Total < Data. Index leaf pages from SYSCAT.INDEXES.
+    // Page size from the table's tablespace when available.
+    const tableSelect = `
+SELECT
+  t.TABSCHEMA AS schema_name,
+  t.TABNAME AS object_name,
+  'table' AS object_type,
+  t.TABNAME AS table_name,
+  BIGINT(COALESCE(t.FPAGES, t.NPAGES, 0) + COALESCE(i.index_pages, 0))
+    * BIGINT(COALESCE(ts.PAGESIZE, 4096)) AS total_bytes,
+  BIGINT(COALESCE(t.FPAGES, t.NPAGES, 0))
+    * BIGINT(COALESCE(ts.PAGESIZE, 4096)) AS data_bytes,
+  BIGINT(COALESCE(i.index_pages, 0))
+    * BIGINT(COALESCE(ts.PAGESIZE, 4096)) AS index_bytes,
+  t.CARD AS row_count
+FROM SYSCAT.TABLES t
+LEFT JOIN SYSCAT.TABLESPACES ts ON ts.TBSPACE = t.TBSPACE
+LEFT JOIN (
+  SELECT TABSCHEMA, TABNAME, SUM(BIGINT(COALESCE(NLEAF, 0))) AS index_pages
+  FROM SYSCAT.INDEXES
+  GROUP BY TABSCHEMA, TABNAME
+) i ON i.TABSCHEMA = t.TABSCHEMA AND i.TABNAME = t.TABNAME
+WHERE t.TYPE = 'T'`.trim();
+    const indexSelect = `
+SELECT
+  ix.TABSCHEMA AS schema_name,
+  ix.INDNAME AS object_name,
+  'index' AS object_type,
+  ix.TABNAME AS table_name,
+  BIGINT(COALESCE(ix.NLEAF, 0)) * BIGINT(COALESCE(ts.PAGESIZE, 4096)) AS total_bytes,
+  CAST(NULL AS BIGINT) AS data_bytes,
+  BIGINT(COALESCE(ix.NLEAF, 0)) * BIGINT(COALESCE(ts.PAGESIZE, 4096)) AS index_bytes,
+  CAST(NULL AS BIGINT) AS row_count
+FROM SYSCAT.INDEXES ix
+JOIN SYSCAT.TABLES t ON t.TABSCHEMA = ix.TABSCHEMA AND t.TABNAME = ix.TABNAME AND t.TYPE = 'T'
+LEFT JOIN SYSCAT.TABLESPACES ts ON ts.TBSPACE = t.TBSPACE`.trim();
     return {
       mode: asMode(mode),
-      params: schema ? [schema.toUpperCase()] : [],
+      params: schema ? [schema.toUpperCase(), schema.toUpperCase()] : [],
       sql: schema
         ? `
-SELECT
-  TABSCHEMA AS schema_name,
-  TABNAME AS object_name,
-  'table' AS object_type,
-  TABNAME AS table_name,
-  BIGINT(COALESCE(NPAGES,0)) * 16384 AS total_bytes,
-  BIGINT(COALESCE(FPAGES,0)) * 16384 AS data_bytes,
-  CAST(NULL AS BIGINT) AS index_bytes,
-  CARD AS row_count
-FROM SYSCAT.TABLES
-WHERE TABSCHEMA = ?
-  AND TYPE = 'T'
-ORDER BY COALESCE(NPAGES,0) DESC
+SELECT * FROM (
+  ${tableSelect}
+    AND t.TABSCHEMA = ?
+  UNION ALL
+  ${indexSelect}
+    AND ix.TABSCHEMA = ?
+) u
+ORDER BY COALESCE(total_bytes, 0) DESC
 FETCH FIRST 1000 ROWS ONLY
 `.trim()
         : `
-SELECT
-  TABSCHEMA AS schema_name,
-  TABNAME AS object_name,
-  'table' AS object_type,
-  TABNAME AS table_name,
-  BIGINT(COALESCE(NPAGES,0)) * 16384 AS total_bytes,
-  BIGINT(COALESCE(FPAGES,0)) * 16384 AS data_bytes,
-  CAST(NULL AS BIGINT) AS index_bytes,
-  CARD AS row_count
-FROM SYSCAT.TABLES
-WHERE TYPE = 'T'
-  AND TABSCHEMA NOT LIKE 'SYS%'
-ORDER BY COALESCE(NPAGES,0) DESC
+SELECT * FROM (
+  ${tableSelect}
+    AND t.TABSCHEMA NOT LIKE 'SYS%'
+  UNION ALL
+  ${indexSelect}
+    AND ix.TABSCHEMA NOT LIKE 'SYS%'
+) u
+ORDER BY COALESCE(total_bytes, 0) DESC
 FETCH FIRST 1000 ROWS ONLY
 `.trim(),
     };
