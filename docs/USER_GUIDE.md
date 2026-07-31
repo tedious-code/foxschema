@@ -131,9 +131,10 @@ Tips:
   locally; result grids are not.
 - **Schema explorer** — browse objects on the left; click a name to insert it at the
   cursor. Autocomplete uses the checked connections’ schemas when available.
-  **Edit table** shows each index’s fragmentation % (dialect probe; paste custom
-  SELECT if the default fails) and a wrench to insert rebuild/reorg/optimize SQL
-  when fragmentation is elevated.
+  **Edit table** shows each index’s fragmentation % for every dialect (physical or
+  estimated probe; SQLite / DuckDB / ClickHouse / Redshift list indexes when no
+  native % exists). Paste custom SELECT if the default fails, and use the wrench
+  to insert rebuild/reorg/optimize/REINDEX SQL when useful.
 - **Utilities → Index Management** (SQL Editor sidebar) — pick a credential, load
   all indexes grouped by table, filter by table/index name or minimum
   fragmentation %, fetch fragmentation in batch, then defragment selected indexes
