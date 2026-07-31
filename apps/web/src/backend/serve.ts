@@ -5,7 +5,7 @@ import { startUiServer } from './startUiServer';
  * Production web entry (Docker / self-host / CLI child process).
  * Serves the built Vite frontend AND /api from a single origin.
  *
- * createApp() (shared with the desktop sidecar and the tests) is left exactly
+ * createApp() (shared with the tests) is left exactly
  * as-is; static serving is layered on top in startUiServer().
  */
 

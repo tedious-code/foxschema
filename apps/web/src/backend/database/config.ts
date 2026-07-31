@@ -27,7 +27,7 @@ export interface MetadataDbConfig {
  *   - APP_DB_ENGINE  (default 'sqlite')
  *   - APP_DB_PATH    (sqlite file location)
  *   - APP_DB_URL     (postgres/mysql connection string, phase 2)
- * On desktop these come from the one-time setup screen via the Tauri shell.
+ * On CLI / Docker these come from env (and optional local config).
  */
 export function getMetadataDbConfig(): MetadataDbConfig {
   const engine = (process.env.APP_DB_ENGINE || 'sqlite').toLowerCase() as DbEngine;

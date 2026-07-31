@@ -8,8 +8,8 @@ here for detail. For current state, gotchas, and pending work see `IMPLEMENTATIO
 Database schema **diff & migration** tool. Compare a source schema against a target,
 generate dialect-native migration SQL, and deploy it. Primary target is DB2; Postgres,
 MySQL, SQL Server, Oracle, SQLite, MariaDB, Azure SQL, ClickHouse, and Redshift are also
-implemented. Distributions: **CLI** (`foxschema` via npm/Homebrew), **Docker**
-(single amd64 image with Db2), and retired **desktop** (Tauri — not released).
+implemented. Distributions: **CLI** (`foxschema` via npm/Homebrew) and **Docker**
+(single amd64 image with Db2).
 
 ## Commands
 
@@ -32,16 +32,12 @@ npx vitest run packages/core         # core engine tests only
 npx vitest run --reporter=verbose    # with test names
 npx vitest <pattern>                 # e.g. npx vitest sql-generator
 
-# Desktop (legacy)
-cd apps/desktop && npm run dev       # builds sidecar then launches Tauri
-
 # CLI (development)
 cd apps/cli && npm run foxschema -- doctor
 cd apps/cli && npm run foxschema -- compare --source ... --target ...
 ```
 
 Backend changes (`apps/web/src/backend`, `packages/core`) hot-reload via `tsx watch`.
-Desktop sidecar requires `cd apps/desktop && npm run dev` after any backend change.
 
 ## E2E tests (apps/e2e)
 
@@ -78,7 +74,6 @@ apps/web/
     components/         UI components (SchemaTreePanel, ObjectDetailPanel, TopToolbar, …)
     components/object-detail/  MigrationProgressPanel, DeployConfirmDialog, DependencyWarningDialog
 
-apps/desktop/           Legacy Tauri v2 shell + Node sidecar packaging
 apps/cli/               `foxschema` CLI — browser launcher (:3210), line commands, Ink TUI
 packaging/homebrew/     Scripts to refresh Formula/foxschema.rb (Homebrew, same repo)
 Formula/                Homebrew formula (tap this GitHub repo directly)

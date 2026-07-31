@@ -30,10 +30,7 @@ export function createApp() {
         try {
           const url = new URL(origin);
           const host = url.hostname;
-          // Tauri webview origins: tauri://localhost (macOS/Linux) and
-          // http://tauri.localhost (Windows). Plus the usual local hosts.
           if (
-            url.protocol === 'tauri:' ||
             host === 'localhost' ||
             host === '127.0.0.1' ||
             host === '::1' ||
@@ -46,9 +43,7 @@ export function createApp() {
         }
         cb(new Error('Origin not allowed'));
       },
-      // The frontend sends `credentials: 'include'` (session cookie on web).
-      // Cross-origin from the Tauri webview, the browser then requires this
-      // header to be true and the origin to be reflected (not '*').
+      // The frontend sends `credentials: 'include'` (session cookie).
       credentials: true,
     })
   );

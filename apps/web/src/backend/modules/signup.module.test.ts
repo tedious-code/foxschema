@@ -52,7 +52,7 @@ describe('SignupModule', () => {
     const fetchSpy = vi.fn().mockResolvedValue({ ok: true, status: 200 });
     vi.stubGlobal('fetch', fetchSpy);
 
-    const result = await signup.submit('  New@Example.com  ', 'desktop');
+    const result = await signup.submit('  New@Example.com  ', 'web');
 
     expect(result).toEqual({ ok: true });
     expect(await signup.getState()).toEqual({ shown: true });
@@ -61,7 +61,7 @@ describe('SignupModule', () => {
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({ 'X-Foxschema-Signup-Secret': 's3cret' }),
-        body: JSON.stringify({ email: 'New@Example.com', source: 'desktop' }),
+        body: JSON.stringify({ email: 'New@Example.com', source: 'web' }),
       })
     );
   });

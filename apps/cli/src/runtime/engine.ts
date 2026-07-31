@@ -1,7 +1,7 @@
 import { ConnectionModule, MigrationModule, normalizeTableSchemas } from '@foxschema/core';
 import { CompareModule, SqlGeneratorModule, type ConnectionOptions, type DbObjectType, type TableSchema, type TableDiff } from '@foxschema/core';
 
-// Shared engine singletons — the same modules the web/desktop apps use.
+// Shared engine singletons — the same modules the web app uses.
 export const connectionModule = new ConnectionModule();
 export const compareModule = new CompareModule();
 export const sqlGenerator = new SqlGeneratorModule();

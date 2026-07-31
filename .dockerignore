@@ -12,7 +12,6 @@ package-lock.json
 
 # Workspaces the web deployment image doesn't need (keep the build small/fast):
 apps/cli
-apps/desktop
 apps/e2e
 
 # Development-only infra (the 6 test databases + their seed assets).

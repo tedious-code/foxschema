@@ -3,8 +3,6 @@ name: Dependency Security
 # Runs on every PR and every push to main.
 # Hard-blocks on Critical npm vulnerabilities.
 # Warns on High npm vulnerabilities (non-blocking — devDep false positives are common).
-# Tauri/cargo audit is not run — desktop releases are retired.
-
 on:
   pull_request:
   push:

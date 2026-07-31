@@ -9,10 +9,8 @@ import {
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { createRequire } from 'node:module';
 import chalk from 'chalk';
 
-const require = createRequire(import.meta.url);
 const here = dirname(fileURLToPath(import.meta.url));
 
 function resolveFoxschemaBin(): string {
@@ -40,20 +38,11 @@ function resolveIconDir(): string {
     join(here, '..', 'resources', 'icons'),
     // tsx from src/commands: ../../resources/icons
     join(here, '..', '..', 'resources', 'icons'),
-    // Monorepo desktop icons
-    resolve(here, '..', '..', '..', 'desktop', 'src-tauri', 'icons'),
   ];
   for (const dir of candidates) {
     if (existsSync(join(dir, 'icon.icns')) || existsSync(join(dir, 'icon.png'))) {
       return dir;
     }
-  }
-  try {
-    const web = dirname(require.resolve('@foxschema/web/package.json'));
-    const desktopIcons = resolve(web, '..', 'desktop', 'src-tauri', 'icons');
-    if (existsSync(join(desktopIcons, 'icon.icns'))) return desktopIcons;
-  } catch {
-    /* ignore */
   }
   throw new Error('Fox icon assets not found (resources/icons).');
 }

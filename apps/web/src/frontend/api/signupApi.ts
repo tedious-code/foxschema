@@ -1,4 +1,4 @@
-import { isTauri, getApiBase, parseJsonResponse } from './apiBase';
+import { getApiBase, parseJsonResponse } from './apiBase';
 
 /** Whether the first-run signup wizard has already been resolved (submitted or skipped). */
 export async function getSignupState(): Promise<{ shown: boolean }> {
@@ -11,7 +11,7 @@ export async function submitSignup(email: string): Promise<{ ok: boolean; error?
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify({ email, source: isTauri() ? 'desktop' : 'web' }),
+    body: JSON.stringify({ email, source: 'web' }),
   });
   // Soft: UI shows error from body even when status is non-OK.
   try {

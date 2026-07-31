@@ -3,7 +3,7 @@
 ## Context
 
 FoxSchema can compare/migrate schemas but has no way to run ad-hoc SQL and look at
-**data**. The user wants a SQL Editor view **in web + desktop only** (not CLI):
+**data**. The user wants a SQL Editor view **in the web UI** (not CLI):
 browse-style layout (schema objects left, editor right), multi-tab, per-tab credential
 checklist (run the same query against 1..N saved connections and compare data across
 environments), per-statement syntax indicators + run checkboxes, schema-aware
@@ -148,7 +148,7 @@ statements execute against every checked credential, results in by-credential la
 
 ## Out of scope
 
-- **CLI / TUI** — the interactive SQL editor is web + desktop (Tauri) only. No `foxschema sql`
+- **CLI / TUI** — the interactive SQL editor is web-only. No `foxschema sql`
   command, Ink screen, or CLI execute path in this plan or follow-ups unless revisited.
 
 ## Deferred / documented limitations

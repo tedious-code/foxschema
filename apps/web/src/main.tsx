@@ -1,17 +1,11 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './frontend/App.tsx'
-import { SetupScreen } from './frontend/components/SetupScreen'
 import { SignupWizard } from './frontend/components/SignupWizard'
 import { LoadingScreen } from './frontend/components/LoadingScreen'
-import { resolveApiBase, setApiBase } from './frontend/api/apiBase'
-import { getSetupState, type SetupState } from './frontend/api/setupApi'
+import { resolveApiBase } from './frontend/api/apiBase'
 import { getSignupState } from './frontend/api/signupApi'
-import { hardenAgainstInspect } from './frontend/lib/harden'
 import './style.css'
-
-// Packaged desktop only: block the WebView inspector (no-op on web / in dev).
-hardenAgainstInspect()
 
 const rootEl = document.getElementById('app')
 if (!rootEl) {
@@ -88,10 +82,9 @@ function signupStateWithTimeout(ms = 4000): Promise<{ shown: boolean }> {
   })
 }
 
-// After the required setup gate (if any) resolves: offer the skippable
-// "stay in the loop" signup wizard once, then render the app. Fails open on
-// a network hiccup — never let this optional step block boot.
-async function afterSetup() {
+// Offer the skippable "stay in the loop" signup wizard once, then render the
+// app. Fails open on a network hiccup — never let this optional step block boot.
+async function afterApiReady() {
   const signup = await signupStateWithTimeout()
   if (!signup.shown) {
     root.render(
@@ -104,10 +97,6 @@ async function afterSetup() {
   renderApp()
 }
 
-// Boot: on the desktop shell, gate on first-run setup (the sidecar isn't spawned
-// until the user binds an encryption key). On the web there's nothing to set up.
-// A splash renders immediately so there's never a blank frame while that check
-// (or, on web, resolveApiBase()) is in flight.
 async function boot() {
   root.render(
     <React.StrictMode>
@@ -115,27 +104,8 @@ async function boot() {
     </React.StrictMode>,
   )
 
-  const setup = await getSetupState().catch(() => null)
-
-  if (setup && !setup.setup_complete) {
-    root.render(
-      <React.StrictMode>
-        <SetupScreen
-          initial={setup}
-          onDone={(s: SetupState) => {
-            setApiBase(s.api_base)
-            void afterSetup().catch(renderFatal)
-          }}
-        />
-      </React.StrictMode>,
-    )
-    return
-  }
-
-  // Already set up (or web): resolve the API base, then render.
-  if (setup?.api_base) setApiBase(setup.api_base)
-  else await resolveApiBase()
-  await afterSetup()
+  await resolveApiBase()
+  await afterApiReady()
 }
 
 window.addEventListener('error', (ev) => {

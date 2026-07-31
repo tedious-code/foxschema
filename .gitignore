@@ -41,8 +41,6 @@ CHANGELOG.md
 !docs/security/security-process.md
 # Session work-summary plans must be tracked
 !docs/plans/*.md
-# Desktop build note (retired) must be tracked
-!docs/desktop-build.md
 # WinGet / Windows install guide must be tracked
 !docs/winget.md
 # Public project docs must be tracked
@@ -63,13 +61,6 @@ docs/demo/*
 !docs/demo/cross-dialect-sqlite-postgres.gif
 !docs/demo/sql-editor.gif
 !docs/demo/sql-editor.png
-
-# Desktop (Tauri) build artifacts
-apps/desktop/src-tauri/target/
-apps/desktop/src-tauri/gen/
-apps/desktop/src-tauri/frontendDist/
-apps/desktop/src-tauri/binaries/
-apps/desktop/src-tauri/resources/server/
 
 # Local environment / secrets (keep .env.example tracked)
 .env
