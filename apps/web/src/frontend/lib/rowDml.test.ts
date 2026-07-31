@@ -102,4 +102,71 @@ describe('rowDml', () => {
   it('draftToArray preserves numeric types from original', () => {
     expect(draftToArray(['id', 'email'], { id: '3', email: 'x' }, [1, 'a'])).toEqual([3, 'x']);
   });
+
+  it('rejects NULL key values for UPDATE/DELETE', () => {
+    const keys = resolvePeekKeyColumns(usersTable, ['id', 'email', 'name']);
+    const del = buildPeekDelete({
+      tableName: 'public.users',
+      dialect: 'postgres',
+      columns: ['id', 'email', 'name'],
+      row: [null, 'c@x.com', 'Cy'],
+      keyColumns: keys,
+    });
+    expect(del).toEqual(
+      expect.objectContaining({ error: expect.stringMatching(/NULL/i) })
+    );
+
+    const upd = buildPeekUpdate({
+      tableName: 'public.users',
+      dialect: 'postgres',
+      columns: ['id', 'email', 'name'],
+      originalRow: [undefined, 'a@x.com', 'Ada'],
+      draftRow: [undefined, 'a@x.com', 'Ada Lovelace'],
+      keyColumns: keys,
+    });
+    expect(upd).toEqual(
+      expect.objectContaining({ error: expect.stringMatching(/NULL/i) })
+    );
+  });
+
+  it('skips partial and nullable unique indexes for row identity', () => {
+    const noPk: TableSchema = {
+      ...usersTable,
+      primaryKey: undefined,
+      columns: [
+        { name: 'id', type: 'integer', nullable: true, primaryKey: false },
+        { name: 'email', type: 'text', nullable: false, primaryKey: false },
+        { name: 'name', type: 'text', nullable: true, primaryKey: false },
+      ],
+      indices: [
+        {
+          name: 'uq_email_live',
+          columns: ['email'],
+          unique: true,
+          filter: 'deleted_at IS NULL',
+        },
+        {
+          name: 'uq_id_nullable',
+          columns: ['id'],
+          unique: true,
+        },
+      ],
+    };
+    expect(resolvePeekKeyColumns(noPk, ['id', 'email', 'name'])).toEqual([]);
+    expect(
+      assessPeekEditability({
+        dialect: 'postgres',
+        table: noPk,
+        resultColumns: ['id', 'email', 'name'],
+      }).editable
+    ).toBe(false);
+
+    const solidUnique: TableSchema = {
+      ...noPk,
+      indices: [{ name: 'uq_email', columns: ['email'], unique: true }],
+    };
+    expect(resolvePeekKeyColumns(solidUnique, ['id', 'email', 'name']).map((k) => k.name)).toEqual([
+      'email',
+    ]);
+  });
 });

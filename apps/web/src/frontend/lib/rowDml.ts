@@ -46,9 +46,14 @@ function resultIndexMap(columns: string[]): Map<string, number> {
   return map;
 }
 
+function isPartialUniqueIndex(index: { filter?: string }): boolean {
+  return Boolean(index.filter && index.filter.trim());
+}
+
 /**
  * Resolve PK columns for a table that appear in the current result columns.
- * Falls back to a single unique index when no PK is declared.
+ * Falls back to a non-partial unique index with non-nullable columns when no PK
+ * is declared (partial / filtered unique indexes are not safe row identifiers).
  */
 export function resolvePeekKeyColumns(
   table: TableSchema | undefined,
@@ -66,7 +71,13 @@ export function resolvePeekKeyColumns(
       resultIndex: idx.get(name.toLowerCase()) ?? -1,
     }));
   }
-  const unique = table.indices.find((i) => i.unique && i.columns.length > 0);
+  const colByName = new Map(table.columns.map((c) => [c.name.toLowerCase(), c]));
+  const unique = table.indices.find((i) => {
+    if (!i.unique || i.columns.length === 0 || isPartialUniqueIndex(i)) return false;
+    // Nullable unique columns can hold multiple NULLs on most engines — not a
+    // safe single-row identity for UPDATE/DELETE.
+    return i.columns.every((name) => colByName.get(name.toLowerCase())?.nullable === false);
+  });
   if (unique) {
     return unique.columns.map((name) => ({
       name,
@@ -74,6 +85,20 @@ export function resolvePeekKeyColumns(
     }));
   }
   return [];
+}
+
+/** Reject null/undefined key values so WHERE never uses IS NULL (multi-row risk). */
+export function assertPeekKeyValuesPresent(
+  row: unknown[],
+  keyColumns: PeekKeyColumn[]
+): string | null {
+  for (const k of keyColumns) {
+    const val = row[k.resultIndex];
+    if (val === null || val === undefined) {
+      return `Key column "${k.name}" is NULL — cannot safely UPDATE/DELETE a single row.`;
+    }
+  }
+  return null;
 }
 
 export function assessPeekEditability(opts: {
@@ -113,7 +138,7 @@ export function assessPeekEditability(opts: {
   if (keyColumns.length === 0) {
     return {
       editable: false,
-      reason: 'No primary key or unique index found — cannot safely UPDATE/DELETE.',
+      reason: 'No primary key or non-partial unique index found — cannot safely UPDATE/DELETE.',
       keyColumns: [],
       editableColumns: [],
       identityColumns: new Set(),
@@ -163,6 +188,8 @@ export function buildPeekUpdate(opts: {
   const { tableName, dialect, columns, originalRow, draftRow, keyColumns } = opts;
   const parts = tableNameParts(tableName);
   if (!parts.length) return { error: 'Invalid table name.' };
+  const keyErr = assertPeekKeyValuesPresent(originalRow, keyColumns);
+  if (keyErr) return { error: keyErr };
 
   const keyLower = new Set(keyColumns.map((k) => k.name.toLowerCase()));
   const setCols: string[] = [];
@@ -185,11 +212,7 @@ export function buildPeekUpdate(opts: {
   keyColumns.forEach((k, i) => {
     const sep = i === 0 ? sql`` : sql` AND `;
     const val = originalRow[k.resultIndex];
-    if (val === null || val === undefined) {
-      query = sql`${query}${sep}${sql.id(k.name)} IS NULL`;
-    } else {
-      query = sql`${query}${sep}${sql.id(k.name)} = ${val}`;
-    }
+    query = sql`${query}${sep}${sql.id(k.name)} = ${val}`;
   });
 
   const rendered = renderSqlQuery(query, dialect);
@@ -258,16 +281,13 @@ export function buildPeekDelete(opts: {
   const parts = tableNameParts(tableName);
   if (!parts.length) return { error: 'Invalid table name.' };
   if (keyColumns.length === 0) return { error: 'No key columns for DELETE.' };
+  const keyErr = assertPeekKeyValuesPresent(row, keyColumns);
+  if (keyErr) return { error: keyErr };
 
   let query = sql`DELETE FROM ${sql.id(...parts)} WHERE `;
   keyColumns.forEach((k, i) => {
     if (i > 0) query = sql`${query} AND `;
-    const val = row[k.resultIndex];
-    if (val === null || val === undefined) {
-      query = sql`${query}${sql.id(k.name)} IS NULL`;
-    } else {
-      query = sql`${query}${sql.id(k.name)} = ${val}`;
-    }
+    query = sql`${query}${sql.id(k.name)} = ${row[k.resultIndex]}`;
   });
 
   const rendered = renderSqlQuery(query, dialect);

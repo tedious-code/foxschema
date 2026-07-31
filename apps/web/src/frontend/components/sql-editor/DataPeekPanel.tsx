@@ -325,11 +325,18 @@ const PeekGrid: React.FC<{
   }, [editor, pendingWrite]);
 
   useEffect(() => {
+    // Panel identity / page change — discard in-progress CRUD UI.
     setSelectedRowIndex(null);
     setEditor(null);
     setPendingWrite(null);
     setWriteError(null);
-  }, [entry.id, entry.pageIndex, entry.result]);
+  }, [entry.id, entry.pageIndex]);
+
+  useEffect(() => {
+    // Grid refresh (filters, reload): keep an open editor / confirm; only clear selection.
+    if (editor || pendingWrite) return;
+    setSelectedRowIndex(null);
+  }, [entry.result, editor, pendingWrite]);
 
   const table = useMemo(() => {
     if (!tables) return undefined;
