@@ -680,9 +680,8 @@ export function buildColumnDef(
   if (column.unique && dialectColumnConstraints(dialectName).unique) {
     def += ` UNIQUE`;
   }
-  if (d === 'sqlite' && identityOk) {
-    def += ' AUTOINCREMENT';
-  }
+  // SQLite AUTOINCREMENT is only valid as `INTEGER PRIMARY KEY AUTOINCREMENT`
+  // (handled in createTableBody). Do not append a bare AUTOINCREMENT here.
   return def;
 }
 
@@ -833,8 +832,25 @@ function createTableBody(
   foreignKeys?: BlueprintFkDraft[],
   schema?: string
 ): string {
-  const lines = columns.map((c) => `  ${buildColumnDef(c, dialectName)}`);
-  if (pkColumns.length > 0) {
+  const d = dialectName.toLowerCase();
+  const sqliteIdentityPkCol =
+    d === 'sqlite' && pkColumns.length === 1
+      ? columns.find(
+          (c) =>
+            c.name === pkColumns[0] &&
+            !!c.identity &&
+            isIntegerAutoIncrementType(c.type)
+        )
+      : undefined;
+
+  const lines = columns.map((c) => {
+    if (sqliteIdentityPkCol && c.name === sqliteIdentityPkCol.name) {
+      // SQLite requires AUTOINCREMENT on the column PRIMARY KEY, not a table PK.
+      return `  ${quoteIdent(c.name, dialectName)} INTEGER PRIMARY KEY AUTOINCREMENT`;
+    }
+    return `  ${buildColumnDef(c, dialectName)}`;
+  });
+  if (pkColumns.length > 0 && !sqliteIdentityPkCol) {
     const cols = pkColumns.map((c) => quoteIdent(c, dialectName)).join(', ');
     const constraint =
       pkName && pkName.toUpperCase() !== 'PRIMARY'

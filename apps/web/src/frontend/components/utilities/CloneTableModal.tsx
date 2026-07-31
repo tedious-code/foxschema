@@ -62,9 +62,17 @@ export const CloneTableModal: React.FC<Props> = ({
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [confirmApply, setConfirmApply] = useState(false);
+  const wasOpen = React.useRef(false);
 
+  // Initialize only when the modal opens — do not reset when `connections`
+  // re-emits after schema load (that cleared the table picker mid-flight).
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      wasOpen.current = false;
+      return;
+    }
+    if (wasOpen.current) return;
+    wasOpen.current = true;
     const saved = localStorage.getItem(LS_CONN) || '';
     const fallback = connections[0]?.id || '';
     const next = connections.some((c) => c.id === saved) ? saved : fallback;
@@ -75,6 +83,12 @@ export const CloneTableModal: React.FC<Props> = ({
     setConfirmApply(false);
     setPasswordDraft('');
   }, [open, connections, initialTableName]);
+
+  // If opened from Schema with a table name after mount, honor it once.
+  useEffect(() => {
+    if (!open || !initialTableName?.trim()) return;
+    setTableName(initialTableName.trim());
+  }, [open, initialTableName]);
 
   const conn = connections.find((c) => c.id === connectionId) || null;
   const needsPassword = Boolean(conn && !conn.hasPassword && !sessionPasswords[connectionId]);
@@ -172,7 +186,9 @@ export const CloneTableModal: React.FC<Props> = ({
       return;
     }
     void loadSchema();
-  }, [open, connectionId, cache?.status, cache?.tables, initialTableName, loadSchema]);
+    // Only react to connection / open — not cache.tables identity churn.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, connectionId, loadSchema, initialTableName]);
 
   const runClone = useCallback(async () => {
     if (!connectionId || !conn || !plan || plan.error || executable.length === 0) return;
@@ -561,7 +577,10 @@ export const CloneTableModal: React.FC<Props> = ({
           writeStatements={executable}
           credentialCount={1}
           onCancel={() => setConfirmApply(false)}
-          onConfirm={() => void runClone()}
+          onConfirm={() => {
+            setConfirmApply(false);
+            void runClone();
+          }}
         />
       )}
     </>,

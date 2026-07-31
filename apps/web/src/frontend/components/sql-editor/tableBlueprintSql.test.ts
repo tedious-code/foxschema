@@ -803,6 +803,28 @@ describe('clone / archive table', () => {
     expect(sql).toMatch(/ux_orders_note_h1|orders_pkey_h1/);
   });
 
+  it('sqlite clone emits INTEGER PRIMARY KEY AUTOINCREMENT', () => {
+    const plan = generateCloneTableSql({
+      table: {
+        ...orders,
+        columns: [
+          col({ name: 'id', type: 'INTEGER', nullable: false, primaryKey: true, identity: true }),
+          col({ name: 'customer_id', type: 'INTEGER', nullable: false }),
+          col({ name: 'note', type: 'TEXT', nullable: true }),
+        ],
+        primaryKey: { columns: ['id'] },
+      },
+      dialect: 'sqlite',
+      existingTableNames: ['orders', 'customers'],
+      keepIndexes: true,
+      keepForeignKeys: true,
+    });
+    const sql = executableSqlStatements(plan.statements).join('\n');
+    expect(sql).toMatch(/INTEGER PRIMARY KEY AUTOINCREMENT/i);
+    expect(sql).not.toMatch(/NOT NULL AUTOINCREMENT/i);
+    expect(sql).toContain('ALTER TABLE orders RENAME TO orders_1');
+  });
+
   it('findInboundForeignKeyTables lists children', () => {
     const tables = [
       orders,
