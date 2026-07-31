@@ -141,15 +141,13 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
     void load();
   }, [open, connectionId, tab, needsPassword, support.query]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const unlock = async () => {
+  const unlock = () => {
     if (!connectionId || !passwordDraft.trim()) return;
-    try {
-      submitSessionPassword(passwordDraft.trim());
-      setPasswordDraft('');
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to unlock password');
-    }
+    // ensureConnectionSelected sets pendingPassword; submit stores it.
+    ensureConnectionSelected(connectionId);
+    submitSessionPassword(passwordDraft.trim());
+    setPasswordDraft('');
+    setError(null);
   };
 
   const filteredSizes = useMemo(() => {
@@ -223,7 +221,7 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
               </label>
               <button
                 type="button"
-                onClick={() => void unlock()}
+                onClick={() => unlock()}
                 className="rounded-md bg-sky-600 px-3 py-2 text-[13px] font-semibold text-white hover:bg-sky-500"
               >
                 Unlock
