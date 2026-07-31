@@ -5,13 +5,20 @@ import { SQL_ICON_STROKE } from './sqlIconStyle';
 const STORAGE_KEY = 'foxschema-sql-sidebar-sections';
 const HEIGHTS_KEY = 'foxschema-sql-sidebar-section-heights';
 
-export type SidebarSectionId = 'destinations' | 'bookmarks' | 'variables' | 'vault' | 'schema';
+export type SidebarSectionId =
+  | 'destinations'
+  | 'bookmarks'
+  | 'variables'
+  | 'vault'
+  | 'utilities'
+  | 'schema';
 
 const DEFAULT_OPEN: Record<SidebarSectionId, boolean> = {
   destinations: true,
   bookmarks: true,
   variables: true,
   vault: true,
+  utilities: true,
   schema: true,
 };
 
@@ -20,6 +27,7 @@ const DEFAULT_HEIGHTS: Record<SidebarSectionId, number> = {
   bookmarks: 120,
   variables: 140,
   vault: 160,
+  utilities: 96,
   schema: 220,
 };
 
@@ -37,6 +45,7 @@ function loadOpen(): Record<SidebarSectionId, boolean> {
       variables: parsed.variables ?? true,
       // Prefer `vault`; accept legacy `secrets` key from older localStorage.
       vault: parsed.vault ?? (parsed as { secrets?: boolean }).secrets ?? true,
+      utilities: parsed.utilities ?? true,
       schema: parsed.schema ?? true,
     };
   } catch {
@@ -61,6 +70,7 @@ function loadHeights(): Record<SidebarSectionId, number> {
         parsed.vault ?? (parsed as { secrets?: number }).secrets,
         DEFAULT_HEIGHTS.vault
       ),
+      utilities: clamp(parsed.utilities, DEFAULT_HEIGHTS.utilities),
       schema: clamp(parsed.schema, DEFAULT_HEIGHTS.schema),
     };
   } catch {
@@ -117,7 +127,7 @@ export function useSidebarSectionHeights(): [
 
 /**
  * Collapsible block for the SQL Editor left sidebar
- * (Destinations / Bookmarks / Variables / Secrets / Schema).
+ * (Destinations / Bookmarks / Variables / Secrets / Utilities / Schema).
  * Open sections are height-resizable via the bottom grip.
  */
 export const SqlSidebarSection: React.FC<{

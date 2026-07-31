@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ArrowDown,
@@ -305,6 +305,7 @@ export const TableBlueprintModal: React.FC<Props> = ({
   const [expandedTrig, setExpandedTrig] = useState<Record<string, boolean>>({});
   /** Expand full column lists on indexes with many columns. */
   const [expandedIndexCols, setExpandedIndexCols] = useState<Record<string, boolean>>({});
+  const indexFormRef = useRef<HTMLDivElement | null>(null);
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmWrite, setConfirmWrite] = useState(false);
@@ -623,6 +624,14 @@ export const TableBlueprintModal: React.FC<Props> = ({
   const indexSupport = dialectIndexSupport(dialect);
   const indexFormOpen =
     addingIndex || editingPendingIndex !== null || !!replacingExistingIndex;
+
+  useEffect(() => {
+    if (!indexFormOpen) return;
+    const id = window.requestAnimationFrame(() => {
+      indexFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [indexFormOpen, editingPendingIndex, replacingExistingIndex, addingIndex]);
 
   const toggleFkLocalColumn = (name: string) => {
     setFkForm((prev) => {
@@ -1066,6 +1075,216 @@ export const TableBlueprintModal: React.FC<Props> = ({
     setConfirmDrop(true);
   };
 
+  const indexFormPanel = indexFormOpen ? (
+    <div
+      ref={indexFormRef}
+      className="mt-2 rounded-lg border border-sky-400/35 bg-sky-950/35 px-3 py-3 space-y-2.5 shadow-[inset_0_1px_0_rgba(56,189,248,0.08)]"
+      data-testid="blueprint-index-form"
+    >
+                    <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
+                      <label className="block min-w-0">
+                        <span className="text-[10px] font-bold uppercase text-slate-500">
+                          Index name
+                        </span>
+                        <input
+                          data-testid="blueprint-index-name"
+                          value={indexForm.name}
+                          onChange={(e) =>
+                            setIndexForm({ ...indexForm, name: e.target.value })
+                          }
+                          className="mt-0.5 w-full rounded-lg border border-slate-700 bg-slate-950/70 px-2.5 py-1.5 text-[12.5px] font-mono text-slate-100"
+                        />
+                      </label>
+                      <div className="flex flex-col justify-end gap-1">
+                        {indexSupport.unique && indexSupport.acceptDuplicates ? (
+                          <label className="flex items-center gap-2 text-[12px] text-slate-300 cursor-pointer select-none px-1 py-1.5">
+                            <input
+                              type="checkbox"
+                              checked={indexForm.unique}
+                              onChange={(e) => {
+                                const unique = e.target.checked;
+                                setIndexForm((prev) => ({
+                                  ...prev,
+                                  unique,
+                                  constraint: unique ? prev.constraint : undefined,
+                                  name:
+                                    prev.name.trim() ||
+                                    suggestIndexName(
+                                      tableName || 'table',
+                                      prev.columns,
+                                      unique
+                                    ),
+                                }));
+                              }}
+                              className="rounded border-slate-600"
+                            />
+                            <span>
+                              Unique
+                              <span className="text-slate-500 ml-1">
+                                {indexForm.unique
+                                  ? '(reject duplicates)'
+                                  : '(accept duplicates)'}
+                              </span>
+                            </span>
+                          </label>
+                        ) : indexSupport.unique ? (
+                          <p className="text-[11px] text-slate-400 px-1">Unique only</p>
+                        ) : (
+                          <p className="text-[11px] text-slate-400 px-1">
+                            Non-unique only (accept duplicates)
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div>
+                      <span className="text-[10px] font-bold uppercase text-slate-500">
+                        Columns
+                      </span>
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        {activeColumns.map((c) => {
+                          const on = indexForm.columns.includes(c.name);
+                          const ord =
+                            indexForm.orders[indexForm.columns.indexOf(c.name)] ?? 'ASC';
+                          return (
+                            <div
+                              key={c.name}
+                              className={`inline-flex items-center gap-0.5 rounded-lg border text-[11px] font-mono ${
+                                on
+                                  ? 'border-sky-400/50 bg-sky-500/20 text-sky-100'
+                                  : 'border-slate-700 bg-slate-900/50 text-slate-400'
+                              }`}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => toggleIndexColumn(c.name)}
+                                className="px-2 py-1"
+                              >
+                                {c.name}
+                              </button>
+                              {on && (
+                                <>
+                                  {indexSupport.columnOrder && (
+                                    <button
+                                      type="button"
+                                      title={`Order: ${ord} (click to toggle)`}
+                                      onClick={() =>
+                                        setIndexColumnOrder(
+                                          c.name,
+                                          ord === 'ASC' ? 'DESC' : 'ASC'
+                                        )
+                                      }
+                                      className="px-1.5 py-1 border-l border-sky-400/30 text-[10px] font-bold text-sky-200/90 hover:text-white"
+                                    >
+                                      {ord}
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    title="Move earlier"
+                                    onClick={() => moveIndexColumn(c.name, -1)}
+                                    className="p-1 border-l border-sky-400/30 text-slate-400 hover:text-white"
+                                  >
+                                    <ArrowUp
+                                      className="w-3 h-3"
+                                      strokeWidth={SQL_ICON_STROKE}
+                                    />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    title="Move later"
+                                    onClick={() => moveIndexColumn(c.name, 1)}
+                                    className="p-1 border-l border-sky-400/30 text-slate-400 hover:text-white"
+                                  >
+                                    <ArrowDown
+                                      className="w-3 h-3"
+                                      strokeWidth={SQL_ICON_STROKE}
+                                    />
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {indexForm.columns.length > 0 && (
+                        <p className="mt-1.5 font-mono text-[11px] text-slate-400">
+                          ({formatIndexCols(indexForm)})
+                          {indexForm.filter?.trim() && indexSupport.filter ? (
+                            <span className="text-sky-300/70">
+                              {' '}
+                              WHERE {indexForm.filter.trim()}
+                            </span>
+                          ) : null}
+                        </p>
+                      )}
+                      {!indexSupport.columnOrder && (
+                        <p className="mt-1 text-[11px] text-slate-500">{indexSupport.hint}</p>
+                      )}
+                    </div>
+
+                    {indexSupport.filter && (
+                      <div className="space-y-1.5">
+                        <label className="block">
+                          <span className="text-[10px] font-bold uppercase text-slate-500">
+                            Filter (optional)
+                          </span>
+                          <input
+                            value={indexForm.filter ?? ''}
+                            onChange={(e) => {
+                              setIndexForm({ ...indexForm, filter: e.target.value });
+                              if (e.target.value.trim()) setConfirmNoFilter(false);
+                            }}
+                            placeholder="e.g. status = 'active' AND deleted_at IS NULL"
+                            className="mt-0.5 w-full rounded-lg border border-slate-700 bg-slate-950/70 px-2.5 py-1.5 text-[12.5px] font-mono text-slate-100 placeholder:text-slate-600"
+                          />
+                          <span className="mt-0.5 block text-[10px] text-slate-500">
+                            Partial / filtered index — rows matching this predicate only (no WHERE
+                            keyword).
+                          </span>
+                        </label>
+                        {indexFilterUnknown && !(indexForm.filter ?? '').trim() && (
+                          <div className="rounded-lg border border-amber-400/35 bg-amber-950/25 px-2.5 py-2 space-y-1.5">
+                            <p className="text-[11px] text-amber-100/90">
+                              Catalog did not load a WHERE filter for this index. Enter the
+                              predicate if it is partial, or confirm it has none before saving.
+                            </p>
+                            <label className="flex items-center gap-2 text-[12px] text-amber-50/90 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={confirmNoFilter}
+                                onChange={(e) => setConfirmNoFilter(e.target.checked)}
+                                className="rounded border-slate-600"
+                              />
+                              Confirm this index has no filter
+                            </label>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="flex justify-end gap-1.5">
+                      <button
+                        type="button"
+                        onClick={closeIndexForm}
+                        className="px-2.5 py-1 text-[11px] font-semibold text-slate-400"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="blueprint-index-save"
+                        onClick={saveIndex}
+                        className="px-2.5 py-1 text-[11px] font-bold rounded border border-sky-500/40 text-sky-200 bg-sky-950/50"
+                      >
+                        {editingPendingIndex !== null || replacingExistingIndex
+                          ? 'Save index'
+                          : 'Add index'}
+                      </button>
+                    </div>
+    </div>
+  ) : null;
+
   return createPortal(
     <>
       <div
@@ -1494,10 +1713,18 @@ export const TableBlueprintModal: React.FC<Props> = ({
                       const needsDefrag =
                         severity === 'warn' || severity === 'critical';
                       const colsOpen = !!expandedIndexCols[idx.name];
+                      const editingThis =
+                        replacingExistingIndex === idx.name &&
+                        editingPendingIndex === null &&
+                        !addingIndex;
                       return (
                       <li
                         key={idx.name}
-                        className="px-3 py-2.5 text-[12.5px]"
+                        className={`px-3 py-2.5 text-[12.5px] ${
+                          editingThis
+                            ? 'bg-sky-500/10 ring-1 ring-inset ring-sky-400/35'
+                            : ''
+                        }`}
                         data-testid={`blueprint-index-row-${idx.name}`}
                       >
                         <div className="flex items-center gap-2 min-w-0">
@@ -1604,6 +1831,10 @@ export const TableBlueprintModal: React.FC<Props> = ({
                             }))
                           }
                         />
+                        {replacingExistingIndex === idx.name &&
+                          editingPendingIndex === null &&
+                          !addingIndex &&
+                          indexFormPanel}
                       </li>
                       );
                     })}
@@ -1637,7 +1868,11 @@ export const TableBlueprintModal: React.FC<Props> = ({
                     {pendingIndexes.map((idx, i) => (
                       <li
                         key={`pending-idx-${idx.name}-${i}`}
-                        className="px-3 py-2.5 text-[12.5px] bg-emerald-950/15"
+                        className={`px-3 py-2.5 text-[12.5px] ${
+                          editingPendingIndex === i
+                            ? 'bg-sky-500/10 ring-1 ring-inset ring-sky-400/35'
+                            : 'bg-emerald-950/15'
+                        }`}
                       >
                         <div className="flex items-center gap-2 min-w-0">
                           <div className="min-w-0 flex-1">
@@ -1697,219 +1932,17 @@ export const TableBlueprintModal: React.FC<Props> = ({
                             })
                           }
                         />
+                        {editingPendingIndex === i && indexFormPanel}
                       </li>
                     ))}
+                    {addingIndex && (
+                      <li className="px-3 py-2.5 bg-sky-500/10 ring-1 ring-inset ring-sky-400/35">
+                        {indexFormPanel}
+                      </li>
+                    )}
                   </ul>
                 )}
 
-                {indexFormOpen && (
-                  <div
-                    className="border-t border-sky-400/20 px-3 py-3 space-y-2.5 bg-sky-950/25"
-                    data-testid="blueprint-index-form"
-                  >
-                    <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
-                      <label className="block min-w-0">
-                        <span className="text-[10px] font-bold uppercase text-slate-500">
-                          Index name
-                        </span>
-                        <input
-                          data-testid="blueprint-index-name"
-                          value={indexForm.name}
-                          onChange={(e) =>
-                            setIndexForm({ ...indexForm, name: e.target.value })
-                          }
-                          className="mt-0.5 w-full rounded-lg border border-slate-700 bg-slate-950/70 px-2.5 py-1.5 text-[12.5px] font-mono text-slate-100"
-                        />
-                      </label>
-                      <div className="flex flex-col justify-end gap-1">
-                        {indexSupport.unique && indexSupport.acceptDuplicates ? (
-                          <label className="flex items-center gap-2 text-[12px] text-slate-300 cursor-pointer select-none px-1 py-1.5">
-                            <input
-                              type="checkbox"
-                              checked={indexForm.unique}
-                              onChange={(e) => {
-                                const unique = e.target.checked;
-                                setIndexForm((prev) => ({
-                                  ...prev,
-                                  unique,
-                                  constraint: unique ? prev.constraint : undefined,
-                                  name:
-                                    prev.name.trim() ||
-                                    suggestIndexName(
-                                      tableName || 'table',
-                                      prev.columns,
-                                      unique
-                                    ),
-                                }));
-                              }}
-                              className="rounded border-slate-600"
-                            />
-                            <span>
-                              Unique
-                              <span className="text-slate-500 ml-1">
-                                {indexForm.unique
-                                  ? '(reject duplicates)'
-                                  : '(accept duplicates)'}
-                              </span>
-                            </span>
-                          </label>
-                        ) : indexSupport.unique ? (
-                          <p className="text-[11px] text-slate-400 px-1">Unique only</p>
-                        ) : (
-                          <p className="text-[11px] text-slate-400 px-1">
-                            Non-unique only (accept duplicates)
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    <div>
-                      <span className="text-[10px] font-bold uppercase text-slate-500">
-                        Columns
-                      </span>
-                      <div className="mt-1 flex flex-wrap gap-1.5">
-                        {activeColumns.map((c) => {
-                          const on = indexForm.columns.includes(c.name);
-                          const ord =
-                            indexForm.orders[indexForm.columns.indexOf(c.name)] ?? 'ASC';
-                          return (
-                            <div
-                              key={c.name}
-                              className={`inline-flex items-center gap-0.5 rounded-lg border text-[11px] font-mono ${
-                                on
-                                  ? 'border-sky-400/50 bg-sky-500/20 text-sky-100'
-                                  : 'border-slate-700 bg-slate-900/50 text-slate-400'
-                              }`}
-                            >
-                              <button
-                                type="button"
-                                onClick={() => toggleIndexColumn(c.name)}
-                                className="px-2 py-1"
-                              >
-                                {c.name}
-                              </button>
-                              {on && (
-                                <>
-                                  {indexSupport.columnOrder && (
-                                    <button
-                                      type="button"
-                                      title={`Order: ${ord} (click to toggle)`}
-                                      onClick={() =>
-                                        setIndexColumnOrder(
-                                          c.name,
-                                          ord === 'ASC' ? 'DESC' : 'ASC'
-                                        )
-                                      }
-                                      className="px-1.5 py-1 border-l border-sky-400/30 text-[10px] font-bold text-sky-200/90 hover:text-white"
-                                    >
-                                      {ord}
-                                    </button>
-                                  )}
-                                  <button
-                                    type="button"
-                                    title="Move earlier"
-                                    onClick={() => moveIndexColumn(c.name, -1)}
-                                    className="p-1 border-l border-sky-400/30 text-slate-400 hover:text-white"
-                                  >
-                                    <ArrowUp
-                                      className="w-3 h-3"
-                                      strokeWidth={SQL_ICON_STROKE}
-                                    />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    title="Move later"
-                                    onClick={() => moveIndexColumn(c.name, 1)}
-                                    className="p-1 border-l border-sky-400/30 text-slate-400 hover:text-white"
-                                  >
-                                    <ArrowDown
-                                      className="w-3 h-3"
-                                      strokeWidth={SQL_ICON_STROKE}
-                                    />
-                                  </button>
-                                </>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                      {indexForm.columns.length > 0 && (
-                        <p className="mt-1.5 font-mono text-[11px] text-slate-400">
-                          ({formatIndexCols(indexForm)})
-                          {indexForm.filter?.trim() && indexSupport.filter ? (
-                            <span className="text-sky-300/70">
-                              {' '}
-                              WHERE {indexForm.filter.trim()}
-                            </span>
-                          ) : null}
-                        </p>
-                      )}
-                      {!indexSupport.columnOrder && (
-                        <p className="mt-1 text-[11px] text-slate-500">{indexSupport.hint}</p>
-                      )}
-                    </div>
-
-                    {indexSupport.filter && (
-                      <div className="space-y-1.5">
-                        <label className="block">
-                          <span className="text-[10px] font-bold uppercase text-slate-500">
-                            Filter (optional)
-                          </span>
-                          <input
-                            value={indexForm.filter ?? ''}
-                            onChange={(e) => {
-                              setIndexForm({ ...indexForm, filter: e.target.value });
-                              if (e.target.value.trim()) setConfirmNoFilter(false);
-                            }}
-                            placeholder="e.g. status = 'active' AND deleted_at IS NULL"
-                            className="mt-0.5 w-full rounded-lg border border-slate-700 bg-slate-950/70 px-2.5 py-1.5 text-[12.5px] font-mono text-slate-100 placeholder:text-slate-600"
-                          />
-                          <span className="mt-0.5 block text-[10px] text-slate-500">
-                            Partial / filtered index — rows matching this predicate only (no WHERE
-                            keyword).
-                          </span>
-                        </label>
-                        {indexFilterUnknown && !(indexForm.filter ?? '').trim() && (
-                          <div className="rounded-lg border border-amber-400/35 bg-amber-950/25 px-2.5 py-2 space-y-1.5">
-                            <p className="text-[11px] text-amber-100/90">
-                              Catalog did not load a WHERE filter for this index. Enter the
-                              predicate if it is partial, or confirm it has none before saving.
-                            </p>
-                            <label className="flex items-center gap-2 text-[12px] text-amber-50/90 cursor-pointer select-none">
-                              <input
-                                type="checkbox"
-                                checked={confirmNoFilter}
-                                onChange={(e) => setConfirmNoFilter(e.target.checked)}
-                                className="rounded border-slate-600"
-                              />
-                              Confirm this index has no filter
-                            </label>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    <div className="flex justify-end gap-1.5">
-                      <button
-                        type="button"
-                        onClick={closeIndexForm}
-                        className="px-2.5 py-1 text-[11px] font-semibold text-slate-400"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="button"
-                        data-testid="blueprint-index-save"
-                        onClick={saveIndex}
-                        className="px-2.5 py-1 text-[11px] font-bold rounded border border-sky-500/40 text-sky-200 bg-sky-950/50"
-                      >
-                        {editingPendingIndex !== null || replacingExistingIndex
-                          ? 'Save index'
-                          : 'Add index'}
-                      </button>
-                    </div>
-                  </div>
-                )}
               </div>
             </section>
 

@@ -134,9 +134,11 @@ Tips:
   **Edit table** shows each index’s fragmentation % (dialect probe; paste custom
   SELECT if the default fails) and a wrench to insert rebuild/reorg/optimize SQL
   when fragmentation is elevated.
-- **Utilities → Index Management** (toolbar) — pick a credential, load all indexes
-  grouped by table, filter by table/index name or minimum fragmentation %, fetch
-  fragmentation in batch, then defragment selected indexes or all filtered rows.
+- **Utilities → Index Management** (SQL Editor sidebar) — pick a credential, load
+  all indexes grouped by table, filter by table/index name or minimum
+  fragmentation %, fetch fragmentation in batch, then defragment selected indexes
+  or all filtered rows. In **Edit table**, the index form opens under the selected
+  index (no jump to a form at the bottom of the section).
 - **Data peek** — two ways in:
   - **Schema:** hold **Cmd** (macOS) or **Ctrl** (Windows/Linux) and click a
     table, view or MQT to see its rows without writing a query.
