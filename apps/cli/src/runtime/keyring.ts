@@ -3,7 +3,7 @@ import { Entry } from '@napi-rs/keyring';
 
 // The per-install Data Encryption Key (DEK) lives in the OS keychain (macOS
 // Keychain / Windows Credential Manager / Linux Secret Service), keyed by email
-// — never written to disk. Mirrors the desktop shell's model.
+// — never written to disk. Mirrors the CLI/local-server key model.
 const SERVICE = 'com.foxschema.cli';
 
 /** 32-byte key as 64 hex chars — the shape APP_ENCRYPTION_KEY expects. */

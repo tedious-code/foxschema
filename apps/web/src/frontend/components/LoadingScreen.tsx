@@ -5,7 +5,7 @@ import { Wordmark } from './Brand';
 /**
  * Full-screen boot splash shown for the async gap between process start and
  * the first real screen (setup wizard / login / app) — main.tsx renders this
- * synchronously before awaiting getSetupState()/resolveApiBase(), so there's
+ * synchronously before awaiting resolveApiBase(), so there's
  * never a blank frame while the desktop sidecar spins up or the API base
  * resolves.
  */

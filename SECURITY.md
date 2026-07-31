@@ -20,7 +20,7 @@ Email the maintainer directly:
 Include in your report:
 - Description of the vulnerability
 - Steps to reproduce
-- Affected component (core engine, web app, desktop, CLI)
+- Affected component (core engine, web app, CLI)
 - Any proof-of-concept code
 
 ### What to expect

@@ -53,7 +53,6 @@ the Playwright E2E suite (see below).
 | [`apps/web`](apps/web) | Express API + React/Vite UI (also served by the CLI launcher and Docker). |
 | [`apps/cli`](apps/cli) | Public `foxschema` CLI — browser launcher, desktop shortcut, line commands, Ink TUI. |
 | [`apps/e2e`](apps/e2e) | Playwright E2E tests against the dockerized databases. |
-| [`apps/desktop`](apps/desktop) | Retired Tauri shell (not a release path). |
 
 The design, the migration pipeline, and the dialect system are described in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — read it before non-trivial changes.

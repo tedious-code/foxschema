@@ -17,7 +17,7 @@ export function isReady(): boolean {
 /**
  * Push the stored config + key into process.env so the shared backend modules
  * (getStore / crypto / connection-store) — which read everything from env — run
- * unchanged in the CLI, exactly as they do under the Tauri shell or the server.
+ * unchanged in the CLI and the server.
  * Returns false if the key couldn't be resolved.
  */
 export function applyEnv(): boolean {

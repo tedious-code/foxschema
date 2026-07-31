@@ -60,7 +60,7 @@ interface ConnectionRef {
   password?: string;
 }
 
-/** Current app version (the host/desktop can override via APP_VERSION). */
+/** Current app version (overridable via APP_VERSION). */
 const APP_VERSION = process.env.APP_VERSION || '1.0.0';
 
 /** Returns true if dotted-numeric version `a` is greater than `b`. */
@@ -204,12 +204,12 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   });
 
   router.post('/signup', signupLimiter, async (req: Request, res: Response) => {
-    const { email, source } = req.body as { email?: string; source?: string };
+    const { email } = req.body as { email?: string; source?: string };
     if (!email) {
       res.status(400).json({ ok: false, error: 'Email is required.' });
       return;
     }
-    res.json(await signupModule.submit(email, source === 'desktop' ? 'desktop' : 'web'));
+    res.json(await signupModule.submit(email, 'web'));
   });
 
   router.post('/signup/skip', signupLimiter, async (_req: Request, res: Response) => {
@@ -235,7 +235,6 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     res.json({
       db: { engine: cfg.engine, location: cfg.engine === 'sqlite' ? cfg.path ?? '(default)' : cfg.url ?? '' },
       security: { keyScheme: key.scheme, emailBound: key.emailBound, boundEmail: key.boundEmail },
-      desktop: process.env.TAURI_PLATFORM !== undefined,
     });
   });
 

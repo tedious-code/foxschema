@@ -60,27 +60,9 @@ jobs:
             package.json \
             packages/core/package.json \
             apps/web/package.json \
-            apps/cli/package.json \
-            apps/desktop/package.json; do
+            apps/cli/package.json; do
             jq --arg v "$V" '.version = $v' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
           done
-
-      - name: Update tauri.conf.json
-        if: steps.ver.outputs.skip != 'true'
-        run: |
-          V=${{ steps.ver.outputs.new }}
-          jq --arg v "$V" '.version = $v' \
-            apps/desktop/src-tauri/tauri.conf.json \
-            > apps/desktop/src-tauri/tauri.conf.json.tmp \
-            && mv apps/desktop/src-tauri/tauri.conf.json.tmp \
-               apps/desktop/src-tauri/tauri.conf.json
-
-      - name: Update Cargo.toml
-        if: steps.ver.outputs.skip != 'true'
-        run: |
-          V=${{ steps.ver.outputs.new }}
-          sed -i "s/^version = \".*\"/version = \"$V\"/" \
-            apps/desktop/src-tauri/Cargo.toml
 
       - name: Commit and push
         if: steps.ver.outputs.skip != 'true'
@@ -92,9 +74,6 @@ jobs:
             package.json \
             packages/core/package.json \
             apps/web/package.json \
-            apps/cli/package.json \
-            apps/desktop/package.json \
-            apps/desktop/src-tauri/tauri.conf.json \
-            apps/desktop/src-tauri/Cargo.toml
+            apps/cli/package.json
           git commit -m "chore: bump version to $V [skip ci]"
           git push

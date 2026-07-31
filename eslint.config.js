@@ -8,10 +8,6 @@ export default tseslint.config(
       '**/dist/**',
       '**/dist-bin/**',
       '**/node_modules/**',
-      '**/target/**',                              // Rust build artifacts
-      'apps/desktop/src-tauri/gen/**',
-      'apps/desktop/src-tauri/frontendDist/**',
-      'apps/desktop/src-tauri/resources/**',       // Bundled server.mjs (minified, not authored)
     ],
   },
 

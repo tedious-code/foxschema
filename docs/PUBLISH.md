@@ -9,7 +9,6 @@ Distribution channels (one product, no separate Db2 edition):
 | **npm** | `foxschema` on registry.npmjs.org | `.github/workflows/npm-publish.yml` on `v*` tag |
 | **Docker** | `5nickels/foxschema:latest` + `:vX.Y.Z` (linux/amd64, includes Db2) | `.github/workflows/web-release.yml` on `v*` tag |
 | **Homebrew** | `Formula/foxschema.rb` in this repo | Manual commit after npm publish |
-| **Desktop Tauri** | **Retired** — do not publish | — |
 | **Winget** | **Retired** — do not publish | — |
 
 Patch versions are bumped automatically on merge to `main`
@@ -119,7 +118,6 @@ foxschema shortcut
 
 ## 5. What not to publish
 
-- Do **not** run Desktop Release (retired).
 - Do **not** publish to Winget (retired).
 - Do **not** publish separate `db2-latest` / `FoxSchema.DB2` packages.
 

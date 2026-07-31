@@ -12,7 +12,7 @@ foxschema                  # http://localhost:3210
 foxschema shortcut
 ```
 
-Tauri desktop releases are retired. Maintainers: **[PUBLISH.md](PUBLISH.md)**.
+Maintainers: **[PUBLISH.md](PUBLISH.md)**.
 
 **Servers / teams:** Fox Schema ships as a **single Docker image** (all dialects including
 Db2) that serves both the UI and the API on one configurable port (default **3001**).
