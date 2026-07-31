@@ -41,7 +41,7 @@ export const UpdatesSettings: React.FC = () => {
         ) : info ? (
           <p className="mt-0.5 inline-flex items-center gap-1 text-emerald-400">
             <CheckCircle2 className="w-3.5 h-3.5" />
-            {info.configured ? 'Up to date' : 'Up to date (no update feed configured)'}
+            {info.configured ? 'Up to date (npm)' : 'Up to date (check disabled)'}
           </p>
         ) : null}
       </div>

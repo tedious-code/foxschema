@@ -97,12 +97,14 @@ docker compose -f docker-compose.app.yml up -d
 | `AUTH_REQUIRED` | see note | When `LOCAL_SINGLE_USER=false`, defaults to **true** (login required). Set `AUTH_REQUIRED=false` only if you intentionally want open API access. |
 | `SIGNUP_WEBHOOK_URL` | — | Optional. First-open email subscriber wizard posts here (WordPress `/foxschema/v1/signup`). Without it, subscribe still dismisses the wizard locally. |
 | `SIGNUP_WEBHOOK_SECRET` | — | Optional shared secret sent as `X-Foxschema-Signup-Secret`. |
+| `UPDATE_FEED_URL` | npm `foxschema/latest` | Release feed for in-app update toasts. Default is the npm registry (CLI publish channel). Set `off` to disable. |
+| `APP_VERSION` | from `package.json` | Running version compared against the feed. The CLI sets this from the installed npm package. |
 | `ALLOW_HOST_CLOUD_CREDENTIALS` | off | When `true`, cloud secret resolve may use the host IAM/ADC chain without saved user credentials. **Keep off** on multi-user hosts. |
 | `SSO_*` | — | OAuth for Google / Microsoft / GitHub (see below). |
 | `NODE_ENV` | `production` | Set in the image; enforces that `APP_ENCRYPTION_KEY` is present. |
 
-> The app also reads `APP_USER_EMAIL` (only for the `v2` key scheme) and
-> `UPDATE_FEED_URL` (optional release-check feed). Neither is needed for a basic deploy.
+> The app also reads `APP_USER_EMAIL` (only for the `v2` key scheme).
+> Update checks default to the npm `foxschema` registry feed (see below).
 
 ### First-open email subscriber wizard
 

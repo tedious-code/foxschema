@@ -30,8 +30,8 @@ export function maybeToastUpdateAvailable(info: UpdateInfo | null, opts?: { forc
   toast({
     tone: 'warning',
     title: `Update available · v${info.latest}`,
-    body: `You're on v${info.current}. A newer Fox Schema release is ready.`,
-    actionLabel: info.url ? 'View release' : undefined,
+    body: `You're on v${info.current}. Upgrade with: npm install -g foxschema@latest`,
+    actionLabel: info.url ? 'View on npm' : undefined,
     actionHref: info.url,
     durationMs: 10_000,
   });
@@ -56,7 +56,7 @@ export function toastUpdateCheckResult(info: UpdateInfo | null): void {
     tone: 'success',
     title: 'You are up to date',
     body: info.configured
-      ? `Fox Schema v${info.current} is the latest release.`
-      : `Fox Schema v${info.current} (no update feed configured).`,
+      ? `Fox Schema v${info.current} matches npm latest.`
+      : `Fox Schema v${info.current} (update check disabled).`,
   });
 }
