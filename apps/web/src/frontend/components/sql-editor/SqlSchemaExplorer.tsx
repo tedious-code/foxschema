@@ -1,5 +1,14 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Columns3, FileCode2, Loader2, Plus, RefreshCw } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  Columns3,
+  Copy,
+  FileCode2,
+  Loader2,
+  Plus,
+  RefreshCw,
+} from 'lucide-react';
 import { useSyncStore } from '../../store/useSyncStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
 import { getProviderSettings } from '../../lib/provider-settings';
@@ -62,10 +71,15 @@ function writeStoredExplorerId(id: string): void {
  * schema credential checks it as a destination, and changing destinations
  * moves the explorer onto a checked credential when needed.
  */
-export const SqlSchemaExplorer = forwardRef<SqlSchemaExplorerHandle>(function SqlSchemaExplorer(
-  _props,
-  ref
-) {
+type SqlSchemaExplorerProps = {
+  /** Open Utilities → Clone Table with this table pre-selected. */
+  onCloneTable?: (tableName: string) => void;
+};
+
+export const SqlSchemaExplorer = forwardRef<
+  SqlSchemaExplorerHandle,
+  SqlSchemaExplorerProps
+>(function SqlSchemaExplorer({ onCloneTable }, ref) {
   const connections = useSyncStore((s) => s.connections);
   const connectionsLoaded = useSyncStore((s) => s.connectionsLoaded);
   const tabs = useSqlEditorStore((s) => s.tabs);
@@ -323,6 +337,12 @@ export const SqlSchemaExplorer = forwardRef<SqlSchemaExplorerHandle>(function Sq
                                 }
                               : undefined
                           }
+                          onCloneTable={
+                            onCloneTable &&
+                            (t.objectType === 'TABLE' || t.objectType === 'MQT')
+                              ? () => onCloneTable(t.name)
+                              : undefined
+                          }
                           canPeek={
                             t.objectType === 'TABLE' ||
                             t.objectType === 'MQT' ||
@@ -368,11 +388,22 @@ const ObjectNode: React.FC<{
   onToggle: () => void;
   dialect: string;
   onOpenBlueprint?: () => void;
+  onCloneTable?: () => void;
   /** Data peek is only meaningful for row-bearing objects (not routines). */
   canPeek?: boolean;
   onPeek?: (tableName: string) => void;
   onOpenSource?: () => void;
-}> = ({ table, open, onToggle, dialect, onOpenBlueprint, onOpenSource, canPeek, onPeek }) => {
+}> = ({
+  table,
+  open,
+  onToggle,
+  dialect,
+  onOpenBlueprint,
+  onCloneTable,
+  onOpenSource,
+  canPeek,
+  onPeek,
+}) => {
   const meta = TYPE_META[table.objectType] ?? TYPE_META.TABLE;
   const insertName = quoteIfNeeded(table.name, dialect);
   const isRoutine = table.objectType === 'PROCEDURE' || table.objectType === 'FUNCTION';
@@ -459,6 +490,21 @@ const ObjectNode: React.FC<{
           >
             <Columns3 className="w-3 h-3" strokeWidth={SQL_ICON_STROKE} />
             Edit table
+          </button>
+        )}
+        {onCloneTable && (
+          <button
+            type="button"
+            title="Clone table — archive as name_N and recreate empty live table"
+            data-testid="sql-open-clone-table"
+            onClick={(e) => {
+              e.stopPropagation();
+              onCloneTable();
+            }}
+            className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold text-amber-100 bg-amber-950/60 border border-amber-600/50 hover:bg-amber-900/70 transition whitespace-nowrap"
+          >
+            <Copy className="w-3 h-3" strokeWidth={SQL_ICON_STROKE} />
+            Clone
           </button>
         )}
         {opensSource && (

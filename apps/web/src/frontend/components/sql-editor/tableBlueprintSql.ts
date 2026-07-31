@@ -861,7 +861,8 @@ export function generateCreateTableSql(
   dialectName: string,
   pkName?: string,
   foreignKeys?: BlueprintFkDraft[],
-  schema?: string
+  schema?: string,
+  opts?: { ifNotExists?: boolean }
 ): string[] {
   const name = tableName.trim();
   if (!name || columns.length === 0) return [];
@@ -871,7 +872,11 @@ export function generateCreateTableSql(
   const body = createTableBody(columns, pkColumns, dialectName, pkName, inlineFks, schema);
   const d = dialectName.toLowerCase();
   const objectIdName = qualifyTableName(name, schema, dialectName);
+  const ifNotExists = opts?.ifNotExists !== false;
 
+  if (!ifNotExists) {
+    return [`CREATE TABLE ${qTable} ${body};`];
+  }
   if (d === 'sqlserver' || d === 'azuresql') {
     const escaped = objectIdName.replace(/'/g, "''");
     return [
@@ -1481,4 +1486,453 @@ export function appendFkTriggerSql(
     creates.push(...generateCreateTriggerSql(args.tableName, args.dialect, trg, args.schema));
   }
   return [...drops, ...base, ...creates];
+}
+
+// ── Clone / archive & recreate ───────────────────────────────────────────────
+
+/** Bare table name (last segment of schema.table). */
+export function bareTableName(tableName: string): string {
+  const t = tableName.trim();
+  if (!t) return t;
+  const parts = t.split('.');
+  return parts[parts.length - 1] ?? t;
+}
+
+/**
+ * Pick the next archive name `base_N` (or `base_1` when none exist).
+ * `suffixMode: 'auto'` continues from the highest existing `_N`.
+ * `suffixMode: 'fixed'` uses `startNumber` (must not collide).
+ */
+export function nextArchiveTableName(
+  baseTableName: string,
+  existingTableNames: string[],
+  opts?: { suffixMode?: 'auto' | 'fixed'; startNumber?: number }
+): { archiveName: string; number: number; error?: string } {
+  const bare = bareTableName(baseTableName);
+  if (!bare) return { archiveName: '', number: 0, error: 'Missing table name' };
+
+  const mode = opts?.suffixMode ?? 'auto';
+  const startNumber = Math.max(1, Math.floor(opts?.startNumber ?? 1));
+  const existing = new Set(
+    existingTableNames.map((n) => bareTableName(n).toLowerCase()).filter(Boolean)
+  );
+
+  const escapeRe = bare.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`^${escapeRe}_(\\d+)$`, 'i');
+  let max = 0;
+  for (const n of existingTableNames) {
+    const m = bareTableName(n).match(re);
+    if (!m) continue;
+    const num = Number(m[1]);
+    if (Number.isFinite(num) && num > max) max = num;
+  }
+
+  if (mode === 'fixed') {
+    const archiveName = `${bare}_${startNumber}`;
+    if (existing.has(archiveName.toLowerCase())) {
+      return {
+        archiveName,
+        number: startNumber,
+        error: `Table ${archiveName} already exists — pick another number or use Auto`,
+      };
+    }
+    return { archiveName, number: startNumber };
+  }
+
+  const number = Math.max(max + 1, startNumber);
+  const archiveName = `${bare}_${number}`;
+  if (existing.has(archiveName.toLowerCase())) {
+    // Extremely unlikely if we scanned correctly; bump until free.
+    let n = number;
+    while (existing.has(`${bare}_${n}`.toLowerCase())) n += 1;
+    return { archiveName: `${bare}_${n}`, number: n };
+  }
+  return { archiveName, number };
+}
+
+/** Dialect rename for a table → archive name (new name is bare / unqualified). */
+export function generateRenameTableSql(
+  fromTable: string,
+  toTable: string,
+  dialectName: string,
+  schema?: string
+): string[] {
+  const from = fromTable.trim();
+  const toBare = bareTableName(toTable);
+  if (!from || !toBare) return [];
+  const d = dialectName.toLowerCase();
+  const fromQ = qualifiedQuotedTable(from, schema, dialectName);
+  const toQ = quoteIdent(toBare, dialectName);
+
+  if (d === 'mysql' || d === 'mariadb' || d === 'tidb') {
+    const toFull = qualifiedQuotedTable(toBare, schema, dialectName);
+    return [`RENAME TABLE ${fromQ} TO ${toFull};`];
+  }
+  if (d === 'sqlserver' || d === 'azuresql') {
+    const fromQual = qualifyTableName(from, schema, dialectName).replace(/'/g, "''");
+    const toEsc = toBare.replace(/'/g, "''");
+    return [`EXEC sp_rename N'${fromQual}', N'${toEsc}', N'OBJECT';`];
+  }
+  if (d === 'db2' || d === 'clickhouse') {
+    return [`RENAME TABLE ${fromQ} TO ${toQ};`];
+  }
+  // postgres / cockroach / yugabyte / sqlite / oracle / duckdb / redshift …
+  return [`ALTER TABLE ${fromQ} RENAME TO ${toQ};`];
+}
+
+function dialectNeedsIndexRenameOnArchive(dialectName: string): boolean {
+  const d = dialectName.toLowerCase();
+  return (
+    d === 'postgres' ||
+    d === 'postgresql' ||
+    d === 'cockroach' ||
+    d === 'yugabyte' ||
+    d === 'oracle' ||
+    d === 'redshift' ||
+    d === 'duckdb' ||
+    d === 'sqlite'
+  );
+}
+
+function dialectNeedsFkDropOnArchive(dialectName: string): boolean {
+  const d = dialectName.toLowerCase();
+  // Schema/db-unique FK names — free them before recreating on the new table.
+  return (
+    d === 'postgres' ||
+    d === 'postgresql' ||
+    d === 'cockroach' ||
+    d === 'yugabyte' ||
+    d === 'oracle' ||
+    d === 'mysql' ||
+    d === 'mariadb' ||
+    d === 'tidb' ||
+    d === 'sqlserver' ||
+    d === 'azuresql' ||
+    d === 'db2'
+  );
+}
+
+function archiveSuffixName(objectName: string, archiveNumber: number): string {
+  const base = objectName.trim();
+  const suffix = `_h${archiveNumber}`;
+  const max = 60;
+  if (base.length + suffix.length <= max) return `${base}${suffix}`;
+  return `${base.slice(0, Math.max(1, max - suffix.length))}${suffix}`;
+}
+
+function generateRenameIndexSql(
+  indexName: string,
+  newName: string,
+  archiveTable: string,
+  dialectName: string,
+  schema?: string
+): string[] {
+  const d = dialectName.toLowerCase();
+  const qOld = quoteIdent(indexName.trim(), dialectName);
+  const qNew = quoteIdent(newName.trim(), dialectName);
+  const qTable = qualifiedQuotedTable(archiveTable, schema, dialectName);
+
+  if (d === 'sqlite') {
+    // SQLite has no RENAME INDEX — drop + recreate under the new name on the archive.
+    return [
+      `-- review: SQLite cannot RENAME INDEX — drop ${indexName} then recreate as ${newName} on ${bareTableName(archiveTable)} (recreate statements are emitted next)`,
+      `DROP INDEX IF EXISTS ${qOld};`,
+    ];
+  }
+  if (d === 'sqlserver' || d === 'azuresql') {
+    const qual = `${qualifyTableName(archiveTable, schema, dialectName)}.${indexName}`.replace(
+      /'/g,
+      "''"
+    );
+    return [`EXEC sp_rename N'${qual}', N'${newName.replace(/'/g, "''")}', N'INDEX';`];
+  }
+  if (d === 'oracle') {
+    return [`ALTER INDEX ${qOld} RENAME TO ${qNew};`];
+  }
+  // Postgres-family / duckdb / redshift
+  return [`ALTER INDEX ${qOld} RENAME TO ${qNew};`];
+}
+
+function generateRenameConstraintSql(
+  tableName: string,
+  oldName: string,
+  newName: string,
+  dialectName: string,
+  schema?: string
+): string[] {
+  const d = dialectName.toLowerCase();
+  const qTable = qualifiedQuotedTable(tableName, schema, dialectName);
+  const qOld = quoteIdent(oldName.trim(), dialectName);
+  const qNew = quoteIdent(newName.trim(), dialectName);
+  if (d === 'sqlserver' || d === 'azuresql') {
+    const qual = `${qualifyTableName(tableName, schema, dialectName)}.${oldName}`.replace(
+      /'/g,
+      "''"
+    );
+    return [`EXEC sp_rename N'${qual}', N'${newName.replace(/'/g, "''")}', N'OBJECT';`];
+  }
+  if (d === 'mysql' || d === 'mariadb' || d === 'tidb' || d === 'sqlite') {
+    return [];
+  }
+  return [`ALTER TABLE ${qTable} RENAME CONSTRAINT ${qOld} TO ${qNew};`];
+}
+
+export type CloneTableOptions = {
+  table: TableSchema;
+  dialect: string;
+  schema?: string;
+  /** All table names in the schema (for suffix collision checks). */
+  existingTableNames: string[];
+  /** Auto = next free `_N`; fixed = use startNumber (error if taken). */
+  suffixMode?: 'auto' | 'fixed';
+  /** Minimum / fixed archive number (default 1). */
+  startNumber?: number;
+  /** Recreate indexes on the new empty table (default true). */
+  keepIndexes?: boolean;
+  /** Recreate outbound foreign keys on the new empty table (default true). */
+  keepForeignKeys?: boolean;
+};
+
+export type CloneTablePlan = {
+  archiveName: string;
+  archiveNumber: number;
+  statements: string[];
+  error?: string;
+  /** Child tables whose FKs still point at the archive after rename. */
+  inboundFkTables: string[];
+};
+
+function fkInfoToDraft(fk: {
+  name: string;
+  columns: string[];
+  referencedTable: string;
+  referencedColumns: string[];
+}): BlueprintFkDraft {
+  return {
+    name: fk.name,
+    columns: [...fk.columns],
+    referencedTable: fk.referencedTable,
+    referencedColumns: [...(fk.referencedColumns ?? [])],
+  };
+}
+
+function indexInfoToCloneDraft(idx: {
+  name: string;
+  columns: string[];
+  unique: boolean;
+  constraint?: boolean;
+  filter?: string;
+}): BlueprintIndexDraft {
+  return {
+    name: idx.name,
+    columns: [...idx.columns],
+    orders: idx.columns.map(() => 'ASC' as IndexColumnOrder),
+    unique: !!idx.unique,
+    filter: idx.filter ?? '',
+    constraint: idx.constraint,
+  };
+}
+
+/**
+ * Archive a large table under `name_N`, then recreate an empty table with the
+ * original name + schema so applications keep working. Optionally restore
+ * indexes and outbound foreign keys on the new table.
+ */
+export function generateCloneTableSql(args: CloneTableOptions): CloneTablePlan {
+  const table = args.table;
+  const dialect = args.dialect;
+  const schema = args.schema;
+  const liveName = table.name.trim();
+  const bare = bareTableName(liveName);
+  const keepIndexes = args.keepIndexes !== false;
+  const keepForeignKeys = args.keepForeignKeys !== false;
+
+  if (!liveName || (table.columns?.length ?? 0) === 0) {
+    return {
+      archiveName: '',
+      archiveNumber: 0,
+      statements: [],
+      error: 'Table has no columns to clone',
+      inboundFkTables: [],
+    };
+  }
+
+  const picked = nextArchiveTableName(liveName, args.existingTableNames, {
+    suffixMode: args.suffixMode,
+    startNumber: args.startNumber,
+  });
+  if (picked.error) {
+    return {
+      archiveName: picked.archiveName,
+      archiveNumber: picked.number,
+      statements: [],
+      error: picked.error,
+      inboundFkTables: [],
+    };
+  }
+
+  const archiveName = picked.archiveName;
+  const archiveNumber = picked.number;
+  const stmts: string[] = [];
+  stmts.push(
+    `-- Clone table: rename ${bare} → ${archiveName}, recreate empty ${bare} (app keeps the live name)`
+  );
+
+  // 1) Rename live → archive (data preserved on archive).
+  stmts.push(...generateRenameTableSql(liveName, archiveName, dialect, schema));
+
+  const fkSupport = dialectFkConstraintSupport(dialect);
+  const outboundFks = (table.foreignKeys ?? []).filter((fk) => fk.name && fk.columns?.length);
+  const pkCols = pkColumnsFromTable(table);
+  const pkKey = pkCols.map((c) => c.toLowerCase()).join('\0');
+  const indexes = (table.indices ?? []).filter((idx) => {
+    if (!idx.name || !idx.columns?.length) return false;
+    // PRIMARY KEY already creates a unique index — skip the catalog twin.
+    if (
+      idx.unique &&
+      pkCols.length > 0 &&
+      idx.columns.map((c) => c.toLowerCase()).join('\0') === pkKey
+    ) {
+      return false;
+    }
+    return true;
+  });
+
+  // 2) Free schema-unique names on the archive so the new table can reuse them.
+  if (keepForeignKeys && outboundFks.length > 0 && dialectNeedsFkDropOnArchive(dialect)) {
+    if (fkSupport.alterAdd || dialect.toLowerCase() === 'sqlite') {
+      stmts.push(
+        `-- Free FK names on archive ${archiveName} (history table; outbound FKs recreated on ${bare})`
+      );
+      for (const fk of outboundFks) {
+        stmts.push(...generateDropForeignKeySql(archiveName, dialect, fk.name, schema));
+      }
+    }
+  }
+
+  const pkName =
+    table.primaryKey?.name && table.primaryKey.name.toUpperCase() !== 'PRIMARY'
+      ? table.primaryKey.name
+      : undefined;
+  if (pkName && dialectNeedsIndexRenameOnArchive(dialect)) {
+    const newPk = archiveSuffixName(pkName, archiveNumber);
+    const renames = generateRenameConstraintSql(archiveName, pkName, newPk, dialect, schema);
+    if (renames.length) {
+      stmts.push(`-- Rename PK constraint on archive so ${bare} can reuse ${pkName}`);
+      stmts.push(...renames);
+    }
+  } else if (
+    dialectNeedsIndexRenameOnArchive(dialect) &&
+    pkColumnsFromTable(table).length > 0
+  ) {
+    const guessed = `${bare}_pkey`;
+    const newPk = archiveSuffixName(guessed, archiveNumber);
+    stmts.push(
+      `-- review: if CREATE fails on PK name, run: ALTER TABLE ${archiveName} RENAME CONSTRAINT ${guessed} TO ${newPk};`
+    );
+  }
+
+  const sqliteIndexRecreates: BlueprintIndexDraft[] = [];
+  if (keepIndexes && indexes.length > 0 && dialectNeedsIndexRenameOnArchive(dialect)) {
+    stmts.push(`-- Rename/move indexes on archive ${archiveName} so names can be reused`);
+    for (const idx of indexes) {
+      if (idx.constraint) {
+        const newName = archiveSuffixName(idx.name, archiveNumber);
+        const renames = generateRenameConstraintSql(
+          archiveName,
+          idx.name,
+          newName,
+          dialect,
+          schema
+        );
+        if (renames.length) stmts.push(...renames);
+        continue;
+      }
+      const newName = archiveSuffixName(idx.name, archiveNumber);
+      stmts.push(...generateRenameIndexSql(idx.name, newName, archiveName, dialect, schema));
+      if (dialect.toLowerCase() === 'sqlite') {
+        sqliteIndexRecreates.push({
+          ...indexInfoToCloneDraft(idx),
+          name: newName,
+        });
+      }
+    }
+  }
+
+  // SQLite: recreate archive indexes under the suffixed names after DROP INDEX.
+  if (sqliteIndexRecreates.length > 0) {
+    for (const idx of sqliteIndexRecreates) {
+      stmts.push(...generateCreateIndexSql(archiveName, dialect, idx, schema));
+    }
+  }
+
+  // 3) Create empty live table (same columns / PK; inline FKs when required).
+  const inlineFks =
+    keepForeignKeys && fkSupport.createInline && !fkSupport.alterAdd
+      ? outboundFks.map(fkInfoToDraft)
+      : undefined;
+  stmts.push(
+    ...generateCreateTableSql(
+      bare,
+      table.columns,
+      pkCols,
+      dialect,
+      pkName,
+      inlineFks,
+      schema,
+      { ifNotExists: false }
+    )
+  );
+
+  // 4) Indexes on the new empty table.
+  if (keepIndexes) {
+    for (const idx of indexes) {
+      stmts.push(...generateCreateIndexSql(bare, dialect, indexInfoToCloneDraft(idx), schema));
+    }
+  } else {
+    stmts.push(`-- indexes not recreated on ${bare} (keepIndexes=false)`);
+  }
+
+  // 5) Outbound FKs via ALTER on dialects that support it.
+  if (keepForeignKeys && fkSupport.alterAdd) {
+    for (const fk of outboundFks) {
+      stmts.push(...generateAddForeignKeySql(bare, dialect, fkInfoToDraft(fk), schema));
+    }
+  } else if (keepForeignKeys && !fkSupport.createInline && !fkSupport.alterAdd) {
+    stmts.push(`-- review: ${dialect} does not support foreign keys — skipped`);
+  } else if (!keepForeignKeys) {
+    stmts.push(`-- foreign keys not recreated on ${bare} (keepForeignKeys=false)`);
+  }
+
+  stmts.push(
+    `-- Inbound FKs from other tables still reference ${archiveName} after rename — update those constraints before dropping the archive if needed`
+  );
+
+  return {
+    archiveName,
+    archiveNumber,
+    statements: stmts,
+    inboundFkTables: [],
+  };
+}
+
+/** Find tables that reference `targetTable` via foreign keys (inbound). */
+export function findInboundForeignKeyTables(
+  tables: TableSchema[],
+  targetTable: string
+): string[] {
+  const bare = bareTableName(targetTable).toLowerCase();
+  const qual = targetTable.trim().toLowerCase();
+  const hits = new Set<string>();
+  for (const t of tables) {
+    if (bareTableName(t.name).toLowerCase() === bare) continue;
+    for (const fk of t.foreignKeys ?? []) {
+      const ref = (fk.referencedTable || '').trim().toLowerCase();
+      if (!ref) continue;
+      if (ref === qual || bareTableName(ref).toLowerCase() === bare) {
+        hits.add(t.name);
+      }
+    }
+  }
+  return [...hits].sort((a, b) => a.localeCompare(b));
 }
