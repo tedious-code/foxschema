@@ -63,6 +63,7 @@ const EditorFallback: React.FC = () => (
 const UTIL_MENU_BTN =
   'w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] font-semibold text-slate-100 hover:bg-slate-800 hover:text-slate-50 border border-transparent hover:border-amber-500/35';
 const UTIL_MENU_ICON = 'w-3.5 h-3.5 text-amber-400 shrink-0';
+const EDITOR_PCT_MIN = 15;
 const EDITOR_PCT_MAX = 70;
 const EDITOR_PCT_DEFAULT = 26;
 
@@ -157,7 +158,6 @@ export const SqlEditorView: React.FC = () => {
   const [secretsRefreshing, setSecretsRefreshing] = useState(false);
   const [showIndexManagement, setShowIndexManagement] = useState(false);
   const [showCloneTable, setShowCloneTable] = useState(false);
-  const [cloneTableInitial, setCloneTableInitial] = useState<string | null>(null);
   const [serverInsightsTab, setServerInsightsTab] = useState<ServerInsightsTab | null>(null);
 
   const onSecretsRefresh = useCallback(async () => {
@@ -452,10 +452,7 @@ export const SqlEditorView: React.FC = () => {
                 <button
                   type="button"
                   data-testid="utilities-clone-table"
-                  onClick={() => {
-                    setCloneTableInitial(null);
-                    setShowCloneTable(true);
-                  }}
+                  onClick={() => setShowCloneTable(true)}
                   className={UTIL_MENU_BTN}
                 >
                   <Copy className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
@@ -523,13 +520,7 @@ export const SqlEditorView: React.FC = () => {
                 </button>
               }
             >
-              <SqlSchemaExplorer
-                ref={schemaExplorerRef}
-                onCloneTable={(name) => {
-                  setCloneTableInitial(name);
-                  setShowCloneTable(true);
-                }}
-              />
+              <SqlSchemaExplorer ref={schemaExplorerRef} />
             </SqlSidebarSection>
             )}
           </div>
@@ -773,14 +764,7 @@ export const SqlEditorView: React.FC = () => {
         open={showIndexManagement}
         onClose={() => setShowIndexManagement(false)}
       />
-      <CloneTableModal
-        open={showCloneTable}
-        initialTableName={cloneTableInitial}
-        onClose={() => {
-          setShowCloneTable(false);
-          setCloneTableInitial(null);
-        }}
-      />
+      <CloneTableModal open={showCloneTable} onClose={() => setShowCloneTable(false)} />
       <ServerInsightsModal
         open={serverInsightsTab != null}
         initialTab={serverInsightsTab ?? 'pool'}

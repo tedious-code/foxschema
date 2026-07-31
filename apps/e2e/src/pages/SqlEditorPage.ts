@@ -321,43 +321,10 @@ export class SqlEditorPage {
     await modal.waitFor({ state: 'detached', timeout: 8_000 }).catch(() => undefined);
   }
 
-  async openCloneTable(preselectTable?: string): Promise<void> {
+  async openCloneTable(): Promise<void> {
     await this.dismissOverlays();
-    if (preselectTable) {
-      await this.openCloneTableFromSchema(preselectTable);
-      return;
-    }
     await this.ensureSidebarSectionOpen('utilities');
     await clickWhen(this.page, '[data-testid="utilities-clone-table"]');
-    await waitFor(this.page, '[data-testid="clone-table-modal"]', 15_000);
-  }
-
-  /** Schema explorer → Clone on a table row. */
-  async openCloneTableFromSchema(tableName: string): Promise<void> {
-    await this.dismissOverlays();
-    const explorer = this.page.locator('[data-testid="sql-schema-explorer"]');
-    await explorer.waitFor({ state: 'visible', timeout: 15_000 });
-    const alreadyVisible = await explorer.getByText(tableName, { exact: true }).count();
-    if (alreadyVisible === 0) {
-      const group = explorer.locator('[data-testid="sql-schema-group-TABLE"]');
-      if (await group.count()) {
-        await group.locator('button').first().click().catch(() => undefined);
-      }
-    }
-    await this.page.waitForFunction(
-      (name) => {
-        const root = document.querySelector('[data-testid="sql-schema-explorer"]');
-        return !!root && new RegExp(name, 'i').test(root.textContent ?? '');
-      },
-      tableName,
-      { timeout: 45_000 }
-    );
-    const nameLabel = explorer.getByText(tableName, { exact: true }).first();
-    await nameLabel.scrollIntoViewIfNeeded();
-    const row = nameLabel.locator(
-      'xpath=ancestor::div[./button[@data-testid="sql-open-clone-table"] or .//button[@data-testid="sql-open-clone-table"]][1]'
-    );
-    await row.locator('[data-testid="sql-open-clone-table"]').click({ force: true });
     await waitFor(this.page, '[data-testid="clone-table-modal"]', 15_000);
   }
 
