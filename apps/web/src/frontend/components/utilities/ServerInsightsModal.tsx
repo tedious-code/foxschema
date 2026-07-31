@@ -44,9 +44,9 @@ const TABS: Array<{ id: ServerInsightsTab; label: string; icon: React.ReactNode 
 
 function MetricCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2.5">
-      <div className="text-[11px] uppercase tracking-wide text-slate-400">{label}</div>
-      <div className="mt-1 text-[15px] font-semibold text-slate-100 tabular-nums">{value}</div>
+    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 shadow-sm">
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="mt-1 text-[15px] font-bold text-slate-900 tabular-nums">{value}</div>
     </div>
   );
 }
@@ -165,36 +165,44 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/55 p-4"
+      className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4"
       data-testid="server-insights-modal"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-slate-700 bg-[#0f172a] shadow-2xl">
-        <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-          <div className="flex items-center gap-2 text-slate-100">
-            <Activity className="h-4 w-4 text-sky-400" />
-            <h2 className="text-[15px] font-semibold">Server Insights</h2>
+      <div
+        className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3">
+          <div className="flex items-center gap-2 text-slate-900">
+            <Activity className="h-4 w-4 text-amber-600" />
+            <div>
+              <h2 className="text-[15px] font-bold">Server Insights</h2>
+              <p className="text-[11px] text-slate-500">
+                Connection pool, sessions, system resources, and object sizes
+              </p>
+            </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md p-1.5 text-slate-400 hover:bg-white/10 hover:text-white"
+            className="rounded-md p-1.5 text-slate-500 hover:bg-slate-200 hover:text-slate-900"
             aria-label="Close"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="flex flex-wrap items-end gap-2 border-b border-white/10 px-4 py-3">
-          <label className="flex min-w-[220px] flex-1 flex-col gap-1 text-[12px] text-slate-400">
-            Connection
+        <div className="flex flex-wrap items-end gap-2 border-b border-slate-200 bg-white px-4 py-3">
+          <label className="flex min-w-[220px] flex-1 flex-col gap-1 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+            Credential
             <select
               data-testid="server-insights-connection"
               value={connectionId}
               onChange={(e) => setConnectionId(e.target.value)}
-              className="rounded-md border border-white/15 bg-slate-900 px-2.5 py-2 text-[13px] text-slate-100"
+              className="rounded-md border border-slate-300 bg-white px-2.5 py-2 text-[13px] font-semibold text-slate-900 outline-none focus:border-amber-500"
             >
               {connections.length === 0 ? (
                 <option value="">No connections</option>
@@ -209,20 +217,20 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
           </label>
           {needsPassword && (
             <div className="flex items-end gap-2">
-              <label className="flex flex-col gap-1 text-[12px] text-slate-400">
-                Password
+              <label className="flex flex-col gap-1 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                Session password
                 <input
                   type="password"
                   value={passwordDraft}
                   onChange={(e) => setPasswordDraft(e.target.value)}
-                  className="rounded-md border border-white/15 bg-slate-900 px-2.5 py-2 text-[13px] text-slate-100"
+                  className="rounded-md border border-slate-300 bg-white px-2.5 py-2 text-[13px] text-slate-900 outline-none focus:border-amber-500"
                   placeholder="Unlock connection"
                 />
               </label>
               <button
                 type="button"
                 onClick={() => unlock()}
-                className="rounded-md bg-sky-600 px-3 py-2 text-[13px] font-semibold text-white hover:bg-sky-500"
+                className="rounded-md border border-amber-500/50 bg-amber-50 px-3 py-2 text-[13px] font-bold text-amber-900 hover:bg-amber-100"
               >
                 Unlock
               </button>
@@ -233,14 +241,14 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
             data-testid="server-insights-refresh"
             disabled={loading || !connectionId || needsPassword || !support.query}
             onClick={() => void load()}
-            className="inline-flex items-center gap-1.5 rounded-md border border-white/15 bg-white/5 px-3 py-2 text-[13px] font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-40"
+            className="inline-flex items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-50 px-3 py-2 text-[13px] font-bold text-amber-900 hover:bg-amber-100 disabled:opacity-40"
           >
             {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
             Refresh
           </button>
         </div>
 
-        <div className="flex gap-1 overflow-x-auto border-b border-white/10 px-3 pt-2">
+        <div className="flex gap-1 overflow-x-auto border-b border-slate-200 bg-slate-50 px-3 pt-2">
           {TABS.map((t) => {
             const active = tab === t.id;
             return (
@@ -249,10 +257,10 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
                 type="button"
                 data-testid={`server-insights-tab-${t.id}`}
                 onClick={() => setTab(t.id)}
-                className={`inline-flex items-center gap-1.5 rounded-t-md px-3 py-2 text-[12px] font-semibold ${
+                className={`inline-flex items-center gap-1.5 rounded-t-md px-3 py-2 text-[12px] font-bold ${
                   active
-                    ? 'bg-white/10 text-sky-300 border border-b-0 border-white/15'
-                    : 'text-slate-400 hover:text-slate-200'
+                    ? 'border border-b-0 border-slate-200 bg-white text-amber-800'
+                    : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
                 {t.icon}
@@ -262,21 +270,21 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
           })}
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto px-4 py-3">
-          <p className="mb-3 text-[12px] text-slate-400">{support.hint}</p>
+        <div className="min-h-0 flex-1 overflow-auto bg-white px-4 py-3">
+          <p className="mb-3 text-[12px] text-slate-600">{support.hint}</p>
           {error && (
-            <div className="mb-3 rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-[13px] text-rose-200">
+            <div className="mb-3 rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-[13px] text-rose-800">
               {error}
             </div>
           )}
           {!support.query && (
-            <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[13px] text-amber-100">
+            <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[13px] text-amber-900">
               This dialect does not expose a built-in probe for this view.
             </div>
           )}
           {loading && (
-            <div className="flex items-center gap-2 text-[13px] text-slate-300">
-              <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+            <div className="flex items-center gap-2 text-[13px] font-semibold text-slate-700">
+              <Loader2 className="h-4 w-4 animate-spin text-amber-600" /> Loading…
             </div>
           )}
 
@@ -290,13 +298,13 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
                 <MetricCard label="Waiting" value={data.pool.waitCount?.toLocaleString() ?? '—'} />
               </div>
               {data.pool.details.length > 0 && (
-                <div className="rounded-lg border border-white/10 overflow-hidden">
+                <div className="overflow-hidden rounded-lg border border-slate-200">
                   <table className="w-full text-left text-[12px]">
                     <tbody>
                       {data.pool.details.map((d) => (
-                        <tr key={d.key} className="border-t border-white/5">
-                          <td className="px-3 py-1.5 text-slate-400">{d.key}</td>
-                          <td className="px-3 py-1.5 text-slate-100 font-mono">{d.value}</td>
+                        <tr key={d.key} className="border-t border-slate-100">
+                          <td className="px-3 py-1.5 font-semibold text-slate-500">{d.key}</td>
+                          <td className="px-3 py-1.5 font-mono text-slate-900">{d.value}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -307,16 +315,16 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
           )}
 
           {!loading && data?.kind === 'sessions' && (
-            <div className="overflow-auto rounded-lg border border-white/10">
+            <div className="overflow-auto rounded-lg border border-slate-200">
               <table className="min-w-full text-left text-[12px]">
-                <thead className="bg-white/5 text-slate-400">
+                <thead className="bg-slate-50 text-slate-600">
                   <tr>
-                    <th className="px-3 py-2 font-semibold">Session</th>
-                    <th className="px-3 py-2 font-semibold">User</th>
-                    <th className="px-3 py-2 font-semibold">Host</th>
-                    <th className="px-3 py-2 font-semibold">DB</th>
-                    <th className="px-3 py-2 font-semibold">State</th>
-                    <th className="px-3 py-2 font-semibold">Query</th>
+                    <th className="px-3 py-2 font-bold">Session</th>
+                    <th className="px-3 py-2 font-bold">User</th>
+                    <th className="px-3 py-2 font-bold">Host</th>
+                    <th className="px-3 py-2 font-bold">DB</th>
+                    <th className="px-3 py-2 font-bold">State</th>
+                    <th className="px-3 py-2 font-bold">Query</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -328,13 +336,16 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
                     </tr>
                   ) : (
                     (data.sessions ?? []).map((s) => (
-                      <tr key={s.sessionId} className="border-t border-white/5 align-top">
-                        <td className="px-3 py-1.5 font-mono text-slate-200">{s.sessionId}</td>
-                        <td className="px-3 py-1.5 text-slate-200">{s.userName || '—'}</td>
-                        <td className="px-3 py-1.5 text-slate-400">{s.clientHost || '—'}</td>
-                        <td className="px-3 py-1.5 text-slate-400">{s.databaseName || '—'}</td>
-                        <td className="px-3 py-1.5 text-slate-300">{s.state || '—'}</td>
-                        <td className="max-w-[280px] truncate px-3 py-1.5 font-mono text-slate-400" title={s.queryText || ''}>
+                      <tr key={s.sessionId} className="border-t border-slate-100 align-top">
+                        <td className="px-3 py-1.5 font-mono text-slate-900">{s.sessionId}</td>
+                        <td className="px-3 py-1.5 font-semibold text-slate-800">{s.userName || '—'}</td>
+                        <td className="px-3 py-1.5 text-slate-600">{s.clientHost || '—'}</td>
+                        <td className="px-3 py-1.5 text-slate-600">{s.databaseName || '—'}</td>
+                        <td className="px-3 py-1.5 text-slate-700">{s.state || '—'}</td>
+                        <td
+                          className="max-w-[280px] truncate px-3 py-1.5 font-mono text-slate-600"
+                          title={s.queryText || ''}
+                        >
                           {s.queryText || '—'}
                         </td>
                       </tr>
@@ -367,7 +378,7 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
                 />
               </div>
               {data.system.serverVersion && (
-                <p className="text-[12px] text-slate-400 break-all">{data.system.serverVersion}</p>
+                <p className="break-all text-[12px] text-slate-600">{data.system.serverVersion}</p>
               )}
             </div>
           )}
@@ -379,19 +390,19 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
                 value={sizeFilter}
                 onChange={(e) => setSizeFilter(e.target.value)}
                 placeholder="Filter tables / indexes…"
-                className="w-full rounded-md border border-white/15 bg-slate-900 px-3 py-2 text-[13px] text-slate-100"
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-[13px] text-slate-900 outline-none focus:border-amber-500"
               />
-              <div className="overflow-auto rounded-lg border border-white/10">
+              <div className="overflow-auto rounded-lg border border-slate-200">
                 <table className="min-w-full text-left text-[12px]">
-                  <thead className="bg-white/5 text-slate-400">
+                  <thead className="bg-slate-50 text-slate-600">
                     <tr>
-                      <th className="px-3 py-2 font-semibold">Object</th>
-                      <th className="px-3 py-2 font-semibold">Type</th>
-                      <th className="px-3 py-2 font-semibold">Table</th>
-                      <th className="px-3 py-2 font-semibold text-right">Total</th>
-                      <th className="px-3 py-2 font-semibold text-right">Data</th>
-                      <th className="px-3 py-2 font-semibold text-right">Index</th>
-                      <th className="px-3 py-2 font-semibold text-right">Rows</th>
+                      <th className="px-3 py-2 font-bold">Object</th>
+                      <th className="px-3 py-2 font-bold">Type</th>
+                      <th className="px-3 py-2 font-bold">Table</th>
+                      <th className="px-3 py-2 font-bold text-right">Total</th>
+                      <th className="px-3 py-2 font-bold text-right">Data</th>
+                      <th className="px-3 py-2 font-bold text-right">Index</th>
+                      <th className="px-3 py-2 font-bold text-right">Rows</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -403,23 +414,23 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
                       </tr>
                     ) : (
                       filteredSizes.map((r, i) => (
-                        <tr key={`${r.schemaName}-${r.objectName}-${i}`} className="border-t border-white/5">
-                          <td className="px-3 py-1.5 text-slate-100">
+                        <tr key={`${r.schemaName}-${r.objectName}-${i}`} className="border-t border-slate-100">
+                          <td className="px-3 py-1.5 font-semibold text-slate-900">
                             {r.schemaName ? `${r.schemaName}.` : ''}
                             {r.objectName}
                           </td>
-                          <td className="px-3 py-1.5 text-slate-400">{r.objectType}</td>
-                          <td className="px-3 py-1.5 text-slate-400">{r.tableName || '—'}</td>
-                          <td className="px-3 py-1.5 text-right tabular-nums text-slate-200">
+                          <td className="px-3 py-1.5 text-slate-600">{r.objectType}</td>
+                          <td className="px-3 py-1.5 text-slate-600">{r.tableName || '—'}</td>
+                          <td className="px-3 py-1.5 text-right tabular-nums font-semibold text-slate-900">
                             {formatBytes(r.totalBytes)}
                           </td>
-                          <td className="px-3 py-1.5 text-right tabular-nums text-slate-400">
+                          <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">
                             {formatBytes(r.dataBytes)}
                           </td>
-                          <td className="px-3 py-1.5 text-right tabular-nums text-slate-400">
+                          <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">
                             {formatBytes(r.indexBytes)}
                           </td>
-                          <td className="px-3 py-1.5 text-right tabular-nums text-slate-400">
+                          <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">
                             {r.rowCount?.toLocaleString() ?? '—'}
                           </td>
                         </tr>
@@ -432,8 +443,8 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
           )}
 
           {!loading && !error && support.query && !data && (
-            <div className="flex items-center gap-2 text-[13px] text-slate-500">
-              <Database className="h-4 w-4" /> Select a connection and refresh.
+            <div className="flex items-center gap-2 text-[13px] font-semibold text-slate-500">
+              <Database className="h-4 w-4 text-amber-600" /> Select a connection and refresh.
             </div>
           )}
         </div>
