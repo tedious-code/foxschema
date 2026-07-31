@@ -7,9 +7,12 @@ export type ToastItem = {
   title: string;
   body?: string;
   tone: ToastTone;
-  /** Optional primary action (e.g. open release notes). */
+  /** Optional link action (opens in new tab). */
   actionLabel?: string;
   actionHref?: string;
+  /** Optional button action (in-app handler). Prefer over href when both set. */
+  actionButtonLabel?: string;
+  onAction?: () => void;
   /** Auto-dismiss after ms; 0 = sticky until closed. */
   durationMs: number;
 };
@@ -34,6 +37,8 @@ export const useToastStore = create<ToastState>((set) => ({
       tone: toast.tone,
       actionLabel: toast.actionLabel,
       actionHref: toast.actionHref,
+      actionButtonLabel: toast.actionButtonLabel,
+      onAction: toast.onAction,
     };
     set((s) => ({ toasts: [...s.toasts.slice(-4), item] }));
     return id;

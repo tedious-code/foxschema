@@ -37,16 +37,31 @@ const ToastCard: React.FC<{ item: ToastItem }> = ({ item }) => {
           {item.body && (
             <p className="mt-0.5 text-xs text-slate-400 leading-relaxed">{item.body}</p>
           )}
-          {item.actionHref && item.actionLabel && (
-            <a
-              href={item.actionHref}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-2 inline-flex text-xs font-semibold text-amber-300 hover:text-amber-200 hover:underline"
-            >
-              {item.actionLabel}
-            </a>
-          )}
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+            {item.onAction && item.actionButtonLabel && (
+              <button
+                type="button"
+                data-testid="toast-action-btn"
+                onClick={() => {
+                  dismiss(item.id);
+                  item.onAction?.();
+                }}
+                className="text-xs font-semibold text-amber-300 hover:text-amber-200 hover:underline"
+              >
+                {item.actionButtonLabel}
+              </button>
+            )}
+            {item.actionHref && item.actionLabel && (
+              <a
+                href={item.actionHref}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs font-semibold text-slate-400 hover:text-slate-200 hover:underline"
+              >
+                {item.actionLabel}
+              </a>
+            )}
+          </div>
         </div>
         <button
           type="button"

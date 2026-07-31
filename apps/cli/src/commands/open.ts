@@ -140,6 +140,8 @@ export async function runOpen(opts: OpenOptions = {}): Promise<void> {
       // Compare against the installed npm package version; feed defaults to
       // registry.npmjs.org/foxschema/latest inside the web update checker.
       APP_VERSION: readCliPackageVersion(),
+      // Enable one-click "Update now" (npm install -g foxschema@latest).
+      FOXSCHEMA_SELF_UPDATE: process.env.FOXSCHEMA_SELF_UPDATE || 'true',
     },
   });
 

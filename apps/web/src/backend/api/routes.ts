@@ -43,7 +43,14 @@ import { createMetadataStore } from '../database/stores/registry';
 import { keySchemeInfo } from '../cores/crypto';
 import type { AuthedRequest } from './auth.routes';
 import { denyUnless, requirePermissions } from './rbac.middleware';
-import { checkForUpdate } from '../modules/updates.module';
+import {
+  applyNpmGlobalUpdate,
+  canSelfUpdate,
+  checkForUpdate,
+  clearUpdateCache,
+  MANUAL_UPDATE_COMMAND,
+  scheduleUiRelaunch,
+} from '../modules/updates.module';
 
 /**
  * A connection reference: either a saved connection (resolved server-side so the
@@ -127,9 +134,33 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     res.json({ ok: true });
   });
 
-  // In-app update check — compares the running version against a release feed.
+  // In-app update check — compares the running version against npm (default).
   router.get('/updates/check', async (_req: Request, res: Response) => {
     res.json(await checkForUpdate());
+  });
+
+  // One-click self-update for local npm CLI installs (`foxschema open`).
+  // Runs `npm install -g foxschema@latest`, then relaunches the UI server.
+  router.post('/updates/apply', async (_req: Request, res: Response) => {
+    if (!canSelfUpdate()) {
+      res.status(403).json({
+        ok: false,
+        error:
+          'Automatic update is only available for local CLI installs. ' +
+          `Run in a terminal: ${MANUAL_UPDATE_COMMAND}`,
+        upgradeCommand: MANUAL_UPDATE_COMMAND,
+      });
+      return;
+    }
+    const result = await applyNpmGlobalUpdate();
+    if (!result.ok) {
+      res.status(500).json(result);
+      return;
+    }
+    clearUpdateCache();
+    res.json(result);
+    // Respond first, then exit + relaunch so the client can start polling.
+    scheduleUiRelaunch();
   });
 
   // First-open email subscriber wizard lives on public /api/signup/* (see

@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -6,6 +7,8 @@ import { fileURLToPath } from 'node:url';
 export const NPM_PACKAGE = 'foxschema';
 /** Default feed — npm dist-tag `latest` document. */
 export const DEFAULT_UPDATE_FEED_URL = `https://registry.npmjs.org/${NPM_PACKAGE}/latest`;
+/** Command shown when one-click update is unavailable (Docker / locked-down hosts). */
+export const MANUAL_UPDATE_COMMAND = `npm install -g ${NPM_PACKAGE}@latest`;
 
 export type UpdateInfo = {
   current: string;
@@ -15,6 +18,10 @@ export type UpdateInfo = {
   notes?: string;
   configured: boolean;
   checkedAt: number;
+  /** True when this process can run `npm install -g foxschema@latest` for the user. */
+  canSelfUpdate: boolean;
+  /** Suggested terminal command (always provided for copy/paste). */
+  upgradeCommand: string;
 };
 
 const UPDATE_TTL_MS = 60 * 60 * 1000;
@@ -110,6 +117,32 @@ export function clearUpdateCache(): void {
 }
 
 /**
+ * One-click self-update is for local npm CLI installs (`foxschema open`).
+ * Disabled in Docker / when FOXSCHEMA_SELF_UPDATE=false / multi-user servers.
+ */
+export function canSelfUpdate(env: NodeJS.ProcessEnv = process.env): boolean {
+  const flag = (env.FOXSCHEMA_SELF_UPDATE || '').trim().toLowerCase();
+  if (flag === 'false' || flag === '0' || flag === 'off' || flag === 'none') return false;
+  if (flag === 'true' || flag === '1' || flag === 'on') return true;
+  // CLI open sets this; without it, only allow open single-user non-Docker hosts.
+  if (env.LOCAL_SINGLE_USER === 'false') return false;
+  try {
+    if (existsSync('/.dockerenv')) return false;
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
+function withMeta(info: Omit<UpdateInfo, 'canSelfUpdate' | 'upgradeCommand'>): UpdateInfo {
+  return {
+    ...info,
+    canSelfUpdate: canSelfUpdate(),
+    upgradeCommand: MANUAL_UPDATE_COMMAND,
+  };
+}
+
+/**
  * Check npm (default) or a custom UPDATE_FEED_URL for a newer version.
  * Accepts npm registry `/latest`, `{ version, url, notes }`, or GitHub releases JSON.
  */
@@ -121,13 +154,13 @@ export async function checkForUpdate(
   }
   const current = resolveAppVersion();
   const feed = resolveUpdateFeedUrl();
-  const base: UpdateInfo = {
+  const base = withMeta({
     current,
     latest: current,
     updateAvailable: false,
     configured: !!feed,
     checkedAt: Date.now(),
-  };
+  });
   if (!feed) return (updateCache = base);
 
   try {
@@ -137,9 +170,94 @@ export async function checkForUpdate(
     if (!res.ok) throw new Error(String(res.status));
     const data = (await res.json()) as FeedJson;
     const parsed = parseUpdateFeed(data, feed, current);
-    return (updateCache = { ...base, ...parsed });
+    return (updateCache = withMeta({ ...base, ...parsed }));
   } catch {
     // Don't cache transient failures (network / registry blip).
     return base;
   }
+}
+
+export type ApplyUpdateResult =
+  | { ok: true; stdout: string; restarting: boolean }
+  | { ok: false; error: string; stdout?: string; stderr?: string };
+
+/**
+ * Run `npm install -g foxschema@latest` (same outcome as `npm update -g foxschema`
+ * when latest is newer). Caller must have already checked canSelfUpdate().
+ */
+export function applyNpmGlobalUpdate(
+  spawnImpl: typeof spawn = spawn
+): Promise<ApplyUpdateResult> {
+  return new Promise((resolve) => {
+    const args = ['install', '-g', `${NPM_PACKAGE}@latest`];
+    const proc = spawnImpl('npm', args, {
+      stdio: 'pipe',
+      env: { ...process.env, npm_config_ignore_scripts: '' },
+    });
+    let stdout = '';
+    let stderr = '';
+    proc.stdout?.on('data', (d: Buffer) => {
+      stdout += d.toString();
+    });
+    proc.stderr?.on('data', (d: Buffer) => {
+      stderr += d.toString();
+    });
+    proc.on('close', (code: number | null) => {
+      if (code !== 0) {
+        const detail = (stderr || stdout).trim().slice(-2000);
+        resolve({
+          ok: false,
+          error:
+            `npm install -g ${NPM_PACKAGE}@latest failed (exit ${code})` +
+            (detail ? `: ${detail}` : '') +
+            `. Try manually: ${MANUAL_UPDATE_COMMAND}`,
+          stdout,
+          stderr,
+        });
+        return;
+      }
+      resolve({ ok: true, stdout, restarting: true });
+    });
+    proc.on('error', (err: Error) => {
+      resolve({
+        ok: false,
+        error: `Failed to run npm (${err.message}). Try manually: ${MANUAL_UPDATE_COMMAND}`,
+      });
+    });
+  });
+}
+
+/**
+ * After a successful global install, relaunch `foxschema open` on the same port
+ * and exit this process so the new package binary / ui-dist is used.
+ */
+export function scheduleUiRelaunch(opts?: {
+  port?: number;
+  spawnImpl?: typeof spawn;
+  exitFn?: (code: number) => void;
+  delayMs?: number;
+}): void {
+  const port = opts?.port ?? (Number(process.env.API_PORT || process.env.PORT) || 3210);
+  const spawnImpl = opts?.spawnImpl ?? spawn;
+  const exitFn = opts?.exitFn ?? ((code) => process.exit(code));
+  const delayMs = opts?.delayMs ?? 400;
+  const bin = process.env.FOXSCHEMA_BIN || 'foxschema';
+
+  // Detached shell so relaunch survives our exit. --no-open: browser tab stays;
+  // the SPA reloads once /api/health is back.
+  if (process.platform === 'win32') {
+    spawnImpl(
+      'cmd.exe',
+      ['/d', '/s', '/c', `timeout /t 2 /nobreak >nul & "${bin}" open --port ${port} --no-open`],
+      { detached: true, stdio: 'ignore', windowsHide: true }
+    ).unref();
+  } else {
+    spawnImpl(
+      'sh',
+      ['-c', `sleep 2; exec "${bin}" open --port ${port} --no-open`],
+      { detached: true, stdio: 'ignore' }
+    ).unref();
+  }
+
+  setTimeout(() => exitFn(0), delayMs);
 }
