@@ -23,6 +23,7 @@ import {
   Cpu,
   HardDrive,
   Activity,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { useSyncStore } from '../../store/useSyncStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
@@ -49,7 +50,9 @@ import {
 import { WriteConfirmDialog } from './WriteConfirmDialog';
 import { IndexManagementModal } from '../utilities/IndexManagementModal';
 import { CloneTableModal } from '../utilities/CloneTableModal';
+import { FileQueryModal } from '../utilities/FileQueryModal';
 import { ServerInsightsModal, type ServerInsightsTab } from '../utilities/ServerInsightsModal';
+import { FileImportsPanel } from './FileImportsPanel';
 import type { RevealRequest } from './SqlEditorPane';
 
 const SqlEditorPane = lazy(() => import('./SqlEditorPane'));
@@ -158,6 +161,8 @@ export const SqlEditorView: React.FC = () => {
   const [secretsRefreshing, setSecretsRefreshing] = useState(false);
   const [showIndexManagement, setShowIndexManagement] = useState(false);
   const [showCloneTable, setShowCloneTable] = useState(false);
+  const [showFileQuery, setShowFileQuery] = useState(false);
+  const [fileImportsKey, setFileImportsKey] = useState(0);
   const [serverInsightsTab, setServerInsightsTab] = useState<ServerInsightsTab | null>(null);
 
   const onSecretsRefresh = useCallback(async () => {
@@ -460,6 +465,15 @@ export const SqlEditorView: React.FC = () => {
                 </button>
                 <button
                   type="button"
+                  data-testid="utilities-query-files"
+                  onClick={() => setShowFileQuery(true)}
+                  className={UTIL_MENU_BTN}
+                >
+                  <FileSpreadsheet className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
+                  Query files
+                </button>
+                <button
+                  type="button"
                   data-testid="utilities-connection-pool"
                   onClick={() => setServerInsightsTab('pool')}
                   className={UTIL_MENU_BTN}
@@ -495,6 +509,22 @@ export const SqlEditorView: React.FC = () => {
                   Table & Index Size
                 </button>
               </div>
+            </SqlSidebarSection>
+            )}
+            {canEditorUtilities && canUtilityAccess && (
+            <SqlSidebarSection
+              id="files"
+              title="Files"
+              icon={<FileSpreadsheet className="text-[#f59e0b]" strokeWidth={SQL_ICON_STROKE} />}
+              open={sidebarOpen.files}
+              onToggle={() => toggleSidebar('files')}
+              height={sectionHeights.files}
+              onResizeHeight={(h) => setSectionHeight('files', h)}
+            >
+              <FileImportsPanel
+                refreshKey={fileImportsKey}
+                onImportClick={() => setShowFileQuery(true)}
+              />
             </SqlSidebarSection>
             )}
             {canEditorSchema && (
@@ -765,6 +795,11 @@ export const SqlEditorView: React.FC = () => {
         onClose={() => setShowIndexManagement(false)}
       />
       <CloneTableModal open={showCloneTable} onClose={() => setShowCloneTable(false)} />
+      <FileQueryModal
+        open={showFileQuery}
+        onClose={() => setShowFileQuery(false)}
+        onImported={() => setFileImportsKey((k) => k + 1)}
+      />
       <ServerInsightsModal
         open={serverInsightsTab != null}
         initialTab={serverInsightsTab ?? 'pool'}

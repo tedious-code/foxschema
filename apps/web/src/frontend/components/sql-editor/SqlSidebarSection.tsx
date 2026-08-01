@@ -11,6 +11,7 @@ export type SidebarSectionId =
   | 'variables'
   | 'vault'
   | 'utilities'
+  | 'files'
   | 'schema';
 
 const DEFAULT_OPEN: Record<SidebarSectionId, boolean> = {
@@ -19,6 +20,7 @@ const DEFAULT_OPEN: Record<SidebarSectionId, boolean> = {
   variables: true,
   vault: true,
   utilities: true,
+  files: true,
   schema: true,
 };
 
@@ -28,6 +30,7 @@ const DEFAULT_HEIGHTS: Record<SidebarSectionId, number> = {
   variables: 140,
   vault: 160,
   utilities: 280,
+  files: 180,
   schema: 220,
 };
 
@@ -46,6 +49,7 @@ function loadOpen(): Record<SidebarSectionId, boolean> {
       // Prefer `vault`; accept legacy `secrets` key from older localStorage.
       vault: parsed.vault ?? (parsed as { secrets?: boolean }).secrets ?? true,
       utilities: parsed.utilities ?? true,
+      files: parsed.files ?? true,
       schema: parsed.schema ?? true,
     };
   } catch {
@@ -71,6 +75,7 @@ function loadHeights(): Record<SidebarSectionId, number> {
         DEFAULT_HEIGHTS.vault
       ),
       utilities: clamp(parsed.utilities, DEFAULT_HEIGHTS.utilities),
+      files: clamp(parsed.files, DEFAULT_HEIGHTS.files),
       schema: clamp(parsed.schema, DEFAULT_HEIGHTS.schema),
     };
   } catch {
@@ -127,7 +132,7 @@ export function useSidebarSectionHeights(): [
 
 /**
  * Collapsible block for the SQL Editor left sidebar
- * (Destinations / Bookmarks / Variables / Secrets / Utilities / Schema).
+ * (Destinations / Bookmarks / Variables / Secrets / Utilities / Files / Schema).
  * Open sections are height-resizable via the bottom grip.
  */
 export const SqlSidebarSection: React.FC<{

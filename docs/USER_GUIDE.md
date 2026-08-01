@@ -144,12 +144,23 @@ Tips:
   fragmentation %, fetch fragmentation in batch, then defragment selected indexes
   or all filtered rows. In **Edit table**, the index form opens under the selected
   index (no jump to a form at the bottom of the section).
-- **Utilities → Clone Table** (sidebar, or **Clone** on a table in Schema) —
-  archive a huge table as `name_1` / next free `name_N` (or a fixed starting
-  number), then recreate an empty table with the original name and columns so
-  apps keep working. Toggle **Keep indexes** and **Foreign keys (auto)** for the
-  new table; Insert SQL or Apply. Inbound FKs from other tables still point at
-  the archive until you update them — then you can drop history safely.
+- **Utilities → Clone Table** — archive a huge table as `name_1` / next free
+  `name_N` (or a fixed starting number), then recreate an empty table with the
+  original name and columns so apps keep working. Toggle **Keep indexes** and
+  **Foreign keys (auto)** for the new table; Insert SQL or Apply. Inbound FKs
+  from other tables still point at the archive until you update them — then you
+  can drop history safely.
+- **Utilities → Query files** / **Files** sidebar — import **CSV/TSV**
+  (delimiter: comma, tab, semicolon, pipe, or custom), **JSON** (array or
+  NDJSON), or **fixed-width text** (column start/length offsets) into a
+  temporary SQLite database, then run normal SQL against it. Fox saves a
+  short-lived `Files: …` credential and checks it in Destinations. Imports
+  accumulate by default so you can reuse them; open the **Files** sidebar to
+  list tables, click one to re-select that file DB and load a sample SELECT,
+  delete a single import, or clear all. **Replace previous file imports**
+  (off by default) deletes earlier `Files:` credentials when you import a new
+  file; **Clear file imports** removes them without importing. Temp DBs expire
+  after about 24 hours.
 - **Data peek** — two ways in:
   - **Schema:** hold **Cmd** (macOS) or **Ctrl** (Windows/Linux) and click a
     table, view or MQT to see its rows without writing a query.
