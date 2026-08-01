@@ -154,7 +154,9 @@ Tips:
   semicolon, pipe, or custom), **JSON** (array or NDJSON), or **fixed-width
   text** (column start/length offsets) into a temporary SQLite database, then
   run normal SQL against it. Fox saves a short-lived `Files: …` credential and
-  checks it in Destinations.
+  checks it in Destinations. **Replace previous file imports** (on by default)
+  deletes earlier `Files:` credentials and temp tables when you import a new
+  file; **Clear file imports** removes them without importing.
 - **Data peek** — two ways in:
   - **Schema:** hold **Cmd** (macOS) or **Ctrl** (Windows/Linux) and click a
     table, view or MQT to see its rows without writing a query.

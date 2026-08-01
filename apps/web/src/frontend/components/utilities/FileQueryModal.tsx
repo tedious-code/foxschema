@@ -6,13 +6,13 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { FileSpreadsheet, Loader2, X } from 'lucide-react';
 import {
+  clearFileImports,
   importFileForQuery,
   type FileQueryFormat,
   type TextOffsetColumn,
 } from '../../api/fileQueryApi';
 import { useSyncStore } from '../../store/useSyncStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
-import { insertAtCursor } from '../sql-editor/sqlEditorBridge';
 import { SQL_ICON_STROKE } from '../sql-editor/sqlIconStyle';
 import { toast } from '../../store/toastStore';
 
@@ -25,6 +25,23 @@ const EMPTY_OFFSETS: TextOffsetColumn[] = [
   { name: 'col1', start: 0, length: 10 },
   { name: 'col2', start: 10, length: 20 },
 ];
+
+/** Drop removed Files: credentials from schema cache + destination checklists. */
+function scrubRemovedFileConnections(removedIds: string[]): void {
+  if (!removedIds.length) return;
+  const drop = new Set(removedIds);
+  const state = useSqlEditorStore.getState();
+  const schemaCache = { ...state.schemaCache };
+  for (const id of removedIds) delete schemaCache[id];
+  useSqlEditorStore.setState({
+    schemaCache,
+    sharedConnectionIds: state.sharedConnectionIds.filter((id) => !drop.has(id)),
+    tabs: state.tabs.map((t) => ({
+      ...t,
+      selectedConnectionIds: t.selectedConnectionIds.filter((id) => !drop.has(id)),
+    })),
+  });
+}
 
 export const FileQueryModal: React.FC<Props> = ({ open, onClose }) => {
   const loadConnections = useSyncStore((s) => s.loadConnections);
@@ -44,6 +61,7 @@ export const FileQueryModal: React.FC<Props> = ({ open, onClose }) => {
   const [offsetsText, setOffsetsText] = useState(
     EMPTY_OFFSETS.map((c) => `${c.name},${c.start},${c.length}`).join('\n')
   );
+  const [replacePrevious, setReplacePrevious] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -105,10 +123,12 @@ export const FileQueryModal: React.FC<Props> = ({ open, onClose }) => {
           format === 'text'
             ? { skipLines, columns: parseOffsets() }
             : undefined,
+        replacePrevious,
       };
       const res = await importFileForQuery(body);
       if (!res.ok || !res.connection) throw new Error(res.error || 'Import failed');
 
+      scrubRemovedFileConnections(res.removedConnectionIds ?? []);
       await loadConnections();
       // Point Destinations at only this temp DB so Run doesn't hit other file creds.
       const store = useSqlEditorStore.getState();
@@ -127,18 +147,44 @@ export const FileQueryModal: React.FC<Props> = ({ open, onClose }) => {
       }
       void store.ensureSchema(res.connection.id);
       if (res.sampleSql) {
-        const tab = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
-        if (!tab?.sql?.trim()) setSql(res.sampleSql);
-        else insertAtCursor(`\n${res.sampleSql}`);
+        // Replace editor SQL with the new sample so old table names don't linger.
+        setSql(res.sampleSql);
       }
+      const cleared =
+        (res.removedConnectionIds?.length ?? 0) > 0
+          ? ` Cleared ${res.removedConnectionIds!.length} earlier file import(s).`
+          : '';
       toast({
         tone: 'success',
         title: `Loaded ${res.rowCount ?? 0} row(s)`,
-        body: `"${res.connection.name}" is checked — run the sample SELECT.`,
+        body: `"${res.connection.name}" is checked — run the sample SELECT.${cleared}`,
       });
       onClose();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Import failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onClearImports = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await clearFileImports();
+      if (!res.ok) throw new Error(res.error || 'Clear failed');
+      scrubRemovedFileConnections(res.removedConnectionIds ?? []);
+      await loadConnections();
+      toast({
+        tone: 'success',
+        title: 'File imports cleared',
+        body:
+          (res.removedConnectionIds?.length ?? 0) === 0
+            ? 'No previous Query-files credentials to remove.'
+            : `Removed ${res.removedConnectionIds!.length} credential(s) and ${res.removedFiles ?? 0} temp DB file(s).`,
+      });
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Clear failed');
     } finally {
       setBusy(false);
     }
@@ -347,6 +393,23 @@ export const FileQueryModal: React.FC<Props> = ({ open, onClose }) => {
             />
           </label>
 
+          <label className="flex items-start gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              data-testid="file-query-replace-previous"
+              checked={replacePrevious}
+              onChange={(e) => setReplacePrevious(e.target.checked)}
+              className="accent-amber-500 mt-0.5"
+            />
+            <span className="text-slate-400 leading-snug">
+              <span className="text-slate-200 font-semibold">Replace previous file imports</span>
+              <span className="block">
+                Deletes earlier <span className="font-mono text-slate-300">Files:</span> credentials
+                and their temp SQLite tables when you import a new file.
+              </span>
+            </span>
+          </label>
+
           {error && (
             <p className="text-rose-300 bg-rose-950/40 border border-rose-500/30 rounded-md px-2 py-1.5">
               {error}
@@ -354,24 +417,35 @@ export const FileQueryModal: React.FC<Props> = ({ open, onClose }) => {
           )}
         </div>
 
-        <div className="flex justify-end gap-2 px-4 py-3 border-t border-slate-800 bg-slate-950/40">
+        <div className="flex justify-between gap-2 px-4 py-3 border-t border-slate-800 bg-slate-950/40">
           <button
             type="button"
-            onClick={onClose}
-            className="px-3 py-1.5 rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800 font-semibold"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            data-testid="file-query-import"
+            data-testid="file-query-clear"
             disabled={busy}
-            onClick={() => void onImport()}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-amber-600/50 bg-amber-900/50 text-amber-100 hover:bg-amber-800/60 font-semibold disabled:opacity-50"
+            onClick={() => void onClearImports()}
+            className="px-3 py-1.5 rounded-md border border-slate-700 text-slate-400 hover:text-rose-300 hover:border-rose-500/40 hover:bg-rose-950/30 font-semibold disabled:opacity-50"
           >
-            {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-            Import & open
+            Clear file imports
           </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-3 py-1.5 rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800 font-semibold"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              data-testid="file-query-import"
+              disabled={busy}
+              onClick={() => void onImport()}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-amber-600/50 bg-amber-900/50 text-amber-100 hover:bg-amber-800/60 font-semibold disabled:opacity-50"
+            >
+              {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+              Import & open
+            </button>
+          </div>
         </div>
       </div>
     </div>,

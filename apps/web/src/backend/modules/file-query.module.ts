@@ -53,6 +53,27 @@ export function fileQueryTempDir(): string {
   return dir;
 }
 
+/** True when a connection path is one of our temp file-query SQLite DBs. */
+export function isFileQueryDbPath(path: string | undefined | null): boolean {
+  if (!path) return false;
+  const dir = fileQueryTempDir();
+  // Normalize for path prefix checks across platforms.
+  const norm = path.replace(/\\/g, '/');
+  const root = dir.replace(/\\/g, '/');
+  return norm.startsWith(`${root}/`) || norm.startsWith(`${root}`);
+}
+
+/** Best-effort delete of a temp file-query DB. */
+export function removeFileQueryDb(path: string): boolean {
+  if (!isFileQueryDbPath(path)) return false;
+  try {
+    unlinkSync(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Drop temp DBs older than TTL (best-effort). */
 export function cleanupStaleFileQueryDbs(now = Date.now()): number {
   const dir = fileQueryTempDir();
@@ -71,6 +92,11 @@ export function cleanupStaleFileQueryDbs(now = Date.now()): number {
     }
   }
   return removed;
+}
+
+/** Connection display names created by Query files (`Files: …`). */
+export function isFileQueryConnectionName(name: string | undefined | null): boolean {
+  return !!name && /^Files:\s+/i.test(name.trim());
 }
 
 export function sanitizeTableName(raw: string, fallback = 'data'): string {

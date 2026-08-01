@@ -1,12 +1,16 @@
 import { describe, expect, it, afterEach } from 'vitest';
 import { existsSync, unlinkSync } from 'node:fs';
 import {
+  isFileQueryConnectionName,
+  isFileQueryDbPath,
   materializeFileToSqlite,
   parseCsv,
   parseJsonRecords,
   parseTextOffsets,
   sanitizeTableName,
+  fileQueryTempDir,
 } from './file-query.module';
+import { join } from 'node:path';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
@@ -27,6 +31,13 @@ describe('file-query parsers', () => {
   it('sanitizeTableName strips extension and unsafe chars', () => {
     expect(sanitizeTableName('My Sales.csv')).toBe('My_Sales');
     expect(sanitizeTableName('123abc')).toBe('t_123abc');
+  });
+
+  it('detects file-query connection names and temp DB paths', () => {
+    expect(isFileQueryConnectionName('Files: people.csv')).toBe(true);
+    expect(isFileQueryConnectionName('Prod Postgres')).toBe(false);
+    expect(isFileQueryDbPath(join(fileQueryTempDir(), 'files-abc.db'))).toBe(true);
+    expect(isFileQueryDbPath('/var/data/app.db')).toBe(false);
   });
 
   it('parseCsv handles headers, quotes, and commas', () => {

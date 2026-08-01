@@ -17,6 +17,8 @@ export type FileQueryImportRequest = {
   csv?: { delimiter?: string; hasHeader?: boolean };
   json?: { mode?: 'array' | 'ndjson' };
   text?: { skipLines?: number; columns: TextOffsetColumn[] };
+  /** Default true — drop earlier Files: credentials + temp DBs. */
+  replacePrevious?: boolean;
 };
 
 export type FileQueryImportResponse = {
@@ -27,6 +29,9 @@ export type FileQueryImportResponse = {
   rowCount?: number;
   columns?: string[];
   sampleSql?: string;
+  replacedPrevious?: boolean;
+  removedConnectionIds?: string[];
+  removedFiles?: number;
 };
 
 export async function importFileForQuery(
@@ -43,4 +48,31 @@ export async function importFileForQuery(
     return { ok: false, error: data.error || `Import failed (HTTP ${res.status})` };
   }
   return data;
+}
+
+/** Remove all Query-files credentials and temp DBs for this user. */
+export async function clearFileImports(): Promise<{
+  ok: boolean;
+  error?: string;
+  removedConnectionIds?: string[];
+  removedFiles?: number;
+}> {
+  const res = await fetch(`${getApiBase()}/files/imports`, {
+    method: 'DELETE',
+    credentials: 'include',
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    error?: string;
+    removedConnectionIds?: string[];
+    removedFiles?: number;
+  };
+  if (!res.ok) {
+    return { ok: false, error: data.error || `Clear failed (HTTP ${res.status})` };
+  }
+  return {
+    ok: true,
+    removedConnectionIds: data.removedConnectionIds ?? [],
+    removedFiles: data.removedFiles ?? 0,
+  };
 }
