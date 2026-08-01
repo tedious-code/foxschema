@@ -17,7 +17,7 @@ export type FileQueryImportRequest = {
   csv?: { delimiter?: string; hasHeader?: boolean };
   json?: { mode?: 'array' | 'ndjson' };
   text?: { skipLines?: number; columns: TextOffsetColumn[] };
-  /** Default true — drop earlier Files: credentials + temp DBs. */
+  /** When true, drop earlier Files: credentials + temp DBs. Default false. */
   replacePrevious?: boolean;
 };
 
@@ -34,6 +34,14 @@ export type FileQueryImportResponse = {
   removedFiles?: number;
 };
 
+export type FileImportListItem = {
+  id: string;
+  name: string;
+  database?: string;
+  createdAt: string;
+  tables: string[];
+};
+
 export async function importFileForQuery(
   body: FileQueryImportRequest
 ): Promise<FileQueryImportResponse> {
@@ -48,6 +56,52 @@ export async function importFileForQuery(
     return { ok: false, error: data.error || `Import failed (HTTP ${res.status})` };
   }
   return data;
+}
+
+/** List reusable Query-files credentials + table names. */
+export async function listFileImports(): Promise<{
+  ok: boolean;
+  error?: string;
+  imports?: FileImportListItem[];
+}> {
+  const res = await fetch(`${getApiBase()}/files/imports`, {
+    credentials: 'include',
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    imports?: FileImportListItem[];
+    error?: string;
+  };
+  if (!res.ok) {
+    return { ok: false, error: data.error || `List failed (HTTP ${res.status})` };
+  }
+  return { ok: true, imports: Array.isArray(data.imports) ? data.imports : [] };
+}
+
+/** Remove one Query-files credential + temp DB. */
+export async function deleteFileImport(connectionId: string): Promise<{
+  ok: boolean;
+  error?: string;
+  removedConnectionIds?: string[];
+  removedFiles?: number;
+}> {
+  const res = await fetch(`${getApiBase()}/files/imports/${encodeURIComponent(connectionId)}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    error?: string;
+    removedConnectionIds?: string[];
+    removedFiles?: number;
+  };
+  if (!res.ok) {
+    return { ok: false, error: data.error || `Delete failed (HTTP ${res.status})` };
+  }
+  return {
+    ok: true,
+    removedConnectionIds: data.removedConnectionIds ?? [connectionId],
+    removedFiles: data.removedFiles ?? 0,
+  };
 }
 
 /** Remove all Query-files credentials and temp DBs for this user. */

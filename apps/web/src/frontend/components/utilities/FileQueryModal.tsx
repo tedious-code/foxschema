@@ -14,11 +14,14 @@ import {
 import { useSyncStore } from '../../store/useSyncStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
 import { SQL_ICON_STROKE } from '../sql-editor/sqlIconStyle';
+import { scrubRemovedFileConnections } from '../sql-editor/fileQueryEditorHelpers';
 import { toast } from '../../store/toastStore';
 
 interface Props {
   open: boolean;
   onClose: () => void;
+  /** Fired after a successful import so the Files sidebar can refresh. */
+  onImported?: () => void;
 }
 
 const EMPTY_OFFSETS: TextOffsetColumn[] = [
@@ -26,28 +29,9 @@ const EMPTY_OFFSETS: TextOffsetColumn[] = [
   { name: 'col2', start: 10, length: 20 },
 ];
 
-/** Drop removed Files: credentials from schema cache + destination checklists. */
-function scrubRemovedFileConnections(removedIds: string[]): void {
-  if (!removedIds.length) return;
-  const drop = new Set(removedIds);
-  const state = useSqlEditorStore.getState();
-  const schemaCache = { ...state.schemaCache };
-  for (const id of removedIds) delete schemaCache[id];
-  useSqlEditorStore.setState({
-    schemaCache,
-    sharedConnectionIds: state.sharedConnectionIds.filter((id) => !drop.has(id)),
-    tabs: state.tabs.map((t) => ({
-      ...t,
-      selectedConnectionIds: t.selectedConnectionIds.filter((id) => !drop.has(id)),
-    })),
-  });
-}
-
-export const FileQueryModal: React.FC<Props> = ({ open, onClose }) => {
+export const FileQueryModal: React.FC<Props> = ({ open, onClose, onImported }) => {
   const loadConnections = useSyncStore((s) => s.loadConnections);
   const setSql = useSqlEditorStore((s) => s.setSql);
-  const activeTabId = useSqlEditorStore((s) => s.activeTabId);
-  const tabs = useSqlEditorStore((s) => s.tabs);
   const shareDestinations = useSqlEditorStore((s) => s.shareDestinations);
 
   const [format, setFormat] = useState<FileQueryFormat>('csv');
@@ -61,7 +45,7 @@ export const FileQueryModal: React.FC<Props> = ({ open, onClose }) => {
   const [offsetsText, setOffsetsText] = useState(
     EMPTY_OFFSETS.map((c) => `${c.name},${c.start},${c.length}`).join('\n')
   );
-  const [replacePrevious, setReplacePrevious] = useState(true);
+  const [replacePrevious, setReplacePrevious] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -159,6 +143,7 @@ export const FileQueryModal: React.FC<Props> = ({ open, onClose }) => {
         title: `Loaded ${res.rowCount ?? 0} row(s)`,
         body: `"${res.connection.name}" is checked — run the sample SELECT.${cleared}`,
       });
+      onImported?.();
       onClose();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Import failed');
@@ -183,6 +168,7 @@ export const FileQueryModal: React.FC<Props> = ({ open, onClose }) => {
             ? 'No previous Query-files credentials to remove.'
             : `Removed ${res.removedConnectionIds!.length} credential(s) and ${res.removedFiles ?? 0} temp DB file(s).`,
       });
+      onImported?.();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Clear failed');
     } finally {
@@ -219,8 +205,8 @@ export const FileQueryModal: React.FC<Props> = ({ open, onClose }) => {
         <div className="px-4 py-3 space-y-3 text-xs text-slate-300 max-h-[70vh] overflow-y-auto">
           <p className="text-slate-400 leading-relaxed">
             Import CSV, JSON, or fixed-width text into a temporary SQLite database, then
-            run normal SQL against it in the editor. Files are kept under a temp folder
-            for about 24 hours.
+            run normal SQL against it in the editor. Imports stay in the Files sidebar
+            for reuse until you clear them (temp DBs expire after about 24 hours).
           </p>
 
           <label className="block space-y-1">

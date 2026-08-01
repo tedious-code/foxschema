@@ -1,6 +1,8 @@
 /**
  * Flat-file import → temp SQLite credential for SQL Editor queries.
  */
+import { createRequire } from 'node:module';
+import { existsSync } from 'node:fs';
 import { Router, Request, Response } from 'express';
 import type { AuthedRequest } from './auth.routes';
 import { requirePermissions } from './rbac.middleware';
@@ -16,10 +18,63 @@ import {
   type TextOffsetColumn,
 } from '../modules/file-query.module';
 
+const nodeRequire = createRequire(import.meta.url);
 const importLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30 });
 
 function asFormat(v: unknown): FileQueryFormat | null {
   return v === 'csv' || v === 'json' || v === 'text' ? v : null;
+}
+
+function listTablesInSqliteFile(dbPath: string): string[] {
+  if (!dbPath || !existsSync(dbPath)) return [];
+  try {
+    const Database = nodeRequire('better-sqlite3');
+    const Db = (Database.default ?? Database) as new (
+      path: string,
+      opts?: { readonly?: boolean; fileMustExist?: boolean }
+    ) => {
+      prepare: (sql: string) => { all: () => { name: string }[] };
+      close: () => void;
+    };
+    const db = new Db(dbPath, { readonly: true, fileMustExist: true });
+    try {
+      const rows = db
+        .prepare(
+          `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name`
+        )
+        .all();
+      return rows.map((r) => r.name);
+    } finally {
+      db.close();
+    }
+  } catch {
+    return [];
+  }
+}
+
+async function listFileImportConnections(connectionStore: ConnectionStore, userId: string) {
+  const list = await connectionStore.list(userId);
+  const out: {
+    id: string;
+    name: string;
+    database?: string;
+    createdAt: string;
+    tables: string[];
+  }[] = [];
+  for (const c of list) {
+    if (c.dialect !== 'sqlite') continue;
+    if (!isFileQueryConnectionName(c.name) && !isFileQueryDbPath(c.database)) continue;
+    const resolved = await connectionStore.resolve(userId, c.id);
+    const dbPath = resolved?.option.connectionString || resolved?.option.database || c.database;
+    out.push({
+      id: c.id,
+      name: c.name,
+      database: dbPath,
+      createdAt: c.createdAt,
+      tables: dbPath ? listTablesInSqliteFile(dbPath) : [],
+    });
+  }
+  return out;
 }
 
 /**
@@ -53,10 +108,28 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
   const router = Router();
 
   /**
+   * GET /api/files/imports — list reusable Query-files credentials + table names.
+   */
+  router.get(
+    '/imports',
+    requirePermissions('editor.access'),
+    async (req: Request, res: Response) => {
+      try {
+        const userId = (req as AuthedRequest).userId!;
+        const imports = await listFileImportConnections(connectionStore, userId);
+        res.json({ imports });
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'List failed';
+        res.status(500).json({ error: message });
+      }
+    }
+  );
+
+  /**
    * POST /api/files/import
    * Body: { format, fileName, content, tableName?, csv?, json?, text?, replacePrevious? }
    * → creates a temp SQLite DB + saved connection (dialect sqlite).
-   * By default replaces earlier Query-files imports for this user.
+   * Keeps earlier imports by default so they stay reusable in the editor.
    */
   router.post(
     '/import',
@@ -66,7 +139,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
       try {
         const body = req.body as Partial<FileQueryImportInput> & {
           contentBase64?: string;
-          /** When true (default), drop earlier Files: credentials + temp DBs. */
+          /** When true, drop earlier Files: credentials + temp DBs. Default false. */
           replacePrevious?: boolean;
         };
         const format = asFormat(body.format);
@@ -114,7 +187,8 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
           savePassword: true,
         });
 
-        const replacePrevious = body.replacePrevious !== false;
+        // Default keep prior imports so users can reuse them in the editor.
+        const replacePrevious = body.replacePrevious === true;
         const cleared = replacePrevious
           ? await clearPreviousFileImports(connectionStore, userId, connection.id)
           : { removedConnectionIds: [] as string[], removedFiles: 0 };
@@ -134,6 +208,43 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : 'Import failed';
         res.status(400).json({ ok: false, error: message });
+      }
+    }
+  );
+
+  /**
+   * DELETE /api/files/imports/:id — remove one Query-files credential + temp DB.
+   */
+  router.delete(
+    '/imports/:id',
+    importLimiter,
+    requirePermissions('editor.access'),
+    async (req: Request, res: Response) => {
+      try {
+        const userId = (req as AuthedRequest).userId!;
+        const id = String(req.params.id || '');
+        const resolved = await connectionStore.resolve(userId, id);
+        if (!resolved || resolved.dialect !== 'sqlite') {
+          res.status(404).json({ ok: false, error: 'File import not found' });
+          return;
+        }
+        const dbPath = resolved.option.connectionString || resolved.option.database;
+        const list = await connectionStore.list(userId);
+        const meta = list.find((c) => c.id === id);
+        if (!isFileQueryConnectionName(meta?.name) && !isFileQueryDbPath(dbPath)) {
+          res.status(400).json({ ok: false, error: 'Not a Query-files import' });
+          return;
+        }
+        const ok = await connectionStore.remove(userId, id);
+        if (!ok) {
+          res.status(404).json({ ok: false, error: 'File import not found' });
+          return;
+        }
+        const removedFile = dbPath ? removeFileQueryDb(dbPath) : false;
+        res.json({ ok: true, removedConnectionIds: [id], removedFiles: removedFile ? 1 : 0 });
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Delete failed';
+        res.status(500).json({ ok: false, error: message });
       }
     }
   );
