@@ -43,9 +43,12 @@ export type FileQueryImportResult = {
   connectionName: string;
 };
 
-const MAX_CONTENT_CHARS = 8_000_000;
-const MAX_ROWS = 200_000;
+/** In-request JSON / paste path. Larger files should use chunked upload sessions. */
+export const MAX_CONTENT_CHARS = 8_000_000;
+export const MAX_ROWS = 500_000;
 const TTL_MS = 24 * 60 * 60 * 1000;
+/** Multi-row VALUES batch size for local SQLite materialize. */
+const SQLITE_INSERT_BATCH = 200;
 
 export function fileQueryTempDir(): string {
   const dir = join(tmpdir(), 'foxschema-file-query');
@@ -331,7 +334,10 @@ function quoteIdent(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
-function loadSqlite(): new (path: string) => {
+function loadSqlite(): new (
+  path: string,
+  opts?: { readonly?: boolean; fileMustExist?: boolean }
+) => {
   exec: (sql: string) => void;
   prepare: (sql: string) => { run: (...args: unknown[]) => void };
   close: () => void;
@@ -345,16 +351,23 @@ function loadSqlite(): new (path: string) => {
   }
 }
 
-/**
- * Parse the file and write a temp SQLite database with one table.
- */
-export function materializeFileToSqlite(input: FileQueryImportInput): FileQueryImportResult {
-  if (!input?.content && input?.content !== '') throw new Error('File content is required');
-  if (input.content.length > MAX_CONTENT_CHARS) {
-    throw new Error(`File too large (max ${MAX_CONTENT_CHARS} characters)`);
-  }
+export type ParsedFileTable = {
+  tableName: string;
+  columns: string[];
+  matrix: unknown[][];
+  types: SqlType[];
+};
 
-  cleanupStaleFileQueryDbs();
+/** Parse file content into a padded row matrix (shared by SQLite + remote writers). */
+export function parseFileToTable(
+  input: FileQueryImportInput,
+  opts?: { maxChars?: number }
+): ParsedFileTable {
+  if (!input?.content && input?.content !== '') throw new Error('File content is required');
+  const maxChars = opts?.maxChars ?? MAX_CONTENT_CHARS;
+  if (input.content.length > maxChars) {
+    throw new Error(`File too large (max ${maxChars} characters)`);
+  }
 
   const tableName = sanitizeTableName(input.tableName || input.fileName || 'data');
   let columns: string[] = [];
@@ -385,53 +398,131 @@ export function materializeFileToSqlite(input: FileQueryImportInput): FileQueryI
     throw new Error(`Too many rows (max ${MAX_ROWS}). Split the file and import again.`);
   }
 
-  // Pad / trim rows to column width
-  matrix = matrix.map((r) => {
-    const out = columns.map((_, i) => (r as unknown[])[i] ?? null);
-    return out;
+  matrix = matrix.map((r) => columns.map((_, i) => (r as unknown[])[i] ?? null));
+  const types = columns.map((_, i) => inferType(matrix.map((r) => r[i])));
+  return { tableName, columns, matrix, types };
+}
+
+function bindRow(row: unknown[], types: SqlType[]): unknown[] {
+  return row.map((v, i) => {
+    if (v == null || v === '') return null;
+    if (types[i] === 'INTEGER') {
+      const n = typeof v === 'number' ? v : Number(String(v).trim());
+      return Number.isFinite(n) ? Math.trunc(n) : null;
+    }
+    if (types[i] === 'REAL') {
+      const n = typeof v === 'number' ? v : Number(String(v).trim());
+      return Number.isFinite(n) ? n : null;
+    }
+    if (typeof v === 'object') return JSON.stringify(v);
+    return String(v);
   });
+}
 
-  const types = columns.map((c, i) =>
-    inferType(matrix.map((r) => r[i]))
-  );
+/** Pick a free table name inside an existing SQLite file. */
+export function uniqueSqliteTableName(dbPath: string, desired: string): string {
+  const Database = loadSqlite();
+  const db = new Database(dbPath, { readonly: true, fileMustExist: true });
+  try {
+    const existing = new Set(
+      (
+        db
+          .prepare(
+            `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`
+          )
+          .all() as { name: string }[]
+      ).map((r) => r.name.toLowerCase())
+    );
+    let name = desired;
+    let n = 2;
+    while (existing.has(name.toLowerCase())) {
+      name = `${desired}_${n++}`.slice(0, 48);
+    }
+    return name;
+  } finally {
+    db.close();
+  }
+}
 
-  const id = randomUUID().replace(/-/g, '').slice(0, 12);
-  const dbPath = join(fileQueryTempDir(), `files-${id}.db`);
+/**
+ * Create/replace a table in a SQLite file using multi-row VALUES batches.
+ */
+export function writeTableToSqliteFile(
+  dbPath: string,
+  table: ParsedFileTable,
+  opts?: { replaceTable?: boolean; uniqueName?: boolean }
+): { tableName: string; rowCount: number } {
+  const tableName = opts?.uniqueName
+    ? uniqueSqliteTableName(dbPath, table.tableName)
+    : table.tableName;
   const Database = loadSqlite();
   const db = new Database(dbPath);
   try {
-    const colDefs = columns.map((c, i) => `${quoteIdent(c)} ${types[i]}`).join(', ');
-    db.exec(`CREATE TABLE ${quoteIdent(tableName)} (${colDefs})`);
-    if (matrix.length > 0) {
-      const placeholders = columns.map(() => '?').join(', ');
-      const insert = db.prepare(
-        `INSERT INTO ${quoteIdent(tableName)} (${columns.map(quoteIdent).join(', ')}) VALUES (${placeholders})`
-      );
-      db.exec('BEGIN');
-      for (const row of matrix) {
-        const bound = row.map((v, i) => {
-          if (v == null || v === '') return null;
-          if (types[i] === 'INTEGER') {
-            const n = typeof v === 'number' ? v : Number(String(v).trim());
-            return Number.isFinite(n) ? Math.trunc(n) : null;
-          }
-          if (types[i] === 'REAL') {
-            const n = typeof v === 'number' ? v : Number(String(v).trim());
-            return Number.isFinite(n) ? n : null;
-          }
-          if (typeof v === 'object') return JSON.stringify(v);
-          return String(v);
-        });
-        insert.run(...bound);
-      }
-      db.exec('COMMIT');
-    }
-  } catch (e) {
+    return writeTableWithDb(db, { ...table, tableName }, opts?.replaceTable);
+  } finally {
     try {
       db.close();
     } catch {
       /* ignore */
     }
+  }
+}
+
+function writeTableWithDb(
+  db: {
+    exec: (sql: string) => void;
+    prepare: (sql: string) => { run: (...args: unknown[]) => void };
+  },
+  table: ParsedFileTable,
+  replaceTable?: boolean
+): { tableName: string; rowCount: number } {
+  const { tableName, columns, matrix, types } = table;
+  if (replaceTable) {
+    db.exec(`DROP TABLE IF EXISTS ${quoteIdent(tableName)}`);
+  }
+  const colDefs = columns.map((c, i) => `${quoteIdent(c)} ${types[i]}`).join(', ');
+  db.exec(`CREATE TABLE ${quoteIdent(tableName)} (${colDefs})`);
+  if (matrix.length > 0) {
+    const colList = columns.map(quoteIdent).join(', ');
+    db.exec('BEGIN');
+    for (let i = 0; i < matrix.length; i += SQLITE_INSERT_BATCH) {
+      const slice = matrix.slice(i, i + SQLITE_INSERT_BATCH);
+      const valueGroups = slice
+        .map(() => `(${columns.map(() => '?').join(', ')})`)
+        .join(', ');
+      const sql = `INSERT INTO ${quoteIdent(tableName)} (${colList}) VALUES ${valueGroups}`;
+      const stmt = db.prepare(sql);
+      const binds: unknown[] = [];
+      for (const row of slice) binds.push(...bindRow(row, types));
+      stmt.run(...binds);
+    }
+    db.exec('COMMIT');
+  }
+  return { tableName, rowCount: matrix.length };
+}
+
+/**
+ * Parse the file and write a new temp SQLite database with one table.
+ */
+export function materializeFileToSqlite(
+  input: FileQueryImportInput,
+  opts?: { maxChars?: number; connectionName?: string }
+): FileQueryImportResult {
+  cleanupStaleFileQueryDbs();
+  const parsed = parseFileToTable(input, { maxChars: opts?.maxChars });
+  const id = randomUUID().replace(/-/g, '').slice(0, 12);
+  const dbPath = join(fileQueryTempDir(), `files-${id}.db`);
+  try {
+    const written = writeTableToSqliteFile(dbPath, parsed);
+    const shortName = (input.fileName || written.tableName).split(/[/\\]/).pop() || written.tableName;
+    return {
+      dbPath,
+      tableName: written.tableName,
+      rowCount: written.rowCount,
+      columns: parsed.columns,
+      connectionName: opts?.connectionName || `Files: ${shortName}`,
+    };
+  } catch (e) {
     try {
       unlinkSync(dbPath);
     } catch {
@@ -439,14 +530,23 @@ export function materializeFileToSqlite(input: FileQueryImportInput): FileQueryI
     }
     throw e;
   }
-  db.close();
+}
 
-  const shortName = (input.fileName || tableName).split(/[/\\]/).pop() || tableName;
-  return {
-    dbPath,
-    tableName,
-    rowCount: matrix.length,
-    columns,
-    connectionName: `Files: ${shortName}`,
-  };
+/**
+ * Add another file as a table inside an existing temp SQLite workspace DB.
+ */
+export function appendFileToSqliteWorkspace(
+  dbPath: string,
+  input: FileQueryImportInput,
+  opts?: { maxChars?: number; replaceTable?: boolean }
+): { tableName: string; rowCount: number; columns: string[] } {
+  if (!isFileQueryDbPath(dbPath)) {
+    throw new Error('Not a Query-files workspace database');
+  }
+  const parsed = parseFileToTable(input, { maxChars: opts?.maxChars });
+  const written = writeTableToSqliteFile(dbPath, parsed, {
+    replaceTable: opts?.replaceTable,
+    uniqueName: !opts?.replaceTable,
+  });
+  return { tableName: written.tableName, rowCount: written.rowCount, columns: parsed.columns };
 }
