@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 import { existsSync } from 'node:fs';
 import { Router, Request, Response } from 'express';
 import type { AuthedRequest } from './auth.routes';
-import { requirePermissions } from './rbac.middleware';
+import { denyUnless, requirePermissions } from './rbac.middleware';
 import { rateLimit } from './rate-limit';
 import { ConnectionStore } from '../modules/connection-store.module';
 import {
@@ -212,6 +212,10 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
       try {
         const userId = (req as AuthedRequest).userId!;
         const parsed = parseImportBody(req.body as Record<string, unknown>);
+        // Credential bulk-load runs DROP/CREATE/INSERT — same bar as /sql/execute writes.
+        if (parsed.targetConnectionId && denyUnless(req as AuthedRequest, res, 'editor.write')) {
+          return;
+        }
         const result = await runImport(connectionStore, userId, parsed);
         res.json(result);
       } catch (error: unknown) {
@@ -235,6 +239,12 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
           res.status(400).json({ ok: false, error: 'format must be csv, json, or text' });
           return;
         }
+        const targetConnectionId = body.targetConnectionId
+          ? String(body.targetConnectionId)
+          : undefined;
+        if (targetConnectionId && denyUnless(req as AuthedRequest, res, 'editor.write')) {
+          return;
+        }
         const session = createUploadSession(userId, {
           format,
           fileName: String(body.fileName || 'data').slice(0, 240),
@@ -242,9 +252,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
           csv: body.csv as FileUploadCsv,
           json: body.json as FileUploadJson,
           text: body.text as FileUploadText,
-          targetConnectionId: body.targetConnectionId
-            ? String(body.targetConnectionId)
-            : undefined,
+          targetConnectionId,
           workspaceConnectionId: body.workspaceConnectionId
             ? String(body.workspaceConnectionId)
             : undefined,
@@ -304,6 +312,13 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
         const session = getUploadSession(userId, id);
         if (!session) {
           res.status(404).json({ ok: false, error: 'Upload session not found or expired' });
+          return;
+        }
+        // Re-check at commit: session may have been created before a role change.
+        if (
+          session.targetConnectionId &&
+          denyUnless(req as AuthedRequest, res, 'editor.write')
+        ) {
           return;
         }
         const input = sessionToImportInput(userId, id);

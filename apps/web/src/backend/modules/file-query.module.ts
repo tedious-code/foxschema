@@ -7,7 +7,7 @@
  */
 import { createRequire } from 'node:module';
 import { mkdirSync, readdirSync, unlinkSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve, relative, isAbsolute } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 
@@ -59,11 +59,12 @@ export function fileQueryTempDir(): string {
 /** True when a connection path is one of our temp file-query SQLite DBs. */
 export function isFileQueryDbPath(path: string | undefined | null): boolean {
   if (!path) return false;
-  const dir = fileQueryTempDir();
-  // Normalize for path prefix checks across platforms.
-  const norm = path.replace(/\\/g, '/');
-  const root = dir.replace(/\\/g, '/');
-  return norm.startsWith(`${root}/`) || norm.startsWith(`${root}`);
+  // Resolve so `…/foxschema-file-query/../../../etc/passwd` cannot pass a
+  // lexical prefix check and later be unlinked/written as an arbitrary file.
+  const root = resolve(fileQueryTempDir());
+  const candidate = resolve(path);
+  const rel = relative(root, candidate);
+  return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
 }
 
 /** Best-effort delete of a temp file-query DB. */
