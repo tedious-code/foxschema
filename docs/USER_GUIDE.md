@@ -144,12 +144,16 @@ Tips:
   fragmentation %, fetch fragmentation in batch, then defragment selected indexes
   or all filtered rows. In **Edit table**, the index form opens under the selected
   index (no jump to a form at the bottom of the section).
-- **Utilities → Clone Table** (sidebar, or **Clone** on a table in Schema) —
-  archive a huge table as `name_1` / next free `name_N` (or a fixed starting
-  number), then recreate an empty table with the original name and columns so
-  apps keep working. Toggle **Keep indexes** and **Foreign keys (auto)** for the
-  new table; Insert SQL or Apply. Inbound FKs from other tables still point at
-  the archive until you update them — then you can drop history safely.
+- **Utilities → Clone Table** — archive a huge table as `name_1` / next free
+  `name_N` (or a fixed starting number), then recreate an empty table with the
+  original name and columns so apps keep working. Toggle **Keep indexes** and
+  **Foreign keys (auto)** for the new table; Insert SQL or Apply. Inbound FKs
+  from other tables still point at the archive until you update them — then you
+  can drop history safely.
+- **Utilities → Query files** — import **CSV**, **JSON** (array or NDJSON), or
+  **fixed-width text** (column start/length offsets) into a temporary SQLite
+  database, then run normal SQL against it. Fox saves a short-lived
+  `Files: …` credential and checks it in Destinations.
 - **Data peek** — two ways in:
   - **Schema:** hold **Cmd** (macOS) or **Ctrl** (Windows/Linux) and click a
     table, view or MQT to see its rows without writing a query.
