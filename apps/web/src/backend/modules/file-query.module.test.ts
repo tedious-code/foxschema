@@ -38,6 +38,20 @@ describe('file-query parsers', () => {
     ]);
   });
 
+  it('parseCsv respects semicolon, tab, and multi-char delimiters', () => {
+    const semi = parseCsv('a;b\n1;2\n', { delimiter: ';' });
+    expect(semi.columns).toEqual(['a', 'b']);
+    expect(semi.rows).toEqual([['1', '2']]);
+
+    const tab = parseCsv('a\tb\n1\t2\n', { delimiter: '\\t' });
+    expect(tab.columns).toEqual(['a', 'b']);
+    expect(tab.rows).toEqual([['1', '2']]);
+
+    const multi = parseCsv('a||b\n1||2\n', { delimiter: '||' });
+    expect(multi.columns).toEqual(['a', 'b']);
+    expect(multi.rows).toEqual([['1', '2']]);
+  });
+
   it('parseJsonRecords reads an array of objects', () => {
     const { columns, rows } = parseJsonRecords(
       JSON.stringify([

@@ -150,10 +150,11 @@ Tips:
   **Foreign keys (auto)** for the new table; Insert SQL or Apply. Inbound FKs
   from other tables still point at the archive until you update them — then you
   can drop history safely.
-- **Utilities → Query files** — import **CSV**, **JSON** (array or NDJSON), or
-  **fixed-width text** (column start/length offsets) into a temporary SQLite
-  database, then run normal SQL against it. Fox saves a short-lived
-  `Files: …` credential and checks it in Destinations.
+- **Utilities → Query files** — import **CSV/TSV** (delimiter: comma, tab,
+  semicolon, pipe, or custom), **JSON** (array or NDJSON), or **fixed-width
+  text** (column start/length offsets) into a temporary SQLite database, then
+  run normal SQL against it. Fox saves a short-lived `Files: …` credential and
+  checks it in Destinations.
 - **Data peek** — two ways in:
   - **Schema:** hold **Cmd** (macOS) or **Ctrl** (Windows/Linux) and click a
     table, view or MQT to see its rows without writing a query.

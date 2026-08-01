@@ -221,28 +221,70 @@ export const FileQueryModal: React.FC<Props> = ({ open, onClose }) => {
           </div>
 
           {format === 'csv' && (
-            <div className="grid grid-cols-2 gap-2">
-              <label className="block space-y-1">
-                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                  Delimiter
-                </span>
-                <input
-                  value={delimiter === '\t' ? '\\t' : delimiter}
-                  onChange={(e) =>
-                    setDelimiter(e.target.value === '\\t' ? '\t' : e.target.value.slice(0, 1) || ',')
-                  }
-                  className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 font-mono"
-                />
-              </label>
-              <label className="flex items-end gap-2 pb-1.5 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={hasHeader}
-                  onChange={(e) => setHasHeader(e.target.checked)}
-                  className="accent-amber-500"
-                />
-                <span>First row is header</span>
-              </label>
+            <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                <label className="block space-y-1">
+                  <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                    Delimiter
+                  </span>
+                  <select
+                    data-testid="file-query-delimiter"
+                    value={
+                      delimiter === ','
+                        ? ','
+                        : delimiter === '\t'
+                          ? '\t'
+                          : delimiter === ';'
+                            ? ';'
+                            : delimiter === '|'
+                              ? '|'
+                              : 'custom'
+                    }
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === 'custom') {
+                        setDelimiter(delimiter.length === 1 && ![',', '\t', ';', '|'].includes(delimiter) ? delimiter : ':');
+                      } else {
+                        setDelimiter(v);
+                      }
+                    }}
+                    className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 text-slate-100"
+                  >
+                    <option value=",">Comma (,)</option>
+                    <option value={'\t'}>Tab (TSV)</option>
+                    <option value=";">Semicolon (;)</option>
+                    <option value="|">Pipe (|)</option>
+                    <option value="custom">Custom…</option>
+                  </select>
+                </label>
+                <label className="flex items-end gap-2 pb-1.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    data-testid="file-query-has-header"
+                    checked={hasHeader}
+                    onChange={(e) => setHasHeader(e.target.checked)}
+                    className="accent-amber-500"
+                  />
+                  <span>First row is header</span>
+                </label>
+              </div>
+              {![',', '\t', ';', '|'].includes(delimiter) && (
+                <label className="block space-y-1">
+                  <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                    Custom delimiter
+                  </span>
+                  <input
+                    data-testid="file-query-delimiter-custom"
+                    value={delimiter === '\t' ? '\\t' : delimiter}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setDelimiter(v === '\\t' ? '\t' : v || ',');
+                    }}
+                    placeholder="e.g. || or :"
+                    className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 font-mono"
+                  />
+                </label>
+              )}
             </div>
           )}
 

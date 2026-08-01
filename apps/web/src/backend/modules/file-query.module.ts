@@ -93,17 +93,32 @@ export function sanitizeColumnName(raw: string, index: number): string {
   return base || `col_${index + 1}`;
 }
 
-/** Minimal CSV parser with quotes + escaped quotes. */
+/** Normalize delimiter tokens from the UI (`\\t`, `tab`, etc.). */
+export function normalizeCsvDelimiter(raw?: string): string {
+  if (raw == null || raw === '') return ',';
+  const t = raw;
+  if (t === '\\t' || t.toLowerCase() === 'tab') return '\t';
+  if (t === '\\n') return '\n';
+  // Allow multi-char custom delimiters (e.g. `||`); keep escapes as one char.
+  if (t.startsWith('\\') && t.length === 2) {
+    const esc: Record<string, string> = { t: '\t', n: '\n', r: '\r' };
+    return esc[t[1]!] ?? t[1]!;
+  }
+  return t;
+}
+
+/** Minimal CSV/TSV parser with quotes + escaped quotes. Supports any delimiter string. */
 export function parseCsv(
   content: string,
   opts?: { delimiter?: string; hasHeader?: boolean }
 ): { columns: string[]; rows: string[][] } {
-  const delimiter = opts?.delimiter && opts.delimiter.length > 0 ? opts.delimiter : ',';
+  const delimiter = normalizeCsvDelimiter(opts?.delimiter);
   const hasHeader = opts?.hasHeader !== false;
   const rows: string[][] = [];
   let field = '';
   let row: string[] = [];
   let inQuotes = false;
+  const dLen = delimiter.length;
 
   const pushField = () => {
     row.push(field);
@@ -139,8 +154,9 @@ export function parseCsv(
       inQuotes = true;
       continue;
     }
-    if (ch === delimiter) {
+    if (dLen > 0 && text.startsWith(delimiter, i)) {
       pushField();
+      i += dLen - 1;
       continue;
     }
     if (ch === '\n') {
