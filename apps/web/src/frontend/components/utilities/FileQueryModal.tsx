@@ -28,10 +28,10 @@ const EMPTY_OFFSETS: TextOffsetColumn[] = [
 
 export const FileQueryModal: React.FC<Props> = ({ open, onClose }) => {
   const loadConnections = useSyncStore((s) => s.loadConnections);
-  const ensureConnectionSelected = useSqlEditorStore((s) => s.ensureConnectionSelected);
   const setSql = useSqlEditorStore((s) => s.setSql);
   const activeTabId = useSqlEditorStore((s) => s.activeTabId);
   const tabs = useSqlEditorStore((s) => s.tabs);
+  const shareDestinations = useSqlEditorStore((s) => s.shareDestinations);
 
   const [format, setFormat] = useState<FileQueryFormat>('csv');
   const [fileName, setFileName] = useState('');
@@ -90,9 +90,13 @@ export const FileQueryModal: React.FC<Props> = ({ open, onClose }) => {
     setError(null);
     try {
       if (!content.trim()) throw new Error('Choose a file or paste content first');
+      const ext = format === 'csv' ? 'csv' : format === 'json' ? 'json' : 'txt';
+      const resolvedName =
+        fileName.trim() ||
+        `${(tableName || 'data').replace(/[^\w.-]+/g, '_')}.${ext}`;
       const body = {
         format,
-        fileName: fileName || 'data.txt',
+        fileName: resolvedName,
         content,
         tableName: tableName || undefined,
         csv: format === 'csv' ? { delimiter, hasHeader } : undefined,
@@ -106,7 +110,22 @@ export const FileQueryModal: React.FC<Props> = ({ open, onClose }) => {
       if (!res.ok || !res.connection) throw new Error(res.error || 'Import failed');
 
       await loadConnections();
-      ensureConnectionSelected(res.connection.id);
+      // Point Destinations at only this temp DB so Run doesn't hit other file creds.
+      const store = useSqlEditorStore.getState();
+      if (shareDestinations) {
+        useSqlEditorStore.setState({ sharedConnectionIds: [res.connection.id] });
+      } else {
+        store.ensureConnectionSelected(res.connection.id);
+        const tab = store.tabs.find((t) => t.id === store.activeTabId);
+        if (tab) {
+          useSqlEditorStore.setState({
+            tabs: store.tabs.map((t) =>
+              t.id === tab.id ? { ...t, selectedConnectionIds: [res.connection!.id] } : t
+            ),
+          });
+        }
+      }
+      void store.ensureSchema(res.connection.id);
       if (res.sampleSql) {
         const tab = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
         if (!tab?.sql?.trim()) setSql(res.sampleSql);
