@@ -74,8 +74,11 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
           option: {
             database: result.dbPath,
             connectionString: result.dbPath,
+            // SQLite ignores passwords; a stored placeholder keeps the SQL Editor
+            // from opening the session-password modal when the credential is checked.
+            password: 'file-query',
           },
-          savePassword: false,
+          savePassword: true,
         });
 
         res.json({
