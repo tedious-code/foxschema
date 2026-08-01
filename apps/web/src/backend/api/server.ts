@@ -17,6 +17,7 @@ import { createAppSecretsRoutes } from './app-secrets.routes';
 import { createUserRoutes } from './user.routes';
 import { createAdminRoutes } from './admin.routes';
 import { createSignupRoutes } from './signup.routes';
+import { createFileQueryRoutes } from './file-query.routes';
 import { AppSecretsStore } from '../modules/app-secrets.module';
 
 // Default to single-user (no login). Set LOCAL_SINGLE_USER=false to enable
@@ -80,6 +81,8 @@ export function createApp() {
   app.use('/api/app-secrets', userGuard, createAppSecretsRoutes(new AppSecretsStore()));
   app.use('/api/user', userGuard, createUserRoutes(new UserModule()));
   app.use('/api/admin', userGuard, createAdminRoutes());
+  // CSV / JSON / fixed-width text → temp SQLite credential for SQL Editor.
+  app.use('/api/files', userGuard, createFileQueryRoutes(connectionStore));
 
   const guard = LOCAL_SINGLE_USER
     ? localUserGuard(auth)
