@@ -23,6 +23,7 @@ import {
   Cpu,
   HardDrive,
   Activity,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { useSyncStore } from '../../store/useSyncStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
@@ -49,6 +50,7 @@ import {
 import { WriteConfirmDialog } from './WriteConfirmDialog';
 import { IndexManagementModal } from '../utilities/IndexManagementModal';
 import { CloneTableModal } from '../utilities/CloneTableModal';
+import { FileQueryModal } from '../utilities/FileQueryModal';
 import { ServerInsightsModal, type ServerInsightsTab } from '../utilities/ServerInsightsModal';
 import type { RevealRequest } from './SqlEditorPane';
 
@@ -158,6 +160,7 @@ export const SqlEditorView: React.FC = () => {
   const [secretsRefreshing, setSecretsRefreshing] = useState(false);
   const [showIndexManagement, setShowIndexManagement] = useState(false);
   const [showCloneTable, setShowCloneTable] = useState(false);
+  const [showFileQuery, setShowFileQuery] = useState(false);
   const [serverInsightsTab, setServerInsightsTab] = useState<ServerInsightsTab | null>(null);
 
   const onSecretsRefresh = useCallback(async () => {
@@ -457,6 +460,15 @@ export const SqlEditorView: React.FC = () => {
                 >
                   <Copy className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
                   Clone Table
+                </button>
+                <button
+                  type="button"
+                  data-testid="utilities-query-files"
+                  onClick={() => setShowFileQuery(true)}
+                  className={UTIL_MENU_BTN}
+                >
+                  <FileSpreadsheet className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
+                  Query files
                 </button>
                 <button
                   type="button"
@@ -765,6 +777,7 @@ export const SqlEditorView: React.FC = () => {
         onClose={() => setShowIndexManagement(false)}
       />
       <CloneTableModal open={showCloneTable} onClose={() => setShowCloneTable(false)} />
+      <FileQueryModal open={showFileQuery} onClose={() => setShowFileQuery(false)} />
       <ServerInsightsModal
         open={serverInsightsTab != null}
         initialTab={serverInsightsTab ?? 'pool'}
