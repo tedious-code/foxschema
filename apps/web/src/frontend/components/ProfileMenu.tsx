@@ -85,11 +85,9 @@ export function ProfileMenu(): React.ReactElement | null {
             <p className="text-sm text-slate-200 truncate" title={user.email}>
               {user.email}
             </p>
-            {user.role && (
-              <p className="text-[11px] text-amber-300/90 mt-0.5 capitalize" data-testid="profile-role">
-                Role: {user.role}
-              </p>
-            )}
+            <p className="text-[11px] text-amber-300/90 mt-0.5 capitalize" data-testid="profile-role">
+              Role: {user.role}
+            </p>
           </div>
 
           {updateAvailable && (

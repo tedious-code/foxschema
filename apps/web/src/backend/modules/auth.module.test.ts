@@ -4,6 +4,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 process.env.APP_DB_PATH = ':memory:';
 
 import { AuthModule } from './auth.module';
+import { RbacModule } from './rbac.module';
 
 const auth = new AuthModule();
 
@@ -50,6 +51,31 @@ describe('AuthModule', () => {
     await auth.register('carol@example.com', 'password123');
     await expect(auth.login('carol@example.com', 'wrongpass')).rejects.toThrow(/Invalid email or password/);
     await expect(auth.login('ghost@example.com', 'password123')).rejects.toThrow(/Invalid email or password/);
+  });
+
+  // Every auth path now selects app_role in its own query and passes it to
+  // toAuthUser. Dropping that column anywhere fails silently as a demotion to
+  // viewer, so pin the role across login and the per-request token lookup.
+  it('preserves the stored role through login and getUserByToken', async () => {
+    const { user: created } = await auth.register('editorrole@example.com', 'password123');
+    await new RbacModule().setUserRole(created.id, 'editor');
+
+    const { user, token } = await auth.login('editorrole@example.com', 'password123');
+    expect(user.role).toBe('editor');
+    expect(user.permissions).toContain('editor.write');
+
+    const resolved = await auth.getUserByToken(token);
+    expect(resolved?.role).toBe('editor');
+    expect(resolved?.permissions).toContain('editor.write');
+    expect(resolved?.permissions).not.toContain('admin.users');
+  });
+
+  it('ensureLocalUser returns an admin with full permissions', async () => {
+    const local = await auth.ensureLocalUser();
+    expect(local.role).toBe('admin');
+    expect(local.permissions).toContain('admin.users');
+    // Idempotent: a second call re-resolves the same singleton as admin.
+    expect((await auth.ensureLocalUser()).id).toBe(local.id);
   });
 
   it('invalidates the session on logout', async () => {

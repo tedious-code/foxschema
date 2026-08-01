@@ -24,8 +24,6 @@ export interface UserPreferences {
 
 export interface AppConfig {
   localSingleUser: boolean;
-  authRequired: boolean;
-  rbac: boolean;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -42,7 +40,7 @@ export async function apiAppConfig(): Promise<AppConfig> {
   try {
     return await request<AppConfig>('/config');
   } catch {
-    return { localSingleUser: true, authRequired: false, rbac: false };
+    return { localSingleUser: true };
   }
 }
 
@@ -91,7 +89,6 @@ export async function apiPutPreferences(prefs: Partial<UserPreferences>): Promis
 
 export async function apiAdminListUsers(): Promise<{
   users: Array<{ id: string; email: string; role: AppRole; createdAt: string }>;
-  roles: AppRole[];
 }> {
   return request('/admin/users');
 }
@@ -106,7 +103,6 @@ export async function apiAdminSetUserRole(userId: string, role: AppRole): Promis
 export async function apiAdminRolePermissions(): Promise<{
   matrix: Record<AppRole, Permission[]>;
   catalog: PermissionMeta[];
-  roles: AppRole[];
 }> {
   return request('/admin/role-permissions');
 }

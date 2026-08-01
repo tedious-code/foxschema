@@ -132,7 +132,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
   admin: ADMIN,
 };
 
-export function uniquePermissions(list: Iterable<string>): Permission[] {
+export function uniquePermissions(list: Iterable<unknown>): Permission[] {
   const out: Permission[] = [];
   const seen = new Set<string>();
   for (const p of list) {

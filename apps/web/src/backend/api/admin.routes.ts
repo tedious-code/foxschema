@@ -7,12 +7,7 @@
  */
 import { Router, Response } from 'express';
 import { RbacModule } from '../modules/rbac.module';
-import {
-  APP_ROLES,
-  PERMISSION_META,
-  isAppRole,
-  type AppRole,
-} from '../../shared/permissions';
+import { APP_ROLES, PERMISSION_META, isAppRole } from '../../shared/permissions';
 import type { AuthedRequest } from './auth.routes';
 import { requirePermissions } from './rbac.middleware';
 
@@ -23,7 +18,7 @@ export function createAdminRoutes(rbac = new RbacModule()): Router {
     '/users',
     requirePermissions('admin.users'),
     async (_req: AuthedRequest, res: Response) => {
-      res.json({ users: await rbac.listUsers(), roles: APP_ROLES });
+      res.json({ users: await rbac.listUsers() });
     }
   );
 
@@ -66,7 +61,6 @@ export function createAdminRoutes(rbac = new RbacModule()): Router {
       res.json({
         matrix: await rbac.listRolePermissionMatrix(),
         catalog: PERMISSION_META,
-        roles: APP_ROLES,
       });
     }
   );
@@ -75,7 +69,7 @@ export function createAdminRoutes(rbac = new RbacModule()): Router {
     '/role-permissions/:role',
     requirePermissions('admin.roles'),
     async (req: AuthedRequest, res: Response) => {
-      const role = req.params.role as AppRole;
+      const role = req.params.role;
       if (!isAppRole(role)) {
         res.status(400).json({ error: `role must be one of: ${APP_ROLES.join(', ')}` });
         return;
@@ -86,10 +80,7 @@ export function createAdminRoutes(rbac = new RbacModule()): Router {
         return;
       }
       try {
-        const next = await rbac.setRolePermissions(
-          role,
-          permissions.filter((p): p is string => typeof p === 'string')
-        );
+        const next = await rbac.setRolePermissions(role, permissions);
         res.json({ role, permissions: next });
       } catch (error: unknown) {
         res.status(400).json({ error: error instanceof Error ? error.message : 'Update failed' });
