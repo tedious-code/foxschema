@@ -30,6 +30,11 @@ export type StatementResult = StatementResultOk | StatementResultErr;
 
 export const MAX_STATEMENTS = 25;
 export const MAX_STATEMENT_LENGTH = 100_000;
+
+/** A statement `runStatements` will accept: a non-blank, length-capped string. */
+export function isRunnableStatement(value: unknown): value is string {
+  return typeof value === 'string' && value.trim() !== '' && value.length <= MAX_STATEMENT_LENGTH;
+}
 const MAX_ROWS_CAP = 5000;
 const DEFAULT_MAX_ROWS = 200;
 

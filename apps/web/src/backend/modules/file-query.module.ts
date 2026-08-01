@@ -339,7 +339,10 @@ function loadSqlite(): new (
   opts?: { readonly?: boolean; fileMustExist?: boolean }
 ) => {
   exec: (sql: string) => void;
-  prepare: (sql: string) => { run: (...args: unknown[]) => void };
+  prepare: (sql: string) => {
+    run: (...args: unknown[]) => void;
+    all: (...args: unknown[]) => unknown[];
+  };
   close: () => void;
 } {
   try {

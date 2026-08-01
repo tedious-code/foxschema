@@ -392,6 +392,9 @@ const PeekGrid: React.FC<{
       ? entry.result.rows[selectedRowIndex]
       : undefined;
 
+  const gridWritable = editability.editable && canWriteSql;
+  const canAnyRowAction = canInsert || canUpdate || canDelete;
+
   const runWrite = useCallback(
     async (plan: PeekWritePlan) => {
       if (writing) return;
@@ -447,7 +450,7 @@ const PeekGrid: React.FC<{
   );
 
   const openAdd = () => {
-    if (!editability.editable || !canWriteSql || !canInsert || !table || !entry.result?.ok) return;
+    if (!gridWritable || !canInsert || !table || !entry.result?.ok) return;
     setEditor({
       mode: 'add',
       draft: peekRowToDraft(entry.result.columns, null, {
@@ -458,7 +461,7 @@ const PeekGrid: React.FC<{
   };
 
   const openEdit = () => {
-    if (!editability.editable || !canWriteSql || !canUpdate || !table || !entry.result?.ok || selectedRowIndex == null) return;
+    if (!gridWritable || !canUpdate || !table || !entry.result?.ok || selectedRowIndex == null) return;
     const row = entry.result.rows[selectedRowIndex];
     if (!row) return;
     setEditor({
@@ -471,7 +474,7 @@ const PeekGrid: React.FC<{
   };
 
   const openClone = () => {
-    if (!editability.editable || !canWriteSql || !canInsert || !table || !entry.result?.ok || selectedRowIndex == null) return;
+    if (!gridWritable || !canInsert || !table || !entry.result?.ok || selectedRowIndex == null) return;
     const row = entry.result.rows[selectedRowIndex];
     if (!row) return;
     setEditor({
@@ -485,7 +488,7 @@ const PeekGrid: React.FC<{
   };
 
   const openDelete = () => {
-    if (!editability.editable || !canWriteSql || !canDelete || !entry.result?.ok || selectedRowIndex == null) return;
+    if (!gridWritable || !canDelete || !entry.result?.ok || selectedRowIndex == null) return;
     const row = entry.result.rows[selectedRowIndex];
     if (!row) return;
     const plan = buildPeekDelete({
@@ -503,7 +506,7 @@ const PeekGrid: React.FC<{
   };
 
   const onEditorSubmit = (draft: Record<string, string>) => {
-    if (!editability.editable || !entry.result?.ok || !editor) return;
+    if (!gridWritable || !entry.result?.ok || !editor) return;
     const cols = entry.result.columns;
     if (editor.mode === 'edit') {
       const original = originalRowForPeekEdit(editor, entry.result.rows);
@@ -536,9 +539,8 @@ const PeekGrid: React.FC<{
     queueOrRun(plan);
   };
 
-  const gridWritable = editability.editable && canWriteSql;
   const canMutateRow = gridWritable && selectedRowIndex != null && Boolean(selectedRow);
-  const showCrud = gridWritable && entry.result?.ok && table && (canInsert || canUpdate || canDelete);
+  const showCrud = gridWritable && !!entry.result?.ok && !!table && canAnyRowAction;
 
   return (
     <div
@@ -697,7 +699,7 @@ const PeekGrid: React.FC<{
             linkColumns={linkColumns.size > 0 ? linkColumns : undefined}
             onLinkClick={onLinkClick}
             selectedRowIndex={selectedRowIndex}
-            onSelectRow={gridWritable && (canInsert || canUpdate || canDelete) ? setSelectedRowIndex : undefined}
+            onSelectRow={gridWritable && canAnyRowAction ? setSelectedRowIndex : undefined}
           />
           {showFkHint && linkColumns.size > 0 && (
             <p className="mt-1 px-1 shrink-0 text-[10px] text-slate-500">

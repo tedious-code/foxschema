@@ -34,7 +34,6 @@ interface AuthState {
   busy: boolean;
   /** True when the API runs in local single-user mode (no login UI). */
   localSingleUser: boolean;
-  authRequired: boolean;
 
   init: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
@@ -57,30 +56,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   error: null,
   busy: false,
   localSingleUser: true,
-  authRequired: false,
 
   can: (permission) => userCan(get().user, permission),
 
   init: async () => {
     const cfg = await apiAppConfig();
-    set({
-      localSingleUser: cfg.localSingleUser,
-      authRequired: cfg.authRequired,
-    });
-    if (cfg.localSingleUser) {
-      // Prefer server-enriched local user (real id + permissions) when available.
-      const me = await apiMe();
-      if (me) {
-        set({ user: me, status: statusFor(me) });
-        return;
-      }
-      set({ user: LOCAL_USER, status: 'ready' });
-      return;
-    }
-    const user = await apiMe();
-    set({ user, status: statusFor(user) });
+    set({ localSingleUser: cfg.localSingleUser });
+    await get().refreshMe();
   },
 
+  /** Prefer the server-enriched user (real id + permissions) when available. */
   refreshMe: async () => {
     const user = await apiMe();
     if (!user && get().localSingleUser) {
