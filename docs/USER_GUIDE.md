@@ -152,15 +152,20 @@ Tips:
   can drop history safely.
 - **Utilities → Query files** / **Files** sidebar — import **CSV/TSV**
   (delimiter: comma, tab, semicolon, pipe, or custom), **JSON** (array or
-  NDJSON), or **fixed-width text** (column start/length offsets) into a
-  temporary SQLite database, then run normal SQL against it. Fox saves a
-  short-lived `Files: …` credential and checks it in Destinations. Imports
-  accumulate by default so you can reuse them; open the **Files** sidebar to
-  list tables, click one to re-select that file DB and load a sample SELECT,
-  delete a single import, or clear all. **Replace previous file imports**
-  (off by default) deletes earlier `Files:` credentials when you import a new
-  file; **Clear file imports** removes them without importing. Temp DBs expire
-  after about 24 hours.
+  NDJSON), or **fixed-width text** (column start/length offsets).
+  **Destination** choices:
+  - **New temp SQLite workspace** (default) — short-lived `Files: …`
+    credential; add more files later with **Add table to existing Files
+    workspace** so several tables share one temp DB.
+  - **Import into saved credential** — create a table on a checked server
+    (Postgres, MySQL, SQL Server, DB2, Oracle, DuckDB, etc.) using chunked
+    multi-row `INSERT` bulk loads.
+  Large pastes/files upload in **chunks** (disk-backed session). Open the
+  **Files** sidebar to list workspace tables, click one to re-select that DB
+  and load a sample SELECT, delete one workspace, or clear all. **Replace
+  previous file imports** (off by default) deletes earlier `Files:` workspaces
+  when you create a new one; **Replace table if it exists** applies when
+  adding to a workspace or credential. Temp DBs expire after about 24 hours.
 - **Data peek** — two ways in:
   - **Schema:** hold **Cmd** (macOS) or **Ctrl** (Windows/Linux) and click a
     table, view or MQT to see its rows without writing a query.

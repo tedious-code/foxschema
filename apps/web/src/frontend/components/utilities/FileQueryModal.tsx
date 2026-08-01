@@ -1,13 +1,15 @@
 /**
  * Utilities → Query files: import CSV / JSON / fixed-width text into a
- * temporary SQLite DB and query it from the SQL Editor.
+ * temporary SQLite workspace or bulk-load into a saved credential.
  */
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { FileSpreadsheet, Loader2, X } from 'lucide-react';
 import {
   clearFileImports,
-  importFileForQuery,
+  importFileSmart,
+  listFileImports,
+  type FileImportListItem,
   type FileQueryFormat,
   type TextOffsetColumn,
 } from '../../api/fileQueryApi';
@@ -29,8 +31,15 @@ const EMPTY_OFFSETS: TextOffsetColumn[] = [
   { name: 'col2', start: 10, length: 20 },
 ];
 
+type DestMode = 'temp' | 'workspace' | 'credential';
+
+function isFilesConnectionName(name: string | undefined): boolean {
+  return !!name && /^Files:\s+/i.test(name.trim());
+}
+
 export const FileQueryModal: React.FC<Props> = ({ open, onClose, onImported }) => {
   const loadConnections = useSyncStore((s) => s.loadConnections);
+  const connections = useSyncStore((s) => s.connections);
   const setSql = useSqlEditorStore((s) => s.setSql);
   const shareDestinations = useSqlEditorStore((s) => s.shareDestinations);
 
@@ -46,13 +55,28 @@ export const FileQueryModal: React.FC<Props> = ({ open, onClose, onImported }) =
     EMPTY_OFFSETS.map((c) => `${c.name},${c.start},${c.length}`).join('\n')
   );
   const [replacePrevious, setReplacePrevious] = useState(false);
+  const [replaceTable, setReplaceTable] = useState(false);
+  const [destMode, setDestMode] = useState<DestMode>('temp');
+  const [workspaceId, setWorkspaceId] = useState('');
+  const [targetConnectionId, setTargetConnectionId] = useState('');
+  const [workspaceName, setWorkspaceName] = useState('');
+  const [fileWorkspaces, setFileWorkspaces] = useState<FileImportListItem[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const credentialOptions = useMemo(
+    () => connections.filter((c) => !isFilesConnectionName(c.name)),
+    [connections]
+  );
 
   useEffect(() => {
     if (!open) return;
     setError(null);
-  }, [open]);
+    void loadConnections();
+    void listFileImports().then((res) => {
+      if (res.ok) setFileWorkspaces(res.imports ?? []);
+    });
+  }, [open, loadConnections]);
 
   const onPickFile = useCallback(async (file: File | null) => {
     if (!file) return;
@@ -87,11 +111,35 @@ export const FileQueryModal: React.FC<Props> = ({ open, onClose, onImported }) =
     });
   };
 
+  const selectDestination = (connectionId: string) => {
+    const store = useSqlEditorStore.getState();
+    if (shareDestinations) {
+      useSqlEditorStore.setState({ sharedConnectionIds: [connectionId] });
+    } else {
+      store.ensureConnectionSelected(connectionId);
+      const tab = store.tabs.find((t) => t.id === store.activeTabId);
+      if (tab) {
+        useSqlEditorStore.setState({
+          tabs: store.tabs.map((t) =>
+            t.id === tab.id ? { ...t, selectedConnectionIds: [connectionId] } : t
+          ),
+        });
+      }
+    }
+    void store.ensureSchema(connectionId);
+  };
+
   const onImport = async () => {
     setBusy(true);
     setError(null);
     try {
       if (!content.trim()) throw new Error('Choose a file or paste content first');
+      if (destMode === 'workspace' && !workspaceId) {
+        throw new Error('Choose a Files workspace to add this table to');
+      }
+      if (destMode === 'credential' && !targetConnectionId) {
+        throw new Error('Choose a credential to import into');
+      }
       const ext = format === 'csv' ? 'csv' : format === 'json' ? 'json' : 'txt';
       const resolvedName =
         fileName.trim() ||
@@ -107,41 +155,40 @@ export const FileQueryModal: React.FC<Props> = ({ open, onClose, onImported }) =
           format === 'text'
             ? { skipLines, columns: parseOffsets() }
             : undefined,
-        replacePrevious,
+        replacePrevious: destMode === 'temp' ? replacePrevious : false,
+        replaceTable: destMode !== 'temp' ? replaceTable : false,
+        workspaceConnectionId: destMode === 'workspace' ? workspaceId : undefined,
+        targetConnectionId: destMode === 'credential' ? targetConnectionId : undefined,
+        workspaceName:
+          destMode === 'temp' && workspaceName.trim()
+            ? workspaceName.trim()
+            : undefined,
       };
-      const res = await importFileForQuery(body);
-      if (!res.ok || !res.connection) throw new Error(res.error || 'Import failed');
+      const res = await importFileSmart(body);
+      const connectionId = res.connection?.id || res.connectionId;
+      if (!res.ok || !connectionId) throw new Error(res.error || 'Import failed');
 
       scrubRemovedFileConnections(res.removedConnectionIds ?? []);
       await loadConnections();
-      // Point Destinations at only this temp DB so Run doesn't hit other file creds.
-      const store = useSqlEditorStore.getState();
-      if (shareDestinations) {
-        useSqlEditorStore.setState({ sharedConnectionIds: [res.connection.id] });
-      } else {
-        store.ensureConnectionSelected(res.connection.id);
-        const tab = store.tabs.find((t) => t.id === store.activeTabId);
-        if (tab) {
-          useSqlEditorStore.setState({
-            tabs: store.tabs.map((t) =>
-              t.id === tab.id ? { ...t, selectedConnectionIds: [res.connection!.id] } : t
-            ),
-          });
-        }
-      }
-      void store.ensureSchema(res.connection.id);
-      if (res.sampleSql) {
-        // Replace editor SQL with the new sample so old table names don't linger.
-        setSql(res.sampleSql);
-      }
-      const cleared =
-        (res.removedConnectionIds?.length ?? 0) > 0
-          ? ` Cleared ${res.removedConnectionIds!.length} earlier file import(s).`
-          : '';
+      selectDestination(connectionId);
+      if (res.sampleSql) setSql(res.sampleSql);
+
+      const label =
+        res.connection?.name ||
+        connections.find((c) => c.id === connectionId)?.name ||
+        connectionId;
+      const chunkNote =
+        res.chunks != null && res.chunks > 0 ? ` (${res.chunks} bulk chunk(s))` : '';
+      const modeNote =
+        res.mode === 'credential'
+          ? ` Loaded into credential via bulk INSERT${chunkNote}.`
+          : destMode === 'workspace'
+            ? ' Added as a table in the Files workspace.'
+            : '';
       toast({
         tone: 'success',
         title: `Loaded ${res.rowCount ?? 0} row(s)`,
-        body: `"${res.connection.name}" is checked — run the sample SELECT.${cleared}`,
+        body: `"${label}" is checked — run the sample SELECT.${modeNote}`,
       });
       onImported?.();
       onClose();
@@ -160,6 +207,7 @@ export const FileQueryModal: React.FC<Props> = ({ open, onClose, onImported }) =
       if (!res.ok) throw new Error(res.error || 'Clear failed');
       scrubRemovedFileConnections(res.removedConnectionIds ?? []);
       await loadConnections();
+      setFileWorkspaces([]);
       toast({
         tone: 'success',
         title: 'File imports cleared',
@@ -204,10 +252,89 @@ export const FileQueryModal: React.FC<Props> = ({ open, onClose, onImported }) =
 
         <div className="px-4 py-3 space-y-3 text-xs text-slate-300 max-h-[70vh] overflow-y-auto">
           <p className="text-slate-400 leading-relaxed">
-            Import CSV, JSON, or fixed-width text into a temporary SQLite database, then
-            run normal SQL against it in the editor. Imports stay in the Files sidebar
-            for reuse until you clear them (temp DBs expire after about 24 hours).
+            Import CSV, JSON, or fixed-width text. Default lands in a temporary SQLite
+            workspace (multiple files can share one DB). Or bulk-load into a saved
+            credential. Large files upload in chunks.
           </p>
+
+          <label className="block space-y-1">
+            <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+              Destination
+            </span>
+            <select
+              data-testid="file-query-dest-mode"
+              value={destMode}
+              onChange={(e) => setDestMode(e.target.value as DestMode)}
+              className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 text-slate-100"
+            >
+              <option value="temp">New temp SQLite workspace</option>
+              <option value="workspace" disabled={fileWorkspaces.length === 0}>
+                Add table to existing Files workspace
+              </option>
+              <option value="credential">Import into saved credential…</option>
+            </select>
+          </label>
+
+          {destMode === 'temp' && (
+            <label className="block space-y-1">
+              <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                Workspace name (optional)
+              </span>
+              <input
+                data-testid="file-query-workspace-name"
+                value={workspaceName}
+                onChange={(e) => setWorkspaceName(e.target.value)}
+                placeholder="Uses the file name when empty"
+                className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 text-slate-100"
+              />
+            </label>
+          )}
+
+          {destMode === 'workspace' && (
+            <label className="block space-y-1">
+              <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                Files workspace
+              </span>
+              <select
+                data-testid="file-query-workspace"
+                value={workspaceId}
+                onChange={(e) => setWorkspaceId(e.target.value)}
+                className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 text-slate-100"
+              >
+                <option value="">Select workspace…</option>
+                {fileWorkspaces.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name} ({w.tables.length} table{w.tables.length === 1 ? '' : 's'})
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          {destMode === 'credential' && (
+            <label className="block space-y-1">
+              <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                Credential
+              </span>
+              <select
+                data-testid="file-query-target-credential"
+                value={targetConnectionId}
+                onChange={(e) => setTargetConnectionId(e.target.value)}
+                className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 text-slate-100"
+              >
+                <option value="">Select credential…</option>
+                {credentialOptions.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    [{c.dialect}] {c.name}
+                  </option>
+                ))}
+              </select>
+              <span className="block text-[11px] text-slate-500 leading-snug">
+                Uses chunked multi-row INSERT (dialect-aware). Requires create-table
+                permission on the target.
+              </span>
+            </label>
+          )}
 
           <label className="block space-y-1">
             <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
@@ -275,7 +402,11 @@ export const FileQueryModal: React.FC<Props> = ({ open, onClose, onImported }) =
                     onChange={(e) => {
                       const v = e.target.value;
                       if (v === 'custom') {
-                        setDelimiter(delimiter.length === 1 && ![',', '\t', ';', '|'].includes(delimiter) ? delimiter : ':');
+                        setDelimiter(
+                          delimiter.length === 1 && ![',', '\t', ';', '|'].includes(delimiter)
+                            ? delimiter
+                            : ':'
+                        );
                       } else {
                         setDelimiter(v);
                       }
@@ -377,24 +508,47 @@ export const FileQueryModal: React.FC<Props> = ({ open, onClose, onImported }) =
               placeholder="Paste file contents here, or choose a file above…"
               className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 font-mono text-[11px] text-slate-200"
             />
+            {content.length > 600_000 && (
+              <span className="text-[11px] text-amber-300/90">
+                Large content — will upload in chunks ({(content.length / 1024).toFixed(0)} KB).
+              </span>
+            )}
           </label>
 
-          <label className="flex items-start gap-2 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              data-testid="file-query-replace-previous"
-              checked={replacePrevious}
-              onChange={(e) => setReplacePrevious(e.target.checked)}
-              className="accent-amber-500 mt-0.5"
-            />
-            <span className="text-slate-400 leading-snug">
-              <span className="text-slate-200 font-semibold">Replace previous file imports</span>
-              <span className="block">
-                Deletes earlier <span className="font-mono text-slate-300">Files:</span> credentials
-                and their temp SQLite tables when you import a new file.
+          {destMode === 'temp' && (
+            <label className="flex items-start gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                data-testid="file-query-replace-previous"
+                checked={replacePrevious}
+                onChange={(e) => setReplacePrevious(e.target.checked)}
+                className="accent-amber-500 mt-0.5"
+              />
+              <span className="text-slate-400 leading-snug">
+                <span className="text-slate-200 font-semibold">Replace previous file imports</span>
+                <span className="block">
+                  Deletes earlier <span className="font-mono text-slate-300">Files:</span> credentials
+                  and their temp SQLite tables when you import a new workspace.
+                </span>
               </span>
-            </span>
-          </label>
+            </label>
+          )}
+
+          {destMode !== 'temp' && (
+            <label className="flex items-start gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                data-testid="file-query-replace-table"
+                checked={replaceTable}
+                onChange={(e) => setReplaceTable(e.target.checked)}
+                className="accent-amber-500 mt-0.5"
+              />
+              <span className="text-slate-400 leading-snug">
+                <span className="text-slate-200 font-semibold">Replace table if it exists</span>
+                <span className="block">Drop and recreate the target table before loading.</span>
+              </span>
+            </label>
+          )}
 
           {error && (
             <p className="text-rose-300 bg-rose-950/40 border border-rose-500/30 rounded-md px-2 py-1.5">

@@ -1,6 +1,7 @@
 import { describe, expect, it, afterEach } from 'vitest';
 import { existsSync, unlinkSync } from 'node:fs';
 import {
+  appendFileToSqliteWorkspace,
   isFileQueryConnectionName,
   isFileQueryDbPath,
   materializeFileToSqlite,
@@ -140,5 +141,32 @@ describe('materializeFileToSqlite', () => {
     created.push(text.dbPath);
     expect(text.rowCount).toBe(2);
     expect(text.columns).toEqual(['code', 'tag']);
+  });
+
+  it('appends a second file as another table in the same workspace DB', () => {
+    const first = materializeFileToSqlite({
+      format: 'csv',
+      fileName: 'people.csv',
+      content: 'id,name\n1,Ada\n',
+      tableName: 'people',
+    });
+    created.push(first.dbPath);
+    const second = appendFileToSqliteWorkspace(first.dbPath, {
+      format: 'csv',
+      fileName: 'orders.csv',
+      content: 'id,total\n1,9.5\n',
+      tableName: 'orders',
+    });
+    expect(second.tableName).toBe('orders');
+    expect(second.rowCount).toBe(1);
+
+    const Database = require('better-sqlite3');
+    const db = new Database(first.dbPath, { readonly: true, fileMustExist: true });
+    const tables = db
+      .prepare(`SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`)
+      .all()
+      .map((r: { name: string }) => r.name);
+    db.close();
+    expect(tables).toEqual(['orders', 'people']);
   });
 });
