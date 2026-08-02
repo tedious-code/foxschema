@@ -255,38 +255,88 @@ function normalizeColumnsRows(
   return { ok: true, columns, rows, rowCount: rows.length, truncated };
 }
 
+function isGridScalar(value: unknown): boolean {
+  return (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    typeof value === 'bigint'
+  );
+}
+
+function scalarCell(value: unknown): unknown {
+  if (typeof value === 'bigint') return value.toString();
+  if (value instanceof Date) return value.toISOString();
+  return value;
+}
+
+function normalizeScalarGrid(value: unknown): CodeCellOk {
+  return {
+    ok: true,
+    columns: ['value'],
+    rows: [[scalarCell(value)]],
+    rowCount: 1,
+    truncated: false,
+  };
+}
+
 /**
  * Normalize a cell return value into columns/rows.
- * Accepts `{ columns, rows }` or an array of plain objects.
+ * Accepts:
+ * - `{ columns, rows }` explicit grid
+ * - array of plain objects (or mix of objects + scalars)
+ * - a single plain object (one row)
+ * - a scalar / Date (one cell under `value`)
  */
 export function normalizeCodeCellReturn(value: unknown, maxRows: number): CodeCellOk | CodeCellErr {
   if (value === null || value === undefined) {
     return {
       ok: false,
-      error: 'Code cell must return a value — use return { columns, rows } or return [...objects]',
+      error:
+        'Code cell must return a value — e.g. return [{ … }], return { … }, return 1, or return { columns, rows }',
     };
+  }
+
+  if (isGridScalar(value) || value instanceof Date) {
+    return normalizeScalarGrid(value);
   }
 
   if (Array.isArray(value)) {
     if (value.length === 0) {
       return { ok: true, columns: [], rows: [], rowCount: 0, truncated: false };
     }
-    if (value.every(isPlainObject)) return normalizeObjectRows(value, maxRows);
+    if (value.every((v) => isPlainObject(v) && !(v instanceof Date))) {
+      return normalizeObjectRows(value, maxRows);
+    }
+    // Scalars / nulls / Dates — and mixed with objects — become grid rows.
+    if (
+      value.every(
+        (v) => v === null || isPlainObject(v) || isGridScalar(v) || v instanceof Date
+      )
+    ) {
+      const asObjects = value.map((v) =>
+        isPlainObject(v) && !(v instanceof Date)
+          ? v
+          : ({ value: scalarCell(v) } as Record<string, unknown>)
+      );
+      return normalizeObjectRows(asObjects, maxRows);
+    }
     return {
       ok: false,
-      error: 'Array return must be an array of plain objects (or return { columns, rows })',
+      error:
+        'Array return must be objects and/or scalars (or return { columns, rows })',
     };
   }
 
   if (isPlainObject(value)) {
     const { columns, rows } = value as { columns?: unknown; rows?: unknown };
-    if (!Array.isArray(columns) || !Array.isArray(rows)) {
-      return {
-        ok: false,
-        error: 'Return { columns: string[], rows: unknown[][] } or an array of objects',
-      };
+    // Only treat as an explicit grid when both fields are arrays. A data row
+    // like `{ id: 1, email: 'a' }` must not be rejected (and must not be
+    // mis-read when it happens to have non-array `columns`/`rows` keys).
+    if (Array.isArray(columns) && Array.isArray(rows)) {
+      return normalizeColumnsRows(columns, rows, maxRows);
     }
-    return normalizeColumnsRows(columns, rows, maxRows);
+    return normalizeObjectRows([value], maxRows);
   }
 
   return { ok: false, error: `Unsupported return type: ${typeof value}` };
