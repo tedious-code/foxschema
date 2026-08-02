@@ -1,16 +1,16 @@
-# Link Servers — cross-database data move via JS + SQL
+# Server Beam — cross-database data move via JS + SQL
 
 ## Goal
 
-Evolve saved credentials into **Link Servers** so an editor script can move data
-between databases using mixed JavaScript/TypeScript and SQL (`sql.on(alias)`),
-with async / Promises. Clients choose source and target servers (and tables);
-the editor runtime queries only through the server-side bridge (passwords never
-reach the browser sandbox).
+**Server Beam** lets an editor script move data between databases using mixed
+JavaScript/TypeScript and SQL (`sql.on(alias)`), with async / Promises. Saved
+credentials are the Beam endpoints; clients choose source and target servers
+(and tables). The editor runtime queries only through the server-side bridge
+(passwords never reach the browser sandbox).
 
 ## Out of scope (v1)
 
-- Billing, entitlements, edition gates, or “commercial” product wording anywhere
+- Billing, entitlements, edition gates, or paid-tier product wording anywhere
   in code, UI copy, or docs for this feature
 - Background job service (progress UI beyond the editor run is later)
 - Distributed transactions across servers
@@ -19,17 +19,19 @@ reach the browser sandbox).
 
 | Rule | Value |
 |------|--------|
-| Link servers selectable per editor Execute | **up to 2** (source + target) |
+| Beam servers selectable per editor Execute | **up to 2** (source + target) |
 | `sql.on()` calls per editor Execute | **up to 10** |
 | Async / Promises in Node cells | **required** (already supported by code-cell runtime) |
 | Password / decrypt | Server-only via existing `resolveRef` / connection store |
 
 ## Concepts
 
-- **Link Server** — a saved connection used with an **alias** in editor scripts
-  (same encrypted store as today’s credentials; metadata adds alias + role for
-  the run: source | target).
-- **`sql.on(alias)`** — Node/`@nodets` cell bridge that runs SQL on the link
+- **Server Beam** — the feature: run a script that reads/writes across up to two
+  saved connections in one editor Execute.
+- **Beam endpoint** — a saved connection used with an **alias** in editor scripts
+  (same encrypted store as today’s credentials; run metadata adds alias + role:
+  source | target).
+- **`sql.on(alias)`** — Node/`@nodets` cell bridge that runs SQL on the endpoint
   bound to `alias` for this Execute (same trust model as today’s single-ref
   `sql\`...\``: worker posts query to parent; parent applies Safe mode + RBAC).
 - **Editor Execute** — one Run from the SQL Editor (may include multiple
@@ -49,14 +51,15 @@ return rows;
 -- @end
 ```
 
-- Aliases must map 1:1 to the at most **2** Link Servers chosen for the run.
+- Aliases must map 1:1 to the at most **2** Beam endpoints chosen for the run.
 - A third distinct alias / server → hard error.
 - An 11th `sql.on()` in the same Execute → hard error.
 - Browser-only `@js` / `@ts` cells do **not** get `sql.on` (no DB bridge).
 
 ## Backend sketch
 
-1. Extend run payload for Node cells: `{ links: [{ alias, connectionId }], … }`
+1. Extend run payload for Node cells:
+   `{ beam: [{ alias, connectionId }], … }`
    (still one worker; parent `makeCellQueryRunner` resolves alias → `ConnectionRef`).
 2. Count `sql.on` invocations in the parent bridge; reject over 10.
 3. Reject if resolved distinct `connectionId`s > 2.
@@ -64,19 +67,19 @@ return rows;
 
 ## UI sketch
 
-- Credentials manager gains Link Server framing (alias optional; default = name).
-- SQL Editor run bar: pick **source** + **target** (max 2), not an unbounded
-  Destinations fan-out for this mode.
-- Samples: “copy rows oltp → warehouse” using `sql.on`.
+- Credentials stay the store; Server Beam mode binds aliases for the run.
+- SQL Editor run bar: pick **source** + **target** (max 2) when Beaming.
+- Samples: “Server Beam: copy rows oltp → warehouse” using `sql.on`.
 
 ## Phases
 
-1. **Bridge** — multi-link `sql.on(alias)` + Enforce 2 servers / 10 calls.
+1. **Bridge** — multi-endpoint `sql.on(alias)` + enforce 2 servers / 10 calls.
 2. **UI** — source/target picker + alias binding + sample script.
 3. **Hardening** — chunk helpers, clearer errors, tests for caps and RBAC.
 
-## Non-goals for naming in repo
+## Naming in repo
 
-Do not introduce strings or flags such as `commercial`, `enterprise`,
-`entitlement`, `tokenQuota`, or paid-tier checks for Link Servers in this work.
-Safety caps (2 servers / 10 `sql.on`) are product limits only.
+- Product / UI / docs: **Server Beam**
+- Code identifiers (suggested): `serverBeam`, `beam`, `sql.on`
+- Do not introduce paid-tier / entitlement flags for this feature in v1.
+  Safety caps (2 servers / 10 `sql.on`) are product limits only.
