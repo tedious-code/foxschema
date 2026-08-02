@@ -138,11 +138,8 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     return { tables: normalizeTableSchemas(scoped), warnings };
   }
 
-  router.get('/health', (_req: Request, res: Response) => {
-    // Include version so `foxschema open` can detect a stale pre-upgrade process
-    // still bound to the port (e.g. missing /api/files/imports after 0.2.10).
-    res.json({ ok: true, version: resolveAppVersion() });
-  });
+  // /health is registered on the public app in server.ts (before auth) and
+  // already includes `version` for stale-process detection — do not re-add here.
 
   // In-app update check — compares the running version against npm (default).
   router.get('/updates/check', async (_req: Request, res: Response) => {
