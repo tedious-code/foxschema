@@ -529,6 +529,130 @@ describe('SqlGeneratorModule.generateMigrationPlan', () => {
     expect(stmts).not.toMatch(/pg_depend|ON COMMIT DROP|_fs_vdep/i);
   });
 
+  it('CockroachDB does not DROP a body-less dependent (no recreate DDL)', () => {
+    const modified: TableDiff = {
+      tableName: 'ORDER_ITEMS',
+      objectType: 'TABLE',
+      status: 'MODIFIED',
+      columnDiffs: [
+        { name: 'QTY', status: 'MODIFIED', source: { type: 'integer', nullable: false }, target: { type: 'smallint', nullable: false } },
+      ],
+      indexDiffs: [],
+      foreignKeyDiffs: [],
+      sourceTable: tableSchema({ name: 'order_items', columns: [{ name: 'qty', type: 'integer', nullable: false, primaryKey: false }] }),
+      targetTable: tableSchema({ name: 'order_items', columns: [{ name: 'qty', type: 'smallint', nullable: false, primaryKey: false }] }),
+    };
+    // Compare omitted the routine body — without DDL we must not DROP it.
+    const fnNoBody: TableDiff = {
+      tableName: 'FN_QTY',
+      objectType: 'FUNCTION',
+      status: 'UNCHANGED',
+      columnDiffs: [],
+      indexDiffs: [],
+      foreignKeyDiffs: [],
+      targetTable: tableSchema({ name: 'fn_qty', objectType: 'FUNCTION' }),
+    };
+    const stmts = gen.generateMigrationPlan(
+      [modified],
+      'cockroachdb',
+      { targetSchema: 'demo_b' },
+      [modified, fnNoBody]
+    ).flatMap((s) => s.statements).join('\n');
+    expect(stmts).toMatch(/ALTER COLUMN QTY TYPE/i);
+    expect(stmts).not.toMatch(/DROP FUNCTION/i);
+    expect(stmts).not.toMatch(/DROP VIEW/i);
+  });
+
+  it('CockroachDB does not temporary-DROP a destructively removed dependent', () => {
+    const modified: TableDiff = {
+      tableName: 'ORDER_ITEMS',
+      objectType: 'TABLE',
+      status: 'MODIFIED',
+      columnDiffs: [
+        { name: 'QTY', status: 'MODIFIED', source: { type: 'integer', nullable: false }, target: { type: 'smallint', nullable: false } },
+      ],
+      indexDiffs: [],
+      foreignKeyDiffs: [],
+      sourceTable: tableSchema({ name: 'order_items', columns: [{ name: 'qty', type: 'integer', nullable: false, primaryKey: false }] }),
+      targetTable: tableSchema({ name: 'order_items', columns: [{ name: 'qty', type: 'smallint', nullable: false, primaryKey: false }] }),
+    };
+    const removedView: TableDiff = {
+      tableName: 'V_ORDER_SUMMARY',
+      objectType: 'VIEW',
+      status: 'REMOVED',
+      definition: 'SELECT oi.qty FROM demo_b.order_items oi',
+      columnDiffs: [],
+      indexDiffs: [],
+      foreignKeyDiffs: [],
+      targetTable: tableSchema({
+        name: 'v_order_summary',
+        objectType: 'VIEW',
+        definition: 'SELECT oi.qty FROM demo_b.order_items oi',
+        columns: [],
+      }),
+    };
+    // Destructive: view is intentionally dropped in the DROP phase — ALTER must
+    // not emit a second temporary DROP/CREATE pair for it.
+    const plan = gen.generateMigrationPlan(
+      [modified, removedView],
+      'cockroachdb',
+      { targetSchema: 'demo_b', nonDestructive: false },
+      [modified, removedView]
+    );
+    const alterSql = plan
+      .filter((s) => s.action === 'ALTER')
+      .flatMap((s) => s.statements)
+      .join('\n');
+    expect(alterSql).toMatch(/ALTER COLUMN QTY TYPE/i);
+    expect(alterSql).not.toMatch(/DROP VIEW/i);
+    expect(alterSql).not.toMatch(/CREATE OR REPLACE VIEW/i);
+  });
+
+  it('CockroachDB recreates unchecked MODIFIED dependents from target DDL', () => {
+    const modified: TableDiff = {
+      tableName: 'ORDER_ITEMS',
+      objectType: 'TABLE',
+      status: 'MODIFIED',
+      columnDiffs: [
+        { name: 'QTY', status: 'MODIFIED', source: { type: 'integer', nullable: false }, target: { type: 'smallint', nullable: false } },
+      ],
+      indexDiffs: [],
+      foreignKeyDiffs: [],
+      sourceTable: tableSchema({ name: 'order_items', columns: [{ name: 'qty', type: 'integer', nullable: false, primaryKey: false }] }),
+      targetTable: tableSchema({ name: 'order_items', columns: [{ name: 'qty', type: 'smallint', nullable: false, primaryKey: false }] }),
+    };
+    const uncheckedView: TableDiff = {
+      tableName: 'V_ORDER_SUMMARY',
+      objectType: 'VIEW',
+      status: 'MODIFIED',
+      columnDiffs: [],
+      indexDiffs: [],
+      foreignKeyDiffs: [],
+      sourceTable: tableSchema({
+        name: 'v_order_summary',
+        objectType: 'VIEW',
+        definition: 'SELECT oi.qty AS source_qty FROM demo_b.order_items oi',
+        columns: [],
+      }),
+      targetTable: tableSchema({
+        name: 'v_order_summary',
+        objectType: 'VIEW',
+        definition: 'SELECT oi.qty AS target_qty FROM demo_b.order_items oi',
+        columns: [],
+      }),
+    };
+    // Only the table is selected; the MODIFIED view is context-only.
+    const stmts = gen.generateMigrationPlan(
+      [modified],
+      'cockroachdb',
+      { targetSchema: 'demo_b' },
+      [modified, uncheckedView]
+    ).flatMap((s) => s.statements).join('\n');
+    expect(stmts).toMatch(/DROP VIEW IF EXISTS demo_b\.v_order_summary/i);
+    expect(stmts).toMatch(/target_qty/);
+    expect(stmts).not.toMatch(/source_qty/);
+  });
+
   it('includes USING cast in Postgres ALTER COLUMN TYPE', () => {
     const diff: TableDiff = {
       tableName: 'ORDERS',

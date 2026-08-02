@@ -57,17 +57,34 @@ export class MigrationPage {
     return this.page.locator('[data-testid="deploy-confirm-dialog"]').isVisible();
   }
 
-  async confirmDeploy(): Promise<void> {
+  /**
+   * Confirm the deploy dialog when present.
+   * Returns `'confirmed'` when the dialog was shown and dismissed via Confirm,
+   * `'skipped'` when no dialog appeared (e.g. "don't ask again" / already deploying).
+   * Throws if the dialog remains open after Confirm (deploy never started).
+   */
+  async confirmDeploy(): Promise<'confirmed' | 'skipped'> {
     const dialog = this.page.locator('[data-testid="deploy-confirm-dialog"]');
+    const progressPanel = this.page.locator('[data-testid="migration-progress-panel"]');
     // Dialog mounts after Execute. If the user previously chose "don't ask
-    // again", it never appears — return quickly so we don't burn the migrate
-    // wait budget while the progress panel is already on screen.
-    try {
-      await dialog.waitFor({ state: 'visible', timeout: 1_500 });
-    } catch {
-      return;
+    // again", it never appears — progress may already be on screen.
+    const appeared = await dialog
+      .waitFor({ state: 'visible', timeout: 8_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (!appeared) {
+      return 'skipped';
     }
     await clickWhen(this.page, '[data-testid="deploy-confirm-btn"]');
+    // Confirm must either close the dialog or reveal the progress panel.
+    await Promise.race([
+      dialog.waitFor({ state: 'hidden', timeout: 15_000 }),
+      progressPanel.waitFor({ state: 'visible', timeout: 15_000 }),
+    ]).catch(() => undefined);
+    if (await dialog.isVisible().catch(() => false)) {
+      throw new Error('Deploy confirm dialog still open after confirm — deploy did not start');
+    }
+    return 'confirmed';
   }
 
   // ── Migration progress panel ───────────────────────────────────────────

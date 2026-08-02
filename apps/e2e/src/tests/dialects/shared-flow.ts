@@ -137,13 +137,22 @@ export function runDialectFlow(
     // Objects already selected in the previous step; just execute.
     await migration.clickExecute();
     // Confirm dialog may appear (or be skipped via localStorage); progress panel follows.
+    // confirmDeploy throws if the dialog stays open (stuck confirm ≠ empty plan).
     await migration.confirmDeploy();
     // Non-destructive mode can leave includedCount > 0 while generateMigrationPlan
     // yields an empty plan (e.g. only REMOVED/DROP diffs). applyMigration then
-    // returns without opening the progress panel — treat that as a skip.
+    // returns without opening the progress panel — treat that as a skip only when
+    // the confirm dialog is gone (deploy was accepted / never shown).
+    const confirmStillOpen = await driver
+      .locator('[data-testid="deploy-confirm-dialog"]')
+      .isVisible()
+      .catch(() => false);
+    if (confirmStillOpen) {
+      throw new Error(`[${dialectLabel}] Deploy confirm dialog still open after confirmDeploy`);
+    }
     const panelVisible = await driver
       .locator('[data-testid="migration-progress-panel"]')
-      .waitFor({ state: 'visible', timeout: 8_000 })
+      .waitFor({ state: 'visible', timeout: 12_000 })
       .then(() => true)
       .catch(() => false);
     if (!panelVisible) {
