@@ -640,8 +640,10 @@ function sqlTextIsWrite(text: string): boolean {
     for (const body of withCteBodies(text)) {
       if (sqlTextIsWrite(body)) return true;
     }
-    const after = keywordAfterWithCtes(text);
-    return after !== null && WRITE_KEYWORDS.has(after);
+    // Recurse into the tail rather than matching its leading verb, so
+    // `WITH … SELECT * INTO t` and `WITH … EXPLAIN ANALYZE DELETE` still warn.
+    const tail = walkWithCtes(text);
+    return tail !== null && sqlTextIsWrite(tail);
   }
   return false;
 }
@@ -745,9 +747,12 @@ function sqlTextIsReadOnly(text: string): boolean {
     for (const body of withCteBodies(text)) {
       if (!sqlTextIsReadOnly(body)) return false;
     }
-    const after = keywordAfterWithCtes(text);
-    if (after === null || !READ_ONLY_KEYWORDS.has(after)) return false;
-    return !hasIntoTarget(text);
+    // Classify the statement AFTER the CTE list, not just its leading verb:
+    // a tail is only a read if the whole tail is, and `SELECT … INTO` /
+    // `EXPLAIN ANALYZE …` are decided by more than the first word.
+    const tail = walkWithCtes(text);
+    if (tail === null) return false; // unscannable CTE list → fail closed
+    return sqlTextIsReadOnly(tail);
   }
   return true;
 }
@@ -790,8 +795,8 @@ function sqlTextIsMutatingDml(text: string): boolean {
     for (const body of withCteBodies(text)) {
       if (sqlTextIsMutatingDml(body)) return true;
     }
-    const after = keywordAfterWithCtes(text);
-    return after !== null && MUTATING_DML.has(after);
+    const tail = walkWithCtes(text);
+    return tail !== null && sqlTextIsMutatingDml(tail);
   }
   return false;
 }

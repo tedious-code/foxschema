@@ -486,3 +486,40 @@ describe('isWriteStatement — Safe Mode catches bulk/INTO writes too', () => {
     expect(isWriteStatement("SELECT 'into outfile' AS note")).toBe(false);
   });
 });
+
+describe('WITH tail is classified, not just its leading verb', () => {
+  // Reported by Cursor Bugbot on #153: the tail passed on keyword membership
+  // alone, so anything needing deeper analysis slipped through.
+  it('gates a WITH tail that only looks like a read', () => {
+    for (const sql of [
+      'WITH t AS (SELECT 1) EXPLAIN ANALYZE DELETE FROM users',
+      'WITH t AS (SELECT 1) PRAGMA journal_mode = WAL',
+      'WITH t AS (SELECT 1) SELECT * INTO evil FROM t',
+      'WITH a AS (SELECT 1) WITH b AS (DELETE FROM t RETURNING *) SELECT * FROM b',
+    ]) {
+      expect(requiresWritePermission(sql), sql).toBe(true);
+    }
+  });
+
+  it('keeps genuinely read-only WITH statements readable', () => {
+    for (const sql of [
+      'WITH t AS (SELECT 1) SELECT * FROM t',
+      'WITH RECURSIVE t AS (SELECT 1) SELECT * FROM t',
+      'WITH a AS (SELECT 1) WITH b AS (SELECT 2) SELECT * FROM b',
+      'WITH t AS (SELECT 1) TABLE t',
+    ]) {
+      expect(requiresWritePermission(sql), sql).toBe(false);
+    }
+  });
+
+  it('Safe Mode warns on the same tails', () => {
+    expect(isWriteStatement('WITH t AS (SELECT 1) SELECT * INTO evil FROM t')).toBe(true);
+    expect(isWriteStatement('WITH t AS (SELECT 1) EXPLAIN ANALYZE DELETE FROM users')).toBe(true);
+    expect(isWriteStatement('WITH t AS (SELECT 1) SELECT * FROM t')).toBe(false);
+  });
+
+  it('still flags mutating DML through a WITH tail', () => {
+    expect(isMutatingDmlStatement('WITH t AS (SELECT 1) UPDATE users SET a = 1')).toBe(true);
+    expect(isMutatingDmlStatement('WITH t AS (SELECT 1) SELECT * FROM t')).toBe(false);
+  });
+});
