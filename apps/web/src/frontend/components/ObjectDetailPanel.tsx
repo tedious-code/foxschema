@@ -1288,10 +1288,13 @@ export const ObjectDetailPanel: React.FC = () => {
     });
   const mysqlRiskAcked = mysqlAckSql !== null && mysqlAckSql === generatedSql;
 
-  // Single source of truth for why Execute is disabled, checked in priority order —
-  // most severe / least self-service first. `null` means nothing is blocking.
+  // Display priority for the blocked reason + greyed styling, most severe /
+  // least self-service first. `null` means nothing is blocking. Some of these
+  // states stay clickable on purpose so the click can open the resolution
+  // dialog — see the narrower `disabled` list on the button itself.
   const executeBlockReason: string | null =
-    includedCount === 0 ? 'No objects selected for deployment'
+    !canMigrate ? 'Your role cannot execute migrations'
+    : includedCount === 0 ? 'No objects selected for deployment'
     : !targetConnected ? 'Target connection is not healthy — reconnect before deploying'
     : hasMissingFkTargets ? `${missingFkIssues.length} foreign key(s) reference a table that won't exist in the target — resolve the conflicts below`
     : hasUnresolvedDropDeps ? `${liveDropDeps.length} dependent object(s) would break — resolve the conflicts below`
@@ -1364,11 +1367,7 @@ export const ObjectDetailPanel: React.FC = () => {
               (hasDestructiveDrops && !destructiveDropsAcked) ||
               (deploysRoutineToMySql && !mysqlRiskAcked)
             }
-            title={
-              !canMigrate
-                ? 'Your role cannot execute migrations'
-                : executeBlockReason ?? `Deploy ${includedCount} object(s) to target`
-            }
+            title={executeBlockReason ?? `Deploy ${includedCount} object(s) to target`}
             className={`flex items-center gap-1.5 px-4 py-1.5 rounded text-xs font-bold transition shadow ${
               migrationExecuted
                 ? 'bg-emerald-950/40 text-emerald-400 border border-emerald-500/25 cursor-default'

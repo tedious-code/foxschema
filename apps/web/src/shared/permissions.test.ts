@@ -41,4 +41,11 @@ describe('permissions catalog', () => {
       'schema.browse',
     ]);
   });
+
+  it('uniquePermissions rejects non-string values from untrusted input', () => {
+    expect(uniquePermissions([42, null, undefined, {}, ['editor.run'], 'editor.run'])).toEqual([
+      'editor.run',
+    ]);
+    expect(uniquePermissions([])).toEqual([]);
+  });
 });

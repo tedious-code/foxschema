@@ -54,14 +54,13 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
         const r = await apiAdminRolePermissions();
         setMatrix(r.matrix);
         setCatalog(r.catalog);
-        setDraft(new Set(r.matrix[editRole] ?? []));
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load access settings');
     } finally {
       setBusy(false);
     }
-  }, [canUsers, canRoles, editRole]);
+  }, [canUsers, canRoles]);
 
   useEffect(() => {
     if (open) void load();

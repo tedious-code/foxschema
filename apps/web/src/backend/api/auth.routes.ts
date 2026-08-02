@@ -6,13 +6,18 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { AuthModule, SESSION_COOKIE, SESSION_MAX_AGE_MS, type AuthUser } from '../modules/auth.module';
 import type { AppRole, Permission } from '../../shared/permissions';
-import { attachAuthUser } from './rbac.middleware';
 
 export interface AuthedRequest extends Request {
   userId?: string;
   appRole?: AppRole;
   permissions?: Set<Permission>;
-  authUser?: AuthUser;
+}
+
+/** Put the resolved session user's identity + grants on the request. */
+export function attachAuthUser(user: AuthUser, req: AuthedRequest): void {
+  req.userId = user.id;
+  req.appRole = user.role;
+  req.permissions = new Set(user.permissions);
 }
 
 /** Minimal cookie reader (avoids a cookie-parser dependency). */
@@ -98,7 +103,6 @@ export function authGuard(auth: AuthModule) {
         return;
       }
       attachAuthUser(user, req);
-      req.authUser = user;
       next();
     } catch (err) {
       next(err);
@@ -115,7 +119,6 @@ export function localUserGuard(auth: AuthModule) {
     try {
       const user = await auth.ensureLocalUser();
       attachAuthUser(user, req);
-      req.authUser = user;
       next();
     } catch (err) {
       next(err);

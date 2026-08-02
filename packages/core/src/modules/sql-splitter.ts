@@ -608,8 +608,9 @@ export function checkStatement(
  * Leading WRITE keywords count; so do CTE wrappers whose main verb is a write
  * (`WITH … AS (…) INSERT …`), and data-modifying CTEs whose outer verb is a
  * read (`WITH x AS (DELETE … RETURNING …) SELECT * FROM x`) — PostgreSQL
- * executes the DELETE. `EXPLAIN …` stays non-write even when it wraps a
- * mutating verb — EXPLAIN does not apply the change.
+ * executes the DELETE. Plain `EXPLAIN …` stays non-write (planning only), but
+ * `EXPLAIN ANALYZE …` / `EXPLAIN (ANALYZE, …) …` execute the plan on Postgres
+ * (and MySQL 8.0.18+), so those inherit the inner statement's write-ness.
  */
 export function isWriteStatement(text: string): boolean {
   if (parseCodeCell(text)) return false;
@@ -621,7 +622,10 @@ function sqlTextIsWrite(text: string): boolean {
   const kw = firstKeyword(text);
   if (!kw) return false;
   if (WRITE_KEYWORDS.has(kw)) return true;
-  if (kw === 'explain') return false;
+  if (kw === 'explain') {
+    const inner = peelExplainAnalyze(text);
+    return inner !== null && sqlTextIsWrite(inner);
+  }
   if (kw === 'with') {
     for (const body of withCteBodies(text)) {
       if (sqlTextIsWrite(body)) return true;
@@ -638,7 +642,10 @@ export function statementVerb(text: string): string | null {
   if (cell) return cell.kind;
   const kw = firstKeyword(text);
   if (!kw) return null;
-  if (kw === 'explain') return 'explain';
+  if (kw === 'explain') {
+    const inner = peelExplainAnalyze(text);
+    return inner ? statementVerb(inner) : 'explain';
+  }
   if (kw === 'with') return keywordAfterWithCtes(text);
   return kw;
 }
@@ -657,7 +664,11 @@ export function isMutatingDmlStatement(text: string): boolean {
 
 function sqlTextIsMutatingDml(text: string): boolean {
   const kw = firstKeyword(text);
-  if (!kw || kw === 'explain') return false;
+  if (!kw) return false;
+  if (kw === 'explain') {
+    const inner = peelExplainAnalyze(text);
+    return inner !== null && sqlTextIsMutatingDml(inner);
+  }
   if (MUTATING_DML.has(kw)) return true;
   if (kw === 'with') {
     for (const body of withCteBodies(text)) {
@@ -667,6 +678,33 @@ function sqlTextIsMutatingDml(text: string): boolean {
     return after !== null && MUTATING_DML.has(after);
   }
   return false;
+}
+
+/**
+ * If `text` is `EXPLAIN ANALYZE <stmt>` or `EXPLAIN (ANALYZE[, …]) <stmt>`,
+ * return the inner statement; otherwise null (plain EXPLAIN is planning-only).
+ */
+function peelExplainAnalyze(text: string): string | null {
+  const lead = firstKeywordSpan(text);
+  if (!lead || lead.word !== 'explain') return null;
+  const i = skipWsAndComments(text, lead.end);
+  if (i >= text.length) return null;
+
+  // EXPLAIN ANALYZE <stmt>
+  if (/[A-Za-z_]/.test(text[i]!)) {
+    let j = i;
+    while (j < text.length && /[A-Za-z_0-9]/.test(text[j]!)) j++;
+    if (text.slice(i, j).toLowerCase() !== 'analyze') return null;
+    return text.slice(j);
+  }
+
+  // EXPLAIN (ANALYZE [, …]) <stmt>
+  if (text[i] !== '(') return null;
+  const close = text.indexOf(')', i + 1);
+  if (close < 0) return null;
+  const opts = text.slice(i + 1, close);
+  if (!/(^|,)\s*analyze\b/i.test(opts)) return null;
+  return text.slice(close + 1);
 }
 
 /**

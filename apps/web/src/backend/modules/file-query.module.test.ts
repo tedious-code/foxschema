@@ -41,6 +41,13 @@ describe('file-query parsers', () => {
     expect(isFileQueryDbPath('/var/data/app.db')).toBe(false);
   });
 
+  it('rejects path-traversal strings that only lexically prefix the temp dir', () => {
+    const root = fileQueryTempDir();
+    expect(isFileQueryDbPath(join(root, '..', '..', 'etc', 'passwd'))).toBe(false);
+    expect(isFileQueryDbPath(`${root}/../../../etc/passwd`)).toBe(false);
+    expect(isFileQueryDbPath(root)).toBe(false);
+  });
+
   it('parseCsv handles headers, quotes, and commas', () => {
     const { columns, rows } = parseCsv('id,name,note\n1,"Ada, Lovelace","ok""yes"\n2,Grace,\n');
     expect(columns).toEqual(['id', 'name', 'note']);

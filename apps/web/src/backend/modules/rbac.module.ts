@@ -13,9 +13,13 @@ import {
   type AppRole,
   type Permission,
   isAppRole,
-  isPermission,
   uniquePermissions,
 } from '../../shared/permissions';
+
+/** Unknown / missing role values fall back to the least-privileged role. */
+export function toAppRole(value: unknown): AppRole {
+  return isAppRole(value) ? value : 'viewer';
+}
 
 export class RbacModule {
   /** Permissions granted to a role (DB overlay, else built-in defaults). */
@@ -30,39 +34,23 @@ export class RbacModule {
     return uniquePermissions(rows.map((r) => r.permission));
   }
 
-  async permissionsForUser(userId: string): Promise<{ role: AppRole; permissions: Permission[] }> {
-    const role = await this.roleForUser(userId);
-    return { role, permissions: await this.permissionsForRole(role) };
-  }
-
-  async roleForUser(userId: string): Promise<AppRole> {
-    const store = await getStore();
-    const row = await store.get<{ app_role: string | null }>(
-      'SELECT app_role FROM users WHERE id = ?',
-      [userId]
-    );
-    const role = row?.app_role;
-    return isAppRole(role) ? role : 'viewer';
-  }
-
   async setUserRole(userId: string, role: AppRole): Promise<void> {
-    if (!isAppRole(role)) throw new Error('Invalid role.');
     const store = await getStore();
     const result = await store.run('UPDATE users SET app_role = ? WHERE id = ?', [role, userId]);
-    if ((result as { changes?: number }).changes === 0) {
-      // Some stores don't return changes — verify.
+    if (result.changes === 0) {
+      // MySQL reports 0 affected rows for a no-op update, so this may be a
+      // user who already has the role rather than a missing one.
       const exists = await store.get('SELECT id FROM users WHERE id = ?', [userId]);
       if (!exists) throw new Error('User not found.');
     }
   }
 
   /** Replace the permission set for a non-admin role. Admin is always full. */
-  async setRolePermissions(role: AppRole, permissions: string[]): Promise<Permission[]> {
+  async setRolePermissions(role: AppRole, permissions: unknown[]): Promise<Permission[]> {
     if (role === 'admin') {
       throw new Error('Admin always has all permissions — nothing to configure.');
     }
-    if (!isAppRole(role)) throw new Error('Invalid role.');
-    const next = uniquePermissions(permissions.filter(isPermission));
+    const next = uniquePermissions(permissions);
     const store = await getStore();
     await store.run('DELETE FROM role_permissions WHERE role = ?', [role]);
     for (const p of next) {
@@ -90,23 +78,9 @@ export class RbacModule {
     return rows.map((r) => ({
       id: r.id,
       email: r.email,
-      role: isAppRole(r.app_role) ? r.app_role : 'viewer',
+      role: toAppRole(r.app_role),
       createdAt: r.created_at,
     }));
-  }
-
-  async userHas(userId: string, permission: Permission): Promise<boolean> {
-    const { role, permissions } = await this.permissionsForUser(userId);
-    if (role === 'admin') return true;
-    return permissions.includes(permission);
-  }
-
-  async userHasAll(userId: string, required: Permission[]): Promise<boolean> {
-    if (required.length === 0) return true;
-    const { role, permissions } = await this.permissionsForUser(userId);
-    if (role === 'admin') return true;
-    const set = new Set(permissions);
-    return required.every((p) => set.has(p));
   }
 }
 

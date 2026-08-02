@@ -29,7 +29,13 @@ import { ConnectionStore } from '../modules/connection-store.module';
 import { MigrationHistoryStore, type MigrationObjectResult, type MigrationRunStatus } from '../modules/migration-history.module';
 import { AppSettingsStore } from '../modules/app-settings.module';
 import { rateLimit } from './rate-limit';
-import { runStatements, clampMaxRows, MAX_STATEMENTS, MAX_STATEMENT_LENGTH } from './sql-execute';
+import {
+  runStatements,
+  clampMaxRows,
+  isRunnableStatement,
+  MAX_STATEMENTS,
+  MAX_STATEMENT_LENGTH,
+} from './sql-execute';
 import { clampOffset } from './sql-page-wrap';
 import {
   runCodeCellOnServer,
@@ -518,16 +524,16 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     }
     const authed = req as AuthedRequest;
     if (denyUnless(authed, res, 'editor.run')) return;
-    const writes = (statements as string[]).some((s) => isWriteStatement(s));
-    if (writes && denyUnless(authed, res, 'editor.write')) return;
     if (statements.length > MAX_STATEMENTS) {
       res.status(400).json({ error: `At most ${MAX_STATEMENTS} statements per request.` });
       return;
     }
-    if (statements.some((s) => typeof s !== 'string' || !s.trim() || s.length > MAX_STATEMENT_LENGTH)) {
+    if (!statements.every(isRunnableStatement)) {
       res.status(400).json({ error: `Every statement must be a non-empty string under ${MAX_STATEMENT_LENGTH} characters.` });
       return;
     }
+    // Scan for writes only once the statements are known to be bounded strings.
+    if (statements.some(isWriteStatement) && denyUnless(authed, res, 'editor.write')) return;
     // Optional bind parameters, one array per statement. Anything else is a
     // client bug — reject rather than silently dropping the values, which would
     // send a statement whose placeholders have nothing to bind to.
@@ -548,7 +554,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       const results = await runStatements(
         resolved.dialect,
         resolved.option,
-        statements as string[],
+        statements,
         clampMaxRows(maxRows),
         resolved.schema,
         clampOffset(offset),
