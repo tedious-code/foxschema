@@ -13,7 +13,7 @@ import {
   getProviderSettings,
   dialectSupportsIndexFragmentation,
   buildIndexFragmentationCustomTemplate,
-  isWriteStatement,
+  requiresWritePermission,
   type MigrationStep,
   type ConnectionOptions,
   type DbObjectType,
@@ -533,7 +533,9 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       return;
     }
     // Scan for writes only once the statements are known to be bounded strings.
-    if (statements.some(isWriteStatement) && denyUnless(authed, res, 'editor.write')) return;
+    // Fail-closed: anything not provably a read needs `editor.write`, so a verb
+    // the classifier doesn't recognize is denied instead of executed.
+    if (statements.some(requiresWritePermission) && denyUnless(authed, res, 'editor.write')) return;
     // Optional bind parameters, one array per statement. Anything else is a
     // client bug — reject rather than silently dropping the values, which would
     // send a statement whose placeholders have nothing to bind to.

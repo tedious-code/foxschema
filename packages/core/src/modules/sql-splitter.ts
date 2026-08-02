@@ -88,6 +88,9 @@ const WRITE_KEYWORDS = new Set([
   // Procedure / anonymous-block / bulk / matview verbs — not statically analyzable
   // as read-only, so RBAC `editor.write` and Safe Mode treat them as writes.
   'call', 'exec', 'execute', 'do', 'copy', 'refresh',
+  // Bulk load / export verbs: LOAD DATA INFILE inserts rows, UNLOAD writes to
+  // external storage. Neither starts with a verb the list above covers.
+  'load', 'unload',
 ]);
 
 // eslint-disable-next-line security/detect-unsafe-regex -- false positive: anchored at ^; optional bounded identifier
@@ -625,6 +628,10 @@ function sqlTextIsWrite(text: string): boolean {
   const kw = firstKeyword(text);
   if (!kw) return false;
   if (WRITE_KEYWORDS.has(kw)) return true;
+  // `SELECT … INTO t` creates a table (SQL Server, Postgres) and `INTO OUTFILE`
+  // writes a file (MySQL) — all starting with SELECT, so Safe Mode would
+  // otherwise run them without a confirmation.
+  if ((kw === 'select' || kw === 'table' || kw === 'values') && hasIntoTarget(text)) return true;
   if (kw === 'explain') {
     const inner = peelExplainAnalyze(text);
     return inner !== null && sqlTextIsWrite(inner);
@@ -633,10 +640,121 @@ function sqlTextIsWrite(text: string): boolean {
     for (const body of withCteBodies(text)) {
       if (sqlTextIsWrite(body)) return true;
     }
-    const after = keywordAfterWithCtes(text);
-    return after !== null && WRITE_KEYWORDS.has(after);
+    // Recurse into the tail rather than matching its leading verb, so
+    // `WITH … SELECT * INTO t` and `WITH … EXPLAIN ANALYZE DELETE` still warn.
+    const tail = walkWithCtes(text);
+    return tail !== null && sqlTextIsWrite(tail);
   }
   return false;
+}
+
+/**
+ * Verbs that can be *proved* read-only. Used by the RBAC `editor.write` gate,
+ * which inverts the polarity of {@link isWriteStatement}: a statement is a read
+ * only if it is on this list, so an unrecognized verb is denied rather than
+ * waved through.
+ *
+ * That distinction matters. A denylist of write verbs fails OPEN — every verb
+ * nobody enumerated is permitted — and it has leaked repeatedly: data-modifying
+ * CTEs, `EXPLAIN ANALYZE`, `CALL`/`DO`/`COPY`, and (before this) `SELECT … INTO`,
+ * `LOAD DATA INFILE`, and Redshift `UNLOAD`, each of which writes while starting
+ * with a verb the list did not cover.
+ */
+const READ_ONLY_KEYWORDS = new Set([
+  'select', 'show', 'describe', 'desc', 'values', 'table', 'explain', 'with', 'pragma',
+]);
+
+/** Strip SQL strings and comments so keyword scans can't be fooled by literals. */
+function stripSqlStringsAndComments(sql: string): string {
+  let out = '';
+  let mode: Mode = 'code';
+  let dollarTag = '';
+  for (let i = 0; i < sql.length; i++) {
+    const ch = sql[i]!;
+    const next = i + 1 < sql.length ? sql[i + 1]! : '';
+    if (mode === 'code') {
+      if (ch === '-' && next === '-') { mode = 'line-comment'; i++; continue; }
+      if (ch === '#') { mode = 'line-comment'; continue; }
+      if (ch === '/' && next === '*') { mode = 'block-comment'; i++; continue; }
+      if (ch === "'") { mode = 'single'; out += ' '; continue; }
+      if (ch === '"') { mode = 'double'; out += ' '; continue; }
+      if (ch === '`') { mode = 'backtick'; out += ' '; continue; }
+      if (ch === '[') { mode = 'bracket'; out += ' '; continue; }
+      if (ch === '$') {
+        const m = DOLLAR_TAG_RE.exec(sql.slice(i));
+        if (m) { dollarTag = m[0]; mode = 'dollar'; i += dollarTag.length - 1; out += ' '; continue; }
+      }
+      out += ch;
+      continue;
+    }
+    if (mode === 'line-comment') { if (ch === '\n') { mode = 'code'; out += '\n'; } continue; }
+    if (mode === 'block-comment') { if (ch === '*' && next === '/') { mode = 'code'; i++; } continue; }
+    if (mode === 'single' && ch === "'") { mode = 'code'; continue; }
+    if (mode === 'double' && ch === '"') { mode = 'code'; continue; }
+    if (mode === 'backtick' && ch === '`') { mode = 'code'; continue; }
+    if (mode === 'bracket' && ch === ']') { mode = 'code'; continue; }
+    if (mode === 'dollar' && ch === '$' && sql.startsWith(dollarTag, i)) {
+      mode = 'code'; i += dollarTag.length - 1; continue;
+    }
+  }
+  return out;
+}
+
+/**
+ * True when a SELECT-family statement has an `INTO` target — `SELECT … INTO t`
+ * creates a table on SQL Server and Postgres, and MySQL's `INTO OUTFILE` /
+ * `INTO DUMPFILE` writes a file on the database host. All start with SELECT, so
+ * the leading verb alone cannot tell them apart from a plain read.
+ */
+function hasIntoTarget(text: string): boolean {
+  return /\bINTO\b/i.test(stripSqlStringsAndComments(text));
+}
+
+/** `PRAGMA x` reads; `PRAGMA x = y` mutates database configuration. */
+function isPragmaAssignment(text: string): boolean {
+  return /=/.test(stripSqlStringsAndComments(text));
+}
+
+/**
+ * Whether a statement needs the `editor.write` permission.
+ *
+ * Fail-closed counterpart to {@link isWriteStatement}: anything not provably a
+ * read requires the permission. Safe Mode keeps using `isWriteStatement` — it
+ * is a confirmation prompt, where a false positive is an annoyance rather than
+ * a hole — but authorization must not hand execution to a verb it doesn't know.
+ */
+export function requiresWritePermission(text: string): boolean {
+  // Code cells carry no SQL of their own; the `sql` bridge gates each statement
+  // it submits (see code-cell-query.ts).
+  if (parseCodeCell(text)) return false;
+  return !sqlTextIsReadOnly(text);
+}
+
+function sqlTextIsReadOnly(text: string): boolean {
+  const kw = firstKeyword(text);
+  if (!kw) return true; // blank or comment-only — nothing executes
+  if (!READ_ONLY_KEYWORDS.has(kw)) return false;
+
+  if (kw === 'select' || kw === 'table' || kw === 'values') return !hasIntoTarget(text);
+  if (kw === 'pragma') return !isPragmaAssignment(text);
+  if (kw === 'explain') {
+    // Plain EXPLAIN only plans. EXPLAIN ANALYZE runs the inner statement, so it
+    // inherits the inner statement's classification.
+    const inner = peelExplainAnalyze(text);
+    return inner === null ? true : sqlTextIsReadOnly(inner);
+  }
+  if (kw === 'with') {
+    for (const body of withCteBodies(text)) {
+      if (!sqlTextIsReadOnly(body)) return false;
+    }
+    // Classify the statement AFTER the CTE list, not just its leading verb:
+    // a tail is only a read if the whole tail is, and `SELECT … INTO` /
+    // `EXPLAIN ANALYZE …` are decided by more than the first word.
+    const tail = walkWithCtes(text);
+    if (tail === null) return false; // unscannable CTE list → fail closed
+    return sqlTextIsReadOnly(tail);
+  }
+  return true;
 }
 
 /** Leading verb after skipping WITH CTEs (lowercased), or null. */
@@ -677,8 +795,8 @@ function sqlTextIsMutatingDml(text: string): boolean {
     for (const body of withCteBodies(text)) {
       if (sqlTextIsMutatingDml(body)) return true;
     }
-    const after = keywordAfterWithCtes(text);
-    return after !== null && MUTATING_DML.has(after);
+    const tail = walkWithCtes(text);
+    return tail !== null && sqlTextIsMutatingDml(tail);
   }
   return false;
 }
