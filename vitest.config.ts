@@ -24,7 +24,12 @@ export default defineConfig({
         resolve: { alias: aliases },
         test: {
           name: 'unit',
-          include: ['packages/**/*.test.ts', 'apps/web/**/*.test.ts', 'apps/cli/src/**/*.test.ts'],
+          include: [
+            'packages/**/*.test.ts',
+            'apps/web/**/*.test.ts',
+            'apps/cli/src/**/*.test.ts',
+            'scripts/security/**/*.test.mjs',
+          ],
           exclude: ['apps/cli/src/tui/**'],
           testTimeout: 15_000,
         },

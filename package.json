@@ -14,6 +14,7 @@
     "lint": "eslint .",
     "lint:security": "eslint . --max-warnings 0",
     "audit:security": "npm audit --audit-level=critical --omit=dev",
+    "scan:deps-security": "node scripts/security/scan-node-modules.mjs --fail-on high",
     "dev": "npm -w @foxschema/web run dev:all",
     "dev:auth": "npm -w @foxschema/web run dev:all:auth",
     "dev:api": "npm -w @foxschema/web run dev:api",
