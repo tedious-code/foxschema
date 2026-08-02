@@ -144,15 +144,6 @@ function packageNameFromPath(nmRoot, filePath) {
   return parts[0] || '';
 }
 
-function packageRootFromPath(nmRoot, filePath) {
-  const rel = relative(nmRoot, filePath);
-  const parts = rel.split(sep);
-  if (parts[0]?.startsWith('@') && parts.length >= 2) {
-    return join(nmRoot, parts[0], parts[1]);
-  }
-  return join(nmRoot, parts[0] || '');
-}
-
 function readTextLimited(path, max = 512_000) {
   try {
     const st = statSync(path);

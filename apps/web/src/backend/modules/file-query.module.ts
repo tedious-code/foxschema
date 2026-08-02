@@ -357,7 +357,14 @@ function inferType(values: unknown[]): SqlType {
       sawInt = true;
       continue;
     }
-    if (/^[+-]?(?:\d+\.\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(s)) {
+    // Split forms avoid a single ReDoS-prone float regex (eslint security).
+    if (
+      /^[+-]?\d+\.\d+$/.test(s) ||
+      /^[+-]?\.\d+$/.test(s) ||
+      /^[+-]?\d+\.\d+[eE][+-]?\d+$/.test(s) ||
+      /^[+-]?\.\d+[eE][+-]?\d+$/.test(s) ||
+      /^[+-]?\d+[eE][+-]?\d+$/.test(s)
+    ) {
       sawReal = true;
       continue;
     }
