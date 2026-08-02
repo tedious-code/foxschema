@@ -77,12 +77,23 @@ console.log(`  Fox E2E — SQL Editor + ${configured.length} dialect(s)`);
 console.log(bar + '\n');
 
 // Always run SQL Editor suites first (self-seeding SQLite; no Docker required).
+// Utilities-across-dialects runs when any dialect env is configured (same gating
+// as the dialect compare suites below).
 const ALWAYS = [
   {
     key: 'sql-editor',
     file: 'src/tests/sql-editor-smoke.test.ts src/tests/sql-editor-sqlite.test.ts src/tests/sql-editor-blueprint.test.ts',
     label: 'SQL Editor',
   },
+  ...(configured.length
+    ? [
+        {
+          key: 'sql-editor-utilities',
+          file: 'src/tests/sql-editor-utilities-dialects.test.ts',
+          label: 'Utilities',
+        },
+      ]
+    : []),
 ];
 
 for (const suite of ALWAYS) {

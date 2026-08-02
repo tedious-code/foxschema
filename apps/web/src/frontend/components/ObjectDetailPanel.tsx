@@ -237,7 +237,8 @@ export const ObjectDetailPanel: React.FC = () => {
     const steps = ddlGenerator.generateMigrationPlan(
       includedDiffs,
       targetConfig.dialect,
-      buildMapping({ sourceConfig, targetConfig, nonDestructive, targetServerVersion })
+      buildMapping({ sourceConfig, targetConfig, nonDestructive, targetServerVersion }),
+      compareResult.tables
     );
     return extractReviewNotices(steps);
   }, [compareResult, syncSelection, memberSelection, indexSelection, sourceConfig, targetConfig, nonDestructive, targetServerVersion]);

@@ -1,5 +1,7 @@
 import type { Page } from 'playwright';
 import { clickWhen, waitFor, fillInput } from '../helpers/driver.js';
+import type { DbConfig } from '../helpers/db-config.js';
+import { ConnectionModal } from './ConnectionModal.js';
 
 /**
  * Page object for the SQL Editor workspace (view switcher + run against
@@ -55,28 +57,37 @@ export class SqlEditorPage {
 
   /** Save a SQLite file path as a named credential (password saved so Run/schema don't re-prompt). */
   async addSqliteCredential(name: string, dbPath: string): Promise<void> {
+    await this.addCredential(name, {
+      dialect: 'sqlite',
+      host: 'localhost',
+      port: 0,
+      database: dbPath,
+      username: 'unused',
+      password: 'unused',
+    });
+  }
+
+  /**
+   * Save any dialect credential from Credentials → Add.
+   * Fills the connection name, then reuses ConnectionModal.connect() (load schemas + save password).
+   */
+  async addCredential(name: string, cfg: DbConfig): Promise<void> {
     await this.openCredentials();
     await clickWhen(this.page, '[data-testid="cred-add-btn"]');
     await waitFor(this.page, '[data-testid="conn-modal"]');
+    const modal = new ConnectionModal(this.page);
+    // Dialect first — switching dialect can reset the form and wipe the name.
+    await modal.selectDialect(cfg.dialect);
     await fillInput(this.page, '[data-testid="conn-name-input"]', name);
-    await this.page.selectOption('[data-testid="conn-dialect-select"]', 'sqlite');
-    await fillInput(this.page, '[data-testid="conn-database-input"]', dbPath);
-    // SQLite ignores the password, but hasPassword must be true so the SQL
-    // Editor doesn't open a session-password modal on schema warm / check.
-    await fillInput(this.page, '[data-testid="conn-password-input"]', 'unused');
-    await this.page.locator('[data-testid="conn-save-password"]').check();
-    await this.page.click('[data-testid="conn-load-schema-btn"]');
-    await this.page.waitForSelector(
-      '[data-testid="conn-test-success"], [data-testid="conn-test-failed"]',
-      { timeout: 25_000 }
-    );
-    const failed = await this.page.locator('[data-testid="conn-test-failed"]').isVisible();
-    if (failed) {
-      const err = (await this.page.locator('[data-testid="conn-test-failed"]').textContent()) ?? 'load failed';
-      throw new Error(`SQLite credential load failed for ${dbPath}: ${err}`);
-    }
-    await this.page.click('[data-testid="conn-save-btn"]');
-    await this.page.waitForSelector('[data-testid="conn-modal"]', { state: 'detached', timeout: 10_000 });
+    await modal.fillHost(cfg.host);
+    await modal.fillPort(cfg.port);
+    await modal.fillDatabase(cfg.database);
+    await modal.fillUsername(cfg.username);
+    await modal.fillPassword(cfg.password);
+    await modal.checkSavePassword();
+    await modal.loadSchemas();
+    if (cfg.schema) await modal.selectSchema(cfg.schema);
+    await modal.save();
     await this.closeCredentials();
   }
 

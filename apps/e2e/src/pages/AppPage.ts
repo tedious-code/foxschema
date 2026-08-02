@@ -10,13 +10,24 @@ export class AppPage {
 
   async open(): Promise<void> {
     await this.page.goto(BASE_URL);
-    await waitFor(this.page, '[data-testid="toolbar"]');
-    // One-time signup wizard (if the local metadata DB has never seen it).
-    const skip = this.page.getByRole('button', { name: /skip for now/i });
-    if (await skip.isVisible().catch(() => false)) {
-      await skip.click();
-      await waitFor(this.page, '[data-testid="toolbar"]');
+    // One-time signup / onboarding wizards can cover the toolbar.
+    for (let i = 0; i < 3; i++) {
+      const skipSignup = this.page.getByRole('button', { name: /skip for now/i });
+      if (await skipSignup.isVisible().catch(() => false)) {
+        await skipSignup.click();
+        await this.page.waitForTimeout(300);
+      }
+      const skipOnboarding = this.page.getByRole('button', { name: /skip|continue|get started|finish|done/i }).first();
+      if (
+        !(await this.page.locator('[data-testid="toolbar"]').isVisible().catch(() => false)) &&
+        (await skipOnboarding.isVisible().catch(() => false))
+      ) {
+        await skipOnboarding.click();
+        await this.page.waitForTimeout(300);
+      }
+      if (await this.page.locator('[data-testid="toolbar"]').isVisible().catch(() => false)) break;
     }
+    await waitFor(this.page, '[data-testid="toolbar"]', 20_000);
   }
 
   // ── Source side ─────────────────────────────────────────────────────────

@@ -450,7 +450,25 @@ export class SqlGeneratorModule {
     return statements;
   }
 
-  private alterObjectStatements(obj: TableDiff, dialect: SqlDialect, mapping?: SchemaMapping): string[] {
+  /**
+   * True when a view body references `tableName` (schema-qualified or bare).
+   * Used by the generate-time dependent-view fallback for dialects that cannot
+   * run Postgres's pg_depend DO-block guard (e.g. CockroachDB).
+   */
+  private viewReferencesTable(viewDef: string | undefined, tableName: string): boolean {
+    if (!viewDef) return false;
+    const bare = tableName.replace(/^.*\./, '').replace(/"/g, '');
+    if (!bare) return false;
+    const escaped = bare.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`\\b${escaped}\\b`, 'i').test(viewDef);
+  }
+
+  private alterObjectStatements(
+    obj: TableDiff,
+    dialect: SqlDialect,
+    mapping?: SchemaMapping,
+    contextDiffs: TableDiff[] = []
+  ): string[] {
     const statements: string[] = [];
     // The table already exists in the target — reference it with the casing it
     // actually has there, not the uppercased compare-module match key.
@@ -467,6 +485,49 @@ export class SqlGeneratorModule {
         ? (dialect.dropDependentViewsBlock?.(tableName) ?? null)
         : null;
       if (dropViewsBlock) statements.push(dropViewsBlock);
+
+      // Dialects without a runtime guard (CockroachDB — no PL/pgSQL FOR/EXECUTE /
+      // CREATE TABLE AS inside DO) get explicit DROP/CREATE statements for views
+      // and routines that reference this table. Cockroach also rejects ALTER COLUMN
+      // TYPE when a function depends on the column — same generate-time treatment.
+      const dependentObjects = !dropViewsBlock && hasStructuralColumnChanges
+        ? contextDiffs.filter((d) => {
+            if (d.objectType !== 'VIEW' && d.objectType !== 'MQT'
+              && d.objectType !== 'FUNCTION' && d.objectType !== 'PROCEDURE') {
+              return false;
+            }
+            // ADDED views/MQTs are created AFTER the ALTER phase — they don't exist
+            // on the target yet. ADDED routines are created BEFORE ALTER, so they do.
+            if (d.status === 'ADDED' && (d.objectType === 'VIEW' || d.objectType === 'MQT')) {
+              return false;
+            }
+            const targetDef = d.targetTable?.definition ?? (d.status === 'REMOVED' ? d.definition : undefined);
+            const sourceDef = d.sourceTable?.definition ?? (d.status !== 'REMOVED' ? d.definition : undefined);
+            return this.viewReferencesTable(targetDef, tableName)
+              || this.viewReferencesTable(sourceDef, tableName);
+          })
+        : [];
+      for (const dep of dependentObjects) {
+        const depName = this.qualify(dep.targetTable?.name ?? dep.sourceTable?.name ?? dep.tableName, mapping);
+        const ver = mapping?.targetServerVersion;
+        if (dep.objectType === 'MQT') {
+          statements.push(
+            dialect.dropMaterializedViewStatement?.(depName) ?? `DROP MATERIALIZED VIEW IF EXISTS ${depName};`
+          );
+        } else if (dep.objectType === 'VIEW') {
+          statements.push(dialect.dropViewStatement?.(depName) ?? `DROP VIEW IF EXISTS ${depName};`);
+        } else if (dep.objectType === 'FUNCTION') {
+          statements.push(
+            dialect.dropFunctionStatement?.(depName, ver)
+            ?? this.dropRoutineSql('FUNCTION', depName, dialect, dep.targetTable?.parameters ?? dep.sourceTable?.parameters)
+          );
+        } else if (dep.objectType === 'PROCEDURE') {
+          statements.push(
+            dialect.dropProcedureStatement?.(depName, ver)
+            ?? this.dropRoutineSql('PROCEDURE', depName, dialect, dep.targetTable?.parameters ?? dep.sourceTable?.parameters)
+          );
+        }
+      }
 
       // Drop FK constraints FIRST — before indexes and column drops. Dropping a
       // column cascades to any FK whose source columns include it, so an explicit
@@ -626,6 +687,33 @@ export class SqlGeneratorModule {
       if (dropViewsBlock) {
         const recreateBlock = dialect.recreateDependentViewsBlock?.(tableName);
         if (recreateBlock) statements.push(recreateBlock);
+      }
+
+      // Generate-time recreate for every dependent we dropped above.
+      // Prefer the source definition when present (ADDED/MODIFIED — matches what the
+      // earlier CREATE / later ALTER steps use); otherwise restore the target body
+      // (REMOVED kept by non-destructive, or UNCHANGED).
+      for (const dep of dependentObjects) {
+        if (dep.status === 'REMOVED' && !mapping?.nonDestructive) continue;
+        const srcDef = dep.sourceTable?.definition ?? (dep.status !== 'REMOVED' ? dep.definition : undefined);
+        const tgtDef = dep.targetTable?.definition ?? (dep.status === 'REMOVED' ? dep.definition : undefined);
+        const rawDef = (srcDef ?? tgtDef)?.trim();
+        if (!rawDef) continue;
+        const depName = this.qualify(
+          (srcDef ? dep.sourceTable?.name : undefined) ?? dep.targetTable?.name ?? dep.tableName,
+          mapping
+        );
+        const body = this.ensureSemicolon(rawDef);
+        if (dep.objectType === 'MQT' && dialect.createMaterializedViewStatement) {
+          statements.push(dialect.createMaterializedViewStatement(depName, body));
+        } else if (dep.objectType === 'VIEW') {
+          statements.push(
+            dialect.createViewStatement?.(depName, body) ?? `CREATE OR REPLACE VIEW ${depName} AS\n${body}`
+          );
+        } else {
+          // FUNCTION / PROCEDURE — stored definition is already a full CREATE statement.
+          statements.push(body);
+        }
       }
     } else if (obj.objectType === 'SEQUENCE' && obj.sourceTable) {
       const s = obj.sourceTable.sequence ?? {};
@@ -823,12 +911,23 @@ export class SqlGeneratorModule {
     };
   }
 
-  generateMigrationPlan(diffs: TableDiff[], dialectStr: string, mapping?: SchemaMapping): MigrationStep[] {
+  generateMigrationPlan(
+    diffs: TableDiff[],
+    dialectStr: string,
+    mapping?: SchemaMapping,
+    /**
+     * Full compare result (including UNCHANGED / unselected objects). Used only to
+     * discover target views that depend on tables being altered when the dialect
+     * has no runtime dependent-view guard. Defaults to `diffs`.
+     */
+    contextDiffs?: TableDiff[]
+  ): MigrationStep[] {
     const dialect = resolveDialect(dialectStr);
     // Pin the target dialect into the mapping so the render helpers can detect a
     // cross-dialect migration and translate column types accordingly.
     const m: SchemaMapping = { ...mapping, targetDialect: mapping?.targetDialect ?? dialectStr };
     const steps: MigrationStep[] = [];
+    const depContext = contextDiffs ?? diffs;
     
     // Non-destructive mode never drops objects that exist only in the target.
     if (!m.nonDestructive) {
@@ -856,7 +955,12 @@ export class SqlGeneratorModule {
     // MODIFIED (ALTER TABLE, etc.) — must run before ADDED views/triggers so that
     // views referencing newly-added columns see them when created.
     for (const obj of diffs.filter((d) => d.status === 'MODIFIED')) {
-      steps.push({ objectName: obj.tableName, objectType: obj.objectType, action: 'ALTER', statements: this.alterObjectStatements(obj, dialect, m) });
+      steps.push({
+        objectName: obj.tableName,
+        objectType: obj.objectType,
+        action: 'ALTER',
+        statements: this.alterObjectStatements(obj, dialect, m, depContext),
+      });
     }
 
     // ADDED views/triggers come last so they can reference columns and tables that
@@ -883,7 +987,12 @@ export class SqlGeneratorModule {
     return actionable;
   }
 
-  generateMigrationSql(diffs: TableDiff[], dialectStr: string, mapping?: SchemaMapping): string {
+  generateMigrationSql(
+    diffs: TableDiff[],
+    dialectStr: string,
+    mapping?: SchemaMapping,
+    contextDiffs?: TableDiff[]
+  ): string {
     let sql = `-- =========================================================================\n`;
     sql += `-- Fox Generated Migration Script\n`;
     sql += `-- Dialect: ${dialectStr.toUpperCase()}\n`;
@@ -904,7 +1013,7 @@ export class SqlGeneratorModule {
     sql += `-- Created At: ${new Date().toISOString()}\n`;
     sql += `-- =========================================================================\n\n`;
 
-    const steps = this.generateMigrationPlan(diffs, dialectStr, mapping);
+    const steps = this.generateMigrationPlan(diffs, dialectStr, mapping, contextDiffs);
     const skipped: string[] = (steps as any).__skipped ?? [];
 
     if (steps.length === 0) {

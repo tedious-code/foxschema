@@ -80,5 +80,10 @@ export function regenerateSql(
 ): string {
   if (!s.compareResult) return '';
   const includedDiffs = buildIncludedDiffs(s.compareResult.tables, selection, memberSelection, indexSelection);
-  return sqlGeneratorModule.generateMigrationSql(includedDiffs, s.targetConfig.dialect, buildMapping(s));
+  return sqlGeneratorModule.generateMigrationSql(
+    includedDiffs,
+    s.targetConfig.dialect,
+    buildMapping(s),
+    s.compareResult.tables
+  );
 }

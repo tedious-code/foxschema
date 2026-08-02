@@ -487,6 +487,48 @@ describe('SqlGeneratorModule.generateMigrationPlan', () => {
     expect(stmts.some((s) => s.includes('_fs_vdep'))).toBe(false);
   });
 
+  it('CockroachDB emits DROP VIEW before structural ALTER when a dependent target view exists', () => {
+    const modified: TableDiff = {
+      tableName: 'ORDER_ITEMS',
+      objectType: 'TABLE',
+      status: 'MODIFIED',
+      columnDiffs: [
+        { name: 'QTY', status: 'MODIFIED', source: { type: 'integer', nullable: false }, target: { type: 'smallint', nullable: false } },
+      ],
+      indexDiffs: [],
+      foreignKeyDiffs: [],
+      sourceTable: tableSchema({ name: 'order_items', columns: [{ name: 'qty', type: 'integer', nullable: false, primaryKey: false }] }),
+      targetTable: tableSchema({ name: 'order_items', columns: [{ name: 'qty', type: 'smallint', nullable: false, primaryKey: false }] }),
+    };
+    const removedView: TableDiff = {
+      tableName: 'V_ORDER_SUMMARY',
+      objectType: 'VIEW',
+      status: 'REMOVED',
+      definition: 'SELECT oi.qty FROM demo_b.order_items oi',
+      columnDiffs: [],
+      indexDiffs: [],
+      foreignKeyDiffs: [],
+      targetTable: tableSchema({
+        name: 'v_order_summary',
+        objectType: 'VIEW',
+        definition: 'SELECT oi.qty FROM demo_b.order_items oi',
+        columns: [],
+      }),
+    };
+    const stmts = gen.generateMigrationPlan(
+      [modified, removedView],
+      'cockroachdb',
+      { targetSchema: 'demo_b', nonDestructive: true },
+      [modified, removedView]
+    ).flatMap((s) => s.statements).join('\n');
+    expect(stmts).toMatch(/DROP VIEW IF EXISTS demo_b\.v_order_summary/i);
+    expect(stmts).toMatch(/ALTER COLUMN QTY TYPE/i);
+    // Non-destructive REMOVED view is recreated from the target definition.
+    expect(stmts).toMatch(/CREATE OR REPLACE VIEW demo_b\.v_order_summary/i);
+    // No Postgres DO-block guard.
+    expect(stmts).not.toMatch(/pg_depend|ON COMMIT DROP|_fs_vdep/i);
+  });
+
   it('includes USING cast in Postgres ALTER COLUMN TYPE', () => {
     const diff: TableDiff = {
       tableName: 'ORDERS',

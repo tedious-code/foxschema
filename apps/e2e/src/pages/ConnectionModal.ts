@@ -71,6 +71,13 @@ export class ConnectionModal {
     });
   }
 
+  async checkSavePassword(): Promise<void> {
+    const box = this.page.locator('[data-testid="conn-save-password"]');
+    if ((await box.count()) > 0 && !(await box.isChecked())) {
+      await box.check();
+    }
+  }
+
   /** Fill all fields then save. */
   async connect(fields: ConnectionFields): Promise<void> {
     await this.selectDialect(fields.dialect);
@@ -79,6 +86,7 @@ export class ConnectionModal {
     await this.fillDatabase(fields.database);
     await this.fillUsername(fields.username);
     await this.fillPassword(fields.password);
+    await this.checkSavePassword();
     await this.loadSchemas();
     if (fields.schema) {
       await this.selectSchema(fields.schema);

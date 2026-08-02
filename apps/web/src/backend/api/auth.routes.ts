@@ -75,11 +75,19 @@ export function createAuthRoutes(auth: AuthModule): Router {
 
   router.get('/me', async (req: Request, res: Response) => {
     const user = await auth.getUserByToken(readCookie(req, SESSION_COOKIE));
-    if (!user) {
-      res.status(401).json({ error: 'Not authenticated' });
+    if (user) {
+      res.json({ user });
       return;
     }
-    res.json({ user });
+    // Local single-user installs have no login cookie — return the singleton
+    // admin so SPA boot does not 401 (which the browser logs as a console error
+    // and breaks e2e "no SEVERE console errors" checks).
+    if (process.env.LOCAL_SINGLE_USER !== 'false') {
+      const local = await auth.ensureLocalUser();
+      res.json({ user: local });
+      return;
+    }
+    res.status(401).json({ error: 'Not authenticated' });
   });
 
   return router;

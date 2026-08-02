@@ -59,15 +59,31 @@ export class MigrationPage {
 
   async confirmDeploy(): Promise<void> {
     const dialog = this.page.locator('[data-testid="deploy-confirm-dialog"]');
-    if (await dialog.isVisible()) {
-      await clickWhen(this.page, '[data-testid="deploy-confirm-btn"]');
+    // Dialog mounts after Execute. If the user previously chose "don't ask
+    // again", it never appears — return quickly so we don't burn the migrate
+    // wait budget while the progress panel is already on screen.
+    try {
+      await dialog.waitFor({ state: 'visible', timeout: 1_500 });
+    } catch {
+      return;
     }
+    await clickWhen(this.page, '[data-testid="deploy-confirm-btn"]');
   }
 
   // ── Migration progress panel ───────────────────────────────────────────
 
   async waitForMigrationPanel(timeoutMs = 10_000): Promise<void> {
-    await this.page.waitForSelector('[data-testid="migration-progress-panel"]', { timeout: timeoutMs });
+    // Progress panel OR a still-open confirm dialog (caller should confirm first).
+    await this.page.waitForSelector(
+      '[data-testid="migration-progress-panel"], [data-testid="deploy-confirm-dialog"]',
+      { timeout: timeoutMs }
+    );
+    if (await this.page.locator('[data-testid="deploy-confirm-dialog"]').isVisible()) {
+      await clickWhen(this.page, '[data-testid="deploy-confirm-btn"]');
+      await this.page.waitForSelector('[data-testid="migration-progress-panel"]', {
+        timeout: timeoutMs,
+      });
+    }
   }
 
   /** Wait until migration finishes (complete or failed). Returns 'complete' | 'failed'. */
