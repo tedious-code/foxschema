@@ -73,9 +73,18 @@ return rows;
 
 ## Phases
 
-1. **Bridge** — multi-endpoint `sql.on(alias)` + enforce 2 servers / 10 calls.
-2. **UI** — source/target picker + alias binding + sample script.
-3. **Hardening** — chunk helpers, clearer errors, tests for caps and RBAC.
+1. **Bridge** — multi-endpoint `sql.on(alias)` + enforce 2 servers / 10 calls. *(done)*
+2. **UI** — Destinations order = source then target when the cell uses `sql.on`;
+   samples under Bookmarks → Add samples. *(v1 playable)*
+3. **Hardening** — dedicated source/target picker, chunk helpers, more tests.
+
+## How to try (v1)
+
+1. Save **two** credentials; in SQL Editor check them as Destinations
+   (**first = source**, **second = target**).
+2. Bookmarks → **Add samples** → open
+   `★ Sample · Server Beam ping (source + target)` or the copy/chunked samples.
+3. Run. Node cells with `sql.on` execute **once** across both servers (no fan-out).
 
 ## Naming in repo
 

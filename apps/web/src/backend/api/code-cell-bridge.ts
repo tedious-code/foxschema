@@ -6,12 +6,16 @@
  * connection, the write policy, and the row cap; the worker only sees rows.
  */
 
-/** Worker → parent: run this statement on the cell's connection. */
+/** Worker → parent: run this statement on a connection (optional Server Beam alias). */
 export interface CellQueryRequest {
   type: 'cell-query';
   id: number;
   text: string;
   params: unknown[];
+  /** Server Beam endpoint alias (`sql.on('source')`). Omit = default connection. */
+  alias?: string;
+  /** True when the call used `sql.on(...)` (counts toward the per-Execute cap). */
+  viaOn?: boolean;
 }
 
 /** Parent → worker: the outcome of one `cell-query`. */
@@ -28,13 +32,20 @@ export interface CellDoneMessage {
 export type WorkerToParent = CellQueryRequest | CellDoneMessage;
 
 export function isCellQueryRequest(msg: unknown): msg is CellQueryRequest {
-  return (
-    typeof msg === 'object' &&
-    msg !== null &&
-    (msg as { type?: unknown }).type === 'cell-query' &&
-    typeof (msg as { id?: unknown }).id === 'number' &&
-    typeof (msg as { text?: unknown }).text === 'string'
-  );
+  if (
+    typeof msg !== 'object' ||
+    msg === null ||
+    (msg as { type?: unknown }).type !== 'cell-query' ||
+    typeof (msg as { id?: unknown }).id !== 'number' ||
+    typeof (msg as { text?: unknown }).text !== 'string'
+  ) {
+    return false;
+  }
+  const alias = (msg as { alias?: unknown }).alias;
+  if (alias !== undefined && typeof alias !== 'string') return false;
+  const viaOn = (msg as { viaOn?: unknown }).viaOn;
+  if (viaOn !== undefined && typeof viaOn !== 'boolean') return false;
+  return true;
 }
 
 export function isCellDoneMessage(msg: unknown): msg is CellDoneMessage {

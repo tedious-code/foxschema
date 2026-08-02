@@ -5,8 +5,14 @@
  * (`-- @node` / `-- @nodets`) POST to the FoxSchema server.
  */
 
-import { runCodeCellOnServer, type SqlStatementResult } from '../api/sqlApi';
+import {
+  runCodeCellOnServer,
+  type BeamEndpointPayload,
+  type SqlStatementResult,
+} from '../api/sqlApi';
 import type { ConnectionRef } from '../api/schemaApi';
+import { usesServerBeam } from '../../shared/server-beam';
+export { usesServerBeam };
 import type { SetDirective, SqlVariable } from './sql-variables';
 import { parseSetDirectives } from './sql-variables';
 import {
@@ -43,6 +49,8 @@ export type RunCodeCellArgs = {
    * (`-- @js` / `-- @ts`) have no bridge and ignore this.
    */
   ref?: ConnectionRef;
+  /** Server Beam endpoints for `sql.on('source'|'target')`. */
+  beam?: BeamEndpointPayload[];
   /** Mirrors Safe mode; the server rejects writes from `sql` when false. */
   allowWrites?: boolean;
 };
@@ -217,6 +225,7 @@ export async function runCodeCell(
         maxRows: args.maxRows,
         timeoutMs,
         ref: args.ref,
+        beam: args.beam,
         allowWrites: args.allowWrites,
       });
       return { result, directives: prepared.directives };

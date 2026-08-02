@@ -39,6 +39,13 @@ export async function executeSql(
   return { results: data.results };
 }
 
+/** Server Beam endpoint on the wire (alias → saved connection). */
+export type BeamEndpointPayload = {
+  alias: string;
+  connectionId: string;
+  password?: string;
+};
+
 /** Body for POST /sql/code-cell. Wire `kind` is language only (`js`|`ts`); Node vs browser is implied by the route. */
 export type ServerCodeCellPayload = {
   body: string;
@@ -52,6 +59,11 @@ export type ServerCodeCellPayload = {
    * no database access (it still executes; `sql` just reports no connection).
    */
   ref?: ConnectionRef;
+  /**
+   * Server Beam: up to two `{ alias, connectionId }` endpoints for `sql.on`.
+   * When set, the cell runs once across those servers (not per-Destination fan-out).
+   */
+  beam?: BeamEndpointPayload[];
   /** Mirrors Safe mode — the server rejects write/DDL from `sql` when false. */
   allowWrites?: boolean;
 };
@@ -118,13 +130,13 @@ export function parseSqlStatementResult(
 export async function runCodeCellOnServer(
   payload: ServerCodeCellPayload
 ): Promise<SqlStatementResult> {
-  const { ref, ...rest } = payload;
+  const { ref, beam, ...rest } = payload;
   const res = await fetch(`${getApiBase()}/sql/code-cell`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
     // The ref is flattened onto the request body (same shape /sql/execute takes).
-    body: JSON.stringify({ ...ref, ...rest }),
+    body: JSON.stringify({ ...ref, ...rest, ...(beam?.length ? { beam } : {}) }),
   });
   const data = await parseJsonResponse<unknown>(res);
   const parsed = parseSqlStatementResult(data);

@@ -503,6 +503,118 @@ return await sql\`SELECT id, email, domain FROM fox_demo_accounts_v2 ORDER BY id
 `,
   },
   {
+    id: 'sample-server-beam-ping',
+    title: '★ Sample · Server Beam ping (source + target)',
+    sql: `-- Server Beam: check TWO Destinations (order = source, then target).
+-- Read-only — Safe mode friendly. Each sql.on() hits a different server.
+
+-- @node
+const fromSource = await sql.on('source')\`SELECT 1 AS n, 'source' AS hop\`;
+const fromTarget = await sql.on('target')\`SELECT 1 AS n, 'target' AS hop\`;
+
+return [
+  { hop: 'source', n: Number(fromSource[0]?.n ?? fromSource[0]?.N ?? 0) },
+  { hop: 'target', n: Number(fromTarget[0]?.n ?? fromTarget[0]?.N ?? 0) },
+];
+-- @end
+`,
+  },
+  {
+    id: 'sample-server-beam-copy-rows',
+    title: '★ Sample · Server Beam copy rows source → target',
+    sql: `-- Server Beam — WRITES on target. Check TWO Destinations (source, then target).
+-- Turn Safe mode OFF. Creates fox_beam_demo on both sides, copies reshaped rows.
+-- Caps: 2 servers, up to 10 sql.on() calls per Execute.
+
+-- @node
+await sql.on('source')\`DROP TABLE IF EXISTS fox_beam_demo\`;
+await sql.on('source')\`
+  CREATE TABLE fox_beam_demo (
+    id INTEGER,
+    email VARCHAR(200)
+  )
+\`;
+await sql.on('source')\`
+  INSERT INTO \${sql.id('fox_beam_demo')} \${sql.values([
+    { id: 1, email: "o'brien@source.example" },
+    { id: 2, email: 'ada@source.example' },
+  ])}
+\`;
+
+const src = await sql.on('source')\`SELECT id, email FROM fox_beam_demo ORDER BY id\`;
+const rows = src.map((r) => {
+  const email = String(r.email ?? r.EMAIL ?? '').toLowerCase();
+  return {
+    id: Number(r.id ?? r.ID),
+    email,
+    domain: email.split('@')[1] ?? '',
+  };
+});
+
+await sql.on('target')\`DROP TABLE IF EXISTS fox_beam_demo\`;
+await sql.on('target')\`
+  CREATE TABLE fox_beam_demo (
+    id INTEGER,
+    email VARCHAR(200),
+    domain VARCHAR(200)
+  )
+\`;
+await sql.on('target')\`INSERT INTO \${sql.id('fox_beam_demo')} \${sql.values(rows)}\`;
+
+return await sql.on('target')\`SELECT id, email, domain FROM fox_beam_demo ORDER BY id\`;
+-- @end
+`,
+  },
+  {
+    id: 'sample-server-beam-chunked',
+    title: '★ Sample · Server Beam chunked pull → push',
+    sql: `-- Server Beam — WRITES. Two Destinations (source, then target). Safe mode OFF.
+-- Pulls from source in chunks and inserts into target (async / await).
+-- Stays within the 10 sql.on() cap per Execute (2 setup + 2×(pull+push) + 1 verify).
+
+-- @node
+await sql.on('source')\`DROP TABLE IF EXISTS fox_beam_bulk\`;
+await sql.on('source')\`CREATE TABLE fox_beam_bulk (id INTEGER, name VARCHAR(100))\`;
+const seed = Array.from({ length: 40 }, (_, i) => ({
+  id: i + 1,
+  name: 'row ' + (i + 1),
+}));
+await sql.on('source')\`INSERT INTO \${sql.id('fox_beam_bulk')} \${sql.values(seed)}\`;
+
+await sql.on('target')\`DROP TABLE IF EXISTS fox_beam_bulk\`;
+await sql.on('target')\`CREATE TABLE fox_beam_bulk (id INTEGER, name VARCHAR(100))\`;
+
+const CHUNK = 20;
+let copied = 0;
+for (let start = 1; start <= 40; start += CHUNK) {
+  const end = start + CHUNK - 1;
+  const batch = await sql.on('source')\`
+    SELECT id, name FROM fox_beam_bulk
+    WHERE id BETWEEN \${start} AND \${end}
+    ORDER BY id
+  \`;
+  const rows = batch.map((r) => ({
+    id: Number(r.id ?? r.ID),
+    name: String(r.name ?? r.NAME ?? ''),
+  }));
+  if (rows.length) {
+    await sql.on('target')\`INSERT INTO \${sql.id('fox_beam_bulk')} \${sql.values(rows)}\`;
+    copied += rows.length;
+  }
+}
+
+const sample = await sql.on('target')\`
+  SELECT id, name FROM fox_beam_bulk WHERE id IN \${[1, 20, 40]} ORDER BY id
+\`;
+return sample.map((r) => ({
+  id: Number(r.id ?? r.ID),
+  name: String(r.name ?? r.NAME ?? ''),
+  copied,
+}));
+-- @end
+`,
+  },
+  {
     id: 'sample-node-sql-chunked',
     title: '★ Sample · Node chunked insert + IN list',
     sql: `-- WRITES — turn Safe mode OFF. Loads 250 rows in batches, then reads a few back.

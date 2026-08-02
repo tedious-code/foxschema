@@ -73,3 +73,24 @@ export function makeCellQueryRunner(
     return rows.length > MAX_CELL_QUERY_ROWS ? rows.slice(0, MAX_CELL_QUERY_ROWS) : rows;
   };
 }
+
+/**
+ * Server Beam router: pick a per-alias runner. Unknown aliases fail closed.
+ */
+export function makeBeamCellQueryRunner(
+  byAlias: Map<string, CellQueryRunner>,
+  defaultAlias?: string
+): CellQueryRunner {
+  return async (text, params, alias) => {
+    const key = alias ?? defaultAlias;
+    if (!key) {
+      throw new Error('Server Beam query missing alias — use sql.on("source") or sql.on("target")');
+    }
+    const runner = byAlias.get(key);
+    if (!runner) {
+      const known = [...byAlias.keys()].join(', ') || '(none)';
+      throw new Error(`Unknown Server Beam alias "${key}". Known: ${known}`);
+    }
+    return runner(text, params, key);
+  };
+}
