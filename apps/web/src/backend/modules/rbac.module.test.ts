@@ -64,6 +64,23 @@ describe('RbacModule', () => {
     }
   });
 
+  it('setRolePermissions([]) stays empty (does not fail-open to defaults)', async () => {
+    try {
+      const next = await rbac.setRolePermissions('editor', []);
+      expect(next).toEqual([]);
+      expect(await rbac.permissionsForRole('editor')).toEqual([]);
+      // Sentinel row must keep seedDefaultRolePermissions from re-filling.
+      const store = await getStore();
+      const count = await store.get<{ n: number }>(
+        'SELECT COUNT(*) AS n FROM role_permissions WHERE role = ?',
+        ['editor']
+      );
+      expect(Number(count?.n ?? 0)).toBeGreaterThan(0);
+    } finally {
+      await rbac.setRolePermissions('editor', DEFAULT_ROLE_PERMISSIONS.editor);
+    }
+  });
+
   it('refuses to configure the admin role', async () => {
     await expect(rbac.setRolePermissions('admin', ['editor.run'])).rejects.toThrow(
       /always has all permissions/

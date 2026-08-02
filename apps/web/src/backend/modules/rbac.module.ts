@@ -21,6 +21,13 @@ export function toAppRole(value: unknown): AppRole {
   return isAppRole(value) ? value : 'viewer';
 }
 
+/**
+ * Placeholder row so an intentionally empty grant list is distinguishable from
+ * "never seeded" (which still falls back to DEFAULT_ROLE_PERMISSIONS). Filtered
+ * out by uniquePermissions / isPermission — never returned to callers.
+ */
+const EMPTY_ROLE_PERMISSIONS_SENTINEL = '';
+
 export class RbacModule {
   /** Permissions granted to a role (DB overlay, else built-in defaults). */
   async permissionsForRole(role: AppRole): Promise<Permission[]> {
@@ -30,6 +37,8 @@ export class RbacModule {
       'SELECT permission FROM role_permissions WHERE role = ?',
       [role]
     );
+    // No rows → not customized yet (or pre-seed) → built-in defaults.
+    // Any row (including the empty-set sentinel) → honor the stored grant list.
     if (rows.length === 0) return [...DEFAULT_ROLE_PERMISSIONS[role]];
     return uniquePermissions(rows.map((r) => r.permission));
   }
@@ -53,8 +62,17 @@ export class RbacModule {
     const next = uniquePermissions(permissions);
     const store = await getStore();
     await store.run('DELETE FROM role_permissions WHERE role = ?', [role]);
-    for (const p of next) {
-      await store.run('INSERT INTO role_permissions (role, permission) VALUES (?, ?)', [role, p]);
+    if (next.length === 0) {
+      // Persist a sentinel so permissionsForRole does not fail-open to defaults,
+      // and seedDefaultRolePermissions does not re-fill on the next boot.
+      await store.run('INSERT INTO role_permissions (role, permission) VALUES (?, ?)', [
+        role,
+        EMPTY_ROLE_PERMISSIONS_SENTINEL,
+      ]);
+    } else {
+      for (const p of next) {
+        await store.run('INSERT INTO role_permissions (role, permission) VALUES (?, ?)', [role, p]);
+      }
     }
     return next;
   }
