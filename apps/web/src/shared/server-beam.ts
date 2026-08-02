@@ -1,12 +1,10 @@
 /**
- * Server Beam — cross-database `sql.on(alias)` limits and helpers.
- *
- * Product caps (not billing): up to 2 beam endpoints and 10 `sql.on()` calls
- * per editor Execute.
+ * Server Beam — cross-database `sql.on(alias)` helpers.
+
  */
 
 export const MAX_SERVERS = 2;
-export const MAX_SQL = 10;
+export const MAX_SQL = 20;
 
 /** Wire shape: alias → saved connection (password optional, session-only). */
 export type BeamEndpointRef = {
@@ -43,7 +41,7 @@ export function parseBeamEndpoints(
   if (raw.length > MAX_SERVERS) {
     return {
       ok: false,
-      error: `Server Beam allows at most ${MAX_SERVERS} servers per editor Execute`,
+      error: `Server Beam cant handle more than ${MAX_SERVERS} aliases`,
     };
   }
   const out: BeamEndpointRef[] = [];

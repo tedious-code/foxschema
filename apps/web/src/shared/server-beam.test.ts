@@ -11,7 +11,7 @@ import {
 describe('server-beam', () => {
   it('exposes product caps', () => {
     expect(MAX_SERVERS).toBe(2);
-    expect(MAX_SQL).toBe(10);
+    expect(MAX_SQL).toBe(20);
   });
 
   it('detects sql.on usage', () => {

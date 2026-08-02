@@ -5,6 +5,7 @@ import {
   runCodeCellOnServer,
   validateCodeCellRequest,
 } from './code-cell-execute';
+import { MAX_SQL } from '../../shared/server-beam';
 
 /** Value planted in APP_ENCRYPTION_KEY to prove an escaped cell cannot read it. */
 const SENTINEL_SECRET = 'sentinel-must-not-leak';
@@ -267,11 +268,11 @@ describe('code cell SQL bridge', () => {
     expect(result.rows).toEqual([['source', 'target']]);
   }, 30_000);
 
-  it('rejects an 11th sql.on() under the Server Beam cap', async () => {
+  it('rejects sql.on() calls beyond the Server Beam cap', async () => {
     const runQuery = async () => [{ n: 1 }];
     const body =
       'const out = [];\n' +
-      'for (let i = 0; i < 11; i++) {\n' +
+      `for (let i = 0; i < ${MAX_SQL + 1}; i++) {\n` +
       "  out.push(await sql.on('source')`SELECT ${'i'} AS n`);\n" +
       '}\n' +
       'return out;';
@@ -284,6 +285,6 @@ describe('code cell SQL bridge', () => {
       enforceBeamSqlOnCap: true,
     });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toMatch(/at most 10 sql\.on/i);
-  }, 30_000);
+    if (!result.ok) expect(result.error).toMatch(new RegExp(`at most ${MAX_SQL} sql\\.on`, 'i'));
+  }, 60_000);
 });
