@@ -451,16 +451,27 @@ export class SqlGeneratorModule {
   }
 
   /**
-   * True when a view body references `tableName` (schema-qualified or bare).
-   * Used by the generate-time dependent-view fallback for dialects that cannot
-   * run Postgres's pg_depend DO-block guard (e.g. CockroachDB).
+   * True when a view/routine body references `tableName` as a relation
+   * (schema-qualified or bare). Used by the generate-time dependent-view
+   * fallback for dialects that cannot run Postgres's pg_depend DO-block guard
+   * (e.g. CockroachDB).
+   *
+   * Matches names in relation position (FROM / JOIN / UPDATE / INTO / TABLE /
+   * USING / REFERENCES) so column identifiers and SQL keywords like
+   * `ORDER BY` / `GROUP BY` do not false-positive when the table is named
+   * `status`, `order`, `group`, etc.
    */
   private viewReferencesTable(viewDef: string | undefined, tableName: string): boolean {
     if (!viewDef) return false;
     const bare = tableName.replace(/^.*\./, '').replace(/"/g, '');
     if (!bare) return false;
     const escaped = bare.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return new RegExp(`\\b${escaped}\\b`, 'i').test(viewDef);
+    // Optional schema qualifier, then the bare table (optionally quoted).
+    const relation = String.raw`(?:(?:"[^"]+"|[\w]+)\s*\.\s*)?"?${escaped}"?\b`;
+    return new RegExp(
+      String.raw`\b(?:from|join|update|into|table|using|references)\s+${relation}`,
+      'i'
+    ).test(viewDef);
   }
 
   private alterObjectStatements(

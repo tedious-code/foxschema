@@ -85,6 +85,9 @@ const KNOWN_KEYWORDS = new Set([
 const WRITE_KEYWORDS = new Set([
   'insert', 'update', 'delete', 'create', 'alter', 'drop', 'truncate', 'merge',
   'grant', 'revoke', 'replace', 'rename',
+  // Procedure / anonymous-block / bulk / matview verbs — not statically analyzable
+  // as read-only, so RBAC `editor.write` and Safe Mode treat them as writes.
+  'call', 'exec', 'execute', 'do', 'copy', 'refresh',
 ]);
 
 // eslint-disable-next-line security/detect-unsafe-regex -- false positive: anchored at ^; optional bounded identifier
@@ -683,6 +686,10 @@ function sqlTextIsMutatingDml(text: string): boolean {
 /**
  * If `text` is `EXPLAIN ANALYZE <stmt>` or `EXPLAIN (ANALYZE[, …]) <stmt>`,
  * return the inner statement; otherwise null (plain EXPLAIN is planning-only).
+ *
+ * Also strips trailing explain options that can sit between ANALYZE and the
+ * real statement — Postgres legacy `VERBOSE`, MySQL `FORMAT=…` — so write
+ * classification sees `DELETE`/`UPDATE`/… rather than `VERBOSE`/`FORMAT`.
  */
 function peelExplainAnalyze(text: string): string | null {
   const lead = firstKeywordSpan(text);
@@ -690,21 +697,61 @@ function peelExplainAnalyze(text: string): string | null {
   const i = skipWsAndComments(text, lead.end);
   if (i >= text.length) return null;
 
+  let afterAnalyze: number;
+
   // EXPLAIN ANALYZE <stmt>
   if (/[A-Za-z_]/.test(text[i]!)) {
     let j = i;
     while (j < text.length && /[A-Za-z_0-9]/.test(text[j]!)) j++;
     if (text.slice(i, j).toLowerCase() !== 'analyze') return null;
-    return text.slice(j);
+    afterAnalyze = j;
+  } else if (text[i] === '(') {
+    // EXPLAIN (ANALYZE [, …]) <stmt>
+    const close = text.indexOf(')', i + 1);
+    if (close < 0) return null;
+    const opts = text.slice(i + 1, close);
+    if (!/(^|,)\s*analyze\b/i.test(opts)) return null;
+    afterAnalyze = close + 1;
+  } else {
+    return null;
   }
 
-  // EXPLAIN (ANALYZE [, …]) <stmt>
-  if (text[i] !== '(') return null;
-  const close = text.indexOf(')', i + 1);
-  if (close < 0) return null;
-  const opts = text.slice(i + 1, close);
-  if (!/(^|,)\s*analyze\b/i.test(opts)) return null;
-  return text.slice(close + 1);
+  return skipExplainTrailingOptions(text, afterAnalyze);
+}
+
+/**
+ * Skip Postgres/MySQL explain options that may follow ANALYZE before the
+ * explainable statement (`VERBOSE`, `FORMAT = TREE`, …).
+ */
+function skipExplainTrailingOptions(text: string, from: number): string {
+  let i = skipWsAndComments(text, from);
+  while (i < text.length) {
+    if (/^verbose\b/i.test(text.slice(i))) {
+      i += 'verbose'.length;
+      i = skipWsAndComments(text, i);
+      continue;
+    }
+    if (/^format\b/i.test(text.slice(i))) {
+      i += 'format'.length;
+      i = skipWsAndComments(text, i);
+      if (text[i] === '=') {
+        i += 1;
+        i = skipWsAndComments(text, i);
+        if (text[i] === "'" || text[i] === '"') {
+          const q = text[i]!;
+          i += 1;
+          while (i < text.length && text[i] !== q) i += 1;
+          if (i < text.length) i += 1;
+        } else {
+          while (i < text.length && /[A-Za-z0-9_]/.test(text[i]!)) i += 1;
+        }
+        i = skipWsAndComments(text, i);
+      }
+      continue;
+    }
+    break;
+  }
+  return text.slice(i);
 }
 
 /**

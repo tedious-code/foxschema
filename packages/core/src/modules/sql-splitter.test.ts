@@ -275,12 +275,30 @@ describe('isWriteStatement / firstKeyword', () => {
       'EXPLAIN (ANALYZE) DELETE FROM t;',
       'EXPLAIN (ANALYZE, BUFFERS) UPDATE t SET x = 1;',
       'EXPLAIN ANALYZE WITH x AS (SELECT 1) INSERT INTO t SELECT * FROM x;',
+      // Legacy Postgres VERBOSE / MySQL FORMAT= sit between ANALYZE and the stmt.
+      'EXPLAIN ANALYZE VERBOSE DELETE FROM t;',
+      'EXPLAIN (ANALYZE) VERBOSE DELETE FROM t;',
+      'EXPLAIN ANALYZE FORMAT=TREE DELETE FROM t;',
+      'EXPLAIN ANALYZE FORMAT = JSON UPDATE t SET x = 1;',
     ]) {
       expect(isWriteStatement(w)).toBe(true);
     }
     // ANALYZE of a read stays a read; plain EXPLAIN of a write stays non-write.
     expect(isWriteStatement('EXPLAIN ANALYZE SELECT 1;')).toBe(false);
+    expect(isWriteStatement('EXPLAIN ANALYZE VERBOSE SELECT 1;')).toBe(false);
     expect(isWriteStatement('EXPLAIN (BUFFERS) DELETE FROM t;')).toBe(false);
+  });
+  it('classifies CALL/EXEC/DO/COPY/REFRESH as writes (RBAC fail-closed)', () => {
+    for (const w of [
+      'CALL mutate_proc();',
+      'EXEC sp_mutate;',
+      'EXECUTE sp_mutate;',
+      'DO $$ BEGIN DELETE FROM t; END $$;',
+      'COPY t FROM STDIN;',
+      'REFRESH MATERIALIZED VIEW mv;',
+    ]) {
+      expect(isWriteStatement(w)).toBe(true);
+    }
   });
   it('firstKeyword skips comments and parens', () => {
     expect(firstKeyword('-- c\n(SELECT 1) UNION SELECT 2;')).toBe('select');
@@ -307,6 +325,7 @@ describe('isMutatingDmlStatement / dmlLacksWhere', () => {
     // Plain EXPLAIN is planning-only; EXPLAIN ANALYZE executes the DML.
     expect(isMutatingDmlStatement('EXPLAIN DELETE FROM t;')).toBe(false);
     expect(isMutatingDmlStatement('EXPLAIN ANALYZE DELETE FROM t;')).toBe(true);
+    expect(isMutatingDmlStatement('EXPLAIN ANALYZE VERBOSE DELETE FROM t;')).toBe(true);
     expect(isMutatingDmlStatement('EXPLAIN (ANALYZE, BUFFERS) UPDATE t SET x = 1;')).toBe(true);
   });
   it('detects missing WHERE on UPDATE/DELETE', () => {
