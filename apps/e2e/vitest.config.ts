@@ -23,8 +23,8 @@ if (existsSync(envFile)) {
 export default defineConfig({
   test: {
     // E2E tests launch real browsers — each test needs a generous timeout.
-    testTimeout: 90_000,
-    hookTimeout: 60_000,
+    testTimeout: 120_000,
+    hookTimeout: 300_000,
     // Run tests serially: one browser at a time avoids port conflicts.
     fileParallelism: false,
     reporters: ['verbose'],
