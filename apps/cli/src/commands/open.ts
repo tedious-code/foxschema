@@ -179,6 +179,13 @@ async function stopForRelaunch(port: number): Promise<void> {
     while (Date.now() < deadline && (await isHealthy(port))) {
       await new Promise((r) => setTimeout(r, 100));
     }
+    if (await isHealthy(port)) {
+      throw new Error(
+        `Could not free port ${port} after stopping the managed Fox Schema process.\n` +
+          `Another process may still be bound — run \`foxschema stop\`, kill the listener, ` +
+          `or \`foxschema open --port <other>\`.`
+      );
+    }
     return;
   }
   clearLock();
@@ -220,7 +227,14 @@ export async function runOpen(opts: OpenOptions = {}): Promise<void> {
   const oldPid = readManagedPid();
   if (oldPid && !isProcessAlive(oldPid)) clearLock();
 
-  // Port occupied by something that isn't our /api/health endpoint
+  // Something still answers on the port after a stale restart (or before spawn).
+  // Prefer a Fox-specific error over "not Fox Schema" when /api/health is up.
+  if (await isHealthy(port)) {
+    throw new Error(
+      `Port ${port} still has a Fox Schema server after restart.\n` +
+        `Run \`foxschema stop\` then \`foxschema open\`, or \`foxschema open --port <other>\`.`
+    );
+  }
   try {
     await fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(800) });
     throw new Error(
