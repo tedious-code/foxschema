@@ -37,9 +37,12 @@ seed_mariadb() {
 
 seed_sqlserver() {
   echo "▶ SQL Server …"
+  # Prefer /tmp — bind-mounted /docker-init is empty when the Docker daemon
+  # cannot see the agent workspace filesystem (common in remote DOCKER_HOST).
+  docker cp "$INIT/sqlserver/01_seed.sql" foxschema-sqlserver:/tmp/01_seed.sql
   docker exec -i foxschema-sqlserver \
     /opt/mssql-tools18/bin/sqlcmd -S localhost -U SA -P 'FoxPass123!' \
-    -i /docker-init/01_seed.sql -No -C
+    -i /tmp/01_seed.sql -No -C
   echo "  ✓ done"
 }
 
@@ -53,12 +56,12 @@ seed_oracle() {
 
 seed_db2() {
   echo "▶ DB2 …"
-  # /var/custom-sql/01_seed.sql is a live bind mount of docker/init/db2/01_seed.sql
-  # (see docker-compose.yml) — always reflects the current file, no docker cp needed.
-  # db2's CLP -f flag needs an actual filesystem path, not stdin, so this can't
-  # use `< file` redirection the way psql/mysql/sqlplus/sqlcmd do above.
-  docker exec -i foxschema-db2 \
-    su - db2inst1 -c "db2 connect to foxdb && db2 -tvf /var/custom-sql/01_seed.sql -z /tmp/foxschema_seed.log"
+  # docker cp into /tmp — bind mounts under /var/custom* are empty when the
+  # Docker daemon cannot see the agent workspace filesystem.
+  # db2's CLP -f flag needs an actual filesystem path, not stdin.
+  docker cp "$INIT/db2/01_seed.sql" foxschema-db2:/tmp/01_seed.sql
+  docker exec foxschema-db2 \
+    su - db2inst1 -c "db2 connect to foxdb && db2 -tvf /tmp/01_seed.sql -z /tmp/foxschema_seed.log"
   echo "  ✓ done"
 }
 

@@ -490,7 +490,12 @@ export const useSyncStore = create<SyncState>()(
     if (!compareResult) return;
 
     const includedDiffs = compareResult.tables.filter((t) => syncSelection[t.tableName]);
-    const plan = sqlGeneratorModule.generateMigrationPlan(includedDiffs, targetConfig.dialect, buildMapping(get()));
+    const plan = sqlGeneratorModule.generateMigrationPlan(
+      includedDiffs,
+      targetConfig.dialect,
+      buildMapping(get()),
+      compareResult.tables
+    );
     if (plan.length === 0) return;
 
     set({

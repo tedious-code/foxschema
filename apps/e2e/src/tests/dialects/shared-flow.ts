@@ -194,7 +194,8 @@ export function runDialectFlow(
       await migration.closeHistory();
       return;
     }
-    expect(['SUCCESS', 'FAILED', 'PARTIAL']).toContain(status);
+    // ROLLED_BACK is a settled outcome when the executor undoes a failed run.
+    expect(['SUCCESS', 'FAILED', 'PARTIAL', 'ROLLED_BACK']).toContain(status);
 
     await migration.closeHistory();
   });
