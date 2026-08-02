@@ -73,11 +73,13 @@ A full query workbench next to Schema Sync — not a thin prompt.
 | **Multi-destination Run** | Same SQL against every checked connection; By-cred or Side-by-side results |
 | **Notebook cells** | SQL + `-- @js` / `-- @ts` / `-- @node` cells with per-cell ▶ and `Out [n]` |
 | **FoxScript** | Monaco language, fences, markers, schema-aware tokens |
-| **Data Peek** | Cmd/Ctrl-click a table in Schema, or click rust FK cells in results |
+| **Data Peek** | Cmd/Ctrl-click a table in Schema, or click rust FK cells in results; edit rows when allowed |
 | **Peek tools** | WHERE / ORDER BY / LIMIT, Prev/Next, drag ⋮⋮ to arrange, resize |
+| **Query files** | CSV / JSON / fixed-width → temp `Files:` SQLite or bulk-load into a saved credential |
 | **Schema explorer** | Insert names, autocomplete, edit table / view source |
 | **Variables & secrets** | `${{name}}`, `@set`, session secrets, code-cell `vars` |
 | **Safe mode** | Confirm writes; bookmarks & samples included |
+| **Access control** | Optional `admin` / `editor` / `viewer` roles when multi-user login is on |
 
 Walkthrough: [User guide → SQL Editor](docs/USER_GUIDE.md#sql-editor).
 

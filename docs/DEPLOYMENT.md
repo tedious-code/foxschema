@@ -123,6 +123,13 @@ use Fox are not interrupted. Only greenfield metadata DBs see the prompt.
 `LOCAL_SINGLE_USER=true` still means no login. Switching later to
 `LOCAL_SINGLE_USER=false` keeps those admins; new registrations become viewers.
 
+**Query files / SQL Editor:** browser localStorage (`foxschema-sql-editor`) and
+saved credentials keep working. New **Utilities → Query files** workspaces appear
+as `Files: …` SQLite connections; expired temp DBs (~24h) are removed and their
+orphan credentials are pruned on the next connections/Files list load — regular
+saved credentials are never touched. Keep `APP_ENCRYPTION_KEY` (or the Docker
+`/data` volume that stores it) stable across upgrades.
+
 ## The encryption key
 
 `APP_ENCRYPTION_KEY` protects the database passwords Fox stores.

@@ -15,6 +15,7 @@ import {
   materializeFileToSqlite,
   MAX_CONTENT_CHARS,
   parseFileToTable,
+  pruneOrphanFileQueryConnections,
   removeFileQueryDb,
   type FileQueryFormat,
   type FileQueryImportInput,
@@ -66,6 +67,7 @@ function listTablesInSqliteFile(dbPath: string): string[] {
 }
 
 async function listFileImportConnections(connectionStore: ConnectionStore, userId: string) {
+  await pruneOrphanFileQueryConnections(connectionStore, userId).catch(() => undefined);
   const list = await connectionStore.list(userId);
   const out: {
     id: string;

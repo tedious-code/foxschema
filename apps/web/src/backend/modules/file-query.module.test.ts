@@ -8,6 +8,7 @@ import {
   parseCsv,
   parseJsonRecords,
   parseTextOffsets,
+  pruneOrphanFileQueryConnections,
   sanitizeTableName,
   fileQueryTempDir,
 } from './file-query.module';
@@ -39,6 +40,40 @@ describe('file-query parsers', () => {
     expect(isFileQueryConnectionName('Prod Postgres')).toBe(false);
     expect(isFileQueryDbPath(join(fileQueryTempDir(), 'files-abc.db'))).toBe(true);
     expect(isFileQueryDbPath('/var/data/app.db')).toBe(false);
+  });
+
+  it('prunes Files: credentials whose temp DB file is missing', async () => {
+    const missing = join(fileQueryTempDir(), 'files-orphan-gone.db');
+    const keptPath = join(fileQueryTempDir(), 'files-orphan-kept.db');
+    // Touch a real temp DB so the "kept" credential survives.
+    const Database = require('better-sqlite3');
+    const Db = Database.default ?? Database;
+    const db = new Db(keptPath);
+    db.close();
+    created.push(keptPath);
+
+    const rows = [
+      { id: 'gone', dialect: 'sqlite', name: 'Files: gone.csv', database: missing },
+      { id: 'kept', dialect: 'sqlite', name: 'Files: kept.csv', database: keptPath },
+      { id: 'pg', dialect: 'postgres', name: 'Prod', database: 'app' },
+    ];
+    const store = {
+      list: async () => [...rows],
+      resolve: async (_u: string, id: string) => {
+        const row = rows.find((r) => r.id === id);
+        return row ? { option: { database: row.database } } : null;
+      },
+      remove: async (_u: string, id: string) => {
+        const i = rows.findIndex((r) => r.id === id);
+        if (i < 0) return false;
+        rows.splice(i, 1);
+        return true;
+      },
+    };
+
+    const removed = await pruneOrphanFileQueryConnections(store, 'user-1');
+    expect(removed).toEqual(['gone']);
+    expect(rows.map((r) => r.id)).toEqual(['kept', 'pg']);
   });
 
   it('rejects path-traversal strings that only lexically prefix the temp dir', () => {
