@@ -56,6 +56,7 @@ import {
   checkForUpdate,
   clearUpdateCache,
   MANUAL_UPDATE_COMMAND,
+  resolveAppVersion,
   scheduleUiRelaunch,
 } from '../modules/updates.module';
 
@@ -137,9 +138,8 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     return { tables: normalizeTableSchemas(scoped), warnings };
   }
 
-  router.get('/health', (_req: Request, res: Response) => {
-    res.json({ ok: true });
-  });
+  // /health is registered on the public app in server.ts (before auth) and
+  // already includes `version` for stale-process detection — do not re-add here.
 
   // In-app update check — compares the running version against npm (default).
   router.get('/updates/check', async (_req: Request, res: Response) => {
@@ -189,6 +189,8 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       /* best-effort; never block the response */
     }
     res.json({
+      version: resolveAppVersion(),
+      features: { fileQuery: true },
       db: { engine: cfg.engine, location: cfg.engine === 'sqlite' ? cfg.path ?? '(default)' : cfg.url ?? '' },
       security: { keyScheme: key.scheme, emailBound: key.emailBound, boundEmail: key.boundEmail },
     });

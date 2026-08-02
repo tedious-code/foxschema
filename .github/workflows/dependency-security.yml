@@ -73,3 +73,31 @@ jobs:
       # server/CLI filesystem operations use variable paths by design.
       - name: Run ESLint security rules
         run: npx eslint .
+
+  # ── node_modules backdoor / unexpected port scan ───────────────────────────
+  # Dedicated deep scan also lives in deps-backdoor-scan.yml (scheduled weekly).
+  deps-backdoor-scan:
+    name: Deps backdoor / port scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Install dependencies (ignore-scripts)
+        run: npm install --ignore-scripts
+
+      - name: Scan node_modules
+        run: npm run scan:deps-security -- --report deps-backdoor-report.json
+
+      - name: Upload scan report
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: deps-backdoor-report
+          path: deps-backdoor-report.json
+          retention-days: 30

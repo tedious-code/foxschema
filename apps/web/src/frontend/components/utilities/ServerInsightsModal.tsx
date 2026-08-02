@@ -142,7 +142,8 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
   useEffect(() => {
     if (!open || !connectionId || needsPassword || !support.query) return;
     void load();
-  }, [open, connectionId, tab, needsPassword, support.query]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Intentionally omit `load` — tab/connection changes already re-trigger.
+  }, [open, connectionId, tab, needsPassword, support.query]);
 
   const unlock = () => {
     if (!connectionId || !passwordDraft.trim()) return;

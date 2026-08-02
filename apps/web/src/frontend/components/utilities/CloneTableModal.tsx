@@ -187,7 +187,6 @@ export const CloneTableModal: React.FC<Props> = ({
     }
     void loadSchema();
     // Only react to connection / open — not cache.tables identity churn.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, connectionId, loadSchema, initialTableName]);
 
   const runClone = useCallback(async () => {

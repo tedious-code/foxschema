@@ -55,6 +55,14 @@ Automated security checks run on every pull request and every push to `main`:
 - **npm audit** — blocks merges on Critical npm vulnerabilities
 - **Gitleaks** — detects committed secrets
 - **ESLint security rules** — static analysis for injection patterns and unsafe regex
+- **Deps backdoor / port scan** — walks `node_modules` (install with `--ignore-scripts`) for dangerous lifecycle scripts, malicious `binding.gyp` (Phantom-Gyp style), worm IOC drop files, reverse-shell patterns, and unexpected `createServer` / `.listen` outside an allowlist (`scripts/security/scan-node-modules.mjs`; workflow `Deps Backdoor Scan`)
 - **CodeQL** — weekly deep analysis (SQL injection, path traversal, prototype pollution)
+
+Local:
+
+```bash
+npm install --ignore-scripts
+npm run scan:deps-security
+```
 
 All findings are visible in the [GitHub Security tab](../../security).

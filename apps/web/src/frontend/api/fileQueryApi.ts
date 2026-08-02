@@ -165,6 +165,13 @@ export async function listFileImports(): Promise<{
     error?: string;
   };
   if (!res.ok) {
+    if (res.status === 404) {
+      return {
+        ok: false,
+        error:
+          'Files API not found (HTTP 404). An older Fox Schema server is probably still running — run `foxschema stop` then `foxschema open` (or restart Docker) so 0.2.10+ routes load.',
+      };
+    }
     return { ok: false, error: data.error || `List failed (HTTP ${res.status})` };
   }
   return { ok: true, imports: Array.isArray(data.imports) ? data.imports : [] };

@@ -1,0 +1,52 @@
+name: Deps Backdoor Scan
+
+# Scans installed node_modules for supply-chain backdoors and unexpected
+# open-port / createServer usage. Installs with --ignore-scripts so malicious
+# lifecycle hooks never run during CI.
+#
+# Local:
+#   npm install --ignore-scripts
+#   npm run scan:deps-security
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    # Weekly Saturday 02:30 UTC — catch delayed compromised publishes
+    - cron: '30 2 * * 6'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan-node-modules:
+    name: Scan node_modules (ports / backdoors)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      # Never run dependency lifecycle scripts in this job.
+      - name: Install dependencies (ignore-scripts)
+        run: npm install --ignore-scripts
+
+      - name: Scan node_modules for backdoors / unexpected listeners
+        run: |
+          node scripts/security/scan-node-modules.mjs \
+            --fail-on high \
+            --report deps-backdoor-report.json
+
+      - name: Upload scan report
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: deps-backdoor-report
+          path: deps-backdoor-report.json
+          retention-days: 30

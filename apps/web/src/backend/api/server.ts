@@ -19,6 +19,7 @@ import { createAdminRoutes } from './admin.routes';
 import { createSignupRoutes } from './signup.routes';
 import { createFileQueryRoutes } from './file-query.routes';
 import { AppSecretsStore } from '../modules/app-secrets.module';
+import { resolveAppVersion } from '../modules/updates.module';
 
 // Default to single-user (no login). Set LOCAL_SINGLE_USER=false to enable
 // multi-user auth. In multi-user mode AUTH_REQUIRED defaults to true (safe).
@@ -63,8 +64,11 @@ export function createApp() {
   // avoid unbounded memory use from a hostile request.
   app.use(express.json({ limit: '10mb' }));
 
-  // Public liveness check
-  app.get('/api/health', (_req: Request, res: Response) => res.json({ ok: true }));
+  // Public liveness check (registered before auth). Include version so
+  // `foxschema open` can detect a stale pre-upgrade process on this port.
+  app.get('/api/health', (_req: Request, res: Response) =>
+    res.json({ ok: true, version: resolveAppVersion() })
+  );
 
   app.get('/api/config', (_req: Request, res: Response) => {
     res.json({ localSingleUser: LOCAL_SINGLE_USER });

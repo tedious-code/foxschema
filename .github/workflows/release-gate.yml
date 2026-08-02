@@ -79,11 +79,25 @@ jobs:
             | tar -xz -C /usr/local/bin gitleaks
       - run: gitleaks detect --source . --config .gitleaks.toml --redact
 
+  # ── Gate: node_modules backdoor / unexpected listeners ─────────────────────
+  deps-backdoor-scan:
+    name: Deps backdoor / port scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: npm install --ignore-scripts
+      - run: npm run scan:deps-security
+
   # ── Publish: create GitHub Release draft ────────────────────────────────────
   # Only runs if ALL gate jobs succeed.
   create-release:
     name: Create Release Draft
-    needs: [unit-tests, eslint-security, npm-audit, gitleaks]
+    needs: [unit-tests, eslint-security, npm-audit, gitleaks, deps-backdoor-scan]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -110,5 +124,6 @@ jobs:
             - ✅ ESLint security rules
             - ✅ npm audit (no Critical vulnerabilities)
             - ✅ Gitleaks (no secrets detected)
+            - ✅ Deps backdoor / unexpected port scan
 
             > **Review this draft before publishing.** Edit the release notes above, then click "Publish release."
