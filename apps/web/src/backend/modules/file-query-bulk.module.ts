@@ -79,14 +79,14 @@ function inferType(values: unknown[]): InferredSqlType {
       sawInt = true;
       continue;
     }
-    // Split forms match the prior float grammar (incl. `123.` / `1.e10`) without
-    // a single ReDoS-prone alternation (eslint security/detect-unsafe-regex).
+    // Prior grammar: [+-]?(digits.digits* | .digits)(e[+-]?digits)?
+    // Split forms keep that (incl. `123.` / `1.e10`) without a ReDoS-prone
+    // alternation (eslint security/detect-unsafe-regex).
     if (
       /^[+-]?\d+\.\d*$/.test(s) ||
       /^[+-]?\.\d+$/.test(s) ||
       /^[+-]?\d+\.\d*[eE][+-]?\d+$/.test(s) ||
-      /^[+-]?\.\d+[eE][+-]?\d+$/.test(s) ||
-      /^[+-]?\d+[eE][+-]?\d+$/.test(s)
+      /^[+-]?\.\d+[eE][+-]?\d+$/.test(s)
     ) {
       sawReal = true;
       continue;
