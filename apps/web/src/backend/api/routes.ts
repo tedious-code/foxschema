@@ -49,7 +49,7 @@ import { createMetadataStore } from '../database/stores/registry';
 import { keySchemeInfo } from '../cores/crypto';
 import type { AuthedRequest } from './auth.routes';
 import { denyUnless, requirePermissions } from './rbac.middleware';
-import { CATEGORY_PERMISSION, type Permission } from '../../shared/permissions';
+import { CATEGORY_PERMISSION, permissionSatisfied, type Permission } from '../../shared/permissions';
 import {
   applyNpmGlobalUpdate,
   canSelfUpdate,
@@ -601,7 +601,15 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       if (body.connectionId || (body.dialect && body.option)) {
         const resolved = await resolveRef((req as AuthedRequest).userId, body);
         dialect = resolved.dialect;
-        runQuery = makeCellQueryRunner(resolved, body.allowWrites === true);
+        // Per-statement permission check: a cell's SQL is unknown until it
+        // runs, so `allowWrites` alone must not be a blanket pass — GRANT still
+        // needs `editor.grant`, admin still bypasses as everywhere else.
+        const granted = authed.permissions ?? new Set<Permission>();
+        runQuery = makeCellQueryRunner(resolved, {
+          allowWrites: body.allowWrites === true,
+          can: (permission) =>
+            authed.appRole === 'admin' || permissionSatisfied(granted, permission),
+        });
       }
       const result = await runCodeCellOnServer(validated.value, {
         dialect,
