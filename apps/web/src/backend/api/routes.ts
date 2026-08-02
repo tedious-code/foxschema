@@ -43,7 +43,8 @@ import {
   type CodeCellRequestBody,
   type CellQueryRunner,
 } from './code-cell-execute';
-import { makeCellQueryRunner } from './code-cell-query';
+import { makeBeamCellQueryRunner, makeCellQueryRunner } from './code-cell-query';
+import { parseBeamEndpoints } from '../../shared/server-beam';
 import { getMetadataDbConfig, SUPPORTED_ENGINES, type DbEngine } from '../database/config';
 import { createMetadataStore } from '../database/stores/registry';
 import { keySchemeInfo } from '../cores/crypto';
@@ -584,7 +585,8 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   // runs allowlisted JS/TS with fetch in a worker_threads sandbox.
   const codeCellLimiter = rateLimit({ windowMs: 60 * 1000, max: 30 });
   router.post('/sql/code-cell', codeCellLimiter, async (req: Request, res: Response) => {
-    const body = req.body as CodeCellRequestBody & ConnectionRef & { allowWrites?: boolean };
+    const body = req.body as CodeCellRequestBody &
+      ConnectionRef & { allowWrites?: boolean; beam?: unknown };
     const authed = req as AuthedRequest;
     if (denyUnless(authed, res, 'editor.advanced')) return;
     // A cell builds its SQL at runtime, so "may write" means it could do either
@@ -595,28 +597,58 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       res.status(400).json({ error: validated.error });
       return;
     }
+    const beamParsed = parseBeamEndpoints(body.beam);
+    if (!beamParsed.ok) {
+      res.status(400).json({ error: beamParsed.error });
+      return;
+    }
     try {
-      // A cell only gets a `sql` bridge when it was run against a credential.
-      // Without one it still executes — it just cannot reach a database.
+      // A cell only gets a `sql` bridge when it was run against a credential
+      // (or Server Beam endpoints). Without one it still executes — it just
+      // cannot reach a database.
       let dialect: string | undefined;
       let runQuery: CellQueryRunner | undefined;
-      if (body.connectionId || (body.dialect && body.option)) {
+      let beamDialects: Record<string, string> | undefined;
+      let defaultBeamAlias: string | undefined;
+      let enforceBeamSqlOnCap = false;
+      const granted = authed.permissions ?? new Set<Permission>();
+      const policy = {
+        allowWrites: body.allowWrites === true,
+        can: (permission: Permission) =>
+          authed.appRole === 'admin' || permissionSatisfied(granted, permission),
+      };
+
+      if (beamParsed.value.length > 0) {
+        const userId = (req as AuthedRequest).userId;
+        const byAlias = new Map<string, CellQueryRunner>();
+        beamDialects = {};
+        for (const ep of beamParsed.value) {
+          const resolved = await resolveRef(userId, {
+            connectionId: ep.connectionId,
+            password: ep.password,
+          });
+          byAlias.set(ep.alias, makeCellQueryRunner(resolved, policy));
+          beamDialects[ep.alias] = resolved.dialect;
+        }
+        defaultBeamAlias = beamParsed.value[0]!.alias;
+        dialect = beamDialects[defaultBeamAlias];
+        runQuery = makeBeamCellQueryRunner(byAlias, defaultBeamAlias);
+        enforceBeamSqlOnCap = true;
+      } else if (body.connectionId || (body.dialect && body.option)) {
         const resolved = await resolveRef((req as AuthedRequest).userId, body);
         dialect = resolved.dialect;
         // Per-statement permission check: a cell's SQL is unknown until it
         // runs, so `allowWrites` alone must not be a blanket pass — GRANT still
         // needs `editor.grant`, admin still bypasses as everywhere else.
-        const granted = authed.permissions ?? new Set<Permission>();
-        runQuery = makeCellQueryRunner(resolved, {
-          allowWrites: body.allowWrites === true,
-          can: (permission) =>
-            authed.appRole === 'admin' || permissionSatisfied(granted, permission),
-        });
+        runQuery = makeCellQueryRunner(resolved, policy);
       }
       const result = await runCodeCellOnServer(validated.value, {
         dialect,
         allowWrites: body.allowWrites === true,
         runQuery,
+        beamDialects,
+        defaultBeamAlias,
+        enforceBeamSqlOnCap,
       });
       res.json(result);
     } catch (error: unknown) {

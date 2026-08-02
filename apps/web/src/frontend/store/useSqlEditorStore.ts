@@ -13,7 +13,8 @@ import { resolveAppSecrets } from '../api/appSecretsApi';
 import { loadSchema } from '../api/schemaApi';
 import { isMutatingDmlStatement, isWriteStatement, splitSqlStatements } from '../lib/sql-splitter';
 import type { CodeCellLast } from '../lib/codeCellExec';
-import { detectCodeCell, runCodeCell } from '../lib/codeCellRunner';
+import { detectCodeCell, runCodeCell, usesServerBeam } from '../lib/codeCellRunner';
+import { beamAliasesForCount } from '../../shared/server-beam';
 import { buildSampleBookmarks } from '../lib/sqlEditorSamples';
 import {
   buildForeignKeyDrilldown,
@@ -1081,6 +1082,63 @@ export const useSqlEditorStore = create<SqlEditorState>()(
 
             let codeDirectives: SetDirective[] = [];
             const isLastStmt = si === rawStatements.length - 1;
+
+            // Server Beam (`sql.on`) runs once across up to two Destinations
+            // (order = source, then target) instead of fan-out per credential.
+            if (usesServerBeam(raw)) {
+              const beamConns = connections.slice(0, 2);
+              const aliases = beamAliasesForCount(beamConns.length);
+              const beam = beamConns.map((c, i) => ({
+                alias: aliases[i]!,
+                connectionId: c.id,
+                password: sessionPasswords[c.id] || undefined,
+              }));
+              const primary = beamConns[0];
+              if (!primary) {
+                appendWarning(
+                  'Server Beam needs at least one Destination checked (source). ' +
+                    'For cross-server copy, check two — first is source, second is target.'
+                );
+              } else {
+                const prev = resultsByConn.get(primary.id) ?? [];
+                try {
+                  const { result, directives } = await runCodeCell({
+                    statement: raw,
+                    last: lastGridFrom(prev),
+                    variables: resolveVariablesForConnection(runVariables, primary.id),
+                    maxRows,
+                    ref: {
+                      connectionId: primary.id,
+                      password: sessionPasswords[primary.id] || undefined,
+                    },
+                    beam,
+                    allowWrites: !safeMode,
+                  });
+                  codeDirectives = directives;
+                  for (const c of beamConns) {
+                    const list = resultsByConn.get(c.id) ?? [];
+                    list.push(result);
+                    resultsByConn.set(c.id, list);
+                    setPageSql(c.id, si, '');
+                    patchRun(c.id, {
+                      status: isLastStmt ? 'done' : 'running',
+                      results: [...list],
+                      error: result.ok ? undefined : result.error,
+                    });
+                  }
+                } catch (error: unknown) {
+                  const msg = error instanceof Error ? error.message : String(error);
+                  for (const c of beamConns) {
+                    const list = resultsByConn.get(c.id) ?? [];
+                    list.push({ ok: false, error: msg, durationMs: 0 });
+                    resultsByConn.set(c.id, list);
+                    patchRun(c.id, { status: 'error', error: msg, results: [...list] });
+                  }
+                }
+              }
+              applySetsFromFirstOk(codeDirectives, si);
+              continue;
+            }
 
             await Promise.allSettled(
               connections.map(async (c) => {

@@ -18,9 +18,11 @@ import {
 /** Runs one bridged statement for a cell and returns rows as objects. */
 export type CellQueryRunner = (
   text: string,
-  params: unknown[]
+  params: unknown[],
+  alias?: string
 ) => Promise<Record<string, unknown>[]>;
 import { clampMaxRows } from './sql-execute';
+import { MAX_SQL } from '../../shared/server-beam';
 
 export const MAX_CODE_CELL_LENGTH = 100_000;
 export const DEFAULT_CODE_CELL_TIMEOUT_MS = 10_000;
@@ -129,6 +131,12 @@ function runInWorkerThread(args: {
   allowWrites?: boolean;
   /** Runs one bridged `sql` statement. Absent = the cell has no connection. */
   runQuery?: CellQueryRunner;
+  /** Server Beam: alias → dialect for the worker renderer. */
+  beamDialects?: Record<string, string>;
+  /** Server Beam: default alias for plain `sql`…``. */
+  defaultBeamAlias?: string;
+  /** When true, enforce max `sql.on()` calls per Execute. */
+  enforceBeamSqlOnCap?: boolean;
 }): Promise<CodeCellResult> {
   return new Promise((resolve) => {
     let settled = false;
@@ -195,6 +203,8 @@ function runInWorkerThread(args: {
           maxRows: args.maxRows,
           dialect: args.dialect,
           allowWrites: args.allowWrites,
+          beamDialects: args.beamDialects,
+          defaultBeamAlias: args.defaultBeamAlias,
         },
         execArgv,
       });
@@ -204,6 +214,8 @@ function runInWorkerThread(args: {
     }
 
     startTimer();
+
+    let sqlOnCount = 0;
 
     const answerQuery = async (req: CellQueryRequest) => {
       pauseClock();
@@ -216,7 +228,15 @@ function runInWorkerThread(args: {
       };
       try {
         if (!args.runQuery) throw new Error('This cell has no connection — select a credential first');
-        const rows = await args.runQuery(req.text, req.params);
+        if (args.enforceBeamSqlOnCap && req.viaOn) {
+          sqlOnCount += 1;
+          if (sqlOnCount > MAX_SQL) {
+            throw new Error(
+              `Server Beam allows at most ${MAX_SQL} sql.on() calls per editor Execute`
+            );
+          }
+        }
+        const rows = await args.runQuery(req.text, req.params, req.alias);
         reply({ type: 'cell-query-result', id: req.id, ok: true, rows, rowCount: rows.length });
       } catch (error: unknown) {
         reply({ type: 'cell-query-result', id: req.id, ok: false, error: errorMessage(error) });
@@ -252,7 +272,14 @@ function runInWorkerThread(args: {
  */
 export async function runCodeCellOnServer(
   validated: ValidatedCodeCell,
-  options?: { dialect?: string; allowWrites?: boolean; runQuery?: CellQueryRunner }
+  options?: {
+    dialect?: string;
+    allowWrites?: boolean;
+    runQuery?: CellQueryRunner;
+    beamDialects?: Record<string, string>;
+    defaultBeamAlias?: string;
+    enforceBeamSqlOnCap?: boolean;
+  }
 ): Promise<CodeCellResult & { durationMs: number }> {
   const started = Date.now();
   let body = validated.body;
@@ -277,6 +304,9 @@ export async function runCodeCellOnServer(
     dialect: options?.dialect,
     allowWrites: options?.allowWrites,
     runQuery: options?.runQuery,
+    beamDialects: options?.beamDialects,
+    defaultBeamAlias: options?.defaultBeamAlias,
+    enforceBeamSqlOnCap: options?.enforceBeamSqlOnCap,
   });
   return { ...result, durationMs: Date.now() - started };
 }

@@ -5,6 +5,7 @@ import {
   runCodeCellOnServer,
   validateCodeCellRequest,
 } from './code-cell-execute';
+import { MAX_SQL } from '../../shared/server-beam';
 
 /** Value planted in APP_ENCRYPTION_KEY to prove an escaped cell cannot read it. */
 const SENTINEL_SECRET = 'sentinel-must-not-leak';
@@ -240,4 +241,50 @@ describe('code cell SQL bridge', () => {
     );
     expect(result.ok).toBe(true);
   }, 45_000);
+
+  it('routes sql.on(alias) to the matching Server Beam endpoint', async () => {
+    const calls: { text: string; alias?: string }[] = [];
+    const runQuery = async (text: string, _params: unknown[], alias?: string) => {
+      calls.push({ text, alias });
+      return [{ hop: alias ?? 'none' }];
+    };
+    const result = await runCell(
+      `const a = await sql.on('source')\`SELECT \${1} AS n\`;` +
+        `const b = await sql.on('target')\`SELECT \${2} AS n\`;` +
+        `return [{ a: a[0].hop, b: b[0].hop }];`,
+      {
+        dialect: 'sqlite',
+        allowWrites: false,
+        runQuery,
+        beamDialects: { source: 'sqlite', target: 'postgres' },
+        defaultBeamAlias: 'source',
+        enforceBeamSqlOnCap: true,
+      }
+    );
+    if (!result.ok) throw new Error(result.error);
+    expect(calls.map((c) => c.alias)).toEqual(['source', 'target']);
+    expect(calls[0]!.text).toBe('SELECT ? AS n');
+    expect(calls[1]!.text).toBe('SELECT $1 AS n');
+    expect(result.rows).toEqual([['source', 'target']]);
+  }, 30_000);
+
+  it('rejects sql.on() calls beyond the Server Beam cap', async () => {
+    const runQuery = async () => [{ n: 1 }];
+    const body =
+      'const out = [];\n' +
+      `for (let i = 0; i < ${MAX_SQL + 1}; i++) {\n` +
+      "  out.push(await sql.on('source')`SELECT ${'i'} AS n`);\n" +
+      '}\n' +
+      'return out;';
+    const result = await runCell(body, {
+      dialect: 'sqlite',
+      allowWrites: false,
+      runQuery,
+      beamDialects: { source: 'sqlite' },
+      defaultBeamAlias: 'source',
+      enforceBeamSqlOnCap: true,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(new RegExp(`at most ${MAX_SQL} sql\\.on`, 'i'));
+  }, 60_000);
 });
