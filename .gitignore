@@ -54,7 +54,7 @@ CHANGELOG.md
 !docs/INSTALL.md
 !docs/PUBLISH.md
 !docs/docker-hub-overview.md
-!docs/RELEASE_0.2.0.md
+!docs/RELEASE_*.md
 docs/demo/*
 !docs/demo/foxschema-demo.mp4
 !docs/demo/foxschema-demo.gif
