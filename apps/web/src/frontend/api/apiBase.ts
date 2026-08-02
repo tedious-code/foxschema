@@ -43,6 +43,17 @@ export async function parseJsonBody<T>(res: Response, opts?: ParseJsonOptions): 
   try {
     return JSON.parse(text) as T;
   } catch {
+    // Express default HTML 404 ("Cannot POST /api/…") after a package upgrade
+    // while an old UI server is still bound to the port.
+    if (
+      res.status === 404 &&
+      (/Cannot (GET|POST|PUT|DELETE) \/api\//i.test(text) || /<!DOCTYPE html>/i.test(text))
+    ) {
+      throw new Error(
+        `API route missing (HTTP 404). An older Fox Schema server is probably still running — ` +
+          `run \`foxschema stop\` then \`foxschema open\` (or restart Docker) and retry.`
+      );
+    }
     throw new Error(`Invalid response from server (${res.status}): ${text.slice(0, 200)}`);
   }
 }

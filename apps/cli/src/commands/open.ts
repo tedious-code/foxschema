@@ -61,27 +61,46 @@ export async function probeRunningVersion(port: number): Promise<string | null> 
 }
 
 /**
+ * Capability routes that must exist on current Fox Schema builds.
+ * 401/403/400 = route exists (auth/validation). 404 = stale pre-feature server
+ * (classic: "Cannot POST /api/schema/dba-utility" after upgrade while old PID lives).
+ */
+const CAPABILITY_PROBES: Array<{ path: string; method?: string }> = [
+  { path: '/api/files/imports', method: 'GET' },
+  { path: '/api/schema/dba-utility', method: 'POST' },
+  { path: '/api/schema/index-fragmentation-batch', method: 'POST' },
+];
+
+/** True when a probe response means the route is missing (stale server). */
+export function isMissingRouteStatus(status: number): boolean {
+  return status === 404;
+}
+
+/**
  * True when the process on `port` is Fox Schema but outdated relative to the
  * installed CLI — most commonly after `npm i -g foxschema@latest` while an old
- * server is still bound (missing routes like GET /api/files/imports → 404).
+ * server is still bound (missing routes → Express HTML 404).
  */
 export async function isStaleUiServer(port: number, installedVersion: string): Promise<boolean> {
-  // Route probe: 401/403 still means the handler exists; 404 = pre-Query-files build.
-  try {
-    const res = await fetch(`http://127.0.0.1:${port}/api/files/imports`, {
-      signal: AbortSignal.timeout(1500),
-    });
-    if (res.status === 404) return true;
-  } catch {
-    /* ignore — health/version checks below */
+  for (const probe of CAPABILITY_PROBES) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}${probe.path}`, {
+        method: probe.method ?? 'GET',
+        headers:
+          probe.method === 'POST' ? { 'Content-Type': 'application/json' } : undefined,
+        body: probe.method === 'POST' ? '{}' : undefined,
+        signal: AbortSignal.timeout(1500),
+      });
+      if (isMissingRouteStatus(res.status)) return true;
+    } catch {
+      /* ignore — try remaining probes / version */
+    }
   }
 
   const running = await probeRunningVersion(port);
   if (!running) {
     // Old builds only returned `{ ok: true }` with no version — treat as stale
-    // whenever the installed CLI is newer than the last pre-version health era.
-    // We can't compare numerically without a running version; only force restart
-    // when the files/imports probe already said 404 (handled above).
+    // only when a capability probe already returned 404 (handled above).
     return false;
   }
   return running !== installedVersion.replace(/^v/i, '').trim();
