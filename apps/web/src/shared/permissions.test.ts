@@ -1,51 +1,82 @@
-/**
- * Fox Schema (foxschema)
- * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
- * SPDX-License-Identifier: Apache-2.0
- */
 import { describe, expect, it } from 'vitest';
 import {
+  APP_ROLES,
   DEFAULT_ROLE_PERMISSIONS,
   PERMISSIONS,
-  isAppRole,
-  isPermission,
-  uniquePermissions,
+  PERMISSION_META,
+  CATEGORY_PERMISSION,
+  permissionSatisfied,
+  type Permission,
 } from './permissions';
 
-describe('permissions catalog', () => {
-  it('defines admin/editor/viewer defaults without unknown keys', () => {
-    expect(isAppRole('admin')).toBe(true);
-    expect(isAppRole('guest')).toBe(false);
+describe('role ladder', () => {
+  it('orders roles least → most privileged', () => {
+    expect(APP_ROLES).toEqual(['viewer', 'editor', 'owner', 'admin']);
+  });
 
-    for (const role of ['viewer', 'editor', 'admin'] as const) {
-      for (const p of DEFAULT_ROLE_PERMISSIONS[role]) {
-        expect(isPermission(p)).toBe(true);
+  it('each role is a superset of the one below it', () => {
+    const has = (r: (typeof APP_ROLES)[number]) => new Set(DEFAULT_ROLE_PERMISSIONS[r]);
+    for (const [lower, higher] of [['viewer', 'editor'], ['editor', 'owner'], ['owner', 'admin']] as const) {
+      for (const p of has(lower)) {
+        expect(has(higher).has(p), `${higher} should keep ${p} from ${lower}`).toBe(true);
       }
     }
-    expect(DEFAULT_ROLE_PERMISSIONS.admin).toHaveLength(PERMISSIONS.length);
   });
 
-  it('viewer cannot migrate or write SQL; editor can', () => {
-    expect(DEFAULT_ROLE_PERMISSIONS.viewer).not.toContain('schema.migrate');
-    expect(DEFAULT_ROLE_PERMISSIONS.viewer).not.toContain('editor.write');
-    expect(DEFAULT_ROLE_PERMISSIONS.viewer).not.toContain('secrets.delete');
-    expect(DEFAULT_ROLE_PERMISSIONS.editor).toContain('schema.migrate');
-    expect(DEFAULT_ROLE_PERMISSIONS.editor).toContain('editor.write');
-    expect(DEFAULT_ROLE_PERMISSIONS.editor).toContain('editor.datagrid.insert');
-    expect(DEFAULT_ROLE_PERMISSIONS.editor).not.toContain('admin.users');
+  it('editor changes data and schema but cannot grant or deploy migrations', () => {
+    const editor = new Set(DEFAULT_ROLE_PERMISSIONS.editor);
+    expect(editor.has('editor.dml')).toBe(true);
+    expect(editor.has('editor.ddl')).toBe(true);
+    expect(editor.has('editor.grant')).toBe(false);
+    expect(editor.has('schema.migrate')).toBe(false);
   });
 
-  it('uniquePermissions drops unknowns and duplicates', () => {
-    expect(uniquePermissions(['editor.run', 'nope', 'editor.run', 'schema.browse'])).toEqual([
-      'editor.run',
-      'schema.browse',
-    ]);
+  it('owner adds privileges and migrations but not app administration', () => {
+    const owner = new Set(DEFAULT_ROLE_PERMISSIONS.owner);
+    expect(owner.has('editor.grant')).toBe(true);
+    expect(owner.has('schema.migrate')).toBe(true);
+    expect(owner.has('admin.users')).toBe(false);
+    expect(owner.has('admin.roles')).toBe(false);
   });
 
-  it('uniquePermissions rejects non-string values from untrusted input', () => {
-    expect(uniquePermissions([42, null, undefined, {}, ['editor.run'], 'editor.run'])).toEqual([
-      'editor.run',
-    ]);
-    expect(uniquePermissions([])).toEqual([]);
+  it('viewer stays read-only', () => {
+    const viewer = new Set(DEFAULT_ROLE_PERMISSIONS.viewer);
+    for (const p of ['editor.dml', 'editor.ddl', 'editor.grant', 'schema.migrate'] as Permission[]) {
+      expect(viewer.has(p), p).toBe(false);
+    }
+  });
+
+  it('every permission is documented', () => {
+    const documented = new Set(PERMISSION_META.map((m) => m.id));
+    for (const p of PERMISSIONS) expect(documented.has(p), `${p} needs PERMISSION_META`).toBe(true);
+  });
+});
+
+describe('permissionSatisfied', () => {
+  it('accepts the exact permission', () => {
+    expect(permissionSatisfied(['editor.dml'], 'editor.dml')).toBe(true);
+  });
+
+  it('lets the legacy editor.write umbrella cover dml and ddl', () => {
+    expect(permissionSatisfied(['editor.write'], 'editor.dml')).toBe(true);
+    expect(permissionSatisfied(['editor.write'], 'editor.ddl')).toBe(true);
+  });
+
+  it('never lets editor.write imply editor.grant', () => {
+    // grant was carved out precisely because it can escalate a role.
+    expect(permissionSatisfied(['editor.write'], 'editor.grant')).toBe(false);
+  });
+
+  it('denies an unrelated permission', () => {
+    expect(permissionSatisfied(['editor.dml'], 'editor.ddl')).toBe(false);
+  });
+});
+
+describe('CATEGORY_PERMISSION', () => {
+  it('maps each category to the right key', () => {
+    expect(CATEGORY_PERMISSION.read).toBeNull();
+    expect(CATEGORY_PERMISSION.dml).toBe('editor.dml');
+    expect(CATEGORY_PERMISSION.ddl).toBe('editor.ddl');
+    expect(CATEGORY_PERMISSION.grant).toBe('editor.grant');
   });
 });

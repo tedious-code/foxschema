@@ -13,7 +13,7 @@ import {
   getProviderSettings,
   dialectSupportsIndexFragmentation,
   buildIndexFragmentationCustomTemplate,
-  requiresWritePermission,
+  sqlStatementCategory,
   type MigrationStep,
   type ConnectionOptions,
   type DbObjectType,
@@ -49,6 +49,7 @@ import { createMetadataStore } from '../database/stores/registry';
 import { keySchemeInfo } from '../cores/crypto';
 import type { AuthedRequest } from './auth.routes';
 import { denyUnless, requirePermissions } from './rbac.middleware';
+import { CATEGORY_PERMISSION, permissionSatisfied, type Permission } from '../../shared/permissions';
 import {
   applyNpmGlobalUpdate,
   canSelfUpdate,
@@ -535,7 +536,15 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     // Scan for writes only once the statements are known to be bounded strings.
     // Fail-closed: anything not provably a read needs `editor.write`, so a verb
     // the classifier doesn't recognize is denied instead of executed.
-    if (statements.some(requiresWritePermission) && denyUnless(authed, res, 'editor.write')) return;
+    // Ask for exactly the power each statement needs — data changes, schema
+    // changes, or privilege changes — rather than one blanket write bit.
+    // Fail-closed: an unrecognized verb classifies as ddl.
+    const needed = new Set<Permission>();
+    for (const sql of statements as string[]) {
+      const permission = CATEGORY_PERMISSION[sqlStatementCategory(sql)];
+      if (permission) needed.add(permission);
+    }
+    if (needed.size > 0 && denyUnless(authed, res, ...needed)) return;
     // Optional bind parameters, one array per statement. Anything else is a
     // client bug — reject rather than silently dropping the values, which would
     // send a statement whose placeholders have nothing to bind to.
@@ -576,7 +585,9 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     const body = req.body as CodeCellRequestBody & ConnectionRef & { allowWrites?: boolean };
     const authed = req as AuthedRequest;
     if (denyUnless(authed, res, 'editor.advanced')) return;
-    if (body.allowWrites === true && denyUnless(authed, res, 'editor.write')) return;
+    // A cell builds its SQL at runtime, so "may write" means it could do either
+    // kind of change; require both rather than guessing.
+    if (body.allowWrites === true && denyUnless(authed, res, 'editor.dml', 'editor.ddl')) return;
     const validated = validateCodeCellRequest(body);
     if (!validated.ok) {
       res.status(400).json({ error: validated.error });
@@ -590,7 +601,15 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       if (body.connectionId || (body.dialect && body.option)) {
         const resolved = await resolveRef((req as AuthedRequest).userId, body);
         dialect = resolved.dialect;
-        runQuery = makeCellQueryRunner(resolved, body.allowWrites === true);
+        // Per-statement permission check: a cell's SQL is unknown until it
+        // runs, so `allowWrites` alone must not be a blanket pass — GRANT still
+        // needs `editor.grant`, admin still bypasses as everywhere else.
+        const granted = authed.permissions ?? new Set<Permission>();
+        runQuery = makeCellQueryRunner(resolved, {
+          allowWrites: body.allowWrites === true,
+          can: (permission) =>
+            authed.appRole === 'admin' || permissionSatisfied(granted, permission),
+        });
       }
       const result = await runCodeCellOnServer(validated.value, {
         dialect,

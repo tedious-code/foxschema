@@ -4,6 +4,7 @@ import {
   checkStatement,
   isWriteStatement,
   requiresWritePermission,
+  sqlStatementCategory,
   statementVerb,
   firstKeyword,
   extractTableAliases,
@@ -521,5 +522,51 @@ describe('WITH tail is classified, not just its leading verb', () => {
   it('still flags mutating DML through a WITH tail', () => {
     expect(isMutatingDmlStatement('WITH t AS (SELECT 1) UPDATE users SET a = 1')).toBe(true);
     expect(isMutatingDmlStatement('WITH t AS (SELECT 1) SELECT * FROM t')).toBe(false);
+  });
+});
+
+describe('sqlStatementCategory (RBAC buckets)', () => {
+  const cat = (s: string) => sqlStatementCategory(s);
+
+  it('reads stay reads', () => {
+    for (const s of ['SELECT 1', 'SHOW TABLES', 'EXPLAIN SELECT 1', 'PRAGMA table_info(t)',
+                     'WITH t AS (SELECT 1) SELECT * FROM t']) {
+      expect(cat(s), s).toBe('read');
+    }
+  });
+
+  it('row changes are dml', () => {
+    for (const s of ['INSERT INTO t VALUES (1)', 'UPDATE t SET a=1', 'DELETE FROM t',
+                     'MERGE INTO t USING s ON (1=1)', "LOAD DATA INFILE '/x' INTO TABLE t"]) {
+      expect(cat(s), s).toBe('dml');
+    }
+  });
+
+  it('schema changes are ddl', () => {
+    for (const s of ['CREATE TABLE t (a int)', 'ALTER TABLE t ADD b int', 'DROP VIEW v',
+                     'TRUNCATE TABLE t', 'CREATE INDEX i ON t(a)', 'CREATE PROCEDURE p() BEGIN END',
+                     'SELECT * INTO copy FROM t', 'PRAGMA journal_mode = WAL', 'CALL p()']) {
+      expect(cat(s), s).toBe('ddl');
+    }
+  });
+
+  it('privilege changes get their own bucket', () => {
+    for (const s of ['GRANT SELECT ON t TO bob', 'REVOKE ALL ON t FROM bob']) {
+      expect(cat(s), s).toBe('grant');
+    }
+  });
+
+  it('an unknown verb falls into ddl rather than read', () => {
+    expect(cat('FLASHBACK TABLE t TO BEFORE DROP')).toBe('ddl');
+  });
+
+  it('a WITH takes the broadest category found anywhere in it', () => {
+    expect(cat('WITH d AS (DELETE FROM t RETURNING *) SELECT * FROM d')).toBe('dml');
+    expect(cat('WITH t AS (SELECT 1) SELECT * INTO copy FROM t')).toBe('ddl');
+  });
+
+  it('EXPLAIN ANALYZE inherits the inner statement', () => {
+    expect(cat('EXPLAIN ANALYZE DELETE FROM t')).toBe('dml');
+    expect(cat('EXPLAIN ANALYZE SELECT 1')).toBe('read');
   });
 });

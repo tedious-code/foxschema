@@ -71,6 +71,7 @@ export {
   checkStatement,
   isWriteStatement,
   requiresWritePermission,
+  sqlStatementCategory,
   firstKeyword,
   extractTableAliases,
   statementVerb,

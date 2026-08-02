@@ -113,7 +113,7 @@ describe('RbacModule', () => {
 
   it('role permission matrix covers every role', async () => {
     const matrix = await rbac.listRolePermissionMatrix();
-    expect(Object.keys(matrix).sort()).toEqual(['admin', 'editor', 'viewer']);
+    expect(Object.keys(matrix).sort()).toEqual(['admin', 'editor', 'owner', 'viewer']);
     expect(matrix.admin).toEqual([...PERMISSIONS]);
   });
 });

@@ -297,7 +297,7 @@ const PeekGrid: React.FC<{
   const canInsert = useAuthStore((s) => s.can('editor.datagrid.insert'));
   const canUpdate = useAuthStore((s) => s.can('editor.datagrid.update'));
   const canDelete = useAuthStore((s) => s.can('editor.datagrid.delete'));
-  const canWriteSql = useAuthStore((s) => s.can('editor.write'));
+  const canWriteSql = useAuthStore((s) => s.can('editor.dml'));
 
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
   const [editor, setEditor] = useState<{

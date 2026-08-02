@@ -6,6 +6,7 @@
  * Permission guards for Express routes.
  */
 import type { Response, NextFunction } from 'express';
+import { permissionSatisfied } from '../../shared/permissions';
 import type { Permission } from '../../shared/permissions';
 import type { AuthedRequest } from './auth.routes';
 
@@ -29,7 +30,9 @@ export function denyUnless(
   }
   if (req.appRole === 'admin') return false;
   const have = req.permissions ?? new Set<Permission>();
-  const missing = required.filter((p) => !have.has(p));
+  // permissionSatisfied, not have.has: the legacy `editor.write` umbrella still
+  // covers the finer dml/ddl keys for grants saved before the split.
+  const missing = required.filter((p) => !permissionSatisfied(have, p));
   if (missing.length > 0) {
     res.status(403).json({ error: 'Permission denied', missing });
     return true;
