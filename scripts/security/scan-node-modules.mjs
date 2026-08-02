@@ -137,11 +137,35 @@ function walkDirs(dir, visit, depth = 0) {
   }
 }
 
+/** Innermost package name for a path under node_modules (handles nested deps). */
 function packageNameFromPath(nmRoot, filePath) {
   const rel = relative(nmRoot, filePath);
   const parts = rel.split(sep);
-  if (parts[0]?.startsWith('@') && parts.length >= 2) return `${parts[0]}/${parts[1]}`;
-  return parts[0] || '';
+  let start = 0;
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i] === 'node_modules') start = i + 1;
+  }
+  if (start >= parts.length) return '';
+  if (parts[start]?.startsWith('@') && start + 1 < parts.length) {
+    return `${parts[start]}/${parts[start + 1]}`;
+  }
+  return parts[start] || '';
+}
+
+/** True when `full` is a package root manifest (incl. nested node_modules). */
+function isPackageRootManifest(nmRoot, full) {
+  const rel = relative(nmRoot, full);
+  const parts = rel.split(sep);
+  if (parts[parts.length - 1] !== 'package.json') return false;
+  let start = 0;
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (parts[i] === 'node_modules') start = i + 1;
+  }
+  const rest = parts.slice(start);
+  return (
+    (rest.length === 2 && !rest[0].startsWith('@')) ||
+    (rest.length === 3 && rest[0].startsWith('@'))
+  );
 }
 
 function readTextLimited(path, max = 512_000) {
@@ -206,13 +230,8 @@ function scan(root) {
     }
 
     if (!ent.isFile() || base !== 'package.json') return;
-    // Only package roots: …/node_modules/<pkg>/package.json or scoped
-    const rel = relative(nm, full);
-    const parts = rel.split(sep);
-    const isRootPkg =
-      (parts.length === 2 && !parts[0].startsWith('@')) ||
-      (parts.length === 3 && parts[0].startsWith('@'));
-    if (!isRootPkg) return;
+    // Package roots only (top-level and nested under …/node_modules/<pkg>/)
+    if (!isPackageRootManifest(nm, full)) return;
 
     const text = readTextLimited(full, 256_000);
     if (!text) return;
