@@ -529,6 +529,106 @@ describe('SqlGeneratorModule.generateMigrationPlan', () => {
     expect(stmts).not.toMatch(/pg_depend|ON COMMIT DROP|_fs_vdep/i);
   });
 
+  it('CockroachDB does not DROP views that only mention the table name as a column or keyword', () => {
+    const modifiedStatus: TableDiff = {
+      tableName: 'STATUS',
+      objectType: 'TABLE',
+      status: 'MODIFIED',
+      columnDiffs: [
+        { name: 'ID', status: 'MODIFIED', source: { type: 'integer', nullable: false }, target: { type: 'bigint', nullable: false } },
+      ],
+      indexDiffs: [],
+      foreignKeyDiffs: [],
+      sourceTable: tableSchema({ name: 'status', columns: [{ name: 'id', type: 'integer', nullable: false, primaryKey: false }] }),
+      targetTable: tableSchema({ name: 'status', columns: [{ name: 'id', type: 'bigint', nullable: false, primaryKey: false }] }),
+    };
+    // Column named `status` — must not count as a dependency on table `status`.
+    const columnOnlyView: TableDiff = {
+      tableName: 'V_PRODUCTS',
+      objectType: 'VIEW',
+      status: 'UNCHANGED',
+      definition: 'SELECT id, status FROM demo_b.products',
+      columnDiffs: [],
+      indexDiffs: [],
+      foreignKeyDiffs: [],
+      targetTable: tableSchema({
+        name: 'v_products',
+        objectType: 'VIEW',
+        definition: 'SELECT id, status FROM demo_b.products',
+        columns: [],
+      }),
+    };
+    const modifiedOrder: TableDiff = {
+      tableName: 'ORDER',
+      objectType: 'TABLE',
+      status: 'MODIFIED',
+      columnDiffs: [
+        { name: 'ID', status: 'MODIFIED', source: { type: 'integer', nullable: false }, target: { type: 'bigint', nullable: false } },
+      ],
+      indexDiffs: [],
+      foreignKeyDiffs: [],
+      sourceTable: tableSchema({ name: 'order', columns: [{ name: 'id', type: 'integer', nullable: false, primaryKey: false }] }),
+      targetTable: tableSchema({ name: 'order', columns: [{ name: 'id', type: 'bigint', nullable: false, primaryKey: false }] }),
+    };
+    // `ORDER BY` must not match table `order`.
+    const orderByView: TableDiff = {
+      tableName: 'V_P',
+      objectType: 'VIEW',
+      status: 'UNCHANGED',
+      definition: 'SELECT id FROM demo_b.products ORDER BY id',
+      columnDiffs: [],
+      indexDiffs: [],
+      foreignKeyDiffs: [],
+      targetTable: tableSchema({
+        name: 'v_p',
+        objectType: 'VIEW',
+        definition: 'SELECT id FROM demo_b.products ORDER BY id',
+        columns: [],
+      }),
+    };
+    const realDep: TableDiff = {
+      tableName: 'V_STATUS',
+      objectType: 'VIEW',
+      status: 'UNCHANGED',
+      definition: 'SELECT id FROM demo_b.status',
+      columnDiffs: [],
+      indexDiffs: [],
+      foreignKeyDiffs: [],
+      targetTable: tableSchema({
+        name: 'v_status',
+        objectType: 'VIEW',
+        definition: 'SELECT id FROM demo_b.status',
+        columns: [],
+      }),
+    };
+
+    const falseColumn = gen.generateMigrationPlan(
+      [modifiedStatus],
+      'cockroachdb',
+      { targetSchema: 'demo_b' },
+      [modifiedStatus, columnOnlyView]
+    ).flatMap((s) => s.statements).join('\n');
+    expect(falseColumn).toMatch(/ALTER COLUMN ID TYPE/i);
+    expect(falseColumn).not.toMatch(/DROP VIEW/i);
+
+    const falseOrderBy = gen.generateMigrationPlan(
+      [modifiedOrder],
+      'cockroachdb',
+      { targetSchema: 'demo_b' },
+      [modifiedOrder, orderByView]
+    ).flatMap((s) => s.statements).join('\n');
+    expect(falseOrderBy).toMatch(/ALTER COLUMN ID TYPE/i);
+    expect(falseOrderBy).not.toMatch(/DROP VIEW/i);
+
+    const real = gen.generateMigrationPlan(
+      [modifiedStatus],
+      'cockroachdb',
+      { targetSchema: 'demo_b' },
+      [modifiedStatus, realDep]
+    ).flatMap((s) => s.statements).join('\n');
+    expect(real).toMatch(/DROP VIEW IF EXISTS demo_b\.v_status/i);
+  });
+
   it('CockroachDB does not DROP a body-less dependent (no recreate DDL)', () => {
     const modified: TableDiff = {
       tableName: 'ORDER_ITEMS',
