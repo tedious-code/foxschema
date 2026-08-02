@@ -62,11 +62,13 @@ describe('AuthModule', () => {
 
     const { user, token } = await auth.login('editorrole@example.com', 'password123');
     expect(user.role).toBe('editor');
-    expect(user.permissions).toContain('editor.write');
+    // editor.write was split into the finer dml/ddl keys.
+    expect(user.permissions).toContain('editor.dml');
+    expect(user.permissions).toContain('editor.ddl');
 
     const resolved = await auth.getUserByToken(token);
     expect(resolved?.role).toBe('editor');
-    expect(resolved?.permissions).toContain('editor.write');
+    expect(resolved?.permissions).toContain('editor.dml');
     expect(resolved?.permissions).not.toContain('admin.users');
   });
 

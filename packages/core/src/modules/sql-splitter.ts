@@ -716,6 +716,75 @@ function isPragmaAssignment(text: string): boolean {
 }
 
 /**
+ * What kind of power a statement needs. Finer than the read/write binary so
+ * roles can be told apart: an editor may reshape its own schema without being
+ * able to hand out privileges, and a viewer stays read-only.
+ *
+ * Fail-closed like {@link requiresWritePermission} — a verb that cannot be
+ * proved to be something smaller lands in `ddl`, the broader schema bucket.
+ */
+export type SqlStatementCategory = 'read' | 'dml' | 'ddl' | 'grant';
+
+/** Row-level data changes. */
+const DML_KEYWORDS = new Set([
+  'insert', 'update', 'delete', 'merge', 'replace',
+  // Bulk data movement: rows in or out, no schema change.
+  'copy', 'load', 'unload',
+]);
+
+/** Privilege changes — their own bucket because they can escalate a role. */
+const GRANT_KEYWORDS = new Set(['grant', 'revoke', 'deny']);
+
+/**
+ * Classify a statement for RBAC. `SELECT … INTO t` reports `ddl`: it creates a
+ * table, so it needs schema power even though it starts with SELECT.
+ */
+export function sqlStatementCategory(text: string): SqlStatementCategory {
+  // Code cells carry no SQL of their own; the bridge classifies what they submit.
+  if (parseCodeCell(text)) return 'read';
+  return categoryOf(text);
+}
+
+function categoryOf(text: string): SqlStatementCategory {
+  const kw = firstKeyword(text);
+  if (!kw) return 'read'; // blank or comment-only
+
+  if (GRANT_KEYWORDS.has(kw)) return 'grant';
+  if (DML_KEYWORDS.has(kw)) return 'dml';
+
+  if (kw === 'explain') {
+    // Plain EXPLAIN only plans; EXPLAIN ANALYZE runs the inner statement.
+    const inner = peelExplainAnalyze(text);
+    return inner === null ? 'read' : categoryOf(inner);
+  }
+
+  if (kw === 'with') {
+    let worst: SqlStatementCategory = 'read';
+    for (const body of withCteBodies(text)) worst = widen(worst, categoryOf(body));
+    const tail = walkWithCtes(text);
+    if (tail === null) return 'ddl'; // unscannable → most restrictive schema bucket
+    return widen(worst, categoryOf(tail));
+  }
+
+  if (READ_ONLY_KEYWORDS.has(kw)) {
+    // SELECT … INTO t creates a table; INTO OUTFILE writes a file.
+    if ((kw === 'select' || kw === 'table' || kw === 'values') && hasIntoTarget(text)) return 'ddl';
+    if (kw === 'pragma') return isPragmaAssignment(text) ? 'ddl' : 'read';
+    return 'read';
+  }
+
+  // CREATE / ALTER / DROP / TRUNCATE / RENAME / CALL / EXEC / DO / SET / VACUUM
+  // and anything unrecognized.
+  return 'ddl';
+}
+
+/** Keep the broader of two categories (read < dml < ddl, grant is separate). */
+function widen(a: SqlStatementCategory, b: SqlStatementCategory): SqlStatementCategory {
+  const rank: Record<SqlStatementCategory, number> = { read: 0, dml: 1, ddl: 2, grant: 3 };
+  return rank[b] > rank[a] ? b : a;
+}
+
+/**
  * Whether a statement needs the `editor.write` permission.
  *
  * Fail-closed counterpart to {@link isWriteStatement}: anything not provably a
