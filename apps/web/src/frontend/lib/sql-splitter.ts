@@ -1,6 +1,7 @@
 export {
   checkStatement,
   isWriteStatement,
+  requiresWritePermission,
   firstKeyword,
   extractTableAliases,
   statementVerb,

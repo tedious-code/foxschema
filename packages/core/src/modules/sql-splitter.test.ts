@@ -3,6 +3,7 @@ import {
   splitSqlStatements,
   checkStatement,
   isWriteStatement,
+  requiresWritePermission,
   statementVerb,
   firstKeyword,
   extractTableAliases,
@@ -402,5 +403,86 @@ describe('codeCellHasReturn with regex literals', () => {
   it('does not mistake division for a regex', () => {
     expect(codeCellHasReturn('const n = a / b / c; return [{ n }];')).toBe(true);
     expect(codeCellHasReturn('const n = a / b / c;')).toBe(false);
+  });
+});
+
+describe('requiresWritePermission (fail-closed RBAC gate)', () => {
+  const needsWrite = (sql: string) => requiresWritePermission(sql);
+
+  it('allows plain reads', () => {
+    for (const sql of [
+      'SELECT 1',
+      'SELECT * FROM users WHERE id = 1',
+      'SHOW TABLES',
+      'DESCRIBE users',
+      'VALUES (1), (2)',
+      'EXPLAIN SELECT * FROM users',
+      'WITH t AS (SELECT 1) SELECT * FROM t',
+      'PRAGMA table_info(users)',
+      '-- just a comment',
+    ]) {
+      expect(needsWrite(sql), sql).toBe(false);
+    }
+  });
+
+  it('catches the writes a leading-keyword denylist missed', () => {
+    for (const sql of [
+      'SELECT * INTO evil FROM users', // sqlserver / postgres: creates a table
+      "SELECT * FROM users INTO OUTFILE '/tmp/x'", // mysql: writes a file
+      "LOAD DATA INFILE '/tmp/x' INTO TABLE users", // mysql: bulk insert
+      "UNLOAD ('select 1') TO 's3://b/k'", // redshift: exfiltrates
+      'PRAGMA journal_mode = WAL', // sqlite: mutates config
+      'SET GLOBAL max_connections = 1',
+      'VACUUM',
+      'ANALYZE users',
+    ]) {
+      expect(needsWrite(sql), sql).toBe(true);
+    }
+  });
+
+  it('still catches everything the denylist already caught', () => {
+    for (const sql of [
+      'DELETE FROM users',
+      'UPDATE users SET a = 1',
+      'DROP TABLE users',
+      'CALL do_thing()',
+      'EXPLAIN ANALYZE DELETE FROM users',
+      'EXPLAIN ANALYZE VERBOSE DELETE FROM users',
+      'EXPLAIN (ANALYZE, VERBOSE) DELETE FROM users',
+      'WITH d AS (DELETE FROM users RETURNING *) SELECT * FROM d',
+    ]) {
+      expect(needsWrite(sql), sql).toBe(true);
+    }
+  });
+
+  it('denies an unknown verb rather than permitting it', () => {
+    // The whole point of the inversion: a verb nobody enumerated fails closed.
+    for (const sql of ['FLASHBACK TABLE t TO BEFORE DROP', 'BULK INSERT t FROM \'f\'', 'LOCK TABLES t WRITE']) {
+      expect(needsWrite(sql), sql).toBe(true);
+    }
+  });
+
+  it('is not fooled by INTO inside a string or comment', () => {
+    expect(needsWrite("SELECT 'into outfile' AS note")).toBe(false);
+    expect(needsWrite('SELECT 1 -- INTO evil')).toBe(false);
+    expect(needsWrite('SELECT 1 /* INTO evil */')).toBe(false);
+  });
+
+  it('leaves code cells to the bridge', () => {
+    expect(needsWrite('-- @node\nreturn [];\n-- @end')).toBe(false);
+  });
+});
+
+describe('isWriteStatement — Safe Mode catches bulk/INTO writes too', () => {
+  it('warns on SELECT … INTO and bulk load verbs', () => {
+    expect(isWriteStatement('SELECT * INTO evil FROM users')).toBe(true);
+    expect(isWriteStatement("SELECT * FROM users INTO OUTFILE '/tmp/x'")).toBe(true);
+    expect(isWriteStatement("LOAD DATA INFILE '/tmp/x' INTO TABLE users")).toBe(true);
+    expect(isWriteStatement("UNLOAD ('select 1') TO 's3://b/k'")).toBe(true);
+  });
+
+  it('still treats a plain SELECT as a read', () => {
+    expect(isWriteStatement('SELECT * FROM users')).toBe(false);
+    expect(isWriteStatement("SELECT 'into outfile' AS note")).toBe(false);
   });
 });

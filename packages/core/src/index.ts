@@ -70,6 +70,7 @@ export {
   splitSqlStatements,
   checkStatement,
   isWriteStatement,
+  requiresWritePermission,
   firstKeyword,
   extractTableAliases,
   statementVerb,

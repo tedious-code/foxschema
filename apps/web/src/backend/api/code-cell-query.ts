@@ -5,7 +5,7 @@
  * row cap live here, in the API process, not in the worker that runs user code.
  */
 
-import { ConnectionFactory, isWriteStatement, type ConnectionOptions } from '@foxschema/core';
+import { ConnectionFactory, requiresWritePermission, type ConnectionOptions } from '@foxschema/core';
 import { MAX_CELL_QUERY_ROWS } from './code-cell-bridge';
 import type { CellQueryRunner } from './code-cell-execute';
 
@@ -24,7 +24,9 @@ export function makeCellQueryRunner(
     const sql = text.trim();
     if (!sql) throw new Error('Empty statement');
 
-    if (!allowWrites && isWriteStatement(sql)) {
+    // Fail-closed, same as the /sql/execute gate: a cell builds its SQL at
+    // runtime, so anything not provably a read is treated as a write.
+    if (!allowWrites && requiresWritePermission(sql)) {
       throw new Error(
         'Safe mode is on — this cell tried to run a write/DDL statement. ' +
           'Turn Safe mode off (or confirm the run) to allow writes from code cells.'
