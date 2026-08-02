@@ -84,12 +84,16 @@ export const useSyncStore = create<SyncState>()(
   // --- Actions ---
   loadConnections: async () => {
     try {
+      const prev = get();
       const list = await apiListConnections();
-      const { selectedSourceConnectionId, selectedTargetConnectionId } = get();
+      const { selectedSourceConnectionId, selectedTargetConnectionId } = prev;
       const patch: Partial<SyncState> = { connections: list, connectionsLoaded: true };
+      const retest: Array<'source' | 'target'> = [];
 
-      // Restore persisted source/target picks (IDs only — never passwords).
-      // Skip auto-test: session passwords are gone after refresh.
+      // Restore persisted source/target picks. Keep in-memory session passwords
+      // when the same connection id is still selected — otherwise saving the
+      // *other* side (addConnection → loadConnections) would drop the password
+      // and leave Compare disabled ("Retry Connection").
       const restore = (side: 'source' | 'target', id: string | null) => {
         if (!id) return;
         const conn = list.find((c) => c.id === id);
@@ -98,6 +102,11 @@ export const useSyncStore = create<SyncState>()(
           else patch.selectedTargetConnectionId = null;
           return;
         }
+        const prevCfg = side === 'source' ? prev.sourceConfig : prev.targetConfig;
+        const sessionPassword =
+          prevCfg.connectionId === id && prevCfg.option?.password
+            ? prevCfg.option.password
+            : undefined;
         const config: ConnectionConfig = {
           dialect: conn.dialect as ConnectionConfig['dialect'],
           option: {
@@ -106,10 +115,13 @@ export const useSyncStore = create<SyncState>()(
             database: conn.database,
             username: conn.username,
             schema: conn.schema,
+            ...(sessionPassword ? { password: sessionPassword } : {}),
           },
           schema: conn.schema ?? '',
           connectionId: id,
         };
+        const wasConnected = side === 'source' ? prev.sourceConnected : prev.targetConnected;
+        const canRetest = !!(conn.hasPassword || sessionPassword);
         if (side === 'source') {
           patch.selectedSourceConnectionId = id;
           patch.sourceConfig = config;
@@ -119,10 +131,14 @@ export const useSyncStore = create<SyncState>()(
           patch.targetConfig = config;
           patch.targetConnected = false;
         }
+        if (wasConnected && canRetest) retest.push(side);
       };
       restore('source', selectedSourceConnectionId);
       restore('target', selectedTargetConnectionId);
       set(patch);
+      for (const side of retest) {
+        void (side === 'source' ? get().testSourceConnection() : get().testTargetConnection());
+      }
     } catch (e) {
       console.error('Failed to load saved connections:', e);
       set({ connectionsLoaded: true });
