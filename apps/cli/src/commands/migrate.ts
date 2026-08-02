@@ -64,8 +64,11 @@ export async function runMigrate(opts: MigrateOptions): Promise<void> {
     return;
   }
 
-  const sql = sqlGenerator.generateMigrationSql(changed, tgt.dialect, mapping);
-  const steps = sqlGenerator.generateMigrationPlan(changed, tgt.dialect, mapping);
+  // Pass the full compare (incl. UNCHANGED) so dialects without a runtime
+  // dependent-view guard (CockroachDB) can DROP/CREATE dependents around ALTER —
+  // same contract as the web UI.
+  const sql = sqlGenerator.generateMigrationSql(changed, tgt.dialect, mapping, result.tables);
+  const steps = sqlGenerator.generateMigrationPlan(changed, tgt.dialect, mapping, result.tables);
 
   if (!opts.execute) {
     console.log(chalk.dim(`-- ${steps.length} change(s) to apply to the target\n`));

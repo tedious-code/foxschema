@@ -19,11 +19,15 @@ interface Props {
 /** Live per-object progress while a migration runs, then a terminal summary. */
 export function MigrateProgressScreen({ source, target, continueOnError, onViewHistory, onDone }: Props): React.JSX.Element {
   const compareState = useCompare(source, target);
-  const changed = compareState.status === 'ready' ? compareState.data.tables.filter((t) => t.status !== 'UNCHANGED') : undefined;
+  const allTables = compareState.status === 'ready' ? compareState.data.tables : undefined;
+  const changed = allTables?.filter((t) => t.status !== 'UNCHANGED');
 
   // Computed once the plan is available — buildMigrationPlan is deterministic over `changed`,
   // memoized so re-renders (triggered by useMigrate's own progress updates) don't recompute it.
-  const plan = useMemo(() => (changed ? buildMigrationPlan(changed, source, target) : null), [changed, source, target]);
+  const plan = useMemo(
+    () => (changed && allTables ? buildMigrationPlan(changed, source, target, allTables) : null),
+    [changed, allTables, source, target]
+  );
 
   if (compareState.status === 'loading' || !plan) {
     return (

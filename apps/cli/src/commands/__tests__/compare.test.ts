@@ -196,7 +196,8 @@ describe('CLI: compare command', () => {
     expect(genSpy).toHaveBeenCalledWith(
       [expect.objectContaining({ indexDiffs: [] })],
       'postgres',
-      expect.anything()
+      expect.anything(),
+      expect.any(Array)
     );
 
     genSpy.mockClear();
@@ -209,7 +210,8 @@ describe('CLI: compare command', () => {
     expect(genSpy).toHaveBeenCalledWith(
       [expect.objectContaining({ indexDiffs: [{ name: 'idx_new', status: 'ADDED' }] })],
       'postgres',
-      expect.anything()
+      expect.anything(),
+      expect.any(Array)
     );
   });
 

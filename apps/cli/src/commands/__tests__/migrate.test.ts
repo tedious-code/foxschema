@@ -82,7 +82,8 @@ describe('CLI: migrate command', () => {
     expect(planSpy).toHaveBeenCalledWith(
       [expect.objectContaining({ indexDiffs: [] })],
       'postgres',
-      expect.anything()
+      expect.anything(),
+      expect.any(Array)
     );
 
     planSpy.mockClear();
@@ -91,7 +92,8 @@ describe('CLI: migrate command', () => {
     expect(planSpy).toHaveBeenCalledWith(
       [expect.objectContaining({ indexDiffs: [{ name: 'idx_new', status: 'ADDED' }] })],
       'postgres',
-      expect.anything()
+      expect.anything(),
+      expect.any(Array)
     );
   });
 

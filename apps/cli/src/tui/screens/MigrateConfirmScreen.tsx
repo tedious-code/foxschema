@@ -37,7 +37,8 @@ export function MigrateConfirmScreen({ source, target, onConfirm, onCancel }: Pr
     );
   }
 
-  const changed = state.data.tables.filter((t) => t.status !== 'UNCHANGED');
+  const allTables = state.data.tables;
+  const changed = allTables.filter((t) => t.status !== 'UNCHANGED');
   if (changed.length === 0) {
     return (
       <Box paddingX={1}>
@@ -46,7 +47,7 @@ export function MigrateConfirmScreen({ source, target, onConfirm, onCancel }: Pr
     );
   }
 
-  const { steps, sql } = buildMigrationPlan(changed, source, target);
+  const { steps, sql } = buildMigrationPlan(changed, source, target, allTables);
 
   const handleSelect = (item: { value: Choice }) => {
     if (item.value === 'cancel') onCancel();

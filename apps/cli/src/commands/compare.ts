@@ -144,7 +144,7 @@ export async function runCompare(opts: CompareOptions): Promise<void> {
     if (changed.length === 0) {
       console.log(chalk.dim('-- schemas are identical; no migration needed'));
     } else {
-      console.log(sqlGenerator.generateMigrationSql(changed, tgt.dialect, mapping));
+      console.log(sqlGenerator.generateMigrationSql(changed, tgt.dialect, mapping, result.tables));
     }
   } else {
     // Tree view: header, boxed counts, then one drill-down section per object type.

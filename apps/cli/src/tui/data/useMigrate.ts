@@ -119,10 +119,16 @@ export function useMigrate(
 }
 
 /** Plain helper so MigrateConfirmScreen can build the plan/SQL preview without duplicating the mapping shape used everywhere else. */
-export function buildMigrationPlan(changed: TableDiff[], source: ConnRef, target: ConnRef) {
+export function buildMigrationPlan(
+  changed: TableDiff[],
+  source: ConnRef,
+  target: ConnRef,
+  /** Full compare result — needed for Cockroach-style dependent DROP/CREATE. */
+  contextDiffs: TableDiff[] = changed
+) {
   const mapping = { sourceSchema: source.schema, targetSchema: target.schema, sourceDialect: source.dialect, targetDialect: target.dialect };
   return {
-    steps: sqlGenerator.generateMigrationPlan(changed, target.dialect, mapping),
-    sql: sqlGenerator.generateMigrationSql(changed, target.dialect, mapping),
+    steps: sqlGenerator.generateMigrationPlan(changed, target.dialect, mapping, contextDiffs),
+    sql: sqlGenerator.generateMigrationSql(changed, target.dialect, mapping, contextDiffs),
   };
 }

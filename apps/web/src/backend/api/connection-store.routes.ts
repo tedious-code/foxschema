@@ -1,5 +1,6 @@
 import { Router, Response } from 'express';
 import { ConnectionStore } from '../modules/connection-store.module';
+import { pruneOrphanFileQueryConnections } from '../modules/file-query.module';
 import { AuthedRequest } from './auth.routes';
 
 /** CRUD for the signed-in user's saved connections (credentials encrypted at rest). */
@@ -7,6 +8,9 @@ export function createConnectionStoreRoutes(store: ConnectionStore): Router {
   const router = Router();
 
   router.get('/', async (req: AuthedRequest, res: Response) => {
+    // Drop stale Query-files workspaces whose temp DB expired — keeps upgrades
+    // and long-running sessions free of dead `Files:` credentials.
+    await pruneOrphanFileQueryConnections(store, req.userId!).catch(() => undefined);
     res.json({ connections: await store.list(req.userId!) });
   });
 

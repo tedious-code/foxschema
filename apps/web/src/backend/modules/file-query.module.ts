@@ -6,7 +6,7 @@
  * SQL Editor can query it without a new provider registry entry.
  */
 import { createRequire } from 'node:module';
-import { mkdirSync, readdirSync, unlinkSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, unlinkSync, statSync } from 'node:fs';
 import { join, resolve, relative, isAbsolute } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -94,6 +94,43 @@ export function cleanupStaleFileQueryDbs(now = Date.now()): number {
     } catch {
       /* ignore */
     }
+  }
+  return removed;
+}
+
+/**
+ * Minimal store surface for pruning dead `Files:` credentials after temp DB TTL.
+ * Kept duck-typed so connection-store routes can call without a circular import.
+ */
+export type FileQueryConnectionStore = {
+  list: (userId: string) => Promise<Array<{ id: string; dialect: string; name: string; database?: string }>>;
+  resolve: (
+    userId: string,
+    id: string
+  ) => Promise<{ option: { connectionString?: string; database?: string } } | null | undefined>;
+  remove: (userId: string, id: string) => Promise<boolean>;
+};
+
+/**
+ * Remove saved `Files:` / file-query SQLite connections whose temp DB file is gone
+ * (TTL cleanup, manual delete, or upgrade leaving stale rows). Safe for upgrades:
+ * regular credentials are never touched.
+ */
+export async function pruneOrphanFileQueryConnections(
+  store: FileQueryConnectionStore,
+  userId: string
+): Promise<string[]> {
+  cleanupStaleFileQueryDbs();
+  const list = await store.list(userId);
+  const removed: string[] = [];
+  for (const c of list) {
+    if (c.dialect !== 'sqlite') continue;
+    if (!isFileQueryConnectionName(c.name) && !isFileQueryDbPath(c.database)) continue;
+    const resolved = await store.resolve(userId, c.id);
+    const dbPath = resolved?.option.connectionString || resolved?.option.database || c.database;
+    if (!dbPath || !isFileQueryDbPath(dbPath)) continue;
+    if (existsSync(dbPath)) continue;
+    if (await store.remove(userId, c.id)) removed.push(c.id);
   }
   return removed;
 }
