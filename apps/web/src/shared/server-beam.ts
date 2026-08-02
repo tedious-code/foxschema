@@ -5,8 +5,8 @@
  * per editor Execute.
  */
 
-export const MAX_BEAM_SERVERS = 2;
-export const MAX_BEAM_SQL_ON = 10;
+export const MAX_SERVERS = 2;
+export const MAX_SQL = 10;
 
 /** Wire shape: alias → saved connection (password optional, session-only). */
 export type BeamEndpointRef = {
@@ -31,7 +31,7 @@ export function usesServerBeam(body: string): boolean {
 
 /**
  * Validate/normalize a `beam` array from the client.
- * At most {@link MAX_BEAM_SERVERS} distinct aliases; aliases must be identifiers.
+ * At most {@link MAX_SERVERS} distinct aliases; aliases must be identifiers.
  */
 export function parseBeamEndpoints(
   raw: unknown
@@ -40,10 +40,10 @@ export function parseBeamEndpoints(
   if (!Array.isArray(raw)) {
     return { ok: false, error: 'beam must be an array of { alias, connectionId }' };
   }
-  if (raw.length > MAX_BEAM_SERVERS) {
+  if (raw.length > MAX_SERVERS) {
     return {
       ok: false,
-      error: `Server Beam allows at most ${MAX_BEAM_SERVERS} servers per editor Execute`,
+      error: `Server Beam allows at most ${MAX_SERVERS} servers per editor Execute`,
     };
   }
   const out: BeamEndpointRef[] = [];

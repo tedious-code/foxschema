@@ -22,7 +22,7 @@ export type CellQueryRunner = (
   alias?: string
 ) => Promise<Record<string, unknown>[]>;
 import { clampMaxRows } from './sql-execute';
-import { MAX_BEAM_SQL_ON } from '../../shared/server-beam';
+import { MAX_SQL } from '../../shared/server-beam';
 
 export const MAX_CODE_CELL_LENGTH = 100_000;
 export const DEFAULT_CODE_CELL_TIMEOUT_MS = 10_000;
@@ -230,9 +230,9 @@ function runInWorkerThread(args: {
         if (!args.runQuery) throw new Error('This cell has no connection — select a credential first');
         if (args.enforceBeamSqlOnCap && req.viaOn) {
           sqlOnCount += 1;
-          if (sqlOnCount > MAX_BEAM_SQL_ON) {
+          if (sqlOnCount > MAX_SQL) {
             throw new Error(
-              `Server Beam allows at most ${MAX_BEAM_SQL_ON} sql.on() calls per editor Execute`
+              `Server Beam allows at most ${MAX_SQL} sql.on() calls per editor Execute`
             );
           }
         }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  MAX_BEAM_SERVERS,
-  MAX_BEAM_SQL_ON,
+  MAX_SERVERS,
+  MAX_SQL,
   beamAliasesForCount,
   normalizeBeamAlias,
   parseBeamEndpoints,
@@ -10,8 +10,8 @@ import {
 
 describe('server-beam', () => {
   it('exposes product caps', () => {
-    expect(MAX_BEAM_SERVERS).toBe(2);
-    expect(MAX_BEAM_SQL_ON).toBe(10);
+    expect(MAX_SERVERS).toBe(2);
+    expect(MAX_SQL).toBe(10);
   });
 
   it('detects sql.on usage', () => {
