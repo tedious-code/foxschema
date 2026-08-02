@@ -467,7 +467,9 @@ export class SqlGeneratorModule {
     obj: TableDiff,
     dialect: SqlDialect,
     mapping?: SchemaMapping,
-    contextDiffs: TableDiff[] = []
+    contextDiffs: TableDiff[] = [],
+    /** Objects selected for this deploy — used so unchecked dependents restore target DDL. */
+    selectedDiffs: TableDiff[] = []
   ): string[] {
     const statements: string[] = [];
     // The table already exists in the target — reference it with the casing it
@@ -490,24 +492,44 @@ export class SqlGeneratorModule {
       // CREATE TABLE AS inside DO) get explicit DROP/CREATE statements for views
       // and routines that reference this table. Cockroach also rejects ALTER COLUMN
       // TYPE when a function depends on the column — same generate-time treatment.
-      const dependentObjects = !dropViewsBlock && hasStructuralColumnChanges
-        ? contextDiffs.filter((d) => {
+      //
+      // Only DROP a dependent when we also have DDL to recreate it. Prefer source
+      // DDL only for dependents that are themselves selected for deploy; otherwise
+      // restore the target body so unchecked MODIFIED objects are not rewritten.
+      type DependentRecreate = { dep: TableDiff; rawDef: string; useSource: boolean };
+      const dependentsToRecreate: DependentRecreate[] = !dropViewsBlock && hasStructuralColumnChanges
+        ? contextDiffs.flatMap((d): DependentRecreate[] => {
             if (d.objectType !== 'VIEW' && d.objectType !== 'MQT'
               && d.objectType !== 'FUNCTION' && d.objectType !== 'PROCEDURE') {
-              return false;
+              return [];
             }
             // ADDED views/MQTs are created AFTER the ALTER phase — they don't exist
             // on the target yet. ADDED routines are created BEFORE ALTER, so they do.
             if (d.status === 'ADDED' && (d.objectType === 'VIEW' || d.objectType === 'MQT')) {
-              return false;
+              return [];
+            }
+            const isSelected = selectedDiffs.some(
+              (s) => s.objectType === d.objectType && s.tableName === d.tableName
+            );
+            // Intentionally removed (destructive): DROP phase already handled it —
+            // do not temporarily drop/recreate around ALTER.
+            if (d.status === 'REMOVED' && !mapping?.nonDestructive && isSelected) {
+              return [];
             }
             const targetDef = d.targetTable?.definition ?? (d.status === 'REMOVED' ? d.definition : undefined);
             const sourceDef = d.sourceTable?.definition ?? (d.status !== 'REMOVED' ? d.definition : undefined);
-            return this.viewReferencesTable(targetDef, tableName)
-              || this.viewReferencesTable(sourceDef, tableName);
+            if (!this.viewReferencesTable(targetDef, tableName)
+              && !this.viewReferencesTable(sourceDef, tableName)) {
+              return [];
+            }
+            const useSource = isSelected && !!sourceDef?.trim();
+            const rawDef = (useSource ? sourceDef : (targetDef ?? sourceDef))?.trim();
+            // No body available → skip DROP so we never leave the object missing.
+            if (!rawDef) return [];
+            return [{ dep: d, rawDef, useSource }];
           })
         : [];
-      for (const dep of dependentObjects) {
+      for (const { dep } of dependentsToRecreate) {
         const depName = this.qualify(dep.targetTable?.name ?? dep.sourceTable?.name ?? dep.tableName, mapping);
         const ver = mapping?.targetServerVersion;
         if (dep.objectType === 'MQT') {
@@ -689,18 +711,11 @@ export class SqlGeneratorModule {
         if (recreateBlock) statements.push(recreateBlock);
       }
 
-      // Generate-time recreate for every dependent we dropped above.
-      // Prefer the source definition when present (ADDED/MODIFIED — matches what the
-      // earlier CREATE / later ALTER steps use); otherwise restore the target body
-      // (REMOVED kept by non-destructive, or UNCHANGED).
-      for (const dep of dependentObjects) {
-        if (dep.status === 'REMOVED' && !mapping?.nonDestructive) continue;
-        const srcDef = dep.sourceTable?.definition ?? (dep.status !== 'REMOVED' ? dep.definition : undefined);
-        const tgtDef = dep.targetTable?.definition ?? (dep.status === 'REMOVED' ? dep.definition : undefined);
-        const rawDef = (srcDef ?? tgtDef)?.trim();
-        if (!rawDef) continue;
+      // Generate-time recreate for every dependent we dropped above (same set /
+      // same DDL resolved before the DROP so we never drop without a CREATE).
+      for (const { dep, rawDef, useSource } of dependentsToRecreate) {
         const depName = this.qualify(
-          (srcDef ? dep.sourceTable?.name : undefined) ?? dep.targetTable?.name ?? dep.tableName,
+          (useSource ? dep.sourceTable?.name : undefined) ?? dep.targetTable?.name ?? dep.sourceTable?.name ?? dep.tableName,
           mapping
         );
         const body = this.ensureSemicolon(rawDef);
@@ -959,7 +974,7 @@ export class SqlGeneratorModule {
         objectName: obj.tableName,
         objectType: obj.objectType,
         action: 'ALTER',
-        statements: this.alterObjectStatements(obj, dialect, m, depContext),
+        statements: this.alterObjectStatements(obj, dialect, m, depContext, diffs),
       });
     }
 

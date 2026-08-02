@@ -85,6 +85,7 @@ export class SqlEditorPage {
     await modal.fillUsername(cfg.username);
     await modal.fillPassword(cfg.password);
     await modal.checkSavePassword();
+    // loadSchemas throws on conn-test-failed — never persist a bad credential.
     await modal.loadSchemas();
     if (cfg.schema) await modal.selectSchema(cfg.schema);
     await modal.save();

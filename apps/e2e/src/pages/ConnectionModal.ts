@@ -51,6 +51,11 @@ export class ConnectionModal {
       '[data-testid="conn-test-success"], [data-testid="conn-test-failed"]',
       { timeout: 25_000 }
     );
+    const failed = this.page.locator('[data-testid="conn-test-failed"]');
+    if (await failed.isVisible().catch(() => false)) {
+      const msg = (await failed.textContent().catch(() => null))?.trim() || 'unknown error';
+      throw new Error(`Connection test failed: ${msg}`);
+    }
   }
 
   async selectSchema(schema: string): Promise<void> {
