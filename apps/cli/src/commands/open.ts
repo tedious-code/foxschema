@@ -36,6 +36,57 @@ async function isHealthy(port: number): Promise<boolean> {
   }
 }
 
+/** Version string from a running UI server, if the health/app-info endpoint provides one. */
+export async function probeRunningVersion(port: number): Promise<string | null> {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/health`, {
+      signal: AbortSignal.timeout(1500),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { ok?: boolean; version?: string };
+    if (body.version) return String(body.version).replace(/^v/i, '').trim();
+  } catch {
+    /* fall through */
+  }
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/app-info`, {
+      signal: AbortSignal.timeout(1500),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { version?: string };
+    return body.version ? String(body.version).replace(/^v/i, '').trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * True when the process on `port` is Fox Schema but outdated relative to the
+ * installed CLI — most commonly after `npm i -g foxschema@latest` while an old
+ * server is still bound (missing routes like GET /api/files/imports → 404).
+ */
+export async function isStaleUiServer(port: number, installedVersion: string): Promise<boolean> {
+  // Route probe: 401/403 still means the handler exists; 404 = pre-Query-files build.
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/files/imports`, {
+      signal: AbortSignal.timeout(1500),
+    });
+    if (res.status === 404) return true;
+  } catch {
+    /* ignore — health/version checks below */
+  }
+
+  const running = await probeRunningVersion(port);
+  if (!running) {
+    // Old builds only returned `{ ok: true }` with no version — treat as stale
+    // whenever the installed CLI is newer than the last pre-version health era.
+    // We can't compare numerically without a running version; only force restart
+    // when the files/imports probe already said 404 (handled above).
+    return false;
+  }
+  return running !== installedVersion.replace(/^v/i, '').trim();
+}
+
 function readManagedPid(): number | null {
   try {
     const n = Number(readFileSync(PID_FILE, 'utf8').trim());
@@ -79,18 +130,71 @@ async function waitUntilHealthy(port: number, timeoutMs = 30_000): Promise<boole
   return false;
 }
 
+async function waitUntilDead(pid: number, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline && isProcessAlive(pid)) {
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  if (isProcessAlive(pid)) {
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/** Stop the managed UI server (or throw if an unmanaged Fox still owns the port). */
+async function stopForRelaunch(port: number): Promise<void> {
+  const pid = readManagedPid();
+  if (pid && isProcessAlive(pid)) {
+    try {
+      process.kill(pid, 'SIGTERM');
+    } catch {
+      /* ignore */
+    }
+    await waitUntilDead(pid);
+    clearLock();
+    // Wait until the port stops answering health
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline && (await isHealthy(port))) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return;
+  }
+  clearLock();
+  if (await isHealthy(port)) {
+    throw new Error(
+      `An older Fox Schema is still running on port ${port}, but it is not the managed process.\n` +
+        `Stop it (find the PID and kill it), then run \`foxschema open\` again.\n` +
+        `Or: \`foxschema open --port <other>\`.`
+    );
+  }
+}
+
 /**
  * Ensure the local UI server is running on the given port, then open the browser.
- * A second invoke only opens the browser when the managed (or any) server is healthy.
+ * A second invoke only opens the browser when the managed (or any) server is healthy
+ * **and** matches the installed package version / has Query-files routes.
  */
 export async function runOpen(opts: OpenOptions = {}): Promise<void> {
   const port = opts.port ?? (Number(process.env.FOXSCHEMA_PORT) || DEFAULT_UI_PORT);
   const url = `http://localhost:${port}`;
+  const installedVersion = readCliPackageVersion();
 
   if (await isHealthy(port)) {
-    console.log(chalk.green(`Fox Schema already running at ${url}`));
-    if (!opts.noOpen) await openBrowser(url);
-    return;
+    if (await isStaleUiServer(port, installedVersion)) {
+      console.log(
+        chalk.yellow(
+          `Fox Schema on ${url} is outdated (installed CLI is ${installedVersion}) — restarting…`
+        )
+      );
+      await stopForRelaunch(port);
+    } else {
+      console.log(chalk.green(`Fox Schema already running at ${url}`));
+      if (!opts.noOpen) await openBrowser(url);
+      return;
+    }
   }
 
   // Stale lock from a dead process
@@ -139,7 +243,7 @@ export async function runOpen(opts: OpenOptions = {}): Promise<void> {
       EDITION: process.env.EDITION || 'community',
       // Compare against the installed npm package version; feed defaults to
       // registry.npmjs.org/foxschema/latest inside the web update checker.
-      APP_VERSION: readCliPackageVersion(),
+      APP_VERSION: installedVersion,
       // Enable one-click "Update now" (npm install -g foxschema@latest).
       FOXSCHEMA_SELF_UPDATE: process.env.FOXSCHEMA_SELF_UPDATE || 'true',
     },
@@ -195,18 +299,7 @@ export async function runStop(): Promise<void> {
   } catch (e) {
     throw new Error(`Could not stop PID ${pid}: ${e instanceof Error ? e.message : e}`);
   }
-  // Wait briefly for exit
-  const deadline = Date.now() + 5000;
-  while (Date.now() < deadline && isProcessAlive(pid)) {
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  if (isProcessAlive(pid)) {
-    try {
-      process.kill(pid, 'SIGKILL');
-    } catch {
-      /* ignore */
-    }
-  }
+  await waitUntilDead(pid);
   clearLock();
   console.log(chalk.green('✔ Fox Schema UI server stopped.'));
 }

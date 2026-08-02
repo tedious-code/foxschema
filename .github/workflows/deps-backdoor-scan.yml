@@ -13,8 +13,8 @@ on:
   push:
     branches: [main]
   schedule:
-    # Weekly Sunday 06:00 UTC — catch delayed compromised publishes
-    - cron: '0 6 * * 0'
+    # Weekly Saturday 02:30 UTC — catch delayed compromised publishes
+    - cron: '30 2 * * 6'
   workflow_dispatch:
 
 permissions:

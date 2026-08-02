@@ -56,6 +56,7 @@ import {
   checkForUpdate,
   clearUpdateCache,
   MANUAL_UPDATE_COMMAND,
+  resolveAppVersion,
   scheduleUiRelaunch,
 } from '../modules/updates.module';
 
@@ -138,7 +139,9 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   }
 
   router.get('/health', (_req: Request, res: Response) => {
-    res.json({ ok: true });
+    // Include version so `foxschema open` can detect a stale pre-upgrade process
+    // still bound to the port (e.g. missing /api/files/imports after 0.2.10).
+    res.json({ ok: true, version: resolveAppVersion() });
   });
 
   // In-app update check — compares the running version against npm (default).
@@ -189,6 +192,8 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       /* best-effort; never block the response */
     }
     res.json({
+      version: resolveAppVersion(),
+      features: { fileQuery: true },
       db: { engine: cfg.engine, location: cfg.engine === 'sqlite' ? cfg.path ?? '(default)' : cfg.url ?? '' },
       security: { keyScheme: key.scheme, emailBound: key.emailBound, boundEmail: key.boundEmail },
     });
