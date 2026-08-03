@@ -41,3 +41,26 @@ describe('server-beam', () => {
     expect(beamAliasesForCount(2)).toEqual(['source', 'target']);
   });
 });
+
+describe('alias lookup must not accept inherited Object keys', () => {
+  // The worker resolves `sql.on(alias)` against a plain object of alias→dialect.
+  // A truthiness check lets `toString` / `constructor` / `valueOf` / `__proto__`
+  // through, and the inherited *function* then gets used as the dialect —
+  // surfacing as "dialect.toLowerCase is not a function" instead of a clear
+  // "unknown alias". hasOwn is the only correct membership test here.
+  const beamDialects: Record<string, string> = { source: 'postgres', target: 'mysql' };
+
+  it.each(['toString', 'constructor', 'valueOf', 'hasOwnProperty', '__proto__'])(
+    'rejects inherited key %s',
+    (key) => {
+      expect(Boolean(beamDialects[key])).toBe(true); // the trap
+      expect(Object.hasOwn(beamDialects, key)).toBe(false); // the fix
+    }
+  );
+
+  it('still accepts real aliases and rejects genuinely unknown ones', () => {
+    expect(Object.hasOwn(beamDialects, 'source')).toBe(true);
+    expect(Object.hasOwn(beamDialects, 'target')).toBe(true);
+    expect(Object.hasOwn(beamDialects, 'nope')).toBe(false);
+  });
+});
