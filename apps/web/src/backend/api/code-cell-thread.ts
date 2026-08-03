@@ -62,7 +62,7 @@ function makeSqlBinding(opts: {
   dialect?: string;
   beamDialects?: Record<string, string>;
   defaultBeamAlias?: string;
-}): SqlBinding {
+}) {
   const beamDialects = opts.beamDialects ?? {};
   const hasBeam = Object.keys(beamDialects).length > 0;
 
@@ -82,7 +82,11 @@ function makeSqlBinding(opts: {
     let resolvedAlias = alias;
     if (hasBeam) {
       const key = alias ?? opts.defaultBeamAlias;
-      if (!key || !beamDialects[key]) {
+      // hasOwn, not truthiness: `beamDialects` is a plain object, so
+      // `beamDialects['toString']` is an inherited function and would sail
+      // through a `!value` check — then be used AS the dialect, dying later as
+      // "dialect.toLowerCase is not a function" instead of "unknown alias".
+      if (!key || !Object.hasOwn(beamDialects, key)) {
         const known = Object.keys(beamDialects).join(', ') || '(none)';
         return Promise.reject(
           new Error(

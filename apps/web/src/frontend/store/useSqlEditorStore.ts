@@ -14,7 +14,7 @@ import { loadSchema } from '../api/schemaApi';
 import { isMutatingDmlStatement, isWriteStatement, splitSqlStatements } from '../lib/sql-splitter';
 import type { CodeCellLast } from '../lib/codeCellExec';
 import { detectCodeCell, runCodeCell, usesServerBeam } from '../lib/codeCellRunner';
-import { beamAliasesForCount } from '../../shared/server-beam';
+import { beamAliasesForCount, MAX_SERVERS } from '../../shared/server-beam';
 import { buildSampleBookmarks } from '../lib/sqlEditorSamples';
 import {
   buildForeignKeyDrilldown,
@@ -1086,7 +1086,11 @@ export const useSqlEditorStore = create<SqlEditorState>()(
             // Server Beam (`sql.on`) runs once across up to two Destinations
             // (order = source, then target) instead of fan-out per credential.
             if (usesServerBeam(raw)) {
-              const beamConns = connections.slice(0, 2);
+              // Do NOT silently truncate: which physical server each alias
+              // points at decides where a migration writes, so an ambiguous
+              // selection must stop the run rather than pick two arbitrarily.
+              const tooMany = connections.length > MAX_SERVERS;
+              const beamConns = connections.slice(0, MAX_SERVERS);
               const aliases = beamAliasesForCount(beamConns.length);
               const beam = beamConns.map((c, i) => ({
                 alias: aliases[i]!,
@@ -1094,12 +1098,25 @@ export const useSqlEditorStore = create<SqlEditorState>()(
                 password: sessionPasswords[c.id] || undefined,
               }));
               const primary = beamConns[0];
-              if (!primary) {
+              if (tooMany) {
+                appendWarning(
+                  `Server Beam uses at most ${MAX_SERVERS} Destinations, but ${connections.length} are checked. ` +
+                    'Uncheck the extras so source and target are unambiguous, then re-run.'
+                );
+              } else if (!primary) {
                 appendWarning(
                   'Server Beam needs at least one Destination checked (source). ' +
                     'For cross-server copy, check two — first is source, second is target.'
                 );
               } else {
+                // Say out loud which server each alias resolved to. `sql.on('target')`
+                // writing to the wrong database is the failure this feature can
+                // cause, and alias order comes from the list, not the click order.
+                appendWarning(
+                  `Server Beam → ${beam
+                    .map((b, i) => `${b.alias} = ${beamConns[i]!.name}`)
+                    .join(', ')}`
+                );
                 const prev = resultsByConn.get(primary.id) ?? [];
                 try {
                   const { result, directives } = await runCodeCell({

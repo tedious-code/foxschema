@@ -883,6 +883,61 @@ return [
 -- @end
 `,
   },
+  {
+    id: 'sample-node-general-single-server',
+    title: '★ Sample · Node general (one server, no alias)',
+    sql: `-- CASE 1 — general work on ONE server. No alias: plain sql\`…\` runs on the
+-- checked Destination, exactly like a normal query. Read-only, Safe mode ON is fine.
+
+-- @node
+// No sql.on() anywhere, so this is NOT Server Beam — it fans out per checked
+// Destination the way any other statement does.
+const rows = await sql\`SELECT \${1} AS id, \${"o'brien@example.com"} AS email\`;
+return rows.map((r) => ({ ...r, mode: 'general (no alias)' }));
+-- @end
+`,
+  },
+  {
+    id: 'sample-node-beam-migrate-source-target',
+    title: '★ Sample · Node migrate (source → target)',
+    sql: `-- CASE 2 — migration ACROSS two servers. Check exactly two Destinations:
+-- the FIRST is \`source\`, the SECOND is \`target\`. The run banner prints the
+-- mapping ("Server Beam → source = …, target = …") — read it before running,
+-- because sql.on('target') is what writes.
+--
+-- WRITES on the target — turn Safe mode OFF. Written for Postgres / MySQL /
+-- SQLite / SQL Server.
+
+-- @node
+// 1. Read from the source. Never writes here.
+const src = await sql.on('source')\`SELECT id, email FROM fox_beam_people ORDER BY id\`;
+
+if (src.length === 0) {
+  return [{ note: 'source table fox_beam_people is empty — nothing to migrate' }];
+}
+
+// 2. Reshape in JS. Column names fold to upper case on Oracle/Db2.
+const rows = src.map((r) => {
+  // Normalize once, then derive — splitting the raw value would leave the
+  // domain in its original casing while the email is lowercased.
+  const email = String(r.email ?? r.EMAIL ?? '').toLowerCase();
+  return { id: Number(r.id ?? r.ID), email, domain: email.split('@')[1] ?? '' };
+});
+
+// 3. Write to the target, in batches, every value bound.
+await sql.on('target')\`DROP TABLE IF EXISTS fox_beam_people_v2\`;
+await sql.on('target')\`CREATE TABLE fox_beam_people_v2 (id INTEGER, email VARCHAR(200), domain VARCHAR(200))\`;
+
+const CHUNK = 50;
+for (let i = 0; i < rows.length; i += CHUNK) {
+  await sql.on('target')\`INSERT INTO \${sql.id('fox_beam_people_v2')} \${sql.values(rows.slice(i, i + CHUNK))}\`;
+}
+
+// 4. Read back from the target to prove it landed.
+return await sql.on('target')\`SELECT id, email, domain FROM fox_beam_people_v2 ORDER BY id\`;
+-- @end
+`,
+  },
 ];
 
 export function buildSampleBookmarks(now = Date.now()): Array<{

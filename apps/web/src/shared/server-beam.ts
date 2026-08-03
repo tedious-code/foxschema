@@ -41,7 +41,7 @@ export function parseBeamEndpoints(
   if (raw.length > MAX_SERVERS) {
     return {
       ok: false,
-      error: `Server Beam cant handle more than ${MAX_SERVERS} aliases`,
+      error: `Server Beam handles at most ${MAX_SERVERS} aliases (source, target)`,
     };
   }
   const out: BeamEndpointRef[] = [];

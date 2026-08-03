@@ -93,12 +93,29 @@ describe('normalizeCodeCellReturn', () => {
     ]);
   });
 
-  it('rejects null, primitives, and arrays of non-objects', () => {
+  it('rejects only a missing return', () => {
+    // Everything else now becomes a grid, so null/undefined — "the cell forgot
+    // to return" — are the only rejections left.
     expect(normalizeCodeCellReturn(null, 10).ok).toBe(false);
     expect(normalizeCodeCellReturn(undefined, 10).ok).toBe(false);
-    expect(normalizeCodeCellReturn(42, 10).ok).toBe(false);
-    expect(normalizeCodeCellReturn([1, 2, 3], 10).ok).toBe(false);
-    expect(normalizeCodeCellReturn({ columns: ['a'] }, 10).ok).toBe(false);
+  });
+
+  it('treats a bare object as one row', () => {
+    const out = normalizeCodeCellReturn({ columns: ['a'] }, 10);
+    expect(out.ok).toBe(true);
+    if (out.ok) expect(out.columns).toEqual(['columns']);
+  });
+
+  it('accepts scalars and scalar arrays as single-column grids', () => {
+    // Widened deliberately so `return 1` / `return [1,2,3]` work in a cell —
+    // they land under a `value` column rather than erroring.
+    const scalar = normalizeCodeCellReturn(42, 10);
+    expect(scalar.ok).toBe(true);
+    if (scalar.ok) expect(scalar.rows).toEqual([[42]]);
+
+    const list = normalizeCodeCellReturn([1, 2, 3], 10);
+    expect(list.ok).toBe(true);
+    if (list.ok) expect(list.rows).toEqual([[1], [2], [3]]);
   });
 });
 
