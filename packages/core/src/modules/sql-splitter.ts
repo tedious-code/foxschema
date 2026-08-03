@@ -498,7 +498,7 @@ export function splitSqlStatements(sql: string): SplitStatement[] {
   return out;
 }
 
-/** First code word of a statement (lowercased), skipping leading comments/whitespace/parens. */
+/** First code word of a statement (lowercased), skipping leading comments/whitespace/parens/semicolons. */
 export function firstKeyword(text: string): string | null {
   let mode: Mode = 'code';
   for (let i = 0; i < text.length; i++) {
@@ -514,6 +514,8 @@ export function firstKeyword(text: string): string | null {
         return text.slice(i, j).toLowerCase();
       }
       if (ch === '(') continue; // e.g. `(SELECT …) UNION …`
+      // Empty statement separators — `; DELETE …` must still see DELETE.
+      if (ch === ';') continue;
       if (/\s/.test(ch)) continue;
       return null; // starts with something that isn't a word
     } else if (mode === 'line-comment') {
@@ -523,6 +525,33 @@ export function firstKeyword(text: string): string | null {
     }
   }
   return null;
+}
+
+/**
+ * True when `text` has no executable SQL — only whitespace, comments, bare
+ * parentheses, and empty `;` separators. Used to fail closed when
+ * {@link firstKeyword} returns null for punctuation/digits rather than treating
+ * that as a read.
+ */
+function isBlankOrCommentsOnly(text: string): boolean {
+  let mode: Mode = 'code';
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]!;
+    const next = i + 1 < text.length ? text[i + 1]! : '';
+    if (mode === 'code') {
+      if (ch === '-' && next === '-') { mode = 'line-comment'; i++; continue; }
+      if (ch === '#') { mode = 'line-comment'; continue; }
+      if (ch === '/' && next === '*') { mode = 'block-comment'; i++; continue; }
+      if (ch === '(' || ch === ')' || ch === ';') continue;
+      if (/\s/.test(ch)) continue;
+      return false;
+    } else if (mode === 'line-comment') {
+      if (ch === '\n') mode = 'code';
+    } else if (mode === 'block-comment') {
+      if (ch === '*' && next === '/') { mode = 'code'; i++; }
+    }
+  }
+  return true;
 }
 
 /**
@@ -620,6 +649,9 @@ export function checkStatement(
  */
 export function isWriteStatement(text: string): boolean {
   if (parseCodeCell(text)) return false;
+  // A single bridge/API string may still be a batch (`SELECT 1; DELETE …`).
+  const parts = splitSqlStatements(text);
+  if (parts.length > 1) return parts.some((p) => sqlTextIsWrite(p.text));
   return sqlTextIsWrite(text);
 }
 
@@ -632,6 +664,7 @@ function sqlTextIsWrite(text: string): boolean {
   // writes a file (MySQL) — all starting with SELECT, so Safe Mode would
   // otherwise run them without a confirmation.
   if ((kw === 'select' || kw === 'table' || kw === 'values') && hasIntoTarget(text)) return true;
+  if (kw === 'pragma') return isPragmaAssignment(text);
   if (kw === 'explain') {
     const inner = peelExplainAnalyze(text);
     return inner !== null && sqlTextIsWrite(inner);
@@ -710,9 +743,32 @@ function hasIntoTarget(text: string): boolean {
   return /\bINTO\b/i.test(stripSqlStringsAndComments(text));
 }
 
-/** `PRAGMA x` reads; `PRAGMA x = y` mutates database configuration. */
+/**
+ * SQLite read-only PRAGMAs that take an object name (or similar) in parentheses.
+ * Every other `PRAGMA name(…)` form is treated as an assignment — SQLite accepts
+ * `PRAGMA user_version(123)` / `PRAGMA journal_mode(WAL)` as writes.
+ */
+const READ_ONLY_PRAGMA_WITH_ARGS = new Set([
+  'table_info', 'table_xinfo', 'table_list',
+  'index_info', 'index_list', 'index_xinfo',
+  'foreign_key_list', 'foreign_key_check',
+  'database_list', 'collation_list', 'compile_options',
+  'function_list', 'module_list', 'pragma_list',
+  'integrity_check', 'quick_check',
+]);
+
+/**
+ * `PRAGMA x` reads; `PRAGMA x = y` and `PRAGMA x(y)` mutate configuration
+ * unless `x` is a known read-only pragma that takes an object-name argument.
+ */
 function isPragmaAssignment(text: string): boolean {
-  return /=/.test(stripSqlStringsAndComments(text));
+  const stripped = stripSqlStringsAndComments(text);
+  if (/=/.test(stripped)) return true;
+  // Optional schema qualifier: PRAGMA main.table_info(t)
+  // eslint-disable-next-line security/detect-unsafe-regex -- anchored; bounded ident + optional schema
+  const m = /^\s*PRAGMA\s+(?:([A-Za-z_][\w]*)\s*\.\s*)?([A-Za-z_][\w]*)\s*\(/i.exec(stripped);
+  if (!m) return false;
+  return !READ_ONLY_PRAGMA_WITH_ARGS.has(m[2]!.toLowerCase());
 }
 
 /**
@@ -736,18 +792,39 @@ const DML_KEYWORDS = new Set([
 const GRANT_KEYWORDS = new Set(['grant', 'revoke', 'deny']);
 
 /**
- * Classify a statement for RBAC. `SELECT … INTO t` reports `ddl`: it creates a
- * table, so it needs schema power even though it starts with SELECT.
+ * Classify every statement in `text` for RBAC. A single API/bridge string may
+ * still be a `;`-separated batch — each part is classified on its own so a
+ * leading `SELECT` cannot authorize a trailing `DELETE` / `GRANT`, and a
+ * `CREATE` + `GRANT` batch still demands both permissions.
+ *
+ * `SELECT … INTO t` reports `ddl`: it creates a table, so it needs schema power
+ * even though it starts with SELECT.
+ */
+export function sqlStatementCategories(text: string): SqlStatementCategory[] {
+  // Code cells carry no SQL of their own; the bridge classifies what they submit.
+  if (parseCodeCell(text)) return ['read'];
+  const parts = splitSqlStatements(text);
+  if (parts.length === 0) return ['read'];
+  return parts.map((p) => categoryOf(p.text));
+}
+
+/**
+ * Broadest single category in `text`. Prefer {@link sqlStatementCategories} at
+ * permission gates — a batch can need more than one permission, and "broadest"
+ * alone drops the others (`CREATE`+`GRANT` is not just `grant`).
  */
 export function sqlStatementCategory(text: string): SqlStatementCategory {
-  // Code cells carry no SQL of their own; the bridge classifies what they submit.
-  if (parseCodeCell(text)) return 'read';
-  return categoryOf(text);
+  let worst: SqlStatementCategory = 'read';
+  for (const cat of sqlStatementCategories(text)) worst = widen(worst, cat);
+  return worst;
 }
 
 function categoryOf(text: string): SqlStatementCategory {
   const kw = firstKeyword(text);
-  if (!kw) return 'read'; // blank or comment-only
+  if (!kw) {
+    // blank / comment-only is a no-op read; punctuation or digits are not.
+    return isBlankOrCommentsOnly(text) ? 'read' : 'ddl';
+  }
 
   if (GRANT_KEYWORDS.has(kw)) return 'grant';
   if (DML_KEYWORDS.has(kw)) return 'dml';
@@ -796,34 +873,9 @@ export function requiresWritePermission(text: string): boolean {
   // Code cells carry no SQL of their own; the `sql` bridge gates each statement
   // it submits (see code-cell-query.ts).
   if (parseCodeCell(text)) return false;
-  return !sqlTextIsReadOnly(text);
-}
-
-function sqlTextIsReadOnly(text: string): boolean {
-  const kw = firstKeyword(text);
-  if (!kw) return true; // blank or comment-only — nothing executes
-  if (!READ_ONLY_KEYWORDS.has(kw)) return false;
-
-  if (kw === 'select' || kw === 'table' || kw === 'values') return !hasIntoTarget(text);
-  if (kw === 'pragma') return !isPragmaAssignment(text);
-  if (kw === 'explain') {
-    // Plain EXPLAIN only plans. EXPLAIN ANALYZE runs the inner statement, so it
-    // inherits the inner statement's classification.
-    const inner = peelExplainAnalyze(text);
-    return inner === null ? true : sqlTextIsReadOnly(inner);
-  }
-  if (kw === 'with') {
-    for (const body of withCteBodies(text)) {
-      if (!sqlTextIsReadOnly(body)) return false;
-    }
-    // Classify the statement AFTER the CTE list, not just its leading verb:
-    // a tail is only a read if the whole tail is, and `SELECT … INTO` /
-    // `EXPLAIN ANALYZE …` are decided by more than the first word.
-    const tail = walkWithCtes(text);
-    if (tail === null) return false; // unscannable CTE list → fail closed
-    return sqlTextIsReadOnly(tail);
-  }
-  return true;
+  // Same classifier as the RBAC buckets — keep one source of truth so a batch
+  // or punctuation-prefixed write cannot be "read" here and "ddl" there.
+  return sqlStatementCategory(text) !== 'read';
 }
 
 /** Leading verb after skipping WITH CTEs (lowercased), or null. */

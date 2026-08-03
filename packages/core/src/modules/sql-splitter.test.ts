@@ -5,6 +5,7 @@ import {
   isWriteStatement,
   requiresWritePermission,
   sqlStatementCategory,
+  sqlStatementCategories,
   statementVerb,
   firstKeyword,
   extractTableAliases,
@@ -568,5 +569,53 @@ describe('sqlStatementCategory (RBAC buckets)', () => {
   it('EXPLAIN ANALYZE inherits the inner statement', () => {
     expect(cat('EXPLAIN ANALYZE DELETE FROM t')).toBe('dml');
     expect(cat('EXPLAIN ANALYZE SELECT 1')).toBe('read');
+  });
+});
+
+describe('RBAC classifier — leading punctuation / batches / parenthesized PRAGMA', () => {
+  // Verified against better-sqlite3: `PRAGMA user_version(123)` mutates, and
+  // `; DELETE FROM t` prepares and runs. The pre-fix classifier treated both
+  // as reads, so a viewer could write through /sql/execute and the code-cell bridge.
+
+  it('does not treat a leading semicolon as a read', () => {
+    expect(firstKeyword('; DELETE FROM users')).toBe('delete');
+    expect(sqlStatementCategory('; DELETE FROM users')).toBe('dml');
+    expect(sqlStatementCategory(';DELETE FROM users')).toBe('dml');
+    expect(requiresWritePermission('; DELETE FROM users')).toBe(true);
+    expect(isWriteStatement('; DELETE FROM users')).toBe(true);
+  });
+
+  it('fails closed when the text starts with non-keyword punctuation', () => {
+    expect(sqlStatementCategory('!!! DELETE FROM users')).toBe('ddl');
+    expect(requiresWritePermission('!!! DELETE FROM users')).toBe(true);
+    expect(sqlStatementCategory('-- just a comment')).toBe('read');
+    expect(requiresWritePermission('-- just a comment')).toBe(false);
+  });
+
+  it('classifies every statement in a batch, not only the leading verb', () => {
+    expect(sqlStatementCategory('SELECT 1; DELETE FROM users')).toBe('dml');
+    expect(sqlStatementCategory('EXPLAIN SELECT 1; DROP TABLE users')).toBe('ddl');
+    expect(sqlStatementCategory('SELECT 1; GRANT SELECT ON t TO bob')).toBe('grant');
+    expect(requiresWritePermission('SELECT 1; DELETE FROM users')).toBe(true);
+    expect(isWriteStatement('SELECT 1; DELETE FROM users')).toBe(true);
+  });
+
+  it('demands every permission present in a mixed batch', () => {
+    expect(sqlStatementCategories('CREATE TABLE t (a int); GRANT SELECT ON t TO bob').sort()).toEqual(
+      ['ddl', 'grant']
+    );
+    expect(sqlStatementCategories('DELETE FROM t; CREATE TABLE u (a int)').sort()).toEqual(
+      ['ddl', 'dml']
+    );
+  });
+
+  it('treats parenthesized PRAGMA assignment as ddl, keeps table_info as read', () => {
+    expect(sqlStatementCategory('PRAGMA user_version(123)')).toBe('ddl');
+    expect(sqlStatementCategory('PRAGMA journal_mode(WAL)')).toBe('ddl');
+    expect(sqlStatementCategory('PRAGMA table_info(users)')).toBe('read');
+    expect(sqlStatementCategory('PRAGMA main.table_info(users)')).toBe('read');
+    expect(requiresWritePermission('PRAGMA user_version(123)')).toBe(true);
+    expect(isWriteStatement('PRAGMA user_version(123)')).toBe(true);
+    expect(requiresWritePermission('PRAGMA table_info(users)')).toBe(false);
   });
 });
