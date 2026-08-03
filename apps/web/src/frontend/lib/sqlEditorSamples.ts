@@ -524,7 +524,7 @@ return [
     title: '★ Sample · Server Beam copy rows source → target',
     sql: `-- Server Beam — WRITES on target. Check TWO Destinations (source, then target).
 -- Turn Safe mode OFF. Creates fox_beam_demo on both sides, copies reshaped rows.
--- Caps: 2 servers, up to 20 sql.on() calls per Execute.
+-- Caps: 2 servers, up to 20 SQL bridge calls (sql / sql.on) per Execute.
 
 -- @node
 await sql.on('source')\`DROP TABLE IF EXISTS fox_beam_demo\`;
@@ -570,7 +570,7 @@ return await sql.on('target')\`SELECT id, email, domain FROM fox_beam_demo ORDER
     title: '★ Sample · Server Beam chunked pull → push',
     sql: `-- Server Beam — WRITES. Two Destinations (source, then target). Safe mode OFF.
 -- Pulls from source in chunks and inserts into target (async / await).
--- Stays within the sql.on() cap per Execute (2 setup + 2×(pull+push) + 1 verify).
+-- Stays within the SQL bridge cap per Execute (2 setup + 2×(pull+push) + 1 verify).
 
 -- @node
 await sql.on('source')\`DROP TABLE IF EXISTS fox_beam_bulk\`;
