@@ -20,7 +20,7 @@ credentials are the Beam endpoints; clients choose source and target servers
 | Rule | Value |
 |------|--------|
 | Beam servers selectable per editor Execute | **up to 2** (source + target) |
-| `sql.on()` calls per editor Execute | **up to 20** (`MAX_SQL`) |
+| SQL bridge calls per editor Execute | **up to 20** (`MAX_SQL`) — every `sql` / `sql.on` |
 | Async / Promises in Node cells | **required** (already supported by code-cell runtime) |
 | Password / decrypt | Server-only via existing `resolveRef` / connection store |
 
