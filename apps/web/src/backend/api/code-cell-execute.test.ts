@@ -371,4 +371,110 @@ describe('code cell SQL bridge', () => {
     if (!result.ok) throw new Error(result.error);
     expect(result.rows).toEqual([[true, MAX_SQL]]);
   }, 60_000);
+
+  it('does not enforce the Beam cap when the flag is off', async () => {
+    const calls: number[] = [];
+    const runQuery = async () => {
+      calls.push(1);
+      return [{ n: 1 }];
+    };
+    const body =
+      `for (let i = 0; i < ${MAX_SQL + 3}; i++) { await sql.on('source')\`SELECT 1\`; }\n` +
+      `return [{ n: ${MAX_SQL + 3} }];`;
+    const result = await runCell(body, {
+      dialect: 'sqlite',
+      allowWrites: false,
+      runQuery,
+      beamDialects: { source: 'sqlite' },
+      defaultBeamAlias: 'source',
+      enforceBeamSqlOnCap: false,
+    });
+    if (!result.ok) throw new Error(result.error);
+    expect(calls.length).toBe(MAX_SQL + 3);
+    expect(result.rows).toEqual([[MAX_SQL + 3]]);
+  }, 60_000);
+
+  it('rejects an unknown sql.on alias with a clear error', async () => {
+    const result = await runCell(
+      `try { await sql.on('warehouse')\`SELECT 1\`; return [{ ok: true }]; }` +
+        ` catch (e) { return [{ ok: false, msg: String(e.message) }]; }`,
+      {
+        dialect: 'sqlite',
+        allowWrites: false,
+        runQuery: async () => [{ n: 1 }],
+        beamDialects: { source: 'sqlite', target: 'sqlite' },
+        defaultBeamAlias: 'source',
+        enforceBeamSqlOnCap: true,
+      }
+    );
+    if (!result.ok) throw new Error(result.error);
+    expect(result.rows[0]![0]).toBe(false);
+    expect(String(result.rows[0]![1])).toMatch(/Unknown Server Beam alias "warehouse"/);
+  }, 30_000);
+
+  it('rejects inherited Object keys used as sql.on aliases', async () => {
+    const result = await runCell(
+      `try { await sql.on('toString')\`SELECT 1\`; return [{ ok: true }]; }` +
+        ` catch (e) { return [{ ok: false, msg: String(e.message) }]; }`,
+      {
+        dialect: 'sqlite',
+        allowWrites: false,
+        runQuery: async () => [{ n: 1 }],
+        beamDialects: { source: 'sqlite' },
+        defaultBeamAlias: 'source',
+        enforceBeamSqlOnCap: true,
+      }
+    );
+    if (!result.ok) throw new Error(result.error);
+    expect(result.rows[0]![0]).toBe(false);
+    expect(String(result.rows[0]![1])).toMatch(/Unknown Server Beam alias "toString"/);
+  }, 30_000);
+
+  it('rejects sql.on when no Beam endpoints are configured', async () => {
+    const result = await runCell(
+      `try { await sql.on('source')\`SELECT 1\`; return [{ ok: true }]; }` +
+        ` catch (e) { return [{ ok: false, msg: String(e.message) }]; }`,
+      { dialect: 'sqlite', allowWrites: false, runQuery: async () => [{ n: 1 }] }
+    );
+    if (!result.ok) throw new Error(result.error);
+    expect(result.rows[0]![0]).toBe(false);
+    expect(String(result.rows[0]![1])).toMatch(/needs Server Beam endpoints/i);
+  }, 30_000);
+
+  it('routes plain sql`` to the default Beam alias', async () => {
+    const calls: { alias?: string }[] = [];
+    const runQuery = async (_text: string, _params: unknown[], alias?: string) => {
+      calls.push({ alias });
+      return [{ hop: alias ?? 'none' }];
+    };
+    const result = await runCell('return await sql`SELECT 1`;', {
+      dialect: 'sqlite',
+      allowWrites: false,
+      runQuery,
+      beamDialects: { source: 'sqlite', target: 'postgres' },
+      defaultBeamAlias: 'source',
+      enforceBeamSqlOnCap: true,
+    });
+    if (!result.ok) throw new Error(result.error);
+    expect(calls).toEqual([{ alias: 'source' }]);
+    expect(result.rows).toEqual([['source']]);
+  }, 30_000);
+
+  it('rejects an empty sql.on alias before posting a query', async () => {
+    const result = await runCell(
+      `try { sql.on('  '); return [{ ok: true }]; }` +
+        ` catch (e) { return [{ ok: false, msg: String(e.message) }]; }`,
+      {
+        dialect: 'sqlite',
+        allowWrites: false,
+        runQuery: async () => [{ n: 1 }],
+        beamDialects: { source: 'sqlite' },
+        defaultBeamAlias: 'source',
+        enforceBeamSqlOnCap: true,
+      }
+    );
+    if (!result.ok) throw new Error(result.error);
+    expect(result.rows[0]![0]).toBe(false);
+    expect(String(result.rows[0]![1])).toMatch(/non-empty alias/i);
+  }, 30_000);
 });
