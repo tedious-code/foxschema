@@ -13,7 +13,7 @@ import {
   getProviderSettings,
   dialectSupportsIndexFragmentation,
   buildIndexFragmentationCustomTemplate,
-  sqlStatementCategory,
+  sqlStatementCategories,
   type MigrationStep,
   type ConnectionOptions,
   type DbObjectType,
@@ -544,8 +544,12 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     // Fail-closed: an unrecognized verb classifies as ddl.
     const needed = new Set<Permission>();
     for (const sql of statements as string[]) {
-      const permission = CATEGORY_PERMISSION[sqlStatementCategory(sql)];
-      if (permission) needed.add(permission);
+      // Batches inside one string need every category's permission — not just
+      // the "broadest" label (CREATE + GRANT is both ddl and grant).
+      for (const category of sqlStatementCategories(sql)) {
+        const permission = CATEGORY_PERMISSION[category];
+        if (permission) needed.add(permission);
+      }
     }
     if (needed.size > 0 && denyUnless(authed, res, ...needed)) return;
     // Optional bind parameters, one array per statement. Anything else is a

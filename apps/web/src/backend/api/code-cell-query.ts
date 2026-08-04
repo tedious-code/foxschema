@@ -10,7 +10,7 @@
  * the worker that runs user code.
  */
 
-import { ConnectionFactory, sqlStatementCategory, type ConnectionOptions } from '@foxschema/core';
+import { ConnectionFactory, sqlStatementCategories, type ConnectionOptions } from '@foxschema/core';
 import { MAX_CELL_QUERY_ROWS } from './code-cell-bridge';
 import type { CellQueryRunner } from './code-cell-execute';
 import { CATEGORY_PERMISSION, type Permission } from '../../shared/permissions';
@@ -44,9 +44,11 @@ export function makeCellQueryRunner(
     if (!sql) throw new Error('Empty statement');
 
     // Fail-closed, same classifier as the /sql/execute gate: an unrecognized
-    // verb lands in `ddl` rather than slipping through as a read.
-    const category = sqlStatementCategory(sql);
-    if (category !== 'read') {
+    // verb lands in `ddl` rather than slipping through as a read. Batches are
+    // classified per statement so a leading SELECT cannot hide a write/GRANT.
+    const categories = sqlStatementCategories(sql);
+    for (const category of categories) {
+      if (category === 'read') continue;
       if (!policy.allowWrites) {
         throw new Error(
           'Safe mode is on — this cell tried to run a write/DDL statement. ' +

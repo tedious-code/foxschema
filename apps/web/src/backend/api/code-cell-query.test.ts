@@ -54,4 +54,17 @@ describe('code cell bridge permission policy', () => {
       /editor\.ddl/
     );
   });
+
+  it('does not let a leading SELECT authorize a batched write or GRANT', async () => {
+    await expect(runnerFor(editor, false)('SELECT 1; DELETE FROM t', [])).rejects.toThrow(/Safe mode/);
+    await expect(runnerFor(editor)('SELECT 1; GRANT ALL ON t TO bob', [])).rejects.toThrow(/editor\.grant/);
+  });
+
+  it('blocks a leading-semicolon write that used to classify as a read', async () => {
+    await expect(runnerFor(new Set(), false)('; DELETE FROM t', [])).rejects.toThrow(/Safe mode/);
+  });
+
+  it('blocks parenthesized PRAGMA assignments', async () => {
+    await expect(runnerFor(new Set(), false)('PRAGMA user_version(123)', [])).rejects.toThrow(/Safe mode/);
+  });
 });
