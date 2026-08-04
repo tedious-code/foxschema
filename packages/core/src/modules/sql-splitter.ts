@@ -648,11 +648,15 @@ export function checkStatement(
  * (and MySQL 8.0.18+), so those inherit the inner statement's write-ness.
  */
 export function isWriteStatement(text: string): boolean {
-  if (parseCodeCell(text)) return false;
-  // A single bridge/API string may still be a batch (`SELECT 1; DELETE …`).
+  // Closed code fences carry no SQL of their own. An unclosed `-- @node` …
+  // payload (or SQL after `-- @end`) is still SQL to the database — the fence
+  // lines are ordinary `--` comments — so classify those parts as SQL.
   const parts = splitSqlStatements(text);
-  if (parts.length > 1) return parts.some((p) => sqlTextIsWrite(p.text));
-  return sqlTextIsWrite(text);
+  if (parts.length === 0) return false;
+  return parts.some((p) => {
+    if (p.kind && p.kind !== 'sql' && p.terminated) return false;
+    return sqlTextIsWrite(p.text);
+  });
 }
 
 /** Recursive write check used for nested WITH bodies (no code-cell gate). */
@@ -801,11 +805,16 @@ const GRANT_KEYWORDS = new Set(['grant', 'revoke', 'deny']);
  * even though it starts with SELECT.
  */
 export function sqlStatementCategories(text: string): SqlStatementCategory[] {
-  // Code cells carry no SQL of their own; the bridge classifies what they submit.
-  if (parseCodeCell(text)) return ['read'];
+  // Split first so a closed `-- @node` … `-- @end` cell followed by real SQL
+  // (or an unclosed fence whose body is SQL) cannot short-circuit to `read`.
+  // `-- @node` is a SQL line comment to the database — only a *closed* fence
+  // is a code cell whose SQL is submitted later via the bridge.
   const parts = splitSqlStatements(text);
   if (parts.length === 0) return ['read'];
-  return parts.map((p) => categoryOf(p.text));
+  return parts.map((p) => {
+    if (p.kind && p.kind !== 'sql' && p.terminated) return 'read';
+    return categoryOf(p.text);
+  });
 }
 
 /**
@@ -870,18 +879,19 @@ function widen(a: SqlStatementCategory, b: SqlStatementCategory): SqlStatementCa
  * a hole — but authorization must not hand execution to a verb it doesn't know.
  */
 export function requiresWritePermission(text: string): boolean {
-  // Code cells carry no SQL of their own; the `sql` bridge gates each statement
-  // it submits (see code-cell-query.ts).
-  if (parseCodeCell(text)) return false;
-  // Same classifier as the RBAC buckets — keep one source of truth so a batch
-  // or punctuation-prefixed write cannot be "read" here and "ddl" there.
+  // Same classifier as the RBAC buckets — keep one source of truth so a batch,
+  // punctuation-prefixed write, or fence-disguised write cannot be "read" here
+  // and "dml"/"ddl" there. Closed code cells classify as read; the `sql`
+  // bridge gates each statement they submit (see code-cell-query.ts).
   return sqlStatementCategory(text) !== 'read';
 }
 
 /** Leading verb after skipping WITH CTEs (lowercased), or null. */
 export function statementVerb(text: string): string | null {
   const cell = parseCodeCell(text);
-  if (cell) return cell.kind;
+  // Only a closed fence is a code cell; unclosed `-- @node` + SQL should
+  // report the SQL verb (fence lines are comments to the database).
+  if (cell?.closed) return cell.kind;
   const kw = firstKeyword(text);
   if (!kw) return null;
   if (kw === 'explain') {
@@ -900,8 +910,12 @@ const MUTATING_DML = new Set(['update', 'delete', 'merge']);
  * Used by SQL Editor safe mode to warn before data-mutating DML.
  */
 export function isMutatingDmlStatement(text: string): boolean {
-  if (parseCodeCell(text)) return false;
-  return sqlTextIsMutatingDml(text);
+  const parts = splitSqlStatements(text);
+  if (parts.length === 0) return false;
+  return parts.some((p) => {
+    if (p.kind && p.kind !== 'sql' && p.terminated) return false;
+    return sqlTextIsMutatingDml(p.text);
+  });
 }
 
 function sqlTextIsMutatingDml(text: string): boolean {
