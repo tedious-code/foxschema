@@ -3,6 +3,7 @@ import {
   MAX_SERVERS,
   MAX_SQL,
   beamAliasesForCount,
+  createBeamSqlCap,
   normalizeBeamAlias,
   parseBeamEndpoints,
   usesServerBeam,
@@ -12,6 +13,28 @@ describe('server-beam', () => {
   it('exposes product caps', () => {
     expect(MAX_SERVERS).toBe(2);
     expect(MAX_SQL).toBe(20);
+  });
+
+  it('createBeamSqlCap counts every take and rejects past max', () => {
+    const cap = createBeamSqlCap(3);
+    cap.take();
+    cap.take();
+    cap.take();
+    expect(cap.count).toBe(3);
+    expect(() => cap.take()).toThrow(/at most 3 SQL bridge calls/i);
+    expect(cap.count).toBe(4);
+  });
+
+  it('createBeamSqlCap take() stays correct under interleaved microtasks', async () => {
+    const cap = createBeamSqlCap(5);
+    const tasks = Array.from({ length: 8 }, async () => {
+      await Promise.resolve();
+      cap.take();
+    });
+    const results = await Promise.allSettled(tasks);
+    const rejected = results.filter((r) => r.status === 'rejected');
+    expect(rejected.length).toBe(3);
+    expect(cap.count).toBe(8);
   });
 
   it('detects sql.on usage', () => {

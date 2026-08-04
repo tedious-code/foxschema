@@ -285,6 +285,90 @@ describe('code cell SQL bridge', () => {
       enforceBeamSqlOnCap: true,
     });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toMatch(new RegExp(`at most ${MAX_SQL} sql\\.on`, 'i'));
+    if (!result.ok) {
+      expect(result.error).toMatch(new RegExp(`at most ${MAX_SQL} SQL bridge calls`, 'i'));
+    }
+  }, 60_000);
+
+  it('counts plain sql`` toward the Beam cap (not only sql.on)', async () => {
+    const calls: string[] = [];
+    const runQuery = async (text: string) => {
+      calls.push(text);
+      return [{ n: 1 }];
+    };
+    // Mix: MAX_SQL - 1 via plain sql, then one sql.on succeeds, then one more fails.
+    const body =
+      `for (let i = 0; i < ${MAX_SQL - 1}; i++) { await sql\`SELECT 1\`; }\n` +
+      `await sql.on('source')\`SELECT 2\`;\n` +
+      `try { await sql\`SELECT 3\`; return [{ ok: true }]; }\n` +
+      `catch (e) { return [{ ok: false, msg: String(e.message) }]; }`;
+    const result = await runCell(body, {
+      dialect: 'sqlite',
+      allowWrites: false,
+      runQuery,
+      beamDialects: { source: 'sqlite' },
+      defaultBeamAlias: 'source',
+      enforceBeamSqlOnCap: true,
+    });
+    if (!result.ok) throw new Error(result.error);
+    expect(result.rows[0]![0]).toBe(false);
+    expect(String(result.rows[0]![1])).toMatch(/at most .* SQL bridge calls/i);
+    // Cap rejects before the last runQuery — MAX_SQL successful bridge calls.
+    expect(calls.length).toBe(MAX_SQL);
+  }, 60_000);
+
+  it('enforces the Beam cap under Promise.all concurrency', async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const runQuery = async () => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight -= 1;
+      return [{ n: 1 }];
+    };
+    const body =
+      `const jobs = [];\n` +
+      `for (let i = 0; i < ${MAX_SQL + 5}; i++) {\n` +
+      `  jobs.push(sql.on('source')\`SELECT \${i} AS n\`);\n` +
+      `}\n` +
+      `const settled = await Promise.allSettled(jobs);\n` +
+      `const rejected = settled.filter((s) => s.status === 'rejected').length;\n` +
+      `const fulfilled = settled.filter((s) => s.status === 'fulfilled').length;\n` +
+      `return [{ fulfilled, rejected }];`;
+    const result = await runCell(
+      body,
+      {
+        dialect: 'sqlite',
+        allowWrites: false,
+        runQuery,
+        beamDialects: { source: 'sqlite' },
+        defaultBeamAlias: 'source',
+        enforceBeamSqlOnCap: true,
+      },
+      60_000
+    );
+    if (!result.ok) throw new Error(result.error);
+    expect(result.rows[0]![0]).toBe(MAX_SQL);
+    expect(result.rows[0]![1]).toBe(5);
+    // Serialized Beam bridge: at most one query in flight at a time.
+    expect(maxInFlight).toBe(1);
+  }, 90_000);
+
+  it('allows exactly MAX_SQL sequential Beam bridge calls', async () => {
+    const runQuery = async () => [{ n: 1 }];
+    const body =
+      `for (let i = 0; i < ${MAX_SQL}; i++) { await sql.on('source')\`SELECT 1\`; }\n` +
+      `return [{ ok: true, n: ${MAX_SQL} }];`;
+    const result = await runCell(body, {
+      dialect: 'sqlite',
+      allowWrites: false,
+      runQuery,
+      beamDialects: { source: 'sqlite' },
+      defaultBeamAlias: 'source',
+      enforceBeamSqlOnCap: true,
+    });
+    if (!result.ok) throw new Error(result.error);
+    expect(result.rows).toEqual([[true, MAX_SQL]]);
   }, 60_000);
 });

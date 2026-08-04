@@ -13,6 +13,32 @@ export type BeamEndpointRef = {
   password?: string;
 };
 
+/**
+ * Per-Execute counter for Server Beam SQL bridge calls.
+ * Counts every bridged query (`sql`…`` and `sql.on`…``), not only `.on()`.
+ * `take()` is synchronous so concurrent `answerQuery` handlers (after an
+ * `await`) cannot slip past {@link MAX_SQL} on a single-threaded event loop.
+ */
+export function createBeamSqlCap(max = MAX_SQL): {
+  take: () => void;
+  readonly count: number;
+} {
+  let count = 0;
+  return {
+    take() {
+      count += 1;
+      if (count > max) {
+        throw new Error(
+          `Server Beam allows at most ${max} SQL bridge calls per editor Execute`
+        );
+      }
+    },
+    get count() {
+      return count;
+    },
+  };
+}
+
 const ALIAS_RE = /^[a-zA-Z_][a-zA-Z0-9_]{0,63}$/;
 
 export function normalizeBeamAlias(raw: unknown): string | null {

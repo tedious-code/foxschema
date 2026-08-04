@@ -22,7 +22,7 @@ export type CellQueryRunner = (
   alias?: string
 ) => Promise<Record<string, unknown>[]>;
 import { clampMaxRows } from './sql-execute';
-import { MAX_SQL } from '../../shared/server-beam';
+import { createBeamSqlCap } from '../../shared/server-beam';
 
 export const MAX_CODE_CELL_LENGTH = 100_000;
 export const DEFAULT_CODE_CELL_TIMEOUT_MS = 10_000;
@@ -135,7 +135,7 @@ function runInWorkerThread(args: {
   beamDialects?: Record<string, string>;
   /** Server Beam: default alias for plain `sql`…``. */
   defaultBeamAlias?: string;
-  /** When true, enforce max `sql.on()` calls per Execute. */
+  /** When true, enforce max SQL bridge calls per Execute (all `sql` / `sql.on`). */
   enforceBeamSqlOnCap?: boolean;
 }): Promise<CodeCellResult> {
   return new Promise((resolve) => {
@@ -144,6 +144,9 @@ function runInWorkerThread(args: {
     let timer: ReturnType<typeof setTimeout> | undefined;
     /** Bridged queries in flight; the cell clock is paused while > 0. */
     let inFlight = 0;
+    const beamSqlCap = args.enforceBeamSqlOnCap ? createBeamSqlCap() : null;
+    /** Serialize Beam bridge work so cap + query stay ordered under Promise.all. */
+    let beamBridgeTail: Promise<void> = Promise.resolve();
 
     const startTimer = () => {
       timer = setTimeout(() => {
@@ -215,8 +218,6 @@ function runInWorkerThread(args: {
 
     startTimer();
 
-    let sqlOnCount = 0;
-
     const answerQuery = async (req: CellQueryRequest) => {
       pauseClock();
       const reply = (res: CellQueryResponse) => {
@@ -226,18 +227,35 @@ function runInWorkerThread(args: {
           /* worker already gone */
         }
       };
-      try {
-        if (!args.runQuery) throw new Error('This cell has no connection — select a credential first');
-        if (args.enforceBeamSqlOnCap && req.viaOn) {
-          sqlOnCount += 1;
-          if (sqlOnCount > MAX_SQL) {
-            throw new Error(
-              `Server Beam allows at most ${MAX_SQL} sql.on() calls per editor Execute`
-            );
-          }
+
+      const run = async () => {
+        if (!args.runQuery) {
+          throw new Error('This cell has no connection — select a credential first');
         }
+        // Every bridged call counts (plain `sql` and `sql.on`) when Beam is on.
+        beamSqlCap?.take();
         const rows = await args.runQuery(req.text, req.params, req.alias);
         reply({ type: 'cell-query-result', id: req.id, ok: true, rows, rowCount: rows.length });
+      };
+
+      try {
+        if (beamSqlCap) {
+          // Queue Beam bridge calls so concurrent cell Promise.all cannot
+          // interleave take()+query in surprising ways.
+          const prev = beamBridgeTail;
+          let release!: () => void;
+          beamBridgeTail = new Promise<void>((r) => {
+            release = r;
+          });
+          try {
+            await prev;
+            await run();
+          } finally {
+            release();
+          }
+        } else {
+          await run();
+        }
       } catch (error: unknown) {
         reply({ type: 'cell-query-result', id: req.id, ok: false, error: errorMessage(error) });
       } finally {
