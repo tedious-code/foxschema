@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, GripVertical } from 'lucide-react';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
 
 const STORAGE_KEY = 'foxschema-sql-sidebar-sections';
 const HEIGHTS_KEY = 'foxschema-sql-sidebar-section-heights';
+const ORDER_KEY = 'foxschema-sql-sidebar-order';
 
 export type SidebarSectionId =
   | 'destinations'
@@ -36,6 +37,81 @@ const DEFAULT_HEIGHTS: Record<SidebarSectionId, number> = {
 
 const MIN_SECTION_H = 72;
 const MAX_SECTION_H = 480;
+
+const DEFAULT_ORDER: SidebarSectionId[] = [
+  'destinations',
+  'bookmarks',
+  'variables',
+  'vault',
+  'utilities',
+  'files',
+  'schema',
+];
+
+const ALL_SECTION_IDS = new Set<SidebarSectionId>(DEFAULT_ORDER);
+
+function normalizeOrder(raw: unknown): SidebarSectionId[] {
+  if (!Array.isArray(raw)) return [...DEFAULT_ORDER];
+  const seen = new Set<SidebarSectionId>();
+  const result: SidebarSectionId[] = [];
+  for (const id of raw) {
+    if (typeof id !== 'string' || !ALL_SECTION_IDS.has(id as SidebarSectionId)) continue;
+    const sid = id as SidebarSectionId;
+    if (seen.has(sid)) continue;
+    seen.add(sid);
+    result.push(sid);
+  }
+  for (const id of DEFAULT_ORDER) {
+    if (!seen.has(id)) result.push(id);
+  }
+  return result;
+}
+
+function loadOrder(): SidebarSectionId[] {
+  try {
+    const raw = localStorage.getItem(ORDER_KEY);
+    if (!raw) return [...DEFAULT_ORDER];
+    return normalizeOrder(JSON.parse(raw));
+  } catch {
+    return [...DEFAULT_ORDER];
+  }
+}
+
+/** Reorder sidebar sections (immutable). */
+export function moveSidebarSection(
+  order: SidebarSectionId[],
+  fromIndex: number,
+  toIndex: number
+): SidebarSectionId[] {
+  if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return order;
+  if (fromIndex >= order.length || toIndex >= order.length) return order;
+  const next = [...order];
+  const [item] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, item);
+  return next;
+}
+
+/** Persist SQL-editor sidebar section order. */
+export function useSidebarSectionOrder(): [
+  SidebarSectionId[],
+  (fromIndex: number, toIndex: number) => void,
+] {
+  const [order, setOrder] = useState(loadOrder);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(ORDER_KEY, JSON.stringify(order));
+    } catch {
+      /* ignore quota */
+    }
+  }, [order]);
+
+  const move = useCallback((fromIndex: number, toIndex: number) => {
+    setOrder((prev) => moveSidebarSection(prev, fromIndex, toIndex));
+  }, []);
+
+  return [order, move];
+}
 
 function loadOpen(): Record<SidebarSectionId, boolean> {
   try {
@@ -147,8 +223,34 @@ export const SqlSidebarSection: React.FC<{
   grow?: boolean;
   height?: number;
   onResizeHeight?: (h: number) => void;
+  /** Optional drag handle for reordering sections. */
+  draggable?: boolean;
+  isDragging?: boolean;
+  isDragOver?: boolean;
+  onDragStart?: (e: React.DragEvent) => void;
+  onDragOver?: (e: React.DragEvent) => void;
+  onDrop?: (e: React.DragEvent) => void;
+  onDragEnd?: (e: React.DragEvent) => void;
   children: React.ReactNode;
-}> = ({ id, title, icon, open, onToggle, actions, grow, height, onResizeHeight, children }) => {
+}> = ({
+  id,
+  title,
+  icon,
+  open,
+  onToggle,
+  actions,
+  grow,
+  height,
+  onResizeHeight,
+  draggable,
+  isDragging,
+  isDragOver,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+  children,
+}) => {
   const startH = useRef(0);
 
   const startResize = useCallback(
@@ -179,20 +281,35 @@ export const SqlSidebarSection: React.FC<{
       data-testid={`sql-sidebar-${id}`}
       className={`border-b border-slate-800 flex flex-col min-h-0 bg-slate-950 ${
         open ? (grow && !height ? 'flex-1' : 'shrink-0') : 'shrink-0'
-      }`}
+      } ${isDragging ? 'opacity-50' : ''} ${isDragOver ? 'ring-1 ring-inset ring-cyan-500/40' : ''}`}
       style={
         open && height
           ? { height: height + 44 /* header approx */, maxHeight: MAX_SECTION_H + 44 }
           : undefined
       }
+      onDragOver={onDragOver}
+      onDrop={onDrop}
     >
-      <div className="flex items-center gap-1 px-3 py-2.5 shrink-0 bg-slate-950">
+      <div className="flex items-center gap-1 px-2 py-2.5 shrink-0 bg-slate-950">
+        {draggable && (
+          <div
+            draggable
+            data-testid={`sql-sidebar-drag-${id}`}
+            title="Drag to reorder section"
+            aria-label={`Reorder ${title}`}
+            onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
+            className="shrink-0 p-0.5 cursor-grab active:cursor-grabbing text-slate-600 hover:text-slate-400 touch-none"
+          >
+            <GripVertical className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+          </div>
+        )}
         <button
           type="button"
           data-testid={`sql-sidebar-toggle-${id}`}
           aria-expanded={open}
           onClick={onToggle}
-          className="flex-1 flex items-center gap-2 min-w-0 text-left text-[13px] font-bold uppercase tracking-wide text-slate-300 hover:text-slate-100 transition"
+          className="flex-1 flex items-center gap-2 min-w-0 text-left text-[13px] font-bold uppercase tracking-wide text-slate-300 hover:text-slate-100 transition pl-0.5"
         >
           {open ? (
             <ChevronDown className="w-4 h-4 shrink-0 text-sky-500" strokeWidth={SQL_ICON_STROKE} />

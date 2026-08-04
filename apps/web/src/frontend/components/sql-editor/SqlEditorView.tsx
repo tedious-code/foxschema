@@ -31,7 +31,7 @@ import { useAuthStore } from '../../store/authStore';
 import { splitSqlStatements, type SplitStatement } from '../../lib/sql-splitter';
 import { formatEditorSql } from '../../utils/formatSql';
 import { effectiveConnectionIds, canExecuteWithoutDestination, resolveRunStatements } from '../../store/sqlEditorTabLogic';
-import { getSelectedSql, setCompletionContextGetter } from './sqlEditorBridge';
+import { getSelectedSql, setCompletionContextGetter, setSqlMutator } from './sqlEditorBridge';
 import { ConnectionChecklist } from './ConnectionChecklist';
 import { EditorTabBar } from './EditorTabBar';
 import { ResultsPanel } from './ResultsPanel';
@@ -45,7 +45,9 @@ import { SqlSchemaExplorer, type SqlSchemaExplorerHandle } from './SqlSchemaExpl
 import {
   SqlSidebarSection,
   useSidebarSectionHeights,
+  useSidebarSectionOrder,
   useSidebarSectionsOpen,
+  type SidebarSectionId,
 } from './SqlSidebarSection';
 import { WriteConfirmDialog } from './WriteConfirmDialog';
 import { IndexManagementModal } from '../utilities/IndexManagementModal';
@@ -135,6 +137,8 @@ export const SqlEditorView: React.FC = () => {
   const sharedConnectionIds = useSqlEditorStore((s) => s.sharedConnectionIds);
   const safeMode = useSqlEditorStore((s) => s.safeMode);
   const setSafeMode = useSqlEditorStore((s) => s.setSafeMode);
+  const multiTableConfirmThreshold = useSqlEditorStore((s) => s.multiTableConfirmThreshold);
+  const setMultiTableConfirmThreshold = useSqlEditorStore((s) => s.setMultiTableConfirmThreshold);
 
   const tab = tabs.find((t) => t.id === activeTabId) ?? tabs[0]!;
   // Drop connection ids that no longer exist in the saved list (persist-safe).
@@ -156,6 +160,9 @@ export const SqlEditorView: React.FC = () => {
   const splitRef = useRef<HTMLDivElement>(null);
   const [sidebarOpen, toggleSidebar] = useSidebarSectionsOpen();
   const [sectionHeights, setSectionHeight] = useSidebarSectionHeights();
+  const [sectionOrder, moveSection] = useSidebarSectionOrder();
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [dragOver, setDragOver] = useState<number | null>(null);
   const secretsPanelRef = useRef<SqlSecretsPanelHandle>(null);
   const schemaExplorerRef = useRef<SqlSchemaExplorerHandle>(null);
   const [secretsRefreshing, setSecretsRefreshing] = useState(false);
@@ -205,6 +212,13 @@ export const SqlEditorView: React.FC = () => {
         .filter((x): x is NonNullable<typeof x> => x != null);
       return { sql: active.sql, schemas, variables: state.variables };
     });
+    setSqlMutator((fn) => {
+      const state = useSqlEditorStore.getState();
+      const active = state.tabs.find((t) => t.id === state.activeTabId);
+      if (!active) return;
+      state.setSql(fn(active.sql));
+    });
+    return () => setSqlMutator(null);
   }, []);
 
   // Warm schema cache for checked credentials (autocomplete).
@@ -319,44 +333,43 @@ export const SqlEditorView: React.FC = () => {
     };
   }, []);
 
-  return (
-    <div className="flex-1 flex min-h-0 overflow-hidden" data-testid="sql-editor-view">
-      {sidebarCollapsed ? (
-        <aside
-          className="w-10 shrink-0 border-r border-slate-800 bg-slate-950 flex flex-col items-center py-2 gap-1"
-          data-testid="sql-sidebar-collapsed"
-        >
-          <button
-            type="button"
-            data-testid="sql-sidebar-expand"
-            title="Show sidebar"
-            aria-label="Show sidebar"
-            onClick={() => setSidebarCollapsed(false)}
-            className="p-1.5 rounded text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition"
-          >
-            <PanelLeftOpen className="w-4 h-4 text-sky-500" strokeWidth={SQL_ICON_STROKE} />
-          </button>
-        </aside>
-      ) : (
-        <aside
-          className="relative shrink-0 border-r border-slate-800 bg-slate-950 overflow-hidden flex flex-col min-h-0"
-          style={{ width: sidebarWidth }}
-          data-testid="sql-sidebar"
-        >
-          <div className="flex items-center justify-end px-2 py-1 border-b border-slate-800 shrink-0 bg-slate-950">
-            <button
-              type="button"
-              data-testid="sql-sidebar-collapse"
-              title="Hide sidebar"
-              aria-label="Hide sidebar"
-              onClick={() => setSidebarCollapsed(true)}
-              className="p-1 rounded text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition"
-            >
-              <PanelLeftClose className="w-3.5 h-3.5 text-sky-500" strokeWidth={SQL_ICON_STROKE} />
-            </button>
-          </div>
-          <div className="flex-1 flex flex-col min-h-0 overflow-y-auto overflow-x-hidden bg-slate-950">
-            {canEditorDestinations && (
+  const sidebarDragProps = useCallback(
+    (orderIndex: number) => ({
+      draggable: true as const,
+      isDragging: dragFrom === orderIndex,
+      isDragOver: dragOver === orderIndex && dragFrom !== orderIndex,
+      onDragStart: (e: React.DragEvent) => {
+        setDragFrom(orderIndex);
+        e.dataTransfer.effectAllowed = 'move';
+      },
+      onDragOver: (e: React.DragEvent) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        setDragOver(orderIndex);
+      },
+      onDrop: (e: React.DragEvent) => {
+        e.preventDefault();
+        if (dragFrom !== null && dragFrom !== orderIndex) {
+          moveSection(dragFrom, orderIndex);
+        }
+        setDragFrom(null);
+        setDragOver(null);
+      },
+      onDragEnd: () => {
+        setDragFrom(null);
+        setDragOver(null);
+      },
+    }),
+    [dragFrom, dragOver, moveSection]
+  );
+
+  const renderSidebarSection = useCallback(
+    (id: SidebarSectionId, orderIndex: number): React.ReactNode => {
+      const drag = sidebarDragProps(orderIndex);
+      switch (id) {
+        case 'destinations':
+          if (!canEditorDestinations) return null;
+          return (
             <SqlSidebarSection
               id="destinations"
               title="Destination servers"
@@ -365,11 +378,14 @@ export const SqlEditorView: React.FC = () => {
               onToggle={() => toggleSidebar('destinations')}
               height={sectionHeights.destinations}
               onResizeHeight={(h) => setSectionHeight('destinations', h)}
+              {...drag}
             >
               <ConnectionChecklist />
             </SqlSidebarSection>
-            )}
-            {canEditorBookmarks && (
+          );
+        case 'bookmarks':
+          if (!canEditorBookmarks) return null;
+          return (
             <SqlSidebarSection
               id="bookmarks"
               title="Bookmarks"
@@ -390,11 +406,14 @@ export const SqlEditorView: React.FC = () => {
                   <BookmarkPlus className="w-3.5 h-3.5 text-[#f59e0b]" strokeWidth={SQL_ICON_STROKE} /> Save
                 </button>
               }
+              {...drag}
             >
               <SqlBookmarksPanel />
             </SqlSidebarSection>
-            )}
-            {canEditorVariables && canVariablesRead && (
+          );
+        case 'variables':
+          if (!canEditorVariables || !canVariablesRead) return null;
+          return (
             <SqlSidebarSection
               id="variables"
               title="Variables"
@@ -403,11 +422,14 @@ export const SqlEditorView: React.FC = () => {
               onToggle={() => toggleSidebar('variables')}
               height={sectionHeights.variables}
               onResizeHeight={(h) => setSectionHeight('variables', h)}
+              {...drag}
             >
               <SqlVariablesPanel />
             </SqlSidebarSection>
-            )}
-            {canEditorSecrets && canSecretsView && (
+          );
+        case 'vault':
+          if (!canEditorSecrets || !canSecretsView) return null;
+          return (
             <SqlSidebarSection
               id="vault"
               title="Secrets"
@@ -432,17 +454,21 @@ export const SqlEditorView: React.FC = () => {
                   Refresh
                 </button>
               }
+              {...drag}
             >
               <SqlSecretsPanel ref={secretsPanelRef} />
             </SqlSidebarSection>
-            )}
-            {canEditorUtilities && canUtilityAccess && (
+          );
+        case 'utilities':
+          if (!canEditorUtilities || !canUtilityAccess) return null;
+          return (
             <SqlSidebarSection
               id="utilities"
               title="Utilities"
               icon={<Wrench className="text-[#d97706]" strokeWidth={SQL_ICON_STROKE} />}
               open={sidebarOpen.utilities}
               onToggle={() => toggleSidebar('utilities')}
+              {...drag}
             >
               <div className="px-1 pb-2 flex flex-col gap-0.5">
                 <button
@@ -510,8 +536,10 @@ export const SqlEditorView: React.FC = () => {
                 </button>
               </div>
             </SqlSidebarSection>
-            )}
-            {canEditorUtilities && canUtilityAccess && (
+          );
+        case 'files':
+          if (!canEditorUtilities || !canUtilityAccess) return null;
+          return (
             <SqlSidebarSection
               id="files"
               title="Files"
@@ -520,14 +548,17 @@ export const SqlEditorView: React.FC = () => {
               onToggle={() => toggleSidebar('files')}
               height={sectionHeights.files}
               onResizeHeight={(h) => setSectionHeight('files', h)}
+              {...drag}
             >
               <FileImportsPanel
                 refreshKey={fileImportsKey}
                 onImportClick={() => setShowFileQuery(true)}
               />
             </SqlSidebarSection>
-            )}
-            {canEditorSchema && (
+          );
+        case 'schema':
+          if (!canEditorSchema) return null;
+          return (
             <SqlSidebarSection
               id="schema"
               title="Schema"
@@ -549,10 +580,78 @@ export const SqlEditorView: React.FC = () => {
                   New table
                 </button>
               }
+              {...drag}
             >
               <SqlSchemaExplorer ref={schemaExplorerRef} />
             </SqlSidebarSection>
-            )}
+          );
+        default:
+          return null;
+      }
+    },
+    [
+      canEditorDestinations,
+      canEditorBookmarks,
+      canEditorVariables,
+      canVariablesRead,
+      canEditorSecrets,
+      canSecretsView,
+      canEditorUtilities,
+      canUtilityAccess,
+      canEditorSchema,
+      sidebarOpen,
+      toggleSidebar,
+      sectionHeights,
+      setSectionHeight,
+      tab.sql,
+      saveBookmark,
+      secretsRefreshing,
+      onSecretsRefresh,
+      fileImportsKey,
+      sidebarDragProps,
+    ]
+  );
+
+  return (
+    <div className="flex-1 flex min-h-0 overflow-hidden" data-testid="sql-editor-view">
+      {sidebarCollapsed ? (
+        <aside
+          className="w-10 shrink-0 border-r border-slate-800 bg-slate-950 flex flex-col items-center py-2 gap-1"
+          data-testid="sql-sidebar-collapsed"
+        >
+          <button
+            type="button"
+            data-testid="sql-sidebar-expand"
+            title="Show sidebar"
+            aria-label="Show sidebar"
+            onClick={() => setSidebarCollapsed(false)}
+            className="p-1.5 rounded text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition"
+          >
+            <PanelLeftOpen className="w-4 h-4 text-sky-500" strokeWidth={SQL_ICON_STROKE} />
+          </button>
+        </aside>
+      ) : (
+        <aside
+          className="relative shrink-0 border-r border-slate-800 bg-slate-950 overflow-hidden flex flex-col min-h-0"
+          style={{ width: sidebarWidth }}
+          data-testid="sql-sidebar"
+        >
+          <div className="flex items-center justify-end px-2 py-1 border-b border-slate-800 shrink-0 bg-slate-950">
+            <button
+              type="button"
+              data-testid="sql-sidebar-collapse"
+              title="Hide sidebar"
+              aria-label="Hide sidebar"
+              onClick={() => setSidebarCollapsed(true)}
+              className="p-1 rounded text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition"
+            >
+              <PanelLeftClose className="w-3.5 h-3.5 text-sky-500" strokeWidth={SQL_ICON_STROKE} />
+            </button>
+          </div>
+          <div className="flex-1 flex flex-col min-h-0 overflow-y-auto overflow-x-hidden bg-slate-950">
+            {sectionOrder.map((id, index) => (
+              <React.Fragment key={id}>{renderSidebarSection(id, index)}</React.Fragment>
+            ))}
           </div>
           <div
             role="separator"
@@ -705,6 +804,26 @@ export const SqlEditorView: React.FC = () => {
             />
           </label>
 
+          <label
+            className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-500 ml-1"
+            title="When Safe mode is on, confirm runs that reference this many tables in one statement (0 = off). Suggests using a transaction."
+          >
+            Tables≥
+            <input
+              data-testid="sql-multi-table-threshold"
+              type="number"
+              min={0}
+              max={50}
+              value={multiTableConfirmThreshold}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                if (!Number.isFinite(n)) return;
+                setMultiTableConfirmThreshold(n);
+              }}
+              className="w-10 bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-[11px] text-slate-200 font-mono outline-none focus:border-cyan-600"
+            />
+          </label>
+
           <span className="text-[11px] text-slate-500 ml-1">
             {runCount} statement{runCount === 1 ? '' : 's'} · {liveSelectedIds.length} server
             {liveSelectedIds.length === 1 ? '' : 's'}
@@ -778,6 +897,8 @@ export const SqlEditorView: React.FC = () => {
           writeStatements={pendingWriteConfirm.writeStatements}
           credentialCount={pendingWriteConfirm.credentialCount}
           readonlyTargets={pendingWriteConfirm.readonlyTargets}
+          multiTableStatements={pendingWriteConfirm.multiTableStatements}
+          requireMissingWhereAck
           onCancel={cancelWriteConfirm}
           onConfirm={() =>
             execute({

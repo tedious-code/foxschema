@@ -27,6 +27,11 @@ import { ensureSqlCompletions } from './completion';
 import { applyFoxscriptMarkers, clearFoxscriptMarkers } from './foxscriptDiagnostics';
 import { setSqlInsertHandler, setSqlSelectionGetter } from './sqlEditorBridge';
 import { buildVariableHoverDecorations } from './variableHover';
+import { isSelectOrFromKeyword } from '../../lib/selectClauseEdit';
+import {
+  SelectColumnPicker,
+  type SelectColumnPickerAnchor,
+} from './SelectColumnPicker';
 
 export interface RevealRequest {
   startLine: number;
@@ -77,7 +82,10 @@ export const SqlEditorPane: React.FC<Props> = ({
   const variables = useSqlEditorStore((s) => s.variables);
   const schemaCache = useSqlEditorStore((s) => s.schemaCache);
   const [editorLanguage, setEditorLanguage] = useState(() => monacoLanguage(dialect));
-
+  const [columnPickerOpen, setColumnPickerOpen] = useState(false);
+  const [columnPickerAnchor, setColumnPickerAnchor] = useState<SelectColumnPickerAnchor | null>(
+    null
+  );
   const editorOptions = useMemo(
     () => ({
       ...MONACO_EDITOR_BASE_OPTIONS,
@@ -218,6 +226,7 @@ export const SqlEditorPane: React.FC<Props> = ({
   }, [dialect]);
 
   return (
+    <>
     <Editor
       height="100%"
       theme={monacoTheme}
@@ -243,6 +252,58 @@ export const SqlEditorPane: React.FC<Props> = ({
           }
         });
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => onRunRef.current?.());
+        // Ctrl/Cmd+S → bookmark current query
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+          useSqlEditorStore.getState().saveBookmark();
+        });
+        // Ctrl/Cmd+Shift+F → format (dispatch toolbar button)
+        editor.addCommand(
+          monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF,
+          () => {
+            document.querySelector<HTMLButtonElement>('[data-testid="sql-format-btn"]')?.click();
+          }
+        );
+        // Ctrl/Cmd+Shift+S → toggle Safe mode
+        editor.addCommand(
+          monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyS,
+          () => {
+            const st = useSqlEditorStore.getState();
+            st.setSafeMode(!st.safeMode);
+          }
+        );
+        // Ctrl/Cmd+Shift+C → open SELECT column picker at cursor
+        editor.addCommand(
+          monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyC,
+          () => {
+            const ed = editorRef.current;
+            const pos = ed?.getPosition?.();
+            if (!ed || !pos) return;
+            const coords = ed.getScrolledVisiblePosition(pos);
+            const dom = ed.getDomNode?.() as HTMLElement | null;
+            const rect = dom?.getBoundingClientRect();
+            setColumnPickerAnchor({
+              top: (rect?.top ?? 0) + (coords?.top ?? 0) + 20,
+              left: (rect?.left ?? 0) + (coords?.left ?? 0),
+            });
+            setColumnPickerOpen(true);
+          }
+        );
+        editor.onMouseDown((e: { target?: { position?: { lineNumber: number; column: number } | null; element?: HTMLElement | null } }) => {
+          const pos = e.target?.position;
+          const model = editor.getModel?.();
+          if (!pos || !model) return;
+          const offset = model.getOffsetAt(pos);
+          const sql = model.getValue();
+          if (!isSelectOrFromKeyword(sql, offset)) return;
+          const dom = editor.getDomNode?.() as HTMLElement | null;
+          const rect = dom?.getBoundingClientRect();
+          const coords = editor.getScrolledVisiblePosition(pos);
+          setColumnPickerAnchor({
+            top: (rect?.top ?? 0) + (coords?.top ?? 0) + 18,
+            left: (rect?.left ?? 0) + (coords?.left ?? 0),
+          });
+          setColumnPickerOpen(true);
+        });
         setSqlSelectionGetter(() => {
           const ed = editorRef.current;
           const model = ed?.getModel?.();
@@ -276,6 +337,12 @@ export const SqlEditorPane: React.FC<Props> = ({
       }}
       options={editorOptions}
     />
+    <SelectColumnPicker
+      open={columnPickerOpen}
+      anchor={columnPickerAnchor}
+      onClose={() => setColumnPickerOpen(false)}
+    />
+    </>
   );
 };
 

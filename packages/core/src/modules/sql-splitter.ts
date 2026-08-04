@@ -1027,6 +1027,29 @@ export function dmlLacksWhere(text: string): boolean {
 }
 
 /**
+ * Distinct physical tables referenced by FROM/JOIN/UPDATE/INTO (aliases collapse
+ * to one table). Used for multi-table safety prompts (e.g. suggest a transaction
+ * when a statement touches many tables).
+ */
+export function countReferencedTables(sql: string): number {
+  return referencedTableNames(sql).length;
+}
+
+/** Unique bare/qualified table names from {@link extractTableAliases} values. */
+export function referencedTableNames(sql: string): string[] {
+  const map = extractTableAliases(sql);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const table of Object.values(map)) {
+    const key = table.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(table);
+  }
+  return out;
+}
+
+/**
  * Map lowercased alias (and bare table name) → table identifier as written.
  * Heuristic regex over `FROM|JOIN|UPDATE|INTO <ident> [AS] <alias>` — not a full
  * parser. Alias candidates that match a SQL keyword blacklist are ignored

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertCircle, Play, Info, ShieldAlert } from 'lucide-react';
 import type { ReadonlyWriteTarget } from '../../store/useSqlEditorStore';
@@ -9,11 +9,24 @@ import {
 } from '../../lib/sql-splitter';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
 
+export type MultiTableWarn = {
+  text: string;
+  tableCount: number;
+  tables: string[];
+};
+
 interface Props {
   writeStatements: string[];
   credentialCount: number;
   /** sqlite / clickhouse targets that cannot execute writes. */
   readonlyTargets?: ReadonlyWriteTarget[];
+  /** Statements that touch many tables (threshold from editor setting). */
+  multiTableStatements?: MultiTableWarn[];
+  /**
+   * When true (default), UPDATE/DELETE without WHERE require an explicit
+   * checkbox acknowledgment before Run.
+   */
+  requireMissingWhereAck?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 }
@@ -25,13 +38,15 @@ const DML_LABEL: Record<string, string> = {
 };
 
 /**
- * Safe-mode confirmation before writes. Calls out UPDATE / DELETE / MERGE and
- * flags UPDATE/DELETE with no WHERE clause.
+ * Safe-mode confirmation before writes / large multi-table runs.
+ * Flags UPDATE/DELETE with no WHERE and asks for acknowledgment.
  */
 export const WriteConfirmDialog: React.FC<Props> = ({
   writeStatements,
   credentialCount,
   readonlyTargets = [],
+  multiTableStatements = [],
+  requireMissingWhereAck = true,
   onCancel,
   onConfirm,
 }) => {
@@ -52,10 +67,18 @@ export const WriteConfirmDialog: React.FC<Props> = ({
     return [...set];
   }, [mutating]);
 
+  const [ackedMissingWhere, setAckedMissingWhere] = useState(false);
+  const needsWhereAck = requireMissingWhereAck && missingWhere.length > 0;
+  const canConfirm = !needsWhereAck || ackedMissingWhere;
+
   const title =
-    mutating.length > 0
-      ? `Safe mode: run ${verbs.join(' / ') || 'mutating'} statements?`
-      : 'Run write statements?';
+    writeStatements.length === 0 && multiTableStatements.length > 0
+      ? 'Safe mode: multi-table query'
+      : mutating.length > 0
+        ? `Safe mode: run ${verbs.join(' / ') || 'mutating'} statements?`
+        : writeStatements.length > 0
+          ? 'Run write statements?'
+          : 'Confirm run?';
 
   return createPortal(
     <div
@@ -98,20 +121,64 @@ export const WriteConfirmDialog: React.FC<Props> = ({
               className="flex items-start gap-2 text-xs text-amber-100/90 bg-amber-950/50 border border-amber-500/35 rounded-md px-3 py-2"
             >
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" strokeWidth={SQL_ICON_STROKE} />
-              <div>
+              <div className="min-w-0 flex-1">
                 <p className="font-semibold text-amber-300 mb-0.5">
-                  {missingWhere.length} statement{missingWhere.length === 1 ? '' : 's'} without a
-                  WHERE clause
+                  Missing WHERE — {missingWhere.length} statement
+                  {missingWhere.length === 1 ? '' : 's'}
                 </p>
-                <p className="text-amber-200/80 leading-relaxed">
+                <p className="text-amber-200/80 leading-relaxed mb-2">
                   UPDATE or DELETE with no WHERE can affect every row in the table. Add a WHERE
                   filter unless that is intentional.
+                </p>
+                {needsWhereAck && (
+                  <label
+                    data-testid="sql-safe-no-where-ack"
+                    className="flex items-start gap-2 cursor-pointer select-none"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={ackedMissingWhere}
+                      onChange={(e) => setAckedMissingWhere(e.target.checked)}
+                      className="mt-0.5 accent-amber-500"
+                    />
+                    <span className="text-amber-100 font-semibold">
+                      I understand this can update or delete all rows without a WHERE clause
+                    </span>
+                  </label>
+                )}
+              </div>
+            </div>
+          )}
+
+          {multiTableStatements.length > 0 && (
+            <div
+              data-testid="sql-safe-multi-table-warn"
+              className="flex items-start gap-2 text-xs text-sky-100/90 bg-sky-950/40 border border-sky-500/30 rounded-md px-3 py-2"
+            >
+              <Info className="w-4 h-4 shrink-0 mt-0.5 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
+              <div>
+                <p className="font-semibold text-sky-300 mb-0.5">
+                  Multi-table query — consider a transaction
+                </p>
+                <p className="text-sky-200/80 leading-relaxed">
+                  {multiTableStatements.length} statement
+                  {multiTableStatements.length === 1 ? '' : 's'} reference{' '}
+                  {multiTableStatements[0]!.tableCount}+ tables
+                  {multiTableStatements[0]?.tables?.length
+                    ? ` (${multiTableStatements
+                        .flatMap((s) => s.tables)
+                        .filter((t, i, a) => a.indexOf(t) === i)
+                        .slice(0, 6)
+                        .join(', ')})`
+                    : ''}
+                  . Wrap related writes in BEGIN/COMMIT so a failure does not leave partial
+                  changes.
                 </p>
               </div>
             </div>
           )}
 
-          {mutating.length === 0 && (
+          {mutating.length === 0 && writeStatements.length > 0 && (
             <p className="text-sm text-slate-300 leading-relaxed">
               This run includes{' '}
               <span className="font-bold text-amber-300">{writeStatements.length}</span> statement
@@ -141,34 +208,36 @@ export const WriteConfirmDialog: React.FC<Props> = ({
             </div>
           )}
 
-          <div className="bg-slate-950/60 border border-slate-800/80 rounded-lg max-h-40 overflow-y-auto divide-y divide-slate-850">
-            {writeStatements.map((s, i) => {
-              const verb = statementVerb(s);
-              const isDml = verb !== null && Boolean(DML_LABEL[verb]);
-              const noWhere = dmlLacksWhere(s);
-              return (
-                <div
-                  key={i}
-                  className="px-3 py-1.5 text-xs font-mono flex items-start gap-2"
-                  title={s}
-                >
-                  {isDml && (
-                    <span
-                      className={`shrink-0 text-[9px] font-bold uppercase tracking-wide px-1 py-0.5 rounded ${
-                        noWhere
-                          ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-                          : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
-                      }`}
-                    >
-                      {DML_LABEL[verb!]}
-                      {noWhere ? ' · no WHERE' : ''}
-                    </span>
-                  )}
-                  <span className="text-slate-400 truncate min-w-0">{s.replace(/\s+/g, ' ')}</span>
-                </div>
-              );
-            })}
-          </div>
+          {writeStatements.length > 0 && (
+            <div className="bg-slate-950/60 border border-slate-800/80 rounded-lg max-h-40 overflow-y-auto divide-y divide-slate-850">
+              {writeStatements.map((s, i) => {
+                const verb = statementVerb(s);
+                const isDml = verb !== null && Boolean(DML_LABEL[verb]);
+                const noWhere = dmlLacksWhere(s);
+                return (
+                  <div
+                    key={i}
+                    className="px-3 py-1.5 text-xs font-mono flex items-start gap-2"
+                    title={s}
+                  >
+                    {isDml && (
+                      <span
+                        className={`shrink-0 text-[9px] font-bold uppercase tracking-wide px-1 py-0.5 rounded ${
+                          noWhere
+                            ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                            : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                        }`}
+                      >
+                        {DML_LABEL[verb!]}
+                        {noWhere ? ' · no WHERE' : ''}
+                      </span>
+                    )}
+                    <span className="text-slate-400 truncate min-w-0">{s.replace(/\s+/g, ' ')}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
         <div className="flex justify-end gap-2 px-6 py-4 bg-slate-950/60 border-t border-slate-800">
           <button
@@ -179,10 +248,12 @@ export const WriteConfirmDialog: React.FC<Props> = ({
           </button>
           <button
             data-testid="sql-write-confirm-btn"
+            disabled={!canConfirm}
             onClick={onConfirm}
-            className="px-4 py-2 text-xs font-bold bg-gradient-to-r from-rose-600 to-orange-600 hover:from-rose-500 hover:to-orange-500 on-accent-fg rounded transition shadow flex items-center gap-1.5"
+            className="px-4 py-2 text-xs font-bold bg-gradient-to-r from-rose-600 to-orange-600 hover:from-rose-500 hover:to-orange-500 on-accent-fg rounded transition shadow flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            <Play className="w-3.5 h-3.5 fill-current text-emerald-50" strokeWidth={SQL_ICON_STROKE} /> Run anyway
+            <Play className="w-3.5 h-3.5 fill-current text-emerald-50" strokeWidth={SQL_ICON_STROKE} />{' '}
+            Run anyway
           </button>
         </div>
       </div>

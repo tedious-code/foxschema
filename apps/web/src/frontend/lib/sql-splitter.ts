@@ -4,6 +4,8 @@ export {
   requiresWritePermission,
   firstKeyword,
   extractTableAliases,
+  countReferencedTables,
+  referencedTableNames,
   statementVerb,
   isMutatingDmlStatement,
   dmlLacksWhere,
