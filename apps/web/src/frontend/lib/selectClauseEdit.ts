@@ -16,8 +16,15 @@ export function findSelectListRange(
   const head = sql.slice(i);
   const skip = /^\s+(?:distinct|all)\b/i.exec(head);
   if (skip) i += skip[0].length;
-  const top = /^\s+top\s+\d+(\s+percent)?\b/i.exec(sql.slice(i));
-  if (top) i += top[0].length;
+  // Two passes, not `\d+(\s+percent)?\b`: a `+` nested inside an optional group
+  // is the star-height-2 shape `security/detect-unsafe-regex` rejects, and this
+  // runs on every keystroke against editor text.
+  const top = /^\s+top\s+\d+\b/i.exec(sql.slice(i));
+  if (top) {
+    i += top[0].length;
+    const percent = /^\s+percent\b/i.exec(sql.slice(i));
+    if (percent) i += percent[0].length;
+  }
   const listStart = i;
   const fromRe = /\bfrom\b/i;
   const fromMatch = fromRe.exec(sql.slice(listStart));

@@ -20,6 +20,18 @@ describe('selectClauseEdit', () => {
     );
   });
 
+  it('skips DISTINCT / TOP n / TOP n PERCENT before the list', () => {
+    const listOf = (sql: string) => {
+      const r = findSelectListRange(sql);
+      return r ? sql.slice(r.listStart, r.listEnd).trim() : null;
+    };
+    expect(listOf('SELECT DISTINCT a, b FROM t')).toBe('a, b');
+    expect(listOf('SELECT TOP 10 a FROM t')).toBe('a');
+    expect(listOf('SELECT TOP 10 PERCENT a FROM t')).toBe('a');
+    // `10x` is not a TOP count, so nothing is skipped.
+    expect(listOf('SELECT top10x FROM t')).toBe('top10x');
+  });
+
   it('detects SELECT/FROM keyword under the caret', () => {
     const sql = 'SELECT * FROM t';
     expect(isSelectOrFromKeyword(sql, 0)).toBe('select');
