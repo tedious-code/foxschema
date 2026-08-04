@@ -21,6 +21,7 @@ import type { ColumnInfo, TableSchema } from '../../lib/types';
 import { executeSql } from '../../api/sqlApi';
 import {
   fetchIndexFragmentation,
+  matchIndexFragmentationRow,
   type IndexFragmentationApiRow,
   type IndexFragmentationResponse,
 } from '../../api/schemaApi';
@@ -1698,7 +1699,10 @@ export const TableBlueprintModal: React.FC<Props> = ({
                     )}
                     {existingIndexes.map((idx: IndexInfo) => {
                       const frag =
-                        fragRows[idx.name] ?? fragRows[idx.name.toLowerCase()];
+                        fragRows[idx.name] ??
+                        fragRows[idx.name.toLowerCase()] ??
+                        matchIndexFragmentationRow(idx.name, Object.values(fragRows)) ??
+                        undefined;
                       const severity = fragmentationSeverity(frag?.fragmentationPercent);
                       const defragSql =
                         fragDefrag[idx.name] ??
