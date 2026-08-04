@@ -31,7 +31,7 @@ import { useAuthStore } from '../../store/authStore';
 import { splitSqlStatements, type SplitStatement } from '../../lib/sql-splitter';
 import { formatEditorSql } from '../../utils/formatSql';
 import { effectiveConnectionIds, canExecuteWithoutDestination, resolveRunStatements } from '../../store/sqlEditorTabLogic';
-import { getSelectedSql, setCompletionContextGetter } from './sqlEditorBridge';
+import { getSelectedSql, setCompletionContextGetter, setSqlMutator } from './sqlEditorBridge';
 import { ConnectionChecklist } from './ConnectionChecklist';
 import { EditorTabBar } from './EditorTabBar';
 import { ResultsPanel } from './ResultsPanel';
@@ -137,6 +137,8 @@ export const SqlEditorView: React.FC = () => {
   const sharedConnectionIds = useSqlEditorStore((s) => s.sharedConnectionIds);
   const safeMode = useSqlEditorStore((s) => s.safeMode);
   const setSafeMode = useSqlEditorStore((s) => s.setSafeMode);
+  const multiTableConfirmThreshold = useSqlEditorStore((s) => s.multiTableConfirmThreshold);
+  const setMultiTableConfirmThreshold = useSqlEditorStore((s) => s.setMultiTableConfirmThreshold);
 
   const tab = tabs.find((t) => t.id === activeTabId) ?? tabs[0]!;
   // Drop connection ids that no longer exist in the saved list (persist-safe).
@@ -210,6 +212,13 @@ export const SqlEditorView: React.FC = () => {
         .filter((x): x is NonNullable<typeof x> => x != null);
       return { sql: active.sql, schemas, variables: state.variables };
     });
+    setSqlMutator((fn) => {
+      const state = useSqlEditorStore.getState();
+      const active = state.tabs.find((t) => t.id === state.activeTabId);
+      if (!active) return;
+      state.setSql(fn(active.sql));
+    });
+    return () => setSqlMutator(null);
   }, []);
 
   // Warm schema cache for checked credentials (autocomplete).
@@ -795,6 +804,26 @@ export const SqlEditorView: React.FC = () => {
             />
           </label>
 
+          <label
+            className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-500 ml-1"
+            title="When Safe mode is on, confirm runs that reference this many tables in one statement (0 = off). Suggests using a transaction."
+          >
+            Tables≥
+            <input
+              data-testid="sql-multi-table-threshold"
+              type="number"
+              min={0}
+              max={50}
+              value={multiTableConfirmThreshold}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                if (!Number.isFinite(n)) return;
+                setMultiTableConfirmThreshold(n);
+              }}
+              className="w-10 bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-[11px] text-slate-200 font-mono outline-none focus:border-cyan-600"
+            />
+          </label>
+
           <span className="text-[11px] text-slate-500 ml-1">
             {runCount} statement{runCount === 1 ? '' : 's'} · {liveSelectedIds.length} server
             {liveSelectedIds.length === 1 ? '' : 's'}
@@ -868,6 +897,8 @@ export const SqlEditorView: React.FC = () => {
           writeStatements={pendingWriteConfirm.writeStatements}
           credentialCount={pendingWriteConfirm.credentialCount}
           readonlyTargets={pendingWriteConfirm.readonlyTargets}
+          multiTableStatements={pendingWriteConfirm.multiTableStatements}
+          requireMissingWhereAck
           onCancel={cancelWriteConfirm}
           onConfirm={() =>
             execute({

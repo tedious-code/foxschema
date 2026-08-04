@@ -49,6 +49,20 @@ export function insertAtCursor(text: string): void {
   insertHandler?.(text);
 }
 
+type SqlMutator = (fn: (sql: string) => string) => void;
+let sqlMutator: SqlMutator | null = null;
+
+/** Wired from SqlEditorView — mutate active tab SQL (SELECT column inject). */
+export function setSqlMutator(fn: SqlMutator | null): void {
+  sqlMutator = fn;
+}
+
+export function mutateSql(fn: (sql: string) => string): boolean {
+  if (!sqlMutator) return false;
+  sqlMutator(fn);
+  return true;
+}
+
 type SelectionGetter = () => string | null;
 let selectionGetter: SelectionGetter = () => null;
 

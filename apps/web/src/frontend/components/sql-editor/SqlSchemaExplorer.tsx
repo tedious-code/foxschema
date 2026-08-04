@@ -12,7 +12,8 @@ import { useSyncStore } from '../../store/useSyncStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
 import { getProviderSettings } from '../../lib/provider-settings';
 import { TYPE_META } from '../SchemaTreePanel';
-import { filterCallParameters, insertAtCursor } from './sqlEditorBridge';
+import { filterCallParameters, insertAtCursor, mutateSql } from './sqlEditorBridge';
+import { insertIntoSelectList } from '../../lib/selectClauseEdit';
 import type { DbObjectType, TableSchema } from '../../lib/types';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
 import { TableBlueprintModal, type BlueprintMode } from './TableBlueprintModal';
@@ -425,6 +426,14 @@ const ObjectNode: React.FC<{
     insertAtCursor(`${quoteIfNeeded(name, dialect)} `);
   };
 
+  /** Add `table.column` into the active SELECT list (or insert at cursor). */
+  const insertColumnIntoSelect = (colName: string) => {
+    const col = quoteIfNeeded(colName, dialect);
+    const expr = `${insertName}.${col}`;
+    const ok = mutateSql((sql) => insertIntoSelectList(sql, expr));
+    if (!ok) insertAtCursor(`${expr}, `);
+  };
+
   return (
     <div className="min-w-0">
       <div className="flex items-center gap-0.5 min-w-0">
@@ -524,17 +533,26 @@ const ObjectNode: React.FC<{
       {open && !isRoutine && columns.length > 0 && (
         <ul className="ml-6 border-l border-slate-700/80 pl-2.5 flex flex-col gap-0.5 mb-1">
           {columns.map((col) => (
-            <li key={col.name}>
+            <li key={col.name} className="flex items-center gap-1 min-w-0">
               <button
                 type="button"
-                title={`Insert ${col.name}`}
+                title={`Insert ${col.name} at cursor`}
                 onClick={() => insertIdent(col.name)}
-                className="w-full text-left text-[12.5px] font-mono font-medium text-slate-300 hover:text-cyan-300 truncate py-1"
+                className="flex-1 min-w-0 text-left text-[12.5px] font-mono font-medium text-slate-300 hover:text-cyan-300 truncate py-1"
               >
                 {col.name}
                 {col.detail ? (
                   <span className="text-slate-500 ml-1.5 font-sans text-[12px]">{col.detail}</span>
                 ) : null}
+              </button>
+              <button
+                type="button"
+                data-testid={`sql-explorer-col-select-${table.name}-${col.name}`}
+                title={`Add ${insertName}.${col.name} into SELECT`}
+                onClick={() => insertColumnIntoSelect(col.name)}
+                className="shrink-0 px-1 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide text-cyan-300/90 border border-cyan-700/40 hover:bg-cyan-950/50"
+              >
+                Sel
               </button>
             </li>
           ))}

@@ -146,17 +146,43 @@ const PeekFilterBar: React.FC<{
         <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 shrink-0">
           Where
         </span>
-        <input
-          type="text"
-          data-testid={`data-peek-where-${entry.id}`}
-          placeholder="e.g. ARCHIVED = false"
-          value={where}
-          disabled={disabled}
-          onChange={(e) => setWhere(e.target.value)}
-          onKeyDown={onKeyDown}
-          onBlur={() => apply()}
-          className="w-full min-w-0 rounded border border-slate-700 bg-slate-950 px-1.5 py-1 text-[11px] font-mono text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-cyan-600"
-        />
+        <span className="relative flex-1 min-w-0">
+          <input
+            type="text"
+            data-testid={`data-peek-where-${entry.id}`}
+            placeholder="e.g. ARCHIVED = false — or clear to fetch all"
+            value={where}
+            disabled={disabled}
+            onChange={(e) => setWhere(e.target.value)}
+            onKeyDown={onKeyDown}
+            onBlur={() => apply()}
+            className="w-full min-w-0 rounded border border-slate-700 bg-slate-950 px-1.5 py-1 pr-7 text-[11px] font-mono text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-cyan-600"
+          />
+          {where.trim() !== '' && (
+            <button
+              type="button"
+              data-testid={`data-peek-where-clear-${entry.id}`}
+              title="Clear WHERE and fetch all rows"
+              disabled={disabled}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                setWhere('');
+                whereRef.current = '';
+                void updateDataPeekFilters(entry.id, {
+                  whereClause: '',
+                  orderByClause: orderByRef.current,
+                  limit: (() => {
+                    const parsed = Number.parseInt(limitRef.current, 10);
+                    return Number.isFinite(parsed) ? parsed : entry.limit;
+                  })(),
+                });
+              }}
+              className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded text-slate-500 hover:text-slate-200 hover:bg-slate-800 disabled:opacity-40"
+            >
+              <X className="w-3 h-3" strokeWidth={SQL_ICON_STROKE} />
+            </button>
+          )}
+        </span>
       </label>
       <label className="flex items-center gap-1 min-w-0 flex-1 basis-[9rem]">
         <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 shrink-0">

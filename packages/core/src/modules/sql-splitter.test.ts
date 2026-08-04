@@ -9,6 +9,8 @@ import {
   statementVerb,
   firstKeyword,
   extractTableAliases,
+  countReferencedTables,
+  referencedTableNames,
   isMutatingDmlStatement,
   dmlLacksWhere,
   parseCodeCell,
@@ -381,6 +383,20 @@ describe('extractTableAliases', () => {
     expect(map.order).toBe('ORDER');
     const quoted = extractTableAliases('SELECT u.x FROM "ORDER" AS u');
     expect(quoted.u).toBe('ORDER');
+  });
+});
+
+describe('countReferencedTables / referencedTableNames', () => {
+  it('counts distinct tables across joins (aliases collapse)', () => {
+    expect(
+      countReferencedTables('SELECT * FROM users u JOIN orders o ON o.uid = u.id JOIN users u2 ON 1=1')
+    ).toBe(2);
+    expect(referencedTableNames('UPDATE users SET x = 1')).toEqual(['users']);
+  });
+
+  it('returns 0 for statements without FROM/JOIN/UPDATE/INTO tables', () => {
+    expect(countReferencedTables('SELECT 1')).toBe(0);
+    expect(countReferencedTables('-- comment only')).toBe(0);
   });
 });
 

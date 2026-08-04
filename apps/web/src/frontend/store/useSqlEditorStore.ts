@@ -11,7 +11,13 @@ import { executeSql, type SqlStatementResult } from '../api/sqlApi';
 import type { SavedConnectionSummary } from '../api/authApi';
 import { resolveAppSecrets } from '../api/appSecretsApi';
 import { loadSchema } from '../api/schemaApi';
-import { isMutatingDmlStatement, isWriteStatement, splitSqlStatements } from '../lib/sql-splitter';
+import {
+  countReferencedTables,
+  isMutatingDmlStatement,
+  isWriteStatement,
+  referencedTableNames,
+  splitSqlStatements,
+} from '../lib/sql-splitter';
 import type { CodeCellLast } from '../lib/codeCellExec';
 import { detectCodeCell, runCodeCell, usesServerBeam } from '../lib/codeCellRunner';
 import { beamAliasesForCount, MAX_SERVERS } from '../../shared/server-beam';
@@ -85,6 +91,17 @@ export interface SqlBookmark {
   selectedConnectionIds: string[];
   updatedAt: number;
 }
+
+/** Recently executed query (persisted, capped). */
+export interface RecentQuery {
+  id: string;
+  sql: string;
+  /** Tab title at run time (optional label). */
+  title: string;
+  ranAt: number;
+}
+
+const MAX_RECENT_QUERIES = 40;
 
 /** One checked credential's execution state for a tab's last run. */
 export interface CredentialRun {
@@ -352,6 +369,8 @@ interface SqlEditorState {
     credentialCount: number;
     /** Checked credentials whose dialect cannot execute writes. */
     readonlyTargets: ReadonlyWriteTarget[];
+    /** Statements that touch many tables (threshold from setting). */
+    multiTableStatements: Array<{ text: string; tableCount: number; tables: string[] }>;
     /** When set, confirm resumes execute for only these credentials. */
     connectionIds?: string[];
     /** When set, confirm resumes execute for only these statement indices. */
@@ -365,6 +384,11 @@ interface SqlEditorState {
    */
   safeMode: boolean;
   /**
+   * Prompt when a statement references this many (or more) tables.
+   * Suggests wrapping work in a transaction. `0` disables the check.
+   */
+  multiTableConfirmThreshold: number;
+  /**
    * When true, every query tab shares `sharedConnectionIds`.
    * When false, each tab keeps its own `selectedConnectionIds`.
    */
@@ -372,6 +396,8 @@ interface SqlEditorState {
   sharedConnectionIds: string[];
   /** Named saved scripts — persisted. */
   bookmarks: SqlBookmark[];
+  /** Recent runs for quick reuse — persisted. */
+  recentQueries: RecentQuery[];
   /** Global SQL Editor variables (`${{name}}`) — persisted. */
   variables: SqlVariable[];
 
@@ -388,6 +414,9 @@ interface SqlEditorState {
   ensureConnectionSelected: (id: string) => void;
   setShareDestinations: (share: boolean) => void;
   setSafeMode: (on: boolean) => void;
+  setMultiTableConfirmThreshold: (n: number) => void;
+  openRecentQuery: (id: string) => void;
+  clearRecentQueries: () => void;
   toggleStatement: (index: number) => void;
   setLayout: (layout: ResultsLayout) => void;
   addTab: () => void;
@@ -501,9 +530,11 @@ export const useSqlEditorStore = create<SqlEditorState>()(
       pendingPassword: null,
       maxRows: 200,
       safeMode: true,
+      multiTableConfirmThreshold: 3,
       shareDestinations: true,
       sharedConnectionIds: [],
       bookmarks: [],
+      recentQueries: [],
       variables: [],
 
       activeTab: () => {
@@ -710,6 +741,27 @@ export const useSqlEditorStore = create<SqlEditorState>()(
 
       setSafeMode: (on) => set({ safeMode: on }),
 
+      setMultiTableConfirmThreshold: (n) =>
+        set({
+          multiTableConfirmThreshold: Math.max(0, Math.min(50, Math.floor(Number(n) || 0))),
+        }),
+
+      openRecentQuery: (id) => {
+        const { recentQueries, tabs, shareDestinations, sharedConnectionIds } = get();
+        const entry = recentQueries.find((r) => r.id === id);
+        if (!entry) return;
+        const tab = createTab({
+          title: entry.title?.trim() || 'Recent query',
+          sql: entry.sql,
+          selectedConnectionIds: shareDestinations
+            ? [...sharedConnectionIds]
+            : (tabs.find((t) => t.id === get().activeTabId)?.selectedConnectionIds ?? []),
+        });
+        set({ tabs: [...tabs, tab], activeTabId: tab.id });
+      },
+
+      clearRecentQueries: () => set({ recentQueries: [] }),
+
       ensureSchema: async (connectionId, { force = false } = {}) => {
         const SQL_EDITOR_SCOPE = ['TABLE', 'VIEW', 'MQT', 'PROCEDURE', 'FUNCTION'] as const;
         const prunedStart = pruneSchemaCache(get().schemaCache);
@@ -820,6 +872,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           shareDestinations,
           sharedConnectionIds,
           safeMode,
+          multiTableConfirmThreshold,
         } = get();
         if (runningTabId) return;
 
@@ -898,10 +951,23 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         const strippedForConfirm = rawStatements.map((s) => parseSetDirectives(s).sql);
         const writeStatements = strippedForConfirm.filter((s) => isWriteStatement(s));
         const mutatingDml = writeStatements.filter((s) => isMutatingDmlStatement(s));
+        const threshold = multiTableConfirmThreshold;
+        const multiTableStatements =
+          safeMode && threshold > 0
+            ? strippedForConfirm
+                .map((text) => {
+                  const tableCount = countReferencedTables(text);
+                  if (tableCount < threshold) return null;
+                  return { text, tableCount, tables: referencedTableNames(text) };
+                })
+                .filter((x): x is { text: string; tableCount: number; tables: string[] } => x != null)
+            : [];
         const needsConfirm =
           safeMode &&
           !confirmedWrites &&
-          (mutatingDml.length > 0 || writeStatements.length > 0);
+          (mutatingDml.length > 0 ||
+            writeStatements.length > 0 ||
+            multiTableStatements.length > 0);
         if (needsConfirm) {
           const readonlyTargets = connections
             .filter((c) => READONLY_DIALECTS.has(c.dialect.toLowerCase()))
@@ -912,6 +978,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
               writeStatements,
               credentialCount: connections.length,
               readonlyTargets,
+              multiTableStatements,
               connectionIds: connectionIds?.length ? connectionIds : undefined,
               statementIndices: statementIndices?.length ? statementIndices : undefined,
             },
@@ -1332,6 +1399,21 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         set((state) => {
           const current = state.resultsByTab[tabId];
           if (!current) return state;
+          // Record a recent query when at least one statement ran.
+          const sqlSnippet = (current.ranStatements ?? []).join('\n').trim() || tab.sql.trim();
+          let recentQueries = state.recentQueries;
+          if (sqlSnippet) {
+            const entry: RecentQuery = {
+              id: newTabId(),
+              sql: truncatePersistedSql(sqlSnippet),
+              title: tab.title || 'Query',
+              ranAt: Date.now(),
+            };
+            recentQueries = [
+              entry,
+              ...state.recentQueries.filter((r) => r.sql !== entry.sql),
+            ].slice(0, MAX_RECENT_QUERIES);
+          }
           return {
             resultsByTab: {
               ...state.resultsByTab,
@@ -1342,6 +1424,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
                 pageSqlByConnection,
               },
             },
+            recentQueries,
             runningTabId: null,
           };
         });
@@ -1961,8 +2044,8 @@ export const useSqlEditorStore = create<SqlEditorState>()(
     }),
     {
       name: 'foxschema-sql-editor',
-      version: 6,
-      // Persist tabs + destinations mode + bookmarks + variables. Never passwords/results.
+      version: 7,
+      // Persist tabs + destinations mode + bookmarks + recent + variables. Never passwords/results.
       // Secret variable payloads are stripped (session-only values).
       partialize: (state) => {
         const tabs = persistableTabs(state.tabs).map((t) => ({
@@ -1973,14 +2056,20 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           .sort((a, b) => b.updatedAt - a.updatedAt)
           .slice(0, MAX_PERSISTED_BOOKMARKS)
           .map((b) => ({ ...b, sql: truncatePersistedSql(b.sql) }));
+        const recentQueries = [...state.recentQueries]
+          .sort((a, b) => b.ranAt - a.ranAt)
+          .slice(0, MAX_RECENT_QUERIES)
+          .map((r) => ({ ...r, sql: truncatePersistedSql(r.sql) }));
         return {
           tabs,
           activeTabId: state.activeTabId,
           maxRows: state.maxRows,
           safeMode: state.safeMode,
+          multiTableConfirmThreshold: state.multiTableConfirmThreshold,
           shareDestinations: state.shareDestinations,
           sharedConnectionIds: state.sharedConnectionIds,
           bookmarks,
+          recentQueries,
           variables: stripSecretsForPersist(state.variables),
         };
       },
@@ -2049,6 +2138,17 @@ export const useSqlEditorStore = create<SqlEditorState>()(
             maxRows: typeof p.maxRows === 'number' ? p.maxRows : 200,
           };
         }
+        // v7: recent queries + multi-table confirm threshold.
+        if (fromVersion < 7) {
+          return {
+            ...p,
+            recentQueries: Array.isArray(p.recentQueries) ? p.recentQueries : [],
+            multiTableConfirmThreshold:
+              typeof p.multiTableConfirmThreshold === 'number'
+                ? p.multiTableConfirmThreshold
+                : 3,
+          };
+        }
         return p;
       },
       // Always rehydrate checkedStatements (not persisted) and drop malformed tabs.
@@ -2059,9 +2159,11 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           activeTabId?: string;
           maxRows?: number;
           safeMode?: boolean;
+          multiTableConfirmThreshold?: number;
           shareDestinations?: boolean;
           sharedConnectionIds?: string[];
           bookmarks?: SqlBookmark[];
+          recentQueries?: RecentQuery[];
           variables?: SqlVariable[];
         };
         const tabs = hydrateTabs(Array.isArray(p.tabs) ? p.tabs : []);
@@ -2110,18 +2212,42 @@ export const useSqlEditorStore = create<SqlEditorState>()(
             : []
         );
 
+        const recentQueries = Array.isArray(p.recentQueries)
+          ? p.recentQueries
+              .filter(
+                (r) =>
+                  r &&
+                  typeof r.id === 'string' &&
+                  typeof r.sql === 'string' &&
+                  typeof r.ranAt === 'number'
+              )
+              .map((r) => ({
+                id: r.id,
+                sql: truncatePersistedSql(r.sql),
+                title: typeof r.title === 'string' ? r.title : 'Query',
+                ranAt: r.ranAt,
+              }))
+              .sort((a, b) => b.ranAt - a.ranAt)
+              .slice(0, MAX_RECENT_QUERIES)
+          : [];
+
         return {
           ...currentState,
           tabs: healedTabs,
           activeTabId,
           maxRows: typeof p.maxRows === 'number' ? p.maxRows : currentState.maxRows,
           safeMode: typeof p.safeMode === 'boolean' ? p.safeMode : true,
+          multiTableConfirmThreshold:
+            typeof p.multiTableConfirmThreshold === 'number'
+              ? p.multiTableConfirmThreshold
+              : 3,
           shareDestinations:
             typeof p.shareDestinations === 'boolean' ? p.shareDestinations : true,
           sharedConnectionIds: Array.isArray(p.sharedConnectionIds)
             ? p.sharedConnectionIds.filter((id) => typeof id === 'string')
             : [],
           bookmarks: healedBookmarks,
+          recentQueries,
           variables,
         };
       },
