@@ -10,6 +10,7 @@ import { useSyncStore } from '../../store/useSyncStore';
 import { toast } from '../../store/toastStore';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
 import { scrubRemovedFileConnections, selectFileImportInEditor } from './fileQueryEditorHelpers';
+import { formatFileImportWhen, importCreatedAtMs } from './fileImportsTime';
 
 type Props = {
   refreshKey?: number;
@@ -157,67 +158,88 @@ export const FileImportsPanel: React.FC<Props> = ({ refreshKey = 0, onImportClic
             </p>
           </div>
         ) : (
-          imports.map((imp) => (
+          <>
             <div
-              key={imp.id}
-              className="rounded-md border border-slate-800 bg-slate-950/60 px-1.5 py-1.5"
-              data-testid={`file-import-${imp.id}`}
+              className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-2 px-1 pb-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-600 shrink-0"
+              data-testid="file-imports-table-head"
             >
-              <div className="mb-1 flex items-start gap-1">
-                <div className="min-w-0 flex-1">
-                  <p
-                    className="truncate text-[11px] font-semibold text-slate-200"
-                    title={imp.name}
-                  >
-                    {imp.name.replace(/^Files:\s*/i, '')}
-                  </p>
-                  <p className="text-[10px] text-slate-500">
-                    {imp.tables.length} table{imp.tables.length === 1 ? '' : 's'}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  className="shrink-0 p-1 rounded text-slate-500 hover:text-rose-300 hover:bg-rose-950/30 disabled:opacity-40"
-                  title="Remove this import"
-                  data-testid={`file-import-delete-${imp.id}`}
-                  onClick={() => void handleDeleteOne(imp.id, imp.name)}
-                  disabled={busyId !== null}
-                >
-                  {busyId === imp.id ? (
-                    <Loader2 className="w-3 h-3 animate-spin" strokeWidth={SQL_ICON_STROKE} />
-                  ) : (
-                    <Trash2 className="w-3 h-3" strokeWidth={SQL_ICON_STROKE} />
-                  )}
-                </button>
-              </div>
-              <ul className="space-y-0.5">
-                {imp.tables.length === 0 ? (
-                  <li className="px-1 text-[10px] text-slate-600">No tables</li>
-                ) : (
-                  imp.tables.map((tableName) => (
-                    <li key={tableName}>
-                      <button
-                        type="button"
-                        className="w-full rounded px-1.5 py-1 text-left text-[11px] font-mono text-slate-300 hover:bg-slate-800 hover:text-slate-100 truncate"
-                        title={`Query ${tableName} on this file database`}
-                        data-testid={`file-import-use-${imp.id}-${tableName}`}
-                        onClick={() => {
-                          selectFileImportInEditor(imp.id, tableName);
-                          toast({
-                            tone: 'success',
-                            title: 'Ready to query',
-                            body: `"${imp.name}" checked — run the sample SELECT.`,
-                          });
-                        }}
-                      >
-                        {tableName}
-                      </button>
-                    </li>
-                  ))
-                )}
-              </ul>
+              <span>Name</span>
+              <span className="text-right">When</span>
+              <span />
             </div>
-          ))
+            {imports.map((imp) => {
+              const createdMs = importCreatedAtMs(imp.createdAt);
+              const whenLabel = formatFileImportWhen(imp.createdAt);
+              return (
+                <div
+                  key={imp.id}
+                  className="rounded-md border border-slate-800 bg-slate-950/60 px-1.5 py-1.5"
+                  data-testid={`file-import-${imp.id}`}
+                >
+                  <div className="mb-1 grid grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-x-2">
+                    <div className="min-w-0">
+                      <p
+                        className="truncate text-[11px] font-semibold text-slate-200"
+                        title={imp.name}
+                      >
+                        {imp.name.replace(/^Files:\s*/i, '')}
+                      </p>
+                      <p className="text-[10px] text-slate-500">
+                        {imp.tables.length} table{imp.tables.length === 1 ? '' : 's'}
+                      </p>
+                    </div>
+                    <span
+                      className="text-[10px] font-medium text-slate-500 text-right tabular-nums shrink-0 pt-0.5"
+                      data-testid={`file-import-when-${imp.id}`}
+                      title={createdMs ? new Date(createdMs).toLocaleString() : undefined}
+                    >
+                      {whenLabel || '—'}
+                    </span>
+                    <button
+                      type="button"
+                      className="shrink-0 p-1 rounded text-slate-500 hover:text-rose-300 hover:bg-rose-950/30 disabled:opacity-40"
+                      title="Remove this import"
+                      data-testid={`file-import-delete-${imp.id}`}
+                      onClick={() => void handleDeleteOne(imp.id, imp.name)}
+                      disabled={busyId !== null}
+                    >
+                      {busyId === imp.id ? (
+                        <Loader2 className="w-3 h-3 animate-spin" strokeWidth={SQL_ICON_STROKE} />
+                      ) : (
+                        <Trash2 className="w-3 h-3" strokeWidth={SQL_ICON_STROKE} />
+                      )}
+                    </button>
+                  </div>
+                  <ul className="space-y-0.5">
+                    {imp.tables.length === 0 ? (
+                      <li className="px-1 text-[10px] text-slate-600">No tables</li>
+                    ) : (
+                      imp.tables.map((tableName) => (
+                        <li key={tableName}>
+                          <button
+                            type="button"
+                            className="w-full rounded px-1.5 py-1 text-left text-[11px] font-mono text-slate-300 hover:bg-slate-800 hover:text-slate-100 truncate"
+                            title={`Query ${tableName} on this file database`}
+                            data-testid={`file-import-use-${imp.id}-${tableName}`}
+                            onClick={() => {
+                              selectFileImportInEditor(imp.id, tableName);
+                              toast({
+                                tone: 'success',
+                                title: 'Ready to query',
+                                body: `"${imp.name}" checked — run the sample SELECT.`,
+                              });
+                            }}
+                          >
+                            {tableName}
+                          </button>
+                        </li>
+                      ))
+                    )}
+                  </ul>
+                </div>
+              );
+            })}
+          </>
         )}
       </div>
     </div>
