@@ -33,6 +33,33 @@ export type FragProbeFailure = {
   status: number;
 };
 
+/**
+ * Dialects that key catalog probes by database/owner often store that name on
+ * `option.database` (MySQL family) or `option.username` (Oracle) while the
+ * saved connection `schema` field is left blank. Schema load already falls
+ * back; fragmentation must too or Utilities shows empty % while Edit Table
+ * can still look fine when schema was typed once / defaulted elsewhere.
+ */
+export function resolveFragmentationSchema(
+  dialect: string,
+  schema: string | undefined,
+  option: ConnectionOptions
+): string {
+  const explicit = (schema ?? '').trim();
+  if (explicit) return explicit;
+  const d = dialect.toLowerCase();
+  if (d === 'mysql' || d === 'mariadb' || d === 'tidb') {
+    return String(option.database || option.schema || '').trim();
+  }
+  if (d === 'oracle') {
+    return String(option.schema || option.username || '').trim();
+  }
+  if (d === 'db2') {
+    return String(option.schema || '').trim();
+  }
+  return '';
+}
+
 async function runProbe(
   dialect: string,
   option: ConnectionOptions,
@@ -85,7 +112,8 @@ export async function probeTableFragmentation(opts: {
   customSql?: string;
   preferCustom?: boolean;
 }): Promise<{ ok: true; value: FragProbeResult } | { ok: false; failure: FragProbeFailure }> {
-  const { dialect, option, schema, table } = opts;
+  const { dialect, option, table } = opts;
+  const schema = resolveFragmentationSchema(dialect, opts.schema, option);
   const customSql = (opts.customSql ?? '').trim();
   const preferCustom = opts.preferCustom === true;
   const support = dialectSupportsIndexFragmentation(dialect);

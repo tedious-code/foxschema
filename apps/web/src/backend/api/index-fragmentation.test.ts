@@ -9,11 +9,49 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rmSync } from 'node:fs';
-import { probeTableFragmentation, mapPool } from './index-fragmentation';
+import { probeTableFragmentation, mapPool, resolveFragmentationSchema } from './index-fragmentation';
 import { ConnectionFactory } from '@foxschema/core';
 
 const dbPath = join(tmpdir(), `fox-index-frag-test-${process.pid}.db`);
 const option = { connectionString: dbPath };
+
+describe('resolveFragmentationSchema', () => {
+  it('falls back to option.database for MySQL-family when schema is blank', () => {
+    expect(
+      resolveFragmentationSchema('mysql', '', { database: 'shop' })
+    ).toBe('shop');
+    expect(
+      resolveFragmentationSchema('mariadb', '', { database: 'shop' })
+    ).toBe('shop');
+    expect(resolveFragmentationSchema('tidb', 'explicit', { database: 'shop' })).toBe(
+      'explicit'
+    );
+  });
+
+  it('falls back to username for Oracle when schema is blank', () => {
+    expect(
+      resolveFragmentationSchema('oracle', '', { username: 'HR', database: 'ORCL' })
+    ).toBe('HR');
+  });
+
+  it('keeps empty for dialects that default inside the probe SQL', () => {
+    expect(resolveFragmentationSchema('postgres', '', { database: 'app' })).toBe('');
+    expect(resolveFragmentationSchema('sqlserver', '', { database: 'app' })).toBe('');
+  });
+
+  it('lets MySQL probe build when only option.database is set', async () => {
+    const { buildIndexFragmentationQuery } = await import('@foxschema/core');
+    const schema = resolveFragmentationSchema('mysql', '', { database: 'orders_db' });
+    const q = buildIndexFragmentationQuery({
+      dialect: 'mysql',
+      schema,
+      table: 'orders',
+    });
+    expect('error' in q).toBe(false);
+    if ('error' in q) return;
+    expect(q.params).toEqual(['orders_db', 'orders']);
+  });
+});
 
 describe('probeTableFragmentation against a real SQLite file', () => {
   beforeAll(async () => {

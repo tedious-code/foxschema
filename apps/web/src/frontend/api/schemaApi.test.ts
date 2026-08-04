@@ -1,5 +1,38 @@
 import { describe, expect, it } from 'vitest';
-import { cacheKeyForRef, nonSecretFingerprint, type ConnectionRef } from './schemaApi';
+import {
+  cacheKeyForRef,
+  matchIndexFragmentationRow,
+  nonSecretFingerprint,
+  type ConnectionRef,
+} from './schemaApi';
+
+describe('matchIndexFragmentationRow', () => {
+  const rows = [
+    { indexName: 'IX_Orders_Customer', fragmentationPercent: 12.5, pageCount: 9 },
+    { indexName: 'dbo.IX_Orders_Status', fragmentationPercent: 40, pageCount: 3 },
+  ];
+
+  it('matches exact and case-insensitive names', () => {
+    expect(matchIndexFragmentationRow('IX_Orders_Customer', rows)?.fragmentationPercent).toBe(
+      12.5
+    );
+    expect(matchIndexFragmentationRow('ix_orders_customer', rows)?.fragmentationPercent).toBe(
+      12.5
+    );
+  });
+
+  it('matches schema-qualified probe names to bare catalog names', () => {
+    expect(matchIndexFragmentationRow('IX_Orders_Status', rows)?.fragmentationPercent).toBe(40);
+    expect(matchIndexFragmentationRow('dbo.IX_Orders_Status', rows)?.fragmentationPercent).toBe(
+      40
+    );
+  });
+
+  it('returns null when nothing matches', () => {
+    expect(matchIndexFragmentationRow('missing', rows)).toBeNull();
+    expect(matchIndexFragmentationRow('', rows)).toBeNull();
+  });
+});
 
 describe('cacheKeyForRef', () => {
   it('uses connectionId plus schema and password fingerprint', () => {

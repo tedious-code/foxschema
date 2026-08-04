@@ -27,6 +27,7 @@ import {
 } from '@foxschema/core';
 import {
   fetchIndexFragmentationBatch,
+  matchIndexFragmentationRow,
   type IndexFragmentationApiRow,
 } from '../../api/schemaApi';
 import { executeSql } from '../../api/sqlApi';
@@ -89,8 +90,14 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
   const [status, setStatus] = useState<string | null>(null);
   const [confirmDefrag, setConfirmDefrag] = useState<'selected' | 'filtered' | null>(null);
 
+  const initOpen = React.useRef(false);
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      initOpen.current = false;
+      return;
+    }
+    if (initOpen.current) return;
+    initOpen.current = true;
     const saved = localStorage.getItem(LS_CONN) || '';
     const fallback = connections[0]?.id || '';
     const next = connections.some((c) => c.id === saved) ? saved : fallback;
@@ -175,120 +182,182 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
     return [...map.entries()];
   }, [filteredRows]);
 
-  const loadSchema = useCallback(async () => {
-    if (!connectionId) return;
-    setLoadingSchema(true);
-    setError(null);
-    setStatus(null);
-    try {
-      ensureConnectionSelected(connectionId);
-      await ensureSchema(connectionId, { force: true });
-      const entry = useSqlEditorStore.getState().schemaCache[connectionId];
-      if (entry?.status === 'error') {
-        setError(entry.error || 'Failed to load schema');
-      } else {
-        const n = (entry?.tables ?? []).reduce((acc, t) => acc + (t.indices?.length ?? 0), 0);
-        setStatus(`Loaded ${n} index(es) from schema catalog.`);
-        setExpanded(new Set((entry?.tables ?? []).slice(0, 12).map((t) => t.name)));
-      }
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoadingSchema(false);
-    }
-  }, [connectionId, ensureConnectionSelected, ensureSchema]);
-
-  const fetchFragmentation = useCallback(async () => {
-    if (!connectionId || !conn) return;
-    if (needsPassword) {
-      setError('Enter the session password for this credential first.');
-      return;
-    }
-    const tableNames = tablesWithIndexes.map((t) => t.name);
-    if (tableNames.length === 0) {
-      setError('No indexed tables in the loaded schema — click Load indexes first.');
-      return;
-    }
-    setLoadingFrag(true);
-    setError(null);
-    setStatus(null);
-    try {
-      const chunks: string[][] = [];
-      for (let i = 0; i < tableNames.length; i += 80) {
-        chunks.push(tableNames.slice(i, i + 80));
-      }
+  const applyFragBatch = useCallback(
+    (
+      results: Awaited<ReturnType<typeof fetchIndexFragmentationBatch>>['results'],
+      dialect: string,
+      schema: string | undefined,
+      tables: TableSchema[]
+    ) => {
       const next: typeof fragByKey = {};
       let okTables = 0;
       let failTables = 0;
-      for (const chunk of chunks) {
-        const batch = await fetchIndexFragmentationBatch(
-          {
-            connectionId,
-            password: sessionPasswords[connectionId] || undefined,
-            schema: conn.schema?.trim() || undefined,
-          },
-          { tables: chunk, schema: conn.schema?.trim() || undefined }
-        );
-        for (const result of batch.results) {
-          if (!result.ok) {
-            failTables += 1;
-            const table = tablesWithIndexes.find((t) => t.name === result.table);
-            for (const index of table?.indices ?? []) {
-              next[`${result.table}::${index.name}`] = {
-                frag: null,
-                defragSql: buildIndexDefragSql({
-                  dialect: conn.dialect,
-                  schema: conn.schema,
-                  table: result.table,
-                  indexName: index.name,
-                }),
-                tableError: result.error,
-              };
-            }
-            continue;
-          }
-          okTables += 1;
-          const byName = new Map(result.rows.map((r) => [r.indexName, r]));
-          const byNameLower = new Map(
-            result.rows.map((r) => [r.indexName.toLowerCase(), r])
-          );
-          const table = tablesWithIndexes.find((t) => t.name === result.table);
+      for (const result of results) {
+        if (!result.ok) {
+          failTables += 1;
+          const table = tables.find((t) => t.name === result.table);
           for (const index of table?.indices ?? []) {
-            const frag =
-              byName.get(index.name) ?? byNameLower.get(index.name.toLowerCase()) ?? null;
-            const defragSql =
-              (result.defrag[index.name] ||
-                result.defrag[index.name.toLowerCase()] ||
-                buildIndexDefragSql({
-                  dialect: conn.dialect,
-                  schema: conn.schema,
-                  table: result.table,
-                  indexName: index.name,
-                  fragmentationPercent: frag?.fragmentationPercent,
-                })) ?? [];
-            next[`${result.table}::${index.name}`] = { frag, defragSql };
+            next[`${result.table}::${index.name}`] = {
+              frag: null,
+              defragSql: buildIndexDefragSql({
+                dialect,
+                schema,
+                table: result.table,
+                indexName: index.name,
+              }),
+              tableError: result.error,
+            };
           }
+          continue;
+        }
+        okTables += 1;
+        const table = tables.find((t) => t.name === result.table);
+        for (const index of table?.indices ?? []) {
+          const frag = matchIndexFragmentationRow(index.name, result.rows);
+          const defragKey =
+            (frag && (result.defrag[frag.indexName] || result.defrag[frag.indexName.toLowerCase()])) ||
+            result.defrag[index.name] ||
+            result.defrag[index.name.toLowerCase()];
+          const defragSql =
+            defragKey ??
+            buildIndexDefragSql({
+              dialect,
+              schema,
+              table: result.table,
+              indexName: index.name,
+              fragmentationPercent: frag?.fragmentationPercent,
+            });
+          next[`${result.table}::${index.name}`] = { frag, defragSql };
         }
       }
       setFragByKey(next);
-      setStatus(
-        `Fragmentation loaded for ${okTables} table(s)` +
-          (failTables ? `; ${failTables} failed` : '') +
-          `. ${fragSupport.hint}`
-      );
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoadingFrag(false);
+      return { okTables, failTables };
+    },
+    []
+  );
+
+  const fetchFragmentation = useCallback(
+    async (tables = tablesWithIndexes) => {
+      if (!connectionId || !conn) return;
+      if (needsPassword) {
+        setError('Enter the session password for this credential first.');
+        return;
+      }
+      const tableNames = tables.map((t) => t.name);
+      if (tableNames.length === 0) {
+        setError('No indexed tables in the loaded schema — click Load indexes first.');
+        return;
+      }
+      setLoadingFrag(true);
+      setError(null);
+      setStatus(null);
+      try {
+        const chunks: string[][] = [];
+        for (let i = 0; i < tableNames.length; i += 80) {
+          chunks.push(tableNames.slice(i, i + 80));
+        }
+        const allResults: Awaited<ReturnType<typeof fetchIndexFragmentationBatch>>['results'] =
+          [];
+        for (const chunk of chunks) {
+          const batch = await fetchIndexFragmentationBatch(
+            {
+              connectionId,
+              password: sessionPasswords[connectionId] || undefined,
+              schema: conn.schema?.trim() || undefined,
+            },
+            { tables: chunk, schema: conn.schema?.trim() || undefined }
+          );
+          allResults.push(...batch.results);
+        }
+        const { okTables, failTables } = applyFragBatch(
+          allResults,
+          conn.dialect,
+          conn.schema,
+          tables
+        );
+        setStatus(
+          `Fragmentation loaded for ${okTables} table(s)` +
+            (failTables ? `; ${failTables} failed` : '') +
+            `. ${fragSupport.hint}`
+        );
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setLoadingFrag(false);
+      }
+    },
+    [
+      connectionId,
+      conn,
+      needsPassword,
+      tablesWithIndexes,
+      sessionPasswords,
+      fragSupport.hint,
+      applyFragBatch,
+    ]
+  );
+
+  const loadSchema = useCallback(
+    async (opts?: { force?: boolean }) => {
+      if (!connectionId) return;
+      setLoadingSchema(true);
+      setError(null);
+      setStatus(null);
+      try {
+        ensureConnectionSelected(connectionId);
+        await ensureSchema(connectionId, { force: opts?.force ?? true });
+        const entry = useSqlEditorStore.getState().schemaCache[connectionId];
+        if (entry?.status === 'error') {
+          setError(entry.error || 'Failed to load schema');
+          return;
+        }
+        const tables = (entry?.tables ?? [])
+          .filter((t) => t.objectType === 'TABLE' || t.objectType === 'MQT')
+          .filter((t) => (t.indices?.length ?? 0) > 0)
+          .slice()
+          .sort((a, b) => a.name.localeCompare(b.name));
+        const n = tables.reduce((acc, t) => acc + (t.indices?.length ?? 0), 0);
+        setStatus(`Loaded ${n} index(es) from schema catalog.`);
+        setExpanded(new Set(tables.slice(0, 12).map((t) => t.name)));
+        setLoadingSchema(false);
+        // Same path as Edit Table: load % automatically so Utilities is not empty.
+        if (tables.length > 0 && conn && !needsPassword) {
+          await fetchFragmentation(tables);
+        }
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setLoadingSchema(false);
+      }
+    },
+    [
+      connectionId,
+      ensureConnectionSelected,
+      ensureSchema,
+      conn,
+      needsPassword,
+      fetchFragmentation,
+    ]
+  );
+
+  // On open (and when the credential changes), load indexes + fragmentation —
+  // Edit Table already auto-refreshes %; Utilities must too.
+  const lastAutoKey = React.useRef('');
+  useEffect(() => {
+    if (!open) {
+      lastAutoKey.current = '';
+      return;
     }
-  }, [
-    connectionId,
-    conn,
-    needsPassword,
-    tablesWithIndexes,
-    sessionPasswords,
-    fragSupport.hint,
-  ]);
+    if (!connectionId || needsPassword) {
+      // Allow a retry once the session password is saved.
+      if (needsPassword) lastAutoKey.current = '';
+      return;
+    }
+    const key = connectionId;
+    if (lastAutoKey.current === key) return;
+    lastAutoKey.current = key;
+    void loadSchema({ force: false });
+  }, [open, connectionId, needsPassword, loadSchema]);
 
   const runDefrag = useCallback(
     async (keys: string[]) => {
@@ -473,7 +542,7 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
               type="button"
               data-testid="index-mgmt-load"
               disabled={!connectionId || loadingSchema || needsPassword}
-              onClick={() => void loadSchema()}
+              onClick={() => void loadSchema({ force: true })}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md border border-slate-600 bg-slate-800 text-slate-100 hover:bg-slate-700 disabled:opacity-50"
             >
               {loadingSchema ? (
@@ -584,7 +653,7 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
           {grouped.length === 0 ? (
             <p className="px-2 py-8 text-center text-sm text-slate-500">
               {connectionId
-                ? 'No indexes to show. Load indexes, then optionally fetch fragmentation and adjust filters.'
+                ? 'No indexes to show. Indexes and fragmentation load automatically when you pick a credential (or click Load indexes).'
                 : 'Select a credential to begin.'}
             </p>
           ) : (

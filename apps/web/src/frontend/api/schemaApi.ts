@@ -180,6 +180,35 @@ export type IndexFragmentationApiRow = {
   pageCount?: number | null;
 };
 
+/** Bare index name after an optional schema/owner qualifier (`dbo.ix` → `ix`). */
+function bareIndexName(name: string): string {
+  const t = name.trim();
+  const i = t.lastIndexOf('.');
+  return i >= 0 ? t.slice(i + 1) : t;
+}
+
+/**
+ * Match a schema-catalog index name to a fragmentation probe row.
+ * Tolerates case differences and `schema.index` vs bare `index` names so
+ * Utilities → Index Management does not show empty % when Edit Table works.
+ */
+export function matchIndexFragmentationRow(
+  indexName: string,
+  rows: ReadonlyArray<IndexFragmentationApiRow>
+): IndexFragmentationApiRow | null {
+  const want = indexName.trim();
+  if (!want) return null;
+  const wantLower = want.toLowerCase();
+  const wantBare = bareIndexName(want).toLowerCase();
+  for (const row of rows) {
+    const n = (row.indexName ?? '').trim();
+    if (!n) continue;
+    if (n === want || n.toLowerCase() === wantLower) return row;
+    if (bareIndexName(n).toLowerCase() === wantBare) return row;
+  }
+  return null;
+}
+
 export type IndexFragmentationResponse = {
   rows: IndexFragmentationApiRow[];
   source: 'default' | 'custom';
