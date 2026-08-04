@@ -618,4 +618,37 @@ describe('RBAC classifier — leading punctuation / batches / parenthesized PRAG
     expect(isWriteStatement('PRAGMA user_version(123)')).toBe(true);
     expect(requiresWritePermission('PRAGMA table_info(users)')).toBe(false);
   });
+
+  it('does not treat a code-fence prefix as a free pass for trailing SQL', () => {
+    // `-- @node` / `-- @end` are ordinary SQL `--` comments to the database.
+    // A viewer posting these through /sql/execute (or a cell emitting them on
+    // the bridge) must still need editor.dml / editor.ddl.
+    const afterClosed =
+      '-- @node\n-- @end\nDELETE FROM important_table WHERE id = 1';
+    expect(sqlStatementCategories(afterClosed).sort()).toEqual(['dml', 'read']);
+    expect(sqlStatementCategory(afterClosed)).toBe('dml');
+    expect(requiresWritePermission(afterClosed)).toBe(true);
+    expect(isWriteStatement(afterClosed)).toBe(true);
+    expect(isMutatingDmlStatement(afterClosed)).toBe(true);
+
+    const afterClosedDdl =
+      '-- @js\nreturn 1;\n-- @end\nDROP TABLE users';
+    expect(sqlStatementCategory(afterClosedDdl)).toBe('ddl');
+    expect(requiresWritePermission(afterClosedDdl)).toBe(true);
+
+    // Unclosed fence: the whole buffer is still SQL with a comment first line.
+    const unclosed = '-- @node\nDELETE FROM t';
+    expect(sqlStatementCategory(unclosed)).toBe('dml');
+    expect(requiresWritePermission(unclosed)).toBe(true);
+    expect(isWriteStatement(unclosed)).toBe(true);
+    expect(statementVerb(unclosed)).toBe('delete');
+  });
+
+  it('still treats a closed code cell alone as a read (bridge owns its SQL)', () => {
+    const cell = '-- @node\nreturn [{ ok: true }];\n-- @end';
+    expect(sqlStatementCategories(cell)).toEqual(['read']);
+    expect(requiresWritePermission(cell)).toBe(false);
+    expect(isWriteStatement(cell)).toBe(false);
+    expect(statementVerb(cell)).toBe('node');
+  });
 });
