@@ -25,6 +25,13 @@ describe('server-beam', () => {
     expect(cap.count).toBe(4);
   });
 
+  it('createBeamSqlCap defaults to MAX_SQL', () => {
+    const cap = createBeamSqlCap();
+    for (let i = 0; i < MAX_SQL; i++) cap.take();
+    expect(cap.count).toBe(MAX_SQL);
+    expect(() => cap.take()).toThrow(new RegExp(`at most ${MAX_SQL} SQL bridge calls`, 'i'));
+  });
+
   it('createBeamSqlCap take() stays correct under interleaved microtasks', async () => {
     const cap = createBeamSqlCap(5);
     const tasks = Array.from({ length: 8 }, async () => {
@@ -39,8 +46,13 @@ describe('server-beam', () => {
 
   it('detects sql.on usage', () => {
     expect(usesServerBeam('await sql.on("source")`SELECT 1`')).toBe(true);
-    expect(usesServerBeam('await sql.on(\'target\')`SELECT 1`')).toBe(true);
+    expect(usesServerBeam("await sql.on('target')`SELECT 1`")).toBe(true);
     expect(usesServerBeam('await sql`SELECT 1`')).toBe(false);
+    // Whitespace between sql / . / on is still Beam.
+    expect(usesServerBeam('await sql  .  on ("source")`SELECT 1`')).toBe(true);
+    // Nearby identifiers must not false-trigger.
+    expect(usesServerBeam('const sqlOn = true; return [];')).toBe(false);
+    expect(usesServerBeam('await sql.one`SELECT 1`')).toBe(false);
   });
 
   it('parses beam endpoints and rejects a third server', () => {
@@ -49,6 +61,12 @@ describe('server-beam', () => {
       { alias: 'target', connectionId: 'b' },
     ]);
     expect(ok.ok).toBe(true);
+    if (ok.ok) {
+      expect(ok.value).toEqual([
+        { alias: 'source', connectionId: 'a' },
+        { alias: 'target', connectionId: 'b' },
+      ]);
+    }
     const bad = parseBeamEndpoints([
       { alias: 'a', connectionId: '1' },
       { alias: 'b', connectionId: '2' },
@@ -58,10 +76,53 @@ describe('server-beam', () => {
     if (!bad.ok) expect(bad.error).toMatch(/at most 2/i);
   });
 
-  it('normalizes aliases', () => {
+  it('parseBeamEndpoints accepts null/undefined as empty', () => {
+    expect(parseBeamEndpoints(null)).toEqual({ ok: true, value: [] });
+    expect(parseBeamEndpoints(undefined)).toEqual({ ok: true, value: [] });
+  });
+
+  it('parseBeamEndpoints rejects non-arrays, bad entries, and duplicates', () => {
+    expect(parseBeamEndpoints({ alias: 'source' }).ok).toBe(false);
+    expect(parseBeamEndpoints(['source']).ok).toBe(false);
+    expect(parseBeamEndpoints([{ alias: 'source' }]).ok).toBe(false);
+    expect(parseBeamEndpoints([{ alias: 'source', connectionId: '  ' }]).ok).toBe(false);
+    expect(parseBeamEndpoints([{ alias: '1bad', connectionId: 'a' }]).ok).toBe(false);
+    expect(
+      parseBeamEndpoints([
+        { alias: 'source', connectionId: 'a' },
+        { alias: 'source', connectionId: 'b' },
+      ]).ok
+    ).toBe(false);
+  });
+
+  it('parseBeamEndpoints trims connectionId and keeps session password', () => {
+    const withPw = parseBeamEndpoints([
+      { alias: ' source ', connectionId: '  conn-1  ', password: 's3cret' },
+    ]);
+    expect(withPw).toEqual({
+      ok: true,
+      value: [{ alias: 'source', connectionId: 'conn-1', password: 's3cret' }],
+    });
+    const emptyPw = parseBeamEndpoints([{ alias: 'source', connectionId: 'c', password: '' }]);
+    expect(emptyPw).toEqual({
+      ok: true,
+      value: [{ alias: 'source', connectionId: 'c' }],
+    });
+  });
+
+  it('normalizes aliases and Destination order mapping', () => {
     expect(normalizeBeamAlias(' source ')).toBe('source');
     expect(normalizeBeamAlias('1bad')).toBe(null);
+    expect(normalizeBeamAlias('')).toBe(null);
+    expect(normalizeBeamAlias(null)).toBe(null);
+    expect(normalizeBeamAlias(12)).toBe(null);
+    expect(normalizeBeamAlias('a'.repeat(64))).toBe('a'.repeat(64));
+    expect(normalizeBeamAlias('a'.repeat(65))).toBe(null);
+    expect(beamAliasesForCount(0)).toEqual([]);
+    expect(beamAliasesForCount(1)).toEqual(['source']);
     expect(beamAliasesForCount(2)).toEqual(['source', 'target']);
+    // UI clips to MAX_SERVERS before calling; helper still returns source/target.
+    expect(beamAliasesForCount(99)).toEqual(['source', 'target']);
   });
 });
 

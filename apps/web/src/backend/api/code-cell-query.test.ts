@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { makeCellQueryRunner } from './code-cell-query';
+import { makeBeamCellQueryRunner, makeCellQueryRunner } from './code-cell-query';
 import type { Permission } from '../../shared/permissions';
+import type { CellQueryRunner } from './code-cell-execute';
 
 vi.mock('@foxschema/core', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@foxschema/core')>();
@@ -66,5 +67,34 @@ describe('code cell bridge permission policy', () => {
 
   it('blocks parenthesized PRAGMA assignments', async () => {
     await expect(runnerFor(new Set(), false)('PRAGMA user_version(123)', [])).rejects.toThrow(/Safe mode/);
+  });
+});
+
+describe('makeBeamCellQueryRunner', () => {
+  const stub = (label: string): CellQueryRunner =>
+    async (text, params, alias) => [{ label, text, params, alias }];
+
+  it('routes by alias and falls back to the default', async () => {
+    const byAlias = new Map<string, CellQueryRunner>([
+      ['source', stub('src')],
+      ['target', stub('tgt')],
+    ]);
+    const run = makeBeamCellQueryRunner(byAlias, 'source');
+    await expect(run('SELECT 1', [], 'target')).resolves.toEqual([
+      { label: 'tgt', text: 'SELECT 1', params: [], alias: 'target' },
+    ]);
+    await expect(run('SELECT 2', [9])).resolves.toEqual([
+      { label: 'src', text: 'SELECT 2', params: [9], alias: 'source' },
+    ]);
+  });
+
+  it('fails closed on missing or unknown aliases', async () => {
+    const byAlias = new Map<string, CellQueryRunner>([['source', stub('src')]]);
+    const noDefault = makeBeamCellQueryRunner(byAlias);
+    await expect(noDefault('SELECT 1', [])).rejects.toThrow(/missing alias/i);
+    const withDefault = makeBeamCellQueryRunner(byAlias, 'source');
+    await expect(withDefault('SELECT 1', [], 'warehouse')).rejects.toThrow(
+      /Unknown Server Beam alias "warehouse"/
+    );
   });
 });
