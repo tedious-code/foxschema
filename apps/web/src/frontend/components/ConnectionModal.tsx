@@ -4,6 +4,7 @@ import { X, CheckCircle, AlertTriangle, Loader2, ListTree, Download } from "luci
 import { type ConnectionOptions, type Dialect, buildConnectionString, DEFAULT_PORTS, getProviderSettings, PROVIDER_SETTINGS } from '../lib/provider-settings';
 import type { DriverInfo } from '../lib/types';
 import { fetchSchemaList, checkDriver as apiCheckDriver, installDriver as apiInstallDriver } from "../api/schemaApi";
+import { PasswordInput } from './PasswordInput';
 
 
 interface CredentialInput {
@@ -348,7 +349,7 @@ export const ConnectionModal: React.FC<Props> = ({
             </div>
             <div>
               <label className={labelCls}>Password</label>
-              <input data-testid="conn-password-input" type="password" placeholder={isCredential && initialHasPassword && !form.password ? '•••••••• (saved)' : '••••••••'} value={form.password} onChange={(e) => updateField('password', e.target.value)} className={inputCls} />
+              <PasswordInput data-testid="conn-password-input" placeholder={isCredential && initialHasPassword && !form.password ? '•••••••• (saved)' : '••••••••'} value={form.password} onChange={(e) => updateField('password', e.target.value)} className={inputCls} />
             </div>
           </div>
 

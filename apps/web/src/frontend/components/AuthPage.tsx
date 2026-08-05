@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Loader2, AlertCircle } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { Brand } from './Brand';
+import { PasswordInput } from './PasswordInput';
 import { SsoButtons } from './SsoButtons';
 
 /** Surface an `?sso_error=…` returned by a failed SSO callback. */
@@ -57,14 +58,13 @@ export const AuthPage: React.FC = () => {
 
           <div className="flex flex-col gap-1">
             <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Password</label>
-            <input
-              type="password"
+            <PasswordInput
               required
               minLength={8}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder={mode === 'register' ? 'At least 8 characters' : '••••••••'}
-              className="bg-slate-950 border border-slate-800 focus:border-cyan-500 rounded-md px-3 py-2 text-sm outline-none"
+              className="w-full bg-slate-950 border border-slate-800 focus:border-cyan-500 rounded-md px-3 py-2 text-sm outline-none"
             />
           </div>
 

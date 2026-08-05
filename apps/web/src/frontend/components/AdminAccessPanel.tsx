@@ -23,6 +23,7 @@ import {
   type PermissionMeta,
 } from '../lib/permissions';
 import { useAuthStore } from '../store/authStore';
+import { PasswordInput } from './PasswordInput';
 
 type Tab = 'users' | 'roles';
 
@@ -388,24 +389,22 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
             </p>
             <label className="flex flex-col gap-1 text-xs">
               <span className="font-semibold text-slate-400 uppercase tracking-wider">New password</span>
-              <input
-                type="password"
+              <PasswordInput
                 data-testid="admin-new-password"
                 value={newPassword}
                 minLength={8}
                 onChange={(e) => setNewPassword(e.target.value)}
-                className="bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                className="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
               />
             </label>
             <label className="flex flex-col gap-1 text-xs">
               <span className="font-semibold text-slate-400 uppercase tracking-wider">Confirm</span>
-              <input
-                type="password"
+              <PasswordInput
                 data-testid="admin-confirm-password"
                 value={confirmPassword}
                 minLength={8}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                className="bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                className="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
               />
             </label>
             {passwordMsg && (

@@ -12,6 +12,7 @@ import { TYPE_META, TYPE_ORDER } from './SchemaTreePanel';
 import type { DbObjectType } from '../lib/types';
 import { PROVIDER_SETTINGS } from '../lib/provider-settings';
 import { ConnectionModal } from './ConnectionModal';
+import { PasswordInput } from './PasswordInput';
 import { useAuthStore } from '../store/authStore';
 import { getSessionPassword, setSessionPassword } from '../lib/sessionPasswords';
 
@@ -547,9 +548,8 @@ export const TopToolbar: React.FC = () => {
                 <span className="font-semibold text-slate-200">{pendingPassword.name}</span> was saved without a
                 stored password. Enter it for this session only — it won't be persisted.
               </p>
-              <input
+              <PasswordInput
                 autoFocus
-                type="password"
                 value={pendingPasswordValue}
                 onChange={(e) => setPendingPasswordValue(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && confirmPendingPassword()}
