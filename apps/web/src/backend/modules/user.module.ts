@@ -1,4 +1,5 @@
 import { getStore } from '../database/store';
+import { forwardOnboardingSurvey } from './onboarding-marketing.module';
 
 export interface UserPreferences {
   role?: string;
@@ -47,6 +48,7 @@ export class UserModule {
   async updatePreferences(userId: string, input: Partial<UserPreferences>): Promise<UserPreferences> {
     const store = await getStore();
     const now = new Date().toISOString();
+    const before = await this.getPreferences(userId);
 
     const exists = await store.get('SELECT user_id FROM user_preferences WHERE user_id = ?', [userId]);
     if (exists) {
@@ -93,6 +95,21 @@ export class UserModule {
       ]);
     }
 
-    return this.getPreferences(userId);
+    const after = await this.getPreferences(userId);
+
+    // First time the wizard completes → forward persona answers for marketing.
+    // Fire-and-forget: local prefs already saved; outbound failure must not fail UX.
+    if (input.onboardingCompleted === true && !before.onboardingCompleted) {
+      const row = await store.get<{ email: string }>('SELECT email FROM users WHERE id = ?', [userId]);
+      void forwardOnboardingSurvey({
+        email: row?.email ?? '',
+        role: after.role,
+        primaryDatabase: after.primaryDatabase,
+        primaryGoal: after.primaryGoal,
+        source: 'web',
+      }).catch(() => undefined);
+    }
+
+    return after;
   }
 }

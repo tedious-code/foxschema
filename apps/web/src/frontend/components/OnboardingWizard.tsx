@@ -96,7 +96,12 @@ export const OnboardingWizard: React.FC = () => {
         )}
         {error && <p className="mt-4 text-xs text-rose-400 text-center">{error}</p>}
 
-        <div className="flex items-center justify-center gap-1.5 mt-8 text-slate-700">
+        <p className="mt-6 text-[11px] text-slate-600 text-center max-w-sm mx-auto leading-relaxed">
+          Your answers are saved with your account and help Fox Schema understand how people use the
+          product.
+        </p>
+
+        <div className="flex items-center justify-center gap-1.5 mt-6 text-slate-700">
           <Database className="w-3.5 h-3.5" />
           <span className="text-[10px] uppercase tracking-wider">Fox</span>
         </div>

@@ -95,8 +95,10 @@ docker compose -f docker-compose.app.yml up -d
 | `APP_KEY_SCHEME` | `v1` | `v1` = key used directly. `v2` = key bound to `APP_USER_EMAIL` (anti-copy); leave `v1` for stateless servers. |
 | `LOCAL_SINGLE_USER` | `true` | `true` = no login (open, single user). `false` = real accounts. |
 | `AUTH_REQUIRED` | see note | When `LOCAL_SINGLE_USER=false`, defaults to **true** (login required). Set `AUTH_REQUIRED=false` only if you intentionally want open API access. |
-| `SIGNUP_WEBHOOK_URL` | — | Optional. First-open email subscriber wizard posts here (WordPress `/foxschema/v1/signup`). Without it, subscribe still dismisses the wizard locally. |
+| `SIGNUP_WEBHOOK_URL` | — | Optional. First-open email subscriber wizard posts here (WordPress `/foxschema/v1/signup`). Without it, subscribe still dismisses the wizard locally. Also used as fallback for onboarding survey posts when `ONBOARDING_WEBHOOK_URL` is unset. |
 | `SIGNUP_WEBHOOK_SECRET` | — | Optional shared secret sent as `X-Foxschema-Signup-Secret`. |
+| `ONBOARDING_WEBHOOK_URL` | — | Optional. When a user finishes the post-login setup wizard, posts `{ event: "onboarding_survey", email, role, primaryDatabase, primaryGoal }` for marketing/persona insights (WordPress `/foxschema/v1/onboarding`). Falls back to `SIGNUP_WEBHOOK_URL` when unset. |
+| `ONBOARDING_WEBHOOK_SECRET` | — | Optional; falls back to `SIGNUP_WEBHOOK_SECRET`. Sent as `X-Foxschema-Signup-Secret`. |
 | `UPDATE_FEED_URL` | npm `foxschema/latest` | Release feed for in-app update toasts. Default is the npm registry (CLI publish channel). Set `off` to disable. |
 | `APP_VERSION` | from `package.json` | Running version compared against the feed. The CLI sets this from the installed npm package. |
 | `FOXSCHEMA_SELF_UPDATE` | `true` via CLI open | When `true`, UI can run `npm install -g foxschema@latest`. Off in Docker / set `false` to require a manual terminal upgrade. |
@@ -114,6 +116,15 @@ welcome form that collects an email for product updates. Routes are public:
 `GET /api/signup/state`, `POST /api/signup`, `POST /api/signup/skip`. Configure
 `SIGNUP_WEBHOOK_URL` (+ optional secret) so submissions reach foxschema.com;
 otherwise subscribe still dismisses locally.
+
+### Onboarding survey (marketing / personas)
+
+After login, first-time users complete a short setup wizard (job role, primary
+database, first goal). Answers are always stored locally in `user_preferences`.
+When `ONBOARDING_WEBHOOK_URL` (or `SIGNUP_WEBHOOK_URL` as fallback) is set, Fox
+also POSTs them once to foxschema.com as `{ event: "onboarding_survey", email,
+role, primaryDatabase, primaryGoal, source }` for product marketing. Outbound
+failure never blocks finishing the wizard.
 
 **Existing installs:** upgrading keeps your `/data` (or `APP_DB_*`) metadata DB.
 The upgrade migration marks the wizard as already shown, so people who already
