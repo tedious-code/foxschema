@@ -51,6 +51,9 @@ import { keySchemeInfo } from '../cores/crypto';
 import type { AuthedRequest } from './auth.routes';
 import { denyUnless, requirePermissions } from './rbac.middleware';
 import { CATEGORY_PERMISSION, permissionSatisfied, type Permission } from '../../shared/permissions';
+import { toHttpError, type ActorContext } from '../features/actor';
+import { makeConnectionResolver, type ConnectionRef } from '../features/connections/resolve';
+import { makeCompareService } from '../features/compare/service';
 import {
   applyNpmGlobalUpdate,
   canSelfUpdate,
@@ -61,22 +64,10 @@ import {
   scheduleUiRelaunch,
 } from '../modules/updates.module';
 
-/**
- * A connection reference: either a saved connection (resolved server-side so the
- * password never leaves the server) or an inline ad-hoc option.
- */
-interface ConnectionRef {
-  connectionId?: string;
-  dialect?: string;
-  option?: ConnectionOptions;
-  schema?: string;
-  /**
-   * Session password for a saved connection that was stored WITHOUT its password
-   * ("save password" unticked). Supplied per-use, merged into the resolved option,
-   * never persisted.
-   */
-  password?: string;
-}
+// ConnectionRef and its resolution moved to features/connections/resolve.ts so
+// services can share them; re-exported here because other modules import it
+// from this file.
+export type { ConnectionRef };
 
 export function createApiRoutes(connectionModule: ConnectionModule, connectionStore: ConnectionStore): Router {
   const router = Router();
@@ -86,58 +77,26 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   const migrationHistory = new MigrationHistoryStore();
   const appSettings = new AppSettingsStore();
 
-  /** Resolve a ConnectionRef to concrete credentials (decrypting a saved one). */
-  async function resolveRef(
-    userId: string | undefined,
-    ref: ConnectionRef
-  ): Promise<{ dialect: string; option: ConnectionOptions; schema: string }> {
-    if (ref.connectionId) {
-      if (!userId) throw new Error('Sign in to use a saved connection');
-      const resolved = await connectionStore.resolve(userId, ref.connectionId);
-      if (!resolved) throw new Error('Saved connection not found');
-      // Merge a per-session password for connections saved without one, and rebuild the
-      // connection string so the driver picks it up. connectionString must be cleared
-      // before rebuilding — several dialects' buildConnectionString() honors an existing
-      // connectionString verbatim instead of reconstructing it from the fields, which
-      // would silently keep the stored (passwordless) string and ignore the merge.
-      let option = resolved.option;
-      if (ref.password && !option.password) {
-        option = { ...option, password: ref.password, connectionString: undefined };
-        option.connectionString = buildConnectionString(resolved.dialect, option);
-      }
-      return { dialect: resolved.dialect, option, schema: ref.schema ?? resolved.schema ?? '' };
-    }
-    if (!ref.dialect || !ref.option) throw new Error('A connectionId or (dialect + option) is required');
-    return { dialect: ref.dialect, option: ref.option, schema: ref.schema ?? '' };
-  }
+  // Feature services. These own the business logic and its permission checks;
+  // the handlers below are meant to shrink into translation as more move over.
+  const resolver = makeConnectionResolver(connectionModule, connectionStore);
+  const compareService = makeCompareService({ resolver, compareModule });
 
-  async function loadScopedTables(
-    dialect: string,
-    option: ConnectionOptions,
-    schema: string,
-    scope: DbObjectType[]
-  ): Promise<{ tables: TableSchema[]; warnings: string[] }> {
-    const provider = connectionModule.getProvider(dialect);
-    if (!provider.getTables) {
-      throw new Error(`Provider for dialect "${dialect}" does not support table listing`);
-    }
-    let tables = await provider.getTables(option, schema);
-    const warnings: string[] = [];
+  /** Express request → the transport-free ActorContext services are written against. */
+  const actorOf = (req: Request): ActorContext => {
+    const authed = req as AuthedRequest;
+    return {
+      userId: authed.userId,
+      can: (permission) =>
+        authed.appRole === 'admin' ||
+        permissionSatisfied(authed.permissions ?? new Set<Permission>(), permission),
+    };
+  };
 
-    // Roles are server-global and need their own (privilege-gated) read. Only
-    // fetch them when the user selected the Roles scope, and never let a
-    // permission error abort the whole comparison — getRoles degrades to a warning.
-    const wantRoles = !scope?.length || scope.includes('ROLE');
-    if (wantRoles && provider.getRoles) {
-      const { roles, warning } = await provider.getRoles(option, schema);
-      tables = tables.concat(roles);
-      if (warning) warnings.push(warning);
-    }
+  // Single implementation, shared with the feature services. Destructured so the
+  // handlers below keep their existing call sites unchanged.
+  const { resolveRef, loadScopedTables } = resolver;
 
-    const scoped = scope?.length ? tables.filter((t) => scope.includes(t.objectType)) : tables;
-    // Upgrade path: older providers / cached shapes may omit FK referencedColumns.
-    return { tables: normalizeTableSchemas(scoped), warnings };
-  }
 
   // /health is registered on the public app in server.ts (before auth) and
   // already includes `version` for stale-process detection — do not re-add here.
@@ -661,37 +620,18 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     }
   });
 
+  // requirePermissions stays for the 401/403 shape the client already expects;
+  // the service re-checks so a non-REST caller cannot bypass it.
   router.post('/compare', requirePermissions('schema.compare'), async (req: Request, res: Response) => {
-    const { source, target, scope } = req.body as {
-      source: ConnectionRef;
-      target: ConnectionRef;
-      scope: DbObjectType[];
-    };
-
     try {
-      const userId = (req as AuthedRequest).userId;
-      const src = await resolveRef(userId, source);
-      const tgt = await resolveRef(userId, target);
-      // Load both schemas and diff server-side; only the result crosses the wire
-      const [srcLoad, tgtLoad] = await Promise.all([
-        loadScopedTables(src.dialect, src.option, src.schema, scope),
-        loadScopedTables(tgt.dialect, tgt.option, tgt.schema, scope),
-      ]);
-
-      const result = await compareModule.compare(
-        srcLoad.tables,
-        tgtLoad.tables,
-        { source: src.dialect, target: tgt.dialect },
-        { source: src.schema, target: tgt.schema },
+      const result = await compareService.compare(
+        req.body as { source: ConnectionRef; target: ConnectionRef; scope: DbObjectType[] },
+        actorOf(req)
       );
-      const warnings = [
-        ...srcLoad.warnings.map((w) => `Source — ${w}`),
-        ...tgtLoad.warnings.map((w) => `Target — ${w}`),
-      ];
-      res.json(warnings.length ? { ...result, warnings } : result);
+      res.json(result);
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Schema comparison failed';
-      res.status(500).json({ error: message });
+      const { status, error: message } = toHttpError(error, 'Schema comparison failed');
+      res.status(status).json({ error: message });
     }
   });
 
