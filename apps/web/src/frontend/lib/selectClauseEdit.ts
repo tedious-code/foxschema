@@ -228,10 +228,78 @@ export function existingShortAliasForTable(sql: string, tableIdent: string): str
   return null;
 }
 
+/** Escape a SQL identifier for use inside a RegExp. */
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Add a short alias after a bare table in FROM/JOIN and rewrite `table.` →
+ * `alias.` in the SELECT list. No-op when a short alias already exists.
+ */
+export function ensureTableHasAlias(
+  sql: string,
+  tableIdent: string,
+  alias?: string
+): { sql: string; alias: string; changed: boolean } {
+  const bare = tableIdent.includes('.')
+    ? tableIdent.slice(tableIdent.lastIndexOf('.') + 1)
+    : tableIdent;
+  const existing = existingShortAliasForTable(sql, tableIdent);
+  if (existing) return { sql, alias: existing, changed: false };
+
+  const nextAlias = alias || suggestTableAlias(bare, sql);
+  const tableAlt = [tableIdent, bare].filter((v, i, a) => a.indexOf(v) === i);
+  const tablePat = tableAlt.map((t) => escapeRe(t)).join('|');
+
+  // FROM|JOIN table  →  FROM|JOIN table alias  (when not already followed by an alias)
+  const fromRe = new RegExp(
+    `(\\b(?:FROM|JOIN)\\s+)(${tablePat})(\\s*)(?=(?:WHERE|GROUP\\s+BY|ORDER\\s+BY|HAVING|LIMIT|OFFSET|FETCH|UNION|EXCEPT|INTERSECT|FOR\\s+UPDATE|,|;|$|\\)|\\n))`,
+    'i'
+  );
+  let next = sql;
+  if (fromRe.test(sql)) {
+    next = sql.replace(fromRe, `$1$2 ${nextAlias}$3`);
+  } else {
+    // Comma form: `, table` at end of FROM item
+    const commaRe = new RegExp(
+      `(,\\s*)(${tablePat})(\\s*)(?=(?:WHERE|GROUP\\s+BY|ORDER\\s+BY|HAVING|LIMIT|OFFSET|FETCH|UNION|EXCEPT|INTERSECT|FOR\\s+UPDATE|,|;|$|\\)|\\n))`,
+      'i'
+    );
+    if (!commaRe.test(sql)) {
+      return { sql, alias: bare, changed: false };
+    }
+    next = sql.replace(commaRe, `$1$2 ${nextAlias}$3`);
+  }
+
+  // Rewrite SELECT qualifiers table.col → alias.col
+  const qualRe = new RegExp(`\\b(${tablePat})\\.`, 'gi');
+  next = next.replace(qualRe, `${nextAlias}.`);
+
+  return { sql: next, alias: nextAlias, changed: next !== sql };
+}
+
+/**
+ * Ensure every table referenced in FROM has a short alias (e.g. `orders` →
+ * `orders o`). Used when opening the column picker or accepting a table.
+ */
+export function ensureAllFromTablesAliased(sql: string): string {
+  const names = new Set<string>();
+  for (const table of Object.values(extractTableAliases(sql))) {
+    names.add(table);
+  }
+  let next = sql;
+  for (const table of names) {
+    if (existingShortAliasForTable(next, table)) continue;
+    next = ensureTableHasAlias(next, table).sql;
+  }
+  return next;
+}
+
 /**
  * Ensure `tableIdent alias` appears in the FROM clause. Creates
- * `SELECT * FROM table alias` when needed. Skips if the table already has a
- * short alias in the query.
+ * `SELECT * FROM table alias` when needed. If the table is already bare in
+ * FROM, adds a short alias (does not duplicate the table).
  */
 export function addTableWithAliasToFrom(
   sql: string,
@@ -243,6 +311,13 @@ export function addTableWithAliasToFrom(
     : tableIdent;
   const existing = existingShortAliasForTable(sql, tableIdent);
   if (existing) return { sql, alias: existing, added: false };
+
+  const aliases = extractTableAliases(sql);
+  // Table already in FROM without a short alias — attach one in place.
+  if (aliases[bare.toLowerCase()] || aliases[tableIdent.toLowerCase()]) {
+    const ensured = ensureTableHasAlias(sql, tableIdent, alias);
+    return { sql: ensured.sql, alias: ensured.alias, added: ensured.changed };
+  }
 
   const nextAlias = alias || suggestTableAlias(bare, sql);
   const fragment = `${tableIdent} ${nextAlias}`;
@@ -270,18 +345,30 @@ export function addTableWithAliasToFrom(
   const fromClauseEnd = stop ? afterFromKw + stop.index : sql.length;
   const fromBody = sql.slice(afterFromKw, fromClauseEnd).trim();
 
-  // Table already in FROM without a short alias — reuse bare name, don't duplicate.
-  const aliases = extractTableAliases(sql);
-  if (aliases[bare.toLowerCase()] || aliases[tableIdent.toLowerCase()]) {
-    return { sql, alias: bare, added: false };
-  }
-
   const joiner = fromBody ? ', ' : ' ';
   const nextSql =
     sql.slice(0, fromClauseEnd).replace(/\s*$/, '') +
     `${joiner}${fragment}` +
     sql.slice(fromClauseEnd);
   return { sql: nextSql, alias: nextAlias, added: true };
+}
+
+/** True when the caret is in a FROM / JOIN table position (not WHERE/SELECT list). */
+export function isInFromTablePosition(sqlBeforeCursor: string): boolean {
+  const re = /\b(FROM|JOIN)\b/gi;
+  let last = -1;
+  let lastLen = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(sqlBeforeCursor)) !== null) {
+    last = m.index;
+    lastLen = m[0].length;
+  }
+  if (last < 0) return false;
+  const afterKw = sqlBeforeCursor.slice(last + lastLen);
+  // Still in FROM/JOIN list if we haven't hit a following clause keyword.
+  return !/\b(?:WHERE|GROUP\s+BY|ORDER\s+BY|HAVING|LIMIT|OFFSET|FETCH|UNION|EXCEPT|INTERSECT|FOR\s+UPDATE|SELECT|UPDATE|DELETE|INSERT|SET)\b/i.test(
+    afterKw
+  );
 }
 
 /** True when the word at offset is SELECT or FROM (case-insensitive). */

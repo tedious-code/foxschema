@@ -2,13 +2,14 @@
  * Checkbox list of alias.column when the user clicks SELECT / FROM in the editor.
  * Select all → `*`; Remove all clears the list; toggles sync into the SQL text.
  */
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Columns3, X } from 'lucide-react';
 import { extractTableAliases } from '../../lib/sql-splitter';
 import {
   clearSelectList,
   currentSelectListItems,
+  ensureAllFromTablesAliased,
   insertIntoSelectList,
   removeFromSelectList,
   selectListIsStar,
@@ -34,6 +35,19 @@ export const SelectColumnPicker: React.FC<Props> = ({ open, anchor, onClose }) =
   // Bump to re-read live SQL after each mutation (options depend on FROM aliases).
   const [tick, setTick] = useState(0);
   const refresh = () => setTick((n) => n + 1);
+
+  // Opening the picker: attach short aliases to bare FROM tables (`orders` → `orders o`)
+  // and rewrite SELECT qualifiers so checkboxes match.
+  useEffect(() => {
+    if (!open) return;
+    const before = getCompletionContext().sql;
+    const after = ensureAllFromTablesAliased(before);
+    if (after !== before) {
+      mutateSql(() => after);
+      refresh();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only on open
+  }, [open]);
 
   const { options, star, selected } = useMemo(() => {
     if (!open) return { options: [] as ColOpt[], star: false, selected: new Set<string>() };

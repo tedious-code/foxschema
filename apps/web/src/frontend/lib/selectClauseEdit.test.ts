@@ -3,8 +3,11 @@ import {
   addTableWithAliasToFrom,
   clearSelectList,
   currentSelectListItems,
+  ensureAllFromTablesAliased,
+  ensureTableHasAlias,
   findSelectListRange,
   insertIntoSelectList,
+  isInFromTablePosition,
   isSelectOrFromKeyword,
   parseSelectListItems,
   removeFromSelectList,
@@ -88,5 +91,32 @@ describe('selectClauseEdit', () => {
     const again = addTableWithAliasToFrom(empty.sql, 'users');
     expect(again.added).toBe(false);
     expect(again.alias).toBe(empty.alias);
+  });
+
+  it('ensureTableHasAlias upgrades bare FROM and rewrites SELECT quals', () => {
+    const { sql, alias, changed } = ensureTableHasAlias(
+      'SELECT orders.created_at, orders.customer_id from orders',
+      'orders'
+    );
+    expect(changed).toBe(true);
+    expect(alias).toBe('o');
+    expect(sql.toLowerCase()).toContain('from orders o');
+    expect(sql).toContain('o.created_at');
+    expect(sql).toContain('o.customer_id');
+    expect(sql).not.toMatch(/orders\./i);
+  });
+
+  it('ensureAllFromTablesAliased aliases every bare FROM table', () => {
+    const sql = ensureAllFromTablesAliased(
+      'SELECT orders.created_at, orders.customer_id from orders'
+    );
+    expect(sql.toLowerCase()).toMatch(/from orders o\b/);
+    expect(ensureAllFromTablesAliased(sql)).toBe(sql); // idempotent
+  });
+
+  it('isInFromTablePosition detects FROM list vs WHERE', () => {
+    expect(isInFromTablePosition('SELECT * FROM ord')).toBe(true);
+    expect(isInFromTablePosition('SELECT * FROM orders o WHERE o.')).toBe(false);
+    expect(isInFromTablePosition('SELECT orders.')).toBe(false);
   });
 });
