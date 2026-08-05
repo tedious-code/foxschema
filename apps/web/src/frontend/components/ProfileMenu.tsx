@@ -2,10 +2,8 @@ import React, { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } f
 import { createPortal } from 'react-dom';
 import { LogOut, Palette, ChevronDown, ArrowUpCircle, Globe, Shield } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { apiGetPreferences } from '../api/authApi';
 import { checkForUpdates, type UpdateInfo } from '../api/updatesApi';
 import { maybeToastUpdateAvailable } from '../lib/updateToast';
-import { surveySummary } from '../lib/onboardingLabels';
 import { AdminAccessPanel } from './AdminAccessPanel';
 
 // Lazy so a SettingsPanel/HMR failure cannot empty this module's exports
@@ -22,7 +20,6 @@ export function ProfileMenu(): React.ReactElement | null {
   const [showSettings, setShowSettings] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
-  const [survey, setSurvey] = useState<string | undefined>();
   const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -49,31 +46,6 @@ export function ProfileMenu(): React.ReactElement | null {
       alive = false;
     };
   }, []);
-
-  useEffect(() => {
-    if (!user) {
-      setSurvey(undefined);
-      return;
-    }
-    let alive = true;
-    apiGetPreferences()
-      .then((p) => {
-        if (!alive) return;
-        setSurvey(
-          surveySummary({
-            surveyRole: p.role,
-            primaryDatabase: p.primaryDatabase,
-            primaryGoal: p.primaryGoal,
-          })
-        );
-      })
-      .catch(() => {
-        if (alive) setSurvey(undefined);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [user]);
 
   const placeMenu = () => {
     const btn = buttonRef.current;
@@ -116,11 +88,6 @@ export function ProfileMenu(): React.ReactElement | null {
             <p className="text-[11px] text-amber-300/90 mt-0.5 capitalize" data-testid="profile-role">
               Role: {user.role}
             </p>
-            {survey && (
-              <p className="text-[10px] text-slate-500 mt-1" data-testid="profile-survey" title="Onboarding survey">
-                {survey}
-              </p>
-            )}
           </div>
 
           {updateAvailable && (

@@ -86,17 +86,7 @@ export class RbacModule {
   }
 
   async listUsers(): Promise<
-    Array<{
-      id: string;
-      email: string;
-      role: AppRole;
-      active: boolean;
-      createdAt: string;
-      /** Onboarding survey answers (kept after wizard completion). */
-      surveyRole?: string;
-      primaryDatabase?: string;
-      primaryGoal?: string;
-    }>
+    Array<{ id: string; email: string; role: AppRole; active: boolean; createdAt: string }>
   > {
     const store = await getStore();
     const rows = await store.all<{
@@ -105,16 +95,7 @@ export class RbacModule {
       app_role: string | null;
       active: number | null;
       created_at: string;
-      survey_role: string | null;
-      primary_database: string | null;
-      primary_goal: string | null;
-    }>(
-      `SELECT u.id, u.email, u.app_role, u.active, u.created_at,
-              p.role AS survey_role, p.primary_database, p.primary_goal
-         FROM users u
-         LEFT JOIN user_preferences p ON p.user_id = u.id
-        ORDER BY u.created_at ASC`
-    );
+    }>('SELECT id, email, app_role, active, created_at FROM users ORDER BY created_at ASC');
     return rows.map((r) => ({
       id: r.id,
       email: r.email,
@@ -122,9 +103,6 @@ export class RbacModule {
       // Pre-migration rows / NULL → treat as active.
       active: r.active === null || r.active === undefined ? true : Number(r.active) !== 0,
       createdAt: r.created_at,
-      surveyRole: r.survey_role ?? undefined,
-      primaryDatabase: r.primary_database ?? undefined,
-      primaryGoal: r.primary_goal ?? undefined,
     }));
   }
 

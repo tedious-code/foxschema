@@ -111,22 +111,6 @@ describe('RbacModule', () => {
     expect((await rbac.listUsers()).find((u) => u.id === 'u2')?.role).toBe('viewer');
   });
 
-  it('listUsers includes onboarding survey answers from preferences', async () => {
-    const store = await getStore();
-    await store.run(
-      'INSERT INTO users (id, email, password_hash, created_at, app_role) VALUES (?, ?, ?, ?, ?)',
-      ['u-survey', 'survey@example.com', 'x', new Date().toISOString(), 'viewer']
-    );
-    await store.run(
-      'INSERT INTO user_preferences (user_id, role, primary_database, primary_goal, theme, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-      ['u-survey', 'DBA', 'PostgreSQL', 'GENERATE_SQL', null, new Date().toISOString()]
-    );
-    const row = (await rbac.listUsers()).find((u) => u.id === 'u-survey');
-    expect(row?.surveyRole).toBe('DBA');
-    expect(row?.primaryDatabase).toBe('PostgreSQL');
-    expect(row?.primaryGoal).toBe('GENERATE_SQL');
-  });
-
   it('listUsers includes active flag and setUserActive toggles it', async () => {
     const store = await getStore();
     await store.run(

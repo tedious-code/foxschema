@@ -88,16 +88,7 @@ export async function apiPutPreferences(prefs: Partial<UserPreferences>): Promis
 }
 
 export async function apiAdminListUsers(): Promise<{
-  users: Array<{
-    id: string;
-    email: string;
-    role: AppRole;
-    active: boolean;
-    createdAt: string;
-    surveyRole?: string;
-    primaryDatabase?: string;
-    primaryGoal?: string;
-  }>;
+  users: Array<{ id: string; email: string; role: AppRole; active: boolean; createdAt: string }>;
 }> {
   return request('/admin/users');
 }

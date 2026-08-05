@@ -23,7 +23,6 @@ import {
   type PermissionMeta,
 } from '../lib/permissions';
 import { useAuthStore } from '../store/authStore';
-import { surveySummary } from '../lib/onboardingLabels';
 import { PasswordInput } from './PasswordInput';
 
 type Tab = 'users' | 'roles';
@@ -34,9 +33,6 @@ type AdminUserRow = {
   role: AppRole;
   active: boolean;
   createdAt: string;
-  surveyRole?: string;
-  primaryDatabase?: string;
-  primaryGoal?: string;
 };
 
 export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> = ({
@@ -237,22 +233,9 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
                 </tr>
               </thead>
               <tbody>
-                {users.map((u) => {
-                  const survey = surveySummary(u);
-                  return (
+                {users.map((u) => (
                   <tr key={u.id} className="border-t border-slate-800">
-                    <td className="py-2">
-                      <div className="text-slate-200 font-mono">{u.email}</div>
-                      {survey && (
-                        <div
-                          data-testid={`admin-survey-${u.id}`}
-                          className="text-[10px] text-slate-500 mt-0.5"
-                          title="Onboarding survey answers"
-                        >
-                          {survey}
-                        </div>
-                      )}
-                    </td>
+                    <td className="py-2 text-slate-200 font-mono">{u.email}</td>
                     <td className="py-2">
                       <select
                         data-testid={`admin-user-role-${u.id}`}
@@ -303,8 +286,7 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
                       </button>
                     </td>
                   </tr>
-                  );
-                })}
+                ))}
               </tbody>
             </table>
           )}
