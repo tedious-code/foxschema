@@ -17,10 +17,10 @@ const DATABASE_ORDER = [
   'CockroachDB',
   'YugabyteDB',
   'TiDB',
-] as const;
+];
 const DATABASES = (() => {
   const labels = Object.values(PROVIDER_SETTINGS).map((p) => p.label);
-  const rank = new Map(DATABASE_ORDER.map((label, i) => [label, i]));
+  const rank = new Map<string, number>(DATABASE_ORDER.map((label, i) => [label, i]));
   return [...labels].sort((a, b) => {
     const ai = rank.get(a) ?? 1000;
     const bi = rank.get(b) ?? 1000;
