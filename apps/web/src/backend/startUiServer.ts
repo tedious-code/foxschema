@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
 import http from 'node:http';
 import express from 'express';
-import { ConnectionFactory, setupDb2ClientEnv } from '@foxschema/core';
+import { ConnectionFactory, setupDb2ClientEnv } from '@foxschema/db';
 import { createApp } from './api/server';
 
 export interface StartUiServerOptions {

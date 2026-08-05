@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rmSync } from 'node:fs';
 import { clampMaxRows, shapeRows, runStatements } from './sql-execute';
-import { ConnectionFactory } from '@foxschema/core';
+import { ConnectionFactory } from '@foxschema/db';
 
 describe('clampMaxRows', () => {
   it('defaults, clamps, and floors', () => {

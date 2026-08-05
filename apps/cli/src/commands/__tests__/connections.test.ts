@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { listConnections, addConnection, removeConnection } from '../connections';
 import * as store from '../../runtime/store';
-import * as core from '@foxschema/core';
+import * as core from '@foxschema/db';
 
 // addConnection prompts for a password; stub the prompt layer so tests are non-interactive.
 vi.mock('@inquirer/prompts', () => ({

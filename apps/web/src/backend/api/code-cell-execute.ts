@@ -5,8 +5,8 @@
 
 import { Worker } from 'node:worker_threads';
 import { fileURLToPath } from 'node:url';
-import type { BrowserCodeCellKind } from '@foxschema/core';
-import { isCodeCellLast, isCodeCellVars } from '@foxschema/core';
+import type { BrowserCodeCellKind } from '@foxschema/db';
+import { isCodeCellLast, isCodeCellVars } from '@foxschema/db';
 import type { CodeCellLast, CodeCellResult, CodeCellVars } from './code-cell-node-exec';
 import {
   isCellDoneMessage,

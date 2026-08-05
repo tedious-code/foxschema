@@ -1,4 +1,4 @@
-import { ConnectionFactory } from '@foxschema/core';
+import { ConnectionFactory } from '@foxschema/db';
 import { startUiServer } from './startUiServer';
 
 /**

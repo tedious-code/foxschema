@@ -1,4 +1,4 @@
-import type { ConnectionOptions, DbObjectType, TableDiff } from '@foxschema/core';
+import type { ConnectionOptions, DbObjectType, TableDiff } from '@foxschema/db';
 
 /** A resolved, ready-to-use connection — the TUI's equivalent of connectionRef.ts's ResolvedRef, plus a display label. */
 export interface ConnRef {

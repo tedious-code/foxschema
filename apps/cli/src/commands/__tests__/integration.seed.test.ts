@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { ConnectionOptions } from '@foxschema/core';
+import type { ConnectionOptions } from '@foxschema/db';
 import { compareModule, loadScopedTables } from '../../runtime/engine';
 
 /**

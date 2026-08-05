@@ -1,6 +1,6 @@
 /**
  * Allowlisted packages for SQL Editor JS/TS code cells, bundled for the browser.
- * The import parser itself lives in `@foxschema/core` and is shared with the
+ * The import parser itself lives in `@foxschema/sql` and is shared with the
  * Node executor — this module only supplies the browser's module namespaces.
  */
 

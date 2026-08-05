@@ -25,7 +25,8 @@
     "prepare-publish": "node scripts/prepare-publish.mjs"
   },
   "dependencies": {
-    "@foxschema/core": "*",
+    "@foxschema/sql": "*",
+    "@foxschema/db": "*",
     "@foxschema/web": "*",
     "@inquirer/prompts": "^8.5.2",
     "@napi-rs/keyring": "^1.1.6",

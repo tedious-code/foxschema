@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { ConnectionOptions } from '@foxschema/core';
+import type { ConnectionOptions } from '@foxschema/db';
 import type { SavedConnectionSummary } from '@foxschema/web/connection-store';
 import { getContext } from '../../runtime/store';
 import { friendlyError } from '../../format/friendlyError';

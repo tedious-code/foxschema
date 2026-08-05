@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, Text } from 'ink';
-import type { TableDiff } from '@foxschema/core';
+import type { TableDiff } from '@foxschema/db';
 import { StatusBadge } from '../components/StatusBadge';
 import { KeyHints } from '../components/KeyHints';
 import { describeColumn, describeFk, describeIndex, describeTrigger } from '../../format/diffPresentation';

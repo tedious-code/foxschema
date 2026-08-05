@@ -19,7 +19,7 @@ import {
   type DbObjectType,
   type TableSchema,
   type DbaUtilityKind,
-} from '@foxschema/core';
+} from '@foxschema/db';
 import { probeTableFragmentation, mapPool } from './index-fragmentation';
 import { probeDbaUtility } from './dba-utilities';
 
@@ -468,7 +468,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
 
   /**
    * DBA utilities: connection pool, user sessions, system info, object sizes.
-   * One connection ref + kind; dialect probes live in @foxschema/core.
+   * One connection ref + kind; dialect probes live in @foxschema/db.
    */
   const dbaUtilityLimiter = rateLimit({ windowMs: 60 * 1000, max: 30 });
   router.post(

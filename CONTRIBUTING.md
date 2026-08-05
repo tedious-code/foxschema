@@ -49,7 +49,8 @@ the Playwright E2E suite (see below).
 
 | Workspace | What it is |
 |-----------|------------|
-| [`packages/core`](packages/core) | The dialect-agnostic engine: introspection, diff, migration generation/execution, and all 10 dialect providers. No browser dependencies. |
+| [`packages/sql`](packages/sql) | Dialect knowledge: diff, migration generation, statement splitting, type mapping. Pure and browser-safe — zero deps, no Node built-ins. |
+| [`packages/db`](packages/db) | The Node runtime: introspection, drivers, pooling, migration execution. Depends on `packages/sql`. |
 | [`apps/web`](apps/web) | Express API + React/Vite UI (also served by the CLI launcher and Docker). |
 | [`apps/cli`](apps/cli) | Public `foxschema` CLI — browser launcher, desktop shortcut, line commands, Ink TUI. |
 | [`apps/e2e`](apps/e2e) | Playwright E2E tests against the dockerized databases. |
@@ -80,7 +81,7 @@ mutated target accumulates corruption and produces false failures.
 
 ## Testing expectations
 
-- Engine logic (compare, generator, providers) → unit tests in `packages/core`.
+- Engine logic (compare, generator) → unit tests in `packages/sql`; drivers/providers → `packages/db`.
 - CLI commands and the TUI → see the focused testing guides:
   [`apps/cli/src/commands/__tests__/README.md`](apps/cli/src/commands/__tests__/README.md)
   and [`apps/cli/src/tui/__tests__/README.md`](apps/cli/src/tui/__tests__/README.md)
@@ -92,11 +93,13 @@ be asked for them.
 
 ## Adding a new SQL dialect
 
-Each dialect is four small files under `packages/core/src/providers/<dialect>/`
+Each dialect spans both packages: `sql-dialect.ts` / `settings.ts` under
+`packages/sql/src/providers/<dialect>/`, and `adapter.ts` / `provider.ts` under
+`packages/db/src/providers/<dialect>/`
 (settings, adapter, provider, sql-dialect). The exact contract — required vs.
 optional hooks, cross-cutting invariants (casing, index/FK naming, DROP ordering),
 and per-dialect gotchas — is documented in
-**[packages/core/src/providers/DIALECTS.md](packages/core/src/providers/DIALECTS.md)**,
+**packages/sql/src/providers/DIALECTS.md** (local, gitignored),
 with the step-by-step checklist in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 Read `DIALECTS.md` before touching any `*.sql-dialect.ts` or `sql-generator.module.ts`.
 
@@ -113,7 +116,7 @@ A few rules that have bitten people before (the full set is in [CLAUDE.md](CLAUD
   are encrypted server-side; only host/database/schema/port/username reach the browser.
 - **Keep React hooks above any early `return`** (a rules-of-hooks crash has happened).
 - **The frontend imports nothing from workspace packages** — it uses standalone copies
-  in `apps/web/src/frontend/lib/`. Mirror `packages/core` changes there.
+  in `apps/web/src/frontend/lib/` that re-export `@foxschema/sql`.
 
 ## Pull requests
 

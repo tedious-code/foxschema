@@ -10,7 +10,7 @@
  * the worker that runs user code.
  */
 
-import { ConnectionFactory, sqlStatementCategories, type ConnectionOptions } from '@foxschema/core';
+import { ConnectionFactory, sqlStatementCategories, type ConnectionOptions } from '@foxschema/db';
 import { MAX_CELL_QUERY_ROWS } from './code-cell-bridge';
 import type { CellQueryRunner } from './code-cell-execute';
 import { CATEGORY_PERMISSION, type Permission } from '../../shared/permissions';

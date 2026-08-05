@@ -4,7 +4,7 @@
  * (`-- @node` / `-- @nodets`) use the server executor instead.
  *
  * The parsing/normalizing/sandbox machinery is shared with the Node executor
- * via `@foxschema/core`; this module supplies only the browser's globals
+ * via `@foxschema/sql`; this module supplies only the browser's globals
  * preamble and bundled packages.
  *
  * Cells may use local `let`/`const`/`var`, functions, loops, `async`/`await`,

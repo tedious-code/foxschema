@@ -6,7 +6,7 @@ import {
   type CanonicalBase,
   type CanonicalType,
   type IndexFeatureSupport,
-} from '@foxschema/core';
+} from '@foxschema/sql';
 
 /** Quote an identifier when it is not a plain SQL name. */
 export function quoteIdent(name: string, dialect: string): string {

@@ -1,4 +1,4 @@
-import { setupDb2ClientEnv } from '@foxschema/core';
+import { setupDb2ClientEnv } from '@foxschema/db';
 import { startServer } from './api/server';
 
 // Load a local .env (SSO credentials, UPDATE_FEED_URL, etc.) from the working

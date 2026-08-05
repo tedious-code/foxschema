@@ -5,7 +5,7 @@
  */
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
-import { ConnectionModule, ConnectionFactory } from '@foxschema/core';
+import { ConnectionModule, ConnectionFactory } from '@foxschema/db';
 import { AuthModule } from '../modules/auth.module';
 import { ConnectionStore } from '../modules/connection-store.module';
 import { UserModule } from '../modules/user.module';

@@ -1,10 +1,20 @@
 #!/usr/bin/env bash
 #
-# Mirror packages/core and packages/shared from this private monorepo
+# Mirror the publishable packages from this private monorepo
 # (the source of truth) to their PUBLIC GitHub repos.
 #
 #   tedious-code/foxschema-shared  <-  packages/shared
-#   tedious-code/foxschema-core    <-  packages/core
+#   tedious-code/foxschema-sql     <-  packages/sql
+#   tedious-code/foxschema-db      <-  packages/db
+#
+# NOTE (core split): packages/core became packages/sql (pure) + packages/db
+# (Node runtime). The target repos above must already exist — sync_one clones
+# them and fails loudly if they do not. The old tedious-code/foxschema-core
+# repo is no longer a sync target; decide whether to archive or repoint it.
+#
+# NOTE (dependency): packages/db declares "@foxschema/sql": "*". Mirrored on its
+# own, that specifier only resolves once @foxschema/sql is published to npm.
+# Publish sql first, or pin db to a real version before relying on the mirror.
 #
 # History model: "fresh start" — each public repo carries its own initial
 # commit plus one snapshot commit per sync. The monorepo keeps full history.
@@ -65,5 +75,6 @@ sync_one() {
 
 want="${1:-all}"
 if [ "$want" = all ] || [ "$want" = shared ]; then sync_one shared foxschema-shared; fi
-if [ "$want" = all ] || [ "$want" = core ];   then sync_one core   foxschema-core;   fi
+if [ "$want" = all ] || [ "$want" = sql ];    then sync_one sql    foxschema-sql;    fi
+if [ "$want" = all ] || [ "$want" = db ];     then sync_one db     foxschema-db;     fi
 echo "Done."

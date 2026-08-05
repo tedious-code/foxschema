@@ -2,7 +2,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import Spinner from 'ink-spinner';
 import SelectInput from 'ink-select-input';
-import type { TableDiff } from '@foxschema/core';
+import type { TableDiff } from '@foxschema/db';
 import { useCompare } from '../data/useCompare';
 import { TYPE_LABEL, groupByType, sortSections, sortByStatusThenName } from '../../format/diffPresentation';
 import { SummaryBox } from '../components/SummaryBox';

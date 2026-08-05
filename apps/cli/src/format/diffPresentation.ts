@@ -4,7 +4,7 @@
  * tui/screens/CompareScreen.tsx) — kept in one place so the two views can't
  * silently drift apart on labels or ordering.
  */
-import type { ColumnDiff, ForeignKeyDiff, IndexDiff, TriggerDiff } from '@foxschema/core';
+import type { ColumnDiff, ForeignKeyDiff, IndexDiff, TriggerDiff } from '@foxschema/db';
 
 // Object-type → plural section label (matches the DbObjectType union in core).
 export const TYPE_LABEL: Record<string, string> = {

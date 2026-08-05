@@ -10,7 +10,7 @@ import {
   renderSqlQuery,
   sqlTag,
   type ConnectionOptions,
-} from '@foxschema/core';
+} from '@foxschema/db';
 
 export type InferredSqlType = 'INTEGER' | 'REAL' | 'TEXT';
 

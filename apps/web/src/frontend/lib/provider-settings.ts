@@ -1,4 +1,4 @@
-import { buildConnectionString as coreBuildConnectionString } from '@foxschema/core';
+import { buildConnectionString as coreBuildConnectionString } from '@foxschema/sql';
 
 export type Dialect = 'postgres' | 'mysql' | 'mariadb' | 'db2' | 'sqlserver' | 'oracle' | 'sqlite' | 'redshift' | 'clickhouse' | 'azuresql' | 'cockroachdb' | 'yugabytedb' | 'tidb' | 'duckdb';
 

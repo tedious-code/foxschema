@@ -24,7 +24,7 @@ import {
   buildIndexDefragSql,
   dialectSupportsIndexFragmentation,
   fragmentationSeverity,
-} from '@foxschema/core';
+} from '@foxschema/sql';
 import {
   fetchIndexFragmentationBatch,
   matchIndexFragmentationRow,

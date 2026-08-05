@@ -10,7 +10,7 @@
  * directive (SQL20521N). Keep a plain letter-led name for all dialects.
  */
 
-import { statementVerb } from '@foxschema/core';
+import { statementVerb } from '@foxschema/db';
 
 /** Verbs that can appear as a subquery in `SELECT * FROM (…)` for paging. */
 const PAGEABLE_VERBS = new Set(['select', 'values']);

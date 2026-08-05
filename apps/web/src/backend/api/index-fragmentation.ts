@@ -13,7 +13,7 @@ import {
   type ConnectionOptions,
   type IndexFragmentationRow,
   type IndexFragmentationSupport,
-} from '@foxschema/core';
+} from '@foxschema/db';
 
 export type FragProbeResult = {
   rows: IndexFragmentationRow[];

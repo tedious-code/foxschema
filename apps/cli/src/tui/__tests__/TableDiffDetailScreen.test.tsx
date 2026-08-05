@@ -1,7 +1,7 @@
 import React from 'react';
 import { describe, it, expect } from 'vitest';
 import { render } from 'ink-testing-library';
-import type { TableDiff } from '@foxschema/core';
+import type { TableDiff } from '@foxschema/db';
 import { TableDiffDetailScreen } from '../screens/TableDiffDetailScreen';
 
 describe('TableDiffDetailScreen', () => {
