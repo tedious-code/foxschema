@@ -72,6 +72,7 @@ apps/cli/dist/
 apps/cli/dist-bin/
 apps/cli/ui-dist/
 apps/cli/npm-pack/
+packages/sql/npm-pack/
 
 # Homebrew formula docs (tracked)
 !packaging/homebrew/README.md
@@ -81,6 +82,12 @@ apps/cli/npm-pack/
 
 # FoxFlow's local SQLite DB (sibling project) — never belongs in this repo.
 # Its credentials/variables tables can hold real secrets.
+#
+# This is a backstop, not the fix. FoxFlow used to default to the bare relative
+# path 'foxflow.sqlite', so it created its database in whatever directory a
+# command was run from — including this one. FoxFlow now anchors the default to
+# its own repo root (packages/storage/src/database-path.ts), so a file should
+# no longer appear here. If one does, something is running with the old default.
 foxflow.sqlite
 foxflow.sqlite-shm
 foxflow.sqlite-wal

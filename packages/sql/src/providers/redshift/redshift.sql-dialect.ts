@@ -1,5 +1,5 @@
-import type { SqlDialect, ColumnSpec } from '../../modules/sql-dialect.interface';
-import { makeDialectTypeFns, plain, sized, decimalAs } from '../../modules/type-mapping';
+import type { SqlDialect, ColumnSpec } from '../../modules/sql-dialect.interface.js';
+import { makeDialectTypeFns, plain, sized, decimalAs } from '../../modules/type-mapping.js';
 
 // Redshift type system is a subset of Postgres. information_schema returns
 // standard SQL type names, so the mapping mirrors the Postgres dialect.

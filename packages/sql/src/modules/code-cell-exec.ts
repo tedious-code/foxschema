@@ -12,14 +12,14 @@ import {
   codeCellHasReturn,
   stripFullLineSqlComments,
   stripJsStringsAndComments,
-} from './sql-splitter';
+} from './sql-splitter.js';
 import type {
   CodeCellLast,
   CodeCellOk,
   CodeCellErr,
   CodeCellResult,
   CodeCellVars,
-} from './code-cell-types';
+} from './code-cell-types.js';
 
 export const CODE_CELL_ALLOWED_PACKAGES = ['lodash', 'lodash-es', 'date-fns'] as const;
 export type CodeCellAllowedPackage = (typeof CODE_CELL_ALLOWED_PACKAGES)[number];

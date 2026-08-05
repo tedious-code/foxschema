@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   compileFoxScriptPlan,
   parseFoxScript,
-} from './foxscript-ast';
+} from './foxscript-ast.js';
 
 describe('parseFoxScript', () => {
   it('parses interleaved SQL and JS cells with offsets', () => {

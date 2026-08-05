@@ -12,7 +12,7 @@ import {
   normalizeObjectSizeRows,
   normalizeSystemInfoRows,
   normalizeUserSessionRows,
-} from './dialect-dba-utilities';
+} from './dialect-dba-utilities.js';
 
 describe('dialect-dba-utilities', () => {
   it('reports support for major dialects and kinds', () => {

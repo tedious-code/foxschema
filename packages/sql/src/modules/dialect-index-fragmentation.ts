@@ -15,8 +15,8 @@
  * - SQLite / DuckDB / ClickHouse / Redshift: catalog listing + optional estimates
  */
 
-import { isWriteStatement } from './sql-splitter';
-import { quoteSqlIdentifier } from './sql-template';
+import { isWriteStatement } from './sql-splitter.js';
+import { quoteSqlIdentifier } from './sql-template.js';
 
 export type IndexFragmentationMode = 'physical' | 'estimated' | 'unsupported';
 

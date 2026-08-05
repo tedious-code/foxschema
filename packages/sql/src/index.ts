@@ -9,7 +9,7 @@
  * Executing any of it against a real database is @foxschema/db's job.
  */
 
-export * from './interfaces/schema.interface';
+export * from './interfaces/schema.interface.js';
 export type {
   ConnectionOptions,
   SchemaProvider,
@@ -18,19 +18,19 @@ export type {
   SavedConnection,
   ProviderConnectionSettings,
   DriverAdapter,
-} from './interfaces/schema-provider.interface';
-export * from './interfaces/diff.types.interface';
-export type { MigrationEvent } from './interfaces/migration.types';
+} from './interfaces/schema-provider.interface.js';
+export * from './interfaces/diff.types.interface.js';
+export type { MigrationEvent } from './interfaces/migration.types.js';
 
-export { CompareModule } from './modules/compare.module';
-export { SqlGeneratorModule } from './modules/sql-generator.module';
-export type { MigrationStep, SchemaMapping } from './modules/sql-generator.module';
-export { findDropDependencies } from './modules/dependency-scan';
-export type { DropDependency, DropDependencyOptions } from './modules/dependency-scan';
-export { dialectSupportsFk } from './modules/dialect-fk-support';
-export type { FkFeatureSupport } from './modules/dialect-fk-support';
-export { dialectSupportsIndex } from './modules/dialect-index-support';
-export type { IndexFeatureSupport } from './modules/dialect-index-support';
+export { CompareModule } from './modules/compare.module.js';
+export { SqlGeneratorModule } from './modules/sql-generator.module.js';
+export type { MigrationStep, SchemaMapping } from './modules/sql-generator.module.js';
+export { findDropDependencies } from './modules/dependency-scan.js';
+export type { DropDependency, DropDependencyOptions } from './modules/dependency-scan.js';
+export { dialectSupportsFk } from './modules/dialect-fk-support.js';
+export type { FkFeatureSupport } from './modules/dialect-fk-support.js';
+export { dialectSupportsIndex } from './modules/dialect-index-support.js';
+export type { IndexFeatureSupport } from './modules/dialect-index-support.js';
 export {
   dialectSupportsIndexFragmentation,
   buildIndexFragmentationQuery,
@@ -40,14 +40,14 @@ export {
   fragmentationSeverity,
   splitSchemaTable,
   isSafeIndexFragmentationCustomSql,
-} from './modules/dialect-index-fragmentation';
+} from './modules/dialect-index-fragmentation.js';
 export type {
   IndexFragmentationSupport,
   IndexFragmentationQuery,
   IndexFragmentationRow,
   IndexFragmentationMode,
   IndexFragmentationSeverity,
-} from './modules/dialect-index-fragmentation';
+} from './modules/dialect-index-fragmentation.js';
 export {
   dialectSupportsDbaUtility,
   buildDbaUtilityQuery,
@@ -56,7 +56,7 @@ export {
   normalizeSystemInfoRows,
   normalizeObjectSizeRows,
   formatBytes,
-} from './modules/dialect-dba-utilities';
+} from './modules/dialect-dba-utilities.js';
 export type {
   DbaProbeMode,
   DbaUtilityKind,
@@ -66,12 +66,12 @@ export type {
   UserSessionRow,
   SystemInfoMetric,
   ObjectSizeRow,
-} from './modules/dialect-dba-utilities';
-export { findMissingFkTargets, findNarrowingTypeChanges, extractReviewNotices, validateMigrationPlan } from './modules/migration-validation';
-export type { ValidationIssue, ValidationSeverity, ValidationCode } from './modules/migration-validation';
-export { CROSS_DIALECT_READINESS } from './modules/cross-dialect-readiness';
-export type { ObjectTypeReadiness, ReadinessLevel } from './modules/cross-dialect-readiness';
-export { buildBrowseResult } from './modules/browse';
+} from './modules/dialect-dba-utilities.js';
+export { findMissingFkTargets, findNarrowingTypeChanges, extractReviewNotices, validateMigrationPlan } from './modules/migration-validation.js';
+export type { ValidationIssue, ValidationSeverity, ValidationCode } from './modules/migration-validation.js';
+export { CROSS_DIALECT_READINESS } from './modules/cross-dialect-readiness.js';
+export type { ObjectTypeReadiness, ReadinessLevel } from './modules/cross-dialect-readiness.js';
+export { buildBrowseResult } from './modules/browse.js';
 export {
   splitSqlStatements,
   checkStatement,
@@ -96,7 +96,7 @@ export {
   isNodeCodeCellKind,
   codeCellNeedsTs,
   nodeCodeCellWireKind,
-} from './modules/sql-splitter';
+} from './modules/sql-splitter.js';
 export type {
   SplitStatement,
   StatementStatus,
@@ -107,12 +107,12 @@ export type {
   NodeCodeCellKind,
   TsCodeCellKind,
   CodeFenceRange,
-} from './modules/sql-splitter';
+} from './modules/sql-splitter.js';
 export {
   parseFoxScript,
   compileFoxScriptPlan,
   foxScriptExecutableTexts,
-} from './modules/foxscript-ast';
+} from './modules/foxscript-ast.js';
 export type {
   FoxScriptBlock,
   FoxScriptCodeBlock,
@@ -123,17 +123,17 @@ export type {
   FoxScriptPlanStep,
   FoxScriptRange,
   FoxScriptBlockKind,
-} from './modules/foxscript-ast';
+} from './modules/foxscript-ast.js';
 export type {
   CodeCellLast,
   CodeCellVars,
   CodeCellOk,
   CodeCellErr,
   CodeCellResult,
-} from './modules/code-cell-types';
-export { isCodeCellLast, isCodeCellVars, CODE_CELL_KIND_LABEL } from './modules/code-cell-types';
-export type { SqlDialect, CanonicalType, CanonicalBase, RenderedType } from './modules/sql-dialect.interface';
-export { resolveDialect, DIALECT_MAP } from './modules/dialect-registry';
+} from './modules/code-cell-types.js';
+export { isCodeCellLast, isCodeCellVars, CODE_CELL_KIND_LABEL } from './modules/code-cell-types.js';
+export type { SqlDialect, CanonicalType, CanonicalBase, RenderedType } from './modules/sql-dialect.interface.js';
+export { resolveDialect, DIALECT_MAP } from './modules/dialect-registry.js';
 export {
   sqlTag,
   renderSqlQuery,
@@ -142,8 +142,8 @@ export {
   placeholderStyleFor,
   renderPlaceholder,
   quoteSqlIdentifier,
-} from './modules/sql-template';
-export type { SqlQuery, SqlTag, RenderedSql, SqlPlaceholderStyle } from './modules/sql-template';
+} from './modules/sql-template.js';
+export type { SqlQuery, SqlTag, RenderedSql, SqlPlaceholderStyle } from './modules/sql-template.js';
 export {
   CODE_CELL_ALLOWED_PACKAGES,
   parseCodeCellImports,
@@ -152,15 +152,15 @@ export {
   normalizeCodeCellReturn,
   cloneCodeCellLast,
   runCodeCellBody,
-} from './modules/code-cell-exec';
+} from './modules/code-cell-exec.js';
 export type {
   CodeCellAllowedPackage,
   CodeCellImportSpec,
   RunCodeCellBodyArgs,
-} from './modules/code-cell-exec';
+} from './modules/code-cell-exec.js';
 
-export { buildConnectionString, withConnectionString, DEFAULT_PORTS } from './cores/connection-string';
-export { PROVIDER_SETTINGS, getProviderSettings } from './providers/provider-settings';
+export { buildConnectionString, withConnectionString, DEFAULT_PORTS } from './cores/connection-string.js';
+export { PROVIDER_SETTINGS, getProviderSettings } from './providers/provider-settings.js';
 // Row-shaping helpers. The providers in @foxschema/db call these to turn raw
 // catalog rows into TableSchema; before the split they reached in by relative
 // path, so only a few were listed here.
@@ -173,5 +173,5 @@ export {
   groupRoleRows,
   roleSkippedWarning,
   groupForeignKeyRows,
-} from './cores/schema-to-tables';
-export type { FkRow } from './cores/schema-to-tables';
+} from './cores/schema-to-tables.js';
+export type { FkRow } from './cores/schema-to-tables.js';

@@ -4,8 +4,8 @@ import {
   normalizeTableSchemas,
   resolveFkReferencedColumns,
   groupForeignKeyRows,
-} from './schema-to-tables';
-import type { DbSchema, DbTable } from '../interfaces';
+} from './schema-to-tables.js';
+import type { DbSchema, DbTable } from '../interfaces/index.js';
 
 function emptySchema(tables: Record<string, DbTable>): DbSchema {
   return {

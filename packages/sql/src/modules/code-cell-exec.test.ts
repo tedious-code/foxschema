@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeCodeCellReturn } from './code-cell-exec';
+import { normalizeCodeCellReturn } from './code-cell-exec.js';
 
 describe('normalizeCodeCellReturn', () => {
   it('keeps explicit { columns, rows } grids', () => {

@@ -1,5 +1,5 @@
-import type { SqlDialect } from '../../modules/sql-dialect.interface';
-import { postgresSqlDialect } from '../postgres/postgres.sql-dialect';
+import type { SqlDialect } from '../../modules/sql-dialect.interface.js';
+import { postgresSqlDialect } from '../postgres/postgres.sql-dialect.js';
 
 /**
  * CockroachDB is Postgres wire-compatible for most DDL, but its PL/pgSQL support

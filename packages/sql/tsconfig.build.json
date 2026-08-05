@@ -1,0 +1,29 @@
+{
+  // Build config for publishing to npm. The monorepo consumes src/ directly
+  // (via bundler aliases), so this is only exercised by `npm run build` here.
+  //
+  // moduleResolution "nodenext" is the point: it rejects extensionless relative
+  // imports, which is exactly what made the package unimportable from plain
+  // Node. Keeping it strict here means the build fails loudly rather than
+  // shipping something only a bundler can read.
+  "compilerOptions": {
+    "target": "es2022",
+    "lib": ["es2022"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "strict": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "skipLibCheck": true,
+    "verbatimModuleSyntax": true,
+    "forceConsistentCasingInFileNames": true,
+    // No DOM, no @types/node: this package must not reach for either. If a
+    // Node built-in or a browser global sneaks in, the build breaks here.
+    "types": []
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.test.ts", "src/**/*.spec.ts"]
+}

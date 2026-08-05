@@ -1,4 +1,4 @@
-import { ConnectionOptions, ProviderConnectionSettings } from '../../interfaces/schema-provider.interface';
+import { type ConnectionOptions, type ProviderConnectionSettings } from '../../interfaces/schema-provider.interface.js';
 
 export const mariaDbSettings: ProviderConnectionSettings = {
   // MariaDB speaks the MySQL wire protocol and is driven by the same `mysql2`

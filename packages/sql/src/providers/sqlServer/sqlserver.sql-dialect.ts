@@ -1,6 +1,6 @@
-import type { SqlDialect, ColumnSpec } from '../../modules/sql-dialect.interface';
-import type { IndexInfo, TableSchema } from '../../interfaces';
-import { makeDialectTypeFns, plain, sized, sizedOr, decimalAs, warn } from '../../modules/type-mapping';
+import type { SqlDialect, ColumnSpec } from '../../modules/sql-dialect.interface.js';
+import type { IndexInfo, TableSchema } from '../../interfaces/index.js';
+import { makeDialectTypeFns, plain, sized, sizedOr, decimalAs, warn } from '../../modules/type-mapping.js';
 
 const types = makeDialectTypeFns({
   label: 'SQL Server',

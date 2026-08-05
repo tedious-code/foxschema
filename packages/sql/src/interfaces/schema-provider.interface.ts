@@ -1,6 +1,6 @@
-import { DbSchema, TableSchema } from './schema.interface';
+import { type DbSchema, type TableSchema } from './schema.interface.js';
 
-export type { TableSchema, DbObjectType, ColumnInfo, IndexInfo, ForeignKeyInfo, PrimaryKeyInfo, TriggerInfo, SequenceInfo, UserTypeInfo, TypeAttributeInfo } from './schema.interface';
+export type { TableSchema, DbObjectType, ColumnInfo, IndexInfo, ForeignKeyInfo, PrimaryKeyInfo, TriggerInfo, SequenceInfo, UserTypeInfo, TypeAttributeInfo } from './schema.interface.js';
 
 export interface DriverInfo {
   provider: string;

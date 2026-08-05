@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { findMissingFkTargets, findNarrowingTypeChanges, extractReviewNotices, validateMigrationPlan } from './migration-validation';
-import { postgresSqlDialect } from '../providers/postgres/postgres.sql-dialect';
-import type { TableDiff } from '../interfaces';
-import type { MigrationStep } from './sql-generator.module';
+import { findMissingFkTargets, findNarrowingTypeChanges, extractReviewNotices, validateMigrationPlan } from './migration-validation.js';
+import { postgresSqlDialect } from '../providers/postgres/postgres.sql-dialect.js';
+import type { TableDiff } from '../interfaces/index.js';
+import type { MigrationStep } from './sql-generator.module.js';
 
 // Minimal TableDiff factory — only the fields the checks read.
 function diff(partial: Partial<TableDiff> & Pick<TableDiff, 'tableName' | 'objectType' | 'status'>): TableDiff {

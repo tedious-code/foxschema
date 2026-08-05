@@ -1,5 +1,5 @@
-import type { SqlDialect, ColumnSpec } from '../../modules/sql-dialect.interface';
-import { makeDialectTypeFns, plain, sized, sizedOr, decimalAs, warn } from '../../modules/type-mapping';
+import type { SqlDialect, ColumnSpec } from '../../modules/sql-dialect.interface.js';
+import { makeDialectTypeFns, plain, sized, sizedOr, decimalAs, warn } from '../../modules/type-mapping.js';
 
 const types = makeDialectTypeFns({
   label: 'MySQL',

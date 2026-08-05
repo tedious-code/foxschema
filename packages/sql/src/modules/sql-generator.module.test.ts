@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { SqlGeneratorModule } from './sql-generator.module';
-import { TableDiff } from '../interfaces';
-import { TableSchema } from '../interfaces';
+import { SqlGeneratorModule } from './sql-generator.module.js';
+import { TableDiff } from '../interfaces/index.js';
+import { TableSchema } from '../interfaces/index.js';
 
 const gen = new SqlGeneratorModule();
 

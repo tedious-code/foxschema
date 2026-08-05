@@ -1,4 +1,4 @@
-import type { TableSchema, IndexInfo } from '../interfaces';
+import type { TableSchema, IndexInfo } from '../interfaces/index.js';
 
 /** Minimal column info available in both full schema and diff contexts. */
 export interface ColumnSpec {

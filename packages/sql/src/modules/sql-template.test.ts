@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sqlTag as sql, renderSqlQuery, placeholderStyleFor } from './sql-template';
+import { sqlTag as sql, renderSqlQuery, placeholderStyleFor } from './sql-template.js';
 
 describe('placeholderStyleFor', () => {
   it('maps each engine family to its placeholder syntax', () => {

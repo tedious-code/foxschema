@@ -16,7 +16,7 @@ import {
   parseCodeCell,
   stripFullLineSqlComments,
   codeCellHasReturn,
-} from './sql-splitter';
+} from './sql-splitter.js';
 
 describe('splitSqlStatements', () => {
   it('splits simple semicolon-terminated statements with line numbers', () => {

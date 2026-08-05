@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { findDropDependencies, tokenizeSqlIdents } from './dependency-scan';
-import type { TableDiff } from '../interfaces';
+import { findDropDependencies, tokenizeSqlIdents } from './dependency-scan.js';
+import type { TableDiff } from '../interfaces/index.js';
 
 describe('tokenizeSqlIdents', () => {
   it('extracts identifiers once for membership checks', () => {

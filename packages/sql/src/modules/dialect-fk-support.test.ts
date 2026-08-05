@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dialectSupportsFk } from './dialect-fk-support';
+import { dialectSupportsFk } from './dialect-fk-support.js';
 
 describe('dialectSupportsFk', () => {
   it('disables FK for ClickHouse', () => {

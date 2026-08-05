@@ -1,12 +1,12 @@
 import {
-  DbSchema,
-  DbTable,
-  DbForeignKey,
-  TableSchema,
-  DbRole,
-  DbRoleMember,
-  ForeignKeyInfo,
-} from '../interfaces';
+  type DbSchema,
+  type DbTable,
+  type DbForeignKey,
+  type TableSchema,
+  type DbRole,
+  type DbRoleMember,
+  type ForeignKeyInfo,
+} from '../interfaces/index.js';
 
 /**
  * Map roles into the `TableSchema` shape the compare engine consumes. Members

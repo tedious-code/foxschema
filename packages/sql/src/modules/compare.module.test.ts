@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { CompareModule } from './compare.module';
-import { TableSchema } from '../interfaces';
+import { CompareModule } from './compare.module.js';
+import { TableSchema } from '../interfaces/index.js';
 
 const cmp = new CompareModule();
 

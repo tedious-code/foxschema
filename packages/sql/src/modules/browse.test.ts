@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { buildBrowseResult } from './browse';
-import type { TableSchema } from '../interfaces';
+import { buildBrowseResult } from './browse.js';
+import type { TableSchema } from '../interfaces/index.js';
 
 const table = (over: Partial<TableSchema> & Pick<TableSchema, 'name' | 'objectType'>): TableSchema => ({
   columns: [],

@@ -8,7 +8,7 @@ import {
   isSafeIndexFragmentationCustomSql,
   normalizeIndexFragmentationRows,
   splitSchemaTable,
-} from './dialect-index-fragmentation';
+} from './dialect-index-fragmentation.js';
 
 describe('dialectSupportsIndexFragmentation', () => {
   it('marks SQL Server as physical with query + defrag', () => {

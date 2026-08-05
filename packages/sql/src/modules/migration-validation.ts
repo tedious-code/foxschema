@@ -1,6 +1,6 @@
-import type { TableDiff, DbObjectType } from '../interfaces';
-import type { SqlDialect, CanonicalType } from './sql-dialect.interface';
-import type { MigrationStep } from './sql-generator.module';
+import type { TableDiff, DbObjectType } from '../interfaces/index.js';
+import type { SqlDialect, CanonicalType } from './sql-dialect.interface.js';
+import type { MigrationStep } from './sql-generator.module.js';
 
 export type ValidationSeverity = 'error' | 'warning';
 

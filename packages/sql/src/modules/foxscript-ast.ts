@@ -20,7 +20,7 @@ import {
   type SplitStatement,
   type StatementKind,
   type StatementStatus,
-} from './sql-splitter';
+} from './sql-splitter.js';
 
 export type FoxScriptBlockKind = StatementKind;
 
