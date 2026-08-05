@@ -1074,9 +1074,22 @@ export function extractTableAliases(sql: string): Record<string, string> {
   while ((m = re.exec(sql)) !== null) {
     const tableRaw = m[1] ?? m[3];
     const aliasRaw = m[2] ?? m[4];
+    // Comma-branch match: `, <ident> <ident>` (used for `FROM a x, b y`).
+    const fromComma = Boolean(m[3] && !m[1]);
     if (!tableRaw) continue;
     const table = stripIdentQuotes(tableRaw);
     if (!table) continue;
+
+    // `, orders.customer_id from` is a SELECT-list false positive: the second
+    // ident is the FROM keyword. Rewind so `\bFROM orders` can match next.
+    if (fromComma && aliasRaw) {
+      const aliasProbe = stripIdentQuotes(aliasRaw).toLowerCase();
+      if (ALIAS_KEYWORD_BLACKLIST.has(aliasProbe)) {
+        re.lastIndex = m.index + 1;
+        continue;
+      }
+    }
+
     const tableKey = table.toLowerCase();
     // Do NOT blacklist the table name — real tables are often keywords
     // (ORDER, USER, GROUP, …). Only aliases are filtered below.

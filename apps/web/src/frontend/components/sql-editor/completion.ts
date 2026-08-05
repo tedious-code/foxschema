@@ -1,5 +1,6 @@
 import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api';
 import { extractTableAliases } from '../../lib/sql-splitter';
+import { isInFromTablePosition, suggestTableAlias } from '../../lib/selectClauseEdit';
 import { projectToVirtualDoc } from '../../lib/foxscriptVirtualDocs';
 import { filterCallParameters, getCompletionContext } from './sqlEditorBridge';
 import {
@@ -67,7 +68,15 @@ export function ensureSqlCompletions(monaco: typeof Monaco): void {
 
       const { sql, schemas, variables } = getCompletionContext();
       // Prefer the live model text — context sql can lag one keystroke behind.
-      const aliases = extractTableAliases(model.getValue() || sql);
+      const modelSql = model.getValue() || sql;
+      const aliases = extractTableAliases(modelSql);
+      const sqlBeforeCursor = model.getValueInRange({
+        startLineNumber: 1,
+        startColumn: 1,
+        endLineNumber: position.lineNumber,
+        endColumn: position.column,
+      });
+      const fromTablePos = isInFromTablePosition(sqlBeforeCursor);
       const tableIndex = buildTableIndex(schemas);
       const tries = triesFor(schemas);
       const prefix = (word.word || '').toLowerCase();
@@ -293,6 +302,7 @@ export function ensureSqlCompletions(monaco: typeof Monaco): void {
       }
 
       const tableNames = trieCollect(tries.tables, prefix);
+      const takenAliases = new Set(Object.keys(aliases));
       for (const name of tableNames) {
         const key = name.toLowerCase();
         const bare = key.includes('.') ? key.slice(key.lastIndexOf('.') + 1) : key;
@@ -301,12 +311,21 @@ export function ensureSqlCompletions(monaco: typeof Monaco): void {
         seen.add(bare);
         const meta = schemas
           .flatMap((s) => s.tables)
-          .find((t) => t.name.toLowerCase() === key);
+          .find((t) => t.name.toLowerCase() === key || t.name.toLowerCase() === bare);
+        // In FROM/JOIN, insert `table alias` so columns can use the short name.
+        let insertText = name;
+        let detail = (meta?.objectType ?? 'TABLE').toLowerCase();
+        if (fromTablePos) {
+          const alias = suggestTableAlias(bare, takenAliases);
+          takenAliases.add(alias);
+          insertText = `${name} ${alias}`;
+          detail = `${detail} · alias ${alias}`;
+        }
         suggestions.push({
           label: name,
           kind: monaco.languages.CompletionItemKind.Class,
-          insertText: name,
-          detail: (meta?.objectType ?? 'TABLE').toLowerCase(),
+          insertText,
+          detail,
           sortText: `1_${name}`,
           range,
         });

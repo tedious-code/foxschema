@@ -12,8 +12,17 @@ import { useSyncStore } from '../../store/useSyncStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
 import { getProviderSettings } from '../../lib/provider-settings';
 import { TYPE_META } from '../SchemaTreePanel';
-import { filterCallParameters, insertAtCursor, mutateSql } from './sqlEditorBridge';
-import { insertIntoSelectList } from '../../lib/selectClauseEdit';
+import {
+  filterCallParameters,
+  getCompletionContext,
+  insertAtCursor,
+  mutateSql,
+} from './sqlEditorBridge';
+import {
+  addTableWithAliasToFrom,
+  existingShortAliasForTable,
+  insertIntoSelectList,
+} from '../../lib/selectClauseEdit';
 import type { DbObjectType, TableSchema } from '../../lib/types';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
 import { TableBlueprintModal, type BlueprintMode } from './TableBlueprintModal';
@@ -405,7 +414,9 @@ const ObjectNode: React.FC<{
       insertAtCursor(routineInsertText(insertName, table.objectType, params));
       return;
     }
-    insertAtCursor(`${insertName} `);
+    // Tables/views: add into FROM with an auto alias (e.g. users u).
+    const ok = mutateSql((sql) => addTableWithAliasToFrom(sql, insertName).sql);
+    if (!ok) insertAtCursor(`${insertName} `);
   };
 
   const onNameClick = (e: React.MouseEvent) => {
@@ -426,10 +437,20 @@ const ObjectNode: React.FC<{
     insertAtCursor(`${quoteIfNeeded(name, dialect)} `);
   };
 
-  /** Add `table.column` into the active SELECT list (or insert at cursor). */
+  /** Prefer the short FROM alias when adding `alias.column` into SELECT. */
+  const resolveTableAlias = (): string => {
+    const sql = getCompletionContext().sql;
+    return (
+      existingShortAliasForTable(sql, table.name) ||
+      existingShortAliasForTable(sql, insertName) ||
+      insertName
+    );
+  };
+
+  /** Add `alias.column` into the active SELECT list (or insert at cursor). */
   const insertColumnIntoSelect = (colName: string) => {
     const col = quoteIfNeeded(colName, dialect);
-    const expr = `${insertName}.${col}`;
+    const expr = `${resolveTableAlias()}.${col}`;
     const ok = mutateSql((sql) => insertIntoSelectList(sql, expr));
     if (!ok) insertAtCursor(`${expr}, `);
   };
@@ -458,8 +479,8 @@ const ObjectNode: React.FC<{
               : isRoutine
                 ? `Insert ${table.name}(${params.map((p) => `${p.mode} ${p.name}`).join(', ')})`
                 : canPeek
-                  ? `Insert ${table.name} — ${peekModifierLabel()}-click to peek at its data`
-                  : `Insert ${table.name}`
+                  ? `Add ${table.name} to FROM with auto alias — ${peekModifierLabel()}-click to peek at its data`
+                  : `Add ${table.name} to FROM with auto alias`
           }
           onClick={onNameClick}
           className="flex-1 flex items-center gap-1.5 min-w-0 text-left text-[13px] font-semibold text-slate-200 hover:text-cyan-300 py-1 truncate"
