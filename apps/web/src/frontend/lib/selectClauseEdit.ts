@@ -314,7 +314,7 @@ export function ensureTableHasAlias(
     `(\\b(?:FROM|JOIN)\\s+)(${tablePat})(\\s*)(?=(?:WHERE|GROUP\\s+BY|ORDER\\s+BY|HAVING|LIMIT|OFFSET|FETCH|UNION|EXCEPT|INTERSECT|FOR\\s+UPDATE|,|;|$|\\)|\\n))`,
     'i'
   );
-  let next = sql;
+  let next: string;
   if (fromRe.test(sql)) {
     next = sql.replace(fromRe, `$1$2 ${nextAlias}$3`);
   } else {
