@@ -13,6 +13,7 @@ import type { DbObjectType } from '../lib/types';
 import { PROVIDER_SETTINGS } from '../lib/provider-settings';
 import { ConnectionModal } from './ConnectionModal';
 import { useAuthStore } from '../store/authStore';
+import { getSessionPassword, setSessionPassword } from '../lib/sessionPasswords';
 
 const ProfileMenu = ProfileMenuNamed ?? ProfileMenuDefault;
 
@@ -68,6 +69,15 @@ export const TopToolbar: React.FC = () => {
   const selectSavedConnection = (side: 'source' | 'target', id: string) => {
     const conn = connections.find((c) => c.id === id);
     if (conn && !conn.hasPassword) {
+      // Reuse a password already typed this session (SQL Editor or prior Sync pick).
+      const cfg = side === 'source' ? sourceConfig : targetConfig;
+      const existing =
+        getSessionPassword(id) ||
+        (cfg.connectionId === id && cfg.option?.password ? cfg.option.password : undefined);
+      if (existing) {
+        applySavedConnection(side, id, existing);
+        return;
+      }
       setPendingPassword({ side, id, name: conn.name });
       setPendingPasswordValue('');
       return;
@@ -77,7 +87,10 @@ export const TopToolbar: React.FC = () => {
 
   const confirmPendingPassword = () => {
     if (!pendingPassword) return;
-    applySavedConnection(pendingPassword.side, pendingPassword.id, pendingPasswordValue || undefined);
+    const trimmed = pendingPasswordValue.trim();
+    if (!trimmed) return;
+    setSessionPassword(pendingPassword.id, trimmed);
+    applySavedConnection(pendingPassword.side, pendingPassword.id, trimmed);
     setPendingPassword(null);
     setPendingPasswordValue('');
   };
@@ -499,7 +512,9 @@ export const TopToolbar: React.FC = () => {
           const saved = await addConnection(input);
           // If the password wasn't persisted, keep it in-memory for this session so the
           // just-bound connection can be used without re-entering it.
-          applySavedConnection(side, saved.id, saved.hasPassword ? undefined : input.option.password);
+          const sessionPw = saved.hasPassword ? undefined : input.option.password;
+          if (sessionPw) setSessionPassword(saved.id, sessionPw);
+          applySavedConnection(side, saved.id, sessionPw);
         }}
       />
 
@@ -550,7 +565,8 @@ export const TopToolbar: React.FC = () => {
                 </button>
                 <button
                   onClick={confirmPendingPassword}
-                  className="text-xs font-bold accent-grad on-accent-fg rounded px-4 py-1.5 transition cursor-pointer"
+                  disabled={!pendingPasswordValue.trim()}
+                  className="text-xs font-bold accent-grad on-accent-fg rounded px-4 py-1.5 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   Connect
                 </button>

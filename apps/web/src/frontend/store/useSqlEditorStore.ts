@@ -27,7 +27,19 @@ import {
   buildTablePreview,
   composePeekSql,
 } from '../lib/tablePreview';
+import {
+  getSessionPassword,
+  sessionPasswordMap,
+  setSessionPassword,
+} from '../lib/sessionPasswords';
 import type { ForeignKeyInfo } from '../lib/types';
+
+function sessionPasswordFor(
+  connectionId: string,
+  map: Record<string, string>
+): string | undefined {
+  return getSessionPassword(connectionId) || map[connectionId] || undefined;
+}
 import { mergeVaultSecretsIntoVariables } from '../lib/mergeVaultSecrets';
 import {
   applySetDirectives,
@@ -626,7 +638,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         if (current.includes(id)) return;
 
         const conn = useSyncStore.getState().connections.find((c) => c.id === id);
-        if (conn && !conn.hasPassword && !sessionPasswords[id]) {
+        if (conn && !conn.hasPassword && !sessionPasswordFor(id, sessionPasswords)) {
           set({
             pendingPassword: {
               id,
@@ -717,6 +729,8 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           get();
         if (!pendingPassword) return;
         const { id, resumeExecute, connectionIds, statementIndices } = pendingPassword;
+        const trimmed = password.trim();
+        if (!trimmed) return;
 
         const current = shareDestinations
           ? sharedConnectionIds
@@ -725,10 +739,21 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           ? {}
           : destinationIdsPatch(shareDestinations, tabs, activeTabId, [...current, id]);
 
+        setSessionPassword(id, trimmed);
         set({
-          sessionPasswords: { ...get().sessionPasswords, [id]: password },
+          sessionPasswords: sessionPasswordMap(),
           pendingPassword: null,
           ...destPatch,
+        });
+        // Keep Schema Sync source/target configs warm with the same session password.
+        void import('./useSyncStore').then(({ useSyncStore }) => {
+          const sync = useSyncStore.getState();
+          if (sync.selectedSourceConnectionId === id) {
+            sync.applySavedConnection('source', id, trimmed);
+          }
+          if (sync.selectedTargetConnectionId === id) {
+            sync.applySavedConnection('target', id, trimmed);
+          }
         });
         if (resumeExecute) {
           void get().execute({
@@ -800,7 +825,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         }
 
         const { sessionPasswords } = get();
-        if (!conn.hasPassword && !sessionPasswords[connectionId]) {
+        if (!conn.hasPassword && !sessionPasswordFor(connectionId, sessionPasswords)) {
           set({
             pendingPassword: {
               id: connectionId,
@@ -831,7 +856,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
 
         try {
           const { tables } = await loadSchema(
-            { connectionId, password: sessionPasswords[connectionId] || undefined },
+            { connectionId, password: sessionPasswordFor(connectionId, sessionPasswords) },
             [...SQL_EDITOR_SCOPE]
           );
           set({
@@ -937,7 +962,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         }
 
         const needingPassword = connections.find(
-          (c) => !c.hasPassword && !sessionPasswords[c.id]
+          (c) => !c.hasPassword && !sessionPasswordFor(c.id, sessionPasswords)
         );
         if (needingPassword) {
           set({
@@ -1167,7 +1192,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
               const beam = beamConns.map((c, i) => ({
                 alias: aliases[i]!,
                 connectionId: c.id,
-                password: sessionPasswords[c.id] || undefined,
+                password: sessionPasswordFor(c.id, sessionPasswords),
               }));
               const primary = beamConns[0];
               if (tooMany) {
@@ -1198,7 +1223,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
                     maxRows,
                     ref: {
                       connectionId: primary.id,
-                      password: sessionPasswords[primary.id] || undefined,
+                      password: sessionPasswordFor(primary.id, sessionPasswords),
                     },
                     beam,
                     allowWrites: !safeMode,
@@ -1240,7 +1265,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
                     maxRows,
                     // A `-- @node` cell's `sql` runs on the same credential the
                     // rest of the run uses, under the same Safe-mode policy.
-                    ref: { connectionId: c.id, password: sessionPasswords[c.id] || undefined },
+                    ref: { connectionId: c.id, password: sessionPasswordFor(c.id, sessionPasswords) },
                     allowWrites: !safeMode,
                   });
                   codeDirectives = directives;
@@ -1332,7 +1357,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
               }
               try {
                 const { results } = await executeSql(
-                  { connectionId: c.id, password: sessionPasswords[c.id] || undefined },
+                  { connectionId: c.id, password: sessionPasswordFor(c.id, sessionPasswords) },
                   [prep.sql],
                   maxRows,
                   0
@@ -1515,7 +1540,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         try {
           const offset = pageIndex * pageSize;
           const { results } = await executeSql(
-            { connectionId, password: sessionPasswords[connectionId] || undefined },
+            { connectionId, password: sessionPasswordFor(connectionId, sessionPasswords) },
             [sql!],
             pageSize,
             offset
@@ -1902,7 +1927,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           const { results } = await executeSql(
             {
               connectionId: peek.connectionId,
-              password: get().sessionPasswords[peek.connectionId] || undefined,
+              password: sessionPasswordFor(peek.connectionId, get().sessionPasswords),
             },
             [sql],
             pageSize,

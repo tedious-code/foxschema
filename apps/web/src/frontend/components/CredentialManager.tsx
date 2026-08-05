@@ -15,9 +15,11 @@ import {
   Cloud,
 } from 'lucide-react';
 import { useSyncStore } from '../store/useSyncStore';
+import { useSqlEditorStore } from '../store/useSqlEditorStore';
 import { ConnectionModal } from './ConnectionModal';
 import { CloudProviderCredentialsSection } from './CloudProviderCredentialsSection';
 import { PROVIDER_SETTINGS } from '../lib/provider-settings';
+import { sessionPasswordMap, setSessionPassword } from '../lib/sessionPasswords';
 import type { SavedConnectionSummary } from '../api/authApi';
 import type { Dialect } from '../lib/provider-settings';
 
@@ -388,8 +390,20 @@ export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
           setEditing(null);
         }}
         onSaveCredential={async (input) => {
-          if (editing) await updateConnection(editing.id, input);
-          else await addConnection(input);
+          if (editing) {
+            await updateConnection(editing.id, input);
+            // Editing with a typed password and Save password off → keep it for this session.
+            if (input.savePassword === false && input.option.password) {
+              setSessionPassword(editing.id, input.option.password);
+              useSqlEditorStore.setState({ sessionPasswords: sessionPasswordMap() });
+            }
+          } else {
+            const saved = await addConnection(input);
+            if (!saved.hasPassword && input.option.password) {
+              setSessionPassword(saved.id, input.option.password);
+              useSqlEditorStore.setState({ sessionPasswords: sessionPasswordMap() });
+            }
+          }
         }}
       />
     </div>,
