@@ -1,10 +1,32 @@
 import React, { useState } from 'react';
 import { Loader2, ChevronRight, Table2, Eye, FunctionSquare, Code, Database } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
+import { PROVIDER_SETTINGS } from '../lib/provider-settings';
 
 const ROLES = ['Developer', 'DBA', 'Data Engineer', 'Analyst', 'Student', 'Other'];
-// Only dialects with a working provider today (DB2). Add more as providers land.
-const DATABASES = ['DB2', 'PostgreSQL', 'MySQL'];
+/** Preferred order for the database step; any new PROVIDER_SETTINGS entry is appended. */
+const DATABASE_ORDER = [
+  'PostgreSQL',
+  'MySQL',
+  'MariaDB',
+  'SQL Server',
+  'Oracle',
+  'IBM DB2',
+  'SQLite',
+  'DuckDB',
+  'CockroachDB',
+  'YugabyteDB',
+  'TiDB',
+];
+const DATABASES = (() => {
+  const labels = Object.values(PROVIDER_SETTINGS).map((p) => p.label);
+  const rank = new Map<string, number>(DATABASE_ORDER.map((label, i) => [label, i]));
+  return [...labels].sort((a, b) => {
+    const ai = rank.get(a) ?? 1000;
+    const bi = rank.get(b) ?? 1000;
+    return ai !== bi ? ai - bi : a.localeCompare(b);
+  });
+})();
 const GOALS: { id: string; label: string; icon: React.ReactNode }[] = [
   { id: 'COMPARE_SCHEMAS', label: 'Compare schemas', icon: <Table2 className="w-5 h-5" /> },
   { id: 'GENERATE_SQL', label: 'Generate migration SQL', icon: <Code className="w-5 h-5" /> },
@@ -39,9 +61,14 @@ export const OnboardingWizard: React.FC = () => {
     completeOnboarding({ role, primaryDatabase, primaryGoal: goal });
   };
 
+  const optionGridClass =
+    step === 1
+      ? 'grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-[min(28rem,55vh)] overflow-y-auto pr-0.5'
+      : 'grid grid-cols-2 gap-3';
+
   return (
     <div className="h-screen flex items-center justify-center bg-slate-950 text-slate-100 p-4">
-      <div className="w-full max-w-lg">
+      <div className="w-full max-w-2xl">
         <div className="flex items-center justify-center gap-2 mb-2 text-slate-500">
           {[0, 1, 2].map((i) => (
             <span key={i} className={`h-1.5 w-10 rounded-full ${i <= step ? 'bg-cyan-500' : 'bg-slate-800'}`} />
@@ -52,19 +79,21 @@ export const OnboardingWizard: React.FC = () => {
         {step < 2 ? (
           <div>
             <h2 className="text-lg font-bold text-center mb-6">{steps[step].title}</h2>
-            <div className="grid grid-cols-2 gap-3">
+            <div className={optionGridClass} data-testid={step === 1 ? 'onboarding-databases' : undefined}>
               {steps[step].options.map((opt) => (
                 <button
                   key={opt}
+                  type="button"
+                  data-testid={step === 1 ? `onboarding-db-${opt}` : undefined}
                   onClick={() => steps[step].pick(opt)}
-                  className={`flex items-center justify-between px-4 py-3 rounded-lg border text-sm font-semibold transition cursor-pointer ${
+                  className={`flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg border text-sm font-semibold transition cursor-pointer ${
                     steps[step].value === opt
                       ? 'bg-cyan-500/10 border-cyan-500/40 text-cyan-300'
                       : 'bg-slate-900/60 border-slate-800 hover:border-slate-600 text-slate-200'
                   }`}
                 >
-                  {opt}
-                  <ChevronRight className="w-4 h-4 text-slate-500" />
+                  <span className="truncate">{opt}</span>
+                  <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
                 </button>
               ))}
             </div>
