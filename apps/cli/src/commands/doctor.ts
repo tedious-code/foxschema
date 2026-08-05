@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import { createRequire } from 'node:module';
-import { CompareModule, SqlGeneratorModule } from '@foxschema/core';
+import { CompareModule, SqlGeneratorModule } from '@foxschema/db';
 import { readConfig, CONFIG_DIR, CONFIG_FILE } from '../runtime/config';
 import { getDek } from '../runtime/keyring';
 import { friendlyError } from '../format/friendlyError';
@@ -73,12 +73,12 @@ export async function runDoctor(): Promise<void> {
   const coreModulesOk = typeof CompareModule === 'function' && typeof SqlGeneratorModule === 'function';
   let core: string;
   try {
-    const mod = await import('@foxschema/core');
+    const mod = await import('@foxschema/db');
     core = chalk.green(`loaded (${Object.keys(mod).length} exports)`);
   } catch (e) {
     core = chalk.red(`failed: ${friendlyError(e)}`);
   }
-  console.log(`  @foxschema/core  ${core} ${coreModulesOk ? chalk.green('(modules ok)') : chalk.red('(modules missing)')}`);
+  console.log(`  @foxschema/db  ${core} ${coreModulesOk ? chalk.green('(modules ok)') : chalk.red('(modules missing)')}`);
 
   console.log(chalk.bold('\nDrivers'));
   console.log(`  pg                 ${driverStatus('pg')}`);

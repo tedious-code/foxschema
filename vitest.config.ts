@@ -4,7 +4,8 @@ import { fileURLToPath } from 'node:url';
 const pkg = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 
 const aliases = [
-  { find: '@foxschema/core', replacement: pkg('./packages/core/src/index.ts') },
+  { find: '@foxschema/sql', replacement: pkg('./packages/sql/src/index.ts') },
+  { find: '@foxschema/db', replacement: pkg('./packages/db/src/index.ts') },
   { find: '@foxschema/web/auth', replacement: pkg('./apps/web/src/backend/modules/auth.module.ts') },
   { find: '@foxschema/web/connection-store', replacement: pkg('./apps/web/src/backend/modules/connection-store.module.ts') },
   { find: '@foxschema/web/migration-history', replacement: pkg('./apps/web/src/backend/modules/migration-history.module.ts') },

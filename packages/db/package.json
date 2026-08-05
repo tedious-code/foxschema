@@ -1,0 +1,29 @@
+{
+  "name": "@foxschema/db",
+  "version": "0.2.34",
+  "description": "The FoxSchema Node runtime: database drivers, pooling, and migration execution. Re-exports @foxschema/sql for the dialect layer.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@foxschema/sql": "*"
+  },
+  "peerDependencies": {
+    "ibm_db": "*",
+    "pg": "*",
+    "mysql2": "*"
+  },
+  "peerDependenciesMeta": {
+    "ibm_db": {
+      "optional": true
+    },
+    "pg": {
+      "optional": true
+    },
+    "mysql2": {
+      "optional": true
+    }
+  }
+}

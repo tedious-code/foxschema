@@ -1,6 +1,6 @@
 import { confirm } from '@inquirer/prompts';
 import chalk from 'chalk';
-import { normalizeTableSchemas, type TableDiff } from '@foxschema/core';
+import { normalizeTableSchemas, type TableDiff } from '@foxschema/db';
 import { ensureSourceTarget, resolveRef } from '../runtime/connectionRef';
 import { friendlyError } from '../format/friendlyError';
 import { compareModule, connectionModule, filterIndexDiffs, loadScopedTables, migrationModule, parseScope, sqlGenerator } from '../runtime/engine';

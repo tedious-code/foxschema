@@ -1,4 +1,4 @@
-import { ConnectionFactory, getAdapter, type ConnectionOptions } from '@foxschema/core';
+import { ConnectionFactory, getAdapter, type ConnectionOptions } from '@foxschema/db';
 import { isPageableStatement, trimPageProbe, wrapSqlForPage } from './sql-page-wrap';
 
 /**

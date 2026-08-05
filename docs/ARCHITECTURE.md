@@ -28,7 +28,8 @@ cd apps/web && npx tsc --noEmit
 
 # Tests — run from repo root (covers packages/* and apps/web/**/*.test.ts)
 npx vitest run                       # all tests
-npx vitest run packages/core         # core engine tests only
+npx vitest run packages/sql         # dialect-layer tests only
+npx vitest run packages/db          # driver/runtime tests only
 npx vitest run --reporter=verbose    # with test names
 npx vitest <pattern>                 # e.g. npx vitest sql-generator
 
@@ -37,7 +38,7 @@ cd apps/cli && npm run foxschema -- doctor
 cd apps/cli && npm run foxschema -- compare --source ... --target ...
 ```
 
-Backend changes (`apps/web/src/backend`, `packages/core`) hot-reload via `tsx watch`.
+Backend changes (`apps/web/src/backend`, `packages/sql`, `packages/db`) hot-reload via `tsx watch`.
 
 ## E2E tests (apps/e2e)
 
@@ -59,7 +60,8 @@ cd apps/e2e && node scripts/run-all.mjs
 npm workspaces — not pnpm or Turborepo.
 
 ```
-packages/core/          @foxschema/core — engine (no browser deps)
+packages/sql/           @foxschema/sql — dialect knowledge (pure, browser-safe)
+packages/db/            @foxschema/db  — Node runtime: drivers, pooling, execution
   src/interfaces/       TableSchema, TableDiff, ColumnDiff, MigrationStep, etc.
   src/modules/          CompareModule, SqlGeneratorModule, ConnectionModule, MigrationModule
   src/providers/        10 dialects — each has settings + adapter + provider + sql-dialect
@@ -95,7 +97,8 @@ Formula/                Homebrew formula (tap this GitHub repo directly)
 
 ## Dialect system
 
-Each of the 10 dialects has three layers registered in `packages/core/src/providers/`:
+Each of the 10 dialects has three layers, split across `packages/sql/src/providers/`
+(dialect + settings) and `packages/db/src/providers/` (adapter + provider):
 
 | File | Interface | Registry |
 |------|-----------|----------|
@@ -111,7 +114,7 @@ only. Key hooks: `dropForeignKeyStatement`, `dropIndexStatement`, `dropTriggerSt
 `createTriggerStatement`, `preDropTableStatements`, `createViewStatement`, `alterViewStatement`,
 `wrapCreateSequence`, `dropTableStatement`, `dropViewStatement`, `dropSequenceStatement`,
 `dropFunctionStatement`, `dropProcedureStatement`. Full hook map + fallback behavior +
-per-dialect gotchas live in `packages/core/src/providers/DIALECTS.md`.
+per-dialect gotchas live in `packages/sql/src/providers/DIALECTS.md` (local, gitignored).
 
 Version-aware DDL: `SchemaProvider.detectVersion?()` → stored in Zustand as
 `targetServerVersion` → flows into `SchemaMapping` → dialect drop hooks use it. Oracle pre-23c
@@ -131,7 +134,7 @@ backend and streams results back via SSE.
 
 ## Adding a dialect (checklist)
 
-1. Create the four files in `packages/core/src/providers/<name>/`
+1. Create the dialect files in `packages/sql/src/providers/<name>/` and the driver files in `packages/db/src/providers/<name>/`
 2. Register in `provider-settings.ts`, `adapter-registry.ts`, `provider-registry.ts`, `dialect-registry.ts`
 3. Also update `apps/web/src/frontend/lib/provider-settings.ts` (frontend copy)
 4. Add `parseType`/`renderType` round-trip tests in `type-mapping.test.ts`

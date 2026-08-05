@@ -20,7 +20,7 @@ import {
   type ObjectSizeRow,
   type SystemInfoMetric,
   type UserSessionRow,
-} from '@foxschema/core';
+} from '@foxschema/db';
 
 export type DbaUtilityProbeSuccess = {
   kind: DbaUtilityKind;

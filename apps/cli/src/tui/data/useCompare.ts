@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { DbObjectType, SchemaCompareResult } from '@foxschema/core';
+import type { DbObjectType, SchemaCompareResult } from '@foxschema/db';
 import { compareModule, loadScopedTables } from '../../runtime/engine';
 import { friendlyError } from '../../format/friendlyError';
 import type { AsyncState, ConnRef } from '../types';

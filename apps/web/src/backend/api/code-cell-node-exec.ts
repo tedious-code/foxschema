@@ -3,7 +3,7 @@
  * Used by the worker thread and unit tests.
  *
  * The parsing/normalizing/sandbox machinery is shared with the browser
- * executor via `@foxschema/core`; this module supplies only the Node globals
+ * executor via `@foxschema/db`; this module supplies only the Node globals
  * preamble and the server's copies of the allowlisted packages.
  */
 
@@ -14,9 +14,9 @@ import {
   type CodeCellLast,
   type CodeCellVars,
   type CodeCellResult,
-} from '@foxschema/core';
+} from '@foxschema/db';
 
-export type { CodeCellLast, CodeCellVars, CodeCellResult } from '@foxschema/core';
+export type { CodeCellLast, CodeCellVars, CodeCellResult } from '@foxschema/db';
 
 const MODULES: Record<string, object> = {
   lodash: lodash as object,

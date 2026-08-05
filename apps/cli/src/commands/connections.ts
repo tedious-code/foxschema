@@ -1,6 +1,6 @@
 import { input, password as passwordPrompt } from '@inquirer/prompts';
 import chalk from 'chalk';
-import { buildConnectionString, type ConnectionOptions } from '@foxschema/core';
+import { buildConnectionString, type ConnectionOptions } from '@foxschema/db';
 import { getContext } from '../runtime/store';
 
 /** `connections list` — saved connections (never shows passwords). */

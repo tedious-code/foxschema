@@ -13,7 +13,13 @@ export default defineConfig({
   ],
   resolve: {
     alias: [
-      { find: '@foxschema/core', replacement: pkg('../../packages/core/src/browser.ts') },
+      // Only the pure package is aliased. @foxschema/db is deliberately absent:
+      // if frontend code ever imports the driver layer, the build fails here
+      // instead of silently resolving to something the browser cannot run.
+      // This alias and apps/web/tsconfig.json must agree — they used to point
+      // '@foxschema/core' at different entry points, so tsc and the bundler
+      // disagreed about what the name meant.
+      { find: '@foxschema/sql', replacement: pkg('../../packages/sql/src/index.ts') },
     ],
     // Force a single copy of React resolved from this app's node_modules. The
     // monorepo also contains the Ink-based CLI, which pins react@18; npm hoists

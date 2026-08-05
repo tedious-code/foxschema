@@ -22,7 +22,7 @@ export {
   isCodeCellLast,
   isCodeCellVars,
   CODE_CELL_KIND_LABEL,
-} from '@foxschema/core';
+} from '@foxschema/sql';
 export type {
   SplitStatement,
   StatementStatus,
@@ -36,7 +36,7 @@ export type {
   CodeCellOk,
   CodeCellErr,
   CodeCellResult,
-} from '@foxschema/core';
+} from '@foxschema/sql';
 
 export {
   CODE_CELL_ALLOWED_PACKAGES,
@@ -46,18 +46,18 @@ export {
   normalizeCodeCellReturn,
   cloneCodeCellLast,
   runCodeCellBody,
-} from '@foxschema/core';
+} from '@foxschema/sql';
 export type {
   CodeCellAllowedPackage,
   CodeCellImportSpec,
   RunCodeCellBodyArgs,
-} from '@foxschema/core';
+} from '@foxschema/sql';
 
 import {
   splitSqlStatements as splitSqlStatementsUncached,
   parseFoxScript as parseFoxScriptUncached,
-} from '@foxschema/core';
-import type { SplitStatement, FoxScriptDocument } from '@foxschema/core';
+} from '@foxschema/sql';
+import type { SplitStatement, FoxScriptDocument } from '@foxschema/sql';
 
 /** Tiny LRU so keystroke paths (store + strip + gutter) reuse one split of the same buffer. */
 const SPLIT_CACHE = new Map<string, SplitStatement[]>();
@@ -108,7 +108,7 @@ export {
   quoteSqlIdentifier,
   compileFoxScriptPlan,
   foxScriptExecutableTexts,
-} from '@foxschema/core';
+} from '@foxschema/sql';
 export type {
   SqlQuery,
   SqlTag,
@@ -124,4 +124,4 @@ export type {
   FoxScriptRange,
   FoxScriptBlockKind,
   CodeFenceRange,
-} from '@foxschema/core';
+} from '@foxschema/sql';

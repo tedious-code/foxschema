@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rmSync } from 'node:fs';
 import { probeTableFragmentation, mapPool, resolveFragmentationSchema } from './index-fragmentation';
-import { ConnectionFactory } from '@foxschema/core';
+import { ConnectionFactory } from '@foxschema/db';
 
 const dbPath = join(tmpdir(), `fox-index-frag-test-${process.pid}.db`);
 const option = { connectionString: dbPath };
@@ -40,7 +40,7 @@ describe('resolveFragmentationSchema', () => {
   });
 
   it('lets MySQL probe build when only option.database is set', async () => {
-    const { buildIndexFragmentationQuery } = await import('@foxschema/core');
+    const { buildIndexFragmentationQuery } = await import('@foxschema/db');
     const schema = resolveFragmentationSchema('mysql', '', { database: 'orders_db' });
     const q = buildIndexFragmentationQuery({
       dialect: 'mysql',

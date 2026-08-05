@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { TableDiff } from '@foxschema/core';
+import type { TableDiff } from '@foxschema/db';
 import { filterIndexDiffs } from '../engine';
 
 function tableWithIndexes(indexDiffs: TableDiff['indexDiffs']): TableDiff {

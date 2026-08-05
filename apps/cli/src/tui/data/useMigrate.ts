@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { normalizeTableSchemas, type MigrationEvent, type MigrationStep, type TableDiff } from '@foxschema/core';
+import { normalizeTableSchemas, type MigrationEvent, type MigrationStep, type TableDiff } from '@foxschema/db';
 import { connectionModule, migrationModule, sqlGenerator } from '../../runtime/engine';
 import { getContext } from '../../runtime/store';
 import { friendlyError } from '../../format/friendlyError';

@@ -6,7 +6,7 @@ process.env.APP_ENCRYPTION_KEY = '0'.repeat(64);
 import { AuthModule } from './auth.module';
 import { ConnectionStore } from './connection-store.module';
 import { getStore } from '../database/store';
-import { buildConnectionString } from '@foxschema/core';
+import { buildConnectionString } from '@foxschema/db';
 
 const auth = new AuthModule();
 const store = new ConnectionStore();

@@ -4,7 +4,7 @@
  * CodeCellResult.
  */
 import { parentPort, workerData } from 'node:worker_threads';
-import { renderSqlQuery, sqlTag, isSqlQuery, type SqlQuery } from '@foxschema/core';
+import { renderSqlQuery, sqlTag, isSqlQuery, type SqlQuery } from '@foxschema/db';
 import { executeCodeCellNode, type CodeCellLast, type CodeCellVars } from './code-cell-node-exec';
 import type { CellQueryResponse } from './code-cell-bridge';
 

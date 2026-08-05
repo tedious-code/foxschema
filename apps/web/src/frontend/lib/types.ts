@@ -1,7 +1,6 @@
-// Single source of truth for engine types: re-exported from the browser-safe
-// core entry. The Vite alias maps '@foxschema/core' to packages/core/src/browser.ts
-// (no Node built-ins), so the frontend bundle stays clean — no need to maintain a
-// hand-kept duplicate here.
+// Single source of truth for engine types: re-exported from @foxschema/sql,
+// which is pure by construction (no Node built-ins, no deps), so the frontend
+// bundle stays clean — no need to maintain a hand-kept duplicate here.
 export type {
   DbObjectType,
   DiffType,
@@ -25,4 +24,4 @@ export type {
   MigrationEvent,
   DriverInfo,
   SavedConnection,
-} from '@foxschema/core';
+} from '@foxschema/sql';

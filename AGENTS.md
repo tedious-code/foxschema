@@ -2,7 +2,7 @@
 
 Fox Schema (`foxschema`) is a database schema diff & migration tool: an npm-workspaces
 monorepo delivered as a web app (`apps/web` = Express API + React/Vite UI), a CLI
-(`apps/cli`), and the dialect engine (`packages/core`). See `README.md` and
+(`apps/cli`), and the dialect engine (`packages/sql` + `packages/db`). See `README.md` and
 `CONTRIBUTING.md` for the product overview and the canonical dev/test/build commands.
 
 ## Cursor Cloud specific instructions

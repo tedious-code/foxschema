@@ -14,7 +14,8 @@
     "jsx": "react-jsx",
     "types": ["node"],
     "paths": {
-      "@foxschema/core": ["../../packages/core/src/index.ts"],
+      "@foxschema/sql": ["../../packages/sql/src/index.ts"],
+      "@foxschema/db": ["../../packages/db/src/index.ts"],
       "@foxschema/shared": ["../../packages/shared/src/index.ts"]
     }
   },

@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rmSync } from 'node:fs';
 import { probeDbaUtility } from './dba-utilities';
-import { ConnectionFactory } from '@foxschema/core';
+import { ConnectionFactory } from '@foxschema/db';
 
 const dbPath = join(tmpdir(), `fox-dba-util-test-${process.pid}.db`);
 const option = { connectionString: dbPath };

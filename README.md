@@ -128,7 +128,8 @@ CommonJS at runtime. Requires **Node ≥ 22.5**.
 
 | Workspace | Role |
 |-----------|------|
-| `packages/core` | Diff / migration engine and dialect providers |
+| `packages/sql` | Dialect knowledge: SQL generation, compare, splitting, type mapping (pure, zero deps) |
+| `packages/db` | Node runtime: drivers, pooling, migration execution (depends on `packages/sql`) |
 | `apps/web` | Express API + React UI (CLI launcher + Docker) |
 | `apps/cli` | `foxschema` CLI, desktop shortcut, TUI |
 | `apps/e2e` | Playwright tests against dockerized databases |

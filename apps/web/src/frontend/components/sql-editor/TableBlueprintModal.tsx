@@ -75,7 +75,7 @@ import {
   buildIndexFragmentationCustomTemplate,
   dialectSupportsIndexFragmentation,
   fragmentationSeverity,
-} from '@foxschema/core';
+} from '@foxschema/sql';
 
 function fragBadgeClass(severity: ReturnType<typeof fragmentationSeverity>): string {
   if (severity === 'ok') return 'text-emerald-300/90 border-emerald-500/40 bg-emerald-950/40';

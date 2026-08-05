@@ -3,7 +3,7 @@ import { Box, Text } from 'ink';
 import TextInput from 'ink-text-input';
 import SelectInput from 'ink-select-input';
 import Spinner from 'ink-spinner';
-import { buildConnectionString, type ConnectionOptions } from '@foxschema/core';
+import { buildConnectionString, type ConnectionOptions } from '@foxschema/db';
 import { getContext } from '../../runtime/store';
 import { friendlyError } from '../../format/friendlyError';
 import { KeyHints } from '../components/KeyHints';

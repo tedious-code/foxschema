@@ -3,8 +3,8 @@ import { makeBeamCellQueryRunner, makeCellQueryRunner } from './code-cell-query'
 import type { Permission } from '../../shared/permissions';
 import type { CellQueryRunner } from './code-cell-execute';
 
-vi.mock('@foxschema/core', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@foxschema/core')>();
+vi.mock('@foxschema/db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@foxschema/db')>();
   return {
     ...actual,
     ConnectionFactory: { executeQuery: vi.fn(async () => [{ ok: 1 }]) },

@@ -58,7 +58,8 @@ jobs:
           V=${{ steps.ver.outputs.new }}
           for f in \
             package.json \
-            packages/core/package.json \
+            packages/sql/package.json \
+            packages/db/package.json \
             apps/web/package.json \
             apps/cli/package.json; do
             jq --arg v "$V" '.version = $v' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
@@ -72,7 +73,8 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add \
             package.json \
-            packages/core/package.json \
+            packages/sql/package.json \
+            packages/db/package.json \
             apps/web/package.json \
             apps/cli/package.json
           git commit -m "chore: bump version to $V [skip ci]"
