@@ -72,10 +72,17 @@ describe('selectClauseEdit', () => {
     expect(removeFromSelectList('SELECT u.id FROM t u', 'u.id')).toBe('SELECT FROM t u');
   });
 
-  it('suggestTableAlias builds short unique aliases', () => {
-    expect(suggestTableAlias('users', new Set())).toBe('u');
+  it('suggestTableAlias builds readable unique aliases', () => {
+    expect(suggestTableAlias('orders', new Set())).toBe('ord');
+    expect(suggestTableAlias('users', new Set())).toBe('use');
     expect(suggestTableAlias('order_items', new Set())).toBe('oi');
-    expect(suggestTableAlias('users', new Set(['u']))).toBe('u2');
+    expect(suggestTableAlias('OrderItems', new Set())).toBe('oi');
+    expect(suggestTableAlias('customer_addresses', new Set())).toBe('ca');
+    // Prefer lengthening over numbering when the short stem is taken.
+    expect(suggestTableAlias('orders', new Set(['ord']))).toBe('ords');
+    expect(suggestTableAlias('orders', new Set(['ord', 'ords', 'or', 'o', 'orde', 'order', 'orders']))).toBe(
+      'ord2'
+    );
   });
 
   it('addTableWithAliasToFrom creates SELECT * FROM table alias', () => {
@@ -99,18 +106,18 @@ describe('selectClauseEdit', () => {
       'orders'
     );
     expect(changed).toBe(true);
-    expect(alias).toBe('o');
-    expect(sql.toLowerCase()).toContain('from orders o');
-    expect(sql).toContain('o.created_at');
-    expect(sql).toContain('o.customer_id');
-    expect(sql).not.toMatch(/orders\./i);
+    expect(alias).toBe('ord');
+    expect(sql.toLowerCase()).toContain('from orders ord');
+    expect(sql).toContain('ord.created_at');
+    expect(sql).toContain('ord.customer_id');
+    expect(sql).not.toMatch(/\borders\./i);
   });
 
   it('ensureAllFromTablesAliased aliases every bare FROM table', () => {
     const sql = ensureAllFromTablesAliased(
       'SELECT orders.created_at, orders.customer_id from orders'
     );
-    expect(sql.toLowerCase()).toMatch(/from orders o\b/);
+    expect(sql.toLowerCase()).toMatch(/from orders ord\b/);
     expect(ensureAllFromTablesAliased(sql)).toBe(sql); // idempotent
   });
 

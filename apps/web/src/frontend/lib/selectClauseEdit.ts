@@ -181,34 +181,91 @@ const ALIAS_BLACKLIST = new Set([
   'view',
 ]);
 
-/**
- * Suggest a short alias for `tableName` that does not collide with existing
- * aliases/tables in `sql` (or an optional precomputed set).
- */
-export function suggestTableAlias(tableName: string, sqlOrTaken: string | Set<string>): string {
+/** Split `order_items` / `OrderItems` / `order-items` into lowercase parts. */
+export function splitTableIdentParts(tableName: string): string[] {
   const bare = tableName.includes('.')
     ? tableName.slice(tableName.lastIndexOf('.') + 1)
     : tableName;
-  const cleaned = bare.replace(/[^A-Za-z0-9_]/g, '');
-  const parts = cleaned.split(/_+/).filter(Boolean);
-  let base =
-    parts.length >= 2
-      ? parts.map((p) => p[0]!.toLowerCase()).join('')
-      : cleaned.slice(0, 1).toLowerCase();
-  if (!base || !/^[a-z]/.test(base)) base = 't';
-  if (ALIAS_BLACKLIST.has(base)) base = `${base}t`;
+  const cleaned = bare.replace(/[^A-Za-z0-9]+/g, '_');
+  const snake = cleaned.split(/_+/).filter(Boolean);
+  const parts: string[] = [];
+  for (const chunk of snake) {
+    // Camel / Pascal: OrderItems → Order, Items ; alreadyLower stays one part.
+    const camel = chunk.split(/(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])/);
+    for (const p of camel) {
+      const low = p.toLowerCase();
+      if (low) parts.push(low);
+    }
+  }
+  // Drop noisy schema prefixes/suffixes that shouldn't drive the alias.
+  return parts.filter((p) => !['tbl', 'table', 'view', 'dim', 'fact', 'tmp', 'temp'].includes(p));
+}
 
+/** First letter + following distinct consonants (orders → ords, customers → cstm). */
+function consonantSketch(word: string): string {
+  if (!word) return '';
+  const chars = word.toLowerCase().split('');
+  let out = chars[0] ?? '';
+  for (let i = 1; i < chars.length && out.length < 4; i++) {
+    const ch = chars[i]!;
+    if ('aeiou'.includes(ch)) continue;
+    if (out.includes(ch)) continue;
+    out += ch;
+  }
+  return out;
+}
+
+/**
+ * Suggest a short, readable alias for `tableName` that does not collide with
+ * existing aliases/tables in `sql` (or an optional precomputed set).
+ *
+ * Strategy (first free candidate wins):
+ * 1. Multi-part names → initials (`order_items` / `OrderItems` → `oi`)
+ * 2. Single word → 3-letter stem, consonant sketch, then grow 2…n letters
+ * 3. Numeric suffix only after those readable forms are exhausted
+ */
+export function suggestTableAlias(tableName: string, sqlOrTaken: string | Set<string>): string {
+  const parts = splitTableIdentParts(tableName);
+  const word = parts.join('') || 't';
   const taken =
     typeof sqlOrTaken === 'string'
       ? new Set(Object.keys(extractTableAliases(sqlOrTaken)))
       : sqlOrTaken;
 
-  if (!taken.has(base)) return base;
-  for (let n = 2; n < 100; n++) {
-    const candidate = `${base}${n}`;
-    if (!taken.has(candidate)) return candidate;
+  const candidates: string[] = [];
+  const push = (c: string) => {
+    const v = c.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!v || !/^[a-z]/.test(v)) return;
+    if (!candidates.includes(v)) candidates.push(v);
+  };
+
+  if (parts.length >= 2) {
+    const initials = parts.map((p) => p[0]!).join('');
+    push(initials);
+    // Initials + last-part vowel-stripped tail: order_items → oit / oitems
+    push(initials + (parts[parts.length - 1] ?? '').slice(1, 3));
+    push(parts.map((p) => p.slice(0, 2)).join('').slice(0, 4));
   }
-  return `${base}_${Date.now().toString(36).slice(-3)}`;
+
+  // Single-word (and fallback) progressive stems — prefer 3 letters over 1.
+  push(word.slice(0, 3));
+  push(consonantSketch(word));
+  push(word.slice(0, 2));
+  push(word.slice(0, 4));
+  push(word.slice(0, 1));
+  for (let n = 5; n <= Math.min(word.length, 6); n++) push(word.slice(0, n));
+
+  for (const base of candidates) {
+    if (ALIAS_BLACKLIST.has(base) || taken.has(base)) continue;
+    return base;
+  }
+
+  const seed = candidates.find((c) => !ALIAS_BLACKLIST.has(c)) ?? 't';
+  for (let n = 2; n < 100; n++) {
+    const candidate = `${seed}${n}`;
+    if (!taken.has(candidate) && !ALIAS_BLACKLIST.has(candidate)) return candidate;
+  }
+  return `${seed}_${Date.now().toString(36).slice(-3)}`;
 }
 
 /** Short alias already assigned to this table in `sql`, if any. */
