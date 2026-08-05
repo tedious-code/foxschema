@@ -188,6 +188,17 @@ const MIGRATIONS: Migration[] = [
     name: 'suppress_signup_wizard_on_used_install',
     statements: () => [],
   },
+  {
+    id: 9,
+    name: 'users_active_flag',
+    statements: (d) => {
+      const t = types(d);
+      return [
+        // Soft-disable accounts from Access control without deleting history.
+        `ALTER TABLE users ADD COLUMN active ${t.int} NOT NULL DEFAULT 1`,
+      ];
+    },
+  },
 ];
 
 const SIGNUP_WIZARD_SHOWN_KEY = 'signup.wizard_shown';

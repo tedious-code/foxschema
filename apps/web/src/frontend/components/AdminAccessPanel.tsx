@@ -7,11 +7,13 @@
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Loader2, Shield, Users, X } from 'lucide-react';
+import { KeyRound, Loader2, Shield, Users, X } from 'lucide-react';
 import {
   apiAdminListUsers,
   apiAdminRolePermissions,
   apiAdminSetRolePermissions,
+  apiAdminSetUserActive,
+  apiAdminSetUserPassword,
   apiAdminSetUserRole,
 } from '../api/authApi';
 import {
@@ -24,23 +26,34 @@ import { useAuthStore } from '../store/authStore';
 
 type Tab = 'users' | 'roles';
 
+type AdminUserRow = {
+  id: string;
+  email: string;
+  role: AppRole;
+  active: boolean;
+  createdAt: string;
+};
+
 export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> = ({
   open,
   onClose,
 }) => {
   const refreshMe = useAuthStore((s) => s.refreshMe);
+  const me = useAuthStore((s) => s.user);
   const canUsers = useAuthStore((s) => s.can('admin.users'));
   const canRoles = useAuthStore((s) => s.can('admin.roles'));
   const [tab, setTab] = useState<Tab>('users');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [users, setUsers] = useState<
-    Array<{ id: string; email: string; role: AppRole; createdAt: string }>
-  >([]);
+  const [users, setUsers] = useState<AdminUserRow[]>([]);
   const [matrix, setMatrix] = useState<Record<AppRole, Permission[]> | null>(null);
   const [catalog, setCatalog] = useState<PermissionMeta[]>([]);
   const [editRole, setEditRole] = useState<AppRole>('editor');
   const [draft, setDraft] = useState<Set<Permission>>(new Set());
+  const [passwordUser, setPasswordUser] = useState<AdminUserRow | null>(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordMsg, setPasswordMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -92,6 +105,44 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
       await refreshMe();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to update role');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleActive = async (user: AdminUserRow, active: boolean) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await apiAdminSetUserActive(user.id, active);
+      await load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to update user');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitPasswordChange = async () => {
+    if (!passwordUser) return;
+    if (newPassword.length < 8) {
+      setPasswordMsg('Password must be at least 8 characters');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordMsg('Passwords do not match');
+      return;
+    }
+    setBusy(true);
+    setPasswordMsg(null);
+    setError(null);
+    try {
+      await apiAdminSetUserPassword(passwordUser.id, newPassword);
+      setPasswordUser(null);
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (e: unknown) {
+      setPasswordMsg(e instanceof Error ? e.message : 'Failed to change password');
     } finally {
       setBusy(false);
     }
@@ -176,6 +227,8 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
                 <tr className="text-slate-500 text-left">
                   <th className="py-1.5 font-semibold">Email</th>
                   <th className="py-1.5 font-semibold">Role</th>
+                  <th className="py-1.5 font-semibold text-center">Active</th>
+                  <th className="py-1.5 font-semibold">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -196,6 +249,40 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
                           </option>
                         ))}
                       </select>
+                    </td>
+                    <td className="py-2 text-center">
+                      <input
+                        type="checkbox"
+                        data-testid={`admin-active-${u.id}`}
+                        checked={u.active !== false}
+                        disabled={busy || u.id === me?.id}
+                        onChange={(e) => void toggleActive(u, e.target.checked)}
+                        className="rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500/40 disabled:opacity-40"
+                        title={
+                          u.id === me?.id
+                            ? 'You cannot deactivate your own account'
+                            : u.active !== false
+                              ? 'Active — can sign in'
+                              : 'Inactive — login blocked'
+                        }
+                      />
+                    </td>
+                    <td className="py-2">
+                      <button
+                        type="button"
+                        data-testid={`admin-change-password-${u.id}`}
+                        disabled={busy}
+                        onClick={() => {
+                          setPasswordUser(u);
+                          setNewPassword('');
+                          setConfirmPassword('');
+                          setPasswordMsg(null);
+                        }}
+                        className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-slate-700 bg-slate-950 text-slate-300 hover:border-slate-500 hover:text-white disabled:opacity-40"
+                      >
+                        <KeyRound className="w-3 h-3" />
+                        Change password
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -273,6 +360,80 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
           )}
         </div>
       </div>
+
+      {passwordUser && (
+        <div
+          data-testid="admin-change-password-modal"
+          className="absolute inset-0 z-[130] flex items-center justify-center bg-slate-950/80 p-4"
+          onClick={() => setPasswordUser(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-xl border border-slate-700 bg-slate-900 shadow-2xl p-4 space-y-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2">
+              <KeyRound className="w-4 h-4 text-amber-300" />
+              <h3 className="text-sm font-bold text-slate-100 flex-1">Change password</h3>
+              <button
+                type="button"
+                onClick={() => setPasswordUser(null)}
+                className="p-1 text-slate-400 hover:text-slate-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-xs text-slate-400">
+              Set a new password for <span className="font-mono text-slate-200">{passwordUser.email}</span>.
+              Their current sessions will be signed out.
+            </p>
+            <label className="flex flex-col gap-1 text-xs">
+              <span className="font-semibold text-slate-400 uppercase tracking-wider">New password</span>
+              <input
+                type="password"
+                data-testid="admin-new-password"
+                value={newPassword}
+                minLength={8}
+                onChange={(e) => setNewPassword(e.target.value)}
+                className="bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs">
+              <span className="font-semibold text-slate-400 uppercase tracking-wider">Confirm</span>
+              <input
+                type="password"
+                data-testid="admin-confirm-password"
+                value={confirmPassword}
+                minLength={8}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+              />
+            </label>
+            {passwordMsg && (
+              <div className="text-xs text-rose-300 border border-rose-500/30 bg-rose-950/30 rounded-md px-3 py-2">
+                {passwordMsg}
+              </div>
+            )}
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setPasswordUser(null)}
+                className="px-3 py-1.5 text-xs font-semibold rounded-md border border-slate-700 text-slate-300 hover:text-white"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-testid="admin-save-password"
+                disabled={busy}
+                onClick={() => void submitPasswordChange()}
+                className="px-3 py-1.5 text-xs font-bold rounded-md border border-amber-500/40 bg-amber-500/15 text-amber-100 hover:bg-amber-500/25 disabled:opacity-40"
+              >
+                Save password
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>,
     document.body
   );

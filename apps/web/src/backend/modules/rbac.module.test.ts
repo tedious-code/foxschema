@@ -111,6 +111,35 @@ describe('RbacModule', () => {
     expect((await rbac.listUsers()).find((u) => u.id === 'u2')?.role).toBe('viewer');
   });
 
+  it('listUsers includes active flag and setUserActive toggles it', async () => {
+    const store = await getStore();
+    await store.run(
+      'INSERT INTO users (id, email, password_hash, created_at, app_role) VALUES (?, ?, ?, ?, ?)',
+      ['u-active', 'active-flag@example.com', 'x', new Date().toISOString(), 'viewer']
+    );
+    expect((await rbac.listUsers()).find((u) => u.id === 'u-active')?.active).toBe(true);
+    await rbac.setUserActive('u-active', false);
+    expect((await rbac.listUsers()).find((u) => u.id === 'u-active')?.active).toBe(false);
+    await rbac.setUserActive('u-active', true);
+    expect((await rbac.listUsers()).find((u) => u.id === 'u-active')?.active).toBe(true);
+  });
+
+  it('refuses to deactivate the last active admin', async () => {
+    const store = await getStore();
+    await store.run(
+      'INSERT INTO users (id, email, password_hash, created_at, app_role) VALUES (?, ?, ?, ?, ?)',
+      ['u-sole-admin', 'sole-admin@example.com', 'x', new Date().toISOString(), 'admin']
+    );
+    // Deactivate every other admin first so this one is the last active admin.
+    const users = await rbac.listUsers();
+    for (const u of users) {
+      if (u.role === 'admin' && u.id !== 'u-sole-admin' && u.active) {
+        await rbac.setUserActive(u.id, false);
+      }
+    }
+    await expect(rbac.setUserActive('u-sole-admin', false)).rejects.toThrow(/last active admin/);
+  });
+
   it('role permission matrix covers every role', async () => {
     const matrix = await rbac.listRolePermissionMatrix();
     expect(Object.keys(matrix).sort()).toEqual(['admin', 'editor', 'owner', 'viewer']);

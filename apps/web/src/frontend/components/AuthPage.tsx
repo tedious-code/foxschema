@@ -37,6 +37,9 @@ export const AuthPage: React.FC = () => {
           <p className="text-sm text-slate-400 mt-1">
             {mode === 'login' ? 'Sign in to your workspace' : 'Create your account'}
           </p>
+          <p className="text-xs text-slate-500 mt-2 text-center max-w-xs">
+            First-time sign-in opens a short setup wizard before you reach the workspace.
+          </p>
         </div>
 
         <form onSubmit={submit} className="bg-slate-900/60 border border-slate-800 rounded-xl p-6 flex flex-col gap-4">
