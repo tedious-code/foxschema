@@ -81,7 +81,8 @@ export function moveTab(tabs: SqlTab[], fromIndex: number, toIndex: number): Sql
 
 /**
  * Close a tab. Refuses to leave zero tabs (replaces the last with a fresh empty
- * one). Activates a neighbor when the closed tab was active.
+ * one so SQL/results clear). Activates a neighbor when the closed tab was active.
+ * Closing an already-empty sole tab is a no-op (same id) so the UI can disable ×.
  */
 export function closeTab(
   tabs: SqlTab[],
@@ -89,6 +90,11 @@ export function closeTab(
   id: string
 ): { tabs: SqlTab[]; activeTabId: string } {
   if (tabs.length <= 1) {
+    const only = tabs[0];
+    if (!only || only.id !== id) return { tabs, activeTabId };
+    if (!(only.sql ?? '').trim()) {
+      return { tabs, activeTabId };
+    }
     const alone = createTab({ title: 'Query 1' });
     return { tabs: [alone], activeTabId: alone.id };
   }

@@ -15,9 +15,11 @@ import {
   Cloud,
 } from 'lucide-react';
 import { useSyncStore } from '../store/useSyncStore';
+import { useSqlEditorStore } from '../store/useSqlEditorStore';
 import { ConnectionModal } from './ConnectionModal';
 import { CloudProviderCredentialsSection } from './CloudProviderCredentialsSection';
 import { PROVIDER_SETTINGS } from '../lib/provider-settings';
+import { sessionPasswordMap, setSessionPassword } from '../lib/sessionPasswords';
 import type { SavedConnectionSummary } from '../api/authApi';
 import type { Dialect } from '../lib/provider-settings';
 
@@ -68,6 +70,28 @@ export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
   const availableDialects = useMemo(
     () => Array.from(new Set(connections.map((c) => c.dialect.toLowerCase()))).sort(),
     [connections]
+  );
+
+  // Stable object so ConnectionModal does not reset mid-edit when this parent re-renders.
+  const editingInitialOptions = useMemo(
+    () =>
+      editing
+        ? {
+            host: editing.host,
+            port: editing.port,
+            database: editing.database,
+            username: editing.username,
+            schema: editing.schema,
+          }
+        : undefined,
+    [
+      editing?.id,
+      editing?.host,
+      editing?.port,
+      editing?.database,
+      editing?.username,
+      editing?.schema,
+    ]
   );
 
   const visible = useMemo(() => {
@@ -372,24 +396,26 @@ export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
         dialect={(editing?.dialect as Dialect) ?? 'db2'}
         initialName={editing?.name}
         initialHasPassword={editing?.hasPassword}
-        initialOptions={
-          editing
-            ? {
-                host: editing.host,
-                port: editing.port,
-                database: editing.database,
-                username: editing.username,
-                schema: editing.schema,
-              }
-            : undefined
-        }
+        initialOptions={editingInitialOptions}
         onClose={() => {
           setAdding(false);
           setEditing(null);
         }}
         onSaveCredential={async (input) => {
-          if (editing) await updateConnection(editing.id, input);
-          else await addConnection(input);
+          if (editing) {
+            await updateConnection(editing.id, input);
+            // Editing with a typed password and Save password off → keep it for this session.
+            if (input.savePassword === false && input.option.password) {
+              setSessionPassword(editing.id, input.option.password);
+              useSqlEditorStore.setState({ sessionPasswords: sessionPasswordMap() });
+            }
+          } else {
+            const saved = await addConnection(input);
+            if (!saved.hasPassword && input.option.password) {
+              setSessionPassword(saved.id, input.option.password);
+              useSqlEditorStore.setState({ sessionPasswords: sessionPasswordMap() });
+            }
+          }
         }}
       />
     </div>,

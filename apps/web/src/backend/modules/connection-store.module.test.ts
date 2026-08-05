@@ -84,6 +84,19 @@ describe('ConnectionStore', () => {
     expect((await store.resolve(alice, id))?.option.password).toBe('super-secret');
   });
 
+  it('update() preserves the existing password when the edit sends an empty password string', async () => {
+    // ConnectionModal leaves the password field blank when a secret is already stored
+    // ("•••••••• (saved)"). That must not wipe the encrypted password on save.
+    const id = (await store.create(alice, { ...sample, savePassword: true })).id;
+    await store.update(alice, id, {
+      ...sample,
+      option: { ...sample.option, password: '' },
+      savePassword: true,
+    });
+    expect((await store.resolve(alice, id))?.option.password).toBe('super-secret');
+    expect((await store.list(alice)).find((c) => c.id === id)?.hasPassword).toBe(true);
+  });
+
   it('update() clears the stored password when savePassword is false', async () => {
     const id = (await store.create(alice, sample)).id;
     const updated = await store.update(alice, id, { ...sample, option: { ...sample.option, password: undefined }, savePassword: false });

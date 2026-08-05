@@ -18,6 +18,19 @@ import {
 } from '../api/authApi';
 import type { ConnectionConfig, SyncState } from './sync-types';
 import { sqlGeneratorModule, buildRef, buildMapping, regenerateSql } from './sync-helpers';
+import {
+  clearSessionPassword,
+  getSessionPassword,
+  sessionPasswordMap,
+  setSessionPassword,
+} from '../lib/sessionPasswords';
+
+/** Keep SQL Editor's Zustand mirror in sync with the shared session map. */
+function mirrorSessionPasswordsToSqlEditor(): void {
+  void import('./useSqlEditorStore').then(({ useSqlEditorStore }) => {
+    useSqlEditorStore.setState({ sessionPasswords: sessionPasswordMap() });
+  });
+}
 
 export type { MigrationProgressItem } from './sync-types';
 
@@ -84,9 +97,11 @@ export const useSyncStore = create<SyncState>()(
   // --- Actions ---
   loadConnections: async () => {
     try {
-      const prev = get();
       const list = await apiListConnections();
-      const { selectedSourceConnectionId, selectedTargetConnectionId } = prev;
+      // Re-read AFTER the await — a concurrent applySavedConnection during the
+      // request must not be wiped by a stale pre-await snapshot.
+      const live = get();
+      const { selectedSourceConnectionId, selectedTargetConnectionId } = live;
       const patch: Partial<SyncState> = { connections: list, connectionsLoaded: true };
       const retest: Array<'source' | 'target'> = [];
 
@@ -102,11 +117,13 @@ export const useSyncStore = create<SyncState>()(
           else patch.selectedTargetConnectionId = null;
           return;
         }
-        const prevCfg = side === 'source' ? prev.sourceConfig : prev.targetConfig;
-        const sessionPassword =
-          prevCfg.connectionId === id && prevCfg.option?.password
-            ? prevCfg.option.password
+        const liveCfg = side === 'source' ? live.sourceConfig : live.targetConfig;
+        const fromConfig =
+          liveCfg.connectionId === id && liveCfg.option?.password
+            ? liveCfg.option.password
             : undefined;
+        const sessionPassword = fromConfig || getSessionPassword(id);
+        if (sessionPassword) setSessionPassword(id, sessionPassword);
         const config: ConnectionConfig = {
           dialect: conn.dialect as ConnectionConfig['dialect'],
           option: {
@@ -120,7 +137,7 @@ export const useSyncStore = create<SyncState>()(
           schema: conn.schema ?? '',
           connectionId: id,
         };
-        const wasConnected = side === 'source' ? prev.sourceConnected : prev.targetConnected;
+        const wasConnected = side === 'source' ? live.sourceConnected : live.targetConnected;
         const canRetest = !!(conn.hasPassword || sessionPassword);
         if (side === 'source') {
           patch.selectedSourceConnectionId = id;
@@ -136,6 +153,7 @@ export const useSyncStore = create<SyncState>()(
       restore('source', selectedSourceConnectionId);
       restore('target', selectedTargetConnectionId);
       set(patch);
+      mirrorSessionPasswordsToSqlEditor();
       for (const side of retest) {
         void (side === 'source' ? get().testSourceConnection() : get().testTargetConnection());
       }
@@ -160,18 +178,25 @@ export const useSyncStore = create<SyncState>()(
 
   removeConnection: async (id) => {
     await apiDeleteConnection(id);
+    clearSessionPassword(id);
     set((state) => ({
       connections: state.connections.filter((c) => c.id !== id),
       selectedSourceConnectionId: state.selectedSourceConnectionId === id ? null : state.selectedSourceConnectionId,
       selectedTargetConnectionId: state.selectedTargetConnectionId === id ? null : state.selectedTargetConnectionId,
     }));
-    // Drop SQL Editor schema cache for the removed credential (session-only).
+    // Drop SQL Editor schema cache + session password mirror for the removed credential.
     const { useSqlEditorStore } = await import('./useSqlEditorStore');
     const cache = useSqlEditorStore.getState().schemaCache;
-    if (cache[id]) {
-      const { [id]: _removed, ...rest } = cache;
-      useSqlEditorStore.setState({ schemaCache: rest });
-    }
+    const nextCache = cache[id]
+      ? (() => {
+          const { [id]: _removed, ...rest } = cache;
+          return rest;
+        })()
+      : cache;
+    useSqlEditorStore.setState({
+      schemaCache: nextCache,
+      sessionPasswords: sessionPasswordMap(),
+    });
   },
 
   setShowConnectionModal: (showConnectionModal) => set({ showConnectionModal }),
@@ -183,6 +208,12 @@ export const useSyncStore = create<SyncState>()(
     if (!conn) return;
     // Use the saved connection by id — no password is held in the browser, EXCEPT an
     // optional session password (for connections stored without one) kept in-memory only.
+    // Prefer the explicit argument, then the shared session map (SQL Editor / prior Sync).
+    const password = sessionPassword || getSessionPassword(id);
+    if (password) {
+      setSessionPassword(id, password);
+      mirrorSessionPasswordsToSqlEditor();
+    }
     const config: ConnectionConfig = {
       dialect: conn.dialect as ConnectionConfig['dialect'],
       option: {
@@ -191,7 +222,7 @@ export const useSyncStore = create<SyncState>()(
         database: conn.database,
         username: conn.username,
         schema: conn.schema,
-        ...(sessionPassword ? { password: sessionPassword } : {}),
+        ...(password ? { password } : {}),
       },
       schema: conn.schema ?? '',
       connectionId: id,

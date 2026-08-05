@@ -7,6 +7,7 @@
  * rows without writing a query. Foreign-key cells are links — each FK column
  * can open its own panel below (siblings stack; same column replaces).
  * Each panel has WHERE / ORDER BY / LIMIT (auto-applies on edit/blur) and a drag resize handle.
+ * FK drill panels show a Key chip (and All rows) to drop the bound key and fetch the whole table.
  * Editable tables (with PK) support add / edit / clone / delete; Safe mode shows WriteConfirmDialog.
  * Editor result grids can open the same peek via rust FK cell clicks.
  */
@@ -24,7 +25,7 @@ import {
 import { useSqlEditorStore, type DataPeekEntry } from '../../store/useSqlEditorStore';
 import { useSyncStore } from '../../store/useSyncStore';
 import { useAuthStore } from '../../store/authStore';
-import { foreignKeyLinksFor } from '../../lib/tablePreview';
+import { foreignKeyLinksFor, peekBaseFilterLabel } from '../../lib/tablePreview';
 import {
   assessPeekEditability,
   buildPeekDelete,
@@ -57,6 +58,7 @@ const PeekFilterBar: React.FC<{
   disabled?: boolean;
 }> = ({ entry, disabled }) => {
   const updateDataPeekFilters = useSqlEditorStore((s) => s.updateDataPeekFilters);
+  const clearDataPeekBaseFilter = useSqlEditorStore((s) => s.clearDataPeekBaseFilter);
   const [where, setWhere] = useState(entry.whereClause);
   const [orderBy, setOrderBy] = useState(entry.orderByClause);
   const [limit, setLimit] = useState(String(entry.limit));
@@ -68,6 +70,7 @@ const PeekFilterBar: React.FC<{
   whereRef.current = where;
   orderByRef.current = orderBy;
   limitRef.current = limit;
+  const baseFilter = peekBaseFilterLabel(entry.title, entry.tableName, entry.baseParams);
 
   useEffect(() => {
     setWhere(entry.whereClause);
@@ -142,8 +145,35 @@ const PeekFilterBar: React.FC<{
       className="flex flex-wrap items-center gap-1.5 mb-1.5 shrink-0 px-0.5"
       data-testid={`data-peek-filters-${entry.id}`}
     >
+      {baseFilter && (
+        <div
+          className="flex items-center gap-1 min-w-0 basis-full"
+          data-testid={`data-peek-base-filter-${entry.id}`}
+        >
+          <span className="text-xs font-bold uppercase tracking-wide text-slate-400 shrink-0">
+            Key
+          </span>
+          <span
+            className="inline-flex items-center gap-1 min-w-0 max-w-full rounded border border-amber-800/60 bg-amber-950/30 px-1.5 py-0.5"
+            title="FK drill filter — clear to query the whole table"
+          >
+            <span className="truncate text-sm font-mono font-bold text-amber-100/90">{baseFilter}</span>
+            <button
+              type="button"
+              data-testid={`data-peek-base-filter-clear-${entry.id}`}
+              title="Clear key filter and fetch all rows"
+              aria-label={`Clear filter ${baseFilter}`}
+              disabled={disabled}
+              onClick={() => void clearDataPeekBaseFilter(entry.id)}
+              className="shrink-0 p-0.5 rounded text-amber-200/70 hover:text-amber-50 hover:bg-amber-900/40 disabled:opacity-40"
+            >
+              <X className="w-3 h-3" strokeWidth={SQL_ICON_STROKE} />
+            </button>
+          </span>
+        </div>
+      )}
       <label className="flex items-center gap-1 min-w-0 flex-[2] basis-[12rem]">
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 shrink-0">
+        <span className="text-xs font-bold uppercase tracking-wide text-slate-400 shrink-0">
           Where
         </span>
         <span className="relative flex-1 min-w-0">
@@ -156,7 +186,7 @@ const PeekFilterBar: React.FC<{
             onChange={(e) => setWhere(e.target.value)}
             onKeyDown={onKeyDown}
             onBlur={() => apply()}
-            className="w-full min-w-0 rounded border border-slate-700 bg-slate-950 px-1.5 py-1 pr-7 text-[11px] font-mono text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-cyan-600"
+            className="w-full min-w-0 rounded border border-slate-700 bg-slate-950 px-1.5 py-1.5 pr-7 text-sm font-mono font-semibold text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-cyan-600"
           />
           {where.trim() !== '' && (
             <button
@@ -185,7 +215,7 @@ const PeekFilterBar: React.FC<{
         </span>
       </label>
       <label className="flex items-center gap-1 min-w-0 flex-1 basis-[9rem]">
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 shrink-0">
+        <span className="text-xs font-bold uppercase tracking-wide text-slate-400 shrink-0">
           Order by
         </span>
         <input
@@ -197,11 +227,11 @@ const PeekFilterBar: React.FC<{
           onChange={(e) => setOrderBy(e.target.value)}
           onKeyDown={onKeyDown}
           onBlur={() => apply()}
-          className="w-full min-w-0 rounded border border-slate-700 bg-slate-950 px-1.5 py-1 text-[11px] font-mono text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-cyan-600"
+          className="w-full min-w-0 rounded border border-slate-700 bg-slate-950 px-1.5 py-1.5 text-sm font-mono font-semibold text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-cyan-600"
         />
       </label>
       <label className="flex items-center gap-1 shrink-0">
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+        <span className="text-xs font-bold uppercase tracking-wide text-slate-400">
           Limit
         </span>
         <input
@@ -214,7 +244,7 @@ const PeekFilterBar: React.FC<{
           onChange={(e) => setLimit(e.target.value)}
           onKeyDown={onKeyDown}
           onBlur={() => apply()}
-          className="w-16 rounded border border-slate-700 bg-slate-950 px-1.5 py-1 text-[11px] font-mono text-slate-100 focus:outline-none focus:border-cyan-600"
+          className="w-16 rounded border border-slate-700 bg-slate-950 px-1.5 py-1.5 text-sm font-mono font-bold text-slate-100 focus:outline-none focus:border-cyan-600"
         />
       </label>
       <button
@@ -222,7 +252,7 @@ const PeekFilterBar: React.FC<{
         data-testid={`data-peek-apply-${entry.id}`}
         disabled={disabled}
         onClick={apply}
-        className="shrink-0 rounded border border-slate-600 bg-slate-800 px-2 py-1 text-[11px] font-semibold text-slate-100 hover:bg-slate-700 disabled:opacity-50"
+        className="shrink-0 rounded border border-slate-600 bg-slate-800 px-2.5 py-1.5 text-sm font-bold text-slate-100 hover:bg-slate-700 disabled:opacity-50"
       >
         Apply
       </button>
@@ -316,6 +346,7 @@ const PeekGrid: React.FC<{
   const drillDataPeek = useSqlEditorStore((s) => s.drillDataPeek);
   const pageDataPeekEntry = useSqlEditorStore((s) => s.pageDataPeekEntry);
   const runDataPeekEntry = useSqlEditorStore((s) => s.runDataPeekEntry);
+  const clearDataPeekBaseFilter = useSqlEditorStore((s) => s.clearDataPeekBaseFilter);
   const safeMode = useSqlEditorStore((s) => s.safeMode);
   const sessionPasswords = useSqlEditorStore((s) => s.sessionPasswords);
   const connections = useSyncStore((s) => s.connections);
@@ -604,9 +635,21 @@ const PeekGrid: React.FC<{
         >
           <GripVertical className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
         </button>
-        <span className="text-[12px] font-semibold text-slate-200 truncate flex-1" title={entry.title}>
+        <span className="text-base font-bold text-slate-100 truncate flex-1" title={entry.title}>
           {entry.title}
         </span>
+        {entry.baseParams.length > 0 && (
+          <button
+            type="button"
+            data-testid={`data-peek-clear-key-${entry.id}`}
+            title="Clear key filter and fetch all rows"
+            aria-label="Clear key filter and fetch all rows"
+            onClick={() => void clearDataPeekBaseFilter(entry.id)}
+            className="shrink-0 rounded border border-slate-700 px-2 py-0.5 text-xs font-bold text-slate-200 hover:border-amber-700 hover:text-amber-100 hover:bg-amber-950/30"
+          >
+            All rows
+          </button>
+        )}
         {showCrud && (
           <div className="flex items-center gap-0.5 shrink-0" data-testid={`data-peek-crud-${entry.id}`}>
             {canInsert && (
@@ -665,7 +708,7 @@ const PeekGrid: React.FC<{
         )}
         {!editability.editable && editability.reason && entry.result?.ok && (
           <span
-            className="hidden sm:inline text-[10px] text-slate-500 truncate max-w-[14rem]"
+            className="hidden sm:inline text-xs font-semibold text-slate-400 truncate max-w-[14rem]"
             title={editability.reason}
           >
             Read-only
@@ -691,21 +734,21 @@ const PeekGrid: React.FC<{
       {writeError && (
         <div
           data-testid={`data-peek-write-error-${entry.id}`}
-          className="mx-0.5 mb-1 rounded border border-rose-500/40 bg-rose-950/30 px-3 py-1.5 text-[11px] text-rose-300"
+          className="mx-0.5 mb-1 rounded border border-rose-500/40 bg-rose-950/30 px-3 py-1.5 text-sm font-semibold text-rose-300"
         >
           {writeError}
         </div>
       )}
 
       {entry.status === 'loading' && !entry.result && (
-        <div className="flex items-center gap-2 px-1 py-4 text-[12px] text-slate-400">
+        <div className="flex items-center gap-2 px-1 py-4 text-sm font-semibold text-slate-300">
           <Loader2 className="w-3.5 h-3.5 animate-spin" strokeWidth={SQL_ICON_STROKE} />
           Loading {entry.title}…
         </div>
       )}
 
       {(entry.status === 'error' || (entry.status !== 'loading' && !entry.result)) && (
-        <div className="mx-0.5 my-1 rounded border border-rose-500/40 bg-rose-950/30 px-3 py-2 text-[12px] text-rose-300">
+        <div className="mx-0.5 my-1 rounded border border-rose-500/40 bg-rose-950/30 px-3 py-2 text-sm font-semibold text-rose-300">
           {entry.error ?? 'Preview failed'}
         </div>
       )}
@@ -726,9 +769,10 @@ const PeekGrid: React.FC<{
             onLinkClick={onLinkClick}
             selectedRowIndex={selectedRowIndex}
             onSelectRow={gridWritable && canAnyRowAction ? setSelectedRowIndex : undefined}
+            emphasis
           />
           {showFkHint && linkColumns.size > 0 && (
-            <p className="mt-1 px-1 shrink-0 text-[10px] text-slate-500">
+            <p className="mt-1 px-1 shrink-0 text-xs font-semibold text-slate-400">
               Underlined rust-colored cells are foreign keys — click several to open more panels.
               Drag the ⋮⋮ handle to arrange; scroll to move between them.
             </p>
@@ -831,17 +875,17 @@ export const DataPeekPanel: React.FC = () => {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-800 shrink-0">
-          <span className="text-[11px] font-bold uppercase tracking-wide text-cyan-400 shrink-0">
+          <span className="text-sm font-bold uppercase tracking-wide text-cyan-400 shrink-0">
             Data peek
           </span>
           <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-x-auto">
             {entries.map((e) => (
               <span
                 key={e.id}
-                className="inline-flex items-center gap-1 shrink-0 max-w-[14rem] rounded-md border border-slate-700 bg-slate-950/60 px-1.5 py-0.5"
+                className="inline-flex items-center gap-1 shrink-0 max-w-[16rem] rounded-md border border-slate-700 bg-slate-950/60 px-2 py-1"
                 title={e.title}
               >
-                <span className="truncate text-[11px] font-semibold text-slate-300">{e.title}</span>
+                <span className="truncate text-sm font-bold text-slate-200">{e.title}</span>
                 {e.parentId && (
                   <button
                     type="button"
@@ -857,7 +901,7 @@ export const DataPeekPanel: React.FC = () => {
               </span>
             ))}
           </div>
-          <span className="hidden sm:inline text-[10px] text-slate-500 shrink-0">
+          <span className="hidden sm:inline text-xs font-semibold text-slate-400 shrink-0">
             Drag ⋮⋮ to arrange
           </span>
           <button

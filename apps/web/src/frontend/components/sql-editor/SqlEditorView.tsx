@@ -843,6 +843,7 @@ export const SqlEditorView: React.FC = () => {
           <div className="min-h-[6rem] overflow-hidden border-b border-slate-800" style={{ height: `${editorPct}%` }}>
             <Suspense fallback={<EditorFallback />}>
               <SqlEditorPane
+                key={tab.id}
                 value={tab.sql}
                 statements={statements}
                 dialect={dialect}
