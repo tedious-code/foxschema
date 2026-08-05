@@ -16,7 +16,7 @@ interface Props {
 /**
  * Multi-tab bar for the SQL Editor. Close is on the left; drag tabs to reorder.
  * Rename via double-click or the pencil; middle-click or × closes.
- * Always keeps at least one tab (store replaces the last).
+ * Always keeps at least one tab (store replaces the last with a fresh empty query).
  */
 export const EditorTabBar: React.FC<Props> = ({
   tabs,
@@ -33,6 +33,8 @@ export const EditorTabBar: React.FC<Props> = ({
   const [dragOver, setDragOver] = useState<number | null>(null);
   const suppressClickRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const onlyTab = tabs.length <= 1;
+  const onlyTabEmpty = onlyTab && !(tabs[0]?.sql ?? '').trim();
 
   useEffect(() => {
     if (editingId) inputRef.current?.select();
@@ -50,6 +52,12 @@ export const EditorTabBar: React.FC<Props> = ({
     setEditingId(null);
   };
 
+  /** Stop the draggable tab from eating button clicks (HTML5 DnD quirk). */
+  const blockDragFromControl = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+  };
+
   return (
     <div
       className="flex items-stretch gap-0 border-b border-slate-800 bg-slate-950/40 overflow-x-auto"
@@ -60,6 +68,12 @@ export const EditorTabBar: React.FC<Props> = ({
         const editing = editingId === tab.id;
         const isDragging = dragFrom === index;
         const isOver = dragOver === index && dragFrom !== null && dragFrom !== index;
+        const closeDisabled = onlyTabEmpty;
+        const closeTitle = onlyTab
+          ? onlyTabEmpty
+            ? 'Last empty query — add another tab first'
+            : 'Clear this query (editor always keeps one tab)'
+          : `Close ${tab.title}`;
         return (
           <div
             key={tab.id}
@@ -77,7 +91,7 @@ export const EditorTabBar: React.FC<Props> = ({
             onAuxClick={(e) => {
               if (e.button === 1) {
                 e.preventDefault();
-                onClose(tab.id);
+                if (!closeDisabled) onClose(tab.id);
               }
             }}
             onDragStart={(e) => {
@@ -135,16 +149,23 @@ export const EditorTabBar: React.FC<Props> = ({
           >
             <button
               type="button"
-              aria-label={`Close ${tab.title}`}
+              draggable={false}
+              aria-label={closeTitle}
+              title={closeTitle}
               data-testid={`sql-tab-close-${tab.id}`}
+              disabled={closeDisabled}
+              onMouseDown={blockDragFromControl}
               onClick={(e) => {
                 e.stopPropagation();
-                onClose(tab.id);
+                e.preventDefault();
+                if (!closeDisabled) onClose(tab.id);
               }}
               className={`p-0.5 rounded transition shrink-0 ${
-                active
-                  ? 'text-slate-400 hover:text-slate-100 hover:bg-slate-800'
-                  : 'opacity-0 group-hover:opacity-100 text-slate-600 hover:text-slate-300'
+                closeDisabled
+                  ? 'text-slate-600 opacity-40 cursor-not-allowed'
+                  : active
+                    ? 'text-slate-400 hover:text-slate-100 hover:bg-slate-800'
+                    : 'opacity-0 group-hover:opacity-100 text-slate-600 hover:text-slate-300'
               }`}
             >
               <X className="w-3 h-3 text-rose-400" strokeWidth={SQL_ICON_STROKE} />
@@ -161,6 +182,7 @@ export const EditorTabBar: React.FC<Props> = ({
                   if (e.key === 'Escape') setEditingId(null);
                 }}
                 onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
                 className="bg-slate-950 border border-cyan-600/50 rounded px-1 py-0 text-[11px] outline-none w-28 text-slate-100 cursor-text"
               />
             ) : (
@@ -170,9 +192,11 @@ export const EditorTabBar: React.FC<Props> = ({
                 </span>
                 <button
                   type="button"
+                  draggable={false}
                   data-testid={`sql-tab-rename-btn-${tab.id}`}
                   aria-label={`Rename ${tab.title}`}
                   title="Rename query"
+                  onMouseDown={blockDragFromControl}
                   onClick={(e) => startEdit(tab, e)}
                   className={`p-0.5 rounded transition shrink-0 ${
                     active

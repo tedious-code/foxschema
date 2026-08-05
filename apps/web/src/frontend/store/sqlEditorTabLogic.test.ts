@@ -52,10 +52,14 @@ describe('sqlEditorTabLogic', () => {
     expect(closed.tabs.map((t) => t.id)).toEqual([b.id]);
     expect(closed.activeTabId).toBe(b.id);
 
-    const last = closeTab([b], b.id, b.id);
-    expect(last.tabs).toHaveLength(1);
-    expect(last.tabs[0]!.id).not.toBe(b.id);
-    expect(last.tabs[0]!.sql).toBe('');
+    const lastWithSql = closeTab([{ ...b, sql: 'SELECT 1' }], b.id, b.id);
+    expect(lastWithSql.tabs).toHaveLength(1);
+    expect(lastWithSql.tabs[0]!.id).not.toBe(b.id);
+    expect(lastWithSql.tabs[0]!.sql).toBe('');
+
+    const emptyAlone = createTab({ title: 'Query 1', sql: '' });
+    const noop = closeTab([emptyAlone], emptyAlone.id, emptyAlone.id);
+    expect(noop.tabs[0]!.id).toBe(emptyAlone.id);
   });
 
   it('checkedAfterSqlChange resets when statement count changes', () => {
