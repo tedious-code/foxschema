@@ -38,12 +38,15 @@ export function createAdminRoutes(rbac = new RbacModule(), auth = new AuthModule
         res.status(400).json({ error: 'User id is required.' });
         return;
       }
-      // Prevent locking yourself out of the last admin accidentally — soft check.
+      // Soft check for the common self-demotion path; setUserRole enforces the
+      // same invariant (active admins only) for every caller.
       if (req.userId === userId && role !== 'admin') {
         const users = await rbac.listUsers();
-        const otherAdmins = users.filter((u) => u.role === 'admin' && u.id !== req.userId);
-        if (otherAdmins.length === 0) {
-          res.status(400).json({ error: 'Cannot demote the last admin.' });
+        const otherActiveAdmins = users.filter(
+          (u) => u.role === 'admin' && u.active && u.id !== req.userId
+        );
+        if (otherActiveAdmins.length === 0) {
+          res.status(400).json({ error: 'Cannot demote the last active admin.' });
           return;
         }
       }
@@ -51,7 +54,8 @@ export function createAdminRoutes(rbac = new RbacModule(), auth = new AuthModule
         await rbac.setUserRole(userId, role);
         res.json({ ok: true, userId, role });
       } catch (error: unknown) {
-        res.status(404).json({ error: error instanceof Error ? error.message : 'User not found' });
+        const msg = error instanceof Error ? error.message : 'User not found';
+        res.status(msg.includes('not found') ? 404 : 400).json({ error: msg });
       }
     }
   );

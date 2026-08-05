@@ -140,6 +140,45 @@ describe('RbacModule', () => {
     await expect(rbac.setUserActive('u-sole-admin', false)).rejects.toThrow(/last active admin/);
   });
 
+  it('refuses to demote the last active admin when other admins are inactive', async () => {
+    const store = await getStore();
+    await store.run(
+      'INSERT INTO users (id, email, password_hash, created_at, app_role, active) VALUES (?, ?, ?, ?, ?, ?)',
+      ['u-active-admin', 'active-admin@example.com', 'x', new Date().toISOString(), 'admin', 1]
+    );
+    await store.run(
+      'INSERT INTO users (id, email, password_hash, created_at, app_role, active) VALUES (?, ?, ?, ?, ?, ?)',
+      ['u-inactive-admin', 'inactive-admin@example.com', 'x', new Date().toISOString(), 'admin', 0]
+    );
+    // Leave only u-active-admin as an active admin (deactivate any seeded admins).
+    const users = await rbac.listUsers();
+    for (const u of users) {
+      if (u.role === 'admin' && u.id !== 'u-active-admin' && u.id !== 'u-inactive-admin' && u.active) {
+        await rbac.setUserActive(u.id, false);
+      }
+    }
+    await expect(rbac.setUserRole('u-active-admin', 'viewer')).rejects.toThrow(/last active admin/);
+    // Inactive admin may still be demoted; the active one remains.
+    await rbac.setUserRole('u-inactive-admin', 'viewer');
+    expect((await rbac.listUsers()).find((u) => u.id === 'u-inactive-admin')?.role).toBe('viewer');
+    expect((await rbac.listUsers()).find((u) => u.id === 'u-active-admin')?.role).toBe('admin');
+  });
+
+  it('allows demoting an admin when another active admin remains', async () => {
+    const store = await getStore();
+    await store.run(
+      'INSERT INTO users (id, email, password_hash, created_at, app_role, active) VALUES (?, ?, ?, ?, ?, ?)',
+      ['u-admin-a', 'admin-a@example.com', 'x', new Date().toISOString(), 'admin', 1]
+    );
+    await store.run(
+      'INSERT INTO users (id, email, password_hash, created_at, app_role, active) VALUES (?, ?, ?, ?, ?, ?)',
+      ['u-admin-b', 'admin-b@example.com', 'x', new Date().toISOString(), 'admin', 1]
+    );
+    await rbac.setUserRole('u-admin-a', 'editor');
+    expect((await rbac.listUsers()).find((u) => u.id === 'u-admin-a')?.role).toBe('editor');
+    expect((await rbac.listUsers()).find((u) => u.id === 'u-admin-b')?.role).toBe('admin');
+  });
+
   it('role permission matrix covers every role', async () => {
     const matrix = await rbac.listRolePermissionMatrix();
     expect(Object.keys(matrix).sort()).toEqual(['admin', 'editor', 'owner', 'viewer']);
