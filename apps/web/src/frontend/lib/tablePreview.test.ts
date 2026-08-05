@@ -7,6 +7,7 @@ import {
   foreignKeyLinksForSql,
   composePeekSql,
   isSafePeekClause,
+  peekBaseFilterLabel,
 } from './tablePreview';
 import type { ForeignKeyInfo, TableSchema } from './types';
 
@@ -138,6 +139,19 @@ describe('composePeekSql', () => {
     expect(composePeekSql('SELECT * FROM t', [], { where: '1=1; --' })).toEqual({
       error: 'WHERE must be a single predicate (no ; or comments)',
     });
+  });
+});
+
+describe('peekBaseFilterLabel', () => {
+  it('returns null when the peek has no bound base params', () => {
+    expect(peekBaseFilterLabel('USER', 'USER', [])).toBeNull();
+  });
+
+  it('reads the FK condition from the panel title', () => {
+    expect(peekBaseFilterLabel('USER · ID = 33', 'USER', [33])).toBe('ID = 33');
+    expect(peekBaseFilterLabel('public.orders · customer_id = 7', 'public.orders', [7])).toBe(
+      'customer_id = 7'
+    );
   });
 });
 

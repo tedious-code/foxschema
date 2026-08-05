@@ -239,6 +239,29 @@ export interface PeekFilterClauses {
 }
 
 /**
+ * Human label for an FK drill base filter (`ID = 33`), or null when the peek
+ * is already an unfiltered table preview (no bound base params).
+ */
+export function peekBaseFilterLabel(
+  title: string,
+  tableName: string,
+  baseParams: unknown[]
+): string | null {
+  if (!baseParams.length) return null;
+  const prefix = `${tableName} · `;
+  if (title.startsWith(prefix)) {
+    const rest = title.slice(prefix.length).trim();
+    return rest || 'filtered';
+  }
+  const sep = title.indexOf(' · ');
+  if (sep >= 0) {
+    const rest = title.slice(sep + 3).trim();
+    return rest || 'filtered';
+  }
+  return 'filtered';
+}
+
+/**
  * Layer optional user filters onto a peek base query (`SELECT * FROM …`
  * or a bound FK drill). Params stay those of the base; the filter text is
  * not parameterized (same trust model as typing SQL in the editor).
