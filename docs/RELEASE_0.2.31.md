@@ -1,4 +1,4 @@
-# Fox Schema 0.2.30
+# Fox Schema 0.2.31
 
 Ship cut for **npm · Docker · Homebrew**. Covers everything since **`v0.2.16`**
 (current public Latest). Intermediate `0.2.17`–`0.2.29` were auto-bumps on `main`.
@@ -17,6 +17,8 @@ Ship cut for **npm · Docker · Homebrew**. Covers everything since **`v0.2.16`*
 - **Security** — close RBAC read/write bypasses (batches, PRAGMA, code-fence
   disguised SQL) (#161, #165).
 - **E2E** — Utilities harness timeout scaled for multi-dialect runs (#168).
+- **Docker build** — pin `monaco-editor@0.55.1` so image builds succeed after
+  the 0.56 exports-map break (dependabot had pulled 0.56).
 - **Marketing** — first-open **email subscription** wizard only
   (`SIGNUP_WEBHOOK_URL`); onboarding survey answers stay local preferences.
 
@@ -38,21 +40,21 @@ Ship cut for **npm · Docker · Homebrew**. Covers everything since **`v0.2.16`*
 
 | Channel | Artifact |
 |---------|----------|
-| **npm** | `foxschema@0.2.30` |
-| **Docker Hub** | `5nickels/foxschema:v0.2.30` / `:latest` |
-| **GHCR** | `ghcr.io/tedious-code/foxschema:v0.2.30` |
-| **Homebrew** | `Formula/foxschema.rb` → 0.2.30 (after npm) |
+| **npm** | `foxschema@0.2.31` |
+| **Docker Hub** | `5nickels/foxschema:v0.2.31` / `:latest` |
+| **GHCR** | `ghcr.io/tedious-code/foxschema:v0.2.31` |
+| **Homebrew** | `Formula/foxschema.rb` → 0.2.31 (after npm) |
 
 ## Install / update
 
 ```bash
-npm install -g foxschema@0.2.30
+npm install -g foxschema@0.2.31
 # or
 brew tap tedious-code/foxschema https://github.com/tedious-code/foxschema
 brew trust tedious-code/foxschema
 brew upgrade foxschema
 # or
-docker pull 5nickels/foxschema:v0.2.30
+docker pull 5nickels/foxschema:v0.2.31
 ```
 
 ```bash
@@ -68,27 +70,27 @@ See [PUBLISH.md](PUBLISH.md). Short path:
 
 ```bash
 git fetch origin main && git checkout main && git pull
-# package.json should be 0.2.30
-git tag v0.2.30
-git push origin v0.2.30
-gh release create v0.2.30 --title v0.2.30 --notes-file docs/RELEASE_0.2.30.md
+# package.json should be 0.2.31
+git tag v0.2.31
+git push origin v0.2.31
+gh release create v0.2.31 --title v0.2.31 --notes-file docs/RELEASE_0.2.31.md
 
 # If tag workflows did not start:
 gh api -X POST repos/tedious-code/foxschema/dispatches \
   -f event_type=ship-release \
-  -f 'client_payload[tag]=v0.2.30'
+  -f 'client_payload[tag]=v0.2.31'
 
-# After npm shows 0.2.30:
-./packaging/homebrew/update-formula.sh 0.2.30
+# After npm shows 0.2.31:
+./packaging/homebrew/update-formula.sh 0.2.31
 git add Formula/foxschema.rb
-git commit -m "brew: foxschema 0.2.30"
+git commit -m "brew: foxschema 0.2.31"
 git push origin main
 ```
 
 Verify:
 
 ```bash
-npm view foxschema version          # 0.2.30
-docker pull 5nickels/foxschema:v0.2.30
+npm view foxschema version          # 0.2.31
+docker pull 5nickels/foxschema:v0.2.31
 npm install -g foxschema@latest && foxschema doctor
 ```

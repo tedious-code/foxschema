@@ -1,7 +1,7 @@
 {
   "name": "@foxschema/web",
   "private": true,
-  "version": "0.2.30",
+  "version": "0.2.31",
   "type": "module",
   "exports": {
     "./package.json": "./package.json",
@@ -37,7 +37,7 @@
     "express": "^5.2.1",
     "lodash-es": "^4.18.1",
     "lucide-react": "^1.16.0",
-    "monaco-editor": "0.56.0",
+    "monaco-editor": "0.55.1",
     "mssql": "^12.6.0",
     "mysql2": "^3.11.0",
     "oracledb": "^7.0.0",
