@@ -708,7 +708,7 @@ const PeekGrid: React.FC<{
         )}
         {!editability.editable && editability.reason && entry.result?.ok && (
           <span
-            className="hidden sm:inline text-[10px] text-slate-500 truncate max-w-[14rem]"
+            className="hidden sm:inline text-xs font-semibold text-slate-400 truncate max-w-[14rem]"
             title={editability.reason}
           >
             Read-only
@@ -734,21 +734,21 @@ const PeekGrid: React.FC<{
       {writeError && (
         <div
           data-testid={`data-peek-write-error-${entry.id}`}
-          className="mx-0.5 mb-1 rounded border border-rose-500/40 bg-rose-950/30 px-3 py-1.5 text-[11px] text-rose-300"
+          className="mx-0.5 mb-1 rounded border border-rose-500/40 bg-rose-950/30 px-3 py-1.5 text-sm font-semibold text-rose-300"
         >
           {writeError}
         </div>
       )}
 
       {entry.status === 'loading' && !entry.result && (
-        <div className="flex items-center gap-2 px-1 py-4 text-[12px] text-slate-400">
+        <div className="flex items-center gap-2 px-1 py-4 text-sm font-semibold text-slate-300">
           <Loader2 className="w-3.5 h-3.5 animate-spin" strokeWidth={SQL_ICON_STROKE} />
           Loading {entry.title}…
         </div>
       )}
 
       {(entry.status === 'error' || (entry.status !== 'loading' && !entry.result)) && (
-        <div className="mx-0.5 my-1 rounded border border-rose-500/40 bg-rose-950/30 px-3 py-2 text-[12px] text-rose-300">
+        <div className="mx-0.5 my-1 rounded border border-rose-500/40 bg-rose-950/30 px-3 py-2 text-sm font-semibold text-rose-300">
           {entry.error ?? 'Preview failed'}
         </div>
       )}
