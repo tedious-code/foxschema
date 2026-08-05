@@ -384,6 +384,15 @@ describe('extractTableAliases', () => {
     const quoted = extractTableAliases('SELECT u.x FROM "ORDER" AS u');
     expect(quoted.u).toBe('ORDER');
   });
+
+  it('does not treat SELECT-list , table.col FROM as a FROM item', () => {
+    const map = extractTableAliases(
+      'SELECT orders.created_at, orders.customer_id from orders'
+    );
+    expect(map.orders).toBe('orders');
+    expect(map['orders.customer_id']).toBeUndefined();
+    expect(map.customer_id).toBeUndefined();
+  });
 });
 
 describe('countReferencedTables / referencedTableNames', () => {

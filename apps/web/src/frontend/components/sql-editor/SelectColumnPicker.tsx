@@ -75,10 +75,21 @@ export const SelectColumnPicker: React.FC<Props> = ({ open, anchor, onClose }) =
     }
     out.sort((a, b) => a.label.localeCompare(b.label));
     const items = currentSelectListItems(ctx.sql).map((it) => it.toLowerCase());
+    const selected = new Set<string>();
+    for (const it of items) {
+      if (it === '*') continue;
+      selected.add(it);
+      // Also mark matching alias.col options when SQL used table.col or bare col.
+      const col = it.includes('.') ? it.slice(it.lastIndexOf('.') + 1) : it;
+      for (const opt of out) {
+        const optCol = opt.key.includes('.') ? opt.key.slice(opt.key.lastIndexOf('.') + 1) : opt.key;
+        if (opt.key === it || optCol === col) selected.add(opt.key);
+      }
+    }
     return {
       options: out,
       star: selectListIsStar(ctx.sql),
-      selected: new Set(items),
+      selected,
     };
     // tick forces re-read after mutateSql
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional refresh latch
@@ -172,8 +183,10 @@ export const SelectColumnPicker: React.FC<Props> = ({ open, anchor, onClose }) =
       </ul>
       <div className="px-2 py-1.5 border-t border-slate-800 text-[10px] text-slate-500 shrink-0">
         {star
-          ? 'SELECT * · uncheck Select all or pick columns'
-          : `${[...selected].filter((k) => k !== '*').length}/${options.length} selected · click SELECT/FROM to reopen`}
+          ? 'SELECT * · pick columns to replace *'
+          : options.length === 0
+            ? 'No schema columns — load Schema for tables in FROM'
+            : `${options.filter((o) => selected.has(o.key)).length}/${options.length} selected · click SELECT/FROM to reopen`}
       </div>
     </div>,
     document.body
