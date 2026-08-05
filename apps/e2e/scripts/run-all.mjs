@@ -102,11 +102,17 @@ for (const suite of ALWAYS) {
   process.stdout.write(`▶  ${suite.label.padEnd(12)} `);
   let passed = false;
   let output = '';
+  // Utilities-across-dialects is ~35s × N dialects (Clone Table alone ~30s each),
+  // so the wall-clock budget must grow with how many dialects are configured.
+  const suiteTimeoutMs =
+    suite.key === 'sql-editor-utilities'
+      ? Math.max(600_000, configured.length * 60_000)
+      : 300_000;
   try {
     output = execSync(`${HEADED}${VITEST} ${suite.file}`, {
       cwd: ROOT,
       stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 300_000,
+      timeout: suiteTimeoutMs,
       env: { ...process.env },
     }).toString();
     passed = true;
