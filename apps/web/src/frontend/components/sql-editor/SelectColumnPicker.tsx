@@ -2,7 +2,7 @@
  * Checkbox list of alias.column when the user clicks SELECT / FROM in the editor.
  * Select all → `*`; Remove all clears the list; toggles sync into the SQL text.
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Columns3, X } from 'lucide-react';
 import { extractTableAliases } from '../../lib/sql-splitter';
@@ -32,6 +32,7 @@ interface Props {
 type ColOpt = { key: string; label: string; expr: string };
 
 export const SelectColumnPicker: React.FC<Props> = ({ open, anchor, onClose }) => {
+  const rootRef = useRef<HTMLDivElement>(null);
   // Bump to re-read live SQL after each mutation (options depend on FROM aliases).
   const [tick, setTick] = useState(0);
   const refresh = () => setTick((n) => n + 1);
@@ -48,6 +49,29 @@ export const SelectColumnPicker: React.FC<Props> = ({ open, anchor, onClose }) =
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only on open
   }, [open]);
+
+  // Close when clicking outside the box (defer so the opening click doesn't dismiss it).
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const el = rootRef.current;
+      if (!el) return;
+      if (e.target instanceof Node && el.contains(e.target)) return;
+      onClose();
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    const timer = window.setTimeout(() => {
+      document.addEventListener('pointerdown', onPointerDown, true);
+      document.addEventListener('keydown', onKeyDown, true);
+    }, 0);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('keydown', onKeyDown, true);
+    };
+  }, [open, onClose]);
 
   const { options, star, selected } = useMemo(() => {
     if (!open) return { options: [] as ColOpt[], star: false, selected: new Set<string>() };
@@ -118,13 +142,13 @@ export const SelectColumnPicker: React.FC<Props> = ({ open, anchor, onClose }) =
 
   return createPortal(
     <div
+      ref={rootRef}
       data-testid="sql-select-column-picker"
       className="fixed z-[120] w-72 max-h-80 flex flex-col rounded-lg border border-slate-700 bg-slate-900 shadow-2xl"
       style={{
         top: Math.min(anchor.top, window.innerHeight - 340),
         left: Math.min(anchor.left, window.innerWidth - 300),
       }}
-      onMouseDown={(e) => e.stopPropagation()}
     >
       <div className="flex items-center gap-2 px-2.5 py-2 border-b border-slate-800 shrink-0">
         <Columns3 className="w-3.5 h-3.5 text-cyan-400" strokeWidth={SQL_ICON_STROKE} />
