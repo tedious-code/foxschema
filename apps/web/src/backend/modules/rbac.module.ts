@@ -85,20 +85,48 @@ export class RbacModule {
     return out;
   }
 
-  async listUsers(): Promise<Array<{ id: string; email: string; role: AppRole; createdAt: string }>> {
+  async listUsers(): Promise<
+    Array<{ id: string; email: string; role: AppRole; active: boolean; createdAt: string }>
+  > {
     const store = await getStore();
     const rows = await store.all<{
       id: string;
       email: string;
       app_role: string | null;
+      active: number | null;
       created_at: string;
-    }>('SELECT id, email, app_role, created_at FROM users ORDER BY created_at ASC');
+    }>('SELECT id, email, app_role, active, created_at FROM users ORDER BY created_at ASC');
     return rows.map((r) => ({
       id: r.id,
       email: r.email,
       role: toAppRole(r.app_role),
+      // Pre-migration rows / NULL → treat as active.
+      active: r.active === null || r.active === undefined ? true : Number(r.active) !== 0,
       createdAt: r.created_at,
     }));
+  }
+
+  async setUserActive(userId: string, active: boolean): Promise<void> {
+    const store = await getStore();
+    const exists = await store.get<{ id: string; app_role: string | null }>(
+      'SELECT id, app_role FROM users WHERE id = ?',
+      [userId]
+    );
+    if (!exists) throw new Error('User not found.');
+    if (!active && toAppRole(exists.app_role) === 'admin') {
+      const others = await store.get<{ n: number }>(
+        `SELECT COUNT(*) AS n FROM users WHERE app_role = 'admin' AND id != ? AND (active IS NULL OR active != 0)`,
+        [userId]
+      );
+      if (Number(others?.n ?? 0) === 0) {
+        throw new Error('Cannot deactivate the last active admin.');
+      }
+    }
+    await store.run('UPDATE users SET active = ? WHERE id = ?', [active ? 1 : 0, userId]);
+    if (!active) {
+      // Drop sessions so a deactivated user is kicked out immediately.
+      await store.run('DELETE FROM sessions WHERE user_id = ?', [userId]);
+    }
   }
 }
 

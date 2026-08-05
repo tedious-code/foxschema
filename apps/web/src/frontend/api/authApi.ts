@@ -88,7 +88,7 @@ export async function apiPutPreferences(prefs: Partial<UserPreferences>): Promis
 }
 
 export async function apiAdminListUsers(): Promise<{
-  users: Array<{ id: string; email: string; role: AppRole; createdAt: string }>;
+  users: Array<{ id: string; email: string; role: AppRole; active: boolean; createdAt: string }>;
 }> {
   return request('/admin/users');
 }
@@ -97,6 +97,20 @@ export async function apiAdminSetUserRole(userId: string, role: AppRole): Promis
   await request(`/admin/users/${encodeURIComponent(userId)}/role`, {
     method: 'PUT',
     body: JSON.stringify({ role }),
+  });
+}
+
+export async function apiAdminSetUserActive(userId: string, active: boolean): Promise<void> {
+  await request(`/admin/users/${encodeURIComponent(userId)}/active`, {
+    method: 'PUT',
+    body: JSON.stringify({ active }),
+  });
+}
+
+export async function apiAdminSetUserPassword(userId: string, password: string): Promise<void> {
+  await request(`/admin/users/${encodeURIComponent(userId)}/password`, {
+    method: 'PUT',
+    body: JSON.stringify({ password }),
   });
 }
 

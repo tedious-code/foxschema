@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Loader2, AlertCircle } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { Brand } from './Brand';
+import { PasswordInput } from './PasswordInput';
 import { SsoButtons } from './SsoButtons';
 
 /** Surface an `?sso_error=…` returned by a failed SSO callback. */
@@ -37,6 +38,9 @@ export const AuthPage: React.FC = () => {
           <p className="text-sm text-slate-400 mt-1">
             {mode === 'login' ? 'Sign in to your workspace' : 'Create your account'}
           </p>
+          <p className="text-xs text-slate-500 mt-2 text-center max-w-xs">
+            First-time sign-in opens a short setup wizard before you reach the workspace.
+          </p>
         </div>
 
         <form onSubmit={submit} className="bg-slate-900/60 border border-slate-800 rounded-xl p-6 flex flex-col gap-4">
@@ -54,14 +58,13 @@ export const AuthPage: React.FC = () => {
 
           <div className="flex flex-col gap-1">
             <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Password</label>
-            <input
-              type="password"
+            <PasswordInput
               required
               minLength={8}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder={mode === 'register' ? 'At least 8 characters' : '••••••••'}
-              className="bg-slate-950 border border-slate-800 focus:border-cyan-500 rounded-md px-3 py-2 text-sm outline-none"
+              className="w-full bg-slate-950 border border-slate-800 focus:border-cyan-500 rounded-md px-3 py-2 text-sm outline-none"
             />
           </div>
 

@@ -37,6 +37,14 @@ interface UserRow {
   email: string;
   onboarding_completed: number;
   app_role: string | null;
+  active?: number | null;
+}
+
+function assertUserActive(row: UserRow): void {
+  if (row.active === null || row.active === undefined) return;
+  if (Number(row.active) === 0) {
+    throw new Error('This account has been deactivated. Contact an administrator.');
+  }
 }
 
 /** First account on the install becomes admin; later signups default to viewer. */
@@ -88,7 +96,7 @@ export class AuthModule {
     const store = await getStore();
     const normalized = (email ?? '').trim().toLowerCase();
     const row = await store.get<UserRow & { password_hash: string }>(
-      'SELECT id, email, password_hash, onboarding_completed, app_role FROM users WHERE email = ?',
+      'SELECT id, email, password_hash, onboarding_completed, app_role, active FROM users WHERE email = ?',
       [normalized]
     );
 
@@ -96,8 +104,26 @@ export class AuthModule {
     if (!row || !verifyPassword(password ?? '', row.password_hash)) {
       throw new Error('Invalid email or password.');
     }
+    assertUserActive(row);
 
     return { user: await this.toAuthUser(row), token: await this.createSession(row.id) };
+  }
+
+  /**
+   * Admin sets another user's password (Access control). Invalidates their sessions.
+   */
+  async adminSetPassword(userId: string, password: string): Promise<void> {
+    if (!password || password.length < 8) {
+      throw new Error('Password must be at least 8 characters.');
+    }
+    const store = await getStore();
+    const exists = await store.get('SELECT id FROM users WHERE id = ?', [userId]);
+    if (!exists) throw new Error('User not found.');
+    await store.run('UPDATE users SET password_hash = ? WHERE id = ?', [
+      hashPassword(password),
+      userId,
+    ]);
+    await store.run('DELETE FROM sessions WHERE user_id = ?', [userId]);
   }
 
   /**
@@ -109,7 +135,7 @@ export class AuthModule {
     const normalized = (email ?? '').trim().toLowerCase();
     if (!normalized.includes('@')) throw new Error('SSO did not return a valid email.');
     let row = await store.get<UserRow>(
-      'SELECT id, email, onboarding_completed, app_role FROM users WHERE email = ?',
+      'SELECT id, email, onboarding_completed, app_role, active FROM users WHERE email = ?',
       [normalized]
     );
     if (!row) {
@@ -119,8 +145,9 @@ export class AuthModule {
         'INSERT INTO users (id, email, password_hash, created_at, app_role) VALUES (?, ?, ?, ?, ?)',
         [id, normalized, hashPassword(randomUUID()), new Date().toISOString(), role]
       );
-      row = { id, email: normalized, onboarding_completed: 0, app_role: role };
+      row = { id, email: normalized, onboarding_completed: 0, app_role: role, active: 1 };
     }
+    assertUserActive(row);
     return { user: await this.toAuthUser(row), token: await this.createSession(row.id) };
   }
 
@@ -132,16 +159,21 @@ export class AuthModule {
     const boundEmail = (process.env.APP_USER_EMAIL || '').trim().toLowerCase();
     const email = boundEmail || 'local@foxschema.app';
     const find = (e: string) =>
-      store.get<UserRow>('SELECT id, email, onboarding_completed, app_role FROM users WHERE email = ?', [
-        e,
-      ]);
+      store.get<UserRow>(
+        'SELECT id, email, onboarding_completed, app_role, active FROM users WHERE email = ?',
+        [e]
+      );
     const existing =
       (await find(email)) || (boundEmail ? await find('local@foxschema.app') : undefined);
     if (existing) {
       if (existing.app_role !== 'admin') {
         await store.run("UPDATE users SET app_role = 'admin' WHERE id = ?", [existing.id]);
       }
-      return this.toAuthUser({ ...existing, app_role: 'admin' });
+      // Local singleton stays usable even if accidentally deactivated in Access UI.
+      if (existing.active === 0) {
+        await store.run('UPDATE users SET active = 1 WHERE id = ?', [existing.id]);
+      }
+      return this.toAuthUser({ ...existing, app_role: 'admin', active: 1 });
     }
     const id = randomUUID();
     await store.run(
@@ -173,10 +205,14 @@ export class AuthModule {
     }
 
     const user = await store.get<UserRow>(
-      'SELECT id, email, onboarding_completed, app_role FROM users WHERE id = ?',
+      'SELECT id, email, onboarding_completed, app_role, active FROM users WHERE id = ?',
       [session.user_id]
     );
     if (!user) return null;
+    if (user.active !== null && user.active !== undefined && Number(user.active) === 0) {
+      await store.run('DELETE FROM sessions WHERE token = ?', [token]);
+      return null;
+    }
 
     return this.toAuthUser(user);
   }

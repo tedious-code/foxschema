@@ -86,4 +86,29 @@ describe('AuthModule', () => {
     await auth.logout(token);
     expect(await auth.getUserByToken(token)).toBeNull();
   });
+
+  it('rejects login for deactivated users', async () => {
+    const { user, token } = await auth.register('inactive@example.com', 'password123');
+    await new RbacModule().setUserActive(user.id, false);
+    await expect(auth.login('inactive@example.com', 'password123')).rejects.toThrow(
+      /deactivated/
+    );
+    expect(await auth.getUserByToken(token)).toBeNull();
+  });
+
+  it('adminSetPassword updates credentials and clears sessions', async () => {
+    const { user, token } = await auth.register('pwreset@example.com', 'password123');
+    await auth.adminSetPassword(user.id, 'newpassword99');
+    expect(await auth.getUserByToken(token)).toBeNull();
+    await expect(auth.login('pwreset@example.com', 'password123')).rejects.toThrow(
+      /Invalid email or password/
+    );
+    const { user: again } = await auth.login('pwreset@example.com', 'newpassword99');
+    expect(again.id).toBe(user.id);
+  });
+
+  it('adminSetPassword rejects short passwords', async () => {
+    const { user } = await auth.register('pwshort@example.com', 'password123');
+    await expect(auth.adminSetPassword(user.id, 'short')).rejects.toThrow(/8 characters/);
+  });
 });

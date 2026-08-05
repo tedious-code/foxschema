@@ -40,27 +40,49 @@ export class UserModule {
     };
   }
 
-  /** Partial update — only provided fields change; the rest are preserved. */
+  /**
+   * Partial update — only provided fields are written. Theme-only saves must
+   * never wipe onboarding survey answers (role / database / goal).
+   */
   async updatePreferences(userId: string, input: Partial<UserPreferences>): Promise<UserPreferences> {
     const store = await getStore();
     const now = new Date().toISOString();
-    const current = await this.getPreferences(userId);
-
-    const role = input.role ?? current.role ?? null;
-    const primaryDatabase = input.primaryDatabase ?? current.primaryDatabase ?? null;
-    const primaryGoal = input.primaryGoal ?? current.primaryGoal ?? null;
-    const theme = input.theme ?? current.theme ?? null;
 
     const exists = await store.get('SELECT user_id FROM user_preferences WHERE user_id = ?', [userId]);
     if (exists) {
-      await store.run(
-        'UPDATE user_preferences SET role = ?, primary_database = ?, primary_goal = ?, theme = ?, updated_at = ? WHERE user_id = ?',
-        [role, primaryDatabase, primaryGoal, theme, now, userId]
-      );
+      const sets: string[] = ['updated_at = ?'];
+      const params: Array<string | number | null> = [now];
+      if (input.role !== undefined) {
+        sets.push('role = ?');
+        params.push(input.role ?? null);
+      }
+      if (input.primaryDatabase !== undefined) {
+        sets.push('primary_database = ?');
+        params.push(input.primaryDatabase ?? null);
+      }
+      if (input.primaryGoal !== undefined) {
+        sets.push('primary_goal = ?');
+        params.push(input.primaryGoal ?? null);
+      }
+      if (input.theme !== undefined) {
+        sets.push('theme = ?');
+        params.push(input.theme ?? null);
+      }
+      if (sets.length > 1) {
+        params.push(userId);
+        await store.run(`UPDATE user_preferences SET ${sets.join(', ')} WHERE user_id = ?`, params);
+      }
     } else {
       await store.run(
         'INSERT INTO user_preferences (user_id, role, primary_database, primary_goal, theme, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-        [userId, role, primaryDatabase, primaryGoal, theme, now]
+        [
+          userId,
+          input.role ?? null,
+          input.primaryDatabase ?? null,
+          input.primaryGoal ?? null,
+          input.theme ?? null,
+          now,
+        ]
       );
     }
 
