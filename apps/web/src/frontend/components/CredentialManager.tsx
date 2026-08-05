@@ -72,6 +72,28 @@ export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
     [connections]
   );
 
+  // Stable object so ConnectionModal does not reset mid-edit when this parent re-renders.
+  const editingInitialOptions = useMemo(
+    () =>
+      editing
+        ? {
+            host: editing.host,
+            port: editing.port,
+            database: editing.database,
+            username: editing.username,
+            schema: editing.schema,
+          }
+        : undefined,
+    [
+      editing?.id,
+      editing?.host,
+      editing?.port,
+      editing?.database,
+      editing?.username,
+      editing?.schema,
+    ]
+  );
+
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
     const filtered = connections.filter((c) => {
@@ -374,17 +396,7 @@ export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
         dialect={(editing?.dialect as Dialect) ?? 'db2'}
         initialName={editing?.name}
         initialHasPassword={editing?.hasPassword}
-        initialOptions={
-          editing
-            ? {
-                host: editing.host,
-                port: editing.port,
-                database: editing.database,
-                username: editing.username,
-                schema: editing.schema,
-              }
-            : undefined
-        }
+        initialOptions={editingInitialOptions}
         onClose={() => {
           setAdding(false);
           setEditing(null);

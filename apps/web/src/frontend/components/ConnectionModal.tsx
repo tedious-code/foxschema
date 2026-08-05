@@ -50,8 +50,8 @@ export const ConnectionModal: React.FC<Props> = ({
   const isCredential = mode === 'credential';
   const [selDialect, setSelDialect] = useState<Dialect>(dialect);
   const [name, setName] = useState('');
-  // Off by default (opt-in). On edit, reflect whether a password is already stored.
-  const [savePassword, setSavePassword] = useState(false);
+  // New credentials default to saving the password (encrypted). Edit reflects storage.
+  const [savePassword, setSavePassword] = useState(true);
   const [form, setForm] = useState<ConnectionOptions>({
     host: 'localhost',
     port: 5432,
@@ -74,25 +74,40 @@ export const ConnectionModal: React.FC<Props> = ({
     error?: string;
   }>({ status: 'idle' });
 
+  // Stable snapshot — callers often pass a fresh `initialOptions` object each
+  // render; depending on that reference would wipe a typed password mid-edit.
+  const initialOptionsKey = [
+    initialOptions?.host ?? '',
+    initialOptions?.port ?? '',
+    initialOptions?.database ?? '',
+    initialOptions?.schema ?? '',
+    initialOptions?.username ?? '',
+    initialOptions?.password ?? '',
+    initialOptions?.ssl?.enabled ? '1' : '0',
+    initialOptions?.pool?.min ?? '',
+    initialOptions?.pool?.max ?? '',
+  ].join('\0');
+
   useEffect(() => {
-    if (open) {
-      setSelDialect(dialect);
-      setName(sanitizeName(initialName ?? ''));
-      setForm({
-        host: initialOptions?.host || 'localhost',
-        port: initialOptions?.port || defaultPorts[dialect],
-        database: initialOptions?.database || '',
-        schema: initialOptions?.schema || getProviderSettings(dialect).defaultSchema || '',
-        username: initialOptions?.username || '',
-        password: initialOptions?.password || '',
-        ssl: { enabled: initialOptions?.ssl?.enabled || false },
-        pool: { min: initialOptions?.pool?.min || 1, max: initialOptions?.pool?.max || 10 },
-      });
-      setSchemaList([]);
-      setSavePassword(initialHasPassword ?? false);
-      setTestingState({ status: 'idle' });
-    }
-  }, [open, dialect, initialOptions, initialName, initialHasPassword]);
+    if (!open) return;
+    setSelDialect(dialect);
+    setName(sanitizeName(initialName ?? ''));
+    setForm({
+      host: initialOptions?.host || 'localhost',
+      port: initialOptions?.port || defaultPorts[dialect],
+      database: initialOptions?.database || '',
+      schema: initialOptions?.schema || getProviderSettings(dialect).defaultSchema || '',
+      username: initialOptions?.username || '',
+      password: initialOptions?.password || '',
+      ssl: { enabled: initialOptions?.ssl?.enabled || false },
+      pool: { min: initialOptions?.pool?.min || 1, max: initialOptions?.pool?.max || 10 },
+    });
+    setSchemaList([]);
+    // New credential → save password on by default; edit → match what's stored.
+    setSavePassword(initialHasPassword ?? true);
+    setTestingState({ status: 'idle' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- initialOptionsKey is the stable snapshot
+  }, [open, dialect, initialName, initialHasPassword, initialOptionsKey]);
 
   // Check whether the selected provider's driver is installed, whenever the
   // modal opens or the provider changes. (Must stay above the early return —
@@ -174,16 +189,28 @@ export const ConnectionModal: React.FC<Props> = ({
       return;
     }
 
+    if (isCredential && savePassword && !form.password?.trim() && !initialHasPassword) {
+      setTestingState({
+        status: 'failed',
+        error: 'Enter a password, or untick “Save password” to store the credential without one.',
+      });
+      return;
+    }
+
     const option: ConnectionOptions = {
       ...form,
+      // Empty password on edit means “keep stored”; never send "" which looks unset.
+      password: form.password?.trim() ? form.password : undefined,
       schemaRequired,
-      connectionString: buildConnectionString(selDialect, form),
+      connectionString: buildConnectionString(selDialect, {
+        ...form,
+        password: form.password?.trim() ? form.password : undefined,
+      }),
     };
 
     try {
       if (isCredential) {
-        // Send the full option (the caller may reuse the typed password for THIS session);
-        // the server persists it only when savePassword is true.
+        // Server persists option.password when savePassword !== false.
         await onSaveCredential?.({
           name: name.trim() || `${form.host}/${form.database}`,
           dialect: selDialect,
@@ -335,7 +362,7 @@ export const ConnectionModal: React.FC<Props> = ({
                 className="w-4 h-4 rounded border-slate-800 bg-slate-950 text-cyan-600 focus:ring-0 focus:ring-offset-0"
               />
               Save password (encrypted)
-              <span className="text-slate-500">— off: you'll enter it each session</span>
+              <span className="text-slate-500">— recommended; off = enter each session</span>
             </label>
           )}
 

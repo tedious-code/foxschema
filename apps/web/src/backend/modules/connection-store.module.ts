@@ -70,10 +70,19 @@ export class ConnectionStore {
     existingPassword?: string
   ): ConnectionOptions {
     const resolved: ConnectionOptions = { ...option, connectionString: undefined };
+    const incoming =
+      typeof resolved.password === 'string' && resolved.password.length > 0
+        ? resolved.password
+        : undefined;
     if (savePassword === false) {
       resolved.password = undefined; // user opted out — never persist a secret
-    } else if (!resolved.password && existingPassword !== undefined) {
-      resolved.password = existingPassword; // omitted on edit — keep existing
+    } else if (incoming) {
+      resolved.password = incoming;
+    } else if (existingPassword) {
+      // Edit omitted / blank password — keep the stored secret.
+      resolved.password = existingPassword;
+    } else {
+      resolved.password = undefined; // treat "" like missing so hasPassword stays accurate
     }
     resolved.connectionString = buildConnectionString(dialect, resolved);
     return resolved;
@@ -91,7 +100,7 @@ export class ConnectionStore {
       port = opt.port;
       database = opt.database;
       username = opt.username;
-      hasPassword = !!opt.password;
+      hasPassword = typeof opt.password === 'string' && opt.password.length > 0;
     } catch {
       /* unreadable (key rotated?) — show metadata without connection fields */
     }
