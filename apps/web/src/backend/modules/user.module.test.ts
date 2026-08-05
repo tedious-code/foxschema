@@ -45,6 +45,20 @@ describe('UserModule preferences', () => {
     const p = await users.updatePreferences(userId, { theme: 'dark' });
     expect(p.theme).toBe('dark');
     expect(p.role).toBe('DBA'); // unchanged
+    expect(p.primaryDatabase).toBe('DB2');
+    expect(p.primaryGoal).toBe('COMPARE_SCHEMAS');
     expect(p.onboardingCompleted).toBe(true); // unchanged
+  });
+
+  it('theme-only save does not wipe survey answers after a concurrent-style write', async () => {
+    // Simulate appearance sync that only sends theme — survey columns must stay.
+    await users.updatePreferences(userId, {
+      theme: JSON.stringify({ themeMode: 'dark', tone: 'slate' }),
+    });
+    const p = await users.getPreferences(userId);
+    expect(p.role).toBe('DBA');
+    expect(p.primaryDatabase).toBe('DB2');
+    expect(p.primaryGoal).toBe('COMPARE_SCHEMAS');
+    expect(p.theme).toContain('themeMode');
   });
 });
