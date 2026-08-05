@@ -45,13 +45,29 @@ export class RbacModule {
 
   async setUserRole(userId: string, role: AppRole): Promise<void> {
     const store = await getStore();
-    const result = await store.run('UPDATE users SET app_role = ? WHERE id = ?', [role, userId]);
-    if (result.changes === 0) {
-      // MySQL reports 0 affected rows for a no-op update, so this may be a
-      // user who already has the role rather than a missing one.
-      const exists = await store.get('SELECT id FROM users WHERE id = ?', [userId]);
-      if (!exists) throw new Error('User not found.');
+    const exists = await store.get<{ id: string; app_role: string | null; active: number | null }>(
+      'SELECT id, app_role, active FROM users WHERE id = ?',
+      [userId]
+    );
+    if (!exists) throw new Error('User not found.');
+
+    // Match setUserActive: only *active* admins count toward the last-admin guard.
+    // An inactive admin cannot sign in, so demoting the sole active admin would
+    // lock the deployment out of Access control.
+    const currentRole = toAppRole(exists.app_role);
+    const currentlyActive =
+      exists.active === null || exists.active === undefined ? true : Number(exists.active) !== 0;
+    if (currentRole === 'admin' && role !== 'admin' && currentlyActive) {
+      const others = await store.get<{ n: number }>(
+        `SELECT COUNT(*) AS n FROM users WHERE app_role = 'admin' AND id != ? AND (active IS NULL OR active != 0)`,
+        [userId]
+      );
+      if (Number(others?.n ?? 0) === 0) {
+        throw new Error('Cannot demote the last active admin.');
+      }
     }
+
+    await store.run('UPDATE users SET app_role = ? WHERE id = ?', [role, userId]);
   }
 
   /** Replace the permission set for a non-admin role. Admin is always full. */
