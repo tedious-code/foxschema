@@ -23,6 +23,8 @@ const COL_FIT_MAX_PX = 720;
 const ROW_NUM_PX = 48;
 /** Fixed row height for windowing (must match rendered row). Off-screen pages live in pageCache LRU, not the DOM. */
 const ROW_H_PX = 28;
+/** Taller rows for Data Peek’s larger/bolder type. */
+const ROW_H_EMPHASIS_PX = 34;
 const OVERSCAN = 8;
 
 const LONG_TEXT_NAME =
@@ -176,17 +178,22 @@ function GridToolbar({
   refreshing,
   onRefresh,
   onExport,
+  emphasis,
 }: {
   label?: string;
   refreshing?: boolean;
   onRefresh?: () => void;
   onExport?: () => void;
+  emphasis?: boolean;
 }): React.ReactElement {
+  const chrome = emphasis
+    ? 'text-xs font-bold'
+    : 'text-[10px] font-semibold';
   return (
     <div className="flex items-center gap-2 mb-1 shrink-0">
       {label && (
         <div
-          className="text-[10px] font-bold text-slate-500 uppercase tracking-wider truncate flex-1"
+          className={`${emphasis ? 'text-xs' : 'text-[10px]'} font-bold text-slate-500 uppercase tracking-wider truncate flex-1`}
           title={label}
         >
           {label}
@@ -199,7 +206,7 @@ function GridToolbar({
           title="Refresh this server"
           disabled={refreshing}
           onClick={onRefresh}
-          className="flex items-center gap-0.5 text-[10px] font-semibold text-slate-500 hover:text-cyan-400 transition shrink-0 disabled:opacity-40"
+          className={`flex items-center gap-0.5 ${chrome} text-slate-500 hover:text-cyan-400 transition shrink-0 disabled:opacity-40`}
         >
           <RefreshCw className={`w-3 h-3 text-cyan-400 ${refreshing ? 'animate-spin' : ''}`} strokeWidth={SQL_ICON_STROKE} /> Refresh
         </button>
@@ -209,7 +216,7 @@ function GridToolbar({
           type="button"
           title="Export CSV"
           onClick={onExport}
-          className="flex items-center gap-0.5 text-[10px] font-semibold text-slate-500 hover:text-cyan-400 transition shrink-0"
+          className={`flex items-center gap-0.5 ${chrome} text-slate-500 hover:text-cyan-400 transition shrink-0`}
         >
           <Download className="w-3 h-3 text-sky-400" strokeWidth={SQL_ICON_STROKE} /> CSV
         </button>
@@ -249,6 +256,11 @@ export const DataGrid: React.FC<{
   /** Highlight a selected result row (Data Peek edit). */
   selectedRowIndex?: number | null;
   onSelectRow?: (rowIdx: number) => void;
+  /**
+   * Larger, bolder type (Data Peek). Editor result panes keep the default
+   * compact grid so side-by-side compares stay dense.
+   */
+  emphasis?: boolean;
 }> = React.memo(
   ({
     result,
@@ -269,8 +281,10 @@ export const DataGrid: React.FC<{
     onLinkClick,
     selectedRowIndex = null,
     onSelectRow,
+    emphasis = false,
   }) => {
   const upsertVariable = useSqlEditorStore((s) => s.upsertVariable);
+  const rowH = emphasis ? ROW_H_EMPHASIS_PX : ROW_H_PX;
   const sourceColumns = result.ok ? result.columns : [];
   const sourceRows = result.ok ? result.rows : [];
   const [colOrder, setColOrder] = useState<number[]>(() => identityOrder(sourceColumns.length));
@@ -330,7 +344,7 @@ export const DataGrid: React.FC<{
 
   useEffect(() => {
     if (syncScrollRow == null || !scrollRef.current) return;
-    const target = syncScrollRow * ROW_H_PX;
+    const target = syncScrollRow * rowH;
     if (Math.abs(scrollRef.current.scrollTop - target) < 2) return;
     syncLock.current = true;
     scrollRef.current.scrollTop = target;
@@ -338,7 +352,7 @@ export const DataGrid: React.FC<{
     requestAnimationFrame(() => {
       syncLock.current = false;
     });
-  }, [syncScrollRow]);
+  }, [syncScrollRow, rowH]);
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -347,10 +361,10 @@ export const DataGrid: React.FC<{
     rafRef.current = requestAnimationFrame(() => {
       setScrollTop(el.scrollTop);
       if (!syncLock.current && onSyncScrollRow) {
-        onSyncScrollRow(Math.floor(el.scrollTop / ROW_H_PX));
+        onSyncScrollRow(Math.floor(el.scrollTop / rowH));
       }
     });
-  }, [onSyncScrollRow]);
+  }, [onSyncScrollRow, rowH]);
 
   useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
 
@@ -476,11 +490,11 @@ export const DataGrid: React.FC<{
   const colCount = 1 + order.length;
 
   const totalRows = sourceRows.length;
-  const start = Math.max(0, Math.floor(scrollTop / ROW_H_PX) - OVERSCAN);
-  const visibleCount = Math.ceil(viewportH / ROW_H_PX) + OVERSCAN * 2;
+  const start = Math.max(0, Math.floor(scrollTop / rowH) - OVERSCAN);
+  const visibleCount = Math.ceil(viewportH / rowH) + OVERSCAN * 2;
   const end = Math.min(totalRows, start + visibleCount);
-  const padTop = start * ROW_H_PX;
-  const padBottom = Math.max(0, (totalRows - end) * ROW_H_PX);
+  const padTop = start * rowH;
+  const padBottom = Math.max(0, (totalRows - end) * rowH);
 
   const exportOrdered = () => {
     const orderedRows = sourceRows.map((row) => order.map((i) => row[i]));
@@ -494,6 +508,7 @@ export const DataGrid: React.FC<{
         refreshing={refreshing}
         onRefresh={onRefresh}
         onExport={sourceColumns.length > 0 ? exportOrdered : undefined}
+        emphasis={emphasis}
       />
       <div
         ref={scrollRef}
@@ -509,12 +524,14 @@ export const DataGrid: React.FC<{
         }}
       >
         {sourceColumns.length === 0 ? (
-          <div className="px-3 py-2 text-xs text-[var(--fox-grid-muted)] italic">
+          <div className={`px-3 py-2 ${emphasis ? 'text-sm font-semibold' : 'text-xs'} text-[var(--fox-grid-muted)] italic`}>
             0 rows (column names unavailable for empty results)
           </div>
         ) : (
           <table
-            className="text-left border-collapse text-xs whitespace-nowrap table-fixed"
+            className={`text-left border-collapse whitespace-nowrap table-fixed ${
+              emphasis ? 'text-sm font-semibold' : 'text-xs'
+            }`}
             style={{ width: tableWidth, minWidth: '100%' }}
           >
             <colgroup>
@@ -532,7 +549,9 @@ export const DataGrid: React.FC<{
             <thead className="sticky top-0 z-10">
               <tr className="bg-[var(--fox-grid-bg-header)] border-b border-[var(--fox-grid-border)] text-[var(--fox-grid-ink)]">
                 <th
-                  className="sticky left-0 z-20 px-1.5 py-1.5 text-center font-bold text-[var(--fox-grid-muted)] bg-[var(--fox-grid-bg-header)] border-r border-[var(--fox-grid-border)] select-none"
+                  className={`sticky left-0 z-20 px-1.5 py-1.5 text-center font-bold text-[var(--fox-grid-muted)] bg-[var(--fox-grid-bg-header)] border-r border-[var(--fox-grid-border)] select-none ${
+                    emphasis ? 'text-xs' : ''
+                  }`}
                   style={{ width: ROW_NUM_PX, minWidth: ROW_NUM_PX }}
                   title="Row number — right-click to save result as table"
                   aria-label="Row number"
@@ -611,7 +630,7 @@ export const DataGrid: React.FC<{
                         <span className="min-w-0 flex flex-col leading-tight">
                           <span className="truncate text-[var(--fox-grid-ink)]">{name}</span>
                           <span
-                            className={`text-[9px] font-semibold uppercase tracking-wider ${KIND_HEADER_CLASS[kind]}`}
+                            className={`${emphasis ? 'text-[10px] font-bold' : 'text-[9px] font-semibold'} uppercase tracking-wider ${KIND_HEADER_CLASS[kind]}`}
                           >
                             {KIND_LABEL[kind]}
                           </span>
@@ -636,7 +655,7 @@ export const DataGrid: React.FC<{
                 })}
               </tr>
             </thead>
-            <tbody className="font-mono bg-[var(--fox-grid-bg)]">
+            <tbody className={`font-mono bg-[var(--fox-grid-bg)] ${emphasis ? 'font-semibold' : ''}`}>
               {padTop > 0 && (
                 <tr aria-hidden style={{ height: padTop }}>
                   <td colSpan={colCount} className="p-0 border-0" />
@@ -660,11 +679,13 @@ export const DataGrid: React.FC<{
                     className={`${rowBg} hover:bg-[var(--fox-grid-bg-hover)] group border-b border-[var(--fox-grid-border-soft)] ${
                       onSelectRow ? 'cursor-pointer' : ''
                     } ${selected ? 'ring-1 ring-inset ring-amber-500/40' : ''}`}
-                    style={{ height: ROW_H_PX }}
+                    style={{ height: rowH }}
                     onClick={() => onSelectRow?.(i)}
                   >
                     <td
-                      className={`sticky left-0 z-[5] px-1.5 text-center text-[10px] tabular-nums text-[var(--fox-grid-muted)] ${rowBg} group-hover:bg-[var(--fox-grid-bg-hover)] border-r border-[var(--fox-grid-border-soft)] select-none`}
+                      className={`sticky left-0 z-[5] px-1.5 text-center tabular-nums text-[var(--fox-grid-muted)] ${rowBg} group-hover:bg-[var(--fox-grid-bg-hover)] border-r border-[var(--fox-grid-border-soft)] select-none ${
+                        emphasis ? 'text-xs font-bold' : 'text-[10px]'
+                      }`}
                       style={{ width: ROW_NUM_PX, minWidth: ROW_NUM_PX }}
                       data-testid="sql-row-num"
                     >
@@ -678,7 +699,9 @@ export const DataGrid: React.FC<{
                       return (
                         <td
                           key={colIdx}
-                          className={`px-3 overflow-hidden text-ellipsis ${rowBg} group-hover:bg-[var(--fox-grid-bg-hover)] ${KIND_CELL_CLASS[kind]}`}
+                          className={`px-3 overflow-hidden text-ellipsis ${rowBg} group-hover:bg-[var(--fox-grid-bg-hover)] ${KIND_CELL_CLASS[kind]} ${
+                            emphasis && kind === 'string' ? 'font-semibold' : ''
+                          } ${emphasis && kind === 'number' ? 'font-bold' : ''}`}
                           style={{ width: w, minWidth: COL_MIN_PX, maxWidth: w }}
                           title={title}
                           onContextMenu={(e) => {
@@ -727,7 +750,11 @@ export const DataGrid: React.FC<{
           </table>
         )}
       </div>
-      <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-400 shrink-0 flex-wrap">
+      <div
+        className={`flex items-center gap-2 mt-1 text-slate-400 shrink-0 flex-wrap ${
+          emphasis ? 'text-xs font-semibold' : 'text-[10px]'
+        }`}
+      >
         <span>
           {result.rowCount} row{result.rowCount === 1 ? '' : 's'}
           {pageSize ? ` / page of ${pageSize}` : ''}
@@ -736,7 +763,7 @@ export const DataGrid: React.FC<{
           {result.durationMs} ms
         </span>
         {result.truncated && (
-          <span className="text-amber-400 font-semibold">
+          <span className="text-amber-400 font-bold">
             truncated — use Next page or raise Rows/page
           </span>
         )}
@@ -747,7 +774,9 @@ export const DataGrid: React.FC<{
               data-testid="sql-page-prev"
               disabled={!hasPrevPage || pageLoading}
               onClick={onPrevPage}
-              className="px-1.5 py-0.5 rounded border border-slate-600 text-slate-300 font-semibold hover:bg-slate-800 disabled:opacity-40"
+              className={`px-1.5 py-0.5 rounded border border-slate-600 text-slate-300 hover:bg-slate-800 disabled:opacity-40 ${
+                emphasis ? 'font-bold' : 'font-semibold'
+              }`}
             >
               Prev
             </button>
@@ -756,7 +785,9 @@ export const DataGrid: React.FC<{
               data-testid="sql-page-next"
               disabled={!hasNextPage || pageLoading}
               onClick={onNextPage}
-              className="px-1.5 py-0.5 rounded border border-slate-600 text-slate-300 font-semibold hover:bg-slate-800 disabled:opacity-40"
+              className={`px-1.5 py-0.5 rounded border border-slate-600 text-slate-300 hover:bg-slate-800 disabled:opacity-40 ${
+                emphasis ? 'font-bold' : 'font-semibold'
+              }`}
             >
               {pageLoading ? '…' : 'Next'}
             </button>
