@@ -199,6 +199,37 @@ const MIGRATIONS: Migration[] = [
       ];
     },
   },
+  {
+    id: 10,
+    name: 'data_migrate_runs',
+    statements: (d) => {
+      const t = types(d);
+      return [
+        `CREATE TABLE IF NOT EXISTS data_migrate_runs (
+           id ${t.id} PRIMARY KEY,
+           user_id ${t.id} NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+           status ${t.str} NOT NULL,
+           dialect ${t.str} NOT NULL,
+           source_host ${t.str},
+           target_host ${t.str},
+           database_name ${t.str},
+           "schema" ${t.str},
+           table_name ${t.str},
+           row_count ${t.int} NOT NULL DEFAULT 0,
+           ops_json ${t.big},
+           include_identity ${t.int} NOT NULL DEFAULT 0,
+           key_columns_json ${t.big},
+           script ${t.big},
+           snapshot_json ${t.big},
+           results_json ${t.big},
+           error ${t.big},
+           started_at ${t.ts} NOT NULL,
+           finished_at ${t.ts}
+         )`,
+        `CREATE INDEX idx_data_migrate_runs_user ON data_migrate_runs(user_id, started_at DESC)`,
+      ];
+    },
+  },
 ];
 
 const SIGNUP_WIZARD_SHOWN_KEY = 'signup.wizard_shown';

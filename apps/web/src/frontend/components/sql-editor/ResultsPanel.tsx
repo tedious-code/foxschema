@@ -25,6 +25,8 @@ import {
   type CellDiffKind,
   type GridDiffSummary,
 } from '../../lib/resultDataDiff';
+import { buildSampleBookmarks } from '../../lib/sqlEditorSamples';
+import { DataMigrateBar } from './DataMigrateBar';
 import { usePeekGridCrud } from './usePeekGridCrud';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
 
@@ -725,6 +727,24 @@ const SideBySideStatementSection: React.FC<{
     return { diffByConnection, badgeByConnection, legendBits };
   }, [compareActive, okGrids, baselineId]);
 
+  const [destId, setDestId] = useState<string>('');
+  useEffect(() => {
+    if (!compareActive) return;
+    const others = okGrids.filter((g) => g.connectionId !== baselineId);
+    if (!destId || !others.some((g) => g.connectionId === destId)) {
+      setDestId(others[0]?.connectionId ?? '');
+    }
+  }, [compareActive, okGrids, baselineId, destId]);
+
+  const sourceGrid = okGrids.find((g) => g.connectionId === baselineId);
+  const destGrid = okGrids.find((g) => g.connectionId === destId);
+
+  const insertServerBeamSample = () => {
+    const sample = buildSampleBookmarks().find((b) => b.id === 'sample-server-beam-chunked');
+    if (!sample) return;
+    useSqlEditorStore.getState().setSql(sample.sql);
+  };
+
   return (
     <section
       className="flex flex-col gap-2 min-w-0"
@@ -752,7 +772,7 @@ const SideBySideStatementSection: React.FC<{
             </label>
             {compareOn && (
               <label className="flex items-center gap-1">
-                <span className="text-slate-500">vs</span>
+                <span className="text-slate-500">source</span>
                 <select
                   data-testid={`sql-result-compare-baseline-${statementIndex}`}
                   value={baselineId}
@@ -764,6 +784,25 @@ const SideBySideStatementSection: React.FC<{
                       {g.label}
                     </option>
                   ))}
+                </select>
+              </label>
+            )}
+            {compareActive && okGrids.length > 2 && (
+              <label className="flex items-center gap-1">
+                <span className="text-slate-500">dest</span>
+                <select
+                  data-testid={`sql-result-compare-dest-${statementIndex}`}
+                  value={destId}
+                  onChange={(e) => setDestId(e.target.value)}
+                  className="bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-slate-200 max-w-[12rem]"
+                >
+                  {okGrids
+                    .filter((g) => g.connectionId !== baselineId)
+                    .map((g) => (
+                      <option key={g.connectionId} value={g.connectionId}>
+                        {g.label}
+                      </option>
+                    ))}
                 </select>
               </label>
             )}
@@ -789,6 +828,29 @@ const SideBySideStatementSection: React.FC<{
           </div>
         )}
       </header>
+      {compareActive && sourceGrid?.result.ok && destGrid?.result.ok && (
+        <DataMigrateBar
+          statementIndex={statementIndex}
+          source={{
+            connectionId: sourceGrid.connectionId,
+            dialect: sourceGrid.dialect,
+            label: sourceGrid.label,
+            columns: sourceGrid.result.columns,
+            rows: sourceGrid.result.rows,
+            statementSql: sourceGrid.statementSql,
+          }}
+          dest={{
+            connectionId: destGrid.connectionId,
+            dialect: destGrid.dialect,
+            label: destGrid.label,
+            columns: destGrid.result.columns,
+            rows: destGrid.result.rows,
+            statementSql: destGrid.statementSql,
+          }}
+          onAfterMigrate={() => onRefresh?.(destGrid.connectionId)}
+          onOpenServerBeamSample={insertServerBeamSample}
+        />
+      )}
       <ResizablePaneRow
         items={items}
         rowKey={`side-${statementIndex}-${items.map((x) => x.key).join('|')}`}
@@ -801,8 +863,8 @@ const SideBySideStatementSection: React.FC<{
       />
       {compareActive && (
         <p className="text-[10px] text-slate-500 px-0.5" data-testid={`sql-result-compare-hint-${statementIndex}`}>
-          Rows align by index on this page — use the same ORDER BY on each server for a meaningful
-          compare. Column names match case-insensitively.
+          Cell colors align by row index; Data migrate matches rows by key columns (source → dest).
+          Use the same ORDER BY when scanning. Cap: 500 ops — larger sets use Server Beam.
         </p>
       )}
     </section>

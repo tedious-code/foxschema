@@ -134,10 +134,21 @@ describe.skipIf(!ready)('SQL Editor · SQLite multi-credential', () => {
     expect(anyDiff).toBeGreaterThanOrEqual(modified);
 
     const results = await sql.resultsText();
-    expect(results).toMatch(/baseline/i);
+    expect(results).toMatch(/baseline|source/i);
     expect(results).toMatch(/differ|match/i);
 
-    // Capture the colored compare view for the PR / walkthrough.
+    // Data migrate bar (≤500) with insert/update/delete checkboxes.
+    await driver.waitForSelector('[data-testid="sql-data-migrate-bar-0"]', {
+      timeout: 10_000,
+    });
+    expect(await driver.locator('[data-testid="sql-data-migrate-insert-0"]').isVisible()).toBe(
+      true
+    );
+    expect(await driver.locator('[data-testid="sql-data-migrate-identity-0"]').isVisible()).toBe(
+      true
+    );
+
+    // Capture the colored compare + migrate bar for the PR / walkthrough.
     await saveScreenshot(driver, 'sql-editor-data-compare');
     await saveSeoScreenshot(driver, 'sql-editor-data-compare');
 
