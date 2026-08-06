@@ -5,6 +5,8 @@
  *
  * Results for one SQL Editor tab (By cred / Side-by-side layouts).
  * Foreign-key cells can open Data Peek when schema FKs match the statement.
+ * Single-table SELECT grids support add / edit / clone / delete (same DML path
+ * as Data Peek) when the primary key is present in the result columns.
  */
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Database, AlertCircle, GripVertical, RefreshCw } from 'lucide-react';
@@ -14,7 +16,8 @@ import { DataGrid, PANE_DEFAULT_H_PX, PANE_DEFAULT_PX, PANE_MIN_H_PX, PANE_MIN_P
 import type { SqlStatementResult } from '../../api/sqlApi';
 import { detectCodeCell } from '../../lib/codeCellRunner';
 import { CODE_CELL_KIND_LABEL } from '../../lib/sql-splitter';
-import { foreignKeyLinksForSql } from '../../lib/tablePreview';
+import { foreignKeyLinksForSql, singleTableForResultEdit } from '../../lib/tablePreview';
+import { usePeekGridCrud } from './usePeekGridCrud';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
 
 interface Props {
@@ -77,8 +80,9 @@ type PaneItem =
       label: string;
       exportName: string;
       connectionId: string;
+      dialect: string;
       statementIndex: number;
-      /** SQL that produced this grid — used for FK → Data Peek links. */
+      /** SQL that produced this grid — used for FK → Data Peek links + row edit. */
       statementSql?: string;
     }
   | { key: string; kind: 'running'; label: string; connectionId: string }
@@ -91,6 +95,172 @@ function equalWidths(count: number, containerW: number): number[] {
   const each = Math.max(PANE_MIN_PX, Math.floor(avail / count));
   return Array.from({ length: count }, () => each);
 }
+
+const ResultGridPane: React.FC<{
+  item: Extract<PaneItem, { kind: 'grid' }>;
+  refreshing?: boolean;
+  onRefresh?: (connectionId: string) => void;
+  onPage?: Props['onPage'];
+  pageState?: Props['pageState'];
+  syncScrollRow?: number | null;
+  onSyncScrollRow?: (row: number | null) => void;
+}> = ({
+  item,
+  refreshing,
+  onRefresh,
+  onPage,
+  pageState,
+  syncScrollRow = null,
+  onSyncScrollRow,
+}) => {
+  const schemaCache = useSqlEditorStore((s) => s.schemaCache);
+  const openDataPeekFromFk = useSqlEditorStore((s) => s.openDataPeekFromFk);
+  const tables = schemaCache[item.connectionId]?.tables;
+
+  const fkLinks = useMemo(() => {
+    if (!item.result.ok || !item.statementSql) return [];
+    return foreignKeyLinksForSql(item.statementSql, tables, item.result.columns);
+  }, [item.result, item.statementSql, tables]);
+
+  const linkColumns = useMemo(() => {
+    if (fkLinks.length === 0) return undefined;
+    const map = new Map<number, string>();
+    for (const l of fkLinks) map.set(l.columnIndex, l.fk.referencedTable);
+    return map;
+  }, [fkLinks]);
+
+  const onLinkClick = useCallback(
+    (colIdx: number, rowIdx: number) => {
+      if (!item.result.ok) return;
+      const link = fkLinks.find((l) => l.columnIndex === colIdx);
+      if (!link) return;
+      const row = item.result.rows[rowIdx];
+      if (!row) return;
+      void openDataPeekFromFk(
+        item.connectionId,
+        link.fk,
+        link.valueIndexes.map((i) => row[i])
+      );
+    },
+    [item, fkLinks, openDataPeekFromFk]
+  );
+
+  const editTarget = useMemo(() => {
+    if (!item.statementSql || detectCodeCell(item.statementSql)) {
+      return { ok: false as const, reason: undefined as string | undefined };
+    }
+    return singleTableForResultEdit(item.statementSql, tables);
+  }, [item.statementSql, tables]);
+
+  const afterWrite = useCallback(() => {
+    onRefresh?.(item.connectionId);
+  }, [onRefresh, item.connectionId]);
+
+  const columns = item.result.ok ? item.result.columns : [];
+  const rows = item.result.ok ? item.result.rows : [];
+  const table = editTarget.ok ? editTarget.table : undefined;
+  const tableName = table?.name ?? '';
+
+  const pageKey = `${item.connectionId}:${item.statementIndex}`;
+  const page = pageState?.[pageKey];
+  const pageIndex = page?.pageIndex ?? 0;
+
+  const crud = usePeekGridCrud({
+    connectionId: item.connectionId,
+    dialect: item.dialect,
+    tableName,
+    table,
+    columns,
+    rows,
+    resultOk: Boolean(item.result.ok && table),
+    sessionKey: `${item.connectionId}:${item.statementIndex}:${tableName}:${pageIndex}`,
+    resultEpoch: item.result,
+    onAfterWrite: afterWrite,
+    testId: (action) => `sql-result-${item.statementIndex}-${action}`,
+  });
+
+  const readOnlyReason =
+    !crud.showCrud && item.result.ok
+      ? (!editTarget.ok ? editTarget.reason : crud.editability.reason)
+      : undefined;
+
+  const toolbarExtra = (
+    <>
+      {crud.crudButtons}
+      {readOnlyReason && (
+        <span
+          className="hidden sm:inline text-[10px] font-semibold text-slate-500 truncate max-w-[12rem]"
+          title={readOnlyReason}
+          data-testid={`sql-result-${item.statementIndex}-readonly`}
+        >
+          Read-only
+        </span>
+      )}
+    </>
+  );
+
+  return (
+    <div className="flex flex-col min-h-0 h-full">
+      {crud.writeErrorBanner}
+      <DataGrid
+        result={item.result}
+        label={item.label}
+        exportName={item.exportName}
+        refreshing={refreshing}
+        onRefresh={onRefresh ? () => onRefresh(item.connectionId) : undefined}
+        syncScrollRow={onSyncScrollRow ? syncScrollRow : null}
+        onSyncScrollRow={onSyncScrollRow}
+        pageIndex={pageIndex}
+        pageSize={page?.pageSize}
+        hasPrevPage={!refreshing && Boolean(page) && pageIndex > 0}
+        hasNextPage={!refreshing && Boolean(page?.hasNext)}
+        pageLoading={Boolean(refreshing || page?.loading)}
+        onPrevPage={
+          onPage && page && !refreshing
+            ? () =>
+                onPage({
+                  connectionId: item.connectionId,
+                  statementIndex: item.statementIndex,
+                  pageIndex: Math.max(0, pageIndex - 1),
+                })
+            : undefined
+        }
+        onNextPage={
+          onPage && page && !refreshing
+            ? () =>
+                onPage({
+                  connectionId: item.connectionId,
+                  statementIndex: item.statementIndex,
+                  pageIndex: pageIndex + 1,
+                })
+            : undefined
+        }
+        linkColumns={linkColumns}
+        onLinkClick={linkColumns ? onLinkClick : undefined}
+        selectedRowIndex={crud.selectedRowIndex}
+        onSelectRow={crud.onSelectRow}
+        toolbarExtra={toolbarExtra}
+      />
+      {linkColumns && linkColumns.size > 0 && (
+        <p
+          className="mt-0.5 px-0.5 shrink-0 text-[10px] text-slate-500"
+          data-testid="sql-results-fk-hint"
+        >
+          Underlined rust cells are foreign keys — click one to open Data Peek (related rows).
+        </p>
+      )}
+      {crud.showCrud && (
+        <p
+          className="mt-0.5 px-0.5 shrink-0 text-[10px] text-slate-500"
+          data-testid={`sql-result-${item.statementIndex}-edit-hint`}
+        >
+          Select a row to edit, clone, or delete — or add a new row to {tableName}.
+        </p>
+      )}
+      {crud.overlays}
+    </div>
+  );
+};
 
 const PaneBody: React.FC<{
   item: PaneItem;
@@ -109,89 +279,17 @@ const PaneBody: React.FC<{
   syncScrollRow = null,
   onSyncScrollRow,
 }) => {
-  const schemaCache = useSqlEditorStore((s) => s.schemaCache);
-  const openDataPeekFromFk = useSqlEditorStore((s) => s.openDataPeekFromFk);
-
-  const fkLinks = useMemo(() => {
-    if (item.kind !== 'grid' || !item.result.ok || !item.statementSql) return [];
-    const tables = schemaCache[item.connectionId]?.tables;
-    return foreignKeyLinksForSql(item.statementSql, tables, item.result.columns);
-  }, [item, schemaCache]);
-
-  const linkColumns = useMemo(() => {
-    if (fkLinks.length === 0) return undefined;
-    const map = new Map<number, string>();
-    for (const l of fkLinks) map.set(l.columnIndex, l.fk.referencedTable);
-    return map;
-  }, [fkLinks]);
-
-  const onLinkClick = useCallback(
-    (colIdx: number, rowIdx: number) => {
-      if (item.kind !== 'grid' || !item.result.ok) return;
-      const link = fkLinks.find((l) => l.columnIndex === colIdx);
-      if (!link) return;
-      const row = item.result.rows[rowIdx];
-      if (!row) return;
-      void openDataPeekFromFk(
-        item.connectionId,
-        link.fk,
-        link.valueIndexes.map((i) => row[i])
-      );
-    },
-    [item, fkLinks, openDataPeekFromFk]
-  );
-
   if (item.kind === 'grid') {
-    const pageKey = `${item.connectionId}:${item.statementIndex}`;
-    const page = pageState?.[pageKey];
-    const pageIndex = page?.pageIndex ?? 0;
     return (
-      <div className="flex flex-col min-h-0 h-full">
-        <DataGrid
-          result={item.result}
-          label={item.label}
-          exportName={item.exportName}
-          refreshing={refreshing}
-          onRefresh={onRefresh ? () => onRefresh(item.connectionId) : undefined}
-          syncScrollRow={onSyncScrollRow ? syncScrollRow : null}
-          onSyncScrollRow={onSyncScrollRow}
-          pageIndex={pageIndex}
-          pageSize={page?.pageSize}
-          hasPrevPage={!refreshing && Boolean(page) && pageIndex > 0}
-          hasNextPage={!refreshing && Boolean(page?.hasNext)}
-          pageLoading={Boolean(refreshing || page?.loading)}
-          onPrevPage={
-            onPage && page && !refreshing
-              ? () =>
-                  onPage({
-                    connectionId: item.connectionId,
-                    statementIndex: item.statementIndex,
-                    pageIndex: Math.max(0, pageIndex - 1),
-                  })
-              : undefined
-          }
-          onNextPage={
-            onPage && page && !refreshing
-              ? () =>
-                  onPage({
-                    connectionId: item.connectionId,
-                    statementIndex: item.statementIndex,
-                    pageIndex: pageIndex + 1,
-                  })
-              : undefined
-          }
-          linkColumns={linkColumns}
-          onLinkClick={linkColumns ? onLinkClick : undefined}
-        />
-        {linkColumns && linkColumns.size > 0 && (
-          <p
-            className="mt-0.5 px-0.5 shrink-0 text-[10px] text-slate-500"
-            data-testid="sql-results-fk-hint"
-          >
-            Underlined rust cells are foreign keys — click one to open Data Peek (related rows).
-          </p>
-        )}
-      </div>
+      <ResultGridPane
+        item={item}
+        refreshing={refreshing}
+        onRefresh={onRefresh}
+        onPage={onPage}
+        pageState={pageState}
+        syncScrollRow={syncScrollRow}
+        onSyncScrollRow={onSyncScrollRow}
+      />
     );
   }
   if (item.kind === 'running') {
@@ -474,7 +572,8 @@ export const ResultsPanel: React.FC<Props> = ({
           Run a query to see results here — one section per checked credential.
         </div>
         <p className="max-w-md text-[11px] text-slate-500 leading-relaxed" data-testid="sql-results-peek-instruction">
-          Tip: after Run, underlined rust foreign-key cells open <span className="text-slate-400">Data Peek</span>.
+          Tip: after Run, single-table SELECT grids can edit rows (when the key columns are in the result).
+          Underlined rust foreign-key cells open <span className="text-slate-400">Data Peek</span>.
           Or Cmd/Ctrl-click a table in Schema to peek without writing SQL.
         </p>
       </div>
@@ -534,6 +633,7 @@ export const ResultsPanel: React.FC<Props> = ({
               label: credentialLabel(run),
               exportName: `${run.name}-q${i + 1}`,
               connectionId: run.connectionId,
+              dialect: run.dialect,
               statementIndex: i,
               statementSql: statements[i],
             });
@@ -577,6 +677,7 @@ export const ResultsPanel: React.FC<Props> = ({
                 label: statementLabel(statements[i] ?? '', outNumber(i)),
                 exportName: `${run.name}-q${i + 1}`,
                 connectionId: run.connectionId,
+                dialect: run.dialect,
                 statementIndex: i,
                 statementSql: statements[i],
               }))
