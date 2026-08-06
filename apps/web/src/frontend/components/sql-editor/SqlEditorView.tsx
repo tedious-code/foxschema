@@ -580,6 +580,7 @@ export const SqlEditorView: React.FC = () => {
                   New table
                 </button>
               }
+              {...drag}
             >
               <SqlSchemaExplorer ref={schemaExplorerRef} />
             </SqlSidebarSection>

@@ -11,7 +11,7 @@ import {
 } from './SqlSidebarSection';
 
 describe('SQL Editor sidebar order', () => {
-  it('pins Schema first', () => {
+  it('moves Schema to the front while keeping other relative order', () => {
     const order: SidebarSectionId[] = [
       'destinations',
       'bookmarks',
@@ -26,29 +26,24 @@ describe('SQL Editor sidebar order', () => {
     ]);
   });
 
-  it('keeps Schema fixed when reordering other sections', () => {
+  it('allows dragging Schema like any other section', () => {
     const order: SidebarSectionId[] = [
       'schema',
       'destinations',
       'bookmarks',
       'utilities',
     ];
-    // Move bookmarks above destinations (indices 2 → 1).
-    expect(moveSidebarSection(order, 2, 1)).toEqual([
-      'schema',
+    expect(moveSidebarSection(order, 0, 2)).toEqual([
+      'destinations',
       'bookmarks',
+      'schema',
+      'utilities',
+    ]);
+    expect(moveSidebarSection(order, 2, 0)).toEqual([
+      'bookmarks',
+      'schema',
       'destinations',
       'utilities',
     ]);
-  });
-
-  it('ignores drags that try to move Schema', () => {
-    const order: SidebarSectionId[] = [
-      'schema',
-      'destinations',
-      'bookmarks',
-    ];
-    expect(moveSidebarSection(order, 0, 2)).toEqual(order);
-    expect(moveSidebarSection(order, 2, 0)).toEqual(order);
   });
 });
