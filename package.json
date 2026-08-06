@@ -32,6 +32,8 @@
     "test:e2e:errors": "npm -w @foxschema/e2e run test:errors",
     "test:e2e:utilities:all": "npm -w @foxschema/e2e run test:sql-editor:utilities:all",
     "test:e2e:utilities:all:headed": "npm -w @foxschema/e2e run test:sql-editor:utilities:all:headed",
+    "test:e2e:column-picker": "npm -w @foxschema/e2e run test:sql-editor:column-picker",
+    "test:e2e:column-picker:headed": "npm -w @foxschema/e2e run test:sql-editor:column-picker:headed",
     "test:e2e:postgres": "npm -w @foxschema/e2e run test:postgres",
     "test:e2e:postgres:headed": "npm -w @foxschema/e2e run test:postgres:headed",
     "test:e2e:mysql": "npm -w @foxschema/e2e run test:mysql",
