@@ -99,3 +99,37 @@ export async function apiGetDataMigration(id: string): Promise<DataMigrateRunDet
 export async function apiDeleteDataMigration(id: string): Promise<void> {
   await request(`/data-migrations/${id}`, { method: 'DELETE' });
 }
+
+export interface DataMigrateExecOp {
+  op: 'insert' | 'update' | 'delete';
+  key: string;
+  sql: string;
+  params?: unknown[];
+}
+
+export interface DataMigrateExecOutcome {
+  results: DataMigrateOpResult[];
+  rolledBack: boolean;
+  failCount: number;
+}
+
+/** Apply row ops on the destination with optional transaction / continue-on-error. */
+export async function apiExecuteDataMigrate(
+  ref: {
+    connectionId: string;
+    password?: string;
+    schema?: string;
+  },
+  ops: DataMigrateExecOp[],
+  opts: { useTransaction: boolean; continueOnError: boolean }
+): Promise<DataMigrateExecOutcome> {
+  return request<DataMigrateExecOutcome>('/data-migrate/execute', {
+    method: 'POST',
+    body: JSON.stringify({
+      ...ref,
+      ops,
+      useTransaction: opts.useTransaction,
+      continueOnError: opts.continueOnError,
+    }),
+  });
+}

@@ -137,9 +137,10 @@ compare / migrate). It lives in the same local web UI you open with `foxschema`.
 
 7. **Data migrate (≤500 row ops)** — under Compare, use **Data migrate** to push
    source → destination with checkboxes for **Insert / Update / Delete**, optional
-   **Include identity / IDs** (preserve autoincrement values), and a live progress
-   panel. Fox snapshots affected destination rows and records the run under
-   **Data migrate history**. More than 500 ops shows a toast with Server Beam
+   **Include identity / IDs**, **Transaction** (all-or-nothing when Stop is on), and
+   **Stop on error** / **Continue on error**. Progress lists each row; failures show
+   the key and error. Fox snapshots affected destination rows and records the run
+   under **Data migrate history**. More than 500 ops shows a toast with Server Beam
    instructions instead of applying.
 
 Tips:

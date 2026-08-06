@@ -32,6 +32,7 @@ import {
   type DataMigrateOpResult,
   type DataMigrateRunStatus,
 } from '../modules/data-migrate-history.module';
+import { executeDataMigrateOps, type DataMigrateExecOp } from './data-migrate-execute';
 import { AppSettingsStore } from '../modules/app-settings.module';
 import { rateLimit } from './rate-limit';
 import {
@@ -788,6 +789,86 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     const removed = await migrationHistory.remove((req as AuthedRequest).userId!, String(req.params.id));
     res.status(removed ? 200 : 404).json({ ok: removed });
   });
+
+  // --- Data migrate apply (transaction / continue-on-error) ----------------
+  router.post(
+    '/data-migrate/execute',
+    requirePermissions('editor.dml'),
+    sqlExecuteLimiter,
+    async (req: Request, res: Response) => {
+      const body = req.body as ConnectionRef & {
+        ops?: unknown;
+        useTransaction?: unknown;
+        continueOnError?: unknown;
+      };
+      const authed = req as AuthedRequest;
+      if (!Array.isArray(body.ops) || body.ops.length === 0) {
+        res.status(400).json({ error: 'ops[] is required.' });
+        return;
+      }
+      if (body.ops.length > 500) {
+        res.status(400).json({ error: 'At most 500 ops per data migrate.' });
+        return;
+      }
+      const ops: DataMigrateExecOp[] = [];
+      const needed = new Set<Permission>(['editor.dml']);
+      for (const raw of body.ops) {
+        if (!raw || typeof raw !== 'object') {
+          res.status(400).json({ error: 'Each op must be an object.' });
+          return;
+        }
+        const o = raw as Record<string, unknown>;
+        if (o.op !== 'insert' && o.op !== 'update' && o.op !== 'delete') {
+          res.status(400).json({ error: 'op must be insert, update, or delete.' });
+          return;
+        }
+        if (typeof o.key !== 'string' || typeof o.sql !== 'string' || !o.sql.trim()) {
+          res.status(400).json({ error: 'Each op needs key and sql.' });
+          return;
+        }
+        if (o.params !== undefined && !Array.isArray(o.params)) {
+          res.status(400).json({ error: 'op.params must be an array when set.' });
+          return;
+        }
+        needed.add(DATAGRID_ACTION_PERMISSION[o.op]);
+        ops.push({
+          op: o.op,
+          key: o.key,
+          sql: o.sql,
+          params: Array.isArray(o.params) ? o.params : [],
+        });
+      }
+      if (denyUnless(authed, res, ...needed)) return;
+
+      let resolved;
+      try {
+        resolved = await resolveRef(authed.userId, body);
+      } catch (error: unknown) {
+        res.status(400).json({
+          error: error instanceof Error ? error.message : 'Invalid connection',
+        });
+        return;
+      }
+
+      try {
+        const out = await executeDataMigrateOps(
+          resolved.dialect,
+          resolved.option,
+          resolved.schema,
+          ops,
+          {
+            useTransaction: body.useTransaction !== false,
+            continueOnError: Boolean(body.continueOnError),
+          }
+        );
+        res.json(out);
+      } catch (error: unknown) {
+        res.status(500).json({
+          error: error instanceof Error ? error.message : 'Data migrate failed',
+        });
+      }
+    }
+  );
 
   // --- Data migrate history (SQL Editor side-by-side row ops) ---------------
   router.get('/data-migrations', requirePermissions('editor.dml'), async (req: Request, res: Response) => {

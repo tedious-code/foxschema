@@ -9,8 +9,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowRightLeft, History, Loader2, X } from 'lucide-react';
-import { executeSql } from '../../api/sqlApi';
 import {
+  apiExecuteDataMigrate,
   apiFinishDataMigrate,
   apiGetDataMigration,
   apiListDataMigrations,
@@ -47,7 +47,7 @@ export interface DataMigrateGrid {
 type ProgressItem = {
   keyLabel: string;
   op: ClassifiedRowDiff['op'];
-  status: 'pending' | 'running' | 'ok' | 'fail';
+  status: 'pending' | 'running' | 'ok' | 'fail' | 'skipped';
   error?: string;
 };
 
@@ -97,8 +97,13 @@ export const DataMigrateBar: React.FC<Props> = ({
   const [doUpdate, setDoUpdate] = useState(true);
   const [doDelete, setDoDelete] = useState(false);
   const [includeIdentity, setIncludeIdentity] = useState(false);
+  /** One transaction for the whole batch (Stop mode). Off with Continue = per-op commits. */
+  const [useTransaction, setUseTransaction] = useState(true);
+  /** Continue = skip failures; Stop = abort (rollback if transaction on). */
+  const [continueOnError, setContinueOnError] = useState(false);
   const [applying, setApplying] = useState(false);
   const [progress, setProgress] = useState<ProgressItem[] | null>(null);
+  const [failedSummary, setFailedSummary] = useState<DataMigrateOpResult[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyRuns, setHistoryRuns] = useState<DataMigrateRunSummary[]>([]);
   const [historyDetail, setHistoryDetail] = useState<DataMigrateRunDetail | null>(null);
@@ -212,9 +217,13 @@ export const DataMigrateBar: React.FC<Props> = ({
       destColumns: dest.columns,
       ops: selected.ops,
     });
-    const script = plans.map((p) => `-- ${p.op} ${p.keyLabel}\n${p.plan.displaySql};`).join('\n\n');
+    const script = [
+      `-- useTransaction=${useTransaction} continueOnError=${continueOnError}`,
+      ...plans.map((p) => `-- ${p.op} ${p.keyLabel}\n${p.plan.displaySql};`),
+    ].join('\n\n');
 
     setApplying(true);
+    setFailedSummary([]);
     setProgress(
       plans.map((p) => ({
         keyLabel: p.keyLabel,
@@ -247,67 +256,66 @@ export const DataMigrateBar: React.FC<Props> = ({
       });
     }
 
-    const results: DataMigrateOpResult[] = [];
+    let results: DataMigrateOpResult[] = [];
     let failCount = 0;
+    let rolledBack = false;
 
-    for (let i = 0; i < plans.length; i++) {
-      const item = plans[i]!;
-      setProgress((prev) =>
-        prev
-          ? prev.map((p, idx) => (idx === i ? { ...p, status: 'running' } : p))
-          : prev
+    try {
+      // Mark all running while the server applies (one connection / optional tx).
+      setProgress((prev) => prev?.map((p) => ({ ...p, status: 'running' })) ?? prev);
+      const out = await apiExecuteDataMigrate(
+        {
+          connectionId: dest.connectionId,
+          password: sessionPasswords[dest.connectionId] || undefined,
+          schema: destConn?.schema?.trim() || undefined,
+        },
+        plans.map((p) => ({
+          op: p.op,
+          key: p.keyLabel,
+          sql: p.plan.sql,
+          params: p.plan.params,
+        })),
+        { useTransaction, continueOnError }
       );
-      try {
-        const { results: execResults } = await executeSql(
-          {
-            connectionId: dest.connectionId,
-            password: sessionPasswords[dest.connectionId] || undefined,
-            schema: destConn?.schema?.trim() || undefined,
-          },
-          [item.plan.sql],
-          undefined,
-          undefined,
-          item.plan.params.length ? [item.plan.params] : undefined,
-          { datagridAction: item.op }
-        );
-        const failed = execResults.find((r) => !r.ok);
-        if (failed && !failed.ok) {
-          failCount += 1;
-          results.push({
-            op: item.op,
-            key: item.keyLabel,
-            status: 'FAILED',
-            error: failed.error,
-          });
-          setProgress((prev) =>
-            prev
-              ? prev.map((p, idx) =>
-                  idx === i ? { ...p, status: 'fail', error: failed.error } : p
-                )
-              : prev
-          );
-        } else {
-          results.push({ op: item.op, key: item.keyLabel, status: 'SUCCESS' });
-          setProgress((prev) =>
-            prev
-              ? prev.map((p, idx) => (idx === i ? { ...p, status: 'ok' } : p))
-              : prev
-          );
-        }
-      } catch (e) {
-        failCount += 1;
-        const msg = e instanceof Error ? e.message : String(e);
-        results.push({ op: item.op, key: item.keyLabel, status: 'FAILED', error: msg });
-        setProgress((prev) =>
-          prev
-            ? prev.map((p, idx) => (idx === i ? { ...p, status: 'fail', error: msg } : p))
-            : prev
-        );
-      }
+      results = out.results;
+      failCount = out.failCount;
+      rolledBack = out.rolledBack;
+      setProgress(
+        results.map((r) => ({
+          keyLabel: r.key,
+          op: r.op,
+          status:
+            r.status === 'SUCCESS' ? 'ok' : r.status === 'SKIPPED' ? 'skipped' : 'fail',
+          error: r.error,
+        }))
+      );
+      setFailedSummary(results.filter((r) => r.status === 'FAILED'));
+    } catch (e) {
+      failCount = plans.length;
+      const msg = e instanceof Error ? e.message : String(e);
+      results = plans.map((p) => ({
+        op: p.op,
+        key: p.keyLabel,
+        status: 'FAILED' as const,
+        error: msg,
+      }));
+      setProgress(
+        plans.map((p) => ({
+          keyLabel: p.keyLabel,
+          op: p.op,
+          status: 'fail' as const,
+          error: msg,
+        }))
+      );
+      setFailedSummary(results);
     }
 
     const status =
-      failCount === 0 ? 'SUCCESS' : failCount === plans.length ? 'FAILED' : 'PARTIAL_SUCCESS';
+      failCount === 0
+        ? 'SUCCESS'
+        : failCount === plans.length || rolledBack
+          ? 'FAILED'
+          : 'PARTIAL_SUCCESS';
     if (runId) {
       try {
         await apiFinishDataMigrate(runId, { status, results });
@@ -317,18 +325,29 @@ export const DataMigrateBar: React.FC<Props> = ({
     }
 
     setApplying(false);
+    const failedKeys = results
+      .filter((r) => r.status === 'FAILED')
+      .map((r) => `${r.op} ${r.key}`)
+      .slice(0, 5);
     toast({
       tone: failCount === 0 ? 'success' : 'warning',
       title:
         failCount === 0
           ? `Migrated ${plans.length} row ops`
-          : `Migrated with ${failCount} failure(s)`,
-      body: `Destination: ${dest.label}. Snapshot + history saved.`,
+          : rolledBack
+            ? `Rolled back — ${failCount} failure(s)`
+            : `Finished with ${failCount} failure(s)`,
+      body:
+        failCount === 0
+          ? `Destination: ${dest.label}. Snapshot + history saved.`
+          : `Failed: ${failedKeys.join('; ')}${
+              results.filter((r) => r.status === 'FAILED').length > 5 ? '…' : ''
+            }. ${rolledBack ? 'Transaction rolled back. ' : ''}See progress / history.`,
       actionButtonLabel: 'View history',
       onAction: () => void openHistory(),
-      durationMs: 8_000,
+      durationMs: 10_000,
     });
-    await onAfterMigrate?.();
+    if (!rolledBack) await onAfterMigrate?.();
   };
 
   if (!canCompareReady(source, dest)) return null;
@@ -422,6 +441,32 @@ export const DataMigrateBar: React.FC<Props> = ({
           />
           Include identity / IDs
         </label>
+        <label
+          className="inline-flex items-center gap-1 cursor-pointer select-none"
+          title="Wrap all ops in one transaction when Stop is selected. With Continue, each op uses its own transaction so a failure only rolls back that row."
+        >
+          <input
+            type="checkbox"
+            data-testid={`sql-data-migrate-tx-${statementIndex}`}
+            checked={useTransaction}
+            onChange={(e) => setUseTransaction(e.target.checked)}
+            className="rounded border-slate-600"
+          />
+          Transaction
+        </label>
+        <label
+          className="inline-flex items-center gap-1 cursor-pointer select-none"
+          title="Continue: keep applying after a failed row. Stop: abort (and roll back the whole batch when Transaction is on)."
+        >
+          <input
+            type="checkbox"
+            data-testid={`sql-data-migrate-continue-${statementIndex}`}
+            checked={continueOnError}
+            onChange={(e) => setContinueOnError(e.target.checked)}
+            className="rounded border-slate-600"
+          />
+          {continueOnError ? 'Continue on error' : 'Stop on error'}
+        </label>
         <button
           type="button"
           data-testid={`sql-data-migrate-apply-${statementIndex}`}
@@ -457,10 +502,29 @@ export const DataMigrateBar: React.FC<Props> = ({
         </p>
       )}
 
+      {failedSummary.length > 0 && (
+        <div
+          className="rounded border border-rose-500/30 bg-rose-950/30 px-2 py-1.5 text-[10px]"
+          data-testid={`sql-data-migrate-failures-${statementIndex}`}
+        >
+          <div className="font-bold text-rose-300 mb-1">
+            Failed records ({failedSummary.length})
+          </div>
+          <ul className="space-y-0.5 font-mono text-rose-200/90 max-h-24 overflow-auto">
+            {failedSummary.map((r, i) => (
+              <li key={`${r.op}-${r.key}-${i}`} title={r.error}>
+                <span className="uppercase text-rose-400">{r.op}</span> {r.key}
+                {r.error ? ` — ${r.error}` : ''}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {progress &&
         createPortal(
           <div
-            className="fixed bottom-4 right-4 z-[360] w-[22rem] max-h-[50vh] overflow-auto rounded-lg border border-slate-700 bg-slate-950 shadow-xl"
+            className="fixed bottom-4 right-4 z-[360] w-[24rem] max-h-[50vh] overflow-auto rounded-lg border border-slate-700 bg-slate-950 shadow-xl"
             data-testid="sql-data-migrate-progress"
           >
             <div className="flex items-center justify-between px-3 py-2 border-b border-slate-800">
@@ -477,23 +541,36 @@ export const DataMigrateBar: React.FC<Props> = ({
             </div>
             <ul className="px-3 py-2 space-y-1 text-[10px] font-mono">
               {progress.map((p, i) => (
-                <li key={`${p.op}-${p.keyLabel}-${i}`} className="flex items-center gap-2">
+                <li key={`${p.op}-${p.keyLabel}-${i}`} className="flex items-start gap-2">
                   <span
                     className={
                       p.status === 'ok'
                         ? 'text-emerald-400'
                         : p.status === 'fail'
                           ? 'text-rose-400'
-                          : p.status === 'running'
-                            ? 'text-cyan-400'
-                            : 'text-slate-500'
+                          : p.status === 'skipped'
+                            ? 'text-amber-400'
+                            : p.status === 'running'
+                              ? 'text-cyan-400'
+                              : 'text-slate-500'
                     }
                   >
-                    {p.status === 'running' ? '…' : p.status === 'ok' ? '✓' : p.status === 'fail' ? '✗' : '·'}
+                    {p.status === 'running'
+                      ? '…'
+                      : p.status === 'ok'
+                        ? '✓'
+                        : p.status === 'fail'
+                          ? '✗'
+                          : p.status === 'skipped'
+                            ? '–'
+                            : '·'}
                   </span>
                   <span className="text-slate-400 uppercase w-12 shrink-0">{p.op}</span>
-                  <span className="text-slate-300 truncate" title={p.error}>
+                  <span className="text-slate-300 min-w-0 break-all" title={p.error}>
                     {p.keyLabel}
+                    {p.error ? (
+                      <span className="block text-rose-400/90 font-sans normal-case">{p.error}</span>
+                    ) : null}
                   </span>
                 </li>
               ))}
