@@ -102,6 +102,51 @@ describe.skipIf(!ready)('SQL Editor · SQLite multi-credential', () => {
     await sql.setLayoutByCredential();
   });
 
+  it('compares seeded rows across credentials with colored cell diffs', async () => {
+    // Seeds: id=1 is Alice vs Bob (modified); id=2 Shared/Austin matches.
+    await sql.openView();
+    await sql.checkConnection(NAME_A);
+    await sql.checkConnection(NAME_B);
+    await sql.setSql('SELECT id, name, city FROM customers ORDER BY id;');
+    await sql.run();
+    await sql.waitForResults();
+    await sql.setLayoutSideBySide();
+
+    await driver.waitForSelector('[data-testid="sql-result-compare-toggle-0"]', {
+      timeout: 10_000,
+    });
+    expect(await sql.compareToggle(0).isChecked()).toBe(true);
+    expect(await sql.compareLegend(0).isVisible()).toBe(true);
+    expect(await sql.compareBaselineSelect(0).isVisible()).toBe(true);
+
+    // Wait for highlight pass after Compare defaults on.
+    await driver.waitForFunction(
+      () =>
+        document.querySelectorAll('[data-testid="sql-results-side-by-side"] td[data-diff]').length >
+        0,
+      { timeout: 10_000 }
+    );
+
+    const modified = await sql.diffCellCount('modified');
+    const anyDiff = await sql.diffCellCount();
+    expect(modified).toBeGreaterThanOrEqual(2); // name cell tinted on both grids
+    expect(anyDiff).toBeGreaterThanOrEqual(modified);
+
+    const results = await sql.resultsText();
+    expect(results).toMatch(/baseline/i);
+    expect(results).toMatch(/differ|match/i);
+
+    // Toggle Compare off → highlights clear.
+    await sql.compareToggle(0).click();
+    await driver.waitForFunction(
+      () =>
+        document.querySelectorAll('[data-testid="sql-results-side-by-side"] td[data-diff]')
+          .length === 0,
+      { timeout: 10_000 }
+    );
+    expect(await sql.diffCellCount()).toBe(0);
+  });
+
   it('shows the statement strip for multi-statement SQL', async () => {
     await sql.setSql('SELECT 1 AS n;\nSELECT name FROM customers WHERE id = 1;');
     expect(await sql.statementStripVisible()).toBe(true);
