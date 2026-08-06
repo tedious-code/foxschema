@@ -32,23 +32,31 @@ const DEFAULT_HEIGHTS: Record<SidebarSectionId, number> = {
   vault: 160,
   utilities: 280,
   files: 180,
-  schema: 220,
+  /** Taller default — Schema is pinned at the top of the sidebar. */
+  schema: 280,
 };
 
 const MIN_SECTION_H = 72;
 const MAX_SECTION_H = 480;
 
+/** Schema stays first; other sections keep relative order below it. */
 const DEFAULT_ORDER: SidebarSectionId[] = [
+  'schema',
   'destinations',
   'bookmarks',
   'variables',
   'vault',
   'utilities',
   'files',
-  'schema',
 ];
 
 const ALL_SECTION_IDS = new Set<SidebarSectionId>(DEFAULT_ORDER);
+
+/** Keep Schema pinned at the top of the sidebar menu. */
+export function pinSchemaFirst(order: SidebarSectionId[]): SidebarSectionId[] {
+  const rest = order.filter((id) => id !== 'schema');
+  return ['schema', ...rest];
+}
 
 function normalizeOrder(raw: unknown): SidebarSectionId[] {
   if (!Array.isArray(raw)) return [...DEFAULT_ORDER];
@@ -64,7 +72,7 @@ function normalizeOrder(raw: unknown): SidebarSectionId[] {
   for (const id of DEFAULT_ORDER) {
     if (!seen.has(id)) result.push(id);
   }
-  return result;
+  return pinSchemaFirst(result);
 }
 
 function loadOrder(): SidebarSectionId[] {
@@ -77,7 +85,7 @@ function loadOrder(): SidebarSectionId[] {
   }
 }
 
-/** Reorder sidebar sections (immutable). */
+/** Reorder sidebar sections (immutable). Schema stays pinned at index 0. */
 export function moveSidebarSection(
   order: SidebarSectionId[],
   fromIndex: number,
@@ -85,10 +93,12 @@ export function moveSidebarSection(
 ): SidebarSectionId[] {
   if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return order;
   if (fromIndex >= order.length || toIndex >= order.length) return order;
+  // Schema is fixed at the top — ignore drags that try to move it or drop onto it.
+  if (order[fromIndex] === 'schema' || order[toIndex] === 'schema') return order;
   const next = [...order];
   const [item] = next.splice(fromIndex, 1);
-  next.splice(toIndex, 0, item);
-  return next;
+  next.splice(toIndex, 0, item!);
+  return pinSchemaFirst(next);
 }
 
 /** Persist SQL-editor sidebar section order. */
@@ -208,8 +218,8 @@ export function useSidebarSectionHeights(): [
 
 /**
  * Collapsible block for the SQL Editor left sidebar
- * (Destinations / Bookmarks / Variables / Secrets / Utilities / Files / Schema).
- * Open sections are height-resizable via the bottom grip.
+ * (Schema pinned at top, then Destinations / Bookmarks / Variables / Secrets /
+ * Utilities / Files). Open sections are height-resizable via the bottom grip.
  */
 export const SqlSidebarSection: React.FC<{
   id: SidebarSectionId;
