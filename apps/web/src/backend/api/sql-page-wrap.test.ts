@@ -80,4 +80,16 @@ describe('sql-page-wrap', () => {
     expect(isPageableStatement('EXPLAIN SELECT 1')).toBe(false);
     expect(isPageableStatement('WITH c AS (SELECT 1) INSERT INTO t SELECT * FROM c')).toBe(false);
   });
+
+  it('isPageableStatement rejects data-modifying CTEs (look like SELECT)', () => {
+    expect(
+      isPageableStatement('WITH i AS (INSERT INTO t VALUES (1) RETURNING id) SELECT id FROM i')
+    ).toBe(false);
+    expect(
+      isPageableStatement('WITH d AS (DELETE FROM t RETURNING id) SELECT id FROM d')
+    ).toBe(false);
+    expect(
+      isPageableStatement('WITH u AS (UPDATE t SET a = 1 RETURNING *) SELECT * FROM u')
+    ).toBe(false);
+  });
 });

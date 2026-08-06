@@ -937,6 +937,61 @@ function sqlTextIsMutatingDml(text: string): boolean {
 }
 
 /**
+ * True when every write in the statement is INSERT (plain `INSERT …`,
+ * `WITH … INSERT …`, or `WITH i AS (INSERT … RETURNING …) SELECT …`).
+ * Safe mode skips confirmation for these; UPDATE/DELETE/MERGE, DDL,
+ * `SELECT … INTO`, and mixed insert+mutating CTEs still confirm.
+ */
+export function isInsertWriteStatement(text: string): boolean {
+  const parts = splitSqlStatements(text);
+  if (parts.length === 0) return false;
+  // Multi-statement buffer: every SQL part must be insert-only (or non-write).
+  let sawInsert = false;
+  for (const p of parts) {
+    if (p.kind && p.kind !== 'sql' && p.terminated) continue;
+    if (!sqlTextIsWrite(p.text)) continue;
+    if (!sqlTextIsInsertOnlyWrite(p.text)) return false;
+    sawInsert = true;
+  }
+  return sawInsert;
+}
+
+function sqlTextIsInsertOnlyWrite(text: string): boolean {
+  if (!sqlTextIsWrite(text)) return false;
+  const kw = firstKeyword(text);
+  if (!kw) return false;
+  if (kw === 'explain') {
+    const inner = peelExplainAnalyze(text);
+    return inner !== null && sqlTextIsInsertOnlyWrite(inner);
+  }
+  if (kw === 'insert') return true;
+  if (kw === 'with') {
+    const bodies = withCteBodies(text);
+    const tail = walkWithCtes(text);
+    const chunks = tail ? [...bodies, tail] : bodies;
+    const writes = chunks.filter((c) => sqlTextIsWrite(c));
+    return writes.length > 0 && writes.every((c) => sqlTextIsInsertOnlyWrite(c));
+  }
+  return false;
+}
+
+/** Verbs that can be wrapped as `SELECT * FROM (…)` for OFFSET/LIMIT paging. */
+const PAGEABLE_VERBS = new Set(['select', 'values']);
+
+/**
+ * True when the statement is safe to wrap for OFFSET/LIMIT paging
+ * (plain SELECT / VALUES, including `WITH … AS (…) SELECT …`).
+ * Writes, data-modifying CTEs, DDL, SET, SHOW, EXPLAIN, CALL, etc. are not.
+ */
+export function isPageableStatement(text: string): boolean {
+  const verb = statementVerb(text);
+  if (verb === null || !PAGEABLE_VERBS.has(verb)) return false;
+  // `WITH i AS (INSERT … RETURNING id) SELECT id FROM i` reports verb SELECT
+  // but must not be nested for paging (Postgres: modifying WITH must be top-level).
+  return !isWriteStatement(text);
+}
+
+/**
  * If `text` is `EXPLAIN ANALYZE <stmt>` or `EXPLAIN (ANALYZE[, …]) <stmt>`,
  * return the inner statement; otherwise null (plain EXPLAIN is planning-only).
  *

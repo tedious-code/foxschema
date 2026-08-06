@@ -10,10 +10,9 @@
  * directive (SQL20521N). Keep a plain letter-led name for all dialects.
  */
 
-import { statementVerb } from '@foxschema/db';
+import { isPageableStatement } from '@foxschema/db';
 
-/** Verbs that can appear as a subquery in `SELECT * FROM (…)` for paging. */
-const PAGEABLE_VERBS = new Set(['select', 'values']);
+export { isPageableStatement };
 
 /** Dialects that use T-SQL OFFSET/FETCH (not MySQL/Postgres LIMIT). */
 const TSQL_DIALECTS = new Set(['sqlserver', 'mssql', 'azuresql']);
@@ -25,16 +24,6 @@ export function clampOffset(v: unknown): number {
   const n = typeof v === 'number' ? Math.floor(v) : Number.NaN;
   if (!Number.isFinite(n) || n < 0) return 0;
   return Math.min(n, 1_000_000);
-}
-
-/**
- * True when the statement is safe to wrap for OFFSET/LIMIT paging
- * (SELECT / VALUES, including `WITH … AS (…) SELECT …`).
- * Writes, DDL, SET, SHOW, EXPLAIN, CALL, etc. are not pageable.
- */
-export function isPageableStatement(sql: string): boolean {
-  const verb = statementVerb(sql);
-  return verb !== null && PAGEABLE_VERBS.has(verb);
 }
 
 /**
