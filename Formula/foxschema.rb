@@ -12,9 +12,9 @@
 class Foxschema < Formula
   desc "Fox Schema — schema diff, migrations, and SQL Editor (local web UI)"
   homepage "https://foxschema.com"
-  url "https://registry.npmjs.org/foxschema/-/foxschema-0.2.33.tgz"
+  url "https://registry.npmjs.org/foxschema/-/foxschema-0.2.36.tgz"
   # shasum -a 256 of the npm tarball; refreshed by packaging/homebrew/update-formula.sh
-  sha256 "0b871bfc8c2bf43b9942a36f5bfa3120f08e9eb1a57188cb75694f79299f8dfb"
+  sha256 "d64541c7e3c7781107a277ae888c1cf0a2ce4842681dd350a9aad6676782b612"
   license "Apache-2.0"
 
   depends_on "node@22"
