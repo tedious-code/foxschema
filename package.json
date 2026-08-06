@@ -19,6 +19,8 @@
     "dev:auth": "npm -w @foxschema/web run dev:all:auth",
     "dev:api": "npm -w @foxschema/web run dev:api",
     "build": "npm -w @foxschema/web run build",
+    "build:sql": "npm -w @foxschema/sql run build",
+    "publish:sql": "npm -w @foxschema/sql run build && node packages/sql/scripts/prepare-publish.mjs",
     "preview": "npm -w @foxschema/web run preview",
     "test": "vitest run",
     "test:watch": "vitest",

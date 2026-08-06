@@ -1,8 +1,8 @@
-import { SchemaCompareResult, TableDiff, ColumnDiff, IndexDiff, ForeignKeyDiff, TriggerDiff } from '../interfaces';
-import { TableSchema, ColumnInfo, IndexInfo, ForeignKeyInfo, TriggerInfo } from '../interfaces';
-import type { SqlDialect } from './sql-dialect.interface';
-import { resolveDialect } from './dialect-registry';
-import { canonicalEquals } from './type-mapping';
+import { type SchemaCompareResult, type TableDiff, type ColumnDiff, type IndexDiff, type ForeignKeyDiff, type TriggerDiff } from '../interfaces/index.js';
+import { type TableSchema, type ColumnInfo, type IndexInfo, type ForeignKeyInfo, type TriggerInfo } from '../interfaces/index.js';
+import type { SqlDialect } from './sql-dialect.interface.js';
+import { resolveDialect } from './dialect-registry.js';
+import { canonicalEquals } from './type-mapping.js';
 
 export class CompareModule {
   /** When set (and the dialects differ), columns are compared by canonical type. */

@@ -1,8 +1,8 @@
-import { TableDiff } from '../interfaces';
-import { TableSchema, DbObjectType } from '../interfaces';
-import type { IndexInfo } from '../interfaces';
-import type { SqlDialect, ColumnSpec } from './sql-dialect.interface';
-import { resolveDialect } from './dialect-registry';
+import { type TableDiff } from '../interfaces/index.js';
+import { type TableSchema, type DbObjectType } from '../interfaces/index.js';
+import type { IndexInfo } from '../interfaces/index.js';
+import type { SqlDialect, ColumnSpec } from './sql-dialect.interface.js';
+import { resolveDialect } from './dialect-registry.js';
 
 export interface MigrationStep {
   objectName: string;
@@ -158,7 +158,7 @@ export class SqlGeneratorModule {
    * overloading). MySQL/MariaDB/SQL Server reject ANY parenthesized
    * signature — even an empty `()` — so the default is the bare form.
    */
-  private dropRoutineSql(type: 'FUNCTION' | 'PROCEDURE', tableName: string, dialect: SqlDialect | undefined, params?: import('../interfaces').RoutineParameter[]): string {
+  private dropRoutineSql(type: 'FUNCTION' | 'PROCEDURE', tableName: string, dialect: SqlDialect | undefined, params?: import('../interfaces/index.js').RoutineParameter[]): string {
     const kw = type === 'FUNCTION' ? 'FUNCTION' : 'PROCEDURE';
     if (!dialect?.dropRoutineSignature || !params) return `DROP ${kw} IF EXISTS ${tableName};`;
     // Only IN/INOUT params appear in the call signature for DROP purposes

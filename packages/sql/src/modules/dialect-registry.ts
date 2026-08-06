@@ -1,17 +1,17 @@
-import type { SqlDialect } from './sql-dialect.interface';
-import { db2SqlDialect } from '../providers/db2/db2.sql-dialect';
-import { postgresSqlDialect } from '../providers/postgres/postgres.sql-dialect';
-import { mysqlSqlDialect, mariadbSqlDialect } from '../providers/mysql/mysql.sql-dialect';
-import { sqlServerSqlDialect } from '../providers/sqlServer/sqlserver.sql-dialect';
-import { oracleSqlDialect } from '../providers/oracle/oracle.sql-dialect';
-import { sqliteSqlDialect } from '../providers/sqlLite/sqlite.sql-dialect';
-import { redshiftSqlDialect } from '../providers/redshift/redshift.sql-dialect';
-import { clickHouseSqlDialect } from '../providers/clickHouse/clickhouse.sql-dialect';
-import { azureSqlDialect } from '../providers/azureSql/azuresql.sql-dialect';
-import { cockroachDbSqlDialect } from '../providers/cockroachDb/cockroachdb.sql-dialect';
-import { yugabyteDbSqlDialect } from '../providers/yugabyteDb/yugabytedb.sql-dialect';
-import { tiDbSqlDialect } from '../providers/tiDb/tidb.sql-dialect';
-import { duckDbSqlDialect } from '../providers/duckDb/duckdb.sql-dialect';
+import type { SqlDialect } from './sql-dialect.interface.js';
+import { db2SqlDialect } from '../providers/db2/db2.sql-dialect.js';
+import { postgresSqlDialect } from '../providers/postgres/postgres.sql-dialect.js';
+import { mysqlSqlDialect, mariadbSqlDialect } from '../providers/mysql/mysql.sql-dialect.js';
+import { sqlServerSqlDialect } from '../providers/sqlServer/sqlserver.sql-dialect.js';
+import { oracleSqlDialect } from '../providers/oracle/oracle.sql-dialect.js';
+import { sqliteSqlDialect } from '../providers/sqlLite/sqlite.sql-dialect.js';
+import { redshiftSqlDialect } from '../providers/redshift/redshift.sql-dialect.js';
+import { clickHouseSqlDialect } from '../providers/clickHouse/clickhouse.sql-dialect.js';
+import { azureSqlDialect } from '../providers/azureSql/azuresql.sql-dialect.js';
+import { cockroachDbSqlDialect } from '../providers/cockroachDb/cockroachdb.sql-dialect.js';
+import { yugabyteDbSqlDialect } from '../providers/yugabyteDb/yugabytedb.sql-dialect.js';
+import { tiDbSqlDialect } from '../providers/tiDb/tidb.sql-dialect.js';
+import { duckDbSqlDialect } from '../providers/duckDb/duckdb.sql-dialect.js';
 
 /** Maps a dialect name (case-insensitive) to its SQL generation strategy. */
 export const DIALECT_MAP: Record<string, SqlDialect> = {

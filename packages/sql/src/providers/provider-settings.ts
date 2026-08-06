@@ -1,18 +1,18 @@
-import { ProviderConnectionSettings } from '../interfaces/schema-provider.interface';
-import { postgresSettings } from './postgres/postgres.settings';
-import { mysqlSettings } from './mysql/mysql.settings';
-import { db2Settings } from './db2/db2.settings';
-import { mariaDbSettings } from './mariaDb/mariaDb.settings';
-import { sqlServerSettings } from './sqlServer/sqlserver.settings';
-import { oracleSettings } from './oracle/oracle.settings';
-import { sqliteSettings } from './sqlLite/sqlLite.settings';
-import { redshiftSettings } from './redshift/redshift.settings';
-import { clickHouseSettings } from './clickHouse/clickhouse.settings';
-import { azureSqlSettings } from './azureSql/azuresql.settings';
-import { cockroachDbSettings } from './cockroachDb/cockroachdb.settings';
-import { yugabyteDbSettings } from './yugabyteDb/yugabytedb.settings';
-import { tiDbSettings } from './tiDb/tidb.settings';
-import { duckDbSettings } from './duckDb/duckdb.settings';
+import { type ProviderConnectionSettings } from '../interfaces/schema-provider.interface.js';
+import { postgresSettings } from './postgres/postgres.settings.js';
+import { mysqlSettings } from './mysql/mysql.settings.js';
+import { db2Settings } from './db2/db2.settings.js';
+import { mariaDbSettings } from './mariaDb/mariaDb.settings.js';
+import { sqlServerSettings } from './sqlServer/sqlserver.settings.js';
+import { oracleSettings } from './oracle/oracle.settings.js';
+import { sqliteSettings } from './sqlLite/sqlLite.settings.js';
+import { redshiftSettings } from './redshift/redshift.settings.js';
+import { clickHouseSettings } from './clickHouse/clickhouse.settings.js';
+import { azureSqlSettings } from './azureSql/azuresql.settings.js';
+import { cockroachDbSettings } from './cockroachDb/cockroachdb.settings.js';
+import { yugabyteDbSettings } from './yugabyteDb/yugabytedb.settings.js';
+import { tiDbSettings } from './tiDb/tidb.settings.js';
+import { duckDbSettings } from './duckDb/duckdb.settings.js';
 
 // Register a new dialect by adding its settings here — nothing else changes
 export const PROVIDER_SETTINGS: Record<string, ProviderConnectionSettings> = {

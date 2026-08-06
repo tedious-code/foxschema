@@ -1,4 +1,4 @@
-import { TableSchema, DbObjectType } from './schema-provider.interface';
+import { type TableSchema, type DbObjectType } from './schema-provider.interface.js';
 
 export type DiffType = 'ADDED' | 'REMOVED' | 'MODIFIED' | 'UNCHANGED';
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { cockroachDbSqlDialect } from './cockroachdb.sql-dialect';
-import { postgresSqlDialect } from '../postgres/postgres.sql-dialect';
+import { cockroachDbSqlDialect } from './cockroachdb.sql-dialect.js';
+import { postgresSqlDialect } from '../postgres/postgres.sql-dialect.js';
 
 describe('cockroachDbSqlDialect', () => {
   it('disables the Postgres dependent-view DO-block guard (unsupported PL/pgSQL on CRDB)', () => {

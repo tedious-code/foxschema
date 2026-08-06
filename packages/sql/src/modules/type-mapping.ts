@@ -1,4 +1,4 @@
-import type { CanonicalBase, CanonicalType, RenderedType, SqlDialect } from './sql-dialect.interface';
+import type { CanonicalBase, CanonicalType, RenderedType, SqlDialect } from './sql-dialect.interface.js';
 
 /**
  * Cross-dialect type translation. Each provider supplies two small lookup tables

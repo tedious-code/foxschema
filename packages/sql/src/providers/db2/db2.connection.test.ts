@@ -3,7 +3,7 @@ import {
   buildDb2ConnectionString,
   odbcEscape,
   parseDb2SemicolonMap,
-} from './db2.connection';
+} from './db2.connection.js';
 
 describe('buildDb2ConnectionString', () => {
   it('always injects Authentication=SERVER', () => {

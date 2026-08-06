@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { findDropDependencies } from './dependency-scan';
-import type { TableDiff } from '../interfaces';
+import { findDropDependencies } from './dependency-scan.js';
+import type { TableDiff } from '../interfaces/index.js';
 
 // Minimal TableDiff factory — only the fields the scanner reads.
 function diff(partial: Partial<TableDiff> & Pick<TableDiff, 'tableName' | 'objectType' | 'status'>): TableDiff {

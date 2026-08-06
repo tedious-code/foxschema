@@ -1,5 +1,5 @@
-import type { SchemaCompareResult, TableDiff } from '../interfaces';
-import type { TableSchema } from '../interfaces';
+import type { SchemaCompareResult, TableDiff } from '../interfaces/index.js';
+import type { TableSchema } from '../interfaces/index.js';
 
 /**
  * Build a "browse" result from a single loaded schema — no comparison. Every

@@ -1,5 +1,5 @@
-import { ConnectionOptions, ProviderConnectionSettings } from '../../interfaces/schema-provider.interface';
-import { buildDb2ConnectionString } from './db2.connection';
+import { type ConnectionOptions, type ProviderConnectionSettings } from '../../interfaces/schema-provider.interface.js';
+import { buildDb2ConnectionString } from './db2.connection.js';
 
 export const db2Settings: ProviderConnectionSettings = {
   dialect: 'db2',

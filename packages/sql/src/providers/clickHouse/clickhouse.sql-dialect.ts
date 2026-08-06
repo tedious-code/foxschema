@@ -1,5 +1,5 @@
-import type { SqlDialect, ColumnSpec } from '../../modules/sql-dialect.interface';
-import { makeDialectTypeFns, plain, sized, decimalAs } from '../../modules/type-mapping';
+import type { SqlDialect, ColumnSpec } from '../../modules/sql-dialect.interface.js';
+import { makeDialectTypeFns, plain, sized, decimalAs } from '../../modules/type-mapping.js';
 
 // ClickHouse type names are case-sensitive. Lowercase the token for parseMap lookup.
 const types = makeDialectTypeFns({

@@ -1,5 +1,5 @@
-import { ConnectionOptions } from '../interfaces';
-import { PROVIDER_SETTINGS, getProviderSettings } from '../providers/provider-settings';
+import { type ConnectionOptions } from '../interfaces/index.js';
+import { PROVIDER_SETTINGS, getProviderSettings } from '../providers/provider-settings.js';
 
 export const DEFAULT_PORTS: Record<string, number> = Object.fromEntries(
   Object.values(PROVIDER_SETTINGS).map((s) => [s.dialect, s.defaultPort])

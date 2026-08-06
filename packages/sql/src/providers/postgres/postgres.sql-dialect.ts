@@ -1,6 +1,6 @@
-import type { SqlDialect, ColumnSpec } from '../../modules/sql-dialect.interface';
-import type { TableSchema } from '../../interfaces';
-import { makeDialectTypeFns, plain, sized, decimalAs } from '../../modules/type-mapping';
+import type { SqlDialect, ColumnSpec } from '../../modules/sql-dialect.interface.js';
+import type { TableSchema } from '../../interfaces/index.js';
+import { makeDialectTypeFns, plain, sized, decimalAs } from '../../modules/type-mapping.js';
 
 const types = makeDialectTypeFns({
   label: 'PostgreSQL',

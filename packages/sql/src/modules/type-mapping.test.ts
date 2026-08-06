@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { tokenizeType, canonicalEquals } from './type-mapping';
-import { resolveDialect } from './dialect-registry';
+import { tokenizeType, canonicalEquals } from './type-mapping.js';
+import { resolveDialect } from './dialect-registry.js';
 
 const db2 = resolveDialect('db2');
 const pg = resolveDialect('postgres');

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { dialectSupportsIndex } from './dialect-index-support';
-import { DIALECT_MAP } from './dialect-registry';
+import { dialectSupportsIndex } from './dialect-index-support.js';
+import { DIALECT_MAP } from './dialect-registry.js';
 
 describe('dialectSupportsIndex', () => {
   it('marks ClickHouse and Redshift as unsupported for traditional indexes', () => {

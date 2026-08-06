@@ -1,4 +1,4 @@
-import type { TableDiff, DbObjectType } from '../interfaces';
+import type { TableDiff, DbObjectType } from '../interfaces/index.js';
 
 /**
  * A procedural object (view/function/procedure/trigger) in the TARGET database

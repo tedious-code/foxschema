@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isCodeCellLast, isCodeCellVars } from './code-cell-types';
+import { isCodeCellLast, isCodeCellVars } from './code-cell-types.js';
 
 describe('isCodeCellLast', () => {
   it('accepts null and well-formed grids', () => {
