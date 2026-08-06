@@ -718,14 +718,7 @@ export const DataGrid: React.FC<{
                       const { text, title, isNull } = cellDisplay(cell);
                       const kind = isNull ? 'null' : (colKinds[colIdx] ?? 'string');
                       const hl = cellHighlight?.(i, colIdx) ?? null;
-                      const hlClass =
-                        hl === 'modified'
-                          ? 'bg-amber-500/25 ring-1 ring-inset ring-amber-400/40'
-                          : hl === 'missing'
-                            ? 'bg-rose-500/20 ring-1 ring-inset ring-rose-400/35'
-                            : hl === 'extra'
-                              ? 'bg-emerald-500/20 ring-1 ring-inset ring-emerald-400/35'
-                              : '';
+                      const hlClass = hl ? CELL_DIFF_CLASS[hl] : '';
                       const cellBg = hlClass || `${rowBg} group-hover:bg-[var(--fox-grid-bg-hover)]`;
                       return (
                         <td
