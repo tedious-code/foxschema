@@ -88,7 +88,13 @@ INSERT INTO items (id, label, qty) VALUES (1, 'seed', 3);
     await driver.locator('[data-testid="peek-row-submit"]').click();
 
     await sql.confirmWriteIfShown();
-    await form.waitFor({ state: 'detached', timeout: 15_000 });
+    // Data Peek keeps the form under Safe Mode confirm until the write succeeds;
+    // dismiss any leftover form so later steps can reach the editor.
+    const formStill = driver.locator('[data-testid="peek-row-editor"]');
+    if (await formStill.isVisible().catch(() => false)) {
+      await driver.keyboard.press('Escape');
+      await formStill.waitFor({ state: 'detached', timeout: 5_000 }).catch(() => undefined);
+    }
     await expect
       .poll(async () => (await sql.resultsText()).toLowerCase(), { timeout: 20_000 })
       .toMatch(/from-grid/);

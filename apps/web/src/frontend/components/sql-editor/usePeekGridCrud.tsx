@@ -175,9 +175,8 @@ export function usePeekGridCrud(args: PeekGridCrudArgs): PeekGridCrud {
     (plan: PeekWritePlan) => {
       setWriteError(null);
       if (safeMode) {
-        // Drop the row form so WriteConfirmDialog is the only modal (and Escape
-        // / refresh aren't blocked by a leftover PeekRowEditor portal).
-        setEditor(null);
+        // Keep the row form mounted under WriteConfirmDialog (Data Peek behaviour):
+        // cancel returns to the draft; only a successful write clears the editor.
         setPendingWrite(plan);
         return;
       }

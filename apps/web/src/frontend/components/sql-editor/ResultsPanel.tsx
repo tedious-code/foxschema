@@ -16,7 +16,7 @@ import { DataGrid, PANE_DEFAULT_H_PX, PANE_DEFAULT_PX, PANE_MIN_H_PX, PANE_MIN_P
 import type { SqlStatementResult } from '../../api/sqlApi';
 import { detectCodeCell } from '../../lib/codeCellRunner';
 import { CODE_CELL_KIND_LABEL } from '../../lib/sql-splitter';
-import { foreignKeyLinksForSql, singleTableForResultEdit } from '../../lib/tablePreview';
+import { foreignKeyLinksFor, foreignKeyLinksForSql, singleTableForResultEdit } from '../../lib/tablePreview';
 import { usePeekGridCrud } from './usePeekGridCrud';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
 
@@ -117,10 +117,24 @@ const ResultGridPane: React.FC<{
   const openDataPeekFromFk = useSqlEditorStore((s) => s.openDataPeekFromFk);
   const tables = schemaCache[item.connectionId]?.tables;
 
+  const editTarget = useMemo(() => {
+    if (!item.statementSql || detectCodeCell(item.statementSql)) {
+      return { ok: false as const, reason: undefined as string | undefined };
+    }
+    return singleTableForResultEdit(item.statementSql, tables);
+  }, [item.statementSql, tables]);
+
+  const table = editTarget.ok ? editTarget.table : undefined;
+  // Prefer the schema cache name (same as Data Peek entry.tableName from the explorer).
+  const tableName = table?.name ?? '';
+
+  // Match Data Peek: FK links come from the single editable table when known.
   const fkLinks = useMemo(() => {
-    if (!item.result.ok || !item.statementSql) return [];
+    if (!item.result.ok) return [];
+    if (table) return foreignKeyLinksFor(table, item.result.columns);
+    if (!item.statementSql) return [];
     return foreignKeyLinksForSql(item.statementSql, tables, item.result.columns);
-  }, [item.result, item.statementSql, tables]);
+  }, [item.result, item.statementSql, table, tables]);
 
   const linkColumns = useMemo(() => {
     if (fkLinks.length === 0) return undefined;
@@ -145,25 +159,29 @@ const ResultGridPane: React.FC<{
     [item, fkLinks, openDataPeekFromFk]
   );
 
-  const editTarget = useMemo(() => {
-    if (!item.statementSql || detectCodeCell(item.statementSql)) {
-      return { ok: false as const, reason: undefined as string | undefined };
-    }
-    return singleTableForResultEdit(item.statementSql, tables);
-  }, [item.statementSql, tables]);
-
-  const afterWrite = useCallback(() => {
-    onRefresh?.(item.connectionId);
-  }, [onRefresh, item.connectionId]);
-
-  const columns = item.result.ok ? item.result.columns : [];
-  const rows = item.result.ok ? item.result.rows : [];
-  const table = editTarget.ok ? editTarget.table : undefined;
-  const tableName = table?.name ?? '';
-
   const pageKey = `${item.connectionId}:${item.statementIndex}`;
   const page = pageState?.[pageKey];
   const pageIndex = page?.pageIndex ?? 0;
+
+  const afterWrite = useCallback(async () => {
+    // Same idea as Data Peek's runDataPeekEntry: refresh only this grid's page.
+    const store = useSqlEditorStore.getState();
+    const tab = store.resultsByTab[store.activeTabId];
+    const sql = tab?.pageSqlByConnection?.[item.connectionId]?.[item.statementIndex];
+    if (sql) {
+      await store.reloadResultPage({
+        connectionId: item.connectionId,
+        statementIndex: item.statementIndex,
+        pageIndex,
+      });
+      return;
+    }
+    // Fallback when paging SQL was not recorded (non-pageable / empty).
+    onRefresh?.(item.connectionId);
+  }, [item.connectionId, item.statementIndex, pageIndex, onRefresh]);
+
+  const columns = item.result.ok ? item.result.columns : [];
+  const rows = item.result.ok ? item.result.rows : [];
 
   const crud = usePeekGridCrud({
     connectionId: item.connectionId,
@@ -172,8 +190,9 @@ const ResultGridPane: React.FC<{
     table,
     columns,
     rows,
-    resultOk: Boolean(item.result.ok && table),
-    sessionKey: `${item.connectionId}:${item.statementIndex}:${tableName}:${pageIndex}`,
+    // Match Data Peek: resultOk is about the grid, not whether schema resolved yet.
+    resultOk: Boolean(item.result.ok),
+    sessionKey: `${item.connectionId}:${item.statementIndex}:${pageIndex}`,
     resultEpoch: item.result,
     onAfterWrite: afterWrite,
     testId: (action) => `sql-result-${item.statementIndex}-${action}`,
@@ -189,7 +208,7 @@ const ResultGridPane: React.FC<{
       {crud.crudButtons}
       {readOnlyReason && (
         <span
-          className="text-[10px] font-semibold text-slate-500 truncate max-w-[12rem]"
+          className="text-xs font-semibold text-slate-400 truncate max-w-[14rem]"
           title={readOnlyReason}
           data-testid={`sql-result-${item.statementIndex}-readonly`}
         >
@@ -247,14 +266,6 @@ const ResultGridPane: React.FC<{
           data-testid="sql-results-fk-hint"
         >
           Underlined rust cells are foreign keys — click one to open Data Peek (related rows).
-        </p>
-      )}
-      {crud.showCrud && (
-        <p
-          className="mt-0.5 px-0.5 shrink-0 text-[10px] text-slate-500"
-          data-testid={`sql-result-${item.statementIndex}-edit-hint`}
-        >
-          Select a row to edit, clone, or delete — or add a new row to {tableName}.
         </p>
       )}
       {crud.overlays}
