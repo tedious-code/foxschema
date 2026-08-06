@@ -160,3 +160,36 @@ export async function seedDefaultRolePermissions(store: MetadataStore): Promise<
     }
   }
 }
+
+/**
+ * Additive backfill: when a role was customized before newer default permissions
+ * existed (e.g. Data grid insert/update/delete), copy those defaults in if the
+ * role already has the related capability (`editor.dml` / `editor.write`).
+ * Never re-fills intentionally emptied roles (sentinel-only).
+ */
+export async function backfillDatagridRolePermissions(store: MetadataStore): Promise<void> {
+  const datagridPerms: Permission[] = [
+    'editor.datagrid.insert',
+    'editor.datagrid.update',
+    'editor.datagrid.delete',
+  ];
+  for (const role of APP_ROLES) {
+    if (role === 'admin') continue;
+    const rows = await store.all<{ permission: string }>(
+      'SELECT permission FROM role_permissions WHERE role = ?',
+      [role]
+    );
+    if (rows.length === 0) continue; // unseeded → defaults apply on read
+    const perms = new Set(rows.map((r) => r.permission));
+    // Intentional empty grant list.
+    if (perms.size === 1 && perms.has(EMPTY_ROLE_PERMISSIONS_SENTINEL)) continue;
+    const canChangeData = perms.has('editor.dml') || perms.has('editor.write');
+    if (!canChangeData) continue;
+    for (const p of datagridPerms) {
+      if (perms.has(p)) continue;
+      // Only backfill keys that belong in this role's built-in defaults.
+      if (!DEFAULT_ROLE_PERMISSIONS[role].includes(p)) continue;
+      await store.run('INSERT INTO role_permissions (role, permission) VALUES (?, ?)', [role, p]);
+    }
+  }
+}

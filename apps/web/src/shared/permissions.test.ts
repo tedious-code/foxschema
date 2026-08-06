@@ -5,6 +5,7 @@ import {
   PERMISSIONS,
   PERMISSION_META,
   CATEGORY_PERMISSION,
+  DATAGRID_ACTION_PERMISSION,
   permissionSatisfied,
   type Permission,
 } from './permissions';
@@ -78,5 +79,27 @@ describe('CATEGORY_PERMISSION', () => {
     expect(CATEGORY_PERMISSION.dml).toBe('editor.dml');
     expect(CATEGORY_PERMISSION.ddl).toBe('editor.ddl');
     expect(CATEGORY_PERMISSION.grant).toBe('editor.grant');
+  });
+});
+
+describe('DATAGRID_ACTION_PERMISSION', () => {
+  it('maps grid actions to Data grid permissions', () => {
+    expect(DATAGRID_ACTION_PERMISSION.insert).toBe('editor.datagrid.insert');
+    expect(DATAGRID_ACTION_PERMISSION.update).toBe('editor.datagrid.update');
+    expect(DATAGRID_ACTION_PERMISSION.delete).toBe('editor.datagrid.delete');
+  });
+
+  it('grants Data grid edit to the editor role by default', () => {
+    const editor = new Set(DEFAULT_ROLE_PERMISSIONS.editor);
+    expect(editor.has('editor.datagrid.insert')).toBe(true);
+    expect(editor.has('editor.datagrid.update')).toBe(true);
+    expect(editor.has('editor.datagrid.delete')).toBe(true);
+  });
+
+  it('keeps viewers off Data grid edit', () => {
+    const viewer = new Set(DEFAULT_ROLE_PERMISSIONS.viewer);
+    expect(viewer.has('editor.datagrid.insert')).toBe(false);
+    expect(viewer.has('editor.datagrid.update')).toBe(false);
+    expect(viewer.has('editor.datagrid.delete')).toBe(false);
   });
 });

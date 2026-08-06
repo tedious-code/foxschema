@@ -3,7 +3,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 // Use an isolated in-memory DB before anything calls getStore()
 process.env.APP_DB_PATH = ':memory:';
 
-import { RbacModule, toAppRole } from './rbac.module';
+import { RbacModule, toAppRole, backfillDatagridRolePermissions } from './rbac.module';
 import { getStore } from '../database/store';
 import { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS } from '../../shared/permissions';
 
@@ -183,5 +183,38 @@ describe('RbacModule', () => {
     const matrix = await rbac.listRolePermissionMatrix();
     expect(Object.keys(matrix).sort()).toEqual(['admin', 'editor', 'owner', 'viewer']);
     expect(matrix.admin).toEqual([...PERMISSIONS]);
+  });
+
+  it('backfills Data grid permissions onto roles that already have Change data', async () => {
+    const store = await getStore();
+    try {
+      // Simulate a pre-datagrid customized editor matrix that has DML but no grid keys.
+      await rbac.setRolePermissions(
+        'editor',
+        DEFAULT_ROLE_PERMISSIONS.editor.filter((p) => !p.startsWith('editor.datagrid.'))
+      );
+      expect((await rbac.permissionsForRole('editor')).some((p) => p.startsWith('editor.datagrid.'))).toBe(
+        false
+      );
+      await backfillDatagridRolePermissions(store);
+      const next = new Set(await rbac.permissionsForRole('editor'));
+      expect(next.has('editor.datagrid.insert')).toBe(true);
+      expect(next.has('editor.datagrid.update')).toBe(true);
+      expect(next.has('editor.datagrid.delete')).toBe(true);
+    } finally {
+      await rbac.setRolePermissions('editor', DEFAULT_ROLE_PERMISSIONS.editor);
+    }
+  });
+
+  it('does not backfill Data grid onto roles without Change data', async () => {
+    const store = await getStore();
+    try {
+      await rbac.setRolePermissions('viewer', ['editor.access', 'editor.run']);
+      await backfillDatagridRolePermissions(store);
+      const next = await rbac.permissionsForRole('viewer');
+      expect(next.some((p) => p.startsWith('editor.datagrid.'))).toBe(false);
+    } finally {
+      await rbac.setRolePermissions('viewer', DEFAULT_ROLE_PERMISSIONS.viewer);
+    }
   });
 });

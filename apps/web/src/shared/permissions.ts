@@ -92,9 +92,9 @@ export const PERMISSION_META: PermissionMeta[] = [
   { id: 'editor.sidebar.secrets', group: 'SQL Editor sidebar', label: 'Secrets', description: 'Show Secrets vault section.' },
   { id: 'editor.sidebar.utilities', group: 'SQL Editor sidebar', label: 'Utilities', description: 'Show Utilities section.' },
   { id: 'editor.sidebar.schema', group: 'SQL Editor sidebar', label: 'Schema', description: 'Show Schema explorer section.' },
-  { id: 'editor.datagrid.insert', group: 'Data grid', label: 'Insert rows', description: 'Add / clone rows in Data Peek and editable query-result grids.' },
-  { id: 'editor.datagrid.update', group: 'Data grid', label: 'Update rows', description: 'Edit rows in Data Peek and editable query-result grids.' },
-  { id: 'editor.datagrid.delete', group: 'Data grid', label: 'Delete rows', description: 'Delete rows in Data Peek and editable query-result grids.' },
+  { id: 'editor.datagrid.insert', group: 'Data grid', label: 'Insert rows', description: 'Add / clone rows in Data Peek and editable query-result grids (also needs Change data).' },
+  { id: 'editor.datagrid.update', group: 'Data grid', label: 'Update rows', description: 'Edit rows in Data Peek and editable query-result grids (also needs Change data).' },
+  { id: 'editor.datagrid.delete', group: 'Data grid', label: 'Delete rows', description: 'Delete rows in Data Peek and editable query-result grids (also needs Change data).' },
   { id: 'utility.access', group: 'Utilities', label: 'Use utilities', description: 'Run Clone Table, Index Management, Server Insights, etc.' },
   { id: 'secrets.view', group: 'Secrets', label: 'View secrets', description: 'List secrets (values still resolved only when needed).' },
   { id: 'secrets.create', group: 'Secrets', label: 'Add secrets', description: 'Create vault entries and cloud provider credentials.' },
@@ -178,6 +178,20 @@ export const CATEGORY_PERMISSION: Record<'read' | 'dml' | 'ddl' | 'grant', Permi
   ddl: 'editor.ddl',
   grant: 'editor.grant',
 };
+
+/** Permission required for Data Peek / query-result grid row actions. */
+export const DATAGRID_ACTION_PERMISSION: Record<
+  'insert' | 'update' | 'delete',
+  Permission
+> = {
+  insert: 'editor.datagrid.insert',
+  update: 'editor.datagrid.update',
+  delete: 'editor.datagrid.delete',
+};
+
+export function isDatagridAction(value: unknown): value is 'insert' | 'update' | 'delete' {
+  return value === 'insert' || value === 'update' || value === 'delete';
+}
 
 /**
  * True when `granted` satisfies `needed`. The retired `editor.write` umbrella

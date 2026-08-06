@@ -173,8 +173,10 @@ Tips:
     to open the related parent rows in Data Peek.
   In the peek window you can follow more FKs (panels stack and scroll), edit
   WHERE / ORDER BY / LIMIT (filters auto-apply when you edit, blur, or press Enter; Apply still works), use Prev/Next, drag ⋮⋮ to rearrange, and resize.
-  **Esc** closes. Values are bind parameters. With write permission you can
-  **add / edit / clone / delete** rows; viewers stay read-only.
+  **Esc** closes. Values are bind parameters. Row edit needs **Change data** plus
+  the matching **Data grid** permissions in Access control (**Insert** / **Update** /
+  **Delete** rows); viewers stay read-only. The same gates apply to editable
+  single-table query-result grids.
 - **Format** — pretty-print the buffer. **Clear** removes results for the active tab.
 - **Bookmarks** — save reusable snippets from the sidebar.
 - **Variables** — named values reused as `${{name}}` or `${{name.col}}` (table

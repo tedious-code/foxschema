@@ -50,7 +50,7 @@ import { createMetadataStore } from '../database/stores/registry';
 import { keySchemeInfo } from '../cores/crypto';
 import type { AuthedRequest } from './auth.routes';
 import { denyUnless, requirePermissions } from './rbac.middleware';
-import { CATEGORY_PERMISSION, permissionSatisfied, type Permission } from '../../shared/permissions';
+import { CATEGORY_PERMISSION, DATAGRID_ACTION_PERMISSION, isDatagridAction, permissionSatisfied, type Permission } from '../../shared/permissions';
 import { toHttpError, type ActorContext } from '../features/actor';
 import { makeConnectionResolver, type ConnectionRef } from '../features/connections/resolve';
 import { makeCompareService } from '../features/compare/service';
@@ -475,11 +475,13 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   // caps only. Rate-limited: each call can hold a DB connection for a while.
   const sqlExecuteLimiter = rateLimit({ windowMs: 60 * 1000, max: 60 });
   router.post('/sql/execute', sqlExecuteLimiter, async (req: Request, res: Response) => {
-    const { statements, maxRows, offset, params, ...ref } = req.body as ConnectionRef & {
+    const { statements, maxRows, offset, params, datagridAction, ...ref } = req.body as ConnectionRef & {
       statements?: unknown;
       maxRows?: unknown;
       offset?: unknown;
       params?: unknown;
+      /** Data Peek / query-result grid CRUD — requires editor.datagrid.*. */
+      datagridAction?: unknown;
     };
     if (!Array.isArray(statements) || statements.length === 0) {
       res.status(400).json({ error: 'statements[] is required.' });
@@ -509,6 +511,15 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
         const permission = CATEGORY_PERMISSION[category];
         if (permission) needed.add(permission);
       }
+    }
+    // Grid CRUD also needs the matching Data grid permission so Access control
+    // can allow SQL DML without exposing Add/Edit/Delete on Peek / results.
+    if (datagridAction !== undefined) {
+      if (!isDatagridAction(datagridAction)) {
+        res.status(400).json({ error: 'datagridAction must be insert, update, or delete.' });
+        return;
+      }
+      needed.add(DATAGRID_ACTION_PERMISSION[datagridAction]);
     }
     if (needed.size > 0 && denyUnless(authed, res, ...needed)) return;
     // Optional bind parameters, one array per statement. Anything else is a

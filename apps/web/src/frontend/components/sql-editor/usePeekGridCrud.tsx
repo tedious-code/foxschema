@@ -152,7 +152,8 @@ export function usePeekGridCrud(args: PeekGridCrudArgs): PeekGridCrud {
           [plan.sql],
           undefined,
           undefined,
-          plan.params.length ? [plan.params] : undefined
+          plan.params.length ? [plan.params] : undefined,
+          { datagridAction: plan.kind }
         );
         const failed = results.find((r) => !r.ok);
         if (failed && !failed.ok) {
