@@ -161,6 +161,19 @@ describe.skipIf(!ready)('SQL Editor · SELECT column picker', () => {
     await sql.closeColumnPicker();
   });
 
+  it('qualifies columns with the alias when FROM names a schema', async () => {
+    // Regression: `schema.table alias` used to list columns under the table
+    // name, because the alias map was keyed by the qualified name while the
+    // schema cache holds the bare one. SQLite accepts `main.` as the schema.
+    await sql.setSql('SELECT * FROM main.orders ord');
+    await sql.openColumnPicker();
+    const labels = await sql.pickerColumnLabels();
+    expect(labels).toContain('ord.id');
+    expect(labels).toContain('ord.total');
+    expect(labels.some((l) => /^orders\./i.test(l))).toBe(false);
+    await sql.closeColumnPicker();
+  });
+
   it('uses initials as the alias for a multi-word table', async () => {
     await sql.setSql('SELECT * FROM order_items');
     await sql.openColumnPicker();

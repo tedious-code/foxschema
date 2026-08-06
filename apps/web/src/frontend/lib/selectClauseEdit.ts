@@ -285,6 +285,30 @@ export function existingShortAliasForTable(sql: string, tableIdent: string): str
   return null;
 }
 
+/**
+ * Shortest alias in `sql` for each table in FROM/JOIN, looked up by either the
+ * name as written or its bare part.
+ *
+ * Both keys matter: the FROM clause may be schema-qualified (`Carter.ORDER ord`)
+ * while the schema cache only knows the bare name (`ORDER`). Keying on the
+ * qualified string alone makes a bare lookup miss, and the caller then falls
+ * back to the table name — which is both the wrong prefix and, for a reserved
+ * word like `ORDER`, invalid SQL.
+ */
+export function shortAliasesByTable(sql: string): Map<string, string> {
+  const byTable = new Map<string, string>();
+  const put = (key: string, alias: string) => {
+    const prev = byTable.get(key);
+    if (!prev || alias.length < prev.length) byTable.set(key, alias);
+  };
+  for (const [alias, table] of Object.entries(extractTableAliases(sql))) {
+    const full = table.toLowerCase();
+    put(full, alias);
+    if (full.includes('.')) put(full.slice(full.lastIndexOf('.') + 1), alias);
+  }
+  return byTable;
+}
+
 /** Escape a SQL identifier for use inside a RegExp. */
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

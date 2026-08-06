@@ -14,6 +14,7 @@ import {
   removeFromSelectList,
   selectListIsStar,
   setSelectListToStar,
+  shortAliasesByTable,
 } from '../../lib/selectClauseEdit';
 import { getCompletionContext, mutateSql } from './sqlEditorBridge';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
@@ -77,11 +78,9 @@ export const SelectColumnPicker: React.FC<Props> = ({ open, anchor, onClose }) =
     if (!open) return { options: [] as ColOpt[], star: false, selected: new Set<string>() };
     const ctx = getCompletionContext();
     const aliases = extractTableAliases(ctx.sql);
-    const aliasToTable = new Map<string, string>();
-    for (const [alias, table] of Object.entries(aliases)) {
-      const prev = aliasToTable.get(table.toLowerCase());
-      if (!prev || alias.length < prev.length) aliasToTable.set(table.toLowerCase(), alias);
-    }
+    // Keyed by qualified *and* bare name — the schema cache stores bare names,
+    // while FROM may be written as `Carter.ORDER ord`.
+    const aliasToTable = shortAliasesByTable(ctx.sql);
     const out: ColOpt[] = [];
     const seen = new Set<string>();
     for (const schema of ctx.schemas) {
