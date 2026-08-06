@@ -9,6 +9,8 @@
 
 import * as lodash from 'lodash-es';
 import * as dateFns from 'date-fns';
+// Locale entry, not the package root — the root pulls in every locale dataset.
+import { faker } from '@faker-js/faker/locale/en';
 import {
   runCodeCellBody,
   type CodeCellLast,
@@ -22,6 +24,8 @@ const MODULES: Record<string, object> = {
   lodash: lodash as object,
   'lodash-es': lodash as object,
   'date-fns': dateFns as object,
+  // `default` mirrors the browser registry so `import faker from …` also works.
+  '@faker-js/faker': { faker, default: faker },
 };
 
 /**

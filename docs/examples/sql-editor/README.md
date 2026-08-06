@@ -20,3 +20,5 @@ They use `UNION ALL` demo rows so they run without a `user` table.
 | `18-js-api-post.sql` | POST with query string, headers, JSON body |
 | `19-js-api-bearer-secret.sql` | Bearer token from secret `vars.apiToken` |
 | `20-node-api-post.sql` | Node POST with headers / query / body |
+| `21-js-faker-random-data.sql` | Random rows from `@faker-js/faker` (seeded) |
+| `22-node-faker-insert.sql` | Node cell seeding a table via the `sql` bridge |

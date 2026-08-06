@@ -848,6 +848,28 @@ return merged;
 `,
   },
   {
+    id: 'sample-js-faker-random-data',
+    title: '★ Sample · JS random data with faker',
+    sql: `-- Random rows from @faker-js/faker. seed(n) makes a run reproducible —
+-- drop the seed line for fresh values every time.
+
+-- @js
+import { faker } from '@faker-js/faker';
+
+faker.seed(2026);
+
+return Array.from({ length: 10 }, (_, i) => ({
+  id: i + 1,
+  name: faker.person.fullName(),
+  email: faker.internet.email(),
+  city: faker.location.city(),
+  signed_up: faker.date.past({ years: 2 }).toISOString().slice(0, 10),
+  balance: Number(faker.finance.amount({ min: 0, max: 5000, dec: 2 })),
+}));
+-- @end
+`,
+  },
+  {
     id: 'sample-js-json-roundtrip',
     title: '★ Sample · JS JSON round-trip',
     sql: `${DEMO_PEOPLE_SQL};

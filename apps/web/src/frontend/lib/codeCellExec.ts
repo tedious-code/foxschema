@@ -8,8 +8,9 @@
  * preamble and bundled packages.
  *
  * Cells may use local `let`/`const`/`var`, functions, loops, `async`/`await`,
- * `fetch`, and allowlisted `import`s (`lodash` / `lodash-es` / `date-fns`).
- * Each cell is isolated (no shared helpers across cells). Must **return** a grid.
+ * `fetch`, and allowlisted `import`s (`lodash` / `lodash-es` / `date-fns` /
+ * `@faker-js/faker`). Each cell is isolated (no shared helpers across cells).
+ * Must **return** a grid.
  */
 
 import {
@@ -20,7 +21,7 @@ import {
   type CodeCellErr,
   type CodeCellResult,
 } from './sql-splitter';
-import { CODE_CELL_PACKAGE_MODULES } from './codeCellPackages';
+import { loadCodeCellPackageModules } from './codeCellPackages';
 
 export { codeCellHasReturn, normalizeCodeCellReturn } from './sql-splitter';
 export type {
@@ -80,7 +81,7 @@ var globalThis = undefined;
  * scope. Supports `async`/`await` and `fetch`. Callers must transpile
  * TypeScript first.
  */
-export function executeCodeCell(args: {
+export async function executeCodeCell(args: {
   body: string;
   last: CodeCellLast;
   vars: CodeCellVars;
@@ -89,6 +90,6 @@ export function executeCodeCell(args: {
   return runCodeCellBody({
     ...args,
     preamble: SANDBOX_PREAMBLE,
-    modules: CODE_CELL_PACKAGE_MODULES,
+    modules: await loadCodeCellPackageModules(args.body),
   });
 }

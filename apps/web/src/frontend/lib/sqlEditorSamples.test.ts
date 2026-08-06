@@ -61,6 +61,41 @@ describe('SQL Editor sample bookmarks', () => {
     expect(result.rows).toEqual([[2, 1]]);
   });
 
+  it('runs the faker sample and returns seeded rows', async () => {
+    const sample = SQL_EDITOR_SAMPLE_BOOKMARKS.find(
+      (s) => s.id === 'sample-js-faker-random-data'
+    );
+    expect(sample).toBeTruthy();
+    // The sample opens with `--` prose, so run the fenced cell, not the buffer.
+    const cell = splitSqlStatements(sample!.sql).find((s) => s.kind === 'js');
+    expect(cell).toBeTruthy();
+    const { result } = await runCodeCell({
+      statement: cell!.text,
+      last: null,
+      variables: [],
+      maxRows: 100,
+    });
+    if (!result.ok) throw new Error(result.error);
+    expect(result).toMatchObject({ ok: true, rowCount: 10 });
+    expect(result.columns).toEqual([
+      'id',
+      'name',
+      'email',
+      'city',
+      'signed_up',
+      'balance',
+    ]);
+    // Seeded, so the same sample always produces the same first row.
+    const again = await runCodeCell({
+      statement: cell!.text,
+      last: null,
+      variables: [],
+      maxRows: 100,
+    });
+    if (!again.result.ok) throw new Error(again.result.error);
+    expect(again.result.rows[0]).toEqual(result.rows[0]);
+  });
+
   it('runs the lodash aggregate sample against a synthetic prior grid', async () => {
     const sample = SQL_EDITOR_SAMPLE_BOOKMARKS.find((s) => s.id === 'sample-js-lodash-aggregate');
     expect(sample).toBeTruthy();

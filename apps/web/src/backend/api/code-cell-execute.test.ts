@@ -69,6 +69,23 @@ return _.map([n], (x) => ({ x }));
     if (r.ok) expect(r.rows).toEqual([[3]]);
   });
 
+  it('generates fake rows with faker', async () => {
+    const r = await executeCodeCellNode({
+      body: `import { faker } from '@faker-js/faker';
+faker.seed(11);
+return [{ name: faker.person.fullName(), sku: faker.string.alphanumeric(6) }];
+`,
+      last: null,
+      vars: {},
+      maxRows: 10,
+    });
+    expect(r).toMatchObject({ ok: true, rowCount: 1 });
+    if (r.ok) {
+      expect(r.columns).toEqual(['name', 'sku']);
+      expect(String(r.rows[0]![1])).toHaveLength(6);
+    }
+  });
+
   it('supports await fetch via mock', async () => {
     const realFetch = globalThis.fetch;
     globalThis.fetch = (async () =>

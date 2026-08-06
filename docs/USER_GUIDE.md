@@ -244,7 +244,8 @@ Tips:
   or `-- @node` / `-- @nodets` … `-- @end` (runs on the FoxSchema **Node** server). You can use
   local `let`/`const`/`var`, **functions**, loops (`for`, `while`, `for…of`), **`async`/`await`**,
   and **`fetch`** (headers, query string, JSON body). Allowlisted **imports** (bundled, no CDN):
-  `lodash`, `lodash-es`, `date-fns` — put `import` lines at the top of the cell. Prefer `//`
+  `lodash`, `lodash-es`, `date-fns`, `@faker-js/faker` (English locale; call `faker.seed(n)`
+  for reproducible values) — put `import` lines at the top of the cell. Prefer `//`
   comments inside cells (`--` is the JS decrement operator). Cells are **isolated**
   (imports/functions do not carry to the next cell; use `last` / `vars` to pass data).
   The cell receives `last` (previous statement’s grid) and `vars` (Variables **including
