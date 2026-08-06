@@ -253,6 +253,27 @@ export class SqlEditorPage {
     await clickWhen(this.page, '[data-testid="sql-layout-by-credential"]');
   }
 
+  /** Side-by-side Compare toolbar for statement index (default 0). */
+  compareToggle(statementIndex = 0) {
+    return this.page.locator(`[data-testid="sql-result-compare-toggle-${statementIndex}"]`);
+  }
+
+  compareLegend(statementIndex = 0) {
+    return this.page.locator(`[data-testid="sql-result-compare-legend-${statementIndex}"]`);
+  }
+
+  compareBaselineSelect(statementIndex = 0) {
+    return this.page.locator(`[data-testid="sql-result-compare-baseline-${statementIndex}"]`);
+  }
+
+  /** Count cells marked with a data-diff attribute in the results panel. */
+  async diffCellCount(kind?: 'modified' | 'missing' | 'extra'): Promise<number> {
+    const sel = kind
+      ? `[data-testid="sql-results-side-by-side"] td[data-diff="${kind}"]`
+      : '[data-testid="sql-results-side-by-side"] td[data-diff]';
+    return this.page.locator(sel).count();
+  }
+
   async tabCount(): Promise<number> {
     return this.page.locator('[data-testid="sql-editor-tabs"] [role="tab"]').count();
   }

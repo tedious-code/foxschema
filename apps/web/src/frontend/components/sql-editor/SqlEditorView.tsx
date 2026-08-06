@@ -756,7 +756,7 @@ export const SqlEditorView: React.FC = () => {
             </button>
             <button
               type="button"
-              title="Side by side (per statement)"
+              title="Side by side (per statement) — compare cell values across servers"
               data-testid="sql-layout-side-by-side"
               onClick={() => setLayout('sideBySide')}
               className={`flex items-center gap-1 px-2 py-1 text-[10px] font-bold transition border-l border-slate-800 ${
