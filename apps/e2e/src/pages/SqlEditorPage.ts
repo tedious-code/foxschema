@@ -387,6 +387,34 @@ export class SqlEditorPage {
     if (aria === 'false') await toggle.click();
   }
 
+  /** Open Data Peek for a table from the Schema tree (modifier-click the row). */
+  async openDataPeek(tableName: string): Promise<void> {
+    await this.dismissOverlays();
+    const explorer = this.page.locator('[data-testid="sql-schema-explorer"]');
+    await explorer.waitFor({ state: 'visible', timeout: 15_000 });
+    await this.page.waitForFunction(
+      (name) => {
+        const root = document.querySelector('[data-testid="sql-schema-explorer"]');
+        return !!root && new RegExp(name, 'i').test(root.textContent ?? '');
+      },
+      tableName,
+      { timeout: 60_000 }
+    );
+    const label = explorer.getByText(tableName, { exact: true }).first();
+    await label.scrollIntoViewIfNeeded();
+    const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+    await label.click({ modifiers: [modifier] });
+    await waitFor(this.page, '[data-testid="data-peek"]', 30_000);
+    // Wait for the grid, since the CRUD controls only render once rows load.
+    await this.page.waitForSelector('[data-testid^="data-peek-crud-"]', { timeout: 30_000 });
+  }
+
+  /** Click Add row on the first open Data Peek panel. */
+  async openPeekAddRow(): Promise<void> {
+    await this.page.locator('[data-testid^="data-peek-add-"]').first().click();
+    await waitFor(this.page, '[data-testid="peek-row-editor"]', 10_000);
+  }
+
   async openIndexManagement(): Promise<void> {
     await this.ensureSidebarSectionOpen('utilities');
     await clickWhen(this.page, '[data-testid="utilities-index-management"]');

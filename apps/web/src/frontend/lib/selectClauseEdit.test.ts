@@ -13,8 +13,64 @@ import {
   removeFromSelectList,
   selectListIsStar,
   setSelectListToStar,
+  shortAliasesByTable,
   suggestTableAlias,
 } from './selectClauseEdit';
+
+/**
+ * What the column picker does: schema cache knows bare table names, the FROM
+ * clause may be schema-qualified. Falling through to the table name is the bug
+ * this models — `ORDER.id` is the wrong prefix and invalid SQL besides.
+ */
+function pickerAliasFor(sql: string, schemaCacheTableName: string): string {
+  const byTable = shortAliasesByTable(sql);
+  const bare = schemaCacheTableName.includes('.')
+    ? schemaCacheTableName.slice(schemaCacheTableName.lastIndexOf('.') + 1)
+    : schemaCacheTableName;
+  return (
+    byTable.get(schemaCacheTableName.toLowerCase()) ?? byTable.get(bare.toLowerCase()) ?? bare
+  );
+}
+
+describe('shortAliasesByTable', () => {
+  it('resolves a schema-qualified FROM by bare name', () => {
+    const byTable = shortAliasesByTable('SELECT * from Carter.ORDER ord ;');
+    expect(byTable.get('carter.order')).toBe('ord');
+    expect(byTable.get('order')).toBe('ord');
+  });
+
+  it('gives the picker the alias, not the table name', () => {
+    // Regression: `Carter.ORDER ord` used to yield `ORDER` because the map was
+    // keyed only by the qualified name while the schema cache had `ORDER`.
+    expect(pickerAliasFor('SELECT * from Carter.ORDER ord ;', 'ORDER')).toBe('ord');
+    expect(pickerAliasFor('SELECT * FROM carter.orders ord', 'orders')).toBe('ord');
+    expect(pickerAliasFor('SELECT * FROM Sales.Order_Items oi', 'Order_Items')).toBe('oi');
+  });
+
+  it('still works for an unqualified FROM', () => {
+    expect(pickerAliasFor('SELECT * FROM orders ord', 'orders')).toBe('ord');
+  });
+
+  it('falls back to the table name when no alias is written', () => {
+    // extractTableAliases indexes the table under its own name, so the "alias"
+    // here is just how the cell must be qualified: `order.id`.
+    expect(pickerAliasFor('SELECT * FROM Carter.ORDER', 'ORDER')).toBe('order');
+  });
+
+  it('keeps each table separate across a join', () => {
+    const sql =
+      'SELECT * FROM Carter.ORDER ord JOIN Carter.ORDER_ITEM oi ON oi.order_id = ord.id';
+    expect(pickerAliasFor(sql, 'ORDER')).toBe('ord');
+    expect(pickerAliasFor(sql, 'ORDER_ITEM')).toBe('oi');
+  });
+
+  it('prefers the shortest alias when a table is written more than once', () => {
+    const byTable = shortAliasesByTable(
+      'SELECT * FROM Carter.ORDER ord JOIN Carter.ORDER o2 ON o2.id = ord.parent_id'
+    );
+    expect(byTable.get('order')).toBe('o2');
+  });
+});
 
 describe('selectClauseEdit', () => {
   it('finds the SELECT list before FROM', () => {
