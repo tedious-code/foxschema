@@ -200,6 +200,23 @@ export type ResultEditTable =
   | { ok: false; reason: string };
 
 /**
+ * True when the FROM clause lists more than one table (JOIN or comma-FROM),
+ * including a self-join of the same table under two aliases.
+ */
+export function fromClauseIsMultiTable(sql: string): boolean {
+  const m = sql.match(
+    /\bFROM\b([\s\S]*?)(?=\bWHERE\b|\bGROUP\b|\bORDER\b|\bLIMIT\b|\bHAVING\b|\bUNION\b|\bEXCEPT\b|\bINTERSECT\b|\bWINDOW\b|\bFETCH\b|;|$)/i
+  );
+  if (!m) return false;
+  const fromBody = m[1] ?? '';
+  if (/\bJOIN\b/i.test(fromBody)) return true;
+  // Comma-separated table list: FROM a, b  (SELECT list commas are outside FROM).
+  return /,\s*(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][\w$]*(?:\.[A-Za-z_][\w$]*)*)/.test(
+    fromBody
+  );
+}
+
+/**
  * Resolve the single base table for editing a query-result grid.
  * Only plain SELECT / WITH … SELECT against one table is editable — joins,
  * DML, and code-cell outputs stay read-only.
@@ -216,6 +233,9 @@ export function singleTableForResultEdit(
   const head = trimmed.replace(/^\/\*[\s\S]*?\*\//, '').trim();
   if (!/^(WITH|SELECT)\b/i.test(head)) {
     return { ok: false, reason: 'Only SELECT result grids can be edited.' };
+  }
+  if (fromClauseIsMultiTable(trimmed)) {
+    return { ok: false, reason: 'Join / multi-table results are read-only.' };
   }
   const names = tableNamesFromSql(trimmed);
   if (names.length === 0) {

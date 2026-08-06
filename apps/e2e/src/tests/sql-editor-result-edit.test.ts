@@ -64,7 +64,7 @@ INSERT INTO items (id, label, qty) VALUES (1, 'seed', 3);
     rmSync(DIR, { recursive: true, force: true });
   });
 
-  it('adds a row from the query result grid toolbar', async () => {
+  it('adds a row from the result grid and keeps joins read-only', async () => {
     await sql.openView();
     await sql.checkConnection(NAME);
     // Wait for schema so single-table editability can resolve.
@@ -88,12 +88,11 @@ INSERT INTO items (id, label, qty) VALUES (1, 'seed', 3);
     await driver.locator('[data-testid="peek-row-submit"]').click();
 
     await sql.confirmWriteIfShown();
+    await form.waitFor({ state: 'detached', timeout: 15_000 });
     await expect
       .poll(async () => (await sql.resultsText()).toLowerCase(), { timeout: 20_000 })
       .toMatch(/from-grid/);
-  });
 
-  it('keeps join results read-only', async () => {
     await sql.setSql(
       'SELECT a.id, a.label FROM items a JOIN items b ON a.id = b.id;'
     );
@@ -104,8 +103,11 @@ INSERT INTO items (id, label, qty) VALUES (1, 'seed', 3);
         timeout: 15_000,
       })
       .toBe(0);
-    await expect(
-      driver.locator('[data-testid="sql-result-0-readonly"]')
-    ).toBeVisible({ timeout: 10_000 });
+    await expect
+      .poll(
+        async () => driver.locator('[data-testid="sql-result-0-readonly"]').isVisible(),
+        { timeout: 10_000 }
+      )
+      .toBe(true);
   });
 });

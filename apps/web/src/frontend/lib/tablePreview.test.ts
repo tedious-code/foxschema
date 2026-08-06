@@ -9,6 +9,7 @@ import {
   isSafePeekClause,
   peekBaseFilterLabel,
   singleTableForResultEdit,
+  fromClauseIsMultiTable,
 } from './tablePreview';
 import type { ForeignKeyInfo, TableSchema } from './types';
 
@@ -213,6 +214,14 @@ describe('singleTableForResultEdit', () => {
         [users]
       ).ok
     ).toBe(false);
+    // Self-join: same physical table, still multi-table FROM.
+    expect(
+      singleTableForResultEdit(
+        'SELECT a.id FROM public.users a JOIN public.users b ON a.id = b.id',
+        [users]
+      ).ok
+    ).toBe(false);
+    expect(fromClauseIsMultiTable('SELECT * FROM users a, users b')).toBe(true);
     expect(singleTableForResultEdit('UPDATE public.users SET email = x', [users]).ok).toBe(
       false
     );
