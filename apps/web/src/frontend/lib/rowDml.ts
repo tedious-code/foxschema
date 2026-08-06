@@ -124,7 +124,7 @@ export function assessPeekEditability(opts: {
   if (PEEK_READONLY_DIALECTS.has(dialect.toLowerCase())) {
     return {
       editable: false,
-      reason: 'This dialect is read-only — Data Peek cannot write rows.',
+      reason: 'This dialect is read-only — row editing is disabled.',
       keyColumns: [],
       editableColumns: [],
       identityColumns: new Set(),
@@ -142,7 +142,7 @@ export function assessPeekEditability(opts: {
   if (table.objectType !== 'TABLE' && table.objectType !== 'MQT') {
     return {
       editable: false,
-      reason: `${table.objectType} objects are not editable in Data Peek.`,
+      reason: `${table.objectType} objects are not editable in the data grid.`,
       keyColumns: [],
       editableColumns: [],
       identityColumns: new Set(),

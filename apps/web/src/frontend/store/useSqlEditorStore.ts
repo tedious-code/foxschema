@@ -458,6 +458,15 @@ interface SqlEditorState {
     statementIndex: number;
     pageIndex: number;
   }) => Promise<void>;
+  /**
+   * Re-fetch the current page for one statement (bypass page cache).
+   * Used after row CRUD on a query-result grid — same idea as runDataPeekEntry.
+   */
+  reloadResultPage: (args: {
+    connectionId: string;
+    statementIndex: number;
+    pageIndex: number;
+  }) => Promise<void>;
   cancelWriteConfirm: () => void;
   clearResults: () => void;
   saveBookmark: (opts?: { title?: string }) => void;
@@ -1555,6 +1564,25 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           const msg = error instanceof Error ? error.message : String(error);
           applyResult({ ok: false, error: msg, durationMs: 0 }, false);
         }
+      },
+
+      reloadResultPage: async ({ connectionId, statementIndex, pageIndex }) => {
+        const tabId = get().activeTabId;
+        const current = get().resultsByTab[tabId];
+        if (!current) return;
+        const prefix = `${pageMetaKey(connectionId, statementIndex)}:`;
+        set({
+          resultsByTab: {
+            ...get().resultsByTab,
+            [tabId]: {
+              ...current,
+              pageCache: Object.fromEntries(
+                Object.entries(current.pageCache ?? {}).filter(([k]) => !k.startsWith(prefix))
+              ),
+            },
+          },
+        });
+        await get().loadResultPage({ connectionId, statementIndex, pageIndex });
       },
 
       saveBookmark: (opts) => {

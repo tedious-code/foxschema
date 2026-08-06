@@ -9,38 +9,16 @@
  * Each panel has WHERE / ORDER BY / LIMIT (auto-applies on edit/blur) and a drag resize handle.
  * FK drill panels show a Key chip (and All rows) to drop the bound key and fetch the whole table.
  * Editable tables (with PK) support add / edit / clone / delete; Safe mode shows WriteConfirmDialog.
- * Editor result grids can open the same peek via rust FK cell clicks.
+ * Query-result grids reuse the same CRUD hook for single-table SELECTs.
+ * Editor result grids can also open this peek via rust FK cell clicks.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import {
-  Copy,
-  GripVertical,
-  Loader2,
-  Pencil,
-  Plus,
-  Trash2,
-  X,
-} from 'lucide-react';
+import { GripVertical, Loader2, X } from 'lucide-react';
 import { useSqlEditorStore, type DataPeekEntry } from '../../store/useSqlEditorStore';
-import { useSyncStore } from '../../store/useSyncStore';
-import { useAuthStore } from '../../store/authStore';
 import { foreignKeyLinksFor, peekBaseFilterLabel } from '../../lib/tablePreview';
-import {
-  assessPeekEditability,
-  buildPeekDelete,
-  buildPeekInsert,
-  buildPeekUpdate,
-  draftToArray,
-  draftToRowValues,
-  originalRowForPeekEdit,
-  peekRowToDraft,
-  type PeekWritePlan,
-} from '../../lib/rowDml';
-import { executeSql } from '../../api/sqlApi';
 import { DataGrid } from './DataGrid';
-import { PeekRowEditor, type PeekRowEditorMode } from './PeekRowEditor';
-import { WriteConfirmDialog } from './WriteConfirmDialog';
+import { usePeekGridCrud } from './usePeekGridCrud';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
 import type { TableSchema } from '../../lib/types';
 
@@ -347,62 +325,6 @@ const PeekGrid: React.FC<{
   const pageDataPeekEntry = useSqlEditorStore((s) => s.pageDataPeekEntry);
   const runDataPeekEntry = useSqlEditorStore((s) => s.runDataPeekEntry);
   const clearDataPeekBaseFilter = useSqlEditorStore((s) => s.clearDataPeekBaseFilter);
-  const safeMode = useSqlEditorStore((s) => s.safeMode);
-  const sessionPasswords = useSqlEditorStore((s) => s.sessionPasswords);
-  const connections = useSyncStore((s) => s.connections);
-  const conn = connections.find((c) => c.id === connectionId);
-  const canInsert = useAuthStore((s) => s.can('editor.datagrid.insert'));
-  const canUpdate = useAuthStore((s) => s.can('editor.datagrid.update'));
-  const canDelete = useAuthStore((s) => s.can('editor.datagrid.delete'));
-  const canWriteSql = useAuthStore((s) => s.can('editor.dml'));
-
-  const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
-  const [editor, setEditor] = useState<{
-    mode: PeekRowEditorMode;
-    draft: Record<string, string>;
-    rowIndex: number | null;
-    /** Row values at edit-open time (UPDATE must not re-key off a refreshed grid). */
-    originalRow?: unknown[];
-  } | null>(null);
-  const [pendingWrite, setPendingWrite] = useState<PeekWritePlan | null>(null);
-  const [writeError, setWriteError] = useState<string | null>(null);
-  const [writing, setWriting] = useState(false);
-
-  useEffect(() => {
-    onOverlayOpenChange?.(Boolean(editor || pendingWrite));
-  }, [editor, pendingWrite, onOverlayOpenChange]);
-
-  useEffect(() => {
-    if (!editor && !pendingWrite) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      e.preventDefault();
-      e.stopPropagation();
-      if (pendingWrite) {
-        setPendingWrite(null);
-        return;
-      }
-      setEditor(null);
-      setWriteError(null);
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [editor, pendingWrite]);
-
-  useEffect(() => {
-    // Panel identity / page change — discard in-progress CRUD UI.
-    setSelectedRowIndex(null);
-    setEditor(null);
-    setPendingWrite(null);
-    setWriteError(null);
-  }, [entry.id, entry.pageIndex]);
-
-  useEffect(() => {
-    // Grid refresh (filters, reload): keep an open editor / confirm; only clear
-    // selection. Edit submits use `editor.originalRow`, not liveRows[rowIndex].
-    if (editor || pendingWrite) return;
-    setSelectedRowIndex(null);
-  }, [entry.result, editor, pendingWrite]);
 
   const table = useMemo(() => {
     if (!tables) return undefined;
@@ -413,11 +335,6 @@ const PeekGrid: React.FC<{
       tables.find((t) => t.name.toLowerCase().replace(/^.*\./, '') === bare)
     );
   }, [tables, entry.tableName]);
-
-  const editability = useMemo(() => {
-    const cols = entry.result?.ok ? entry.result.columns : [];
-    return assessPeekEditability({ dialect, table, resultColumns: cols });
-  }, [dialect, table, entry.result]);
 
   const links = useMemo(
     () => (entry.result?.ok ? foreignKeyLinksFor(table, entry.result.columns) : []),
@@ -444,160 +361,27 @@ const PeekGrid: React.FC<{
   const heightPx =
     entry.panelHeightPx ?? (variant === 'drill' ? DEFAULT_HEIGHT_DRILL : DEFAULT_HEIGHT_ROOT);
 
-  const selectedRow =
-    entry.result?.ok && selectedRowIndex != null
-      ? entry.result.rows[selectedRowIndex]
-      : undefined;
+  const afterWrite = useCallback(() => runDataPeekEntry(entry.id), [runDataPeekEntry, entry.id]);
+  const columns = entry.result?.ok ? entry.result.columns : [];
+  const rows = entry.result?.ok ? entry.result.rows : [];
 
-  const gridWritable = editability.editable && canWriteSql;
-  const canAnyRowAction = canInsert || canUpdate || canDelete;
+  const crud = usePeekGridCrud({
+    connectionId,
+    dialect,
+    tableName: entry.tableName,
+    table,
+    columns,
+    rows,
+    resultOk: Boolean(entry.result?.ok),
+    sessionKey: `${entry.id}:${entry.pageIndex}`,
+    resultEpoch: entry.result,
+    onAfterWrite: afterWrite,
+    testId: (action) => `data-peek-${action}-${entry.id}`,
+  });
 
-  const runWrite = useCallback(
-    async (plan: PeekWritePlan) => {
-      if (writing) return;
-      setWriting(true);
-      setWriteError(null);
-      setPendingWrite(null);
-      try {
-        const { results } = await executeSql(
-          {
-            connectionId,
-            password: sessionPasswords[connectionId] || undefined,
-            schema: conn?.schema?.trim() || undefined,
-          },
-          [plan.sql],
-          undefined,
-          undefined,
-          plan.params.length ? [plan.params] : undefined
-        );
-        const failed = results.find((r) => !r.ok);
-        if (failed && !failed.ok) {
-          setWriteError(failed.error || 'Write failed');
-          return;
-        }
-        setEditor(null);
-        setSelectedRowIndex(null);
-        await runDataPeekEntry(entry.id);
-      } catch (e) {
-        setWriteError(e instanceof Error ? e.message : String(e));
-      } finally {
-        setWriting(false);
-      }
-    },
-    [
-      writing,
-      connectionId,
-      sessionPasswords,
-      conn?.schema,
-      runDataPeekEntry,
-      entry.id,
-    ]
-  );
-
-  const queueOrRun = useCallback(
-    (plan: PeekWritePlan) => {
-      setWriteError(null);
-      if (safeMode) {
-        setPendingWrite(plan);
-        return;
-      }
-      void runWrite(plan);
-    },
-    [safeMode, runWrite]
-  );
-
-  const openAdd = () => {
-    if (!gridWritable || !canInsert || !table || !entry.result?.ok) return;
-    setEditor({
-      mode: 'add',
-      draft: peekRowToDraft(entry.result.columns, null, {
-        clearIdentity: editability.identityColumns,
-      }),
-      rowIndex: null,
-    });
-  };
-
-  const openEdit = () => {
-    if (!gridWritable || !canUpdate || !table || !entry.result?.ok || selectedRowIndex == null) return;
-    const row = entry.result.rows[selectedRowIndex];
-    if (!row) return;
-    setEditor({
-      mode: 'edit',
-      draft: peekRowToDraft(entry.result.columns, row),
-      rowIndex: selectedRowIndex,
-      // Snapshot keys/values now — filter refresh must not retarget the UPDATE.
-      originalRow: row.slice(),
-    });
-  };
-
-  const openClone = () => {
-    if (!gridWritable || !canInsert || !table || !entry.result?.ok || selectedRowIndex == null) return;
-    const row = entry.result.rows[selectedRowIndex];
-    if (!row) return;
-    setEditor({
-      mode: 'clone',
-      draft: peekRowToDraft(entry.result.columns, row, {
-        clearKeys: editability.keyColumns.map((k) => k.name),
-        clearIdentity: editability.identityColumns,
-      }),
-      rowIndex: selectedRowIndex,
-    });
-  };
-
-  const openDelete = () => {
-    if (!gridWritable || !canDelete || !entry.result?.ok || selectedRowIndex == null) return;
-    const row = entry.result.rows[selectedRowIndex];
-    if (!row) return;
-    const plan = buildPeekDelete({
-      tableName: entry.tableName,
-      dialect,
-      columns: entry.result.columns,
-      row,
-      keyColumns: editability.keyColumns,
-    });
-    if ('error' in plan) {
-      setWriteError(plan.error);
-      return;
-    }
-    queueOrRun(plan);
-  };
-
-  const onEditorSubmit = (draft: Record<string, string>) => {
-    if (!gridWritable || !entry.result?.ok || !editor) return;
-    const cols = entry.result.columns;
-    if (editor.mode === 'edit') {
-      const original = originalRowForPeekEdit(editor, entry.result.rows);
-      if (!original) return;
-      const plan = buildPeekUpdate({
-        tableName: entry.tableName,
-        dialect,
-        columns: cols,
-        originalRow: original,
-        draftRow: draftToArray(cols, draft, original),
-        keyColumns: editability.keyColumns,
-      });
-      if ('error' in plan) {
-        setWriteError(plan.error);
-        return;
-      }
-      queueOrRun(plan);
-      return;
-    }
-    const plan = buildPeekInsert({
-      tableName: entry.tableName,
-      dialect,
-      values: draftToRowValues(cols, draft),
-      identityColumns: editability.identityColumns,
-    });
-    if ('error' in plan) {
-      setWriteError(plan.error);
-      return;
-    }
-    queueOrRun(plan);
-  };
-
-  const canMutateRow = gridWritable && selectedRowIndex != null && Boolean(selectedRow);
-  const showCrud = gridWritable && !!entry.result?.ok && !!table && canAnyRowAction;
+  useEffect(() => {
+    onOverlayOpenChange?.(crud.overlayOpen);
+  }, [crud.overlayOpen, onOverlayOpenChange]);
 
   return (
     <div
@@ -650,66 +434,11 @@ const PeekGrid: React.FC<{
             All rows
           </button>
         )}
-        {showCrud && (
-          <div className="flex items-center gap-0.5 shrink-0" data-testid={`data-peek-crud-${entry.id}`}>
-            {canInsert && (
-              <button
-                type="button"
-                data-testid={`data-peek-add-${entry.id}`}
-                title="Add row"
-                aria-label="Add row"
-                disabled={writing}
-                onClick={openAdd}
-                className="p-1 rounded text-slate-400 hover:text-emerald-300 hover:bg-slate-800 disabled:opacity-40"
-              >
-                <Plus className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
-              </button>
-            )}
-            {canUpdate && (
-              <button
-                type="button"
-                data-testid={`data-peek-edit-${entry.id}`}
-                title="Edit selected row"
-                aria-label="Edit selected row"
-                disabled={!canMutateRow || writing}
-                onClick={openEdit}
-                className="p-1 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 disabled:opacity-40"
-              >
-                <Pencil className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
-              </button>
-            )}
-            {canInsert && (
-              <button
-                type="button"
-                data-testid={`data-peek-clone-${entry.id}`}
-                title="Clone selected row"
-                aria-label="Clone selected row"
-                disabled={!canMutateRow || writing}
-                onClick={openClone}
-                className="p-1 rounded text-slate-400 hover:text-amber-300 hover:bg-slate-800 disabled:opacity-40"
-              >
-                <Copy className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
-              </button>
-            )}
-            {canDelete && (
-              <button
-                type="button"
-                data-testid={`data-peek-delete-${entry.id}`}
-                title="Delete selected row"
-                aria-label="Delete selected row"
-                disabled={!canMutateRow || writing}
-                onClick={openDelete}
-                className="p-1 rounded text-slate-400 hover:text-rose-300 hover:bg-slate-800 disabled:opacity-40"
-              >
-                <Trash2 className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
-              </button>
-            )}
-          </div>
-        )}
-        {!editability.editable && editability.reason && entry.result?.ok && (
+        {crud.crudButtons}
+        {!crud.editability.editable && crud.editability.reason && entry.result?.ok && (
           <span
             className="hidden sm:inline text-xs font-semibold text-slate-400 truncate max-w-[14rem]"
-            title={editability.reason}
+            title={crud.editability.reason}
           >
             Read-only
           </span>
@@ -731,14 +460,7 @@ const PeekGrid: React.FC<{
       {/* Keep filters editable while a page reloads so clearing WHERE can apply. */}
       <PeekFilterBar entry={entry} />
 
-      {writeError && (
-        <div
-          data-testid={`data-peek-write-error-${entry.id}`}
-          className="mx-0.5 mb-1 rounded border border-rose-500/40 bg-rose-950/30 px-3 py-1.5 text-sm font-semibold text-rose-300"
-        >
-          {writeError}
-        </div>
-      )}
+      {crud.writeErrorBanner}
 
       {entry.status === 'loading' && !entry.result && (
         <div className="flex items-center gap-2 px-1 py-4 text-sm font-semibold text-slate-300">
@@ -767,8 +489,8 @@ const PeekGrid: React.FC<{
             onNextPage={() => void pageDataPeekEntry(entry.id, entry.pageIndex + 1)}
             linkColumns={linkColumns.size > 0 ? linkColumns : undefined}
             onLinkClick={onLinkClick}
-            selectedRowIndex={selectedRowIndex}
-            onSelectRow={gridWritable && canAnyRowAction ? setSelectedRowIndex : undefined}
+            selectedRowIndex={crud.selectedRowIndex}
+            onSelectRow={crud.onSelectRow}
             emphasis
           />
           {showFkHint && linkColumns.size > 0 && (
@@ -782,37 +504,7 @@ const PeekGrid: React.FC<{
 
       <PeekResizeHandle entryId={entry.id} heightPx={heightPx} />
 
-      {editor && table && entry.result?.ok && (
-        <PeekRowEditor
-          open
-          mode={editor.mode}
-          tableName={entry.tableName}
-          table={table}
-          columns={entry.result.columns}
-          draft={editor.draft}
-          keyNames={editability.keyColumns.map((k) => k.name)}
-          identityColumns={editability.identityColumns}
-          onCancel={() => {
-            setEditor(null);
-            setWriteError(null);
-          }}
-          onSubmit={onEditorSubmit}
-        />
-      )}
-
-      {pendingWrite && (
-        <WriteConfirmDialog
-          writeStatements={[pendingWrite.displaySql]}
-          credentialCount={1}
-          readonlyTargets={
-            dialect.toLowerCase() === 'clickhouse'
-              ? [{ name: conn?.name || connectionId, dialect }]
-              : []
-          }
-          onCancel={() => setPendingWrite(null)}
-          onConfirm={() => void runWrite(pendingWrite)}
-        />
-      )}
+      {crud.overlays}
     </div>
   );
 };

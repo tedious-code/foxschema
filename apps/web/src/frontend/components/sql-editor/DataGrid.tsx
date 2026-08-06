@@ -179,12 +179,15 @@ function GridToolbar({
   onRefresh,
   onExport,
   emphasis,
+  toolbarExtra,
 }: {
   label?: string;
   refreshing?: boolean;
   onRefresh?: () => void;
   onExport?: () => void;
   emphasis?: boolean;
+  /** Row CRUD controls (query results / Data Peek). */
+  toolbarExtra?: React.ReactNode;
 }): React.ReactElement {
   const chrome = emphasis
     ? 'text-xs font-bold'
@@ -199,6 +202,8 @@ function GridToolbar({
           {label}
         </div>
       )}
+      {!label && toolbarExtra ? <div className="flex-1 min-w-0" /> : null}
+      {toolbarExtra}
       {onRefresh && (
         <button
           type="button"
@@ -253,9 +258,11 @@ export const DataGrid: React.FC<{
    */
   linkColumns?: Map<number, string>;
   onLinkClick?: (colIdx: number, rowIdx: number) => void;
-  /** Highlight a selected result row (Data Peek edit). */
+  /** Highlight a selected result row (Data Peek / editable query results). */
   selectedRowIndex?: number | null;
   onSelectRow?: (rowIdx: number) => void;
+  /** Extra toolbar controls (add / edit / clone / delete). */
+  toolbarExtra?: React.ReactNode;
   /**
    * Larger, bolder type (Data Peek). Editor result panes keep the default
    * compact grid so side-by-side compares stay dense.
@@ -281,6 +288,7 @@ export const DataGrid: React.FC<{
     onLinkClick,
     selectedRowIndex = null,
     onSelectRow,
+    toolbarExtra,
     emphasis = false,
   }) => {
   const upsertVariable = useSqlEditorStore((s) => s.upsertVariable);
@@ -473,7 +481,12 @@ export const DataGrid: React.FC<{
   if (!result.ok) {
     return (
       <div className="w-full min-w-0 flex flex-col">
-        <GridToolbar label={label} refreshing={refreshing} onRefresh={onRefresh} />
+        <GridToolbar
+          label={label}
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          toolbarExtra={toolbarExtra}
+        />
         <div className="flex items-start gap-2 text-xs text-rose-400 bg-rose-950/40 border border-rose-500/20 rounded-md px-3 py-2">
           <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" strokeWidth={SQL_ICON_STROKE} />
           <span className="break-all">{result.error}</span>
@@ -508,6 +521,7 @@ export const DataGrid: React.FC<{
         refreshing={refreshing}
         onRefresh={onRefresh}
         onExport={sourceColumns.length > 0 ? exportOrdered : undefined}
+        toolbarExtra={toolbarExtra}
         emphasis={emphasis}
       />
       <div

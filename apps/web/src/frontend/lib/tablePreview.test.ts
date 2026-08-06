@@ -8,6 +8,8 @@ import {
   composePeekSql,
   isSafePeekClause,
   peekBaseFilterLabel,
+  singleTableForResultEdit,
+  fromClauseIsMultiTable,
 } from './tablePreview';
 import type { ForeignKeyInfo, TableSchema } from './types';
 
@@ -186,5 +188,55 @@ describe('foreignKeyLinksForSql', () => {
     expect(
       foreignKeyLinksForSql('SELECT * FROM orders', [], ['customer_id'])
     ).toEqual([]);
+  });
+});
+
+describe('singleTableForResultEdit', () => {
+  const users = {
+    name: 'public.users',
+    objectType: 'TABLE',
+    columns: [],
+    indices: [],
+    foreignKeys: [],
+  } as unknown as TableSchema;
+
+  it('resolves a single-table SELECT', () => {
+    const r = singleTableForResultEdit('SELECT id, email FROM public.users', [users]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.table.name).toBe('public.users');
+  });
+
+  it('rejects joins and non-SELECT statements', () => {
+    expect(
+      singleTableForResultEdit(
+        'SELECT * FROM public.users u JOIN orders o ON o.user_id = u.id',
+        [users]
+      ).ok
+    ).toBe(false);
+    // Self-join: same physical table, still multi-table FROM.
+    expect(
+      singleTableForResultEdit(
+        'SELECT a.id FROM public.users a JOIN public.users b ON a.id = b.id',
+        [users]
+      ).ok
+    ).toBe(false);
+    expect(fromClauseIsMultiTable('SELECT * FROM users a, users b')).toBe(true);
+    expect(singleTableForResultEdit('UPDATE public.users SET email = x', [users]).ok).toBe(
+      false
+    );
+    expect(singleTableForResultEdit('SELECT 1', [users]).ok).toBe(false);
+  });
+
+  it('allows WITH … SELECT when only one real table is referenced', () => {
+    const r = singleTableForResultEdit(
+      'WITH x AS (SELECT 1) SELECT * FROM public.users',
+      [users]
+    );
+    expect(r.ok).toBe(true);
+    // CTE-only SELECT has no schema table → not editable.
+    expect(
+      singleTableForResultEdit('WITH x AS (SELECT 1 AS n) SELECT n FROM x', [users]).ok
+    ).toBe(false);
   });
 });

@@ -23,6 +23,11 @@ export class SqlEditorPage {
       await write.click({ position: { x: 8, y: 8 } });
       await write.waitFor({ state: 'detached', timeout: 5_000 }).catch(() => undefined);
     }
+    const rowForm = this.page.locator('[data-testid="peek-row-editor"]');
+    if (await rowForm.isVisible().catch(() => false)) {
+      await this.page.keyboard.press('Escape');
+      await rowForm.waitFor({ state: 'detached', timeout: 5_000 }).catch(() => undefined);
+    }
     // First-run signup wizard (full-page, not a z-100 overlay).
     const skipSignup = this.page.getByRole('button', { name: /skip for now/i });
     if (await skipSignup.isVisible().catch(() => false)) {

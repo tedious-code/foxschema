@@ -195,6 +195,65 @@ export function tablesFromSql(
   return out;
 }
 
+export type ResultEditTable =
+  | { ok: true; table: TableSchema }
+  | { ok: false; reason: string };
+
+/**
+ * True when the FROM clause lists more than one table (JOIN or comma-FROM),
+ * including a self-join of the same table under two aliases.
+ */
+export function fromClauseIsMultiTable(sql: string): boolean {
+  const m = sql.match(
+    /\bFROM\b([\s\S]*?)(?=\bWHERE\b|\bGROUP\b|\bORDER\b|\bLIMIT\b|\bHAVING\b|\bUNION\b|\bEXCEPT\b|\bINTERSECT\b|\bWINDOW\b|\bFETCH\b|;|$)/i
+  );
+  if (!m) return false;
+  const fromBody = m[1] ?? '';
+  if (/\bJOIN\b/i.test(fromBody)) return true;
+  // Comma-separated table list: FROM a, b  (SELECT list commas are outside FROM).
+  return /,\s*(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][\w$]*(?:\.[A-Za-z_][\w$]*)*)/.test(
+    fromBody
+  );
+}
+
+/**
+ * Resolve the single base table for editing a query-result grid.
+ * Only plain SELECT / WITH … SELECT against one table is editable — joins,
+ * DML, and code-cell outputs stay read-only.
+ */
+export function singleTableForResultEdit(
+  sql: string,
+  tables: TableSchema[] | undefined
+): ResultEditTable {
+  const trimmed = sql.trim();
+  if (!trimmed) {
+    return { ok: false, reason: 'No statement to edit against.' };
+  }
+  // Drop a leading block comment so `/* … */ SELECT …` still qualifies.
+  const head = trimmed.replace(/^\/\*[\s\S]*?\*\//, '').trim();
+  if (!/^(WITH|SELECT)\b/i.test(head)) {
+    return { ok: false, reason: 'Only SELECT result grids can be edited.' };
+  }
+  if (fromClauseIsMultiTable(trimmed)) {
+    return { ok: false, reason: 'Join / multi-table results are read-only.' };
+  }
+  const names = tableNamesFromSql(trimmed);
+  if (names.length === 0) {
+    return { ok: false, reason: 'No base table in this query.' };
+  }
+  if (names.length > 1) {
+    return { ok: false, reason: 'Join / multi-table results are read-only.' };
+  }
+  const table = findCachedTable(tables, names[0]!);
+  if (!table) {
+    return {
+      ok: false,
+      reason: 'Load the schema for this connection to enable row editing.',
+    };
+  }
+  return { ok: true, table };
+}
+
 /**
  * FK links for a result set given the statement SQL + schema tables.
  * First table that claims a column wins when joins share FK column names.
