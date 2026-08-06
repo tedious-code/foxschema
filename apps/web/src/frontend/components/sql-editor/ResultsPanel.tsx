@@ -189,7 +189,7 @@ const ResultGridPane: React.FC<{
       {crud.crudButtons}
       {readOnlyReason && (
         <span
-          className="hidden sm:inline text-[10px] font-semibold text-slate-500 truncate max-w-[12rem]"
+          className="text-[10px] font-semibold text-slate-500 truncate max-w-[12rem]"
           title={readOnlyReason}
           data-testid={`sql-result-${item.statementIndex}-readonly`}
         >
