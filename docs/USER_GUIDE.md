@@ -129,6 +129,12 @@ compare / migrate). It lives in the same local web UI you open with `foxschema`.
    that text is executed (variables still expand).
 5. Click **Run**. Results appear below, grouped by connection (stack or side-by-side).
 
+6. **Compare data across servers** — switch the results layout to **Side-by-side**,
+   check two or more Destinations, and leave **Compare** on. Cells that differ from
+   the baseline connection are colored: amber (modified), rose (missing on the other
+   side), emerald (extra). Pick the baseline with **vs**. Rows align by index on the
+   current page, so use the same `ORDER BY` on each server.
+
 Tips:
 
 - **Tabs** — open several buffers; rename with double-click. SQL text is remembered

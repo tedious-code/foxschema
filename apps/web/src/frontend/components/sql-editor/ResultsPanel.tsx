@@ -4,12 +4,13 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Results for one SQL Editor tab (By cred / Side-by-side layouts).
+ * Side-by-side can Compare cell values across credentials (colored diffs).
  * Foreign-key cells can open Data Peek when schema FKs match the statement.
  * Single-table SELECT grids support add / edit / clone / delete (same DML path
  * as Data Peek) when the primary key is present in the result columns.
  */
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, Database, AlertCircle, GripVertical, RefreshCw } from 'lucide-react';
+import { Loader2, Database, AlertCircle, GripVertical, RefreshCw, GitCompare } from 'lucide-react';
 import { useSqlEditorStore, type CredentialRun } from '../../store/useSqlEditorStore';
 import { useSyncStore } from '../../store/useSyncStore';
 import type { ResultsLayout } from '../../store/sqlEditorTabLogic';
@@ -18,6 +19,12 @@ import type { SqlStatementResult } from '../../api/sqlApi';
 import { detectCodeCell } from '../../lib/codeCellRunner';
 import { CODE_CELL_KIND_LABEL } from '../../lib/sql-splitter';
 import { foreignKeyLinksFor, foreignKeyLinksForSql, singleTableForResultEdit } from '../../lib/tablePreview';
+import {
+  cellDiffKey,
+  compareResultGrids,
+  type CellDiffKind,
+  type GridDiffSummary,
+} from '../../lib/resultDataDiff';
 import { usePeekGridCrud } from './usePeekGridCrud';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
 
@@ -105,6 +112,10 @@ const ResultGridPane: React.FC<{
   pageState?: Props['pageState'];
   syncScrollRow?: number | null;
   onSyncScrollRow?: (row: number | null) => void;
+  /** Cross-connection compare highlights for this grid. */
+  diffSummary?: GridDiffSummary | null;
+  /** Suffix shown after the grid label (e.g. baseline / N differ). */
+  compareBadge?: string | null;
 }> = ({
   item,
   refreshing,
@@ -113,6 +124,8 @@ const ResultGridPane: React.FC<{
   pageState,
   syncScrollRow = null,
   onSyncScrollRow,
+  diffSummary = null,
+  compareBadge = null,
 }) => {
   const schemaCache = useSqlEditorStore((s) => s.schemaCache);
   const openDataPeekFromFk = useSqlEditorStore((s) => s.openDataPeekFromFk);
@@ -222,12 +235,21 @@ const ResultGridPane: React.FC<{
     </>
   );
 
+  const cellHighlight = useMemo(() => {
+    if (!diffSummary || diffSummary.cells.size === 0) return undefined;
+    const cells = diffSummary.cells;
+    return (rowIdx: number, colIdx: number): CellDiffKind | null =>
+      cells.get(cellDiffKey(rowIdx, colIdx)) ?? null;
+  }, [diffSummary]);
+
+  const gridLabel = compareBadge ? `${item.label} · ${compareBadge}` : item.label;
+
   return (
     <div className="flex flex-col min-h-0 h-full">
       {crud.writeErrorBanner}
       <DataGrid
         result={item.result}
-        label={item.label}
+        label={gridLabel}
         exportName={item.exportName}
         refreshing={refreshing}
         onRefresh={onRefresh ? () => onRefresh(item.connectionId) : undefined}
@@ -263,6 +285,7 @@ const ResultGridPane: React.FC<{
         selectedRowIndex={crud.selectedRowIndex}
         onSelectRow={crud.onSelectRow}
         toolbarExtra={toolbarExtra}
+        cellHighlight={cellHighlight}
       />
       {linkColumns && linkColumns.size > 0 && (
         <p
@@ -285,6 +308,8 @@ const PaneBody: React.FC<{
   pageState?: Props['pageState'];
   syncScrollRow?: number | null;
   onSyncScrollRow?: (row: number | null) => void;
+  diffSummary?: GridDiffSummary | null;
+  compareBadge?: string | null;
 }> = ({
   item,
   refreshing,
@@ -293,6 +318,8 @@ const PaneBody: React.FC<{
   pageState,
   syncScrollRow = null,
   onSyncScrollRow,
+  diffSummary = null,
+  compareBadge = null,
 }) => {
   if (item.kind === 'grid') {
     return (
@@ -304,6 +331,8 @@ const PaneBody: React.FC<{
         pageState={pageState}
         syncScrollRow={syncScrollRow}
         onSyncScrollRow={onSyncScrollRow}
+        diffSummary={diffSummary}
+        compareBadge={compareBadge}
       />
     );
   }
@@ -360,7 +389,20 @@ const ResizablePaneRow: React.FC<{
   onRefresh?: (connectionId: string) => void;
   onPage?: Props['onPage'];
   pageState?: Props['pageState'];
-}> = ({ items, rowKey, refreshing, onRefresh, onPage, pageState }) => {
+  /** Per connectionId: cell diff summary when Compare is on. */
+  diffByConnection?: Record<string, GridDiffSummary>;
+  /** Per connectionId: label badge (baseline / N differ). */
+  badgeByConnection?: Record<string, string>;
+}> = ({
+  items,
+  rowKey,
+  refreshing,
+  onRefresh,
+  onPage,
+  pageState,
+  diffByConnection,
+  badgeByConnection,
+}) => {
   const rowRef = useRef<HTMLDivElement>(null);
   const [widths, setWidths] = useState<number[]>(() => items.map(() => PANE_DEFAULT_PX));
   const [rowHeight, setRowHeight] = useState(PANE_DEFAULT_H_PX);
@@ -454,6 +496,8 @@ const ResizablePaneRow: React.FC<{
                 pageState={pageState}
                 syncScrollRow={syncScroll ? syncRow : null}
                 onSyncScrollRow={syncScroll ? setSyncRow : undefined}
+                diffSummary={diffByConnection?.[item.connectionId] ?? null}
+                compareBadge={badgeByConnection?.[item.connectionId] ?? null}
               />
             </div>
             <div
@@ -562,6 +606,210 @@ const StackedPaneColumn: React.FC<{
 };
 
 /**
+ * One statement row in side-by-side layout, with optional cross-connection
+ * data compare (cell colors vs a baseline credential).
+ */
+const SideBySideStatementSection: React.FC<{
+  statementIndex: number;
+  outTestId: number;
+  headerLabel: string;
+  items: PaneItem[];
+  refreshing?: boolean;
+  onRefresh?: (connectionId?: string) => void;
+  onPage?: Props['onPage'];
+  pageState?: Props['pageState'];
+}> = ({
+  statementIndex,
+  outTestId,
+  headerLabel,
+  items,
+  refreshing,
+  onRefresh,
+  onPage,
+  pageState,
+}) => {
+  const okGrids = useMemo(
+    () =>
+      items.filter(
+        (x): x is Extract<PaneItem, { kind: 'grid' }> => x.kind === 'grid' && Boolean(x.result.ok)
+      ),
+    [items]
+  );
+  const canCompare = okGrids.length >= 2;
+  const [compareOn, setCompareOn] = useState(true);
+  const [baselineId, setBaselineId] = useState<string>('');
+
+  useEffect(() => {
+    if (!canCompare) return;
+    if (!baselineId || !okGrids.some((g) => g.connectionId === baselineId)) {
+      setBaselineId(okGrids[0]!.connectionId);
+    }
+  }, [canCompare, okGrids, baselineId]);
+
+  const compareActive = canCompare && compareOn && Boolean(baselineId);
+
+  const { diffByConnection, badgeByConnection, legendBits } = useMemo(() => {
+    const diffByConnection: Record<string, GridDiffSummary> = {};
+    const badgeByConnection: Record<string, string> = {};
+    const legendBits: string[] = [];
+    if (!compareActive) {
+      return { diffByConnection, badgeByConnection, legendBits };
+    }
+    const baselineItem = okGrids.find((g) => g.connectionId === baselineId);
+    if (!baselineItem || !baselineItem.result.ok) {
+      return { diffByConnection, badgeByConnection, legendBits };
+    }
+    const baselineGrid = {
+      columns: baselineItem.result.columns,
+      rows: baselineItem.result.rows,
+    };
+    badgeByConnection[baselineId] = 'baseline';
+
+    let totalModified = 0;
+    let totalMissing = 0;
+    let totalExtra = 0;
+    const missingCols = new Set<string>();
+    const extraCols = new Set<string>();
+
+    for (const g of okGrids) {
+      if (g.connectionId === baselineId || !g.result.ok) continue;
+      const pair = compareResultGrids(baselineGrid, {
+        columns: g.result.columns,
+        rows: g.result.rows,
+      });
+      // Merge baseline highlights across all others (union of diffs).
+      const prev = diffByConnection[baselineId];
+      if (!prev) {
+        diffByConnection[baselineId] = pair.baseline;
+      } else {
+        for (const [k, kind] of pair.baseline.cells) {
+          if (!prev.cells.has(k)) {
+            prev.cells.set(k, kind);
+            if (kind === 'modified') prev.modified += 1;
+            else if (kind === 'missing') prev.missing += 1;
+            else prev.extra += 1;
+          }
+        }
+        for (const c of pair.baseline.missingColumns) {
+          if (!prev.missingColumns.includes(c)) prev.missingColumns.push(c);
+        }
+        for (const c of pair.baseline.extraColumns) {
+          if (!prev.extraColumns.includes(c)) prev.extraColumns.push(c);
+        }
+      }
+      diffByConnection[g.connectionId] = pair.other;
+      const n = pair.other.cells.size;
+      badgeByConnection[g.connectionId] = n === 0 ? 'match' : `${n} differ`;
+      totalModified += pair.other.modified;
+      totalMissing += pair.other.missing + pair.baseline.missing;
+      totalExtra += pair.other.extra;
+      for (const c of pair.other.missingColumns) missingCols.add(c);
+      for (const c of pair.other.extraColumns) extraCols.add(c);
+    }
+
+    const baseCells = diffByConnection[baselineId]?.cells.size ?? 0;
+    badgeByConnection[baselineId] =
+      baseCells === 0 ? 'baseline' : `baseline · ${baseCells} differ`;
+
+    if (totalModified > 0) legendBits.push(`${totalModified} modified`);
+    if (totalMissing > 0) legendBits.push(`${totalMissing} missing`);
+    if (totalExtra > 0) legendBits.push(`${totalExtra} extra`);
+    if (missingCols.size > 0) {
+      legendBits.push(`cols only in baseline: ${[...missingCols].join(', ')}`);
+    }
+    if (extraCols.size > 0) {
+      legendBits.push(`cols only in other: ${[...extraCols].join(', ')}`);
+    }
+    if (legendBits.length === 0) legendBits.push('grids match on this page');
+
+    return { diffByConnection, badgeByConnection, legendBits };
+  }, [compareActive, okGrids, baselineId]);
+
+  return (
+    <section
+      className="flex flex-col gap-2 min-w-0"
+      data-testid={`sql-result-stmt-${outTestId}`}
+    >
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-1 shrink-0">
+        <div className="text-xs font-bold text-slate-200 font-mono tracking-tight min-w-0 truncate">
+          {headerLabel}
+        </div>
+        {canCompare && (
+          <div
+            className="flex flex-wrap items-center gap-2 text-[10px] font-semibold text-slate-400"
+            data-testid={`sql-result-compare-toolbar-${statementIndex}`}
+          >
+            <label className="flex items-center gap-1 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                data-testid={`sql-result-compare-toggle-${statementIndex}`}
+                checked={compareOn}
+                onChange={(e) => setCompareOn(e.target.checked)}
+                className="rounded border-slate-600"
+              />
+              <GitCompare className="w-3 h-3 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
+              Compare
+            </label>
+            {compareOn && (
+              <label className="flex items-center gap-1">
+                <span className="text-slate-500">vs</span>
+                <select
+                  data-testid={`sql-result-compare-baseline-${statementIndex}`}
+                  value={baselineId}
+                  onChange={(e) => setBaselineId(e.target.value)}
+                  className="bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-slate-200 max-w-[12rem]"
+                >
+                  {okGrids.map((g) => (
+                    <option key={g.connectionId} value={g.connectionId}>
+                      {g.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {compareActive && (
+              <span
+                className="flex items-center gap-2 text-[10px] font-medium text-slate-500"
+                data-testid={`sql-result-compare-legend-${statementIndex}`}
+              >
+                <span className="inline-flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-sm bg-amber-500/70" /> modified
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-sm bg-rose-500/70" /> missing
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-sm bg-emerald-500/70" /> extra
+                </span>
+                <span className="text-slate-600 truncate max-w-[20rem]" title={legendBits.join(' · ')}>
+                  {legendBits.join(' · ')}
+                </span>
+              </span>
+            )}
+          </div>
+        )}
+      </header>
+      <ResizablePaneRow
+        items={items}
+        rowKey={`side-${statementIndex}-${items.map((x) => x.key).join('|')}`}
+        refreshing={refreshing}
+        onRefresh={onRefresh}
+        onPage={onPage}
+        pageState={pageState}
+        diffByConnection={compareActive ? diffByConnection : undefined}
+        badgeByConnection={compareActive ? badgeByConnection : undefined}
+      />
+      {compareActive && (
+        <p className="text-[10px] text-slate-500 px-0.5" data-testid={`sql-result-compare-hint-${statementIndex}`}>
+          Rows align by index on this page — use the same ORDER BY on each server for a meaningful
+          compare. Column names match case-insensitively.
+        </p>
+      )}
+    </section>
+  );
+};
+
+/**
  * Results for one tab. `byCredential` stacks credentials, and statement grids
  * under each credential are also stacked vertically (not side by side).
  * `sideBySide` stacks statements with credential grids as columns.
@@ -654,23 +902,17 @@ export const ResultsPanel: React.FC<Props> = ({
             });
           }
           return (
-            <section
+            <SideBySideStatementSection
               key={i}
-              className="flex flex-col gap-2 min-w-0"
-              data-testid={`sql-result-stmt-${outTestId(i)}`}
-            >
-              <header className="text-xs font-bold text-slate-200 shrink-0 font-mono tracking-tight">
-                {statementLabel(statements[i] ?? '', outNumber(i))}
-              </header>
-              <ResizablePaneRow
-                items={items}
-                rowKey={`side-${i}-${items.map((x) => x.key).join('|')}`}
-                refreshing={refreshing}
-                onRefresh={onRefresh}
-                onPage={onPage}
-                pageState={pageState}
-              />
-            </section>
+              statementIndex={i}
+              outTestId={outTestId(i)}
+              headerLabel={statementLabel(statements[i] ?? '', outNumber(i))}
+              items={items}
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              onPage={onPage}
+              pageState={pageState}
+            />
           );
         })}
         </div>

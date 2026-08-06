@@ -8,6 +8,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Download, GripVertical, RefreshCw } from 'lucide-react';
 import type { SqlStatementResult } from '../../api/sqlApi';
+import { CELL_DIFF_CLASS, type CellDiffKind } from '../../lib/resultDataDiff';
 import { columnToListValues, rowsForTableVariable } from '../../lib/sql-variables';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
 import { downloadCsv } from '../../utils/exportCsv';
@@ -268,6 +269,11 @@ export const DataGrid: React.FC<{
    * compact grid so side-by-side compares stay dense.
    */
   emphasis?: boolean;
+  /**
+   * Cross-connection data compare: return a highlight kind for a cell
+   * (`modified` / `missing` / `extra`), or null when unchanged.
+   */
+  cellHighlight?: (rowIdx: number, colIdx: number) => CellDiffKind | null;
 }> = React.memo(
   ({
     result,
@@ -290,6 +296,7 @@ export const DataGrid: React.FC<{
     onSelectRow,
     toolbarExtra,
     emphasis = false,
+    cellHighlight,
   }) => {
   const upsertVariable = useSqlEditorStore((s) => s.upsertVariable);
   const rowH = emphasis ? ROW_H_EMPHASIS_PX : ROW_H_PX;
@@ -710,14 +717,25 @@ export const DataGrid: React.FC<{
                       const w = colWidths[colIdx] ?? COL_DEFAULT_PX;
                       const { text, title, isNull } = cellDisplay(cell);
                       const kind = isNull ? 'null' : (colKinds[colIdx] ?? 'string');
+                      const hl = cellHighlight?.(i, colIdx) ?? null;
+                      const hlClass =
+                        hl === 'modified'
+                          ? 'bg-amber-500/25 ring-1 ring-inset ring-amber-400/40'
+                          : hl === 'missing'
+                            ? 'bg-rose-500/20 ring-1 ring-inset ring-rose-400/35'
+                            : hl === 'extra'
+                              ? 'bg-emerald-500/20 ring-1 ring-inset ring-emerald-400/35'
+                              : '';
+                      const cellBg = hlClass || `${rowBg} group-hover:bg-[var(--fox-grid-bg-hover)]`;
                       return (
                         <td
                           key={colIdx}
-                          className={`px-3 overflow-hidden text-ellipsis ${rowBg} group-hover:bg-[var(--fox-grid-bg-hover)] ${KIND_CELL_CLASS[kind]} ${
+                          data-diff={hl ?? undefined}
+                          className={`px-3 overflow-hidden text-ellipsis ${cellBg} ${KIND_CELL_CLASS[kind]} ${
                             emphasis && kind === 'string' ? 'font-semibold' : ''
                           } ${emphasis && kind === 'number' ? 'font-bold' : ''}`}
                           style={{ width: w, minWidth: COL_MIN_PX, maxWidth: w }}
-                          title={title}
+                          title={hl ? `${hl}: ${title}` : title}
                           onContextMenu={(e) => {
                             e.preventDefault();
                             setMenu({
