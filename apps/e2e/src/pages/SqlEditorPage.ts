@@ -112,6 +112,101 @@ export class SqlEditorPage {
     await this.page.waitForTimeout(350);
   }
 
+  /** Editor text (rendered lines + hidden textarea), whitespace-normalised for matching. */
+  async editorText(): Promise<string> {
+    const raw = await this.page.evaluate(() => {
+      const lines = document.querySelector('.monaco-editor .view-lines');
+      const ta = document.querySelector('.monaco-editor textarea') as HTMLTextAreaElement | null;
+      return `${lines?.textContent ?? ''}\n${ta?.value ?? ''}`;
+    });
+    return raw.replace(/\u00a0/g, ' ').replace(/[ \t]+/g, ' ');
+  }
+
+  private columnPicker() {
+    return this.page.locator('[data-testid="sql-select-column-picker"]');
+  }
+
+  /**
+   * Open the SELECT column picker the way a user does — click the SELECT/FROM
+   * keyword in the editor. Falls back to the CtrlCmd+Shift+C shortcut when the
+   * token click doesn't land (Monaco re-tokenises while typing).
+   */
+  async openColumnPicker(): Promise<void> {
+    await this.dismissOverlays();
+    // Dismiss any open autocomplete so the click reaches the keyword.
+    await this.page.keyboard.press('Escape');
+    const keyword = this.page
+      .locator('.monaco-editor .view-line span span')
+      .filter({ hasText: /^(SELECT|FROM)$/i })
+      .first();
+    if (await keyword.count()) {
+      await keyword.click({ force: true }).catch(() => undefined);
+    }
+    if (await this.columnPicker().isVisible().catch(() => false)) {
+      await this.page.waitForTimeout(250);
+      return;
+    }
+    const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
+    await this.page.locator('.monaco-editor').first().click();
+    await this.page.keyboard.press(`${mod}+Shift+KeyC`);
+    await this.columnPicker().waitFor({ state: 'visible', timeout: 10_000 });
+    await this.page.waitForTimeout(250);
+  }
+
+  async columnPickerVisible(): Promise<boolean> {
+    return this.columnPicker().isVisible().catch(() => false);
+  }
+
+  /**
+   * Teardown close via the header X. Deliberately not Escape or an outside
+   * click — those are under test, and using them here would let one broken
+   * dismiss path cascade into unrelated failures.
+   */
+  async closeColumnPicker(): Promise<void> {
+    if (!(await this.columnPickerVisible())) return;
+    await this.columnPicker().locator('button[aria-label="Close"]').click();
+    await this.columnPicker().waitFor({ state: 'detached', timeout: 5_000 }).catch(() => undefined);
+  }
+
+  /** Click somewhere outside the picker that cannot mutate the query (the active tab). */
+  async clickOutsideColumnPicker(): Promise<void> {
+    await this.page.locator('[data-testid="sql-editor-tabs"] [role="tab"]').first().click();
+  }
+
+  async pickerColumnLabels(): Promise<string[]> {
+    return this.columnPicker().locator('li label span').allInnerTexts();
+  }
+
+  async pickerStatusText(): Promise<string> {
+    return this.columnPicker().innerText();
+  }
+
+  async pickerSelectAllStar(): Promise<void> {
+    await this.columnPicker().locator('[data-testid="sql-select-all-star"]').click();
+    await this.page.waitForTimeout(300);
+  }
+
+  async pickerRemoveAll(): Promise<void> {
+    await this.columnPicker().locator('[data-testid="sql-select-remove-all"]').click();
+    await this.page.waitForTimeout(300);
+  }
+
+  /** Toggle one `alias.column` checkbox by its expression (case-insensitive testid). */
+  async pickerToggleColumn(expr: string): Promise<void> {
+    const box = this.columnPicker().locator(
+      `[data-testid="sql-select-col-${expr.toLowerCase()}"]`
+    );
+    await box.waitFor({ state: 'visible', timeout: 10_000 });
+    await box.click();
+    await this.page.waitForTimeout(300);
+  }
+
+  async pickerColumnChecked(expr: string): Promise<boolean> {
+    return this.columnPicker()
+      .locator(`[data-testid="sql-select-col-${expr.toLowerCase()}"]`)
+      .isChecked();
+  }
+
   async run(): Promise<void> {
     await this.dismissOverlays();
     await clickWhen(this.page, '[data-testid="sql-run-btn"]');
