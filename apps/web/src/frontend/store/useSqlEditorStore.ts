@@ -13,7 +13,9 @@ import { resolveAppSecrets } from '../api/appSecretsApi';
 import { loadSchema } from '../api/schemaApi';
 import {
   countReferencedTables,
+  isInsertWriteStatement,
   isMutatingDmlStatement,
+  isPageableStatement,
   isWriteStatement,
   referencedTableNames,
   splitSqlStatements,
@@ -989,7 +991,9 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         // Safe mode: confirm on stripped SQL (ignore @set lines; vars may resolve mid-run).
         const strippedForConfirm = rawStatements.map((s) => parseSetDirectives(s).sql);
         const writeStatements = strippedForConfirm.filter((s) => isWriteStatement(s));
-        const mutatingDml = writeStatements.filter((s) => isMutatingDmlStatement(s));
+        // Insert-only writes skip Safe Mode; UPDATE/DELETE/MERGE and DDL still confirm.
+        const confirmWrites = writeStatements.filter((s) => !isInsertWriteStatement(s));
+        const mutatingDml = confirmWrites.filter((s) => isMutatingDmlStatement(s));
         const threshold = multiTableConfirmThreshold;
         const multiTableStatements =
           safeMode && threshold > 0
@@ -1005,7 +1009,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           safeMode &&
           !confirmedWrites &&
           (mutatingDml.length > 0 ||
-            writeStatements.length > 0 ||
+            confirmWrites.length > 0 ||
             multiTableStatements.length > 0);
         if (needsConfirm) {
           const readonlyTargets = connections
@@ -1014,7 +1018,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           set({
             pendingWriteConfirm: {
               tabId: tab.id,
-              writeStatements,
+              writeStatements: confirmWrites,
               credentialCount: connections.length,
               readonlyTargets,
               multiTableStatements,
@@ -1378,7 +1382,9 @@ export const useSqlEditorStore = create<SqlEditorState>()(
                 };
                 prev.push(one);
                 resultsByConn.set(c.id, prev);
-                setPageSql(c.id, si, prep.sql);
+                // Only pageable SQL can re-run with OFFSET; write CTEs / INSERT
+                // must not enable Next (wrapping them breaks engines).
+                setPageSql(c.id, si, isPageableStatement(prep.sql) ? prep.sql : '');
                 const last = si === rawStatements.length - 1;
                 patchRun(c.id, {
                   status: last ? 'done' : 'running',

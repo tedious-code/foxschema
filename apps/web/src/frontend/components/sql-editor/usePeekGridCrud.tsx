@@ -4,7 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Shared add / edit / clone / delete wiring for Data Peek and SQL Editor
- * query-result grids. Safe mode shows WriteConfirmDialog before DML runs.
+ * query-result grids. Safe mode confirms UPDATE/DELETE; INSERT runs without
+ * the extra prompt.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Copy, Pencil, Plus, Trash2 } from 'lucide-react';
@@ -175,7 +176,8 @@ export function usePeekGridCrud(args: PeekGridCrudArgs): PeekGridCrud {
   const queueOrRun = useCallback(
     (plan: PeekWritePlan) => {
       setWriteError(null);
-      if (safeMode) {
+      // Safe mode confirms UPDATE/DELETE; INSERT runs without the extra prompt.
+      if (safeMode && plan.kind !== 'insert') {
         // Keep the row form mounted under WriteConfirmDialog (Data Peek behaviour):
         // cancel returns to the draft; only a successful write clears the editor.
         setPendingWrite(plan);

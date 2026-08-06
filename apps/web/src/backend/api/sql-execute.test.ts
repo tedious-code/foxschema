@@ -161,6 +161,22 @@ describe('runStatements against a real SQLite file', () => {
     }
   });
 
+  it('runs insert-returning CTE unwrapped (not page-wrapped)', async () => {
+    // SQLite has no INSERT…RETURNING in CTE the same way PG does; assert wrap path is skipped.
+    const spy = vi.spyOn(ConnectionFactory, 'executeOnConnection').mockResolvedValueOnce([{ id: 1 }]);
+    try {
+      const sql =
+        'WITH i AS (INSERT INTO t (id, name) VALUES (99, \'z\') RETURNING id) SELECT id FROM i';
+      const results = await runStatements('sqlite', { connectionString: dbPath }, [sql], 10);
+      expect(results[0]).toMatchObject({ ok: true, hasNext: false });
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(String(spy.mock.calls[0]![2])).toBe(sql);
+      expect(String(spy.mock.calls[0]![2])).not.toContain('fox_page');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('does not fall back to unwrapped SQL when offset > 0 and wrap fails', async () => {
     const spy = vi
       .spyOn(ConnectionFactory, 'executeOnConnection')

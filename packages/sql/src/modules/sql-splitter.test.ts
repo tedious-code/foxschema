@@ -3,6 +3,8 @@ import {
   splitSqlStatements,
   checkStatement,
   isWriteStatement,
+  isInsertWriteStatement,
+  isPageableStatement,
   requiresWritePermission,
   sqlStatementCategory,
   sqlStatementCategories,
@@ -340,6 +342,42 @@ describe('isMutatingDmlStatement / dmlLacksWhere', () => {
     expect(dmlLacksWhere('DELETE FROM t WHERE id = 1;')).toBe(false);
     expect(dmlLacksWhere('MERGE INTO t USING s ON 1=1 WHEN MATCHED THEN DELETE;')).toBe(false);
     expect(dmlLacksWhere('EXPLAIN ANALYZE DELETE FROM t;')).toBe(true);
+  });
+});
+
+describe('isInsertWriteStatement', () => {
+  it('flags insert-only writes including insert CTEs', () => {
+    expect(isInsertWriteStatement('INSERT INTO t VALUES (1);')).toBe(true);
+    expect(isInsertWriteStatement('WITH x AS (SELECT 1) INSERT INTO t SELECT * FROM x;')).toBe(true);
+    expect(
+      isInsertWriteStatement('WITH i AS (INSERT INTO t VALUES (1) RETURNING id) SELECT id FROM i;')
+    ).toBe(true);
+    expect(isInsertWriteStatement('EXPLAIN ANALYZE INSERT INTO t VALUES (1);')).toBe(true);
+  });
+
+  it('rejects non-insert writes and mixed mutating CTEs', () => {
+    expect(isInsertWriteStatement('SELECT 1;')).toBe(false);
+    expect(isInsertWriteStatement('UPDATE t SET x = 1;')).toBe(false);
+    expect(isInsertWriteStatement('DELETE FROM t;')).toBe(false);
+    expect(isInsertWriteStatement('CREATE TABLE t (id int);')).toBe(false);
+    expect(isInsertWriteStatement('SELECT * INTO evil FROM users;')).toBe(false);
+    expect(
+      isInsertWriteStatement(
+        'WITH i AS (INSERT INTO t VALUES (1) RETURNING id), d AS (DELETE FROM t RETURNING id) SELECT * FROM i;'
+      )
+    ).toBe(false);
+  });
+});
+
+describe('isPageableStatement', () => {
+  it('accepts plain SELECT/VALUES and rejects writes / modifying CTEs', () => {
+    expect(isPageableStatement('SELECT id FROM t')).toBe(true);
+    expect(isPageableStatement('WITH c AS (SELECT 1 AS n) SELECT * FROM c')).toBe(true);
+    expect(isPageableStatement('VALUES (1), (2)')).toBe(true);
+    expect(isPageableStatement('INSERT INTO t VALUES (1)')).toBe(false);
+    expect(
+      isPageableStatement('WITH i AS (INSERT INTO t VALUES (1) RETURNING id) SELECT id FROM i')
+    ).toBe(false);
   });
 });
 

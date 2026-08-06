@@ -319,7 +319,8 @@ Tips:
   -- @end
   ```
 
-- **Safe mode** — when on, write/DDL statements need an extra confirmation before run.
+- **Safe mode** — when on, UPDATE / DELETE / MERGE and DDL need an extra
+  confirmation before run. Plain INSERT (including insert CTEs) does not.
 
 Writes and DDL are allowed when you confirm them. Some dialects (e.g. SQLite /
 ClickHouse adapters used for SELECT-only paths) may reject writes with a clear error

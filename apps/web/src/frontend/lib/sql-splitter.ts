@@ -8,6 +8,8 @@ export {
   referencedTableNames,
   statementVerb,
   isMutatingDmlStatement,
+  isInsertWriteStatement,
+  isPageableStatement,
   dmlLacksWhere,
   parseCodeCell,
   findCodeFences,
