@@ -104,6 +104,16 @@ describe('rowDml', () => {
     expect(draftToArray(['id', 'email'], { id: '3', email: 'x' }, [1, 'a'])).toEqual([3, 'x']);
   });
 
+  it('draftToArray does not Number()-corrupt integers past MAX_SAFE_INTEGER', () => {
+    // Driver handed back a small number; user edits to a 64-bit value that JS
+    // cannot represent precisely as Number.
+    expect(
+      draftToArray(['qty'], { qty: '9007199254740993' }, [1])
+    ).toEqual(['9007199254740993']);
+    // Safe integers still coerce to number so drivers keep typed binds.
+    expect(draftToArray(['qty'], { qty: '42' }, [1])).toEqual([42]);
+  });
+
   it('originalRowForPeekEdit prefers the edit-open snapshot over a reshuffled grid', () => {
     const snapshot = [1, 'a@x.com', 'Ada'];
     const liveRows = [

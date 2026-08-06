@@ -70,9 +70,16 @@ export function makeCellQueryRunner(
       params
     );
     if (!Array.isArray(rows)) return [];
-    // Cap what crosses back into the worker: a cell asking for a 10M-row table
-    // would otherwise serialize the whole thing through structured clone.
-    return rows.length > MAX_CELL_QUERY_ROWS ? rows.slice(0, MAX_CELL_QUERY_ROWS) : rows;
+    // Fail closed: silently returning a prefix lets a cell treat a partial
+    // SELECT as complete (e.g. DELETE … WHERE id IN (…ids…)) and corrupt data.
+    // Cap stays for structured-clone / memory; callers must LIMIT or chunk.
+    if (rows.length > MAX_CELL_QUERY_ROWS) {
+      throw new Error(
+        `sql\`…\` returned ${rows.length} rows; the bridge refuses more than ` +
+          `${MAX_CELL_QUERY_ROWS}. Add LIMIT / chunk the query so the cell sees a complete result.`
+      );
+    }
+    return rows;
   };
 }
 

@@ -359,7 +359,16 @@ export function draftToArray(
     if (raw === '') return null;
     const orig = original?.[i];
     if (typeof orig === 'number' && raw.trim() !== '' && !Number.isNaN(Number(raw))) {
-      return Number(raw);
+      const trimmed = raw.trim();
+      const asNumber = Number(trimmed);
+      // Integers beyond Number.MAX_SAFE_INTEGER round silently in JS. Keep the
+      // digit string so the driver binds the value the user typed (SQLite /
+      // MySQL INTEGER/BIGINT columns often arrive as numbers for small values,
+      // then get corrupted here if the user edits them past 2^53−1).
+      if (/^[+-]?\d+$/.test(trimmed) && !Number.isSafeInteger(asNumber)) {
+        return trimmed;
+      }
+      return asNumber;
     }
     if (typeof orig === 'bigint') {
       try {
