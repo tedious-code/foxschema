@@ -26,7 +26,7 @@ LOCAL_SINGLE_USER=false
 - First UI open can still show the **email subscriber wizard** (public; before login).
 - First registered account becomes **admin**; later signups default to **viewer**.
 - Admins configure role permissions and assign users under **Profile → Access control**.
-- Permissions cover Schema Sync (browse / compare / migrate), SQL Editor (sidebar, variables, writes, datagrid, code cells), Utilities, and Secrets.
+- Permissions cover Schema Sync (browse / compare / migrate), SQL Editor (sidebar, variables, writes, Data grid insert/update/delete, code cells), Utilities, and Secrets.
 
 **Servers / teams:** Fox Schema ships as a **single Docker image** (all dialects including
 Db2) that serves both the UI and the API on one configurable port (default **3001**).
