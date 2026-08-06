@@ -16,6 +16,8 @@
     "test:sql-editor:code-cells": "vitest run --config vitest.config.ts src/tests/sql-editor-code-cell-faker.test.ts",
     "test:sql-editor:code-cells:headed": "HEADLESS=false vitest run --config vitest.config.ts src/tests/sql-editor-code-cell-faker.test.ts",
     "test:sql-editor:column-picker": "vitest run --config vitest.config.ts src/tests/sql-editor-column-picker.test.ts",
+    "test:sql-editor:peek-form": "vitest run --config vitest.config.ts src/tests/sql-editor-peek-row-form.test.ts",
+    "test:sql-editor:peek-form:headed": "HEADLESS=false vitest run --config vitest.config.ts src/tests/sql-editor-peek-row-form.test.ts",
     "test:sql-editor:column-picker:headed": "HEADLESS=false vitest run --config vitest.config.ts src/tests/sql-editor-column-picker.test.ts",
     "test:sql-editor:utilities:all": "vitest run --config vitest.config.ts src/tests/sql-editor-utilities-dialects.test.ts",
     "test:sql-editor:utilities:all:headed": "HEADLESS=false vitest run --config vitest.config.ts src/tests/sql-editor-utilities-dialects.test.ts",
