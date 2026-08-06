@@ -26,13 +26,25 @@ export async function executeSql(
   maxRows?: number,
   offset?: number,
   /** Bind parameters per statement, aligned by index. */
-  params?: unknown[][]
+  params?: unknown[][],
+  /**
+   * When set, the write came from Data Peek / query-result grid CRUD and the
+   * matching `editor.datagrid.*` permission is required in addition to DML.
+   */
+  opts?: { datagridAction?: 'insert' | 'update' | 'delete' }
 ): Promise<{ results: SqlStatementResult[] }> {
   const res = await fetch(`${getApiBase()}/sql/execute`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify({ ...ref, statements, maxRows, offset, params }),
+    body: JSON.stringify({
+      ...ref,
+      statements,
+      maxRows,
+      offset,
+      params,
+      ...(opts?.datagridAction ? { datagridAction: opts.datagridAction } : {}),
+    }),
   });
   const data = await parseJsonResponse<{ results?: SqlStatementResult[]; error?: string }>(res);
   if (!data.results) throw new Error(data.error || `Query failed (${res.status})`);
