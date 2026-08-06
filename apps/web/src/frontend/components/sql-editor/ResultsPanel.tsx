@@ -11,6 +11,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Database, AlertCircle, GripVertical, RefreshCw } from 'lucide-react';
 import { useSqlEditorStore, type CredentialRun } from '../../store/useSqlEditorStore';
+import { useSyncStore } from '../../store/useSyncStore';
 import type { ResultsLayout } from '../../store/sqlEditorTabLogic';
 import { DataGrid, PANE_DEFAULT_H_PX, PANE_DEFAULT_PX, PANE_MIN_H_PX, PANE_MIN_PX } from './DataGrid';
 import type { SqlStatementResult } from '../../api/sqlApi';
@@ -115,14 +116,17 @@ const ResultGridPane: React.FC<{
 }) => {
   const schemaCache = useSqlEditorStore((s) => s.schemaCache);
   const openDataPeekFromFk = useSqlEditorStore((s) => s.openDataPeekFromFk);
+  const connectionSchema = useSyncStore(
+    (s) => s.connections.find((c) => c.id === item.connectionId)?.schema
+  );
   const tables = schemaCache[item.connectionId]?.tables;
 
   const editTarget = useMemo(() => {
     if (!item.statementSql || detectCodeCell(item.statementSql)) {
       return { ok: false as const, reason: undefined as string | undefined };
     }
-    return singleTableForResultEdit(item.statementSql, tables);
-  }, [item.statementSql, tables]);
+    return singleTableForResultEdit(item.statementSql, tables, connectionSchema);
+  }, [item.statementSql, tables, connectionSchema]);
 
   const table = editTarget.ok ? editTarget.table : undefined;
   // Prefer the schema cache name (same as Data Peek entry.tableName from the explorer).

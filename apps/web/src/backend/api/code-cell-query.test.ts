@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import { ConnectionFactory } from '@foxschema/db';
+import { MAX_CELL_QUERY_ROWS } from './code-cell-bridge';
 import { makeBeamCellQueryRunner, makeCellQueryRunner } from './code-cell-query';
 import type { Permission } from '../../shared/permissions';
 import type { CellQueryRunner } from './code-cell-execute';
@@ -67,6 +69,14 @@ describe('code cell bridge permission policy', () => {
 
   it('blocks parenthesized PRAGMA assignments', async () => {
     await expect(runnerFor(new Set(), false)('PRAGMA user_version(123)', [])).rejects.toThrow(/Safe mode/);
+  });
+
+  it('fails closed when a bridged SELECT exceeds MAX_CELL_QUERY_ROWS', async () => {
+    const many = Array.from({ length: MAX_CELL_QUERY_ROWS + 1 }, (_, i) => ({ id: i }));
+    vi.mocked(ConnectionFactory.executeQuery).mockResolvedValueOnce(many as never);
+    await expect(runnerFor(new Set(), false)('SELECT id FROM t', [])).rejects.toThrow(
+      /refuses more than/
+    );
   });
 });
 

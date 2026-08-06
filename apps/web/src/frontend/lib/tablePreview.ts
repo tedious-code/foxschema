@@ -136,6 +136,42 @@ export function findCachedTable(
 }
 
 /**
+ * Resolve a table for query-result row edits. Unlike {@link findCachedTable},
+ * a schema-qualified SQL name must not fall back to a bare cache entry from a
+ * different schema (that would UPDATE/DELETE the wrong table).
+ *
+ * Bare SQL names still match bare or qualified cache entries. Qualified SQL
+ * names match an exact cache name, or a bare cache entry when `connectionSchema`
+ * equals the SQL schema (the usual Postgres/SQL Server cache shape).
+ */
+export function findCachedTableForEdit(
+  tables: TableSchema[] | undefined,
+  name: string,
+  connectionSchema?: string
+): TableSchema | undefined {
+  if (!tables?.length || !name.trim()) return undefined;
+  const parts = tableNameParts(name);
+  if (parts.length === 0) return undefined;
+  const wanted = name.toLowerCase();
+  const exact = tables.find((t) => t.name.toLowerCase() === wanted);
+  if (exact) return exact;
+
+  if (parts.length === 1) {
+    const bare = parts[0]!.toLowerCase();
+    return tables.find((t) => {
+      const n = t.name.toLowerCase();
+      return (n.includes('.') ? n.slice(n.lastIndexOf('.') + 1) : n) === bare;
+    });
+  }
+
+  const sqlSchema = parts[parts.length - 2]!.toLowerCase();
+  const sqlBare = parts[parts.length - 1]!.toLowerCase();
+  const conn = connectionSchema?.trim().toLowerCase();
+  if (!conn || conn !== sqlSchema) return undefined;
+  return tables.find((t) => t.name.toLowerCase() === sqlBare);
+}
+
+/**
  * Tables referenced in a statement (FROM/JOIN/UPDATE/INTO only).
  * Uses a stricter scan than {@link extractTableAliases} so
  * `SELECT a, b FROM t` is not mistaken for a comma-FROM list.
@@ -217,13 +253,180 @@ export function fromClauseIsMultiTable(sql: string): boolean {
 }
 
 /**
+ * True when the statement combines result sets (UNION / EXCEPT / INTERSECT).
+ * Those grids must stay read-only — rows may not exist in the FROM table.
+ */
+export function sqlHasSetOperation(sql: string): boolean {
+  return /\b(UNION|EXCEPT|INTERSECT)\b/i.test(sql);
+}
+
+/**
+ * Split a SELECT list on top-level commas (paren depth 0).
+ */
+function splitSelectListItems(list: string): string[] {
+  const items: string[] = [];
+  let depth = 0;
+  let current = '';
+  let quote: '"' | '`' | "'" | '[' | null = null;
+  for (let i = 0; i < list.length; i++) {
+    const ch = list[i]!;
+    if (quote) {
+      current += ch;
+      if (quote === '[' && ch === ']') quote = null;
+      else if (ch === quote) {
+        if ((quote === '"' || quote === "'") && list[i + 1] === quote) {
+          current += list[++i];
+          continue;
+        }
+        quote = null;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === '`' || ch === "'" || ch === '[') {
+      quote = ch === '[' ? '[' : ch;
+      current += ch;
+      continue;
+    }
+    if (ch === '(') {
+      depth++;
+      current += ch;
+      continue;
+    }
+    if (ch === ')') {
+      depth = Math.max(0, depth - 1);
+      current += ch;
+      continue;
+    }
+    if (ch === ',' && depth === 0) {
+      items.push(current.trim());
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  if (current.trim()) items.push(current.trim());
+  return items;
+}
+
+/**
+ * Drop a leading WITH [RECURSIVE] cte_list so callers can inspect the main
+ * SELECT. Returns null when the CTE list is malformed.
+ */
+export function stripLeadingWithClause(sql: string): string | null {
+  const t = sql.trim();
+  const withHead = t.match(/^WITH\s+(RECURSIVE\s+)?/i);
+  if (!withHead) return t;
+  let i = withHead[0].length;
+  const ident = /^(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][\w$]*)/;
+  while (i < t.length) {
+    while (i < t.length && /\s/.test(t[i]!)) i++;
+    const name = t.slice(i).match(ident);
+    if (!name) return null;
+    i += name[0].length;
+    while (i < t.length && /\s/.test(t[i]!)) i++;
+    // Optional column list: name (a, b) AS (...)
+    if (t[i] === '(') {
+      let depth = 0;
+      for (; i < t.length; i++) {
+        const ch = t[i]!;
+        if (ch === '(') depth++;
+        else if (ch === ')') {
+          depth--;
+          if (depth === 0) {
+            i++;
+            break;
+          }
+        }
+      }
+      while (i < t.length && /\s/.test(t[i]!)) i++;
+    }
+    if (!/^AS\b/i.test(t.slice(i))) return null;
+    i += 2;
+    while (i < t.length && /\s/.test(t[i]!)) i++;
+    if (t[i] !== '(') return null;
+    let depth = 0;
+    for (; i < t.length; i++) {
+      const ch = t[i]!;
+      if (ch === '(') depth++;
+      else if (ch === ')') {
+        depth--;
+        if (depth === 0) {
+          i++;
+          break;
+        }
+      }
+    }
+    while (i < t.length && /\s/.test(t[i]!)) i++;
+    if (t[i] === ',') {
+      i++;
+      continue;
+    }
+    break;
+  }
+  const rest = t.slice(i).trim();
+  return /^(SELECT)\b/i.test(rest) ? rest : null;
+}
+
+/** Outer SELECT list text (between SELECT and FROM), or null. */
+export function outermostSelectList(sql: string): string | null {
+  const main = stripLeadingWithClause(sql.trim());
+  if (!main) return null;
+  const m = main.match(/^\s*SELECT\b([\s\S]*?)\bFROM\b/i);
+  return m ? (m[1] ?? '').trim() : null;
+}
+
+/**
+ * SELECT lists safe for PK-keyed UPDATE/DELETE: `*`, `alias.*`, or simple
+ * column refs (optional qualifier). Rejects expressions and renames like
+ * `email AS id` that would bind WHERE to the wrong values.
+ */
+export function selectListSafeForResultEdit(sql: string): boolean {
+  const list = outermostSelectList(sql);
+  if (list == null || !list) return false;
+  // DISTINCT / ALL prefixes are fine; strip them before inspecting items.
+  const body = list.replace(/^(DISTINCT|ALL)\s+/i, '').trim();
+  if (!body) return false;
+  for (const raw of splitSelectListItems(body)) {
+    const item = raw.trim();
+    if (!item) return false;
+    if (/^(\*|[A-Za-z_][\w$]*\s*\.\s*\*|"[^"]+"\s*\.\s*\*|`[^`]+`\s*\.\s*\*|\[[^\]]+\]\s*\.\s*\*)$/.test(item)) {
+      continue;
+    }
+    // optional qualifier.column [AS sameName]
+    const col =
+      /^(?:((?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][\w$]*)\s*\.\s*))?("([^"]+)"|`([^`]+)`|\[([^\]]+)\]|([A-Za-z_][\w$]*))(?:\s+(?:AS\s+)?("([^"]+)"|`([^`]+)`|\[([^\]]+)\]|([A-Za-z_][\w$]*)))?$/i.exec(
+        item
+      );
+    if (!col) return false;
+    const base = (col[3] ?? col[4] ?? col[5] ?? col[6] ?? '').toLowerCase();
+    const aliasRaw = col[7];
+    if (!base) return false;
+    if (aliasRaw) {
+      const alias = (col[8] ?? col[9] ?? col[10] ?? col[11] ?? '').toLowerCase();
+      if (!alias || alias !== base) return false;
+    }
+  }
+  return true;
+}
+
+/** True when FROM opens a subquery — result rows are not base-table rows. */
+export function fromClauseIsSubquery(sql: string): boolean {
+  const main = stripLeadingWithClause(sql.trim()) ?? sql.trim();
+  return /\bFROM\s*\(/i.test(main);
+}
+
+/**
  * Resolve the single base table for editing a query-result grid.
  * Only plain SELECT / WITH … SELECT against one table is editable — joins,
- * DML, and code-cell outputs stay read-only.
+ * set operations, DML, and code-cell outputs stay read-only.
+ *
+ * @param connectionSchema Schema of the live connection — required to allow
+ *   `schema.table` SQL when the cache stores a bare table name from that schema.
  */
 export function singleTableForResultEdit(
   sql: string,
-  tables: TableSchema[] | undefined
+  tables: TableSchema[] | undefined,
+  connectionSchema?: string
 ): ResultEditTable {
   const trimmed = sql.trim();
   if (!trimmed) {
@@ -234,8 +437,23 @@ export function singleTableForResultEdit(
   if (!/^(WITH|SELECT)\b/i.test(head)) {
     return { ok: false, reason: 'Only SELECT result grids can be edited.' };
   }
+  if (sqlHasSetOperation(trimmed)) {
+    return {
+      ok: false,
+      reason: 'UNION / EXCEPT / INTERSECT results are read-only.',
+    };
+  }
+  if (fromClauseIsSubquery(trimmed)) {
+    return { ok: false, reason: 'Subquery FROM results are read-only.' };
+  }
   if (fromClauseIsMultiTable(trimmed)) {
     return { ok: false, reason: 'Join / multi-table results are read-only.' };
+  }
+  if (!selectListSafeForResultEdit(trimmed)) {
+    return {
+      ok: false,
+      reason: 'Computed or renamed columns make this result read-only.',
+    };
   }
   const names = tableNamesFromSql(trimmed);
   if (names.length === 0) {
@@ -244,7 +462,7 @@ export function singleTableForResultEdit(
   if (names.length > 1) {
     return { ok: false, reason: 'Join / multi-table results are read-only.' };
   }
-  const table = findCachedTable(tables, names[0]!);
+  const table = findCachedTableForEdit(tables, names[0]!, connectionSchema);
   if (!table) {
     return {
       ok: false,

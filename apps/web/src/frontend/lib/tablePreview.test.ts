@@ -10,6 +10,9 @@ import {
   peekBaseFilterLabel,
   singleTableForResultEdit,
   fromClauseIsMultiTable,
+  findCachedTableForEdit,
+  selectListSafeForResultEdit,
+  sqlHasSetOperation,
 } from './tablePreview';
 import type { ForeignKeyInfo, TableSchema } from './types';
 
@@ -200,6 +203,14 @@ describe('singleTableForResultEdit', () => {
     foreignKeys: [],
   } as unknown as TableSchema;
 
+  const bareUsers = {
+    name: 'users',
+    objectType: 'TABLE',
+    columns: [],
+    indices: [],
+    foreignKeys: [],
+  } as unknown as TableSchema;
+
   it('resolves a single-table SELECT', () => {
     const r = singleTableForResultEdit('SELECT id, email FROM public.users', [users]);
     expect(r.ok).toBe(true);
@@ -238,5 +249,55 @@ describe('singleTableForResultEdit', () => {
     expect(
       singleTableForResultEdit('WITH x AS (SELECT 1 AS n) SELECT n FROM x', [users]).ok
     ).toBe(false);
+  });
+
+  it('rejects UNION / EXCEPT / INTERSECT (rows may not exist in the base table)', () => {
+    expect(sqlHasSetOperation('SELECT id FROM public.users UNION ALL SELECT 42')).toBe(true);
+    expect(
+      singleTableForResultEdit(
+        'SELECT id, email FROM public.users UNION ALL SELECT 42, \'x\'',
+        [users]
+      ).ok
+    ).toBe(false);
+    expect(
+      singleTableForResultEdit('SELECT id FROM public.users EXCEPT SELECT id FROM other', [users])
+        .ok
+    ).toBe(false);
+  });
+
+  it('rejects renamed / computed SELECT lists that would mis-bind PK values', () => {
+    expect(selectListSafeForResultEdit('SELECT email AS id, name FROM public.users')).toBe(
+      false
+    );
+    expect(selectListSafeForResultEdit('SELECT id, upper(email) AS email FROM public.users')).toBe(
+      false
+    );
+    expect(selectListSafeForResultEdit('SELECT id, email FROM public.users')).toBe(true);
+    expect(selectListSafeForResultEdit('SELECT u.id, u.email FROM public.users u')).toBe(true);
+    expect(
+      singleTableForResultEdit('SELECT email AS id, name FROM public.users', [users]).ok
+    ).toBe(false);
+  });
+
+  it('rejects FROM subqueries', () => {
+    expect(
+      singleTableForResultEdit(
+        'SELECT * FROM (SELECT email AS id FROM public.users) t',
+        [users]
+      ).ok
+    ).toBe(false);
+  });
+
+  it('does not map sales.users onto a bare users cache entry from another schema', () => {
+    expect(findCachedTableForEdit([bareUsers], 'sales.users', 'public')).toBeUndefined();
+    expect(findCachedTableForEdit([bareUsers], 'sales.users')).toBeUndefined();
+    expect(findCachedTableForEdit([bareUsers], 'public.users', 'public')?.name).toBe('users');
+    expect(findCachedTableForEdit([bareUsers], 'users')?.name).toBe('users');
+    expect(
+      singleTableForResultEdit('SELECT id, email FROM sales.users', [bareUsers], 'public').ok
+    ).toBe(false);
+    expect(
+      singleTableForResultEdit('SELECT id, email FROM public.users', [bareUsers], 'public').ok
+    ).toBe(true);
   });
 });
