@@ -361,6 +361,8 @@ export class SqlEditorPage {
       localStorage.removeItem('foxschema-sql-editor');
       localStorage.removeItem('foxschema-sql-sidebar-sections');
       localStorage.removeItem('foxschema-sql-sidebar-section-heights');
+      localStorage.removeItem('foxschema-sql-sidebar-order');
+      localStorage.removeItem('foxschema-sql-sidebar-order-schema-top-v1');
     });
   }
 

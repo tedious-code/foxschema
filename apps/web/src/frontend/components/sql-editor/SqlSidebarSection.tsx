@@ -32,23 +32,34 @@ const DEFAULT_HEIGHTS: Record<SidebarSectionId, number> = {
   vault: 160,
   utilities: 280,
   files: 180,
-  schema: 220,
+  /** Taller default — Schema leads the sidebar by default. */
+  schema: 280,
 };
 
 const MIN_SECTION_H = 72;
 const MAX_SECTION_H = 480;
 
+/** Default: Schema at the top; still freely reorderable (including Schema). */
 const DEFAULT_ORDER: SidebarSectionId[] = [
+  'schema',
   'destinations',
   'bookmarks',
   'variables',
   'vault',
   'utilities',
   'files',
-  'schema',
 ];
 
+/** One-time: move Schema to top for users who still have the old bottom default. */
+const ORDER_SCHEMA_TOP_MIGRATION_KEY = 'foxschema-sql-sidebar-order-schema-top-v1';
+
 const ALL_SECTION_IDS = new Set<SidebarSectionId>(DEFAULT_ORDER);
+
+/** Move Schema to the front while keeping relative order of other sections. */
+export function pinSchemaFirst(order: SidebarSectionId[]): SidebarSectionId[] {
+  const rest = order.filter((id) => id !== 'schema');
+  return ['schema', ...rest];
+}
 
 function normalizeOrder(raw: unknown): SidebarSectionId[] {
   if (!Array.isArray(raw)) return [...DEFAULT_ORDER];
@@ -71,13 +82,20 @@ function loadOrder(): SidebarSectionId[] {
   try {
     const raw = localStorage.getItem(ORDER_KEY);
     if (!raw) return [...DEFAULT_ORDER];
-    return normalizeOrder(JSON.parse(raw));
+    let order = normalizeOrder(JSON.parse(raw));
+    // Existing installs had Schema at the bottom — promote once, then leave
+    // whatever the user drags to afterward.
+    if (!localStorage.getItem(ORDER_SCHEMA_TOP_MIGRATION_KEY)) {
+      order = pinSchemaFirst(order);
+      localStorage.setItem(ORDER_SCHEMA_TOP_MIGRATION_KEY, '1');
+    }
+    return order;
   } catch {
     return [...DEFAULT_ORDER];
   }
 }
 
-/** Reorder sidebar sections (immutable). */
+/** Reorder sidebar sections (immutable). Schema is freely movable. */
 export function moveSidebarSection(
   order: SidebarSectionId[],
   fromIndex: number,
@@ -87,7 +105,7 @@ export function moveSidebarSection(
   if (fromIndex >= order.length || toIndex >= order.length) return order;
   const next = [...order];
   const [item] = next.splice(fromIndex, 1);
-  next.splice(toIndex, 0, item);
+  next.splice(toIndex, 0, item!);
   return next;
 }
 
@@ -208,7 +226,8 @@ export function useSidebarSectionHeights(): [
 
 /**
  * Collapsible block for the SQL Editor left sidebar
- * (Destinations / Bookmarks / Variables / Secrets / Utilities / Files / Schema).
+ * (Schema first by default, then Destinations / Bookmarks / Variables /
+ * Secrets / Utilities / Files — all sections are reorderable).
  * Open sections are height-resizable via the bottom grip.
  */
 export const SqlSidebarSection: React.FC<{
