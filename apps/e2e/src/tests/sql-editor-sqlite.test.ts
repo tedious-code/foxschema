@@ -9,6 +9,7 @@ import { mkdirSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Page } from 'playwright';
 import { buildDriver, quitDriver } from '../helpers/driver.js';
+import { saveScreenshot, saveSeoScreenshot } from '../helpers/screenshot.js';
 import { AppPage } from '../pages/AppPage.js';
 import { SqlEditorPage } from '../pages/SqlEditorPage.js';
 
@@ -135,6 +136,10 @@ describe.skipIf(!ready)('SQL Editor · SQLite multi-credential', () => {
     const results = await sql.resultsText();
     expect(results).toMatch(/baseline/i);
     expect(results).toMatch(/differ|match/i);
+
+    // Capture the colored compare view for the PR / walkthrough.
+    await saveScreenshot(driver, 'sql-editor-data-compare');
+    await saveSeoScreenshot(driver, 'sql-editor-data-compare');
 
     // Toggle Compare off → highlights clear.
     await sql.compareToggle(0).click();
