@@ -52,6 +52,27 @@ return map([1], (n) => ({ n }));
     if (!parsed.ok) expect(parsed.error).toMatch(/allowlisted/i);
   });
 
+  it('accepts the scoped faker specifier', () => {
+    const parsed = parseCodeCellImports(
+      `import { faker } from '@faker-js/faker';\nreturn [];`
+    );
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.specs[0]).toEqual({
+      kind: 'named',
+      pkg: '@faker-js/faker',
+      names: [{ imported: 'faker', local: 'faker' }],
+    });
+  });
+
+  it('rejects a faker locale subpath (only the bare specifier is bundled)', () => {
+    const parsed = parseCodeCellImports(
+      `import { faker } from '@faker-js/faker/locale/de';\nreturn [];`
+    );
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.error).toMatch(/allowlisted/i);
+  });
+
   it('rejects mid-body imports', () => {
     const parsed = parseCodeCellImports(`const x = 1;\nimport _ from 'lodash';\nreturn [];`);
     expect(parsed.ok).toBe(false);
@@ -118,6 +139,49 @@ return _.map(last.rows, doubleRow);
         [6, 12],
       ]);
     }
+  });
+
+  it('generates fake rows with faker (named import)', async () => {
+    const r = await executeCodeCell({
+      body: `import { faker } from '@faker-js/faker';
+faker.seed(42);
+return [{ name: faker.person.fullName(), email: faker.internet.email() }];
+`,
+      last: null,
+      vars: {},
+      maxRows: 10,
+    });
+    expect(r).toMatchObject({ ok: true, rowCount: 1 });
+    if (r.ok) {
+      expect(r.columns).toEqual(['name', 'email']);
+      expect(String(r.rows[0]![0])).not.toHaveLength(0);
+      expect(String(r.rows[0]![1])).toMatch(/@/);
+    }
+  });
+
+  it('seeding faker makes a cell reproducible', async () => {
+    const body = `import { faker } from '@faker-js/faker';
+faker.seed(7);
+return [{ a: faker.person.firstName(), b: faker.string.uuid() }];
+`;
+    const first = await executeCodeCell({ body, last: null, vars: {}, maxRows: 10 });
+    const second = await executeCodeCell({ body, last: null, vars: {}, maxRows: 10 });
+    expect(first).toMatchObject({ ok: true });
+    expect(second).toMatchObject({ ok: true });
+    if (first.ok && second.ok) expect(first.rows).toEqual(second.rows);
+  });
+
+  it('exposes faker as a default import too', async () => {
+    const r = await executeCodeCell({
+      body: `import faker from '@faker-js/faker';
+return [{ city: typeof faker.location.city() }];
+`,
+      last: null,
+      vars: {},
+      maxRows: 10,
+    });
+    expect(r).toMatchObject({ ok: true });
+    if (r.ok) expect(r.rows).toEqual([['string']]);
   });
 
   it('runs lodash-es named import with alias', async () => {

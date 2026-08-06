@@ -21,7 +21,12 @@ import type {
   CodeCellVars,
 } from './code-cell-types.js';
 
-export const CODE_CELL_ALLOWED_PACKAGES = ['lodash', 'lodash-es', 'date-fns'] as const;
+export const CODE_CELL_ALLOWED_PACKAGES = [
+  'lodash',
+  'lodash-es',
+  'date-fns',
+  '@faker-js/faker',
+] as const;
 export type CodeCellAllowedPackage = (typeof CODE_CELL_ALLOWED_PACKAGES)[number];
 
 const ALLOWED = new Set<string>(CODE_CELL_ALLOWED_PACKAGES);
