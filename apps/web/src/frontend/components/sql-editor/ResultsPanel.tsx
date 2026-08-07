@@ -25,7 +25,12 @@ import {
   type CellDiffKind,
   type GridDiffSummary,
 } from '../../lib/resultDataDiff';
+import {
+  alignResultGridsByKey,
+  compareKeyAlignedGrids,
+} from '../../lib/resultKeyAlign';
 import { detectTriggerManagedColumns } from '../../lib/triggerManagedColumns';
+import { resolvePeekKeyColumns } from '../../lib/rowDml';
 import { buildSampleBookmarks } from '../../lib/sqlEditorSamples';
 import { DataMigrateBar } from './DataMigrateBar';
 import { usePeekGridCrud } from './usePeekGridCrud';
@@ -119,6 +124,8 @@ const ResultGridPane: React.FC<{
   diffSummary?: GridDiffSummary | null;
   /** Suffix shown after the grid label (e.g. baseline / N differ). */
   compareBadge?: string | null;
+  /** Key-aligned compare remaps rows — disable inline CRUD to avoid wrong targets. */
+  compareLocked?: boolean;
 }> = ({
   item,
   refreshing,
@@ -129,6 +136,7 @@ const ResultGridPane: React.FC<{
   onSyncScrollRow,
   diffSummary = null,
   compareBadge = null,
+  compareLocked = false,
 }) => {
   const schemaCache = useSqlEditorStore((s) => s.schemaCache);
   const openDataPeekFromFk = useSqlEditorStore((s) => s.openDataPeekFromFk);
@@ -211,7 +219,8 @@ const ResultGridPane: React.FC<{
     columns,
     rows,
     // Match Data Peek: resultOk is about the grid, not whether schema resolved yet.
-    resultOk: Boolean(item.result.ok),
+    // Key-aligned compare pads/reorders rows — keep CRUD off until Compare is off.
+    resultOk: Boolean(item.result.ok) && !compareLocked,
     sessionKey: `${item.connectionId}:${item.statementIndex}:${pageIndex}`,
     resultEpoch: item.result,
     onAfterWrite: afterWrite,
@@ -219,9 +228,11 @@ const ResultGridPane: React.FC<{
   });
 
   const readOnlyReason =
-    !crud.showCrud && item.result.ok
-      ? (!editTarget.ok ? editTarget.reason : crud.editability.reason)
-      : undefined;
+    compareLocked && item.result.ok
+      ? 'Turn off Compare data to edit rows'
+      : !crud.showCrud && item.result.ok
+        ? (!editTarget.ok ? editTarget.reason : crud.editability.reason)
+        : undefined;
 
   const toolbarExtra = (
     <>
@@ -313,6 +324,7 @@ const PaneBody: React.FC<{
   onSyncScrollRow?: (row: number | null) => void;
   diffSummary?: GridDiffSummary | null;
   compareBadge?: string | null;
+  compareLocked?: boolean;
 }> = ({
   item,
   refreshing,
@@ -323,6 +335,7 @@ const PaneBody: React.FC<{
   onSyncScrollRow,
   diffSummary = null,
   compareBadge = null,
+  compareLocked = false,
 }) => {
   if (item.kind === 'grid') {
     return (
@@ -336,6 +349,7 @@ const PaneBody: React.FC<{
         onSyncScrollRow={onSyncScrollRow}
         diffSummary={diffSummary}
         compareBadge={compareBadge}
+        compareLocked={compareLocked}
       />
     );
   }
@@ -396,6 +410,8 @@ const ResizablePaneRow: React.FC<{
   diffByConnection?: Record<string, GridDiffSummary>;
   /** Per connectionId: label badge (baseline / N differ). */
   badgeByConnection?: Record<string, string>;
+  /** Key-aligned compare remaps rows — lock inline CRUD. */
+  compareLocked?: boolean;
 }> = ({
   items,
   rowKey,
@@ -405,6 +421,7 @@ const ResizablePaneRow: React.FC<{
   pageState,
   diffByConnection,
   badgeByConnection,
+  compareLocked = false,
 }) => {
   const rowRef = useRef<HTMLDivElement>(null);
   const [widths, setWidths] = useState<number[]>(() => items.map(() => PANE_DEFAULT_PX));
@@ -501,6 +518,7 @@ const ResizablePaneRow: React.FC<{
                 onSyncScrollRow={syncScroll ? setSyncRow : undefined}
                 diffSummary={diffByConnection?.[item.connectionId] ?? null}
                 compareBadge={badgeByConnection?.[item.connectionId] ?? null}
+                compareLocked={compareLocked}
               />
             </div>
             <div
@@ -644,6 +662,12 @@ const SideBySideStatementSection: React.FC<{
   /** Skip createdAt / updatedBy / etc. — values differ across DBs even when rows match. */
   const [skipTriggerCols, setSkipTriggerCols] = useState(true);
   const [baselineId, setBaselineId] = useState<string>('');
+  const [destId, setDestId] = useState<string>('');
+  /** Shared with Data migrate — Compare aligns rows by these keys. */
+  const [keyNames, setKeyNames] = useState<string[]>([]);
+
+  const schemaCache = useSqlEditorStore((s) => s.schemaCache);
+  const connections = useSyncStore((s) => s.connections);
 
   useEffect(() => {
     if (!canCompare) return;
@@ -653,6 +677,54 @@ const SideBySideStatementSection: React.FC<{
   }, [canCompare, okGrids, baselineId]);
 
   const compareActive = canCompare && compareOn && Boolean(baselineId);
+
+  useEffect(() => {
+    if (!compareActive) return;
+    const others = okGrids.filter((g) => g.connectionId !== baselineId);
+    if (!destId || !others.some((g) => g.connectionId === destId)) {
+      setDestId(others[0]?.connectionId ?? '');
+    }
+  }, [compareActive, okGrids, baselineId, destId]);
+
+  const sourceGrid = okGrids.find((g) => g.connectionId === baselineId);
+  const destGrid = okGrids.find((g) => g.connectionId === destId);
+
+  const defaultKeys = useMemo(() => {
+    if (!sourceGrid?.result.ok) return [] as string[];
+    const conn = connections.find((c) => c.id === sourceGrid.connectionId);
+    const tables = schemaCache[sourceGrid.connectionId]?.tables;
+    const editTarget = sourceGrid.statementSql
+      ? singleTableForResultEdit(sourceGrid.statementSql, tables, conn?.schema)
+      : { ok: false as const };
+    const table = editTarget.ok ? editTarget.table : undefined;
+    const resolved = resolvePeekKeyColumns(table, sourceGrid.result.columns).map((k) => k.name);
+    if (resolved.length) return resolved;
+    const idCol = sourceGrid.result.columns.find((c) => c.toLowerCase() === 'id');
+    return idCol ? [idCol] : sourceGrid.result.columns.slice(0, 1);
+  }, [sourceGrid, connections, schemaCache]);
+
+  const defaultKeysKey = defaultKeys.join('\0');
+  const keyNamesKey = keyNames.join('\0');
+  const sourceColsKey = sourceGrid?.result.ok ? sourceGrid.result.columns.join('\0') : '';
+
+  useEffect(() => {
+    if (!compareActive) return;
+    if (keyNames.length === 0 && defaultKeys.length > 0) {
+      setKeyNames(defaultKeys);
+      return;
+    }
+    const cols =
+      sourceGrid?.result.ok ? sourceGrid.result.columns : null;
+    if (
+      keyNames.length > 0 &&
+      cols &&
+      keyNames.every(
+        (k) => !cols.some((c) => c.toLowerCase() === k.toLowerCase())
+      )
+    ) {
+      setKeyNames(defaultKeys);
+    }
+  }, [compareActive, defaultKeysKey, keyNamesKey, sourceColsKey, defaultKeys, keyNames, sourceGrid]);
 
   const triggerIgnoreColumns = useMemo(() => {
     if (!skipTriggerCols) return [] as string[];
@@ -664,44 +736,148 @@ const SideBySideStatementSection: React.FC<{
     return [...names];
   }, [skipTriggerCols, okGrids]);
 
-  const { diffByConnection, badgeByConnection, legendBits } = useMemo(() => {
+  const triggerIgnoreKey = triggerIgnoreColumns.join('\0');
+  const ignoreOpts = useMemo(
+    () =>
+      triggerIgnoreColumns.length > 0
+        ? { ignoreColumns: triggerIgnoreColumns }
+        : undefined,
+    [triggerIgnoreKey, triggerIgnoreColumns]
+  );
+
+  const effectiveKeys = keyNames.length ? keyNames : defaultKeys;
+
+  /** Key-align source ↔ dest (same pair as Data migrate) for a friendly visual. */
+  const keyAligned = useMemo(() => {
+    if (!compareActive || !sourceGrid?.result.ok || !destGrid?.result.ok) return null;
+    if (effectiveKeys.length === 0) return null;
+    return alignResultGridsByKey(
+      { columns: sourceGrid.result.columns, rows: sourceGrid.result.rows },
+      { columns: destGrid.result.columns, rows: destGrid.result.rows },
+      effectiveKeys,
+      ignoreOpts
+    );
+  }, [compareActive, sourceGrid, destGrid, effectiveKeys.join('\0'), ignoreOpts]);
+
+  const { diffByConnection, badgeByConnection, legendBits, displayItems } = useMemo(() => {
     const diffByConnection: Record<string, GridDiffSummary> = {};
     const badgeByConnection: Record<string, string> = {};
     const legendBits: string[] = [];
+    let displayItems = items;
+
     if (!compareActive) {
-      return { diffByConnection, badgeByConnection, legendBits };
+      return { diffByConnection, badgeByConnection, legendBits, displayItems };
     }
     const baselineItem = okGrids.find((g) => g.connectionId === baselineId);
     if (!baselineItem || !baselineItem.result.ok) {
-      return { diffByConnection, badgeByConnection, legendBits };
+      return { diffByConnection, badgeByConnection, legendBits, displayItems };
     }
+
     const baselineGrid = {
       columns: baselineItem.result.columns,
       rows: baselineItem.result.rows,
     };
     badgeByConnection[baselineId] = 'baseline';
 
+    if (keyAligned && destId) {
+      const destItem = okGrids.find((g) => g.connectionId === destId);
+      if (destItem?.result.ok) {
+        const destGridLike = {
+          columns: destItem.result.columns,
+          rows: destItem.result.rows,
+        };
+        const pair = compareKeyAlignedGrids(
+          baselineGrid,
+          destGridLike,
+          keyAligned,
+          ignoreOpts
+        );
+        diffByConnection[baselineId] = pair.baseline;
+        diffByConnection[destId] = pair.other;
+
+        const keyLabel = keyAligned.keyNames.join('+');
+        legendBits.push(`aligned by ${keyLabel}`);
+        if (keyAligned.updateCount > 0) legendBits.push(`${keyAligned.updateCount} edit`);
+        if (keyAligned.insertCount > 0) legendBits.push(`${keyAligned.insertCount} add`);
+        if (keyAligned.deleteCount > 0) legendBits.push(`${keyAligned.deleteCount} delete`);
+        if (keyAligned.matchCount > 0) legendBits.push(`${keyAligned.matchCount} match`);
+        if (triggerIgnoreColumns.length > 0) {
+          legendBits.push(`skipping ${triggerIgnoreColumns.join(', ')}`);
+        }
+        if (
+          keyAligned.updateCount === 0 &&
+          keyAligned.insertCount === 0 &&
+          keyAligned.deleteCount === 0
+        ) {
+          legendBits.push('grids match by key');
+        }
+
+        badgeByConnection[baselineId] =
+          keyAligned.deleteCount + keyAligned.updateCount === 0
+            ? 'baseline · key'
+            : `baseline · ${keyAligned.updateCount} edit · ${keyAligned.deleteCount} only-here`;
+        badgeByConnection[destId] =
+          keyAligned.insertCount + keyAligned.updateCount === 0
+            ? 'match by key'
+            : `${keyAligned.updateCount} edit · ${keyAligned.insertCount} only-here`;
+
+        displayItems = items.map((item) => {
+          if (item.kind !== 'grid' || !item.result.ok) return item;
+          if (item.connectionId === baselineId) {
+            return {
+              ...item,
+              result: {
+                ...item.result,
+                rows: keyAligned.leftRows,
+                rowCount: keyAligned.leftRows.length,
+              },
+            };
+          }
+          if (item.connectionId === destId) {
+            return {
+              ...item,
+              result: {
+                ...item.result,
+                rows: keyAligned.rightRows,
+                rowCount: keyAligned.rightRows.length,
+              },
+            };
+          }
+          return item;
+        });
+
+        for (const g of okGrids) {
+          if (g.connectionId === baselineId || g.connectionId === destId || !g.result.ok) {
+            continue;
+          }
+          const pairIdx = compareResultGrids(
+            baselineGrid,
+            { columns: g.result.columns, rows: g.result.rows },
+            ignoreOpts
+          );
+          diffByConnection[g.connectionId] = pairIdx.other;
+          const n = pairIdx.other.cells.size;
+          badgeByConnection[g.connectionId] =
+            n === 0 ? 'match (by index)' : `${n} differ (by index)`;
+        }
+
+        return { diffByConnection, badgeByConnection, legendBits, displayItems };
+      }
+    }
+
     let totalModified = 0;
     let totalMissing = 0;
     let totalExtra = 0;
     const missingCols = new Set<string>();
     const extraCols = new Set<string>();
-    const ignoreOpts =
-      triggerIgnoreColumns.length > 0
-        ? { ignoreColumns: triggerIgnoreColumns }
-        : undefined;
 
     for (const g of okGrids) {
       if (g.connectionId === baselineId || !g.result.ok) continue;
       const pair = compareResultGrids(
         baselineGrid,
-        {
-          columns: g.result.columns,
-          rows: g.result.rows,
-        },
+        { columns: g.result.columns, rows: g.result.rows },
         ignoreOpts
       );
-      // Merge baseline highlights across all others (union of diffs).
       const prev = diffByConnection[baselineId];
       if (!prev) {
         diffByConnection[baselineId] = pair.baseline;
@@ -735,6 +911,7 @@ const SideBySideStatementSection: React.FC<{
     badgeByConnection[baselineId] =
       baseCells === 0 ? 'baseline' : `baseline · ${baseCells} differ`;
 
+    legendBits.push('aligned by row index (pick Keys below for friendlier match)');
     if (totalModified > 0) legendBits.push(`${totalModified} modified`);
     if (totalMissing > 0) legendBits.push(`${totalMissing} missing`);
     if (totalExtra > 0) legendBits.push(`${totalExtra} extra`);
@@ -747,22 +924,19 @@ const SideBySideStatementSection: React.FC<{
     if (triggerIgnoreColumns.length > 0) {
       legendBits.push(`skipping ${triggerIgnoreColumns.join(', ')}`);
     }
-    if (legendBits.length === 0) legendBits.push('grids match on this page');
+    if (legendBits.length === 1) legendBits.push('grids match on this page');
 
-    return { diffByConnection, badgeByConnection, legendBits };
-  }, [compareActive, okGrids, baselineId, triggerIgnoreColumns]);
-
-  const [destId, setDestId] = useState<string>('');
-  useEffect(() => {
-    if (!compareActive) return;
-    const others = okGrids.filter((g) => g.connectionId !== baselineId);
-    if (!destId || !others.some((g) => g.connectionId === destId)) {
-      setDestId(others[0]?.connectionId ?? '');
-    }
-  }, [compareActive, okGrids, baselineId, destId]);
-
-  const sourceGrid = okGrids.find((g) => g.connectionId === baselineId);
-  const destGrid = okGrids.find((g) => g.connectionId === destId);
+    return { diffByConnection, badgeByConnection, legendBits, displayItems };
+  }, [
+    compareActive,
+    okGrids,
+    baselineId,
+    destId,
+    keyAligned,
+    items,
+    triggerIgnoreColumns,
+    ignoreOpts,
+  ]);
 
   const insertServerBeamSample = () => {
     const sample = buildSampleBookmarks().find((b) => b.id === 'sample-server-beam-chunked');
@@ -865,7 +1039,7 @@ const SideBySideStatementSection: React.FC<{
                 <span className="inline-flex items-center gap-1">
                   <span className="w-2 h-2 rounded-sm bg-emerald-500/70" /> extra
                 </span>
-                <span className="text-slate-600 truncate max-w-[20rem]" title={legendBits.join(' · ')}>
+                <span className="text-slate-600 truncate max-w-[24rem]" title={legendBits.join(' · ')}>
                   {legendBits.join(' · ')}
                 </span>
               </span>
@@ -893,25 +1067,32 @@ const SideBySideStatementSection: React.FC<{
             statementSql: destGrid.statementSql,
           }}
           ignoreColumns={triggerIgnoreColumns}
+          keyNames={effectiveKeys}
+          onKeyNamesChange={setKeyNames}
           onAfterMigrate={() => onRefresh?.(destGrid.connectionId)}
           onOpenServerBeamSample={insertServerBeamSample}
         />
       )}
       <ResizablePaneRow
-        items={items}
-        rowKey={`side-${statementIndex}-${items.map((x) => x.key).join('|')}`}
+        items={displayItems}
+        rowKey={`side-${statementIndex}-${displayItems.map((x) => x.key).join('|')}-${
+          keyAligned ? `key-${effectiveKeys.join('+')}` : 'idx'
+        }`}
         refreshing={refreshing}
         onRefresh={onRefresh}
         onPage={onPage}
         pageState={pageState}
         diffByConnection={compareActive ? diffByConnection : undefined}
         badgeByConnection={compareActive ? badgeByConnection : undefined}
+        compareLocked={Boolean(compareActive && keyAligned)}
       />
       {compareActive && (
         <p className="text-[10px] text-slate-500 px-0.5" data-testid={`sql-result-compare-hint-${statementIndex}`}>
-          Cell colors align by row index. Choose Add / Edit / Delete yourself; Transaction and Stop /
-          Continue are safety assists. Skip trigger cols ignores createdAt / updatedBy. Same ORDER BY
-          when scanning. Cap: 500 ops — larger sets use Server Beam.
+          {keyAligned
+            ? 'Rows line up by Keys (same as Data migrate). Matching keys share a row; only-here rows show as missing/extra. '
+            : 'No usable key yet — cells align by row index. Pick Keys in Data migrate for friendlier matching. '}
+          Choose Add / Edit / Delete yourself; Transaction and Stop / Continue are safety assists.
+          Cap: 500 ops — larger sets use Server Beam.
         </p>
       )}
     </section>

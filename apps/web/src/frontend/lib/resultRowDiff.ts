@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Key-based row classification for data migrate (source → destination).
- * Side-by-side cell tinting stays index-aligned; DML uses this classifier.
+ * Visual compare uses resultKeyAlign for key-aligned cell tinting.
  */
 
 import { resultValuesEqual } from './resultDataDiff';

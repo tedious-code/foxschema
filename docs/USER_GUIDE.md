@@ -131,11 +131,12 @@ compare / migrate). It lives in the same local web UI you open with `foxschema`.
 
 6. **Compare data across servers** — switch the results layout to **Side-by-side**
    and check two or more Destinations. **Compare data** is off by default so grids
-   stay plain until you turn it on. Then cells that differ from the source are
-   colored: amber (modified), rose (missing), emerald (extra). Pick **source**
-   (and **dest** when more than two). **Skip trigger cols** (on by default) ignores
-   audit fields such as `createdAt` / `updatedBy`. Cell tinting aligns by row
-   index — use the same `ORDER BY` when scanning.
+   stay plain until you turn it on. Rows then **line up by key columns** (PK / your
+   Keys checkboxes — same as Data migrate), so matching IDs share a row instead of
+   comparing by ORDER BY index. Differing cells are colored: amber (modified), rose
+   (missing / only in source), emerald (extra / only in dest). Pick **source** (and
+   **dest** when more than two). **Skip trigger cols** (on by default) ignores audit
+   fields such as `createdAt` / `updatedBy`.
 
 7. **Data migrate (≤500 row ops)** — with Compare on, **Data migrate** appears.
    You choose **Add / Edit / Delete** (none selected until you check them). Safety
