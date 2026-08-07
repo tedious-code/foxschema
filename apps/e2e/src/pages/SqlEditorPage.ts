@@ -266,6 +266,22 @@ export class SqlEditorPage {
     return this.page.locator(`[data-testid="sql-result-compare-baseline-${statementIndex}"]`);
   }
 
+  compareDestSelect(statementIndex = 0) {
+    return this.page.locator(`[data-testid="sql-result-compare-dest-${statementIndex}"]`);
+  }
+
+  compareSyncScroll(statementIndex = 0) {
+    return this.page.locator(`[data-testid="sql-result-compare-sync-scroll-${statementIndex}"]`);
+  }
+
+  compareExportCsvAll(statementIndex = 0) {
+    return this.page.locator(`[data-testid="sql-result-compare-export-csv-${statementIndex}"]`);
+  }
+
+  compareMaximize(statementIndex = 0) {
+    return this.page.locator(`[data-testid="sql-result-compare-maximize-${statementIndex}"]`);
+  }
+
   /** Count cells marked with a data-diff attribute in the results panel. */
   async diffCellCount(kind?: 'modified' | 'missing' | 'extra'): Promise<number> {
     const sel = kind

@@ -143,7 +143,7 @@ describe.skipIf(!ready)('SQL Editor · SQLite multi-credential', () => {
     expect(results).toMatch(/original|baseline|source/i);
     expect(results).toMatch(/aligned by|edit|match/i);
 
-    // Data migrate bar: Add / Edit / Delete (user opts in; none checked by default).
+    // Data migrate bar: Add / Edit / Delete (ops default on when diffs exist).
     await driver.waitForSelector('[data-testid="sql-data-migrate-bar-0"]', {
       timeout: 10_000,
     });
@@ -151,13 +151,13 @@ describe.skipIf(!ready)('SQL Editor · SQLite multi-credential', () => {
       true
     );
     expect(await driver.locator('[data-testid="sql-data-migrate-insert-0"]').isChecked()).toBe(
-      false
+      true
     );
     expect(await driver.locator('[data-testid="sql-data-migrate-update-0"]').isChecked()).toBe(
-      false
+      true
     );
     expect(await driver.locator('[data-testid="sql-data-migrate-delete-0"]').isChecked()).toBe(
-      false
+      true
     );
     expect(await driver.locator('[data-testid="sql-data-migrate-tx-0"]').isVisible()).toBe(true);
     expect(await driver.locator('[data-testid="sql-data-migrate-identity-0"]').isVisible()).toBe(
