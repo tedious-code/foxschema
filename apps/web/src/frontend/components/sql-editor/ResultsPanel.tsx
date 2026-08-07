@@ -123,6 +123,10 @@ const ResultGridPane: React.FC<{
     register: (id: string, apply: (scrollTop: number) => void) => () => void;
     broadcast: (sourceId: string, scrollTop: number) => void;
   };
+  hoverSync?: {
+    register: (id: string, apply: (rowIdx: number | null) => void) => () => void;
+    broadcast: (sourceId: string, rowIdx: number | null) => void;
+  };
   /** Cross-connection compare highlights for this grid. */
   diffSummary?: GridDiffSummary | null;
   /** Suffix shown after the grid label (e.g. original / N differ). */
@@ -141,6 +145,7 @@ const ResultGridPane: React.FC<{
   pageState,
   scrollSyncId,
   scrollSync,
+  hoverSync,
   diffSummary = null,
   compareBadge = null,
   compareLocked = false,
@@ -277,6 +282,7 @@ const ResultGridPane: React.FC<{
         onRefresh={onRefresh ? () => onRefresh(item.connectionId) : undefined}
         scrollSyncId={scrollSyncId}
         scrollSync={scrollSync}
+        hoverSync={hoverSync}
         pageIndex={pageIndex}
         pageSize={page?.pageSize}
         hasPrevPage={!refreshing && Boolean(page) && pageIndex > 0}
@@ -334,6 +340,10 @@ const PaneBody: React.FC<{
     register: (id: string, apply: (scrollTop: number) => void) => () => void;
     broadcast: (sourceId: string, scrollTop: number) => void;
   };
+  hoverSync?: {
+    register: (id: string, apply: (rowIdx: number | null) => void) => () => void;
+    broadcast: (sourceId: string, rowIdx: number | null) => void;
+  };
   diffSummary?: GridDiffSummary | null;
   compareBadge?: string | null;
   compareLocked?: boolean;
@@ -349,6 +359,7 @@ const PaneBody: React.FC<{
   pageState,
   scrollSyncId,
   scrollSync,
+  hoverSync,
   diffSummary = null,
   compareBadge = null,
   compareLocked = false,
@@ -364,6 +375,7 @@ const PaneBody: React.FC<{
         pageState={pageState}
         scrollSyncId={scrollSyncId}
         scrollSync={scrollSync}
+        hoverSync={hoverSync}
         diffSummary={diffSummary}
         compareBadge={compareBadge}
         compareLocked={compareLocked}
@@ -473,6 +485,25 @@ const ResizablePaneRow: React.FC<{
     }),
     []
   );
+  /** Peer hover-row bus — highlights the same row index across side-by-side grids. */
+  const hoverPeersRef = useRef(new Map<string, (rowIdx: number | null) => void>());
+  const hoverSync = useMemo(
+    () => ({
+      register: (id: string, apply: (rowIdx: number | null) => void) => {
+        hoverPeersRef.current.set(id, apply);
+        return () => {
+          hoverPeersRef.current.delete(id);
+        };
+      },
+      broadcast: (sourceId: string, rowIdx: number | null) => {
+        for (const [id, apply] of hoverPeersRef.current) {
+          if (id === sourceId) continue;
+          apply(rowIdx);
+        }
+      },
+    }),
+    []
+  );
 
   useLayoutEffect(() => {
     const el = rowRef.current;
@@ -486,6 +517,7 @@ const ResizablePaneRow: React.FC<{
       sizedForKey.current = rowKey;
       setWidths(equalWidths(items.length, w));
       for (const apply of scrollPeersRef.current.values()) apply(0);
+      for (const apply of hoverPeersRef.current.values()) apply(null);
     };
 
     applyEqual();
@@ -561,6 +593,7 @@ const ResizablePaneRow: React.FC<{
                 pageState={pageState}
                 scrollSyncId={enableScrollSync ? item.connectionId : undefined}
                 scrollSync={enableScrollSync ? scrollSync : undefined}
+                hoverSync={enableScrollSync ? hoverSync : undefined}
                 diffSummary={diffByConnection?.[item.connectionId] ?? null}
                 compareBadge={badgeByConnection?.[item.connectionId] ?? null}
                 compareLocked={compareLocked}

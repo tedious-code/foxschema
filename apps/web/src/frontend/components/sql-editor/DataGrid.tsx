@@ -248,6 +248,11 @@ export const DataGrid: React.FC<{
     register: (id: string, apply: (scrollTop: number) => void) => () => void;
     broadcast: (sourceId: string, scrollTop: number) => void;
   };
+  /** Sync hovered row index with sibling grids (same id as scrollSyncId). */
+  hoverSync?: {
+    register: (id: string, apply: (rowIdx: number | null) => void) => () => void;
+    broadcast: (sourceId: string, rowIdx: number | null) => void;
+  };
   /** 0-based page index for server-side paging. */
   pageIndex?: number;
   /** Rows requested per page (Max rows / Rows/page). */
@@ -292,6 +297,7 @@ export const DataGrid: React.FC<{
     onRefresh,
     scrollSyncId,
     scrollSync,
+    hoverSync,
     pageIndex = 0,
     pageSize,
     hasPrevPage,
@@ -338,6 +344,7 @@ export const DataGrid: React.FC<{
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportH, setViewportH] = useState(320);
+  const [hoverRow, setHoverRow] = useState<number | null>(null);
   const rafRef = useRef(0);
   /** True while this grid's scrollTop is being driven by a peer (skip re-broadcast). */
   const syncLock = useRef(false);
@@ -355,6 +362,7 @@ export const DataGrid: React.FC<{
     setDragFrom(null);
     setDragOver(null);
     setScrollTop(0);
+    setHoverRow(null);
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
   }, [colKey]);
 
@@ -378,9 +386,11 @@ export const DataGrid: React.FC<{
       if (Math.abs(el.scrollTop - top) < 0.5) return;
       syncLock.current = true;
       el.scrollTop = top;
-      setScrollTop(top);
-      // Double-rAF: programmatic scroll events flush before we accept broadcasts again.
-      requestAnimationFrame(() => {
+      // Match leader: DOM is live; virtualization state updates once per frame.
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = requestAnimationFrame(() => {
+        setScrollTop(top);
+        // Unlock after the programmatic scroll event has had a chance to fire.
         requestAnimationFrame(() => {
           syncLock.current = false;
         });
@@ -388,6 +398,20 @@ export const DataGrid: React.FC<{
     };
     return scrollSync.register(scrollSyncId, apply);
   }, [scrollSync, scrollSyncId]);
+
+  // Peer hover row — local state only (no parent re-render).
+  useEffect(() => {
+    if (!hoverSync || !scrollSyncId) return;
+    return hoverSync.register(scrollSyncId, setHoverRow);
+  }, [hoverSync, scrollSyncId]);
+
+  const publishHoverRow = useCallback(
+    (rowIdx: number | null) => {
+      setHoverRow(rowIdx);
+      if (hoverSync && scrollSyncId) hoverSync.broadcast(scrollSyncId, rowIdx);
+    },
+    [hoverSync, scrollSyncId]
+  );
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -562,6 +586,9 @@ export const DataGrid: React.FC<{
         className="fox-sql-grid flex-1 min-h-0 border border-[var(--fox-grid-border)] rounded-lg shadow-sm bg-[var(--fox-grid-bg)] text-[var(--fox-grid-ink)]"
         style={{ overflowX: 'auto', overflowY: 'auto' }}
         onScroll={onScroll}
+        onMouseLeave={() => {
+          if (hoverRow !== null) publishHoverRow(null);
+        }}
         onContextMenu={(e) => {
           // Empty area / row-number context: save whole result as table.
           if ((e.target as HTMLElement).closest('td, th')) return;
@@ -728,11 +755,14 @@ export const DataGrid: React.FC<{
                 const absRow = pageIndex * size + i + 1;
                 const stripe = i % 2 === 1;
                 const selected = selectedRowIndex === i;
+                const rowHovered = hoverRow === i;
                 const rowBg = selected
                   ? 'bg-amber-500/15'
-                  : stripe
-                    ? 'bg-[var(--fox-grid-bg-stripe)]'
-                    : 'bg-[var(--fox-grid-bg)]';
+                  : rowHovered
+                    ? 'bg-[var(--fox-grid-bg-hover)]'
+                    : stripe
+                      ? 'bg-[var(--fox-grid-bg-stripe)]'
+                      : 'bg-[var(--fox-grid-bg)]';
                 return (
                   <tr
                     key={i}
@@ -742,6 +772,9 @@ export const DataGrid: React.FC<{
                     } ${selected ? 'ring-1 ring-inset ring-amber-500/40' : ''}`}
                     style={{ height: rowH }}
                     onClick={() => onSelectRow?.(i)}
+                    onMouseEnter={() => {
+                      if (hoverRow !== i) publishHoverRow(i);
+                    }}
                   >
                     <td
                       className={`sticky left-0 z-[5] px-1.5 text-center tabular-nums text-[var(--fox-grid-muted)] ${rowBg} group-hover:bg-[var(--fox-grid-bg-hover)] border-r border-[var(--fox-grid-border-soft)] select-none ${
