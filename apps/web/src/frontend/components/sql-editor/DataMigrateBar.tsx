@@ -131,10 +131,10 @@ export const DataMigrateBar: React.FC<Props> = ({
     }
   };
 
-  /** User opts into each op — nothing selected until they choose. */
-  const [doInsert, setDoInsert] = useState(false);
-  const [doUpdate, setDoUpdate] = useState(false);
-  const [doDelete, setDoDelete] = useState(false);
+  /** Ops default on when that op has rows — Sync alone can enable Migrate. */
+  const [doInsert, setDoInsert] = useState(true);
+  const [doUpdate, setDoUpdate] = useState(true);
+  const [doDelete, setDoDelete] = useState(true);
   const [includeIdentity, setIncludeIdentity] = useState(false);
   /** Safety: one transaction for the whole batch (Stop mode). Off with Continue = per-op commits. */
   const [useTransaction, setUseTransaction] = useState(true);
@@ -570,7 +570,7 @@ export const DataMigrateBar: React.FC<Props> = ({
           data-testid={`sql-data-migrate-sync-all-${statementIndex}`}
           onClick={syncAll}
           className="inline-flex items-center gap-1 rounded-md border border-sky-500/40 bg-sky-950/50 px-2 py-0.5 text-sky-200 hover:bg-sky-900/60"
-          title="Re-check all differing rows in the Sync column (does not change Add/Edit/Delete)"
+          title="Re-check all differing rows in the Sync column"
         >
           <CheckCheck className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
           Sync all

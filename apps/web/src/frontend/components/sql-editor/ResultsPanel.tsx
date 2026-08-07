@@ -104,6 +104,36 @@ type PaneItem =
   | { key: string; kind: 'running'; label: string; connectionId: string }
   | { key: string; kind: 'error'; label: string; error: string; connectionId: string };
 
+/** Pane role when Compare is on — Source left, Target A/B… on the right. */
+function comparePaneRole(
+  connectionId: string,
+  baselineId: string,
+  _destId: string,
+  okGrids: Extract<PaneItem, { kind: 'grid' }>[]
+): string {
+  if (connectionId === baselineId) return 'Source';
+  const targets = okGrids.filter((g) => g.connectionId !== baselineId);
+  if (targets.length <= 1) return 'Target';
+  const idx = targets.findIndex((g) => g.connectionId === connectionId);
+  if (idx < 0) return 'Target';
+  return `Target ${String.fromCharCode(65 + idx)}`;
+}
+
+/** Source first, then destination, then any other panes. */
+function orderPanesSourceLeft(
+  list: PaneItem[],
+  baselineId: string,
+  destId: string
+): PaneItem[] {
+  if (!baselineId) return list;
+  const source = list.filter((i) => i.connectionId === baselineId);
+  const dest = destId ? list.filter((i) => i.connectionId === destId) : [];
+  const rest = list.filter(
+    (i) => i.connectionId !== baselineId && i.connectionId !== destId
+  );
+  return [...source, ...dest, ...rest];
+}
+
 function equalWidths(count: number, containerW: number): number[] {
   if (count <= 0) return [];
   const gripTotal = count * (8 + GAP_PX); // grip + gap per pane
@@ -269,7 +299,7 @@ const ResultGridPane: React.FC<{
       cells.get(cellDiffKey(rowIdx, colIdx)) ?? null;
   }, [diffSummary]);
 
-  const gridLabel = compareBadge ? `${item.label} · ${compareBadge}` : item.label;
+  const gridLabel = compareBadge ? `${compareBadge} · ${item.label}` : item.label;
 
   return (
     <div className="flex flex-col min-h-0 h-full">
@@ -858,7 +888,7 @@ const SideBySideStatementSection: React.FC<{
       columns: baselineItem.result.columns,
       rows: baselineItem.result.rows,
     };
-    badgeByConnection[baselineId] = 'original';
+    badgeByConnection[baselineId] = 'Source';
 
     if (keyAligned && destId) {
       const destItem = okGrids.find((g) => g.connectionId === destId);
@@ -878,9 +908,10 @@ const SideBySideStatementSection: React.FC<{
 
         const keyLabel = keyAligned.keyNames.join('+');
         legendBits.push(`aligned by ${keyLabel}`);
+        // Migrate vocabulary: source-only → Add, dest-only → Delete, both differ → Edit.
         if (keyAligned.updateCount > 0) legendBits.push(`${keyAligned.updateCount} edit`);
-        if (keyAligned.insertCount > 0) legendBits.push(`${keyAligned.insertCount} add`);
-        if (keyAligned.deleteCount > 0) legendBits.push(`${keyAligned.deleteCount} delete`);
+        if (keyAligned.deleteCount > 0) legendBits.push(`${keyAligned.deleteCount} add`);
+        if (keyAligned.insertCount > 0) legendBits.push(`${keyAligned.insertCount} delete`);
         if (keyAligned.matchCount > 0) legendBits.push(`${keyAligned.matchCount} match`);
         if (keyAligned.duplicateKeys > 0) {
           legendBits.push(
@@ -898,39 +929,45 @@ const SideBySideStatementSection: React.FC<{
           legendBits.push('grids match by key');
         }
 
+        const sourceRole = comparePaneRole(baselineId, baselineId, destId, okGrids);
+        const destRole = comparePaneRole(destId, baselineId, destId, okGrids);
         badgeByConnection[baselineId] =
           keyAligned.deleteCount + keyAligned.updateCount === 0
-            ? 'original · key'
-            : `original · ${keyAligned.updateCount} edit · ${keyAligned.deleteCount} only-here`;
+            ? `${sourceRole} → ${destRole}`
+            : `${sourceRole} → ${destRole} · ${keyAligned.updateCount} edit · ${keyAligned.deleteCount} add`;
         badgeByConnection[destId] =
           keyAligned.insertCount + keyAligned.updateCount === 0
-            ? 'match by key'
-            : `${keyAligned.updateCount} edit · ${keyAligned.insertCount} only-here`;
+            ? `${destRole} · match`
+            : `${destRole} · ${keyAligned.updateCount} edit · ${keyAligned.insertCount} delete`;
 
-        displayItems = items.map((item) => {
-          if (item.kind !== 'grid' || !item.result.ok) return item;
-          if (item.connectionId === baselineId) {
-            return {
-              ...item,
-              result: {
-                ...item.result,
-                rows: keyAligned.leftRows,
-                rowCount: keyAligned.leftRows.length,
-              },
-            };
-          }
-          if (item.connectionId === destId) {
-            return {
-              ...item,
-              result: {
-                ...item.result,
-                rows: keyAligned.rightRows,
-                rowCount: keyAligned.rightRows.length,
-              },
-            };
-          }
-          return item;
-        });
+        displayItems = orderPanesSourceLeft(
+          items.map((item) => {
+            if (item.kind !== 'grid' || !item.result.ok) return item;
+            if (item.connectionId === baselineId) {
+              return {
+                ...item,
+                result: {
+                  ...item.result,
+                  rows: keyAligned.leftRows,
+                  rowCount: keyAligned.leftRows.length,
+                },
+              };
+            }
+            if (item.connectionId === destId) {
+              return {
+                ...item,
+                result: {
+                  ...item.result,
+                  rows: keyAligned.rightRows,
+                  rowCount: keyAligned.rightRows.length,
+                },
+              };
+            }
+            return item;
+          }),
+          baselineId,
+          destId
+        );
 
         for (const g of okGrids) {
           if (g.connectionId === baselineId || g.connectionId === destId || !g.result.ok) {
@@ -943,8 +980,9 @@ const SideBySideStatementSection: React.FC<{
           );
           diffByConnection[g.connectionId] = pairIdx.other;
           const n = pairIdx.other.cells.size;
+          const role = comparePaneRole(g.connectionId, baselineId, destId, okGrids);
           badgeByConnection[g.connectionId] =
-            n === 0 ? 'match (by index)' : `${n} differ (by index)`;
+            n === 0 ? `${role} · match (by index)` : `${role} · ${n} differ (by index)`;
         }
 
         return { diffByConnection, badgeByConnection, legendBits, displayItems };
@@ -985,7 +1023,8 @@ const SideBySideStatementSection: React.FC<{
       }
       diffByConnection[g.connectionId] = pair.other;
       const n = pair.other.cells.size;
-      badgeByConnection[g.connectionId] = n === 0 ? 'match' : `${n} differ`;
+      const role = comparePaneRole(g.connectionId, baselineId, destId, okGrids);
+      badgeByConnection[g.connectionId] = n === 0 ? `${role} · match` : `${role} · ${n} differ`;
       totalModified += pair.other.modified;
       totalMissing += pair.other.missing + pair.baseline.missing;
       totalExtra += pair.other.extra;
@@ -994,34 +1033,39 @@ const SideBySideStatementSection: React.FC<{
     }
 
     const baseCells = diffByConnection[baselineId]?.cells.size ?? 0;
+    const sourceRole = comparePaneRole(baselineId, baselineId, destId, okGrids);
     badgeByConnection[baselineId] =
-      baseCells === 0 ? 'original' : `original · ${baseCells} differ`;
+      baseCells === 0 ? `${sourceRole}` : `${sourceRole} · ${baseCells} differ`;
 
     legendBits.push('aligned by row index (pick Keys below for friendlier match)');
-    if (totalModified > 0) legendBits.push(`${totalModified} modified`);
-    if (totalMissing > 0) legendBits.push(`${totalMissing} missing`);
-    if (totalExtra > 0) legendBits.push(`${totalExtra} extra`);
+    if (totalModified > 0) legendBits.push(`${totalModified} edit`);
+    if (totalMissing > 0) legendBits.push(`${totalMissing} add`);
+    if (totalExtra > 0) legendBits.push(`${totalExtra} delete`);
     if (missingCols.size > 0) {
-      legendBits.push(`cols only in original: ${[...missingCols].join(', ')}`);
+      legendBits.push(`cols only in source: ${[...missingCols].join(', ')}`);
     }
     if (extraCols.size > 0) {
-      legendBits.push(`cols only in other: ${[...extraCols].join(', ')}`);
+      legendBits.push(`cols only in target: ${[...extraCols].join(', ')}`);
     }
     if (triggerIgnoreColumns.length > 0) {
       legendBits.push(`skipping ${triggerIgnoreColumns.join(', ')}`);
     }
-    if (legendBits.length === 1) legendBits.push('grids match on this page');
+    if (totalModified === 0 && totalMissing === 0 && totalExtra === 0) {
+      legendBits.push('grids match');
+    }
+
+    displayItems = orderPanesSourceLeft(items, baselineId, destId);
 
     return { diffByConnection, badgeByConnection, legendBits, displayItems };
   }, [
     compareActive,
+    items,
     okGrids,
     baselineId,
     destId,
     keyAligned,
-    items,
-    triggerIgnoreColumns,
     ignoreOpts,
+    triggerIgnoreColumns,
   ]);
 
   const rowSyncByConnection = useMemo(() => {
@@ -1087,7 +1131,7 @@ const SideBySideStatementSection: React.FC<{
             )}
             {compareOn && (
               <label className="flex items-center gap-1.5 font-semibold">
-                <span className="text-slate-400">Original server</span>
+                <span className="text-slate-400">Source</span>
                 <select
                   data-testid={`sql-result-compare-baseline-${statementIndex}`}
                   value={baselineId}
@@ -1142,13 +1186,13 @@ const SideBySideStatementSection: React.FC<{
                 data-testid={`sql-result-compare-legend-${statementIndex}`}
               >
                 <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-950/50 px-1.5 py-0.5 text-amber-200">
-                  <span className="w-2 h-2 rounded-sm bg-amber-500" /> modified
+                  <span className="w-2 h-2 rounded-sm bg-amber-500" /> edit
                 </span>
                 <span className="inline-flex items-center gap-1 rounded-md border border-rose-500/40 bg-rose-950/50 px-1.5 py-0.5 text-rose-200">
-                  <span className="w-2 h-2 rounded-sm bg-rose-500" /> missing
+                  <span className="w-2 h-2 rounded-sm bg-rose-500" /> add
                 </span>
                 <span className="inline-flex items-center gap-1 rounded-md border border-emerald-500/40 bg-emerald-950/50 px-1.5 py-0.5 text-emerald-200">
-                  <span className="w-2 h-2 rounded-sm bg-emerald-500" /> extra
+                  <span className="w-2 h-2 rounded-sm bg-emerald-500" /> delete
                 </span>
                 <span className="text-slate-500 font-semibold truncate max-w-[28rem]" title={legendBits.join(' · ')}>
                   {legendBits.join(' · ')}
@@ -1211,10 +1255,10 @@ const SideBySideStatementSection: React.FC<{
       {compareActive && (
         <p className="text-[11px] font-semibold text-slate-500 px-0.5" data-testid={`sql-result-compare-hint-${statementIndex}`}>
           Rows line up by <span className="text-sky-400/90">Keys</span> (check columns in Data migrate).
-          The destination grid’s <span className="text-sky-400/90">Sync</span> column is on by default for
-          all differing rows — uncheck rows you do not want, or use Sync all. Migrate only runs when both
-          grids show the full result on page 1. Choose Add / Edit / Delete yourself; Transaction and Stop /
-          Continue are safety assists. Cap: 500 ops — larger sets use Server Beam.
+          Source is on the <span className="text-sky-400/90">left</span>; Target is on the right with a{' '}
+          <span className="text-sky-400/90">Sync</span> column (on by default for differing rows).
+          Migrate needs Add / Edit / Delete checked (enabled when diffs exist) plus Sync rows. Cap: 500
+          ops — larger sets use Server Beam.
         </p>
       )}
     </section>
