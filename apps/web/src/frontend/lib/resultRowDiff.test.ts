@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import {
   classifyRowsByKey,
   DATA_MIGRATE_ROW_CAP,
+  migrateGridsAreComplete,
   selectMigrateOps,
 } from './resultRowDiff';
 
@@ -66,6 +67,36 @@ describe('classifyRowsByKey', () => {
     expect(c.deletes).toHaveLength(0);
   });
 
+  it('does not collide when key values contain delimiter characters', () => {
+    const source = {
+      columns: ['a', 'b', 'v'],
+      rows: [['foo|b=bar', 'baz', 1]],
+    };
+    const dest = {
+      columns: ['a', 'b', 'v'],
+      rows: [['foo', 'bar|b=baz', 2]],
+    };
+    const c = classifyRowsByKey({ source, dest, keyNames: ['a', 'b'] });
+    expect(c.updates).toHaveLength(0);
+    expect(c.inserts).toHaveLength(1);
+    expect(c.deletes).toHaveLength(1);
+  });
+
+  it('counts duplicate keys instead of silently keeping the first row', () => {
+    const source = {
+      columns: ['id', 'name'],
+      rows: [
+        [1, 'first'],
+        [1, 'second'],
+      ],
+    };
+    const dest = { columns: ['id', 'name'], rows: [[1, 'dest']] };
+    const c = classifyRowsByKey({ source, dest, keyNames: ['id'] });
+    expect(c.duplicateKeys).toBe(1);
+    expect(c.updates).toHaveLength(1);
+    expect(c.updates[0]!.sourceRow).toEqual([1, 'first']);
+  });
+
   it('does not treat differing trigger columns as updates when ignored', () => {
     const columns = ['id', 'name', 'createdAt', 'updatedBy'];
     const source = {
@@ -91,6 +122,37 @@ describe('classifyRowsByKey', () => {
 });
 
 
+describe('migrateGridsAreComplete', () => {
+  it('requires page 1 with no remaining pages on both sides', () => {
+    expect(
+      migrateGridsAreComplete({
+        sourcePageIndex: 0,
+        destPageIndex: 0,
+        sourceHasMore: false,
+        destHasMore: false,
+      })
+    ).toBe(true);
+    // Dest on page 2 while source stays on page 1 → Delete would drop dest keys
+    // that still exist later in the source.
+    expect(
+      migrateGridsAreComplete({
+        sourcePageIndex: 0,
+        destPageIndex: 1,
+        sourceHasMore: false,
+        destHasMore: false,
+      })
+    ).toBe(false);
+    expect(
+      migrateGridsAreComplete({
+        sourcePageIndex: 0,
+        destPageIndex: 0,
+        sourceHasMore: true,
+        destHasMore: false,
+      })
+    ).toBe(false);
+  });
+});
+
 describe('selectMigrateOps', () => {
   it('respects checkboxes and caps at 500', () => {
     const inserts = Array.from({ length: 300 }, (_, i) => ({
@@ -109,6 +171,7 @@ describe('selectMigrateOps', () => {
       updates,
       deletes: [],
       skippedNullKeys: 0,
+      duplicateKeys: 0,
       totalOps: 600,
     };
     const selected = selectMigrateOps(

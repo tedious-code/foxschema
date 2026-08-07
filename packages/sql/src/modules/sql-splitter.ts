@@ -674,13 +674,16 @@ function sqlTextIsWrite(text: string): boolean {
     return inner !== null && sqlTextIsWrite(inner);
   }
   if (kw === 'with') {
-    for (const body of withCteBodies(text)) {
+    const bodies: string[] = [];
+    // Recurse into CTE bodies + the tail rather than matching its leading verb, so
+    // `WITH … SELECT * INTO t` and `WITH … EXPLAIN ANALYZE DELETE` still warn.
+    // Unscannable WITH (parser hole) fails closed → treat as write so Safe Mode confirms.
+    const tail = walkWithCtes(text, (body) => bodies.push(body));
+    if (tail === null) return true;
+    for (const body of bodies) {
       if (sqlTextIsWrite(body)) return true;
     }
-    // Recurse into the tail rather than matching its leading verb, so
-    // `WITH … SELECT * INTO t` and `WITH … EXPLAIN ANALYZE DELETE` still warn.
-    const tail = walkWithCtes(text);
-    return tail !== null && sqlTextIsWrite(tail);
+    return sqlTextIsWrite(tail);
   }
   return false;
 }
@@ -927,20 +930,25 @@ function sqlTextIsMutatingDml(text: string): boolean {
   }
   if (MUTATING_DML.has(kw)) return true;
   if (kw === 'with') {
-    for (const body of withCteBodies(text)) {
+    const bodies: string[] = [];
+    const tail = walkWithCtes(text, (body) => bodies.push(body));
+    // Match isWriteStatement: unscannable WITH is treated as mutating for Safe Mode.
+    if (tail === null) return true;
+    for (const body of bodies) {
       if (sqlTextIsMutatingDml(body)) return true;
     }
-    const tail = walkWithCtes(text);
-    return tail !== null && sqlTextIsMutatingDml(tail);
+    return sqlTextIsMutatingDml(tail);
   }
   return false;
 }
 
 /**
- * True when every write in the statement is INSERT (plain `INSERT …`,
- * `WITH … INSERT …`, or `WITH i AS (INSERT … RETURNING …) SELECT …`).
+ * True when every write in the statement is a plain INSERT (additive only):
+ * `INSERT …`, `WITH … INSERT …`, or `WITH i AS (INSERT … RETURNING …) SELECT …`.
  * Safe mode skips confirmation for these; UPDATE/DELETE/MERGE, DDL,
- * `SELECT … INTO`, and mixed insert+mutating CTEs still confirm.
+ * `SELECT … INTO`, upserts that can overwrite rows (`ON CONFLICT DO UPDATE`,
+ * `ON DUPLICATE KEY UPDATE`, `INSERT OR REPLACE`), and mixed insert+mutating
+ * CTEs still confirm.
  */
 export function isInsertWriteStatement(text: string): boolean {
   const parts = splitSqlStatements(text);
@@ -956,6 +964,19 @@ export function isInsertWriteStatement(text: string): boolean {
   return sawInsert;
 }
 
+/**
+ * True when an INSERT can overwrite existing rows (not a pure append).
+ * Strings/comments are stripped so literals cannot fake the keywords.
+ */
+function insertMayUpdateExisting(text: string): boolean {
+  const stripped = stripSqlStringsAndComments(text);
+  if (/\bINSERT\s+OR\s+REPLACE\b/i.test(stripped)) return true;
+  if (/\bON\s+DUPLICATE\s+KEY\s+UPDATE\b/i.test(stripped)) return true;
+  // Postgres/SQLite upsert that assigns columns — DO NOTHING stays insert-only.
+  if (/\bON\s+CONFLICT\b/i.test(stripped) && /\bDO\s+UPDATE\b/i.test(stripped)) return true;
+  return false;
+}
+
 function sqlTextIsInsertOnlyWrite(text: string): boolean {
   if (!sqlTextIsWrite(text)) return false;
   const kw = firstKeyword(text);
@@ -964,12 +985,13 @@ function sqlTextIsInsertOnlyWrite(text: string): boolean {
     const inner = peelExplainAnalyze(text);
     return inner !== null && sqlTextIsInsertOnlyWrite(inner);
   }
-  if (kw === 'insert') return true;
+  if (kw === 'insert') return !insertMayUpdateExisting(text);
   if (kw === 'with') {
-    const bodies = withCteBodies(text);
-    const tail = walkWithCtes(text);
-    const chunks = tail ? [...bodies, tail] : bodies;
-    const writes = chunks.filter((c) => sqlTextIsWrite(c));
+    const bodies: string[] = [];
+    const tail = walkWithCtes(text, (body) => bodies.push(body));
+    // Unscannable WITH is a write (fail closed) but not insert-only → confirm.
+    if (tail === null) return false;
+    const writes = [...bodies, tail].filter((c) => sqlTextIsWrite(c));
     return writes.length > 0 && writes.every((c) => sqlTextIsInsertOnlyWrite(c));
   }
   return false;
@@ -1206,8 +1228,9 @@ function keywordAfterWithCtes(text: string): string | null {
 }
 
 /**
- * Scan `WITH [RECURSIVE] cte AS (body) [, …]` then return the remainder after
- * the CTE list (main statement text). Invokes `onBody` for each CTE body.
+ * Scan `WITH [RECURSIVE] cte AS [NOT] MATERIALIZED (body) [, …]` then return
+ * the remainder after the CTE list (main statement text). Invokes `onBody` for
+ * each CTE body. CTE names may be bare or quoted (`"i"`, `` `i` ``, `[i]`).
  */
 function walkWithCtes(text: string, onBody?: (body: string) => void): string | null {
   let i = 0;
@@ -1220,9 +1243,9 @@ function walkWithCtes(text: string, onBody?: (body: string) => void): string | n
   const rec = nextWord(text, i);
   if (rec && rec.word === 'recursive') i = rec.end;
 
-  // Walk `name [(cols)] AS (…)` [, …]
+  // Walk `name [(cols)] AS [NOT] MATERIALIZED (…)` [, …]
   while (i < text.length) {
-    const name = nextWord(text, i);
+    const name = nextCteName(text, i);
     if (!name) return null;
     i = name.end;
 
@@ -1236,6 +1259,16 @@ function walkWithCtes(text: string, onBody?: (body: string) => void): string | n
     const asKw = nextWord(text, i);
     if (!asKw || asKw.word !== 'as') return null;
     i = asKw.end;
+
+    // Postgres: AS MATERIALIZED (…) / AS NOT MATERIALIZED (…)
+    const mat = nextWord(text, i);
+    if (mat && mat.word === 'not') {
+      const mat2 = nextWord(text, mat.end);
+      if (!mat2 || mat2.word !== 'materialized') return null;
+      i = mat2.end;
+    } else if (mat && mat.word === 'materialized') {
+      i = mat.end;
+    }
 
     const open = skipWsAndComments(text, i);
     if (open >= text.length || text[open] !== '(') return null;
@@ -1253,6 +1286,32 @@ function walkWithCtes(text: string, onBody?: (body: string) => void): string | n
     return text.slice(afterCte);
   }
   return null;
+}
+
+/** Bare or quoted CTE name; advances past the identifier. */
+function nextCteName(text: string, from: number): { end: number } | null {
+  const i = skipWsAndComments(text, from);
+  if (i >= text.length) return null;
+  const ch = text[i]!;
+  if (ch === '"' || ch === '`' || ch === '[') {
+    const close = ch === '[' ? ']' : ch;
+    let j = i + 1;
+    while (j < text.length) {
+      const c = text[j]!;
+      if (c === close) {
+        // SQL escaped quotes double the closer.
+        if (j + 1 < text.length && text[j + 1] === close) {
+          j += 2;
+          continue;
+        }
+        return { end: j + 1 };
+      }
+      j++;
+    }
+    return null;
+  }
+  const bare = nextWord(text, i);
+  return bare ? { end: bare.end } : null;
 }
 
 function firstKeywordSpan(text: string): { word: string; end: number } | null {

@@ -353,6 +353,10 @@ describe('isInsertWriteStatement', () => {
       isInsertWriteStatement('WITH i AS (INSERT INTO t VALUES (1) RETURNING id) SELECT id FROM i;')
     ).toBe(true);
     expect(isInsertWriteStatement('EXPLAIN ANALYZE INSERT INTO t VALUES (1);')).toBe(true);
+    // DO NOTHING cannot overwrite existing rows — still insert-only.
+    expect(
+      isInsertWriteStatement('INSERT INTO t(id,x) VALUES (1,2) ON CONFLICT (id) DO NOTHING;')
+    ).toBe(true);
   });
 
   it('rejects non-insert writes and mixed mutating CTEs', () => {
@@ -366,6 +370,49 @@ describe('isInsertWriteStatement', () => {
         'WITH i AS (INSERT INTO t VALUES (1) RETURNING id), d AS (DELETE FROM t RETURNING id) SELECT * FROM i;'
       )
     ).toBe(false);
+  });
+
+  it('rejects upserts that can overwrite existing rows (Safe Mode must confirm)', () => {
+    expect(
+      isInsertWriteStatement(
+        'INSERT INTO t(id,x) VALUES (1,2) ON CONFLICT (id) DO UPDATE SET x = EXCLUDED.x;'
+      )
+    ).toBe(false);
+    expect(
+      isInsertWriteStatement(
+        'INSERT INTO t(id,x) VALUES (1,2) ON DUPLICATE KEY UPDATE x = VALUES(x);'
+      )
+    ).toBe(false);
+    expect(isInsertWriteStatement('INSERT OR REPLACE INTO t(id,x) VALUES (1,2);')).toBe(false);
+    expect(isInsertWriteStatement('REPLACE INTO t(id,x) VALUES (1,2);')).toBe(false);
+  });
+});
+
+describe('isWriteStatement — MATERIALIZED / quoted CTE names', () => {
+  it('detects DELETE/UPDATE inside AS MATERIALIZED CTEs (Safe Mode)', () => {
+    expect(
+      isWriteStatement('WITH d AS MATERIALIZED (DELETE FROM t RETURNING id) SELECT id FROM d;')
+    ).toBe(true);
+    expect(
+      isWriteStatement(
+        'WITH u AS NOT MATERIALIZED (UPDATE t SET x = 1 RETURNING *) SELECT * FROM u;'
+      )
+    ).toBe(true);
+    expect(
+      isWriteStatement('WITH d AS MATERIALIZED (SELECT id FROM t) SELECT id FROM d;')
+    ).toBe(false);
+  });
+
+  it('detects DELETE inside quoted / bracketed CTE names', () => {
+    expect(
+      isWriteStatement('WITH "i" AS (DELETE FROM t RETURNING id) SELECT id FROM "i";')
+    ).toBe(true);
+    expect(
+      isWriteStatement('WITH [i] AS (DELETE FROM t OUTPUT DELETED.id) SELECT * FROM [i];')
+    ).toBe(true);
+    expect(
+      isWriteStatement('WITH `i` AS (DELETE FROM t RETURNING id) SELECT id FROM `i`;')
+    ).toBe(true);
   });
 });
 

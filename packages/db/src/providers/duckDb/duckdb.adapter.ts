@@ -92,13 +92,27 @@ class DuckDbAdapter implements DriverAdapter {
   }
 }
 
-/** Shallow-coerce bigint values in a row object to Number (introspection values are small). */
+/**
+ * Coerce driver bigint for JSON / grid use.
+ * Safe integers stay numbers (introspection + small PKs). Values beyond
+ * Number.MAX_SAFE_INTEGER stay digit strings so Peek / result-grid
+ * UPDATE/DELETE WHERE clauses are not silently rounded to the wrong key.
+ */
+export function coerceDriverBigint(v: bigint): number | string {
+  const asNumber = Number(v);
+  return Number.isSafeInteger(asNumber) ? asNumber : v.toString();
+}
+
+/** Shallow-coerce bigint values in a row object for callers that expect JSON-ish cells. */
 function coerceBigints(row: Record<string, unknown>): Record<string, unknown> {
   let hasBig = false;
   for (const k in row) if (typeof row[k] === 'bigint') { hasBig = true; break; }
   if (!hasBig) return row;
   const out: Record<string, unknown> = {};
-  for (const k in row) out[k] = typeof row[k] === 'bigint' ? Number(row[k] as bigint) : row[k];
+  for (const k in row) {
+    const v = row[k];
+    out[k] = typeof v === 'bigint' ? coerceDriverBigint(v) : v;
+  }
   return out;
 }
 

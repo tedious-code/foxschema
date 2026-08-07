@@ -14,6 +14,7 @@ import {
   dialectSupportsIndexFragmentation,
   buildIndexFragmentationCustomTemplate,
   sqlStatementCategories,
+  statementVerb,
   type MigrationStep,
   type ConnectionOptions,
   type DbObjectType,
@@ -521,10 +522,21 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     }
     // Grid CRUD also needs the matching Data grid permission so Access control
     // can allow SQL DML without exposing Add/Edit/Delete on Peek / results.
+    // Require the SQL verb to match the claimed action so a client cannot label
+    // datagridAction=insert while sending UPDATE/DELETE (or DDL).
     if (datagridAction !== undefined) {
       if (!isDatagridAction(datagridAction)) {
         res.status(400).json({ error: 'datagridAction must be insert, update, or delete.' });
         return;
+      }
+      for (const sql of statements as string[]) {
+        const verb = statementVerb(sql);
+        if (verb !== datagridAction) {
+          res.status(400).json({
+            error: `datagridAction (${datagridAction}) must match SQL verb (${verb ?? 'unknown'}).`,
+          });
+          return;
+        }
       }
       needed.add(DATAGRID_ACTION_PERMISSION[datagridAction]);
     }
@@ -826,8 +838,36 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
           res.status(400).json({ error: 'Each op needs key and sql.' });
           return;
         }
+        if (o.sql.length > MAX_STATEMENT_LENGTH) {
+          res.status(400).json({ error: `Each op.sql must be under ${MAX_STATEMENT_LENGTH} characters.` });
+          return;
+        }
         if (o.params !== undefined && !Array.isArray(o.params)) {
           res.status(400).json({ error: 'op.params must be an array when set.' });
+          return;
+        }
+        // Fail-closed like /sql/execute: classify the SQL itself so a client cannot
+        // label op=insert while sending DELETE/DDL/GRANT and bypass finer permissions.
+        const categories = sqlStatementCategories(o.sql);
+        if (categories.length === 0) {
+          res.status(400).json({ error: 'Could not classify op.sql.' });
+          return;
+        }
+        for (const category of categories) {
+          const permission = CATEGORY_PERMISSION[category];
+          if (permission) needed.add(permission);
+          if (category !== 'dml') {
+            res.status(400).json({
+              error: `Data migrate op.sql must be DML (got ${category}).`,
+            });
+            return;
+          }
+        }
+        const verb = statementVerb(o.sql);
+        if (verb !== o.op) {
+          res.status(400).json({
+            error: `op.sql verb (${verb ?? 'unknown'}) must match op (${o.op}).`,
+          });
           return;
         }
         needed.add(DATAGRID_ACTION_PERMISSION[o.op]);

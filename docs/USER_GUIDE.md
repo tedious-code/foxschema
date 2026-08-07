@@ -139,8 +139,12 @@ compare / migrate). It lives in the same local web UI you open with `foxschema`.
    default) ignores audit fields such as `createdAt` / `updatedBy`.
 
 7. **Data migrate (≤500 row ops)** — with Compare on, **Data migrate** appears.
-   You choose **Add / Edit / Delete** (none selected until you check them). Safety
-   assists: **Transaction** (all-or-nothing when Stop is on) and **Stop on error** /
+   Rows match by the table’s primary key (or a non-partial unique index) present
+   in the SELECT. Migrate only runs when **both** grids show the **full** result
+   on **page 1** (no next page) — otherwise “missing on this page” is not “missing
+   from the table” and Delete could remove real destination rows. You choose
+   **Add / Edit / Delete** (none selected until you check them). Safety assists:
+   **Transaction** (all-or-nothing when Stop is on) and **Stop on error** /
    **Continue on error**. Optional **Include identity / IDs**. With **Skip trigger
    cols**, migrate does not treat audit columns as edits and omits them from
    INSERT/UPDATE so destination triggers can fill them. Progress lists each row;
@@ -338,8 +342,10 @@ Tips:
   -- @end
   ```
 
-- **Safe mode** — when on, UPDATE / DELETE / MERGE and DDL need an extra
-  confirmation before run. Plain INSERT (including insert CTEs) does not.
+- **Safe mode** — when on, UPDATE / DELETE / MERGE, upserts that can overwrite
+  rows (`ON CONFLICT DO UPDATE`, `ON DUPLICATE KEY UPDATE`, `INSERT OR REPLACE`),
+  and DDL need an extra confirmation before run. Plain INSERT (including insert
+  CTEs and `ON CONFLICT DO NOTHING`) does not.
 
 Writes and DDL are allowed when you confirm them. Some dialects (e.g. SQLite /
 ClickHouse adapters used for SELECT-only paths) may reject writes with a clear error

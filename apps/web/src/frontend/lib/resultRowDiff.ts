@@ -34,6 +34,8 @@ export interface RowDiffClassification {
   updates: ClassifiedRowDiff[];
   deletes: ClassifiedRowDiff[];
   skippedNullKeys: number;
+  /** Duplicate key values seen in source or dest (unsafe for migrate). */
+  duplicateKeys: number;
   /** Total ops before cap. */
   totalOps: number;
 }
@@ -59,20 +61,27 @@ export function keyColumnsForGrid(
   }));
 }
 
+/**
+ * Stable map key for composite PK matching. JSON-array encoding avoids
+ * collisions when a key value contains `|` / `=` (naive `a=x|b=y` join could
+ * treat distinct composite keys as the same row and UPDATE/DELETE the wrong one).
+ * Values are stringified so number `1` and string `"1"` still match across dialects.
+ */
 function rowKey(
   row: unknown[],
   keys: PeekKeyColumn[]
 ): { ok: true; key: string; label: string } | { ok: false } {
-  const parts: string[] = [];
+  const wire: [string, string][] = [];
   const labels: string[] = [];
   for (const k of keys) {
     if (k.resultIndex < 0) return { ok: false };
     const v = row[k.resultIndex];
     if (v === null || v === undefined) return { ok: false };
-    parts.push(`${k.name.toLowerCase()}=${String(v)}`);
-    labels.push(`${k.name}=${String(v)}`);
+    const asText = typeof v === 'bigint' ? v.toString() : String(v);
+    wire.push([k.name.toLowerCase(), asText]);
+    labels.push(`${k.name}=${asText}`);
   }
-  return { ok: true, key: parts.join('|'), label: labels.join(', ') };
+  return { ok: true, key: JSON.stringify(wire), label: labels.join(', ') };
 }
 
 function nonKeyColumnsDiffer(
@@ -125,6 +134,7 @@ export function classifyRowsByKey(opts: {
       updates: [],
       deletes: [],
       skippedNullKeys: 0,
+      duplicateKeys: 0,
       totalOps: 0,
     };
   }
@@ -132,6 +142,7 @@ export function classifyRowsByKey(opts: {
   const sourceMap = new Map<string, { row: unknown[]; label: string }>();
   const destMap = new Map<string, { row: unknown[]; label: string }>();
   let skippedNullKeys = 0;
+  let duplicateKeys = 0;
 
   for (const row of source.rows) {
     const k = rowKey(row, sourceKeys);
@@ -139,7 +150,11 @@ export function classifyRowsByKey(opts: {
       skippedNullKeys += 1;
       continue;
     }
-    if (!sourceMap.has(k.key)) sourceMap.set(k.key, { row, label: k.label });
+    if (sourceMap.has(k.key)) {
+      duplicateKeys += 1;
+      continue;
+    }
+    sourceMap.set(k.key, { row, label: k.label });
   }
   for (const row of dest.rows) {
     const k = rowKey(row, destKeys);
@@ -147,7 +162,11 @@ export function classifyRowsByKey(opts: {
       skippedNullKeys += 1;
       continue;
     }
-    if (!destMap.has(k.key)) destMap.set(k.key, { row, label: k.label });
+    if (destMap.has(k.key)) {
+      duplicateKeys += 1;
+      continue;
+    }
+    destMap.set(k.key, { row, label: k.label });
   }
 
   const inserts: ClassifiedRowDiff[] = [];
@@ -188,6 +207,7 @@ export function classifyRowsByKey(opts: {
     updates,
     deletes,
     skippedNullKeys,
+    duplicateKeys,
     totalOps: inserts.length + updates.length + deletes.length,
   };
 }
@@ -205,4 +225,24 @@ export function selectMigrateOps(
   const uncappedCount = all.length;
   if (all.length <= cap) return { ops: all, truncated: false, uncappedCount };
   return { ops: all.slice(0, cap), truncated: true, uncappedCount };
+}
+
+/**
+ * Data migrate classifies only the rows currently loaded in each grid.
+ * If either side is on a later page or still has more pages / truncated
+ * rows, "missing from this page" is not "missing from the table" — Delete
+ * would destroy real destination rows that exist later in the source.
+ */
+export function migrateGridsAreComplete(opts: {
+  sourcePageIndex: number;
+  destPageIndex: number;
+  sourceHasMore: boolean;
+  destHasMore: boolean;
+}): boolean {
+  return (
+    opts.sourcePageIndex === 0 &&
+    opts.destPageIndex === 0 &&
+    !opts.sourceHasMore &&
+    !opts.destHasMore
+  );
 }

@@ -6,7 +6,7 @@
  * Side-by-side data migrate: key-based insert/update/delete onto a destination
  * grid (≤500 ops). Larger sets toast with Server Beam instructions.
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowRightLeft, History, Loader2, X } from 'lucide-react';
 import {
@@ -23,6 +23,7 @@ import { buildDataMigratePlans, buildDestSnapshotJson } from '../../lib/dataMigr
 import {
   classifyRowsByKey,
   DATA_MIGRATE_ROW_CAP,
+  migrateGridsAreComplete,
   selectMigrateOps,
   type ClassifiedRowDiff,
 } from '../../lib/resultRowDiff';
@@ -42,6 +43,10 @@ export interface DataMigrateGrid {
   columns: string[];
   rows: unknown[][];
   statementSql?: string;
+  /** 0-based page currently shown in the result grid. */
+  pageIndex?: number;
+  /** True when more rows exist beyond this page (hasNext / truncated). */
+  hasMore?: boolean;
 }
 
 type ProgressItem = {
@@ -91,18 +96,15 @@ export const DataMigrateBar: React.FC<Props> = ({
   const table: TableSchema | undefined = editTarget.ok ? editTarget.table : undefined;
   const tableName = table?.name ?? '';
 
-  const defaultKeys = useMemo(
-    () => resolvePeekKeyColumns(table, source.columns).map((k) => k.name),
+  // Only PK / non-partial unique keys that appear in the result — never fall back
+  // to "first column" (non-unique WHERE would UPDATE/DELETE multiple rows).
+  const keyNames = useMemo(
+    () =>
+      resolvePeekKeyColumns(table, source.columns)
+        .filter((k) => k.resultIndex >= 0)
+        .map((k) => k.name),
     [table, source.columns]
   );
-
-  const [keyNamesLocal, setKeyNamesLocal] = useState<string[]>([]);
-  const keyNames = keyNamesProp ?? keyNamesLocal;
-  const setKeyNames = onKeyNamesChange ?? setKeyNamesLocal;
-  useEffect(() => {
-    if (keyNamesProp) return;
-    setKeyNamesLocal(defaultKeys.length ? defaultKeys : source.columns.slice(0, 1));
-  }, [defaultKeys.join('\0'), source.columns.join('\0'), keyNamesProp]);
 
   /** User opts into each op — nothing selected until they choose. */
   const [doInsert, setDoInsert] = useState(false);
@@ -146,13 +148,6 @@ export const DataMigrateBar: React.FC<Props> = ({
     [classification, doInsert, doUpdate, doDelete]
   );
 
-  const toggleKey = (name: string) => {
-    const next = keyNames.some((k) => k.toLowerCase() === name.toLowerCase())
-      ? keyNames.filter((k) => k.toLowerCase() !== name.toLowerCase())
-      : [...keyNames, name];
-    setKeyNames(next);
-  };
-
   const openHistory = async () => {
     setHistoryOpen(true);
     try {
@@ -182,12 +177,47 @@ export const DataMigrateBar: React.FC<Props> = ({
       });
       return;
     }
-    if (keyNames.length === 0) {
-      toast({ tone: 'warning', title: 'Select at least one key column' });
+    if (!editability.editable || keyNames.length === 0) {
+      toast({
+        tone: 'warning',
+        title: 'Data migrate needs a unique key in the result',
+        body:
+          editability.reason ||
+          'Include the primary key (or a non-partial unique index) columns in the SELECT.',
+      });
+      return;
+    }
+    if (
+      !migrateGridsAreComplete({
+        sourcePageIndex: source.pageIndex ?? 0,
+        destPageIndex: dest.pageIndex ?? 0,
+        sourceHasMore: Boolean(source.hasMore),
+        destHasMore: Boolean(dest.hasMore),
+      })
+    ) {
+      toast({
+        tone: 'warning',
+        title: 'Migrate needs the full result on page 1',
+        body:
+          'Add / Edit / Delete classify only the rows currently loaded. ' +
+          'Page both grids to page 1 with no “next page”, or tighten the SELECT ' +
+          `(LIMIT ≤ page size). Otherwise Delete can remove destination rows that ` +
+          'still exist later in the source.',
+      });
       return;
     }
     if (selected.uncappedCount === 0) {
       toast({ tone: 'info', title: 'Nothing to migrate', body: 'Grids match for the selected ops.' });
+      return;
+    }
+    if (classification.duplicateKeys > 0) {
+      toast({
+        tone: 'warning',
+        title: 'Duplicate keys in result grids',
+        body:
+          `${classification.duplicateKeys} duplicate key value(s) — migrate refuses to guess which row to write. ` +
+          'Tighten the SELECT (DISTINCT / better keys) or pick a unique key set.',
+      });
       return;
     }
     if (selected.uncappedCount > DATA_MIGRATE_ROW_CAP) {
@@ -397,17 +427,21 @@ export const DataMigrateBar: React.FC<Props> = ({
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-400">
         <span className="text-slate-500">Keys</span>
-        {source.columns.map((c) => (
-          <label key={c} className="inline-flex items-center gap-1 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={keyNames.some((k) => k.toLowerCase() === c.toLowerCase())}
-              onChange={() => toggleKey(c)}
-              className="rounded border-slate-600"
-            />
-            <span className="font-mono">{c}</span>
-          </label>
-        ))}
+        {keyNames.length > 0 ? (
+          keyNames.map((c) => (
+            <span
+              key={c}
+              className="font-mono text-slate-300 rounded border border-slate-700 bg-slate-900/80 px-1.5 py-0.5"
+              title="Primary key / unique index columns from the schema (required for safe row matching)."
+            >
+              {c}
+            </span>
+          ))
+        ) : (
+          <span className="text-amber-400/90">
+            {editability.reason || 'No PK/unique key in this result — migrate disabled.'}
+          </span>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-400">
@@ -499,6 +533,7 @@ export const DataMigrateBar: React.FC<Props> = ({
             applying ||
             !canDml ||
             selected.uncappedCount === 0 ||
+            classification.duplicateKeys > 0 ||
             selected.uncappedCount > DATA_MIGRATE_ROW_CAP
           }
           onClick={() => void apply()}
