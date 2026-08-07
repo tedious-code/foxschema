@@ -138,8 +138,12 @@ compare / migrate). It lives in the same local web UI you open with `foxschema`.
    index — use the same `ORDER BY` when scanning.
 
 7. **Data migrate (≤500 row ops)** — with Compare on, **Data migrate** appears.
-   You choose **Add / Edit / Delete** (none selected until you check them). Safety
-   assists: **Transaction** (all-or-nothing when Stop is on) and **Stop on error** /
+   Rows match by the table’s primary key (or a non-partial unique index) present
+   in the SELECT. Migrate only runs when **both** grids show the **full** result
+   on **page 1** (no next page) — otherwise “missing on this page” is not “missing
+   from the table” and Delete could remove real destination rows. You choose
+   **Add / Edit / Delete** (none selected until you check them). Safety assists:
+   **Transaction** (all-or-nothing when Stop is on) and **Stop on error** /
    **Continue on error**. Optional **Include identity / IDs**. With **Skip trigger
    cols**, migrate does not treat audit columns as edits and omits them from
    INSERT/UPDATE so destination triggers can fill them. Progress lists each row;

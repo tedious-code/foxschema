@@ -226,3 +226,23 @@ export function selectMigrateOps(
   if (all.length <= cap) return { ops: all, truncated: false, uncappedCount };
   return { ops: all.slice(0, cap), truncated: true, uncappedCount };
 }
+
+/**
+ * Data migrate classifies only the rows currently loaded in each grid.
+ * If either side is on a later page or still has more pages / truncated
+ * rows, "missing from this page" is not "missing from the table" — Delete
+ * would destroy real destination rows that exist later in the source.
+ */
+export function migrateGridsAreComplete(opts: {
+  sourcePageIndex: number;
+  destPageIndex: number;
+  sourceHasMore: boolean;
+  destHasMore: boolean;
+}): boolean {
+  return (
+    opts.sourcePageIndex === 0 &&
+    opts.destPageIndex === 0 &&
+    !opts.sourceHasMore &&
+    !opts.destHasMore
+  );
+}

@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import {
   classifyRowsByKey,
   DATA_MIGRATE_ROW_CAP,
+  migrateGridsAreComplete,
   selectMigrateOps,
 } from './resultRowDiff';
 
@@ -120,6 +121,37 @@ describe('classifyRowsByKey', () => {
   });
 });
 
+
+describe('migrateGridsAreComplete', () => {
+  it('requires page 1 with no remaining pages on both sides', () => {
+    expect(
+      migrateGridsAreComplete({
+        sourcePageIndex: 0,
+        destPageIndex: 0,
+        sourceHasMore: false,
+        destHasMore: false,
+      })
+    ).toBe(true);
+    // Dest on page 2 while source stays on page 1 → Delete would drop dest keys
+    // that still exist later in the source.
+    expect(
+      migrateGridsAreComplete({
+        sourcePageIndex: 0,
+        destPageIndex: 1,
+        sourceHasMore: false,
+        destHasMore: false,
+      })
+    ).toBe(false);
+    expect(
+      migrateGridsAreComplete({
+        sourcePageIndex: 0,
+        destPageIndex: 0,
+        sourceHasMore: true,
+        destHasMore: false,
+      })
+    ).toBe(false);
+  });
+});
 
 describe('selectMigrateOps', () => {
   it('respects checkboxes and caps at 500', () => {

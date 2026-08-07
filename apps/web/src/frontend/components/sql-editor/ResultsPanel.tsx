@@ -883,6 +883,11 @@ const SideBySideStatementSection: React.FC<{
             columns: sourceGrid.result.columns,
             rows: sourceGrid.result.rows,
             statementSql: sourceGrid.statementSql,
+            pageIndex:
+              pageState?.[`${sourceGrid.connectionId}:${statementIndex}`]?.pageIndex ?? 0,
+            hasMore: Boolean(
+              sourceGrid.result.hasNext || sourceGrid.result.truncated
+            ),
           }}
           dest={{
             connectionId: destGrid.connectionId,
@@ -891,6 +896,9 @@ const SideBySideStatementSection: React.FC<{
             columns: destGrid.result.columns,
             rows: destGrid.result.rows,
             statementSql: destGrid.statementSql,
+            pageIndex:
+              pageState?.[`${destGrid.connectionId}:${statementIndex}`]?.pageIndex ?? 0,
+            hasMore: Boolean(destGrid.result.hasNext || destGrid.result.truncated),
           }}
           ignoreColumns={triggerIgnoreColumns}
           onAfterMigrate={() => onRefresh?.(destGrid.connectionId)}
@@ -909,9 +917,10 @@ const SideBySideStatementSection: React.FC<{
       />
       {compareActive && (
         <p className="text-[10px] text-slate-500 px-0.5" data-testid={`sql-result-compare-hint-${statementIndex}`}>
-          Cell colors align by row index. Choose Add / Edit / Delete yourself; Transaction and Stop /
-          Continue are safety assists. Skip trigger cols ignores createdAt / updatedBy. Same ORDER BY
-          when scanning. Cap: 500 ops — larger sets use Server Beam.
+          Cell colors align by row index. Migrate matches rows by PK/unique keys and only runs when
+          both grids show the full result on page 1. Choose Add / Edit / Delete yourself; Transaction
+          and Stop / Continue are safety assists. Skip trigger cols ignores createdAt / updatedBy.
+          Cap: 500 ops — larger sets use Server Beam.
         </p>
       )}
     </section>
