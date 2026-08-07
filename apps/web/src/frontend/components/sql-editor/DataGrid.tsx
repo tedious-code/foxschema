@@ -22,6 +22,7 @@ const COL_LONG_TEXT_PX = 200;
 /** Upper bound when double-clicking a header to fit content. */
 const COL_FIT_MAX_PX = 720;
 const ROW_NUM_PX = 48;
+const SYNC_COL_PX = 44;
 /** Fixed row height for windowing (must match rendered row). Off-screen pages live in pageCache LRU, not the DOM. */
 const ROW_H_PX = 28;
 /** Taller rows for Data Peek’s larger/bolder type. */
@@ -274,6 +275,11 @@ export const DataGrid: React.FC<{
    * (`modified` / `missing` / `extra`), or null when unchanged.
    */
   cellHighlight?: (rowIdx: number, colIdx: number) => CellDiffKind | null;
+  /** Compare migrate: per-row Sync checkbox (sticky right); null = matching row. */
+  rowSync?: {
+    isChecked: (rowIdx: number) => boolean | null;
+    onToggle: (rowIdx: number, checked: boolean) => void;
+  };
 }> = React.memo(
   ({
     result,
@@ -297,6 +303,7 @@ export const DataGrid: React.FC<{
     toolbarExtra,
     emphasis = false,
     cellHighlight,
+    rowSync,
   }) => {
   const upsertVariable = useSqlEditorStore((s) => s.upsertVariable);
   const rowH = emphasis ? ROW_H_EMPHASIS_PX : ROW_H_PX;
@@ -505,9 +512,12 @@ export const DataGrid: React.FC<{
   const order =
     colOrder.length === sourceColumns.length ? colOrder : identityOrder(sourceColumns.length);
   const orderedColumns = order.map((i) => sourceColumns[i]!);
+  const syncColPx = rowSync ? SYNC_COL_PX : 0;
   const tableWidth =
-    ROW_NUM_PX + order.reduce((sum, i) => sum + (colWidths[i] ?? COL_DEFAULT_PX), 0);
-  const colCount = 1 + order.length;
+    ROW_NUM_PX +
+    order.reduce((sum, i) => sum + (colWidths[i] ?? COL_DEFAULT_PX), 0) +
+    syncColPx;
+  const colCount = 1 + order.length + (rowSync ? 1 : 0);
 
   const totalRows = sourceRows.length;
   const start = Math.max(0, Math.floor(scrollTop / rowH) - OVERSCAN);
@@ -566,6 +576,9 @@ export const DataGrid: React.FC<{
                   }}
                 />
               ))}
+              {rowSync ? (
+                <col style={{ width: SYNC_COL_PX, minWidth: SYNC_COL_PX }} />
+              ) : null}
             </colgroup>
             <thead className="sticky top-0 z-10">
               <tr className="bg-[var(--fox-grid-bg-header)] border-b border-[var(--fox-grid-border)] text-[var(--fox-grid-ink)]">
@@ -674,6 +687,18 @@ export const DataGrid: React.FC<{
                     </th>
                   );
                 })}
+                {rowSync ? (
+                  <th
+                    data-testid="sql-col-sync-header"
+                    className={`sticky right-0 z-20 px-1 py-1.5 text-center font-bold tracking-wide text-sky-300 bg-sky-950/90 border-l border-sky-500/40 select-none ${
+                      emphasis ? 'text-xs' : 'text-[10px]'
+                    }`}
+                    style={{ width: SYNC_COL_PX, minWidth: SYNC_COL_PX }}
+                    title="Include this row in Data migrate (destination grid)"
+                  >
+                    Sync
+                  </th>
+                ) : null}
               </tr>
             </thead>
             <tbody className={`font-mono bg-[var(--fox-grid-bg)] ${emphasis ? 'font-semibold' : ''}`}>
@@ -763,6 +788,40 @@ export const DataGrid: React.FC<{
                         </td>
                       );
                     })}
+                    {rowSync ? (
+                      <td
+                        className={`sticky right-0 z-[5] px-1 text-center ${rowBg} group-hover:bg-[var(--fox-grid-bg-hover)] border-l border-sky-500/30 bg-sky-950/40`}
+                        style={{ width: SYNC_COL_PX, minWidth: SYNC_COL_PX }}
+                      >
+                        {(() => {
+                          const syncVal = rowSync.isChecked(i);
+                          if (syncVal === null) {
+                            return (
+                              <span
+                                className="text-[var(--fox-grid-muted)] select-none"
+                                title="Row matches by key"
+                              >
+                                —
+                              </span>
+                            );
+                          }
+                          return (
+                            <input
+                              type="checkbox"
+                              data-testid={`sql-row-sync-check-${i}`}
+                              checked={syncVal}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                rowSync.onToggle(i, e.target.checked);
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              className="rounded border-sky-500/60 accent-sky-500"
+                              title="Include in migrate"
+                            />
+                          );
+                        })()}
+                      </td>
+                    ) : null}
                   </tr>
                 );
               })}

@@ -132,19 +132,23 @@ compare / migrate). It lives in the same local web UI you open with `foxschema`.
 6. **Compare data across servers** — switch the results layout to **Side-by-side**
    and check two or more Destinations. **Compare data** is off by default so grids
    stay plain until you turn it on. Rows then **line up by key columns** (PK / your
-   Keys checkboxes — same as Data migrate), so matching IDs share a row instead of
-   comparing by ORDER BY index. Differing cells are colored: amber (modified), rose
-   (missing / only in original), emerald (extra / only in dest). Pick **Original
-   server** (and **Destination** when more than two). **Skip trigger cols** (on by
-   default) ignores audit fields such as `createdAt` / `updatedBy`.
+   **Keys** checkboxes in Data migrate — same set for Compare and migrate), so
+   matching IDs share a row instead of comparing by ORDER BY index. Differing cells
+   are colored: amber (modified), rose (missing / only in original), emerald (extra /
+   only in dest). Pick **Original server** (and **Destination** when more than two).
+   **Skip trigger cols** (on by default) ignores audit fields such as `createdAt` /
+   `updatedBy`. The destination grid shows a **Sync** column (on by default for all
+   differing rows) so you can include or exclude individual rows before migrate.
 
 7. **Data migrate (≤500 row ops)** — with Compare on, **Data migrate** appears.
-   Rows match by the table’s primary key (or a non-partial unique index) present
-   in the SELECT. Migrate only runs when **both** grids show the **full** result
-   on **page 1** (no next page) — otherwise “missing on this page” is not “missing
-   from the table” and Delete could remove real destination rows. You choose
-   **Add / Edit / Delete** (none selected until you check them). Safety assists:
-   **Transaction** (all-or-nothing when Stop is on) and **Stop on error** /
+   Rows match by the **Keys** you check (PK/unique columns are marked; you can pick
+   any shared column, e.g. compare by name only). **Sync all** re-checks every
+   differing row without changing your Add / Edit / Delete choices. Migrate only runs
+   when **both** grids show the **full** result on **page 1** (no next page) —
+   otherwise “missing on this page” is not “missing from the table” and Delete could
+   remove real destination rows. You choose **Add / Edit / Delete** (none selected
+   until you check them); only rows still checked in **Sync** are applied. Safety
+   assists: **Transaction** (all-or-nothing when Stop is on) and **Stop on error** /
    **Continue on error**. Optional **Include identity / IDs**. With **Skip trigger
    cols**, migrate does not treat audit columns as edits and omits them from
    INSERT/UPDATE so destination triggers can fill them. Progress lists each row;

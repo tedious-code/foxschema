@@ -227,6 +227,30 @@ export function selectMigrateOps(
   return { ops: all.slice(0, cap), truncated: true, uncappedCount };
 }
 
+/** All differing key labels (insert + update + delete). */
+export function allDiffKeyLabels(classification: RowDiffClassification): string[] {
+  return [
+    ...classification.inserts,
+    ...classification.updates,
+    ...classification.deletes,
+  ].map((o) => o.keyLabel);
+}
+
+/**
+ * Keep only ops whose keyLabel is in `selected` (row Sync checkboxes).
+ * Cap still applies after filtering.
+ */
+export function filterOpsByKeyLabels(
+  ops: ClassifiedRowDiff[],
+  selected: ReadonlySet<string>,
+  cap = DATA_MIGRATE_ROW_CAP
+): { ops: ClassifiedRowDiff[]; truncated: boolean; uncappedCount: number } {
+  const filtered = ops.filter((o) => selected.has(o.keyLabel));
+  const uncappedCount = filtered.length;
+  if (filtered.length <= cap) return { ops: filtered, truncated: false, uncappedCount };
+  return { ops: filtered.slice(0, cap), truncated: true, uncappedCount };
+}
+
 /**
  * Data migrate classifies only the rows currently loaded in each grid.
  * If either side is on a later page or still has more pages / truncated

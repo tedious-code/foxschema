@@ -27,10 +27,17 @@ export interface KeyAlignedGrids {
   leftGap: boolean[];
   rightGap: boolean[];
   rowOps: AlignRowOp[];
+  /**
+   * Display key label per aligned row (`col=val, …`) — same shape as
+   * `ClassifiedRowDiff.keyLabel` so Sync checkboxes can filter migrate ops.
+   */
+  rowKeyLabels: (string | null)[];
   matchCount: number;
   updateCount: number;
   insertCount: number;
   deleteCount: number;
+  /** Duplicate key values skipped on left/right (only first kept for align). */
+  duplicateKeys: number;
 }
 
 function emptySummary(): GridDiffSummary {
@@ -76,10 +83,29 @@ function rowKeyParts(
   return parts.join('|');
 }
 
+/** Build a human key label matching classifyRowsByKey / migrate progress. */
+function keyLabelForRow(
+  row: unknown[],
+  keys: ReturnType<typeof keyColumnsForGrid>
+): string | null {
+  const labels: string[] = [];
+  for (const k of keys) {
+    if (k.resultIndex < 0) return null;
+    const v = row[k.resultIndex];
+    if (v === null || v === undefined) return null;
+    const asText = typeof v === 'bigint' ? v.toString() : String(v);
+    labels.push(`${k.name}=${asText}`);
+  }
+  return labels.join(', ');
+}
+
 /**
  * Reorder left/right so shared keys line up. Order: matches & updates (left
  * encounter order), then left-only (delete), then right-only (insert).
  * Returns null when keys are missing from either grid.
+ *
+ * Duplicate key values: first occurrence wins (later rows skipped); count in
+ * `duplicateKeys` so the UI can warn when comparing by a non-unique name.
  */
 export function alignResultGridsByKey(
   left: ResultGridLike,
@@ -102,12 +128,15 @@ export function alignResultGridsByKey(
 
   const leftMap = new Map<string, unknown[]>();
   const leftOrder: string[] = [];
+  let duplicateKeys = 0;
   for (const row of left.rows) {
     const k = rowKeyParts(row, leftKeys);
     if (k == null) continue;
     if (!leftMap.has(k)) {
       leftMap.set(k, row);
       leftOrder.push(k);
+    } else {
+      duplicateKeys += 1;
     }
   }
   const rightMap = new Map<string, unknown[]>();
@@ -118,6 +147,8 @@ export function alignResultGridsByKey(
     if (!rightMap.has(k)) {
       rightMap.set(k, row);
       rightOrder.push(k);
+    } else {
+      duplicateKeys += 1;
     }
   }
 
@@ -126,6 +157,7 @@ export function alignResultGridsByKey(
   const leftGap: boolean[] = [];
   const rightGap: boolean[] = [];
   const rowOps: AlignRowOp[] = [];
+  const rowKeyLabels: (string | null)[] = [];
   let matchCount = 0;
   let updateCount = 0;
   let insertCount = 0;
@@ -150,6 +182,7 @@ export function alignResultGridsByKey(
       rightRows.push(rRow);
       leftGap.push(false);
       rightGap.push(false);
+      rowKeyLabels.push(keyLabelForRow(lRow, leftKeys));
       if (changed) {
         rowOps.push('update');
         updateCount += 1;
@@ -162,6 +195,7 @@ export function alignResultGridsByKey(
       rightRows.push(nullRow(right.columns.length));
       leftGap.push(false);
       rightGap.push(true);
+      rowKeyLabels.push(keyLabelForRow(lRow, leftKeys));
       rowOps.push('delete');
       deleteCount += 1;
     }
@@ -174,6 +208,7 @@ export function alignResultGridsByKey(
     rightRows.push(rRow);
     leftGap.push(true);
     rightGap.push(false);
+    rowKeyLabels.push(keyLabelForRow(rRow, rightKeys));
     rowOps.push('insert');
     insertCount += 1;
   }
@@ -185,10 +220,12 @@ export function alignResultGridsByKey(
     leftGap,
     rightGap,
     rowOps,
+    rowKeyLabels,
     matchCount,
     updateCount,
     insertCount,
     deleteCount,
+    duplicateKeys,
   };
 }
 
@@ -216,7 +253,11 @@ function nonKeyDiffer(
   return false;
 }
 
-/** Build cell tint maps for a key-aligned pair (display indexes). */
+/**
+ * Build cell tint maps for a key-aligned pair (display indexes).
+ * Insert/delete tint **both** grids at the aligned row so synced scroll shows
+ * matching rose/emerald bands (gap side included).
+ */
 export function compareKeyAlignedGrids(
   left: ResultGridLike,
   right: ResultGridLike,
@@ -257,32 +298,86 @@ export function compareKeyAlignedGrids(
     shared.push({ leftIdx, rightIdx });
   }
 
+  // When every column is a key (e.g. compare by ATTRIBUTENAME only), shared
+  // still lists those key columns — we tint them for insert/delete so the row
+  // lights up even though values "match" the key itself.
+  const tintCols =
+    shared.length > 0
+      ? shared
+      : [
+          ...[...leftByName.entries()]
+            .filter(([k]) => !ignore.has(k))
+            .map(([, leftIdx]) => ({
+              leftIdx,
+              rightIdx: -1,
+            })),
+        ];
+
   for (let r = 0; r < aligned.rowOps.length; r++) {
     const op = aligned.rowOps[r]!;
     if (op === 'match') continue;
 
     if (op === 'delete') {
-      for (const { leftIdx } of shared) mark(baseSum, r, leftIdx, 'missing');
+      // Source-only: rose on both panes at this aligned index (gap on dest).
+      for (const { leftIdx, rightIdx } of shared) {
+        mark(baseSum, r, leftIdx, 'missing');
+        mark(otherSum, r, rightIdx, 'missing');
+      }
       for (const [k, leftIdx] of leftByName) {
         if (ignore.has(k) || rightByName.has(k)) continue;
         mark(baseSum, r, leftIdx, 'missing');
+      }
+      for (const [k, rightIdx] of rightByName) {
+        if (ignore.has(k) || leftByName.has(k)) continue;
+        mark(otherSum, r, rightIdx, 'missing');
+      }
+      // Key-only grids: still tint the key cell(s).
+      if (shared.length === 0) {
+        for (const { leftIdx } of tintCols) {
+          if (leftIdx >= 0) mark(baseSum, r, leftIdx, 'missing');
+        }
+        for (const [, rightIdx] of rightByName) {
+          mark(otherSum, r, rightIdx, 'missing');
+        }
       }
       continue;
     }
 
     if (op === 'insert') {
-      for (const { rightIdx } of shared) mark(otherSum, r, rightIdx, 'extra');
+      // Dest-only: emerald on both panes (gap on source).
+      for (const { leftIdx, rightIdx } of shared) {
+        mark(otherSum, r, rightIdx, 'extra');
+        mark(baseSum, r, leftIdx, 'extra');
+      }
       for (const [k, rightIdx] of rightByName) {
         if (ignore.has(k) || leftByName.has(k)) continue;
         mark(otherSum, r, rightIdx, 'extra');
       }
+      for (const [k, leftIdx] of leftByName) {
+        if (ignore.has(k) || rightByName.has(k)) continue;
+        mark(baseSum, r, leftIdx, 'extra');
+      }
+      if (shared.length === 0) {
+        for (const [, rightIdx] of rightByName) {
+          mark(otherSum, r, rightIdx, 'extra');
+        }
+        for (const [, leftIdx] of leftByName) {
+          mark(baseSum, r, leftIdx, 'extra');
+        }
+      }
       continue;
     }
 
-    // update — tint only cells that actually differ
+    // update — tint only cells that actually differ (non-key values)
     const lRow = aligned.leftRows[r]!;
     const rRow = aligned.rightRows[r]!;
     for (const { leftIdx, rightIdx } of shared) {
+      const colName = left.columns[leftIdx]!;
+      if (ignore.has(colName.toLowerCase())) continue;
+      // Key columns themselves are identity — only non-key values drive amber.
+      if (aligned.keyNames.some((n) => n.toLowerCase() === colName.toLowerCase())) {
+        continue;
+      }
       if (resultValuesEqual(lRow[leftIdx], rRow[rightIdx])) continue;
       mark(baseSum, r, leftIdx, 'modified');
       mark(otherSum, r, rightIdx, 'modified');
