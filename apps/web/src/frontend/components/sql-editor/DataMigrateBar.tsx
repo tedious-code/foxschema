@@ -96,13 +96,14 @@ export const DataMigrateBar: React.FC<Props> = ({
     setKeyNames(defaultKeys.length ? defaultKeys : source.columns.slice(0, 1));
   }, [defaultKeys.join('\0'), source.columns.join('\0')]);
 
-  const [doInsert, setDoInsert] = useState(true);
-  const [doUpdate, setDoUpdate] = useState(true);
+  /** User opts into each op — nothing selected until they choose. */
+  const [doInsert, setDoInsert] = useState(false);
+  const [doUpdate, setDoUpdate] = useState(false);
   const [doDelete, setDoDelete] = useState(false);
   const [includeIdentity, setIncludeIdentity] = useState(false);
-  /** One transaction for the whole batch (Stop mode). Off with Continue = per-op commits. */
+  /** Safety: one transaction for the whole batch (Stop mode). Off with Continue = per-op commits. */
   const [useTransaction, setUseTransaction] = useState(true);
-  /** Continue = skip failures; Stop = abort (rollback if transaction on). */
+  /** Safety: Continue = skip failures; Stop = abort (rollback if transaction on). */
   const [continueOnError, setContinueOnError] = useState(false);
   const [applying, setApplying] = useState(false);
   const [progress, setProgress] = useState<ProgressItem[] | null>(null);
@@ -371,8 +372,8 @@ export const DataMigrateBar: React.FC<Props> = ({
           {source.label} → {dest.label}
         </span>
         <span className="text-slate-500">
-          {classification.inserts.length} insert · {classification.updates.length} update ·{' '}
-          {classification.deletes.length} delete
+          {classification.inserts.length} add · {classification.updates.length} edit ·{' '}
+          {classification.deletes.length} delete available
           {selected.uncappedCount > DATA_MIGRATE_ROW_CAP
             ? ` · capped ${DATA_MIGRATE_ROW_CAP}`
             : ''}
@@ -403,6 +404,9 @@ export const DataMigrateBar: React.FC<Props> = ({
       </div>
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-400">
+        <span className="text-slate-500 shrink-0" title="Choose which row ops to apply — nothing runs until you check an op.">
+          Ops
+        </span>
         <label className="inline-flex items-center gap-1 cursor-pointer select-none">
           <input
             type="checkbox"
@@ -411,7 +415,7 @@ export const DataMigrateBar: React.FC<Props> = ({
             onChange={(e) => setDoInsert(e.target.checked)}
             className="rounded border-slate-600"
           />
-          Insert ({classification.inserts.length})
+          Add ({classification.inserts.length})
         </label>
         <label className="inline-flex items-center gap-1 cursor-pointer select-none">
           <input
@@ -421,7 +425,7 @@ export const DataMigrateBar: React.FC<Props> = ({
             onChange={(e) => setDoUpdate(e.target.checked)}
             className="rounded border-slate-600"
           />
-          Update ({classification.updates.length})
+          Edit ({classification.updates.length})
         </label>
         <label className="inline-flex items-center gap-1 cursor-pointer select-none">
           <input
@@ -435,7 +439,7 @@ export const DataMigrateBar: React.FC<Props> = ({
         </label>
         <label
           className="inline-flex items-center gap-1 cursor-pointer select-none"
-          title="When on, INSERT includes identity/autoincrement values from the source (preserve IDs). When off, the destination generates them."
+          title="When on, Add includes identity/autoincrement values from the source (preserve IDs). When off, the destination generates them."
         >
           <input
             type="checkbox"
@@ -446,6 +450,15 @@ export const DataMigrateBar: React.FC<Props> = ({
           />
           Include identity / IDs
         </label>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-400">
+        <span
+          className="text-slate-500 shrink-0"
+          title="Safety assists — you choose the ops; we help contain failures."
+        >
+          Safety
+        </span>
         <label
           className="inline-flex items-center gap-1 cursor-pointer select-none"
           title="Wrap all ops in one transaction when Stop is selected. With Continue, each op uses its own transaction so a failure only rolls back that row."
@@ -484,9 +497,11 @@ export const DataMigrateBar: React.FC<Props> = ({
           onClick={() => void apply()}
           className="ml-auto px-2 py-0.5 rounded bg-cyan-700/40 border border-cyan-500/40 text-cyan-200 hover:bg-cyan-600/50 disabled:opacity-40 disabled:cursor-not-allowed"
           title={
-            selected.uncappedCount > DATA_MIGRATE_ROW_CAP
-              ? `Over ${DATA_MIGRATE_ROW_CAP} ops — use Server Beam`
-              : undefined
+            selected.uncappedCount === 0
+              ? 'Select Add, Edit, and/or Delete first'
+              : selected.uncappedCount > DATA_MIGRATE_ROW_CAP
+                ? `Over ${DATA_MIGRATE_ROW_CAP} ops — use Server Beam`
+                : undefined
           }
         >
           {applying ? (
@@ -495,6 +510,8 @@ export const DataMigrateBar: React.FC<Props> = ({
             </span>
           ) : selected.uncappedCount > DATA_MIGRATE_ROW_CAP ? (
             `Over ${DATA_MIGRATE_ROW_CAP} — Server Beam`
+          ) : selected.uncappedCount === 0 ? (
+            'Select ops to migrate'
           ) : (
             `Migrate ${selected.uncappedCount} ops`
           )}

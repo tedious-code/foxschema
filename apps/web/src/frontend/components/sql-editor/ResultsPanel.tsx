@@ -639,7 +639,8 @@ const SideBySideStatementSection: React.FC<{
     [items]
   );
   const canCompare = okGrids.length >= 2;
-  const [compareOn, setCompareOn] = useState(true);
+  /** Off by default — side-by-side shows plain grids until the user opts into Compare. */
+  const [compareOn, setCompareOn] = useState(false);
   /** Skip createdAt / updatedBy / etc. — values differ across DBs even when rows match. */
   const [skipTriggerCols, setSkipTriggerCols] = useState(true);
   const [baselineId, setBaselineId] = useState<string>('');
@@ -792,8 +793,13 @@ const SideBySideStatementSection: React.FC<{
                 className="rounded border-slate-600"
               />
               <GitCompare className="w-3 h-3 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
-              Compare
+              Compare data
             </label>
+            {!compareOn && (
+              <span className="text-slate-600 font-medium">
+                Turn on to highlight diffs and choose Add / Edit / Delete
+              </span>
+            )}
             {compareOn && (
               <label className="flex items-center gap-1">
                 <span className="text-slate-500">source</span>
@@ -903,9 +909,9 @@ const SideBySideStatementSection: React.FC<{
       />
       {compareActive && (
         <p className="text-[10px] text-slate-500 px-0.5" data-testid={`sql-result-compare-hint-${statementIndex}`}>
-          Cell colors align by row index; Data migrate matches rows by key columns (source → dest).
-          Skip trigger cols ignores createdAt / updatedBy and similar. Use the same ORDER BY when
-          scanning. Cap: 500 ops — larger sets use Server Beam.
+          Cell colors align by row index. Choose Add / Edit / Delete yourself; Transaction and Stop /
+          Continue are safety assists. Skip trigger cols ignores createdAt / updatedBy. Same ORDER BY
+          when scanning. Cap: 500 ops — larger sets use Server Beam.
         </p>
       )}
     </section>
