@@ -1,8 +1,6 @@
 # Fox Schema 0.2.49 — What's new
 
 > **For users:** this is the page the in-app update toast links to (**What's new**).
-> **Status:** not published yet — tag / npm / Docker / Homebrew ship when maintainers
-> merge the release branch. Until then the in-app checker still shows older npm latest.
 
 Covers everything since **`v0.2.36`**.
 
@@ -13,12 +11,25 @@ Covers everything since **`v0.2.36`**.
 ### Compare & migrate data (side-by-side)
 
 - **Compare data** across credentials with colored cell diffs.
+- **Source on the left**, Target(s) on the right — clear Source → Target labels.
 - **Key alignment** so rows pair by the keys you care about (not only row order).
+  Keys fall back to shared result columns when the PK is not in the SELECT.
 - **Keys picker** — choose which columns define a match; values follow.
 - **Sync column** on the destination grid (on by default) — uncheck rows to skip.
 - **Sync all** + **Migrate** respect op filters ∩ your Sync checkboxes (≤500 ops).
+  Unchecking Add / Edit / Delete clears the matching Sync rows.
+- **Sync scroll** (default on) keeps vertical scroll and hover aligned across **all**
+  compare grids; turn it off to scroll independently.
+- **CSV all** downloads every compare grid in **one** CSV (`Source.col` / `Target.col`,
+  plus `op` / `key` when key-aligned).
+- **Maximize** opens Compare fullscreen for more grid space (Close / Esc).
 - Insert / delete rows tint **both** grids (including name-only keys).
-- Side-by-side grids **scroll together** and **share the hovered row**.
+
+![Compare — Source + three Targets with Sync scroll and CSV all](images/release-0.2.49/compare-multi-target-sync-scroll.png)
+
+![Compare — Sync scroll keeps all grids aligned while scrolling](images/release-0.2.49/compare-multi-target-scrolled.png)
+
+![Compare — maximized fullscreen with Sync scroll and CSV all](images/release-0.2.49/compare-multi-target-maximized.png)
 
 ### SQL Editor
 
@@ -33,12 +44,14 @@ Covers everything since **`v0.2.36`**.
 - RBAC enforced on Data grid writes.
 - Data migrate key / identity / auth fixes.
 
-### Ports
+### Ports & process
 
 - Default API / Docker port is now **3210** (same as the CLI), away from the busy
   **3000/3001** band. Override with `PORT` / `API_PORT` / `foxschema open --port`.
 - CLI **`foxschema open`** auto-picks the next free port (3211+) when 3210 is taken
   by another app (unless you pass an explicit `--port`).
+- UI / API process title is **`foxschema`** so it is easy to find in Activity Monitor /
+  Task Manager.
 
 ---
 
@@ -81,7 +94,7 @@ Then: `foxschema stop && foxschema open` (or reopen Docker) and optionally
 
 ---
 
-## Distribution (after publish)
+## Distribution
 
 | Channel | Artifact |
 |---------|----------|
@@ -93,19 +106,10 @@ Then: `foxschema stop && foxschema open` (or reopen Docker) and optionally
 
 ---
 
-## Branch policy (maintainers)
-
-| Branch | Role |
-|--------|------|
-| `main` | Ongoing development |
-| `cursor/release-0-2-49-2d53` | Release freeze — **do not publish until ready** |
+## Maintainers
 
 This file is the **GitHub Release body** (`gh release create … --notes-file`). After
-publish, the in-app **What's new** link opens that release page.
-
-## Publish checklist (deferred)
-
-See [PUBLISH.md](PUBLISH.md). When intentionally shipping:
+publish, the in-app **What's new** link opens that release page. See [PUBLISH.md](PUBLISH.md).
 
 ```bash
 git tag v0.2.49
