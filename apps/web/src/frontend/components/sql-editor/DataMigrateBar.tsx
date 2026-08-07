@@ -57,6 +57,9 @@ interface Props {
   dest: DataMigrateGrid;
   /** Trigger/audit columns excluded from UPDATE detection and INSERT/UPDATE SET. */
   ignoreColumns?: string[];
+  /** Controlled key columns (shared with Compare alignment). */
+  keyNames?: string[];
+  onKeyNamesChange?: (names: string[]) => void;
   onAfterMigrate?: () => void;
   onOpenServerBeamSample?: () => void;
 }
@@ -66,6 +69,8 @@ export const DataMigrateBar: React.FC<Props> = ({
   source,
   dest,
   ignoreColumns = [],
+  keyNames: keyNamesProp,
+  onKeyNamesChange,
   onAfterMigrate,
   onOpenServerBeamSample,
 }) => {
@@ -91,10 +96,13 @@ export const DataMigrateBar: React.FC<Props> = ({
     [table, source.columns]
   );
 
-  const [keyNames, setKeyNames] = useState<string[]>([]);
+  const [keyNamesLocal, setKeyNamesLocal] = useState<string[]>([]);
+  const keyNames = keyNamesProp ?? keyNamesLocal;
+  const setKeyNames = onKeyNamesChange ?? setKeyNamesLocal;
   useEffect(() => {
-    setKeyNames(defaultKeys.length ? defaultKeys : source.columns.slice(0, 1));
-  }, [defaultKeys.join('\0'), source.columns.join('\0')]);
+    if (keyNamesProp) return;
+    setKeyNamesLocal(defaultKeys.length ? defaultKeys : source.columns.slice(0, 1));
+  }, [defaultKeys.join('\0'), source.columns.join('\0'), keyNamesProp]);
 
   /** User opts into each op — nothing selected until they choose. */
   const [doInsert, setDoInsert] = useState(false);
@@ -139,11 +147,10 @@ export const DataMigrateBar: React.FC<Props> = ({
   );
 
   const toggleKey = (name: string) => {
-    setKeyNames((prev) =>
-      prev.some((k) => k.toLowerCase() === name.toLowerCase())
-        ? prev.filter((k) => k.toLowerCase() !== name.toLowerCase())
-        : [...prev, name]
-    );
+    const next = keyNames.some((k) => k.toLowerCase() === name.toLowerCase())
+      ? keyNames.filter((k) => k.toLowerCase() !== name.toLowerCase())
+      : [...keyNames, name];
+    setKeyNames(next);
   };
 
   const openHistory = async () => {
