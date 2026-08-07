@@ -5,6 +5,14 @@
  */
 import { startUiServer } from '@foxschema/web/serve';
 
+// So Activity Monitor / `ps` / Task Manager “window title” can identify us
+// (Image Name on Windows is still node.exe — see docs).
+try {
+  process.title = 'foxschema';
+} catch {
+  /* ignore */
+}
+
 const port = Number(process.env.API_PORT || process.env.PORT) || 3210;
 const host = process.env.LISTEN_HOST || '127.0.0.1';
 const staticDir = process.env.STATIC_DIR;

@@ -387,6 +387,12 @@ use the host's IP or a service name, not `localhost`, to reach a DB on your mach
 **Port already in use (CLI).** Something else is on **3210**. Stop Fox
 (`foxschema stop`) or free that port, then run `foxschema` again.
 
+**Is the backend still running?** Closing the browser does **not** stop the
+server. Check with `foxschema doctor` (shows **ui lock pid** and whether
+http://localhost:3210 is up). In **Activity Monitor** / **Task Manager**, look
+for process title **`foxschema`** (or `node` with `ui-server` in the command
+line). Stop it with `foxschema stop`.
+
 **Port already in use (Docker).** Change `PORT` in `.env` and restart
 (`docker compose -f docker-compose.app.yml up -d`).
 
