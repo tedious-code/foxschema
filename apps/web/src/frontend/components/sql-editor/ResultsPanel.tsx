@@ -118,8 +118,11 @@ const ResultGridPane: React.FC<{
   onRefresh?: (connectionId: string) => void;
   onPage?: Props['onPage'];
   pageState?: Props['pageState'];
-  syncScrollRow?: number | null;
-  onSyncScrollRow?: (row: number | null) => void;
+  scrollSyncId?: string;
+  scrollSync?: {
+    register: (id: string, apply: (scrollTop: number) => void) => () => void;
+    broadcast: (sourceId: string, scrollTop: number) => void;
+  };
   /** Cross-connection compare highlights for this grid. */
   diffSummary?: GridDiffSummary | null;
   /** Suffix shown after the grid label (e.g. original / N differ). */
@@ -136,8 +139,8 @@ const ResultGridPane: React.FC<{
   onRefresh,
   onPage,
   pageState,
-  syncScrollRow = null,
-  onSyncScrollRow,
+  scrollSyncId,
+  scrollSync,
   diffSummary = null,
   compareBadge = null,
   compareLocked = false,
@@ -272,8 +275,8 @@ const ResultGridPane: React.FC<{
         exportName={item.exportName}
         refreshing={refreshing}
         onRefresh={onRefresh ? () => onRefresh(item.connectionId) : undefined}
-        syncScrollRow={onSyncScrollRow ? syncScrollRow : null}
-        onSyncScrollRow={onSyncScrollRow}
+        scrollSyncId={scrollSyncId}
+        scrollSync={scrollSync}
         pageIndex={pageIndex}
         pageSize={page?.pageSize}
         hasPrevPage={!refreshing && Boolean(page) && pageIndex > 0}
@@ -326,8 +329,11 @@ const PaneBody: React.FC<{
   onRefresh?: (connectionId: string) => void;
   onPage?: Props['onPage'];
   pageState?: Props['pageState'];
-  syncScrollRow?: number | null;
-  onSyncScrollRow?: (row: number | null) => void;
+  scrollSyncId?: string;
+  scrollSync?: {
+    register: (id: string, apply: (scrollTop: number) => void) => () => void;
+    broadcast: (sourceId: string, scrollTop: number) => void;
+  };
   diffSummary?: GridDiffSummary | null;
   compareBadge?: string | null;
   compareLocked?: boolean;
@@ -341,8 +347,8 @@ const PaneBody: React.FC<{
   onRefresh,
   onPage,
   pageState,
-  syncScrollRow = null,
-  onSyncScrollRow,
+  scrollSyncId,
+  scrollSync,
   diffSummary = null,
   compareBadge = null,
   compareLocked = false,
@@ -356,8 +362,8 @@ const PaneBody: React.FC<{
         onRefresh={onRefresh}
         onPage={onPage}
         pageState={pageState}
-        syncScrollRow={syncScrollRow}
-        onSyncScrollRow={onSyncScrollRow}
+        scrollSyncId={scrollSyncId}
+        scrollSync={scrollSync}
         diffSummary={diffSummary}
         compareBadge={compareBadge}
         compareLocked={compareLocked}
@@ -447,8 +453,26 @@ const ResizablePaneRow: React.FC<{
   const rowRef = useRef<HTMLDivElement>(null);
   const [widths, setWidths] = useState<number[]>(() => items.map(() => PANE_DEFAULT_PX));
   const [rowHeight, setRowHeight] = useState(PANE_DEFAULT_H_PX);
-  const [syncRow, setSyncRow] = useState<number | null>(null);
   const sizedForKey = useRef<string | null>(null);
+  /** Peer scrollTop bus — pixel sync without React re-renders (avoids lag on fast scroll). */
+  const scrollPeersRef = useRef(new Map<string, (scrollTop: number) => void>());
+  const scrollSync = useMemo(
+    () => ({
+      register: (id: string, apply: (scrollTop: number) => void) => {
+        scrollPeersRef.current.set(id, apply);
+        return () => {
+          scrollPeersRef.current.delete(id);
+        };
+      },
+      broadcast: (sourceId: string, scrollTop: number) => {
+        for (const [id, apply] of scrollPeersRef.current) {
+          if (id === sourceId) continue;
+          apply(scrollTop);
+        }
+      },
+    }),
+    []
+  );
 
   useLayoutEffect(() => {
     const el = rowRef.current;
@@ -461,7 +485,7 @@ const ResizablePaneRow: React.FC<{
       if (sizedForKey.current === rowKey) return;
       sizedForKey.current = rowKey;
       setWidths(equalWidths(items.length, w));
-      setSyncRow(null);
+      for (const apply of scrollPeersRef.current.values()) apply(0);
     };
 
     applyEqual();
@@ -513,7 +537,7 @@ const ResizablePaneRow: React.FC<{
 
   if (items.length === 0) return null;
 
-  const syncScroll = items.filter((x) => x.kind === 'grid').length > 1;
+  const enableScrollSync = items.filter((x) => x.kind === 'grid').length > 1;
 
   return (
     <div className="flex flex-col min-w-0" data-testid="sql-result-pane-row-wrap">
@@ -535,8 +559,8 @@ const ResizablePaneRow: React.FC<{
                 onRefresh={onRefresh}
                 onPage={onPage}
                 pageState={pageState}
-                syncScrollRow={syncScroll ? syncRow : null}
-                onSyncScrollRow={syncScroll ? setSyncRow : undefined}
+                scrollSyncId={enableScrollSync ? item.connectionId : undefined}
+                scrollSync={enableScrollSync ? scrollSync : undefined}
                 diffSummary={diffByConnection?.[item.connectionId] ?? null}
                 compareBadge={badgeByConnection?.[item.connectionId] ?? null}
                 compareLocked={compareLocked}

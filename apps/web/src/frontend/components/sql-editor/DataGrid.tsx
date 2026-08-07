@@ -242,9 +242,12 @@ export const DataGrid: React.FC<{
   exportName?: string;
   refreshing?: boolean;
   onRefresh?: () => void;
-  /** Sync vertical scroll by row index with sibling grids in the same row. */
-  syncScrollRow?: number | null;
-  onSyncScrollRow?: (rowIndex: number) => void;
+  /** Sync vertical scroll by pixel with sibling grids (direct DOM — no React lag). */
+  scrollSyncId?: string;
+  scrollSync?: {
+    register: (id: string, apply: (scrollTop: number) => void) => () => void;
+    broadcast: (sourceId: string, scrollTop: number) => void;
+  };
   /** 0-based page index for server-side paging. */
   pageIndex?: number;
   /** Rows requested per page (Max rows / Rows/page). */
@@ -287,8 +290,8 @@ export const DataGrid: React.FC<{
     exportName = 'query-result',
     refreshing,
     onRefresh,
-    syncScrollRow,
-    onSyncScrollRow,
+    scrollSyncId,
+    scrollSync,
     pageIndex = 0,
     pageSize,
     hasPrevPage,
@@ -336,6 +339,7 @@ export const DataGrid: React.FC<{
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportH, setViewportH] = useState(320);
   const rafRef = useRef(0);
+  /** True while this grid's scrollTop is being driven by a peer (skip re-broadcast). */
   const syncLock = useRef(false);
 
   const colKey = sourceColumns.join('\0');
@@ -364,29 +368,40 @@ export const DataGrid: React.FC<{
     return () => ro.disconnect();
   }, [result.ok, sourceColumns.length]);
 
+  // Register with the side-by-side scroll bus: peers set our DOM scrollTop
+  // directly (no React state round-trip) so fast scrolls stay locked.
   useEffect(() => {
-    if (syncScrollRow == null || !scrollRef.current) return;
-    const target = syncScrollRow * rowH;
-    if (Math.abs(scrollRef.current.scrollTop - target) < 2) return;
-    syncLock.current = true;
-    scrollRef.current.scrollTop = target;
-    setScrollTop(target);
-    requestAnimationFrame(() => {
-      syncLock.current = false;
-    });
-  }, [syncScrollRow, rowH]);
+    if (!scrollSync || !scrollSyncId) return;
+    const apply = (top: number) => {
+      const el = scrollRef.current;
+      if (!el) return;
+      if (Math.abs(el.scrollTop - top) < 0.5) return;
+      syncLock.current = true;
+      el.scrollTop = top;
+      setScrollTop(top);
+      // Double-rAF: programmatic scroll events flush before we accept broadcasts again.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          syncLock.current = false;
+        });
+      });
+    };
+    return scrollSync.register(scrollSyncId, apply);
+  }, [scrollSync, scrollSyncId]);
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
+    // Broadcast immediately (pixel-accurate) so peers track during fast flings.
+    if (!syncLock.current && scrollSync && scrollSyncId) {
+      scrollSync.broadcast(scrollSyncId, el.scrollTop);
+    }
+    // Throttle only the local virtualization state update.
     cancelAnimationFrame(rafRef.current);
     rafRef.current = requestAnimationFrame(() => {
       setScrollTop(el.scrollTop);
-      if (!syncLock.current && onSyncScrollRow) {
-        onSyncScrollRow(Math.floor(el.scrollTop / rowH));
-      }
     });
-  }, [onSyncScrollRow, rowH]);
+  }, [scrollSync, scrollSyncId]);
 
   useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
 
