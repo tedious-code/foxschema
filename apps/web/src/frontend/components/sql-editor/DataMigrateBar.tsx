@@ -223,7 +223,30 @@ export const DataMigrateBar: React.FC<Props> = ({
       });
       return;
     }
-    if (!editability.editable || keyNames.length === 0) {
+    if (keyNames.length === 0) {
+      toast({
+        tone: 'warning',
+        title: 'Pick at least one Key column',
+        body: 'Check a shared column under Keys (for example ATTRIBUTENAME) so rows can match.',
+      });
+      return;
+    }
+    const keysMissing = keyNames.filter(
+      (k) =>
+        !source.columns.some((c) => c.toLowerCase() === k.toLowerCase()) ||
+        !dest.columns.some((c) => c.toLowerCase() === k.toLowerCase())
+    );
+    if (keysMissing.length > 0) {
+      toast({
+        tone: 'warning',
+        title: 'Key columns missing from the result',
+        body: `Include ${keysMissing.join(', ')} in the SELECT, or pick a Key that is in both grids.`,
+      });
+      return;
+    }
+    // Allow business/name keys when the table PK isn't in the SELECT.
+    // Block only when schema says PK is in the result but editability still failed.
+    if (!editability.editable && preferredKeyNames.length > 0) {
       toast({
         tone: 'warning',
         title: 'Data migrate needs a unique key in the result',
@@ -526,7 +549,12 @@ export const DataMigrateBar: React.FC<Props> = ({
         {keyNames.length === 0 && sharedColumns.length > 0 && (
           <span className="text-amber-400/90">Pick at least one key column.</span>
         )}
-        {preferredKeyNames.length === 0 && editability.reason && (
+        {preferredKeyNames.length === 0 && sharedColumns.length > 0 && (
+          <span className="text-amber-400/90 text-[10px]">
+            No PK in this SELECT — check a Key (e.g. {sharedColumns[0]}) to align rows and show Sync.
+          </span>
+        )}
+        {preferredKeyNames.length === 0 && sharedColumns.length === 0 && editability.reason && (
           <span className="text-amber-400/90 text-[10px]">{editability.reason}</span>
         )}
       </div>

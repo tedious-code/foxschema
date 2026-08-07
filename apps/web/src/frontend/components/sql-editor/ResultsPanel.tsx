@@ -802,17 +802,32 @@ const SideBySideStatementSection: React.FC<{
 
   const defaultKeys = useMemo(() => {
     if (!sourceGrid?.result.ok) return [] as string[];
+    const cols = sourceGrid.result.columns;
+    if (cols.length === 0) return [];
+    const destCols =
+      destGrid?.result.ok
+        ? new Set(destGrid.result.columns.map((c) => c.toLowerCase()))
+        : null;
+    const inBoth = (name: string) =>
+      !destCols || destCols.has(name.toLowerCase());
+
     const conn = connections.find((c) => c.id === sourceGrid.connectionId);
     const tables = schemaCache[sourceGrid.connectionId]?.tables;
     const editTarget = sourceGrid.statementSql
       ? singleTableForResultEdit(sourceGrid.statementSql, tables, conn?.schema)
       : { ok: false as const };
     const table = editTarget.ok ? editTarget.table : undefined;
-    const resolved = resolvePeekKeyColumns(table, sourceGrid.result.columns).map((k) => k.name);
+    // Only PK/unique columns that are actually in THIS result (and the dest grid).
+    const resolved = resolvePeekKeyColumns(table, cols)
+      .filter((k) => k.resultIndex >= 0 && inBoth(k.name))
+      .map((k) => k.name);
     if (resolved.length) return resolved;
-    const idCol = sourceGrid.result.columns.find((c) => c.toLowerCase() === 'id');
-    return idCol ? [idCol] : sourceGrid.result.columns.slice(0, 1);
-  }, [sourceGrid, connections, schemaCache]);
+    const idCol = cols.find((c) => c.toLowerCase() === 'id' && inBoth(c));
+    if (idCol) return [idCol];
+    // Name-only / projection SELECTs: use the first shared (or source) column.
+    const shared = destCols ? cols.filter((c) => destCols.has(c.toLowerCase())) : cols;
+    return shared.slice(0, 1);
+  }, [sourceGrid, destGrid, connections, schemaCache]);
 
   const defaultKeysKey = defaultKeys.join('\0');
   const keyNamesKey = keyNames.join('\0');
@@ -820,22 +835,36 @@ const SideBySideStatementSection: React.FC<{
 
   useEffect(() => {
     if (!compareActive) return;
+    const cols = sourceGrid?.result.ok ? sourceGrid.result.columns : null;
+    const destCols =
+      destGrid?.result.ok ? destGrid.result.columns : null;
+    const present = (name: string) =>
+      Boolean(
+        cols?.some((c) => c.toLowerCase() === name.toLowerCase()) &&
+          (!destCols ||
+            destCols.some((c) => c.toLowerCase() === name.toLowerCase()))
+      );
+
     if (keyNames.length === 0 && defaultKeys.length > 0) {
       setKeyNames(defaultKeys);
       return;
     }
-    const cols =
-      sourceGrid?.result.ok ? sourceGrid.result.columns : null;
-    if (
-      keyNames.length > 0 &&
-      cols &&
-      keyNames.every(
-        (k) => !cols.some((c) => c.toLowerCase() === k.toLowerCase())
-      )
-    ) {
-      setKeyNames(defaultKeys);
+    // Drop schema PK names that aren't in the SELECT (classic: ID missing,
+    // only ATTRIBUTENAME selected) so Keys/Sync/counts actually work.
+    if (keyNames.length > 0 && cols && keyNames.some((k) => !present(k))) {
+      const kept = keyNames.filter(present);
+      setKeyNames(kept.length > 0 ? kept : defaultKeys);
     }
-  }, [compareActive, defaultKeysKey, keyNamesKey, sourceColsKey, defaultKeys, keyNames, sourceGrid]);
+  }, [
+    compareActive,
+    defaultKeysKey,
+    keyNamesKey,
+    sourceColsKey,
+    defaultKeys,
+    keyNames,
+    sourceGrid,
+    destGrid,
+  ]);
 
   const triggerIgnoreColumns = useMemo(() => {
     if (!skipTriggerCols) return [] as string[];
