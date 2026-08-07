@@ -186,8 +186,11 @@ export const TopToolbar: React.FC = () => {
         <>
       {/* Database Connection Control Grid */}
       <div className="grid grid-cols-1 xl:grid-cols-11 gap-3 items-stretch">
-        {/* Source Configuration */}
+        {/* Source Configuration — left side is the Original Server (read / compare from). */}
         <div className="xl:col-span-5 bg-slate-950/60 p-3 rounded-lg border border-slate-800/80 flex flex-col gap-2">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-cyan-500/80">
+            Original Server
+          </div>
           {/* Label + Add/Edit Connection + status, all inline */}
           <div className="flex items-center gap-2">
             {connections.length > 0 && (
@@ -269,22 +272,29 @@ export const TopToolbar: React.FC = () => {
           </div>
         </div>
 
-        {/* Direction / Swap control — migration always flows Source → Target */}
+        {/* Direction / Swap control — migration always flows Original Server → Target */}
         <div className="flex xl:col-span-1 justify-center items-center">
           <button
             onClick={swapSourceTarget}
-            title="Swap Source and Target (reverse migration direction)"
+            title="Swap Original Server and Target (reverse migration direction)"
             className="group flex flex-col items-center gap-0.5 transition cursor-pointer"
           >
-            <span className="text-sm font-bold uppercase tracking-wider text-cyan-500/70 group-hover:text-cyan-400"/>
+            <span className="text-[9px] font-bold uppercase tracking-wider text-cyan-500/70 group-hover:text-cyan-400">
+              Original
+            </span>
             <ArrowRight className="w-6 h-6 text-indigo-500/80 group-hover:hidden transition" />
             <ArrowLeftRight className="w-6 h-6 text-cyan-400 hidden group-hover:block" />
-            <span className="text-sm font-bold uppercase tracking-wider text-purple-400/70 group-hover:text-cyan-400"/>
+            <span className="text-[9px] font-bold uppercase tracking-wider text-purple-400/70 group-hover:text-cyan-400">
+              Target
+            </span>
           </button>
         </div>
 
         {/* Target Configuration */}
         <div className="xl:col-span-5 bg-slate-950/60 p-3 rounded-lg border border-slate-800/80 flex flex-col gap-2">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-purple-400/80">
+            Target
+          </div>
           {/* Label + Add/Edit Connection + status, all inline */}
           <div className="flex items-center gap-2">
             {connections.length > 0 && (
@@ -445,7 +455,7 @@ export const TopToolbar: React.FC = () => {
         <div className="flex items-center gap-3">
           {sameConfig && (
             <span className="flex items-center gap-1.5 text-sm font-medium text-amber-400 bg-amber-950/30 border border-amber-500/20 px-3 py-1.5 rounded-lg">
-              <AlertCircle className="w-4 h-4 shrink-0" /> Source and target are the same
+              <AlertCircle className="w-4 h-4 shrink-0" /> Original Server and Target are the same
             </span>
           )}
 
@@ -464,7 +474,7 @@ export const TopToolbar: React.FC = () => {
               !canSchemaCompare
                 ? 'Your role cannot compare schemas'
                 : sameConfig
-                  ? 'Source and target point to the same database and schema'
+                  ? 'Original Server and Target point to the same database and schema'
                   : undefined
             }
             className={`flex items-center gap-2 px-5 py-2 rounded-lg text-base font-bold transition shadow-lg ${

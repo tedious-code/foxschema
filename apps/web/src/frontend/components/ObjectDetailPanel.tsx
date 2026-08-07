@@ -775,7 +775,7 @@ export const ObjectDetailPanel: React.FC = () => {
                   <thead>
                     <tr className="bg-slate-900 border-b border-slate-800 text-slate-300">
                       <th className="p-3 text-[11px] font-bold uppercase tracking-wider">Attribute</th>
-                      <th className="p-3 text-[11px] font-bold uppercase tracking-wider">Source</th>
+                      <th className="p-3 text-[11px] font-bold uppercase tracking-wider">Original Server</th>
                       <th className="p-3 text-[11px] font-bold uppercase tracking-wider text-center">Compare</th>
                       <th className="p-3 text-[11px] font-bold uppercase tracking-wider">Target</th>
                     </tr>
@@ -813,7 +813,7 @@ export const ObjectDetailPanel: React.FC = () => {
                         <thead>
                           <tr className="bg-slate-900 border-b border-slate-800 text-slate-300">
                             <th className="p-3 text-[11px] font-bold uppercase tracking-wider">Attribute</th>
-                            <th className="p-3 text-[11px] font-bold uppercase tracking-wider">Source Type</th>
+                            <th className="p-3 text-[11px] font-bold uppercase tracking-wider">Original Type</th>
                             <th className="p-3 text-[11px] font-bold uppercase tracking-wider text-center">Compare</th>
                             <th className="p-3 text-[11px] font-bold uppercase tracking-wider">Target Type</th>
                           </tr>
@@ -867,7 +867,7 @@ export const ObjectDetailPanel: React.FC = () => {
                 <thead>
                   <tr className="bg-slate-900 border-b border-slate-800 text-slate-400">
                     <th className="p-3 font-semibold">{selectedTable.objectType === 'ROLE' ? 'Member' : 'Column Name'}</th>
-                    <th className="p-3 font-semibold">Source State</th>
+                    <th className="p-3 font-semibold">Original State</th>
                     <th className="p-3 font-semibold text-center">Compare</th>
                     <th className="p-3 font-semibold">Target State</th>
                     <th className="p-3 font-semibold text-right">Operation</th>
@@ -972,7 +972,7 @@ export const ObjectDetailPanel: React.FC = () => {
                   <thead>
                     <tr className="bg-slate-900 border-b border-slate-800 text-slate-400">
                       <th className="p-3 font-semibold">Constraint Name</th>
-                      <th className="p-3 font-semibold">Source Columns</th>
+                      <th className="p-3 font-semibold">Original Columns</th>
                       <th className="p-3 font-semibold text-center">Compare</th>
                       <th className="p-3 font-semibold">Target Columns</th>
                       <th className="p-3 font-semibold text-right">Operation</th>
@@ -1150,7 +1150,7 @@ export const ObjectDetailPanel: React.FC = () => {
                 <thead>
                   <tr className="bg-slate-900 border-b border-slate-800 text-slate-400">
                     <th className="p-3 font-semibold">Trigger Name</th>
-                    <th className="p-3 font-semibold">Source State</th>
+                    <th className="p-3 font-semibold">Original State</th>
                     <th className="p-3 font-semibold text-center">Compare</th>
                     <th className="p-3 font-semibold">Target State</th>
                     <th className="p-3 font-semibold text-right">Operation</th>

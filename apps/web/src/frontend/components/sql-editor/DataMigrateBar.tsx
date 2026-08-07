@@ -62,6 +62,9 @@ interface Props {
   dest: DataMigrateGrid;
   /** Trigger/audit columns excluded from UPDATE detection and INSERT/UPDATE SET. */
   ignoreColumns?: string[];
+  /** Controlled key columns (shared with Compare alignment). */
+  keyNames?: string[];
+  onKeyNamesChange?: (names: string[]) => void;
   onAfterMigrate?: () => void;
   onOpenServerBeamSample?: () => void;
 }
@@ -71,6 +74,8 @@ export const DataMigrateBar: React.FC<Props> = ({
   source,
   dest,
   ignoreColumns = [],
+  keyNames: keyNamesProp,
+  onKeyNamesChange,
   onAfterMigrate,
   onOpenServerBeamSample,
 }) => {

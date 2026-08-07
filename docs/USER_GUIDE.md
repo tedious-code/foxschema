@@ -76,7 +76,7 @@ comparing **to** (target).
 
 ## Run a comparison
 
-1. Choose a **source** connection and a **target** connection.
+1. Choose an **Original Server** connection and a **Target** connection.
 2. Click **Compare**.
 
 Fox Schema reads both schemas and builds the diff. You can narrow what it looks at (tables
@@ -131,11 +131,12 @@ compare / migrate). It lives in the same local web UI you open with `foxschema`.
 
 6. **Compare data across servers** — switch the results layout to **Side-by-side**
    and check two or more Destinations. **Compare data** is off by default so grids
-   stay plain until you turn it on. Then cells that differ from the source are
-   colored: amber (modified), rose (missing), emerald (extra). Pick **source**
-   (and **dest** when more than two). **Skip trigger cols** (on by default) ignores
-   audit fields such as `createdAt` / `updatedBy`. Cell tinting aligns by row
-   index — use the same `ORDER BY` when scanning.
+   stay plain until you turn it on. Rows then **line up by key columns** (PK / your
+   Keys checkboxes — same as Data migrate), so matching IDs share a row instead of
+   comparing by ORDER BY index. Differing cells are colored: amber (modified), rose
+   (missing / only in original), emerald (extra / only in dest). Pick **Original
+   server** (and **Destination** when more than two). **Skip trigger cols** (on by
+   default) ignores audit fields such as `createdAt` / `updatedBy`.
 
 7. **Data migrate (≤500 row ops)** — with Compare on, **Data migrate** appears.
    Rows match by the table’s primary key (or a non-partial unique index) present

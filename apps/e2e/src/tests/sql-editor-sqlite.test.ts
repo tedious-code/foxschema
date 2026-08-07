@@ -140,8 +140,8 @@ describe.skipIf(!ready)('SQL Editor · SQLite multi-credential', () => {
     expect(anyDiff).toBeGreaterThanOrEqual(modified);
 
     const results = await sql.resultsText();
-    expect(results).toMatch(/baseline|source/i);
-    expect(results).toMatch(/differ|match/i);
+    expect(results).toMatch(/original|baseline|source/i);
+    expect(results).toMatch(/aligned by|edit|match/i);
 
     // Data migrate bar: Add / Edit / Delete (user opts in; none checked by default).
     await driver.waitForSelector('[data-testid="sql-data-migrate-bar-0"]', {
