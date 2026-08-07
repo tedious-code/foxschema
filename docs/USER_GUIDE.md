@@ -341,8 +341,10 @@ Tips:
   -- @end
   ```
 
-- **Safe mode** — when on, UPDATE / DELETE / MERGE and DDL need an extra
-  confirmation before run. Plain INSERT (including insert CTEs) does not.
+- **Safe mode** — when on, UPDATE / DELETE / MERGE, upserts that can overwrite
+  rows (`ON CONFLICT DO UPDATE`, `ON DUPLICATE KEY UPDATE`, `INSERT OR REPLACE`),
+  and DDL need an extra confirmation before run. Plain INSERT (including insert
+  CTEs and `ON CONFLICT DO NOTHING`) does not.
 
 Writes and DDL are allowed when you confirm them. Some dialects (e.g. SQLite /
 ClickHouse adapters used for SELECT-only paths) may reject writes with a clear error
