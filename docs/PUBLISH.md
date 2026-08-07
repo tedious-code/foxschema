@@ -114,17 +114,23 @@ foxschema doctor
 foxschema shortcut
 ```
 
-### In-app update toast (npm)
+### In-app update toast + What's new
 
 After publish, installed CLIs check
 `https://registry.npmjs.org/foxschema/latest` on UI boot (and from
 **User Preference → Check**). When npm `latest` is newer than the running
 `APP_VERSION`:
 
+- **What's new** opens the GitHub Release page
+  `https://github.com/tedious-code/foxschema/releases/tag/vX.Y.Z`
+  (body = `docs/RELEASE_X.Y.Z.md` from `gh release create --notes-file`).
 - **Local CLI (`foxschema open`)** — toast / Settings offer **Update now**, which
-  runs `npm install -g foxschema@latest` and relaunches the UI.
+  runs `npm install -g foxschema@latest` and relaunches the UI (no terminal).
 - **Docker / locked-down hosts** — toast offers **Copy command** instead
   (`npm install -g foxschema@latest`).
+
+Always create the GitHub Release with the RELEASE notes file in the same ship
+step as the npm tag, so the toast link is not a 404.
 
 No extra feed hosting is required for the npm channel. Override with
 `UPDATE_FEED_URL` only if you need a custom/GitHub feed; set `off` to disable.

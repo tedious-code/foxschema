@@ -69,6 +69,13 @@ export async function runDoctor(): Promise<void> {
   }
   console.log(`  ui lock pid      ${managedPid || chalk.dim('(none)')}`);
   console.log(`  ui server        ${await uiServerStatus(DEFAULT_UI_PORT)}`);
+  if (managedPid) {
+    console.log(
+      chalk.dim(
+        `  tip              look for process “foxschema” (or node · ui-server) · PID ${managedPid}`
+      )
+    );
+  }
 
   const coreModulesOk = typeof CompareModule === 'function' && typeof SqlGeneratorModule === 'function';
   let core: string;

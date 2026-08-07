@@ -43,6 +43,11 @@ function stripV(v: string): string {
   return v.replace(/^v/i, '').trim();
 }
 
+/** User-facing release notes (in-app “What’s new” opens this page). */
+export function githubReleaseUrl(version: string): string {
+  return `https://github.com/tedious-code/foxschema/releases/tag/v${stripV(version)}`;
+}
+
 /**
  * Resolve the running app version: APP_VERSION env, else nearest package.json
  * (web → repo root → cwd). Falls back to 0.0.0 only if nothing is readable.
@@ -92,21 +97,16 @@ type FeedJson = {
 /** Map npm / GitHub / custom feed JSON into version + link + notes. */
 export function parseUpdateFeed(
   data: FeedJson,
-  feedUrl: string,
+  _feedUrl: string,
   current: string
 ): Pick<UpdateInfo, 'latest' | 'updateAvailable' | 'url' | 'notes'> {
   const latest = stripV(data.version || data.tag_name || '') || current;
-  const fromNpm =
-    data.name === NPM_PACKAGE || /registry\.npmjs\.org/i.test(feedUrl);
-  const npmPage = fromNpm
-    ? `https://www.npmjs.com/package/${NPM_PACKAGE}/v/${latest}`
-    : undefined;
   return {
     latest,
     updateAvailable: !!latest && isNewer(latest, current),
-    // Prefer explicit release links; for the npm channel use the package page
-    // (homepage alone is not version-specific).
-    url: data.url || data.html_url || npmPage || data.homepage,
+    // Prefer explicit release links; otherwise the GitHub Release page
+    // (populated from docs/RELEASE_*.md) so “What’s new” shows ship notes.
+    url: data.url || data.html_url || githubReleaseUrl(latest) || data.homepage,
     notes: data.notes || data.body || data.description || undefined,
   };
 }

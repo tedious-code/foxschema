@@ -10,7 +10,18 @@
  * as Data Peek) when the primary key is present in the result columns.
  */
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, Database, AlertCircle, GripVertical, RefreshCw, GitCompare } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import {
+  Loader2,
+  Database,
+  AlertCircle,
+  GripVertical,
+  RefreshCw,
+  GitCompare,
+  Maximize2,
+  X,
+  Download,
+} from 'lucide-react';
 import { useSqlEditorStore, type CredentialRun } from '../../store/useSqlEditorStore';
 import { useSyncStore } from '../../store/useSyncStore';
 import type { ResultsLayout } from '../../store/sqlEditorTabLogic';
@@ -28,13 +39,23 @@ import {
 import {
   alignResultGridsByKey,
   compareKeyAlignedGrids,
+  type AlignRowOp,
 } from '../../lib/resultKeyAlign';
 import { detectTriggerManagedColumns } from '../../lib/triggerManagedColumns';
 import { resolvePeekKeyColumns } from '../../lib/rowDml';
 import { buildSampleBookmarks } from '../../lib/sqlEditorSamples';
+import { downloadMultiGridCsv } from '../../utils/exportCsv';
 import { DataMigrateBar } from './DataMigrateBar';
 import { usePeekGridCrud } from './usePeekGridCrud';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
+
+/** Align ops → migrate vocabulary for combined CSV. */
+function compareOpCsvLabel(op: AlignRowOp): string {
+  if (op === 'update') return 'edit';
+  if (op === 'delete') return 'add';
+  if (op === 'insert') return 'delete';
+  return 'match';
+}
 
 interface Props {
   runs: CredentialRun[];
@@ -103,6 +124,36 @@ type PaneItem =
     }
   | { key: string; kind: 'running'; label: string; connectionId: string }
   | { key: string; kind: 'error'; label: string; error: string; connectionId: string };
+
+/** Pane role when Compare is on — Source left, Target A/B… on the right. */
+function comparePaneRole(
+  connectionId: string,
+  baselineId: string,
+  _destId: string,
+  okGrids: Extract<PaneItem, { kind: 'grid' }>[]
+): string {
+  if (connectionId === baselineId) return 'Source';
+  const targets = okGrids.filter((g) => g.connectionId !== baselineId);
+  if (targets.length <= 1) return 'Target';
+  const idx = targets.findIndex((g) => g.connectionId === connectionId);
+  if (idx < 0) return 'Target';
+  return `Target ${String.fromCharCode(65 + idx)}`;
+}
+
+/** Source first, then destination, then any other panes. */
+function orderPanesSourceLeft(
+  list: PaneItem[],
+  baselineId: string,
+  destId: string
+): PaneItem[] {
+  if (!baselineId) return list;
+  const source = list.filter((i) => i.connectionId === baselineId);
+  const dest = destId ? list.filter((i) => i.connectionId === destId) : [];
+  const rest = list.filter(
+    (i) => i.connectionId !== baselineId && i.connectionId !== destId
+  );
+  return [...source, ...dest, ...rest];
+}
 
 function equalWidths(count: number, containerW: number): number[] {
   if (count <= 0) return [];
@@ -269,7 +320,7 @@ const ResultGridPane: React.FC<{
       cells.get(cellDiffKey(rowIdx, colIdx)) ?? null;
   }, [diffSummary]);
 
-  const gridLabel = compareBadge ? `${item.label} · ${compareBadge}` : item.label;
+  const gridLabel = compareBadge ? `${compareBadge} · ${item.label}` : item.label;
 
   return (
     <div className="flex flex-col min-h-0 h-full">
@@ -450,6 +501,13 @@ const ResizablePaneRow: React.FC<{
       onToggle: (rowIdx: number, checked: boolean) => void;
     }
   >;
+  /** Fill parent height (fullscreen compare modal) instead of a fixed pane height. */
+  fillAvailable?: boolean;
+  /**
+   * When set, forces scroll/hover sync on or off for all grids in this row.
+   * When omitted, sync is on automatically whenever there are 2+ grids.
+   */
+  syncScroll?: boolean;
 }> = ({
   items,
   rowKey,
@@ -461,6 +519,8 @@ const ResizablePaneRow: React.FC<{
   badgeByConnection,
   compareLocked = false,
   rowSyncByConnection,
+  fillAvailable = false,
+  syncScroll,
 }) => {
   const rowRef = useRef<HTMLDivElement>(null);
   const [widths, setWidths] = useState<number[]>(() => items.map(() => PANE_DEFAULT_PX));
@@ -569,14 +629,24 @@ const ResizablePaneRow: React.FC<{
 
   if (items.length === 0) return null;
 
-  const enableScrollSync = items.filter((x) => x.kind === 'grid').length > 1;
+  const multiGrid = items.filter((x) => x.kind === 'grid').length > 1;
+  const enableScrollSync = multiGrid && (syncScroll ?? true);
 
   return (
-    <div className="flex flex-col min-w-0" data-testid="sql-result-pane-row-wrap">
+    <div
+      className={`flex flex-col min-w-0 ${fillAvailable ? 'flex-1 min-h-0 h-full' : ''}`}
+      data-testid="sql-result-pane-row-wrap"
+    >
       <div
         ref={rowRef}
-        className="flex overflow-x-auto overflow-y-hidden items-stretch pb-1 gap-0"
-        style={{ height: rowHeight, minHeight: PANE_MIN_H_PX }}
+        className={`flex overflow-x-auto overflow-y-hidden items-stretch pb-1 gap-0 ${
+          fillAvailable ? 'flex-1 min-h-0' : ''
+        }`}
+        style={
+          fillAvailable
+            ? { minHeight: PANE_MIN_H_PX }
+            : { height: rowHeight, minHeight: PANE_MIN_H_PX }
+        }
         data-testid="sql-result-pane-row"
       >
         {items.map((item, i) => (
@@ -617,15 +687,17 @@ const ResizablePaneRow: React.FC<{
           </React.Fragment>
         ))}
       </div>
-      <div
-        role="separator"
-        aria-orientation="horizontal"
-        aria-label="Resize result row height"
-        data-testid="sql-result-row-height-resize"
-        title="Drag to resize result grid height"
-        onMouseDown={startRowHeightResize}
-        className="h-1.5 shrink-0 cursor-row-resize bg-slate-800 hover:bg-cyan-500/40 active:bg-cyan-500/60 transition-colors rounded-sm"
-      />
+      {!fillAvailable ? (
+        <div
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Resize result row height"
+          data-testid="sql-result-row-height-resize"
+          title="Drag to resize result grid height"
+          onMouseDown={startRowHeightResize}
+          className="h-1.5 shrink-0 cursor-row-resize bg-slate-800 hover:bg-cyan-500/40 active:bg-cyan-500/60 transition-colors rounded-sm"
+        />
+      ) : null}
     </div>
   );
 };
@@ -746,6 +818,10 @@ const SideBySideStatementSection: React.FC<{
   const [keyNames, setKeyNames] = useState<string[]>([]);
   /** Row Sync checkboxes — which differing keys to include in migrate. */
   const [selectedSyncKeys, setSelectedSyncKeys] = useState<Set<string>>(() => new Set());
+  /** Full-window compare modal for more grid space. */
+  const [compareMaximized, setCompareMaximized] = useState(false);
+  /** When Compare is on: sync vertical scroll + hover across all grids (default on). */
+  const [syncScroll, setSyncScroll] = useState(true);
 
   const schemaCache = useSqlEditorStore((s) => s.schemaCache);
   const connections = useSyncStore((s) => s.connections);
@@ -772,17 +848,32 @@ const SideBySideStatementSection: React.FC<{
 
   const defaultKeys = useMemo(() => {
     if (!sourceGrid?.result.ok) return [] as string[];
+    const cols = sourceGrid.result.columns;
+    if (cols.length === 0) return [];
+    const destCols =
+      destGrid?.result.ok
+        ? new Set(destGrid.result.columns.map((c) => c.toLowerCase()))
+        : null;
+    const inBoth = (name: string) =>
+      !destCols || destCols.has(name.toLowerCase());
+
     const conn = connections.find((c) => c.id === sourceGrid.connectionId);
     const tables = schemaCache[sourceGrid.connectionId]?.tables;
     const editTarget = sourceGrid.statementSql
       ? singleTableForResultEdit(sourceGrid.statementSql, tables, conn?.schema)
       : { ok: false as const };
     const table = editTarget.ok ? editTarget.table : undefined;
-    const resolved = resolvePeekKeyColumns(table, sourceGrid.result.columns).map((k) => k.name);
+    // Only PK/unique columns that are actually in THIS result (and the dest grid).
+    const resolved = resolvePeekKeyColumns(table, cols)
+      .filter((k) => k.resultIndex >= 0 && inBoth(k.name))
+      .map((k) => k.name);
     if (resolved.length) return resolved;
-    const idCol = sourceGrid.result.columns.find((c) => c.toLowerCase() === 'id');
-    return idCol ? [idCol] : sourceGrid.result.columns.slice(0, 1);
-  }, [sourceGrid, connections, schemaCache]);
+    const idCol = cols.find((c) => c.toLowerCase() === 'id' && inBoth(c));
+    if (idCol) return [idCol];
+    // Name-only / projection SELECTs: use the first shared (or source) column.
+    const shared = destCols ? cols.filter((c) => destCols.has(c.toLowerCase())) : cols;
+    return shared.slice(0, 1);
+  }, [sourceGrid, destGrid, connections, schemaCache]);
 
   const defaultKeysKey = defaultKeys.join('\0');
   const keyNamesKey = keyNames.join('\0');
@@ -790,22 +881,36 @@ const SideBySideStatementSection: React.FC<{
 
   useEffect(() => {
     if (!compareActive) return;
+    const cols = sourceGrid?.result.ok ? sourceGrid.result.columns : null;
+    const destCols =
+      destGrid?.result.ok ? destGrid.result.columns : null;
+    const present = (name: string) =>
+      Boolean(
+        cols?.some((c) => c.toLowerCase() === name.toLowerCase()) &&
+          (!destCols ||
+            destCols.some((c) => c.toLowerCase() === name.toLowerCase()))
+      );
+
     if (keyNames.length === 0 && defaultKeys.length > 0) {
       setKeyNames(defaultKeys);
       return;
     }
-    const cols =
-      sourceGrid?.result.ok ? sourceGrid.result.columns : null;
-    if (
-      keyNames.length > 0 &&
-      cols &&
-      keyNames.every(
-        (k) => !cols.some((c) => c.toLowerCase() === k.toLowerCase())
-      )
-    ) {
-      setKeyNames(defaultKeys);
+    // Drop schema PK names that aren't in the SELECT (classic: ID missing,
+    // only ATTRIBUTENAME selected) so Keys/Sync/counts actually work.
+    if (keyNames.length > 0 && cols && keyNames.some((k) => !present(k))) {
+      const kept = keyNames.filter(present);
+      setKeyNames(kept.length > 0 ? kept : defaultKeys);
     }
-  }, [compareActive, defaultKeysKey, keyNamesKey, sourceColsKey, defaultKeys, keyNames, sourceGrid]);
+  }, [
+    compareActive,
+    defaultKeysKey,
+    keyNamesKey,
+    sourceColsKey,
+    defaultKeys,
+    keyNames,
+    sourceGrid,
+    destGrid,
+  ]);
 
   const triggerIgnoreColumns = useMemo(() => {
     if (!skipTriggerCols) return [] as string[];
@@ -858,7 +963,7 @@ const SideBySideStatementSection: React.FC<{
       columns: baselineItem.result.columns,
       rows: baselineItem.result.rows,
     };
-    badgeByConnection[baselineId] = 'original';
+    badgeByConnection[baselineId] = 'Source';
 
     if (keyAligned && destId) {
       const destItem = okGrids.find((g) => g.connectionId === destId);
@@ -878,9 +983,10 @@ const SideBySideStatementSection: React.FC<{
 
         const keyLabel = keyAligned.keyNames.join('+');
         legendBits.push(`aligned by ${keyLabel}`);
+        // Migrate vocabulary: source-only → Add, dest-only → Delete, both differ → Edit.
         if (keyAligned.updateCount > 0) legendBits.push(`${keyAligned.updateCount} edit`);
-        if (keyAligned.insertCount > 0) legendBits.push(`${keyAligned.insertCount} add`);
-        if (keyAligned.deleteCount > 0) legendBits.push(`${keyAligned.deleteCount} delete`);
+        if (keyAligned.deleteCount > 0) legendBits.push(`${keyAligned.deleteCount} add`);
+        if (keyAligned.insertCount > 0) legendBits.push(`${keyAligned.insertCount} delete`);
         if (keyAligned.matchCount > 0) legendBits.push(`${keyAligned.matchCount} match`);
         if (keyAligned.duplicateKeys > 0) {
           legendBits.push(
@@ -898,39 +1004,45 @@ const SideBySideStatementSection: React.FC<{
           legendBits.push('grids match by key');
         }
 
+        const sourceRole = comparePaneRole(baselineId, baselineId, destId, okGrids);
+        const destRole = comparePaneRole(destId, baselineId, destId, okGrids);
         badgeByConnection[baselineId] =
           keyAligned.deleteCount + keyAligned.updateCount === 0
-            ? 'original · key'
-            : `original · ${keyAligned.updateCount} edit · ${keyAligned.deleteCount} only-here`;
+            ? `${sourceRole} → ${destRole}`
+            : `${sourceRole} → ${destRole} · ${keyAligned.updateCount} edit · ${keyAligned.deleteCount} add`;
         badgeByConnection[destId] =
           keyAligned.insertCount + keyAligned.updateCount === 0
-            ? 'match by key'
-            : `${keyAligned.updateCount} edit · ${keyAligned.insertCount} only-here`;
+            ? `${destRole} · match`
+            : `${destRole} · ${keyAligned.updateCount} edit · ${keyAligned.insertCount} delete`;
 
-        displayItems = items.map((item) => {
-          if (item.kind !== 'grid' || !item.result.ok) return item;
-          if (item.connectionId === baselineId) {
-            return {
-              ...item,
-              result: {
-                ...item.result,
-                rows: keyAligned.leftRows,
-                rowCount: keyAligned.leftRows.length,
-              },
-            };
-          }
-          if (item.connectionId === destId) {
-            return {
-              ...item,
-              result: {
-                ...item.result,
-                rows: keyAligned.rightRows,
-                rowCount: keyAligned.rightRows.length,
-              },
-            };
-          }
-          return item;
-        });
+        displayItems = orderPanesSourceLeft(
+          items.map((item) => {
+            if (item.kind !== 'grid' || !item.result.ok) return item;
+            if (item.connectionId === baselineId) {
+              return {
+                ...item,
+                result: {
+                  ...item.result,
+                  rows: keyAligned.leftRows,
+                  rowCount: keyAligned.leftRows.length,
+                },
+              };
+            }
+            if (item.connectionId === destId) {
+              return {
+                ...item,
+                result: {
+                  ...item.result,
+                  rows: keyAligned.rightRows,
+                  rowCount: keyAligned.rightRows.length,
+                },
+              };
+            }
+            return item;
+          }),
+          baselineId,
+          destId
+        );
 
         for (const g of okGrids) {
           if (g.connectionId === baselineId || g.connectionId === destId || !g.result.ok) {
@@ -943,8 +1055,9 @@ const SideBySideStatementSection: React.FC<{
           );
           diffByConnection[g.connectionId] = pairIdx.other;
           const n = pairIdx.other.cells.size;
+          const role = comparePaneRole(g.connectionId, baselineId, destId, okGrids);
           badgeByConnection[g.connectionId] =
-            n === 0 ? 'match (by index)' : `${n} differ (by index)`;
+            n === 0 ? `${role} · match (by index)` : `${role} · ${n} differ (by index)`;
         }
 
         return { diffByConnection, badgeByConnection, legendBits, displayItems };
@@ -985,7 +1098,8 @@ const SideBySideStatementSection: React.FC<{
       }
       diffByConnection[g.connectionId] = pair.other;
       const n = pair.other.cells.size;
-      badgeByConnection[g.connectionId] = n === 0 ? 'match' : `${n} differ`;
+      const role = comparePaneRole(g.connectionId, baselineId, destId, okGrids);
+      badgeByConnection[g.connectionId] = n === 0 ? `${role} · match` : `${role} · ${n} differ`;
       totalModified += pair.other.modified;
       totalMissing += pair.other.missing + pair.baseline.missing;
       totalExtra += pair.other.extra;
@@ -994,34 +1108,39 @@ const SideBySideStatementSection: React.FC<{
     }
 
     const baseCells = diffByConnection[baselineId]?.cells.size ?? 0;
+    const sourceRole = comparePaneRole(baselineId, baselineId, destId, okGrids);
     badgeByConnection[baselineId] =
-      baseCells === 0 ? 'original' : `original · ${baseCells} differ`;
+      baseCells === 0 ? `${sourceRole}` : `${sourceRole} · ${baseCells} differ`;
 
     legendBits.push('aligned by row index (pick Keys below for friendlier match)');
-    if (totalModified > 0) legendBits.push(`${totalModified} modified`);
-    if (totalMissing > 0) legendBits.push(`${totalMissing} missing`);
-    if (totalExtra > 0) legendBits.push(`${totalExtra} extra`);
+    if (totalModified > 0) legendBits.push(`${totalModified} edit`);
+    if (totalMissing > 0) legendBits.push(`${totalMissing} add`);
+    if (totalExtra > 0) legendBits.push(`${totalExtra} delete`);
     if (missingCols.size > 0) {
-      legendBits.push(`cols only in original: ${[...missingCols].join(', ')}`);
+      legendBits.push(`cols only in source: ${[...missingCols].join(', ')}`);
     }
     if (extraCols.size > 0) {
-      legendBits.push(`cols only in other: ${[...extraCols].join(', ')}`);
+      legendBits.push(`cols only in target: ${[...extraCols].join(', ')}`);
     }
     if (triggerIgnoreColumns.length > 0) {
       legendBits.push(`skipping ${triggerIgnoreColumns.join(', ')}`);
     }
-    if (legendBits.length === 1) legendBits.push('grids match on this page');
+    if (totalModified === 0 && totalMissing === 0 && totalExtra === 0) {
+      legendBits.push('grids match');
+    }
+
+    displayItems = orderPanesSourceLeft(items, baselineId, destId);
 
     return { diffByConnection, badgeByConnection, legendBits, displayItems };
   }, [
     compareActive,
+    items,
     okGrids,
     baselineId,
     destId,
     keyAligned,
-    items,
-    triggerIgnoreColumns,
     ignoreOpts,
+    triggerIgnoreColumns,
   ]);
 
   const rowSyncByConnection = useMemo(() => {
@@ -1055,6 +1174,137 @@ const SideBySideStatementSection: React.FC<{
     useSqlEditorStore.getState().setSql(sample.sql);
   };
 
+  useEffect(() => {
+    if (!compareActive) setCompareMaximized(false);
+  }, [compareActive]);
+
+  useEffect(() => {
+    if (!compareMaximized) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setCompareMaximized(false);
+      }
+    };
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [compareMaximized]);
+
+  const paneRowKey = `side-${statementIndex}-${displayItems.map((x) => x.key).join('|')}-${
+    keyAligned ? `key-${effectiveKeys.join('+')}` : 'idx'
+  }${compareMaximized ? '-max' : ''}`;
+
+  const exportAllGridsCsv = useCallback(() => {
+    const grids = displayItems.filter(
+      (x): x is Extract<PaneItem, { kind: 'grid' }> =>
+        x.kind === 'grid' && Boolean(x.result.ok)
+    );
+    if (grids.length === 0) return;
+    const panes = grids.map((g) => {
+      const role =
+        compareActive && baselineId
+          ? comparePaneRole(g.connectionId, baselineId, destId, okGrids)
+          : g.label;
+      return {
+        label: role,
+        columns: g.result.ok ? g.result.columns : [],
+        rows: g.result.ok ? g.result.rows : [],
+      };
+    });
+    const meta =
+      compareActive && keyAligned
+        ? {
+            leadingColumns: ['op', 'key'],
+            leadingRows: keyAligned.rowOps.map((op, i) => [
+              compareOpCsvLabel(op),
+              keyAligned.rowKeyLabels[i] ?? '',
+            ]),
+          }
+        : undefined;
+    downloadMultiGridCsv(`compare-stmt-${statementIndex + 1}`, panes, meta);
+  }, [
+    displayItems,
+    compareActive,
+    baselineId,
+    destId,
+    okGrids,
+    keyAligned,
+    statementIndex,
+  ]);
+
+  const compareGrids = (fillAvailable: boolean) => (
+    <ResizablePaneRow
+      items={displayItems}
+      rowKey={paneRowKey}
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+      onPage={onPage}
+      pageState={pageState}
+      diffByConnection={compareActive ? diffByConnection : undefined}
+      badgeByConnection={compareActive ? badgeByConnection : undefined}
+      compareLocked={Boolean(compareActive && keyAligned)}
+      rowSyncByConnection={rowSyncByConnection}
+      fillAvailable={fillAvailable}
+      syncScroll={compareActive ? syncScroll : undefined}
+    />
+  );
+
+  const migrateBar =
+    compareActive && sourceGrid?.result.ok && destGrid?.result.ok ? (
+      <DataMigrateBar
+        statementIndex={statementIndex}
+        source={{
+          connectionId: sourceGrid.connectionId,
+          dialect: sourceGrid.dialect,
+          label: sourceGrid.label,
+          columns: sourceGrid.result.columns,
+          rows: sourceGrid.result.rows,
+          statementSql: sourceGrid.statementSql,
+          pageIndex:
+            pageState?.[`${sourceGrid.connectionId}:${statementIndex}`]?.pageIndex ?? 0,
+          hasMore: Boolean(sourceGrid.result.hasNext || sourceGrid.result.truncated),
+        }}
+        dest={{
+          connectionId: destGrid.connectionId,
+          dialect: destGrid.dialect,
+          label: destGrid.label,
+          columns: destGrid.result.columns,
+          rows: destGrid.result.rows,
+          statementSql: destGrid.statementSql,
+          pageIndex:
+            pageState?.[`${destGrid.connectionId}:${statementIndex}`]?.pageIndex ?? 0,
+          hasMore: Boolean(destGrid.result.hasNext || destGrid.result.truncated),
+        }}
+        ignoreColumns={triggerIgnoreColumns}
+        keyNames={effectiveKeys}
+        onKeyNamesChange={setKeyNames}
+        selectedSyncKeys={selectedSyncKeys}
+        onSelectedSyncKeysChange={setSelectedSyncKeys}
+        onAfterMigrate={() => onRefresh?.(destGrid.connectionId)}
+        onOpenServerBeamSample={insertServerBeamSample}
+      />
+    ) : null;
+
+  const compareHint = compareActive ? (
+    <p
+      className="text-[11px] font-semibold text-slate-500 px-0.5"
+      data-testid={`sql-result-compare-hint-${statementIndex}`}
+    >
+      Rows line up by <span className="text-sky-400/90">Keys</span> (check columns in Data migrate).
+      Source is on the <span className="text-sky-400/90">left</span>; Target is on the right with a{' '}
+      <span className="text-sky-400/90">Sync</span> column (on by default for differing rows).{' '}
+      <span className="text-sky-400/90">Sync scroll</span> keeps all grids aligned;{' '}
+      <span className="text-sky-400/90">CSV all</span> downloads every grid in one file. Migrate
+      needs Add / Edit / Delete checked (enabled when diffs exist) plus Sync rows. Cap: 500 ops —
+      larger sets use Server Beam.
+    </p>
+  ) : null;
+
   return (
     <section
       className="flex flex-col gap-2 min-w-0"
@@ -1087,7 +1337,7 @@ const SideBySideStatementSection: React.FC<{
             )}
             {compareOn && (
               <label className="flex items-center gap-1.5 font-semibold">
-                <span className="text-slate-400">Original server</span>
+                <span className="text-slate-400">Source</span>
                 <select
                   data-testid={`sql-result-compare-baseline-${statementIndex}`}
                   value={baselineId}
@@ -1117,6 +1367,33 @@ const SideBySideStatementSection: React.FC<{
                 Skip trigger cols
               </label>
             )}
+            {compareActive && (
+              <label
+                className="flex items-center gap-1.5 cursor-pointer select-none font-semibold text-slate-300"
+                title="Keep vertical scroll and hovered row in sync across all compare grids"
+              >
+                <input
+                  type="checkbox"
+                  data-testid={`sql-result-compare-sync-scroll-${statementIndex}`}
+                  checked={syncScroll}
+                  onChange={(e) => setSyncScroll(e.target.checked)}
+                  className="rounded border-slate-600 accent-sky-500"
+                />
+                Sync scroll
+              </label>
+            )}
+            {compareActive && (
+              <button
+                type="button"
+                data-testid={`sql-result-compare-export-csv-${statementIndex}`}
+                title="Export all compare grids as one CSV (columns prefixed by Source / Target)"
+                onClick={exportAllGridsCsv}
+                className="inline-flex items-center gap-1 rounded-md border border-sky-500/40 bg-sky-950/40 px-2 py-0.5 text-sky-200 hover:bg-sky-900/50 font-semibold"
+              >
+                <Download className="w-3.5 h-3.5 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
+                CSV all
+              </button>
+            )}
             {compareActive && okGrids.length > 2 && (
               <label className="flex items-center gap-1.5 font-semibold">
                 <span className="text-slate-400">Destination</span>
@@ -1142,81 +1419,115 @@ const SideBySideStatementSection: React.FC<{
                 data-testid={`sql-result-compare-legend-${statementIndex}`}
               >
                 <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-950/50 px-1.5 py-0.5 text-amber-200">
-                  <span className="w-2 h-2 rounded-sm bg-amber-500" /> modified
+                  <span className="w-2 h-2 rounded-sm bg-amber-500" /> edit
                 </span>
                 <span className="inline-flex items-center gap-1 rounded-md border border-rose-500/40 bg-rose-950/50 px-1.5 py-0.5 text-rose-200">
-                  <span className="w-2 h-2 rounded-sm bg-rose-500" /> missing
+                  <span className="w-2 h-2 rounded-sm bg-rose-500" /> add
                 </span>
                 <span className="inline-flex items-center gap-1 rounded-md border border-emerald-500/40 bg-emerald-950/50 px-1.5 py-0.5 text-emerald-200">
-                  <span className="w-2 h-2 rounded-sm bg-emerald-500" /> extra
+                  <span className="w-2 h-2 rounded-sm bg-emerald-500" /> delete
                 </span>
-                <span className="text-slate-500 font-semibold truncate max-w-[28rem]" title={legendBits.join(' · ')}>
+                <span
+                  className="text-slate-500 font-semibold truncate max-w-[28rem]"
+                  title={legendBits.join(' · ')}
+                >
                   {legendBits.join(' · ')}
                 </span>
               </span>
             )}
+            {compareActive && !compareMaximized && (
+              <button
+                type="button"
+                data-testid={`sql-result-compare-maximize-${statementIndex}`}
+                title="Maximize compare"
+                aria-label="Maximize compare"
+                onClick={() => setCompareMaximized(true)}
+                className="ml-auto inline-flex items-center gap-1 rounded-md border border-sky-500/40 bg-sky-950/50 px-2 py-0.5 text-sky-200 hover:bg-sky-900/60"
+              >
+                <Maximize2 className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+                Maximize
+              </button>
+            )}
           </div>
         )}
       </header>
-      {compareActive && sourceGrid?.result.ok && destGrid?.result.ok && (
-        <DataMigrateBar
-          statementIndex={statementIndex}
-          source={{
-            connectionId: sourceGrid.connectionId,
-            dialect: sourceGrid.dialect,
-            label: sourceGrid.label,
-            columns: sourceGrid.result.columns,
-            rows: sourceGrid.result.rows,
-            statementSql: sourceGrid.statementSql,
-            pageIndex:
-              pageState?.[`${sourceGrid.connectionId}:${statementIndex}`]?.pageIndex ?? 0,
-            hasMore: Boolean(
-              sourceGrid.result.hasNext || sourceGrid.result.truncated
-            ),
-          }}
-          dest={{
-            connectionId: destGrid.connectionId,
-            dialect: destGrid.dialect,
-            label: destGrid.label,
-            columns: destGrid.result.columns,
-            rows: destGrid.result.rows,
-            statementSql: destGrid.statementSql,
-            pageIndex:
-              pageState?.[`${destGrid.connectionId}:${statementIndex}`]?.pageIndex ?? 0,
-            hasMore: Boolean(destGrid.result.hasNext || destGrid.result.truncated),
-          }}
-          ignoreColumns={triggerIgnoreColumns}
-          keyNames={effectiveKeys}
-          onKeyNamesChange={setKeyNames}
-          selectedSyncKeys={selectedSyncKeys}
-          onSelectedSyncKeysChange={setSelectedSyncKeys}
-          onAfterMigrate={() => onRefresh?.(destGrid.connectionId)}
-          onOpenServerBeamSample={insertServerBeamSample}
-        />
+      {!compareMaximized && (
+        <>
+          {migrateBar}
+          {compareGrids(false)}
+          {compareHint}
+        </>
       )}
-      <ResizablePaneRow
-        items={displayItems}
-        rowKey={`side-${statementIndex}-${displayItems.map((x) => x.key).join('|')}-${
-          keyAligned ? `key-${effectiveKeys.join('+')}` : 'idx'
-        }`}
-        refreshing={refreshing}
-        onRefresh={onRefresh}
-        onPage={onPage}
-        pageState={pageState}
-        diffByConnection={compareActive ? diffByConnection : undefined}
-        badgeByConnection={compareActive ? badgeByConnection : undefined}
-        compareLocked={Boolean(compareActive && keyAligned)}
-        rowSyncByConnection={rowSyncByConnection}
-      />
-      {compareActive && (
-        <p className="text-[11px] font-semibold text-slate-500 px-0.5" data-testid={`sql-result-compare-hint-${statementIndex}`}>
-          Rows line up by <span className="text-sky-400/90">Keys</span> (check columns in Data migrate).
-          The destination grid’s <span className="text-sky-400/90">Sync</span> column is on by default for
-          all differing rows — uncheck rows you do not want, or use Sync all. Migrate only runs when both
-          grids show the full result on page 1. Choose Add / Edit / Delete yourself; Transaction and Stop /
-          Continue are safety assists. Cap: 500 ops — larger sets use Server Beam.
+      {compareMaximized && (
+        <p
+          className="rounded-md border border-sky-500/30 bg-sky-950/30 px-2.5 py-2 text-[11px] font-semibold text-sky-200/90"
+          data-testid={`sql-result-compare-maximized-hint-${statementIndex}`}
+        >
+          Compare is open fullscreen — use <span className="text-sky-100">Close</span> or{' '}
+          <span className="text-sky-100">Esc</span> to return.
         </p>
       )}
+      {compareMaximized &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[60] flex flex-col bg-slate-950/80 p-2 sm:p-3"
+            data-testid={`sql-result-compare-modal-${statementIndex}`}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Compare data fullscreen"
+          >
+            <div
+              className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-sky-500/35 bg-slate-900 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex shrink-0 items-center gap-2 border-b border-slate-800 px-3 py-2">
+                <GitCompare className="h-4 w-4 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
+                <span className="text-sm font-bold text-sky-200">Compare data</span>
+                <span className="truncate text-xs font-semibold text-slate-400">{headerLabel}</span>
+                <label
+                  className="flex items-center gap-1.5 cursor-pointer select-none text-xs font-semibold text-slate-300"
+                  title="Keep vertical scroll and hovered row in sync across all compare grids"
+                >
+                  <input
+                    type="checkbox"
+                    data-testid={`sql-result-compare-sync-scroll-modal-${statementIndex}`}
+                    checked={syncScroll}
+                    onChange={(e) => setSyncScroll(e.target.checked)}
+                    className="rounded border-slate-600 accent-sky-500"
+                  />
+                  Sync scroll
+                </label>
+                <button
+                  type="button"
+                  data-testid={`sql-result-compare-export-csv-modal-${statementIndex}`}
+                  title="Export all compare grids as one CSV"
+                  onClick={exportAllGridsCsv}
+                  className="inline-flex items-center gap-1 rounded-md border border-sky-500/40 bg-sky-950/40 px-2 py-0.5 text-xs font-bold text-sky-200 hover:bg-sky-900/50"
+                >
+                  <Download className="h-3.5 w-3.5 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
+                  CSV all
+                </button>
+                <button
+                  type="button"
+                  data-testid={`sql-result-compare-close-${statementIndex}`}
+                  title="Close (Esc)"
+                  aria-label="Close maximized compare"
+                  onClick={() => setCompareMaximized(false)}
+                  className="ml-auto inline-flex items-center gap-1 rounded-md border border-slate-600 bg-slate-950/60 px-2.5 py-1 text-xs font-bold text-slate-200 hover:bg-slate-800"
+                >
+                  <X className="h-3.5 w-3.5" strokeWidth={SQL_ICON_STROKE} />
+                  Close
+                </button>
+              </div>
+              <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-2 sm:p-3">
+                {migrateBar}
+                <div className="flex min-h-0 flex-1 flex-col">{compareGrids(true)}</div>
+                {compareHint}
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
     </section>
   );
 };

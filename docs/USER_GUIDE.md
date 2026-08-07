@@ -5,6 +5,7 @@ SQL to make one match the other. This guide is for **using** Fox Schema — no c
 
 - [What Fox Schema is for](#what-fox-schema-is-for)
 - [Install & run](#install--run)
+- [Updates](#updates)
 - [First run](#first-run)
 - [Connect a database](#connect-a-database)
 - [Run a comparison](#run-a-comparison)
@@ -45,10 +46,24 @@ Full install matrix (npm, Homebrew, Winget, Docker, curl/wget): [INSTALL.md](INS
 
 ```bash
 docker pull 5nickels/foxschema:latest
-docker run -d --name foxschema -p 3001:3001 -v foxschema_data:/data 5nickels/foxschema:latest
+docker run -d --name foxschema -p 3210:3210 -v foxschema_data:/data 5nickels/foxschema:latest
 ```
 
-Open **http://localhost:3001**. Details: [DEPLOYMENT.md](DEPLOYMENT.md).
+Open **http://localhost:3210**. Details: [DEPLOYMENT.md](DEPLOYMENT.md).
+
+## Updates
+
+Fox Schema checks npm for a newer `foxschema` version when you open the UI.
+
+1. An **Update available** toast appears (and a badge on the profile menu).
+2. **What's new** opens the [GitHub Release](https://github.com/tedious-code/foxschema/releases)
+   page for that version (ship notes from `docs/RELEASE_*.md`).
+3. **Update now** (local npm CLI installs only) installs the latest package and
+   restarts the UI — **no terminal**, no `npm update -g foxschema` by hand.
+   You can also use **User Preference → Update now**.
+
+Docker / Homebrew / locked-down servers get **Copy command** (or use
+`brew upgrade foxschema` / `docker pull …:latest` — see [INSTALL.md](INSTALL.md)).
 
 ## First run
 
@@ -369,8 +384,15 @@ re-inspect past runs. No passwords are stored in history.
 connections from where Fox Schema runs (in Docker, `localhost` means *inside the container* —
 use the host's IP or a service name, not `localhost`, to reach a DB on your machine).
 
-**Port already in use (CLI).** Something else is on **3210**. Stop Fox
-(`foxschema stop`) or free that port, then run `foxschema` again.
+**Port already in use (CLI).** Default is **3210**. If another app owns it,
+`foxschema open` moves to the next free port (unless you passed `--port`).
+Or stop Fox (`foxschema stop`) / free the port, then run `foxschema` again.
+
+**Is the backend still running?** Closing the browser does **not** stop the
+server. Check with `foxschema doctor` (shows **ui lock pid** and whether
+http://localhost:3210 is up). In **Activity Monitor** / **Task Manager**, look
+for process title **`foxschema`** (or `node` with `ui-server` in the command
+line). Stop it with `foxschema stop`.
 
 **Port already in use (Docker).** Change `PORT` in `.env` and restart
 (`docker compose -f docker-compose.app.yml up -d`).

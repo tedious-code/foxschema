@@ -8,6 +8,7 @@ import {
   allDiffKeyLabels,
   classifyRowsByKey,
   DATA_MIGRATE_ROW_CAP,
+  diffKeyLabelsForOps,
   filterOpsByKeyLabels,
   migrateGridsAreComplete,
   selectMigrateOps,
@@ -240,5 +241,17 @@ describe('filterOpsByKeyLabels / allDiffKeyLabels', () => {
     expect(
       filterOpsByKeyLabels(byOp.ops, new Set(allDiffKeyLabels(classification))).uncappedCount
     ).toBe(3);
+  });
+
+  it('diffKeyLabelsForOps follows enabled Add/Edit/Delete', () => {
+    expect(diffKeyLabelsForOps(classification, { insert: false, update: false, delete: false })).toEqual(
+      []
+    );
+    expect(diffKeyLabelsForOps(classification, { insert: true, update: false, delete: false })).toEqual(
+      classification.inserts.map((o) => o.keyLabel)
+    );
+    expect(
+      diffKeyLabelsForOps(classification, { insert: true, update: true, delete: true }).sort()
+    ).toEqual(allDiffKeyLabels(classification).sort());
   });
 });

@@ -120,3 +120,51 @@ describe('probeRunningVersion', () => {
     await expect(probeRunningVersion(3210)).resolves.toBe('0.2.10');
   });
 });
+
+describe('resolveListenPort', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('keeps preferred when free', async () => {
+    const { resolveListenPort } = await import('../open.js');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new TypeError('fetch failed');
+      })
+    );
+    await expect(resolveListenPort(3210, true)).resolves.toEqual({
+      port: 3210,
+      skippedConflict: false,
+    });
+  });
+
+  it('skips to next free port when preferred is occupied by another app', async () => {
+    const { resolveListenPort } = await import('../open.js');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes(':3210/')) {
+          return new Response('other app', { status: 200 });
+        }
+        throw new TypeError('fetch failed');
+      })
+    );
+    await expect(resolveListenPort(3210, true)).resolves.toEqual({
+      port: 3211,
+      skippedConflict: true,
+    });
+  });
+
+  it('throws when explicit port is occupied by another app', async () => {
+    const { resolveListenPort } = await import('../open.js');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('other app', { status: 200 }))
+    );
+    await expect(resolveListenPort(3210, false)).rejects.toThrow(/in use but does not look like Fox Schema/);
+  });
+});

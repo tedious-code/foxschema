@@ -63,7 +63,7 @@ RUN mkdir -p /data \
 USER fox
 
 ENV NODE_ENV=production \
-    API_PORT=3001 \
+    API_PORT=3210 \
     STATIC_DIR=/app/apps/web/dist \
     APP_DB_ENGINE=sqlite \
     APP_DB_PATH=/data/foxschema.db \
@@ -73,11 +73,11 @@ ENV NODE_ENV=production \
 # APP_ENCRYPTION_KEY is optional for pull-and-run: entrypoint generates one into
 # /data/.app_encryption_key on first boot. Set -e APP_ENCRYPTION_KEY=… to override.
 
-EXPOSE 3001
+EXPOSE 3210
 VOLUME ["/data"]
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
-    CMD node -e "fetch('http://127.0.0.1:'+(process.env.API_PORT||3001)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+    CMD node -e "fetch('http://127.0.0.1:'+(process.env.API_PORT||3210)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 # tsx is present in node_modules (a devDependency, kept because we run TS at
 # runtime). node:sqlite is flag-free on Node 24.

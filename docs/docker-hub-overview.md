@@ -24,12 +24,12 @@ There is **no** separate `db2-latest` image anymore.
 ```bash
 docker pull 5nickels/foxschema:latest
 docker run -d --name foxschema \
-  -p 3001:3001 \
+  -p 3210:3210 \
   -v foxschema_data:/data \
   5nickels/foxschema:latest
 ```
 
-Open http://localhost:3001 — use **SQL Editor** in the top toolbar next to Schema Sync.
+Open http://localhost:3210 — use **SQL Editor** in the top toolbar next to Schema Sync.
 
 Also on GHCR: `ghcr.io/tedious-code/foxschema:latest`
 

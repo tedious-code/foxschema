@@ -21,9 +21,9 @@ import {
 } from '../../api/dataMigrateApi';
 import { buildDataMigratePlans, buildDestSnapshotJson } from '../../lib/dataMigratePlans';
 import {
-  allDiffKeyLabels,
   classifyRowsByKey,
   DATA_MIGRATE_ROW_CAP,
+  diffKeyLabelsForOps,
   filterOpsByKeyLabels,
   migrateGridsAreComplete,
   selectMigrateOps,
@@ -131,10 +131,10 @@ export const DataMigrateBar: React.FC<Props> = ({
     }
   };
 
-  /** User opts into each op — nothing selected until they choose. */
-  const [doInsert, setDoInsert] = useState(false);
-  const [doUpdate, setDoUpdate] = useState(false);
-  const [doDelete, setDoDelete] = useState(false);
+  /** Ops default on when that op has rows — Sync alone can enable Migrate. */
+  const [doInsert, setDoInsert] = useState(true);
+  const [doUpdate, setDoUpdate] = useState(true);
+  const [doDelete, setDoDelete] = useState(true);
   const [includeIdentity, setIncludeIdentity] = useState(false);
   /** Safety: one transaction for the whole batch (Stop mode). Off with Continue = per-op commits. */
   const [useTransaction, setUseTransaction] = useState(true);
@@ -163,25 +163,28 @@ export const DataMigrateBar: React.FC<Props> = ({
     [source.columns, source.rows, dest.columns, dest.rows, keyNames, ignoreColumns]
   );
 
-  const diffLabelsKey = useMemo(
-    () => allDiffKeyLabels(classification).join('\0'),
-    [classification]
+  const opsEnabled = useMemo(
+    () => ({ insert: doInsert, update: doUpdate, delete: doDelete }),
+    [doInsert, doUpdate, doDelete]
+  );
+
+  /** Sync checkboxes track enabled Ops — uncheck Add/Edit/Delete clears those Sync rows. */
+  const enabledSyncLabelsKey = useMemo(
+    () => diffKeyLabelsForOps(classification, opsEnabled).join('\0'),
+    [classification, opsEnabled]
   );
 
   useEffect(() => {
-    if (!onSelectedSyncKeysChange || !diffLabelsKey) return;
-    const labels = diffLabelsKey.split('\0').filter(Boolean);
+    if (!onSelectedSyncKeysChange) return;
+    const labels = enabledSyncLabelsKey
+      ? enabledSyncLabelsKey.split('\0').filter(Boolean)
+      : [];
     onSelectedSyncKeysChange(new Set(labels));
-  }, [diffLabelsKey, onSelectedSyncKeysChange]);
+  }, [enabledSyncLabelsKey, onSelectedSyncKeysChange]);
 
   const selected = useMemo(
-    () =>
-      selectMigrateOps(classification, {
-        insert: doInsert,
-        update: doUpdate,
-        delete: doDelete,
-      }),
-    [classification, doInsert, doUpdate, doDelete]
+    () => selectMigrateOps(classification, opsEnabled),
+    [classification, opsEnabled]
   );
 
   const filtered = useMemo(
@@ -191,7 +194,7 @@ export const DataMigrateBar: React.FC<Props> = ({
 
   const syncAll = () => {
     if (!onSelectedSyncKeysChange) return;
-    onSelectedSyncKeysChange(new Set(allDiffKeyLabels(classification)));
+    onSelectedSyncKeysChange(new Set(diffKeyLabelsForOps(classification, opsEnabled)));
   };
 
   const openHistory = async () => {
@@ -223,7 +226,30 @@ export const DataMigrateBar: React.FC<Props> = ({
       });
       return;
     }
-    if (!editability.editable || keyNames.length === 0) {
+    if (keyNames.length === 0) {
+      toast({
+        tone: 'warning',
+        title: 'Pick at least one Key column',
+        body: 'Check a shared column under Keys (for example ATTRIBUTENAME) so rows can match.',
+      });
+      return;
+    }
+    const keysMissing = keyNames.filter(
+      (k) =>
+        !source.columns.some((c) => c.toLowerCase() === k.toLowerCase()) ||
+        !dest.columns.some((c) => c.toLowerCase() === k.toLowerCase())
+    );
+    if (keysMissing.length > 0) {
+      toast({
+        tone: 'warning',
+        title: 'Key columns missing from the result',
+        body: `Include ${keysMissing.join(', ')} in the SELECT, or pick a Key that is in both grids.`,
+      });
+      return;
+    }
+    // Allow business/name keys when the table PK isn't in the SELECT.
+    // Block only when schema says PK is in the result but editability still failed.
+    if (!editability.editable && preferredKeyNames.length > 0) {
       toast({
         tone: 'warning',
         title: 'Data migrate needs a unique key in the result',
@@ -526,7 +552,12 @@ export const DataMigrateBar: React.FC<Props> = ({
         {keyNames.length === 0 && sharedColumns.length > 0 && (
           <span className="text-amber-400/90">Pick at least one key column.</span>
         )}
-        {preferredKeyNames.length === 0 && editability.reason && (
+        {preferredKeyNames.length === 0 && sharedColumns.length > 0 && (
+          <span className="text-amber-400/90 text-[10px]">
+            No PK in this SELECT — check a Key (e.g. {sharedColumns[0]}) to align rows and show Sync.
+          </span>
+        )}
+        {preferredKeyNames.length === 0 && sharedColumns.length === 0 && editability.reason && (
           <span className="text-amber-400/90 text-[10px]">{editability.reason}</span>
         )}
       </div>
@@ -570,7 +601,7 @@ export const DataMigrateBar: React.FC<Props> = ({
           data-testid={`sql-data-migrate-sync-all-${statementIndex}`}
           onClick={syncAll}
           className="inline-flex items-center gap-1 rounded-md border border-sky-500/40 bg-sky-950/50 px-2 py-0.5 text-sky-200 hover:bg-sky-900/60"
-          title="Re-check all differing rows in the Sync column (does not change Add/Edit/Delete)"
+          title="Re-check Sync for rows matching the enabled Add / Edit / Delete ops"
         >
           <CheckCheck className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
           Sync all

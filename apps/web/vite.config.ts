@@ -30,9 +30,9 @@ export default defineConfig({
     dedupe: ['react', 'react-dom'],
   },
   server: {
-    // Bind IPv4 + IPv6. Default Node listen can end up on [::1] only, which
-    // makes http://127.0.0.1:5173 fail with ERR_CONNECTION_REFUSED.
-    host: true,
+    // Explicit IPv4 bind — some Cursor/cloud port-forwards fail on
+    // dual-stack `:::5173` with ERR_CONNECTION_REFUSED from the client.
+    host: '0.0.0.0',
     port: 5173,
     // Don't silently hop to 5174+ — Cursor / agent previews pin :5173.
     strictPort: true,
@@ -41,7 +41,8 @@ export default defineConfig({
     allowedHosts: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        // Match DEFAULT_API_PORT (3210). Override with API_PORT when needed.
+        target: `http://localhost:${process.env.API_PORT || 3210}`,
         changeOrigin: true,
       },
     },

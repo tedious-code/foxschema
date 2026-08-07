@@ -104,12 +104,12 @@ Cross-dialect demo:
 
 ```bash
 docker run -d --name foxschema \
-  -p 3001:3001 \
+  -p 3210:3210 \
   -v foxschema_data:/data \
   5nickels/foxschema:latest
 ```
 
-Open **http://localhost:3001**. Guide: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+Open **http://localhost:3210**. Guide: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Supported dialects
 

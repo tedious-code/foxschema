@@ -52,12 +52,25 @@ export const UpdatesSettings: React.FC = () => {
         </p>
         {info?.updateAvailable ? (
           <p className="mt-0.5 inline-flex items-center gap-1 text-amber-300">
-            <ArrowUpCircle className="w-3.5 h-3.5" /> v{info.latest} available on npm
+            <ArrowUpCircle className="w-3.5 h-3.5" /> v{info.latest} available
+            {info.url ? (
+              <>
+                {' · '}
+                <a
+                  href={info.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline decoration-amber-500/50 hover:text-amber-200"
+                >
+                  What&apos;s new
+                </a>
+              </>
+            ) : null}
           </p>
         ) : info ? (
           <p className="mt-0.5 inline-flex items-center gap-1 text-emerald-400">
             <CheckCircle2 className="w-3.5 h-3.5" />
-            {info.configured ? 'Up to date (npm)' : 'Up to date (check disabled)'}
+            {info.configured ? 'Up to date' : 'Up to date (check disabled)'}
           </p>
         ) : null}
       </div>

@@ -18,6 +18,7 @@ import { createUserRoutes } from './user.routes';
 import { createAdminRoutes } from './admin.routes';
 import { createSignupRoutes } from './signup.routes';
 import { createFileQueryRoutes } from './file-query.routes';
+import { DEFAULT_API_PORT } from '../defaultApiPort';
 import { AppSecretsStore } from '../modules/app-secrets.module';
 import { resolveAppVersion } from '../modules/updates.module';
 
@@ -104,7 +105,7 @@ export function createApp() {
   return app;
 }
 
-export function startServer(port = Number(process.env.API_PORT) || 3001) {
+export function startServer(port = Number(process.env.API_PORT) || DEFAULT_API_PORT) {
   const app = createApp();
 
   const server = app.listen(port, () => {

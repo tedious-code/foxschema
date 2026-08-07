@@ -75,12 +75,12 @@ Single image (UI + API, **includes Db2**, **linux/amd64**):
 ```bash
 docker pull 5nickels/foxschema:latest
 docker run -d --name foxschema \
-  -p 3001:3001 \
+  -p 3210:3210 \
   -v foxschema_data:/data \
   5nickels/foxschema:latest
 ```
 
-Open **http://localhost:3001**. Full deploy guide: [DEPLOYMENT.md](DEPLOYMENT.md).
+Open **http://localhost:3210**. Full deploy guide: [DEPLOYMENT.md](DEPLOYMENT.md).
 
 Also: `ghcr.io/tedious-code/foxschema:latest`.
 
@@ -130,6 +130,10 @@ Creates **Fox Schema** on your Desktop (macOS `.app` / Windows `.lnk` / Linux `.
 - Double-click → starts the local UI or **reopens the browser** if the server is
   still running (e.g. you closed the browser without `foxschema stop`).
 - The background server keeps running until `foxschema stop`.
+- In **Activity Monitor** (macOS) or **Task Manager** (Windows), the backend is a
+  Node process titled **`foxschema`** (Windows Image Name is still `node.exe` —
+  enable the **Command line** column or run `foxschema doctor` for the PID).
+  Prefer `foxschema stop` over killing it by hand.
 
 ---
 
