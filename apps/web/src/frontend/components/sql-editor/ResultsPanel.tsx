@@ -20,6 +20,7 @@ import {
   GitCompare,
   Maximize2,
   X,
+  Download,
 } from 'lucide-react';
 import { useSqlEditorStore, type CredentialRun } from '../../store/useSqlEditorStore';
 import { useSyncStore } from '../../store/useSyncStore';
@@ -38,13 +39,23 @@ import {
 import {
   alignResultGridsByKey,
   compareKeyAlignedGrids,
+  type AlignRowOp,
 } from '../../lib/resultKeyAlign';
 import { detectTriggerManagedColumns } from '../../lib/triggerManagedColumns';
 import { resolvePeekKeyColumns } from '../../lib/rowDml';
 import { buildSampleBookmarks } from '../../lib/sqlEditorSamples';
+import { downloadMultiGridCsv } from '../../utils/exportCsv';
 import { DataMigrateBar } from './DataMigrateBar';
 import { usePeekGridCrud } from './usePeekGridCrud';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
+
+/** Align ops → migrate vocabulary for combined CSV. */
+function compareOpCsvLabel(op: AlignRowOp): string {
+  if (op === 'update') return 'edit';
+  if (op === 'delete') return 'add';
+  if (op === 'insert') return 'delete';
+  return 'match';
+}
 
 interface Props {
   runs: CredentialRun[];
@@ -492,6 +503,11 @@ const ResizablePaneRow: React.FC<{
   >;
   /** Fill parent height (fullscreen compare modal) instead of a fixed pane height. */
   fillAvailable?: boolean;
+  /**
+   * When set, forces scroll/hover sync on or off for all grids in this row.
+   * When omitted, sync is on automatically whenever there are 2+ grids.
+   */
+  syncScroll?: boolean;
 }> = ({
   items,
   rowKey,
@@ -504,6 +520,7 @@ const ResizablePaneRow: React.FC<{
   compareLocked = false,
   rowSyncByConnection,
   fillAvailable = false,
+  syncScroll,
 }) => {
   const rowRef = useRef<HTMLDivElement>(null);
   const [widths, setWidths] = useState<number[]>(() => items.map(() => PANE_DEFAULT_PX));
@@ -612,7 +629,8 @@ const ResizablePaneRow: React.FC<{
 
   if (items.length === 0) return null;
 
-  const enableScrollSync = items.filter((x) => x.kind === 'grid').length > 1;
+  const multiGrid = items.filter((x) => x.kind === 'grid').length > 1;
+  const enableScrollSync = multiGrid && (syncScroll ?? true);
 
   return (
     <div
@@ -802,6 +820,8 @@ const SideBySideStatementSection: React.FC<{
   const [selectedSyncKeys, setSelectedSyncKeys] = useState<Set<string>>(() => new Set());
   /** Full-window compare modal for more grid space. */
   const [compareMaximized, setCompareMaximized] = useState(false);
+  /** When Compare is on: sync vertical scroll + hover across all grids (default on). */
+  const [syncScroll, setSyncScroll] = useState(true);
 
   const schemaCache = useSqlEditorStore((s) => s.schemaCache);
   const connections = useSyncStore((s) => s.connections);
@@ -1179,6 +1199,44 @@ const SideBySideStatementSection: React.FC<{
     keyAligned ? `key-${effectiveKeys.join('+')}` : 'idx'
   }${compareMaximized ? '-max' : ''}`;
 
+  const exportAllGridsCsv = useCallback(() => {
+    const grids = displayItems.filter(
+      (x): x is Extract<PaneItem, { kind: 'grid' }> =>
+        x.kind === 'grid' && Boolean(x.result.ok)
+    );
+    if (grids.length === 0) return;
+    const panes = grids.map((g) => {
+      const role =
+        compareActive && baselineId
+          ? comparePaneRole(g.connectionId, baselineId, destId, okGrids)
+          : g.label;
+      return {
+        label: role,
+        columns: g.result.ok ? g.result.columns : [],
+        rows: g.result.ok ? g.result.rows : [],
+      };
+    });
+    const meta =
+      compareActive && keyAligned
+        ? {
+            leadingColumns: ['op', 'key'],
+            leadingRows: keyAligned.rowOps.map((op, i) => [
+              compareOpCsvLabel(op),
+              keyAligned.rowKeyLabels[i] ?? '',
+            ]),
+          }
+        : undefined;
+    downloadMultiGridCsv(`compare-stmt-${statementIndex + 1}`, panes, meta);
+  }, [
+    displayItems,
+    compareActive,
+    baselineId,
+    destId,
+    okGrids,
+    keyAligned,
+    statementIndex,
+  ]);
+
   const compareGrids = (fillAvailable: boolean) => (
     <ResizablePaneRow
       items={displayItems}
@@ -1192,6 +1250,7 @@ const SideBySideStatementSection: React.FC<{
       compareLocked={Boolean(compareActive && keyAligned)}
       rowSyncByConnection={rowSyncByConnection}
       fillAvailable={fillAvailable}
+      syncScroll={compareActive ? syncScroll : undefined}
     />
   );
 
@@ -1238,7 +1297,9 @@ const SideBySideStatementSection: React.FC<{
     >
       Rows line up by <span className="text-sky-400/90">Keys</span> (check columns in Data migrate).
       Source is on the <span className="text-sky-400/90">left</span>; Target is on the right with a{' '}
-      <span className="text-sky-400/90">Sync</span> column (on by default for differing rows). Migrate
+      <span className="text-sky-400/90">Sync</span> column (on by default for differing rows).{' '}
+      <span className="text-sky-400/90">Sync scroll</span> keeps all grids aligned;{' '}
+      <span className="text-sky-400/90">CSV all</span> downloads every grid in one file. Migrate
       needs Add / Edit / Delete checked (enabled when diffs exist) plus Sync rows. Cap: 500 ops —
       larger sets use Server Beam.
     </p>
@@ -1305,6 +1366,33 @@ const SideBySideStatementSection: React.FC<{
                 />
                 Skip trigger cols
               </label>
+            )}
+            {compareActive && (
+              <label
+                className="flex items-center gap-1.5 cursor-pointer select-none font-semibold text-slate-300"
+                title="Keep vertical scroll and hovered row in sync across all compare grids"
+              >
+                <input
+                  type="checkbox"
+                  data-testid={`sql-result-compare-sync-scroll-${statementIndex}`}
+                  checked={syncScroll}
+                  onChange={(e) => setSyncScroll(e.target.checked)}
+                  className="rounded border-slate-600 accent-sky-500"
+                />
+                Sync scroll
+              </label>
+            )}
+            {compareActive && (
+              <button
+                type="button"
+                data-testid={`sql-result-compare-export-csv-${statementIndex}`}
+                title="Export all compare grids as one CSV (columns prefixed by Source / Target)"
+                onClick={exportAllGridsCsv}
+                className="inline-flex items-center gap-1 rounded-md border border-sky-500/40 bg-sky-950/40 px-2 py-0.5 text-sky-200 hover:bg-sky-900/50 font-semibold"
+              >
+                <Download className="w-3.5 h-3.5 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
+                CSV all
+              </button>
             )}
             {compareActive && okGrids.length > 2 && (
               <label className="flex items-center gap-1.5 font-semibold">
@@ -1396,6 +1484,29 @@ const SideBySideStatementSection: React.FC<{
                 <GitCompare className="h-4 w-4 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
                 <span className="text-sm font-bold text-sky-200">Compare data</span>
                 <span className="truncate text-xs font-semibold text-slate-400">{headerLabel}</span>
+                <label
+                  className="flex items-center gap-1.5 cursor-pointer select-none text-xs font-semibold text-slate-300"
+                  title="Keep vertical scroll and hovered row in sync across all compare grids"
+                >
+                  <input
+                    type="checkbox"
+                    data-testid={`sql-result-compare-sync-scroll-modal-${statementIndex}`}
+                    checked={syncScroll}
+                    onChange={(e) => setSyncScroll(e.target.checked)}
+                    className="rounded border-slate-600 accent-sky-500"
+                  />
+                  Sync scroll
+                </label>
+                <button
+                  type="button"
+                  data-testid={`sql-result-compare-export-csv-modal-${statementIndex}`}
+                  title="Export all compare grids as one CSV"
+                  onClick={exportAllGridsCsv}
+                  className="inline-flex items-center gap-1 rounded-md border border-sky-500/40 bg-sky-950/40 px-2 py-0.5 text-xs font-bold text-sky-200 hover:bg-sky-900/50"
+                >
+                  <Download className="h-3.5 w-3.5 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
+                  CSV all
+                </button>
                 <button
                   type="button"
                   data-testid={`sql-result-compare-close-${statementIndex}`}
