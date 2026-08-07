@@ -60,7 +60,10 @@ describe('updates.module (npm publish channel)', () => {
     );
     expect(parsed.updateAvailable).toBe(true);
     expect(parsed.latest).toBe('0.3.0');
-    expect(parsed.url).toMatch(/npmjs\.com\/package\/foxschema\/v\/0\.3\.0/);
+    // “What’s new” lands on the GitHub Release page (notes from docs/RELEASE_*.md).
+    expect(parsed.url).toBe(
+      'https://github.com/tedious-code/foxschema/releases/tag/v0.3.0'
+    );
   });
 
   it('parseUpdateFeed understands GitHub releases JSON', () => {

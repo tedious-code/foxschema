@@ -90,10 +90,10 @@ export function maybeToastUpdateAvailable(info: UpdateInfo | null, opts?: { forc
     toast({
       tone: 'warning',
       title: `Update available · v${info.latest}`,
-      body: `You're on v${info.current}. Update now runs npm install -g foxschema@latest and restarts the UI.`,
+      body: `You're on v${info.current}. Update now installs the latest package and restarts the UI — no terminal needed.`,
       actionButtonLabel: 'Update now',
       onAction: () => void runSelfUpdate(),
-      actionLabel: info.url ? 'View on npm' : undefined,
+      actionLabel: info.url ? "What's new" : undefined,
       actionHref: info.url,
       durationMs: 14_000,
     });
@@ -104,7 +104,7 @@ export function maybeToastUpdateAvailable(info: UpdateInfo | null, opts?: { forc
       body: `You're on v${info.current}. Run in a terminal: ${cmd}`,
       actionButtonLabel: 'Copy command',
       onAction: () => void copyUpgradeCommand(cmd),
-      actionLabel: info.url ? 'View on npm' : undefined,
+      actionLabel: info.url ? "What's new" : undefined,
       actionHref: info.url,
       durationMs: 14_000,
     });

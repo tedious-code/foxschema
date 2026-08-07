@@ -97,6 +97,7 @@ export function ProfileMenu(): React.ReactElement | null {
               rel="noreferrer"
               onClick={() => setOpen(false)}
               className="w-full flex items-center gap-2 px-4 py-3 text-sm font-semibold text-amber-300 hover:bg-amber-950/20 transition cursor-pointer border-b border-slate-800"
+              title="Open release notes (What's new)"
             >
               <ArrowUpCircle className="w-4 h-4" /> Update available · v{update?.latest}
             </a>
