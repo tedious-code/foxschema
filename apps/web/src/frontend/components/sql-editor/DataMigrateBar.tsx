@@ -183,6 +183,16 @@ export const DataMigrateBar: React.FC<Props> = ({
       toast({ tone: 'info', title: 'Nothing to migrate', body: 'Grids match for the selected ops.' });
       return;
     }
+    if (classification.duplicateKeys > 0) {
+      toast({
+        tone: 'warning',
+        title: 'Duplicate keys in result grids',
+        body:
+          `${classification.duplicateKeys} duplicate key value(s) — migrate refuses to guess which row to write. ` +
+          'Tighten the SELECT (DISTINCT / better keys) or pick a unique key set.',
+      });
+      return;
+    }
     if (selected.uncappedCount > DATA_MIGRATE_ROW_CAP) {
       toast({
         tone: 'warning',
@@ -492,6 +502,7 @@ export const DataMigrateBar: React.FC<Props> = ({
             applying ||
             !canDml ||
             selected.uncappedCount === 0 ||
+            classification.duplicateKeys > 0 ||
             selected.uncappedCount > DATA_MIGRATE_ROW_CAP
           }
           onClick={() => void apply()}

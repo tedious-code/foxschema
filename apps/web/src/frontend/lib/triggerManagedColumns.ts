@@ -39,9 +39,14 @@ const EXACT = new Set([
   'xmin', // Postgres system
 ]);
 
-/** Suffix / contains patterns (lower-case, no separators normalized). */
+/**
+ * Audit-style names with an explicit time/actor suffix.
+ * Bare `created` / `updated` / `modified` are NOT matched — those are often
+ * business columns; skipping them under "Skip trigger cols" would silently
+ * drop real data from migrate INSERT/UPDATE.
+ */
 const PATTERN =
-  /^(created|updated|modified|lastmodified)(at|on|by|date|time|timestamp)?$|^(created|updated|modified)_?(at|on|by|date|time|timestamp)$|_?(created|updated|modified)_?(at|on|by)$/;
+  /^(created|updated|modified|lastmodified)(at|on|by|date|time|timestamp)$|^(created|updated|modified)_?(at|on|by|date|time|timestamp)$|_(created|updated|modified)_?(at|on|by)$/;
 
 function normalize(name: string): string {
   return name.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');

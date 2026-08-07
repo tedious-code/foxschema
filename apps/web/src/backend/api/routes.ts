@@ -14,6 +14,7 @@ import {
   dialectSupportsIndexFragmentation,
   buildIndexFragmentationCustomTemplate,
   sqlStatementCategories,
+  statementVerb,
   type MigrationStep,
   type ConnectionOptions,
   type DbObjectType,
@@ -826,8 +827,36 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
           res.status(400).json({ error: 'Each op needs key and sql.' });
           return;
         }
+        if (o.sql.length > MAX_STATEMENT_LENGTH) {
+          res.status(400).json({ error: `Each op.sql must be under ${MAX_STATEMENT_LENGTH} characters.` });
+          return;
+        }
         if (o.params !== undefined && !Array.isArray(o.params)) {
           res.status(400).json({ error: 'op.params must be an array when set.' });
+          return;
+        }
+        // Fail-closed like /sql/execute: classify the SQL itself so a client cannot
+        // label op=insert while sending DELETE/DDL/GRANT and bypass finer permissions.
+        const categories = sqlStatementCategories(o.sql);
+        if (categories.length === 0) {
+          res.status(400).json({ error: 'Could not classify op.sql.' });
+          return;
+        }
+        for (const category of categories) {
+          const permission = CATEGORY_PERMISSION[category];
+          if (permission) needed.add(permission);
+          if (category !== 'dml') {
+            res.status(400).json({
+              error: `Data migrate op.sql must be DML (got ${category}).`,
+            });
+            return;
+          }
+        }
+        const verb = statementVerb(o.sql);
+        if (verb !== o.op) {
+          res.status(400).json({
+            error: `op.sql verb (${verb ?? 'unknown'}) must match op (${o.op}).`,
+          });
           return;
         }
         needed.add(DATAGRID_ACTION_PERMISSION[o.op]);

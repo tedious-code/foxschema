@@ -47,6 +47,27 @@ describe('buildDataMigratePlans', () => {
     expect(parsed.rows).toHaveLength(2);
   });
 
+  it('omits identity columns from INSERT when includeIdentity is false', () => {
+    const { plans, errors } = buildDataMigratePlans({
+      tableName: 'customers',
+      dialect: 'sqlite',
+      sourceColumns: cols,
+      destColumns: cols,
+      keyNames: ['id'],
+      ops: [{ op: 'insert', keyLabel: 'id=3', sourceRow: [3, 'New'] }],
+      includeIdentity: false,
+      identityColumns: new Set(['id']),
+    });
+    expect(errors).toEqual([]);
+    expect(plans).toHaveLength(1);
+    const sql = plans[0]!.plan.sql.toLowerCase();
+    expect(sql).toContain('insert');
+    expect(sql).toContain('name');
+    // Must not bind/preserve the source id when Include identity is off.
+    expect(sql).not.toMatch(/\bid\b/);
+    expect(plans[0]!.plan.params).toEqual(['New']);
+  });
+
   it('omits ignored trigger columns from INSERT and UPDATE SQL', () => {
     const auditCols = ['id', 'name', 'createdAt', 'updatedBy'];
     const auditOps: ClassifiedRowDiff[] = [

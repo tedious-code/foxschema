@@ -26,12 +26,20 @@ describe('isLikelyTriggerManagedColumn', () => {
     expect(isLikelyTriggerManagedColumn(name)).toBe(true);
   });
 
-  it.each(['id', 'name', 'city', 'create_order', 'update_count', 'status'])(
-    'does not flag %s',
-    (name) => {
-      expect(isLikelyTriggerManagedColumn(name)).toBe(false);
-    }
-  );
+  it.each([
+    'id',
+    'name',
+    'city',
+    'create_order',
+    'update_count',
+    'status',
+    // Bare names are often business columns — must not skip under migrate.
+    'created',
+    'updated',
+    'modified',
+  ])('does not flag %s', (name) => {
+    expect(isLikelyTriggerManagedColumn(name)).toBe(false);
+  });
 });
 
 describe('detectTriggerManagedColumns', () => {

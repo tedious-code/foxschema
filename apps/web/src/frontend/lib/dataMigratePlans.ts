@@ -97,19 +97,28 @@ export function buildDataMigratePlans(opts: {
   const plans: DataMigratePlanItem[] = [];
   const errors: string[] = [];
 
+  // When Include identity is off, omit identity/autoincrement columns entirely
+  // so the destination generates them. buildPeekInsert only skips *empty*
+  // identity values (Peek UX fills those blank) — source migrate rows always
+  // carry real IDs, so we must strip here or IDs are preserved contrary to UI.
+  const insertIgnore = new Set(ignoreLower);
+  if (!includeIdentity) {
+    for (const name of identityColumns) insertIgnore.add(name.toLowerCase());
+  }
+
   for (const op of ops) {
     if (op.op === 'insert') {
       if (!op.sourceRow) {
         errors.push(`insert ${op.keyLabel}: missing source row`);
         continue;
       }
-      const stripped = stripIgnoredColumns(sourceColumns, op.sourceRow, ignoreLower);
+      const stripped = stripIgnoredColumns(sourceColumns, op.sourceRow, insertIgnore);
       const built = buildPeekInsert({
         tableName,
         dialect,
         values: rowToValues(stripped.columns, stripped.row),
-        // Empty skip-set when includeIdentity — keep source ID values.
-        identityColumns: includeIdentity ? undefined : identityColumns,
+        // Identity already stripped when !includeIdentity; when on, keep values.
+        identityColumns: undefined,
       });
       if ('error' in built) {
         errors.push(`insert ${op.keyLabel}: ${built.error}`);
