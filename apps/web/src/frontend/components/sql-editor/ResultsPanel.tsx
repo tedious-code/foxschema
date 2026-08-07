@@ -777,7 +777,7 @@ const SideBySideStatementSection: React.FC<{
       columns: baselineItem.result.columns,
       rows: baselineItem.result.rows,
     };
-    badgeByConnection[baselineId] = 'baseline';
+    badgeByConnection[baselineId] = 'original';
 
     if (keyAligned && destId) {
       const destItem = okGrids.find((g) => g.connectionId === destId);
@@ -814,8 +814,8 @@ const SideBySideStatementSection: React.FC<{
 
         badgeByConnection[baselineId] =
           keyAligned.deleteCount + keyAligned.updateCount === 0
-            ? 'baseline · key'
-            : `baseline · ${keyAligned.updateCount} edit · ${keyAligned.deleteCount} only-here`;
+            ? 'original · key'
+            : `original · ${keyAligned.updateCount} edit · ${keyAligned.deleteCount} only-here`;
         badgeByConnection[destId] =
           keyAligned.insertCount + keyAligned.updateCount === 0
             ? 'match by key'
@@ -909,14 +909,14 @@ const SideBySideStatementSection: React.FC<{
 
     const baseCells = diffByConnection[baselineId]?.cells.size ?? 0;
     badgeByConnection[baselineId] =
-      baseCells === 0 ? 'baseline' : `baseline · ${baseCells} differ`;
+      baseCells === 0 ? 'original' : `original · ${baseCells} differ`;
 
     legendBits.push('aligned by row index (pick Keys below for friendlier match)');
     if (totalModified > 0) legendBits.push(`${totalModified} modified`);
     if (totalMissing > 0) legendBits.push(`${totalMissing} missing`);
     if (totalExtra > 0) legendBits.push(`${totalExtra} extra`);
     if (missingCols.size > 0) {
-      legendBits.push(`cols only in baseline: ${[...missingCols].join(', ')}`);
+      legendBits.push(`cols only in original: ${[...missingCols].join(', ')}`);
     }
     if (extraCols.size > 0) {
       legendBits.push(`cols only in other: ${[...extraCols].join(', ')}`);
@@ -976,7 +976,7 @@ const SideBySideStatementSection: React.FC<{
             )}
             {compareOn && (
               <label className="flex items-center gap-1">
-                <span className="text-slate-500">source</span>
+                <span className="text-slate-500">Original server</span>
                 <select
                   data-testid={`sql-result-compare-baseline-${statementIndex}`}
                   value={baselineId}
@@ -1008,7 +1008,7 @@ const SideBySideStatementSection: React.FC<{
             )}
             {compareActive && okGrids.length > 2 && (
               <label className="flex items-center gap-1">
-                <span className="text-slate-500">dest</span>
+                <span className="text-slate-500">Destination</span>
                 <select
                   data-testid={`sql-result-compare-dest-${statementIndex}`}
                   value={destId}
