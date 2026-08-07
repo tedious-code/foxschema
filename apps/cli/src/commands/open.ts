@@ -149,6 +149,46 @@ async function waitUntilHealthy(port: number, timeoutMs = 30_000): Promise<boole
   return false;
 }
 
+/** True if anything accepts HTTP on the port (Fox Schema or another app). */
+export async function isPortOccupied(port: number): Promise<boolean> {
+  try {
+    await fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(500) });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Choose a listen port. Prefer `preferred` when free or already Fox-healthy.
+ * If another app owns it and `allowFallback` is true, try preferred+1 … +19.
+ */
+export async function resolveListenPort(
+  preferred: number,
+  allowFallback: boolean
+): Promise<{ port: number; skippedConflict: boolean }> {
+  if (await isHealthy(preferred)) {
+    return { port: preferred, skippedConflict: false };
+  }
+  if (!(await isPortOccupied(preferred))) {
+    return { port: preferred, skippedConflict: false };
+  }
+  if (!allowFallback) {
+    throw new Error(
+      `Port ${preferred} is in use but does not look like Fox Schema. ` +
+        `Stop that process, or run \`foxschema open --port <other>\`.`
+    );
+  }
+  const last = preferred + 19;
+  for (let p = preferred + 1; p <= last; p++) {
+    if (await isHealthy(p)) return { port: p, skippedConflict: true };
+    if (!(await isPortOccupied(p))) return { port: p, skippedConflict: true };
+  }
+  throw new Error(
+    `Ports ${preferred}–${last} are all in use. Free one, or pass \`--port <free>\`.`
+  );
+}
+
 async function waitUntilDead(pid: number, timeoutMs = 5_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline && isProcessAlive(pid)) {
@@ -204,7 +244,17 @@ async function stopForRelaunch(port: number): Promise<void> {
  * **and** matches the installed package version / has Query-files routes.
  */
 export async function runOpen(opts: OpenOptions = {}): Promise<void> {
-  const port = opts.port ?? (Number(process.env.FOXSCHEMA_PORT) || DEFAULT_UI_PORT);
+  const envPortRaw = process.env.FOXSCHEMA_PORT;
+  const envPort = envPortRaw != null && envPortRaw !== '' ? Number(envPortRaw) : NaN;
+  const portExplicit = opts.port != null || (Number.isFinite(envPort) && envPort > 0);
+  const preferred =
+    opts.port ?? (Number.isFinite(envPort) && envPort > 0 ? envPort : DEFAULT_UI_PORT);
+  const { port, skippedConflict } = await resolveListenPort(preferred, !portExplicit);
+  if (skippedConflict) {
+    console.log(
+      chalk.yellow(`Port ${preferred} is in use by another app — starting on ${port} instead.`)
+    );
+  }
   const url = `http://localhost:${port}`;
   const installedVersion = readCliPackageVersion();
 
@@ -235,15 +285,11 @@ export async function runOpen(opts: OpenOptions = {}): Promise<void> {
         `Run \`foxschema stop\` then \`foxschema open\`, or \`foxschema open --port <other>\`.`
     );
   }
-  try {
-    await fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(800) });
+  if (await isPortOccupied(port)) {
     throw new Error(
       `Port ${port} is in use but does not look like Fox Schema. ` +
         `Stop that process, or run \`foxschema open --port <other>\`.`
     );
-  } catch (e) {
-    if (e instanceof Error && e.message.startsWith('Port ')) throw e;
-    /* connection refused / timeout — free to bind */
   }
 
   const keySource = ensureUiEnv();

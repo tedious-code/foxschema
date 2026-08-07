@@ -33,6 +33,13 @@ Covers everything since **`v0.2.36`**.
 - RBAC enforced on Data grid writes.
 - Data migrate key / identity / auth fixes.
 
+### Ports
+
+- Default API / Docker port is now **3210** (same as the CLI), away from the busy
+  **3000/3001** band. Override with `PORT` / `API_PORT` / `foxschema open --port`.
+- CLI **`foxschema open`** auto-picks the next free port (3211+) when 3210 is taken
+  by another app (unless you pass an explicit `--port`).
+
 ---
 
 ## How to update (no terminal required)

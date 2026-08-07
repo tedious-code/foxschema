@@ -75,12 +75,12 @@ Single image (UI + API, **includes Db2**, **linux/amd64**):
 ```bash
 docker pull 5nickels/foxschema:latest
 docker run -d --name foxschema \
-  -p 3001:3001 \
+  -p 3210:3210 \
   -v foxschema_data:/data \
   5nickels/foxschema:latest
 ```
 
-Open **http://localhost:3001**. Full deploy guide: [DEPLOYMENT.md](DEPLOYMENT.md).
+Open **http://localhost:3210**. Full deploy guide: [DEPLOYMENT.md](DEPLOYMENT.md).
 
 Also: `ghcr.io/tedious-code/foxschema:latest`.
 

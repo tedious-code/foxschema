@@ -29,7 +29,7 @@ LOCAL_SINGLE_USER=false
 - Permissions cover Schema Sync (browse / compare / migrate), SQL Editor (sidebar, variables, writes, Data grid insert/update/delete, code cells), Utilities, and Secrets.
 
 **Servers / teams:** Fox Schema ships as a **single Docker image** (all dialects including
-Db2) that serves both the UI and the API on one configurable port (default **3001**).
+Db2) that serves both the UI and the API on one configurable port (default **3210**).
 
 - [Install (all channels)](INSTALL.md)
 - [CLI / Homebrew](homebrew.md)
@@ -51,15 +51,15 @@ and stores it on the `/data` volume.
 ```bash
 docker pull 5nickels/foxschema:latest
 docker run -d --name foxschema \
-  -p 3001:3001 \
+  -p 3210:3210 \
   -v foxschema_data:/data \
   5nickels/foxschema:latest
 ```
 
-Open http://localhost:3001
+Open http://localhost:3210
 
 Defaults baked into the image: single-user mode (no login), SQLite metadata on
-`/data`, port `3001`, **Db2 client included**. Image is **linux/amd64** only
+`/data`, port `3210`, **Db2 client included**. Image is **linux/amd64** only
 (`ibm_db` has no linux/arm64 build). Keep the same volume across upgrades so saved
 connections and the encryption key survive.
 
@@ -69,7 +69,7 @@ There is no separate `db2-latest` tag — `latest` is the one image.
 
 ```bash
 docker run -d --name foxschema \
-  -p 3001:3001 \
+  -p 3210:3210 \
   -e APP_ENCRYPTION_KEY="$(openssl rand -hex 32)" \
   -v foxschema_data:/data \
   5nickels/foxschema:latest
@@ -86,8 +86,8 @@ docker compose -f docker-compose.app.yml up -d
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `PORT` | `3001` | Host port published by docker-compose (what you open in a browser). |
-| `API_PORT` | `3001` | Port the app listens on **inside** the container. `PORT` maps to it. |
+| `PORT` | `3210` | Host port published by docker-compose (what you open in a browser). |
+| `API_PORT` | `3210` | Port the app listens on **inside** the container. `PORT` maps to it. |
 | `APP_ENCRYPTION_KEY` | auto on `/data` | Encrypts saved DB passwords. Optional in Docker: entrypoint creates `/data/.app_encryption_key` if unset. Set explicitly for managed/secret-store deploys. |
 | `APP_DB_ENGINE` | `sqlite` | The app's own metadata store: `sqlite`, `postgres`, or `mysql`. |
 | `APP_DB_PATH` | `/data/foxschema.db` | SQLite file location (when `APP_DB_ENGINE=sqlite`). |
@@ -149,15 +149,19 @@ openssl rand -hex 32
 
 ## Choosing a port
 
-Port `3001` conflicts with something? Set `PORT` (and optionally `API_PORT`):
+Default is **3210** (CLI, Docker, and `npm run dev` API — avoids crowded 3000/3001).
+If it conflicts, set `PORT` (and optionally `API_PORT`):
 
 ```bash
 # .env
 PORT=8090          # published on the host — open http://localhost:8090
-API_PORT=3001      # inside the container; PORT maps to it (fine to leave as-is)
+API_PORT=3210      # inside the container; PORT maps to it (fine to leave as-is)
 ```
 
-With `docker run`, just change the left side of `-p 8090:3001`.
+With `docker run`, just change the left side of `-p 8090:3210`.
+
+Local CLI: `foxschema open` will try **3211–3229** automatically when 3210 is busy
+unless you pass `--port` (or set `FOXSCHEMA_PORT`).
 
 ## Where app data lives
 

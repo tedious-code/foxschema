@@ -48,7 +48,7 @@ brew install foxschema
 
 # Docker (linux/amd64, includes Db2)
 docker pull 5nickels/foxschema:latest
-docker run -d -p 3001:3001 -v foxschema_data:/data 5nickels/foxschema:latest
+docker run -d -p 3210:3210 -v foxschema_data:/data 5nickels/foxschema:latest
 ```
 
 ## CLI

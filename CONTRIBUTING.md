@@ -28,7 +28,7 @@ bash scripts/seed/seed-all.sh all # seed demo_a/demo_b schemas into each
 npm run dev                       # Express API + Vite UI (single-user mode)
 ```
 
-`npm run dev` serves the UI on **http://localhost:5173** and the API on **:3001**.
+`npm run dev` serves the UI on **http://localhost:5173** and the API on **:3210**.
 Connection details for the seeded databases are printed by `seed-all.sh` (all use
 `foxuser` / `foxpass` except SQL Server/Oracle — see the script output).
 

@@ -46,10 +46,10 @@ Full install matrix (npm, Homebrew, Winget, Docker, curl/wget): [INSTALL.md](INS
 
 ```bash
 docker pull 5nickels/foxschema:latest
-docker run -d --name foxschema -p 3001:3001 -v foxschema_data:/data 5nickels/foxschema:latest
+docker run -d --name foxschema -p 3210:3210 -v foxschema_data:/data 5nickels/foxschema:latest
 ```
 
-Open **http://localhost:3001**. Details: [DEPLOYMENT.md](DEPLOYMENT.md).
+Open **http://localhost:3210**. Details: [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## Updates
 
@@ -384,8 +384,9 @@ re-inspect past runs. No passwords are stored in history.
 connections from where Fox Schema runs (in Docker, `localhost` means *inside the container* —
 use the host's IP or a service name, not `localhost`, to reach a DB on your machine).
 
-**Port already in use (CLI).** Something else is on **3210**. Stop Fox
-(`foxschema stop`) or free that port, then run `foxschema` again.
+**Port already in use (CLI).** Default is **3210**. If another app owns it,
+`foxschema open` moves to the next free port (unless you passed `--port`).
+Or stop Fox (`foxschema stop`) / free the port, then run `foxschema` again.
 
 **Is the backend still running?** Closing the browser does **not** stop the
 server. Check with `foxschema doctor` (shows **ui lock pid** and whether

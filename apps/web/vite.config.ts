@@ -41,7 +41,8 @@ export default defineConfig({
     allowedHosts: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        // Match DEFAULT_API_PORT (3210). Override with API_PORT when needed.
+        target: `http://localhost:${process.env.API_PORT || 3210}`,
         changeOrigin: true,
       },
     },

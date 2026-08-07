@@ -25,8 +25,8 @@ Standard commands live in `CONTRIBUTING.md` and `package.json` scripts (`npm run
   Node 22/24 without reinstalling — a Node switch alone does not require `npm install`.
 
 ### Running the app
-- `npm run dev` runs the Express API (`:3001`) and Vite UI (`:5173`) together; open the
-  UI at http://localhost:5173. API liveness: `GET http://localhost:3001/api/health`
+- `npm run dev` runs the Express API (`:3210`) and Vite UI (`:5173`) together; open the
+  UI at http://localhost:5173. API liveness: `GET http://localhost:3210/api/health`
   → `{"ok":true}`. Default mode is single-user (no login).
 - Vite is configured with `server.host: true`, `server.strictPort: true`, and
   `server.allowedHosts: true` so `http://127.0.0.1:5173` works (not only IPv6

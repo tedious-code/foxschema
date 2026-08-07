@@ -4,9 +4,10 @@ import http from 'node:http';
 import express from 'express';
 import { ConnectionFactory, setupDb2ClientEnv } from '@foxschema/db';
 import { createApp } from './api/server';
+import { DEFAULT_API_PORT } from './defaultApiPort';
 
 export interface StartUiServerOptions {
-  /** Listen port. Defaults to API_PORT / PORT / 3001. */
+  /** Listen port. Defaults to API_PORT / PORT / DEFAULT_API_PORT (3210). */
   port?: number;
   /** Absolute path to the Vite `dist` directory. Defaults to STATIC_DIR or apps/web/dist. */
   staticDir?: string;
@@ -40,7 +41,7 @@ export function startUiServer(opts: StartUiServerOptions = {}): StartedUiServer 
     res.sendFile(join(staticDir, 'index.html'));
   });
 
-  const port = opts.port ?? (Number(process.env.API_PORT || process.env.PORT) || 3001);
+  const port = opts.port ?? (Number(process.env.API_PORT || process.env.PORT) || DEFAULT_API_PORT);
   const host = opts.host ?? process.env.LISTEN_HOST ?? '0.0.0.0';
 
   const server = app.listen(port, host);

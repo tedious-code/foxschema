@@ -2,7 +2,7 @@
 /**
  * Record a Fox Schema marketing demo (WebM → convert to MP4 with ffmpeg).
  *
- * Requires: app on :3001 (Docker), seeded Postgres demo_a / demo_b.
+ * Requires: app on :3210 (Docker), seeded Postgres demo_a / demo_b.
  *
  *   node scripts/marketing-demo-video.mjs
  *   ffmpeg -y -i docs/demo/foxschema-demo.webm -c:v libx264 -pix_fmt yuv420p -an docs/demo/foxschema-demo.mp4
@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT_DIR = join(ROOT, 'docs', 'demo');
 const OUT_FILE = join(OUT_DIR, 'foxschema-demo.webm');
-const BASE = process.env.E2E_BASE_URL ?? 'http://localhost:3001';
+const BASE = process.env.E2E_BASE_URL ?? 'http://localhost:3210';
 const DB_HOST = process.env.DEMO_DB_HOST ?? 'host.docker.internal';
 
 const source = {
