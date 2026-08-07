@@ -122,7 +122,7 @@ const ResultGridPane: React.FC<{
   onSyncScrollRow?: (row: number | null) => void;
   /** Cross-connection compare highlights for this grid. */
   diffSummary?: GridDiffSummary | null;
-  /** Suffix shown after the grid label (e.g. baseline / N differ). */
+  /** Suffix shown after the grid label (e.g. original / N differ). */
   compareBadge?: string | null;
   /** Key-aligned compare remaps rows — disable inline CRUD to avoid wrong targets. */
   compareLocked?: boolean;
@@ -408,7 +408,7 @@ const ResizablePaneRow: React.FC<{
   pageState?: Props['pageState'];
   /** Per connectionId: cell diff summary when Compare is on. */
   diffByConnection?: Record<string, GridDiffSummary>;
-  /** Per connectionId: label badge (baseline / N differ). */
+  /** Per connectionId: label badge (original / N differ). */
   badgeByConnection?: Record<string, string>;
   /** Key-aligned compare remaps rows — lock inline CRUD. */
   compareLocked?: boolean;
