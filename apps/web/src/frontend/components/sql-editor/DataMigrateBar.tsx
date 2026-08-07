@@ -6,9 +6,9 @@
  * Side-by-side data migrate: key-based insert/update/delete onto a destination
  * grid (≤500 ops). Larger sets toast with Server Beam instructions.
  */
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowRightLeft, History, Loader2, X } from 'lucide-react';
+import { ArrowRightLeft, CheckCheck, History, Loader2, X } from 'lucide-react';
 import {
   apiExecuteDataMigrate,
   apiFinishDataMigrate,
@@ -21,8 +21,10 @@ import {
 } from '../../api/dataMigrateApi';
 import { buildDataMigratePlans, buildDestSnapshotJson } from '../../lib/dataMigratePlans';
 import {
+  allDiffKeyLabels,
   classifyRowsByKey,
   DATA_MIGRATE_ROW_CAP,
+  filterOpsByKeyLabels,
   migrateGridsAreComplete,
   selectMigrateOps,
   type ClassifiedRowDiff,
@@ -65,6 +67,9 @@ interface Props {
   /** Controlled key columns (shared with Compare alignment). */
   keyNames?: string[];
   onKeyNamesChange?: (names: string[]) => void;
+  /** Row Sync checkboxes — which differing keys to include in migrate. */
+  selectedSyncKeys?: ReadonlySet<string>;
+  onSelectedSyncKeysChange?: (keys: Set<string>) => void;
   onAfterMigrate?: () => void;
   onOpenServerBeamSample?: () => void;
 }
@@ -74,8 +79,10 @@ export const DataMigrateBar: React.FC<Props> = ({
   source,
   dest,
   ignoreColumns = [],
-  keyNames: keyNamesProp,
+  keyNames: keyNamesProp = [],
   onKeyNamesChange,
+  selectedSyncKeys = new Set(),
+  onSelectedSyncKeysChange,
   onAfterMigrate,
   onOpenServerBeamSample,
 }) => {
@@ -96,15 +103,33 @@ export const DataMigrateBar: React.FC<Props> = ({
   const table: TableSchema | undefined = editTarget.ok ? editTarget.table : undefined;
   const tableName = table?.name ?? '';
 
-  // Only PK / non-partial unique keys that appear in the result — never fall back
-  // to "first column" (non-unique WHERE would UPDATE/DELETE multiple rows).
-  const keyNames = useMemo(
+  const preferredKeyNames = useMemo(
     () =>
       resolvePeekKeyColumns(table, source.columns)
         .filter((k) => k.resultIndex >= 0)
         .map((k) => k.name),
     [table, source.columns]
   );
+
+  const sharedColumns = useMemo(() => {
+    const destLower = new Set(dest.columns.map((c) => c.toLowerCase()));
+    return source.columns.filter((c) => destLower.has(c.toLowerCase()));
+  }, [source.columns, dest.columns]);
+
+  const keyNames = keyNamesProp;
+
+  const toggleKeyColumn = (col: string) => {
+    if (!onKeyNamesChange) return;
+    const lower = col.toLowerCase();
+    const has = keyNames.some((k) => k.toLowerCase() === lower);
+    if (has) {
+      const next = keyNames.filter((k) => k.toLowerCase() !== lower);
+      if (next.length === 0) return;
+      onKeyNamesChange(next);
+    } else {
+      onKeyNamesChange([...keyNames, col]);
+    }
+  };
 
   /** User opts into each op — nothing selected until they choose. */
   const [doInsert, setDoInsert] = useState(false);
@@ -138,6 +163,17 @@ export const DataMigrateBar: React.FC<Props> = ({
     [source.columns, source.rows, dest.columns, dest.rows, keyNames, ignoreColumns]
   );
 
+  const diffLabelsKey = useMemo(
+    () => allDiffKeyLabels(classification).join('\0'),
+    [classification]
+  );
+
+  useEffect(() => {
+    if (!onSelectedSyncKeysChange || !diffLabelsKey) return;
+    const labels = diffLabelsKey.split('\0').filter(Boolean);
+    onSelectedSyncKeysChange(new Set(labels));
+  }, [diffLabelsKey, onSelectedSyncKeysChange]);
+
   const selected = useMemo(
     () =>
       selectMigrateOps(classification, {
@@ -147,6 +183,16 @@ export const DataMigrateBar: React.FC<Props> = ({
       }),
     [classification, doInsert, doUpdate, doDelete]
   );
+
+  const filtered = useMemo(
+    () => filterOpsByKeyLabels(selected.ops, selectedSyncKeys, DATA_MIGRATE_ROW_CAP),
+    [selected.ops, selectedSyncKeys]
+  );
+
+  const syncAll = () => {
+    if (!onSelectedSyncKeysChange) return;
+    onSelectedSyncKeysChange(new Set(allDiffKeyLabels(classification)));
+  };
 
   const openHistory = async () => {
     setHistoryOpen(true);
@@ -210,6 +256,16 @@ export const DataMigrateBar: React.FC<Props> = ({
       toast({ tone: 'info', title: 'Nothing to migrate', body: 'Grids match for the selected ops.' });
       return;
     }
+    if (filtered.uncappedCount === 0) {
+      toast({
+        tone: 'warning',
+        title: 'No rows selected for Sync',
+        body:
+          'You chose Add / Edit / Delete but no differing rows are checked. ' +
+          'Use the Sync column on the destination grid or click Sync all.',
+      });
+      return;
+    }
     if (classification.duplicateKeys > 0) {
       toast({
         tone: 'warning',
@@ -220,12 +276,12 @@ export const DataMigrateBar: React.FC<Props> = ({
       });
       return;
     }
-    if (selected.uncappedCount > DATA_MIGRATE_ROW_CAP) {
+    if (filtered.uncappedCount > DATA_MIGRATE_ROW_CAP) {
       toast({
         tone: 'warning',
         title: `Over ${DATA_MIGRATE_ROW_CAP} row ops — use Server Beam`,
         body:
-          `This compare has ${selected.uncappedCount} insert/update/delete ops. ` +
+          `This compare has ${filtered.uncappedCount} insert/update/delete ops. ` +
           `Side-by-side migrate is limited to ${DATA_MIGRATE_ROW_CAP} rows. ` +
           'Check source then target Destinations, turn Safe mode off, and run the ' +
           'Server Beam chunked sample (Bookmarks → Add samples).',
@@ -242,7 +298,7 @@ export const DataMigrateBar: React.FC<Props> = ({
       sourceColumns: source.columns,
       destColumns: dest.columns,
       keyNames,
-      ops: selected.ops,
+      ops: filtered.ops,
       includeIdentity,
       identityColumns: editability.identityColumns,
       ignoreColumns,
@@ -258,7 +314,7 @@ export const DataMigrateBar: React.FC<Props> = ({
 
     const snapshotJson = buildDestSnapshotJson({
       destColumns: dest.columns,
-      ops: selected.ops,
+      ops: filtered.ops,
     });
     const script = [
       `-- useTransaction=${useTransaction} continueOnError=${continueOnError}`,
@@ -304,7 +360,6 @@ export const DataMigrateBar: React.FC<Props> = ({
     let rolledBack = false;
 
     try {
-      // Mark all running while the server applies (one connection / optional tx).
       setProgress((prev) => prev?.map((p) => ({ ...p, status: 'running' })) ?? prev);
       const out = await apiExecuteDataMigrate(
         {
@@ -395,91 +450,133 @@ export const DataMigrateBar: React.FC<Props> = ({
 
   if (!canCompareReady(source, dest)) return null;
 
+  const migrateCount = filtered.uncappedCount;
+  const overCap = migrateCount > DATA_MIGRATE_ROW_CAP;
+
   return (
     <div
-      className="flex flex-col gap-1.5 rounded-md border border-slate-800 bg-slate-950/60 px-2.5 py-2"
+      className="flex flex-col gap-2 rounded-lg border border-sky-500/40 bg-gradient-to-br from-slate-950/90 via-slate-900/80 to-sky-950/40 px-3 py-2.5 shadow-sm shadow-sky-500/10"
       data-testid={`sql-data-migrate-bar-${statementIndex}`}
     >
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-semibold text-slate-400">
-        <span className="inline-flex items-center gap-1 text-sky-300">
-          <ArrowRightLeft className="w-3 h-3" strokeWidth={SQL_ICON_STROKE} />
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs font-bold text-slate-300">
+        <span className="inline-flex items-center gap-1.5 text-sky-300">
+          <ArrowRightLeft className="w-4 h-4" strokeWidth={SQL_ICON_STROKE} />
           Data migrate
         </span>
-        <span className="text-slate-500 truncate max-w-[18rem]" title={`${source.label} → ${dest.label}`}>
+        <span className="text-slate-400 truncate max-w-[20rem] font-semibold" title={`${source.label} → ${dest.label}`}>
           {source.label} → {dest.label}
         </span>
-        <span className="text-slate-500">
+        <span className="text-slate-500 font-semibold text-[11px]">
           {classification.inserts.length} add · {classification.updates.length} edit ·{' '}
           {classification.deletes.length} delete available
-          {selected.uncappedCount > DATA_MIGRATE_ROW_CAP
-            ? ` · capped ${DATA_MIGRATE_ROW_CAP}`
+          {selected.uncappedCount > migrateCount
+            ? ` · ${migrateCount} synced`
             : ''}
+          {overCap ? ` · capped ${DATA_MIGRATE_ROW_CAP}` : ''}
         </span>
         <button
           type="button"
           data-testid={`sql-data-migrate-history-${statementIndex}`}
           onClick={() => void openHistory()}
-          className="inline-flex items-center gap-1 text-slate-500 hover:text-cyan-400"
+          className="inline-flex items-center gap-1 text-slate-500 hover:text-cyan-400 font-semibold text-[11px]"
         >
-          <History className="w-3 h-3" strokeWidth={SQL_ICON_STROKE} /> History
+          <History className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} /> History
         </button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-400">
-        <span className="text-slate-500">Keys</span>
-        {keyNames.length > 0 ? (
-          keyNames.map((c) => (
-            <span
-              key={c}
-              className="font-mono text-slate-300 rounded border border-slate-700 bg-slate-900/80 px-1.5 py-0.5"
-              title="Primary key / unique index columns from the schema (required for safe row matching)."
-            >
-              {c}
-            </span>
-          ))
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[11px] font-semibold text-slate-400">
+        <span className="text-sky-400/90 shrink-0">Keys</span>
+        {sharedColumns.length > 0 ? (
+          sharedColumns.map((col) => {
+            const checked = keyNames.some((k) => k.toLowerCase() === col.toLowerCase());
+            const preferred = preferredKeyNames.some((k) => k.toLowerCase() === col.toLowerCase());
+            return (
+              <label
+                key={col}
+                className={`inline-flex items-center gap-1 cursor-pointer select-none rounded-md border px-2 py-0.5 font-mono text-[11px] ${
+                  checked
+                    ? 'border-sky-500/50 bg-sky-950/60 text-sky-200'
+                    : 'border-slate-700 bg-slate-900/60 text-slate-400 hover:border-slate-600'
+                }`}
+                title={
+                  preferred
+                    ? 'Primary key / unique index column (recommended)'
+                    : 'Shared column — check to align and match rows'
+                }
+              >
+                <input
+                  type="checkbox"
+                  data-testid={`sql-data-migrate-key-${col}-${statementIndex}`}
+                  checked={checked}
+                  onChange={() => toggleKeyColumn(col)}
+                  className="rounded border-slate-600 accent-sky-500"
+                />
+                {col}
+                {preferred ? (
+                  <span className="text-[9px] uppercase tracking-wide text-emerald-400/90">pk</span>
+                ) : null}
+              </label>
+            );
+          })
         ) : (
           <span className="text-amber-400/90">
-            {editability.reason || 'No PK/unique key in this result — migrate disabled.'}
+            No shared columns between source and destination grids.
           </span>
+        )}
+        {keyNames.length === 0 && sharedColumns.length > 0 && (
+          <span className="text-amber-400/90">Pick at least one key column.</span>
+        )}
+        {preferredKeyNames.length === 0 && editability.reason && (
+          <span className="text-amber-400/90 text-[10px]">{editability.reason}</span>
         )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-400">
-        <span className="text-slate-500 shrink-0" title="Choose which row ops to apply — nothing runs until you check an op.">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[11px] font-semibold text-slate-400">
+        <span className="text-sky-400/90 shrink-0" title="Choose which row ops to apply — nothing runs until you check an op.">
           Ops
         </span>
-        <label className="inline-flex items-center gap-1 cursor-pointer select-none">
+        <label className="inline-flex items-center gap-1.5 cursor-pointer select-none rounded-md border border-emerald-500/40 bg-emerald-950/40 px-2 py-0.5 text-emerald-200">
           <input
             type="checkbox"
             data-testid={`sql-data-migrate-insert-${statementIndex}`}
             checked={doInsert}
             onChange={(e) => setDoInsert(e.target.checked)}
-            className="rounded border-slate-600"
+            className="rounded border-emerald-600 accent-emerald-500"
           />
           Add ({classification.inserts.length})
         </label>
-        <label className="inline-flex items-center gap-1 cursor-pointer select-none">
+        <label className="inline-flex items-center gap-1.5 cursor-pointer select-none rounded-md border border-amber-500/40 bg-amber-950/40 px-2 py-0.5 text-amber-200">
           <input
             type="checkbox"
             data-testid={`sql-data-migrate-update-${statementIndex}`}
             checked={doUpdate}
             onChange={(e) => setDoUpdate(e.target.checked)}
-            className="rounded border-slate-600"
+            className="rounded border-amber-600 accent-amber-500"
           />
           Edit ({classification.updates.length})
         </label>
-        <label className="inline-flex items-center gap-1 cursor-pointer select-none">
+        <label className="inline-flex items-center gap-1.5 cursor-pointer select-none rounded-md border border-rose-500/40 bg-rose-950/40 px-2 py-0.5 text-rose-200">
           <input
             type="checkbox"
             data-testid={`sql-data-migrate-delete-${statementIndex}`}
             checked={doDelete}
             onChange={(e) => setDoDelete(e.target.checked)}
-            className="rounded border-slate-600"
+            className="rounded border-rose-600 accent-rose-500"
           />
           Delete ({classification.deletes.length})
         </label>
+        <button
+          type="button"
+          data-testid={`sql-data-migrate-sync-all-${statementIndex}`}
+          onClick={syncAll}
+          className="inline-flex items-center gap-1 rounded-md border border-sky-500/40 bg-sky-950/50 px-2 py-0.5 text-sky-200 hover:bg-sky-900/60"
+          title="Re-check all differing rows in the Sync column (does not change Add/Edit/Delete)"
+        >
+          <CheckCheck className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+          Sync all
+        </button>
         <label
-          className="inline-flex items-center gap-1 cursor-pointer select-none"
+          className="inline-flex items-center gap-1 cursor-pointer select-none text-slate-500"
           title="When on, Add includes identity/autoincrement values from the source (preserve IDs). When off, the destination generates them."
         >
           <input
@@ -493,9 +590,9 @@ export const DataMigrateBar: React.FC<Props> = ({
         </label>
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-400">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-semibold text-slate-400">
         <span
-          className="text-slate-500 shrink-0"
+          className="text-sky-400/90 shrink-0"
           title="Safety assists — you choose the ops; we help contain failures."
         >
           Safety
@@ -533,35 +630,40 @@ export const DataMigrateBar: React.FC<Props> = ({
             applying ||
             !canDml ||
             selected.uncappedCount === 0 ||
+            migrateCount === 0 ||
             classification.duplicateKeys > 0 ||
-            selected.uncappedCount > DATA_MIGRATE_ROW_CAP
+            overCap
           }
           onClick={() => void apply()}
-          className="ml-auto px-2 py-0.5 rounded bg-cyan-700/40 border border-cyan-500/40 text-cyan-200 hover:bg-cyan-600/50 disabled:opacity-40 disabled:cursor-not-allowed"
+          className="ml-auto px-3 py-1 rounded-md bg-cyan-600/50 border border-cyan-400/50 text-sm font-bold text-cyan-100 hover:bg-cyan-500/60 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm shadow-cyan-500/20"
           title={
             selected.uncappedCount === 0
               ? 'Select Add, Edit, and/or Delete first'
-              : selected.uncappedCount > DATA_MIGRATE_ROW_CAP
-                ? `Over ${DATA_MIGRATE_ROW_CAP} ops — use Server Beam`
-                : undefined
+              : migrateCount === 0
+                ? 'Check rows in the Sync column'
+                : overCap
+                  ? `Over ${DATA_MIGRATE_ROW_CAP} ops — use Server Beam`
+                  : undefined
           }
         >
           {applying ? (
-            <span className="inline-flex items-center gap-1">
-              <Loader2 className="w-3 h-3 animate-spin" strokeWidth={SQL_ICON_STROKE} /> Migrating…
+            <span className="inline-flex items-center gap-1.5">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" strokeWidth={SQL_ICON_STROKE} /> Migrating…
             </span>
-          ) : selected.uncappedCount > DATA_MIGRATE_ROW_CAP ? (
+          ) : overCap ? (
             `Over ${DATA_MIGRATE_ROW_CAP} — Server Beam`
           ) : selected.uncappedCount === 0 ? (
             'Select ops to migrate'
+          ) : migrateCount === 0 ? (
+            'Select Sync rows'
           ) : (
-            `Migrate ${selected.uncappedCount} ops`
+            `Migrate ${migrateCount} ops`
           )}
         </button>
       </div>
 
       {!editTarget.ok && (
-        <p className="text-[10px] text-amber-400/90">
+        <p className="text-[11px] font-semibold text-amber-400/90">
           Migrate needs a single-table SELECT with schema loaded on the destination.
         </p>
       )}

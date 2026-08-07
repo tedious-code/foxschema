@@ -5,8 +5,10 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  allDiffKeyLabels,
   classifyRowsByKey,
   DATA_MIGRATE_ROW_CAP,
+  filterOpsByKeyLabels,
   migrateGridsAreComplete,
   selectMigrateOps,
 } from './resultRowDiff';
@@ -185,5 +187,58 @@ describe('selectMigrateOps', () => {
     expect(selected.ops.every((o) => o.op === 'insert' || o.op === 'update')).toBe(
       true
     );
+  });
+});
+
+describe('filterOpsByKeyLabels / allDiffKeyLabels', () => {
+  const classification = classifyRowsByKey({
+    source: {
+      columns: ['id', 'name'],
+      rows: [
+        [1, 'Alice'],
+        [2, 'Shared'],
+        [3, 'New'],
+      ],
+    },
+    dest: {
+      columns: ['id', 'name'],
+      rows: [
+        [1, 'Bob'],
+        [2, 'Shared'],
+        [4, 'OnlyDest'],
+      ],
+    },
+    keyNames: ['id'],
+  });
+
+  it('lists every differing key label', () => {
+    expect(allDiffKeyLabels(classification)).toHaveLength(3);
+  });
+
+  it('defaults to all selected; uncheck drops from migrate plans', () => {
+    const byOp = selectMigrateOps(classification, {
+      insert: true,
+      update: true,
+      delete: true,
+    });
+    expect(filterOpsByKeyLabels(byOp.ops, new Set(allDiffKeyLabels(classification))).uncappedCount).toBe(3);
+    const updateLabel = classification.updates[0]!.keyLabel;
+    const without = filterOpsByKeyLabels(
+      byOp.ops,
+      new Set(allDiffKeyLabels(classification).filter((l) => l !== updateLabel))
+    );
+    expect(without.uncappedCount).toBe(2);
+  });
+
+  it('Sync all restores every differing label', () => {
+    const byOp = selectMigrateOps(classification, {
+      insert: true,
+      update: true,
+      delete: true,
+    });
+    expect(filterOpsByKeyLabels(byOp.ops, new Set()).uncappedCount).toBe(0);
+    expect(
+      filterOpsByKeyLabels(byOp.ops, new Set(allDiffKeyLabels(classification))).uncappedCount
+    ).toBe(3);
   });
 });

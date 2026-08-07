@@ -118,25 +118,38 @@ const ResultGridPane: React.FC<{
   onRefresh?: (connectionId: string) => void;
   onPage?: Props['onPage'];
   pageState?: Props['pageState'];
-  syncScrollRow?: number | null;
-  onSyncScrollRow?: (row: number | null) => void;
+  scrollSyncId?: string;
+  scrollSync?: {
+    register: (id: string, apply: (scrollTop: number) => void) => () => void;
+    broadcast: (sourceId: string, scrollTop: number) => void;
+  };
+  hoverSync?: {
+    register: (id: string, apply: (rowIdx: number | null) => void) => () => void;
+    broadcast: (sourceId: string, rowIdx: number | null) => void;
+  };
   /** Cross-connection compare highlights for this grid. */
   diffSummary?: GridDiffSummary | null;
   /** Suffix shown after the grid label (e.g. original / N differ). */
   compareBadge?: string | null;
   /** Key-aligned compare remaps rows — disable inline CRUD to avoid wrong targets. */
   compareLocked?: boolean;
+  rowSync?: {
+    isChecked: (rowIdx: number) => boolean | null;
+    onToggle: (rowIdx: number, checked: boolean) => void;
+  };
 }> = ({
   item,
   refreshing,
   onRefresh,
   onPage,
   pageState,
-  syncScrollRow = null,
-  onSyncScrollRow,
+  scrollSyncId,
+  scrollSync,
+  hoverSync,
   diffSummary = null,
   compareBadge = null,
   compareLocked = false,
+  rowSync,
 }) => {
   const schemaCache = useSqlEditorStore((s) => s.schemaCache);
   const openDataPeekFromFk = useSqlEditorStore((s) => s.openDataPeekFromFk);
@@ -267,8 +280,9 @@ const ResultGridPane: React.FC<{
         exportName={item.exportName}
         refreshing={refreshing}
         onRefresh={onRefresh ? () => onRefresh(item.connectionId) : undefined}
-        syncScrollRow={onSyncScrollRow ? syncScrollRow : null}
-        onSyncScrollRow={onSyncScrollRow}
+        scrollSyncId={scrollSyncId}
+        scrollSync={scrollSync}
+        hoverSync={hoverSync}
         pageIndex={pageIndex}
         pageSize={page?.pageSize}
         hasPrevPage={!refreshing && Boolean(page) && pageIndex > 0}
@@ -300,6 +314,7 @@ const ResultGridPane: React.FC<{
         onSelectRow={crud.onSelectRow}
         toolbarExtra={toolbarExtra}
         cellHighlight={cellHighlight}
+        rowSync={rowSync}
       />
       {linkColumns && linkColumns.size > 0 && (
         <p
@@ -320,22 +335,35 @@ const PaneBody: React.FC<{
   onRefresh?: (connectionId: string) => void;
   onPage?: Props['onPage'];
   pageState?: Props['pageState'];
-  syncScrollRow?: number | null;
-  onSyncScrollRow?: (row: number | null) => void;
+  scrollSyncId?: string;
+  scrollSync?: {
+    register: (id: string, apply: (scrollTop: number) => void) => () => void;
+    broadcast: (sourceId: string, scrollTop: number) => void;
+  };
+  hoverSync?: {
+    register: (id: string, apply: (rowIdx: number | null) => void) => () => void;
+    broadcast: (sourceId: string, rowIdx: number | null) => void;
+  };
   diffSummary?: GridDiffSummary | null;
   compareBadge?: string | null;
   compareLocked?: boolean;
+  rowSync?: {
+    isChecked: (rowIdx: number) => boolean | null;
+    onToggle: (rowIdx: number, checked: boolean) => void;
+  };
 }> = ({
   item,
   refreshing,
   onRefresh,
   onPage,
   pageState,
-  syncScrollRow = null,
-  onSyncScrollRow,
+  scrollSyncId,
+  scrollSync,
+  hoverSync,
   diffSummary = null,
   compareBadge = null,
   compareLocked = false,
+  rowSync,
 }) => {
   if (item.kind === 'grid') {
     return (
@@ -345,11 +373,13 @@ const PaneBody: React.FC<{
         onRefresh={onRefresh}
         onPage={onPage}
         pageState={pageState}
-        syncScrollRow={syncScrollRow}
-        onSyncScrollRow={onSyncScrollRow}
+        scrollSyncId={scrollSyncId}
+        scrollSync={scrollSync}
+        hoverSync={hoverSync}
         diffSummary={diffSummary}
         compareBadge={compareBadge}
         compareLocked={compareLocked}
+        rowSync={rowSync}
       />
     );
   }
@@ -412,6 +442,14 @@ const ResizablePaneRow: React.FC<{
   badgeByConnection?: Record<string, string>;
   /** Key-aligned compare remaps rows — lock inline CRUD. */
   compareLocked?: boolean;
+  /** Per connectionId: row Sync column (destination grid). */
+  rowSyncByConnection?: Record<
+    string,
+    {
+      isChecked: (rowIdx: number) => boolean | null;
+      onToggle: (rowIdx: number, checked: boolean) => void;
+    }
+  >;
 }> = ({
   items,
   rowKey,
@@ -422,12 +460,50 @@ const ResizablePaneRow: React.FC<{
   diffByConnection,
   badgeByConnection,
   compareLocked = false,
+  rowSyncByConnection,
 }) => {
   const rowRef = useRef<HTMLDivElement>(null);
   const [widths, setWidths] = useState<number[]>(() => items.map(() => PANE_DEFAULT_PX));
   const [rowHeight, setRowHeight] = useState(PANE_DEFAULT_H_PX);
-  const [syncRow, setSyncRow] = useState<number | null>(null);
   const sizedForKey = useRef<string | null>(null);
+  /** Peer scrollTop bus — pixel sync without React re-renders (avoids lag on fast scroll). */
+  const scrollPeersRef = useRef(new Map<string, (scrollTop: number) => void>());
+  const scrollSync = useMemo(
+    () => ({
+      register: (id: string, apply: (scrollTop: number) => void) => {
+        scrollPeersRef.current.set(id, apply);
+        return () => {
+          scrollPeersRef.current.delete(id);
+        };
+      },
+      broadcast: (sourceId: string, scrollTop: number) => {
+        for (const [id, apply] of scrollPeersRef.current) {
+          if (id === sourceId) continue;
+          apply(scrollTop);
+        }
+      },
+    }),
+    []
+  );
+  /** Peer hover-row bus — highlights the same row index across side-by-side grids. */
+  const hoverPeersRef = useRef(new Map<string, (rowIdx: number | null) => void>());
+  const hoverSync = useMemo(
+    () => ({
+      register: (id: string, apply: (rowIdx: number | null) => void) => {
+        hoverPeersRef.current.set(id, apply);
+        return () => {
+          hoverPeersRef.current.delete(id);
+        };
+      },
+      broadcast: (sourceId: string, rowIdx: number | null) => {
+        for (const [id, apply] of hoverPeersRef.current) {
+          if (id === sourceId) continue;
+          apply(rowIdx);
+        }
+      },
+    }),
+    []
+  );
 
   useLayoutEffect(() => {
     const el = rowRef.current;
@@ -440,7 +516,8 @@ const ResizablePaneRow: React.FC<{
       if (sizedForKey.current === rowKey) return;
       sizedForKey.current = rowKey;
       setWidths(equalWidths(items.length, w));
-      setSyncRow(null);
+      for (const apply of scrollPeersRef.current.values()) apply(0);
+      for (const apply of hoverPeersRef.current.values()) apply(null);
     };
 
     applyEqual();
@@ -492,7 +569,7 @@ const ResizablePaneRow: React.FC<{
 
   if (items.length === 0) return null;
 
-  const syncScroll = items.filter((x) => x.kind === 'grid').length > 1;
+  const enableScrollSync = items.filter((x) => x.kind === 'grid').length > 1;
 
   return (
     <div className="flex flex-col min-w-0" data-testid="sql-result-pane-row-wrap">
@@ -514,11 +591,13 @@ const ResizablePaneRow: React.FC<{
                 onRefresh={onRefresh}
                 onPage={onPage}
                 pageState={pageState}
-                syncScrollRow={syncScroll ? syncRow : null}
-                onSyncScrollRow={syncScroll ? setSyncRow : undefined}
+                scrollSyncId={enableScrollSync ? item.connectionId : undefined}
+                scrollSync={enableScrollSync ? scrollSync : undefined}
+                hoverSync={enableScrollSync ? hoverSync : undefined}
                 diffSummary={diffByConnection?.[item.connectionId] ?? null}
                 compareBadge={badgeByConnection?.[item.connectionId] ?? null}
                 compareLocked={compareLocked}
+                rowSync={rowSyncByConnection?.[item.connectionId]}
               />
             </div>
             <div
@@ -665,6 +744,8 @@ const SideBySideStatementSection: React.FC<{
   const [destId, setDestId] = useState<string>('');
   /** Shared with Data migrate — Compare aligns rows by these keys. */
   const [keyNames, setKeyNames] = useState<string[]>([]);
+  /** Row Sync checkboxes — which differing keys to include in migrate. */
+  const [selectedSyncKeys, setSelectedSyncKeys] = useState<Set<string>>(() => new Set());
 
   const schemaCache = useSqlEditorStore((s) => s.schemaCache);
   const connections = useSyncStore((s) => s.connections);
@@ -801,6 +882,11 @@ const SideBySideStatementSection: React.FC<{
         if (keyAligned.insertCount > 0) legendBits.push(`${keyAligned.insertCount} add`);
         if (keyAligned.deleteCount > 0) legendBits.push(`${keyAligned.deleteCount} delete`);
         if (keyAligned.matchCount > 0) legendBits.push(`${keyAligned.matchCount} match`);
+        if (keyAligned.duplicateKeys > 0) {
+          legendBits.push(
+            `⚠ ${keyAligned.duplicateKeys} duplicate key${keyAligned.duplicateKeys === 1 ? '' : 's'} skipped`
+          );
+        }
         if (triggerIgnoreColumns.length > 0) {
           legendBits.push(`skipping ${triggerIgnoreColumns.join(', ')}`);
         }
@@ -938,6 +1024,31 @@ const SideBySideStatementSection: React.FC<{
     ignoreOpts,
   ]);
 
+  const rowSyncByConnection = useMemo(() => {
+    if (!compareActive || !keyAligned || !destId) return undefined;
+    return {
+      [destId]: {
+        isChecked: (rowIdx: number): boolean | null => {
+          const op = keyAligned.rowOps[rowIdx];
+          if (op === 'match') return null;
+          const label = keyAligned.rowKeyLabels[rowIdx];
+          if (!label) return false;
+          return selectedSyncKeys.has(label);
+        },
+        onToggle: (rowIdx: number, checked: boolean) => {
+          const label = keyAligned.rowKeyLabels[rowIdx];
+          if (!label) return;
+          setSelectedSyncKeys((prev) => {
+            const next = new Set(prev);
+            if (checked) next.add(label);
+            else next.delete(label);
+            return next;
+          });
+        },
+      },
+    };
+  }, [compareActive, keyAligned, destId, selectedSyncKeys]);
+
   const insertServerBeamSample = () => {
     const sample = buildSampleBookmarks().find((b) => b.id === 'sample-server-beam-chunked');
     if (!sample) return;
@@ -955,33 +1066,33 @@ const SideBySideStatementSection: React.FC<{
         </div>
         {canCompare && (
           <div
-            className="flex flex-wrap items-center gap-2 text-[10px] font-semibold text-slate-400"
+            className="flex flex-wrap items-center gap-2.5 text-xs font-bold text-slate-300 rounded-lg border border-sky-500/30 bg-gradient-to-r from-slate-900/80 via-slate-950/60 to-sky-950/40 px-2.5 py-1.5"
             data-testid={`sql-result-compare-toolbar-${statementIndex}`}
           >
-            <label className="flex items-center gap-1 cursor-pointer select-none">
+            <label className="flex items-center gap-1.5 cursor-pointer select-none text-sky-200">
               <input
                 type="checkbox"
                 data-testid={`sql-result-compare-toggle-${statementIndex}`}
                 checked={compareOn}
                 onChange={(e) => setCompareOn(e.target.checked)}
-                className="rounded border-slate-600"
+                className="rounded border-sky-500/60 accent-sky-500"
               />
-              <GitCompare className="w-3 h-3 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
+              <GitCompare className="w-4 h-4 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
               Compare data
             </label>
             {!compareOn && (
-              <span className="text-slate-600 font-medium">
+              <span className="text-slate-500 font-semibold text-[11px]">
                 Turn on to highlight diffs and choose Add / Edit / Delete
               </span>
             )}
             {compareOn && (
-              <label className="flex items-center gap-1">
-                <span className="text-slate-500">Original server</span>
+              <label className="flex items-center gap-1.5 font-semibold">
+                <span className="text-slate-400">Original server</span>
                 <select
                   data-testid={`sql-result-compare-baseline-${statementIndex}`}
                   value={baselineId}
                   onChange={(e) => setBaselineId(e.target.value)}
-                  className="bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-slate-200 max-w-[12rem]"
+                  className="bg-slate-900 border border-slate-600 rounded-md px-2 py-0.5 text-xs font-bold text-slate-100 max-w-[12rem]"
                 >
                   {okGrids.map((g) => (
                     <option key={g.connectionId} value={g.connectionId}>
@@ -993,7 +1104,7 @@ const SideBySideStatementSection: React.FC<{
             )}
             {compareOn && (
               <label
-                className="flex items-center gap-1 cursor-pointer select-none"
+                className="flex items-center gap-1.5 cursor-pointer select-none font-semibold text-slate-300"
                 title="Ignore trigger/audit columns (createdAt, updatedBy, …) in Compare highlights and Data migrate. Destinations often fill these differently."
               >
                 <input
@@ -1001,19 +1112,19 @@ const SideBySideStatementSection: React.FC<{
                   data-testid={`sql-result-compare-skip-trigger-${statementIndex}`}
                   checked={skipTriggerCols}
                   onChange={(e) => setSkipTriggerCols(e.target.checked)}
-                  className="rounded border-slate-600"
+                  className="rounded border-slate-600 accent-sky-500"
                 />
                 Skip trigger cols
               </label>
             )}
             {compareActive && okGrids.length > 2 && (
-              <label className="flex items-center gap-1">
-                <span className="text-slate-500">Destination</span>
+              <label className="flex items-center gap-1.5 font-semibold">
+                <span className="text-slate-400">Destination</span>
                 <select
                   data-testid={`sql-result-compare-dest-${statementIndex}`}
                   value={destId}
                   onChange={(e) => setDestId(e.target.value)}
-                  className="bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-slate-200 max-w-[12rem]"
+                  className="bg-slate-900 border border-slate-600 rounded-md px-2 py-0.5 text-xs font-bold text-slate-100 max-w-[12rem]"
                 >
                   {okGrids
                     .filter((g) => g.connectionId !== baselineId)
@@ -1027,19 +1138,19 @@ const SideBySideStatementSection: React.FC<{
             )}
             {compareActive && (
               <span
-                className="flex items-center gap-2 text-[10px] font-medium text-slate-500"
+                className="flex flex-wrap items-center gap-2 text-[11px] font-bold text-slate-400"
                 data-testid={`sql-result-compare-legend-${statementIndex}`}
               >
-                <span className="inline-flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-sm bg-amber-500/70" /> modified
+                <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-950/50 px-1.5 py-0.5 text-amber-200">
+                  <span className="w-2 h-2 rounded-sm bg-amber-500" /> modified
                 </span>
-                <span className="inline-flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-sm bg-rose-500/70" /> missing
+                <span className="inline-flex items-center gap-1 rounded-md border border-rose-500/40 bg-rose-950/50 px-1.5 py-0.5 text-rose-200">
+                  <span className="w-2 h-2 rounded-sm bg-rose-500" /> missing
                 </span>
-                <span className="inline-flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-sm bg-emerald-500/70" /> extra
+                <span className="inline-flex items-center gap-1 rounded-md border border-emerald-500/40 bg-emerald-950/50 px-1.5 py-0.5 text-emerald-200">
+                  <span className="w-2 h-2 rounded-sm bg-emerald-500" /> extra
                 </span>
-                <span className="text-slate-600 truncate max-w-[24rem]" title={legendBits.join(' · ')}>
+                <span className="text-slate-500 font-semibold truncate max-w-[28rem]" title={legendBits.join(' · ')}>
                   {legendBits.join(' · ')}
                 </span>
               </span>
@@ -1077,6 +1188,8 @@ const SideBySideStatementSection: React.FC<{
           ignoreColumns={triggerIgnoreColumns}
           keyNames={effectiveKeys}
           onKeyNamesChange={setKeyNames}
+          selectedSyncKeys={selectedSyncKeys}
+          onSelectedSyncKeysChange={setSelectedSyncKeys}
           onAfterMigrate={() => onRefresh?.(destGrid.connectionId)}
           onOpenServerBeamSample={insertServerBeamSample}
         />
@@ -1093,13 +1206,15 @@ const SideBySideStatementSection: React.FC<{
         diffByConnection={compareActive ? diffByConnection : undefined}
         badgeByConnection={compareActive ? badgeByConnection : undefined}
         compareLocked={Boolean(compareActive && keyAligned)}
+        rowSyncByConnection={rowSyncByConnection}
       />
       {compareActive && (
-        <p className="text-[10px] text-slate-500 px-0.5" data-testid={`sql-result-compare-hint-${statementIndex}`}>
-          Cell colors align by row index. Migrate matches rows by PK/unique keys and only runs when
-          both grids show the full result on page 1. Choose Add / Edit / Delete yourself; Transaction
-          and Stop / Continue are safety assists. Skip trigger cols ignores createdAt / updatedBy.
-          Cap: 500 ops — larger sets use Server Beam.
+        <p className="text-[11px] font-semibold text-slate-500 px-0.5" data-testid={`sql-result-compare-hint-${statementIndex}`}>
+          Rows line up by <span className="text-sky-400/90">Keys</span> (check columns in Data migrate).
+          The destination grid’s <span className="text-sky-400/90">Sync</span> column is on by default for
+          all differing rows — uncheck rows you do not want, or use Sync all. Migrate only runs when both
+          grids show the full result on page 1. Choose Add / Edit / Delete yourself; Transaction and Stop /
+          Continue are safety assists. Cap: 500 ops — larger sets use Server Beam.
         </p>
       )}
     </section>

@@ -28,12 +28,52 @@ describe('alignResultGridsByKey', () => {
     const aligned = alignResultGridsByKey(left, right, ['id']);
     expect(aligned).not.toBeNull();
     expect(aligned!.rowOps).toEqual(['update', 'match', 'delete', 'insert']);
+    expect(aligned!.rowKeyLabels).toEqual(['id=1', 'id=2', 'id=4', 'id=3']);
     expect(aligned!.leftRows.map((r) => r[0])).toEqual([1, 2, 4, null]);
     expect(aligned!.rightRows.map((r) => r[0])).toEqual([1, 2, null, 3]);
     expect(aligned!.updateCount).toBe(1);
     expect(aligned!.matchCount).toBe(1);
     expect(aligned!.deleteCount).toBe(1);
     expect(aligned!.insertCount).toBe(1);
+  });
+
+  it('aligns by name-only key so unequal counts share one row index', () => {
+    const left = {
+      columns: ['ATTRIBUTENAME'],
+      rows: [['Users.Web'], ['Orders.Web'], ['OnlySource'], ['Products.Web']],
+    };
+    const right = {
+      columns: ['ATTRIBUTENAME'],
+      rows: [['Orders.Web'], ['Users.Web'], ['OnlyDest'], ['Products.Web']],
+    };
+    const aligned = alignResultGridsByKey(left, right, ['ATTRIBUTENAME']);
+    expect(aligned).not.toBeNull();
+    // Both panes same length after pad
+    expect(aligned!.leftRows).toHaveLength(aligned!.rightRows.length);
+    expect(aligned!.leftRows.length).toBe(5); // 3 match + 1 delete + 1 insert
+    expect(aligned!.deleteCount).toBe(1);
+    expect(aligned!.insertCount).toBe(1);
+    expect(aligned!.matchCount).toBe(3);
+    const deleteIdx = aligned!.rowOps.indexOf('delete');
+    const insertIdx = aligned!.rowOps.indexOf('insert');
+    expect(aligned!.leftRows[deleteIdx]![0]).toBe('OnlySource');
+    expect(aligned!.rightGap[deleteIdx]).toBe(true);
+    expect(aligned!.rightRows[insertIdx]![0]).toBe('OnlyDest');
+    expect(aligned!.leftGap[insertIdx]).toBe(true);
+  });
+
+  it('counts duplicate key values when comparing by non-unique name', () => {
+    const left = {
+      columns: ['name'],
+      rows: [['dup'], ['dup'], ['unique']],
+    };
+    const right = {
+      columns: ['name'],
+      rows: [['dup'], ['unique']],
+    };
+    const aligned = alignResultGridsByKey(left, right, ['name']);
+    expect(aligned!.duplicateKeys).toBe(1);
+    expect(aligned!.matchCount).toBe(2);
   });
 
   it('ignores trigger columns when deciding update vs match', () => {
@@ -83,6 +123,28 @@ describe('compareKeyAlignedGrids', () => {
     const deleteIdx = aligned.rowOps.indexOf('delete');
     const insertIdx = aligned.rowOps.indexOf('insert');
     expect(diff.baseline.cells.get(cellDiffKey(deleteIdx, 0))).toBe('missing');
+    expect(diff.other.cells.get(cellDiffKey(deleteIdx, 0))).toBe('missing'); // sync highlight
     expect(diff.other.cells.get(cellDiffKey(insertIdx, 0))).toBe('extra');
+    expect(diff.baseline.cells.get(cellDiffKey(insertIdx, 0))).toBe('extra'); // sync highlight
+  });
+
+  it('tints both grids when comparing by name-only (key column is the only column)', () => {
+    const left = {
+      columns: ['ATTRIBUTENAME'],
+      rows: [['A'], ['B'], ['OnlyLeft']],
+    };
+    const right = {
+      columns: ['ATTRIBUTENAME'],
+      rows: [['B'], ['A'], ['OnlyRight']],
+    };
+    const aligned = alignResultGridsByKey(left, right, ['ATTRIBUTENAME'])!;
+    const diff = compareKeyAlignedGrids(left, right, aligned);
+    expect(aligned.leftRows).toHaveLength(4);
+    const deleteIdx = aligned.rowOps.indexOf('delete');
+    const insertIdx = aligned.rowOps.indexOf('insert');
+    expect(diff.baseline.cells.get(cellDiffKey(deleteIdx, 0))).toBe('missing');
+    expect(diff.other.cells.get(cellDiffKey(deleteIdx, 0))).toBe('missing');
+    expect(diff.other.cells.get(cellDiffKey(insertIdx, 0))).toBe('extra');
+    expect(diff.baseline.cells.get(cellDiffKey(insertIdx, 0))).toBe('extra');
   });
 });

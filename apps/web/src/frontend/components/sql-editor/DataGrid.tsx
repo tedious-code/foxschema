@@ -22,6 +22,7 @@ const COL_LONG_TEXT_PX = 200;
 /** Upper bound when double-clicking a header to fit content. */
 const COL_FIT_MAX_PX = 720;
 const ROW_NUM_PX = 48;
+const SYNC_COL_PX = 44;
 /** Fixed row height for windowing (must match rendered row). Off-screen pages live in pageCache LRU, not the DOM. */
 const ROW_H_PX = 28;
 /** Taller rows for Data Peek’s larger/bolder type. */
@@ -241,9 +242,17 @@ export const DataGrid: React.FC<{
   exportName?: string;
   refreshing?: boolean;
   onRefresh?: () => void;
-  /** Sync vertical scroll by row index with sibling grids in the same row. */
-  syncScrollRow?: number | null;
-  onSyncScrollRow?: (rowIndex: number) => void;
+  /** Sync vertical scroll by pixel with sibling grids (direct DOM — no React lag). */
+  scrollSyncId?: string;
+  scrollSync?: {
+    register: (id: string, apply: (scrollTop: number) => void) => () => void;
+    broadcast: (sourceId: string, scrollTop: number) => void;
+  };
+  /** Sync hovered row index with sibling grids (same id as scrollSyncId). */
+  hoverSync?: {
+    register: (id: string, apply: (rowIdx: number | null) => void) => () => void;
+    broadcast: (sourceId: string, rowIdx: number | null) => void;
+  };
   /** 0-based page index for server-side paging. */
   pageIndex?: number;
   /** Rows requested per page (Max rows / Rows/page). */
@@ -274,6 +283,11 @@ export const DataGrid: React.FC<{
    * (`modified` / `missing` / `extra`), or null when unchanged.
    */
   cellHighlight?: (rowIdx: number, colIdx: number) => CellDiffKind | null;
+  /** Compare migrate: per-row Sync checkbox (sticky right); null = matching row. */
+  rowSync?: {
+    isChecked: (rowIdx: number) => boolean | null;
+    onToggle: (rowIdx: number, checked: boolean) => void;
+  };
 }> = React.memo(
   ({
     result,
@@ -281,8 +295,9 @@ export const DataGrid: React.FC<{
     exportName = 'query-result',
     refreshing,
     onRefresh,
-    syncScrollRow,
-    onSyncScrollRow,
+    scrollSyncId,
+    scrollSync,
+    hoverSync,
     pageIndex = 0,
     pageSize,
     hasPrevPage,
@@ -297,6 +312,7 @@ export const DataGrid: React.FC<{
     toolbarExtra,
     emphasis = false,
     cellHighlight,
+    rowSync,
   }) => {
   const upsertVariable = useSqlEditorStore((s) => s.upsertVariable);
   const rowH = emphasis ? ROW_H_EMPHASIS_PX : ROW_H_PX;
@@ -328,7 +344,9 @@ export const DataGrid: React.FC<{
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportH, setViewportH] = useState(320);
+  const [hoverRow, setHoverRow] = useState<number | null>(null);
   const rafRef = useRef(0);
+  /** True while this grid's scrollTop is being driven by a peer (skip re-broadcast). */
   const syncLock = useRef(false);
 
   const colKey = sourceColumns.join('\0');
@@ -344,6 +362,7 @@ export const DataGrid: React.FC<{
     setDragFrom(null);
     setDragOver(null);
     setScrollTop(0);
+    setHoverRow(null);
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
   }, [colKey]);
 
@@ -357,29 +376,56 @@ export const DataGrid: React.FC<{
     return () => ro.disconnect();
   }, [result.ok, sourceColumns.length]);
 
+  // Register with the side-by-side scroll bus: peers set our DOM scrollTop
+  // directly (no React state round-trip) so fast scrolls stay locked.
   useEffect(() => {
-    if (syncScrollRow == null || !scrollRef.current) return;
-    const target = syncScrollRow * rowH;
-    if (Math.abs(scrollRef.current.scrollTop - target) < 2) return;
-    syncLock.current = true;
-    scrollRef.current.scrollTop = target;
-    setScrollTop(target);
-    requestAnimationFrame(() => {
-      syncLock.current = false;
-    });
-  }, [syncScrollRow, rowH]);
+    if (!scrollSync || !scrollSyncId) return;
+    const apply = (top: number) => {
+      const el = scrollRef.current;
+      if (!el) return;
+      if (Math.abs(el.scrollTop - top) < 0.5) return;
+      syncLock.current = true;
+      el.scrollTop = top;
+      // Match leader: DOM is live; virtualization state updates once per frame.
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = requestAnimationFrame(() => {
+        setScrollTop(top);
+        // Unlock after the programmatic scroll event has had a chance to fire.
+        requestAnimationFrame(() => {
+          syncLock.current = false;
+        });
+      });
+    };
+    return scrollSync.register(scrollSyncId, apply);
+  }, [scrollSync, scrollSyncId]);
+
+  // Peer hover row — local state only (no parent re-render).
+  useEffect(() => {
+    if (!hoverSync || !scrollSyncId) return;
+    return hoverSync.register(scrollSyncId, setHoverRow);
+  }, [hoverSync, scrollSyncId]);
+
+  const publishHoverRow = useCallback(
+    (rowIdx: number | null) => {
+      setHoverRow(rowIdx);
+      if (hoverSync && scrollSyncId) hoverSync.broadcast(scrollSyncId, rowIdx);
+    },
+    [hoverSync, scrollSyncId]
+  );
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
+    // Broadcast immediately (pixel-accurate) so peers track during fast flings.
+    if (!syncLock.current && scrollSync && scrollSyncId) {
+      scrollSync.broadcast(scrollSyncId, el.scrollTop);
+    }
+    // Throttle only the local virtualization state update.
     cancelAnimationFrame(rafRef.current);
     rafRef.current = requestAnimationFrame(() => {
       setScrollTop(el.scrollTop);
-      if (!syncLock.current && onSyncScrollRow) {
-        onSyncScrollRow(Math.floor(el.scrollTop / rowH));
-      }
     });
-  }, [onSyncScrollRow, rowH]);
+  }, [scrollSync, scrollSyncId]);
 
   useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
 
@@ -505,9 +551,12 @@ export const DataGrid: React.FC<{
   const order =
     colOrder.length === sourceColumns.length ? colOrder : identityOrder(sourceColumns.length);
   const orderedColumns = order.map((i) => sourceColumns[i]!);
+  const syncColPx = rowSync ? SYNC_COL_PX : 0;
   const tableWidth =
-    ROW_NUM_PX + order.reduce((sum, i) => sum + (colWidths[i] ?? COL_DEFAULT_PX), 0);
-  const colCount = 1 + order.length;
+    ROW_NUM_PX +
+    order.reduce((sum, i) => sum + (colWidths[i] ?? COL_DEFAULT_PX), 0) +
+    syncColPx;
+  const colCount = 1 + order.length + (rowSync ? 1 : 0);
 
   const totalRows = sourceRows.length;
   const start = Math.max(0, Math.floor(scrollTop / rowH) - OVERSCAN);
@@ -537,6 +586,9 @@ export const DataGrid: React.FC<{
         className="fox-sql-grid flex-1 min-h-0 border border-[var(--fox-grid-border)] rounded-lg shadow-sm bg-[var(--fox-grid-bg)] text-[var(--fox-grid-ink)]"
         style={{ overflowX: 'auto', overflowY: 'auto' }}
         onScroll={onScroll}
+        onMouseLeave={() => {
+          if (hoverRow !== null) publishHoverRow(null);
+        }}
         onContextMenu={(e) => {
           // Empty area / row-number context: save whole result as table.
           if ((e.target as HTMLElement).closest('td, th')) return;
@@ -566,6 +618,9 @@ export const DataGrid: React.FC<{
                   }}
                 />
               ))}
+              {rowSync ? (
+                <col style={{ width: SYNC_COL_PX, minWidth: SYNC_COL_PX }} />
+              ) : null}
             </colgroup>
             <thead className="sticky top-0 z-10">
               <tr className="bg-[var(--fox-grid-bg-header)] border-b border-[var(--fox-grid-border)] text-[var(--fox-grid-ink)]">
@@ -674,6 +729,18 @@ export const DataGrid: React.FC<{
                     </th>
                   );
                 })}
+                {rowSync ? (
+                  <th
+                    data-testid="sql-col-sync-header"
+                    className={`sticky right-0 z-20 px-1 py-1.5 text-center font-bold tracking-wide text-sky-300 bg-sky-950/90 border-l border-sky-500/40 select-none ${
+                      emphasis ? 'text-xs' : 'text-[10px]'
+                    }`}
+                    style={{ width: SYNC_COL_PX, minWidth: SYNC_COL_PX }}
+                    title="Include this row in Data migrate (destination grid)"
+                  >
+                    Sync
+                  </th>
+                ) : null}
               </tr>
             </thead>
             <tbody className={`font-mono bg-[var(--fox-grid-bg)] ${emphasis ? 'font-semibold' : ''}`}>
@@ -688,11 +755,14 @@ export const DataGrid: React.FC<{
                 const absRow = pageIndex * size + i + 1;
                 const stripe = i % 2 === 1;
                 const selected = selectedRowIndex === i;
+                const rowHovered = hoverRow === i;
                 const rowBg = selected
                   ? 'bg-amber-500/15'
-                  : stripe
-                    ? 'bg-[var(--fox-grid-bg-stripe)]'
-                    : 'bg-[var(--fox-grid-bg)]';
+                  : rowHovered
+                    ? 'bg-[var(--fox-grid-bg-hover)]'
+                    : stripe
+                      ? 'bg-[var(--fox-grid-bg-stripe)]'
+                      : 'bg-[var(--fox-grid-bg)]';
                 return (
                   <tr
                     key={i}
@@ -702,6 +772,9 @@ export const DataGrid: React.FC<{
                     } ${selected ? 'ring-1 ring-inset ring-amber-500/40' : ''}`}
                     style={{ height: rowH }}
                     onClick={() => onSelectRow?.(i)}
+                    onMouseEnter={() => {
+                      if (hoverRow !== i) publishHoverRow(i);
+                    }}
                   >
                     <td
                       className={`sticky left-0 z-[5] px-1.5 text-center tabular-nums text-[var(--fox-grid-muted)] ${rowBg} group-hover:bg-[var(--fox-grid-bg-hover)] border-r border-[var(--fox-grid-border-soft)] select-none ${
@@ -763,6 +836,40 @@ export const DataGrid: React.FC<{
                         </td>
                       );
                     })}
+                    {rowSync ? (
+                      <td
+                        className={`sticky right-0 z-[5] px-1 text-center ${rowBg} group-hover:bg-[var(--fox-grid-bg-hover)] border-l border-sky-500/30 bg-sky-950/40`}
+                        style={{ width: SYNC_COL_PX, minWidth: SYNC_COL_PX }}
+                      >
+                        {(() => {
+                          const syncVal = rowSync.isChecked(i);
+                          if (syncVal === null) {
+                            return (
+                              <span
+                                className="text-[var(--fox-grid-muted)] select-none"
+                                title="Row matches by key"
+                              >
+                                —
+                              </span>
+                            );
+                          }
+                          return (
+                            <input
+                              type="checkbox"
+                              data-testid={`sql-row-sync-check-${i}`}
+                              checked={syncVal}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                rowSync.onToggle(i, e.target.checked);
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              className="rounded border-sky-500/60 accent-sky-500"
+                              title="Include in migrate"
+                            />
+                          );
+                        })()}
+                      </td>
+                    ) : null}
                   </tr>
                 );
               })}
