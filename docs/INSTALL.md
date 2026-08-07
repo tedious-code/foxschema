@@ -130,6 +130,10 @@ Creates **Fox Schema** on your Desktop (macOS `.app` / Windows `.lnk` / Linux `.
 - Double-click → starts the local UI or **reopens the browser** if the server is
   still running (e.g. you closed the browser without `foxschema stop`).
 - The background server keeps running until `foxschema stop`.
+- In **Activity Monitor** (macOS) or **Task Manager** (Windows), the backend is a
+  Node process titled **`foxschema`** (Windows Image Name is still `node.exe` —
+  enable the **Command line** column or run `foxschema doctor` for the PID).
+  Prefer `foxschema stop` over killing it by hand.
 
 ---
 
