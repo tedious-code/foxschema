@@ -80,13 +80,15 @@ function nonKeyColumnsDiffer(
   destRow: unknown[],
   sourceCols: string[],
   destCols: string[],
-  keyNamesLower: Set<string>
+  keyNamesLower: Set<string>,
+  ignoreLower: Set<string>
 ): boolean {
   const destIdx = colIndexMap(destCols);
   for (let i = 0; i < sourceCols.length; i++) {
     const name = sourceCols[i]!;
-    if (keyNamesLower.has(name.toLowerCase())) continue;
-    const di = destIdx.get(name.toLowerCase());
+    const lower = name.toLowerCase();
+    if (keyNamesLower.has(lower) || ignoreLower.has(lower)) continue;
+    const di = destIdx.get(lower);
     if (di === undefined) continue;
     if (!resultValuesEqual(sourceRow[i], destRow[di])) return true;
   }
@@ -98,16 +100,20 @@ function nonKeyColumnsDiffer(
  * - insert: key in source only
  * - update: key in both, non-key values differ
  * - delete: key in dest only
+ *
+ * `ignoreColumns` are excluded from update detection (trigger/audit fields).
  */
 export function classifyRowsByKey(opts: {
   source: ResultGridLike;
   dest: ResultGridLike;
   keyNames: string[];
+  ignoreColumns?: string[];
 }): RowDiffClassification {
-  const { source, dest, keyNames } = opts;
+  const { source, dest, keyNames, ignoreColumns = [] } = opts;
   const sourceKeys = keyColumnsForGrid(keyNames, source.columns);
   const destKeys = keyColumnsForGrid(keyNames, dest.columns);
   const keyNamesLower = new Set(keyNames.map((k) => k.toLowerCase()));
+  const ignoreLower = new Set(ignoreColumns.map((k) => k.toLowerCase()));
 
   if (
     sourceKeys.length === 0 ||
@@ -160,7 +166,8 @@ export function classifyRowsByKey(opts: {
         dst.row,
         source.columns,
         dest.columns,
-        keyNamesLower
+        keyNamesLower,
+        ignoreLower
       )
     ) {
       updates.push({

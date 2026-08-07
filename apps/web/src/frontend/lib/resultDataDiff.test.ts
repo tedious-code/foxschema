@@ -96,4 +96,23 @@ describe('compareResultGrids', () => {
     expect(diff.totalDiffCells).toBe(0);
     expect(diff.baseline.cells.size).toBe(0);
   });
+
+  it('ignores trigger/audit columns when requested', () => {
+    const baseline = {
+      columns: ['id', 'name', 'createdAt', 'updatedBy'],
+      rows: [[1, 'Alice', '2020-01-01', 'alice']],
+    };
+    const other = {
+      columns: ['id', 'name', 'createdAt', 'updatedBy'],
+      rows: [[1, 'Alice', '2024-06-01', 'bob']],
+    };
+    const withoutIgnore = compareResultGrids(baseline, other);
+    expect(withoutIgnore.baseline.modified).toBe(2);
+
+    const withIgnore = compareResultGrids(baseline, other, {
+      ignoreColumns: ['createdAt', 'updatedBy'],
+    });
+    expect(withIgnore.totalDiffCells).toBe(0);
+  });
 });
+

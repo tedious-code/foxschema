@@ -55,6 +55,8 @@ interface Props {
   statementIndex: number;
   source: DataMigrateGrid;
   dest: DataMigrateGrid;
+  /** Trigger/audit columns excluded from UPDATE detection and INSERT/UPDATE SET. */
+  ignoreColumns?: string[];
   onAfterMigrate?: () => void;
   onOpenServerBeamSample?: () => void;
 }
@@ -63,6 +65,7 @@ export const DataMigrateBar: React.FC<Props> = ({
   statementIndex,
   source,
   dest,
+  ignoreColumns = [],
   onAfterMigrate,
   onOpenServerBeamSample,
 }) => {
@@ -119,8 +122,9 @@ export const DataMigrateBar: React.FC<Props> = ({
         source: { columns: source.columns, rows: source.rows },
         dest: { columns: dest.columns, rows: dest.rows },
         keyNames,
+        ignoreColumns,
       }),
-    [source.columns, source.rows, dest.columns, dest.rows, keyNames]
+    [source.columns, source.rows, dest.columns, dest.rows, keyNames, ignoreColumns]
   );
 
   const selected = useMemo(
@@ -203,6 +207,7 @@ export const DataMigrateBar: React.FC<Props> = ({
       ops: selected.ops,
       includeIdentity,
       identityColumns: editability.identityColumns,
+      ignoreColumns,
     });
     if (errors.length) {
       toast({

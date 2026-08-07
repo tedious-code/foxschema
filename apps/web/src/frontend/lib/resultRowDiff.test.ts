@@ -65,7 +65,31 @@ describe('classifyRowsByKey', () => {
     expect(c.inserts).toHaveLength(1);
     expect(c.deletes).toHaveLength(0);
   });
+
+  it('does not treat differing trigger columns as updates when ignored', () => {
+    const columns = ['id', 'name', 'createdAt', 'updatedBy'];
+    const source = {
+      columns,
+      rows: [[1, 'Alice', '2020-01-01', 'src-user']],
+    };
+    const dest = {
+      columns,
+      rows: [[1, 'Alice', '2024-06-01', 'dest-user']],
+    };
+    const without = classifyRowsByKey({ source, dest, keyNames: ['id'] });
+    expect(without.updates).toHaveLength(1);
+
+    const withIgnore = classifyRowsByKey({
+      source,
+      dest,
+      keyNames: ['id'],
+      ignoreColumns: ['createdAt', 'updatedBy'],
+    });
+    expect(withIgnore.updates).toHaveLength(0);
+    expect(withIgnore.totalOps).toBe(0);
+  });
 });
+
 
 describe('selectMigrateOps', () => {
   it('respects checkboxes and caps at 500', () => {

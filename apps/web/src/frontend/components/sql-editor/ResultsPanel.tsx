@@ -25,6 +25,7 @@ import {
   type CellDiffKind,
   type GridDiffSummary,
 } from '../../lib/resultDataDiff';
+import { detectTriggerManagedColumns } from '../../lib/triggerManagedColumns';
 import { buildSampleBookmarks } from '../../lib/sqlEditorSamples';
 import { DataMigrateBar } from './DataMigrateBar';
 import { usePeekGridCrud } from './usePeekGridCrud';
@@ -639,6 +640,8 @@ const SideBySideStatementSection: React.FC<{
   );
   const canCompare = okGrids.length >= 2;
   const [compareOn, setCompareOn] = useState(true);
+  /** Skip createdAt / updatedBy / etc. — values differ across DBs even when rows match. */
+  const [skipTriggerCols, setSkipTriggerCols] = useState(true);
   const [baselineId, setBaselineId] = useState<string>('');
 
   useEffect(() => {
@@ -649,6 +652,16 @@ const SideBySideStatementSection: React.FC<{
   }, [canCompare, okGrids, baselineId]);
 
   const compareActive = canCompare && compareOn && Boolean(baselineId);
+
+  const triggerIgnoreColumns = useMemo(() => {
+    if (!skipTriggerCols) return [] as string[];
+    const names = new Set<string>();
+    for (const g of okGrids) {
+      if (!g.result.ok) continue;
+      for (const c of detectTriggerManagedColumns(g.result.columns)) names.add(c);
+    }
+    return [...names];
+  }, [skipTriggerCols, okGrids]);
 
   const { diffByConnection, badgeByConnection, legendBits } = useMemo(() => {
     const diffByConnection: Record<string, GridDiffSummary> = {};
@@ -672,13 +685,21 @@ const SideBySideStatementSection: React.FC<{
     let totalExtra = 0;
     const missingCols = new Set<string>();
     const extraCols = new Set<string>();
+    const ignoreOpts =
+      triggerIgnoreColumns.length > 0
+        ? { ignoreColumns: triggerIgnoreColumns }
+        : undefined;
 
     for (const g of okGrids) {
       if (g.connectionId === baselineId || !g.result.ok) continue;
-      const pair = compareResultGrids(baselineGrid, {
-        columns: g.result.columns,
-        rows: g.result.rows,
-      });
+      const pair = compareResultGrids(
+        baselineGrid,
+        {
+          columns: g.result.columns,
+          rows: g.result.rows,
+        },
+        ignoreOpts
+      );
       // Merge baseline highlights across all others (union of diffs).
       const prev = diffByConnection[baselineId];
       if (!prev) {
@@ -722,10 +743,13 @@ const SideBySideStatementSection: React.FC<{
     if (extraCols.size > 0) {
       legendBits.push(`cols only in other: ${[...extraCols].join(', ')}`);
     }
+    if (triggerIgnoreColumns.length > 0) {
+      legendBits.push(`skipping ${triggerIgnoreColumns.join(', ')}`);
+    }
     if (legendBits.length === 0) legendBits.push('grids match on this page');
 
     return { diffByConnection, badgeByConnection, legendBits };
-  }, [compareActive, okGrids, baselineId]);
+  }, [compareActive, okGrids, baselineId, triggerIgnoreColumns]);
 
   const [destId, setDestId] = useState<string>('');
   useEffect(() => {
@@ -785,6 +809,21 @@ const SideBySideStatementSection: React.FC<{
                     </option>
                   ))}
                 </select>
+              </label>
+            )}
+            {compareOn && (
+              <label
+                className="flex items-center gap-1 cursor-pointer select-none"
+                title="Ignore trigger/audit columns (createdAt, updatedBy, …) in Compare highlights and Data migrate. Destinations often fill these differently."
+              >
+                <input
+                  type="checkbox"
+                  data-testid={`sql-result-compare-skip-trigger-${statementIndex}`}
+                  checked={skipTriggerCols}
+                  onChange={(e) => setSkipTriggerCols(e.target.checked)}
+                  className="rounded border-slate-600"
+                />
+                Skip trigger cols
               </label>
             )}
             {compareActive && okGrids.length > 2 && (
@@ -847,6 +886,7 @@ const SideBySideStatementSection: React.FC<{
             rows: destGrid.result.rows,
             statementSql: destGrid.statementSql,
           }}
+          ignoreColumns={triggerIgnoreColumns}
           onAfterMigrate={() => onRefresh?.(destGrid.connectionId)}
           onOpenServerBeamSample={insertServerBeamSample}
         />
@@ -864,7 +904,8 @@ const SideBySideStatementSection: React.FC<{
       {compareActive && (
         <p className="text-[10px] text-slate-500 px-0.5" data-testid={`sql-result-compare-hint-${statementIndex}`}>
           Cell colors align by row index; Data migrate matches rows by key columns (source → dest).
-          Use the same ORDER BY when scanning. Cap: 500 ops — larger sets use Server Beam.
+          Skip trigger cols ignores createdAt / updatedBy and similar. Use the same ORDER BY when
+          scanning. Cap: 500 ops — larger sets use Server Beam.
         </p>
       )}
     </section>

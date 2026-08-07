@@ -81,13 +81,17 @@ function mark(
  * Diff `other` against `baseline`. Rows align by index within the current page;
  * columns align by case-insensitive name. Prefer identical ORDER BY on both
  * servers so row indexes mean the same entity.
+ *
+ * `ignoreColumns` skips value compares (e.g. trigger-managed createdAt / updatedBy).
  */
 export function compareResultGrids(
   baseline: ResultGridLike,
-  other: ResultGridLike
+  other: ResultGridLike,
+  opts?: { ignoreColumns?: string[] }
 ): ResultPairDiff {
   const baseSum = emptySummary();
   const otherSum = emptySummary();
+  const ignore = new Set((opts?.ignoreColumns ?? []).map((c) => c.toLowerCase()));
 
   const baseByName = new Map<string, number>();
   for (let i = 0; i < baseline.columns.length; i++) {
@@ -103,11 +107,13 @@ export function compareResultGrids(
   }
 
   for (const [k, idx] of baseByName) {
+    if (ignore.has(k)) continue;
     if (!otherByName.has(k)) {
       baseSum.missingColumns.push(baseline.columns[idx]!);
     }
   }
   for (const [k, idx] of otherByName) {
+    if (ignore.has(k)) continue;
     if (!baseByName.has(k)) {
       otherSum.extraColumns.push(other.columns[idx]!);
     }
@@ -118,6 +124,7 @@ export function compareResultGrids(
 
   const shared: { name: string; baseIdx: number; otherIdx: number }[] = [];
   for (const [k, baseIdx] of baseByName) {
+    if (ignore.has(k)) continue;
     const otherIdx = otherByName.get(k);
     if (otherIdx === undefined) continue;
     shared.push({ name: baseline.columns[baseIdx]!, baseIdx, otherIdx });
@@ -140,7 +147,7 @@ export function compareResultGrids(
       }
       // Extra-only columns on this row
       for (const [k, otherIdx] of otherByName) {
-        if (baseByName.has(k)) continue;
+        if (ignore.has(k) || baseByName.has(k)) continue;
         mark(otherSum, r, otherIdx, 'extra');
       }
       continue;
@@ -157,13 +164,13 @@ export function compareResultGrids(
 
     // Columns only on other → extra cells
     for (const [k, otherIdx] of otherByName) {
-      if (baseByName.has(k)) continue;
+      if (ignore.has(k) || baseByName.has(k)) continue;
       mark(otherSum, r, otherIdx, 'extra');
     }
     // Columns only on baseline → missing on other side is shown via missingColumns;
     // tint baseline cells so the gap is visible while scanning.
     for (const [k, baseIdx] of baseByName) {
-      if (otherByName.has(k)) continue;
+      if (ignore.has(k) || otherByName.has(k)) continue;
       mark(baseSum, r, baseIdx, 'missing');
     }
   }

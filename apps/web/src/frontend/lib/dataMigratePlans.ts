@@ -46,6 +46,23 @@ function alignRowToColumns(
   });
 }
 
+function stripIgnoredColumns(
+  columns: string[],
+  row: unknown[],
+  ignoreLower: Set<string>
+): { columns: string[]; row: unknown[] } {
+  if (ignoreLower.size === 0) return { columns, row };
+  const nextCols: string[] = [];
+  const nextRow: unknown[] = [];
+  for (let i = 0; i < columns.length; i++) {
+    const name = columns[i]!;
+    if (ignoreLower.has(name.toLowerCase())) continue;
+    nextCols.push(name);
+    nextRow.push(row[i]);
+  }
+  return { columns: nextCols, row: nextRow };
+}
+
 export function buildDataMigratePlans(opts: {
   tableName: string;
   dialect: string;
@@ -56,6 +73,11 @@ export function buildDataMigratePlans(opts: {
   /** When true, include identity/autoincrement values on INSERT (preserve source IDs). */
   includeIdentity: boolean;
   identityColumns: Set<string>;
+  /**
+   * Skip these columns on INSERT/UPDATE (trigger-managed createdAt / updatedBy).
+   * Destination triggers can populate them.
+   */
+  ignoreColumns?: string[];
 }): { plans: DataMigratePlanItem[]; errors: string[] } {
   const {
     tableName,
@@ -66,8 +88,10 @@ export function buildDataMigratePlans(opts: {
     ops,
     includeIdentity,
     identityColumns,
+    ignoreColumns = [],
   } = opts;
 
+  const ignoreLower = new Set(ignoreColumns.map((c) => c.toLowerCase()));
   const sourceKeys = keyColumnsForGrid(keyNames, sourceColumns);
   const destKeys = keyColumnsForGrid(keyNames, destColumns);
   const plans: DataMigratePlanItem[] = [];
@@ -79,10 +103,11 @@ export function buildDataMigratePlans(opts: {
         errors.push(`insert ${op.keyLabel}: missing source row`);
         continue;
       }
+      const stripped = stripIgnoredColumns(sourceColumns, op.sourceRow, ignoreLower);
       const built = buildPeekInsert({
         tableName,
         dialect,
-        values: rowToValues(sourceColumns, op.sourceRow),
+        values: rowToValues(stripped.columns, stripped.row),
         // Empty skip-set when includeIdentity — keep source ID values.
         identityColumns: includeIdentity ? undefined : identityColumns,
       });
@@ -100,15 +125,17 @@ export function buildDataMigratePlans(opts: {
         continue;
       }
       // UPDATE runs on dest: WHERE uses dest keys; SET uses source values.
+      // Drop trigger/audit columns so we don't overwrite dest trigger output.
       const originalAligned = alignRowToColumns(destColumns, op.destRow, sourceColumns);
-      const draftAligned = op.sourceRow;
-      const keysOnSource: PeekKeyColumn[] = sourceKeys;
+      const srcStripped = stripIgnoredColumns(sourceColumns, op.sourceRow, ignoreLower);
+      const origStripped = stripIgnoredColumns(sourceColumns, originalAligned, ignoreLower);
+      const keysOnSource: PeekKeyColumn[] = keyColumnsForGrid(keyNames, srcStripped.columns);
       const built = buildPeekUpdate({
         tableName,
         dialect,
-        columns: sourceColumns,
-        originalRow: originalAligned,
-        draftRow: draftAligned,
+        columns: srcStripped.columns,
+        originalRow: origStripped.row,
+        draftRow: srcStripped.row,
         keyColumns: keysOnSource,
       });
       if ('error' in built) {
