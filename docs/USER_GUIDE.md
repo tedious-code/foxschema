@@ -129,11 +129,23 @@ compare / migrate). It lives in the same local web UI you open with `foxschema`.
    that text is executed (variables still expand).
 5. Click **Run**. Results appear below, grouped by connection (stack or side-by-side).
 
-6. **Compare data across servers** — switch the results layout to **Side-by-side**,
-   check two or more Destinations, and leave **Compare** on. Cells that differ from
-   the baseline connection are colored: amber (modified), rose (missing on the other
-   side), emerald (extra). Pick the baseline with **vs**. Rows align by index on the
-   current page, so use the same `ORDER BY` on each server.
+6. **Compare data across servers** — switch the results layout to **Side-by-side**
+   and check two or more Destinations. **Compare data** is off by default so grids
+   stay plain until you turn it on. Then cells that differ from the source are
+   colored: amber (modified), rose (missing), emerald (extra). Pick **source**
+   (and **dest** when more than two). **Skip trigger cols** (on by default) ignores
+   audit fields such as `createdAt` / `updatedBy`. Cell tinting aligns by row
+   index — use the same `ORDER BY` when scanning.
+
+7. **Data migrate (≤500 row ops)** — with Compare on, **Data migrate** appears.
+   You choose **Add / Edit / Delete** (none selected until you check them). Safety
+   assists: **Transaction** (all-or-nothing when Stop is on) and **Stop on error** /
+   **Continue on error**. Optional **Include identity / IDs**. With **Skip trigger
+   cols**, migrate does not treat audit columns as edits and omits them from
+   INSERT/UPDATE so destination triggers can fill them. Progress lists each row;
+   failures show the key and error. Fox snapshots affected destination rows and
+   records the run under **Data migrate history**. More than 500 ops shows a toast
+   with Server Beam instructions instead of applying.
 
 Tips:
 

@@ -25,6 +25,9 @@ import {
   type CellDiffKind,
   type GridDiffSummary,
 } from '../../lib/resultDataDiff';
+import { detectTriggerManagedColumns } from '../../lib/triggerManagedColumns';
+import { buildSampleBookmarks } from '../../lib/sqlEditorSamples';
+import { DataMigrateBar } from './DataMigrateBar';
 import { usePeekGridCrud } from './usePeekGridCrud';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
 
@@ -636,7 +639,10 @@ const SideBySideStatementSection: React.FC<{
     [items]
   );
   const canCompare = okGrids.length >= 2;
-  const [compareOn, setCompareOn] = useState(true);
+  /** Off by default — side-by-side shows plain grids until the user opts into Compare. */
+  const [compareOn, setCompareOn] = useState(false);
+  /** Skip createdAt / updatedBy / etc. — values differ across DBs even when rows match. */
+  const [skipTriggerCols, setSkipTriggerCols] = useState(true);
   const [baselineId, setBaselineId] = useState<string>('');
 
   useEffect(() => {
@@ -647,6 +653,16 @@ const SideBySideStatementSection: React.FC<{
   }, [canCompare, okGrids, baselineId]);
 
   const compareActive = canCompare && compareOn && Boolean(baselineId);
+
+  const triggerIgnoreColumns = useMemo(() => {
+    if (!skipTriggerCols) return [] as string[];
+    const names = new Set<string>();
+    for (const g of okGrids) {
+      if (!g.result.ok) continue;
+      for (const c of detectTriggerManagedColumns(g.result.columns)) names.add(c);
+    }
+    return [...names];
+  }, [skipTriggerCols, okGrids]);
 
   const { diffByConnection, badgeByConnection, legendBits } = useMemo(() => {
     const diffByConnection: Record<string, GridDiffSummary> = {};
@@ -670,13 +686,21 @@ const SideBySideStatementSection: React.FC<{
     let totalExtra = 0;
     const missingCols = new Set<string>();
     const extraCols = new Set<string>();
+    const ignoreOpts =
+      triggerIgnoreColumns.length > 0
+        ? { ignoreColumns: triggerIgnoreColumns }
+        : undefined;
 
     for (const g of okGrids) {
       if (g.connectionId === baselineId || !g.result.ok) continue;
-      const pair = compareResultGrids(baselineGrid, {
-        columns: g.result.columns,
-        rows: g.result.rows,
-      });
+      const pair = compareResultGrids(
+        baselineGrid,
+        {
+          columns: g.result.columns,
+          rows: g.result.rows,
+        },
+        ignoreOpts
+      );
       // Merge baseline highlights across all others (union of diffs).
       const prev = diffByConnection[baselineId];
       if (!prev) {
@@ -720,10 +744,31 @@ const SideBySideStatementSection: React.FC<{
     if (extraCols.size > 0) {
       legendBits.push(`cols only in other: ${[...extraCols].join(', ')}`);
     }
+    if (triggerIgnoreColumns.length > 0) {
+      legendBits.push(`skipping ${triggerIgnoreColumns.join(', ')}`);
+    }
     if (legendBits.length === 0) legendBits.push('grids match on this page');
 
     return { diffByConnection, badgeByConnection, legendBits };
-  }, [compareActive, okGrids, baselineId]);
+  }, [compareActive, okGrids, baselineId, triggerIgnoreColumns]);
+
+  const [destId, setDestId] = useState<string>('');
+  useEffect(() => {
+    if (!compareActive) return;
+    const others = okGrids.filter((g) => g.connectionId !== baselineId);
+    if (!destId || !others.some((g) => g.connectionId === destId)) {
+      setDestId(others[0]?.connectionId ?? '');
+    }
+  }, [compareActive, okGrids, baselineId, destId]);
+
+  const sourceGrid = okGrids.find((g) => g.connectionId === baselineId);
+  const destGrid = okGrids.find((g) => g.connectionId === destId);
+
+  const insertServerBeamSample = () => {
+    const sample = buildSampleBookmarks().find((b) => b.id === 'sample-server-beam-chunked');
+    if (!sample) return;
+    useSqlEditorStore.getState().setSql(sample.sql);
+  };
 
   return (
     <section
@@ -748,11 +793,16 @@ const SideBySideStatementSection: React.FC<{
                 className="rounded border-slate-600"
               />
               <GitCompare className="w-3 h-3 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
-              Compare
+              Compare data
             </label>
+            {!compareOn && (
+              <span className="text-slate-600 font-medium">
+                Turn on to highlight diffs and choose Add / Edit / Delete
+              </span>
+            )}
             {compareOn && (
               <label className="flex items-center gap-1">
-                <span className="text-slate-500">vs</span>
+                <span className="text-slate-500">source</span>
                 <select
                   data-testid={`sql-result-compare-baseline-${statementIndex}`}
                   value={baselineId}
@@ -764,6 +814,40 @@ const SideBySideStatementSection: React.FC<{
                       {g.label}
                     </option>
                   ))}
+                </select>
+              </label>
+            )}
+            {compareOn && (
+              <label
+                className="flex items-center gap-1 cursor-pointer select-none"
+                title="Ignore trigger/audit columns (createdAt, updatedBy, …) in Compare highlights and Data migrate. Destinations often fill these differently."
+              >
+                <input
+                  type="checkbox"
+                  data-testid={`sql-result-compare-skip-trigger-${statementIndex}`}
+                  checked={skipTriggerCols}
+                  onChange={(e) => setSkipTriggerCols(e.target.checked)}
+                  className="rounded border-slate-600"
+                />
+                Skip trigger cols
+              </label>
+            )}
+            {compareActive && okGrids.length > 2 && (
+              <label className="flex items-center gap-1">
+                <span className="text-slate-500">dest</span>
+                <select
+                  data-testid={`sql-result-compare-dest-${statementIndex}`}
+                  value={destId}
+                  onChange={(e) => setDestId(e.target.value)}
+                  className="bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-slate-200 max-w-[12rem]"
+                >
+                  {okGrids
+                    .filter((g) => g.connectionId !== baselineId)
+                    .map((g) => (
+                      <option key={g.connectionId} value={g.connectionId}>
+                        {g.label}
+                      </option>
+                    ))}
                 </select>
               </label>
             )}
@@ -789,6 +873,30 @@ const SideBySideStatementSection: React.FC<{
           </div>
         )}
       </header>
+      {compareActive && sourceGrid?.result.ok && destGrid?.result.ok && (
+        <DataMigrateBar
+          statementIndex={statementIndex}
+          source={{
+            connectionId: sourceGrid.connectionId,
+            dialect: sourceGrid.dialect,
+            label: sourceGrid.label,
+            columns: sourceGrid.result.columns,
+            rows: sourceGrid.result.rows,
+            statementSql: sourceGrid.statementSql,
+          }}
+          dest={{
+            connectionId: destGrid.connectionId,
+            dialect: destGrid.dialect,
+            label: destGrid.label,
+            columns: destGrid.result.columns,
+            rows: destGrid.result.rows,
+            statementSql: destGrid.statementSql,
+          }}
+          ignoreColumns={triggerIgnoreColumns}
+          onAfterMigrate={() => onRefresh?.(destGrid.connectionId)}
+          onOpenServerBeamSample={insertServerBeamSample}
+        />
+      )}
       <ResizablePaneRow
         items={items}
         rowKey={`side-${statementIndex}-${items.map((x) => x.key).join('|')}`}
@@ -801,8 +909,9 @@ const SideBySideStatementSection: React.FC<{
       />
       {compareActive && (
         <p className="text-[10px] text-slate-500 px-0.5" data-testid={`sql-result-compare-hint-${statementIndex}`}>
-          Rows align by index on this page — use the same ORDER BY on each server for a meaningful
-          compare. Column names match case-insensitively.
+          Cell colors align by row index. Choose Add / Edit / Delete yourself; Transaction and Stop /
+          Continue are safety assists. Skip trigger cols ignores createdAt / updatedBy. Same ORDER BY
+          when scanning. Cap: 500 ops — larger sets use Server Beam.
         </p>
       )}
     </section>

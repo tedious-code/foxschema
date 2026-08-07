@@ -116,11 +116,17 @@ describe.skipIf(!ready)('SQL Editor · SQLite multi-credential', () => {
     await driver.waitForSelector('[data-testid="sql-result-compare-toggle-0"]', {
       timeout: 10_000,
     });
+    // Compare data is off by default — plain side-by-side until opted in.
+    expect(await sql.compareToggle(0).isChecked()).toBe(false);
+    expect(await sql.diffCellCount()).toBe(0);
+    expect(await driver.locator('[data-testid="sql-data-migrate-bar-0"]').count()).toBe(0);
+
+    await sql.compareToggle(0).click();
     expect(await sql.compareToggle(0).isChecked()).toBe(true);
     expect(await sql.compareLegend(0).isVisible()).toBe(true);
     expect(await sql.compareBaselineSelect(0).isVisible()).toBe(true);
 
-    // Wait for highlight pass after Compare defaults on.
+    // Wait for highlight pass after Compare is turned on.
     await driver.waitForFunction(
       () =>
         document.querySelectorAll('[data-testid="sql-results-side-by-side"] td[data-diff]').length >
@@ -134,14 +140,35 @@ describe.skipIf(!ready)('SQL Editor · SQLite multi-credential', () => {
     expect(anyDiff).toBeGreaterThanOrEqual(modified);
 
     const results = await sql.resultsText();
-    expect(results).toMatch(/baseline/i);
+    expect(results).toMatch(/baseline|source/i);
     expect(results).toMatch(/differ|match/i);
 
-    // Capture the colored compare view for the PR / walkthrough.
+    // Data migrate bar: Add / Edit / Delete (user opts in; none checked by default).
+    await driver.waitForSelector('[data-testid="sql-data-migrate-bar-0"]', {
+      timeout: 10_000,
+    });
+    expect(await driver.locator('[data-testid="sql-data-migrate-insert-0"]').isVisible()).toBe(
+      true
+    );
+    expect(await driver.locator('[data-testid="sql-data-migrate-insert-0"]').isChecked()).toBe(
+      false
+    );
+    expect(await driver.locator('[data-testid="sql-data-migrate-update-0"]').isChecked()).toBe(
+      false
+    );
+    expect(await driver.locator('[data-testid="sql-data-migrate-delete-0"]').isChecked()).toBe(
+      false
+    );
+    expect(await driver.locator('[data-testid="sql-data-migrate-tx-0"]').isVisible()).toBe(true);
+    expect(await driver.locator('[data-testid="sql-data-migrate-identity-0"]').isVisible()).toBe(
+      true
+    );
+
+    // Capture the colored compare + migrate bar for the PR / walkthrough.
     await saveScreenshot(driver, 'sql-editor-data-compare');
     await saveSeoScreenshot(driver, 'sql-editor-data-compare');
 
-    // Toggle Compare off → highlights clear.
+    // Toggle Compare off → highlights and migrate bar clear.
     await sql.compareToggle(0).click();
     await driver.waitForFunction(
       () =>
@@ -150,6 +177,7 @@ describe.skipIf(!ready)('SQL Editor · SQLite multi-credential', () => {
       { timeout: 10_000 }
     );
     expect(await sql.diffCellCount()).toBe(0);
+    expect(await driver.locator('[data-testid="sql-data-migrate-bar-0"]').count()).toBe(0);
   });
 
   it('shows the statement strip for multi-statement SQL', async () => {
