@@ -25,11 +25,11 @@ Covers everything since **`v0.2.36`**.
 - **Maximize** opens Compare fullscreen for more grid space (Close / Esc).
 - Insert / delete rows tint **both** grids (including name-only keys).
 
-![Compare — Source + three Targets with Sync scroll and CSV all](images/release-0.2.49/compare-multi-target-sync-scroll.png)
+![Compare — Source + three Targets with Sync scroll and CSV all](https://raw.githubusercontent.com/tedious-code/foxschema/main/docs/images/release-0.2.49/compare-multi-target-sync-scroll.png)
 
-![Compare — Sync scroll keeps all grids aligned while scrolling](images/release-0.2.49/compare-multi-target-scrolled.png)
+![Compare — Sync scroll keeps all grids aligned while scrolling](https://raw.githubusercontent.com/tedious-code/foxschema/main/docs/images/release-0.2.49/compare-multi-target-scrolled.png)
 
-![Compare — maximized fullscreen with Sync scroll and CSV all](images/release-0.2.49/compare-multi-target-maximized.png)
+![Compare — maximized fullscreen with Sync scroll and CSV all](https://raw.githubusercontent.com/tedious-code/foxschema/main/docs/images/release-0.2.49/compare-multi-target-maximized.png)
 
 ### SQL Editor
 
