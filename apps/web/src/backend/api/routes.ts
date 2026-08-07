@@ -522,10 +522,21 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     }
     // Grid CRUD also needs the matching Data grid permission so Access control
     // can allow SQL DML without exposing Add/Edit/Delete on Peek / results.
+    // Require the SQL verb to match the claimed action so a client cannot label
+    // datagridAction=insert while sending UPDATE/DELETE (or DDL).
     if (datagridAction !== undefined) {
       if (!isDatagridAction(datagridAction)) {
         res.status(400).json({ error: 'datagridAction must be insert, update, or delete.' });
         return;
+      }
+      for (const sql of statements as string[]) {
+        const verb = statementVerb(sql);
+        if (verb !== datagridAction) {
+          res.status(400).json({
+            error: `datagridAction (${datagridAction}) must match SQL verb (${verb ?? 'unknown'}).`,
+          });
+          return;
+        }
       }
       needed.add(DATAGRID_ACTION_PERMISSION[datagridAction]);
     }
