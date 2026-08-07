@@ -21,9 +21,9 @@ import {
 } from '../../api/dataMigrateApi';
 import { buildDataMigratePlans, buildDestSnapshotJson } from '../../lib/dataMigratePlans';
 import {
-  allDiffKeyLabels,
   classifyRowsByKey,
   DATA_MIGRATE_ROW_CAP,
+  diffKeyLabelsForOps,
   filterOpsByKeyLabels,
   migrateGridsAreComplete,
   selectMigrateOps,
@@ -163,25 +163,28 @@ export const DataMigrateBar: React.FC<Props> = ({
     [source.columns, source.rows, dest.columns, dest.rows, keyNames, ignoreColumns]
   );
 
-  const diffLabelsKey = useMemo(
-    () => allDiffKeyLabels(classification).join('\0'),
-    [classification]
+  const opsEnabled = useMemo(
+    () => ({ insert: doInsert, update: doUpdate, delete: doDelete }),
+    [doInsert, doUpdate, doDelete]
+  );
+
+  /** Sync checkboxes track enabled Ops — uncheck Add/Edit/Delete clears those Sync rows. */
+  const enabledSyncLabelsKey = useMemo(
+    () => diffKeyLabelsForOps(classification, opsEnabled).join('\0'),
+    [classification, opsEnabled]
   );
 
   useEffect(() => {
-    if (!onSelectedSyncKeysChange || !diffLabelsKey) return;
-    const labels = diffLabelsKey.split('\0').filter(Boolean);
+    if (!onSelectedSyncKeysChange) return;
+    const labels = enabledSyncLabelsKey
+      ? enabledSyncLabelsKey.split('\0').filter(Boolean)
+      : [];
     onSelectedSyncKeysChange(new Set(labels));
-  }, [diffLabelsKey, onSelectedSyncKeysChange]);
+  }, [enabledSyncLabelsKey, onSelectedSyncKeysChange]);
 
   const selected = useMemo(
-    () =>
-      selectMigrateOps(classification, {
-        insert: doInsert,
-        update: doUpdate,
-        delete: doDelete,
-      }),
-    [classification, doInsert, doUpdate, doDelete]
+    () => selectMigrateOps(classification, opsEnabled),
+    [classification, opsEnabled]
   );
 
   const filtered = useMemo(
@@ -191,7 +194,7 @@ export const DataMigrateBar: React.FC<Props> = ({
 
   const syncAll = () => {
     if (!onSelectedSyncKeysChange) return;
-    onSelectedSyncKeysChange(new Set(allDiffKeyLabels(classification)));
+    onSelectedSyncKeysChange(new Set(diffKeyLabelsForOps(classification, opsEnabled)));
   };
 
   const openHistory = async () => {
@@ -598,7 +601,7 @@ export const DataMigrateBar: React.FC<Props> = ({
           data-testid={`sql-data-migrate-sync-all-${statementIndex}`}
           onClick={syncAll}
           className="inline-flex items-center gap-1 rounded-md border border-sky-500/40 bg-sky-950/50 px-2 py-0.5 text-sky-200 hover:bg-sky-900/60"
-          title="Re-check all differing rows in the Sync column"
+          title="Re-check Sync for rows matching the enabled Add / Edit / Delete ops"
         >
           <CheckCheck className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
           Sync all

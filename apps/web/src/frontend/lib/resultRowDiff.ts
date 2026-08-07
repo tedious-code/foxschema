@@ -236,6 +236,24 @@ export function allDiffKeyLabels(classification: RowDiffClassification): string[
   ].map((o) => o.keyLabel);
 }
 
+/** Differing key labels for the currently enabled ops only (Sync column follows Ops). */
+export function diffKeyLabelsForOps(
+  classification: RowDiffClassification,
+  enabled: { insert: boolean; update: boolean; delete: boolean }
+): string[] {
+  const labels: string[] = [];
+  if (enabled.insert) {
+    for (const o of classification.inserts) labels.push(o.keyLabel);
+  }
+  if (enabled.update) {
+    for (const o of classification.updates) labels.push(o.keyLabel);
+  }
+  if (enabled.delete) {
+    for (const o of classification.deletes) labels.push(o.keyLabel);
+  }
+  return labels;
+}
+
 /**
  * Keep only ops whose keyLabel is in `selected` (row Sync checkboxes).
  * Cap still applies after filtering.
