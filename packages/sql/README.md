@@ -29,15 +29,16 @@ const mysql = resolveDialect('mysql');
 const sqlserver = resolveDialect('sqlserver');
 
 const canonical = mysql.parseType('decimal(10,2)'); // → { base: 'decimal', … }
-sqlserver.renderType(canonical); // 'decimal(10,2)'
-resolveDialect('postgres').renderType(canonical); // 'numeric(10,2)'
+sqlserver.renderType(canonical); // { sql: 'decimal(10,2)' }
+resolveDialect('postgres').renderType(canonical); // { sql: 'numeric(10,2)' }
 ```
 
-`renderType` returns a `string` or `{ sql: string }` depending on the dialect, so
-narrow it before use. Precision is preserved where the target supports it, and
-dropped where it does not — `mysql datetime(6)` renders as Postgres `timestamp`
-and SQL Server `datetime2`. If a declared precision matters to you, compare the
-rendered type against what you asked for rather than assuming it survived.
+`renderType` always returns `{ sql, warning? }` — read `.sql`, and check
+`.warning` for mappings the target could only approximate. Precision is
+preserved where the target supports it, and dropped where it does not —
+`mysql datetime(6)` renders as Postgres `timestamp` and SQL Server `datetime2`.
+If a declared precision matters to you, compare the rendered type against what
+you asked for rather than assuming it survived.
 
 **Statement splitting** that understands comments, dollar-quoting, and string
 literals — not a `split(';')`:

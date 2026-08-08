@@ -13,8 +13,13 @@
     "moduleResolution": "nodenext",
     "strict": true,
     "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
+    // No maps. `files` in the published manifest is ["dist", …] — src/ is not
+    // in the tarball, so every .js.map / .d.ts.map would point at a
+    // `../src/*.ts` that does not exist on the consumer's disk: ~110 dead files
+    // that break Go-to-Definition instead of enabling it. Ship src/ first if
+    // these are ever wanted back.
+    "declarationMap": false,
+    "sourceMap": false,
     "outDir": "dist",
     "rootDir": "src",
     "skipLibCheck": true,

@@ -1,6 +1,32 @@
 import type { ConnectionOptions } from '../../interfaces/schema-provider.interface.js';
 
 /**
+ * `URL` is a WHATWG global, not a DOM API: Node ≥10, Deno, workers, and every
+ * browser have it. The build runs with `lib: ["es2022"]` and `types: []` on
+ * purpose — adding `dom` would satisfy `URL` but would also make `document`,
+ * `window` and `localStorage` type-check cleanly inside a package that has to
+ * run in Node, a worker, and on an edge runtime. So declare just the members
+ * used here.
+ *
+ * This declaration is deliberately module-scoped rather than a global `.d.ts`:
+ * a global `declare class URL` collides with `lib.dom`'s own `URL` (TS2300) in
+ * every workspace tsconfig that pulls `packages/` into its program, and is only
+ * invisible today because those configs set `skipLibCheck`.
+ */
+declare const URL: {
+  new (
+    url: string,
+    base?: string
+  ): {
+    readonly username: string;
+    readonly password: string;
+    readonly hostname: string;
+    readonly port: string;
+    readonly pathname: string;
+  };
+};
+
+/**
  * Build a DB2 CLI connection string (semicolon-delimited key=value pairs).
  * ibm_db does not accept db2:// URLs — those must be converted first.
  *

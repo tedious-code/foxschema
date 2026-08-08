@@ -39,9 +39,12 @@ rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
 cpSync(join(pkgRoot, 'dist'), join(outDir, 'dist'), { recursive: true });
 
+// NOTICE ships too: Apache-2.0 §4(d) requires redistributing it when the work
+// carries one, and apps/cli/scripts/prepare-publish.mjs already does.
 for (const [from, to] of [
   [join(pkgRoot, 'README.md'), 'README.md'],
   [join(repoRoot, 'LICENSE'), 'LICENSE'],
+  [join(repoRoot, 'NOTICE'), 'NOTICE'],
 ]) {
   if (existsSync(from)) cpSync(from, join(outDir, to));
   else console.log(`⚠ missing ${from} — publishing without it`);
@@ -50,9 +53,12 @@ for (const [from, to] of [
 // Carry metadata across, but replace anything that describes the workspace
 // layout. `scripts` is dropped deliberately: a stray prepublishOnly in the
 // staging folder would try to rebuild from sources that are not there.
+// `private` is the workspace manifest's publish guard — the whole point of this
+// staging folder is to be the one copy that IS publishable, so drop it here.
 const {
   scripts: _scripts,
   publishConfig: _publishConfig,
+  private: _private,
   '//': _note,
   ...rest
 } = src;
@@ -70,7 +76,7 @@ writeFileSync(
           default: './dist/index.js',
         },
       },
-      files: ['dist', 'README.md', 'LICENSE'],
+      files: ['dist', 'README.md', 'LICENSE', 'NOTICE'],
       publishConfig: { access: 'public' },
     },
     null,
