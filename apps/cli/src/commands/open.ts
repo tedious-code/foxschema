@@ -341,9 +341,12 @@ export async function runOpen(opts: OpenOptions = {}): Promise<void> {
 
   if (await isHealthy(port)) {
     if (await isStaleUiServer(port, installedVersion)) {
+      const hasShell = await isUiShellPresent(port);
       console.log(
         chalk.yellow(
-          `Fox Schema on ${url} is outdated (installed CLI is ${installedVersion}) — restarting…`
+          hasShell
+            ? `Fox Schema on ${url} is outdated (installed CLI is ${installedVersion}) — restarting…`
+            : `Fox Schema API on ${url} has no UI (empty / Cannot GET /) — restarting…`
         )
       );
       await stopForRelaunch(port);
