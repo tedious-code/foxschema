@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { isStaleUiServer, probeRunningVersion } from '../open.js';
+import { isStaleUiServer, isUiShellPresent, probeRunningVersion } from '../open.js';
+
+function spaHtml(): Response {
+  return new Response(
+    '<!doctype html><html><body><div id="app">Fox Schema</div><script src="/assets/index.js"></script></body></html>',
+    { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } }
+  );
+}
 
 describe('isStaleUiServer', () => {
   afterEach(() => {
@@ -12,6 +19,7 @@ describe('isStaleUiServer', () => {
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
+        if (url.endsWith(':3210/') || url.endsWith('3210/')) return spaHtml();
         if (url.includes('/api/files/imports')) {
           return new Response('Not Found', { status: 404 });
         }
@@ -29,6 +37,7 @@ describe('isStaleUiServer', () => {
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
+        if (url.endsWith(':3210/') || url.endsWith('3210/')) return spaHtml();
         if (url.includes('/api/files/imports')) {
           return new Response(JSON.stringify({ imports: [] }), {
             status: 200,
@@ -47,11 +56,12 @@ describe('isStaleUiServer', () => {
     await expect(isStaleUiServer(3210, '0.2.10')).resolves.toBe(true);
   });
 
-  it('is not stale when capability routes exist and versions match', async () => {
+  it('is not stale when UI shell + capability routes exist and versions match', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
+        if (url.endsWith(':3210/') || url.endsWith('3210/')) return spaHtml();
         if (url.includes('/api/files/imports')) {
           return new Response(JSON.stringify({ imports: [] }), {
             status: 200,
@@ -74,11 +84,32 @@ describe('isStaleUiServer', () => {
     await expect(isStaleUiServer(3210, '0.2.10')).resolves.toBe(false);
   });
 
+  it('is stale when API is healthy but GET / is Cannot GET (API-only)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith(':3210/') || url.endsWith('3210/')) {
+          return new Response('<pre>Cannot GET /</pre>', {
+            status: 404,
+            headers: { 'content-type': 'text/html' },
+          });
+        }
+        return new Response(JSON.stringify({ ok: true, version: '0.2.49' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      })
+    );
+    await expect(isStaleUiServer(3210, '0.2.49')).resolves.toBe(true);
+  });
+
   it('is stale when running version differs from installed CLI', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
+        if (url.endsWith(':3210/') || url.endsWith('3210/')) return spaHtml();
         if (url.includes('/api/files/imports')) {
           return new Response(JSON.stringify({ imports: [] }), {
             status: 200,
@@ -98,6 +129,34 @@ describe('isStaleUiServer', () => {
       })
     );
     await expect(isStaleUiServer(3210, '0.2.10')).resolves.toBe(true);
+  });
+});
+
+describe('isUiShellPresent', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('is false for Express Cannot GET /', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response('<pre>Cannot GET /</pre>', {
+          status: 404,
+          headers: { 'content-type': 'text/html' },
+        })
+      )
+    );
+    await expect(isUiShellPresent(3210)).resolves.toBe(false);
+  });
+
+  it('is true for SPA index.html', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => spaHtml())
+    );
+    await expect(isUiShellPresent(3210)).resolves.toBe(true);
   });
 });
 
