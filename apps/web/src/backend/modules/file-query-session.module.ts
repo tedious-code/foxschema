@@ -14,6 +14,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { capacityMessage, importCapacity } from './import-capacity';
 import {
   fileQueryTempDir,
   type FileQueryFormat,
@@ -42,8 +43,25 @@ export type FileUploadSession = {
 };
 
 const SESSION_TTL_MS = 60 * 60 * 1000;
-/** Assembled upload size cap (disk). */
+
+/**
+ * Ceiling on the assembled upload, whatever the host reports.
+ *
+ * The disk write would happily take more, but commit reads the whole file into
+ * one string and parses it into a row matrix, so the real limit is memory —
+ * see import-capacity.ts for the two measured ceilings.
+ */
 export const MAX_UPLOAD_BYTES = 64 * 1024 * 1024;
+
+/**
+ * What this process will actually accept right now: the lower of the static
+ * cap and what the live heap can survive parsing. A 512 MB container and a
+ * 16 GB workstation get different, honest answers instead of one constant that
+ * is too strict on one and a crash on the other.
+ */
+export function uploadLimitBytes(): number {
+  return Math.min(MAX_UPLOAD_BYTES, importCapacity().maxBytes);
+}
 
 const sessions = new Map<string, FileUploadSession>();
 
@@ -157,8 +175,14 @@ export function appendUploadChunk(userId: string, id: string, chunk: Buffer | st
   const s = getUploadSession(userId, id);
   if (!s) throw new Error('Upload session not found or expired');
   const buf = typeof chunk === 'string' ? Buffer.from(chunk, 'utf8') : chunk;
-  if (s.bytes + buf.length > MAX_UPLOAD_BYTES) {
-    throw new Error(`Upload too large (max ${MAX_UPLOAD_BYTES} bytes). Use a smaller file or split it.`);
+  const limit = uploadLimitBytes();
+  if (s.bytes + buf.length > limit) {
+    // Fail on the chunk that crosses the line, not after the whole upload:
+    // the client can stop immediately, and the message names the real ceiling
+    // for this host rather than a constant that may not apply to it.
+    throw new Error(
+      `Upload too large (max ${Math.round(limit / 1024 / 1024)} MB). ${capacityMessage()}`
+    );
   }
   appendFileSync(s.uploadPath, buf);
   s.bytes += buf.length;
