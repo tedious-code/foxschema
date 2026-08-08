@@ -34,6 +34,7 @@ import {
   type DataMigrateRunStatus,
 } from '../modules/data-migrate-history.module';
 import { executeDataMigrateOps, type DataMigrateExecOp } from './data-migrate-execute';
+import { isSingleSqlStatement } from './single-statement';
 import { AppSettingsStore } from '../modules/app-settings.module';
 import { rateLimit } from './rate-limit';
 import {
@@ -530,6 +531,14 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
         return;
       }
       for (const sql of statements as string[]) {
+        // A batch would smuggle a second verb past the per-action permission
+        // below — see isSingleSqlStatement.
+        if (!isSingleSqlStatement(sql)) {
+          res.status(400).json({
+            error: 'A Data grid write must be a single statement.',
+          });
+          return;
+        }
         const verb = statementVerb(sql);
         if (verb !== datagridAction) {
           res.status(400).json({
@@ -862,6 +871,11 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
             });
             return;
           }
+        }
+        // Same batch-smuggling guard as /sql/execute — see isSingleSqlStatement.
+        if (!isSingleSqlStatement(o.sql)) {
+          res.status(400).json({ error: 'Each op.sql must be a single statement.' });
+          return;
         }
         const verb = statementVerb(o.sql);
         if (verb !== o.op) {
