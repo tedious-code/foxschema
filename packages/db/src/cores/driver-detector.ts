@@ -41,7 +41,7 @@ export class DriverDetector {
       // rebuild correctly. Prefer the CLI for packaged installs.
       const installCommand =
         packageName === 'ibm_db'
-          ? 'foxschema drivers install db2   # or: npm install ibm_db@4.0.1 --foreground-scripts -w @foxschema/web'
+          ? 'foxschema drivers install db2   # or: npm install ibm_db@4.0.1 --foreground-scripts -w @foxschema/db'
           : `npm install ${packageName}`;
       return {
         provider: dialect,

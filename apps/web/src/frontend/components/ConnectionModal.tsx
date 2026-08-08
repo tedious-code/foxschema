@@ -327,7 +327,12 @@ export const ConnectionModal: React.FC<Props> = ({
                     Db2 needs a native build + IBM clidriver download. Prefer{' '}
                     <span className="text-amber-100 font-mono">foxschema drivers install db2</span>
                     , then <span className="text-amber-100 font-mono">foxschema stop && foxschema</span>.
-                    On linux/arm64 use Docker (<span className="text-amber-100 font-mono">5nickels/foxschema:latest</span>).
+                    In a monorepo:{' '}
+                    <span className="text-amber-100 font-mono">
+                      npm install ibm_db@4.0.1 --foreground-scripts -w @foxschema/db
+                    </span>
+                    . On linux/arm64 use Docker (
+                    <span className="text-amber-100 font-mono">5nickels/foxschema:latest</span>).
                   </p>
                 )}
               </div>

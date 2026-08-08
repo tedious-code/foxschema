@@ -102,12 +102,25 @@ export async function runDriversInstall(name: string): Promise<void> {
   const mono = monorepoRootFromWeb(webRoot);
   const spec = entry.pin ? `${entry.pkg}@${entry.pin}` : entry.pkg;
 
-  // Prefer workspace install in a checkout; otherwise --prefix into the web/package tree.
+  // ibm_db must land where @foxschema/db can require it (not only apps/web).
+  const workspacePkg = entry.pkg === 'ibm_db' ? '@foxschema/db' : '@foxschema/web';
+  const prefixRoot =
+    entry.pkg === 'ibm_db'
+      ? (() => {
+          try {
+            return dirname(require.resolve('@foxschema/db/package.json'));
+          } catch {
+            return webRoot;
+          }
+        })()
+      : webRoot;
+
+  // Prefer workspace install in a checkout; otherwise --prefix into the package tree.
   // ibm_db must run install scripts or clidriver never downloads.
   const npmArgs = mono
-    ? ['install', spec, '--foreground-scripts', '-w', '@foxschema/web']
-    : ['install', spec, '--foreground-scripts', '--prefix', webRoot];
-  const cwd = mono ?? webRoot;
+    ? ['install', spec, '--foreground-scripts', '-w', workspacePkg]
+    : ['install', spec, '--foreground-scripts', '--prefix', prefixRoot];
+  const cwd = mono ?? prefixRoot;
 
   await new Promise<void>((resolve, reject) => {
     const child = spawn('npm', npmArgs, {

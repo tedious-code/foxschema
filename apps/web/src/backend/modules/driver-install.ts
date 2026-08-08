@@ -7,6 +7,10 @@
  * The API Install button used a fixed monorepo-relative WORKSPACE_ROOT that
  * resolves to `/` when routes are bundled into `ui-server.js` — installs then
  * fail intermittently or write into the wrong tree.
+ *
+ * ibm_db is required from `@foxschema/db` (DriverDetector). Installing only
+ * into `@foxschema/web` can leave the module under apps/web/node_modules where
+ * packages/db cannot resolve it (sibling package node_modules are not searched).
  */
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
@@ -22,6 +26,7 @@ export type DriverInstallMode = 'workspace' | 'prefix';
 export type DriverInstallTarget = {
   cwd: string;
   mode: DriverInstallMode;
+  workspacePkg?: string;
   /** Human-facing npm command for copy/paste. */
   manualCommand: (spec: string) => string;
   /** argv for `npm` (no binary). */
@@ -32,8 +37,6 @@ function readPkgName(dir: string): string | null {
   try {
     const raw = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as {
       name?: string;
-      private?: boolean;
-      workspaces?: unknown;
     };
     return raw.name ?? null;
   } catch {
@@ -50,9 +53,8 @@ function isFoxschemaMonorepo(dir: string): boolean {
     if (raw.name !== 'foxschema' && raw.name !== undefined && !raw.workspaces) return false;
     const ws = Array.isArray(raw.workspaces)
       ? raw.workspaces
-      : raw.workspaces?.packages ?? [];
+      : (raw.workspaces?.packages ?? []);
     if (!ws.some((p) => p.includes('apps/web') || p.includes('packages/*') || p === 'apps/*')) {
-      // Still accept if apps/web/package.json exists next to root
       return existsSync(join(dir, 'apps/web/package.json'));
     }
     return existsSync(join(dir, 'apps/web/package.json'));
@@ -61,56 +63,28 @@ function isFoxschemaMonorepo(dir: string): boolean {
   }
 }
 
-/**
- * Locate install target from the calling module URL (routes.ts or bundled
- * ui-server.js) and optional process.cwd() fallback.
- */
-export function resolveDriverInstallTarget(
-  fromUrl: string = import.meta.url
-): DriverInstallTarget {
-  const here = dirname(fileURLToPath(fromUrl));
-
-  // Source: apps/web/src/backend/api → ../../../../.. = monorepo root
-  const fromApiSource = resolve(here, '../../../../..');
-  if (isFoxschemaMonorepo(fromApiSource)) {
-    return workspaceTarget(fromApiSource);
-  }
-
-  // Source: apps/web/src/backend/modules → ../../../.. = monorepo root
-  const fromModules = resolve(here, '../../../..');
-  if (isFoxschemaMonorepo(fromModules)) {
-    return workspaceTarget(fromModules);
-  }
-
-  // Bundled ui-server: …/foxschema/dist/ui-server.js → package root is …
-  const bundledRoot = resolve(here, '..');
-  const bundledName = readPkgName(bundledRoot);
-  if (bundledName === 'foxschema' || bundledName === '@foxschema/cli') {
-    return prefixTarget(bundledRoot);
-  }
-
-  if (isFoxschemaMonorepo(process.cwd())) {
-    return workspaceTarget(process.cwd());
-  }
-
-  // Global npm / Homebrew: install next to the running foxschema package if found
-  try {
-    const foxPkg = dirname(nodeRequire.resolve('foxschema/package.json'));
-    return prefixTarget(foxPkg);
-  } catch {
-    /* not resolvable */
-  }
-
-  return prefixTarget(process.cwd());
+/** Workspace package that owns the optional dep / require site for a driver. */
+export function workspacePackageForDriver(packageName: string): string {
+  return packageName === 'ibm_db' ? '@foxschema/db' : '@foxschema/web';
 }
 
-function workspaceTarget(cwd: string): DriverInstallTarget {
+function packageNameFromSpec(spec: string): string {
+  // ibm_db@4.0.1 → ibm_db; @scope/pkg@1 → @scope/pkg
+  if (spec.startsWith('@')) {
+    const parts = spec.split('@');
+    return parts.length >= 3 ? `@${parts[1]}` : spec;
+  }
+  return spec.split('@')[0] || spec;
+}
+
+function workspaceTarget(cwd: string, workspacePkg: string): DriverInstallTarget {
   return {
     cwd,
     mode: 'workspace',
-    npmArgs: (spec) => ['install', spec, '--foreground-scripts', '-w', '@foxschema/web'],
+    workspacePkg,
+    npmArgs: (spec) => ['install', spec, '--foreground-scripts', '-w', workspacePkg],
     manualCommand: (spec) =>
-      `npm install ${spec} --foreground-scripts -w @foxschema/web`,
+      `npm install ${spec} --foreground-scripts -w ${workspacePkg}`,
   };
 }
 
@@ -122,6 +96,60 @@ function prefixTarget(cwd: string): DriverInstallTarget {
     manualCommand: (spec) =>
       `npm install ${spec} --foreground-scripts --prefix "${cwd}"`,
   };
+}
+
+/**
+ * Locate install target from the calling module URL (routes.ts or bundled
+ * ui-server.js) and optional process.cwd() fallback.
+ */
+export function resolveDriverInstallTarget(
+  fromUrl: string = import.meta.url,
+  packageName = 'ibm_db'
+): DriverInstallTarget {
+  const here = dirname(fileURLToPath(fromUrl));
+  const wsPkg = workspacePackageForDriver(packageName);
+
+  // Source: apps/web/src/backend/api → ../../../../.. = monorepo root
+  const fromApiSource = resolve(here, '../../../../..');
+  if (isFoxschemaMonorepo(fromApiSource)) {
+    return workspaceTarget(fromApiSource, wsPkg);
+  }
+
+  // Source: apps/web/src/backend/modules → ../../../.. = monorepo root
+  const fromModules = resolve(here, '../../../..');
+  if (isFoxschemaMonorepo(fromModules)) {
+    return workspaceTarget(fromModules, wsPkg);
+  }
+
+  // Bundled ui-server: …/foxschema/dist/ui-server.js → package root is …
+  const bundledRoot = resolve(here, '..');
+  const bundledName = readPkgName(bundledRoot);
+  if (bundledName === 'foxschema' || bundledName === '@foxschema/cli') {
+    return prefixTarget(bundledRoot);
+  }
+
+  if (isFoxschemaMonorepo(process.cwd())) {
+    return workspaceTarget(process.cwd(), wsPkg);
+  }
+
+  // Global npm / Homebrew: install next to the running foxschema package if found
+  try {
+    const foxPkg = dirname(nodeRequire.resolve('foxschema/package.json'));
+    return prefixTarget(foxPkg);
+  } catch {
+    /* not resolvable */
+  }
+
+  if (packageName === 'ibm_db') {
+    try {
+      const dbPkg = dirname(nodeRequire.resolve('@foxschema/db/package.json'));
+      return prefixTarget(dbPkg);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return prefixTarget(process.cwd());
 }
 
 export type NpmInstallResult = {
@@ -139,7 +167,8 @@ export function npmInstallPackage(
   packageSpec: string,
   fromUrl?: string
 ): Promise<NpmInstallResult> {
-  const target = resolveDriverInstallTarget(fromUrl);
+  const pkg = packageNameFromSpec(packageSpec);
+  const target = resolveDriverInstallTarget(fromUrl, pkg);
   const args = target.npmArgs(packageSpec);
   return new Promise((resolvePromise) => {
     const proc = spawn('npm', args, {
@@ -147,7 +176,6 @@ export function npmInstallPackage(
       stdio: 'pipe',
       env: {
         ...process.env,
-        // Force scripts even if the user has npm_config_ignore_scripts=true
         npm_config_ignore_scripts: '',
         npm_config_foreground_scripts: 'true',
       },
@@ -191,13 +219,11 @@ export function purgePackageRequireCache(packageName: string): void {
   try {
     const resolved = nodeRequire.resolve(packageName);
     delete nodeRequire.cache[resolved];
-    // Also clear nested paths under the package root
     const root = dirname(resolved);
     for (const key of Object.keys(nodeRequire.cache)) {
       if (key.startsWith(root)) delete nodeRequire.cache[key];
     }
   } catch {
-    // Not resolvable yet — clear any partial cache entries by name
     for (const key of Object.keys(nodeRequire.cache)) {
       if (key.includes(`${packageName}`) || key.includes('node_modules/ibm_db')) {
         delete nodeRequire.cache[key];
@@ -248,18 +274,19 @@ export async function installAndVerifyDriver(
   let result = await npmInstallPackage(spec);
   let verify = verifyInstalledDriver(packageName);
 
-  if (
-    result.ok &&
-    !verify.ok &&
-    packageName === 'ibm_db' &&
-    verify.needsClidriverRebuild
-  ) {
-    // Force a clean scripted install into the same target
+  if (result.ok && !verify.ok && packageName === 'ibm_db' && verify.needsClidriverRebuild) {
     const retrySpec = versionPin ? `ibm_db@${versionPin}` : 'ibm_db@4.0.1';
-    const target = resolveDriverInstallTarget();
+    const target = resolveDriverInstallTarget(import.meta.url, 'ibm_db');
     const forceArgs =
       target.mode === 'workspace'
-        ? ['install', retrySpec, '--foreground-scripts', '--force', '-w', '@foxschema/web']
+        ? [
+            'install',
+            retrySpec,
+            '--foreground-scripts',
+            '--force',
+            '-w',
+            target.workspacePkg ?? '@foxschema/db',
+          ]
         : ['install', retrySpec, '--foreground-scripts', '--force', '--prefix', target.cwd];
     result = await new Promise<NpmInstallResult>((resolvePromise) => {
       const proc = spawn('npm', forceArgs, {

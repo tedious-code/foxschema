@@ -407,7 +407,9 @@ foxschema doctor
 ```
 
 In a monorepo checkout you can also run
-`npm install ibm_db@4.0.1 --foreground-scripts -w @foxschema/web`.
+`npm install ibm_db@4.0.1 --foreground-scripts -w @foxschema/db`
+(install into **@foxschema/db**, not only `@foxschema/web` — that is where the
+driver is loaded from).
 Install scripts **must** run (do not set `ignore-scripts`) so the IBM clidriver
 downloads. On **linux/arm64**, `ibm_db` has no build — use Docker
 `5nickels/foxschema:latest` (linux/amd64). See [DEPLOYMENT.md](DEPLOYMENT.md#database-drivers).

@@ -25,6 +25,25 @@ describe('resolveDriverInstallTarget', () => {
       'ibm_db@4.0.1',
       '--foreground-scripts',
       '-w',
+      '@foxschema/db',
+    ]);
+  });
+
+  it('uses @foxschema/web workspace for non-db2 drivers', () => {
+    const fakeRoutes = join(
+      process.cwd(),
+      'apps/web/src/backend/api/routes.ts'
+    );
+    const target = resolveDriverInstallTarget(
+      pathToFileURL(fakeRoutes).href,
+      'oracledb'
+    );
+    expect(target.mode).toBe('workspace');
+    expect(target.npmArgs('oracledb')).toEqual([
+      'install',
+      'oracledb',
+      '--foreground-scripts',
+      '-w',
       '@foxschema/web',
     ]);
   });
