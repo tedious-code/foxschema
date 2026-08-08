@@ -11,6 +11,7 @@ import {
   diffKeyLabelsForOps,
   filterOpsByKeyLabels,
   migrateGridsAreComplete,
+  migrateKeysSafeForMutatingOps,
   selectMigrateOps,
 } from './resultRowDiff';
 
