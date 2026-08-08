@@ -1,6 +1,6 @@
 {
   "name": "@foxschema/sql",
-  "version": "0.2.50",
+  "version": "0.1.0",
   "description": "Dialect knowledge for FoxSchema: SQL generation, schema compare, statement splitting, and type mapping. Pure, runtime-neutral, zero dependencies.",
   "type": "module",
   "license": "Apache-2.0",
@@ -42,6 +42,5 @@
   },
   "publishConfig": {
     "access": "public"
-  },
-  "dependencies": {}
+  }
 }
