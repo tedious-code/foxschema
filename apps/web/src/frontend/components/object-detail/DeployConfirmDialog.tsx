@@ -18,7 +18,7 @@ export const DeployConfirmDialog: React.FC<Props> = ({ open, dialect, count, don
   return createPortal(
     <div
       data-testid="deploy-confirm-dialog"
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+      className="modal-overlay"
       onClick={onCancel}
     >
       <div

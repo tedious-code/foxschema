@@ -232,7 +232,7 @@ export const ConnectionModal: React.FC<Props> = ({
   const labelCls = 'text-[10px] uppercase font-bold text-slate-400 tracking-wider';
 
   return createPortal(
-    <div data-testid="conn-modal" className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fadeIn">
+    <div data-testid="conn-modal" className="modal-overlay">
       <div className="w-full max-w-[500px] bg-slate-900 border border-slate-800 rounded-xl shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/40">
           <div>
