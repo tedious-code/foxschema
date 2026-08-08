@@ -8,6 +8,7 @@ import cors from 'cors';
 import { ConnectionModule, ConnectionFactory } from '@foxschema/db';
 import { AuthModule } from '../modules/auth.module';
 import { ConnectionStore } from '../modules/connection-store.module';
+import { sweepOrphanedUploadFiles } from '../modules/file-query-session.module';
 import { UserModule } from '../modules/user.module';
 import { createApiRoutes } from './routes';
 import { createAuthRoutes, authGuard, localUserGuard } from './auth.routes';
@@ -107,6 +108,17 @@ export function createApp() {
 
 export function startServer(port = Number(process.env.API_PORT) || DEFAULT_API_PORT) {
   const app = createApp();
+
+  // Partial uploads are tracked in memory, so anything in flight when the last
+  // process stopped left a .part file no live session owns. Startup is the one
+  // moment we know they are orphans; without this they are never collected.
+  try {
+    const swept = sweepOrphanedUploadFiles();
+    if (swept > 0) console.log(`Removed ${swept} orphaned upload part file(s)`);
+  } catch (error: unknown) {
+    // Never block boot on temp-dir housekeeping.
+    console.warn('Upload sweep skipped:', error instanceof Error ? error.message : error);
+  }
 
   const server = app.listen(port, () => {
     console.log(`Fox API listening on http://localhost:${port}`);
