@@ -1290,7 +1290,7 @@ export const TableBlueprintModal: React.FC<Props> = ({
     <>
       <div
         data-testid="table-blueprint-modal"
-        className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/55 backdrop-blur-[2px] p-4"
+        className="modal-overlay modal-overlay-soft"
         onClick={onClose}
       >
         <div

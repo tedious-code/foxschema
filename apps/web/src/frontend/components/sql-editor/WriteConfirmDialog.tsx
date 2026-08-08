@@ -83,7 +83,7 @@ export const WriteConfirmDialog: React.FC<Props> = ({
   return createPortal(
     <div
       data-testid="sql-write-confirm"
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+      className="modal-overlay"
       onClick={onCancel}
     >
       <div

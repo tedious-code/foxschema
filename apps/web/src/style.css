@@ -237,9 +237,37 @@
   background: var(--color-slate-600);
 }
 
-/* Modal Overlay */
+/* Modal Overlay
+ *
+ * Layout + entrance in one class. It used to carry only the animation, and
+ * nothing referenced it — eight modals hand-rolled the same
+ * `fixed inset-0 z-[100] flex … bg-black/80 backdrop-blur-sm p-4` inline and so
+ * never got the fade this file was written for. One of them reached for
+ * `animate-fadeIn`, which Tailwind does not generate and which no rule here
+ * ever defined, so that modal silently never faded in.
+ *
+ * Keep layout here rather than in the utility strings: a modal backdrop that
+ * disagrees with the others about z-index or padding is a bug, not a variant.
+ */
 .modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background-color: rgb(0 0 0 / 0.8);
+  backdrop-filter: blur(4px);
   animation: overlayFadeIn 0.2s ease-out forwards;
+}
+
+/* Lighter backdrop for the full-size table editors (Blueprint, Clone), where
+ * keeping the grid behind legible is the point. A deliberate variant, not drift
+ * — which is why it is named here instead of spelled out at each call site. */
+.modal-overlay-soft {
+  background-color: color-mix(in oklch, var(--color-slate-950) 55%, transparent);
+  backdrop-filter: blur(2px);
 }
 
 @keyframes overlayFadeIn {
@@ -296,26 +324,6 @@
 
 .animate-toast-in {
   animation: toastIn 0.28s ease-out forwards;
-}
-
-/* Fade in */
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-.animate-fade-in {
-  animation: fadeIn 0.4s ease-out forwards;
-}
-
-/* Connection status pulse */
-@keyframes statusPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
-
-.animate-status-pulse {
-  animation: statusPulse 1.5s ease-in-out infinite;
 }
 
 /* Indeterminate progress bar (driver install has no measurable percentage) */
