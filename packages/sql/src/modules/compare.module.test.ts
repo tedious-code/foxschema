@@ -211,6 +211,63 @@ describe('CompareModule.compare', () => {
     expect(r.tables[0].status).toBe('MODIFIED');
   });
 
+  it('does not mark the table MODIFIED when an index only differs by name (same columns)', async () => {
+    // Same columns + uniqueness under different names is a rename — left menu stays
+    // UNCHANGED; blueprint still gets ADDED/REMOVED rows marked nameOnly for opt-in.
+    const src = table({
+      name: 'PRODUCTS',
+      indices: [{ name: 'IDX_SKU_SRC', columns: ['sku', 'name'], unique: false }],
+    });
+    const tgt = table({
+      name: 'PRODUCTS',
+      indices: [{ name: 'IDX_SKU_TGT', columns: ['sku', 'name'], unique: false }],
+    });
+    const r = await cmp.compare([src], [tgt]);
+    expect(r.tables[0].status).toBe('UNCHANGED');
+    expect(r.summary.modified).toBe(0);
+    const added = r.tables[0].indexDiffs.find((i) => i.name === 'IDX_SKU_SRC');
+    const removed = r.tables[0].indexDiffs.find((i) => i.name === 'IDX_SKU_TGT');
+    expect(added).toMatchObject({ status: 'ADDED', nameOnly: true });
+    expect(removed).toMatchObject({ status: 'REMOVED', nameOnly: true });
+  });
+
+  it('pairs rename-only indexes case-insensitively on column names', async () => {
+    const src = table({ name: 'T', indices: [{ name: 'IX_A', columns: ['Category_Id'], unique: true }] });
+    const tgt = table({ name: 'T', indices: [{ name: 'IX_B', columns: ['category_id'], unique: true }] });
+    const r = await cmp.compare([src], [tgt]);
+    expect(r.tables[0].status).toBe('UNCHANGED');
+    expect(r.tables[0].indexDiffs.filter((i) => i.nameOnly)).toHaveLength(2);
+  });
+
+  it('still marks MODIFIED when a same-signature index rename coexists with a real index add', async () => {
+    const src = table({
+      name: 'PRODUCTS',
+      indices: [
+        { name: 'IDX_NEW_NAME', columns: ['sku'], unique: false },
+        { name: 'IDX_EXTRA', columns: ['name'], unique: false },
+      ],
+    });
+    const tgt = table({
+      name: 'PRODUCTS',
+      indices: [{ name: 'IDX_OLD_NAME', columns: ['sku'], unique: false }],
+    });
+    const r = await cmp.compare([src], [tgt]);
+    expect(r.tables[0].status).toBe('MODIFIED');
+    expect(r.tables[0].indexDiffs.find((i) => i.name === 'IDX_NEW_NAME')).toMatchObject({ status: 'ADDED', nameOnly: true });
+    expect(r.tables[0].indexDiffs.find((i) => i.name === 'IDX_OLD_NAME')).toMatchObject({ status: 'REMOVED', nameOnly: true });
+    const extra = r.tables[0].indexDiffs.find((i) => i.name === 'IDX_EXTRA');
+    expect(extra?.status).toBe('ADDED');
+    expect(extra?.nameOnly).toBeFalsy();
+  });
+
+  it('does not treat different uniqueness as a rename-only pair', async () => {
+    const src = table({ name: 'T', indices: [{ name: 'IX_A', columns: ['email'], unique: true }] });
+    const tgt = table({ name: 'T', indices: [{ name: 'IX_B', columns: ['email'], unique: false }] });
+    const r = await cmp.compare([src], [tgt]);
+    expect(r.tables[0].status).toBe('MODIFIED');
+    expect(r.tables[0].indexDiffs.every((i) => !i.nameOnly)).toBe(true);
+  });
+
   it('flags a same-dialect collation difference as MODIFIED', async () => {
     const src = table({ name: 'CUSTOMERS', columns: [col('NAME', { type: 'varchar(150)', collation: 'utf8mb4_unicode_ci' })] });
     const tgt = table({ name: 'CUSTOMERS', columns: [col('NAME', { type: 'varchar(150)', collation: 'utf8mb4_general_ci' })] });
