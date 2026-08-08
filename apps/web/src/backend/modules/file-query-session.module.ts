@@ -2,7 +2,16 @@
  * Disk-backed chunked upload sessions for large Query-files imports.
  * Chunks append to a temp file; commit parses + bulk-loads.
  */
-import { appendFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
@@ -55,6 +64,40 @@ export function cleanupStaleUploadSessions(now = Date.now()): number {
       }
       sessions.delete(id);
       removed++;
+    }
+  }
+  return removed;
+}
+
+/**
+ * Delete `.part` files on disk that no live session owns.
+ *
+ * `sessions` is in-memory, so a restart forgets every in-flight upload while
+ * its partial file (up to MAX_UPLOAD_BYTES) stays on disk. Nothing could ever
+ * remove those again: the TTL sweep above only walks the map, and the map no
+ * longer has the entry. They accumulate for the life of the machine — invisible,
+ * because the only record of them was the process that died.
+ *
+ * Run at startup, which is exactly when the orphans exist and no upload is in
+ * flight. `keepMs` still guards the case where a second process is mid-upload
+ * against the same temp dir.
+ */
+export function sweepOrphanedUploadFiles(opts: { keepMs?: number; now?: number } = {}): number {
+  const keepMs = opts.keepMs ?? SESSION_TTL_MS;
+  const now = opts.now ?? Date.now();
+  const live = new Set([...sessions.values()].map((s) => s.uploadPath));
+  const dir = uploadsDir();
+  let removed = 0;
+  for (const name of readdirSync(dir)) {
+    if (!name.endsWith('.part')) continue;
+    const full = join(dir, name);
+    if (live.has(full)) continue;
+    try {
+      if (now - statSync(full).mtimeMs <= keepMs) continue;
+      unlinkSync(full);
+      removed++;
+    } catch {
+      /* raced with another sweep, or not ours to delete */
     }
   }
   return removed;
