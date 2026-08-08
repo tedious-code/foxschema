@@ -56,9 +56,16 @@ jobs:
         if: steps.ver.outputs.skip != 'true'
         run: |
           V=${{ steps.ver.outputs.new }}
+          # packages/sql is deliberately NOT here. It is published to npm on its
+          # own line, so its version has to describe *its* API — bumping it with
+          # every app release would ship a new @foxschema/sql whose contents did
+          # not change, and consumers could not tell a dialect change from a UI
+          # fix. Bump it by hand when its surface or behaviour changes:
+          #   npm version <patch|minor|major> -w @foxschema/sql --no-git-tag-version
+          # packages/db stays in lockstep: it is an internal workspace package,
+          # not published, so its number is only ever cosmetic.
           for f in \
             package.json \
-            packages/sql/package.json \
             packages/db/package.json \
             apps/web/package.json \
             apps/cli/package.json; do
@@ -73,7 +80,6 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add \
             package.json \
-            packages/sql/package.json \
             packages/db/package.json \
             apps/web/package.json \
             apps/cli/package.json

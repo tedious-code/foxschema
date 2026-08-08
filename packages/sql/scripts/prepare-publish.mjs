@@ -85,4 +85,9 @@ writeFileSync(
 );
 
 console.log(`✔ ${outDir}`);
+// Version is bumped by hand — this package is on its own release line, so the
+// app's version-bump workflow does not touch it. Print it loudly: publishing a
+// version that was not bumped is the easy mistake here, and npm will reject it
+// only after the tarball is built.
+console.log(`  version ${src.version}  (bumped by hand: npm run version:sql -- <patch|minor|major>)`);
 console.log(`  npm publish ${outDir.replace(repoRoot + '/', '')}`);

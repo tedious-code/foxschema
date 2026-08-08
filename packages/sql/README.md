@@ -76,9 +76,16 @@ express before you generate for it.
 
 ## Stability
 
-Versioned in lockstep with the FoxSchema application, so the version number
-tracks the app rather than this package's API surface. Pin an exact version if
-you depend on generation output being byte-stable.
+Versioned independently of the FoxSchema application: this number describes
+*this package's* API, so a release means something here actually changed. The
+app's version moves on its own and the two will not line up.
+
+Pre-1.0 while the exported surface settles — minor versions may remove or
+rename exports, patch versions will not. The dialect logic underneath is mature
+and well covered; it is the shape of the public API that is still young.
+
+Pin an exact version if you depend on generation output being byte-stable:
+a dialect fix that makes output *more* correct is still a change in output.
 
 ## License
 
