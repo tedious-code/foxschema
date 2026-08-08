@@ -26,6 +26,7 @@ import {
   diffKeyLabelsForOps,
   filterOpsByKeyLabels,
   migrateGridsAreComplete,
+  migrateKeysSafeForMutatingOps,
   selectMigrateOps,
   type ClassifiedRowDiff,
 } from '../../lib/resultRowDiff';
@@ -247,18 +248,6 @@ export const DataMigrateBar: React.FC<Props> = ({
       });
       return;
     }
-    // Allow business/name keys when the table PK isn't in the SELECT.
-    // Block only when schema says PK is in the result but editability still failed.
-    if (!editability.editable && preferredKeyNames.length > 0) {
-      toast({
-        tone: 'warning',
-        title: 'Data migrate needs a unique key in the result',
-        body:
-          editability.reason ||
-          'Include the primary key (or a non-partial unique index) columns in the SELECT.',
-      });
-      return;
-    }
     if (
       !migrateGridsAreComplete({
         sourcePageIndex: source.pageIndex ?? 0,
@@ -300,6 +289,20 @@ export const DataMigrateBar: React.FC<Props> = ({
           `${classification.duplicateKeys} duplicate key value(s) — migrate refuses to guess which row to write. ` +
           'Tighten the SELECT (DISTINCT / better keys) or pick a unique key set.',
       });
+      return;
+    }
+    // Name Keys may align Sync / Add-only migrate, but UPDATE/DELETE WHERE on a
+    // non-unique column can rewrite or delete every matching destination row.
+    const keySafety = migrateKeysSafeForMutatingOps({
+      keyNames,
+      uniqueKeyNames: editability.keyColumns
+        .filter((k) => k.resultIndex >= 0)
+        .map((k) => k.name),
+      editable: editability.editable,
+      ops: filtered.ops,
+    });
+    if (!keySafety.ok) {
+      toast({ tone: 'warning', title: keySafety.title, body: keySafety.body });
       return;
     }
     if (filtered.uncappedCount > DATA_MIGRATE_ROW_CAP) {
@@ -594,7 +597,8 @@ export const DataMigrateBar: React.FC<Props> = ({
         )}
         {preferredKeyNames.length === 0 && sharedColumns.length > 0 && (
           <span className="text-amber-400/90 text-[10px]">
-            No PK in this SELECT — check a Key (e.g. {sharedColumns[0]}) to align rows and show Sync.
+            No PK in this SELECT — check a Key (e.g. {sharedColumns[0]}) to align Sync.
+            Add-only migrate is allowed; Edit/Delete need the unique key in the SELECT.
           </span>
         )}
         {preferredKeyNames.length === 0 && sharedColumns.length === 0 && editability.reason && (

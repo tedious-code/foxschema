@@ -11,6 +11,7 @@ import {
   diffKeyLabelsForOps,
   filterOpsByKeyLabels,
   migrateGridsAreComplete,
+  migrateKeysSafeForMutatingOps,
   selectMigrateOps,
 } from './resultRowDiff';
 
@@ -153,6 +154,56 @@ describe('migrateGridsAreComplete', () => {
         destHasMore: false,
       })
     ).toBe(false);
+  });
+});
+
+describe('migrateKeysSafeForMutatingOps', () => {
+  it('allows Add-only migrate with a business/name key', () => {
+    expect(
+      migrateKeysSafeForMutatingOps({
+        keyNames: ['ATTRIBUTENAME'],
+        uniqueKeyNames: [],
+        editable: false,
+        ops: [{ op: 'insert' }],
+      })
+    ).toEqual({ ok: true });
+  });
+
+  it('blocks Edit/Delete when the SELECT has no unique key', () => {
+    const blocked = migrateKeysSafeForMutatingOps({
+      keyNames: ['ATTRIBUTENAME'],
+      uniqueKeyNames: [],
+      editable: false,
+      ops: [{ op: 'update' }, { op: 'delete' }],
+    });
+    expect(blocked.ok).toBe(false);
+    if (!blocked.ok) {
+      expect(blocked.title).toMatch(/unique key/i);
+    }
+  });
+
+  it('blocks Edit/Delete when the unique key is unchecked', () => {
+    const blocked = migrateKeysSafeForMutatingOps({
+      keyNames: ['ATTRIBUTENAME'],
+      uniqueKeyNames: ['ID'],
+      editable: true,
+      ops: [{ op: 'delete' }],
+    });
+    expect(blocked.ok).toBe(false);
+    if (!blocked.ok) {
+      expect(blocked.body).toMatch(/ID/);
+    }
+  });
+
+  it('allows Edit/Delete when the unique key columns are selected', () => {
+    expect(
+      migrateKeysSafeForMutatingOps({
+        keyNames: ['ID', 'ATTRIBUTENAME'],
+        uniqueKeyNames: ['ID'],
+        editable: true,
+        ops: [{ op: 'update' }],
+      })
+    ).toEqual({ ok: true });
   });
 });
 

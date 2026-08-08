@@ -296,3 +296,43 @@ export function migrateGridsAreComplete(opts: {
     !opts.destHasMore
   );
 }
+
+/**
+ * UPDATE/DELETE become `WHERE key = ?` with no LIMIT. Business/name Keys are
+ * useful for Sync alignment (and Add-only migrate), but a non-unique column
+ * can match many destination rows outside the compare window — including
+ * rows the user never saw. Mutating ops therefore require the schema unique
+ * key set (PK / non-partial unique index) to be present and selected.
+ */
+export function migrateKeysSafeForMutatingOps(opts: {
+  keyNames: string[];
+  /** PK / unique index column names present in the result. */
+  uniqueKeyNames: string[];
+  editable: boolean;
+  ops: Array<{ op: 'insert' | 'update' | 'delete' }>;
+}): { ok: true } | { ok: false; title: string; body: string } {
+  const mutating = opts.ops.some((o) => o.op === 'update' || o.op === 'delete');
+  if (!mutating) return { ok: true };
+  if (!opts.editable || opts.uniqueKeyNames.length === 0) {
+    return {
+      ok: false,
+      title: 'Edit/Delete need a unique key in the SELECT',
+      body:
+        'Name/business Keys are fine for Sync alignment and Add-only migrate, but ' +
+        'UPDATE/DELETE on a non-unique column can change every matching row on the destination. ' +
+        'Include the primary key (or a non-partial unique index) in the SELECT and check those Keys.',
+    };
+  }
+  const selected = new Set(opts.keyNames.map((k) => k.toLowerCase()));
+  const missing = opts.uniqueKeyNames.filter((k) => !selected.has(k.toLowerCase()));
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      title: 'Edit/Delete require the unique key columns',
+      body:
+        `Check Keys for: ${missing.join(', ')}. Unchecking the PK and migrating by a name ` +
+        'column can UPDATE/DELETE multiple destination rows.',
+    };
+  }
+  return { ok: true };
+}
