@@ -7,6 +7,8 @@
  * Used by SQL Editor side-by-side results to color differences.
  */
 
+import { normalizeResultValue } from './resultValueKey';
+
 export type CellDiffKind = 'modified' | 'missing' | 'extra';
 
 export interface ResultGridLike {
@@ -33,19 +35,20 @@ export interface ResultPairDiff {
   totalDiffCells: number;
 }
 
-/** Same equality rules as Peek row edits (nullish, Object.is, JSON/string). */
+/**
+ * Cell equality across dialects.
+ *
+ * Both sides go through {@link normalizeResultValue}, the same canonical form
+ * row matching uses, so a value that counts as "the same row" also counts as
+ * "the same cell". They used to disagree: this function understood objects but
+ * not booleans, which meant a Postgres `boolean` never equalled a MySQL
+ * `TINYINT(1)` and every boolean column reported a diff that migrating the row
+ * could not clear.
+ */
 export function resultValuesEqual(a: unknown, b: unknown): boolean {
   if (Object.is(a, b)) return true;
-  if (a == null && b == null) return true;
-  if (a == null || b == null) return false;
-  if (typeof a === 'object' || typeof b === 'object') {
-    try {
-      return JSON.stringify(a) === JSON.stringify(b);
-    } catch {
-      return false;
-    }
-  }
-  return String(a) === String(b);
+  // null === null covers NULL == NULL; a null on one side only never matches.
+  return normalizeResultValue(a) === normalizeResultValue(b);
 }
 
 function emptySummary(): GridDiffSummary {

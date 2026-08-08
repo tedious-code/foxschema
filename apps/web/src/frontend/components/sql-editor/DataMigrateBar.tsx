@@ -318,6 +318,46 @@ export const DataMigrateBar: React.FC<Props> = ({
       return;
     }
 
+    // Columns the source SELECT returns that the destination table does not
+    // have. INSERT/UPDATE name them, so the op fails at the database with a
+    // bare "column does not exist" — after the user has clicked Sync. The
+    // information to say so upfront is already computed (editableColumns is the
+    // dest table ∩ source result), it just was not being read. Most likely when
+    // comparing across dialects, where the two schemas have drifted.
+    if (filtered.ops.some((o) => o.op === 'insert' || o.op === 'update')) {
+      const writable = new Set(editability.editableColumns.map((c) => c.toLowerCase()));
+      const ignored = new Set(ignoreColumns.map((c) => c.toLowerCase()));
+      const unknown = source.columns.filter(
+        (c) => !writable.has(c.toLowerCase()) && !ignored.has(c.toLowerCase())
+      );
+      if (unknown.length > 0) {
+        toast({
+          tone: 'warning',
+          title: `${unknown.length} column(s) not in the destination table`,
+          body:
+            `${unknown.slice(0, 6).join(', ')}${unknown.length > 6 ? ', …' : ''} — ` +
+            'Add / Edit would write columns the destination does not have. ' +
+            'Drop them from the source SELECT, or list them under Ignore columns.',
+        });
+        return;
+      }
+    }
+
+    // Rows whose key is NULL are dropped from the comparison entirely — they
+    // cannot identify a row to UPDATE or DELETE. Say so: otherwise the op counts
+    // silently understate the difference and the user believes they synced
+    // everything. Not a blocker, since the rows that DO have keys migrate fine.
+    if (classification.skippedNullKeys > 0) {
+      toast({
+        tone: 'warning',
+        title: `${classification.skippedNullKeys} row(s) skipped — NULL key`,
+        body:
+          'A NULL key cannot identify a row to write, so these rows are not in the ' +
+          'counts above and will not migrate. Pick a key set with no NULLs, or filter ' +
+          'them out in the SELECT.',
+      });
+    }
+
     const { plans, errors } = buildDataMigratePlans({
       tableName,
       dialect: dest.dialect,
