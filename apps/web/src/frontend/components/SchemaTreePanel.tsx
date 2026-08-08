@@ -145,7 +145,11 @@ export const SchemaTreePanel: React.FC = () => {
         if (typeFilter.length > 0 && !typeFilter.includes(table.objectType)) return false;
         // Browse mode has only UNCHANGED rows — always show them.
         if (browseMode) return true;
-        if (table.status === 'UNCHANGED') return showUnchanged;
+        // Rename-only indexes leave the table UNCHANGED (no MODIFY badge) but still
+        // need to appear so the user can open the blueprint and opt in to migrate.
+        if (table.status === 'UNCHANGED') {
+          return showUnchanged || (table.indexDiffs ?? []).some((d) => d.nameOnly);
+        }
         return filterStatus === 'ALL' || table.status === filterStatus;
       });
 

@@ -14,6 +14,13 @@ export interface IndexDiff {
   status: 'ADDED' | 'REMOVED' | 'MODIFIED' | 'UNCHANGED';
   source?: { columns: string[]; unique: boolean; constraint?: boolean };
   target?: { columns: string[]; unique: boolean; constraint?: boolean };
+  /**
+   * True when this ADDED/REMOVED pair is only an index rename: same columns +
+   * uniqueness as an unmatched index on the other side. Does not mark the table
+   * MODIFIED in the compare tree; still shown in the schema blueprint so the
+   * user can opt in to migrate the name.
+   */
+  nameOnly?: boolean;
 }
 
 export interface ForeignKeyDiff {

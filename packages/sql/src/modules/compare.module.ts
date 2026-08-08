@@ -110,9 +110,11 @@ export class CompareModule {
         const sequenceChanged = JSON.stringify(source.sequence ?? {}) !== JSON.stringify(target.sequence ?? {});
         const userTypeChanged = JSON.stringify(source.userType ?? {}) !== JSON.stringify(target.userType ?? {});
 
+        // Index renames (same columns/unique, different name) stay in indexDiffs for
+        // the blueprint opt-in, but must not roll the table up as MODIFIED.
         const isModified =
           columnDiffs.some((d) => d.status !== 'UNCHANGED') ||
-          indexDiffs.some((d) => d.status !== 'UNCHANGED') ||
+          indexDiffs.some((d) => d.status !== 'UNCHANGED' && !d.nameOnly) ||
           foreignKeyDiffs.some((d) => d.status !== 'UNCHANGED') ||
           triggerDiffs.some((d) => d.status !== 'UNCHANGED') ||
           pkChanged ||
@@ -282,30 +284,70 @@ export class CompareModule {
     });
   }
 
+  /**
+   * Structural signature for pairing rename-only indexes: ordered columns + unique.
+   * Name is intentionally excluded — that is what "rename" means here.
+   */
+  private indexSignature(idx: { columns: string[]; unique: boolean }): string {
+    const cols = (idx.columns ?? []).map((c) => (c ?? '').toUpperCase()).join('\0');
+    return `${cols}|${idx.unique ? 'U' : 'N'}`;
+  }
+
+  /**
+   * Pair unmatched ADDED ↔ REMOVED indexes that share columns + uniqueness and
+   * mark both sides `nameOnly`. Left as ADDED/REMOVED so the blueprint can still
+   * offer DROP+CREATE when the user opts in.
+   */
+  private markNameOnlyIndexRenames(diffs: IndexDiff[]): IndexDiff[] {
+    const added = diffs
+      .map((d, i) => ({ d, i }))
+      .filter(({ d }) => d.status === 'ADDED' && d.source);
+    const removed = diffs
+      .map((d, i) => ({ d, i }))
+      .filter(({ d }) => d.status === 'REMOVED' && d.target);
+
+    const usedAdded = new Set<number>();
+    const nameOnlyIdx = new Set<number>();
+
+    for (const { d: rem, i: remI } of removed) {
+      const sig = this.indexSignature(rem.target!);
+      const match = added.find(({ d, i }) => !usedAdded.has(i) && this.indexSignature(d.source!) === sig);
+      if (!match) continue;
+      usedAdded.add(match.i);
+      nameOnlyIdx.add(remI);
+      nameOnlyIdx.add(match.i);
+    }
+
+    if (nameOnlyIdx.size === 0) return diffs;
+    return diffs.map((d, i) => (nameOnlyIdx.has(i) ? { ...d, nameOnly: true } : d));
+  }
+
   private compareIndices(sourceInds: IndexInfo[], targetInds: IndexInfo[]): IndexDiff[] {
     const sMap = new Map(sourceInds.map((i) => [this.key(i.name), i]));
     const tMap = new Map(targetInds.map((i) => [this.key(i.name), i]));
     const allIndNames = Array.from(new Set([...Array.from(sMap.keys()), ...Array.from(tMap.keys())]));
 
-    return allIndNames.map((name) => {
+    const byName = allIndNames.map((name) => {
       const sIdx = sMap.get(name);
       const tIdx = tMap.get(name);
 
       if (sIdx && !tIdx) {
-        return { name, status: 'ADDED', source: sIdx };
+        return { name, status: 'ADDED' as const, source: sIdx };
       } else if (!sIdx && tIdx) {
-        return { name, status: 'REMOVED', target: tIdx };
+        return { name, status: 'REMOVED' as const, target: tIdx };
       } else if (sIdx && tIdx) {
         const columnsChanged = !this.sameColumns(sIdx.columns, tIdx.columns);
         const uniqueChanged = sIdx.unique !== tIdx.unique;
 
         if (columnsChanged || uniqueChanged) {
-          return { name, status: 'MODIFIED', source: sIdx, target: tIdx };
+          return { name, status: 'MODIFIED' as const, source: sIdx, target: tIdx };
         }
-        return { name, status: 'UNCHANGED', source: sIdx, target: tIdx };
+        return { name, status: 'UNCHANGED' as const, source: sIdx, target: tIdx };
       }
-      return { name, status: 'UNCHANGED' };
+      return { name, status: 'UNCHANGED' as const };
     });
+
+    return this.markNameOnlyIndexRenames(byName);
   }
 
   private compareTriggers(sourceTrgs: TriggerInfo[], targetTrgs: TriggerInfo[]): TriggerDiff[] {

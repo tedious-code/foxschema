@@ -1050,6 +1050,11 @@ export const ObjectDetailPanel: React.FC = () => {
                 </label>
               )}
             </h4>
+            {indexChangedItems.some((i) => i.nameOnly) && (
+              <p className="text-[11px] text-slate-500 mb-2">
+                Same columns under a different name — optional; check an index to include DROP/CREATE in the migration.
+              </p>
+            )}
             <div className="bg-slate-950/60 border border-slate-800/80 rounded-lg overflow-hidden">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
@@ -1065,9 +1070,13 @@ export const ObjectDetailPanel: React.FC = () => {
                     const info = idx.source || idx.target;
                     let opBadge = <span className="text-[10px] text-slate-500 font-bold bg-slate-900 px-2 py-0.5 rounded border border-slate-800">No Change</span>;
                     if (idx.status === 'ADDED') {
-                      opBadge = <span className="text-[10px] text-emerald-400 font-bold bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/20">CREATE INDEX</span>;
+                      opBadge = idx.nameOnly
+                        ? <span className="text-[10px] text-amber-300 font-bold bg-amber-950/40 px-2 py-0.5 rounded border border-amber-500/20" title="Same columns as a target index under a different name">CREATE (rename)</span>
+                        : <span className="text-[10px] text-emerald-400 font-bold bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/20">CREATE INDEX</span>;
                     } else if (idx.status === 'REMOVED') {
-                      opBadge = <span className="text-[10px] text-rose-400 font-bold bg-rose-950/40 px-2 py-0.5 rounded border border-rose-500/20">DROP INDEX</span>;
+                      opBadge = idx.nameOnly
+                        ? <span className="text-[10px] text-amber-300 font-bold bg-amber-950/40 px-2 py-0.5 rounded border border-amber-500/20" title="Same columns as a source index under a different name">DROP (rename)</span>
+                        : <span className="text-[10px] text-rose-400 font-bold bg-rose-950/40 px-2 py-0.5 rounded border border-rose-500/20">DROP INDEX</span>;
                     }
 
                     return (
@@ -1079,7 +1088,9 @@ export const ObjectDetailPanel: React.FC = () => {
                                 type="checkbox"
                                 checked={indexSelection[selectedTable.tableName]?.[idx.name] === true}
                                 onChange={() => toggleIndexSelection(selectedTable.tableName, idx.name)}
-                                title="Include this index change in the deploy script"
+                                title={idx.nameOnly
+                                  ? 'Optional: include this index rename (DROP + CREATE) in the deploy script'
+                                  : 'Include this index change in the deploy script'}
                                 className="w-3.5 h-3.5 accent-cyan-500 cursor-pointer shrink-0"
                               />
                             )}
