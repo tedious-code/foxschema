@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
@@ -80,8 +80,14 @@ export function isMissingRouteStatus(status: number): boolean {
  * True when the process on `port` is Fox Schema but outdated relative to the
  * installed CLI — most commonly after `npm i -g foxschema@latest` while an old
  * server is still bound (missing routes → Express HTML 404).
+ *
+ * Also treats **API-only** listeners as stale: `/api/health` is up but `GET /`
+ * is not the SPA (`Cannot GET /` / empty page). That happens when a monorepo
+ * `dev:api` or orphan node process owns 3210 without STATIC_DIR.
  */
 export async function isStaleUiServer(port: number, installedVersion: string): Promise<boolean> {
+  if (!(await isUiShellPresent(port))) return true;
+
   for (const probe of CAPABILITY_PROBES) {
     try {
       const res = await fetch(`http://127.0.0.1:${port}${probe.path}`, {
@@ -104,6 +110,82 @@ export async function isStaleUiServer(port: number, installedVersion: string): P
     return false;
   }
   return running !== installedVersion.replace(/^v/i, '').trim();
+}
+
+/**
+ * True when GET / looks like the Fox Schema SPA (HTML shell), not Express
+ * `Cannot GET /` from an API-only process.
+ */
+export async function isUiShellPresent(port: number): Promise<boolean> {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/`, {
+      signal: AbortSignal.timeout(1500),
+      redirect: 'manual',
+    });
+    if (res.status === 404) return false;
+    if (!res.ok) return false;
+    const ct = (res.headers.get('content-type') || '').toLowerCase();
+    if (!ct.includes('text/html')) return false;
+    const body = await res.text();
+    // Built SPA or boot fallback — not Express's default error page.
+    if (/cannot get\s+\//i.test(body)) return false;
+    return (
+      /fox\s*schema/i.test(body) ||
+      /id=["']app["']/i.test(body) ||
+      /\/assets\//i.test(body) ||
+      /boot-fallback/i.test(body)
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** PIDs listening on TCP `port` (best-effort; empty when the OS tool is missing). */
+export function listListenPids(port: number): number[] {
+  try {
+    if (process.platform === 'win32') {
+      const out = execFileSync('cmd', ['/c', `netstat -ano | findstr :${port}`], {
+        encoding: 'utf8',
+        timeout: 3000,
+      });
+      const pids = new Set<number>();
+      for (const line of out.split(/\r?\n/)) {
+        if (!/LISTENING/i.test(line)) continue;
+        const m = line.trim().match(/(\d+)\s*$/);
+        if (m) {
+          const n = Number(m[1]);
+          if (n > 0) pids.add(n);
+        }
+      }
+      return [...pids];
+    }
+    const out = execFileSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], {
+      encoding: 'utf8',
+      timeout: 3000,
+    });
+    return [
+      ...new Set(
+        out
+          .split(/\s+/)
+          .map((s) => Number(s.trim()))
+          .filter((n) => Number.isFinite(n) && n > 0)
+      ),
+    ];
+  } catch {
+    return [];
+  }
+}
+
+function killListenPids(port: number): number[] {
+  const pids = listListenPids(port);
+  for (const pid of pids) {
+    try {
+      process.kill(pid, 'SIGTERM');
+    } catch {
+      /* ignore */
+    }
+  }
+  return pids;
 }
 
 function readManagedPid(): number | null {
@@ -203,7 +285,7 @@ async function waitUntilDead(pid: number, timeoutMs = 5_000): Promise<void> {
   }
 }
 
-/** Stop the managed UI server (or throw if an unmanaged Fox still owns the port). */
+/** Stop the managed UI server (or any Fox/API listener still owning the port). */
 async function stopForRelaunch(port: number): Promise<void> {
   const pid = readManagedPid();
   if (pid && isProcessAlive(pid)) {
@@ -213,26 +295,25 @@ async function stopForRelaunch(port: number): Promise<void> {
       /* ignore */
     }
     await waitUntilDead(pid);
-    clearLock();
-    // Wait until the port stops answering health
-    const deadline = Date.now() + 5_000;
-    while (Date.now() < deadline && (await isHealthy(port))) {
-      await new Promise((r) => setTimeout(r, 100));
-    }
-    if (await isHealthy(port)) {
-      throw new Error(
-        `Could not free port ${port} after stopping the managed Fox Schema process.\n` +
-          `Another process may still be bound — run \`foxschema stop\`, kill the listener, ` +
-          `or \`foxschema open --port <other>\`.`
-      );
-    }
-    return;
   }
   clearLock();
+
+  // Unmanaged / API-only process may still hold the port (no PID lock).
+  if (await isHealthy(port)) {
+    const killed = killListenPids(port);
+    for (const p of killed) await waitUntilDead(p);
+  }
+
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline && (await isHealthy(port))) {
+    await new Promise((r) => setTimeout(r, 100));
+  }
   if (await isHealthy(port)) {
     throw new Error(
-      `An older Fox Schema is still running on port ${port}, but it is not the managed process.\n` +
-        `Stop it (find the PID and kill it), then run \`foxschema open\` again.\n` +
+      `Could not free port ${port}.\n` +
+        `Stop the listener manually, then run \`foxschema open\` again:\n` +
+        `  lsof -nP -iTCP:${port} -sTCP:LISTEN\n` +
+        `  kill <PID>\n` +
         `Or: \`foxschema open --port <other>\`.`
     );
   }
@@ -260,9 +341,12 @@ export async function runOpen(opts: OpenOptions = {}): Promise<void> {
 
   if (await isHealthy(port)) {
     if (await isStaleUiServer(port, installedVersion)) {
+      const hasShell = await isUiShellPresent(port);
       console.log(
         chalk.yellow(
-          `Fox Schema on ${url} is outdated (installed CLI is ${installedVersion}) — restarting…`
+          hasShell
+            ? `Fox Schema on ${url} is outdated (installed CLI is ${installedVersion}) — restarting…`
+            : `Fox Schema API on ${url} has no UI (empty / Cannot GET /) — restarting…`
         )
       );
       await stopForRelaunch(port);
@@ -364,21 +448,55 @@ export async function runOpen(opts: OpenOptions = {}): Promise<void> {
 /** Stop the managed UI server started by `foxschema open`. */
 export async function runStop(): Promise<void> {
   const pid = readManagedPid();
-  if (!pid) {
-    console.log(chalk.yellow('No managed Fox Schema UI server is running.'));
-    return;
-  }
-  if (!isProcessAlive(pid)) {
-    clearLock();
-    console.log(chalk.yellow('UI server was not running (cleared stale lock).'));
-    return;
-  }
+  let port = DEFAULT_UI_PORT;
   try {
-    process.kill(pid, 'SIGTERM');
-  } catch (e) {
-    throw new Error(`Could not stop PID ${pid}: ${e instanceof Error ? e.message : e}`);
+    const n = Number(readFileSync(PORT_FILE, 'utf8').trim());
+    if (Number.isFinite(n) && n > 0) port = n;
+  } catch {
+    /* default */
   }
-  await waitUntilDead(pid);
-  clearLock();
-  console.log(chalk.green('✔ Fox Schema UI server stopped.'));
+
+  if (pid && isProcessAlive(pid)) {
+    try {
+      process.kill(pid, 'SIGTERM');
+    } catch (e) {
+      throw new Error(`Could not stop PID ${pid}: ${e instanceof Error ? e.message : e}`);
+    }
+    await waitUntilDead(pid);
+    clearLock();
+    console.log(chalk.green('✔ Fox Schema UI server stopped.'));
+    return;
+  }
+
+  if (pid) clearLock();
+
+  // No lock file, but something Fox-like may still own the port (API-only / orphan).
+  if (await isHealthy(port)) {
+    const killed = killListenPids(port);
+    for (const p of killed) await waitUntilDead(p);
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline && (await isHealthy(port))) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    if (!(await isHealthy(port))) {
+      console.log(
+        chalk.green(
+          `✔ Stopped unmanaged process on port ${port}` +
+            (killed.length ? ` (PID ${killed.join(', ')})` : '') +
+            '.'
+        )
+      );
+      return;
+    }
+    console.log(
+      chalk.yellow(
+        `Port ${port} still answers /api/health. Free it with:\n` +
+          `  lsof -nP -iTCP:${port} -sTCP:LISTEN\n` +
+          `  kill <PID>`
+      )
+    );
+    return;
+  }
+
+  console.log(chalk.yellow('No managed Fox Schema UI server is running.'));
 }
