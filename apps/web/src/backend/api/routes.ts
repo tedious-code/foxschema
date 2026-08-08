@@ -1,7 +1,4 @@
 import { Router, Request, Response } from 'express';
-import { spawn } from 'child_process';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   ConnectionModule,
   CompareModule,
@@ -24,8 +21,6 @@ import {
 import { probeTableFragmentation, mapPool } from './index-fragmentation';
 import { probeDbaUtility } from './dba-utilities';
 
-// apps/web/src/backend/api → monorepo root (npm workspaces live here)
-const WORKSPACE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../..');
 import { ConnectionStore } from '../modules/connection-store.module';
 import { MigrationHistoryStore, type MigrationObjectResult, type MigrationRunStatus } from '../modules/migration-history.module';
 import {
@@ -206,52 +201,55 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     }
   });
 
-  router.post('/driver/install', (req: Request, res: Response) => {
+  router.post('/driver/install', async (req: Request, res: Response) => {
     const { dialect } = req.body as { dialect: string };
 
     try {
       const packageName = DriverDetector.getPackageName(dialect);
+      const versionPin = packageName === 'ibm_db' ? '4.0.1' : undefined;
 
-      // Use spawn with an explicit argument array instead of exec() with a template
-      // string — this prevents shell interpretation of packageName (command injection).
-      // packageName is looked up from the fixed adapter registry (never the raw
-      // request body), so it's safe to let install scripts run — and ibm_db's
-      // postinstall is what actually fetches/wires up the DB2 CLI driver; skipping
-      // it left the package installed but non-functional.
-      //
-      // This monorepo uses npm workspaces (not pnpm). --foreground-scripts is
-      // required so ibm_db's installer actually downloads clidriver + builds the
-      // native binding (npm may otherwise skip scripts for optional deps).
-      const args =
-        packageName === 'ibm_db'
-          ? ['install', 'ibm_db@4.0.1', '--foreground-scripts', '-w', '@foxschema/web']
-          : ['install', packageName, '--foreground-scripts', '-w', '@foxschema/web'];
-      const proc = spawn('npm', args, {
-        cwd: WORKSPACE_ROOT,
-        stdio: 'pipe',
-        env: { ...process.env, npm_config_ignore_scripts: '' },
-      });
-      let stdout = '';
-      let stderr = '';
-      proc.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
-      proc.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
-      proc.on('close', (code: number | null) => {
-        if (code !== 0) {
-          const detail = (stderr || stdout).trim().slice(-2000);
-          res.status(500).json({
-            success: false,
-            error: `npm install ${packageName} failed (exit ${code})${detail ? `: ${detail}` : ''}`,
-            stderr,
-          });
-          return;
-        }
-        res.json({ success: true, stdout });
-      });
-      proc.on('error', (err: Error) => {
+      // Resolve monorepo vs packaged cwd (bundled ui-server used to install into `/`).
+      // ibm_db must run install scripts so clidriver downloads + native binding builds.
+      const {
+        installAndVerifyDriver,
+        driverInstallHints,
+      } = await import('../modules/driver-install');
+
+      const result = await installAndVerifyDriver(packageName, versionPin);
+
+      if (result.code !== 0 && result.code !== null) {
+        const detail = (result.stderr || result.stdout).trim().slice(-2000);
         res.status(500).json({
           success: false,
-          error: `Failed to run npm (${err.message}). Install manually: npm install ${packageName} --foreground-scripts -w @foxschema/web`,
+          error:
+            `npm install ${packageName} failed (exit ${result.code})${detail ? `: ${detail}` : ''}. ` +
+            `Try: ${result.manualCommand}. ${driverInstallHints(packageName)}`,
+          stderr: result.stderr,
+          cwd: result.cwd,
         });
+        return;
+      }
+
+      if (!result.ok) {
+        // npm exited 0 but driver still does not load (scripts skipped / wrong arch).
+        res.status(500).json({
+          success: false,
+          error:
+            `Install finished but ${packageName} still failed to load` +
+            (result.error ? `: ${result.error}` : '') +
+            `. Try: ${result.manualCommand}. ${driverInstallHints(packageName)}` +
+            ` Then restart Fox Schema (\`foxschema stop && foxschema\`).`,
+          stderr: result.stderr,
+          cwd: result.cwd,
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        stdout: result.stdout,
+        cwd: result.cwd,
+        hint: 'If the driver still shows missing, restart Fox Schema so the process reloads native bindings.',
       });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Installation failed';

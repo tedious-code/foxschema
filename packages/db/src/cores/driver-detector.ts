@@ -38,10 +38,10 @@ export class DriverDetector {
       // ibm_db needs its postinstall (clidriver download + native build). Plain
       // `npm install` with --ignore-scripts leaves a broken package that still
       // "resolves" as a module path but fails on require — tell the user how to
-      // rebuild correctly.
+      // rebuild correctly. Prefer the CLI for packaged installs.
       const installCommand =
         packageName === 'ibm_db'
-          ? 'npm install ibm_db@4.0.1 --foreground-scripts -w @foxschema/web'
+          ? 'foxschema drivers install db2   # or: npm install ibm_db@4.0.1 --foreground-scripts -w @foxschema/db'
           : `npm install ${packageName}`;
       return {
         provider: dialect,

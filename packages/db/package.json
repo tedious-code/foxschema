@@ -10,6 +10,9 @@
   "dependencies": {
     "@foxschema/sql": "*"
   },
+  "optionalDependencies": {
+    "ibm_db": "^4.0.1"
+  },
   "peerDependencies": {
     "ibm_db": "*",
     "pg": "*",
