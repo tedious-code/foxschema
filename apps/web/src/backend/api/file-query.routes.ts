@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs';
 import { Router, Request, Response } from 'express';
 import type { AuthedRequest } from './auth.routes';
 import { denyUnless, requirePermissions } from './rbac.middleware';
+import { capacityMessage, importCapacity } from '../modules/import-capacity';
 import { rateLimit } from './rate-limit';
 import { ConnectionStore } from '../modules/connection-store.module';
 import {
@@ -30,6 +31,7 @@ import {
   getUploadSession,
   MAX_UPLOAD_BYTES,
   sessionToImportInput,
+  uploadLimitBytes,
 } from '../modules/file-query-session.module';
 
 const nodeRequire = createRequire(import.meta.url);
@@ -198,6 +200,21 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
       }
     }
   );
+
+  /**
+   * GET /api/files/capacity
+   * What this server can actually take, so the UI can warn before a long
+   * upload rather than after. Measured from live heap, not a constant.
+   */
+  router.get('/capacity', requirePermissions('editor.access'), (_req: Request, res: Response) => {
+    const cap = importCapacity();
+    res.json({
+      maxBytes: uploadLimitBytes(),
+      limitedBy: cap.limitedBy,
+      heapLimitBytes: cap.heapLimitBytes,
+      message: capacityMessage(cap),
+    });
+  });
 
   /**
    * POST /api/files/import
