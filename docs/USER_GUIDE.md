@@ -398,8 +398,19 @@ line). Stop it with `foxschema stop`.
 (`docker compose -f docker-compose.app.yml up -d`).
 
 **"driver not installed" for a database type.** Some drivers are optional/platform-
-specific (notably IBM Db2). Run `foxschema doctor`, or see
-[DEPLOYMENT.md](DEPLOYMENT.md#database-drivers).
+specific (notably IBM Db2 / `ibm_db`). Prefer:
+
+```bash
+foxschema drivers install db2
+foxschema stop && foxschema
+foxschema doctor
+```
+
+In a monorepo checkout you can also run
+`npm install ibm_db@4.0.1 --foreground-scripts -w @foxschema/web`.
+Install scripts **must** run (do not set `ignore-scripts`) so the IBM clidriver
+downloads. On **linux/arm64**, `ibm_db` has no build — use Docker
+`5nickels/foxschema:latest` (linux/amd64). See [DEPLOYMENT.md](DEPLOYMENT.md#database-drivers).
 
 **Saved passwords stopped working.** The encryption key changed. For the CLI, keep the
 same data directory; for Docker, restore the original `APP_ENCRYPTION_KEY` / volume, or

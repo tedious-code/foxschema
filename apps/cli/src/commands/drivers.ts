@@ -1,16 +1,19 @@
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import chalk from 'chalk';
 import { friendlyError } from '../format/friendlyError';
 
 const require = createRequire(import.meta.url);
 
-const DRIVER_PACKAGES: Record<string, { pkg: string; notes: string }> = {
+const DRIVER_PACKAGES: Record<string, { pkg: string; pin?: string; notes: string }> = {
   db2: {
     pkg: 'ibm_db',
+    pin: '4.0.1',
     notes:
-      'Large CLI driver. Not available on linux/arm64. Docker image 5nickels/foxschema:latest includes Db2 (linux/amd64).',
+      'Large CLI driver + native build. Needs --foreground-scripts (clidriver download). Not available on linux/arm64. Docker image 5nickels/foxschema:latest includes Db2 (linux/amd64).',
   },
   oracle: {
     pkg: 'oracledb',
@@ -26,9 +29,23 @@ function webWorkspaceRoot(): string {
   }
 }
 
+function monorepoRootFromWeb(webRoot: string): string | null {
+  const candidate = join(webRoot, '..', '..');
+  try {
+    const pkg = JSON.parse(readFileSync(join(candidate, 'package.json'), 'utf8')) as {
+      workspaces?: unknown;
+    };
+    if (pkg.workspaces && existsSync(join(candidate, 'apps/web/package.json'))) return candidate;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
 function tryRequire(id: string): boolean {
   try {
     require.resolve(id);
+    require(id);
     return true;
   } catch {
     return false;
@@ -81,21 +98,27 @@ export async function runDriversInstall(name: string): Promise<void> {
   console.log(chalk.bold(`Installing ${entry.pkg}…`));
   console.log(chalk.dim(entry.notes));
 
-  const cwd = webWorkspaceRoot();
+  const webRoot = webWorkspaceRoot();
+  const mono = monorepoRootFromWeb(webRoot);
+  const spec = entry.pin ? `${entry.pkg}@${entry.pin}` : entry.pkg;
 
-  // Prefer installing into the @foxschema/web package directory.
-  // ibm_db must run install scripts (--foreground-scripts) or clidriver never
-  // downloads and Windows connects fail with SQL1042C / missing native binding.
-  const npmArgs =
-    entry.pkg === 'ibm_db'
-      ? ['install', 'ibm_db@4.0.1', '--foreground-scripts', '--prefix', cwd]
-      : ['install', entry.pkg, '--foreground-scripts', '--prefix', cwd];
+  // Prefer workspace install in a checkout; otherwise --prefix into the web/package tree.
+  // ibm_db must run install scripts or clidriver never downloads.
+  const npmArgs = mono
+    ? ['install', spec, '--foreground-scripts', '-w', '@foxschema/web']
+    : ['install', spec, '--foreground-scripts', '--prefix', webRoot];
+  const cwd = mono ?? webRoot;
 
   await new Promise<void>((resolve, reject) => {
     const child = spawn('npm', npmArgs, {
+      cwd,
       stdio: 'inherit',
       shell: process.platform === 'win32',
-      env: { ...process.env, npm_config_ignore_scripts: '' },
+      env: {
+        ...process.env,
+        npm_config_ignore_scripts: '',
+        npm_config_foreground_scripts: 'true',
+      },
     });
     child.on('error', reject);
     child.on('exit', (code) => {
@@ -104,17 +127,20 @@ export async function runDriversInstall(name: string): Promise<void> {
     });
   });
 
-  void join(cwd, 'package.json');
-
   if (!tryRequire(entry.pkg)) {
     console.log(
       chalk.yellow(
         `Install finished but Node cannot resolve ${entry.pkg} from this process yet. ` +
-          'Restart your shell / reopen Fox Schema, then run `foxschema doctor`.'
+          'Restart your shell / reopen Fox Schema (`foxschema stop && foxschema`), then run `foxschema doctor`.\n' +
+          'If it still fails: ensure install scripts ran (unset npm ignore-scripts), Xcode CLT on macOS, ' +
+          'and use Docker linux/amd64 when on linux/arm64.'
       )
     );
   } else {
     console.log(chalk.green.bold(`✔ ${entry.pkg} installed.`));
+    if (entry.pkg === 'ibm_db') {
+      console.log(chalk.dim('Restart Fox Schema if the UI still shows the driver as missing.'));
+    }
   }
 }
 

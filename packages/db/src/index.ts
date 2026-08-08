@@ -25,7 +25,7 @@ export {
   nonSecretFingerprint,
   credentialedCacheKey,
 } from './cores/pool-cache';
-export { setupDb2ClientEnv } from './providers/db2/db2.env';
+export { setupDb2ClientEnv, hasDb2Clidriver } from './providers/db2/db2.env';
 
 // Provider/adapter registries
 export { getAdapter, ADAPTERS } from './providers/adapter-registry';
