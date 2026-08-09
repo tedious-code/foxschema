@@ -7,6 +7,12 @@ import { Router, Request, Response } from 'express';
 import type { AuthedRequest } from './auth.routes';
 import { denyUnless, requirePermissions } from './rbac.middleware';
 import { capacityMessage, importCapacity } from '../modules/import-capacity';
+import {
+  detectDelimitedColumns,
+  detectFixedWidthColumns,
+  MAX_DETECT_CHARS,
+  MAX_DETECT_LINES,
+} from '../modules/text-columns';
 import { rateLimit } from './rate-limit';
 import { ConnectionStore } from '../modules/connection-store.module';
 import {
@@ -215,6 +221,66 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
       message: capacityMessage(cap),
     });
   });
+
+  /**
+   * POST /api/files/detect-columns
+   * Fill in the text-offset form from a sample instead of making the user
+   * count characters. Pure analysis — reads nothing, writes nothing.
+   */
+  router.post(
+    '/detect-columns',
+    requirePermissions('editor.access'),
+    (req: Request, res: Response) => {
+      const body = req.body as {
+        sample?: unknown;
+        mode?: unknown;
+        delimiters?: unknown;
+        skipLines?: unknown;
+        minGap?: unknown;
+        collapse?: unknown;
+        useHeader?: unknown;
+      };
+      if (typeof body.sample !== 'string' || !body.sample.trim()) {
+        res.status(400).json({ error: 'sample must be a non-empty string.' });
+        return;
+      }
+      // Bound the work: detection only needs a few hundred lines, and the
+      // endpoint should not become a way to spend server CPU on a huge paste.
+      if (body.sample.length > MAX_DETECT_CHARS) {
+        res.status(400).json({
+          error: `sample must be under ${MAX_DETECT_CHARS} characters — send the first few hundred lines.`,
+        });
+        return;
+      }
+      const skip = Math.max(0, Math.min(1000, Number(body.skipLines) || 0));
+      const all = body.sample.replace(/\r/g, '').split('\n');
+      const useHeader = body.useHeader === true;
+      // The header is the last line skipped, which is where it sits in a report.
+      const headerLine = useHeader && skip > 0 ? all[skip - 1] : undefined;
+      const sampleLines = all.slice(skip, skip + MAX_DETECT_LINES);
+
+      try {
+        const columns =
+          body.mode === 'delimited'
+            ? detectDelimitedColumns(
+                sampleLines,
+                Array.isArray(body.delimiters)
+                  ? body.delimiters.filter((d): d is string => typeof d === 'string')
+                  : ['|'],
+                { collapse: body.collapse === true, headerLine }
+              )
+            : detectFixedWidthColumns(sampleLines, {
+                minGap: Number(body.minGap) || 1,
+                headerLine,
+              });
+        res.json({ columns, sampledLines: sampleLines.length });
+      } catch (error: unknown) {
+        res.status(400).json({
+          error: error instanceof Error ? error.message : 'Detection failed',
+        });
+      }
+    }
+  );
 
   /**
    * POST /api/files/import
