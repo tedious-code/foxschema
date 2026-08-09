@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeResultValue } from './resultValueKey';
+import { normalizeResultKey, normalizeResultValue } from './resultValueKey';
 import { resultValuesEqual } from './resultDataDiff';
 import { classifyRowsByKey } from './resultRowDiff';
 
@@ -100,5 +100,26 @@ describe('classifyRowsByKey — object-valued keys', () => {
     });
     expect(r.skippedNullKeys).toBe(1);
     expect(r.totalOps).toBe(0);
+  });
+
+  it('keeps decimal-looking text keys distinct (VARCHAR sku)', () => {
+    // Regression: normalizeResultValue folded '1.50' → '1.5' for row keys too,
+    // so classifyRowsByKey treated them as one row and offered an UPDATE that
+    // wrote source non-key values onto the destination's '1.5' row.
+    expect(normalizeResultKey('1.50')).toBe('1.50');
+    expect(normalizeResultKey('1.5')).toBe('1.5');
+    // Cell comparison may still fold DECIMAL scale — that is intentional.
+    expect(resultValuesEqual('1.50', '1.5')).toBe(true);
+
+    const r = classifyRowsByKey({
+      source: { columns: ['sku', 'name'], rows: [['1.50', 'Widget A']] },
+      dest: { columns: ['sku', 'name'], rows: [['1.5', 'Widget B']] },
+      keyNames: ['sku'],
+    });
+    expect(r.updates).toHaveLength(0);
+    expect(r.inserts).toHaveLength(1);
+    expect(r.deletes).toHaveLength(1);
+    expect(r.inserts[0]!.keyLabel).toContain('1.50');
+    expect(r.deletes[0]!.keyLabel).toContain('1.5');
   });
 });

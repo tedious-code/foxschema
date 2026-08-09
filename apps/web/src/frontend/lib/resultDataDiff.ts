@@ -38,12 +38,9 @@ export interface ResultPairDiff {
 /**
  * Cell equality across dialects.
  *
- * Both sides go through {@link normalizeResultValue}, the same canonical form
- * row matching uses, so a value that counts as "the same row" also counts as
- * "the same cell". They used to disagree: this function understood objects but
- * not booleans, which meant a Postgres `boolean` never equalled a MySQL
- * `TINYINT(1)` and every boolean column reported a diff that migrating the row
- * could not clear.
+ * Both sides go through {@link normalizeResultValue}. Row matching uses
+ * {@link normalizeResultKey} instead — that keeps VARCHAR key strings exact
+ * while still folding DECIMAL scale here for cell tinting.
  */
 export function resultValuesEqual(a: unknown, b: unknown): boolean {
   if (Object.is(a, b)) return true;

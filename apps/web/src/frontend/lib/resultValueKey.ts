@@ -3,10 +3,15 @@
  * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
  * SPDX-License-Identifier: Apache-2.0
  *
- * One canonical text form for a result-grid cell, shared by cell comparison
- * (`resultValuesEqual`) and row matching (`rowKey`).
+ * Canonical text forms for result-grid cells.
  *
- * These two had drifted apart, and each drift was a bug: cell comparison
+ * Cell comparison (`resultValuesEqual` → {@link normalizeResultValue}) and row
+ * matching (`rowKey` → {@link normalizeResultKey}) share most of the same
+ * folding, but they are not identical: cell comparison may fold DECIMAL scale
+ * on numeric-looking strings (`'1.50'` ≡ `'1.5'`), while row keys must not —
+ * a VARCHAR key `'1.50'` identifies a different row from `'1.5'`.
+ *
+ * These two had drifted apart before, and each drift was a bug: cell comparison
  * understood objects but not booleans, so a Postgres `boolean` never equalled
  * a MySQL `TINYINT(1)` and every boolean column showed a diff that migrating
  * could not clear. Row matching understood neither, so an object-valued key
@@ -98,8 +103,9 @@ export function normalizeResultValue(value: unknown): string | null {
   }
 
   if (typeof value === 'string') {
-    // Numeric-looking text is normalised only in canonical form, so DECIMAL
-    // scale differences ('1.50' vs '1.5') fold while text keys do not.
+    // DECIMAL scale differences ('1.50' vs '1.5') are representation noise for
+    // cell comparison. Do not use this path for row keys — see
+    // {@link normalizeResultKey}.
     return isCanonicalDecimal(value) ? trimDecimalScale(value) : value;
   }
 
@@ -114,4 +120,19 @@ export function normalizeResultValue(value: unknown): string | null {
   }
 
   return String(value);
+}
+
+/**
+ * Canonical text for a **row key** cell, or `null` for SQL NULL.
+ *
+ * Strings stay exact. Folding `'1.50'` → `'1.5'` is correct when comparing
+ * DECIMAL cells across drivers, but as a migrate key it pairs a VARCHAR
+ * `'1.50'` row with a VARCHAR `'1.5'` row and emits an UPDATE against the
+ * wrong destination key. Non-string values still go through
+ * {@link normalizeResultValue} so boolean / number / object keys keep their
+ * cross-dialect matching.
+ */
+export function normalizeResultKey(value: unknown): string | null {
+  if (typeof value === 'string') return value;
+  return normalizeResultValue(value);
 }
