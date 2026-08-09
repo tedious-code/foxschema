@@ -9,6 +9,8 @@ import { redshiftAdapter } from './redshift/redshift.adapter';
 import { clickHouseAdapter } from './clickHouse/clickhouse.adapter';
 import { azureSqlAdapter } from './azureSql/azuresql.adapter';
 import { duckDbAdapter } from './duckDb/duckdb.adapter';
+import { mongoDbAdapter } from './mongodb/mongodb.adapter';
+import { redisAdapter } from './redis/redis.adapter';
 
 // Register a dialect's native driver adapter here — one line per platform.
 // MariaDB shares the mysql2 adapter (same wire protocol & driver).
@@ -23,6 +25,11 @@ export const ADAPTERS: Record<string, DriverAdapter> = {
   [sqlServerAdapter.dialect]: sqlServerAdapter,
   [oracleAdapter.dialect]: oracleAdapter,
   [sqliteAdapter.dialect]: sqliteAdapter,
+  // Not SQL engines: statements are translated by parseSqlSubset. They are
+  // registered for the editor and data migrate only — schema diff does not
+  // apply to a schemaless store, so neither appears in DIALECT_MAP.
+  [mongoDbAdapter.dialect]: mongoDbAdapter,
+  [redisAdapter.dialect]: redisAdapter,
   [redshiftAdapter.dialect]: redshiftAdapter,
   [clickHouseAdapter.dialect]: clickHouseAdapter,
   [azureSqlAdapter.dialect]: azureSqlAdapter,

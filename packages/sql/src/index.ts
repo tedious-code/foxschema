@@ -27,6 +27,13 @@ export { SqlGeneratorModule } from './modules/sql-generator.module.js';
 export type { MigrationStep, SchemaMapping } from './modules/sql-generator.module.js';
 export { findDropDependencies } from './modules/dependency-scan.js';
 export type { DropDependency, DropDependencyOptions } from './modules/dependency-scan.js';
+export { parseSqlSubset, subsetValue } from './modules/sql-subset.js';
+export type {
+  SubsetIntent,
+  SubsetParse,
+  SubsetValue,
+  SubsetColumnEq,
+} from './modules/sql-subset.js';
 export { identityInsertSupport, identityInsertFor } from './modules/dialect-identity-insert.js';
 export type {
   IdentityInsertKind,

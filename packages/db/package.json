@@ -16,7 +16,9 @@
   "peerDependencies": {
     "ibm_db": "*",
     "pg": "*",
-    "mysql2": "*"
+    "mysql2": "*",
+    "mongodb": "*",
+    "redis": "*"
   },
   "peerDependenciesMeta": {
     "ibm_db": {
@@ -26,6 +28,12 @@
       "optional": true
     },
     "mysql2": {
+      "optional": true
+    },
+    "mongodb": {
+      "optional": true
+    },
+    "redis": {
       "optional": true
     }
   }
