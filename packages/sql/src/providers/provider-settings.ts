@@ -13,6 +13,8 @@ import { cockroachDbSettings } from './cockroachDb/cockroachdb.settings.js';
 import { yugabyteDbSettings } from './yugabyteDb/yugabytedb.settings.js';
 import { tiDbSettings } from './tiDb/tidb.settings.js';
 import { duckDbSettings } from './duckDb/duckdb.settings.js';
+import { redisSettings } from './redis/redis.settings.js';
+import { mongoDbSettings } from './mongodb/mongodb.settings.js';
 
 // Register a new dialect by adding its settings here — nothing else changes
 export const PROVIDER_SETTINGS: Record<string, ProviderConnectionSettings> = {
@@ -30,6 +32,12 @@ export const PROVIDER_SETTINGS: Record<string, ProviderConnectionSettings> = {
   [yugabyteDbSettings.dialect]: yugabyteDbSettings,
   [tiDbSettings.dialect]: tiDbSettings,
   [duckDbSettings.dialect]: duckDbSettings,
+  // Not SQL engines — statements are translated by parseSqlSubset. They are
+  // here so a connection can be created and used from the SQL editor and data
+  // migrate; they are deliberately absent from DIALECT_MAP, which drives
+  // schema diff and DDL generation.
+  [redisSettings.dialect]: redisSettings,
+  [mongoDbSettings.dialect]: mongoDbSettings,
 };
 
 export function getProviderSettings(dialect: string): ProviderConnectionSettings {
