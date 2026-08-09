@@ -6,12 +6,15 @@
  * Result DataGrid (paper surface, paging, FK drill links for Data Peek).
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Download, GripVertical, RefreshCw } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Copy, Download, GripVertical, RefreshCw } from 'lucide-react';
 import type { SqlStatementResult } from '../../api/sqlApi';
 import { CELL_DIFF_CLASS, type CellDiffKind } from '../../lib/resultDataDiff';
 import { columnToListValues, rowsForTableVariable } from '../../lib/sql-variables';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
+import { toast } from '../../store/toastStore';
+import { pickColumns, toTsv, writeClipboard } from '../../utils/copyGrid';
 import { downloadCsv } from '../../utils/exportCsv';
+import { downloadJson } from '../../utils/exportJson';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
 
 const CELL_MAX = 200;
@@ -180,6 +183,10 @@ function GridToolbar({
   refreshing,
   onRefresh,
   onExport,
+  onExportJson,
+  onCopy,
+  onChooseColumns,
+  copyScope,
   emphasis,
   toolbarExtra,
 }: {
@@ -187,6 +194,14 @@ function GridToolbar({
   refreshing?: boolean;
   onRefresh?: () => void;
   onExport?: () => void;
+  /** Download the grid as an array of row objects. */
+  onExportJson?: () => void;
+  /** Copy the grid (or the chosen columns) to the clipboard as TSV. */
+  onCopy?: (withHeaders: boolean) => void;
+  /** Open the column chooser. */
+  onChooseColumns?: () => void;
+  /** `n of m` when a column subset is active, so the filter is never hidden. */
+  copyScope?: { picked: number; total: number } | null;
   emphasis?: boolean;
   /** Row CRUD controls (query results / Data Peek). */
   toolbarExtra?: React.ReactNode;
@@ -194,6 +209,15 @@ function GridToolbar({
   const chrome = emphasis
     ? 'text-xs font-bold'
     : 'text-[10px] font-semibold';
+  const [openMenu, setOpenMenu] = useState<'copy' | 'export' | null>(null);
+  // Close the header dropdown on any outside click, the same way the grid's
+  // cell/column context menu does.
+  useEffect(() => {
+    if (!openMenu) return;
+    const close = () => setOpenMenu(null);
+    window.addEventListener('click', close);
+    return () => window.removeEventListener('click', close);
+  }, [openMenu]);
   return (
     <div className="flex items-center gap-2 mb-1 shrink-0">
       {label && (
@@ -218,15 +242,146 @@ function GridToolbar({
           <RefreshCw className={`w-3 h-3 text-cyan-400 ${refreshing ? 'animate-spin' : ''}`} strokeWidth={SQL_ICON_STROKE} /> Refresh
         </button>
       )}
+      {onCopy && (
+        <div className="relative shrink-0 flex items-center">
+          <button
+            type="button"
+            data-testid="sql-grid-copy-btn"
+            title="Copy all rows to the clipboard (Cmd/Ctrl-C in the grid)"
+            onClick={() => onCopy(false)}
+            className={`flex items-center gap-0.5 ${chrome} text-slate-500 hover:text-cyan-400 transition`}
+          >
+            <Copy className="w-3 h-3 text-sky-400" strokeWidth={SQL_ICON_STROKE} /> Copy
+            {copyScope && (
+              <span
+                data-testid="sql-grid-copy-scope"
+                className="ml-0.5 text-amber-300"
+                title={`Copying ${copyScope.picked} of ${copyScope.total} columns`}
+              >
+                {copyScope.picked}/{copyScope.total}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            data-testid="sql-grid-copy-menu-btn"
+            aria-label="Copy options"
+            aria-expanded={openMenu === 'copy'}
+            title="Copy options"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpenMenu((cur) => (cur === 'copy' ? null : 'copy'));
+            }}
+            className={`${chrome} text-slate-500 hover:text-cyan-400 transition px-0.5`}
+          >
+            <ChevronDown className="w-3 h-3" strokeWidth={SQL_ICON_STROKE} />
+          </button>
+          {openMenu === 'copy' && (
+            <div
+              data-testid="sql-grid-copy-menu"
+              className="absolute right-0 top-full z-50 mt-1 min-w-[168px] rounded-md border border-slate-700 bg-slate-900 shadow-lg py-1 text-[11px]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                data-testid="sql-grid-copy-values"
+                className="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800"
+                onClick={() => {
+                  onCopy(false);
+                  setOpenMenu(null);
+                }}
+              >
+                Copy values
+              </button>
+              <button
+                type="button"
+                data-testid="sql-grid-copy-headers"
+                className="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800"
+                onClick={() => {
+                  onCopy(true);
+                  setOpenMenu(null);
+                }}
+              >
+                Copy with headers
+              </button>
+              {onChooseColumns && (
+                <>
+                  <div className="my-1 border-t border-slate-700" />
+                  <button
+                    type="button"
+                    data-testid="sql-grid-copy-choose-cols"
+                    className="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800"
+                    onClick={() => {
+                      onChooseColumns();
+                      setOpenMenu(null);
+                    }}
+                  >
+                    Choose columns…
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
       {onExport && (
-        <button
-          type="button"
-          title="Export CSV"
-          onClick={onExport}
-          className={`flex items-center gap-0.5 ${chrome} text-slate-500 hover:text-cyan-400 transition shrink-0`}
-        >
-          <Download className="w-3 h-3 text-sky-400" strokeWidth={SQL_ICON_STROKE} /> CSV
-        </button>
+        <div className="relative shrink-0 flex items-center">
+          <button
+            type="button"
+            data-testid="sql-grid-export-btn"
+            title="Export CSV"
+            onClick={onExport}
+            className={`flex items-center gap-0.5 ${chrome} text-slate-500 hover:text-cyan-400 transition`}
+          >
+            <Download className="w-3 h-3 text-sky-400" strokeWidth={SQL_ICON_STROKE} /> CSV
+          </button>
+          {onExportJson && (
+            <button
+              type="button"
+              data-testid="sql-grid-export-menu-btn"
+              aria-label="Export options"
+              aria-expanded={openMenu === 'export'}
+              title="Export options"
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpenMenu((cur) => (cur === 'export' ? null : 'export'));
+              }}
+              className={`${chrome} text-slate-500 hover:text-cyan-400 transition px-0.5`}
+            >
+              <ChevronDown className="w-3 h-3" strokeWidth={SQL_ICON_STROKE} />
+            </button>
+          )}
+          {openMenu === 'export' && onExportJson && (
+            <div
+              data-testid="sql-grid-export-menu"
+              className="absolute right-0 top-full z-50 mt-1 min-w-[168px] rounded-md border border-slate-700 bg-slate-900 shadow-lg py-1 text-[11px]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                data-testid="sql-grid-export-csv"
+                className="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800"
+                onClick={() => {
+                  onExport();
+                  setOpenMenu(null);
+                }}
+              >
+                Export CSV
+              </button>
+              <button
+                type="button"
+                data-testid="sql-grid-export-json"
+                className="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800"
+                onClick={() => {
+                  onExportJson();
+                  setOpenMenu(null);
+                }}
+              >
+                Export JSON
+              </button>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
@@ -331,6 +486,20 @@ export const DataGrid: React.FC<{
     | { kind: 'grid'; x: number; y: number }
     | null
   >(null);
+  /**
+   * Source column indices to copy, in the order the user picked them.
+   * `null` means "the whole grid, in display order" — the default.
+   */
+  const [copyColumns, setCopyColumns] = useState<number[] | null>(null);
+  const [colPickerOpen, setColPickerOpen] = useState(false);
+  // A column choice belongs to the result it was made against. Re-running with
+  // a different shape must fall back to the whole grid rather than silently
+  // copying whichever columns happen to sit at those indices now.
+  const columnSignature = sourceColumns.join(' ');
+  useEffect(() => {
+    setCopyColumns(null);
+    setColPickerOpen(false);
+  }, [columnSignature]);
   const [savePrompt, setSavePrompt] = useState<
     | { mode: 'scalar'; value: unknown; defaultName: string }
     | { mode: 'list'; colIdx: number; defaultName: string }
@@ -565,9 +734,54 @@ export const DataGrid: React.FC<{
   const padTop = start * rowH;
   const padBottom = Math.max(0, (totalRows - end) * rowH);
 
+  /** Rows in the user's on-screen column order — what copy and export both use. */
+  const orderedRowsForOutput = () => sourceRows.map((row) => order.map((i) => row[i]));
+
   const exportOrdered = () => {
-    const orderedRows = sourceRows.map((row) => order.map((i) => row[i]));
-    downloadCsv(exportName, orderedColumns, orderedRows);
+    downloadCsv(exportName, orderedColumns, orderedRowsForOutput());
+  };
+
+  const exportOrderedJson = () => {
+    downloadJson(exportName, orderedColumns, orderedRowsForOutput());
+  };
+
+  /**
+   * What copy sends: the whole grid in display order, or — once the user has
+   * picked columns — exactly those, in the order they picked them.
+   *
+   * `copyColumns` holds source indices rather than display positions so that
+   * dragging a column afterwards cannot silently change the selection.
+   */
+  const copyPayload = (): { columns: string[]; rows: unknown[][] } =>
+    copyColumns === null
+      ? { columns: orderedColumns, rows: orderedRowsForOutput() }
+      : pickColumns(sourceColumns, sourceRows, copyColumns);
+
+  const copyOrdered = async (withHeaders: boolean) => {
+    const { columns, rows } = copyPayload();
+    if (columns.length === 0) {
+      toast({
+        tone: 'warning',
+        title: 'No columns selected',
+        body: 'Pick at least one column in Choose columns.',
+      });
+      return;
+    }
+    const ok = await writeClipboard(toTsv(withHeaders ? columns : null, rows));
+    if (!ok) {
+      toast({
+        tone: 'warning',
+        title: 'Copy failed',
+        body: 'The browser blocked clipboard access. Click the grid and try again.',
+      });
+      return;
+    }
+    toast({
+      tone: 'success',
+      title: `Copied ${rows.length} row${rows.length === 1 ? '' : 's'}`,
+      body: withHeaders ? 'Headers included — paste into Excel or Sheets.' : undefined,
+      durationMs: 2_000,
+    });
   };
 
   return (
@@ -577,15 +791,34 @@ export const DataGrid: React.FC<{
         refreshing={refreshing}
         onRefresh={onRefresh}
         onExport={sourceColumns.length > 0 ? exportOrdered : undefined}
+        onExportJson={sourceColumns.length > 0 ? exportOrderedJson : undefined}
+        onCopy={sourceColumns.length > 0 ? copyOrdered : undefined}
+        onChooseColumns={sourceColumns.length > 0 ? () => setColPickerOpen(true) : undefined}
+        copyScope={
+          copyColumns === null
+            ? null
+            : { picked: copyColumns.length, total: sourceColumns.length }
+        }
         toolbarExtra={toolbarExtra}
         emphasis={emphasis}
       />
       <div
         ref={scrollRef}
         data-testid="sql-data-grid"
-        className="fox-sql-grid flex-1 min-h-0 border border-[var(--fox-grid-border)] rounded-lg shadow-sm bg-[var(--fox-grid-bg)] text-[var(--fox-grid-ink)]"
+        tabIndex={0}
+        className="fox-sql-grid flex-1 min-h-0 border border-[var(--fox-grid-border)] rounded-lg shadow-sm bg-[var(--fox-grid-bg)] text-[var(--fox-grid-ink)] focus:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/40"
         style={{ overflowX: 'auto', overflowY: 'auto' }}
         onScroll={onScroll}
+        onKeyDown={(e) => {
+          if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'c') return;
+          if (sourceColumns.length === 0) return;
+          // Never hijack a real text selection — highlighting one cell's text
+          // and pressing Cmd-C must still copy just that text.
+          const sel = window.getSelection();
+          if (sel && !sel.isCollapsed) return;
+          e.preventDefault();
+          void copyOrdered(e.shiftKey);
+        }}
         onMouseLeave={() => {
           if (hoverRow !== null) publishHoverRow(null);
         }}
@@ -782,6 +1015,13 @@ export const DataGrid: React.FC<{
                       }`}
                       style={{ width: ROW_NUM_PX, minWidth: ROW_NUM_PX }}
                       data-testid="sql-row-num"
+                      onContextMenu={(e) => {
+                        // The container's handler bails inside any td, so
+                        // without this the row-number column is a dead zone —
+                        // right-clicking it would offer nothing at all.
+                        e.preventDefault();
+                        setMenu({ kind: 'grid', x: e.clientX, y: e.clientY });
+                      }}
                     >
                       {absRow}
                     </td>
@@ -927,6 +1167,108 @@ export const DataGrid: React.FC<{
         )}
       </div>
 
+      {colPickerOpen && (
+        <div
+          data-testid="sql-grid-copy-columns"
+          className="fixed z-[120] left-1/2 top-24 -translate-x-1/2 w-72 max-h-80 flex flex-col rounded-lg border border-slate-700 bg-slate-900 shadow-2xl text-[11px]"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center gap-2 px-2.5 py-2 border-b border-slate-800 shrink-0">
+            <Copy className="w-3 h-3 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
+            <span className="font-bold text-slate-200">Columns to copy</span>
+            <button
+              type="button"
+              aria-label="Close"
+              data-testid="sql-grid-copy-columns-close"
+              className="ml-auto text-slate-500 hover:text-slate-200"
+              onClick={() => setColPickerOpen(false)}
+            >
+              ✕
+            </button>
+          </div>
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-slate-800/80 shrink-0">
+            <button
+              type="button"
+              data-testid="sql-grid-copy-columns-all"
+              className="px-2 py-0.5 rounded text-[10px] font-bold border border-slate-700 text-slate-300 hover:border-slate-500 hover:text-white transition"
+              onClick={() => setCopyColumns(null)}
+            >
+              All (grid order)
+            </button>
+            <button
+              type="button"
+              data-testid="sql-grid-copy-columns-none"
+              className="px-2 py-0.5 rounded text-[10px] font-bold border border-slate-700 text-slate-300 hover:border-rose-500/40 hover:text-rose-200 transition"
+              onClick={() => setCopyColumns([])}
+            >
+              None
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto py-1">
+            {order.map((srcIdx) => {
+              const rank = copyColumns ? copyColumns.indexOf(srcIdx) : -1;
+              const checked = copyColumns === null || rank >= 0;
+              return (
+                <label
+                  key={srcIdx}
+                  className="flex items-center gap-2 px-2.5 py-1 hover:bg-slate-800/70 cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    data-testid={`sql-grid-copy-col-${sourceColumns[srcIdx]}`}
+                    checked={checked}
+                    onChange={() => {
+                      setCopyColumns((cur) => {
+                        // First tick converts the implicit "everything" into an
+                        // explicit list so unticking one column keeps the rest.
+                        const base = cur ?? [...order];
+                        return base.includes(srcIdx)
+                          ? base.filter((i) => i !== srcIdx)
+                          : [...base, srcIdx];
+                      });
+                    }}
+                  />
+                  <span className="truncate text-slate-200">{sourceColumns[srcIdx]}</span>
+                  {rank >= 0 && (
+                    // Selection order is copy order, so show where it lands.
+                    <span className="ml-auto text-[10px] font-bold text-amber-300">
+                      {rank + 1}
+                    </span>
+                  )}
+                </label>
+              );
+            })}
+          </div>
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-t border-slate-800 shrink-0">
+            <button
+              type="button"
+              data-testid="sql-grid-copy-columns-values"
+              className="px-2 py-0.5 rounded text-[10px] font-bold border border-slate-700 text-slate-200 hover:border-cyan-500/50 hover:text-cyan-200 transition"
+              onClick={() => {
+                void copyOrdered(false);
+                setColPickerOpen(false);
+              }}
+            >
+              Copy values
+            </button>
+            <button
+              type="button"
+              data-testid="sql-grid-copy-columns-headers"
+              className="px-2 py-0.5 rounded text-[10px] font-bold border border-slate-700 text-slate-200 hover:border-cyan-500/50 hover:text-cyan-200 transition"
+              onClick={() => {
+                void copyOrdered(true);
+                setColPickerOpen(false);
+              }}
+            >
+              With headers
+            </button>
+          </div>
+          <div className="px-2.5 py-1.5 border-t border-slate-800 text-[10px] text-slate-500 shrink-0">
+            Numbers show copy order — tick in the order you want.
+          </div>
+        </div>
+      )}
+
       {menu && (
         <div
           data-testid="sql-grid-context-menu"
@@ -934,6 +1276,44 @@ export const DataGrid: React.FC<{
           style={{ left: menu.x, top: menu.y }}
           onClick={(e) => e.stopPropagation()}
         >
+          {sourceColumns.length > 0 && (
+            <>
+              <button
+                type="button"
+                data-testid="sql-grid-ctx-copy-values"
+                className="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800"
+                onClick={() => {
+                  void copyOrdered(false);
+                  setMenu(null);
+                }}
+              >
+                Copy values
+              </button>
+              <button
+                type="button"
+                data-testid="sql-grid-ctx-copy-headers"
+                className="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800"
+                onClick={() => {
+                  void copyOrdered(true);
+                  setMenu(null);
+                }}
+              >
+                Copy with headers
+              </button>
+              <button
+                type="button"
+                data-testid="sql-grid-ctx-choose-cols"
+                className="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800"
+                onClick={() => {
+                  setColPickerOpen(true);
+                  setMenu(null);
+                }}
+              >
+                Choose columns…
+              </button>
+              <div className="my-1 border-t border-slate-700" />
+            </>
+          )}
           {menu.kind === 'cell' ? (
             <>
               <button
