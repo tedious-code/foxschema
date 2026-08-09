@@ -41,6 +41,7 @@ import {
   compareKeyAlignedGrids,
   type AlignRowOp,
 } from '../../lib/resultKeyAlign';
+import { sideBySideSectionCount } from '../../lib/resultsSections';
 import { detectTriggerManagedColumns } from '../../lib/triggerManagedColumns';
 import { resolvePeekKeyColumns } from '../../lib/rowDml';
 import { buildSampleBookmarks } from '../../lib/sqlEditorSamples';
@@ -436,7 +437,10 @@ const PaneBody: React.FC<{
   }
   if (item.kind === 'running') {
     return (
-      <div className="flex items-center gap-2 text-xs text-slate-500 h-full px-2">
+      <div
+        data-testid="sql-results-running"
+        className="flex items-center gap-2 text-xs text-slate-500 h-full px-2"
+      >
         <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" strokeWidth={SQL_ICON_STROKE} />{' '}
         {item.label}
       </div>
@@ -1583,7 +1587,7 @@ export const ResultsPanel: React.FC<Props> = ({
     ) : null;
 
   if (layout === 'sideBySide') {
-    const stmtCount = Math.max(statements.length, ...runs.map((r) => r.results?.length ?? 0), 0);
+    const stmtCount = sideBySideSectionCount(statements.length, runs);
     return (
       <div className="flex-1 overflow-y-auto flex flex-col gap-4 pb-4" data-testid="sql-results-side-by-side">
         {warningBanner}
@@ -1629,7 +1633,13 @@ export const ResultsPanel: React.FC<Props> = ({
               key={i}
               statementIndex={i}
               outTestId={outTestId(i)}
-              headerLabel={statementLabel(statements[i] ?? '', outNumber(i))}
+              headerLabel={
+                // The pending section exists before its statement is reported;
+                // `Out [n]:` with nothing after it reads as a half-drawn row.
+                statements[i] === undefined
+                  ? `Out [${outNumber(i)}]: running…`
+                  : statementLabel(statements[i], outNumber(i))
+              }
               items={items}
               refreshing={refreshing}
               onRefresh={onRefresh}
@@ -1669,7 +1679,13 @@ export const ResultsPanel: React.FC<Props> = ({
               <Database className="w-3.5 h-3.5 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
               {run.name}
               <span className="text-[10px] font-semibold text-slate-500 uppercase">[{run.dialect}]</span>
-              {run.status === 'running' && <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" strokeWidth={SQL_ICON_STROKE} />}
+              {run.status === 'running' && (
+                <Loader2
+                  data-testid="sql-results-running"
+                  className="w-3.5 h-3.5 animate-spin text-cyan-400"
+                  strokeWidth={SQL_ICON_STROKE}
+                />
+              )}
               {onRefresh && run.status !== 'running' && (
                 <button
                   type="button"
