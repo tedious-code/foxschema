@@ -7,7 +7,7 @@
  * Requires a resolvable primary key (or unique index) present in the result columns.
  */
 
-import { sqlTag as sql, renderSqlQuery } from './sql-splitter';
+import { sqlTag as sql, renderSqlQuery, identityInsertFor } from './sql-splitter';
 import { tableNameParts } from './tablePreview';
 import type { TableSchema } from './types';
 
@@ -259,8 +259,14 @@ export function buildPeekInsert(opts: {
   values: Record<string, unknown>;
   /** Skip empty identity columns so the engine can generate them. */
   identityColumns?: Set<string>;
+  /**
+   * `identityGeneration` of the identity column being written explicitly
+   * ('ALWAYS' / 'BY DEFAULT'). Set only when the caller intends to preserve
+   * source ids; decides whether the statement needs an overriding clause.
+   */
+  writeIdentityGeneration?: string;
 }): PeekWritePlan | { error: string } {
-  const { tableName, dialect, values, identityColumns } = opts;
+  const { tableName, dialect, values, identityColumns, writeIdentityGeneration } = opts;
   const parts = tableNameParts(tableName);
   if (!parts.length) return { error: 'Invalid table name.' };
 
@@ -271,8 +277,16 @@ export function buildPeekInsert(opts: {
   }
   if (Object.keys(row).length === 0) return { error: 'Nothing to insert.' };
 
+  // Postgres and Db2 refuse an explicit value for a GENERATED ALWAYS identity
+  // column unless the statement says so (SQLSTATE 428C9 / SQL0798N). The
+  // clause comes from a fixed capability table, never from user input.
+  const support = writeIdentityGeneration
+    ? identityInsertFor(dialect, writeIdentityGeneration)
+    : undefined;
+  const between = support?.kind === 'overriding' ? support.clause : undefined;
+
   const rendered = renderSqlQuery(
-    sql`INSERT INTO ${sql.id(...parts)} ${sql.values([row])}`,
+    sql`INSERT INTO ${sql.id(...parts)} ${sql.values([row], undefined, between)}`,
     dialect
   );
   return {
