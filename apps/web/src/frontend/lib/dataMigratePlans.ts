@@ -72,6 +72,12 @@ export function buildDataMigratePlans(opts: {
   ops: ClassifiedRowDiff[];
   /** When true, include identity/autoincrement values on INSERT (preserve source IDs). */
   includeIdentity: boolean;
+  /**
+   * How the destination's identity column is declared ('ALWAYS' / 'BY DEFAULT').
+   * Only consulted when includeIdentity is on — it decides whether the INSERT
+   * needs an overriding clause for the destination engine.
+   */
+  identityGeneration?: string;
   identityColumns: Set<string>;
   /**
    * Skip these columns on INSERT/UPDATE (trigger-managed createdAt / updatedBy).
@@ -88,6 +94,7 @@ export function buildDataMigratePlans(opts: {
     ops,
     includeIdentity,
     identityColumns,
+    identityGeneration,
     ignoreColumns = [],
   } = opts;
 
@@ -117,8 +124,10 @@ export function buildDataMigratePlans(opts: {
         tableName,
         dialect,
         values: rowToValues(stripped.columns, stripped.row),
-        // Identity already stripped when !includeIdentity; when on, keep values.
+        // Identity already stripped when !includeIdentity; when on, keep values
+        // and let buildPeekInsert shape the statement for the engine.
         identityColumns: undefined,
+        writeIdentityGeneration: includeIdentity ? identityGeneration : undefined,
       });
       if ('error' in built) {
         errors.push(`insert ${op.keyLabel}: ${built.error}`);

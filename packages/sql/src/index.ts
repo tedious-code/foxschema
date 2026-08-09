@@ -27,6 +27,11 @@ export { SqlGeneratorModule } from './modules/sql-generator.module.js';
 export type { MigrationStep, SchemaMapping } from './modules/sql-generator.module.js';
 export { findDropDependencies } from './modules/dependency-scan.js';
 export type { DropDependency, DropDependencyOptions } from './modules/dependency-scan.js';
+export { identityInsertSupport, identityInsertFor } from './modules/dialect-identity-insert.js';
+export type {
+  IdentityInsertKind,
+  IdentityInsertSupport,
+} from './modules/dialect-identity-insert.js';
 export { dialectSupportsFk } from './modules/dialect-fk-support.js';
 export type { FkFeatureSupport } from './modules/dialect-fk-support.js';
 export { dialectSupportsIndex } from './modules/dialect-index-support.js';

@@ -30,6 +30,7 @@ import {
   selectMigrateOps,
   type ClassifiedRowDiff,
 } from '../../lib/resultRowDiff';
+import { identityInsertFor } from '@foxschema/sql';
 import { assessPeekEditability, resolvePeekKeyColumns } from '../../lib/rowDml';
 import { singleTableForResultEdit } from '../../lib/tablePreview';
 import type { TableSchema } from '../../lib/types';
@@ -152,6 +153,12 @@ export const DataMigrateBar: React.FC<Props> = ({
     () => assessPeekEditability({ dialect: dest.dialect, table, resultColumns: source.columns }),
     [dest.dialect, table, source.columns]
   );
+
+  /** Declaration of the destination identity column, for the INSERT shape. */
+  const identityGenerationForTable = useMemo(() => {
+    const col = table?.columns.find((c) => editability.identityColumns.has(c.name));
+    return col?.identityGeneration;
+  }, [table, editability.identityColumns]);
 
   const classification = useMemo(
     () =>
@@ -321,6 +328,33 @@ export const DataMigrateBar: React.FC<Props> = ({
       return;
     }
 
+    // Include identity writes the source id explicitly, which most engines
+    // refuse unless the statement or session is shaped for it. Decide here,
+    // from the dialect and how the column was declared, so the user gets a
+    // sentence instead of Msg 544 / ORA-32795 / SQL0798N mid-run.
+    if (includeIdentity && filtered.ops.some((o) => o.op === 'insert')) {
+      const generations = new Set(
+        (tables ?? [])
+          .find((t) => t.name === tableName)
+          ?.columns.filter((c) => editability.identityColumns.has(c.name))
+          .map((c) => c.identityGeneration) ?? []
+      );
+      const blocked = [...(generations.size ? generations : [undefined])]
+        .map((g) => identityInsertFor(dest.dialect, g))
+        .find((s) => s.kind !== 'native' && s.kind !== 'overriding');
+      if (blocked) {
+        toast({
+          tone: 'warning',
+          title: 'Include identity is not supported here',
+          body:
+            blocked.reason ??
+            `${dest.dialect} needs SET IDENTITY_INSERT around the write, which side-by-side migrate does not yet issue. Turn off Include identity to let the destination assign ids.`,
+          durationMs: 12_000,
+        });
+        return;
+      }
+    }
+
     // Columns the source SELECT returns that the destination table does not
     // have. INSERT/UPDATE name them, so the op fails at the database with a
     // bare "column does not exist" — after the user has clicked Sync. The
@@ -370,6 +404,7 @@ export const DataMigrateBar: React.FC<Props> = ({
       ops: filtered.ops,
       includeIdentity,
       identityColumns: editability.identityColumns,
+      identityGeneration: identityGenerationForTable,
       ignoreColumns,
     });
     if (errors.length) {

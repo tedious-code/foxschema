@@ -55,7 +55,14 @@ const QUERY = Symbol.for('foxschema.sql.query');
 type Fragment =
   | { [FRAGMENT]: true; kind: 'raw'; text: string }
   | { [FRAGMENT]: true; kind: 'identifier'; parts: string[] }
-  | { [FRAGMENT]: true; kind: 'values'; rows: Record<string, unknown>[]; columns?: string[] }
+  | {
+      [FRAGMENT]: true;
+      kind: 'values';
+      rows: Record<string, unknown>[];
+      columns?: string[];
+      /** Clause between the column list and VALUES, e.g. OVERRIDING SYSTEM VALUE. */
+      between?: string;
+    }
   | { [FRAGMENT]: true; kind: 'list'; values: unknown[] };
 
 export interface SqlQuery {
@@ -130,7 +137,12 @@ export function renderSqlQuery(query: SqlQuery, dialect: string): RenderedSql {
       const tuples = value.rows
         .map((row) => `(${cols.map((c) => bind(row[c] ?? null)).join(', ')})`)
         .join(', ');
-      text += `(${colList}) VALUES ${tuples}`;
+      // `between` carries an engine clause that must sit after the column
+      // list — Postgres/Db2 spell explicit identity writes that way. It is
+      // caller-supplied SQL, so it is only ever set from a fixed capability
+      // table, never from user input.
+      const between = value.between ? `${value.between} ` : '';
+      text += `(${colList}) ${between}VALUES ${tuples}`;
       return;
     }
     // A bare array is an IN-list — the single most common multi-value need.
@@ -159,7 +171,7 @@ export interface SqlTag {
   /** A quoted identifier; `sql.id('public', 'users')` → `"public"."users"`. */
   id(...parts: string[]): Fragment;
   /** `(a, b) VALUES (?, ?), (?, ?)` from an array of objects. */
-  values(rows: Record<string, unknown>[], columns?: string[]): Fragment;
+  values(rows: Record<string, unknown>[], columns?: string[], between?: string): Fragment;
   /** `(?, ?, ?)` for `IN` lists (a bare array does this too). */
   list(values: unknown[]): Fragment;
 }
@@ -175,9 +187,14 @@ export const sqlTag: SqlTag = Object.assign(
   {
     raw: (text: string): Fragment => ({ [FRAGMENT]: true, kind: 'raw', text }),
     id: (...parts: string[]): Fragment => ({ [FRAGMENT]: true, kind: 'identifier', parts }),
-    values: (rows: Record<string, unknown>[], columns?: string[]): Fragment => ({
+    values: (
+      rows: Record<string, unknown>[],
+      columns?: string[],
+      between?: string
+    ): Fragment => ({
       [FRAGMENT]: true,
       kind: 'values',
+      between,
       rows,
       columns,
     }),
