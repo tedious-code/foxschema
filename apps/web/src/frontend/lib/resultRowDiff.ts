@@ -8,7 +8,7 @@
  */
 
 import { resultValuesEqual } from './resultDataDiff';
-import { normalizeResultValue } from './resultValueKey';
+import { normalizeResultKey } from './resultValueKey';
 import type { PeekKeyColumn } from './rowDml';
 
 export const DATA_MIGRATE_ROW_CAP = 500;
@@ -67,11 +67,10 @@ export function keyColumnsForGrid(
  * collisions when a key value contains `|` / `=` (naive `a=x|b=y` join could
  * treat distinct composite keys as the same row and UPDATE/DELETE the wrong one).
  *
- * Values go through {@link normalizeResultValue}, the same canonical form cell
- * comparison uses, so number `1` and string `"1"` still match across dialects —
- * and an object-valued key gets a real key instead of collapsing to
- * `"[object Object]"`, which used to pair two unrelated rows and offer an
- * UPDATE that overwrote the wrong one.
+ * Values go through {@link normalizeResultKey}: strings stay exact (so VARCHAR
+ * `'1.50'` ≠ `'1.5'`), while number / boolean / object keys still fold driver
+ * representation differences. Using cell-comparison normalisation here used to
+ * collapse decimal-looking text keys and emit an UPDATE against the wrong row.
  */
 function rowKey(
   row: unknown[],
@@ -82,9 +81,9 @@ function rowKey(
   for (const k of keys) {
     if (k.resultIndex < 0) return { ok: false };
     const v = row[k.resultIndex];
-    // normalizeResultValue returns null for SQL NULL, which is never a usable
+    // normalizeResultKey returns null for SQL NULL, which is never a usable
     // key — a NULL cannot identify a row to UPDATE or DELETE.
-    const asText = normalizeResultValue(v);
+    const asText = normalizeResultKey(v);
     if (asText === null) return { ok: false };
     wire.push([k.name.toLowerCase(), asText]);
     labels.push(`${k.name}=${asText}`);
