@@ -1,0 +1,143 @@
+import { createRequire } from 'node:module';
+import { ConnectionOptions, DriverAdapter, parseSqlSubset, subsetValue } from '@foxschema/sql';
+import { credentialedCacheKey } from '../../cores/pool-cache';
+
+const nodeRequire = createRequire(import.meta.url);
+
+/**
+ * MongoDB behind the SQL editor.
+ *
+ * Mongo does not speak SQL — the driver takes MQL documents — so every
+ * statement is parsed by `parseSqlSubset` and carried out as a collection
+ * operation. The subset is small on purpose: anything it cannot represent
+ * exactly is refused rather than approximated, because a predicate quietly
+ * dropped from a DELETE empties a collection.
+ *
+ * A collection is a "table" and a document field is a "column". That mapping
+ * is honest for the data-migrate case, which only ever addresses a single
+ * table by equality on key columns.
+ *
+ * Transactions are no-ops. Mongo has them, but only on a replica set — a
+ * standalone server rejects `startTransaction`, and quietly running a
+ * migration unwrapped is better than failing every standalone deployment.
+ * `executeDataMigrateOps` already reports per-op results, so a partial run is
+ * visible rather than silent.
+ */
+class MongoDbAdapter implements DriverAdapter {
+  readonly dialect = 'mongodb';
+  readonly packageName = 'mongodb';
+
+  private clients = new Map<string, any>();
+  private mod: any;
+
+  private load(): any {
+    if (this.mod) return this.mod;
+    try {
+      const m = nodeRequire(this.packageName);
+      this.mod = m.default ?? m;
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      throw new Error(
+        `Database driver "${this.packageName}" is not installed for mongodb. Install it with: npm install ${this.packageName} — ${message}`
+      );
+    }
+    return this.mod;
+  }
+
+  async acquire(connectionString: string, options: ConnectionOptions, _pooled: boolean): Promise<any> {
+    const { MongoClient } = this.load();
+    const database = options.database || options.schema || 'test';
+    const key = credentialedCacheKey({
+      connectionString,
+      username: options.username || '',
+      password: options.password || '',
+      database,
+    });
+    let entry = this.clients.get(key);
+    if (!entry) {
+      const client = new MongoClient(connectionString, {
+        serverSelectionTimeoutMS: options.timeout?.connectMs ?? 10_000,
+      });
+      await client.connect();
+      entry = { client, database };
+      this.clients.set(key, entry);
+    }
+    return entry;
+  }
+
+  async release(_connection: any): Promise<void> {
+    // Clients are pooled by the driver and reused; closing happens in closeAll.
+  }
+
+  async query<T = Record<string, unknown>>(
+    connection: any,
+    sql: string,
+    params: readonly unknown[]
+  ): Promise<T[]> {
+    const parsed = parseSqlSubset(sql);
+    if (!parsed.ok) {
+      // Refuse, with the reason. Never fall back to "run something similar".
+      throw new Error(`MongoDB: ${parsed.error}`);
+    }
+    const intent = parsed.intent;
+    const db = connection.client.db(connection.database);
+    const collection = db.collection(intent.table);
+    const filter = (
+      pairs: ReadonlyArray<{ column: string; value: any }>
+    ): Record<string, unknown> => {
+      const out: Record<string, unknown> = {};
+      for (const p of pairs) out[p.column] = subsetValue(p.value, params);
+      return out;
+    };
+
+    switch (intent.kind) {
+      case 'select': {
+        const projection =
+          intent.columns === '*'
+            ? undefined
+            : Object.fromEntries(intent.columns.map((c) => [c, 1]));
+        let cursor = collection.find(filter(intent.where), { projection });
+        if (intent.limit !== undefined) cursor = cursor.limit(intent.limit);
+        const docs = await cursor.toArray();
+        // _id is a BSON ObjectId — the grid and the diff both want text.
+        return docs.map((d: Record<string, unknown>) => ({
+          ...d,
+          ...(d._id !== undefined ? { _id: String(d._id) } : {}),
+        })) as T[];
+      }
+      case 'insert': {
+        const doc: Record<string, unknown> = {};
+        for (const a of intent.assignments) doc[a.column] = subsetValue(a.value, params);
+        const res = await collection.insertOne(doc);
+        return [{ insertedId: String(res.insertedId), rowCount: 1 }] as T[];
+      }
+      case 'update': {
+        const set: Record<string, unknown> = {};
+        for (const s of intent.set) set[s.column] = subsetValue(s.value, params);
+        const res = await collection.updateMany(filter(intent.where), { $set: set });
+        return [{ rowCount: res.modifiedCount, matched: res.matchedCount }] as T[];
+      }
+      case 'delete': {
+        const res = await collection.deleteMany(filter(intent.where));
+        return [{ rowCount: res.deletedCount }] as T[];
+      }
+    }
+  }
+
+  // Standalone Mongo rejects transactions; see the class comment.
+  async beginTransaction(_connection: any): Promise<void> {}
+  async commitTransaction(_connection: any): Promise<void> {}
+  async rollbackTransaction(_connection: any): Promise<void> {}
+
+  async setCurrentSchema(connection: any, schema: string): Promise<void> {
+    if (schema?.trim()) connection.database = schema.trim();
+  }
+
+  async closeAll(): Promise<void> {
+    const entries = [...this.clients.values()];
+    this.clients.clear();
+    await Promise.all(entries.map((e) => e.client.close().catch(() => undefined)));
+  }
+}
+
+export const mongoDbAdapter = new MongoDbAdapter();
