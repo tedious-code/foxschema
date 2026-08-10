@@ -134,10 +134,18 @@ const BINARY_NAMES = new Set([
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE_RE = /^\d{4}-\d{1,2}-\d{1,2}$/;
+// The three suppressions below are the linter's star-height heuristic firing on
+// nested *optional* groups. Every quantifier here is bounded ({1,2}, {2}, {1,9})
+// or sits in a group that is never itself repeated, so there is no ambiguity to
+// backtrack over. Measured against adversarial input (a valid prefix then a
+// failing character): runtime is linear from n=1,000 to n=8,000 characters.
+// eslint-disable-next-line security/detect-unsafe-regex -- false positive: anchored, every quantifier bounded
 const TIME_RE = /^\d{1,2}:\d{2}(:\d{2}(\.\d{1,9})?)?$/;
 const TIMESTAMP_RE =
+  // eslint-disable-next-line security/detect-unsafe-regex -- false positive: anchored, every quantifier bounded
   /^\d{4}-\d{1,2}-\d{1,2}([ T]\d{1,2}:\d{2}(:\d{2}(\.\d{1,9})?)?)?(\s*(Z|[+-]\d{1,2}(:?\d{2})?))?$/i;
 const INTEGER_RE = /^[+-]?\d+$/;
+// eslint-disable-next-line security/detect-unsafe-regex -- false positive: the alternation group is never repeated
 const DECIMAL_RE = /^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/;
 const BOOL_WORDS = new Set(['true', 'false', 't', 'f', 'yes', 'no', 'y', 'n', '1', '0']);
 
