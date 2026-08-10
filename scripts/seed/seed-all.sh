@@ -134,15 +134,27 @@ case "$TARGET" in
   cockroachdb) seed_cockroachdb ;;
   yugabytedb)  seed_yugabytedb ;;
   all)
-    seed_postgres    || echo "  ✗ PostgreSQL skipped"
-    seed_mysql       || echo "  ✗ MySQL skipped"
-    seed_mariadb     || echo "  ✗ MariaDB skipped"
-    seed_sqlserver   || echo "  ✗ SQL Server skipped"
-    seed_oracle      || echo "  ✗ Oracle skipped"
-    seed_db2         || echo "  ✗ DB2 skipped"
-    seed_sqlite      || echo "  ✗ SQLite skipped"
-    seed_cockroachdb || echo "  ✗ CockroachDB skipped"
-    seed_yugabytedb  || echo "  ✗ YugabyteDB skipped"
+    # Continue past a failing dialect on purpose — not every machine runs all
+    # nine — but keep a list, because a wall of output makes a single "✗" easy
+    # to miss and reseeding is the control that stops stale data producing
+    # convincing-but-fake E2E failures.
+    FAILED=()
+    seed_postgres    || FAILED+=("PostgreSQL")
+    seed_mysql       || FAILED+=("MySQL")
+    seed_mariadb     || FAILED+=("MariaDB")
+    seed_sqlserver   || FAILED+=("SQL Server")
+    seed_oracle      || FAILED+=("Oracle")
+    seed_db2         || FAILED+=("DB2")
+    seed_sqlite      || FAILED+=("SQLite")
+    seed_cockroachdb || FAILED+=("CockroachDB")
+    seed_yugabytedb  || FAILED+=("YugabyteDB")
+    echo ""
+    if [ ${#FAILED[@]} -eq 0 ]; then
+      echo "  ✓ all dialects seeded"
+    else
+      echo "  ✗ NOT seeded (${#FAILED[@]}): ${FAILED[*]}"
+      echo "    Compare/migrate against these will run on stale or missing data."
+    fi
     ;;
   *)
     echo "Unknown target: $TARGET"
