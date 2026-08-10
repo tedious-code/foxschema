@@ -6,10 +6,13 @@
  * How many statement sections the side-by-side results layout should draw.
  */
 
-/** Only the fields the count depends on. */
+/**
+ * Only the fields the count depends on — structural on purpose, so this stays
+ * a pure module and does not reach back into the editor store for its types.
+ */
 export interface SectionRun {
   status: string;
-  results?: { length: number } | null;
+  results?: readonly unknown[] | null;
 }
 
 /**

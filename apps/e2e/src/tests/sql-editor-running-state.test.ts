@@ -76,32 +76,68 @@ describe.skipIf(!ready)('SQL Editor · in-flight results state', () => {
     await sql.waitForResults();
   });
 
-  it('shows progress while running in side-by-side layout', async () => {
+  it('keeps side-by-side populated for the whole run, in-flight included', async () => {
     await sql.setLayoutSideBySide();
     await sql.setSql(SLOW_SQL);
-    await sql.run();
 
-    await driver.waitForSelector('[data-testid="sql-results-running"]', { timeout: 10_000 });
-    await sql.waitForResults();
-  });
-
-  it('never leaves the results area blank mid-run in side-by-side', async () => {
-    await sql.setLayoutSideBySide();
-    await sql.setSql(SLOW_SQL);
-    await sql.run();
-
-    // Sample the container repeatedly while the query is in flight; it must
-    // always carry something for the user to read.
-    for (let i = 0; i < 6; i++) {
-      const text = await driver.evaluate(() => {
+    // Sample inside the page, driven by DOM mutations. The blank window is the
+    // gap between dispatching the run and the first statement being reported —
+    // tens of milliseconds. A Playwright round-trip per sample steps straight
+    // over it, and requestAnimationFrame is throttled in headless Chromium
+    // (~6 frames a second here). A MutationObserver fires on the very render
+    // that empties the panel, so the window cannot be missed.
+    await driver.evaluate(() => {
+      const w = window as unknown as { __foxSamples?: unknown[]; __foxStop?: () => void };
+      w.__foxSamples = [];
+      const started = performance.now();
+      const record = (): void => {
         const el = document.querySelector(
           '[data-testid="sql-results-side-by-side"]'
         ) as HTMLElement | null;
-        return el ? (el.innerText ?? '').trim() : null;
-      });
-      if (text !== null) expect(text.length).toBeGreaterThan(0);
-      await new Promise((r) => setTimeout(r, 120));
-    }
-    await sql.waitForResults();
+        (w.__foxSamples as unknown[]).push({
+          t: Math.round(performance.now() - started),
+          present: !!el,
+          len: el ? (el.innerText ?? '').trim().length : 0,
+          running: !!document.querySelector('[data-testid="sql-results-running"]'),
+        });
+      };
+      const observer = new MutationObserver(record);
+      observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+      const timer = window.setInterval(record, 10);
+      w.__foxStop = () => {
+        observer.disconnect();
+        window.clearInterval(timer);
+      };
+      record();
+    });
+
+    await sql.run();
+    // Bracket the whole run explicitly. `waitForResults` only waits for the
+    // container, which the previous test already left mounted, so it would
+    // return at once and stop sampling after ~80ms.
+    await driver.waitForSelector('[data-testid="sql-results-running"]', { timeout: 10_000 });
+    await driver.waitForSelector('[data-testid="sql-results-running"]', {
+      state: 'detached',
+      timeout: 20_000,
+    });
+
+    const samples = (await driver.evaluate(() => {
+      const w = window as unknown as { __foxSamples: unknown[]; __foxStop?: () => void };
+      w.__foxStop?.();
+      return w.__foxSamples;
+    })) as { t: number; present: boolean; len: number; running: boolean }[];
+
+    // An absent container is the same defect as an empty one — the user has
+    // nothing to read either way.
+    const blank = samples.filter((s) => !s.present || s.len === 0);
+    expect(
+      blank.slice(0, 5),
+      `results area was blank for ${blank.length} of ${samples.length} frames`
+    ).toEqual([]);
+    // Guard against the sampler having missed the run entirely.
+    expect(samples.some((s) => s.running), 'never observed the in-flight state').toBe(true);
+    // Sanity that the sampler actually ran; samples are event-driven, so the
+    // count tracks DOM activity rather than elapsed time.
+    expect(samples.length).toBeGreaterThan(3);
   });
 });

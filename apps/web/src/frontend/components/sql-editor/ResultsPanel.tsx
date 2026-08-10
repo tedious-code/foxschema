@@ -99,7 +99,10 @@ function bindAxisDrag(cursor: string, onMove: (ev: MouseEvent) => void): void {
   window.addEventListener('mouseup', onUp);
 }
 
-const statementLabel = (sql: string, outNumber: number): string => {
+const statementLabel = (sql: string | undefined, outNumber: number): string => {
+  // A section can exist before its statement is reported — side-by-side draws
+  // one for a run that is still in flight. `Out [n]:` alone reads half-drawn.
+  if (sql === undefined) return `Out [${outNumber}]: running…`;
   const cell = detectCodeCell(sql);
   if (cell) {
     return `Out [${outNumber}]: ${CODE_CELL_KIND_LABEL[cell.kind].long}`;
@@ -1633,13 +1636,7 @@ export const ResultsPanel: React.FC<Props> = ({
               key={i}
               statementIndex={i}
               outTestId={outTestId(i)}
-              headerLabel={
-                // The pending section exists before its statement is reported;
-                // `Out [n]:` with nothing after it reads as a half-drawn row.
-                statements[i] === undefined
-                  ? `Out [${outNumber(i)}]: running…`
-                  : statementLabel(statements[i], outNumber(i))
-              }
+              headerLabel={statementLabel(statements[i], outNumber(i))}
               items={items}
               refreshing={refreshing}
               onRefresh={onRefresh}
@@ -1664,6 +1661,9 @@ export const ResultsPanel: React.FC<Props> = ({
                 key: `${run.connectionId}-q${i}`,
                 kind: 'grid' as const,
                 result,
+                // These items only exist for a finished run, so a missing
+                // statement is a gap in the record — not work still in flight.
+                // Keep the bare label rather than claiming it is running.
                 label: statementLabel(statements[i] ?? '', outNumber(i)),
                 exportName: `${run.name}-q${i + 1}`,
                 connectionId: run.connectionId,
