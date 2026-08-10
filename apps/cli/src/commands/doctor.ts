@@ -17,6 +17,14 @@ function safe<T>(fn: () => T): T | null {
   }
 }
 
+/**
+ * Resolve-only, and labelled that way.
+ *
+ * `drivers list` loads each driver to prove it works; doctor deliberately does
+ * not, so it stays cheap and cannot be brought down by a native addon that
+ * crashes on load. The two therefore answer different questions and must not
+ * be read as one — hence "present", not "installed".
+ */
 function driverStatus(id: string): string {
   try {
     require.resolve(id);
@@ -87,7 +95,8 @@ export async function runDoctor(): Promise<void> {
   }
   console.log(`  @foxschema/db  ${core} ${coreModulesOk ? chalk.green('(modules ok)') : chalk.red('(modules missing)')}`);
 
-  console.log(chalk.bold('\nDrivers'));
+  console.log(chalk.bold('\nDrivers (present on disk)'));
+  console.log(chalk.dim('  `foxschema drivers list` loads them to confirm they actually work.'));
   console.log(`  pg                 ${driverStatus('pg')}`);
   console.log(`  mysql2             ${driverStatus('mysql2')}`);
   console.log(`  mssql              ${driverStatus('mssql')}`);

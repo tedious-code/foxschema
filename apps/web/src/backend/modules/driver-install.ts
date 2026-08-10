@@ -14,10 +14,10 @@
  */
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
-import { hasDb2Clidriver } from '@foxschema/db';
+import { hasDb2Clidriver, setupDb2ClientEnv } from '@foxschema/db';
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -162,23 +162,31 @@ export type NpmInstallResult = {
   manualCommand: string;
 };
 
-/** Run `npm install <spec> --foreground-scripts` into the resolved target. */
-export function npmInstallPackage(
-  packageSpec: string,
-  fromUrl?: string
+/**
+ * Environment for every npm call we make.
+ *
+ * `npm_config_ignore_scripts` must be the string `'false'`, not `''`. npm
+ * treats an empty env value as unset, so `''` leaves an `ignore-scripts=true`
+ * from a user or CI .npmrc in force — install scripts stay skipped, ibm_db's
+ * clidriver never downloads, and the driver installs "successfully" while
+ * being unusable. Verified on npm 11.6.2: `''` skips, `'false'` runs.
+ */
+const NPM_SCRIPTS_ON_ENV = {
+  npm_config_ignore_scripts: 'false',
+  npm_config_foreground_scripts: 'true',
+} as const;
+
+/** Spawn npm with install scripts forced on, resolving rather than throwing. */
+function runNpm(
+  args: string[],
+  cwd: string,
+  manualCommand: string
 ): Promise<NpmInstallResult> {
-  const pkg = packageNameFromSpec(packageSpec);
-  const target = resolveDriverInstallTarget(fromUrl, pkg);
-  const args = target.npmArgs(packageSpec);
   return new Promise((resolvePromise) => {
     const proc = spawn('npm', args, {
-      cwd: target.cwd,
+      cwd,
       stdio: 'pipe',
-      env: {
-        ...process.env,
-        npm_config_ignore_scripts: '',
-        npm_config_foreground_scripts: 'true',
-      },
+      env: { ...process.env, ...NPM_SCRIPTS_ON_ENV },
       shell: process.platform === 'win32',
     });
     let stdout = '';
@@ -190,44 +198,64 @@ export function npmInstallPackage(
       stderr += d.toString();
     });
     proc.on('error', (err: Error) => {
+      // `code: null` distinguishes "npm never started" (not on PATH) from a
+      // non-zero exit; the caller reports these differently.
       resolvePromise({
         ok: false,
         code: null,
         stdout,
         stderr: stderr || err.message,
-        cwd: target.cwd,
+        cwd,
         args,
-        manualCommand: target.manualCommand(packageSpec),
+        manualCommand,
       });
     });
     proc.on('close', (code) => {
-      resolvePromise({
-        ok: code === 0,
-        code,
-        stdout,
-        stderr,
-        cwd: target.cwd,
-        args,
-        manualCommand: target.manualCommand(packageSpec),
-      });
+      resolvePromise({ ok: code === 0, code, stdout, stderr, cwd, args, manualCommand });
     });
   });
 }
 
+/** Run `npm install <spec> --foreground-scripts` into the resolved target. */
+export function npmInstallPackage(
+  packageSpec: string,
+  fromUrl?: string
+): Promise<NpmInstallResult> {
+  const pkg = packageNameFromSpec(packageSpec);
+  const target = resolveDriverInstallTarget(fromUrl, pkg);
+  const args = target.npmArgs(packageSpec);
+  return runNpm(args, target.cwd, target.manualCommand(packageSpec));
+}
+
 /** Drop cached failed/successful requires so a fresh install can load. */
+/**
+ * Does this require-cache key belong to `packageName`?
+ *
+ * Matches a whole `node_modules/<pkg>/` path segment, never a bare substring:
+ * purging `pg` by substring also evicts pg-pool, pg-protocol and anything else
+ * whose path merely contains "pg", re-instantiating unrelated module state.
+ * Both separators are checked so a Windows cache key is handled too.
+ */
+export function isCacheKeyForPackage(key: string, packageName: string): boolean {
+  return (
+    key.includes(`/node_modules/${packageName}/`) ||
+    key.includes(`\\node_modules\\${packageName}\\`)
+  );
+}
+
 export function purgePackageRequireCache(packageName: string): void {
   try {
     const resolved = nodeRequire.resolve(packageName);
     delete nodeRequire.cache[resolved];
-    const root = dirname(resolved);
+    const root = dirname(resolved) + sep;
     for (const key of Object.keys(nodeRequire.cache)) {
-      if (key.startsWith(root)) delete nodeRequire.cache[key];
+      if (key.startsWith(root) || isCacheKeyForPackage(key, packageName)) {
+        delete nodeRequire.cache[key];
+      }
     }
   } catch {
     for (const key of Object.keys(nodeRequire.cache)) {
-      if (key.includes(`${packageName}`) || key.includes('node_modules/ibm_db')) {
-        delete nodeRequire.cache[key];
-      }
+      if (isCacheKeyForPackage(key, packageName)) delete nodeRequire.cache[key];
     }
   }
 }
@@ -242,6 +270,24 @@ export type VerifyDriverResult = {
 /** After npm install, confirm the driver actually loads. */
 export function verifyInstalledDriver(packageName: string): VerifyDriverResult {
   purgePackageRequireCache(packageName);
+  if (packageName === 'ibm_db') {
+    // Check clidriver before requiring: without it the require fails with a
+    // link error that reads like a broken install rather than "scripts were
+    // skipped", which is the actionable message.
+    if (!hasDb2Clidriver()) {
+      return {
+        ok: false,
+        error:
+          'ibm_db is present but the DB2 clidriver was not downloaded (install scripts were skipped). Re-run with --foreground-scripts.',
+        needsClidriverRebuild: true,
+      };
+    }
+    // ibm_db needs its client env set before load, exactly as
+    // DriverDetector.checkPackage does. Requiring without it makes a good
+    // install on Windows/macOS look like a failure and triggers a needless
+    // reinstall.
+    setupDb2ClientEnv();
+  }
   try {
     nodeRequire(packageName);
   } catch (e) {
@@ -249,14 +295,6 @@ export function verifyInstalledDriver(packageName: string): VerifyDriverResult {
       ok: false,
       error: e instanceof Error ? e.message : String(e),
       needsClidriverRebuild: packageName === 'ibm_db',
-    };
-  }
-  if (packageName === 'ibm_db' && !hasDb2Clidriver()) {
-    return {
-      ok: false,
-      error:
-        'ibm_db is present but the DB2 clidriver was not downloaded (install scripts were skipped). Re-run with --foreground-scripts.',
-      needsClidriverRebuild: true,
     };
   }
   return { ok: true };
@@ -275,74 +313,37 @@ export async function installAndVerifyDriver(
   let verify = verifyInstalledDriver(packageName);
 
   if (result.ok && !verify.ok && packageName === 'ibm_db' && verify.needsClidriverRebuild) {
-    const retrySpec = versionPin ? `ibm_db@${versionPin}` : 'ibm_db@4.0.1';
+    // `npm install <same spec> --force` does NOT re-run install scripts for a
+    // package that is already present — npm resolves it as up to date and no
+    // lifecycle script fires, so the retry was a no-op. `npm rebuild` exists
+    // for exactly this. Verified on npm 11.6.2: re-install --force skips the
+    // postinstall, rebuild runs it.
     const target = resolveDriverInstallTarget(import.meta.url, 'ibm_db');
-    const forceArgs =
+    const rebuildArgs =
       target.mode === 'workspace'
-        ? [
-            'install',
-            retrySpec,
-            '--foreground-scripts',
-            '--force',
-            '-w',
-            target.workspacePkg ?? '@foxschema/db',
-          ]
-        : ['install', retrySpec, '--foreground-scripts', '--force', '--prefix', target.cwd];
-    result = await new Promise<NpmInstallResult>((resolvePromise) => {
-      const proc = spawn('npm', forceArgs, {
-        cwd: target.cwd,
-        stdio: 'pipe',
-        env: {
-          ...process.env,
-          npm_config_ignore_scripts: '',
-          npm_config_foreground_scripts: 'true',
-        },
-        shell: process.platform === 'win32',
-      });
-      let stdout = '';
-      let stderr = '';
-      proc.stdout?.on('data', (d: Buffer) => {
-        stdout += d.toString();
-      });
-      proc.stderr?.on('data', (d: Buffer) => {
-        stderr += d.toString();
-      });
-      proc.on('close', (code) => {
-        resolvePromise({
-          ok: code === 0,
-          code,
-          stdout,
-          stderr,
-          cwd: target.cwd,
-          args: forceArgs,
-          manualCommand: target.manualCommand(retrySpec),
-        });
-      });
-      proc.on('error', (err: Error) => {
-        resolvePromise({
-          ok: false,
-          code: null,
-          stdout,
-          stderr: err.message,
-          cwd: target.cwd,
-          args: forceArgs,
-          manualCommand: target.manualCommand(retrySpec),
-        });
-      });
-    });
+        ? ['rebuild', 'ibm_db', '--foreground-scripts', '-w', target.workspacePkg ?? '@foxschema/db']
+        : ['rebuild', 'ibm_db', '--foreground-scripts', '--prefix', target.cwd];
+    result = await runNpm(rebuildArgs, target.cwd, `npm ${rebuildArgs.join(' ')}`);
     verify = verifyInstalledDriver(packageName);
   }
 
+  // `verify` is spread last on purpose: `ok` reports whether the driver now
+  // loads, while `code` still reports how npm itself exited (null = never ran).
   return { ...result, ...verify };
 }
 
 /** Tips appended to install failures (platform / toolchain). */
 export function driverInstallHints(packageName: string): string {
+  // Db2-specific advice only for Db2 — an oracledb failure used to tell the
+  // user to install db2 and pull the Db2 Docker image.
+  if (packageName !== 'ibm_db') {
+    return `Check that a C/C++ toolchain is available, then retry: foxschema drivers install ${packageName}`;
+  }
   const lines: string[] = [
     'Also try: foxschema drivers install db2',
     'Or use Docker (Db2 included, linux/amd64): docker pull 5nickels/foxschema:latest',
   ];
-  if (packageName === 'ibm_db') {
+  {
     if (process.platform === 'darwin') {
       lines.unshift(
         'macOS: ensure Xcode CLT (`xcode-select --install`) and a native Node for your CPU (`node -p process.arch`).'
