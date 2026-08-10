@@ -42,34 +42,55 @@ function monorepoRootFromWeb(webRoot: string): string | null {
   return null;
 }
 
-function tryRequire(id: string): boolean {
+/**
+ * Can Node load this driver right now?
+ *
+ * ibm_db's native bindings need the bundled clidriver on PATH/LD_LIBRARY_PATH
+ * before load — the same setup DriverDetector and the DB2 adapter run. Without
+ * it a fully successful `drivers install db2` still printed "Node cannot
+ * resolve ibm_db" on Windows and macOS.
+ */
+async function driverLoads(pkg: string): Promise<boolean> {
   try {
-    require.resolve(id);
-    require(id);
+    if (pkg === 'ibm_db') {
+      const { setupDb2ClientEnv } = await import('@foxschema/db');
+      setupDb2ClientEnv();
+    }
+    require(pkg);
     return true;
   } catch {
     return false;
   }
 }
 
-/** Report which optional/native drivers are resolvable. */
+/**
+ * Report which optional/native drivers actually load.
+ *
+ * Goes through DriverDetector rather than a local `require`, so this agrees
+ * with what the app itself sees — and so ibm_db gets its client env set before
+ * load. Without that a good Db2 install reports "missing" on Windows/macOS.
+ * Resolving alone is not enough: the failure this whole command exists to
+ * surface is a package that resolves but cannot load (clidriver never
+ * downloaded), so it is loaded on purpose.
+ */
 export async function runDriversList(): Promise<void> {
   console.log(chalk.bold('Fox Schema — database drivers'));
+  const { DriverDetector } = await import('@foxschema/db');
   const defaults = [
-    ['postgres', 'pg'],
-    ['mysql/mariadb', 'mysql2'],
-    ['sqlserver', 'mssql'],
-    ['sqlite (user DBs)', 'better-sqlite3'],
-    ['clickhouse', '@clickhouse/client'],
-    ['duckdb', '@duckdb/node-api'],
-    ['oracle', 'oracledb'],
-    ['db2', 'ibm_db'],
+    ['postgres', 'postgres'],
+    ['mysql/mariadb', 'mysql'],
+    ['sqlserver', 'sqlserver'],
+    ['sqlite (user DBs)', 'sqlite'],
+    ['clickhouse', 'clickhouse'],
+    ['duckdb', 'duckdb'],
+    ['oracle', 'oracle'],
+    ['db2', 'db2'],
   ] as const;
 
-  for (const [label, id] of defaults) {
-    const ok = tryRequire(id);
-    const mark = ok ? chalk.green('installed') : chalk.yellow('missing');
-    console.log(`  ${label.padEnd(22)} ${mark}  ${chalk.dim(id)}`);
+  for (const [label, dialect] of defaults) {
+    const info = DriverDetector.checkDialect(dialect);
+    const mark = info.installed ? chalk.green('installed') : chalk.yellow('missing');
+    console.log(`  ${label.padEnd(22)} ${mark}  ${chalk.dim(info.packageName)}`);
   }
   console.log();
   console.log(chalk.dim('Install opt-in drivers:  foxschema drivers install db2|oracle'));
@@ -89,7 +110,7 @@ export async function runDriversInstall(name: string): Promise<void> {
     );
   }
 
-  if (tryRequire(entry.pkg)) {
+  if (await driverLoads(entry.pkg)) {
     console.log(chalk.green(`${entry.pkg} is already installed.`));
     console.log(chalk.dim(entry.notes));
     return;
@@ -129,7 +150,11 @@ export async function runDriversInstall(name: string): Promise<void> {
       shell: process.platform === 'win32',
       env: {
         ...process.env,
-        npm_config_ignore_scripts: '',
+        // Must be the string 'false', not '': npm treats an empty env value as
+        // unset, so '' leaves an ignore-scripts=true from a user or CI .npmrc
+        // in force and ibm_db's clidriver never downloads. Verified on npm
+        // 11.6.2 — '' skips the postinstall, 'false' runs it.
+        npm_config_ignore_scripts: 'false',
         npm_config_foreground_scripts: 'true',
       },
     });
@@ -140,7 +165,7 @@ export async function runDriversInstall(name: string): Promise<void> {
     });
   });
 
-  if (!tryRequire(entry.pkg)) {
+  if (!(await driverLoads(entry.pkg))) {
     console.log(
       chalk.yellow(
         `Install finished but Node cannot resolve ${entry.pkg} from this process yet. ` +
