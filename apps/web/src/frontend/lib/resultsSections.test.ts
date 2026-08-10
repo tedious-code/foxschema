@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { sideBySideSectionCount, type SectionRun } from './resultsSections';
 
 const running: SectionRun = { status: 'running' };
-const done = (n: number): SectionRun => ({ status: 'done', results: { length: n } });
+const done = (n: number): SectionRun => ({ status: 'done', results: new Array(n).fill(null) });
 
 describe('sideBySideSectionCount', () => {
   it('claims a section for a run still in flight', () => {
