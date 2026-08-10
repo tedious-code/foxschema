@@ -719,7 +719,9 @@ const StackedPaneColumn: React.FC<{
   onRefresh?: (connectionId: string) => void;
   onPage?: Props['onPage'];
   pageState?: Props['pageState'];
-}> = ({ items, refreshing, onRefresh, onPage, pageState }) => {
+  /** Fill parent height (fullscreen results modal) instead of fixed pane heights. */
+  fillAvailable?: boolean;
+}> = ({ items, refreshing, onRefresh, onPage, pageState, fillAvailable = false }) => {
   const [heights, setHeights] = useState<number[]>(() => items.map(() => PANE_DEFAULT_H_PX));
 
   useEffect(() => {
@@ -754,12 +756,23 @@ const StackedPaneColumn: React.FC<{
   if (items.length === 0) return null;
 
   return (
-    <div className="flex flex-col gap-3 min-w-0" data-testid="sql-result-pane-stack">
+    <div
+      className={`flex flex-col gap-3 min-w-0 ${fillAvailable ? 'flex-1 min-h-0 h-full' : ''}`}
+      data-testid="sql-result-pane-stack"
+    >
       {items.map((item, i) => (
-        <div key={item.key} className="flex flex-col min-w-0" data-testid={`sql-result-stack-item-${i}`}>
+        <div
+          key={item.key}
+          className={`flex flex-col min-w-0 ${fillAvailable ? 'flex-1 min-h-0' : ''}`}
+          data-testid={`sql-result-stack-item-${i}`}
+        >
           <div
             className="flex flex-col min-h-0 min-w-0"
-            style={{ height: heights[i] ?? PANE_DEFAULT_H_PX, minHeight: PANE_MIN_H_PX }}
+            style={
+              fillAvailable
+                ? { minHeight: PANE_MIN_H_PX, flex: '1 1 0%' }
+                : { height: heights[i] ?? PANE_DEFAULT_H_PX, minHeight: PANE_MIN_H_PX }
+            }
           >
             <PaneBody
               item={item}
@@ -769,15 +782,17 @@ const StackedPaneColumn: React.FC<{
               pageState={pageState}
             />
           </div>
-          <div
-            role="separator"
-            aria-orientation="horizontal"
-            aria-label={`Resize Out table ${i + 1} height`}
-            data-testid="sql-result-stack-height-resize"
-            title="Drag to resize this result height"
-            onMouseDown={(e) => startHeightResize(i, e)}
-            className="h-1.5 shrink-0 cursor-row-resize bg-slate-800 hover:bg-cyan-500/40 active:bg-cyan-500/60 transition-colors rounded-sm mt-1"
-          />
+          {!fillAvailable ? (
+            <div
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label={`Resize Out table ${i + 1} height`}
+              data-testid="sql-result-stack-height-resize"
+              title="Drag to resize this result height"
+              onMouseDown={(e) => startHeightResize(i, e)}
+              className="h-1.5 shrink-0 cursor-row-resize bg-slate-800 hover:bg-cyan-500/40 active:bg-cyan-500/60 transition-colors rounded-sm mt-1"
+            />
+          ) : null}
         </div>
       ))}
     </div>
@@ -825,8 +840,8 @@ const SideBySideStatementSection: React.FC<{
   const [keyNames, setKeyNames] = useState<string[]>([]);
   /** Row Sync checkboxes — which differing keys to include in migrate. */
   const [selectedSyncKeys, setSelectedSyncKeys] = useState<Set<string>>(() => new Set());
-  /** Full-window compare modal for more grid space. */
-  const [compareMaximized, setCompareMaximized] = useState(false);
+  /** Full-window modal for more grid space (compare or plain results). */
+  const [maximized, setMaximized] = useState(false);
   /** When Compare is on: sync vertical scroll + hover across all grids (default on). */
   const [syncScroll, setSyncScroll] = useState(true);
 
@@ -1182,15 +1197,11 @@ const SideBySideStatementSection: React.FC<{
   };
 
   useEffect(() => {
-    if (!compareActive) setCompareMaximized(false);
-  }, [compareActive]);
-
-  useEffect(() => {
-    if (!compareMaximized) return;
+    if (!maximized) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
-        setCompareMaximized(false);
+        setMaximized(false);
       }
     };
     const prevOverflow = document.body.style.overflow;
@@ -1200,11 +1211,11 @@ const SideBySideStatementSection: React.FC<{
       document.body.style.overflow = prevOverflow;
       window.removeEventListener('keydown', onKey);
     };
-  }, [compareMaximized]);
+  }, [maximized]);
 
   const paneRowKey = `side-${statementIndex}-${displayItems.map((x) => x.key).join('|')}-${
     keyAligned ? `key-${effectiveKeys.join('+')}` : 'idx'
-  }${compareMaximized ? '-max' : ''}`;
+  }${maximized ? '-max' : ''}`;
 
   const exportAllGridsCsv = useCallback(() => {
     const grids = displayItems.filter(
@@ -1442,13 +1453,13 @@ const SideBySideStatementSection: React.FC<{
                 </span>
               </span>
             )}
-            {compareActive && !compareMaximized && (
+            {compareActive && !maximized && (
               <button
                 type="button"
                 data-testid={`sql-result-compare-maximize-${statementIndex}`}
                 title="Maximize compare"
                 aria-label="Maximize compare"
-                onClick={() => setCompareMaximized(true)}
+                onClick={() => setMaximized(true)}
                 className="ml-auto inline-flex items-center gap-1 rounded-md border border-sky-500/40 bg-sky-950/50 px-2 py-0.5 text-sky-200 hover:bg-sky-900/60"
               >
                 <Maximize2 className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
@@ -1457,69 +1468,105 @@ const SideBySideStatementSection: React.FC<{
             )}
           </div>
         )}
+        {!compareActive && displayItems.some((x) => x.kind === 'grid') && !maximized && (
+          <button
+            type="button"
+            data-testid={`sql-result-maximize-${statementIndex}`}
+            title="Maximize results"
+            aria-label="Maximize results"
+            onClick={() => setMaximized(true)}
+            className="ml-auto inline-flex items-center gap-1 rounded-md border border-slate-600 bg-slate-900/70 px-2 py-0.5 text-[11px] font-bold text-slate-300 hover:border-sky-500/40 hover:text-sky-200"
+          >
+            <Maximize2 className="w-3.5 h-3.5 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
+            Maximize
+          </button>
+        )}
       </header>
-      {!compareMaximized && (
+      {!maximized && (
         <>
           {migrateBar}
           {compareGrids(false)}
           {compareHint}
         </>
       )}
-      {compareMaximized && (
+      {maximized && (
         <p
           className="rounded-md border border-sky-500/30 bg-sky-950/30 px-2.5 py-2 text-[11px] font-semibold text-sky-200/90"
-          data-testid={`sql-result-compare-maximized-hint-${statementIndex}`}
+          data-testid={
+            compareActive
+              ? `sql-result-compare-maximized-hint-${statementIndex}`
+              : `sql-result-maximized-hint-${statementIndex}`
+          }
         >
-          Compare is open fullscreen — use <span className="text-sky-100">Close</span> or{' '}
-          <span className="text-sky-100">Esc</span> to return.
+          {compareActive ? 'Compare' : 'Results'} is open fullscreen — use{' '}
+          <span className="text-sky-100">Close</span> or <span className="text-sky-100">Esc</span> to
+          return.
         </p>
       )}
-      {compareMaximized &&
+      {maximized &&
         createPortal(
           <div
             className="fixed inset-0 z-[60] flex flex-col bg-slate-950/80 p-2 sm:p-3"
-            data-testid={`sql-result-compare-modal-${statementIndex}`}
+            data-testid={
+              compareActive
+                ? `sql-result-compare-modal-${statementIndex}`
+                : `sql-result-modal-${statementIndex}`
+            }
             role="dialog"
             aria-modal="true"
-            aria-label="Compare data fullscreen"
+            aria-label={compareActive ? 'Compare data fullscreen' : 'Results fullscreen'}
           >
             <div
               className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-sky-500/35 bg-slate-900 shadow-2xl"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex shrink-0 items-center gap-2 border-b border-slate-800 px-3 py-2">
-                <GitCompare className="h-4 w-4 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
-                <span className="text-sm font-bold text-sky-200">Compare data</span>
+                {compareActive ? (
+                  <GitCompare className="h-4 w-4 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
+                ) : (
+                  <Maximize2 className="h-4 w-4 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
+                )}
+                <span className="text-sm font-bold text-sky-200">
+                  {compareActive ? 'Compare data' : 'Results'}
+                </span>
                 <span className="truncate text-xs font-semibold text-slate-400">{headerLabel}</span>
-                <label
-                  className="flex items-center gap-1.5 cursor-pointer select-none text-xs font-semibold text-slate-300"
-                  title="Keep vertical scroll and hovered row in sync across all compare grids"
-                >
-                  <input
-                    type="checkbox"
-                    data-testid={`sql-result-compare-sync-scroll-modal-${statementIndex}`}
-                    checked={syncScroll}
-                    onChange={(e) => setSyncScroll(e.target.checked)}
-                    className="rounded border-slate-600 accent-sky-500"
-                  />
-                  Sync scroll
-                </label>
+                {compareActive && (
+                  <label
+                    className="flex items-center gap-1.5 cursor-pointer select-none text-xs font-semibold text-slate-300"
+                    title="Keep vertical scroll and hovered row in sync across all compare grids"
+                  >
+                    <input
+                      type="checkbox"
+                      data-testid={`sql-result-compare-sync-scroll-modal-${statementIndex}`}
+                      checked={syncScroll}
+                      onChange={(e) => setSyncScroll(e.target.checked)}
+                      className="rounded border-slate-600 accent-sky-500"
+                    />
+                    Sync scroll
+                  </label>
+                )}
+                {compareActive && (
+                  <button
+                    type="button"
+                    data-testid={`sql-result-compare-export-csv-modal-${statementIndex}`}
+                    title="Export all compare grids as one CSV"
+                    onClick={exportAllGridsCsv}
+                    className="inline-flex items-center gap-1 rounded-md border border-sky-500/40 bg-sky-950/40 px-2 py-0.5 text-xs font-bold text-sky-200 hover:bg-sky-900/50"
+                  >
+                    <Download className="h-3.5 w-3.5 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
+                    CSV all
+                  </button>
+                )}
                 <button
                   type="button"
-                  data-testid={`sql-result-compare-export-csv-modal-${statementIndex}`}
-                  title="Export all compare grids as one CSV"
-                  onClick={exportAllGridsCsv}
-                  className="inline-flex items-center gap-1 rounded-md border border-sky-500/40 bg-sky-950/40 px-2 py-0.5 text-xs font-bold text-sky-200 hover:bg-sky-900/50"
-                >
-                  <Download className="h-3.5 w-3.5 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
-                  CSV all
-                </button>
-                <button
-                  type="button"
-                  data-testid={`sql-result-compare-close-${statementIndex}`}
+                  data-testid={
+                    compareActive
+                      ? `sql-result-compare-close-${statementIndex}`
+                      : `sql-result-close-${statementIndex}`
+                  }
                   title="Close (Esc)"
-                  aria-label="Close maximized compare"
-                  onClick={() => setCompareMaximized(false)}
+                  aria-label={compareActive ? 'Close maximized compare' : 'Close maximized results'}
+                  onClick={() => setMaximized(false)}
                   className="ml-auto inline-flex items-center gap-1 rounded-md border border-slate-600 bg-slate-950/60 px-2.5 py-1 text-xs font-bold text-slate-200 hover:bg-slate-800"
                 >
                   <X className="h-3.5 w-3.5" strokeWidth={SQL_ICON_STROKE} />
@@ -1531,6 +1578,157 @@ const SideBySideStatementSection: React.FC<{
                 <div className="flex min-h-0 flex-1 flex-col">{compareGrids(true)}</div>
                 {compareHint}
               </div>
+            </div>
+          </div>,
+          document.body
+        )}
+    </section>
+  );
+};
+
+/**
+ * One credential block in By-cred layout, with optional fullscreen maximize.
+ */
+const CredentialResultsSection: React.FC<{
+  run: CredentialRun;
+  items: PaneItem[];
+  refreshing?: boolean;
+  onRefresh?: (connectionId?: string) => void;
+  onPage?: Props['onPage'];
+  pageState?: Props['pageState'];
+}> = ({ run, items, refreshing, onRefresh, onPage, pageState }) => {
+  const [maximized, setMaximized] = useState(false);
+  const hasGrids = run.status === 'done' && items.length > 0;
+
+  useEffect(() => {
+    if (!maximized) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setMaximized(false);
+      }
+    };
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [maximized]);
+
+  useEffect(() => {
+    if (!hasGrids) setMaximized(false);
+  }, [hasGrids]);
+
+  const grids = (
+    <StackedPaneColumn
+      items={items}
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+      onPage={onPage}
+      pageState={pageState}
+      fillAvailable={maximized}
+    />
+  );
+
+  return (
+    <section className="flex flex-col gap-2 min-w-0" data-testid={`sql-result-cred-${run.connectionId}`}>
+      <header className="flex items-center gap-2 text-xs font-bold text-slate-200 shrink-0">
+        <Database className="w-3.5 h-3.5 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
+        {run.name}
+        <span className="text-[10px] font-semibold text-slate-500 uppercase">[{run.dialect}]</span>
+        {run.status === 'running' && (
+          <Loader2
+            data-testid="sql-results-running"
+            className="w-3.5 h-3.5 animate-spin text-cyan-400"
+            strokeWidth={SQL_ICON_STROKE}
+          />
+        )}
+        <div className="ml-auto flex items-center gap-1.5">
+          {hasGrids && !maximized && (
+            <button
+              type="button"
+              data-testid={`sql-result-cred-maximize-${run.connectionId}`}
+              title="Maximize results"
+              aria-label="Maximize results"
+              onClick={() => setMaximized(true)}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-600 bg-slate-900/70 px-2 py-0.5 text-[10px] font-bold text-slate-300 hover:border-sky-500/40 hover:text-sky-200"
+            >
+              <Maximize2 className="w-3.5 h-3.5 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
+              Maximize
+            </button>
+          )}
+          {onRefresh && run.status !== 'running' && (
+            <button
+              type="button"
+              data-testid="sql-cred-refresh"
+              title="Refresh this server"
+              disabled={refreshing}
+              onClick={() => onRefresh(run.connectionId)}
+              className="flex items-center gap-0.5 text-[10px] font-semibold text-slate-500 hover:text-cyan-400 transition disabled:opacity-40"
+            >
+              <RefreshCw
+                className={`w-3 h-3 text-cyan-400 ${refreshing ? 'animate-spin' : ''}`}
+                strokeWidth={SQL_ICON_STROKE}
+              />{' '}
+              Refresh
+            </button>
+          )}
+        </div>
+      </header>
+
+      {run.status === 'error' && (
+        <div className="flex items-start gap-2 text-xs text-rose-400 bg-rose-950/40 border border-rose-500/20 rounded-md px-3 py-2 max-w-2xl">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" strokeWidth={SQL_ICON_STROKE} />
+          <span className="break-all">{run.error}</span>
+        </div>
+      )}
+
+      {hasGrids && !maximized && grids}
+
+      {maximized && (
+        <p
+          className="rounded-md border border-sky-500/30 bg-sky-950/30 px-2.5 py-2 text-[11px] font-semibold text-sky-200/90"
+          data-testid={`sql-result-cred-maximized-hint-${run.connectionId}`}
+        >
+          Results are open fullscreen — use <span className="text-sky-100">Close</span> or{' '}
+          <span className="text-sky-100">Esc</span> to return.
+        </p>
+      )}
+
+      {maximized &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[60] flex flex-col bg-slate-950/80 p-2 sm:p-3"
+            data-testid={`sql-result-cred-modal-${run.connectionId}`}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Results fullscreen — ${run.name}`}
+          >
+            <div
+              className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-sky-500/35 bg-slate-900 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex shrink-0 items-center gap-2 border-b border-slate-800 px-3 py-2">
+                <Database className="h-4 w-4 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
+                <span className="text-sm font-bold text-sky-200">{run.name}</span>
+                <span className="text-[10px] font-semibold text-slate-500 uppercase">
+                  [{run.dialect}]
+                </span>
+                <button
+                  type="button"
+                  data-testid={`sql-result-cred-close-${run.connectionId}`}
+                  title="Close (Esc)"
+                  aria-label="Close maximized results"
+                  onClick={() => setMaximized(false)}
+                  className="ml-auto inline-flex items-center gap-1 rounded-md border border-slate-600 bg-slate-950/60 px-2.5 py-1 text-xs font-bold text-slate-200 hover:bg-slate-800"
+                >
+                  <X className="h-3.5 w-3.5" strokeWidth={SQL_ICON_STROKE} />
+                  Close
+                </button>
+              </div>
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-2 sm:p-3">{grids}</div>
             </div>
           </div>,
           document.body
@@ -1674,49 +1872,15 @@ export const ResultsPanel: React.FC<Props> = ({
             : [];
 
         return (
-          <section key={run.connectionId} className="flex flex-col gap-2 min-w-0">
-            <header className="flex items-center gap-2 text-xs font-bold text-slate-200 shrink-0">
-              <Database className="w-3.5 h-3.5 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
-              {run.name}
-              <span className="text-[10px] font-semibold text-slate-500 uppercase">[{run.dialect}]</span>
-              {run.status === 'running' && (
-                <Loader2
-                  data-testid="sql-results-running"
-                  className="w-3.5 h-3.5 animate-spin text-cyan-400"
-                  strokeWidth={SQL_ICON_STROKE}
-                />
-              )}
-              {onRefresh && run.status !== 'running' && (
-                <button
-                  type="button"
-                  data-testid="sql-cred-refresh"
-                  title="Refresh this server"
-                  disabled={refreshing}
-                  onClick={() => onRefresh(run.connectionId)}
-                  className="ml-auto flex items-center gap-0.5 text-[10px] font-semibold text-slate-500 hover:text-cyan-400 transition disabled:opacity-40"
-                >
-                  <RefreshCw className={`w-3 h-3 text-cyan-400 ${refreshing ? 'animate-spin' : ''}`} strokeWidth={SQL_ICON_STROKE} /> Refresh
-                </button>
-              )}
-            </header>
-
-            {run.status === 'error' && (
-              <div className="flex items-start gap-2 text-xs text-rose-400 bg-rose-950/40 border border-rose-500/20 rounded-md px-3 py-2 max-w-2xl">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" strokeWidth={SQL_ICON_STROKE} />
-                <span className="break-all">{run.error}</span>
-              </div>
-            )}
-
-            {run.status === 'done' && items.length > 0 && (
-              <StackedPaneColumn
-                items={items}
-                refreshing={refreshing}
-                onRefresh={onRefresh}
-                onPage={onPage}
-                pageState={pageState}
-              />
-            )}
-          </section>
+          <CredentialResultsSection
+            key={run.connectionId}
+            run={run}
+            items={items}
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            onPage={onPage}
+            pageState={pageState}
+          />
         );
       })}
       </div>
