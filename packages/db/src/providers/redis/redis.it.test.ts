@@ -85,6 +85,43 @@ maybe('redis adapter against a live server', () => {
     expect(await conn.exists(`${table}:2`)).toBe(1);
   });
 
+  it('honours non-id AND predicates on UPDATE and DELETE', async () => {
+    // Regression: only `id` was used to address the key, so
+    // `DELETE … WHERE id = 1 AND status = 'active'` removed inactive rows.
+    await q(`INSERT INTO ${table} (id, name, status) VALUES (?, ?, ?)`, [
+      'guard',
+      'dana',
+      'inactive',
+    ]);
+    const upd = await q(`UPDATE ${table} SET name = ? WHERE id = ? AND status = ?`, [
+      'nope',
+      'guard',
+      'active',
+    ]);
+    expect(upd[0]).toMatchObject({ rowCount: 0 });
+    expect(await conn.hGet(`${table}:guard`, 'name')).toBe('dana');
+
+    const del = await q(`DELETE FROM ${table} WHERE id = ? AND status = ?`, ['guard', 'active']);
+    expect(del[0]).toMatchObject({ rowCount: 0 });
+    expect(await conn.exists(`${table}:guard`)).toBe(1);
+
+    const delOk = await q(`DELETE FROM ${table} WHERE id = ? AND status = ?`, [
+      'guard',
+      'inactive',
+    ]);
+    expect(delOk[0]).toMatchObject({ rowCount: 1 });
+    expect(await conn.exists(`${table}:guard`)).toBe(0);
+  });
+
+  it('applies non-id filters before LIMIT on a prefix scan', async () => {
+    await q(`INSERT INTO ${table} (id, name) VALUES (?, ?)`, ['lim-a', 'skip']);
+    await q(`INSERT INTO ${table} (id, name) VALUES (?, ?)`, ['lim-b', 'skip']);
+    await q(`INSERT INTO ${table} (id, name) VALUES (?, ?)`, ['lim-c', 'keep']);
+    const rows = await q(`SELECT * FROM ${table} WHERE name = ? LIMIT 1`, ['keep']);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ name: 'keep' });
+  });
+
   it('refuses a DELETE with no WHERE instead of clearing the prefix', async () => {
     // The failure this whole design exists to prevent.
     await expect(q(`DELETE FROM ${table}`)).rejects.toThrow();

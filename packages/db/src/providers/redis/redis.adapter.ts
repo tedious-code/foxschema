@@ -26,6 +26,22 @@ const nodeRequire = createRequire(import.meta.url);
  * SCAN, never KEYS: KEYS blocks the server for the length of the keyspace, and
  * a cache is exactly where that hurts.
  */
+
+/** Exported for unit tests — equality check used for non-id WHERE predicates. */
+export function redisRowMatchesPredicates(
+  row: Record<string, unknown>,
+  predicates: ReadonlyArray<{ column: string; value: { kind: string; index?: number; value?: unknown } }>,
+  params: readonly unknown[]
+): boolean {
+  return predicates.every((w) => {
+    const expected = subsetValue(w.value as any, params);
+    // Null filters are refused by the caller; treat a resolved null as non-match
+    // rather than matching every missing/empty field.
+    if (expected === null || expected === undefined) return false;
+    return String(row[w.column] ?? '') === String(expected);
+  });
+}
+
 class RedisAdapter implements DriverAdapter {
   readonly dialect = 'redis';
   readonly packageName = 'redis';
@@ -120,15 +136,25 @@ class RedisAdapter implements DriverAdapter {
       return hit ? subsetValue(hit.value, params) : undefined;
     };
 
+    const extraWhere = (pairs: ReadonlyArray<{ column: string; value: any }>) =>
+      pairs.filter((w) => w.column !== 'id');
+
     switch (intent.kind) {
       case 'select': {
         const id = idFrom(intent.where);
+        const extra = extraWhere(intent.where);
         if (id !== undefined) {
           const row = await this.readRow(client, intent.table, this.keyFor(intent.table, id));
-          return (row ? [row] : []) as T[];
+          if (!row) return [] as T[];
+          // Non-id predicates must still hold — otherwise `WHERE id = 1 AND
+          // status = 'active'` would return the inactive row.
+          if (!redisRowMatchesPredicates(row, extra, params)) return [] as T[];
+          return [row] as T[];
         }
         // No id: scan the prefix. Bounded by LIMIT so browsing a large cache
-        // cannot walk the whole keyspace.
+        // cannot walk the whole keyspace. Filter *before* counting toward the
+        // limit, or `WHERE name = ? LIMIT 2` would sample the first two keys
+        // and then discard non-matches.
         const limit = intent.limit ?? 100;
         const rows: Record<string, unknown>[] = [];
         // node-redis v6 yields a *batch* of keys per iteration; older clients
@@ -144,19 +170,13 @@ class RedisAdapter implements DriverAdapter {
             : [String(batch)];
           for (const k of keys) {
             const row = await this.readRow(client, intent.table, k);
-            if (row) rows.push(row);
+            if (!row) continue;
+            if (!redisRowMatchesPredicates(row, extra, params)) continue;
+            rows.push(row);
             if (rows.length >= limit) break outer;
           }
         }
-        // Non-id equality predicates filter after the read — Redis has no
-        // secondary index to push them down to.
-        const extra = intent.where.filter((w) => w.column !== 'id');
-        const filtered = extra.length
-          ? rows.filter((r) =>
-              extra.every((w) => String(r[w.column] ?? '') === String(subsetValue(w.value, params) ?? ''))
-            )
-          : rows;
-        return filtered as T[];
+        return rows as T[];
       }
       case 'insert': {
         const doc: Record<string, string> = {};
@@ -178,7 +198,13 @@ class RedisAdapter implements DriverAdapter {
           throw new Error('Redis: UPDATE needs `id` in the WHERE clause to address a key.');
         }
         const key = this.keyFor(intent.table, id);
-        if ((await client.exists(key)) === 0) return [{ rowCount: 0 }] as T[];
+        const row = await this.readRow(client, intent.table, key);
+        if (!row) return [{ rowCount: 0 }] as T[];
+        // Must honour every AND predicate. Ignoring `status = 'active'` here
+        // would overwrite a key the WHERE clause excluded — silent data loss.
+        if (!redisRowMatchesPredicates(row, extraWhere(intent.where), params)) {
+          return [{ rowCount: 0 }] as T[];
+        }
         const set: Record<string, string> = {};
         for (const s of intent.set) {
           if (s.column === 'id') continue; // renaming the key is not an update
@@ -193,7 +219,15 @@ class RedisAdapter implements DriverAdapter {
         if (id === undefined) {
           throw new Error('Redis: DELETE needs `id` in the WHERE clause to address a key.');
         }
-        const removed = await client.del(this.keyFor(intent.table, id));
+        const key = this.keyFor(intent.table, id);
+        const row = await this.readRow(client, intent.table, key);
+        if (!row) return [{ rowCount: 0 }] as T[];
+        // Same rule as UPDATE: `DELETE … WHERE id = 1 AND status = 'active'`
+        // must not remove an inactive row.
+        if (!redisRowMatchesPredicates(row, extraWhere(intent.where), params)) {
+          return [{ rowCount: 0 }] as T[];
+        }
+        const removed = await client.del(key);
         return [{ rowCount: removed }] as T[];
       }
     }

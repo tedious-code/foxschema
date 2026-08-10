@@ -66,9 +66,15 @@ describe('accepts exactly the shapes the app emits', () => {
   });
 
   it('reads literals as well as placeholders', () => {
-    const intent = ok("SELECT * FROM t WHERE a = 1 AND b = 'x' AND c = NULL AND d = TRUE");
+    const intent = ok("SELECT * FROM t WHERE a = 1 AND b = 'x' AND d = TRUE");
     if (intent.kind !== 'select') throw new Error('shape');
-    expect(intent.where.map((w) => subsetValue(w.value, []))).toEqual([1, 'x', null, true]);
+    expect(intent.where.map((w) => subsetValue(w.value, []))).toEqual([1, 'x', true]);
+  });
+
+  it('allows NULL as an INSERT / SET value', () => {
+    expect(ok("INSERT INTO t (a, b) VALUES (1, NULL)").kind).toBe('insert');
+    const intent = ok("UPDATE t SET a = NULL WHERE k = 1");
+    expect(intent.kind).toBe('update');
   });
 
   it("unescapes '' inside a literal", () => {
@@ -90,6 +96,10 @@ describe('refuses everything it cannot represent exactly', () => {
     ['IN list', 'DELETE FROM t WHERE id IN (1, 2)'],
     ['LIKE', "SELECT * FROM t WHERE name LIKE 'a%'"],
     ['IS NULL', 'DELETE FROM t WHERE a IS NULL'],
+    // `= NULL` is not SQL equality, and MongoDB `{a: null}` matches missing fields.
+    ['equality to NULL', 'DELETE FROM t WHERE a = NULL'],
+    ['equality to NULL in SELECT', 'SELECT * FROM t WHERE a = NULL'],
+    ['equality to NULL in UPDATE WHERE', 'UPDATE t SET b = 1 WHERE a = NULL'],
     ['BETWEEN', 'DELETE FROM t WHERE a BETWEEN 1 AND 5'],
     ['function call', 'SELECT * FROM t WHERE lower(a) = ?'],
     ['expression value', 'UPDATE t SET a = a + 1 WHERE k = ?'],
