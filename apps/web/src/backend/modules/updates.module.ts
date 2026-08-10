@@ -192,7 +192,10 @@ export function applyNpmGlobalUpdate(
     const args = ['install', '-g', `${NPM_PACKAGE}@latest`];
     const proc = spawnImpl('npm', args, {
       stdio: 'pipe',
-      env: { ...process.env, npm_config_ignore_scripts: '' },
+      // 'false', not '': npm reads an empty env value as unset, leaving an
+      // ignore-scripts=true from the user's .npmrc in force. A self-update
+      // that skips install scripts leaves native drivers half-built.
+      env: { ...process.env, npm_config_ignore_scripts: 'false' },
     });
     let stdout = '';
     let stderr = '';

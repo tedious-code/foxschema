@@ -56,7 +56,7 @@
     "@azure/identity": "^4.9.1",
     "@azure/keyvault-secrets": "^4.9.0",
     "@google-cloud/secret-manager": "^6.3.0",
-    "ibm_db": "^4.0.1"
+    "ibm_db": "4.0.1"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",

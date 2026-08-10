@@ -217,7 +217,24 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
 
       const result = await installAndVerifyDriver(packageName, versionPin);
 
-      if (result.code !== 0 && result.code !== null) {
+      if (result.code === null) {
+        // npm never started (not on PATH, blocked by policy). The spawn error
+        // is the only useful detail; without this it was reported as "install
+        // finished but the driver failed to load", which sends the user off
+        // debugging the driver instead of their PATH.
+        const detail = (result.stderr || result.stdout).trim().slice(-2000);
+        res.status(500).json({
+          success: false,
+          error:
+            `Could not run npm for ${packageName}${detail ? `: ${detail}` : ''}. ` +
+            `Try it yourself: ${result.manualCommand}. ${driverInstallHints(packageName)}`,
+          stderr: result.stderr,
+          cwd: result.cwd,
+        });
+        return;
+      }
+
+      if (result.code !== 0) {
         const detail = (result.stderr || result.stdout).trim().slice(-2000);
         res.status(500).json({
           success: false,
