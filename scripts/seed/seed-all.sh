@@ -14,24 +14,44 @@ INIT="$REPO/docker/init"
 
 SL_DIR=/tmp/foxschema-sqlite
 
+# `set -e` does not apply inside a function called on the left of `||`, which is
+# exactly how the `all` target invokes these. A failing docker exec therefore
+# did not abort the seeder: it ran on to the unconditional "✓ done" and returned
+# 0, so a dialect whose container was not even running still reported success.
+# Every step now goes through `step`, which returns non-zero on the first
+# failure, and each seeder starts by proving its container exists.
+step() {
+  "$@" || return 1
+}
+
+require_container() {
+  if ! docker inspect "$1" >/dev/null 2>&1; then
+    echo "  ✗ container $1 is not running"
+    return 1
+  fi
+}
+
 seed_postgres() {
   echo "▶ PostgreSQL …"
-  docker exec -i foxschema-postgres psql -U foxuser -d foxdb \
-    < "$INIT/postgres/01_seed.sql"
+  require_container foxschema-postgres || return 1
+  step docker exec -i foxschema-postgres psql -U foxuser -d foxdb \
+    < "$INIT/postgres/01_seed.sql" || return 1
   echo "  ✓ done"
 }
 
 seed_mysql() {
   echo "▶ MySQL …"
-  docker exec -i foxschema-mysql mysql -uroot -pfoxrootpass \
-    < "$INIT/mysql/01_seed.sql"
+  require_container foxschema-mysql || return 1
+  step docker exec -i foxschema-mysql mysql -uroot -pfoxrootpass \
+    < "$INIT/mysql/01_seed.sql" || return 1
   echo "  ✓ done"
 }
 
 seed_mariadb() {
   echo "▶ MariaDB …"
-  docker exec -i foxschema-mariadb mariadb -uroot -pfoxrootpass \
-    < "$INIT/mariadb/01_seed.sql"
+  require_container foxschema-mariadb || return 1
+  step docker exec -i foxschema-mariadb mariadb -uroot -pfoxrootpass \
+    < "$INIT/mariadb/01_seed.sql" || return 1
   echo "  ✓ done"
 }
 
@@ -39,18 +59,20 @@ seed_sqlserver() {
   echo "▶ SQL Server …"
   # Prefer /tmp — bind-mounted /docker-init is empty when the Docker daemon
   # cannot see the agent workspace filesystem (common in remote DOCKER_HOST).
-  docker cp "$INIT/sqlserver/01_seed.sql" foxschema-sqlserver:/tmp/01_seed.sql
-  docker exec -i foxschema-sqlserver \
+  require_container foxschema-sqlserver || return 1
+  step docker cp "$INIT/sqlserver/01_seed.sql" foxschema-sqlserver:/tmp/01_seed.sql || return 1
+  step docker exec -i foxschema-sqlserver \
     /opt/mssql-tools18/bin/sqlcmd -S localhost -U SA -P 'FoxPass123!' \
-    -i /tmp/01_seed.sql -No -C
+    -i /tmp/01_seed.sql -No -C || return 1
   echo "  ✓ done"
 }
 
 seed_oracle() {
   echo "▶ Oracle …"
-  docker exec -i foxschema-oracle \
+  require_container foxschema-oracle || return 1
+  step docker exec -i foxschema-oracle \
     sqlplus -S "system/FoxPass123@//localhost:1521/FREEPDB1" \
-    < "$INIT/oracle/02_seed.sql"
+    < "$INIT/oracle/02_seed.sql" || return 1
   echo "  ✓ done"
 }
 
@@ -59,28 +81,30 @@ seed_db2() {
   # docker cp into /tmp — bind mounts under /var/custom* are empty when the
   # Docker daemon cannot see the agent workspace filesystem.
   # db2's CLP -f flag needs an actual filesystem path, not stdin.
-  docker cp "$INIT/db2/01_seed.sql" foxschema-db2:/tmp/01_seed.sql
-  docker exec foxschema-db2 \
-    su - db2inst1 -c "db2 connect to foxdb && db2 -tvf /tmp/01_seed.sql -z /tmp/foxschema_seed.log"
+  require_container foxschema-db2 || return 1
+  step docker cp "$INIT/db2/01_seed.sql" foxschema-db2:/tmp/01_seed.sql || return 1
+  step docker exec foxschema-db2 \
+    su - db2inst1 -c "db2 connect to foxdb && db2 -tvf /tmp/01_seed.sql -z /tmp/foxschema_seed.log" || return 1
   echo "  ✓ done"
 }
 
 seed_sqlite() {
   echo "▶ SQLite …"
-  mkdir -p "$SL_DIR"
+  mkdir -p "$SL_DIR" || return 1
   rm -f "$SL_DIR/demo_a.db" "$SL_DIR/demo_b.db"
-  sqlite3 "$SL_DIR/demo_a.db" < "$INIT/sqlite/demo_a.sql"
-  sqlite3 "$SL_DIR/demo_b.db" < "$INIT/sqlite/demo_b.sql"
+  step sqlite3 "$SL_DIR/demo_a.db" < "$INIT/sqlite/demo_a.sql" || return 1
+  step sqlite3 "$SL_DIR/demo_b.db" < "$INIT/sqlite/demo_b.sql" || return 1
   echo "  ✓ done  →  $SL_DIR/demo_a.db  |  demo_b.db"
 }
 
 seed_cockroachdb() {
   echo "▶ CockroachDB …"
   # No auto-init; exec `cockroach sql`. Uses the trigger-free seed variant.
-  docker exec foxschema-cockroachdb cockroach sql --insecure \
-    -e "CREATE DATABASE IF NOT EXISTS foxdb"
-  docker exec -i foxschema-cockroachdb cockroach sql --insecure --database=foxdb \
-    < "$INIT/cockroachdb/01_seed.sql"
+  require_container foxschema-cockroachdb || return 1
+  step docker exec foxschema-cockroachdb cockroach sql --insecure \
+    -e "CREATE DATABASE IF NOT EXISTS foxdb" || return 1
+  step docker exec -i foxschema-cockroachdb cockroach sql --insecure --database=foxdb \
+    < "$INIT/cockroachdb/01_seed.sql" || return 1
   echo "  ✓ done"
 }
 
@@ -88,12 +112,13 @@ seed_yugabytedb() {
   echo "▶ YugabyteDB …"
   # YSQL binds the node address, so connect via the container's own IP. Reuses
   # the Postgres seed (YSQL is Postgres-compatible, triggers included).
+  require_container foxschema-yugabytedb || return 1
   local ip
-  ip=$(docker exec foxschema-yugabytedb hostname -i | awk '{print $1}')
+  ip=$(docker exec foxschema-yugabytedb hostname -i | awk '{print $1}') || return 1
   docker exec foxschema-yugabytedb bin/ysqlsh -h "$ip" -p 5433 -U yugabyte \
     -c "CREATE DATABASE foxdb" 2>/dev/null || true
-  docker exec -i foxschema-yugabytedb bin/ysqlsh -h "$ip" -p 5433 -U yugabyte -d foxdb \
-    < "$INIT/postgres/01_seed.sql"
+  step docker exec -i foxschema-yugabytedb bin/ysqlsh -h "$ip" -p 5433 -U yugabyte -d foxdb \
+    < "$INIT/postgres/01_seed.sql" || return 1
   echo "  ✓ done"
 }
 
@@ -109,15 +134,27 @@ case "$TARGET" in
   cockroachdb) seed_cockroachdb ;;
   yugabytedb)  seed_yugabytedb ;;
   all)
-    seed_postgres    || echo "  ✗ PostgreSQL skipped"
-    seed_mysql       || echo "  ✗ MySQL skipped"
-    seed_mariadb     || echo "  ✗ MariaDB skipped"
-    seed_sqlserver   || echo "  ✗ SQL Server skipped"
-    seed_oracle      || echo "  ✗ Oracle skipped"
-    seed_db2         || echo "  ✗ DB2 skipped"
-    seed_sqlite      || echo "  ✗ SQLite skipped"
-    seed_cockroachdb || echo "  ✗ CockroachDB skipped"
-    seed_yugabytedb  || echo "  ✗ YugabyteDB skipped"
+    # Continue past a failing dialect on purpose — not every machine runs all
+    # nine — but keep a list, because a wall of output makes a single "✗" easy
+    # to miss and reseeding is the control that stops stale data producing
+    # convincing-but-fake E2E failures.
+    FAILED=()
+    seed_postgres    || FAILED+=("PostgreSQL")
+    seed_mysql       || FAILED+=("MySQL")
+    seed_mariadb     || FAILED+=("MariaDB")
+    seed_sqlserver   || FAILED+=("SQL Server")
+    seed_oracle      || FAILED+=("Oracle")
+    seed_db2         || FAILED+=("DB2")
+    seed_sqlite      || FAILED+=("SQLite")
+    seed_cockroachdb || FAILED+=("CockroachDB")
+    seed_yugabytedb  || FAILED+=("YugabyteDB")
+    echo ""
+    if [ ${#FAILED[@]} -eq 0 ]; then
+      echo "  ✓ all dialects seeded"
+    else
+      echo "  ✗ NOT seeded (${#FAILED[@]}): ${FAILED[*]}"
+      echo "    Compare/migrate against these will run on stale or missing data."
+    fi
     ;;
   *)
     echo "Unknown target: $TARGET"
