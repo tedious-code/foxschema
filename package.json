@@ -2,7 +2,7 @@
   "name": "foxschema",
   "author": "Huy Phan <huyplb@gmail.com>",
   "private": true,
-  "version": "0.2.66",
+  "version": "0.2.67",
   "type": "module",
   "license": "Apache-2.0",
   "workspaces": [
@@ -62,13 +62,14 @@
     "node": ">=22.5"
   },
   "devDependencies": {
+    "eslint": "^10.6.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-security": "^4.0.1",
     "ink": "^7.1.0",
     "react": "^19.2.0",
     "typescript": "~6.0.2",
-    "vitest": "^4.1.8",
-    "eslint": "^10.6.0",
-    "eslint-plugin-security": "^4.0.1",
-    "typescript-eslint": "^8.0.0"
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^4.1.8"
   },
   "overrides": {
     "monaco-editor": "0.55.1",
