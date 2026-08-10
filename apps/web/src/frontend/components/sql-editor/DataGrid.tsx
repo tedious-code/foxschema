@@ -6,7 +6,7 @@
  * Result DataGrid (paper surface, paging, FK drill links for Data Peek).
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ChevronDown, Copy, Download, GripVertical, RefreshCw } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ClipboardCopy, Download, GripVertical, RefreshCw } from 'lucide-react';
 import type { SqlStatementResult } from '../../api/sqlApi';
 import { CELL_DIFF_CLASS, type CellDiffKind } from '../../lib/resultDataDiff';
 import { columnToListValues, rowsForTableVariable } from '../../lib/sql-variables';
@@ -251,7 +251,7 @@ function GridToolbar({
             onClick={() => onCopy(false)}
             className={`flex items-center gap-0.5 ${chrome} text-slate-500 hover:text-cyan-400 transition`}
           >
-            <Copy className="w-3 h-3 text-sky-400" strokeWidth={SQL_ICON_STROKE} /> Copy
+            <ClipboardCopy className="w-3 h-3 text-sky-400" strokeWidth={SQL_ICON_STROKE} /> Copy
             {copyScope && (
               <span
                 data-testid="sql-grid-copy-scope"
@@ -1174,7 +1174,7 @@ export const DataGrid: React.FC<{
           onClick={(e) => e.stopPropagation()}
         >
           <div className="flex items-center gap-2 px-2.5 py-2 border-b border-slate-800 shrink-0">
-            <Copy className="w-3 h-3 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
+            <ClipboardCopy className="w-3 h-3 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
             <span className="font-bold text-slate-200">Columns to copy</span>
             <button
               type="button"
