@@ -1,5 +1,6 @@
 import tseslint from 'typescript-eslint';
 import security from 'eslint-plugin-security';
+import reactHooks from 'eslint-plugin-react-hooks';
 
 export default tseslint.config(
   // ── Global ignores ──────────────────────────────────────────────────────────
@@ -42,6 +43,22 @@ export default tseslint.config(
 
       // detect-object-injection deliberately omitted: fires on every obj[key] access,
       // which is ubiquitous in the dialect registry and diff iteration code.
+    },
+  },
+
+  // ── React hooks ─────────────────────────────────────────────────────────────
+  // Two files carried `eslint-disable-next-line react-hooks/exhaustive-deps`
+  // comments for a rule that was never installed, so ESLint errored on the
+  // disable comment itself — and hooks were never actually linted. A
+  // rules-of-hooks violation has crashed this app before (see CLAUDE.md), so
+  // that one is an error; exhaustive-deps stays a warning because blindly
+  // satisfying it can change behaviour and each site needs a human decision.
+  {
+    files: ['apps/web/src/frontend/**/*.{ts,tsx}'],
+    plugins: { 'react-hooks': reactHooks },
+    rules: {
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'warn',
     },
   },
 );

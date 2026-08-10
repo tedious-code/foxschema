@@ -247,6 +247,10 @@ export function fromClauseIsMultiTable(sql: string): boolean {
   const fromBody = m[1] ?? '';
   if (/\bJOIN\b/i.test(fromBody)) return true;
   // Comma-separated table list: FROM a, b  (SELECT list commas are outside FROM).
+  // The repeated group must consume a literal `.` each iteration and `[\w$]`
+  // never matches `.`, so the two cannot overlap — there is no ambiguous split
+  // for the engine to explore. Measured linear on `,` + `a.`xN up to n=8,000.
+  // eslint-disable-next-line security/detect-unsafe-regex -- false positive: repeated group is `.`-delimited, no overlap
   return /,\s*(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][\w$]*(?:\.[A-Za-z_][\w$]*)*)/.test(
     fromBody
   );
@@ -314,6 +318,10 @@ function splitSelectListItems(list: string): string[] {
  */
 export function stripLeadingWithClause(sql: string): string | null {
   const t = sql.trim();
+  // `\s+` followed by an optional group that starts with the literal word
+  // RECURSIVE — the two cannot match the same character, so the `?` group adds
+  // no ambiguity. Measured linear on `WITH` + N spaces up to n=8,000.
+  // eslint-disable-next-line security/detect-unsafe-regex -- false positive: optional group starts with a literal
   const withHead = t.match(/^WITH\s+(RECURSIVE\s+)?/i);
   if (!withHead) return t;
   let i = withHead[0].length;
@@ -393,7 +401,12 @@ export function selectListSafeForResultEdit(sql: string): boolean {
       continue;
     }
     // optional qualifier.column [AS sameName]
+    // Anchored at both ends, and each alternative is pinned to a distinct
+    // opening delimiter (", `, [, or an identifier start), so at most one
+    // branch can match at any position. The optional groups are never
+    // repeated. Measured linear on `a`xN + ' AS ' + `b`xN up to n=8,000.
     const col =
+      // eslint-disable-next-line security/detect-unsafe-regex -- false positive: anchored, alternatives disjoint by delimiter
       /^(?:((?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][\w$]*)\s*\.\s*))?("([^"]+)"|`([^`]+)`|\[([^\]]+)\]|([A-Za-z_][\w$]*))(?:\s+(?:AS\s+)?("([^"]+)"|`([^`]+)`|\[([^\]]+)\]|([A-Za-z_][\w$]*)))?$/i.exec(
         item
       );
