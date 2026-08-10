@@ -8,7 +8,7 @@
  * the extra prompt.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Copy, Pencil, Plus, Trash2 } from 'lucide-react';
+import { CopyPlus, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
 import { useSyncStore } from '../../store/useSyncStore';
 import { useAuthStore } from '../../store/authStore';
@@ -317,7 +317,9 @@ export function usePeekGridCrud(args: PeekGridCrudArgs): PeekGridCrud {
           onClick={openClone}
           className={`${btn} hover:text-amber-300`}
         >
-          <Copy className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+          {/* CopyPlus — not the plain Copy icon — so this is not confused with
+              the grid toolbar's clipboard "Copy" control next to CSV. */}
+          <CopyPlus className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
         </button>
       )}
       {canDelete && (
