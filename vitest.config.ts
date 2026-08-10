@@ -36,6 +36,19 @@ export default defineConfig({
         },
       },
       {
+        // React components, in jsdom. Kept as its own project so the default
+        // `unit` run stays a pure-node suite — component tests need a DOM,
+        // which is an order of magnitude slower to spin up per file.
+        resolve: { alias: aliases },
+        test: {
+          name: 'web-ui',
+          include: ['apps/web/src/**/*.test.tsx'],
+          environment: 'jsdom',
+          setupFiles: ['./apps/web/src/frontend/test/setup.ts'],
+          testTimeout: 15_000,
+        },
+      },
+      {
         resolve: { alias: aliases },
         test: {
           name: 'cli-tui',
