@@ -1,5 +1,5 @@
 import { describe, expect, it, afterEach } from 'vitest';
-import { existsSync, readdirSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   abortUploadSession,
@@ -9,7 +9,17 @@ import {
 } from './file-query-session.module';
 import { fileQueryTempDir } from './file-query.module';
 
-const uploadsDir = () => join(fileQueryTempDir(), 'uploads');
+/**
+ * `fileQueryTempDir()` creates its own directory but not the `uploads` child —
+ * the module's private helper does that, and nothing here calls it before the
+ * first orphan is written. Without the mkdir this file passes only when an
+ * earlier run left the directory behind, and fails on a cold checkout.
+ */
+const uploadsDir = () => {
+  const dir = join(fileQueryTempDir(), 'uploads');
+  mkdirSync(dir, { recursive: true });
+  return dir;
+};
 const made: string[] = [];
 
 /** A .part file no session knows about, aged past the keep window. */

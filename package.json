@@ -11,6 +11,7 @@
   ],
   "bugs": "https://github.com/tedious-code/foxschema/issues",
   "scripts": {
+    "typecheck": "tsc --noEmit -p apps/web/tsconfig.json",
     "lint": "eslint .",
     "lint:security": "eslint . --max-warnings 0",
     "audit:security": "npm audit --audit-level=critical --omit=dev",
