@@ -41,3 +41,15 @@ export {
   type ReversalRisk,
   type ReversalVerdict,
 } from './reversal.js';
+  collapseObjectHistory,
+  windowByTime,
+  windowGraph,
+  DEFAULT_WINDOW_ITEMS,
+  MAX_WINDOW_ITEMS,
+  type GraphNode,
+  type GraphResult,
+  type HistoryWindow,
+  type ObjectHistoryPoint,
+  type TimePoint,
+  type WindowResult,
+} from './history.js';

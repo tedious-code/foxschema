@@ -49,6 +49,11 @@ export {
   classifyReversal,
   parseTypeText,
   planReversal,
+  collapseObjectHistory,
+  windowByTime,
+  windowGraph,
+  DEFAULT_WINDOW_ITEMS,
+  MAX_WINDOW_ITEMS,
 } from './modules/lokee-weave/index.js';
 export type {
   CanonicalObject,
@@ -62,6 +67,12 @@ export type {
   ReversalVerdict,
   WeaveCapture,
   WeaveObject,
+  GraphNode,
+  GraphResult,
+  HistoryWindow,
+  ObjectHistoryPoint,
+  TimePoint,
+  WindowResult,
 } from './modules/lokee-weave/index.js';
 export type {
   IdentityInsertKind,
