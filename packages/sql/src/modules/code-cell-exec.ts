@@ -59,7 +59,7 @@ const IDENTIFIER_RE = /^[A-Za-z_$][\w$]*$/;
  * Patterns that would let a cell reach Node builtins (fs, child_process, net,
  * worker_threads, …) or compile attacker-controlled code. Checked on a
  * strings/comments-stripped view so literals and comments do not false-positive,
- * and so `await import("node:fs")` still matches as `import(`.
+ * and so a dynamic import call still matches as `import(`.
  *
  * This is the real gate for `-- @node` / `-- @nodets`. Lexical `var process =
  * undefined` is only a guardrail — `(function(){}).constructor(…)` bypasses it.
@@ -75,7 +75,7 @@ const DANGEROUS_CODE_CELL_RES: Array<{ re: RegExp; label: string }> = [
 
 /**
  * Reject cell bodies that try to break out of the AsyncFunction sandbox
- * (dynamic import of `node:fs` / `child_process`, eval, Function, …).
+ * (dynamic import of Node builtins such as fs / child_process, eval, Function, …).
  */
 export function assertCodeCellSandboxSafe(
   body: string
