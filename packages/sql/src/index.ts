@@ -46,6 +46,9 @@ export {
   rootHash,
   stableStringify,
   weave,
+  classifyReversal,
+  parseTypeText,
+  planReversal,
 } from './modules/lokee-weave/index.js';
 export type {
   CanonicalObject,
@@ -54,6 +57,9 @@ export type {
   LatestIndex,
   LokeeObjectType,
   ObjectChange,
+  ReversalPlan,
+  ReversalRisk,
+  ReversalVerdict,
   WeaveCapture,
   WeaveObject,
 } from './modules/lokee-weave/index.js';
