@@ -23,6 +23,11 @@
  * two different values, and collapsing them would pair the wrong rows.
  */
 
+// Deterministic serialisation, shared with Lokee Weave's object hashing rather
+// than duplicated: two copies that disagreed would mean a cell counted as equal
+// while the schema object containing it hashed as changed.
+import { stableStringify } from '@foxschema/sql';
+
 const isDigit = (ch: string | undefined): boolean => ch !== undefined && ch >= '0' && ch <= '9';
 
 /**
@@ -60,20 +65,6 @@ function trimDecimalScale(text: string): string {
   const trimmed = text.replace(/0+$/, '').replace(/\.$/, '');
   // `-0` and `-0.0` collapse to `0`, matching how the drivers report zero.
   return trimmed === '-0' ? '0' : trimmed;
-}
-
-/**
- * Key order must not decide identity: Postgres `jsonb` reorders keys on
- * storage while `json` preserves insertion order, so the same logical value
- * can arrive with different property order from two servers.
- */
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
-  const entries = Object.entries(value as Record<string, unknown>)
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`);
-  return `{${entries.join(',')}}`;
 }
 
 /**
