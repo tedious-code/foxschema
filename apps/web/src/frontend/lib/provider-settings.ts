@@ -1,6 +1,22 @@
 import { buildConnectionString as coreBuildConnectionString } from '@foxschema/sql';
 
-export type Dialect = 'postgres' | 'mysql' | 'mariadb' | 'db2' | 'sqlserver' | 'oracle' | 'sqlite' | 'redshift' | 'clickhouse' | 'azuresql' | 'cockroachdb' | 'yugabytedb' | 'tidb' | 'duckdb';
+export type Dialect =
+  | 'postgres'
+  | 'mysql'
+  | 'mariadb'
+  | 'db2'
+  | 'sqlserver'
+  | 'oracle'
+  | 'sqlite'
+  | 'redshift'
+  | 'clickhouse'
+  | 'azuresql'
+  | 'cockroachdb'
+  | 'yugabytedb'
+  | 'tidb'
+  | 'duckdb'
+  | 'redis'
+  | 'mongodb';
 
 export interface ConnectionOptions {
   connectionString?: string;
@@ -173,6 +189,29 @@ const duckdbSettings: ProviderSettings = {
   },
 };
 
+// Non-SQL stores: delegate to @foxschema/sql so the credential form matches the
+// adapters (authSource, rediss://, numeric Redis DB path, etc.).
+const redisSettings: ProviderSettings = {
+  dialect: 'redis',
+  label: 'Redis',
+  defaultPort: 6379,
+  defaultSchema: '0',
+  schemaRequired: false,
+  buildConnectionString(o) {
+    return coreBuildConnectionString('redis', o);
+  },
+};
+
+const mongodbSettings: ProviderSettings = {
+  dialect: 'mongodb',
+  label: 'MongoDB',
+  defaultPort: 27017,
+  schemaRequired: false,
+  buildConnectionString(o) {
+    return coreBuildConnectionString('mongodb', o);
+  },
+};
+
 // ── registry ─────────────────────────────────────────────────────────────────
 
 export const PROVIDER_SETTINGS: Record<string, ProviderSettings> = {
@@ -187,6 +226,8 @@ export const PROVIDER_SETTINGS: Record<string, ProviderSettings> = {
   oracle: oracleSettings,
   sqlite: sqliteSettings,
   duckdb: duckdbSettings,
+  redis: redisSettings,
+  mongodb: mongodbSettings,
 };
 
 export const DEFAULT_PORTS: Record<string, number> = Object.fromEntries(

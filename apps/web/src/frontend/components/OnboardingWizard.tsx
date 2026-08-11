@@ -17,6 +17,8 @@ const DATABASE_ORDER = [
   'CockroachDB',
   'YugabyteDB',
   'TiDB',
+  'MongoDB',
+  'Redis',
 ];
 const DATABASES = (() => {
   const labels = Object.values(PROVIDER_SETTINGS).map((p) => p.label);

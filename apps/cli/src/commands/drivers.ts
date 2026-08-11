@@ -83,6 +83,8 @@ export async function runDriversList(): Promise<void> {
     ['sqlite (user DBs)', 'sqlite'],
     ['clickhouse', 'clickhouse'],
     ['duckdb', 'duckdb'],
+    ['mongodb', 'mongodb'],
+    ['redis', 'redis'],
     ['oracle', 'oracle'],
     ['db2', 'db2'],
   ] as const;
