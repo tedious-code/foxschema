@@ -62,7 +62,10 @@ class MongoDbAdapter implements DriverAdapter {
       entry = { client, database };
       this.clients.set(key, entry);
     }
-    return entry;
+    // Return a per-acquire handle. setCurrentSchema mutates `database` on the
+    // handle; sharing the cached object would leave later acquires pointed at
+    // whichever database the previous caller switched to.
+    return { client: entry.client, database: entry.database };
   }
 
   async release(_connection: any): Promise<void> {
@@ -83,10 +86,21 @@ class MongoDbAdapter implements DriverAdapter {
     const db = connection.client.db(connection.database);
     const collection = db.collection(intent.table);
     const filter = (
-      pairs: ReadonlyArray<{ column: string; value: any }>
+      pairs: ReadonlyArray<{ column: string; value: any }>,
+      /** Writes must not send `{ field: null }` — Mongo matches missing fields. */
+      refuseNull: boolean
     ): Record<string, unknown> => {
       const out: Record<string, unknown> = {};
-      for (const p of pairs) out[p.column] = subsetValue(p.value, params);
+      for (const p of pairs) {
+        const v = subsetValue(p.value, params);
+        if (refuseNull && (v === null || v === undefined)) {
+          throw new Error(
+            `MongoDB: refusing a ${intent.kind} whose WHERE binds NULL for "${p.column}" ` +
+              `(MongoDB matches missing fields as null).`
+          );
+        }
+        out[p.column] = v;
+      }
       return out;
     };
 
@@ -96,7 +110,7 @@ class MongoDbAdapter implements DriverAdapter {
           intent.columns === '*'
             ? undefined
             : Object.fromEntries(intent.columns.map((c) => [c, 1]));
-        let cursor = collection.find(filter(intent.where), { projection });
+        let cursor = collection.find(filter(intent.where, false), { projection });
         if (intent.limit !== undefined) cursor = cursor.limit(intent.limit);
         const docs = await cursor.toArray();
         // _id is a BSON ObjectId — the grid and the diff both want text.
@@ -114,11 +128,11 @@ class MongoDbAdapter implements DriverAdapter {
       case 'update': {
         const set: Record<string, unknown> = {};
         for (const s of intent.set) set[s.column] = subsetValue(s.value, params);
-        const res = await collection.updateMany(filter(intent.where), { $set: set });
+        const res = await collection.updateMany(filter(intent.where, true), { $set: set });
         return [{ rowCount: res.modifiedCount, matched: res.matchedCount }] as T[];
       }
       case 'delete': {
-        const res = await collection.deleteMany(filter(intent.where));
+        const res = await collection.deleteMany(filter(intent.where, true));
         return [{ rowCount: res.deletedCount }] as T[];
       }
     }

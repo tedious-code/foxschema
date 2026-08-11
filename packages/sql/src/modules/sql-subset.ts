@@ -193,6 +193,19 @@ function parseEqualityList(
   return out;
 }
 
+/**
+ * WHERE `column = NULL` is not SQL equality (that needs IS NULL), and on MongoDB
+ * `{ field: null }` also matches documents where the field is missing — so a
+ * DELETE/UPDATE would over-match. Refuse it the same way IS NULL is refused.
+ * SET/INSERT may still assign NULL.
+ */
+function whereHasNullLiteral(where: SubsetColumnEq[]): boolean {
+  return where.some((w) => w.value.kind === 'literal' && w.value.value === null);
+}
+
+const WHERE_NULL_REFUSED =
+  'Equality to NULL is not supported on this store (SQL uses IS NULL; document stores treat null as matching missing fields).';
+
 const AND = /^\s+AND\s+/i;
 const COMMA = /^\s*,\s*/;
 
@@ -245,6 +258,7 @@ export function parseSqlSubset(sql: string): SubsetParse {
           error: 'Only `column = value` predicates joined by AND are supported on this store.',
         };
       }
+      if (whereHasNullLiteral(parsed)) return { ok: false, error: WHERE_NULL_REFUSED };
       where = parsed;
     }
     return { ok: true, intent: { kind: 'select', table: tableName(table!), columns, where, limit } };
@@ -281,6 +295,7 @@ export function parseSqlSubset(sql: string): SubsetParse {
         error: 'Only `column = value` predicates joined by AND are supported on this store.',
       };
     }
+    if (whereHasNullLiteral(where)) return { ok: false, error: WHERE_NULL_REFUSED };
     return { ok: true, intent: { kind: 'update', table: tableName(table!), set, where } };
   }
 
@@ -299,6 +314,7 @@ export function parseSqlSubset(sql: string): SubsetParse {
         error: 'Only `column = value` predicates joined by AND are supported on this store.',
       };
     }
+    if (whereHasNullLiteral(where)) return { ok: false, error: WHERE_NULL_REFUSED };
     return { ok: true, intent: { kind: 'delete', table: tableName(table!), where } };
   }
 
