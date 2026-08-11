@@ -33,3 +33,16 @@ export {
   type WeaveObject,
 } from './weave.js';
 export { stableStringify } from './stable-stringify.js';
+export {
+  collapseObjectHistory,
+  windowByTime,
+  windowGraph,
+  DEFAULT_WINDOW_ITEMS,
+  MAX_WINDOW_ITEMS,
+  type GraphNode,
+  type GraphResult,
+  type HistoryWindow,
+  type ObjectHistoryPoint,
+  type TimePoint,
+  type WindowResult,
+} from './history.js';
