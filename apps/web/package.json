@@ -33,6 +33,7 @@
     "@foxschema/sql": "*",
     "@monaco-editor/react": "^4.7.0",
     "@tailwindcss/vite": "^4.3.0",
+    "@xyflow/react": "^12.11.2",
     "better-sqlite3": "^13.0.1",
     "cors": "^2.8.6",
     "date-fns": "^4.4.0",

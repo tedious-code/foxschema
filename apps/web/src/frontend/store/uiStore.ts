@@ -78,9 +78,12 @@ const LIGHT_NEUTRAL: Record<number, number> = {
 // pills + add/remove/modified tints). Remapped in light mode with the shifted
 // scale above so dark fills (bg-*-950/900) become *visible* light tints
 // (100/200) rather than near-white, and colored text lands dark enough to read.
-const COLORED = ['cyan', 'emerald', 'rose', 'amber', 'indigo', 'purple', 'teal', 'yellow', 'sky', 'violet', 'pink', 'orange'];
+// Exported so features that pick their own palette can assert they only use
+// families the theme actually manages. A family missing from here keeps its
+// literal light value in light mode — light text on a light surface, invisible.
+export const COLORED = ['cyan', 'emerald', 'rose', 'amber', 'indigo', 'purple', 'teal', 'yellow', 'sky', 'violet', 'pink', 'orange'];
 // Neutral "tone" families.
-const TONE_FAMILIES: ToneId[] = ['slate', 'gray', 'zinc', 'stone', 'neutral'];
+export const TONE_FAMILIES: ToneId[] = ['slate', 'gray', 'zinc', 'stone', 'neutral'];
 
 // The real palette, captured once as *literal* color values. Light-mode
 // overrides must reference these literals rather than other `--color-*` vars,

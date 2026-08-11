@@ -34,6 +34,13 @@ export {
 } from './weave.js';
 export { stableStringify } from './stable-stringify.js';
 export {
+  classifyReversal,
+  parseTypeText,
+  planReversal,
+  type ReversalPlan,
+  type ReversalRisk,
+  type ReversalVerdict,
+} from './reversal.js';
   collapseObjectHistory,
   windowByTime,
   windowGraph,
