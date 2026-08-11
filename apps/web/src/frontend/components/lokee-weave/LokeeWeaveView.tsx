@@ -17,6 +17,7 @@ import {
   captureSchema,
   listLokeeDatabases,
   loadVersionGraph,
+  updateLokeeVersionMeta,
   type LokeeDatabase,
 } from '../../api/lokeeApi';
 import { getSessionPassword } from '../../lib/sessionPasswords';
@@ -124,6 +125,37 @@ export function LokeeWeaveView({
   );
 
   const refresh = useCallback(() => setReloadToken((n) => n + 1), []);
+
+  const saveVersionMeta = useCallback(
+    async (versionId: string, patch: { name: string; description: string }) => {
+      if (!activeId) return;
+      try {
+        const version = await updateLokeeVersionMeta(activeId, versionId, patch);
+        setDto((prev) => ({
+          ...prev,
+          versions: prev.versions.map((v) =>
+            v.id === versionId
+              ? {
+                  ...v,
+                  name: version.name,
+                  description: version.description,
+                  author: version.author ?? v.author,
+                }
+              : v
+          ),
+        }));
+        toast({ tone: 'success', title: 'Version updated', body: 'Name and description saved.' });
+      } catch (err) {
+        toast({
+          tone: 'warning',
+          title: 'Could not save version',
+          body: err instanceof Error ? err.message : String(err),
+        });
+        throw err;
+      }
+    },
+    [activeId]
+  );
 
   const runCapture = useCallback(async () => {
     if (!captureConnectionId || capturing) return;
@@ -288,7 +320,12 @@ export function LokeeWeaveView({
         </div>
       )}
       <div className="min-h-0 flex-1">
-        <LokeeWeavePage dto={dto} subtitle={subtitle} onSelectObject={onSelectObject} />
+        <LokeeWeavePage
+          dto={dto}
+          subtitle={subtitle}
+          onSelectObject={onSelectObject}
+          onSaveVersionMeta={saveVersionMeta}
+        />
       </div>
     </div>
   );

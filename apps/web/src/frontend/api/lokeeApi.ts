@@ -33,6 +33,11 @@ export interface LokeeVersion {
   source: string;
   migrationRunId?: string;
   authorUserId?: string;
+  /** Resolved email for attribution / filters. */
+  author?: string;
+  /** Optional display name; omit to show "Version N". */
+  name?: string;
+  description?: string;
   objectCount: number;
   changeCount: number;
 }
@@ -94,4 +99,23 @@ export async function loadVersionGraph(
     { credentials: 'include' }
   );
   return parseJsonResponse<VersionGraphDTO & { truncatedObjects: boolean }>(res);
+}
+
+/** Update the user-facing name and/or description on a version. */
+export async function updateLokeeVersionMeta(
+  databaseId: string,
+  versionId: string,
+  patch: { name?: string | null; description?: string | null }
+): Promise<LokeeVersion> {
+  const res = await fetch(
+    `${getApiBase()}/lokee/databases/${encodeURIComponent(databaseId)}/versions/${encodeURIComponent(versionId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(patch),
+    }
+  );
+  const body = await parseJsonResponse<{ version: LokeeVersion }>(res);
+  return body.version;
 }

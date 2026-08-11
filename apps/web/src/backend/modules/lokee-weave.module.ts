@@ -85,6 +85,11 @@ export interface VersionSummary {
   source: CaptureSource;
   migrationRunId?: string;
   authorUserId?: string;
+  /** Resolved email (or id) for filters / attribution. */
+  author?: string;
+  /** Optional user-facing label; null means show "Version N". */
+  name?: string;
+  description?: string;
   objectCount: number;
   changeCount: number;
 }
@@ -102,6 +107,8 @@ interface VersionRow {
   observation_count: number;
   created_at: string;
   last_observed_at: string;
+  display_name?: string | null;
+  description?: string | null;
 }
 
 interface DeltaRow {
@@ -511,6 +518,18 @@ export class LokeeWeaveStore {
         ORDER BY version_number DESC LIMIT ?`,
       [databaseId, Math.max(1, Math.min(500, limit))]
     );
+    const authorIds = [
+      ...new Set(rows.map((r) => r.author_user_id).filter((id): id is string => Boolean(id))),
+    ];
+    const emails = new Map<string, string>();
+    if (authorIds.length) {
+      const placeholders = authorIds.map(() => '?').join(', ');
+      const users = await store.all<{ id: string; email: string }>(
+        `SELECT id, email FROM users WHERE id IN (${placeholders})`,
+        authorIds
+      );
+      for (const u of users) emails.set(u.id, u.email);
+    }
     return rows.map((r) => ({
       id: r.id,
       number: r.version_number,
@@ -521,9 +540,48 @@ export class LokeeWeaveStore {
       source: r.source,
       migrationRunId: r.migration_run_id ?? undefined,
       authorUserId: r.author_user_id ?? undefined,
+      author: r.author_user_id
+        ? emails.get(r.author_user_id) ?? r.author_user_id
+        : undefined,
+      name: r.display_name?.trim() || undefined,
+      description: r.description?.trim() || undefined,
       objectCount: Number(r.object_count) || 0,
       changeCount: Number(r.change_count) || 0,
     }));
+  }
+
+  /**
+   * Update the user-facing label and/or description on a version the caller owns.
+   * Empty string clears the field (UI falls back to "Version N").
+   */
+  async updateVersionMeta(
+    userId: string,
+    databaseId: string,
+    versionId: string,
+    patch: { name?: string | null; description?: string | null }
+  ): Promise<VersionSummary | null> {
+    const store = await this.store();
+    if (!(await this.assertOwned(store, userId, databaseId))) return null;
+    const owned = await store.get<{ id: string }>(
+      `SELECT id FROM lokee_versions WHERE id = ? AND database_id = ?`,
+      [versionId, databaseId]
+    );
+    if (!owned?.id) return null;
+
+    if (patch.name !== undefined) {
+      const name = patch.name?.trim() ? patch.name.trim().slice(0, 120) : null;
+      await store.run(`UPDATE lokee_versions SET display_name = ? WHERE id = ?`, [name, versionId]);
+    }
+    if (patch.description !== undefined) {
+      const description = patch.description?.trim() ? patch.description.trim().slice(0, 4000) : null;
+      await store.run(`UPDATE lokee_versions SET description = ? WHERE id = ?`, [
+        description,
+        versionId,
+      ]);
+    }
+
+    const versions = await this.listVersions(userId, databaseId, 500);
+    return versions.find((v) => v.id === versionId) ?? null;
   }
 
   /** Delta rows for a set of versions, batched to stay under the bind limit. */
@@ -558,7 +616,15 @@ export class LokeeWeaveStore {
     limit = 20
   ): Promise<{
     databaseId: string;
-    versions: Array<{ id: string; number: number; createdAt: string; rootHash: string; author?: string }>;
+    versions: Array<{
+      id: string;
+      number: number;
+      createdAt: string;
+      rootHash: string;
+      author?: string;
+      name?: string;
+      description?: string;
+    }>;
     objects: Array<{
       versionId: string;
       objectKey: string;
@@ -684,7 +750,9 @@ export class LokeeWeaveStore {
         number: v.number,
         createdAt: v.createdAt,
         rootHash: v.rootHash,
-        author: v.authorUserId ?? undefined,
+        author: v.author,
+        name: v.name,
+        description: v.description,
       })),
       objects,
       totalVersions: Number(totalRow?.n) || versions.length,
