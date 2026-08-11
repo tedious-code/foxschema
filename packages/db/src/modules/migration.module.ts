@@ -1,5 +1,6 @@
 import { ConnectionFactory } from '../cores/connection-factory';
 import { getAdapter } from '../providers/adapter-registry';
+import { dialectSupportsTransactionalRollback } from './dialect-transaction-support';
 import { ConnectionOptions, DriverAdapter } from '@foxschema/sql';
 import type { MigrationEvent } from '@foxschema/sql';
 import type { MigrationStep } from '@foxschema/sql';
@@ -120,7 +121,8 @@ export class MigrationModule {
         let rolledBack = false;
         try {
           await adapter.rollbackTransaction(conn);
-          rolledBack = true;
+          // Redis/MongoDB/ClickHouse expose no-op rollback — do not claim undo.
+          rolledBack = dialectSupportsTransactionalRollback(dialect);
         } catch (rollbackErr) {
           console.error('Rollback failed:', rollbackErr);
         }

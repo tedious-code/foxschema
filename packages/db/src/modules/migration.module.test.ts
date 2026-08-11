@@ -97,4 +97,16 @@ describe('MigrationModule.execute', () => {
     expect(fakeAdapter.rollbackTransaction).toHaveBeenCalledTimes(1);
     expect(events.find((e) => e.type === 'done')).toMatchObject({ success: true, rolledBack: false });
   });
+
+  it('does not claim rollback for Redis even when rollbackTransaction resolves', async () => {
+    // Redis adapters no-op begin/rollback; a resolved rollback must not mean undo.
+    failOn = 'CREATE TABLE bad';
+    const steps: MigrationStep[] = [
+      { objectName: 'BAD', objectType: 'TABLE', action: 'CREATE', statements: ['CREATE TABLE bad (id int);'] },
+    ];
+    const events: any[] = [];
+    await new MigrationModule().execute('redis', {}, '0', steps, (e) => events.push(e));
+    expect(fakeAdapter.rollbackTransaction).toHaveBeenCalledTimes(1);
+    expect(events.find((e) => e.type === 'done')).toMatchObject({ success: false, rolledBack: false });
+  });
 });
