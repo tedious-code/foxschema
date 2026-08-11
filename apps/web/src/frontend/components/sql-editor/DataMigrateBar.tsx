@@ -8,7 +8,7 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowRightLeft, CheckCheck, History, Loader2, X } from 'lucide-react';
+import { ArrowRightLeft, CheckCheck, History, Loader2, Shield, Undo2, X } from 'lucide-react';
 import {
   apiExecuteDataMigrate,
   apiFinishDataMigrate,
@@ -19,7 +19,7 @@ import {
   type DataMigrateRunDetail,
   type DataMigrateRunSummary,
 } from '../../api/dataMigrateApi';
-import { buildDataMigratePlans, buildDestSnapshotJson } from '../../lib/dataMigratePlans';
+import { buildDataMigratePlans, buildDestSnapshotJson, buildRestorePlansFromSnapshot } from '../../lib/dataMigratePlans';
 import {
   classifyRowsByKey,
   DATA_MIGRATE_ROW_CAP,
@@ -142,6 +142,20 @@ export const DataMigrateBar: React.FC<Props> = ({
   const [useTransaction, setUseTransaction] = useState(true);
   /** Safety: Continue = skip failures; Stop = abort (rollback if transaction on). */
   const [continueOnError, setContinueOnError] = useState(false);
+  /**
+   * Safety: capture a pre-apply dest snapshot so successful ops can be reversed
+   * when a batch fails without a real transaction rollback (Continue mode,
+   * Transaction off, Redis/Mongo/ClickHouse).
+   */
+  const [backupEnabled, setBackupEnabled] = useState(true);
+  const [lastBackup, setLastBackup] = useState<{
+    runId: string | null;
+    snapshotJson: string;
+    results: DataMigrateOpResult[];
+    tableName: string;
+    dialect: string;
+  } | null>(null);
+  const [restoring, setRestoring] = useState(false);
   const [applying, setApplying] = useState(false);
   const [progress, setProgress] = useState<ProgressItem[] | null>(null);
   const [failedSummary, setFailedSummary] = useState<DataMigrateOpResult[]>([]);
@@ -416,12 +430,19 @@ export const DataMigrateBar: React.FC<Props> = ({
     }
     if (plans.length === 0) return;
 
-    const snapshotJson = buildDestSnapshotJson({
-      destColumns: dest.columns,
-      ops: filtered.ops,
-    });
+    const snapshotJson = backupEnabled
+      ? buildDestSnapshotJson({
+          tableName,
+          dialect: dest.dialect,
+          destColumns: dest.columns,
+          sourceColumns: source.columns,
+          keyNames,
+          includeIdentity,
+          ops: filtered.ops,
+        })
+      : undefined;
     const script = [
-      `-- useTransaction=${useTransaction} continueOnError=${continueOnError}`,
+      `-- useTransaction=${useTransaction} continueOnError=${continueOnError} backup=${backupEnabled}`,
       ...plans.map((p) => `-- ${p.op} ${p.keyLabel}\n${p.plan.displaySql};`),
     ].join('\n\n');
 
@@ -527,6 +548,27 @@ export const DataMigrateBar: React.FC<Props> = ({
     }
 
     setApplying(false);
+
+    const succeeded = results.filter((r) => r.status === 'SUCCESS');
+    const canOfferRestore =
+      backupEnabled &&
+      Boolean(snapshotJson) &&
+      failCount > 0 &&
+      !rolledBack &&
+      succeeded.length > 0;
+
+    if (canOfferRestore && snapshotJson) {
+      setLastBackup({
+        runId,
+        snapshotJson,
+        results,
+        tableName,
+        dialect: dest.dialect,
+      });
+    } else {
+      setLastBackup(null);
+    }
+
     const failedKeys = results
       .filter((r) => r.status === 'FAILED')
       .map((r) => `${r.op} ${r.key}`)
@@ -541,15 +583,149 @@ export const DataMigrateBar: React.FC<Props> = ({
             : `Finished with ${failCount} failure(s)`,
       body:
         failCount === 0
-          ? `Destination: ${dest.label}. Snapshot + history saved.`
+          ? `Destination: ${dest.label}.${backupEnabled ? ' Backup snapshot saved to history.' : ''}`
           : `Failed: ${failedKeys.join('; ')}${
               results.filter((r) => r.status === 'FAILED').length > 5 ? '…' : ''
-            }. ${rolledBack ? 'Transaction rolled back. ' : ''}See progress / history.`,
-      actionButtonLabel: 'View history',
-      onAction: () => void openHistory(),
-      durationMs: 10_000,
+            }. ${rolledBack ? 'Transaction rolled back. ' : ''}${
+              canOfferRestore ? 'Backup is ready — Restore reverses successful ops. ' : ''
+            }See progress / history.`,
+      actionButtonLabel: canOfferRestore ? 'Restore backup' : 'View history',
+      onAction: canOfferRestore
+        ? () =>
+            void restoreFromBackup({
+              runId,
+              snapshotJson: snapshotJson!,
+              results,
+              tableName,
+              dialect: dest.dialect,
+            })
+        : () => void openHistory(),
+      durationMs: 12_000,
     });
     if (!rolledBack) await onAfterMigrate?.();
+  };
+
+  const restoreFromBackup = async (backup: {
+    runId: string | null;
+    snapshotJson: string;
+    results: DataMigrateOpResult[];
+    tableName: string;
+    dialect: string;
+  }) => {
+    if (restoring || applying) return;
+    const successfulOps = backup.results
+      .filter((r) => r.status === 'SUCCESS')
+      .map((r) => ({ op: r.op, key: r.key }));
+    if (successfulOps.length === 0) {
+      toast({ tone: 'info', title: 'Nothing to restore', body: 'No successful ops in that run.' });
+      return;
+    }
+
+    const { plans, errors } = buildRestorePlansFromSnapshot({
+      snapshotJson: backup.snapshotJson,
+      successfulOps,
+      tableName: backup.tableName,
+      dialect: backup.dialect,
+    });
+    if (errors.length) {
+      toast({
+        tone: 'warning',
+        title: 'Could not build full restore',
+        body: errors.slice(0, 3).join(' · '),
+      });
+    }
+    if (plans.length === 0) return;
+
+    setRestoring(true);
+    setProgress(
+      plans.map((p) => ({
+        keyLabel: p.keyLabel,
+        op: p.op,
+        status: 'running' as const,
+      }))
+    );
+
+    let restoreRunId: string | null = null;
+    try {
+      restoreRunId = await apiStartDataMigrate({
+        dialect: backup.dialect,
+        sourceHost: 'backup-restore',
+        targetHost: destConn?.host || dest.label,
+        database: destConn?.database,
+        schema: destConn?.schema,
+        tableName: backup.tableName,
+        rowCount: plans.length,
+        opsEnabled: { insert: true, update: true, delete: true },
+        includeIdentity: true,
+        keyColumns: keyNames,
+        script: [
+          `-- restore from backup of run ${backup.runId ?? 'n/a'}`,
+          ...plans.map((p) => `-- ${p.op} ${p.keyLabel}\n${p.plan.displaySql};`),
+        ].join('\n\n'),
+        snapshotJson: backup.snapshotJson,
+      });
+    } catch {
+      /* history best-effort */
+    }
+
+    try {
+      const out = await apiExecuteDataMigrate(
+        {
+          connectionId: dest.connectionId,
+          password: sessionPasswords[dest.connectionId] || undefined,
+          schema: destConn?.schema?.trim() || undefined,
+        },
+        plans.map((p) => ({
+          op: p.op,
+          key: p.keyLabel,
+          sql: p.plan.sql,
+          params: p.plan.params,
+        })),
+        { useTransaction: true, continueOnError: false }
+      );
+      setProgress(
+        out.results.map((r) => ({
+          keyLabel: r.key,
+          op: r.op,
+          status:
+            r.status === 'SUCCESS' ? 'ok' : r.status === 'SKIPPED' ? 'skipped' : 'fail',
+          error: r.error,
+        }))
+      );
+      if (restoreRunId) {
+        await apiFinishDataMigrate(restoreRunId, {
+          status:
+            out.failCount === 0
+              ? 'SUCCESS'
+              : out.rolledBack
+                ? 'FAILED'
+                : 'PARTIAL_SUCCESS',
+          results: out.results,
+        }).catch(() => undefined);
+      }
+      toast({
+        tone: out.failCount === 0 ? 'success' : 'warning',
+        title:
+          out.failCount === 0
+            ? out.rolledBack
+              ? 'Restore rolled back'
+              : `Restored ${out.results.filter((r) => r.status === 'SUCCESS').length} ops`
+            : `Restore finished with ${out.failCount} failure(s)`,
+        body: out.rolledBack
+          ? 'Transaction rolled back — destination unchanged by restore.'
+          : 'Reversed successful migrate ops from the Backup snapshot.',
+      });
+      if (out.failCount === 0) setLastBackup(null);
+      if (!out.rolledBack) await onAfterMigrate?.();
+    } catch (e) {
+      toast({
+        tone: 'warning',
+        title: 'Restore failed',
+        body: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setRestoring(false);
+    }
   };
 
   if (!canCompareReady(source, dest)) return null;
@@ -733,11 +909,43 @@ export const DataMigrateBar: React.FC<Props> = ({
           />
           {continueOnError ? 'Continue on error' : 'Stop on error'}
         </label>
+        <label
+          className="inline-flex items-center gap-1 cursor-pointer select-none text-emerald-300/90"
+          title="Before applying, snapshot destination rows (and insert keys). If a batch fails without a transaction rollback, Restore reverses the successful ops — like a safe mode for Compare Data."
+        >
+          <input
+            type="checkbox"
+            data-testid={`sql-data-migrate-backup-${statementIndex}`}
+            checked={backupEnabled}
+            onChange={(e) => setBackupEnabled(e.target.checked)}
+            className="rounded border-slate-600"
+          />
+          <Shield className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+          Backup
+        </label>
+        {lastBackup && (
+          <button
+            type="button"
+            data-testid={`sql-data-migrate-restore-${statementIndex}`}
+            disabled={restoring || applying}
+            onClick={() => void restoreFromBackup(lastBackup)}
+            className="inline-flex items-center gap-1 rounded-md border border-amber-500/50 bg-amber-950/40 px-2 py-0.5 text-amber-200 hover:bg-amber-900/50 disabled:opacity-40"
+            title="Reverse successful ops from the last Backup snapshot"
+          >
+            {restoring ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" strokeWidth={SQL_ICON_STROKE} />
+            ) : (
+              <Undo2 className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+            )}
+            Restore backup
+          </button>
+        )}
         <button
           type="button"
           data-testid={`sql-data-migrate-apply-${statementIndex}`}
           disabled={
             applying ||
+            restoring ||
             !canDml ||
             selected.uncappedCount === 0 ||
             migrateCount === 0 ||
@@ -901,10 +1109,33 @@ export const DataMigrateBar: React.FC<Props> = ({
                         {historyDetail.rowCount} ops · keys [{historyDetail.keyColumns.join(', ')}]
                       </div>
                       <div>
-                        <span className="text-slate-500">Snapshot (pre-apply dest rows)</span>
+                        <span className="text-slate-500">Snapshot (pre-apply Backup)</span>
                         <pre className="mt-1 max-h-40 overflow-auto rounded bg-slate-900 p-2 text-[10px] text-slate-400">
-                          {historyDetail.snapshotJson || '(none)'}
+                          {historyDetail.snapshotJson || '(none — Backup was off)'}
                         </pre>
+                        {historyDetail.snapshotJson &&
+                          historyDetail.results.some((r) => r.status === 'SUCCESS') &&
+                          historyDetail.status !== 'SUCCESS' && (
+                            <button
+                              type="button"
+                              data-testid="sql-data-migrate-history-restore"
+                              disabled={restoring || applying}
+                              className="mt-2 inline-flex items-center gap-1 rounded-md border border-amber-500/50 bg-amber-950/40 px-2 py-1 text-[11px] font-semibold text-amber-200 hover:bg-amber-900/50 disabled:opacity-40"
+                              onClick={() => {
+                                setHistoryOpen(false);
+                                void restoreFromBackup({
+                                  runId: historyDetail.id,
+                                  snapshotJson: historyDetail.snapshotJson!,
+                                  results: historyDetail.results,
+                                  tableName: historyDetail.tableName || tableName,
+                                  dialect: historyDetail.dialect || dest.dialect,
+                                });
+                              }}
+                            >
+                              <Undo2 className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
+                              Restore from this backup
+                            </button>
+                          )}
                       </div>
                       <div>
                         <span className="text-slate-500">Script</span>
