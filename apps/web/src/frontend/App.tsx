@@ -16,6 +16,9 @@ import { AlertCircle, AlertTriangle, Loader2, X } from 'lucide-react';
 const SqlEditorView = lazy(() =>
   import('./components/sql-editor/SqlEditorView').then((m) => ({ default: m.SqlEditorView }))
 );
+const LokeeWeaveView = lazy(() =>
+  import('./components/lokee-weave/LokeeWeaveView').then((m) => ({ default: m.LokeeWeaveView }))
+);
 
 const Workspace: React.FC = () => {
   const { errorMsg, warnings, dismissWarnings } = useSyncStore();
@@ -28,6 +31,9 @@ const Workspace: React.FC = () => {
   useEffect(() => {
     if (activeView === 'sqlEditor' && !canEditorAccess) {
       setActiveView('sync');
+    }
+    if (activeView === 'lokeeWeave' && !canSchemaBrowse) {
+      setActiveView(canEditorAccess ? 'sqlEditor' : 'sync');
     }
     if (
       activeView === 'sync' &&
@@ -80,6 +86,12 @@ const Workspace: React.FC = () => {
           <ErrorBoundary>
             <Suspense fallback={<LoadingScreen />}>
               <SqlEditorView />
+            </Suspense>
+          </ErrorBoundary>
+        ) : activeView === 'lokeeWeave' ? (
+          <ErrorBoundary>
+            <Suspense fallback={<LoadingScreen />}>
+              <LokeeWeaveView />
             </Suspense>
           </ErrorBoundary>
         ) : (

@@ -887,6 +887,28 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     res.json({ versions });
   });
 
+  router.patch(
+    '/lokee/databases/:id/versions/:versionId',
+    requirePermissions('schema.browse'),
+    async (req: Request, res: Response) => {
+      const body = req.body as { name?: string | null; description?: string | null };
+      const updated = await lokeeWeave.updateVersionMeta(
+        (req as AuthedRequest).userId!,
+        String(req.params.id),
+        String(req.params.versionId),
+        {
+          name: body.name,
+          description: body.description,
+        }
+      );
+      if (!updated) {
+        res.status(404).json({ error: 'Version not found' });
+        return;
+      }
+      res.json({ version: updated });
+    }
+  );
+
   router.get('/lokee/databases/:id/graph', async (req: Request, res: Response) => {
     // The store scopes every read to the caller, so an unknown or unowned id
     // returns an empty graph rather than another user's history.

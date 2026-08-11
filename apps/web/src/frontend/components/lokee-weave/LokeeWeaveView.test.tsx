@@ -9,15 +9,34 @@
  */
 import React from 'react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { VersionGraphDTO } from './graphTypes';
 
 const listLokeeDatabases = vi.fn();
 const loadVersionGraph = vi.fn();
+const captureSchema = vi.fn();
 
 vi.mock('../../api/lokeeApi', () => ({
   listLokeeDatabases: (...args: unknown[]) => listLokeeDatabases(...args),
   loadVersionGraph: (...args: unknown[]) => loadVersionGraph(...args),
+  captureSchema: (...args: unknown[]) => captureSchema(...args),
+}));
+
+vi.mock('../../store/useSyncStore', () => ({
+  useSyncStore: (sel: (s: { connections: unknown[] }) => unknown) =>
+    sel({
+      connections: [
+        { id: 'c1', name: 'Local PG', dialect: 'postgres', hasPassword: true },
+      ],
+    }),
+}));
+
+vi.mock('../../store/toastStore', () => ({
+  toast: vi.fn(),
+}));
+
+vi.mock('../../lib/sessionPasswords', () => ({
+  getSessionPassword: () => undefined,
 }));
 
 // React Flow needs layout APIs jsdom does not provide; the graph's own
@@ -29,6 +48,7 @@ vi.mock('./LokeeWeavePage', () => ({
 }));
 
 import { LokeeWeaveView } from './LokeeWeaveView';
+import { toast } from '../../store/toastStore';
 
 const DB = {
   id: 'db1',
@@ -54,6 +74,8 @@ const DTO: VersionGraphDTO = {
 beforeEach(() => {
   listLokeeDatabases.mockReset();
   loadVersionGraph.mockReset();
+  captureSchema.mockReset();
+  vi.mocked(toast).mockReset();
 });
 
 describe('LokeeWeaveView', () => {
@@ -66,6 +88,7 @@ describe('LokeeWeaveView', () => {
     await waitFor(() => expect(screen.getByTestId('graph')).toBeTruthy());
     // The subtitle must name the database, not the saved connection.
     expect(screen.getByTestId('graph').textContent).toContain('[postgres] localhost/foxdb.public');
+    expect(screen.getByTestId('lokee-weave-chrome')).toBeTruthy();
   });
 
   it('shows an empty state rather than an empty canvas', async () => {
@@ -131,5 +154,36 @@ describe('LokeeWeaveView', () => {
 
     await waitFor(() => expect(loadVersionGraph).toHaveBeenCalled());
     expect(loadVersionGraph).toHaveBeenCalledWith('db2', 20);
+  });
+
+  it('captures a schema from the chosen credential', async () => {
+    listLokeeDatabases.mockResolvedValueOnce([]).mockResolvedValue([DB]);
+    loadVersionGraph.mockResolvedValue({ ...DTO, truncatedObjects: false });
+    captureSchema.mockResolvedValue({
+      databaseId: 'db1',
+      versionId: 'v1',
+      versionNumber: 1,
+      rootHash: 'aaa',
+      changed: true,
+      changeCount: 3,
+      objectCount: 10,
+    });
+
+    render(<LokeeWeaveView />);
+
+    await waitFor(() => expect(screen.getByTestId('lokee-capture-btn')).toBeTruthy());
+    fireEvent.change(screen.getByTestId('lokee-capture-connection'), {
+      target: { value: 'c1' },
+    });
+    fireEvent.click(screen.getByTestId('lokee-capture-btn'));
+
+    await waitFor(() =>
+      expect(captureSchema).toHaveBeenCalledWith(
+        expect.objectContaining({ connectionId: 'c1', source: 'manual' })
+      )
+    );
+    await waitFor(() =>
+      expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Captured v1' }))
+    );
   });
 });

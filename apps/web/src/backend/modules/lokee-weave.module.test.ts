@@ -356,6 +356,40 @@ describe('graph', () => {
     expect(dto.versions).toHaveLength(2);
     expect(dto.totalVersions).toBe(3);
   });
+
+  it('lets the owner set a display name and description', async () => {
+    const { weave, databaseId, v1 } = await threeVersions();
+    const updated = await weave.updateVersionMeta(USER, databaseId, v1.versionId, {
+      name: 'Baseline schema',
+      description: 'Initial customer table',
+    });
+    expect(updated?.name).toBe('Baseline schema');
+    expect(updated?.description).toBe('Initial customer table');
+
+    const dto = await weave.graph(USER, databaseId);
+    const row = dto.versions.find((v) => v.id === v1.versionId);
+    expect(row?.name).toBe('Baseline schema');
+    expect(row?.description).toBe('Initial customer table');
+  });
+
+  it('clears name/description when blanked and resolves author email', async () => {
+    const { weave, databaseId, v1 } = await threeVersions();
+    await weave.updateVersionMeta(USER, databaseId, v1.versionId, {
+      name: 'Temp',
+      description: 'Notes',
+    });
+    const cleared = await weave.updateVersionMeta(USER, databaseId, v1.versionId, {
+      name: '  ',
+      description: '',
+    });
+    expect(cleared?.name).toBeUndefined();
+    expect(cleared?.description).toBeUndefined();
+
+    // Capture stamps author_user_id; list/graph should surface the email.
+    const listed = await weave.listVersions(USER, databaseId);
+    const row = listed.find((v) => v.id === v1.versionId);
+    expect(row?.author).toBe('owner@example.com');
+  });
 });
 
 describe('objectsAtVersion', () => {

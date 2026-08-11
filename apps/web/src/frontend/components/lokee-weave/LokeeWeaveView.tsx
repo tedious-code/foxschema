@@ -10,18 +10,23 @@
  * testable with a fixture and has no idea a network exists.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { GitBranch, Loader2, RefreshCw, TriangleAlert } from 'lucide-react';
+import { Camera, GitBranch, Loader2, RefreshCw, TriangleAlert } from 'lucide-react';
 import { LokeeWeavePage } from './LokeeWeavePage';
 import type { SchemaObjectNodeData, VersionGraphDTO } from './graphTypes';
 import {
+  captureSchema,
   listLokeeDatabases,
   loadVersionGraph,
+  updateLokeeVersionMeta,
   type LokeeDatabase,
 } from '../../api/lokeeApi';
+import { getSessionPassword } from '../../lib/sessionPasswords';
+import { toast } from '../../store/toastStore';
+import { useSyncStore } from '../../store/useSyncStore';
 import { SQL_ICON_STROKE } from '../sql-editor/sqlIconStyle';
 
 export interface LokeeWeaveViewProps {
-  /** When set, that database is shown; otherwise the most recent one is. */
+  /** When set, that database is shown; otherwise the picker / most recent one is. */
   databaseId?: string;
   /** How many versions to draw. The backend caps this well below the UI cap. */
   versionLimit?: number;
@@ -43,22 +48,31 @@ function describe(database: LokeeDatabase | undefined): string | undefined {
   return `[${database.dialect}] ${where}${schema}`;
 }
 
+function databaseLabel(database: LokeeDatabase): string {
+  const where = [database.host, database.database].filter(Boolean).join('/') || database.id.slice(0, 8);
+  const schema = database.schema ? ` · ${database.schema}` : '';
+  return `${database.dialect.toUpperCase()} · ${where}${schema} (${database.versionCount} v)`;
+}
+
 export function LokeeWeaveView({
   databaseId,
   versionLimit = 20,
   onSelectObject,
 }: LokeeWeaveViewProps): React.ReactElement {
+  const connections = useSyncStore((s) => s.connections);
   const [databases, setDatabases] = useState<LokeeDatabase[]>([]);
+  const [pickedId, setPickedId] = useState<string | undefined>(undefined);
+  const [captureConnectionId, setCaptureConnectionId] = useState('');
   const [dto, setDto] = useState<VersionGraphDTO>(EMPTY_DTO);
   const [truncated, setTruncated] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [capturing, setCapturing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Bumped to re-run the effect; a plain refetch() would race the in-flight one.
   const [reloadToken, setReloadToken] = useState(0);
 
-  // Falls back to the most recently seen database so the view is useful before
-  // any picker exists to choose one.
-  const activeId = databaseId ?? databases[0]?.id;
+  // Prop wins; otherwise the user's pick; otherwise the most recently seen database.
+  const activeId = databaseId ?? pickedId ?? databases[0]?.id;
 
   useEffect(() => {
     let cancelled = false;
@@ -112,50 +126,193 @@ export function LokeeWeaveView({
 
   const refresh = useCallback(() => setReloadToken((n) => n + 1), []);
 
+  const saveVersionMeta = useCallback(
+    async (versionId: string, patch: { name: string; description: string }) => {
+      if (!activeId) return;
+      try {
+        const version = await updateLokeeVersionMeta(activeId, versionId, patch);
+        setDto((prev) => ({
+          ...prev,
+          versions: prev.versions.map((v) =>
+            v.id === versionId
+              ? {
+                  ...v,
+                  name: version.name,
+                  description: version.description,
+                  author: version.author ?? v.author,
+                }
+              : v
+          ),
+        }));
+        toast({ tone: 'success', title: 'Version updated', body: 'Name and description saved.' });
+      } catch (err) {
+        toast({
+          tone: 'warning',
+          title: 'Could not save version',
+          body: err instanceof Error ? err.message : String(err),
+        });
+        throw err;
+      }
+    },
+    [activeId]
+  );
+
+  const runCapture = useCallback(async () => {
+    if (!captureConnectionId || capturing) return;
+    const conn = connections.find((c) => c.id === captureConnectionId);
+    if (!conn) {
+      toast({ tone: 'warning', title: 'Pick a credential', body: 'Choose a saved connection to capture.' });
+      return;
+    }
+    setCapturing(true);
+    try {
+      const result = await captureSchema({
+        connectionId: captureConnectionId,
+        password: getSessionPassword(captureConnectionId) || undefined,
+        source: 'manual',
+      });
+      setPickedId(result.databaseId);
+      refresh();
+      toast({
+        tone: 'success',
+        title: result.changed
+          ? `Captured v${result.versionNumber}`
+          : `No changes since v${result.versionNumber}`,
+        body: result.changed
+          ? `${result.changeCount} object change(s) · ${result.objectCount} objects`
+          : 'Observation recorded on the version already at the head.',
+      });
+    } catch (err) {
+      toast({
+        tone: 'warning',
+        title: 'Capture failed',
+        body: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setCapturing(false);
+    }
+  }, [captureConnectionId, capturing, connections, refresh]);
+
+  const chrome = (
+    <div
+      className="flex flex-wrap items-center gap-2 border-b border-slate-800 bg-slate-950/80 px-4 py-2"
+      data-testid="lokee-weave-chrome"
+    >
+      <label className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400">
+        History
+        <select
+          data-testid="lokee-database-select"
+          value={activeId ?? ''}
+          disabled={Boolean(databaseId) || databases.length === 0}
+          onChange={(e) => setPickedId(e.target.value || undefined)}
+          className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 outline-none focus:border-cyan-600 disabled:opacity-50"
+        >
+          {databases.length === 0 && <option value="">No captures yet</option>}
+          {databases.map((d) => (
+            <option key={d.id} value={d.id}>
+              {databaseLabel(d)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button
+        type="button"
+        data-testid="lokee-refresh-btn"
+        onClick={refresh}
+        className="inline-flex items-center gap-1 rounded-md border border-slate-700 px-2 py-1 text-[11px] font-semibold text-slate-300 hover:bg-slate-800"
+        title="Reload databases and graph"
+      >
+        <RefreshCw className="h-3.5 w-3.5" strokeWidth={SQL_ICON_STROKE} />
+        Refresh
+      </button>
+      <div className="ml-auto flex flex-wrap items-center gap-2">
+        <select
+          data-testid="lokee-capture-connection"
+          value={captureConnectionId}
+          onChange={(e) => setCaptureConnectionId(e.target.value)}
+          className="max-w-[16rem] rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 outline-none focus:border-cyan-600"
+        >
+          <option value="">Credential to capture…</option>
+          {connections.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name} [{c.dialect}]
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          data-testid="lokee-capture-btn"
+          disabled={!captureConnectionId || capturing}
+          onClick={() => void runCapture()}
+          className="inline-flex items-center gap-1.5 rounded-md border border-cyan-500/40 bg-cyan-950/50 px-2.5 py-1 text-[11px] font-bold text-cyan-100 hover:bg-cyan-900/50 disabled:cursor-not-allowed disabled:opacity-40"
+          title="Read the live schema and record a version when anything changed"
+        >
+          {capturing ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={SQL_ICON_STROKE} />
+          ) : (
+            <Camera className="h-3.5 w-3.5" strokeWidth={SQL_ICON_STROKE} />
+          )}
+          {capturing ? 'Capturing…' : 'Capture schema'}
+        </button>
+      </div>
+    </div>
+  );
+
   // Every hook above any early return — a rules-of-hooks crash has happened in
   // this codebase before.
   if (loading) {
     return (
-      <div className="flex h-full items-center justify-center text-slate-400">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin" strokeWidth={SQL_ICON_STROKE} />
-        Loading schema history…
+      <div className="flex h-full min-h-0 flex-col" data-testid="lokee-weave-view">
+        {chrome}
+        <div className="flex flex-1 items-center justify-center text-slate-400">
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" strokeWidth={SQL_ICON_STROKE} />
+          Loading schema history…
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-        <TriangleAlert className="h-6 w-6 text-rose-400" strokeWidth={SQL_ICON_STROKE} />
-        <div className="text-sm font-semibold text-slate-100">Could not load schema history</div>
-        <div className="max-w-md text-xs text-slate-400">{error}</div>
-        <button
-          type="button"
-          onClick={refresh}
-          className="mt-1 flex items-center gap-1.5 rounded-md border border-slate-600 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800"
-        >
-          <RefreshCw className="h-3.5 w-3.5" strokeWidth={SQL_ICON_STROKE} />
-          Try again
-        </button>
+      <div className="flex h-full min-h-0 flex-col" data-testid="lokee-weave-view">
+        {chrome}
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+          <TriangleAlert className="h-6 w-6 text-rose-400" strokeWidth={SQL_ICON_STROKE} />
+          <div className="text-sm font-semibold text-slate-100">Could not load schema history</div>
+          <div className="max-w-md text-xs text-slate-400">{error}</div>
+          <button
+            type="button"
+            onClick={refresh}
+            className="mt-1 flex items-center gap-1.5 rounded-md border border-slate-600 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800"
+          >
+            <RefreshCw className="h-3.5 w-3.5" strokeWidth={SQL_ICON_STROKE} />
+            Try again
+          </button>
+        </div>
       </div>
     );
   }
 
   if (!activeId || dto.versions.length === 0) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-        <GitBranch className="h-6 w-6 text-slate-500" strokeWidth={SQL_ICON_STROKE} />
-        <div className="text-sm font-semibold text-slate-100">No schema history yet</div>
-        <div className="max-w-md text-xs text-slate-400">
-          Capture a schema to start a history. Every capture that finds a change adds a version;
-          one that finds none is recorded as another observation of the version already at the head.
+      <div className="flex h-full min-h-0 flex-col" data-testid="lokee-weave-view">
+        {chrome}
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+          <GitBranch className="h-6 w-6 text-slate-500" strokeWidth={SQL_ICON_STROKE} />
+          <div className="text-sm font-semibold text-slate-100">No schema history yet</div>
+          <div className="max-w-md text-xs text-slate-400">
+            Pick a saved credential above and click <span className="text-slate-200">Capture schema</span>.
+            Every capture that finds a change adds a version; one that finds none is recorded as another
+            observation of the version already at the head.
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0 flex-col" data-testid="lokee-weave-view">
+      {chrome}
       {truncated && (
         <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-1.5 text-[11px] text-amber-200">
           Showing the objects that changed in this window. This schema has more objects than the
@@ -163,7 +320,12 @@ export function LokeeWeaveView({
         </div>
       )}
       <div className="min-h-0 flex-1">
-        <LokeeWeavePage dto={dto} subtitle={subtitle} onSelectObject={onSelectObject} />
+        <LokeeWeavePage
+          dto={dto}
+          subtitle={subtitle}
+          onSelectObject={onSelectObject}
+          onSaveVersionMeta={saveVersionMeta}
+        />
       </div>
     </div>
   );

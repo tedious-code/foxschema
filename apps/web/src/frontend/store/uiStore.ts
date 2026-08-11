@@ -176,7 +176,7 @@ function applyToDocument(themeMode: ThemeMode, tone: ToneId, fontSize: FontSize,
 }
 
 /** Top-level workspace views: schema sync (compare/browse) vs the SQL Editor. */
-export type ActiveView = 'sync' | 'sqlEditor';
+export type ActiveView = 'sync' | 'sqlEditor' | 'lokeeWeave';
 
 interface UiState {
   themeMode: ThemeMode;

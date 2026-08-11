@@ -225,6 +225,52 @@ describe('buildVersionGraph — filters', () => {
     expect(nodeIds(g)).toContain('version:v1');
     expect(nodeIds(g)).toContain('version:v3');
   });
+
+  it('narrows to chosen versions and their objects', () => {
+    const g = buildVersionGraph(dto, filters({ versionIds: new Set(['v2']) }));
+    expect(nodeIds(g)).toContain('version:v2');
+    expect(nodeIds(g)).not.toContain('version:v1');
+    expect(nodeIds(g)).not.toContain('version:v3');
+    expect(nodeIds(g)).toContain('object:v2:table:ORDERS');
+    expect(nodeIds(g)).not.toContain('object:v3:table:ORDERS');
+  });
+
+  it('filters versions by inclusive date range', () => {
+    const g = buildVersionGraph(dto, filters({ dateFrom: '2026-07-05', dateTo: '2026-07-05' }));
+    expect(nodeIds(g)).toEqual(expect.arrayContaining(['version:v2']));
+    expect(nodeIds(g)).not.toContain('version:v1');
+    expect(nodeIds(g)).not.toContain('version:v3');
+  });
+
+  it('filters versions by author', () => {
+    const withAuthors: VersionGraphDTO = {
+      ...dto,
+      versions: [
+        { ...dto.versions[0]!, author: 'alice@example.com' },
+        { ...dto.versions[1]!, author: 'bob@example.com' },
+        { ...dto.versions[2]!, author: 'alice@example.com' },
+      ],
+    };
+    const g = buildVersionGraph(withAuthors, filters({ authors: new Set(['alice@example.com']) }));
+    expect(nodeIds(g)).toContain('version:v1');
+    expect(nodeIds(g)).toContain('version:v3');
+    expect(nodeIds(g)).not.toContain('version:v2');
+  });
+
+  it('carries custom name and description onto version nodes', () => {
+    const named: VersionGraphDTO = {
+      ...dto,
+      versions: [
+        { ...dto.versions[0]!, name: 'Baseline', description: 'First capture' },
+        dto.versions[1]!,
+        dto.versions[2]!,
+      ],
+    };
+    const g = buildVersionGraph(named, filters());
+    const v1 = g.nodes.find((n) => n.id === 'version:v1')!;
+    expect(v1.data.name).toBe('Baseline');
+    expect(v1.data.description).toBe('First capture');
+  });
 });
 
 describe('buildVersionGraph — large graphs', () => {

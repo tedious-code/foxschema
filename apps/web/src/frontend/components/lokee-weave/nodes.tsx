@@ -28,7 +28,12 @@ import {
 } from 'lucide-react';
 import type { LokeeObjectType } from '@foxschema/sql';
 import { objectStyle, statusStyle } from '../../lib/lokeeColors';
-import { shortHash, type SchemaObjectNodeData, type VersionNodeData } from './graphTypes';
+import {
+  shortHash,
+  versionDisplayName,
+  type SchemaObjectNodeData,
+  type VersionNodeData,
+} from './graphTypes';
 import { SQL_ICON_STROKE } from '../sql-editor/sqlIconStyle';
 
 /** Reuses the app's icon set rather than introducing a second one. */
@@ -50,10 +55,12 @@ const TYPE_ICON: Record<LokeeObjectType, React.ComponentType<{ className?: strin
 export const VersionNode = memo(({ data, selected }: NodeProps) => {
   const d = data as VersionNodeData;
   const when = d.createdAt.replace('T', ' ').slice(0, 16);
+  const label = versionDisplayName(d);
+  const hasCustomName = Boolean(d.name?.trim());
   return (
     <div
       data-testid={`rf-version-${d.versionId}`}
-      aria-label={`Version ${d.versionNumber}, ${d.changeCount} changes`}
+      aria-label={`${label}, ${d.changeCount} changes`}
       className={`w-[190px] rounded-lg border bg-slate-900/80 px-3 py-2 ${
         selected ? 'border-violet-400 ring-1 ring-violet-400/60' : 'border-violet-500/40'
       }`}
@@ -61,10 +68,20 @@ export const VersionNode = memo(({ data, selected }: NodeProps) => {
       <Handle type="target" position={Position.Top} className="!opacity-0" />
       <div className="flex items-center gap-2">
         <GitCommitVertical className="w-4 h-4 text-violet-300" strokeWidth={SQL_ICON_STROKE} />
-        <span className="text-sm font-bold text-slate-100">Version {d.versionNumber}</span>
+        <span className="truncate text-sm font-bold text-slate-100" title={label}>
+          {label}
+        </span>
       </div>
+      {hasCustomName && (
+        <div className="pl-6 text-[10px] font-medium text-violet-300/80">v{d.versionNumber}</div>
+      )}
       <div className="mt-0.5 pl-6 text-[10px] text-slate-400">{when}</div>
       {d.author && <div className="pl-6 text-[10px] text-slate-500 truncate">{d.author}</div>}
+      {d.description && (
+        <div className="mt-1 line-clamp-2 pl-6 text-[10px] text-slate-500" title={d.description}>
+          {d.description}
+        </div>
+      )}
       {d.changeCount > 0 && (
         <div className="mt-1 pl-6 text-[10px] font-semibold text-amber-300">
           {d.changeCount} changed

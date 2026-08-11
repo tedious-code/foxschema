@@ -11,7 +11,7 @@
  * historical positions pointing at one immutable stored object, which is what
  * the storage engine actually does.
  */
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Background,
   Controls,
@@ -31,11 +31,14 @@ import {
   DEFAULT_LAYOUT,
   EMPTY_FILTERS,
   MAX_VISIBLE_OBJECT_NODES,
+  versionDisplayName,
   type GraphChangeStatus,
   type LokeeEdgeData,
   type SchemaObjectNodeData,
   type VersionGraphDTO,
   type VersionGraphFilters,
+  type VersionGraphVersion,
+  type VersionNodeData,
 } from './graphTypes';
 import { SQL_ICON_STROKE } from '../sql-editor/sqlIconStyle';
 
@@ -44,6 +47,11 @@ export interface LokeeWeavePageProps {
   /** Connection label for the header, e.g. `[postgres] localhost/foxdb`. */
   subtitle?: string;
   onSelectObject?: (selected: SchemaObjectNodeData) => void;
+  /** Persist a version display name / description edit. */
+  onSaveVersionMeta?: (
+    versionId: string,
+    patch: { name: string; description: string }
+  ) => Promise<void>;
 }
 
 const FILTERABLE_TYPES: LokeeObjectType[] = ['table', 'view', 'index', 'column'];
@@ -93,17 +101,56 @@ const SidebarSection: React.FC<{ title: string; children: React.ReactNode }> = (
   </section>
 );
 
+function freshFilters(): VersionGraphFilters {
+  return {
+    ...EMPTY_FILTERS,
+    objectTypes: new Set(),
+    statuses: new Set(),
+    versionIds: new Set(),
+    authors: new Set(),
+  };
+}
+
 export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
   dto,
   subtitle,
   onSelectObject,
+  onSaveVersionMeta,
 }) => {
-  const [filters, setFilters] = useState<VersionGraphFilters>(() => ({
-    ...EMPTY_FILTERS,
-    objectTypes: new Set(),
-    statuses: new Set(),
-  }));
+  const [filters, setFilters] = useState<VersionGraphFilters>(() => freshFilters());
   const [locked, setLocked] = useState(true);
+  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [savingMeta, setSavingMeta] = useState(false);
+
+  const selectedVersion: VersionGraphVersion | undefined = useMemo(
+    () => dto.versions.find((v) => v.id === selectedVersionId),
+    [dto.versions, selectedVersionId]
+  );
+
+  useEffect(() => {
+    if (!selectedVersion) {
+      setEditName('');
+      setEditDescription('');
+      return;
+    }
+    setEditName(selectedVersion.name ?? '');
+    setEditDescription(selectedVersion.description ?? '');
+  }, [selectedVersion]);
+
+  const authors = useMemo(() => {
+    const set = new Set<string>();
+    for (const v of dto.versions) {
+      if (v.author?.trim()) set.add(v.author.trim());
+    }
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [dto.versions]);
+
+  const versionsNewestFirst = useMemo(
+    () => [...dto.versions].sort((a, b) => b.number - a.number),
+    [dto.versions]
+  );
 
   const built = useMemo(
     () => buildVersionGraph(dto, filters, DEFAULT_LAYOUT, MAX_VISIBLE_OBJECT_NODES),
@@ -131,13 +178,49 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
     });
   }, []);
 
+  const toggleVersion = useCallback((versionId: string) => {
+    setFilters((f) => {
+      const next = new Set(f.versionIds);
+      if (next.has(versionId)) next.delete(versionId);
+      else next.add(versionId);
+      return { ...f, versionIds: next };
+    });
+  }, []);
+
+  const toggleAuthor = useCallback((author: string) => {
+    setFilters((f) => {
+      const next = new Set(f.authors);
+      if (next.has(author)) next.delete(author);
+      else next.add(author);
+      return { ...f, authors: next };
+    });
+  }, []);
+
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
-      if (node.type === 'versionNode') return;
+      if (node.type === 'versionNode') {
+        const data = node.data as VersionNodeData;
+        setSelectedVersionId(data.versionId);
+        return;
+      }
+      setSelectedVersionId(null);
       onSelectObject?.(node.data as SchemaObjectNodeData);
     },
     [onSelectObject]
   );
+
+  const saveVersionMeta = useCallback(async () => {
+    if (!selectedVersionId || !onSaveVersionMeta || savingMeta) return;
+    setSavingMeta(true);
+    try {
+      await onSaveVersionMeta(selectedVersionId, {
+        name: editName,
+        description: editDescription,
+      });
+    } finally {
+      setSavingMeta(false);
+    }
+  }, [selectedVersionId, onSaveVersionMeta, savingMeta, editName, editDescription]);
 
   const changed = dto.objects.filter((o) => o.status !== 'unchanged').length;
   const reused = dto.objects.length - changed;
@@ -168,7 +251,7 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
       </header>
 
       <div className="flex min-h-0 flex-1 gap-3">
-        <aside className="flex w-[190px] shrink-0 flex-col gap-2 overflow-y-auto text-[11px]">
+        <aside className="flex w-[220px] shrink-0 flex-col gap-2 overflow-y-auto text-[11px]">
           <SidebarSection title="Legend">
             <ul className="flex flex-col gap-1">
               {(['table', 'view', 'index', 'column'] as LokeeObjectType[]).map((t) => (
@@ -191,7 +274,95 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
             </ul>
           </SidebarSection>
 
-          <SidebarSection title="Filters">
+          <SidebarSection title="Version">
+            <div className="flex max-h-36 flex-col gap-1 overflow-y-auto">
+              {versionsNewestFirst.map((v) => (
+                <label key={v.id} className="flex cursor-pointer items-start gap-2 text-slate-300">
+                  <input
+                    type="checkbox"
+                    data-testid={`lokee-rf-version-${v.id}`}
+                    className="mt-0.5"
+                    checked={filters.versionIds.size === 0 || filters.versionIds.has(v.id)}
+                    onChange={() => toggleVersion(v.id)}
+                  />
+                  <span className="min-w-0 leading-tight">
+                    <span className="block truncate font-medium">{versionDisplayName(v)}</span>
+                    <span className="text-[10px] text-slate-500">v{v.number}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </SidebarSection>
+
+          <SidebarSection title="Status filter">
+            <div className="flex flex-wrap gap-1">
+              {STATUSES.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  data-testid={`lokee-rf-status-${s}`}
+                  aria-pressed={filters.statuses.has(s)}
+                  onClick={() => toggleStatus(s)}
+                  className={`rounded border px-1.5 py-0.5 transition ${
+                    filters.statuses.has(s)
+                      ? `${statusStyle(s).accent} text-slate-100`
+                      : 'border-slate-700 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {statusStyle(s).label.split(' ')[0]}
+                </button>
+              ))}
+            </div>
+          </SidebarSection>
+
+          <SidebarSection title="Date">
+            <div className="flex flex-col gap-1.5">
+              <label className="flex flex-col gap-0.5 text-slate-400">
+                From
+                <input
+                  type="date"
+                  data-testid="lokee-rf-date-from"
+                  value={filters.dateFrom}
+                  onChange={(e) => setFilters((f) => ({ ...f, dateFrom: e.target.value }))}
+                  className="rounded border border-slate-700 bg-slate-950 px-1.5 py-1 text-[11px] text-slate-200"
+                />
+              </label>
+              <label className="flex flex-col gap-0.5 text-slate-400">
+                To
+                <input
+                  type="date"
+                  data-testid="lokee-rf-date-to"
+                  value={filters.dateTo}
+                  onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value }))}
+                  className="rounded border border-slate-700 bg-slate-950 px-1.5 py-1 text-[11px] text-slate-200"
+                />
+              </label>
+            </div>
+          </SidebarSection>
+
+          <SidebarSection title="User">
+            {authors.length === 0 ? (
+              <p className="text-[10px] text-slate-500">No authors on these versions.</p>
+            ) : (
+              <div className="flex max-h-28 flex-col gap-1 overflow-y-auto">
+                {authors.map((author) => (
+                  <label key={author} className="flex cursor-pointer items-center gap-2 text-slate-300">
+                    <input
+                      type="checkbox"
+                      data-testid={`lokee-rf-author-${author}`}
+                      checked={filters.authors.size === 0 || filters.authors.has(author)}
+                      onChange={() => toggleAuthor(author)}
+                    />
+                    <span className="truncate" title={author}>
+                      {author}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </SidebarSection>
+
+          <SidebarSection title="Object type">
             <div className="flex flex-col gap-1">
               {FILTERABLE_TYPES.map((t) => (
                 <label key={t} className="flex cursor-pointer items-center gap-2 text-slate-300">
@@ -227,26 +398,56 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
             </div>
           </SidebarSection>
 
-          <SidebarSection title="Status filter">
-            <div className="flex flex-wrap gap-1">
-              {STATUSES.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  data-testid={`lokee-rf-status-${s}`}
-                  aria-pressed={filters.statuses.has(s)}
-                  onClick={() => toggleStatus(s)}
-                  className={`rounded border px-1.5 py-0.5 transition ${
-                    filters.statuses.has(s)
-                      ? `${statusStyle(s).accent} text-slate-100`
-                      : 'border-slate-700 text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  {statusStyle(s).label.split(' ')[0]}
-                </button>
-              ))}
-            </div>
-          </SidebarSection>
+          {selectedVersion && (
+            <SidebarSection title="Edit version">
+              <div className="flex flex-col gap-1.5" data-testid="lokee-version-editor">
+                <div className="text-[10px] text-slate-500">v{selectedVersion.number}</div>
+                <label className="flex flex-col gap-0.5 text-slate-400">
+                  Name
+                  <input
+                    type="text"
+                    data-testid="lokee-version-name"
+                    maxLength={120}
+                    value={editName}
+                    placeholder={`Version ${selectedVersion.number}`}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="rounded border border-slate-700 bg-slate-950 px-1.5 py-1 text-[11px] text-slate-200"
+                  />
+                </label>
+                <label className="flex flex-col gap-0.5 text-slate-400">
+                  Description
+                  <textarea
+                    data-testid="lokee-version-description"
+                    maxLength={4000}
+                    rows={3}
+                    value={editDescription}
+                    placeholder="Optional notes for this version"
+                    onChange={(e) => setEditDescription(e.target.value)}
+                    className="resize-y rounded border border-slate-700 bg-slate-950 px-1.5 py-1 text-[11px] text-slate-200"
+                  />
+                </label>
+                <div className="flex gap-1">
+                  <button
+                    type="button"
+                    data-testid="lokee-version-save"
+                    disabled={!onSaveVersionMeta || savingMeta}
+                    onClick={() => void saveVersionMeta()}
+                    className="rounded border border-cyan-500/40 bg-cyan-950/40 px-2 py-1 text-[11px] font-semibold text-cyan-100 disabled:opacity-40"
+                  >
+                    {savingMeta ? 'Saving…' : 'Save'}
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="lokee-version-close"
+                    onClick={() => setSelectedVersionId(null)}
+                    className="rounded border border-slate-700 px-2 py-1 text-[11px] text-slate-300"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </SidebarSection>
+          )}
 
           <SidebarSection title="Layout">
             <button
@@ -266,6 +467,14 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
             <p className="mt-1 text-[10px] leading-tight text-slate-500">
               Dragging is a view preference only — it never changes history.
             </p>
+            <button
+              type="button"
+              data-testid="lokee-rf-clear-filters"
+              onClick={() => setFilters(freshFilters())}
+              className="mt-2 rounded border border-slate-700 px-1.5 py-0.5 text-slate-400 hover:text-slate-200"
+            >
+              Clear filters
+            </button>
           </SidebarSection>
         </aside>
 

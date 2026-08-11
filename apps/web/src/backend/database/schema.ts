@@ -318,6 +318,18 @@ const MIGRATIONS: Migration[] = [
       ];
     },
   },
+  {
+    id: 12,
+    name: 'lokee_version_display_meta',
+    statements: (d) => {
+      const t = types(d);
+      return [
+        // Optional label shown instead of "Version N"; null keeps the default.
+        `ALTER TABLE lokee_versions ADD COLUMN display_name ${t.str}`,
+        `ALTER TABLE lokee_versions ADD COLUMN description ${t.big}`,
+      ];
+    },
+  },
 ];
 
 const SIGNUP_WIZARD_SHOWN_KEY = 'signup.wizard_shown';
