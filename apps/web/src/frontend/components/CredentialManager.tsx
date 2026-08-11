@@ -38,6 +38,8 @@ const DIALECT_STYLES: Record<string, { badge: string; dot: string }> = {
   sqlserver: { badge: 'bg-sky-950/60 text-sky-300 border-sky-700/50', dot: 'bg-sky-400' },
   oracle: { badge: 'bg-rose-950/60 text-rose-300 border-rose-700/50', dot: 'bg-rose-400' },
   sqlite: { badge: 'bg-emerald-950/60 text-emerald-300 border-emerald-700/50', dot: 'bg-emerald-400' },
+  redis: { badge: 'bg-red-950/60 text-red-300 border-red-700/50', dot: 'bg-red-400' },
+  mongodb: { badge: 'bg-lime-950/60 text-lime-300 border-lime-700/50', dot: 'bg-lime-400' },
 };
 
 function formatDate(iso: string): string {
@@ -67,9 +69,15 @@ export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
   const [dialectFilter, setDialectFilter] = useState('all');
   const [sortBy, setSortBy] = useState<'recent' | 'name' | 'provider'>('recent');
 
+  // Full provider list (not only dialects already saved) — otherwise a single
+  // Db2 credential makes the filter look like Db2 is the only engine Fox Schema
+  // supports, and Mongo/Redis appear "missing" before the user clicks Add.
   const availableDialects = useMemo(
-    () => Array.from(new Set(connections.map((c) => c.dialect.toLowerCase()))).sort(),
-    [connections]
+    () =>
+      Object.values(PROVIDER_SETTINGS)
+        .map((p) => p.dialect)
+        .sort((a, b) => dialectLabel(a).localeCompare(dialectLabel(b))),
+    []
   );
 
   // Stable object so ConnectionModal does not reset mid-edit when this parent re-renders.
@@ -265,6 +273,9 @@ export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
                     <Search className="w-5 h-5 text-slate-600" />
                   </div>
                   <p className="font-medium text-slate-400">No credentials match your filters</p>
+                  <p className="text-xs text-slate-600 mt-1">
+                    Pick a provider here only filters the list — use Add Credential to create one
+                  </p>
                   <button
                     onClick={() => {
                       setSearch('');
@@ -393,7 +404,7 @@ export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
       <ConnectionModal
         open={adding || !!editing}
         mode="credential"
-        dialect={(editing?.dialect as Dialect) ?? 'db2'}
+        dialect={(editing?.dialect as Dialect) ?? 'postgres'}
         initialName={editing?.name}
         initialHasPassword={editing?.hasPassword}
         initialOptions={editingInitialOptions}

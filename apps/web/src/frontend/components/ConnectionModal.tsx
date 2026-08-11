@@ -30,7 +30,9 @@ interface Props {
 }
 
 const defaultPorts = DEFAULT_PORTS;
-const dialectOptions = Object.values(PROVIDER_SETTINGS);
+const dialectOptions = Object.values(PROVIDER_SETTINGS).sort((a, b) =>
+  a.label.localeCompare(b.label)
+);
 
 const MAX_NAME_LEN = 50;
 // Credential names allow letters, numbers, spaces, hyphen and underscore only —
