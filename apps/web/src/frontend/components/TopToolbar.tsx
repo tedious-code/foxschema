@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSyncStore } from '../store/useSyncStore';
 import { useUiStore } from '../store/uiStore';
-import { ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, CheckCircle2, Zap, Settings, KeyRound, History, Search, X, Layers, GitCompareArrows, Terminal } from 'lucide-react';
+import { ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, CheckCircle2, Zap, Settings, KeyRound, History, Search, X, Layers, GitCompareArrows, Terminal, GitBranch } from 'lucide-react';
 import { Brand } from './Brand';
 // Support both default and named exports (avoids blank-page Vite/HMR mismatches).
 import ProfileMenuDefault, { ProfileMenu as ProfileMenuNamed } from './ProfileMenu';
@@ -150,6 +150,18 @@ export const TopToolbar: React.FC = () => {
                 }`}
               >
                 <Terminal className="w-4 h-4" /> SQL Editor
+              </button>
+            )}
+            {canSchemaBrowse && (
+              <button
+                data-testid="view-lokee-weave-btn"
+                onClick={() => setActiveView('lokeeWeave')}
+                title="Lokee Weave — content-addressed schema version history"
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold transition cursor-pointer border-l border-slate-700 ${
+                  activeView === 'lokeeWeave' ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <GitBranch className="w-4 h-4" /> Lokee Weave
               </button>
             )}
           </div>
