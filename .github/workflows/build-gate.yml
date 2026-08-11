@@ -1,0 +1,58 @@
+name: Build Gate
+
+# Correctness gates for every change, run before it can reach main.
+#
+# These same checks already existed in release-gate.yml, but that workflow only
+# triggers on a `v*` tag push — so nothing ran on a pull request or on a push to
+# main. Two green PRs whose merge result did not compile were merged that way,
+# and the breakage was only found later, locally. This workflow closes that gap:
+# the gates run on the merge result, not just at release time.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# A new push supersedes an in-flight run for the same ref.
+concurrency:
+  group: build-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: npm install --ignore-scripts
+      # apps/web's tsconfig covers the frontend, the backend, and — through the
+      # workspace path aliases — packages/sql, so this is the whole surface.
+      - run: npm run typecheck
+
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: npm install --ignore-scripts
+      - run: npx vitest run
+
+  lint:
+    name: ESLint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: npm install --ignore-scripts
+      - run: npx eslint .
