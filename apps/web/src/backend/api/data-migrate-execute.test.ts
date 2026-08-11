@@ -3,13 +3,14 @@
  * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
  * SPDX-License-Identifier: Apache-2.0
  */
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { ConnectionFactory } from '@foxschema/db';
 import { executeDataMigrateOps } from './data-migrate-execute';
 import { getAdapter } from '@foxschema/db';
+import * as db from '@foxschema/db';
 
 async function seedDb(dbPath: string): Promise<void> {
   // @ts-expect-error no type declarations for better-sqlite3
@@ -142,5 +143,45 @@ describe('executeDataMigrateOps', () => {
       { useTransaction: false, continueOnError: false }
     );
     expect(out.results.map((r) => r.status)).toEqual(['FAILED', 'SKIPPED']);
+  });
+
+  it('does not claim rollback for Redis when begin/rollback are no-ops', async () => {
+    // Mirrors the Redis adapter: transaction hooks resolve without undoing writes.
+    const fakeAdapter = {
+      setCurrentSchema: vi.fn(async () => {}),
+      beginTransaction: vi.fn(async () => {}),
+      commitTransaction: vi.fn(async () => {}),
+      rollbackTransaction: vi.fn(async () => {}),
+      query: vi.fn(async (_c: unknown, sql: string) => {
+        if (sql.includes('missing')) throw new Error('boom');
+        return [];
+      }),
+    };
+    const getAdapterSpy = vi.spyOn(db, 'getAdapter').mockReturnValue(fakeAdapter as never);
+    const createSpy = vi.spyOn(ConnectionFactory, 'create').mockResolvedValue({});
+    const closeSpy = vi.spyOn(ConnectionFactory, 'close').mockResolvedValue(undefined);
+
+    try {
+      const out = await executeDataMigrateOps(
+        'redis',
+        {},
+        '0',
+        [
+          { op: 'delete', key: 'id=1', sql: `DELETE FROM cache WHERE id = 1` },
+          { op: 'delete', key: 'id=bad', sql: `DELETE FROM missing WHERE id = 2` },
+          { op: 'delete', key: 'id=3', sql: `DELETE FROM cache WHERE id = 3` },
+        ],
+        { useTransaction: true, continueOnError: false }
+      );
+      expect(fakeAdapter.rollbackTransaction).toHaveBeenCalledTimes(1);
+      expect(out.rolledBack).toBe(false);
+      expect(out.results.map((r) => r.status)).toEqual(['SUCCESS', 'FAILED', 'SKIPPED']);
+      expect(out.results[2]?.error).toBe('Stopped after earlier failure');
+      expect(out.results[2]?.error).not.toContain('rolled back');
+    } finally {
+      getAdapterSpy.mockRestore();
+      createSpy.mockRestore();
+      closeSpy.mockRestore();
+    }
   });
 });
