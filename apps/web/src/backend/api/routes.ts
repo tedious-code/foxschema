@@ -31,6 +31,7 @@ import {
 import { executeDataMigrateOps, type DataMigrateExecOp } from './data-migrate-execute';
 import { isSingleSqlStatement } from './single-statement';
 import { AppSettingsStore } from '../modules/app-settings.module';
+import { LokeeWeaveStore } from '../modules/lokee-weave.module';
 import { rateLimit } from './rate-limit';
 import {
   runStatements,
@@ -80,6 +81,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   const migrationHistory = new MigrationHistoryStore();
   const dataMigrateHistory = new DataMigrateHistoryStore();
   const appSettings = new AppSettingsStore();
+  const lokeeWeave = new LokeeWeaveStore();
 
   // Feature services. These own the business logic and its permission checks;
   // the handlers below are meant to shrink into translation as more move over.
@@ -824,6 +826,77 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   router.delete('/migrations/:id', async (req: Request, res: Response) => {
     const removed = await migrationHistory.remove((req as AuthedRequest).userId!, String(req.params.id));
     res.status(removed ? 200 : 404).json({ ok: removed });
+  });
+
+  // --- Lokee Weave: schema versioning -------------------------------------
+  //
+  // Capture reads the *whole* schema regardless of the compare scope in use.
+  // A version that only covered the objects someone happened to be comparing
+  // would be a snapshot you cannot safely revert to.
+  const LOKEE_FULL_SCOPE: DbObjectType[] = [
+    'TABLE',
+    'MQT',
+    'VIEW',
+    'FUNCTION',
+    'PROCEDURE',
+    'TRIGGER',
+    'SEQUENCE',
+    'TYPE',
+  ];
+  const lokeeCaptureLimiter = rateLimit({ windowMs: 60 * 1000, max: 20 });
+
+  router.post(
+    '/lokee/capture',
+    lokeeCaptureLimiter,
+    requirePermissions('schema.browse'),
+    async (req: Request, res: Response) => {
+      const body = req.body as ConnectionRef & { source?: string; migrationRunId?: string };
+      try {
+        const { dialect, option, schema } = await resolveRef((req as AuthedRequest).userId, body);
+        const { tables } = await loadScopedTables(dialect, option, schema ?? '', LOKEE_FULL_SCOPE);
+        const result = await lokeeWeave.capture((req as AuthedRequest).userId!, {
+          // Identity is the database, never the saved connection — and never
+          // the credentials, which have no parameter to arrive through.
+          dialect,
+          host: option.host ?? null,
+          port: option.port ?? null,
+          database: option.database ?? null,
+          schema: schema ?? null,
+          tables,
+          source: body.source === 'migrate' || body.source === 'revert' ? body.source : 'manual',
+          migrationRunId: body.migrationRunId,
+        });
+        res.json(result);
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Failed to capture schema';
+        res.status(500).json({ error: message });
+      }
+    }
+  );
+
+  router.get('/lokee/databases', async (req: Request, res: Response) => {
+    res.json({ databases: await lokeeWeave.listDatabases((req as AuthedRequest).userId!) });
+  });
+
+  router.get('/lokee/databases/:id/versions', async (req: Request, res: Response) => {
+    const versions = await lokeeWeave.listVersions(
+      (req as AuthedRequest).userId!,
+      String(req.params.id),
+      Number(req.query.limit) || 100
+    );
+    res.json({ versions });
+  });
+
+  router.get('/lokee/databases/:id/graph', async (req: Request, res: Response) => {
+    // The store scopes every read to the caller, so an unknown or unowned id
+    // returns an empty graph rather than another user's history.
+    res.json(
+      await lokeeWeave.graph(
+        (req as AuthedRequest).userId!,
+        String(req.params.id),
+        Number(req.query.limit) || 20
+      )
+    );
   });
 
   // --- Data migrate apply (transaction / continue-on-error) ----------------

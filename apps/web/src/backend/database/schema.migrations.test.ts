@@ -55,6 +55,22 @@ describe('runMigrations · signup wizard on upgrade', () => {
     expect(rbac?.id).toBe(7);
   });
 
+  it('re-applies a migration whose unique indexes already exist', async () => {
+    // A migration that failed partway leaves its tables and some of its indexes
+    // behind. Re-running must succeed, or the install is stuck forever. The
+    // retry-tolerance pattern originally read `CREATE INDEX` only, so every
+    // `CREATE UNIQUE INDEX` in migrations 4, 6 and 11 threw on the second pass.
+    const s = await openMemory();
+    await runMigrations(s);
+
+    // Simulate the partial apply: forget the migration, keep its objects.
+    await s.run('DELETE FROM schema_migrations WHERE id = ?', [11]);
+    await expect(runMigrations(s)).resolves.toBeUndefined();
+
+    const row = await s.get<{ id: number }>('SELECT id FROM schema_migrations WHERE id = ?', [11]);
+    expect(row?.id).toBe(11);
+  });
+
   it('migration 8 suppresses wizard when connections already exist', async () => {
     const s = await openMemory();
     await runMigrations(s);

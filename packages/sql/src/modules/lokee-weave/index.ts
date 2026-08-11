@@ -34,6 +34,11 @@ export {
 } from './weave.js';
 export { stableStringify } from './stable-stringify.js';
 export {
+  databaseIdentity,
+  databaseIdentityText,
+  type DatabaseIdentityInput,
+} from './identity.js';
+export {
   classifyReversal,
   parseTypeText,
   planReversal,
