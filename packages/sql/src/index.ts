@@ -54,6 +54,8 @@ export {
   windowGraph,
   DEFAULT_WINDOW_ITEMS,
   MAX_WINDOW_ITEMS,
+  databaseIdentity,
+  databaseIdentityText,
 } from './modules/lokee-weave/index.js';
 export type {
   CanonicalObject,
@@ -73,6 +75,7 @@ export type {
   ObjectHistoryPoint,
   TimePoint,
   WindowResult,
+  DatabaseIdentityInput,
 } from './modules/lokee-weave/index.js';
 export type {
   IdentityInsertKind,

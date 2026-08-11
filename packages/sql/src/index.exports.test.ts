@@ -26,6 +26,7 @@ import * as lokeeWeave from './modules/lokee-weave/index.js';
 import type {
   CanonicalObject,
   ChangeOperation,
+  DatabaseIdentityInput,
   Digest,
   GraphNode,
   GraphResult,
@@ -78,6 +79,7 @@ describe('the lokee-weave module index is itself loadable', () => {
 type _AssertTypesReachable = [
   CanonicalObject,
   ChangeOperation,
+  DatabaseIdentityInput,
   Digest,
   GraphNode,
   GraphResult<GraphNode>,

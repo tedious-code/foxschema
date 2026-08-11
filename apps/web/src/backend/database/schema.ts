@@ -230,6 +230,94 @@ const MIGRATIONS: Migration[] = [
       ];
     },
   },
+  {
+    id: 11,
+    name: 'lokee_weave_schema_versions',
+    statements: (d) => {
+      const t = types(d);
+      return [
+        // A database, not a saved connection: two connections pointing at the
+        // same database share one history, and rotating a password keeps it.
+        // `fingerprint` is the content hash from databaseIdentity(); the row
+        // also keeps the components in the clear so the UI can label it.
+        `CREATE TABLE IF NOT EXISTS lokee_databases (
+           id ${t.id} PRIMARY KEY,
+           user_id ${t.id} NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+           fingerprint ${t.id} NOT NULL,
+           dialect ${t.str} NOT NULL,
+           host ${t.str},
+           port ${t.int},
+           database_name ${t.str},
+           "schema" ${t.str},
+           created_at ${t.ts} NOT NULL,
+           last_seen_at ${t.ts} NOT NULL
+         )`,
+        `CREATE UNIQUE INDEX idx_lokee_databases_user_fp ON lokee_databases(user_id, fingerprint)`,
+
+        // One row per *change* to the schema. Re-capturing an unchanged schema
+        // bumps observation_count instead of inserting, which is what keeps a
+        // scheduled scan from minting 175k rows a year.
+        //
+        // migration_run_id carries the attribution ("who migrated, when") for
+        // free — migration_runs already stores user_id and started_at.
+        `CREATE TABLE IF NOT EXISTS lokee_versions (
+           id ${t.id} PRIMARY KEY,
+           database_id ${t.id} NOT NULL REFERENCES lokee_databases(id) ON DELETE CASCADE,
+           version_number ${t.int} NOT NULL,
+           root_hash ${t.id} NOT NULL,
+           parent_version_id ${t.id},
+           migration_run_id ${t.id},
+           author_user_id ${t.id},
+           source ${t.str} NOT NULL,
+           object_count ${t.int} NOT NULL DEFAULT 0,
+           change_count ${t.int} NOT NULL DEFAULT 0,
+           observation_count ${t.int} NOT NULL DEFAULT 1,
+           created_at ${t.ts} NOT NULL,
+           last_observed_at ${t.ts} NOT NULL
+         )`,
+        // Also the concurrency guard: two simultaneous captures both computing
+        // version N means the second INSERT fails rather than forking history.
+        `CREATE UNIQUE INDEX idx_lokee_versions_db_number ON lokee_versions(database_id, version_number)`,
+        `CREATE INDEX idx_lokee_versions_db_created ON lokee_versions(database_id, created_at DESC)`,
+
+        // Content-addressed bodies, shared across every version and database
+        // that ever held an identical object. This is the storage optimisation:
+        // 200 versions of an unchanged table store one row, not 200.
+        `CREATE TABLE IF NOT EXISTS lokee_objects (
+           hash ${t.id} PRIMARY KEY,
+           object_key ${t.str} NOT NULL,
+           object_type ${t.str} NOT NULL,
+           name ${t.str},
+           body_json ${t.big} NOT NULL,
+           created_at ${t.ts} NOT NULL
+         )`,
+
+        // The delta: only objects that changed in this version. A 20,000-object
+        // schema where 3 changed writes 3 rows.
+        `CREATE TABLE IF NOT EXISTS lokee_version_objects (
+           version_id ${t.id} NOT NULL REFERENCES lokee_versions(id) ON DELETE CASCADE,
+           object_key ${t.str} NOT NULL,
+           operation ${t.str} NOT NULL,
+           object_hash ${t.id},
+           previous_hash ${t.id},
+           object_type ${t.str},
+           PRIMARY KEY (version_id, object_key)
+         )`,
+        `CREATE INDEX idx_lokee_version_objects_key ON lokee_version_objects(object_key)`,
+
+        // Latest-state index: the current hash of every live object, so a
+        // capture diffs against one batched read instead of replaying history.
+        // Older states are reconstructed by walking deltas backwards from here.
+        `CREATE TABLE IF NOT EXISTS lokee_latest_objects (
+           database_id ${t.id} NOT NULL REFERENCES lokee_databases(id) ON DELETE CASCADE,
+           object_key ${t.str} NOT NULL,
+           object_hash ${t.id} NOT NULL,
+           object_type ${t.str},
+           PRIMARY KEY (database_id, object_key)
+         )`,
+      ];
+    },
+  },
 ];
 
 const SIGNUP_WIZARD_SHOWN_KEY = 'signup.wizard_shown';
@@ -301,11 +389,18 @@ export async function runMigrations(store: MetadataStore): Promise<void> {
         await store.exec(stmt);
       } catch (err) {
         // Tolerate re-create on retry / partial apply (indexes + additive columns).
-        if (/^\s*CREATE INDEX/i.test(stmt)) continue;
-        if (/^\s*ALTER TABLE\b/i.test(stmt) && /duplicate column|already exists/i.test(String(err))) {
+        // Matched against a whitespace-normalised head rather than a regex with
+        // optional repeated groups, which is both clearer and not a ReDoS shape.
+        //
+        // UNIQUE has to be covered: migrations 4, 6 and 11 all create unique
+        // indexes, and without it a partially-applied migration could never be
+        // re-run — it would throw on the index it had already created.
+        const head = stmt.trim().slice(0, 40).replace(/\s+/g, ' ').toUpperCase();
+        if (head.startsWith('CREATE INDEX') || head.startsWith('CREATE UNIQUE INDEX')) continue;
+        if (head.startsWith('ALTER TABLE ') && /duplicate column|already exists/i.test(String(err))) {
           continue;
         }
-        if (/^\s*DROP INDEX\b/i.test(stmt)) continue;
+        if (head.startsWith('DROP INDEX ')) continue;
         throw err;
       }
     }
