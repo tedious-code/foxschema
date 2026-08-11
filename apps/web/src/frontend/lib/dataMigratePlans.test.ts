@@ -174,5 +174,92 @@ describe('buildRestorePlansFromSnapshot', () => {
     expect(plans).toHaveLength(0);
     expect(errors[0]).toMatch(/Include identity/i);
   });
+
+  it('restores update to the pre-apply dest values', () => {
+    const snapshotJson = buildDestSnapshotJson({
+      tableName: 'customers',
+      dialect: 'sqlite',
+      destColumns: cols,
+      sourceColumns: cols,
+      keyNames: ['id'],
+      includeIdentity: true,
+      ops: [
+        {
+          op: 'update',
+          keyLabel: 'id=1',
+          sourceRow: [1, 'Alice'],
+          destRow: [1, 'Bob'],
+        },
+      ],
+    });
+    const { plans, errors } = buildRestorePlansFromSnapshot({
+      snapshotJson,
+      successfulOps: [{ op: 'update', key: 'id=1' }],
+    });
+    expect(errors).toEqual([]);
+    expect(plans).toHaveLength(1);
+    expect(plans[0]!.op).toBe('update');
+    // SET name back to Bob (pre-migrate dest), WHERE id = 1
+    expect(plans[0]!.plan.params).toContain('Bob');
+    expect(plans[0]!.plan.params).toContain(1);
+    expect(plans[0]!.plan.sql.toLowerCase()).toMatch(/update.*set.*name/s);
+  });
+
+  it('re-inserts a deleted dest row on restore', () => {
+    const snapshotJson = buildDestSnapshotJson({
+      tableName: 'customers',
+      dialect: 'sqlite',
+      destColumns: cols,
+      sourceColumns: cols,
+      keyNames: ['id'],
+      includeIdentity: true,
+      ops: [{ op: 'delete', keyLabel: 'id=4', destRow: [4, 'Gone'] }],
+    });
+    const { plans, errors } = buildRestorePlansFromSnapshot({
+      snapshotJson,
+      successfulOps: [{ op: 'delete', key: 'id=4' }],
+    });
+    expect(errors).toEqual([]);
+    expect(plans).toHaveLength(1);
+    expect(plans[0]!.op).toBe('insert');
+    expect(plans[0]!.plan.params).toEqual([4, 'Gone']);
+  });
+
+  it('ignores FAILED ops and reports missing snapshot rows', () => {
+    const snapshotJson = buildDestSnapshotJson({
+      tableName: 'customers',
+      dialect: 'sqlite',
+      destColumns: cols,
+      sourceColumns: cols,
+      keyNames: ['id'],
+      includeIdentity: true,
+      ops: [{ op: 'delete', keyLabel: 'id=4', destRow: [4, 'Gone'] }],
+    });
+    const { plans, errors } = buildRestorePlansFromSnapshot({
+      snapshotJson,
+      successfulOps: [
+        { op: 'delete', key: 'id=4' },
+        { op: 'update', key: 'id=missing' },
+      ],
+    });
+    expect(plans).toHaveLength(1);
+    expect(errors.some((e) => /no snapshot row/i.test(e))).toBe(true);
+  });
+
+  it('accepts legacy snapshots that only stored update/delete rows', () => {
+    const legacy = JSON.stringify({
+      columns: cols,
+      rows: [{ _op: 'delete', _key: 'id=4', id: 4, name: 'Gone' }],
+    });
+    const { plans, errors } = buildRestorePlansFromSnapshot({
+      snapshotJson: legacy,
+      successfulOps: [{ op: 'delete', key: 'id=4' }],
+      tableName: 'customers',
+      dialect: 'sqlite',
+    });
+    expect(errors).toEqual([]);
+    expect(plans).toHaveLength(1);
+    expect(plans[0]!.op).toBe('insert');
+  });
 });
 
