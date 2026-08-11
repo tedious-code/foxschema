@@ -341,6 +341,15 @@ describe('graph', () => {
     expect(dto.objects).toEqual([]);
   });
 
+  it('does not claim truncation on a schema that fits', async () => {
+    // The flag drives a banner saying the graph is showing only part of the
+    // schema. Getting it wrong on a three-object database undermines the one
+    // case where it matters.
+    const { weave, databaseId } = await threeVersions();
+    const dto = await weave.graph(USER, databaseId);
+    expect(dto.truncatedObjects).toBe(false);
+  });
+
   it('reports totals for the whole history, not just the window', async () => {
     const { weave, databaseId } = await threeVersions();
     const dto = await weave.graph(USER, databaseId, 2);

@@ -601,12 +601,17 @@ export class LokeeWeaveStore {
     // stable spine of the schema without trying to draw all 20,000 of them.
     const changedKeys = new Set<string>();
     for (const rows of deltas.values()) for (const row of rows) changedKeys.add(row.object_key);
-    const liveKeys = [...new Set([...latest.keys(), ...changedKeys])].sort();
+    // `allKeys` is already the union of live and changed — a deleted object is
+    // in `changedKeys` but not in `latest`, and an unchanged one the reverse.
+    const allKeys = [...new Set([...latest.keys(), ...changedKeys])].sort();
     const keys = [
       ...[...changedKeys].sort(),
-      ...liveKeys.filter((k) => !changedKeys.has(k)),
+      ...allKeys.filter((k) => !changedKeys.has(k)),
     ].slice(0, MAX_GRAPH_OBJECT_KEYS);
-    const truncatedObjects = changedKeys.size + liveKeys.length > keys.length;
+    // Compare against the union, not union + changed: adding the two together
+    // double-counts every changed key and reports truncation on a three-object
+    // schema.
+    const truncatedObjects = allKeys.length > keys.length;
     const keySet = new Set(keys);
 
     // Names and types for every hash in play, in batches.
