@@ -41,6 +41,7 @@ export {
   type ReversalRisk,
   type ReversalVerdict,
 } from './reversal.js';
+export {
   collapseObjectHistory,
   windowByTime,
   windowGraph,

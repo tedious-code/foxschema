@@ -6,7 +6,12 @@
  * Apply data-migrate row ops on one dedicated connection with optional
  * transaction wrapping (same patterns as Schema Sync MigrationModule).
  */
-import { ConnectionFactory, getAdapter, type ConnectionOptions } from '@foxschema/db';
+import {
+  ConnectionFactory,
+  dialectSupportsTransactionalRollback,
+  getAdapter,
+  type ConnectionOptions,
+} from '@foxschema/db';
 
 export type DataMigrateOpKind = 'insert' | 'update' | 'delete';
 
@@ -51,6 +56,10 @@ export interface DataMigrateExecResult {
  * - continueOnError: each op in its own transaction (failed op rolls back only itself)
  * - !useTransaction + !continueOnError: no outer tx; stop after first failure (rest SKIPPED)
  * - !useTransaction + continueOnError: no tx; keep going on failures
+ *
+ * Redis / MongoDB / ClickHouse expose no-op begin/rollback. A resolved no-op
+ * must not set rolledBack=true — earlier writes stay applied. See
+ * `dialectSupportsTransactionalRollback`.
  */
 export async function executeDataMigrateOps(
   dialect: string,
@@ -61,12 +70,17 @@ export async function executeDataMigrateOps(
   onEvent?: (e: DataMigrateExecEvent) => void
 ): Promise<DataMigrateExecResult> {
   const adapter = getAdapter(dialect);
+  const canRollback = dialectSupportsTransactionalRollback(dialect);
   const conn = await ConnectionFactory.create(dialect, option, { pooled: false });
   const results: DataMigrateExecResult['results'] = [];
   let failCount = 0;
   let rolledBack = false;
 
   const emit = (e: DataMigrateExecEvent) => onEvent?.(e);
+  const stoppedAfterFailureMessage = (rolled: boolean) =>
+    rolled
+      ? 'Stopped after earlier failure (transaction rolled back)'
+      : 'Stopped after earlier failure';
 
   try {
     if (schema?.trim()) {
@@ -102,7 +116,7 @@ export async function executeDataMigrateOps(
                 op: skipped.op,
                 key: skipped.key,
                 status: 'SKIPPED',
-                error: 'Stopped after earlier failure (transaction rolled back)',
+                error: stoppedAfterFailureMessage(canRollback),
               });
               emit({
                 type: 'op',
@@ -110,7 +124,7 @@ export async function executeDataMigrateOps(
                 op: skipped.op,
                 key: skipped.key,
                 status: 'SKIPPED',
-                error: 'Stopped after earlier failure (transaction rolled back)',
+                error: stoppedAfterFailureMessage(canRollback),
               });
             }
             throw err;
@@ -122,9 +136,12 @@ export async function executeDataMigrateOps(
         const message = err instanceof Error ? err.message : String(err);
         try {
           await adapter.rollbackTransaction(conn);
-          rolledBack = true;
+          // No-op rollback adapters still resolve — only mark rolled back when
+          // the dialect can actually undo committed writes.
+          rolledBack = canRollback;
         } catch (rollbackErr) {
           console.error('Data migrate rollback failed:', rollbackErr);
+          rolledBack = false;
         }
         emit({
           type: 'done',
