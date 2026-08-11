@@ -186,20 +186,226 @@ export function buildDataMigratePlans(opts: {
   return { plans, errors };
 }
 
-/** JSON snapshot of destination rows that will be affected (pre-apply). */
+/** One row in a pre-apply backup snapshot (used to reverse successful ops). */
+export interface DataMigrateSnapshotRow {
+  _op: ClassifiedRowDiff['op'];
+  _key: string;
+  [col: string]: unknown;
+}
+
+export interface DataMigrateSnapshot {
+  version: 1;
+  tableName: string;
+  dialect: string;
+  columns: string[];
+  keyColumns: string[];
+  /** True when INSERT preserved source identity values (required to DELETE inserts on restore). */
+  includeIdentity: boolean;
+  rows: DataMigrateSnapshotRow[];
+}
+
+/**
+ * Pre-apply backup of destination state for every op about to run.
+ *
+ * - update / delete: full destination row (restore = UPDATE back / INSERT back)
+ * - insert: source row keyed for DELETE on restore (only reliable when includeIdentity)
+ */
 export function buildDestSnapshotJson(opts: {
+  tableName: string;
+  dialect: string;
   destColumns: string[];
+  sourceColumns: string[];
+  keyNames: string[];
+  includeIdentity: boolean;
   ops: ClassifiedRowDiff[];
 }): string {
-  const rows = opts.ops
-    .filter((o) => o.op === 'update' || o.op === 'delete')
-    .map((o) => {
+  const {
+    tableName,
+    dialect,
+    destColumns,
+    sourceColumns,
+    keyNames,
+    includeIdentity,
+    ops,
+  } = opts;
+  const rows: DataMigrateSnapshotRow[] = [];
+
+  for (const o of ops) {
+    if (o.op === 'update' || o.op === 'delete') {
       const row = o.destRow ?? [];
-      const obj: Record<string, unknown> = { _op: o.op, _key: o.keyLabel };
-      opts.destColumns.forEach((c, i) => {
+      const obj: DataMigrateSnapshotRow = { _op: o.op, _key: o.keyLabel };
+      destColumns.forEach((c, i) => {
         obj[c] = row[i] ?? null;
       });
-      return obj;
+      rows.push(obj);
+      continue;
+    }
+    // insert — capture source values so restore can DELETE by key when IDs were preserved
+    if (!o.sourceRow) continue;
+    const obj: DataMigrateSnapshotRow = { _op: 'insert', _key: o.keyLabel };
+    sourceColumns.forEach((c, i) => {
+      obj[c] = o.sourceRow![i] ?? null;
     });
-  return JSON.stringify({ columns: opts.destColumns, rows }, null, 2);
+    rows.push(obj);
+  }
+
+  const snapshot: DataMigrateSnapshot = {
+    version: 1,
+    tableName,
+    dialect,
+    columns: destColumns,
+    keyColumns: keyNames,
+    includeIdentity,
+    rows,
+  };
+  return JSON.stringify(snapshot, null, 2);
+}
+
+function parseSnapshot(json: string): DataMigrateSnapshot | { error: string } {
+  try {
+    const raw = JSON.parse(json) as Partial<DataMigrateSnapshot> & {
+      columns?: string[];
+      rows?: DataMigrateSnapshotRow[];
+    };
+    if (!raw || !Array.isArray(raw.rows) || !Array.isArray(raw.columns)) {
+      return { error: 'Snapshot is missing rows/columns' };
+    }
+    // Legacy snapshots (pre-Backup) only had columns + update/delete rows.
+    return {
+      version: 1,
+      tableName: raw.tableName || '',
+      dialect: raw.dialect || 'sqlite',
+      columns: raw.columns,
+      keyColumns: raw.keyColumns?.length ? raw.keyColumns : guessKeyColumns(raw.rows),
+      includeIdentity: raw.includeIdentity !== false,
+      rows: raw.rows,
+    };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+function guessKeyColumns(rows: DataMigrateSnapshotRow[]): string[] {
+  // Fall back to a single `id` column when older snapshots omit keyColumns.
+  for (const r of rows) {
+    if ('id' in r) return ['id'];
+  }
+  return [];
+}
+
+function snapshotRowValues(
+  columns: string[],
+  row: DataMigrateSnapshotRow
+): unknown[] {
+  return columns.map((c) => row[c] ?? null);
+}
+
+/**
+ * Build reverse DML for ops that succeeded — undo a partial migrate from Backup.
+ *
+ * insert → DELETE by key · update → UPDATE to dest snapshot · delete → INSERT dest row
+ */
+export function buildRestorePlansFromSnapshot(opts: {
+  snapshotJson: string;
+  /** Successful migrate results to reverse (FAILED/SKIPPED are ignored). */
+  successfulOps: Array<{ op: ClassifiedRowDiff['op']; key: string }>;
+  tableName?: string;
+  dialect?: string;
+}): { plans: DataMigratePlanItem[]; errors: string[] } {
+  const parsed = parseSnapshot(opts.snapshotJson);
+  if ('error' in parsed) return { plans: [], errors: [parsed.error] };
+
+  const tableName = (opts.tableName || parsed.tableName || '').trim();
+  const dialect = (opts.dialect || parsed.dialect || 'sqlite').trim();
+  if (!tableName) return { plans: [], errors: ['Snapshot has no table name'] };
+
+  const keyNames = parsed.keyColumns;
+  if (!keyNames.length) {
+    return { plans: [], errors: ['Snapshot has no key columns — cannot restore'] };
+  }
+
+  const byKey = new Map(parsed.rows.map((r) => [`${r._op}:${r._key}`, r]));
+  const plans: DataMigratePlanItem[] = [];
+  const errors: string[] = [];
+
+  // Reverse in opposite order so FK-friendly batches undo last-write-first.
+  const toReverse = [...opts.successfulOps].reverse();
+
+  for (const item of toReverse) {
+    const snap = byKey.get(`${item.op}:${item.key}`);
+    if (!snap) {
+      errors.push(`restore ${item.op} ${item.key}: no snapshot row`);
+      continue;
+    }
+
+    if (item.op === 'insert') {
+      if (!parsed.includeIdentity) {
+        errors.push(
+          `restore insert ${item.key}: skipped — Backup cannot DELETE inserts when Include identity was off (generated IDs unknown)`
+        );
+        continue;
+      }
+      const columns = parsed.columns.length ? parsed.columns : Object.keys(snap).filter((k) => !k.startsWith('_'));
+      const row = snapshotRowValues(columns, snap);
+      const keyColumns = keyColumnsForGrid(keyNames, columns);
+      const built = buildPeekDelete({
+        tableName,
+        dialect,
+        columns,
+        row,
+        keyColumns,
+      });
+      if ('error' in built) {
+        errors.push(`restore insert ${item.key}: ${built.error}`);
+        continue;
+      }
+      plans.push({ op: 'delete', keyLabel: item.key, plan: built });
+      continue;
+    }
+
+    if (item.op === 'update') {
+      const columns = parsed.columns;
+      const destRow = snapshotRowValues(columns, snap);
+      const keyColumns = keyColumnsForGrid(keyNames, columns);
+      // buildPeekUpdate only SETs columns that differ from originalRow. Fabricate
+      // a dirty "current" so every non-key column is written back to the snapshot.
+      const pretendCurrent = columns.map((c, i) => {
+        const isKey = keyNames.some((k) => k.toLowerCase() === c.toLowerCase());
+        if (isKey) return destRow[i];
+        return destRow[i] === null ? '__fox_restore__' : null;
+      });
+      const built = buildPeekUpdate({
+        tableName,
+        dialect,
+        columns,
+        originalRow: pretendCurrent,
+        draftRow: destRow,
+        keyColumns,
+      });
+      if ('error' in built) {
+        errors.push(`restore update ${item.key}: ${built.error}`);
+        continue;
+      }
+      plans.push({ op: 'update', keyLabel: item.key, plan: built });
+      continue;
+    }
+
+    // delete → re-insert the dest row we removed
+    const columns = parsed.columns;
+    const values = rowToValues(columns, snapshotRowValues(columns, snap));
+    const built = buildPeekInsert({
+      tableName,
+      dialect,
+      values,
+      identityColumns: undefined,
+      writeIdentityGeneration: 'BY DEFAULT',
+    });
+    if ('error' in built) {
+      errors.push(`restore delete ${item.key}: ${built.error}`);
+      continue;
+    }
+    plans.push({ op: 'insert', keyLabel: item.key, plan: built });
+  }
+
+  return { plans, errors };
 }
