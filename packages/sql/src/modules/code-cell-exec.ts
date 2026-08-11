@@ -55,6 +55,43 @@ const RESERVED_BINDINGS = new Set(['last', 'vars', 'sql']);
 
 const IDENTIFIER_RE = /^[A-Za-z_$][\w$]*$/;
 
+/**
+ * Patterns that would let a cell reach Node builtins (fs, child_process, net,
+ * worker_threads, …) or compile attacker-controlled code. Checked on a
+ * strings/comments-stripped view so literals and comments do not false-positive,
+ * and so a dynamic import call still matches as `import(`.
+ *
+ * This is the real gate for `-- @node` / `-- @nodets`. Lexical `var process =
+ * undefined` is only a guardrail — `(function(){}).constructor(…)` bypasses it.
+ */
+const DANGEROUS_CODE_CELL_RES: Array<{ re: RegExp; label: string }> = [
+  { re: /\bimport\s*\(/, label: 'dynamic import()' },
+  { re: /\brequire\s*\(/, label: 'require()' },
+  { re: /\beval\s*\(/, label: 'eval()' },
+  { re: /\bFunction\s*\(/, label: 'Function()' },
+  // `(function(){}).constructor("…")` recovers the real Function / process.
+  { re: /\.constructor\s*\(/, label: '.constructor()' },
+];
+
+/**
+ * Reject cell bodies that try to break out of the AsyncFunction sandbox
+ * (dynamic import of Node builtins such as fs / child_process, eval, Function, …).
+ */
+export function assertCodeCellSandboxSafe(
+  body: string
+): { ok: true } | { ok: false; error: string } {
+  const stripped = stripJsStringsAndComments(body);
+  for (const { re, label } of DANGEROUS_CODE_CELL_RES) {
+    if (re.test(stripped)) {
+      return {
+        ok: false,
+        error: `Code cell may not use ${label} — only allowlisted static imports (${[...ALLOWED].join(', ')}) are permitted`,
+      };
+    }
+  }
+  return { ok: true };
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -396,6 +433,9 @@ export async function runCodeCellBody(args: RunCodeCellBodyArgs): Promise<CodeCe
   // would be a syntax error; drop those before anything else looks at the body.
   const rawBody = stripFullLineSqlComments(args.body).trim();
   if (!rawBody) return { ok: false, error: 'Code cell is empty' };
+
+  const safe = assertCodeCellSandboxSafe(rawBody);
+  if (!safe.ok) return { ok: false, error: safe.error };
 
   const prepared = prepareCodeCellImports(rawBody, args.modules);
   if (!prepared.ok) return { ok: false, error: prepared.error };

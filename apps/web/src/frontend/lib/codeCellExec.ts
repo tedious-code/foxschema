@@ -74,6 +74,7 @@ var self = undefined;
 var window = undefined;
 var document = undefined;
 var globalThis = undefined;
+var Function = undefined;
 `;
 
 /**

@@ -4,7 +4,13 @@ import { isCellDoneMessage, isCellQueryRequest } from './code-cell-bridge';
 describe('code-cell-bridge message guards', () => {
   it('accepts a minimal cell-query and optional Server Beam fields', () => {
     expect(
-      isCellQueryRequest({ type: 'cell-query', id: 1, text: 'SELECT 1', params: [] })
+      isCellQueryRequest({
+        type: 'cell-query',
+        id: 1,
+        text: 'SELECT 1',
+        params: [],
+        token: 'tok',
+      })
     ).toBe(true);
     expect(
       isCellQueryRequest({
@@ -12,6 +18,7 @@ describe('code-cell-bridge message guards', () => {
         id: 2,
         text: 'SELECT 1',
         params: [1],
+        token: 'tok',
         alias: 'source',
         viaOn: true,
       })
@@ -21,13 +28,28 @@ describe('code-cell-bridge message guards', () => {
   it('rejects malformed cell-query messages', () => {
     expect(isCellQueryRequest(null)).toBe(false);
     expect(isCellQueryRequest({ type: 'cell-done', result: [] })).toBe(false);
-    expect(isCellQueryRequest({ type: 'cell-query', id: '1', text: 'SELECT 1' })).toBe(false);
-    expect(isCellQueryRequest({ type: 'cell-query', id: 1, text: 1 })).toBe(false);
     expect(
-      isCellQueryRequest({ type: 'cell-query', id: 1, text: 'SELECT 1', alias: 3 })
+      isCellQueryRequest({ type: 'cell-query', id: '1', text: 'SELECT 1', token: 'tok' })
+    ).toBe(false);
+    expect(isCellQueryRequest({ type: 'cell-query', id: 1, text: 1, token: 'tok' })).toBe(false);
+    expect(
+      isCellQueryRequest({ type: 'cell-query', id: 1, text: 'SELECT 1', token: 'tok', alias: 3 })
     ).toBe(false);
     expect(
-      isCellQueryRequest({ type: 'cell-query', id: 1, text: 'SELECT 1', viaOn: 'yes' })
+      isCellQueryRequest({
+        type: 'cell-query',
+        id: 1,
+        text: 'SELECT 1',
+        token: 'tok',
+        viaOn: 'yes',
+      })
+    ).toBe(false);
+    // Missing / empty bridge token — forged parentPort posts must not validate.
+    expect(isCellQueryRequest({ type: 'cell-query', id: 1, text: 'SELECT 1', params: [] })).toBe(
+      false
+    );
+    expect(
+      isCellQueryRequest({ type: 'cell-query', id: 1, text: 'SELECT 1', params: [], token: '' })
     ).toBe(false);
   });
 
