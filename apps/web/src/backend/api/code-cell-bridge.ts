@@ -1,9 +1,13 @@
 /**
  * Message protocol between a Node code-cell worker and the API process.
  *
- * The worker is deliberately isolated — no DB handle, no `process.env` — so a
+ * The worker is deliberately isolated — no DB handle, no secrets in env — so a
  * cell that wants to run SQL asks the parent to do it. The parent owns the
  * connection, the write policy, and the row cap; the worker only sees rows.
+ *
+ * Every `cell-query` must carry the per-run `bridgeToken` the parent minted in
+ * workerData. Without it, a cell that somehow obtained `parentPort` could forge
+ * arbitrary SQL text and bypass the `sql\`\`` helper.
  */
 
 /** Worker → parent: run this statement on a connection (optional Server Beam alias). */
@@ -12,6 +16,8 @@ export interface CellQueryRequest {
   id: number;
   text: string;
   params: unknown[];
+  /** Per-run secret; parent rejects messages that omit or mismatch it. */
+  token: string;
   /** Server Beam endpoint alias (`sql.on('source')`). Omit = default connection. */
   alias?: string;
   /** True when the call used `sql.on(...)` (counts toward the per-Execute cap). */
@@ -37,7 +43,9 @@ export function isCellQueryRequest(msg: unknown): msg is CellQueryRequest {
     msg === null ||
     (msg as { type?: unknown }).type !== 'cell-query' ||
     typeof (msg as { id?: unknown }).id !== 'number' ||
-    typeof (msg as { text?: unknown }).text !== 'string'
+    typeof (msg as { text?: unknown }).text !== 'string' ||
+    typeof (msg as { token?: unknown }).token !== 'string' ||
+    !(msg as { token: string }).token
   ) {
     return false;
   }

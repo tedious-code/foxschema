@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { executeCodeCellNode } from './code-cell-node-exec';
 import {
   clampCodeCellTimeout,
+  codeCellWorkerEnv,
   runCodeCellOnServer,
   validateCodeCellRequest,
 } from './code-cell-execute';
@@ -9,6 +10,25 @@ import { MAX_SQL } from '../../shared/server-beam';
 
 /** Value planted in APP_ENCRYPTION_KEY to prove an escaped cell cannot read it. */
 const SENTINEL_SECRET = 'sentinel-must-not-leak';
+
+describe('codeCellWorkerEnv', () => {
+  it('keeps PATH but drops encryption / credential secrets', () => {
+    const env = codeCellWorkerEnv({
+      PATH: '/usr/bin',
+      HOME: '/home/u',
+      APP_ENCRYPTION_KEY: SENTINEL_SECRET,
+      DATABASE_URL: 'postgres://x',
+      FOX_SECRET: 'nope',
+      LANG: 'C',
+    });
+    expect(env.PATH).toBe('/usr/bin');
+    expect(env.HOME).toBe('/home/u');
+    expect(env.LANG).toBe('C');
+    expect(env.APP_ENCRYPTION_KEY).toBeUndefined();
+    expect(env.DATABASE_URL).toBeUndefined();
+    expect(env.FOX_SECRET).toBeUndefined();
+  });
+});
 
 describe('validateCodeCellRequest', () => {
   it('accepts a minimal js payload', () => {
@@ -143,23 +163,59 @@ describe('runCodeCellOnServer (worker_threads sandbox)', () => {
     const prev = process.env.APP_ENCRYPTION_KEY;
     process.env.APP_ENCRYPTION_KEY = SENTINEL_SECRET;
     try {
-      // The AsyncFunction preamble shadows `process` lexically only — the Function
-      // constructor compiles in global scope and reaches the real one. The worker
-      // thread empties its own copy of process.env so the escape yields nothing.
+      // `.constructor()` breakouts are rejected before the body runs — the cell
+      // must fail closed rather than returning the secret (or even an empty env).
       const result = await run(
         `const p = (function(){}).constructor('return process')();\n` +
           `return [{ envKeys: Object.keys(p.env).length, secret: String(p.env.APP_ENCRYPTION_KEY) }];`,
         'js',
         20_000
       );
-      if (!result.ok) throw new Error(result.error);
-      expect(result.rows).toEqual([[0, 'undefined']]);
-      // Parent env must stay intact (worker gets its own process.env copy).
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toMatch(/constructor\(\)|sandbox/i);
+      // Parent env must stay intact (worker gets its own scrubbed env copy).
       expect(process.env.APP_ENCRYPTION_KEY).toBe(SENTINEL_SECRET);
     } finally {
       if (prev === undefined) delete process.env.APP_ENCRYPTION_KEY;
       else process.env.APP_ENCRYPTION_KEY = prev;
     }
+  }, 30_000);
+
+  it('rejects dynamic import of Node builtins (fs / child_process / cwd)', async () => {
+    const attacks = [
+      `const fs = await import('node:fs');\nreturn [{ cwd: fs.realpathSync('.') }];`,
+      `const cp = await import('node:child_process');\nreturn [{ who: cp.execSync('whoami').toString() }];`,
+      `const os = await import('node:os');\nreturn [{ home: os.homedir() }];`,
+      `const net = await import('node:net');\nreturn [{ ok: !!net }];`,
+    ];
+    for (const body of attacks) {
+      const result = await run(body, 'js', 20_000);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toMatch(/dynamic import\(\)|allowlisted/i);
+    }
+  }, 60_000);
+
+  it('rejects eval / Function / require breakouts', async () => {
+    const attacks = [
+      `return [{ v: eval('1+1') }];`,
+      `return [{ v: Function('return 1')() }];`,
+      `return [{ v: require('fs') }];`,
+    ];
+    for (const body of attacks) {
+      const result = await run(body, 'js', 20_000);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toMatch(/may not use|allowlisted/i);
+    }
+  }, 45_000);
+
+  it('still allows allowlisted static imports', async () => {
+    const result = await run(
+      `import _ from 'lodash';\nreturn _.map([1, 2], (n) => ({ n }));`,
+      'js',
+      20_000
+    );
+    if (!result.ok) throw new Error(result.error);
+    expect(result.rows).toEqual([[1], [2]]);
   }, 30_000);
 
   it('kills a cell that never yields', async () => {

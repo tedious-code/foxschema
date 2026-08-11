@@ -4,6 +4,7 @@
  */
 
 import { Worker } from 'node:worker_threads';
+import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import type { BrowserCodeCellKind } from '@foxschema/db';
 import { isCodeCellLast, isCodeCellVars } from '@foxschema/db';
@@ -27,6 +28,45 @@ import { createBeamSqlCap } from '../../shared/server-beam';
 export const MAX_CODE_CELL_LENGTH = 100_000;
 export const DEFAULT_CODE_CELL_TIMEOUT_MS = 10_000;
 export const MAX_CODE_CELL_TIMEOUT_MS = 30_000;
+
+/**
+ * Env handed to a code-cell worker. Keep PATH / locale / temp so the loader and
+ * native addons can start, but never forward encryption keys, DB URLs, or other
+ * secrets an escaped cell could read via process.env or /proc/<pid>/environ.
+ */
+export function codeCellWorkerEnv(
+  source: NodeJS.ProcessEnv = process.env
+): NodeJS.ProcessEnv {
+  const keep = new Set([
+    'PATH',
+    'PATHEXT',
+    'HOME',
+    'USER',
+    'LOGNAME',
+    'SHELL',
+    'TMPDIR',
+    'TEMP',
+    'TMP',
+    'LANG',
+    'LC_ALL',
+    'LC_CTYPE',
+    'TZ',
+    'TERM',
+    'SystemRoot',
+    'WINDIR',
+    'COMSPEC',
+    'USERPROFILE',
+    'APPDATA',
+    'LOCALAPPDATA',
+    'PROGRAMDATA',
+    'NODE_PATH',
+  ]);
+  const out: NodeJS.ProcessEnv = {};
+  for (const key of keep) {
+    if (source[key] !== undefined) out[key] = source[key];
+  }
+  return out;
+}
 
 /** Wire language for Node cells (fence `node`/`nodets` already mapped client-side). */
 export type CodeCellKindLang = BrowserCodeCellKind;
@@ -117,8 +157,8 @@ async function transpileTs(body: string): Promise<string> {
  * Cells run ONLY in a worker thread. There is deliberately no in-process
  * fallback: the timeout is enforced by `worker.terminate()`, and a busy loop
  * (`while (true) {}`) on the main thread cannot be interrupted — it would wedge
- * the whole API server. The worker also runs with a scrubbed `process.env`
- * (see code-cell-thread.ts), which an in-process run would not. If the thread
+ * the whole API server. The worker also starts with a scrubbed env (see
+ * `codeCellWorkerEnv`) and drops `process` before the cell runs. If the thread
  * cannot start, the cell fails closed.
  */
 function runInWorkerThread(args: {
@@ -147,6 +187,7 @@ function runInWorkerThread(args: {
     const beamSqlCap = args.enforceBeamSqlOnCap ? createBeamSqlCap() : null;
     /** Serialize Beam bridge work so cap + query stay ordered under Promise.all. */
     let beamBridgeTail: Promise<void> = Promise.resolve();
+    const bridgeToken = randomBytes(24).toString('hex');
 
     const startTimer = () => {
       timer = setTimeout(() => {
@@ -204,12 +245,14 @@ function runInWorkerThread(args: {
           last: args.last,
           vars: args.vars,
           maxRows: args.maxRows,
+          bridgeToken,
           dialect: args.dialect,
           allowWrites: args.allowWrites,
           beamDialects: args.beamDialects,
           defaultBeamAlias: args.defaultBeamAlias,
         },
         execArgv,
+        env: codeCellWorkerEnv(),
       });
     } catch (error: unknown) {
       failed(errorMessage(error));
@@ -227,6 +270,17 @@ function runInWorkerThread(args: {
           /* worker already gone */
         }
       };
+
+      if (req.token !== bridgeToken) {
+        reply({
+          type: 'cell-query-result',
+          id: req.id,
+          ok: false,
+          error: 'SQL bridge rejected: invalid token',
+        });
+        resumeClock();
+        return;
+      }
 
       const run = async () => {
         if (!args.runQuery) {

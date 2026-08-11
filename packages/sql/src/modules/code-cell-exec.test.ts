@@ -1,5 +1,49 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeCodeCellReturn } from './code-cell-exec.js';
+import {
+  assertCodeCellSandboxSafe,
+  normalizeCodeCellReturn,
+  runCodeCellBody,
+} from './code-cell-exec.js';
+
+describe('assertCodeCellSandboxSafe', () => {
+  it('allows ordinary transform cells', () => {
+    expect(assertCodeCellSandboxSafe('return last.rows.map((r) => ({ id: r[0] }));').ok).toBe(
+      true
+    );
+    expect(
+      assertCodeCellSandboxSafe(`import _ from 'lodash';\nreturn _.map([1], (n) => ({ n }));`).ok
+    ).toBe(true);
+  });
+
+  it('blocks dynamic import / require / eval / Function / .constructor', () => {
+    expect(assertCodeCellSandboxSafe('return await import("node:fs");').ok).toBe(false);
+    expect(assertCodeCellSandboxSafe('return require("fs");').ok).toBe(false);
+    expect(assertCodeCellSandboxSafe('return eval("1");').ok).toBe(false);
+    expect(assertCodeCellSandboxSafe('return Function("return 1")();').ok).toBe(false);
+    expect(
+      assertCodeCellSandboxSafe(`return (function(){}).constructor('return process')();`).ok
+    ).toBe(false);
+  });
+
+  it('does not false-positive on the word import inside a string', () => {
+    expect(assertCodeCellSandboxSafe(`return [{ note: "do not import(fs)" }];`).ok).toBe(true);
+  });
+});
+
+describe('runCodeCellBody sandbox gate', () => {
+  it('fails closed before executing a dynamic import', async () => {
+    const r = await runCodeCellBody({
+      body: `const fs = await import('node:fs');\nreturn [{ x: 1 }];`,
+      last: null,
+      vars: {},
+      maxRows: 10,
+      preamble: '',
+      modules: {},
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/dynamic import/i);
+  });
+});
 
 describe('normalizeCodeCellReturn', () => {
   it('keeps explicit { columns, rows } grids', () => {

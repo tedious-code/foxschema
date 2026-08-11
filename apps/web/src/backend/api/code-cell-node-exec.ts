@@ -30,8 +30,9 @@ const MODULES: Record<string, object> = {
 
 /**
  * Shadow Node globals (`fetch` stays available for async HTTP).
- * A guardrail against accidents, not a security boundary — see
- * `code-cell-thread.ts` for what actually contains an escaped cell.
+ * Accidental use of `process` / `require` fails closed. Breakouts via
+ * `import()` / `Function` / `.constructor()` are rejected earlier by
+ * `assertCodeCellSandboxSafe` in `@foxschema/sql`.
  */
 const SANDBOX_PREAMBLE = `
 "use strict";
@@ -44,6 +45,7 @@ var module = undefined;
 var exports = undefined;
 var global = undefined;
 var globalThis = undefined;
+var Function = undefined;
 `;
 
 /**

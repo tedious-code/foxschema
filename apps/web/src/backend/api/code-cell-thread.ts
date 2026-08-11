@@ -8,21 +8,42 @@ import { renderSqlQuery, sqlTag, isSqlQuery, type SqlQuery } from '@foxschema/db
 import { executeCodeCellNode, type CodeCellLast, type CodeCellVars } from './code-cell-node-exec';
 import type { CellQueryResponse } from './code-cell-bridge';
 
-// The AsyncFunction sandbox shadows `process` lexically, but a cell can still
-// reach the real one via `(function(){}).constructor('return process')()` — the
-// Function constructor compiles in global scope, so no `var` shadowing applies.
-// Worker threads get their OWN copy of process.env, so emptying it here costs
-// the parent nothing and denies an escaped cell the secrets it would otherwise
-// read and POST out via `fetch` (APP_ENCRYPTION_KEY decrypts every saved DB
-// password). Runs after imports, so nothing above has lost its config.
+/**
+ * Worker threads inherit a copy of process.env. The parent already passes a
+ * scrubbed env (no APP_ENCRYPTION_KEY / DB secrets), and we empty the copy
+ * again so a Function-constructor escape cannot read leftovers. Runs after
+ * imports so nothing above has lost its config.
+ */
 process.env = {};
 process.argv = process.argv.slice(0, 1);
+
+/**
+ * Drop Node's free globals so `(function(){}).constructor('return process')()`
+ * cannot recover cwd, env, or argv. Dynamic import() of node:fs / child_process
+ * is blocked in `assertCodeCellSandboxSafe` before the body runs.
+ */
+function lockdownWorkerGlobals(): void {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete (globalThis as any).process;
+  } catch {
+    /* ignore */
+  }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete (globalThis as any).Buffer;
+  } catch {
+    /* ignore */
+  }
+}
 
 type Payload = {
   body: string;
   last: CodeCellLast;
   vars: CodeCellVars;
   maxRows: number;
+  /** Per-run bridge authenticator — must appear on every cell-query. */
+  bridgeToken: string;
   /** Dialect of the default (non-beam) connection. */
   dialect?: string;
   /** Alias → dialect for Server Beam (`sql.on`). */
@@ -49,8 +70,6 @@ parentPort?.on('message', (msg: CellQueryResponse) => {
   else waiter.reject(new Error(msg.error));
 });
 
-type SqlBinding = ReturnType<typeof makeSqlBinding>;
-
 /**
  * `sql` inside a cell. Renders the tagged template to `{ text, params }` for
  * the connection's dialect, then asks the parent to run it — the worker never
@@ -62,6 +81,7 @@ function makeSqlBinding(opts: {
   dialect?: string;
   beamDialects?: Record<string, string>;
   defaultBeamAlias?: string;
+  bridgeToken: string;
 }) {
   const beamDialects = opts.beamDialects ?? {};
   const hasBeam = Object.keys(beamDialects).length > 0;
@@ -115,6 +135,7 @@ function makeSqlBinding(opts: {
         id,
         text,
         params,
+        token: opts.bridgeToken,
         alias: resolvedAlias,
         viaOn,
       });
@@ -154,6 +175,14 @@ function makeSqlBinding(opts: {
 
 async function main() {
   const data = workerData as Payload;
+  if (typeof data.bridgeToken !== 'string' || !data.bridgeToken) {
+    parentPort?.postMessage({
+      type: 'cell-done',
+      result: { ok: false, error: 'Code cell sandbox unavailable: missing bridge token' },
+    });
+    return;
+  }
+  lockdownWorkerGlobals();
   const result = await executeCodeCellNode({
     body: data.body,
     last: data.last,
@@ -163,6 +192,7 @@ async function main() {
       dialect: data.dialect,
       beamDialects: data.beamDialects,
       defaultBeamAlias: data.defaultBeamAlias,
+      bridgeToken: data.bridgeToken,
     }),
   });
   parentPort?.postMessage({ type: 'cell-done', result });
