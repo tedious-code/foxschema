@@ -35,6 +35,28 @@ export type {
   SubsetColumnEq,
 } from './modules/sql-subset.js';
 export { identityInsertSupport, identityInsertFor } from './modules/dialect-identity-insert.js';
+// Lokee Weave — content-addressed schema versioning for Compare Schema.
+export {
+  applyChanges,
+  canonicalizeObject,
+  canonicalizeSchema,
+  diffAgainstIndex,
+  hashObject,
+  hashObjects,
+  rootHash,
+  stableStringify,
+  weave,
+} from './modules/lokee-weave/index.js';
+export type {
+  CanonicalObject,
+  ChangeOperation,
+  Digest,
+  LatestIndex,
+  LokeeObjectType,
+  ObjectChange,
+  WeaveCapture,
+  WeaveObject,
+} from './modules/lokee-weave/index.js';
 export type {
   IdentityInsertKind,
   IdentityInsertSupport,

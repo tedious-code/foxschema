@@ -1,0 +1,35 @@
+/**
+ * Fox Schema (foxschema)
+ * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Lokee Weave — content-addressed schema versioning for Compare Schema.
+ *
+ * Read the whole schema, hash everything, write only what changed.
+ *
+ * This module is the pure half: canonicalisation, hashing, root hashing and
+ * delta computation. Persistence (object store, version rows, latest-state
+ * index, checkpoints) lives on the Node side, because this package must stay
+ * loadable in a browser bundle.
+ */
+export {
+  canonicalizeObject,
+  canonicalizeSchema,
+  type CanonicalObject,
+  type LokeeObjectType,
+} from './canonical.js';
+export {
+  applyChanges,
+  diffAgainstIndex,
+  hashObject,
+  hashObjects,
+  rootHash,
+  weave,
+  type ChangeOperation,
+  type Digest,
+  type LatestIndex,
+  type ObjectChange,
+  type WeaveCapture,
+  type WeaveObject,
+} from './weave.js';
+export { stableStringify } from './stable-stringify.js';
