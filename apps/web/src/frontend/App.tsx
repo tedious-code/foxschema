@@ -91,7 +91,9 @@ const Workspace: React.FC = () => {
         ) : activeView === 'lokeeWeave' ? (
           <ErrorBoundary>
             <Suspense fallback={<LoadingScreen />}>
-              <LokeeWeaveView />
+              <div className="flex flex-1 min-h-0 overflow-hidden">
+                <LokeeWeaveView />
+              </div>
             </Suspense>
           </ErrorBoundary>
         ) : (
