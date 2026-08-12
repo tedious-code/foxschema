@@ -18,6 +18,7 @@ import {
   MiniMap,
   ReactFlow,
   ReactFlowProvider,
+  useReactFlow,
   type Edge,
   type Node,
 } from '@xyflow/react';
@@ -56,6 +57,16 @@ export interface LokeeWeavePageProps {
 
 const FILTERABLE_TYPES: LokeeObjectType[] = ['table', 'view', 'index', 'column'];
 const STATUSES: GraphChangeStatus[] = ['added', 'modified', 'unchanged', 'deleted'];
+
+/** When a schema has this many distinct objects, default to tables-only. */
+const AUTO_TABLES_ONLY_AT = 20;
+
+/** Fit the viewport to versions + this many object columns (readable size). */
+const FIT_OBJECT_COLUMNS = 5;
+
+function distinctObjectKeys(dto: VersionGraphDTO): number {
+  return new Set(dto.objects.map((o) => o.objectKey)).size;
+}
 
 /** Edge styling lives here because React Flow styles edges inline, not by class. */
 function styleEdges(edges: Edge[]): Edge[] {
@@ -101,14 +112,35 @@ const SidebarSection: React.FC<{ title: string; children: React.ReactNode }> = (
   </section>
 );
 
-function freshFilters(): VersionGraphFilters {
+function freshFilters(objectTypes: Set<LokeeObjectType> = new Set()): VersionGraphFilters {
   return {
     ...EMPTY_FILTERS,
-    objectTypes: new Set(),
+    objectTypes,
     statuses: new Set(),
     versionIds: new Set(),
     authors: new Set(),
   };
+}
+
+/**
+ * Keep the first paint readable: fit versions + a few object columns at a floor
+ * zoom so a 100-column schema does not shrink to a speck on the minimap.
+ */
+function FitReadableView({ nodes }: { nodes: Node[] }) {
+  const { fitView } = useReactFlow();
+  useEffect(() => {
+    const maxX =
+      DEFAULT_LAYOUT.objectStartX + DEFAULT_LAYOUT.objectColumnWidth * FIT_OBJECT_COLUMNS;
+    const focus = nodes.filter((n) => n.type === 'versionNode' || n.position.x <= maxX);
+    void fitView({
+      nodes: focus.length > 0 ? focus : nodes,
+      padding: 0.25,
+      minZoom: 0.55,
+      maxZoom: 1.15,
+      duration: 200,
+    });
+  }, [fitView, nodes]);
+  return null;
 }
 
 export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
@@ -118,11 +150,22 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
   onSaveVersionMeta,
 }) => {
   const [filters, setFilters] = useState<VersionGraphFilters>(() => freshFilters());
+  const [filtersBootstrapped, setFiltersBootstrapped] = useState(false);
   const [locked, setLocked] = useState(true);
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [savingMeta, setSavingMeta] = useState(false);
+
+  // Large schemas (columns+indexes+tables) make fitView zoom to invisibility —
+  // start on tables only; the user can widen the type filter.
+  useEffect(() => {
+    if (filtersBootstrapped || dto.objects.length === 0) return;
+    if (distinctObjectKeys(dto) >= AUTO_TABLES_ONLY_AT) {
+      setFilters(freshFilters(new Set<LokeeObjectType>(['table'])));
+    }
+    setFiltersBootstrapped(true);
+  }, [dto, filtersBootstrapped]);
 
   const selectedVersion: VersionGraphVersion | undefined = useMemo(
     () => dto.versions.find((v) => v.id === selectedVersionId),
@@ -159,6 +202,9 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
   // Edge styling is separated from graph building so toggling a filter does not
   // re-run layout for every node.
   const edges = useMemo(() => styleEdges(built.edges), [built.edges]);
+  const tablesOnly =
+    filters.objectTypes.size === 1 && filters.objectTypes.has('table');
+  const wideGraph = built.columns.length > FIT_OBJECT_COLUMNS;
 
   const toggleType = useCallback((type: LokeeObjectType) => {
     setFilters((f) => {
@@ -489,6 +535,28 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
               {built.hiddenByCap} hidden).
             </div>
           )}
+          {tablesOnly && distinctObjectKeys(dto) >= AUTO_TABLES_ONLY_AT && (
+            <div
+              data-testid="lokee-rf-tables-only-hint"
+              className={`absolute left-2 z-10 max-w-sm rounded border border-sky-500/40 bg-sky-500/15 px-2 py-1 text-[10px] text-sky-100 ${
+                built.hiddenByCap > 0 ? 'top-10' : 'top-2'
+              }`}
+            >
+              Showing <span className="font-semibold">tables</span> only so the graph stays
+              readable ({distinctObjectKeys(dto)} objects total). Enable Views / Indexes /
+              Columns in the sidebar, then pan right for more.
+            </div>
+          )}
+          {!tablesOnly && wideGraph && (
+            <div
+              data-testid="lokee-rf-wide-hint"
+              className={`absolute left-2 z-10 max-w-sm rounded border border-slate-600 bg-slate-900/90 px-2 py-1 text-[10px] text-slate-300 ${
+                built.hiddenByCap > 0 ? 'top-10' : 'top-2'
+              }`}
+            >
+              Large graph — zoomed to the left. Scroll / pan to explore, or filter object types.
+            </div>
+          )}
           {dto.versions.length === 0 ? (
             <div
               data-testid="lokee-rf-empty"
@@ -506,9 +574,12 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
                 nodesConnectable={false}
                 elementsSelectable
                 onNodeClick={onNodeClick}
-                fitView
+                minZoom={0.25}
+                maxZoom={1.75}
+                defaultViewport={{ x: 0, y: 0, zoom: 0.85 }}
                 proOptions={{ hideAttribution: false }}
               >
+                <FitReadableView nodes={built.nodes} />
                 <Background gap={20} />
                 <Controls showInteractive={false} />
                 <MiniMap
