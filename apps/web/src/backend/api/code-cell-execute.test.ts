@@ -163,7 +163,7 @@ describe('runCodeCellOnServer (worker_threads sandbox)', () => {
     const prev = process.env.APP_ENCRYPTION_KEY;
     process.env.APP_ENCRYPTION_KEY = SENTINEL_SECRET;
     try {
-      // `.constructor()` breakouts are rejected before the body runs — the cell
+      // `.constructor` breakouts are rejected before the body runs — the cell
       // must fail closed rather than returning the secret (or even an empty env).
       const result = await run(
         `const p = (function(){}).constructor('return process')();\n` +
@@ -172,7 +172,7 @@ describe('runCodeCellOnServer (worker_threads sandbox)', () => {
         20_000
       );
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.error).toMatch(/constructor\(\)|sandbox/i);
+      if (!result.ok) expect(result.error).toMatch(/constructor|sandbox|may not use/i);
       // Parent env must stay intact (worker gets its own scrubbed env copy).
       expect(process.env.APP_ENCRYPTION_KEY).toBe(SENTINEL_SECRET);
     } finally {
@@ -180,6 +180,34 @@ describe('runCodeCellOnServer (worker_threads sandbox)', () => {
       else process.env.APP_ENCRYPTION_KEY = prev;
     }
   }, 30_000);
+
+  it('denies constructor property / concat / Reflect escapes that recover import()', async () => {
+    // These hide the call-form `.constructor(` that the original gate matched.
+    // Static gate catches property/Reflect; runtime sealing catches concat.
+    const attacks = [
+      `const F = (async function () {}).constructor;\n` +
+        `const fs = await F('return import("node:fs")')();\n` +
+        `return [{ hasRead: typeof fs.readFileSync }];`,
+      `const F = (async function () {})["constructor"];\n` +
+        `const fs = await F('return import("node:fs")')();\n` +
+        `return [{ hasRead: typeof fs.readFileSync }];`,
+      `const k = "constru" + "ctor";\n` +
+        `const F = (async function () {})[k];\n` +
+        `const fs = await F('return import("node:fs")')();\n` +
+        `return [{ hasRead: typeof fs.readFileSync }];`,
+      `const F = Reflect.get(async function () {}, "constructor");\n` +
+        `const fs = await F('return import("node:fs")')();\n` +
+        `return [{ hasRead: typeof fs.readFileSync }];`,
+      `const e = (0, eval);\nreturn [{ v: e("1+1") }];`,
+    ];
+    for (const body of attacks) {
+      const result = await run(body, 'js', 20_000);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toMatch(/may not use|constructor|eval|Reflect|sandbox|Function/i);
+      }
+    }
+  }, 90_000);
 
   it('rejects dynamic import of Node builtins (fs / child_process / cwd)', async () => {
     const attacks = [

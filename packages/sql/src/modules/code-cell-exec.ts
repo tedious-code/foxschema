@@ -61,17 +61,37 @@ const IDENTIFIER_RE = /^[A-Za-z_$][\w$]*$/;
  * strings/comments-stripped view so literals and comments do not false-positive,
  * and so a dynamic import call still matches as `import(`.
  *
- * This is the real gate for `-- @node` / `-- @nodets`. Lexical `var process =
- * undefined` is only a guardrail — `(function(){}).constructor(…)` bypasses it.
+ * This is the static gate for `-- @node` / `-- @nodets`. Lexical `var process =
+ * undefined` is only a guardrail — `(function(){}).constructor` recovers the
+ * real Function. Property access (not just the call form) must be banned, and
+ * the worker also runs `neutralizeCodeCellHostBreakouts` for concat / bracket
+ * escapes that hide the word "constructor" across string fragments.
  */
 const DANGEROUS_CODE_CELL_RES: Array<{ re: RegExp; label: string }> = [
   { re: /\bimport\s*\(/, label: 'dynamic import()' },
   { re: /\brequire\s*\(/, label: 'require()' },
-  { re: /\beval\s*\(/, label: 'eval()' },
-  { re: /\bFunction\s*\(/, label: 'Function()' },
-  // `(function(){}).constructor("…")` recovers the real Function / process.
-  { re: /\.constructor\s*\(/, label: '.constructor()' },
+  // Identifier forms: `(0, eval)(…)` and `const F = Function; F(…)` bypass the
+  // call-only patterns.
+  { re: /\beval\b/, label: 'eval' },
+  { re: /\bFunction\b/, label: 'Function' },
+  // `(async function(){}).constructor` (property) recovers AsyncFunction.
+  { re: /\.constructor\b/, label: '.constructor' },
+  { re: /\b__proto__\b/, label: '__proto__' },
+  { re: /\bgetPrototypeOf\b/, label: 'getPrototypeOf' },
+  { re: /\bgetOwnPropertyDescriptor\b/, label: 'getOwnPropertyDescriptor' },
+  { re: /\bReflect\b/, label: 'Reflect' },
+  { re: /\bProxy\b/, label: 'Proxy' },
 ];
+
+/** `obj["constructor"]` / `obj['constructor']` — strings are stripped, so check raw. */
+const BRACKET_CONSTRUCTOR_RE = /\[[\s]*['"]constructor['"][\s]*\]/;
+
+function sandboxReject(label: string): { ok: false; error: string } {
+  return {
+    ok: false,
+    error: `Code cell may not use ${label} — only allowlisted static imports (${[...ALLOWED].join(', ')}) are permitted`,
+  };
+}
 
 /**
  * Reject cell bodies that try to break out of the AsyncFunction sandbox
@@ -80,16 +100,76 @@ const DANGEROUS_CODE_CELL_RES: Array<{ re: RegExp; label: string }> = [
 export function assertCodeCellSandboxSafe(
   body: string
 ): { ok: true } | { ok: false; error: string } {
+  if (BRACKET_CONSTRUCTOR_RE.test(body)) {
+    return sandboxReject('["constructor"]');
+  }
   const stripped = stripJsStringsAndComments(body);
   for (const { re, label } of DANGEROUS_CODE_CELL_RES) {
-    if (re.test(stripped)) {
-      return {
-        ok: false,
-        error: `Code cell may not use ${label} — only allowlisted static imports (${[...ALLOWED].join(', ')}) are permitted`,
-      };
-    }
+    if (re.test(stripped)) return sandboxReject(label);
   }
   return { ok: true };
+}
+
+/**
+ * Runtime lockdown for the Node code-cell worker. Static gates miss
+ * `"constru" + "ctor"` and similar fragmentations; sealing Function /
+ * AsyncFunction / GeneratorFunction `.constructor` closes those escapes.
+ *
+ * Call only inside the worker thread (or an equivalent isolate) — never in the
+ * browser UI process or the API parent, where replacing `Function.prototype`
+ * would break the host.
+ */
+export function neutralizeCodeCellHostBreakouts(): void {
+  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as Function;
+  let GeneratorFunction: Function | undefined;
+  try {
+    GeneratorFunction = Object.getPrototypeOf(function* () {}).constructor as Function;
+  } catch {
+    GeneratorFunction = undefined;
+  }
+
+  const block = (label: string): Function => {
+    const blocked = function blockedCtor() {
+      throw new Error(`Code cell may not use ${label}`);
+    };
+    return new Proxy(blocked, {
+      apply() {
+        throw new Error(`Code cell may not use ${label}`);
+      },
+      construct() {
+        throw new Error(`Code cell may not use ${label}`);
+      },
+    }) as unknown as Function;
+  };
+
+  const sealCtor = (proto: object, label: string) => {
+    try {
+      Object.defineProperty(proto, 'constructor', {
+        value: block(label),
+        writable: false,
+        configurable: false,
+        enumerable: false,
+      });
+    } catch {
+      /* already sealed in this isolate */
+    }
+  };
+
+  sealCtor(Function.prototype, 'Function()');
+  sealCtor(AsyncFunction.prototype, 'AsyncFunction()');
+  if (GeneratorFunction) sealCtor(GeneratorFunction.prototype, 'GeneratorFunction()');
+
+  try {
+    Object.defineProperty(globalThis, 'eval', {
+      value: () => {
+        throw new Error('Code cell may not use eval');
+      },
+      writable: false,
+      configurable: false,
+    });
+  } catch {
+    /* ignore */
+  }
 }
 
 function errorMessage(error: unknown): string {

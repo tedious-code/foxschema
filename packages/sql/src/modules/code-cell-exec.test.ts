@@ -19,9 +19,24 @@ describe('assertCodeCellSandboxSafe', () => {
     expect(assertCodeCellSandboxSafe('return await import("node:fs");').ok).toBe(false);
     expect(assertCodeCellSandboxSafe('return require("fs");').ok).toBe(false);
     expect(assertCodeCellSandboxSafe('return eval("1");').ok).toBe(false);
+    expect(assertCodeCellSandboxSafe('const e = (0, eval);\nreturn e("1");').ok).toBe(false);
     expect(assertCodeCellSandboxSafe('return Function("return 1")();').ok).toBe(false);
+    expect(assertCodeCellSandboxSafe('const F = Function;\nreturn F("return 1")();').ok).toBe(
+      false
+    );
     expect(
       assertCodeCellSandboxSafe(`return (function(){}).constructor('return process')();`).ok
+    ).toBe(false);
+    expect(
+      assertCodeCellSandboxSafe(`const F = (async function () {}).constructor;\nreturn F;`).ok
+    ).toBe(false);
+    expect(
+      assertCodeCellSandboxSafe(`const F = (async function () {})["constructor"];\nreturn F;`).ok
+    ).toBe(false);
+    expect(
+      assertCodeCellSandboxSafe(
+        `const F = Reflect.get(async function () {}, "constructor");\nreturn F;`
+      ).ok
     ).toBe(false);
   });
 
