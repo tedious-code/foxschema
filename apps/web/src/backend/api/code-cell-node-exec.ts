@@ -46,7 +46,6 @@ var exports = undefined;
 var global = undefined;
 var globalThis = undefined;
 var Function = undefined;
-var eval = undefined;
 `;
 
 /**
