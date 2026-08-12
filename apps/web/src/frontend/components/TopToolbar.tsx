@@ -123,48 +123,12 @@ export const TopToolbar: React.FC = () => {
 
   return (
     <header data-testid="toolbar" className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md px-6 py-3 flex flex-col gap-3">
-      {/* Brand Logo & Actions */}
+      {/* Brand + utilities. Workspace tabs sit on the next row so Lokee Weave
+          cannot wrap under the logo and disappear in a narrow Cursor preview. */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Brand logoSize={42} textClassName="text-2xl font-bold" />
 
         <div className="flex flex-wrap items-center gap-3">
-          {/* Workspace view switcher: Schema Sync / SQL Editor / Lokee Weave */}
-          <div className="flex flex-wrap items-center rounded-md border border-slate-700">
-            {(canSchemaBrowse || canSchemaCompare) && (
-              <button
-                data-testid="view-sync-btn"
-                onClick={() => setActiveView('sync')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold transition cursor-pointer ${
-                  activeView === 'sync' ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <GitCompareArrows className="w-4 h-4" /> Schema Sync
-              </button>
-            )}
-            {canEditorAccess && (
-              <button
-                data-testid="view-sql-editor-btn"
-                onClick={() => setActiveView('sqlEditor')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold transition cursor-pointer border-l border-slate-700 ${
-                  activeView === 'sqlEditor' ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <Terminal className="w-4 h-4" /> SQL Editor
-              </button>
-            )}
-            {canSchemaBrowse && (
-              <button
-                data-testid="view-lokee-weave-btn"
-                onClick={() => setActiveView('lokeeWeave')}
-                title="Lokee Weave — content-addressed schema version history"
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold transition cursor-pointer border-l border-slate-700 ${
-                  activeView === 'lokeeWeave' ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <GitBranch className="w-4 h-4" /> Lokee Weave
-              </button>
-            )}
-          </div>
           <button
             data-testid="credentials-btn"
             onClick={() => setShowCredentials(true)}
@@ -192,6 +156,58 @@ export const TopToolbar: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Full-width workspace switcher — always its own row. */}
+      {(canSchemaBrowse || canSchemaCompare || canEditorAccess) && (
+        <div
+          data-testid="workspace-switcher"
+          className="flex flex-wrap items-center gap-2 rounded-md border border-slate-700 bg-slate-950/50 p-1"
+        >
+          <span className="px-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+            Workspace
+          </span>
+          {(canSchemaBrowse || canSchemaCompare) && (
+            <button
+              data-testid="view-sync-btn"
+              onClick={() => setActiveView('sync')}
+              className={`flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-semibold transition cursor-pointer ${
+                activeView === 'sync'
+                  ? 'bg-slate-800 text-slate-100'
+                  : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+              }`}
+            >
+              <GitCompareArrows className="w-4 h-4" /> Schema Sync
+            </button>
+          )}
+          {canEditorAccess && (
+            <button
+              data-testid="view-sql-editor-btn"
+              onClick={() => setActiveView('sqlEditor')}
+              className={`flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-semibold transition cursor-pointer ${
+                activeView === 'sqlEditor'
+                  ? 'bg-slate-800 text-slate-100'
+                  : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+              }`}
+            >
+              <Terminal className="w-4 h-4" /> SQL Editor
+            </button>
+          )}
+          {canSchemaBrowse && (
+            <button
+              data-testid="view-lokee-weave-btn"
+              onClick={() => setActiveView('lokeeWeave')}
+              title="Lokee Weave — content-addressed schema version history"
+              className={`flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-semibold transition cursor-pointer ${
+                activeView === 'lokeeWeave'
+                  ? 'bg-violet-700/80 text-violet-50 ring-1 ring-violet-400/50'
+                  : 'text-violet-300 hover:bg-violet-950/50 hover:text-violet-100'
+              }`}
+            >
+              <GitBranch className="w-4 h-4" /> Lokee Weave
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Sync-only controls — the SQL Editor view brings its own left panel. */}
       {activeView === 'sync' && (
