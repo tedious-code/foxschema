@@ -124,12 +124,12 @@ export const TopToolbar: React.FC = () => {
   return (
     <header data-testid="toolbar" className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md px-6 py-3 flex flex-col gap-3">
       {/* Brand Logo & Actions */}
-      <div className="flex justify-between items-center">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <Brand logoSize={42} textClassName="text-2xl font-bold" />
 
-        <div className="flex items-center gap-3">
-          {/* Workspace view switcher: Schema Sync (compare/browse) vs SQL Editor */}
-          <div className="flex items-center rounded-md border border-slate-700 overflow-hidden">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Workspace view switcher: Schema Sync / SQL Editor / Lokee Weave */}
+          <div className="flex flex-wrap items-center rounded-md border border-slate-700">
             {(canSchemaBrowse || canSchemaCompare) && (
               <button
                 data-testid="view-sync-btn"
