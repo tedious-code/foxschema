@@ -123,23 +123,42 @@ function freshFilters(objectTypes: Set<LokeeObjectType> = new Set()): VersionGra
 }
 
 /**
- * Keep the first paint readable: fit versions + a few object columns at a floor
- * zoom so a 100-column schema does not shrink to a speck on the minimap.
+ * Pin zoom to 1 and park the first version at the top-left. fitView on a wide
+ * short strip either shrinks nodes to a speck or leaves a tiny viewport strip.
  */
 function FitReadableView({ nodes }: { nodes: Node[] }) {
-  const { fitView } = useReactFlow();
+  const { setViewport } = useReactFlow();
+  // Stable key so selection / label edits don't keep resetting the camera.
+  const fitKey = (() => {
+    const version = nodes.find((n) => n.type === 'versionNode');
+    if (!version) return `n${nodes.length}`;
+    return `${version.id}:${version.position.x},${version.position.y}:${nodes.length}`;
+  })();
   useEffect(() => {
-    const maxX =
-      DEFAULT_LAYOUT.objectStartX + DEFAULT_LAYOUT.objectColumnWidth * FIT_OBJECT_COLUMNS;
-    const focus = nodes.filter((n) => n.type === 'versionNode' || n.position.x <= maxX);
-    void fitView({
-      nodes: focus.length > 0 ? focus : nodes,
-      padding: 0.25,
-      minZoom: 0.55,
-      maxZoom: 1.15,
-      duration: 200,
+    let cancelled = false;
+    const run = () => {
+      if (cancelled || nodes.length === 0) return;
+      const version = nodes.find((n) => n.type === 'versionNode') ?? nodes[0]!;
+      // React Flow viewport: screen = (world * zoom) + {x,y}. Place the first
+      // version near the top-left inset of the pane at 100% zoom.
+      const zoom = 1;
+      const x = -version.position.x * zoom + 24;
+      const y = -version.position.y * zoom + 24;
+      void setViewport({ x, y, zoom }, { duration: 180 });
+    };
+    // Wait for layout + node measurement; one frame is often too early.
+    let innerRaf = 0;
+    const outerRaf = requestAnimationFrame(() => {
+      innerRaf = requestAnimationFrame(run);
     });
-  }, [fitView, nodes]);
+    const fallback = window.setTimeout(run, 150);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(outerRaf);
+      cancelAnimationFrame(innerRaf);
+      window.clearTimeout(fallback);
+    };
+  }, [fitKey, nodes, setViewport]);
   return null;
 }
 
@@ -272,8 +291,8 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
   const reused = dto.objects.length - changed;
 
   return (
-    <div data-testid="lokee-weave-page" className="flex h-full min-h-0 flex-col gap-3">
-      <header className="flex flex-wrap items-start gap-4">
+    <div data-testid="lokee-weave-page" className="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
+      <header className="flex shrink-0 flex-wrap items-start gap-4">
         <div className="min-w-0">
           <h1 className="text-lg font-bold text-slate-100">Lokee Weave</h1>
           <p className="text-xs text-slate-500">
@@ -296,7 +315,7 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1 gap-3">
+      <div className="flex min-h-0 flex-1 gap-3 overflow-hidden">
         <aside className="flex w-[220px] shrink-0 flex-col gap-2 overflow-y-auto text-[11px]">
           <SidebarSection title="Legend">
             <ul className="flex flex-col gap-1">
@@ -524,7 +543,7 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
           </SidebarSection>
         </aside>
 
-        <div className="relative min-w-0 flex-1 rounded-lg border border-slate-700">
+        <div className="relative h-full min-h-0 min-w-0 flex-1 overflow-hidden rounded-lg border border-slate-700">
           {built.hiddenByCap > 0 && (
             <div
               data-testid="lokee-rf-capped"
@@ -574,9 +593,10 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
                 nodesConnectable={false}
                 elementsSelectable
                 onNodeClick={onNodeClick}
-                minZoom={0.25}
+                minZoom={0.35}
                 maxZoom={1.75}
-                defaultViewport={{ x: 0, y: 0, zoom: 0.85 }}
+                defaultViewport={{ x: 24, y: 24, zoom: 1 }}
+                style={{ width: '100%', height: '100%' }}
                 proOptions={{ hideAttribution: false }}
               >
                 <FitReadableView nodes={built.nodes} />
@@ -603,7 +623,7 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
         </div>
       </div>
 
-      <footer className="flex flex-wrap items-center gap-4 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-1.5 text-[10px] text-slate-400">
+      <footer className="flex shrink-0 flex-wrap items-center gap-4 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-1.5 text-[10px] text-slate-400">
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-px w-6 bg-slate-400" aria-hidden /> Created in this version
         </span>

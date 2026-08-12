@@ -262,7 +262,7 @@ export function LokeeWeaveView({
   // this codebase before.
   if (loading) {
     return (
-      <div className="flex h-full min-h-0 flex-col" data-testid="lokee-weave-view">
+      <div className="flex flex-1 min-h-0 flex-col overflow-hidden" data-testid="lokee-weave-view">
         {chrome}
         <div className="flex flex-1 items-center justify-center text-slate-400">
           <Loader2 className="mr-2 h-4 w-4 animate-spin" strokeWidth={SQL_ICON_STROKE} />
@@ -274,7 +274,7 @@ export function LokeeWeaveView({
 
   if (error) {
     return (
-      <div className="flex h-full min-h-0 flex-col" data-testid="lokee-weave-view">
+      <div className="flex flex-1 min-h-0 flex-col overflow-hidden" data-testid="lokee-weave-view">
         {chrome}
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
           <TriangleAlert className="h-6 w-6 text-rose-400" strokeWidth={SQL_ICON_STROKE} />
@@ -295,7 +295,7 @@ export function LokeeWeaveView({
 
   if (!activeId || dto.versions.length === 0) {
     return (
-      <div className="flex h-full min-h-0 flex-col" data-testid="lokee-weave-view">
+      <div className="flex flex-1 min-h-0 flex-col overflow-hidden" data-testid="lokee-weave-view">
         {chrome}
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
           <GitBranch className="h-6 w-6 text-slate-500" strokeWidth={SQL_ICON_STROKE} />
@@ -311,7 +311,7 @@ export function LokeeWeaveView({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col" data-testid="lokee-weave-view">
+    <div className="flex flex-1 min-h-0 flex-col overflow-hidden" data-testid="lokee-weave-view">
       {chrome}
       {truncated && (
         <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-1.5 text-[11px] text-amber-200">
@@ -319,7 +319,7 @@ export function LokeeWeaveView({
           graph draws at once.
         </div>
       )}
-      <div className="min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <LokeeWeavePage
           dto={dto}
           subtitle={subtitle}
