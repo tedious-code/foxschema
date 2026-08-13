@@ -4,7 +4,13 @@
  * CodeCellResult.
  */
 import { parentPort, workerData } from 'node:worker_threads';
-import { renderSqlQuery, sqlTag, isSqlQuery, type SqlQuery } from '@foxschema/db';
+import {
+  neutralizeCodeCellHostBreakouts,
+  renderSqlQuery,
+  sqlTag,
+  isSqlQuery,
+  type SqlQuery,
+} from '@foxschema/db';
 import { executeCodeCellNode, type CodeCellLast, type CodeCellVars } from './code-cell-node-exec';
 import type { CellQueryResponse } from './code-cell-bridge';
 
@@ -18,11 +24,12 @@ process.env = {};
 process.argv = process.argv.slice(0, 1);
 
 /**
- * Drop Node's free globals so `(function(){}).constructor('return process')()`
- * cannot recover cwd, env, or argv. Dynamic import() of node:fs / child_process
- * is blocked in `assertCodeCellSandboxSafe` before the body runs.
+ * Drop Node's free globals and seal Function/AsyncFunction constructors so
+ * property-access / concat escapes cannot recover import()/process. Static
+ * `assertCodeCellSandboxSafe` is the first line; this closes what lexing misses.
  */
 function lockdownWorkerGlobals(): void {
+  neutralizeCodeCellHostBreakouts();
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     delete (globalThis as any).process;

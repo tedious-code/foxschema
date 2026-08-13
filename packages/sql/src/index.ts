@@ -206,6 +206,7 @@ export {
   resolveCodeCellImportBindings,
   prepareCodeCellImports,
   assertCodeCellSandboxSafe,
+  neutralizeCodeCellHostBreakouts,
   normalizeCodeCellReturn,
   cloneCodeCellLast,
   runCodeCellBody,
