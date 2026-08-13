@@ -137,8 +137,6 @@ export interface ObjectInspectResult {
   growth: ContainerGrowthPoint[];
   /** Column ADD / MODIFY / DELETE across versions, when the focus is a table. */
   columnMutations: ColumnMutation[];
-  headVersionId: string | null;
-  headVersionNumber: number | null;
 }
 
 export interface RevertPlanResult {
@@ -240,6 +238,10 @@ function toCanonical(key: string, object: VersionedObject): CanonicalObject {
     body: object.body,
     sourceText: object.sourceText,
   };
+}
+
+function canonicalList(objects: Map<string, VersionedObject>): CanonicalObject[] {
+  return [...objects.entries()].map(([key, object]) => toCanonical(key, object));
 }
 
 /** `LIKE` prefix for children of one owner. `!` is the ESCAPE character. */
@@ -995,36 +997,15 @@ export class LokeeWeaveStore {
 
     const atVersion = await this.objectsAtVersion(userId, databaseId, versionId);
     const stored = new Map<string, StoredWeaveObject>();
-    for (const [key, object] of atVersion) {
-      stored.set(key, {
-        key,
-        type: object.type,
-        name: object.name,
-        hash: object.hash,
-        body: object.body,
-        sourceText: object.sourceText,
-        lineCount: object.lineCount,
-        firstSeenAt: object.firstSeenAt,
-      });
-    }
-    const blueprint = assembleBlueprint(objectKey, stored);
-    const history = await this.objectHistory(userId, databaseId, objectKey);
+    for (const [key, object] of atVersion) stored.set(key, { key, ...object });
     const owner = objectKeyOwner(objectKey);
-    const growth = await this.containerGrowth(userId, databaseId, owner);
     const kind = objectKeyKind(objectKey);
-    const columnMutations =
-      kind === 'table' || kind === 'mqt' || kind === 'view'
-        ? await this.columnMutations(userId, databaseId, owner)
-        : [];
-    const versions = await this.listVersions(userId, databaseId, 1);
-    const head = versions[0] ?? null;
+    const isTable = kind === 'table' || kind === 'mqt' || kind === 'view';
     return {
-      blueprint,
-      history,
-      growth,
-      columnMutations,
-      headVersionId: head?.id ?? null,
-      headVersionNumber: head?.number ?? null,
+      blueprint: assembleBlueprint(objectKey, stored),
+      history: await this.objectHistory(userId, databaseId, objectKey),
+      growth: await this.containerGrowth(userId, databaseId, owner),
+      columnMutations: isTable ? await this.columnMutations(userId, databaseId, owner) : [],
     };
   }
 
@@ -1049,23 +1030,20 @@ export class LokeeWeaveStore {
     const toVersion = versions.find((v) => v.id === toVersionId);
     if (!fromVersion || !toVersion) return null;
 
-    const emptyReversal = planReversal([]);
-    if (fromVersion.id === toVersion.id) {
-      return {
-        fromVersion,
-        toVersion,
-        alreadyAtTarget: true,
-        reversal: emptyReversal,
-        steps: [],
-        statements: [],
-      };
-    }
+    const none: RevertPlanResult = {
+      fromVersion,
+      toVersion,
+      alreadyAtTarget: fromVersion.id === toVersion.id,
+      reversal: planReversal([]),
+      steps: [],
+      statements: [],
+    };
+    if (none.alreadyAtTarget) return none;
 
     const current = await this.objectsAtVersion(userId, databaseId, fromVersion.id);
     const desired = await this.objectsAtVersion(userId, databaseId, toVersion.id);
-    const keys = new Set([...current.keys(), ...desired.keys()]);
     const entries: Array<{ key: string; current?: CanonicalObject; target?: CanonicalObject }> = [];
-    for (const key of keys) {
+    for (const key of new Set([...current.keys(), ...desired.keys()])) {
       const cur = current.get(key);
       const tgt = desired.get(key);
       if (cur && tgt && cur.hash === tgt.hash) continue;
@@ -1075,43 +1053,34 @@ export class LokeeWeaveStore {
         target: tgt ? toCanonical(key, tgt) : undefined,
       });
     }
-    const reversal = planReversal(entries);
 
-    let resolvedDialect = dialect;
-    let resolvedSchema = schema;
-    if (!resolvedDialect) {
+    let dialectName = dialect;
+    let schemaName = schema;
+    if (!dialectName) {
       const db = await store.get<{ dialect: string; schema: string | null }>(
         'SELECT dialect, "schema" FROM lokee_databases WHERE id = ? AND user_id = ?',
         [databaseId, userId]
       );
-      resolvedDialect = db?.dialect;
-      if (resolvedSchema == null) resolvedSchema = db?.schema ?? undefined;
+      dialectName = db?.dialect;
+      schemaName ??= db?.schema ?? undefined;
     }
 
-    let steps: MigrationStep[] = [];
-    let statements: string[] = [];
-    if (resolvedDialect) {
-      const currentTables = hydrateTableSchemas(
-        [...current.entries()].map(([key, object]) => toCanonical(key, object))
-      );
-      const targetTables = hydrateTableSchemas(
-        [...desired.entries()].map(([key, object]) => toCanonical(key, object))
-      );
-      const migration = await buildRevertMigration(currentTables, targetTables, resolvedDialect, {
-        targetSchema: resolvedSchema,
-        sourceSchema: resolvedSchema,
-      });
-      steps = migration.steps;
-      statements = migration.statements;
-    }
+    const migration = dialectName
+      ? await buildRevertMigration(
+          hydrateTableSchemas(canonicalList(current)),
+          hydrateTableSchemas(canonicalList(desired)),
+          dialectName,
+          { targetSchema: schemaName, sourceSchema: schemaName }
+        )
+      : { steps: [] as MigrationStep[], statements: [] as string[] };
 
     return {
       fromVersion,
       toVersion,
       alreadyAtTarget: false,
-      reversal,
-      steps,
-      statements,
+      reversal: planReversal(entries),
+      steps: migration.steps,
+      statements: migration.statements,
     };
   }
 
@@ -1123,15 +1092,7 @@ export class LokeeWeaveStore {
     const store = await this.store();
     if (!(await this.assertOwned(store, userId, databaseId))) return [];
 
-    const rows = await store.all<{
-      version_id: string;
-      version_number: number;
-      created_at: string;
-      source: CaptureSource;
-      operation: 'ADD' | 'MODIFY' | 'DELETE';
-      object_hash: string | null;
-      previous_hash: string | null;
-    }>(
+    const rows = await store.all<HistoryDeltaRow>(
       `SELECT vo.operation, vo.object_hash, vo.previous_hash,
               v.id AS version_id, v.version_number, v.created_at, v.source
          FROM lokee_version_objects vo
@@ -1168,23 +1129,23 @@ export class LokeeWeaveStore {
     const bodies = await this.loadObjectBodies(store, rows);
     const byKey = new Map<string, Array<HistoryDeltaRow & { object_key: string }>>();
     for (const row of rows) {
-      const list = byKey.get(row.object_key);
-      if (list) list.push(row);
-      else byKey.set(row.object_key, [row]);
+      const list = byKey.get(row.object_key) ?? [];
+      list.push(row);
+      byKey.set(row.object_key, list);
     }
 
-    const out: ColumnMutation[] = [];
-    for (const [objectKey, group] of byKey) {
+    return [...byKey.entries()].flatMap(([objectKey, group]) => {
       const events = historyEntriesFromRows(group, bodies);
-      if (events.length === 0) continue;
-      const fromBody = events.find((e) => typeof e.body?.name === 'string')?.body?.name;
-      const columnName =
-        typeof fromBody === 'string'
-          ? fromBody
-          : objectKey.slice(objectKey.lastIndexOf('.') + 1).toLowerCase();
-      out.push({ objectKey, columnName, events });
-    }
-    return out;
+      if (events.length === 0) return [];
+      const named = events.find((e) => typeof e.body?.name === 'string')?.body?.name;
+      return [
+        {
+          objectKey,
+          columnName: typeof named === 'string' ? named : objectKey.slice(objectKey.lastIndexOf('.') + 1),
+          events,
+        },
+      ];
+    });
   }
 
   private async loadObjectBodies(

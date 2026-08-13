@@ -11,7 +11,7 @@
  */
 import type { ConnectionRef } from './schemaApi';
 import type { VersionGraphDTO } from '../components/lokee-weave/graphTypes';
-import { getApiBase, parseJsonResponse } from './apiBase';
+import { getApiBase, parseJsonBody, parseJsonResponse } from './apiBase';
 
 export interface LokeeDatabase {
   id: string;
@@ -120,6 +120,22 @@ export async function updateLokeeVersionMeta(
   return body.version;
 }
 
+export interface LokeeHistoryEvent {
+  versionId: string;
+  versionNumber: number;
+  createdAt: string;
+  source: string;
+  operation: 'ADD' | 'MODIFY' | 'DELETE';
+  hash?: string;
+  previousHash?: string;
+  body?: Record<string, unknown>;
+  previousBody?: Record<string, unknown>;
+  lineCount?: number | null;
+  previousLineCount?: number | null;
+  firstSeenAt?: string | null;
+  reused: boolean;
+}
+
 export interface LokeeInspectResult {
   blueprint: {
     focusKey: string;
@@ -131,21 +147,7 @@ export interface LokeeInspectResult {
     triggers: LokeeStoredObject[];
     primaryKey: LokeeStoredObject | null;
   };
-  history: Array<{
-    versionId: string;
-    versionNumber: number;
-    createdAt: string;
-    source: string;
-    operation: 'ADD' | 'MODIFY' | 'DELETE';
-    hash?: string;
-    previousHash?: string;
-    body?: Record<string, unknown>;
-    previousBody?: Record<string, unknown>;
-    lineCount?: number | null;
-    previousLineCount?: number | null;
-    firstSeenAt?: string | null;
-    reused: boolean;
-  }>;
+  history: LokeeHistoryEvent[];
   growth: Array<{
     versionId: string;
     versionNumber: number;
@@ -159,10 +161,8 @@ export interface LokeeInspectResult {
   columnMutations: Array<{
     objectKey: string;
     columnName: string;
-    events: LokeeInspectResult['history'];
+    events: LokeeHistoryEvent[];
   }>;
-  headVersionId: string | null;
-  headVersionNumber: number | null;
 }
 
 export interface LokeeStoredObject {
@@ -256,19 +256,13 @@ export async function executeLokeeRevert(
       body: JSON.stringify(body),
     }
   );
-  const data = (await res.json()) as LokeeRevertPlan & {
-    ok?: boolean;
-    error?: string;
-    code?: string;
-    capture?: CaptureResult;
-    alreadyAtTarget?: boolean;
-  };
-  if (res.ok) {
-    return { ok: true, ...data } as LokeeRevertResult;
-  }
+  const data = await parseJsonBody<
+    LokeeRevertPlan & { ok?: boolean; error?: string; code?: string; capture?: CaptureResult }
+  >(res);
+  if (res.ok) return { ...data, ok: true as const };
   const code = data.code === 'blocked' || data.code === 'confirm_lossy' ? data.code : 'failed';
   throw new LokeeRevertError(
-    typeof data.error === 'string' ? data.error : res.statusText || 'Revert failed',
+    data.error || res.statusText || 'Revert failed',
     code,
     data.fromVersion ? data : undefined
   );

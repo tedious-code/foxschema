@@ -997,17 +997,6 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     res.json(result);
   });
 
-  const publicRevertPlan = (plan: Awaited<ReturnType<LokeeWeaveStore['planRevert']>>) => {
-    if (!plan) return null;
-    return {
-      fromVersion: plan.fromVersion,
-      toVersion: plan.toVersion,
-      alreadyAtTarget: plan.alreadyAtTarget,
-      reversal: plan.reversal,
-      statements: plan.statements,
-    };
-  };
-
   router.get(
     '/lokee/databases/:id/revert/plan',
     requirePermissions('schema.browse'),
@@ -1026,7 +1015,8 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
         res.status(404).json({ error: 'Version not found' });
         return;
       }
-      res.json(publicRevertPlan(plan));
+      const { steps: _steps, ...published } = plan;
+      res.json(published);
     }
   );
 
@@ -1058,9 +1048,9 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
         res.status(404).json({ error: 'Version not found' });
         return;
       }
-      const published = publicRevertPlan(plan);
-      if (plan.alreadyAtTarget) {
-        res.json({ ok: true, alreadyAtTarget: true, ...published });
+      const { steps, ...published } = plan;
+      if (plan.alreadyAtTarget || steps.length === 0) {
+        res.json({ ok: true, ...published, alreadyAtTarget: true });
         return;
       }
       if (plan.reversal.risk === 'blocked') {
@@ -1081,30 +1071,22 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
         });
         return;
       }
-      if (plan.steps.length === 0) {
-        res.json({ ok: true, alreadyAtTarget: true, ...published });
-        return;
-      }
 
-      let success = false;
-      let executeError: string | undefined;
+      let failed = true;
+      let executeError = 'Revert failed';
       try {
-        await migrationModule.execute(dialect, option, schema, plan.steps, (event) => {
+        await migrationModule.execute(dialect, option, schema, steps, (event) => {
           if (event.type === 'done') {
-            success = event.success;
-            executeError = event.error;
+            failed = !event.success;
+            if (event.error) executeError = event.error;
           }
         });
       } catch (error: unknown) {
-        success = false;
+        failed = true;
         executeError = error instanceof Error ? error.message : 'Revert failed';
       }
-      if (!success) {
-        res.status(500).json({
-          ok: false,
-          error: executeError ?? 'Revert failed',
-          ...published,
-        });
+      if (failed) {
+        res.status(500).json({ ok: false, error: executeError, ...published });
         return;
       }
 
@@ -1112,12 +1094,10 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
         const capture = await captureLiveSchema(userId, { dialect, option, schema }, 'revert');
         res.json({ ok: true, capture, ...published });
       } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'capture failed';
         res.status(500).json({
           ok: false,
-          error:
-            error instanceof Error
-              ? `Schema reverted but capture failed: ${error.message}`
-              : 'Schema reverted but capture failed',
+          error: `Schema reverted but capture failed: ${message}`,
           ...published,
         });
       }

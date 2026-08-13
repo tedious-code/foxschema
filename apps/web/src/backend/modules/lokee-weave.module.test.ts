@@ -483,7 +483,7 @@ describe('inspectObject', () => {
     const v2 = await weave.capture(USER, { ...IDENTITY, tables: [widened], source: 'migrate' });
 
     const inspect = await weave.inspectObject(USER, v2.databaseId, v2.versionId, 'table:CUSTOMER');
-    expect(inspect?.headVersionId).toBe(v2.versionId);
+    expect(inspect?.growth.at(-1)?.versionId).toBe(v2.versionId);
     expect(inspect?.columnMutations.map((c) => c.columnName).sort()).toEqual(['email', 'id', 'phone']);
     const email = inspect?.columnMutations.find((c) => c.columnName === 'email');
     expect(email?.events.map((e) => e.operation)).toEqual(['ADD', 'MODIFY']);
