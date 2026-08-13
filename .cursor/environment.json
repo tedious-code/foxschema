@@ -1,0 +1,16 @@
+{
+  "name": "FoxSchema",
+  "install": "bash .cursor/install.sh",
+  "start": "bash .cursor/start.sh",
+  "terminals": [
+    {
+      "name": "dev",
+      "command": "npm run dev",
+      "description": "FoxSchema dev servers: Express API on :3210 and Vite UI on :5173 (single-user mode). Open the UI at http://localhost:5173."
+    }
+  ],
+  "ports": [
+    { "name": "Vite UI", "port": 5173 },
+    { "name": "Express API", "port": 3210 }
+  ]
+}
