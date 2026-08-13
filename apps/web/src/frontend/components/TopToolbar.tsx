@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSyncStore } from '../store/useSyncStore';
 import { useUiStore } from '../store/uiStore';
-import { ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, CheckCircle2, Zap, Settings, KeyRound, History, Search, X, Layers, GitCompareArrows, Terminal, GitBranch } from 'lucide-react';
+import { ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, CheckCircle2, Zap, Settings, KeyRound, History, Search, X, Layers, GitCompareArrows, Terminal, Camera } from 'lucide-react';
 import { Brand } from './Brand';
 // Support both default and named exports (avoids blank-page Vite/HMR mismatches).
 import ProfileMenuDefault, { ProfileMenu as ProfileMenuNamed } from './ProfileMenu';
@@ -14,6 +14,8 @@ import { PROVIDER_SETTINGS } from '../lib/provider-settings';
 import { ConnectionModal } from './ConnectionModal';
 import { PasswordInput } from './PasswordInput';
 import { useAuthStore } from '../store/authStore';
+import { captureSchema } from '../api/lokeeApi';
+import { toast } from '../store/toastStore';
 import { getSessionPassword, setSessionPassword } from '../lib/sessionPasswords';
 
 const ProfileMenu = ProfileMenuNamed ?? ProfileMenuDefault;
@@ -56,7 +58,8 @@ export const TopToolbar: React.FC = () => {
   const [activeModalTarget, setActiveModalTarget] = useState<'source' | 'target' | null>(null);
   const [showCredentials, setShowCredentials] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
-  const { activeView, setActiveView } = useUiStore();
+  const [capturingSnapshot, setCapturingSnapshot] = useState(false);
+  const { activeView, setActiveView, syncPane, setSyncPane, bumpLokeeEpoch } = useUiStore();
   const canSchemaBrowse = useAuthStore((s) => s.can('schema.browse'));
   const canSchemaCompare = useAuthStore((s) => s.can('schema.compare'));
   const canEditorAccess = useAuthStore((s) => s.can('editor.access'));
@@ -94,6 +97,35 @@ export const TopToolbar: React.FC = () => {
     applySavedConnection(pendingPassword.side, pendingPassword.id, trimmed);
     setPendingPassword(null);
     setPendingPasswordValue('');
+  };
+
+  const snapshotTarget = async () => {
+    if (!selectedTargetConnectionId || capturingSnapshot) return;
+    setCapturingSnapshot(true);
+    try {
+      const result = await captureSchema({
+        connectionId: selectedTargetConnectionId,
+        password: getSessionPassword(selectedTargetConnectionId) || undefined,
+        source: 'manual',
+      });
+      bumpLokeeEpoch();
+      toast({
+        tone: 'success',
+        title: result.changed ? `Snapshot v${result.versionNumber}` : `No changes since v${result.versionNumber}`,
+        body: result.changed
+          ? `${result.changeCount} object change(s) · ${result.objectCount} objects`
+          : 'Target schema matches the last snapshot (hash pointer reused).',
+      });
+      setSyncPane('history');
+    } catch (err) {
+      toast({
+        tone: 'warning',
+        title: 'Snapshot failed',
+        body: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setCapturingSnapshot(false);
+    }
   };
 
   // Same dialect + server + database + schema means you'd be comparing a schema
@@ -192,26 +224,58 @@ export const TopToolbar: React.FC = () => {
               <Terminal className="w-4 h-4" /> SQL Editor
             </button>
           )}
-          {canSchemaBrowse && (
-            <button
-              data-testid="view-lokee-weave-btn"
-              onClick={() => setActiveView('lokeeWeave')}
-              title="Lokee Weave — content-addressed schema version history"
-              className={`flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-semibold transition cursor-pointer ${
-                activeView === 'lokeeWeave'
-                  ? 'bg-violet-700/80 text-violet-50 ring-1 ring-violet-400/50'
-                  : 'text-violet-300 hover:bg-violet-950/50 hover:text-violet-100'
-              }`}
-            >
-              <GitBranch className="w-4 h-4" /> Lokee Weave
-            </button>
-          )}
         </div>
       )}
 
       {/* Sync-only controls — the SQL Editor view brings its own left panel. */}
       {activeView === 'sync' && (
         <>
+      {canSchemaBrowse && (
+        <div
+          data-testid="sync-pane-switcher"
+          className="flex flex-wrap items-center gap-2 rounded-md border border-slate-800 bg-slate-950/40 px-2 py-1"
+        >
+          <span className="px-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+            Schema
+          </span>
+          <button
+            type="button"
+            data-testid="sync-pane-compare-btn"
+            onClick={() => setSyncPane('compare')}
+            className={`rounded px-2.5 py-1 text-xs font-semibold transition ${
+              syncPane === 'compare'
+                ? 'bg-slate-800 text-slate-100'
+                : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+            }`}
+          >
+            Compare
+          </button>
+          <button
+            type="button"
+            data-testid="sync-pane-history-btn"
+            onClick={() => setSyncPane('history')}
+            title="Content-addressed schema history (Lokee). Auto-snapshots on migrate."
+            className={`rounded px-2.5 py-1 text-xs font-semibold transition ${
+              syncPane === 'history'
+                ? 'bg-violet-700/80 text-violet-50 ring-1 ring-violet-400/40'
+                : 'text-violet-300 hover:bg-violet-950/50 hover:text-violet-100'
+            }`}
+          >
+            History
+          </button>
+          <button
+            type="button"
+            data-testid="lokee-snapshot-target-btn"
+            disabled={!selectedTargetConnectionId || capturingSnapshot}
+            onClick={() => void snapshotTarget()}
+            title="Take an initial snapshot of the Target schema. Later migrates snapshot automatically."
+            className="ml-auto inline-flex items-center gap-1.5 rounded border border-cyan-500/40 bg-cyan-950/40 px-2.5 py-1 text-[11px] font-bold text-cyan-100 hover:bg-cyan-900/50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Camera className="h-3.5 w-3.5" />
+            {capturingSnapshot ? 'Snapshotting…' : 'Snapshot target'}
+          </button>
+        </div>
+      )}
       {/* Database Connection Control Grid */}
       <div className="grid grid-cols-1 xl:grid-cols-11 gap-3 items-stretch">
         {/* Source Configuration — left side is the Original Server (read / compare from). */}
@@ -223,6 +287,7 @@ export const TopToolbar: React.FC = () => {
           <div className="flex items-center gap-2">
             {connections.length > 0 && (
               <select
+                data-testid="source-saved-select"
                 value={selectedSourceConnectionId ?? ''}
                 onChange={(e) => e.target.value && selectSavedConnection('source', e.target.value)}
                 title="Saved connections"
@@ -327,6 +392,7 @@ export const TopToolbar: React.FC = () => {
           <div className="flex items-center gap-2">
             {connections.length > 0 && (
               <select
+                data-testid="target-saved-select"
                 value={selectedTargetConnectionId ?? ''}
                 onChange={(e) => e.target.value && selectSavedConnection('target', e.target.value)}
                 title="Saved connections"
@@ -405,7 +471,7 @@ export const TopToolbar: React.FC = () => {
         </div>
       </div>
 
-      {/* Target Scope Selection & Trigger Bar */}
+      {syncPane === 'compare' && (
       <div className="flex flex-col md:flex-row justify-between md:items-center bg-slate-950/40 border border-slate-800/60 rounded-lg p-3 px-4 gap-3">
         {/* Scope Config Controls — two always-separate rows: which object types
             get compared (top), and which of the results are shown (bottom,
@@ -527,6 +593,7 @@ export const TopToolbar: React.FC = () => {
           </button>
         </div>
       </div>
+      )}
         </>
       )}
 

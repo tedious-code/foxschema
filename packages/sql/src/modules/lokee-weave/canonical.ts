@@ -43,6 +43,12 @@ export interface CanonicalObject {
   type: LokeeObjectType;
   /** Deterministic body; serialised with sorted keys before hashing. */
   body: Record<string, unknown>;
+  /**
+   * Original definition text, when the provider supplied one. Excluded from
+   * the content hash (whitespace is not meaning) but kept so the inspector
+   * can show procedure / view / trigger line counts.
+   */
+  sourceText?: string | null;
 }
 
 /**
@@ -141,6 +147,7 @@ function triggerObject(table: string, trigger: TriggerInfo): CanonicalObject {
       event: trigger.event ?? null,
       definition: normalizeDefinition(trigger.definition),
     },
+    sourceText: trigger.definition ?? null,
   };
 }
 
@@ -179,6 +186,7 @@ export function canonicalizeObject(table: TableSchema): CanonicalObject[] {
         parameters: table.parameters ?? null,
         functionKind: table.functionKind ?? null,
       },
+      sourceText: table.definition ?? null,
     },
   ];
 

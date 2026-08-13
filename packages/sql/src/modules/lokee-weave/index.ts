@@ -59,3 +59,12 @@ export {
   type TimePoint,
   type WindowResult,
 } from './history.js';
+export {
+  assembleBlueprint,
+  blueprintChildCounts,
+  countSourceLines,
+  objectKeyKind,
+  objectKeyOwner,
+  type ObjectBlueprint,
+  type StoredWeaveObject,
+} from './blueprint.js';

@@ -23,12 +23,23 @@ vi.mock('../../api/lokeeApi', () => ({
 }));
 
 vi.mock('../../store/useSyncStore', () => ({
-  useSyncStore: (sel: (s: { connections: unknown[] }) => unknown) =>
+  useSyncStore: (sel: (s: Record<string, unknown>) => unknown) =>
     sel({
       connections: [
         { id: 'c1', name: 'Local PG', dialect: 'postgres', hasPassword: true },
       ],
+      selectedTargetConnectionId: 'c1',
+      targetConfig: {
+        dialect: 'postgres',
+        option: { host: 'localhost', database: 'foxdb' },
+        schema: 'public',
+      },
     }),
+}));
+
+vi.mock('../../store/uiStore', () => ({
+  useUiStore: (sel: (s: { lokeeEpoch: number; bumpLokeeEpoch: () => void }) => unknown) =>
+    sel({ lokeeEpoch: 0, bumpLokeeEpoch: () => undefined }),
 }));
 
 vi.mock('../../store/toastStore', () => ({

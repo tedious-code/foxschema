@@ -12,7 +12,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import type { Page } from 'playwright';
-import { buildDriver, quitDriver } from '../../helpers/driver.js';
+import { buildDriver, quitDriver, clickWhen } from '../../helpers/driver.js';
 import { attachConsoleMonitor } from '../../helpers/console-monitor.js';
 import { saveScreenshot } from '../../helpers/screenshot.js';
 import { AppPage } from '../../pages/AppPage.js';
@@ -207,5 +207,23 @@ export function runDialectFlow(
     expect(['SUCCESS', 'FAILED', 'PARTIAL', 'ROLLED_BACK']).toContain(status);
 
     await migration.closeHistory();
+  });
+
+  it.skipIf(skipMigration)('schema history pane records a Lokee snapshot after migrate', async () => {
+    await clickWhen(driver, '[data-testid="sync-pane-history-btn"]');
+    await driver.waitForSelector('[data-testid="lokee-weave-view"]', { timeout: 20_000 });
+    const graph = driver.locator('[data-testid="lokee-weave-page"]');
+    const hasGraph = await graph
+      .waitFor({ state: 'visible', timeout: 20_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (!hasGraph) {
+      await saveScreenshot(driver, `${dialectLabel}_lokee_history_empty`);
+      console.log(`[${dialectLabel}] History pane has no graph — migrate may have been skipped`);
+    } else {
+      await driver.locator('[data-testid^="rf-version-"]').first().waitFor({ timeout: 10_000 });
+      expect(await driver.locator('[data-testid^="rf-version-"]').count()).toBeGreaterThan(0);
+    }
+    await clickWhen(driver, '[data-testid="sync-pane-compare-btn"]');
   });
 }

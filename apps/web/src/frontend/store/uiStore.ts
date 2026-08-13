@@ -175,8 +175,10 @@ function applyToDocument(themeMode: ThemeMode, tone: ToneId, fontSize: FontSize,
   return mode;
 }
 
-/** Top-level workspace views: schema sync (compare/browse) vs the SQL Editor. */
-export type ActiveView = 'sync' | 'sqlEditor' | 'lokeeWeave';
+/** Top-level workspace views: schema sync (compare + history) vs the SQL Editor. */
+export type ActiveView = 'sync' | 'sqlEditor';
+/** Compare tree vs Lokee schema-history graph, both inside Schema Sync. */
+export type SyncPane = 'compare' | 'history';
 
 interface UiState {
   themeMode: ThemeMode;
@@ -187,8 +189,14 @@ interface UiState {
   resolvedMode: 'dark' | 'light';
   /** Which workspace view is showing (persisted; purely local, not synced to server prefs). */
   activeView: ActiveView;
+  /** Compare vs schema history, only meaningful when `activeView === 'sync'`. */
+  syncPane: SyncPane;
+  /** Bumped after a Lokee capture so the history graph reloads. */
+  lokeeEpoch: number;
 
   setActiveView: (view: ActiveView) => void;
+  setSyncPane: (pane: SyncPane) => void;
+  bumpLokeeEpoch: () => void;
   setThemeMode: (mode: ThemeMode) => void;
   setTone: (tone: ToneId) => void;
   setFontSize: (size: FontSize) => void;
@@ -215,6 +223,20 @@ function syncToServer(s: Pick<UiState, 'themeMode' | 'tone' | 'fontSize' | 'acce
   }).catch(() => undefined);
 }
 
+function migrateUiPersist(persisted: unknown, _version: number): unknown {
+  const state =
+    persisted && typeof persisted === 'object' ? { ...(persisted as Record<string, unknown>) } : {};
+  if (state.activeView === 'lokeeWeave') {
+    state.activeView = 'sync';
+    state.syncPane = 'history';
+  }
+  if (state.syncPane !== 'history' && state.syncPane !== 'compare') {
+    state.syncPane = 'compare';
+  }
+  if (typeof state.lokeeEpoch !== 'number') state.lokeeEpoch = 0;
+  return state;
+}
+
 export const useUiStore = create<UiState>()(
   persist(
     (set, get) => {
@@ -232,8 +254,12 @@ export const useUiStore = create<UiState>()(
         ...DEFAULTS,
         resolvedMode: 'dark',
         activeView: 'sync' as ActiveView,
+        syncPane: 'compare' as SyncPane,
+        lokeeEpoch: 0,
 
         setActiveView: (activeView) => set({ activeView }),
+        setSyncPane: (syncPane) => set({ syncPane, activeView: 'sync' }),
+        bumpLokeeEpoch: () => set({ lokeeEpoch: get().lokeeEpoch + 1 }),
         setThemeMode: (themeMode) => update({ themeMode }),
         setTone: (tone) => update({ tone }),
         setFontSize: (fontSize) => update({ fontSize }),
@@ -264,7 +290,7 @@ export const useUiStore = create<UiState>()(
         },
       };
     },
-    { name: 'schema-sync-ui' }
+    { name: 'schema-sync-ui', version: 1, migrate: migrateUiPersist }
   )
 );
 

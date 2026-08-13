@@ -53,9 +53,20 @@ export interface LokeeWeavePageProps {
     versionId: string,
     patch: { name: string; description: string }
   ) => Promise<void>;
+  /** Shorter header when shown inside Schema Sync. */
+  embedded?: boolean;
 }
 
-const FILTERABLE_TYPES: LokeeObjectType[] = ['table', 'view', 'index', 'column'];
+const FILTERABLE_TYPES: LokeeObjectType[] = [
+  'table',
+  'view',
+  'mqt',
+  'index',
+  'column',
+  'trigger',
+  'function',
+  'procedure',
+];
 const STATUSES: GraphChangeStatus[] = ['added', 'modified', 'unchanged', 'deleted'];
 
 /** When a schema has this many distinct objects, default to tables-only. */
@@ -167,6 +178,7 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
   subtitle,
   onSelectObject,
   onSaveVersionMeta,
+  embedded = false,
 }) => {
   const [filters, setFilters] = useState<VersionGraphFilters>(() => freshFilters());
   const [filtersBootstrapped, setFiltersBootstrapped] = useState(false);
@@ -294,9 +306,13 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
     <div data-testid="lokee-weave-page" className="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
       <header className="flex shrink-0 flex-wrap items-start gap-4">
         <div className="min-w-0">
-          <h1 className="text-lg font-bold text-slate-100">Lokee Weave</h1>
+          <h1 className="text-lg font-bold text-slate-100">
+            {embedded ? 'Schema history' : 'Lokee Weave'}
+          </h1>
           <p className="text-xs text-slate-500">
-            Database Schema Version Graph{subtitle ? ` · ${subtitle}` : ''}
+            {embedded
+              ? `Version timeline for the Target database${subtitle ? ` · ${subtitle}` : ''}`
+              : `Database Schema Version Graph${subtitle ? ` · ${subtitle}` : ''}`}
           </p>
         </div>
         <div
@@ -319,7 +335,9 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
         <aside className="flex w-[220px] shrink-0 flex-col gap-2 overflow-y-auto text-[11px]">
           <SidebarSection title="Legend">
             <ul className="flex flex-col gap-1">
-              {(['table', 'view', 'index', 'column'] as LokeeObjectType[]).map((t) => (
+              {(
+                ['table', 'view', 'mqt', 'index', 'column', 'trigger', 'function', 'procedure'] as LokeeObjectType[]
+              ).map((t) => (
                 <li key={t} className="flex items-center gap-2 text-slate-300">
                   <span className={`h-2 w-2 rounded-full ${objectStyle(t).dot}`} aria-hidden />
                   {OBJECT_STYLES[t].label}

@@ -28,13 +28,20 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
   applyChanges,
+  assembleBlueprint,
   canonicalizeSchema,
+  collapseObjectHistory,
+  countSourceLines,
   databaseIdentity,
+  objectKeyKind,
+  objectKeyOwner,
   weave,
   type CanonicalObject,
   type DatabaseIdentityInput,
   type LokeeObjectType,
+  type ObjectBlueprint,
   type ObjectChange,
+  type StoredWeaveObject,
   type TableSchema,
 } from '@foxschema/sql';
 import { getStore } from '../database/store';
@@ -73,6 +80,50 @@ export interface CaptureResult {
   changed: boolean;
   changeCount: number;
   objectCount: number;
+}
+
+export interface VersionedObject {
+  hash: string;
+  type: string;
+  name: string;
+  body: Record<string, unknown>;
+  sourceText?: string | null;
+  lineCount?: number | null;
+  firstSeenAt?: string | null;
+}
+
+export interface ObjectHistoryEntry {
+  versionId: string;
+  versionNumber: number;
+  createdAt: string;
+  source: CaptureSource;
+  operation: 'ADD' | 'MODIFY' | 'DELETE';
+  hash?: string;
+  previousHash?: string;
+  body?: Record<string, unknown>;
+  previousBody?: Record<string, unknown>;
+  lineCount?: number | null;
+  previousLineCount?: number | null;
+  firstSeenAt?: string | null;
+  /** True when this hash was stored before this version — a pointer, not a copy. */
+  reused: boolean;
+}
+
+export interface ContainerGrowthPoint {
+  versionId: string;
+  versionNumber: number;
+  createdAt: string;
+  columns: number;
+  indexes: number;
+  foreignKeys: number;
+  triggers: number;
+  objects: number;
+}
+
+export interface ObjectInspectResult {
+  blueprint: ObjectBlueprint;
+  history: ObjectHistoryEntry[];
+  growth: ContainerGrowthPoint[];
 }
 
 export interface VersionSummary {
@@ -286,22 +337,28 @@ export class LokeeWeaveStore {
     const missing = candidates.filter((o) => !present.has(o.hash));
     if (missing.length === 0) return;
     const now = new Date().toISOString();
-    const COLUMNS = 6;
+    const COLUMNS = 8;
     for (const batch of chunkForBind(missing, COLUMNS)) {
-      const values = batch.map(() => '(?, ?, ?, ?, ?, ?)').join(', ');
+      const values = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
       const params: SqlParam[] = [];
       for (const object of batch) {
+        const sourceText =
+          object.sourceText ??
+          (typeof object.body.definition === 'string' ? object.body.definition : null);
         params.push(
           object.hash,
           object.key,
           object.type,
           typeof object.body.name === 'string' ? object.body.name : null,
           JSON.stringify(object.body),
-          now
+          now,
+          sourceText ? countSourceLines(sourceText) : null,
+          sourceText
         );
       }
       await store.run(
-        `INSERT INTO lokee_objects (hash, object_key, object_type, name, body_json, created_at)
+        `INSERT INTO lokee_objects
+           (hash, object_key, object_type, name, body_json, created_at, line_count, source_text)
          VALUES ${values}`,
         params
       );
@@ -769,9 +826,9 @@ export class LokeeWeaveStore {
     userId: string,
     databaseId: string,
     versionId: string
-  ): Promise<Map<string, { hash: string; type: string; name: string; body: Record<string, unknown> }>> {
+  ): Promise<Map<string, VersionedObject>> {
     const store = await this.store();
-    const out = new Map<string, { hash: string; type: string; name: string; body: Record<string, unknown> }>();
+    const out = new Map<string, VersionedObject>();
     if (!(await this.assertOwned(store, userId, databaseId))) return out;
 
     const target = await store.get<VersionRow>(
@@ -803,8 +860,11 @@ export class LokeeWeaveStore {
         object_type: string;
         name: string | null;
         body_json: string;
+        source_text: string | null;
+        line_count: number | null;
+        created_at: string | null;
       }>(
-        `SELECT hash, object_key, object_type, name, body_json
+        `SELECT hash, object_key, object_type, name, body_json, source_text, line_count, created_at
            FROM lokee_objects WHERE hash IN (${placeholders})`,
         [...batch]
       );
@@ -821,10 +881,189 @@ export class LokeeWeaveStore {
           type: row.object_type,
           name: row.name ?? fallbackName(row.object_key),
           body,
+          sourceText: row.source_text,
+          lineCount: row.line_count,
+          firstSeenAt: row.created_at,
         });
       }
     }
     return out;
+  }
+
+  /**
+   * Inspector payload: blueprint at a version, change timeline for one key,
+   * and per-version child counts so a table's growth is visible.
+   */
+  async inspectObject(
+    userId: string,
+    databaseId: string,
+    versionId: string,
+    objectKey: string
+  ): Promise<ObjectInspectResult | null> {
+    const store = await this.store();
+    if (!(await this.assertOwned(store, userId, databaseId))) return null;
+
+    const atVersion = await this.objectsAtVersion(userId, databaseId, versionId);
+    const stored = new Map<string, StoredWeaveObject>();
+    for (const [key, object] of atVersion) {
+      stored.set(key, {
+        key,
+        type: object.type,
+        name: object.name,
+        hash: object.hash,
+        body: object.body,
+        sourceText: object.sourceText,
+        lineCount: object.lineCount,
+        firstSeenAt: object.firstSeenAt,
+      });
+    }
+    const blueprint = assembleBlueprint(objectKey, stored);
+    const history = await this.objectHistory(userId, databaseId, objectKey);
+    const growth = await this.containerGrowth(userId, databaseId, objectKeyOwner(objectKey));
+    return { blueprint, history, growth };
+  }
+
+  async objectHistory(
+    userId: string,
+    databaseId: string,
+    objectKey: string
+  ): Promise<ObjectHistoryEntry[]> {
+    const store = await this.store();
+    if (!(await this.assertOwned(store, userId, databaseId))) return [];
+
+    const rows = await store.all<{
+      version_id: string;
+      version_number: number;
+      created_at: string;
+      source: CaptureSource;
+      operation: 'ADD' | 'MODIFY' | 'DELETE';
+      object_hash: string | null;
+      previous_hash: string | null;
+    }>(
+      `SELECT vo.operation, vo.object_hash, vo.previous_hash,
+              v.id AS version_id, v.version_number, v.created_at, v.source
+         FROM lokee_version_objects vo
+         INNER JOIN lokee_versions v ON v.id = vo.version_id
+        WHERE v.database_id = ? AND vo.object_key = ?
+        ORDER BY v.version_number ASC`,
+      [databaseId, objectKey]
+    );
+    if (rows.length === 0) return [];
+
+    const hashes = new Set<string>();
+    for (const row of rows) {
+      if (row.object_hash) hashes.add(row.object_hash);
+      if (row.previous_hash) hashes.add(row.previous_hash);
+    }
+    const bodies = new Map<
+      string,
+      { body: Record<string, unknown>; lineCount: number | null; firstSeenAt: string | null }
+    >();
+    for (const batch of chunkForBind([...hashes], 1)) {
+      const placeholders = batch.map(() => '?').join(', ');
+      const found = await store.all<{
+        hash: string;
+        body_json: string;
+        line_count: number | null;
+        created_at: string | null;
+      }>(
+        `SELECT hash, body_json, line_count, created_at FROM lokee_objects WHERE hash IN (${placeholders})`,
+        [...batch]
+      );
+      for (const row of found) {
+        let body: Record<string, unknown> = {};
+        try {
+          body = JSON.parse(row.body_json) as Record<string, unknown>;
+        } catch {
+          /* keep empty */
+        }
+        bodies.set(row.hash, {
+          body,
+          lineCount: row.line_count,
+          firstSeenAt: row.created_at,
+        });
+      }
+    }
+
+    const collapsed = collapseObjectHistory(
+      rows.map((row) => ({
+        versionId: row.version_id,
+        createdAt: Date.parse(row.created_at) || 0,
+        operation: row.operation,
+        hash: row.object_hash ?? undefined,
+      }))
+    );
+    const keep = new Set(collapsed.map((p) => `${p.versionId}:${p.operation}`));
+
+    const out: ObjectHistoryEntry[] = [];
+    for (const row of rows) {
+      if (!keep.has(`${row.version_id}:${row.operation}`)) continue;
+      const current = row.object_hash ? bodies.get(row.object_hash) : undefined;
+      const previous = row.previous_hash ? bodies.get(row.previous_hash) : undefined;
+      const firstSeen = current?.firstSeenAt ? Date.parse(current.firstSeenAt) : NaN;
+      const versionAt = Date.parse(row.created_at) || 0;
+      out.push({
+        versionId: row.version_id,
+        versionNumber: row.version_number,
+        createdAt: row.created_at,
+        source: row.source,
+        operation: row.operation,
+        hash: row.object_hash ?? undefined,
+        previousHash: row.previous_hash ?? undefined,
+        body: current?.body,
+        previousBody: previous?.body,
+        lineCount: current?.lineCount,
+        previousLineCount: previous?.lineCount,
+        firstSeenAt: current?.firstSeenAt,
+        reused: Number.isFinite(firstSeen) && firstSeen + 1000 < versionAt,
+      });
+    }
+    return out;
+  }
+
+  private async containerGrowth(
+    userId: string,
+    databaseId: string,
+    owner: string
+  ): Promise<ContainerGrowthPoint[]> {
+    const versions = await this.listVersions(userId, databaseId, 20);
+    if (versions.length === 0) return [];
+    const store = await this.store();
+    const latest = await this.loadLatestIndex(store, databaseId);
+    const deltas = await this.loadDeltas(
+      store,
+      versions.map((v) => v.id)
+    );
+    const states = reconstructStates(latest, versions, deltas);
+    const points: ContainerGrowthPoint[] = [];
+    for (const version of [...versions].reverse()) {
+      const state = states.get(version.id) ?? new Map<string, string>();
+      let columns = 0;
+      let indexes = 0;
+      let foreignKeys = 0;
+      let triggers = 0;
+      let objects = 0;
+      for (const key of state.keys()) {
+        if (objectKeyOwner(key) !== owner) continue;
+        objects += 1;
+        const kind = objectKeyKind(key);
+        if (kind === 'column') columns += 1;
+        else if (kind === 'index') indexes += 1;
+        else if (kind === 'foreign_key') foreignKeys += 1;
+        else if (kind === 'trigger') triggers += 1;
+      }
+      points.push({
+        versionId: version.id,
+        versionNumber: version.number,
+        createdAt: version.createdAt,
+        columns,
+        indexes,
+        foreignKeys,
+        triggers,
+        objects,
+      });
+    }
+    return points;
   }
 
   /**

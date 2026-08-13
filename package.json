@@ -31,6 +31,8 @@
     "test:e2e:all:headed": "npm -w @foxschema/e2e run test:all:headed",
     "test:e2e:headed": "npm -w @foxschema/e2e run test:headed",
     "test:e2e:smoke": "npm -w @foxschema/e2e run test:smoke",
+    "test:e2e:schema-history": "npm -w @foxschema/e2e run test:schema-history",
+    "test:e2e:schema-history:headed": "npm -w @foxschema/e2e run test:schema-history:headed",
     "test:e2e:errors": "npm -w @foxschema/e2e run test:errors",
     "test:e2e:utilities:all": "npm -w @foxschema/e2e run test:sql-editor:utilities:all",
     "test:e2e:utilities:all:headed": "npm -w @foxschema/e2e run test:sql-editor:utilities:all:headed",

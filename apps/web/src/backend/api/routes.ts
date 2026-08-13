@@ -103,6 +103,41 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   // handlers below keep their existing call sites unchanged.
   const { resolveRef, loadScopedTables } = resolver;
 
+  const LOKEE_FULL_SCOPE: DbObjectType[] = [
+    'TABLE',
+    'MQT',
+    'VIEW',
+    'FUNCTION',
+    'PROCEDURE',
+    'TRIGGER',
+    'SEQUENCE',
+    'TYPE',
+  ];
+
+  async function captureLiveSchema(
+    userId: string,
+    resolved: { dialect: string; option: ConnectionOptions; schema: string },
+    source: 'manual' | 'migrate' | 'revert',
+    migrationRunId?: string
+  ) {
+    const { tables } = await loadScopedTables(
+      resolved.dialect,
+      resolved.option,
+      resolved.schema ?? '',
+      LOKEE_FULL_SCOPE
+    );
+    return lokeeWeave.capture(userId, {
+      dialect: resolved.dialect,
+      host: resolved.option.host ?? null,
+      port: resolved.option.port ?? null,
+      database: resolved.option.database ?? null,
+      schema: resolved.schema ?? null,
+      tables,
+      source,
+      migrationRunId,
+    });
+  }
+
 
   // /health is registered on the public app in server.ts (before auth) and
   // already includes `version` for stale-process detection — do not re-add here.
@@ -730,6 +765,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     const resultMap = new Map<string, MigrationObjectResult>();
     let finalStatus: MigrationRunStatus = 'FAILED';
     let finalError: string | undefined;
+    let captureAfter = false;
     const send = (event: any) => {
       res.write(JSON.stringify(event) + '\n');
       if (event?.type === 'snapshot') {
@@ -751,6 +787,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
           ? (anyObjectFailed ? 'PARTIAL_SUCCESS' : 'SUCCESS')
           : event.rolledBack ? 'ROLLED_BACK' : 'FAILED';
         finalError = event.error;
+        captureAfter = event.success === true;
       }
     };
 
@@ -767,6 +804,24 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
         send({ type: 'snapshot', ddl: snapshot });
       }
 
+      // Content-addressed Lokee snapshot of the target *before* DDL, so a first
+      // migrate still has a baseline version to compare against.
+      try {
+        const before = await captureLiveSchema(
+          userId,
+          { dialect, option, schema },
+          'migrate',
+          runId ?? undefined
+        );
+        send({ type: 'lokee', phase: 'before', ...before });
+      } catch (error: unknown) {
+        send({
+          type: 'lokee',
+          phase: 'before',
+          error: error instanceof Error ? error.message : 'Lokee snapshot failed',
+        });
+      }
+
       // 2. Execute the plan in a single transaction, reporting per object
       await migrationModule.execute(dialect, option, schema, steps, send, { continueOnError: !!continueOnError });
     } catch (error: unknown) {
@@ -774,6 +829,24 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       finalStatus = 'FAILED';
       finalError = message;
       send({ type: 'done', success: false, rolledBack: false, error: message });
+    }
+
+    if (captureAfter) {
+      try {
+        const after = await captureLiveSchema(
+          userId,
+          { dialect, option, schema },
+          'migrate',
+          runId ?? undefined
+        );
+        send({ type: 'lokee', phase: 'after', ...after });
+      } catch (error: unknown) {
+        send({
+          type: 'lokee',
+          phase: 'after',
+          error: error instanceof Error ? error.message : 'Lokee snapshot failed',
+        });
+      }
     }
 
     // Finalize the history record with the outcome.
@@ -828,21 +901,11 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     res.status(removed ? 200 : 404).json({ ok: removed });
   });
 
-  // --- Lokee Weave: schema versioning -------------------------------------
+  // --- Lokee Weave: schema versioning (Compare Schema history) -------------
   //
   // Capture reads the *whole* schema regardless of the compare scope in use.
   // A version that only covered the objects someone happened to be comparing
   // would be a snapshot you cannot safely revert to.
-  const LOKEE_FULL_SCOPE: DbObjectType[] = [
-    'TABLE',
-    'MQT',
-    'VIEW',
-    'FUNCTION',
-    'PROCEDURE',
-    'TRIGGER',
-    'SEQUENCE',
-    'TYPE',
-  ];
   const lokeeCaptureLimiter = rateLimit({ windowMs: 60 * 1000, max: 20 });
 
   router.post(
@@ -852,20 +915,13 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     async (req: Request, res: Response) => {
       const body = req.body as ConnectionRef & { source?: string; migrationRunId?: string };
       try {
-        const { dialect, option, schema } = await resolveRef((req as AuthedRequest).userId, body);
-        const { tables } = await loadScopedTables(dialect, option, schema ?? '', LOKEE_FULL_SCOPE);
-        const result = await lokeeWeave.capture((req as AuthedRequest).userId!, {
-          // Identity is the database, never the saved connection — and never
-          // the credentials, which have no parameter to arrive through.
-          dialect,
-          host: option.host ?? null,
-          port: option.port ?? null,
-          database: option.database ?? null,
-          schema: schema ?? null,
-          tables,
-          source: body.source === 'migrate' || body.source === 'revert' ? body.source : 'manual',
-          migrationRunId: body.migrationRunId,
-        });
+        const resolved = await resolveRef((req as AuthedRequest).userId, body);
+        const result = await captureLiveSchema(
+          (req as AuthedRequest).userId!,
+          resolved,
+          body.source === 'migrate' || body.source === 'revert' ? body.source : 'manual',
+          body.migrationRunId
+        );
         res.json(result);
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : 'Failed to capture schema';
@@ -919,6 +975,26 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
         Number(req.query.limit) || 20
       )
     );
+  });
+
+  router.get('/lokee/databases/:id/inspect', async (req: Request, res: Response) => {
+    const versionId = String(req.query.versionId ?? '').trim();
+    const objectKey = String(req.query.objectKey ?? '').trim();
+    if (!versionId || !objectKey) {
+      res.status(400).json({ error: 'versionId and objectKey are required' });
+      return;
+    }
+    const result = await lokeeWeave.inspectObject(
+      (req as AuthedRequest).userId!,
+      String(req.params.id),
+      versionId,
+      objectKey
+    );
+    if (!result) {
+      res.status(404).json({ error: 'Object not found' });
+      return;
+    }
+    res.json(result);
   });
 
   // --- Data migrate apply (transaction / continue-on-error) ----------------

@@ -56,6 +56,11 @@ export {
   MAX_WINDOW_ITEMS,
   databaseIdentity,
   databaseIdentityText,
+  assembleBlueprint,
+  blueprintChildCounts,
+  countSourceLines,
+  objectKeyKind,
+  objectKeyOwner,
 } from './modules/lokee-weave/index.js';
 export type {
   CanonicalObject,
@@ -76,6 +81,8 @@ export type {
   TimePoint,
   WindowResult,
   DatabaseIdentityInput,
+  ObjectBlueprint,
+  StoredWeaveObject,
 } from './modules/lokee-weave/index.js';
 export type {
   IdentityInsertKind,
