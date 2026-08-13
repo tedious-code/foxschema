@@ -12,6 +12,7 @@ import {
   countSourceLines,
   objectKeyKind,
   objectKeyOwner,
+  pickOwnerContainer,
   type StoredWeaveObject,
 } from './blueprint.js';
 
@@ -25,6 +26,23 @@ describe('objectKeyOwner / objectKeyKind', () => {
     expect(objectKeyOwner('column:CUSTOMER.EMAIL')).toBe('CUSTOMER');
     expect(objectKeyOwner('table:CUSTOMER')).toBe('CUSTOMER');
     expect(objectKeyOwner('index:ORDERS.PK_ORDERS')).toBe('ORDERS');
+  });
+});
+
+describe('pickOwnerContainer', () => {
+  it('prefers table:OWNER over a child trigger that shares the owner', () => {
+    const group = [
+      { key: 'trigger:CUSTOMER.TRG_AUDIT', type: 'trigger' },
+      { key: 'column:CUSTOMER.ID', type: 'column' },
+      { key: 'table:CUSTOMER', type: 'table' },
+    ];
+    expect(pickOwnerContainer(group)?.key).toBe('table:CUSTOMER');
+  });
+
+  it('still selects a standalone trigger container', () => {
+    expect(pickOwnerContainer([{ key: 'trigger:TRG_AUDIT', type: 'trigger' }])?.key).toBe(
+      'trigger:TRG_AUDIT'
+    );
   });
 });
 

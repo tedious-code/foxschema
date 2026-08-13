@@ -71,6 +71,22 @@ describe('hydrateTableSchemas', () => {
     expect(hydrateTableSchemas(objects)).toEqual([]);
   });
 
+  it('does not treat a table-owned trigger as the table container', () => {
+    // objectsAtVersion inserts by hash order; a child trigger can appear before
+    // `table:CUSTOMER`. Both are container types — picking the trigger would
+    // emit ALTER TABLE trg_audit … instead of customer.
+    const objects = canonicalizeObject(customer());
+    const trigger = objects.find((o) => o.type === 'trigger');
+    expect(trigger).toBeTruthy();
+    const rest = objects.filter((o) => o.type !== 'trigger');
+    const hydrated = hydrateTableSchemas([trigger!, ...rest]);
+    expect(hydrated).toHaveLength(1);
+    expect(hydrated[0]!.name).toBe('customer');
+    expect(hydrated[0]!.objectType).toBe('TABLE');
+    expect(hydrated[0]!.columns.map((c) => c.name)).toEqual(['id', 'email']);
+    expect(hydrated[0]!.triggers?.[0]?.name).toBe('trg_audit');
+  });
+
   it('keeps two tables independent after a whole-schema round trip', () => {
     const other: TableSchema = {
       name: 'orders',

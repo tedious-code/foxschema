@@ -19,7 +19,7 @@ import type {
   TriggerInfo,
 } from '../../interfaces/schema.interface.js';
 import type { CanonicalObject } from './canonical.js';
-import { isLokeeContainerType, objectKeyOwner } from './blueprint.js';
+import { objectKeyOwner, pickOwnerContainer } from './blueprint.js';
 
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
@@ -107,7 +107,9 @@ export function hydrateTableSchemas(objects: readonly CanonicalObject[]): TableS
 
   const tables: TableSchema[] = [];
   for (const group of byOwner.values()) {
-    const container = group.find((item) => isLokeeContainerType(item.type));
+    // Prefer `table:OWNER` over a child `trigger:OWNER.NAME` that shares the
+    // owner — both are container types, and Map/hash load order is unstable.
+    const container = pickOwnerContainer(group);
     if (!container) continue;
 
     const pk = group.find((item) => item.type === 'primary_key');

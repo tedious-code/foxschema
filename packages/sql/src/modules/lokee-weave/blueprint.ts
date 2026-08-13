@@ -94,6 +94,27 @@ function containerKeyForOwner(
   return null;
 }
 
+/**
+ * Pick the owner-level container from a same-owner object group.
+ *
+ * Table-owned triggers are also typed `trigger` and share the table's owner
+ * (`trigger:CUSTOMER.TRG` → owner `CUSTOMER`). A naïve
+ * `find(isLokeeContainerType)` can therefore treat the child trigger as the
+ * table when it appears first in the group — hydrate then emits wrong DDL
+ * (e.g. `ALTER TABLE trg …` instead of `customer`). Prefer the same ordered
+ * `type:OWNER` keys {@link assembleBlueprint} uses.
+ */
+export function pickOwnerContainer<T extends { key: string }>(objects: readonly T[]): T | undefined {
+  if (objects.length === 0) return undefined;
+  const owner = objectKeyOwner(objects[0]!.key);
+  const byKey = new Map(objects.map((object) => [object.key, object]));
+  for (const type of CONTAINER_TYPES) {
+    const hit = byKey.get(`${type}:${owner}`);
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
 export interface ObjectBlueprint {
   focusKey: string;
   /** Table / view / routine the focus belongs to. */
