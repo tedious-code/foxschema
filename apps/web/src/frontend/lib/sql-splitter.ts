@@ -6,6 +6,7 @@ export {
   extractTableAliases,
   countReferencedTables,
   referencedTableNames,
+  collectMultiTableWriteWarnings,
   statementVerb,
   isMutatingDmlStatement,
   isInsertWriteStatement,
@@ -38,6 +39,7 @@ export type {
   CodeCellOk,
   CodeCellErr,
   CodeCellResult,
+  MultiTableWriteWarning,
 } from '@foxschema/sql';
 
 export {

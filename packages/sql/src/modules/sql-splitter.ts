@@ -1105,11 +1105,40 @@ export function dmlLacksWhere(text: string): boolean {
 
 /**
  * Distinct physical tables referenced by FROM/JOIN/UPDATE/INTO (aliases collapse
- * to one table). Used for multi-table safety prompts (e.g. suggest a transaction
- * when a statement touches many tables).
+ * to one table). Used for multi-table safety prompts on *writes* (e.g. suggest a
+ * transaction when an UPDATE/DELETE/INSERT touches many tables). Read-only
+ * SELECT / JOIN queries are not confirmation-worthy — see
+ * {@link collectMultiTableWriteWarnings}.
  */
 export function countReferencedTables(sql: string): number {
   return referencedTableNames(sql).length;
+}
+
+export type MultiTableWriteWarning = {
+  text: string;
+  tableCount: number;
+  tables: string[];
+};
+
+/**
+ * Safe-mode multi-table confirmations apply only to write statements.
+ * A SELECT that joins many tables is a read; prompting for a transaction
+ * there is noise. INSERT/UPDATE/DELETE/DDL (including `SELECT … INTO`)
+ * that meet `threshold` still warn. `threshold <= 0` disables the check.
+ */
+export function collectMultiTableWriteWarnings(
+  statements: string[],
+  threshold: number
+): MultiTableWriteWarning[] {
+  if (threshold <= 0) return [];
+  const out: MultiTableWriteWarning[] = [];
+  for (const text of statements) {
+    if (!isWriteStatement(text)) continue;
+    const tables = referencedTableNames(text);
+    if (tables.length < threshold) continue;
+    out.push({ text, tableCount: tables.length, tables });
+  }
+  return out;
 }
 
 /** Unique bare/qualified table names from {@link extractTableAliases} values. */

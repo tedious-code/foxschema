@@ -20,7 +20,7 @@ interface Props {
   credentialCount: number;
   /** sqlite / clickhouse targets that cannot execute writes. */
   readonlyTargets?: ReadonlyWriteTarget[];
-  /** Statements that touch many tables (threshold from editor setting). */
+  /** Statements that touch many tables (writes only; SELECT/JOIN reads skip). */
   multiTableStatements?: MultiTableWarn[];
   /**
    * When true (default), UPDATE/DELETE without WHERE require an explicit
@@ -38,7 +38,8 @@ const DML_LABEL: Record<string, string> = {
 };
 
 /**
- * Safe-mode confirmation before writes / large multi-table runs.
+ * Safe-mode confirmation before writes / large multi-table *writes*.
+ * Read-only SELECT / JOIN queries never reach this dialog.
  * Flags UPDATE/DELETE with no WHERE and asks for acknowledgment.
  */
 export const WriteConfirmDialog: React.FC<Props> = ({

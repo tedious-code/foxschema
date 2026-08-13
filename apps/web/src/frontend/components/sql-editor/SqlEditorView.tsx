@@ -806,7 +806,7 @@ export const SqlEditorView: React.FC = () => {
 
           <label
             className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-500 ml-1"
-            title="When Safe mode is on, confirm runs that reference this many tables in one statement (0 = off). Suggests using a transaction."
+            title="When Safe mode is on, confirm writes that reference this many tables in one statement (0 = off). SELECT / JOIN reads skip this check. Suggests wrapping related writes in a transaction."
           >
             Tables≥
             <input

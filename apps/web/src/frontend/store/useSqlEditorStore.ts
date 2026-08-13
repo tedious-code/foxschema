@@ -12,12 +12,11 @@ import type { SavedConnectionSummary } from '../api/authApi';
 import { resolveAppSecrets } from '../api/appSecretsApi';
 import { loadSchema } from '../api/schemaApi';
 import {
-  countReferencedTables,
+  collectMultiTableWriteWarnings,
   isInsertWriteStatement,
   isMutatingDmlStatement,
   isPageableStatement,
   isWriteStatement,
-  referencedTableNames,
   splitSqlStatements,
 } from '../lib/sql-splitter';
 import type { CodeCellLast } from '../lib/codeCellExec';
@@ -383,7 +382,7 @@ interface SqlEditorState {
     credentialCount: number;
     /** Checked credentials whose dialect cannot execute writes. */
     readonlyTargets: ReadonlyWriteTarget[];
-    /** Statements that touch many tables (threshold from setting). */
+    /** Write statements that meet the multi-table threshold (SELECT/JOIN reads omitted). */
     multiTableStatements: Array<{ text: string; tableCount: number; tables: string[] }>;
     /** When set, confirm resumes execute for only these credentials. */
     connectionIds?: string[];
@@ -398,8 +397,9 @@ interface SqlEditorState {
    */
   safeMode: boolean;
   /**
-   * Prompt when a statement references this many (or more) tables.
-   * Suggests wrapping work in a transaction. `0` disables the check.
+   * Prompt when a *write* statement references this many (or more) tables.
+   * SELECT / JOIN reads skip this check. Suggests wrapping related writes in a
+   * transaction. `0` disables the check.
    */
   multiTableConfirmThreshold: number;
   /**
@@ -994,17 +994,9 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         // Insert-only writes skip Safe Mode; UPDATE/DELETE/MERGE and DDL still confirm.
         const confirmWrites = writeStatements.filter((s) => !isInsertWriteStatement(s));
         const mutatingDml = confirmWrites.filter((s) => isMutatingDmlStatement(s));
-        const threshold = multiTableConfirmThreshold;
-        const multiTableStatements =
-          safeMode && threshold > 0
-            ? strippedForConfirm
-                .map((text) => {
-                  const tableCount = countReferencedTables(text);
-                  if (tableCount < threshold) return null;
-                  return { text, tableCount, tables: referencedTableNames(text) };
-                })
-                .filter((x): x is { text: string; tableCount: number; tables: string[] } => x != null)
-            : [];
+        const multiTableStatements = safeMode
+          ? collectMultiTableWriteWarnings(strippedForConfirm, multiTableConfirmThreshold)
+          : [];
         const needsConfirm =
           safeMode &&
           !confirmedWrites &&

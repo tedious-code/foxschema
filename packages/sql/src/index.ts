@@ -144,6 +144,7 @@ export {
   extractTableAliases,
   countReferencedTables,
   referencedTableNames,
+  collectMultiTableWriteWarnings,
   statementVerb,
   isMutatingDmlStatement,
   isInsertWriteStatement,
@@ -170,6 +171,7 @@ export type {
   NodeCodeCellKind,
   TsCodeCellKind,
   CodeFenceRange,
+  MultiTableWriteWarning,
 } from './modules/sql-splitter.js';
 export {
   parseFoxScript,
