@@ -37,6 +37,10 @@ const CONTAINER_TYPES: readonly LokeeObjectType[] = [
   'type',
 ];
 
+export function isLokeeContainerType(type: string): boolean {
+  return (CONTAINER_TYPES as readonly string[]).includes(type);
+}
+
 const CHILD_TYPES = {
   column: 'columns',
   index: 'indexes',

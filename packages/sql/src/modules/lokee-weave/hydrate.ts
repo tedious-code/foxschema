@@ -18,19 +18,8 @@ import type {
   TableSchema,
   TriggerInfo,
 } from '../../interfaces/schema.interface.js';
-import type { CanonicalObject, LokeeObjectType } from './canonical.js';
-import { objectKeyKind, objectKeyOwner } from './blueprint.js';
-
-const CONTAINER_TYPES: ReadonlySet<LokeeObjectType> = new Set([
-  'table',
-  'view',
-  'mqt',
-  'function',
-  'procedure',
-  'trigger',
-  'sequence',
-  'type',
-]);
+import type { CanonicalObject } from './canonical.js';
+import { isLokeeContainerType, objectKeyOwner } from './blueprint.js';
 
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
@@ -43,6 +32,12 @@ function asBool(value: unknown, fallback = false): boolean {
 function asStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === 'string');
+}
+
+function asRecord<T>(value: unknown): T | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as T)
+    : undefined;
 }
 
 function columnNameFromKey(key: string): string {
@@ -112,13 +107,14 @@ export function hydrateTableSchemas(objects: readonly CanonicalObject[]): TableS
 
   const tables: TableSchema[] = [];
   for (const group of byOwner.values()) {
-    const container = group.find((item) => CONTAINER_TYPES.has(item.type));
+    const container = group.find((item) => isLokeeContainerType(item.type));
     if (!container) continue;
 
     const pk = group.find((item) => item.type === 'primary_key');
     const pkColumns = pk ? asStringArray(pk.body.columns) : [];
     const name = asString(container.body.name) ?? objectKeyOwner(container.key);
     const objectType = (asString(container.body.objectType) as DbObjectType | undefined) ?? 'TABLE';
+    const kind = container.body.functionKind;
 
     tables.push({
       name,
@@ -128,24 +124,13 @@ export function hydrateTableSchemas(objects: readonly CanonicalObject[]): TableS
       indices: group.filter((item) => item.type === 'index').map(toIndex),
       foreignKeys: group.filter((item) => item.type === 'foreign_key').map(toForeignKey),
       primaryKey: pkColumns.length > 0 ? { columns: pkColumns } : undefined,
-      triggers: group
-        .filter((item) => item.type === 'trigger' && objectKeyKind(item.key) === 'trigger' && item !== container)
-        .map(toTrigger),
-      sequence:
-        container.body.sequence && typeof container.body.sequence === 'object'
-          ? (container.body.sequence as TableSchema['sequence'])
-          : undefined,
-      userType:
-        container.body.userType && typeof container.body.userType === 'object'
-          ? (container.body.userType as TableSchema['userType'])
-          : undefined,
+      triggers: group.filter((item) => item.type === 'trigger' && item !== container).map(toTrigger),
+      sequence: asRecord(container.body.sequence),
+      userType: asRecord(container.body.userType),
       parameters: Array.isArray(container.body.parameters)
         ? (container.body.parameters as TableSchema['parameters'])
         : undefined,
-      functionKind:
-        container.body.functionKind === 'scalar' || container.body.functionKind === 'table'
-          ? container.body.functionKind
-          : undefined,
+      functionKind: kind === 'scalar' || kind === 'table' ? kind : undefined,
       tablespace: asString(container.body.tablespace),
     });
   }

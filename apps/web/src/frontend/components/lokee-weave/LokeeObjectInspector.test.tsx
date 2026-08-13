@@ -16,16 +16,6 @@ vi.mock('../../api/lokeeApi', () => ({
   inspectLokeeObject: (...args: unknown[]) => inspectLokeeObject(...args),
   planLokeeRevert: (...args: unknown[]) => planLokeeRevert(...args),
   executeLokeeRevert: (...args: unknown[]) => executeLokeeRevert(...args),
-  LokeeRevertError: class LokeeRevertError extends Error {
-    code: string;
-    plan?: unknown;
-    constructor(message: string, code: string, plan?: unknown) {
-      super(message);
-      this.name = 'LokeeRevertError';
-      this.code = code;
-      this.plan = plan;
-    }
-  },
 }));
 
 vi.mock('../../store/toastStore', () => ({ toast: vi.fn() }));
@@ -190,8 +180,6 @@ describe('LokeeObjectInspector', () => {
           ],
         },
       ],
-      headVersionId: 'v2',
-      headVersionNumber: 2,
     });
 
     render(
@@ -249,8 +237,6 @@ describe('LokeeObjectInspector', () => {
         },
       ],
       columnMutations: [],
-      headVersionId: 'v2',
-      headVersionNumber: 2,
     });
     planLokeeRevert.mockResolvedValue({
       fromVersion: { id: 'v2', number: 2 },
@@ -307,8 +293,6 @@ describe('LokeeObjectInspector', () => {
       history: [],
       growth: [],
       columnMutations: [],
-      headVersionId: null,
-      headVersionNumber: null,
     });
     const onClose = vi.fn();
     render(<LokeeObjectInspector databaseId="db1" selected={SELECTED} onClose={onClose} />);
