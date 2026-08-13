@@ -44,6 +44,7 @@ import type {
   WindowResult,
   ObjectBlueprint,
   StoredWeaveObject,
+  RevertMigration,
 } from './index.js';
 
 describe('src/index.ts re-exports every public value from the module indexes', () => {
@@ -99,4 +100,5 @@ type _AssertTypesReachable = [
   WindowResult<unknown>,
   ObjectBlueprint,
   StoredWeaveObject,
+  RevertMigration,
 ];

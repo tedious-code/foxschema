@@ -373,7 +373,27 @@ export function LokeeWeaveView({
           <LokeeObjectInspector
             databaseId={activeId}
             selected={selectedObject}
+            captureConnectionId={captureConnectionId || undefined}
             onClose={() => setSelectedObject(null)}
+            onSelectVersion={(versionId) => {
+              setSelectedObject((prev) => {
+                if (!prev) return prev;
+                const at = dto.objects.find(
+                  (o) => o.objectKey === prev.objectKey && o.versionId === versionId
+                );
+                return {
+                  ...prev,
+                  versionId,
+                  objectHash: at?.objectHash ?? prev.objectHash,
+                  status: at?.status ?? prev.status,
+                };
+              });
+            }}
+            onReverted={() => {
+              setSelectedObject(null);
+              refresh();
+              bumpLokeeEpoch();
+            }}
           />
         )}
       </div>

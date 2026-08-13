@@ -156,6 +156,13 @@ export interface LokeeInspectResult {
     triggers: number;
     objects: number;
   }>;
+  columnMutations: Array<{
+    objectKey: string;
+    columnName: string;
+    events: LokeeInspectResult['history'];
+  }>;
+  headVersionId: string | null;
+  headVersionNumber: number | null;
 }
 
 export interface LokeeStoredObject {
@@ -181,4 +188,88 @@ export async function inspectLokeeObject(
     { credentials: 'include' }
   );
   return parseJsonResponse<LokeeInspectResult>(res);
+}
+
+export interface LokeeRevertPlan {
+  fromVersion: LokeeVersion;
+  toVersion: LokeeVersion;
+  alreadyAtTarget: boolean;
+  reversal: {
+    verdicts: Array<{ key: string; risk: 'safe' | 'lossy' | 'blocked'; summary: string; dataLoss?: string }>;
+    risk: 'safe' | 'lossy' | 'blocked';
+    safeCount: number;
+    lossyCount: number;
+    blockedCount: number;
+  };
+  statements: string[];
+}
+
+export class LokeeRevertError extends Error {
+  readonly code: 'blocked' | 'confirm_lossy' | 'failed';
+  readonly plan?: LokeeRevertPlan;
+  constructor(
+    message: string,
+    code: 'blocked' | 'confirm_lossy' | 'failed',
+    plan?: LokeeRevertPlan
+  ) {
+    super(message);
+    this.name = 'LokeeRevertError';
+    this.code = code;
+    this.plan = plan;
+  }
+}
+
+/** Classify a revert to `toVersionId` and preview the reverse DDL. */
+export async function planLokeeRevert(
+  databaseId: string,
+  toVersionId: string
+): Promise<LokeeRevertPlan> {
+  const params = new URLSearchParams({ toVersionId });
+  const res = await fetch(
+    `${getApiBase()}/lokee/databases/${encodeURIComponent(databaseId)}/revert/plan?${params}`,
+    { credentials: 'include' }
+  );
+  return parseJsonResponse<LokeeRevertPlan>(res);
+}
+
+export interface LokeeRevertResult extends LokeeRevertPlan {
+  ok: true;
+  capture?: CaptureResult;
+}
+
+/** Apply reverse DDL on the live connection, then capture a new `revert` version. */
+export async function executeLokeeRevert(
+  databaseId: string,
+  body: {
+    toVersionId: string;
+    connectionId: string;
+    password?: string;
+    confirmLossy?: boolean;
+  }
+): Promise<LokeeRevertResult> {
+  const res = await fetch(
+    `${getApiBase()}/lokee/databases/${encodeURIComponent(databaseId)}/revert`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(body),
+    }
+  );
+  const data = (await res.json()) as LokeeRevertPlan & {
+    ok?: boolean;
+    error?: string;
+    code?: string;
+    capture?: CaptureResult;
+    alreadyAtTarget?: boolean;
+  };
+  if (res.ok) {
+    return { ok: true, ...data } as LokeeRevertResult;
+  }
+  const code = data.code === 'blocked' || data.code === 'confirm_lossy' ? data.code : 'failed';
+  throw new LokeeRevertError(
+    typeof data.error === 'string' ? data.error : res.statusText || 'Revert failed',
+    code,
+    data.fromVersion ? data : undefined
+  );
 }

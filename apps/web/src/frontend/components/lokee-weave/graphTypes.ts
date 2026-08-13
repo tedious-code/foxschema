@@ -78,6 +78,14 @@ export const EMPTY_FILTERS: VersionGraphFilters = {
   showDeleted: true,
 };
 
+/** Default History sidebar: containers that people actually revert, plus changes-only. */
+export const DEFAULT_HISTORY_OBJECT_TYPES: readonly LokeeObjectType[] = [
+  'table',
+  'view',
+  'function',
+  'procedure',
+];
+
 /** Node payloads. Kept small — the inspector loads detail on demand. */
 export interface VersionNodeData extends Record<string, unknown> {
   versionId: string;
