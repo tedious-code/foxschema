@@ -997,6 +997,133 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     res.json(result);
   });
 
+  const publicRevertPlan = (plan: Awaited<ReturnType<LokeeWeaveStore['planRevert']>>) => {
+    if (!plan) return null;
+    return {
+      fromVersion: plan.fromVersion,
+      toVersion: plan.toVersion,
+      alreadyAtTarget: plan.alreadyAtTarget,
+      reversal: plan.reversal,
+      statements: plan.statements,
+    };
+  };
+
+  router.get(
+    '/lokee/databases/:id/revert/plan',
+    requirePermissions('schema.browse'),
+    async (req: Request, res: Response) => {
+      const toVersionId = String(req.query.toVersionId ?? '').trim();
+      if (!toVersionId) {
+        res.status(400).json({ error: 'toVersionId is required' });
+        return;
+      }
+      const plan = await lokeeWeave.planRevert(
+        (req as AuthedRequest).userId!,
+        String(req.params.id),
+        toVersionId
+      );
+      if (!plan) {
+        res.status(404).json({ error: 'Version not found' });
+        return;
+      }
+      res.json(publicRevertPlan(plan));
+    }
+  );
+
+  router.post(
+    '/lokee/databases/:id/revert',
+    lokeeCaptureLimiter,
+    requirePermissions('schema.migrate'),
+    async (req: Request, res: Response) => {
+      const body = req.body as ConnectionRef & { toVersionId?: string; confirmLossy?: boolean };
+      const toVersionId = String(body.toVersionId ?? '').trim();
+      if (!toVersionId) {
+        res.status(400).json({ error: 'toVersionId is required' });
+        return;
+      }
+      let dialect: string;
+      let option: ConnectionOptions;
+      let schema: string;
+      try {
+        ({ dialect, option, schema } = await resolveRef((req as AuthedRequest).userId, body));
+      } catch (error: unknown) {
+        res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid connection' });
+        return;
+      }
+
+      const userId = (req as AuthedRequest).userId!;
+      const databaseId = String(req.params.id);
+      const plan = await lokeeWeave.planRevert(userId, databaseId, toVersionId, dialect, schema);
+      if (!plan) {
+        res.status(404).json({ error: 'Version not found' });
+        return;
+      }
+      const published = publicRevertPlan(plan);
+      if (plan.alreadyAtTarget) {
+        res.json({ ok: true, alreadyAtTarget: true, ...published });
+        return;
+      }
+      if (plan.reversal.risk === 'blocked') {
+        res.status(409).json({
+          ok: false,
+          error: 'This revert is blocked — existing data cannot be converted.',
+          code: 'blocked',
+          ...published,
+        });
+        return;
+      }
+      if (plan.reversal.risk === 'lossy' && body.confirmLossy !== true) {
+        res.status(409).json({
+          ok: false,
+          error: 'This revert destroys data. Confirm to continue.',
+          code: 'confirm_lossy',
+          ...published,
+        });
+        return;
+      }
+      if (plan.steps.length === 0) {
+        res.json({ ok: true, alreadyAtTarget: true, ...published });
+        return;
+      }
+
+      let success = false;
+      let executeError: string | undefined;
+      try {
+        await migrationModule.execute(dialect, option, schema, plan.steps, (event) => {
+          if (event.type === 'done') {
+            success = event.success;
+            executeError = event.error;
+          }
+        });
+      } catch (error: unknown) {
+        success = false;
+        executeError = error instanceof Error ? error.message : 'Revert failed';
+      }
+      if (!success) {
+        res.status(500).json({
+          ok: false,
+          error: executeError ?? 'Revert failed',
+          ...published,
+        });
+        return;
+      }
+
+      try {
+        const capture = await captureLiveSchema(userId, { dialect, option, schema }, 'revert');
+        res.json({ ok: true, capture, ...published });
+      } catch (error: unknown) {
+        res.status(500).json({
+          ok: false,
+          error:
+            error instanceof Error
+              ? `Schema reverted but capture failed: ${error.message}`
+              : 'Schema reverted but capture failed',
+          ...published,
+        });
+      }
+    }
+  );
+
   // --- Data migrate apply (transaction / continue-on-error) ----------------
   router.post(
     '/data-migrate/execute',

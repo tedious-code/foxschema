@@ -29,18 +29,23 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   applyChanges,
   assembleBlueprint,
+  buildRevertMigration,
   canonicalizeSchema,
   collapseObjectHistory,
   countSourceLines,
   databaseIdentity,
+  hydrateTableSchemas,
   objectKeyKind,
   objectKeyOwner,
+  planReversal,
   weave,
   type CanonicalObject,
   type DatabaseIdentityInput,
   type LokeeObjectType,
+  type MigrationStep,
   type ObjectBlueprint,
   type ObjectChange,
+  type ReversalPlan,
   type StoredWeaveObject,
   type TableSchema,
 } from '@foxschema/sql';
@@ -120,10 +125,29 @@ export interface ContainerGrowthPoint {
   objects: number;
 }
 
+export interface ColumnMutation {
+  objectKey: string;
+  columnName: string;
+  events: ObjectHistoryEntry[];
+}
+
 export interface ObjectInspectResult {
   blueprint: ObjectBlueprint;
   history: ObjectHistoryEntry[];
   growth: ContainerGrowthPoint[];
+  /** Column ADD / MODIFY / DELETE across versions, when the focus is a table. */
+  columnMutations: ColumnMutation[];
+  headVersionId: string | null;
+  headVersionNumber: number | null;
+}
+
+export interface RevertPlanResult {
+  fromVersion: VersionSummary;
+  toVersion: VersionSummary;
+  alreadyAtTarget: boolean;
+  reversal: ReversalPlan;
+  steps: MigrationStep[];
+  statements: string[];
 }
 
 export interface VersionSummary {
@@ -206,6 +230,72 @@ export function chunkForBind<T>(rows: readonly T[], paramsPerRow: number): T[][]
   const perChunk = Math.max(1, Math.floor(MAX_BIND_PARAMS / Math.max(1, paramsPerRow)));
   const out: T[][] = [];
   for (let i = 0; i < rows.length; i += perChunk) out.push(rows.slice(i, i + perChunk));
+  return out;
+}
+
+function toCanonical(key: string, object: VersionedObject): CanonicalObject {
+  return {
+    key,
+    type: object.type as LokeeObjectType,
+    body: object.body,
+    sourceText: object.sourceText,
+  };
+}
+
+/** `LIKE` prefix for children of one owner. `!` is the ESCAPE character. */
+function likeOwnerPrefix(kind: string, owner: string): string {
+  const escaped = owner.replace(/!/g, '!!').replace(/%/g, '!%').replace(/_/g, '!_');
+  return `${kind}:${escaped}.%`;
+}
+
+type HistoryDeltaRow = {
+  version_id: string;
+  version_number: number;
+  created_at: string;
+  source: CaptureSource;
+  operation: 'ADD' | 'MODIFY' | 'DELETE';
+  object_hash: string | null;
+  previous_hash: string | null;
+};
+
+type ObjectBody = { body: Record<string, unknown>; lineCount: number | null; firstSeenAt: string | null };
+
+function historyEntriesFromRows(
+  rows: readonly HistoryDeltaRow[],
+  bodies: ReadonlyMap<string, ObjectBody>
+): ObjectHistoryEntry[] {
+  const collapsed = collapseObjectHistory(
+    rows.map((row) => ({
+      versionId: row.version_id,
+      createdAt: Date.parse(row.created_at) || 0,
+      operation: row.operation,
+      hash: row.object_hash ?? undefined,
+    }))
+  );
+  const keep = new Set(collapsed.map((p) => `${p.versionId}:${p.operation}`));
+  const out: ObjectHistoryEntry[] = [];
+  for (const row of rows) {
+    if (!keep.has(`${row.version_id}:${row.operation}`)) continue;
+    const current = row.object_hash ? bodies.get(row.object_hash) : undefined;
+    const previous = row.previous_hash ? bodies.get(row.previous_hash) : undefined;
+    const firstSeen = current?.firstSeenAt ? Date.parse(current.firstSeenAt) : NaN;
+    const versionAt = Date.parse(row.created_at) || 0;
+    out.push({
+      versionId: row.version_id,
+      versionNumber: row.version_number,
+      createdAt: row.created_at,
+      source: row.source,
+      operation: row.operation,
+      hash: row.object_hash ?? undefined,
+      previousHash: row.previous_hash ?? undefined,
+      body: current?.body,
+      previousBody: previous?.body,
+      lineCount: current?.lineCount,
+      previousLineCount: previous?.lineCount,
+      firstSeenAt: current?.firstSeenAt,
+      reused: Number.isFinite(firstSeen) && firstSeen + 1000 < versionAt,
+    });
+  }
   return out;
 }
 
@@ -919,8 +1009,110 @@ export class LokeeWeaveStore {
     }
     const blueprint = assembleBlueprint(objectKey, stored);
     const history = await this.objectHistory(userId, databaseId, objectKey);
-    const growth = await this.containerGrowth(userId, databaseId, objectKeyOwner(objectKey));
-    return { blueprint, history, growth };
+    const owner = objectKeyOwner(objectKey);
+    const growth = await this.containerGrowth(userId, databaseId, owner);
+    const kind = objectKeyKind(objectKey);
+    const columnMutations =
+      kind === 'table' || kind === 'mqt' || kind === 'view'
+        ? await this.columnMutations(userId, databaseId, owner)
+        : [];
+    const versions = await this.listVersions(userId, databaseId, 1);
+    const head = versions[0] ?? null;
+    return {
+      blueprint,
+      history,
+      growth,
+      columnMutations,
+      headVersionId: head?.id ?? null,
+      headVersionNumber: head?.number ?? null,
+    };
+  }
+
+  /**
+   * Classify + generate DDL that moves the live head back to `toVersionId`.
+   *
+   * `dialect` / `schema` come from the connection the caller will execute
+   * against (preferred) or the stored database identity.
+   */
+  async planRevert(
+    userId: string,
+    databaseId: string,
+    toVersionId: string,
+    dialect?: string,
+    schema?: string
+  ): Promise<RevertPlanResult | null> {
+    const store = await this.store();
+    if (!(await this.assertOwned(store, userId, databaseId))) return null;
+
+    const versions = await this.listVersions(userId, databaseId, 500);
+    const fromVersion = versions[0];
+    const toVersion = versions.find((v) => v.id === toVersionId);
+    if (!fromVersion || !toVersion) return null;
+
+    const emptyReversal = planReversal([]);
+    if (fromVersion.id === toVersion.id) {
+      return {
+        fromVersion,
+        toVersion,
+        alreadyAtTarget: true,
+        reversal: emptyReversal,
+        steps: [],
+        statements: [],
+      };
+    }
+
+    const current = await this.objectsAtVersion(userId, databaseId, fromVersion.id);
+    const desired = await this.objectsAtVersion(userId, databaseId, toVersion.id);
+    const keys = new Set([...current.keys(), ...desired.keys()]);
+    const entries: Array<{ key: string; current?: CanonicalObject; target?: CanonicalObject }> = [];
+    for (const key of keys) {
+      const cur = current.get(key);
+      const tgt = desired.get(key);
+      if (cur && tgt && cur.hash === tgt.hash) continue;
+      entries.push({
+        key,
+        current: cur ? toCanonical(key, cur) : undefined,
+        target: tgt ? toCanonical(key, tgt) : undefined,
+      });
+    }
+    const reversal = planReversal(entries);
+
+    let resolvedDialect = dialect;
+    let resolvedSchema = schema;
+    if (!resolvedDialect) {
+      const db = await store.get<{ dialect: string; schema: string | null }>(
+        'SELECT dialect, "schema" FROM lokee_databases WHERE id = ? AND user_id = ?',
+        [databaseId, userId]
+      );
+      resolvedDialect = db?.dialect;
+      if (resolvedSchema == null) resolvedSchema = db?.schema ?? undefined;
+    }
+
+    let steps: MigrationStep[] = [];
+    let statements: string[] = [];
+    if (resolvedDialect) {
+      const currentTables = hydrateTableSchemas(
+        [...current.entries()].map(([key, object]) => toCanonical(key, object))
+      );
+      const targetTables = hydrateTableSchemas(
+        [...desired.entries()].map(([key, object]) => toCanonical(key, object))
+      );
+      const migration = await buildRevertMigration(currentTables, targetTables, resolvedDialect, {
+        targetSchema: resolvedSchema,
+        sourceSchema: resolvedSchema,
+      });
+      steps = migration.steps;
+      statements = migration.statements;
+    }
+
+    return {
+      fromVersion,
+      toVersion,
+      alreadyAtTarget: false,
+      reversal,
+      steps,
+      statements,
+    };
   }
 
   async objectHistory(
@@ -950,15 +1142,61 @@ export class LokeeWeaveStore {
     );
     if (rows.length === 0) return [];
 
+    const bodies = await this.loadObjectBodies(store, rows);
+    return historyEntriesFromRows(rows, bodies);
+  }
+
+  private async columnMutations(
+    userId: string,
+    databaseId: string,
+    owner: string
+  ): Promise<ColumnMutation[]> {
+    const store = await this.store();
+    if (!(await this.assertOwned(store, userId, databaseId))) return [];
+
+    const rows = await store.all<HistoryDeltaRow & { object_key: string }>(
+      `SELECT vo.object_key, vo.operation, vo.object_hash, vo.previous_hash,
+              v.id AS version_id, v.version_number, v.created_at, v.source
+         FROM lokee_version_objects vo
+         INNER JOIN lokee_versions v ON v.id = vo.version_id
+        WHERE v.database_id = ? AND vo.object_key LIKE ? ESCAPE '!'
+        ORDER BY vo.object_key ASC, v.version_number ASC`,
+      [databaseId, likeOwnerPrefix('column', owner)]
+    );
+    if (rows.length === 0) return [];
+
+    const bodies = await this.loadObjectBodies(store, rows);
+    const byKey = new Map<string, Array<HistoryDeltaRow & { object_key: string }>>();
+    for (const row of rows) {
+      const list = byKey.get(row.object_key);
+      if (list) list.push(row);
+      else byKey.set(row.object_key, [row]);
+    }
+
+    const out: ColumnMutation[] = [];
+    for (const [objectKey, group] of byKey) {
+      const events = historyEntriesFromRows(group, bodies);
+      if (events.length === 0) continue;
+      const fromBody = events.find((e) => typeof e.body?.name === 'string')?.body?.name;
+      const columnName =
+        typeof fromBody === 'string'
+          ? fromBody
+          : objectKey.slice(objectKey.lastIndexOf('.') + 1).toLowerCase();
+      out.push({ objectKey, columnName, events });
+    }
+    return out;
+  }
+
+  private async loadObjectBodies(
+    store: MetadataStore,
+    rows: readonly Pick<HistoryDeltaRow, 'object_hash' | 'previous_hash'>[]
+  ): Promise<Map<string, ObjectBody>> {
     const hashes = new Set<string>();
     for (const row of rows) {
       if (row.object_hash) hashes.add(row.object_hash);
       if (row.previous_hash) hashes.add(row.previous_hash);
     }
-    const bodies = new Map<
-      string,
-      { body: Record<string, unknown>; lineCount: number | null; firstSeenAt: string | null }
-    >();
+    const bodies = new Map<string, ObjectBody>();
     for (const batch of chunkForBind([...hashes], 1)) {
       const placeholders = batch.map(() => '?').join(', ');
       const found = await store.all<{
@@ -984,41 +1222,7 @@ export class LokeeWeaveStore {
         });
       }
     }
-
-    const collapsed = collapseObjectHistory(
-      rows.map((row) => ({
-        versionId: row.version_id,
-        createdAt: Date.parse(row.created_at) || 0,
-        operation: row.operation,
-        hash: row.object_hash ?? undefined,
-      }))
-    );
-    const keep = new Set(collapsed.map((p) => `${p.versionId}:${p.operation}`));
-
-    const out: ObjectHistoryEntry[] = [];
-    for (const row of rows) {
-      if (!keep.has(`${row.version_id}:${row.operation}`)) continue;
-      const current = row.object_hash ? bodies.get(row.object_hash) : undefined;
-      const previous = row.previous_hash ? bodies.get(row.previous_hash) : undefined;
-      const firstSeen = current?.firstSeenAt ? Date.parse(current.firstSeenAt) : NaN;
-      const versionAt = Date.parse(row.created_at) || 0;
-      out.push({
-        versionId: row.version_id,
-        versionNumber: row.version_number,
-        createdAt: row.created_at,
-        source: row.source,
-        operation: row.operation,
-        hash: row.object_hash ?? undefined,
-        previousHash: row.previous_hash ?? undefined,
-        body: current?.body,
-        previousBody: previous?.body,
-        lineCount: current?.lineCount,
-        previousLineCount: previous?.lineCount,
-        firstSeenAt: current?.firstSeenAt,
-        reused: Number.isFinite(firstSeen) && firstSeen + 1000 < versionAt,
-      });
-    }
-    return out;
+    return bodies;
   }
 
   private async containerGrowth(

@@ -30,6 +30,7 @@ import { LOKEE_NODE_TYPES } from './nodes';
 import { buildVersionGraph } from './buildGraph';
 import {
   DEFAULT_LAYOUT,
+  DEFAULT_HISTORY_OBJECT_TYPES,
   EMPTY_FILTERS,
   MAX_VISIBLE_OBJECT_NODES,
   versionDisplayName,
@@ -123,10 +124,13 @@ const SidebarSection: React.FC<{ title: string; children: React.ReactNode }> = (
   </section>
 );
 
-function freshFilters(objectTypes: Set<LokeeObjectType> = new Set()): VersionGraphFilters {
+function freshFilters(
+  objectTypes: Set<LokeeObjectType> = new Set(DEFAULT_HISTORY_OBJECT_TYPES)
+): VersionGraphFilters {
   return {
     ...EMPTY_FILTERS,
     objectTypes,
+    changesOnly: true,
     statuses: new Set(),
     versionIds: new Set(),
     authors: new Set(),
@@ -181,22 +185,11 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
   embedded = false,
 }) => {
   const [filters, setFilters] = useState<VersionGraphFilters>(() => freshFilters());
-  const [filtersBootstrapped, setFiltersBootstrapped] = useState(false);
   const [locked, setLocked] = useState(true);
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [savingMeta, setSavingMeta] = useState(false);
-
-  // Large schemas (columns+indexes+tables) make fitView zoom to invisibility —
-  // start on tables only; the user can widen the type filter.
-  useEffect(() => {
-    if (filtersBootstrapped || dto.objects.length === 0) return;
-    if (distinctObjectKeys(dto) >= AUTO_TABLES_ONLY_AT) {
-      setFilters(freshFilters(new Set<LokeeObjectType>(['table'])));
-    }
-    setFiltersBootstrapped(true);
-  }, [dto, filtersBootstrapped]);
 
   const selectedVersion: VersionGraphVersion | undefined = useMemo(
     () => dto.versions.find((v) => v.id === selectedVersionId),
@@ -452,8 +445,8 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
                   <input
                     type="checkbox"
                     data-testid={`lokee-rf-type-${t}`}
-                    // Unchecked-means-all: an empty set is "no filter", so the
-                    // box reads as "showing this type".
+                    // A non-empty set is an allow-list (defaults: tables, views,
+                    // functions, procedures). Empty still means "every type".
                     checked={filters.objectTypes.size === 0 || filters.objectTypes.has(t)}
                     onChange={() => toggleType(t)}
                   />
@@ -580,8 +573,8 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
               }`}
             >
               Showing <span className="font-semibold">tables</span> only so the graph stays
-              readable ({distinctObjectKeys(dto)} objects total). Enable Views / Indexes /
-              Columns in the sidebar, then pan right for more.
+              readable ({distinctObjectKeys(dto)} objects total). Enable Views / Functions /
+              Procedures in the sidebar, then pan right for more.
             </div>
           )}
           {!tablesOnly && wideGraph && (

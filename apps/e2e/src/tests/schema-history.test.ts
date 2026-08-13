@@ -117,6 +117,16 @@ describe.skipIf(!ready)('Schema Sync · History (SQLite)', () => {
     expect(text).toMatch(/trg_customers_audit/i);
   });
 
+  it('defaults to tables, views, functions, procedures and changes only', async () => {
+    expect(await driver.locator('[data-testid="lokee-rf-type-table"]').isChecked()).toBe(true);
+    expect(await driver.locator('[data-testid="lokee-rf-type-view"]').isChecked()).toBe(true);
+    expect(await driver.locator('[data-testid="lokee-rf-type-function"]').isChecked()).toBe(true);
+    expect(await driver.locator('[data-testid="lokee-rf-type-procedure"]').isChecked()).toBe(true);
+    expect(await driver.locator('[data-testid="lokee-rf-type-column"]').isChecked()).toBe(false);
+    expect(await driver.locator('[data-testid="lokee-rf-type-index"]').isChecked()).toBe(false);
+    expect(await driver.locator('[data-testid="lokee-rf-changes-only"]').isChecked()).toBe(true);
+  });
+
   it('exposes view / procedure / function type filters', async () => {
     expect(await history.typeFilterVisible('view')).toBe(true);
     expect(await history.typeFilterVisible('procedure')).toBe(true);
@@ -145,5 +155,9 @@ describe.skipIf(!ready)('Schema Sync · History (SQLite)', () => {
     const inspector = await history.inspectorText();
     expect(inspector).toMatch(/phone/i);
     expect(await driver.locator('[data-testid="lokee-inspector-growth"]').isVisible()).toBe(true);
+    expect(await driver.locator('[data-testid="lokee-inspector-column-mutations"]').isVisible()).toBe(
+      true
+    );
+    expect(await driver.locator('[data-testid="lokee-inspector-revert-1"]').isVisible()).toBe(true);
   });
 });

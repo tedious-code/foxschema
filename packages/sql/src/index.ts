@@ -61,6 +61,8 @@ export {
   countSourceLines,
   objectKeyKind,
   objectKeyOwner,
+  hydrateTableSchemas,
+  buildRevertMigration,
 } from './modules/lokee-weave/index.js';
 export type {
   CanonicalObject,
@@ -83,6 +85,7 @@ export type {
   DatabaseIdentityInput,
   ObjectBlueprint,
   StoredWeaveObject,
+  RevertMigration,
 } from './modules/lokee-weave/index.js';
 export type {
   IdentityInsertKind,

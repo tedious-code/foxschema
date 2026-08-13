@@ -472,6 +472,28 @@ describe('inspectObject', () => {
     expect(inspect!.growth[1]?.columns).toBe(3);
   });
 
+  it('rolls up column mutations when inspecting the table', async () => {
+    const { weave } = await freshStore();
+    const v1 = await weave.capture(USER, { ...IDENTITY, tables: [CUSTOMER], source: 'manual' });
+    const widened = table('customer', [
+      ['id', 'integer', false],
+      ['email', 'varchar(255)'],
+      ['phone', 'varchar(20)'],
+    ]);
+    const v2 = await weave.capture(USER, { ...IDENTITY, tables: [widened], source: 'migrate' });
+
+    const inspect = await weave.inspectObject(USER, v2.databaseId, v2.versionId, 'table:CUSTOMER');
+    expect(inspect?.headVersionId).toBe(v2.versionId);
+    expect(inspect?.columnMutations.map((c) => c.columnName).sort()).toEqual(['email', 'id', 'phone']);
+    const email = inspect?.columnMutations.find((c) => c.columnName === 'email');
+    expect(email?.events.map((e) => e.operation)).toEqual(['ADD', 'MODIFY']);
+    expect(email?.events[1]?.previousBody?.dataType).toBe('varchar(100)');
+    expect(email?.events[1]?.body?.dataType).toBe('varchar(255)');
+    const phone = inspect?.columnMutations.find((c) => c.columnName === 'phone');
+    expect(phone?.events.map((e) => e.operation)).toEqual(['ADD']);
+    expect(inspect?.growth[0]?.versionId).toBe(v1.versionId);
+  });
+
   it('records procedure source lines without hashing whitespace', async () => {
     const { weave } = await freshStore();
     const proc = {
@@ -491,6 +513,41 @@ describe('inspectObject', () => {
     );
     expect(inspect?.blueprint.object?.lineCount).toBe(3);
     expect(inspect?.blueprint.object?.sourceText).toContain('begin');
+  });
+});
+
+describe('planRevert', () => {
+  it('classifies dropping a later column as lossy and emits DROP COLUMN', async () => {
+    const { weave } = await freshStore();
+    const v1 = await weave.capture(USER, { ...IDENTITY, tables: [CUSTOMER], source: 'manual' });
+    const v2 = await weave.capture(USER, {
+      ...IDENTITY,
+      tables: [
+        table('customer', [
+          ['id', 'integer', false],
+          ['email', 'varchar(100)'],
+          ['phone', 'varchar(20)'],
+        ]),
+      ],
+      source: 'migrate',
+    });
+
+    const plan = await weave.planRevert(USER, v2.databaseId, v1.versionId, 'postgres', 'public');
+    expect(plan).not.toBeNull();
+    expect(plan!.alreadyAtTarget).toBe(false);
+    expect(plan!.fromVersion.number).toBe(2);
+    expect(plan!.toVersion.number).toBe(1);
+    expect(plan!.reversal.risk).toBe('lossy');
+    expect(plan!.statements.join('\n').toLowerCase()).toMatch(/phone/);
+    expect(plan!.statements.join('\n').toLowerCase()).toMatch(/drop column/);
+  });
+
+  it('is a no-op when the target is already HEAD', async () => {
+    const { weave } = await freshStore();
+    const v1 = await weave.capture(USER, { ...IDENTITY, tables: [CUSTOMER], source: 'manual' });
+    const plan = await weave.planRevert(USER, v1.databaseId, v1.versionId, 'postgres');
+    expect(plan?.alreadyAtTarget).toBe(true);
+    expect(plan?.statements).toEqual([]);
   });
 });
 
