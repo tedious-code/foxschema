@@ -13,6 +13,7 @@ import {
   extractTableAliases,
   countReferencedTables,
   referencedTableNames,
+  collectMultiTableWriteWarnings,
   isMutatingDmlStatement,
   dmlLacksWhere,
   parseCodeCell,
@@ -491,6 +492,69 @@ describe('countReferencedTables / referencedTableNames', () => {
   it('returns 0 for statements without FROM/JOIN/UPDATE/INTO tables', () => {
     expect(countReferencedTables('SELECT 1')).toBe(0);
     expect(countReferencedTables('-- comment only')).toBe(0);
+  });
+});
+
+describe('collectMultiTableWriteWarnings', () => {
+  const selectJoin = `
+    SELECT *
+    FROM users u
+    JOIN orders o ON o.user_id = u.id
+    JOIN items i ON i.order_id = o.id
+    JOIN payments p ON p.order_id = o.id
+  `;
+  const updateJoin = `
+    UPDATE users u
+    SET active = 0
+    FROM orders o
+    JOIN items i ON i.order_id = o.id
+    WHERE o.user_id = u.id
+  `;
+
+  it('does not warn on SELECT / JOIN reads that reference many tables', () => {
+    expect(collectMultiTableWriteWarnings([selectJoin], 3)).toEqual([]);
+  });
+
+  it('warns on UPDATE / DELETE / INSERT that meet the table threshold', () => {
+    const warnings = collectMultiTableWriteWarnings([updateJoin], 3);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]!.tableCount).toBeGreaterThanOrEqual(3);
+    expect(warnings[0]!.tables.map((t) => t.toLowerCase())).toEqual(
+      expect.arrayContaining(['users', 'orders', 'items'])
+    );
+
+    const insert = collectMultiTableWriteWarnings(
+      ['INSERT INTO dest SELECT * FROM a JOIN b ON 1=1 JOIN c ON 1=1'],
+      3
+    );
+    expect(insert).toHaveLength(1);
+    expect(insert[0]!.tableCount).toBeGreaterThanOrEqual(3);
+  });
+
+  it('still warns on SELECT … INTO (it is a write)', () => {
+    const warnings = collectMultiTableWriteWarnings(
+      ['SELECT * INTO dest FROM a JOIN b ON 1=1 JOIN c ON 1=1'],
+      3
+    );
+    expect(warnings).toHaveLength(1);
+  });
+
+  it('ignores reads mixed into a batch and only reports writes', () => {
+    const warnings = collectMultiTableWriteWarnings([selectJoin, updateJoin, 'SELECT 1'], 3);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]!.text).toBe(updateJoin);
+  });
+
+  it('does not warn on WITH … SELECT joins (read-only CTE wrapper)', () => {
+    const sql = `
+      WITH x AS (SELECT * FROM a JOIN b ON 1=1)
+      SELECT * FROM x JOIN c ON 1=1 JOIN d ON 1=1
+    `;
+    expect(collectMultiTableWriteWarnings([sql], 3)).toEqual([]);
+  });
+
+  it('is disabled when threshold is 0', () => {
+    expect(collectMultiTableWriteWarnings([updateJoin], 0)).toEqual([]);
   });
 });
 
