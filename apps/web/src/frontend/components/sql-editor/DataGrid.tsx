@@ -12,7 +12,7 @@ import { CELL_DIFF_CLASS, type CellDiffKind } from '../../lib/resultDataDiff';
 import { columnToListValues, rowsForTableVariable } from '../../lib/sql-variables';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
 import { toast } from '../../store/toastStore';
-import { pickColumns, toTsv, writeClipboard } from '../../utils/copyGrid';
+import { pickColumns, sliceGridRange, toTsv, writeClipboard, type GridRange } from '../../utils/copyGrid';
 import { downloadCsv } from '../../utils/exportCsv';
 import { downloadJson } from '../../utils/exportJson';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
@@ -114,6 +114,18 @@ function identityOrder(n: number): number[] {
   return Array.from({ length: n }, (_, i) => i);
 }
 
+function rangeHasCell(sel: GridRange, row: number, col: number): boolean {
+  const r0 = Math.min(sel.row0, sel.row1);
+  const r1 = Math.max(sel.row0, sel.row1);
+  const c0 = Math.min(sel.col0, sel.col1);
+  const c1 = Math.max(sel.col0, sel.col1);
+  return row >= r0 && row <= r1 && col >= c0 && col <= c1;
+}
+
+function rangeCellCount(sel: GridRange): number {
+  return (Math.abs(sel.row1 - sel.row0) + 1) * (Math.abs(sel.col1 - sel.col0) + 1);
+}
+
 function reorder(order: number[], from: number, to: number): number[] {
   if (from === to || from < 0 || to < 0 || from >= order.length || to >= order.length) {
     return order;
@@ -196,8 +208,8 @@ function GridToolbar({
   onExport?: () => void;
   /** Download the grid as an array of row objects. */
   onExportJson?: () => void;
-  /** Copy the grid (or the chosen columns) to the clipboard as TSV. */
-  onCopy?: (withHeaders: boolean) => void;
+  /** Copy the grid, the current cell selection, or headers only. */
+  onCopy?: (mode: boolean | 'headers') => void;
   /** Open the column chooser. */
   onChooseColumns?: () => void;
   /** `n of m` when a column subset is active, so the filter is never hidden. */
@@ -247,7 +259,7 @@ function GridToolbar({
           <button
             type="button"
             data-testid="sql-grid-copy-btn"
-            title="Copy all rows to the clipboard (Cmd/Ctrl-C in the grid)"
+            title="Copy selected cells, or all rows (Cmd/Ctrl-C in the grid)"
             onClick={() => onCopy(false)}
             className={`flex items-center gap-0.5 ${chrome} text-slate-500 hover:text-cyan-400 transition`}
           >
@@ -303,6 +315,17 @@ function GridToolbar({
                 }}
               >
                 Copy with headers
+              </button>
+              <button
+                type="button"
+                data-testid="sql-grid-copy-headers-only"
+                className="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800"
+                onClick={() => {
+                  onCopy('headers');
+                  setOpenMenu(null);
+                }}
+              >
+                Copy headers
               </button>
               {onChooseColumns && (
                 <>
@@ -492,14 +515,28 @@ export const DataGrid: React.FC<{
    */
   const [copyColumns, setCopyColumns] = useState<number[] | null>(null);
   const [colPickerOpen, setColPickerOpen] = useState(false);
+  /** Rectangular cell selection in display-column space. */
+  const [cellSel, setCellSel] = useState<GridRange | null>(null);
+  const selAnchor = useRef<{ row: number; col: number } | null>(null);
+  const dragSelecting = useRef(false);
   // A column choice belongs to the result it was made against. Re-running with
   // a different shape must fall back to the whole grid rather than silently
   // copying whichever columns happen to sit at those indices now.
-  const columnSignature = sourceColumns.join(' ');
+  const columnSignature = sourceColumns.join('\0');
   useEffect(() => {
     setCopyColumns(null);
     setColPickerOpen(false);
+    setCellSel(null);
+    selAnchor.current = null;
   }, [columnSignature]);
+
+  useEffect(() => {
+    const up = () => {
+      dragSelecting.current = false;
+    };
+    window.addEventListener('mouseup', up);
+    return () => window.removeEventListener('mouseup', up);
+  }, []);
   const [savePrompt, setSavePrompt] = useState<
     | { mode: 'scalar'; value: unknown; defaultName: string }
     | { mode: 'list'; colIdx: number; defaultName: string }
@@ -746,28 +783,39 @@ export const DataGrid: React.FC<{
   };
 
   /**
-   * What copy sends: the whole grid in display order, or — once the user has
-   * picked columns — exactly those, in the order they picked them.
+   * What copy sends: the cell selection if one exists, otherwise the whole
+   * grid in display order, or — once the user has picked columns — exactly
+   * those, in the order they picked them.
    *
    * `copyColumns` holds source indices rather than display positions so that
    * dragging a column afterwards cannot silently change the selection.
    */
-  const copyPayload = (): { columns: string[]; rows: unknown[][] } =>
-    copyColumns === null
+  const copyPayload = (ignoreSel = false): { columns: string[]; rows: unknown[][] } => {
+    if (!ignoreSel && cellSel) return sliceGridRange(sourceColumns, sourceRows, cellSel, order);
+    return copyColumns === null
       ? { columns: orderedColumns, rows: orderedRowsForOutput() }
       : pickColumns(sourceColumns, sourceRows, copyColumns);
+  };
 
-  const copyOrdered = async (withHeaders: boolean) => {
-    const { columns, rows } = copyPayload();
+  const copyToClipboard = async (
+    mode: boolean | 'headers',
+    opts?: { ignoreSel?: boolean; range?: GridRange }
+  ) => {
+    const { columns, rows } = opts?.range
+      ? sliceGridRange(sourceColumns, sourceRows, opts.range, order)
+      : copyPayload(opts?.ignoreSel);
     if (columns.length === 0) {
       toast({
         tone: 'warning',
-        title: 'No columns selected',
-        body: 'Pick at least one column in Choose columns.',
+        title: 'Nothing to copy',
+        body: cellSel && !opts?.ignoreSel ? 'Select at least one cell.' : 'Pick at least one column in Choose columns.',
       });
       return;
     }
-    const ok = await writeClipboard(toTsv(withHeaders ? columns : null, rows));
+    const headersOnly = mode === 'headers';
+    const withHeaders = mode === true || headersOnly;
+    const text = toTsv(withHeaders ? columns : null, headersOnly ? [] : rows);
+    const ok = await writeClipboard(text);
     if (!ok) {
       toast({
         tone: 'warning',
@@ -776,12 +824,49 @@ export const DataGrid: React.FC<{
       });
       return;
     }
+    const n = headersOnly ? columns.length : rows.length;
+    const selForTitle = opts?.range ?? (!opts?.ignoreSel ? cellSel : null);
+    const title = headersOnly
+      ? `Copied ${n} header${n === 1 ? '' : 's'}`
+      : selForTitle && rangeCellCount(selForTitle) === 1
+        ? 'Copied cell'
+        : `Copied ${n} row${n === 1 ? '' : 's'}`;
     toast({
       tone: 'success',
-      title: `Copied ${rows.length} row${rows.length === 1 ? '' : 's'}`,
-      body: withHeaders ? 'Headers included — paste into Excel or Sheets.' : undefined,
+      title,
+      body: withHeaders && !headersOnly ? 'Headers included — paste into Excel or Sheets.' : undefined,
       durationMs: 2_000,
     });
+  };
+
+  const copyOrdered = (mode: boolean | 'headers') => {
+    void copyToClipboard(mode);
+  };
+
+  const copyCellValue = async (value: unknown) => {
+    const ok = await writeClipboard(toTsv(null, [[value]]));
+    if (!ok) {
+      toast({
+        tone: 'warning',
+        title: 'Copy failed',
+        body: 'The browser blocked clipboard access. Click the grid and try again.',
+      });
+      return;
+    }
+    toast({ tone: 'success', title: 'Copied cell', durationMs: 2_000 });
+  };
+
+  const beginCellSel = (row: number, col: number, extend: boolean) => {
+    const anchor = extend && selAnchor.current ? selAnchor.current : { row, col };
+    if (!extend || !selAnchor.current) selAnchor.current = { row, col };
+    setCellSel({ row0: anchor.row, col0: anchor.col, row1: row, col1: col });
+  };
+
+  const selectRow = (row: number, extend: boolean) => {
+    const lastCol = Math.max(0, order.length - 1);
+    const anchorRow = extend && selAnchor.current ? selAnchor.current.row : row;
+    if (!extend || !selAnchor.current) selAnchor.current = { row, col: 0 };
+    setCellSel({ row0: anchorRow, row1: row, col0: 0, col1: lastCol });
   };
 
   return (
@@ -810,6 +895,12 @@ export const DataGrid: React.FC<{
         style={{ overflowX: 'auto', overflowY: 'auto' }}
         onScroll={onScroll}
         onKeyDown={(e) => {
+          if (e.key === 'Escape' && cellSel) {
+            setCellSel(null);
+            selAnchor.current = null;
+            e.preventDefault();
+            return;
+          }
           if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'c') return;
           if (sourceColumns.length === 0) return;
           // Never hijack a real text selection — highlighting one cell's text
@@ -817,7 +908,7 @@ export const DataGrid: React.FC<{
           const sel = window.getSelection();
           if (sel && !sel.isCollapsed) return;
           e.preventDefault();
-          void copyOrdered(e.shiftKey);
+          void copyToClipboard(e.shiftKey);
         }}
         onMouseLeave={() => {
           if (hoverRow !== null) publishHoverRow(null);
@@ -1015,6 +1106,14 @@ export const DataGrid: React.FC<{
                       }`}
                       style={{ width: ROW_NUM_PX, minWidth: ROW_NUM_PX }}
                       data-testid="sql-row-num"
+                      onMouseDown={(e) => {
+                        if (e.button !== 0) return;
+                        dragSelecting.current = true;
+                        selectRow(i, e.shiftKey);
+                      }}
+                      onMouseEnter={() => {
+                        if (dragSelecting.current) selectRow(i, true);
+                      }}
                       onContextMenu={(e) => {
                         // The container's handler bails inside any td, so
                         // without this the row-number column is a dead zone —
@@ -1025,25 +1124,41 @@ export const DataGrid: React.FC<{
                     >
                       {absRow}
                     </td>
-                    {order.map((colIdx) => {
+                    {order.map((colIdx, visualIdx) => {
                       const cell = row[colIdx];
                       const w = colWidths[colIdx] ?? COL_DEFAULT_PX;
                       const { text, title, isNull } = cellDisplay(cell);
                       const kind = isNull ? 'null' : (colKinds[colIdx] ?? 'string');
                       const hl = cellHighlight?.(i, colIdx) ?? null;
                       const hlClass = hl ? CELL_DIFF_CLASS[hl] : '';
+                      const inSel = cellSel ? rangeHasCell(cellSel, i, visualIdx) : false;
                       const cellBg = hlClass || `${rowBg} group-hover:bg-[var(--fox-grid-bg-hover)]`;
                       return (
                         <td
                           key={colIdx}
                           data-diff={hl ?? undefined}
+                          data-selected={inSel ? 'true' : undefined}
                           className={`px-3 overflow-hidden text-ellipsis ${cellBg} ${KIND_CELL_CLASS[kind]} ${
                             emphasis && kind === 'string' ? 'font-semibold' : ''
-                          } ${emphasis && kind === 'number' ? 'font-bold' : ''}`}
+                          } ${emphasis && kind === 'number' ? 'font-bold' : ''} ${
+                            inSel ? 'bg-sky-500/20 ring-1 ring-inset ring-sky-400/60' : ''
+                          }`}
                           style={{ width: w, minWidth: COL_MIN_PX, maxWidth: w }}
                           title={hl ? `${hl}: ${title}` : title}
+                          onMouseDown={(e) => {
+                            if (e.button !== 0) return;
+                            if ((e.target as HTMLElement).closest('button, input, a')) return;
+                            dragSelecting.current = true;
+                            beginCellSel(i, visualIdx, e.shiftKey);
+                          }}
+                          onMouseEnter={() => {
+                            if (dragSelecting.current) beginCellSel(i, visualIdx, true);
+                          }}
                           onContextMenu={(e) => {
                             e.preventDefault();
+                            if (!cellSel || !rangeHasCell(cellSel, i, visualIdx)) {
+                              beginCellSel(i, visualIdx, false);
+                            }
                             setMenu({
                               kind: 'cell',
                               x: e.clientX,
@@ -1245,7 +1360,7 @@ export const DataGrid: React.FC<{
               data-testid="sql-grid-copy-columns-values"
               className="px-2 py-0.5 rounded text-[10px] font-bold border border-slate-700 text-slate-200 hover:border-cyan-500/50 hover:text-cyan-200 transition"
               onClick={() => {
-                void copyOrdered(false);
+                void copyToClipboard(false, { ignoreSel: true });
                 setColPickerOpen(false);
               }}
             >
@@ -1256,7 +1371,7 @@ export const DataGrid: React.FC<{
               data-testid="sql-grid-copy-columns-headers"
               className="px-2 py-0.5 rounded text-[10px] font-bold border border-slate-700 text-slate-200 hover:border-cyan-500/50 hover:text-cyan-200 transition"
               onClick={() => {
-                void copyOrdered(true);
+                void copyToClipboard(true, { ignoreSel: true });
                 setColPickerOpen(false);
               }}
             >
@@ -1278,27 +1393,117 @@ export const DataGrid: React.FC<{
         >
           {sourceColumns.length > 0 && (
             <>
+              {menu.kind === 'cell' && (
+                <button
+                  type="button"
+                  data-testid="sql-grid-ctx-copy-cell"
+                  className="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800"
+                  onClick={() => {
+                    void copyCellValue(menu.value);
+                    setMenu(null);
+                  }}
+                >
+                  Copy cell
+                </button>
+              )}
+              {menu.kind === 'column' && (
+                <>
+                  <button
+                    type="button"
+                    data-testid="sql-grid-ctx-copy-header"
+                    className="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800"
+                    onClick={() => {
+                      const name = sourceColumns[menu.colIdx] ?? '';
+                      void writeClipboard(toTsv([name], [])).then((ok) => {
+                        toast({
+                          tone: ok ? 'success' : 'warning',
+                          title: ok ? 'Copied header' : 'Copy failed',
+                          durationMs: 2_000,
+                        });
+                      });
+                      setMenu(null);
+                    }}
+                  >
+                    Copy header
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="sql-grid-ctx-copy-column"
+                    className="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800"
+                    onClick={() => {
+                      const visual = order.indexOf(menu.colIdx);
+                      if (visual >= 0) {
+                        const range = {
+                          row0: 0,
+                          row1: Math.max(0, sourceRows.length - 1),
+                          col0: visual,
+                          col1: visual,
+                        };
+                        setCellSel(range);
+                        selAnchor.current = { row: 0, col: visual };
+                        void copyToClipboard(false, { range });
+                      }
+                      setMenu(null);
+                    }}
+                  >
+                    Copy column
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="sql-grid-ctx-copy-column-headers"
+                    className="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800"
+                    onClick={() => {
+                      const visual = order.indexOf(menu.colIdx);
+                      if (visual >= 0) {
+                        const range = {
+                          row0: 0,
+                          row1: Math.max(0, sourceRows.length - 1),
+                          col0: visual,
+                          col1: visual,
+                        };
+                        setCellSel(range);
+                        selAnchor.current = { row: 0, col: visual };
+                        void copyToClipboard(true, { range });
+                      }
+                      setMenu(null);
+                    }}
+                  >
+                    Copy column with header
+                  </button>
+                </>
+              )}
               <button
                 type="button"
                 data-testid="sql-grid-ctx-copy-values"
                 className="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800"
                 onClick={() => {
-                  void copyOrdered(false);
+                  void copyToClipboard(false, { ignoreSel: menu.kind === 'grid' });
                   setMenu(null);
                 }}
               >
-                Copy values
+                {cellSel && menu.kind !== 'grid' ? 'Copy selected values' : 'Copy values'}
               </button>
               <button
                 type="button"
                 data-testid="sql-grid-ctx-copy-headers"
                 className="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800"
                 onClick={() => {
-                  void copyOrdered(true);
+                  void copyToClipboard(true, { ignoreSel: menu.kind === 'grid' });
                   setMenu(null);
                 }}
               >
-                Copy with headers
+                {cellSel && menu.kind !== 'grid' ? 'Copy selected with headers' : 'Copy with headers'}
+              </button>
+              <button
+                type="button"
+                data-testid="sql-grid-ctx-copy-headers-only"
+                className="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800"
+                onClick={() => {
+                  void copyToClipboard('headers', { ignoreSel: menu.kind === 'grid' });
+                  setMenu(null);
+                }}
+              >
+                {cellSel && menu.kind !== 'grid' ? 'Copy selected headers' : 'Copy headers'}
               </button>
               <button
                 type="button"

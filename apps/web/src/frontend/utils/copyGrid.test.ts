@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pickColumns, toTsv } from './copyGrid';
+import { pickColumns, sliceGridRange, toTsv } from './copyGrid';
 
 describe('toTsv — shape', () => {
   it('omits the header row when columns are not requested', () => {
@@ -124,6 +124,65 @@ describe('pickColumns — choosing columns and their order', () => {
   it('feeds toTsv to produce a reordered subset copy', () => {
     const out = pickColumns(columns, rows, [2, 0]);
     expect(toTsv(out.columns, out.rows)).toBe('city\tid\r\nDenver\t1\r\nAustin\t2');
+  });
+});
+
+describe('sliceGridRange — rectangular selection', () => {
+  const columns = ['id', 'name', 'city'];
+  const rows = [
+    [1, 'Alice', 'Denver'],
+    [2, 'Bob', 'Austin'],
+    [3, 'Cara', 'Miami'],
+  ];
+
+  it('copies a single cell', () => {
+    const out = sliceGridRange(columns, rows, { row0: 0, row1: 0, col0: 1, col1: 1 });
+    expect(out.columns).toEqual(['name']);
+    expect(out.rows).toEqual([['Alice']]);
+    expect(toTsv(null, out.rows)).toBe('Alice');
+  });
+
+  it('copies a block of cells with their headers', () => {
+    const out = sliceGridRange(columns, rows, { row0: 0, row1: 1, col0: 1, col1: 2 });
+    expect(out.columns).toEqual(['name', 'city']);
+    expect(out.rows).toEqual([
+      ['Alice', 'Denver'],
+      ['Bob', 'Austin'],
+    ]);
+    expect(toTsv(out.columns, out.rows)).toBe('name\tcity\r\nAlice\tDenver\r\nBob\tAustin');
+  });
+
+  it('copies headers only when rows are omitted by the caller', () => {
+    const out = sliceGridRange(columns, rows, { row0: 0, row1: 0, col0: 0, col1: 2 });
+    expect(toTsv(out.columns, [])).toBe('id\tname\tcity');
+  });
+
+  it('normalises an inverted drag', () => {
+    const out = sliceGridRange(columns, rows, { row0: 2, row1: 1, col0: 2, col1: 1 });
+    expect(out.columns).toEqual(['name', 'city']);
+    expect(out.rows).toEqual([
+      ['Bob', 'Austin'],
+      ['Cara', 'Miami'],
+    ]);
+  });
+
+  it('follows display order so a reordered grid copies what is on screen', () => {
+    const out = sliceGridRange(columns, rows, { row0: 0, row1: 0, col0: 0, col1: 1 }, [2, 0, 1]);
+    expect(out.columns).toEqual(['city', 'id']);
+    expect(out.rows).toEqual([['Denver', 1]]);
+  });
+
+  it('clamps off the edge of the grid', () => {
+    const out = sliceGridRange(columns, rows, { row0: -4, row1: 99, col0: -1, col1: 99 });
+    expect(out.columns).toEqual(columns);
+    expect(out.rows).toEqual(rows);
+  });
+
+  it('returns empty when the grid has no rows', () => {
+    expect(sliceGridRange(columns, [], { row0: 0, row1: 0, col0: 0, col1: 1 })).toEqual({
+      columns: [],
+      rows: [],
+    });
   });
 });
 

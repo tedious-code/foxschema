@@ -124,10 +124,37 @@ describe.skipIf(!ready)('SQL Editor · copy and export', () => {
       button: 'right',
     });
     await driver.waitForSelector('[data-testid="sql-grid-context-menu"]');
+    await driver.click('[data-testid="sql-grid-ctx-copy-cell"]');
+
+    const text = await readClipboard();
+    // First data column of the first row is id = 1.
+    expect(text).toBe('1');
+  });
+
+  it('copies selected cells with their column headers', async () => {
+    await driver.evaluate(() => navigator.clipboard.writeText('stale'));
+    const firstRow = driver.locator('[data-testid="sql-data-grid"] tbody tr').first();
+    await firstRow.locator('td').nth(1).click(); // id
+    await firstRow.locator('td').nth(2).click({ modifiers: ['Shift'] }); // name
+    await driver.click('[data-testid="sql-data-grid"] tbody tr td:nth-child(2)', {
+      button: 'right',
+    });
+    await driver.waitForSelector('[data-testid="sql-grid-context-menu"]');
     await driver.click('[data-testid="sql-grid-ctx-copy-headers"]');
 
     const text = await readClipboard();
-    expect(text.split('\r\n')[0]).toBe('id\tname\tcity\tnote');
+    expect(text.split('\r\n')[0]).toBe('id\tname');
+    expect(text.split('\r\n')[1]).toBe('1\tAlice');
+  });
+
+  it('copies column headers only', async () => {
+    await driver.evaluate(() => navigator.clipboard.writeText('stale'));
+    await driver.click('[data-testid="sql-data-grid"]');
+    await driver.keyboard.press('Escape');
+    await driver.click('[data-testid="sql-grid-copy-menu-btn"]');
+    await driver.click('[data-testid="sql-grid-copy-headers-only"]');
+    const text = await readClipboard();
+    expect(text).toBe('id\tname\tcity\tnote');
   });
 
   it('offers copy from the right-click menu on the row-number column', async () => {
@@ -147,6 +174,8 @@ describe.skipIf(!ready)('SQL Editor · copy and export', () => {
     await driver.evaluate(() => navigator.clipboard.writeText('stale'));
     await driver.click('[data-testid="sql-data-grid"]');
     const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
+    // Clicking the grid may select a cell; Escape restores whole-grid copy.
+    await driver.keyboard.press('Escape');
     await driver.keyboard.press(`${mod}+KeyC`);
 
     const text = await readClipboard();
@@ -158,6 +187,7 @@ describe.skipIf(!ready)('SQL Editor · copy and export', () => {
     await driver.evaluate(() => navigator.clipboard.writeText('stale'));
     await driver.click('[data-testid="sql-data-grid"]');
     const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
+    await driver.keyboard.press('Escape');
     await driver.keyboard.press(`${mod}+Shift+KeyC`);
 
     const text = await readClipboard();
@@ -215,6 +245,7 @@ describe.skipIf(!ready)('SQL Editor · copy and export', () => {
     await driver.evaluate(() => navigator.clipboard.writeText('stale'));
     await driver.click('[data-testid="sql-data-grid"]');
     const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
+    await driver.keyboard.press('Escape');
     await driver.keyboard.press(`${mod}+KeyC`);
 
     const text = await readClipboard();
