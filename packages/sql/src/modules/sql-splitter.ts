@@ -6,11 +6,10 @@
  *
  * This is a scanner, NOT a parser. It understands enough lexical structure to
  * split reliably — `--`/`#` line comments, block comments, single/double/
- * backtick/[bracket] quoting (with '' doubling and backslash escapes), and
- * PostgreSQL $tag$…$tag$ dollar quotes — and deliberately nothing more.
- * Known v1 limitation: procedural bodies (CREATE PROCEDURE … BEGIN … END)
- * with internal semicolons split at each `;`; routine DDL belongs in the
- * migration flow, not the editor.
+ * backtick/[bracket] quoting (with '' doubling and backslash escapes),
+ * PostgreSQL $tag$…$tag$ dollar quotes, and CREATE/ALTER FUNCTION|PROCEDURE|
+ * TRIGGER bodies (`BEGIN`/`END` + `CASE` nesting) so inner `;` stay in one
+ * editor cell.
  *
  * Code cells: `-- @js` / `-- @ts` / `-- @node` / `-- @nodets` … `-- @end`
  * fences are opaque (inner `;` do not split) and emit a single statement with
@@ -325,6 +324,68 @@ export function stripFullLineSqlComments(body: string): string {
     .join('\n');
 }
 
+/** CREATE/ALTER object kinds whose body may contain nested `;`. */
+const ROUTINE_OBJECT = new Set(['FUNCTION', 'PROCEDURE', 'TRIGGER', 'PROC']);
+/** CREATE/ALTER object kinds that are not routine DDL (abort the look-ahead). */
+const NOT_ROUTINE_OBJECT = new Set([
+  'TABLE', 'VIEW', 'INDEX', 'SCHEMA', 'DATABASE', 'SEQUENCE', 'TYPE', 'ROLE',
+  'MATERIALIZED', 'EVENT', 'USER', 'LOGIN', 'SYNONYM', 'EXTENSION', 'COLLATION',
+  'DOMAIN', 'CONVERSION', 'OPERATOR', 'RULE', 'POLICY', 'PUBLICATION',
+  'SUBSCRIPTION', 'SERVER', 'FOREIGN', 'FULLTEXT', 'SPATIAL', 'COLUMN',
+  'CONSTRAINT', 'UNIQUE',
+]);
+/** `END IF` / `END LOOP` / … close a compound statement, not `BEGIN`. */
+const END_COMPOUND = new Set(['IF', 'LOOP', 'WHILE', 'REPEAT', 'TRY', 'CATCH']);
+
+/** Skip whitespace and SQL comments; return the next non-trivia index. */
+function skipSqlTrivia(sql: string, start: number): number {
+  let i = start;
+  const len = sql.length;
+  while (i < len) {
+    const ch = sql[i]!;
+    const next = i + 1 < len ? sql[i + 1]! : '';
+    if (/\s/.test(ch)) {
+      i++;
+      continue;
+    }
+    if (ch === '-' && next === '-') {
+      i += 2;
+      while (i < len && sql[i] !== '\n') i++;
+      continue;
+    }
+    if (ch === '#') {
+      i++;
+      while (i < len && sql[i] !== '\n') i++;
+      continue;
+    }
+    if (ch === '/' && next === '*') {
+      i += 2;
+      while (i < len - 1 && !(sql[i] === '*' && sql[i + 1] === '/')) i++;
+      i = Math.min(len, i + 2);
+      continue;
+    }
+    break;
+  }
+  return i;
+}
+
+function readSqlIdent(sql: string, start: number): { word: string; end: number } | null {
+  if (start >= sql.length || !/[A-Za-z_]/.test(sql[start]!)) return null;
+  let j = start;
+  while (j < sql.length && /[A-Za-z_0-9$]/.test(sql[j]!)) j++;
+  return { word: sql.slice(start, j).toUpperCase(), end: j };
+}
+
+function peekSqlKeyword(sql: string, start: number): string | null {
+  return readSqlIdent(sql, skipSqlTrivia(sql, start))?.word ?? null;
+}
+
+function identIsQualified(sql: string, identStart: number): boolean {
+  let k = identStart - 1;
+  while (k >= 0 && /\s/.test(sql[k]!)) k--;
+  return k >= 0 && sql[k] === '.';
+}
+
 /** Split a SQL-only buffer into `;`-terminated statements (no code fences). */
 function splitSqlOnly(sql: string): SplitStatement[] {
   const out: SplitStatement[] = [];
@@ -339,9 +400,24 @@ function splitSqlOnly(sql: string): SplitStatement[] {
   // statement; a comment after code has started is kept verbatim).
   let codeStart = -1;
   let codeStartLine = 1;
+  /** First keyword of the current statement (`CREATE`, `SELECT`, …). */
+  let stmtVerb: string | null = null;
+  /** True until we know whether this CREATE/ALTER is routine DDL. */
+  let lookingForRoutine = false;
+  /** CREATE/ALTER FUNCTION|PROCEDURE|TRIGGER — inner `;` do not split. */
+  let inRoutineDdl = false;
+  /** BEGIN/CASE nesting while `inRoutineDdl`. */
+  let blockDepth = 0;
+  /** Swallow the next ident after `END IF` / `END CASE` so it is not an opener. */
+  let skipNextWord: string | null = null;
 
   const reset = () => {
     codeStart = -1;
+    stmtVerb = null;
+    lookingForRoutine = false;
+    inRoutineDdl = false;
+    blockDepth = 0;
+    skipNextWord = null;
   };
 
   const markCode = (idx: number) => {
@@ -392,7 +468,65 @@ function splitSqlOnly(sql: string): SplitStatement[] {
           const m = DOLLAR_TAG_RE.exec(sql.slice(i, i + 64));
           if (m) { markCode(i); dollarTag = m[0]; mode = 'dollar'; i += m[0].length; continue; }
         }
-        if (ch === ';') { markCode(i); flush(i + 1, true); i += 1; continue; }
+        if (ch === ';') {
+          markCode(i);
+          // Routine bodies (CREATE PROCEDURE … BEGIN … END) contain many `;`
+          // that must not become extra editor cells.
+          if (inRoutineDdl && blockDepth > 0) {
+            i += 1;
+            continue;
+          }
+          flush(i + 1, true);
+          i += 1;
+          continue;
+        }
+        if (/[A-Za-z_]/.test(ch)) {
+          markCode(i);
+          const ident = readSqlIdent(sql, i);
+          if (!ident) { i += 1; continue; }
+          const word = ident.word === 'PROC' ? 'PROCEDURE' : ident.word;
+          if (!identIsQualified(sql, i)) {
+            if (skipNextWord && word === skipNextWord) {
+              skipNextWord = null;
+              i = ident.end;
+              continue;
+            }
+            skipNextWord = null;
+            if (stmtVerb === null) {
+              stmtVerb = word;
+              lookingForRoutine = word === 'CREATE' || word === 'ALTER';
+            } else if (lookingForRoutine) {
+              if (ROUTINE_OBJECT.has(word)) {
+                inRoutineDdl = true;
+                lookingForRoutine = false;
+              } else if (NOT_ROUTINE_OBJECT.has(word)) {
+                lookingForRoutine = false;
+              }
+            }
+            if (inRoutineDdl) {
+              if (word === 'BEGIN') {
+                const nxt = peekSqlKeyword(sql, ident.end);
+                if (nxt !== 'TRAN' && nxt !== 'TRANSACTION' && nxt !== 'WORK') {
+                  blockDepth++;
+                }
+              } else if (word === 'CASE') {
+                blockDepth++;
+              } else if (word === 'END') {
+                const nxt = peekSqlKeyword(sql, ident.end);
+                if (nxt && END_COMPOUND.has(nxt)) {
+                  skipNextWord = nxt;
+                } else if (nxt === 'CASE') {
+                  skipNextWord = 'CASE';
+                  blockDepth = Math.max(0, blockDepth - 1);
+                } else {
+                  blockDepth = Math.max(0, blockDepth - 1);
+                }
+              }
+            }
+          }
+          i = ident.end;
+          continue;
+        }
         if (ch === '\n') { line++; i += 1; continue; }
         if (!/\s/.test(ch)) markCode(i);
         i += 1;
