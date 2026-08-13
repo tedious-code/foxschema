@@ -85,6 +85,11 @@ const ALWAYS = [
     file: 'src/tests/sql-editor-smoke.test.ts src/tests/sql-editor-sqlite.test.ts src/tests/sql-editor-blueprint.test.ts src/tests/sql-editor-copy-export.test.ts src/tests/sql-editor-running-state.test.ts',
     label: 'SQL Editor',
   },
+  {
+    key: 'schema-history',
+    file: 'src/tests/schema-history.test.ts',
+    label: 'History',
+  },
   ...(configured.length
     ? [
         {

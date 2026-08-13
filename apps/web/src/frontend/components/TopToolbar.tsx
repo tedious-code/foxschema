@@ -287,6 +287,7 @@ export const TopToolbar: React.FC = () => {
           <div className="flex items-center gap-2">
             {connections.length > 0 && (
               <select
+                data-testid="source-saved-select"
                 value={selectedSourceConnectionId ?? ''}
                 onChange={(e) => e.target.value && selectSavedConnection('source', e.target.value)}
                 title="Saved connections"
@@ -391,6 +392,7 @@ export const TopToolbar: React.FC = () => {
           <div className="flex items-center gap-2">
             {connections.length > 0 && (
               <select
+                data-testid="target-saved-select"
                 value={selectedTargetConnectionId ?? ''}
                 onChange={(e) => e.target.value && selectSavedConnection('target', e.target.value)}
                 title="Saved connections"

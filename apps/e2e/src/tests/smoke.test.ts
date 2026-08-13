@@ -29,4 +29,13 @@ describe('App boot', () => {
     await page.open();
     expect(await driver.locator('[data-testid="toolbar"]').isVisible()).toBe(true);
   });
+
+  it('puts schema history inside Schema Sync, not a standalone tab', async () => {
+    expect(await driver.locator('[data-testid="view-lokee-weave-btn"]').count()).toBe(0);
+    expect(await driver.locator('[data-testid="sync-pane-switcher"]').isVisible()).toBe(true);
+    await driver.locator('[data-testid="sync-pane-history-btn"]').click();
+    await driver.waitForSelector('[data-testid="lokee-weave-view"]', { timeout: 15_000 });
+    expect(await driver.locator('[data-testid="lokee-weave-view"]').isVisible()).toBe(true);
+    await driver.locator('[data-testid="sync-pane-compare-btn"]').click();
+  });
 });
