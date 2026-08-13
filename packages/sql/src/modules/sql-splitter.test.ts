@@ -215,6 +215,99 @@ return last;
   });
 });
 
+describe('splitSqlStatements routine DDL (one cell)', () => {
+  it('keeps CREATE PROCEDURE … BEGIN … END as one statement', () => {
+    const sql = `CREATE PROCEDURE bump_qty()
+BEGIN
+  UPDATE items SET qty = qty + 1 WHERE id = 1;
+  SELECT qty FROM items WHERE id = 1;
+END;`;
+    const stmts = splitSqlStatements(sql);
+    expect(stmts).toHaveLength(1);
+    expect(stmts[0]!.text).toContain('UPDATE items');
+    expect(stmts[0]!.text).toContain('SELECT qty');
+    expect(stmts[0]!.terminated).toBe(true);
+  });
+
+  it('keeps CREATE FUNCTION with nested BEGIN and CASE as one statement', () => {
+    const sql = `CREATE FUNCTION status_label(p_id INT) RETURNS VARCHAR(20)
+BEGIN
+  DECLARE v INT;
+  SET v = CASE WHEN p_id IS NULL THEN 0 ELSE p_id END;
+  IF v > 0 THEN
+    RETURN 'ok';
+  END IF;
+  RETURN 'empty';
+END;`;
+    const stmts = splitSqlStatements(sql);
+    expect(stmts).toHaveLength(1);
+    expect(stmts[0]!.text).toMatch(/CREATE FUNCTION/i);
+    expect(stmts[0]!.text).toContain('END IF');
+  });
+
+  it('splits a following SELECT after the routine END', () => {
+    const sql = `CREATE PROCEDURE p()
+BEGIN
+  SELECT 1;
+END;
+SELECT 2;`;
+    const stmts = splitSqlStatements(sql);
+    expect(stmts).toHaveLength(2);
+    expect(stmts[0]!.text).toMatch(/CREATE PROCEDURE/i);
+    expect(stmts[1]!.text.trim()).toBe('SELECT 2;');
+  });
+
+  it('keeps two routines as two cells', () => {
+    const sql = `CREATE PROCEDURE a() BEGIN SELECT 1; END;
+CREATE FUNCTION b() RETURNS INT BEGIN RETURN 2; END;`;
+    const stmts = splitSqlStatements(sql);
+    expect(stmts).toHaveLength(2);
+    expect(stmts[0]!.text).toMatch(/PROCEDURE a/i);
+    expect(stmts[1]!.text).toMatch(/FUNCTION b/i);
+  });
+
+  it('keeps CREATE OR REPLACE FUNCTION and dollar-quoted bodies as one cell', () => {
+    const sql = `CREATE OR REPLACE FUNCTION trg_fn() RETURNS trigger AS $$
+BEGIN
+  NEW.updated_at := now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+SELECT 1;`;
+    const stmts = splitSqlStatements(sql);
+    expect(stmts).toHaveLength(2);
+    expect(stmts[0]!.text).toContain('LANGUAGE plpgsql');
+    expect(stmts[1]!.text.trim()).toBe('SELECT 1;');
+  });
+
+  it('keeps CREATE TRIGGER … BEGIN … END as one statement', () => {
+    const sql = `CREATE TRIGGER trg_items AFTER INSERT ON items
+BEGIN
+  UPDATE items SET qty = qty + 1 WHERE id = NEW.id;
+END;
+SELECT 1;`;
+    const stmts = splitSqlStatements(sql);
+    expect(stmts).toHaveLength(2);
+    expect(stmts[0]!.text).toMatch(/CREATE TRIGGER/i);
+  });
+
+  it('does not treat CREATE TABLE as routine DDL', () => {
+    const sql = `CREATE TABLE t (id int);
+SELECT 1;`;
+    expect(splitSqlStatements(sql)).toHaveLength(2);
+  });
+
+  it('understands SQL Server CREATE PROC abbreviation', () => {
+    const sql = `CREATE PROC dbo.bump
+AS
+BEGIN
+  UPDATE t SET x = 1;
+  SELECT x FROM t;
+END;`;
+    expect(splitSqlStatements(sql)).toHaveLength(1);
+  });
+});
+
 describe('checkStatement', () => {
   const stmt = (text: string, terminated = text.trimEnd().endsWith(';')) => ({ text, terminated });
 
