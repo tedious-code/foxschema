@@ -422,6 +422,44 @@ return [{
 `,
   },
   {
+    id: 'sample-schema-history-table',
+    title: '★ Sample · Schema history (table v1…vN)',
+    sql: `-- WRITES — Safe mode OFF. SQLite, Postgres, or MySQL.
+-- Play ONE SQL cell at a time (▶ on the strip), then Compare Schema → Snapshot
+-- target. After v3, open History and click fox_hist_customers.
+
+-- @js
+return [
+  { step: 'prep', do: 'Safe mode OFF. Check a SQLite (or Postgres) credential.' },
+  { step: 'v1', do: 'Play CREATE TABLE, then Schema Sync → Snapshot target.' },
+  { step: 'v2', do: 'Play ADD email + CREATE INDEX, Snapshot. Inspector: email ADD.' },
+  { step: 'v3', do: 'Play ADD phone + CREATE VIEW, Snapshot. Growth shows 3 cols.' },
+  { step: 'history', do: 'History → click fox_hist_customers → v1…vN, Revert on v1.' },
+];
+-- @end
+
+DROP VIEW IF EXISTS fox_hist_v_customers;
+
+DROP TABLE IF EXISTS fox_hist_customers;
+
+-- v1 · initial table (id, name). Snapshot after this cell.
+CREATE TABLE fox_hist_customers (
+  id INTEGER PRIMARY KEY,
+  name VARCHAR(100) NOT NULL
+);
+
+-- v2 · email appears. Snapshot after the index cell.
+ALTER TABLE fox_hist_customers ADD COLUMN email VARCHAR(100);
+
+CREATE INDEX fox_hist_customers_email ON fox_hist_customers (email);
+
+-- v3 · phone + a view (enable Views in History if needed). Snapshot after the view.
+ALTER TABLE fox_hist_customers ADD COLUMN phone VARCHAR(20);
+
+CREATE VIEW fox_hist_v_customers AS SELECT id, name, email FROM fox_hist_customers;
+`,
+  },
+  {
     id: 'sample-node-sql-basics',
     title: '★ Sample · Node sql`` parameterized read',
     sql: `-- Needs a checked credential — \`sql\` runs on it. Read-only, safe with Safe mode ON.

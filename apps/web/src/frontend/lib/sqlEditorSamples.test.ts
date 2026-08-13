@@ -129,6 +129,21 @@ describe('SQL Editor sample bookmarks', () => {
     expect(again.result.rows).toEqual(result.rows);
   });
 
+  it('schema history sample splits into one playbook cell plus per-version SQL', () => {
+    const sample = SQL_EDITOR_SAMPLE_BOOKMARKS.find((s) => s.id === 'sample-schema-history-table');
+    expect(sample).toBeTruthy();
+    const stmts = splitSqlStatements(sample!.sql);
+    expect(stmts.filter((s) => s.kind === 'js')).toHaveLength(1);
+    const sql = stmts.filter((s) => s.kind === 'sql');
+    expect(sql.length).toBeGreaterThanOrEqual(6);
+    expect(sql.some((s) => /CREATE TABLE fox_hist_customers/i.test(s.text))).toBe(true);
+    expect(sql.some((s) => /ADD COLUMN email/i.test(s.text))).toBe(true);
+    expect(sql.some((s) => /ADD COLUMN phone/i.test(s.text))).toBe(true);
+    expect(sql.some((s) => /CREATE VIEW fox_hist_v_customers/i.test(s.text))).toBe(true);
+    expect(sample!.sql).toMatch(/Snapshot/i);
+    expect(sample!.sql).toMatch(/Revert/i);
+  });
+
   it('runs the lodash aggregate sample against a synthetic prior grid', async () => {
     const sample = SQL_EDITOR_SAMPLE_BOOKMARKS.find((s) => s.id === 'sample-js-lodash-aggregate');
     expect(sample).toBeTruthy();
