@@ -119,3 +119,66 @@ export async function updateLokeeVersionMeta(
   const body = await parseJsonResponse<{ version: LokeeVersion }>(res);
   return body.version;
 }
+
+export interface LokeeInspectResult {
+  blueprint: {
+    focusKey: string;
+    container: LokeeStoredObject | null;
+    object: LokeeStoredObject | null;
+    columns: LokeeStoredObject[];
+    indexes: LokeeStoredObject[];
+    foreignKeys: LokeeStoredObject[];
+    triggers: LokeeStoredObject[];
+    primaryKey: LokeeStoredObject | null;
+  };
+  history: Array<{
+    versionId: string;
+    versionNumber: number;
+    createdAt: string;
+    source: string;
+    operation: 'ADD' | 'MODIFY' | 'DELETE';
+    hash?: string;
+    previousHash?: string;
+    body?: Record<string, unknown>;
+    previousBody?: Record<string, unknown>;
+    lineCount?: number | null;
+    previousLineCount?: number | null;
+    firstSeenAt?: string | null;
+    reused: boolean;
+  }>;
+  growth: Array<{
+    versionId: string;
+    versionNumber: number;
+    createdAt: string;
+    columns: number;
+    indexes: number;
+    foreignKeys: number;
+    triggers: number;
+    objects: number;
+  }>;
+}
+
+export interface LokeeStoredObject {
+  key: string;
+  type: string;
+  name: string;
+  hash: string;
+  body: Record<string, unknown>;
+  sourceText?: string | null;
+  lineCount?: number | null;
+  firstSeenAt?: string | null;
+}
+
+/** Blueprint + change timeline for one object at one version. */
+export async function inspectLokeeObject(
+  databaseId: string,
+  versionId: string,
+  objectKey: string
+): Promise<LokeeInspectResult> {
+  const params = new URLSearchParams({ versionId, objectKey });
+  const res = await fetch(
+    `${getApiBase()}/lokee/databases/${encodeURIComponent(databaseId)}/inspect?${params}`,
+    { credentials: 'include' }
+  );
+  return parseJsonResponse<LokeeInspectResult>(res);
+}

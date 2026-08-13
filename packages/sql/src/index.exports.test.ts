@@ -42,6 +42,8 @@ import type {
   WeaveCapture,
   WeaveObject,
   WindowResult,
+  ObjectBlueprint,
+  StoredWeaveObject,
 } from './index.js';
 
 describe('src/index.ts re-exports every public value from the module indexes', () => {
@@ -95,4 +97,6 @@ type _AssertTypesReachable = [
   WeaveCapture,
   WeaveObject,
   WindowResult<unknown>,
+  ObjectBlueprint,
+  StoredWeaveObject,
 ];

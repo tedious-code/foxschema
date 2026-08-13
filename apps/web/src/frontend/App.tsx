@@ -23,6 +23,7 @@ const LokeeWeaveView = lazy(() =>
 const Workspace: React.FC = () => {
   const { errorMsg, warnings, dismissWarnings } = useSyncStore();
   const activeView = useUiStore((s) => s.activeView);
+  const syncPane = useUiStore((s) => s.syncPane);
   const setActiveView = useUiStore((s) => s.setActiveView);
   const canEditorAccess = useAuthStore((s) => s.can('editor.access'));
   const canSchemaBrowse = useAuthStore((s) => s.can('schema.browse'));
@@ -31,9 +32,6 @@ const Workspace: React.FC = () => {
   useEffect(() => {
     if (activeView === 'sqlEditor' && !canEditorAccess) {
       setActiveView('sync');
-    }
-    if (activeView === 'lokeeWeave' && !canSchemaBrowse) {
-      setActiveView(canEditorAccess ? 'sqlEditor' : 'sync');
     }
     if (
       activeView === 'sync' &&
@@ -88,11 +86,11 @@ const Workspace: React.FC = () => {
               <SqlEditorView />
             </Suspense>
           </ErrorBoundary>
-        ) : activeView === 'lokeeWeave' ? (
+        ) : syncPane === 'history' && canSchemaBrowse ? (
           <ErrorBoundary>
             <Suspense fallback={<LoadingScreen />}>
               <div className="flex flex-1 min-h-0 overflow-hidden">
-                <LokeeWeaveView />
+                <LokeeWeaveView embedded />
               </div>
             </Suspense>
           </ErrorBoundary>

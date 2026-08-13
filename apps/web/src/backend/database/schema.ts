@@ -330,6 +330,20 @@ const MIGRATIONS: Migration[] = [
       ];
     },
   },
+  {
+    id: 13,
+    name: 'lokee_object_source_lines',
+    statements: (d) => {
+      const t = types(d);
+      return [
+        // Original routine/view/trigger text and its line count. Not part of
+        // the content hash — identical SQL with different whitespace still
+        // shares one body row (pointer), while the inspector can show lines.
+        `ALTER TABLE lokee_objects ADD COLUMN line_count ${t.int}`,
+        `ALTER TABLE lokee_objects ADD COLUMN source_text ${t.big}`,
+      ];
+    },
+  },
 ];
 
 const SIGNUP_WIZARD_SHOWN_KEY = 'signup.wizard_shown';

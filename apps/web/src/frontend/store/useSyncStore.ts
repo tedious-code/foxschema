@@ -18,6 +18,8 @@ import {
 } from '../api/authApi';
 import type { ConnectionConfig, SyncState } from './sync-types';
 import { sqlGeneratorModule, buildRef, buildMapping, regenerateSql } from './sync-helpers';
+import { toast } from './toastStore';
+import { useUiStore } from './uiStore';
 import {
   clearSessionPassword,
   getSessionPassword,
@@ -550,6 +552,21 @@ export const useSyncStore = create<SyncState>()(
         (event) => {
           if (event.type === 'snapshot') {
             set({ snapshotDdl: event.ddl });
+          } else if (event.type === 'lokee') {
+            useUiStore.getState().bumpLokeeEpoch();
+            if (event.error) {
+              toast({
+                tone: 'warning',
+                title: 'History snapshot failed',
+                body: String(event.error),
+              });
+            } else if (event.phase === 'after' && event.changed) {
+              toast({
+                tone: 'success',
+                title: `History v${event.versionNumber}`,
+                body: `Migration snapshot · ${event.changeCount} object change(s)`,
+              });
+            }
           } else if (event.type === 'object') {
             set({
               migrationProgress: get().migrationProgress.map((item) =>

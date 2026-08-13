@@ -12,6 +12,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Camera, GitBranch, Loader2, RefreshCw, TriangleAlert } from 'lucide-react';
 import { LokeeWeavePage } from './LokeeWeavePage';
+import { LokeeObjectInspector } from './LokeeObjectInspector';
 import type { SchemaObjectNodeData, VersionGraphDTO } from './graphTypes';
 import {
   captureSchema,
@@ -23,6 +24,7 @@ import {
 import { getSessionPassword } from '../../lib/sessionPasswords';
 import { toast } from '../../store/toastStore';
 import { useSyncStore } from '../../store/useSyncStore';
+import { useUiStore } from '../../store/uiStore';
 import { SQL_ICON_STROKE } from '../sql-editor/sqlIconStyle';
 
 export interface LokeeWeaveViewProps {
@@ -31,6 +33,8 @@ export interface LokeeWeaveViewProps {
   /** How many versions to draw. The backend caps this well below the UI cap. */
   versionLimit?: number;
   onSelectObject?: (selected: SchemaObjectNodeData) => void;
+  /** Compact chrome when mounted inside Schema Sync rather than as its own workspace. */
+  embedded?: boolean;
 }
 
 const EMPTY_DTO: VersionGraphDTO = {
@@ -58,8 +62,13 @@ export function LokeeWeaveView({
   databaseId,
   versionLimit = 20,
   onSelectObject,
+  embedded = false,
 }: LokeeWeaveViewProps): React.ReactElement {
   const connections = useSyncStore((s) => s.connections);
+  const selectedTargetConnectionId = useSyncStore((s) => s.selectedTargetConnectionId);
+  const targetConfig = useSyncStore((s) => s.targetConfig);
+  const lokeeEpoch = useUiStore((s) => s.lokeeEpoch);
+  const bumpLokeeEpoch = useUiStore((s) => s.bumpLokeeEpoch);
   const [databases, setDatabases] = useState<LokeeDatabase[]>([]);
   const [pickedId, setPickedId] = useState<string | undefined>(undefined);
   const [captureConnectionId, setCaptureConnectionId] = useState('');
@@ -68,11 +77,32 @@ export function LokeeWeaveView({
   const [loading, setLoading] = useState(true);
   const [capturing, setCapturing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedObject, setSelectedObject] = useState<SchemaObjectNodeData | null>(null);
   // Bumped to re-run the effect; a plain refetch() would race the in-flight one.
   const [reloadToken, setReloadToken] = useState(0);
 
-  // Prop wins; otherwise the user's pick; otherwise the most recently seen database.
-  const activeId = databaseId ?? pickedId ?? databases[0]?.id;
+  const matchedTargetId = useMemo(() => {
+    const host = (targetConfig.option.host ?? '').toLowerCase();
+    const database = (targetConfig.option.database ?? '').toLowerCase();
+    const schemaName = (targetConfig.schema ?? '').toLowerCase();
+    const dialect = targetConfig.dialect.toLowerCase();
+    return databases.find(
+      (d) =>
+        d.dialect.toLowerCase() === dialect &&
+        (d.host ?? '').toLowerCase() === host &&
+        (d.database ?? '').toLowerCase() === database &&
+        (d.schema ?? '').toLowerCase() === schemaName
+    )?.id;
+  }, [databases, targetConfig]);
+
+  // Prop wins; otherwise the user's pick; otherwise the Target database; else most recent.
+  const activeId = databaseId ?? pickedId ?? matchedTargetId ?? databases[0]?.id;
+
+  useEffect(() => {
+    if (!captureConnectionId && selectedTargetConnectionId) {
+      setCaptureConnectionId(selectedTargetConnectionId);
+    }
+  }, [captureConnectionId, selectedTargetConnectionId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -89,7 +119,7 @@ export function LokeeWeaveView({
     return () => {
       cancelled = true;
     };
-  }, [reloadToken]);
+  }, [reloadToken, lokeeEpoch]);
 
   useEffect(() => {
     if (!activeId) {
@@ -117,7 +147,7 @@ export function LokeeWeaveView({
     return () => {
       cancelled = true;
     };
-  }, [activeId, versionLimit, reloadToken]);
+  }, [activeId, versionLimit, reloadToken, lokeeEpoch]);
 
   const subtitle = useMemo(
     () => describe(databases.find((d) => d.id === activeId)),
@@ -157,6 +187,14 @@ export function LokeeWeaveView({
     [activeId]
   );
 
+  const handleSelectObject = useCallback(
+    (selected: SchemaObjectNodeData) => {
+      setSelectedObject(selected);
+      onSelectObject?.(selected);
+    },
+    [onSelectObject]
+  );
+
   const runCapture = useCallback(async () => {
     if (!captureConnectionId || capturing) return;
     const conn = connections.find((c) => c.id === captureConnectionId);
@@ -173,6 +211,7 @@ export function LokeeWeaveView({
       });
       setPickedId(result.databaseId);
       refresh();
+      bumpLokeeEpoch();
       toast({
         tone: 'success',
         title: result.changed
@@ -191,7 +230,7 @@ export function LokeeWeaveView({
     } finally {
       setCapturing(false);
     }
-  }, [captureConnectionId, capturing, connections, refresh]);
+  }, [captureConnectionId, capturing, connections, refresh, bumpLokeeEpoch]);
 
   const chrome = (
     <div
@@ -301,9 +340,10 @@ export function LokeeWeaveView({
           <GitBranch className="h-6 w-6 text-slate-500" strokeWidth={SQL_ICON_STROKE} />
           <div className="text-sm font-semibold text-slate-100">No schema history yet</div>
           <div className="max-w-md text-xs text-slate-400">
-            Pick a saved credential above and click <span className="text-slate-200">Capture schema</span>.
-            Every capture that finds a change adds a version; one that finds none is recorded as another
-            observation of the version already at the head.
+            Take an initial snapshot of the Target (Snapshot target in the toolbar), or pick a
+            credential here and click <span className="text-slate-200">Capture schema</span>.
+            Migrating the Target records a new version automatically. Unchanged objects are stored
+            once and reused by hash pointer.
           </div>
         </div>
       </div>
@@ -319,13 +359,23 @@ export function LokeeWeaveView({
           graph draws at once.
         </div>
       )}
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <LokeeWeavePage
-          dto={dto}
-          subtitle={subtitle}
-          onSelectObject={onSelectObject}
-          onSaveVersionMeta={saveVersionMeta}
-        />
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <LokeeWeavePage
+            dto={dto}
+            subtitle={subtitle}
+            embedded={embedded}
+            onSelectObject={handleSelectObject}
+            onSaveVersionMeta={saveVersionMeta}
+          />
+        </div>
+        {selectedObject && activeId && (
+          <LokeeObjectInspector
+            databaseId={activeId}
+            selected={selectedObject}
+            onClose={() => setSelectedObject(null)}
+          />
+        )}
       </div>
     </div>
   );

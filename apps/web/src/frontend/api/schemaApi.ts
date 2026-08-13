@@ -450,10 +450,22 @@ export async function fetchSchemaList(ref: ConnectionRef): Promise<string[]> {
 }
 
 /** Streams NDJSON migration progress events, invoking onEvent for each. */
+export type LokeeCaptureEvent = {
+  type: 'lokee';
+  phase: 'before' | 'after';
+  error?: string;
+  changed?: boolean;
+  versionNumber?: number;
+  changeCount?: number;
+  objectCount?: number;
+};
+
+export type MigrationStreamEvent = MigrationEvent | LokeeCaptureEvent;
+
 export async function executeMigration(
   ref: ConnectionRef,
   steps: MigrationStep[],
-  onEvent: (e: MigrationEvent) => void,
+  onEvent: (e: MigrationStreamEvent) => void,
   continueOnError?: boolean
 ): Promise<void> {
   const res = await fetch(`${getApiBase()}/migration/execute`, {
@@ -480,7 +492,7 @@ export async function executeMigration(
     while ((newlineIdx = buffer.indexOf('\n')) >= 0) {
       const line = buffer.slice(0, newlineIdx).trim();
       buffer = buffer.slice(newlineIdx + 1);
-      if (line) onEvent(JSON.parse(line) as MigrationEvent);
+      if (line) onEvent(JSON.parse(line) as MigrationStreamEvent);
     }
   }
 }

@@ -444,6 +444,56 @@ describe('objectsAtVersion', () => {
   });
 });
 
+describe('inspectObject', () => {
+  it('returns a table blueprint, column history, and growth counts', async () => {
+    const { weave } = await freshStore();
+    const v1 = await weave.capture(USER, { ...IDENTITY, tables: [CUSTOMER], source: 'manual' });
+    const widened = table('customer', [
+      ['id', 'integer', false],
+      ['email', 'varchar(255)'],
+      ['phone', 'varchar(20)'],
+    ]);
+    const v2 = await weave.capture(USER, { ...IDENTITY, tables: [widened], source: 'migrate' });
+
+    const inspect = await weave.inspectObject(
+      USER,
+      v2.databaseId,
+      v2.versionId,
+      'column:CUSTOMER.EMAIL'
+    );
+    expect(inspect).not.toBeNull();
+    expect(inspect!.blueprint.container?.key).toBe('table:CUSTOMER');
+    expect(inspect!.blueprint.columns.map((c) => c.name).sort()).toEqual(['email', 'id', 'phone']);
+    expect(inspect!.history.map((h) => h.operation)).toEqual(['ADD', 'MODIFY']);
+    expect(inspect!.history[1]?.body?.dataType).toBe('varchar(255)');
+    expect(inspect!.history[1]?.previousBody?.dataType).toBe('varchar(100)');
+    expect(inspect!.growth).toHaveLength(2);
+    expect(inspect!.growth[0]?.columns).toBe(2);
+    expect(inspect!.growth[1]?.columns).toBe(3);
+  });
+
+  it('records procedure source lines without hashing whitespace', async () => {
+    const { weave } = await freshStore();
+    const proc = {
+      name: 'charge_order',
+      objectType: 'PROCEDURE',
+      definition: 'begin\n  null;\nend',
+      columns: [],
+      indices: [],
+      foreignKeys: [],
+    } as TableSchema;
+    const result = await weave.capture(USER, { ...IDENTITY, tables: [proc], source: 'manual' });
+    const inspect = await weave.inspectObject(
+      USER,
+      result.databaseId,
+      result.versionId,
+      'procedure:CHARGE_ORDER'
+    );
+    expect(inspect?.blueprint.object?.lineCount).toBe(3);
+    expect(inspect?.blueprint.object?.sourceText).toContain('begin');
+  });
+});
+
 describe('collectGarbage', () => {
   it('keeps bodies that any version still references', async () => {
     const { weave } = await freshStore();
