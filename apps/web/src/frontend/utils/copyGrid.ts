@@ -46,6 +46,45 @@ export function toTsv(
   return lines.join('\r\n');
 }
 
+export type GridRange = {
+  /** Inclusive row indices into `rows`. */
+  row0: number;
+  row1: number;
+  /** Inclusive display-order column positions (0 = leftmost). */
+  col0: number;
+  col1: number;
+};
+
+/**
+ * Slice a rectangular selection out of a grid.
+ *
+ * `displayOrder` is the on-screen column permutation (source indices). The
+ * range's `col0`/`col1` are positions in that order, so a drag from the
+ * leftmost visible column to the next one copies those two, even if the user
+ * reordered them. Out-of-range corners clamp; an inverted drag is normalised.
+ */
+export function sliceGridRange(
+  columns: readonly string[],
+  rows: readonly (readonly unknown[])[],
+  range: GridRange,
+  displayOrder: readonly number[] | null = null
+): { columns: string[]; rows: unknown[][] } {
+  const order = displayOrder ?? columns.map((_, i) => i);
+  if (columns.length === 0 || rows.length === 0 || order.length === 0) {
+    return { columns: [], rows: [] };
+  }
+  const r0 = Math.max(0, Math.min(range.row0, range.row1));
+  const r1 = Math.min(rows.length - 1, Math.max(range.row0, range.row1));
+  const c0 = Math.max(0, Math.min(range.col0, range.col1));
+  const c1 = Math.min(order.length - 1, Math.max(range.col0, range.col1));
+  if (r0 > r1 || c0 > c1) return { columns: [], rows: [] };
+  const idxs = order.slice(c0, c1 + 1).filter((i) => Number.isInteger(i) && i >= 0 && i < columns.length);
+  return {
+    columns: idxs.map((i) => columns[i]!),
+    rows: rows.slice(r0, r1 + 1).map((row) => idxs.map((i) => row[i])),
+  };
+}
+
 /**
  * Narrow a grid to a chosen set of columns, in the order chosen.
  *
