@@ -60,6 +60,7 @@ export {
   blueprintChildCounts,
   countSourceLines,
   isLokeeContainerType,
+  isLokeeTableLikeType,
   objectKeyKind,
   objectKeyOwner,
   pickOwnerContainer,

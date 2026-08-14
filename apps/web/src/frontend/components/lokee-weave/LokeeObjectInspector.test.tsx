@@ -201,6 +201,76 @@ describe('LokeeObjectInspector', () => {
     expect(screen.queryByTestId('lokee-inspector-revert-2')).toBeNull();
   });
 
+  it('does not show table growth on a function', async () => {
+    inspectLokeeObject.mockResolvedValue({
+      blueprint: {
+        focusKey: 'function:FN_ORDER_TOTAL',
+        container: {
+          key: 'function:FN_ORDER_TOTAL',
+          type: 'function',
+          name: 'fn_order_total',
+          hash: 'f1',
+          body: { definition: 'CREATE FUNCTION fn_order_total...' },
+          sourceText: 'CREATE OR REPLACE FUNCTION fn_order_total(p_order_id INTEGER)\nRETURNS DECIMAL\n...',
+          lineCount: 8,
+        },
+        object: {
+          key: 'function:FN_ORDER_TOTAL',
+          type: 'function',
+          name: 'fn_order_total',
+          hash: 'f1',
+          body: { definition: 'CREATE FUNCTION fn_order_total...' },
+          sourceText: 'CREATE OR REPLACE FUNCTION fn_order_total(p_order_id INTEGER)\nRETURNS DECIMAL\n...',
+          lineCount: 8,
+        },
+        columns: [],
+        indexes: [],
+        foreignKeys: [],
+        triggers: [],
+        primaryKey: null,
+      },
+      history: [
+        {
+          versionId: 'v1',
+          versionNumber: 1,
+          createdAt: '2026-08-12T00:00:00.000Z',
+          source: 'manual',
+          operation: 'ADD',
+          body: {},
+          reused: false,
+          lineCount: 8,
+        },
+      ],
+      growth: [
+        {
+          versionId: 'v1',
+          versionNumber: 1,
+          createdAt: '2026-08-12T00:00:00.000Z',
+          columns: 0,
+          indexes: 0,
+          foreignKeys: 0,
+          triggers: 0,
+          objects: 1,
+        },
+      ],
+      columnMutations: [],
+    });
+    const selected: SchemaObjectNodeData = {
+      versionId: 'v1',
+      objectKey: 'function:FN_ORDER_TOTAL',
+      name: 'fn_order_total',
+      objectType: 'function',
+      objectHash: 'f1',
+      status: 'added',
+      previousHash: null,
+    };
+    render(<LokeeObjectInspector databaseId="db1" selected={selected} onClose={() => undefined} />);
+    await waitFor(() => expect(screen.getByTestId('lokee-inspector-source')).toBeTruthy());
+    expect(screen.getByTestId('lokee-inspector-source').textContent).toMatch(/fn_order_total/i);
+    expect(screen.queryByTestId('lokee-inspector-growth')).toBeNull();
+    expect(screen.getByTestId('lokee-inspector-history').textContent).toMatch(/v1 · ADD/);
+  });
+
   it('plans a revert when a prior version is selected', async () => {
     inspectLokeeObject.mockResolvedValue({
       blueprint: {

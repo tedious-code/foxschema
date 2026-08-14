@@ -129,6 +129,13 @@ describe('buildVersionGraph — layout', () => {
     const v2 = g.nodes.find((n) => n.id === 'version:v2')!;
     expect(Math.abs(v2.position.y - v3.position.y)).toBe(500);
   });
+
+  it('nudge object cards down so they sit beside the version title', () => {
+    const g = buildVersionGraph(dto, filters());
+    const version = g.nodes.find((n) => n.id === 'version:v3')!;
+    const object = g.nodes.find((n) => n.id === 'object:v3:table:ORDERS')!;
+    expect(object.position.y).toBe(version.position.y + DEFAULT_LAYOUT.objectYOffset);
+  });
 });
 
 describe('buildVersionGraph — edges', () => {
