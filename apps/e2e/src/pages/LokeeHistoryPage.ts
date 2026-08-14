@@ -77,13 +77,34 @@ export class LokeeHistoryPage {
   }
 
   async clickTableNode(tableName: string): Promise<void> {
+    await this.clickObjectNamed(tableName);
+  }
+
+  async clickObjectNamed(name: string): Promise<void> {
     const node = this.page
       .locator('[data-testid^="rf-object-"]')
-      .filter({ hasText: tableName })
+      .filter({ hasText: name })
       .first();
     await node.waitFor({ state: 'visible', timeout: 15_000 });
     await node.click();
     await waitFor(this.page, '[data-testid="lokee-object-inspector"]', 20_000);
+  }
+
+  async objectNamedVisible(name: string): Promise<boolean> {
+    return this.page
+      .locator('[data-testid^="rf-object-"]')
+      .filter({ hasText: name })
+      .first()
+      .isVisible()
+      .catch(() => false);
+  }
+
+  async inspectorHasGrowth(): Promise<boolean> {
+    return this.page.locator('[data-testid="lokee-inspector-growth"]').isVisible();
+  }
+
+  async inspectorHasSource(): Promise<boolean> {
+    return this.page.locator('[data-testid="lokee-inspector-source"]').isVisible();
   }
 
   async inspectorText(): Promise<string> {
