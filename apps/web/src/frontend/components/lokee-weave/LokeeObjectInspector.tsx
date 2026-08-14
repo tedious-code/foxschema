@@ -3,11 +3,12 @@
  * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
  * SPDX-License-Identifier: Apache-2.0
  *
- * Inspector for a Lokee graph node: blueprint at a version, column mutations
- * across v1…vN, growth, and revert-to-version.
+ * Inspector for a Lokee graph node: columns with type/constraint subtitles,
+ * a GitHub-style CREATE script diff, growth, and revert-to-version.
+ * Indexes are stored but not a first-class inspector surface.
  */
 import React, { useEffect, useState } from 'react';
-import { isLokeeTableLikeType, parseTypeText } from '@foxschema/sql';
+import { isLokeeTableLikeType, lokeeColumnChangeSubtitle, lokeeTypeLabel } from '@foxschema/sql';
 import { Loader2, RotateCcw, X } from 'lucide-react';
 import {
   executeLokeeRevert,
@@ -22,6 +23,7 @@ import { getSessionPassword } from '../../lib/sessionPasswords';
 import { objectStyle, riskStyle } from '../../lib/lokeeColors';
 import { toast } from '../../store/toastStore';
 import { shortHash, type SchemaObjectNodeData } from './graphTypes';
+import { GithubScriptDiff } from './GithubScriptDiff';
 import { SQL_ICON_STROKE } from '../sql-editor/sqlIconStyle';
 
 export interface LokeeObjectInspectorProps {
@@ -46,17 +48,7 @@ function asString(value: unknown): string | null {
 }
 
 function typeLabel(body: Record<string, unknown> | undefined): string {
-  const raw = asString(body?.dataType) ?? asString(body?.type);
-  if (!raw) return '—';
-  const parsed = parseTypeText(raw);
-  if (!parsed) return raw;
-  if (parsed.length != null) return `${parsed.base}(${parsed.length})`;
-  if (parsed.precision != null) {
-    return parsed.scale != null
-      ? `${parsed.base}(${parsed.precision},${parsed.scale})`
-      : `${parsed.base}(${parsed.precision})`;
-  }
-  return parsed.base;
+  return lokeeTypeLabel(body);
 }
 
 function formatWhen(iso: string | null | undefined): string {
@@ -90,16 +82,7 @@ function ChildTable({
               <span className="shrink-0 font-mono text-[10px] text-slate-500">{shortHash(row.hash)}</span>
             </div>
             {row.type === 'column' && (
-              <div className="text-[10px] text-slate-400">
-                {typeLabel(row.body)}
-                {row.body.nullable === false ? ' · not null' : ''}
-              </div>
-            )}
-            {row.type === 'index' && (
-              <div className="text-[10px] text-slate-400">
-                {Array.isArray(row.body.columns) ? (row.body.columns as string[]).join(', ') : ''}
-                {row.body.unique ? ' · unique' : ''}
-              </div>
+              <div className="text-[10px] text-slate-400">{lokeeColumnChangeSubtitle(row.body, undefined)}</div>
             )}
             {row.type === 'trigger' && (
               <div className="text-[10px] text-slate-400">
@@ -109,6 +92,90 @@ function ChildTable({
             )}
           </li>
         ))}
+      </ul>
+    </section>
+  );
+}
+
+function pkNames(blueprint: LokeeInspectResult['blueprint']): Set<string> {
+  const cols = blueprint.primaryKey?.body.columns;
+  if (!Array.isArray(cols)) return new Set();
+  return new Set(cols.filter((c): c is string => typeof c === 'string').map((c) => c.toUpperCase()));
+}
+
+function ColumnUpdates({
+  columns,
+  mutations,
+  selectedVersionId,
+  primaryKeys,
+}: {
+  columns: LokeeStoredObject[];
+  mutations: LokeeInspectResult['columnMutations'];
+  selectedVersionId: string;
+  primaryKeys: Set<string>;
+}): React.ReactElement | null {
+  const byKey = new Map(mutations.map((m) => [m.objectKey, m]));
+  const byName = new Map(mutations.map((m) => [m.columnName.toUpperCase(), m]));
+  const liveKeys = new Set(columns.map((c) => c.key));
+  const dropped = mutations.filter((m) => {
+    if (liveKeys.has(m.objectKey)) return false;
+    return m.events.at(-1)?.operation === 'DELETE';
+  });
+  if (columns.length === 0 && dropped.length === 0) return null;
+  return (
+    <section data-testid="lokee-inspector-columns" className="flex flex-col gap-1">
+      <h3 className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Columns</h3>
+      <ul className="flex flex-col gap-0.5">
+        {columns.map((column) => {
+          const mutation = byKey.get(column.key) ?? byName.get(column.name.toUpperCase());
+          const atThis = mutation?.events.filter((e) => e.versionId === selectedVersionId).at(-1);
+          const previous = atThis?.previousBody;
+          const pk = primaryKeys.has(column.name.toUpperCase());
+          const subtitle = lokeeColumnChangeSubtitle(column.body, previous, { primaryKey: pk });
+          return (
+            <li
+              key={column.key}
+              className="rounded border border-slate-800 bg-slate-950/60 px-2 py-1 text-[11px] text-slate-200"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate font-medium">{column.name}</span>
+                {atThis && (
+                  <span
+                    className={`shrink-0 rounded px-1 text-[9px] font-bold uppercase tracking-wide ${
+                      atThis.operation === 'ADD'
+                        ? 'bg-emerald-500/15 text-emerald-300'
+                        : atThis.operation === 'DELETE'
+                          ? 'bg-rose-500/15 text-rose-300'
+                          : 'bg-amber-500/15 text-amber-200'
+                    }`}
+                  >
+                    {atThis.operation}
+                  </span>
+                )}
+              </div>
+              <div className="text-[10px] text-slate-400">{subtitle}</div>
+            </li>
+          );
+        })}
+        {dropped.map((col) => {
+          const last = col.events.at(-1);
+          return (
+            <li
+              key={col.objectKey}
+              className="rounded border border-rose-500/30 bg-rose-950/20 px-2 py-1 text-[11px] text-rose-200"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate font-medium line-through">{col.columnName}</span>
+                <span className="shrink-0 rounded bg-rose-500/15 px-1 text-[9px] font-bold uppercase tracking-wide text-rose-300">
+                  DELETE
+                </span>
+              </div>
+              {last?.previousBody && (
+                <div className="text-[10px] text-rose-300/80">{lokeeColumnChangeSubtitle(undefined, last.previousBody)}</div>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </section>
   );
@@ -135,7 +202,13 @@ function HistoryEvent({ point }: { point: LokeeHistoryEvent }): React.ReactEleme
         </span>
         <span className="text-[10px] text-slate-500">{formatWhen(point.createdAt)}</span>
       </div>
-      {typeChange && <div className="mt-0.5 text-[10px] text-slate-400">{typeChange}</div>}
+      {typeChange && (
+        <div className="mt-0.5 text-[10px] text-slate-400">
+          {point.previousBody
+            ? lokeeColumnChangeSubtitle(point.body, point.previousBody)
+            : typeChange}
+        </div>
+      )}
       {lines && <div className="text-[10px] text-slate-400">{lines}</div>}
       {point.reused && (
         <div className="text-[10px] text-sky-400/80">Reused hash — stored once (pointer)</div>
@@ -293,6 +366,8 @@ export function LokeeObjectInspector({
   const source =
     focus?.sourceText ??
     (typeof focus?.body.definition === 'string' ? focus.body.definition : null);
+  const script = (data?.script && data.script.length > 0 ? data.script : source) ?? '';
+  const previousScript = data?.previousScript ?? '';
   const style = objectStyle(selected.objectType);
   const mutations = data?.columnMutations ?? [];
   const growthKind = data?.blueprint.container?.type ?? selected.objectType;
@@ -378,11 +453,16 @@ export function LokeeObjectInspector({
         {data && (
           <>
             {(data.blueprint.columns.length > 0 ||
-              data.blueprint.indexes.length > 0 ||
-              data.blueprint.triggers.length > 0) && (
+              data.blueprint.foreignKeys.length > 0 ||
+              data.blueprint.triggers.length > 0 ||
+              data.blueprint.primaryKey) && (
               <div className="flex flex-col gap-2" data-testid="lokee-inspector-blueprint">
-                <ChildTable title="Columns" rows={data.blueprint.columns} testId="lokee-inspector-columns" />
-                <ChildTable title="Indexes" rows={data.blueprint.indexes} testId="lokee-inspector-indexes" />
+                <ColumnUpdates
+                  columns={data.blueprint.columns}
+                  mutations={mutations}
+                  selectedVersionId={selected.versionId}
+                  primaryKeys={pkNames(data.blueprint)}
+                />
                 {data.blueprint.primaryKey && (
                   <section className="text-[11px] text-slate-300">
                     <h3 className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
@@ -404,15 +484,9 @@ export function LokeeObjectInspector({
               </div>
             )}
 
-            {source && (
+            {script && (
               <section data-testid="lokee-inspector-source">
-                <h3 className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                  Source
-                  {focus?.lineCount ? ` · ${focus.lineCount} lines` : ''}
-                </h3>
-                <pre className="mt-1 max-h-48 overflow-auto rounded border border-slate-800 bg-slate-950 p-2 font-mono text-[10px] leading-4 text-slate-300">
-                  {source}
-                </pre>
+                <GithubScriptDiff original={previousScript} modified={script} />
               </section>
             )}
 
@@ -447,7 +521,8 @@ export function LokeeObjectInspector({
                             </span>
                           )}
                           <span className="ml-2 text-slate-400">
-                            {g.columns} cols · {g.indexes} idx · {g.triggers} trg
+                            {g.columns} cols
+                            {g.triggers > 0 ? ` · ${g.triggers} trg` : ''}
                           </span>
                         </button>
                         {!isHead && (

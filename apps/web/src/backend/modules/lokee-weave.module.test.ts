@@ -470,6 +470,12 @@ describe('inspectObject', () => {
     expect(inspect!.growth).toHaveLength(2);
     expect(inspect!.growth[0]?.columns).toBe(2);
     expect(inspect!.growth[1]?.columns).toBe(3);
+    expect(inspect!.script).toMatch(/CREATE TABLE customer/i);
+    expect(inspect!.script).toMatch(/phone/);
+    expect(inspect!.script).toMatch(/varchar\(255\)/);
+    expect(inspect!.previousScript).toMatch(/varchar\(100\)/);
+    expect(inspect!.previousScript).not.toMatch(/phone/);
+    expect(inspect!.script).not.toMatch(/INDEX/i);
   });
 
   it('rolls up column mutations when inspecting the table', async () => {

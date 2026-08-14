@@ -163,6 +163,8 @@ export interface LokeeInspectResult {
     columnName: string;
     events: LokeeHistoryEvent[];
   }>;
+  script?: string;
+  previousScript?: string;
 }
 
 export interface LokeeStoredObject {
