@@ -334,8 +334,14 @@ const NOT_ROUTINE_OBJECT = new Set([
   'SUBSCRIPTION', 'SERVER', 'FOREIGN', 'FULLTEXT', 'SPATIAL', 'COLUMN',
   'CONSTRAINT', 'UNIQUE',
 ]);
-/** `END IF` / `END LOOP` / … close a compound statement, not `BEGIN`. */
+/**
+ * `END IF` / `END LOOP` / … close an IF/LOOP/… compound, not `BEGIN`.
+ * `TRY` / `CATCH` pair with `BEGIN TRY` / `BEGIN CATCH` (SQL Server).
+ */
 const END_COMPOUND = new Set(['IF', 'LOOP', 'WHILE', 'REPEAT', 'TRY', 'CATCH']);
+
+/** Block frames pushed while scanning routine DDL bodies. */
+type RoutineBlock = 'begin' | 'case' | 'try' | 'catch';
 
 /** Skip whitespace and SQL comments; return the next non-trivia index. */
 function skipSqlTrivia(sql: string, start: number): number {
@@ -406,8 +412,14 @@ function splitSqlOnly(sql: string): SplitStatement[] {
   let lookingForRoutine = false;
   /** CREATE/ALTER FUNCTION|PROCEDURE|TRIGGER — inner `;` do not split. */
   let inRoutineDdl = false;
-  /** BEGIN/CASE nesting while `inRoutineDdl`. */
-  let blockDepth = 0;
+  /**
+   * Nesting stack while `inRoutineDdl`. A bare counter treated every `END`
+   * (including `AS end` / `SELECT end`) as a closer and split the body so
+   * later UPDATE/DELETE cells ran as top-level SQL — see routine DDL tests.
+   */
+  let blockStack: RoutineBlock[] = [];
+  /** True at the start of a procedural statement (`BEGIN` body / after `;`). */
+  let atProcStmtStart = false;
   /** Swallow the next ident after `END IF` / `END CASE` so it is not an opener. */
   let skipNextWord: string | null = null;
 
@@ -416,7 +428,8 @@ function splitSqlOnly(sql: string): SplitStatement[] {
     stmtVerb = null;
     lookingForRoutine = false;
     inRoutineDdl = false;
-    blockDepth = 0;
+    blockStack = [];
+    atProcStmtStart = false;
     skipNextWord = null;
   };
 
@@ -472,7 +485,8 @@ function splitSqlOnly(sql: string): SplitStatement[] {
           markCode(i);
           // Routine bodies (CREATE PROCEDURE … BEGIN … END) contain many `;`
           // that must not become extra editor cells.
-          if (inRoutineDdl && blockDepth > 0) {
+          if (inRoutineDdl && blockStack.length > 0) {
+            atProcStmtStart = true;
             i += 1;
             continue;
           }
@@ -487,6 +501,9 @@ function splitSqlOnly(sql: string): SplitStatement[] {
           const word = ident.word === 'PROC' ? 'PROCEDURE' : ident.word;
           if (!identIsQualified(sql, i)) {
             if (skipNextWord && word === skipNextWord) {
+              // Keep `atProcStmtStart` from the opener/closer that armed the
+              // skip (`BEGIN TRY` → still at stmt start; `END TRY` → next
+              // `END` may close the outer `BEGIN`).
               skipNextWord = null;
               i = ident.end;
               continue;
@@ -506,23 +523,61 @@ function splitSqlOnly(sql: string): SplitStatement[] {
             if (inRoutineDdl) {
               if (word === 'BEGIN') {
                 const nxt = peekSqlKeyword(sql, ident.end);
-                if (nxt !== 'TRAN' && nxt !== 'TRANSACTION' && nxt !== 'WORK') {
-                  blockDepth++;
+                if (nxt === 'TRAN' || nxt === 'TRANSACTION' || nxt === 'WORK') {
+                  // BEGIN TRAN — not a nesting frame.
+                } else if (nxt === 'TRY') {
+                  blockStack.push('try');
+                  skipNextWord = 'TRY';
+                  atProcStmtStart = true;
+                } else if (nxt === 'CATCH') {
+                  blockStack.push('catch');
+                  skipNextWord = 'CATCH';
+                  atProcStmtStart = true;
+                } else {
+                  blockStack.push('begin');
+                  atProcStmtStart = true;
                 }
               } else if (word === 'CASE') {
-                blockDepth++;
+                blockStack.push('case');
+                atProcStmtStart = false;
               } else if (word === 'END') {
                 const nxt = peekSqlKeyword(sql, ident.end);
                 if (nxt && END_COMPOUND.has(nxt)) {
                   skipNextWord = nxt;
+                  // END TRY / END CATCH close the matching BEGIN TRY/CATCH.
+                  // END IF / LOOP / … do not pop BEGIN (IF never pushed).
+                  if (nxt === 'TRY' || nxt === 'CATCH') {
+                    const want = nxt === 'TRY' ? 'try' : 'catch';
+                    if (blockStack[blockStack.length - 1] === want) blockStack.pop();
+                  }
+                  // Compound `END …` is its own statement; a following bare
+                  // `END` may close the enclosing `BEGIN`.
+                  atProcStmtStart = true;
                 } else if (nxt === 'CASE') {
                   skipNextWord = 'CASE';
-                  blockDepth = Math.max(0, blockDepth - 1);
+                  if (blockStack[blockStack.length - 1] === 'case') blockStack.pop();
+                  atProcStmtStart = true;
+                } else if (blockStack[blockStack.length - 1] === 'case') {
+                  // CASE *expression* terminator (`… END`, `… END AS x`).
+                  blockStack.pop();
+                  atProcStmtStart = false;
+                } else if (
+                  atProcStmtStart &&
+                  blockStack[blockStack.length - 1] === 'begin'
+                ) {
+                  // Only a statement-leading `END` closes `BEGIN` — not
+                  // `SELECT end`, `AS end`, or `DECLARE end INT`.
+                  blockStack.pop();
+                  atProcStmtStart = false;
                 } else {
-                  blockDepth = Math.max(0, blockDepth - 1);
+                  atProcStmtStart = false;
                 }
+              } else {
+                atProcStmtStart = false;
               }
             }
+          } else if (inRoutineDdl) {
+            atProcStmtStart = false;
           }
           i = ident.end;
           continue;

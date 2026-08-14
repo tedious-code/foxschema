@@ -59,8 +59,10 @@ export {
   assembleBlueprint,
   blueprintChildCounts,
   countSourceLines,
+  isLokeeContainerType,
   objectKeyKind,
   objectKeyOwner,
+  pickOwnerContainer,
   hydrateTableSchemas,
   buildRevertMigration,
 } from './modules/lokee-weave/index.js';

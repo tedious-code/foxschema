@@ -306,6 +306,66 @@ BEGIN
 END;`;
     expect(splitSqlStatements(sql)).toHaveLength(1);
   });
+
+  it('does not treat bare END identifiers as block closers (AS end / SELECT end)', () => {
+    // A depth counter that decrements on every END used to split after
+    // `AS end`, turning the following DELETE into a top-level write cell.
+    const sql = `CREATE PROCEDURE p()
+BEGIN
+  SELECT created_at AS start, updated_at AS end FROM events;
+  DELETE FROM victims WHERE id = 1;
+END;
+SELECT 9;`;
+    const stmts = splitSqlStatements(sql);
+    expect(stmts).toHaveLength(2);
+    expect(stmts[0]!.text).toMatch(/CREATE PROCEDURE/i);
+    expect(stmts[0]!.text).toContain('DELETE FROM victims');
+    expect(stmts[1]!.text.trim()).toBe('SELECT 9;');
+    expect(stmts.some((s) => /^\s*DELETE FROM victims/i.test(s.text))).toBe(false);
+  });
+
+  it('does not split on DECLARE end / SELECT end inside the body', () => {
+    const sql = `CREATE PROCEDURE p()
+BEGIN
+  DECLARE end INT;
+  SELECT end FROM some_table;
+  DELETE FROM victims;
+END;`;
+    const stmts = splitSqlStatements(sql);
+    expect(stmts).toHaveLength(1);
+    expect(stmts[0]!.text).toContain('DELETE FROM victims');
+  });
+
+  it('keeps CASE expressions that end with END AS … inside one cell', () => {
+    const sql = `CREATE PROCEDURE p()
+BEGIN
+  SELECT CASE WHEN 1=1 THEN 1 ELSE 0 END AS flag FROM t;
+  UPDATE t SET x = 1;
+END;
+SELECT 2;`;
+    const stmts = splitSqlStatements(sql);
+    expect(stmts).toHaveLength(2);
+    expect(stmts[0]!.text).toContain('UPDATE t SET x = 1');
+    expect(stmts[1]!.text.trim()).toBe('SELECT 2;');
+  });
+
+  it('keeps SQL Server BEGIN TRY / CATCH inside one cell and splits after', () => {
+    const sql = `CREATE PROCEDURE p AS
+BEGIN
+  BEGIN TRY
+    UPDATE t SET x = 1;
+  END TRY
+  BEGIN CATCH
+    SELECT 1;
+  END CATCH
+END;
+DROP TABLE victims;`;
+    const stmts = splitSqlStatements(sql);
+    expect(stmts).toHaveLength(2);
+    expect(stmts[0]!.text).toMatch(/CREATE PROCEDURE/i);
+    expect(stmts[0]!.text).toContain('END CATCH');
+    expect(stmts[1]!.text.trim()).toBe('DROP TABLE victims;');
+  });
 });
 
 describe('checkStatement', () => {

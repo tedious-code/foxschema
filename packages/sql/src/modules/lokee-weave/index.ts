@@ -63,8 +63,10 @@ export {
   assembleBlueprint,
   blueprintChildCounts,
   countSourceLines,
+  isLokeeContainerType,
   objectKeyKind,
   objectKeyOwner,
+  pickOwnerContainer,
   type ObjectBlueprint,
   type StoredWeaveObject,
 } from './blueprint.js';
