@@ -144,6 +144,26 @@ describe('SQL Editor sample bookmarks', () => {
     expect(sample!.sql).toMatch(/Revert/i);
   });
 
+  it('demo_a schema-history sample is a v2…v4 snapshot playbook', () => {
+    const sample = SQL_EDITOR_SAMPLE_BOOKMARKS.find((s) => s.id === 'sample-schema-history-demo-a');
+    expect(sample).toBeTruthy();
+    const stmts = splitSqlStatements(sample!.sql);
+    expect(stmts.filter((s) => s.kind === 'js')).toHaveLength(3);
+    const sql = stmts.filter((s) => s.kind === 'sql');
+    expect(sql.some((s) => /ALTER TABLE demo_a\.customers ADD COLUMN notes/i.test(s.text))).toBe(
+      true
+    );
+    expect(sql.some((s) => /CREATE OR REPLACE FUNCTION demo_a\.fn_order_total/i.test(s.text))).toBe(
+      true
+    );
+    expect(sql.some((s) => /qty \* unit_price/i.test(s.text))).toBe(true);
+    expect(sql.some((s) => /CREATE OR REPLACE VIEW demo_a\.v_customer_notes/i.test(s.text))).toBe(
+      true
+    );
+    expect(sample!.sql).toMatch(/Table growth/i);
+    expect(sample!.sql).toMatch(/Snapshot target/i);
+  });
+
   it('runs the lodash aggregate sample against a synthetic prior grid', async () => {
     const sample = SQL_EDITOR_SAMPLE_BOOKMARKS.find((s) => s.id === 'sample-js-lodash-aggregate');
     expect(sample).toBeTruthy();

@@ -513,6 +513,8 @@ describe('inspectObject', () => {
     );
     expect(inspect?.blueprint.object?.lineCount).toBe(3);
     expect(inspect?.blueprint.object?.sourceText).toContain('begin');
+    expect(inspect?.growth).toEqual([]);
+    expect(inspect?.columnMutations).toEqual([]);
   });
 });
 

@@ -41,6 +41,13 @@ export function isLokeeContainerType(type: string): boolean {
   return (CONTAINER_TYPES as readonly string[]).includes(type);
 }
 
+/** Tables / views / MQTs — objects that grow columns, indexes, and triggers. */
+const TABLE_LIKE_TYPES: readonly LokeeObjectType[] = ['table', 'view', 'mqt'];
+
+export function isLokeeTableLikeType(type: string): boolean {
+  return (TABLE_LIKE_TYPES as readonly string[]).includes(type);
+}
+
 const CHILD_TYPES = {
   column: 'columns',
   index: 'indexes',

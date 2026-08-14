@@ -136,6 +136,8 @@ export interface GraphLayout {
   objectStartX: number;
   objectColumnWidth: number;
   versionRowHeight: number;
+  /** Nudge object cards down so they sit beside the version title, not the top edge. */
+  objectYOffset: number;
 }
 
 export const DEFAULT_LAYOUT: GraphLayout = {
@@ -143,6 +145,7 @@ export const DEFAULT_LAYOUT: GraphLayout = {
   objectStartX: 270,
   objectColumnWidth: 170,
   versionRowHeight: 150,
+  objectYOffset: 16,
 };
 
 /**

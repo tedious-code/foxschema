@@ -7,7 +7,7 @@
  * across v1…vN, growth, and revert-to-version.
  */
 import React, { useEffect, useState } from 'react';
-import { parseTypeText } from '@foxschema/sql';
+import { isLokeeTableLikeType, parseTypeText } from '@foxschema/sql';
 import { Loader2, RotateCcw, X } from 'lucide-react';
 import {
   executeLokeeRevert,
@@ -295,6 +295,8 @@ export function LokeeObjectInspector({
     (typeof focus?.body.definition === 'string' ? focus.body.definition : null);
   const style = objectStyle(selected.objectType);
   const mutations = data?.columnMutations ?? [];
+  const growthKind = data?.blueprint.container?.type ?? selected.objectType;
+  const showGrowth = isLokeeTableLikeType(growthKind) && (data?.growth.length ?? 0) > 0;
   const headVersionId = data?.growth.at(-1)?.versionId ?? null;
 
   const openRevert = async (versionId: string) => {
@@ -414,7 +416,7 @@ export function LokeeObjectInspector({
               </section>
             )}
 
-            {data.growth.length > 0 && (
+            {showGrowth && (
               <section data-testid="lokee-inspector-growth">
                 <h3 className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
                   Table growth · v{data.growth[0]?.versionNumber}…v

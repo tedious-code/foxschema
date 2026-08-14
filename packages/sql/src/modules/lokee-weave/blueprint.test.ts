@@ -10,6 +10,7 @@ import {
   assembleBlueprint,
   blueprintChildCounts,
   countSourceLines,
+  isLokeeTableLikeType,
   objectKeyKind,
   objectKeyOwner,
   pickOwnerContainer,
@@ -19,6 +20,17 @@ import {
 function stored(key: string, type: string, name: string, body: Record<string, unknown> = {}): StoredWeaveObject {
   return { key, type, name, hash: `h:${key}`, body };
 }
+
+describe('isLokeeTableLikeType', () => {
+  it('is true for table / view / mqt and false for routines', () => {
+    expect(isLokeeTableLikeType('table')).toBe(true);
+    expect(isLokeeTableLikeType('view')).toBe(true);
+    expect(isLokeeTableLikeType('mqt')).toBe(true);
+    expect(isLokeeTableLikeType('function')).toBe(false);
+    expect(isLokeeTableLikeType('procedure')).toBe(false);
+    expect(isLokeeTableLikeType('column')).toBe(false);
+  });
+});
 
 describe('objectKeyOwner / objectKeyKind', () => {
   it('splits a column address into owner and kind', () => {

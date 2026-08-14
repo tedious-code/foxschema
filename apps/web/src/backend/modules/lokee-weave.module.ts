@@ -35,6 +35,7 @@ import {
   countSourceLines,
   databaseIdentity,
   hydrateTableSchemas,
+  isLokeeTableLikeType,
   objectKeyKind,
   objectKeyOwner,
   planReversal,
@@ -1000,12 +1001,14 @@ export class LokeeWeaveStore {
     for (const [key, object] of atVersion) stored.set(key, { key, ...object });
     const owner = objectKeyOwner(objectKey);
     const kind = objectKeyKind(objectKey);
-    const isTable = kind === 'table' || kind === 'mqt' || kind === 'view';
+    const blueprint = assembleBlueprint(objectKey, stored);
+    // Growth is about the parent table/view, so clicking a column still counts.
+    const tableLike = isLokeeTableLikeType(String(blueprint.container?.type ?? kind));
     return {
-      blueprint: assembleBlueprint(objectKey, stored),
+      blueprint,
       history: await this.objectHistory(userId, databaseId, objectKey),
-      growth: await this.containerGrowth(userId, databaseId, owner),
-      columnMutations: isTable ? await this.columnMutations(userId, databaseId, owner) : [],
+      growth: tableLike ? await this.containerGrowth(userId, databaseId, owner) : [],
+      columnMutations: tableLike ? await this.columnMutations(userId, databaseId, owner) : [],
     };
   }
 

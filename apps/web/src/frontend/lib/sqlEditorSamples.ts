@@ -1057,6 +1057,54 @@ return await sql.on('target')\`SELECT id, email, domain FROM fox_beam_people_v2 
 -- @end
 `,
   },
+  {
+    id: 'sample-schema-history-demo-a',
+    title: '★ Sample · Schema history (Postgres demo_a)',
+    sql: `-- Postgres demo_a playbook — you already captured Version 1 (102 objects, all Added).
+-- Destination: PostgreSQL · foxdb · schema demo_a (History picker). Safe mode OFF.
+-- Play ONE SQL cell, then Compare Schema → Snapshot target. Repeat.
+-- v2 customers Modified (others Reused); v3 fn_order_total Modified
+-- (inspector = Source + timeline, no Table growth); v4 v_customer_notes Added.
+-- Click customers → Table growth + Revert on v1. Click fn_order_total → no growth.
+
+ALTER TABLE demo_a.customers ADD COLUMN notes TEXT;
+
+-- @js
+return {
+  columns: ['next'],
+  rows: [['Snapshot target → v2. customers = Modified (notes). Then run the next cell.']],
+};
+-- @end
+
+-- Body change vs seed (COALESCE in the SELECT, not the RETURN) so Lokee hashes a modify.
+CREATE OR REPLACE FUNCTION demo_a.fn_order_total(p_order_id INTEGER)
+RETURNS DECIMAL LANGUAGE plpgsql AS $$
+DECLARE v_total DECIMAL;
+BEGIN
+  SELECT COALESCE(SUM(qty * unit_price), 0) INTO v_total
+  FROM   demo_a.order_items WHERE order_id = p_order_id;
+  RETURN v_total;
+END;
+$$;
+
+-- @js
+return {
+  columns: ['next'],
+  rows: [['Snapshot target → v3. fn_order_total = Modified. Inspector must NOT show Table growth.']],
+};
+-- @end
+
+CREATE OR REPLACE VIEW demo_a.v_customer_notes AS
+SELECT id, name, notes FROM demo_a.customers;
+
+-- @js
+return {
+  columns: ['done'],
+  rows: [['Snapshot target → v4. v_customer_notes = Added. History should show 4 versions.']],
+};
+-- @end
+`,
+  },
 ];
 
 export function buildSampleBookmarks(now = Date.now()): Array<{
