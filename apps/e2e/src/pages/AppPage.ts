@@ -10,13 +10,19 @@ export class AppPage {
 
   async open(): Promise<void> {
     await this.page.goto(BASE_URL);
+    // First-run signup can appear after /signup/state (up to ~4s). Wait for
+    // either the workspace or the wizard so we don't miss Skip.
+    await this.page.waitForSelector(
+      '[data-testid="toolbar"], [data-testid="signup-wizard-skip"]',
+      { timeout: 30_000 }
+    );
+    const skipSignup = this.page.locator('[data-testid="signup-wizard-skip"]');
+    if (await skipSignup.isVisible().catch(() => false)) {
+      await skipSignup.click();
+      await this.page.waitForSelector('[data-testid="toolbar"]', { timeout: 20_000 });
+    }
     // One-time signup / onboarding wizards can cover the toolbar.
     for (let i = 0; i < 3; i++) {
-      const skipSignup = this.page.getByRole('button', { name: /skip for now/i });
-      if (await skipSignup.isVisible().catch(() => false)) {
-        await skipSignup.click();
-        await this.page.waitForTimeout(300);
-      }
       const skipOnboarding = this.page.getByRole('button', { name: /skip|continue|get started|finish|done/i }).first();
       if (
         !(await this.page.locator('[data-testid="toolbar"]').isVisible().catch(() => false)) &&
