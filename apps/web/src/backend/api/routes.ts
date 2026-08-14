@@ -1043,6 +1043,29 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
 
       const userId = (req as AuthedRequest).userId!;
       const databaseId = String(req.params.id);
+      // History is keyed by database identity; the execute connection must be
+      // that same database or we would apply reverse DDL to the wrong target.
+      const identityMatch = await lokeeWeave.matchDatabaseIdentity(userId, databaseId, {
+        dialect,
+        host: option.host ?? null,
+        port: option.port ?? null,
+        database: option.database ?? null,
+        schema: schema ?? null,
+      });
+      if (identityMatch === 'not_found') {
+        res.status(404).json({ error: 'Database not found' });
+        return;
+      }
+      if (identityMatch === 'mismatch') {
+        res.status(409).json({
+          ok: false,
+          error:
+            'The selected connection does not match this schema history. Choose the credential for the same database before reverting.',
+          code: 'connection_mismatch',
+        });
+        return;
+      }
+
       const plan = await lokeeWeave.planRevert(userId, databaseId, toVersionId, dialect, schema);
       if (!plan) {
         res.status(404).json({ error: 'Version not found' });

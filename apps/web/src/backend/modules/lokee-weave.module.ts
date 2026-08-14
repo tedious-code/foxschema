@@ -660,6 +660,25 @@ export class LokeeWeaveStore {
     return Boolean(row?.id);
   }
 
+  /**
+   * Revert plans from `databaseId` history but executes on a caller-supplied
+   * connection. Refuse when that connection’s identity is not the same row —
+   * otherwise DDL from one history can run against another database.
+   */
+  async matchDatabaseIdentity(
+    userId: string,
+    databaseId: string,
+    input: DatabaseIdentityInput
+  ): Promise<'ok' | 'not_found' | 'mismatch'> {
+    const store = await this.store();
+    const row = await store.get<{ fingerprint: string }>(
+      'SELECT fingerprint FROM lokee_databases WHERE id = ? AND user_id = ?',
+      [databaseId, userId]
+    );
+    if (!row) return 'not_found';
+    return row.fingerprint === databaseIdentity(input, sha256) ? 'ok' : 'mismatch';
+  }
+
   async listVersions(userId: string, databaseId: string, limit = 100): Promise<VersionSummary[]> {
     const store = await this.store();
     if (!(await this.assertOwned(store, userId, databaseId))) return [];
