@@ -77,7 +77,7 @@ Always document **why** the path is safe in the comment.
 
 ### `codeql.yml`
 
-Runs on push to `main` and weekly on Monday at 02:00 UTC. Not a PR gate — CodeQL takes 5–15 minutes and would slow developer feedback loops unacceptably.
+Runs on push to `main` and weekly on Monday at 02:00 UTC. Uses `github/codeql-action/*@v4` (Node 24 runtime). Not a PR gate — CodeQL takes 5–15 minutes and would slow developer feedback loops unacceptably.
 
 Detects:
 - SQL injection (`security/sql-injection`)
@@ -155,6 +155,11 @@ npm run lint:security  # zero warnings (same as CI)
 2. If it's a devDependency with no production attack surface, add a note and keep the `--omit=dev` flag.
 3. If it's a production dependency: update via `npm update <package>` or pin a safe version in `package.json`.
 4. If no fix exists: open a GitHub advisory discussion and add a risk-accepted comment in the PR.
+
+Forced nested pins live in the root `package.json` `overrides` (do not take `npm audit fix --force` for these):
+
+- `dompurify@3.4.13` — Monaco 0.55.1 still depends on 3.2.7; 0.56.0 is a breaking ESM rewrite and still ships 3.4.8.
+- `adm-zip@0.6.0` — `ibm_db@4` still depends on `^0.5.16`; the suggested “fix” is a downgrade to `ibm_db@3.1.0`.
 
 ### Responding to a Gitleaks finding
 

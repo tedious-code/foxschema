@@ -37,7 +37,7 @@ jobs:
         run: npm install --ignore-scripts
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           # "javascript" covers both JS and TS — no need to list both.
           languages: javascript
@@ -46,13 +46,13 @@ jobs:
 
       # Let CodeQL auto-detect the build (TypeScript projects typically need no explicit step).
       - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
+        uses: github/codeql-action/autobuild@v4
 
       # continue-on-error: SARIF upload requires GitHub Advanced Security on private repos.
       # The analysis itself still runs; findings are logged in the job output.
       - name: Run CodeQL analysis
         continue-on-error: true
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: /language:javascript
           upload: true
