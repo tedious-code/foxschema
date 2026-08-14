@@ -18,6 +18,7 @@ import { saveScreenshot } from '../../helpers/screenshot.js';
 import { AppPage } from '../../pages/AppPage.js';
 import { ConnectionModal } from '../../pages/ConnectionModal.js';
 import { MigrationPage } from '../../pages/MigrationPage.js';
+import { LokeeHistoryPage } from '../../pages/LokeeHistoryPage.js';
 import type { DbConfig } from '../../helpers/db-config.js';
 
 export interface DialectFlowOptions {
@@ -223,6 +224,20 @@ export function runDialectFlow(
     } else {
       await driver.locator('[data-testid^="rf-version-"]').first().waitFor({ timeout: 10_000 });
       expect(await driver.locator('[data-testid^="rf-version-"]').count()).toBeGreaterThan(0);
+
+      // Postgres demo_a→demo_b migrate adds fn_order_total and widens customers.
+      // Functions must not show Table growth; tables must.
+      const history = new LokeeHistoryPage(driver);
+      if (await history.objectNamedVisible('fn_order_total')) {
+        await history.clickObjectNamed('fn_order_total');
+        expect(await history.inspectorHasSource()).toBe(true);
+        expect(await history.inspectorHasGrowth()).toBe(false);
+        expect(await history.inspectorText()).toMatch(/v\d+\s*·\s*ADD/i);
+      }
+      if (await history.objectNamedVisible('customers')) {
+        await history.clickObjectNamed('customers');
+        expect(await history.inspectorHasGrowth()).toBe(true);
+      }
     }
     await clickWhen(driver, '[data-testid="sync-pane-compare-btn"]');
   });
