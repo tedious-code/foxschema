@@ -66,6 +66,10 @@ export {
   pickOwnerContainer,
   hydrateTableSchemas,
   buildRevertMigration,
+  lokeeColumnChangeSubtitle,
+  lokeeColumnSubtitle,
+  lokeeTypeLabel,
+  renderLokeeObjectScript,
 } from './modules/lokee-weave/index.js';
 export type {
   CanonicalObject,

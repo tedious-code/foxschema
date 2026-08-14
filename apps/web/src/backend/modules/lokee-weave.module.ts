@@ -39,6 +39,7 @@ import {
   objectKeyKind,
   objectKeyOwner,
   planReversal,
+  renderLokeeObjectScript,
   weave,
   type CanonicalObject,
   type DatabaseIdentityInput,
@@ -138,6 +139,10 @@ export interface ObjectInspectResult {
   growth: ContainerGrowthPoint[];
   /** Column ADD / MODIFY / DELETE across versions, when the focus is a table. */
   columnMutations: ColumnMutation[];
+  /** CREATE script at this version (tables skip indexes). */
+  script: string;
+  /** Adjacent older version's script, empty on v1. */
+  previousScript: string;
 }
 
 export interface RevertPlanResult {
@@ -1004,11 +1009,24 @@ export class LokeeWeaveStore {
     const blueprint = assembleBlueprint(objectKey, stored);
     // Growth is about the parent table/view, so clicking a column still counts.
     const tableLike = isLokeeTableLikeType(String(blueprint.container?.type ?? kind));
+    const script = renderLokeeObjectScript(blueprint);
+    let previousScript = '';
+    const versions = await this.listVersions(userId, databaseId, 500);
+    const here = versions.findIndex((v) => v.id === versionId);
+    const older = here >= 0 ? versions[here + 1] : undefined;
+    if (older) {
+      const prevAt = await this.objectsAtVersion(userId, databaseId, older.id);
+      const prevStored = new Map<string, StoredWeaveObject>();
+      for (const [key, object] of prevAt) prevStored.set(key, { key, ...object });
+      previousScript = renderLokeeObjectScript(assembleBlueprint(objectKey, prevStored));
+    }
     return {
       blueprint,
       history: await this.objectHistory(userId, databaseId, objectKey),
       growth: tableLike ? await this.containerGrowth(userId, databaseId, owner) : [],
       columnMutations: tableLike ? await this.columnMutations(userId, databaseId, owner) : [],
+      script,
+      previousScript,
     };
   }
 
