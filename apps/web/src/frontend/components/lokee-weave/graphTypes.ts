@@ -10,43 +10,23 @@
  * versions and per-version object positions, and a backend service is free to
  * reconstruct that however it likes.
  */
+import type { Edge, Node } from '@xyflow/react';
 import type { LokeeObjectType } from '@foxschema/sql';
+import type {
+  GraphChangeStatus,
+  VersionGraphObject,
+  VersionGraphVersion,
+} from '../../../shared/lokee-wire';
 
-export type GraphChangeStatus = 'added' | 'modified' | 'unchanged' | 'deleted';
-
-export interface VersionGraphVersion {
-  id: string;
-  /** 1-based, shown to the user as `v3` when no custom name is set. */
-  number: number;
-  createdAt: string;
-  rootHash: string;
-  /** Who ran the migration that produced this version, when known. */
-  author?: string;
-  /** Optional display name; falls back to `Version ${number}`. */
-  name?: string;
-  description?: string;
-}
-
-export interface VersionGraphObject {
-  versionId: string;
-  /** Logical identity — never the hash. A rename is a delete plus an add. */
-  objectKey: string;
-  name: string;
-  schemaName?: string;
-  objectType: LokeeObjectType;
-  /** Content identity. Null for a tombstone. */
-  objectHash: string | null;
-  status: GraphChangeStatus;
-}
-
-export interface VersionGraphDTO {
-  databaseId: string;
-  versions: VersionGraphVersion[];
-  objects: VersionGraphObject[];
-  /** Totals for the whole history, not just the returned window. */
-  totalVersions: number;
-  totalObjects: number;
-}
+// The wire contract lives in src/shared so the backend that produces it and
+// this view that renders it are checked against one declaration. Re-exported
+// here so component imports stay pointed at this module.
+export type {
+  GraphChangeStatus,
+  VersionGraphDTO,
+  VersionGraphObject,
+  VersionGraphVersion,
+} from '../../../shared/lokee-wire';
 
 export type VersionEdgeStatus = 'created' | 'reused' | 'modified' | 'deleted';
 
@@ -87,7 +67,7 @@ export const DEFAULT_HISTORY_OBJECT_TYPES: readonly LokeeObjectType[] = [
 ];
 
 /** Node payloads. Kept small — the inspector loads detail on demand. */
-export interface VersionNodeData extends Record<string, unknown> {
+export type VersionNodeData = {
   versionId: string;
   versionNumber: number;
   createdAt: string;
@@ -96,7 +76,7 @@ export interface VersionNodeData extends Record<string, unknown> {
   name?: string;
   description?: string;
   changeCount: number;
-}
+};
 
 /** Prefer a custom label; otherwise "Version N". */
 export function versionDisplayName(
@@ -109,7 +89,7 @@ export function versionDisplayName(
   return `Version ${n}`;
 }
 
-export interface SchemaObjectNodeData extends Record<string, unknown> {
+export type SchemaObjectNodeData = {
   versionId: string;
   objectKey: string;
   name: string;
@@ -117,14 +97,26 @@ export interface SchemaObjectNodeData extends Record<string, unknown> {
   objectHash: string | null;
   status: GraphChangeStatus;
   previousHash: string | null;
-}
+};
 
-export interface LokeeEdgeData extends Record<string, unknown> {
+export type LokeeEdgeData = {
   status: VersionEdgeStatus;
   objectKey?: string;
   previousHash?: string | null;
   currentHash?: string | null;
-}
+};
+
+/**
+ * React Flow node/edge types carrying their own payload.
+ *
+ * `NodeProps<LokeeVersionNode>` gives a renderer a typed `data` — without
+ * these, `data` arrives as `Record<string, unknown>` and every renderer casts
+ * it back, which also lets a `node.type` check and its cast disagree.
+ */
+export type LokeeVersionNode = Node<VersionNodeData, 'versionNode'>;
+export type LokeeObjectNode = Node<SchemaObjectNodeData, 'schemaObjectNode' | 'deletedObjectNode'>;
+export type LokeeNode = LokeeVersionNode | LokeeObjectNode;
+export type LokeeEdge = Edge<LokeeEdgeData>;
 
 /**
  * Layout constants. Versions run down the Y axis, one logical object per

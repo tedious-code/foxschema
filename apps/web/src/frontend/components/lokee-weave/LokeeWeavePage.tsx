@@ -36,6 +36,7 @@ import {
   versionDisplayName,
   type GraphChangeStatus,
   type LokeeEdgeData,
+  type LokeeNode,
   type SchemaObjectNodeData,
   type VersionGraphDTO,
   type VersionGraphFilters,
@@ -267,14 +268,16 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
   }, []);
 
   const onNodeClick = useCallback(
-    (_: React.MouseEvent, node: Node) => {
+    // Typed as the node union, so `node.type` narrows `node.data` — previously
+    // the check and the cast were independent, and a fourth node type would
+    // have been silently mis-cast to SchemaObjectNodeData.
+    (_: React.MouseEvent, node: LokeeNode) => {
       if (node.type === 'versionNode') {
-        const data = node.data as VersionNodeData;
-        setSelectedVersionId(data.versionId);
+        setSelectedVersionId(node.data.versionId);
         return;
       }
       setSelectedVersionId(null);
-      onSelectObject?.(node.data as SchemaObjectNodeData);
+      onSelectObject?.(node.data);
     },
     [onSelectObject]
   );

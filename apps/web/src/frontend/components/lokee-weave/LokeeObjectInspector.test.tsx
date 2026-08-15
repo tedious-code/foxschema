@@ -271,6 +271,40 @@ describe('LokeeObjectInspector', () => {
     expect(screen.getByTestId('lokee-inspector-history').textContent).toMatch(/v1 · ADD/);
   });
 
+  it('declares its load state so callers need not read the loading copy', async () => {
+    // The e2e page object waits on [data-state="ready"] before reading any
+    // section. Losing this attribute would not fail a render test — it would
+    // hang the browser suite on a timeout — so assert the contract here.
+    let resolve!: (value: unknown) => void;
+    inspectLokeeObject.mockReturnValue(new Promise((r) => { resolve = r; }));
+    const { container } = render(
+      <LokeeObjectInspector databaseId="db1" selected={SELECTED} onClose={() => undefined} />
+    );
+    const aside = container.querySelector('[data-testid="lokee-object-inspector"]')!;
+    expect(aside.getAttribute('data-state')).toBe('loading');
+
+    resolve({
+      blueprint: {
+        focusKey: 'table:CUSTOMERS',
+        container: { key: 'table:CUSTOMERS', type: 'table', name: 'customers', hash: 'h1', body: {} },
+        object: { key: 'table:CUSTOMERS', type: 'table', name: 'customers', hash: 'h1', body: {} },
+        columns: [],
+        indexes: [],
+        foreignKeys: [],
+        triggers: [],
+        primaryKey: null,
+      },
+      history: [],
+      growth: [],
+      columnMutations: [],
+    });
+
+    await waitFor(() => expect(aside.getAttribute('data-state')).toBe('ready'));
+    // Payload-derived, so it changes only once *this* object's fetch lands —
+    // `selected.name` updates synchronously on click and proves nothing.
+    expect(aside.getAttribute('data-object-key')).toBe('table:CUSTOMERS');
+  });
+
   it('plans a revert when a prior version is selected', async () => {
     inspectLokeeObject.mockResolvedValue({
       blueprint: {

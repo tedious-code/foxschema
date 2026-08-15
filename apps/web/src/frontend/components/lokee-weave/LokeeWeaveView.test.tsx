@@ -80,6 +80,7 @@ const DTO: VersionGraphDTO = {
   objects: [],
   totalVersions: 2,
   totalObjects: 3,
+    truncatedObjects: false,
 };
 
 beforeEach(() => {

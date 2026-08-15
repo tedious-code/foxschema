@@ -274,6 +274,10 @@ export function LokeeObjectInspector({
     setLoading(true);
     setError(null);
     setRevert(null);
+    // Drop the previous object's payload: this component is not remounted when
+    // the selection changes, so keeping it would render the old blueprint,
+    // source, and growth under the new object's name until the fetch lands.
+    setData(null);
     void inspectLokeeObject(databaseId, selected.versionId, selected.objectKey)
       .then((result) => {
         if (!cancelled) setData(result);
@@ -344,6 +348,14 @@ export function LokeeObjectInspector({
   return (
     <aside
       data-testid="lokee-object-inspector"
+      // The panel's load state, declared rather than inferred. Without it the
+      // only way to tell "still fetching" from "ready" is to string-match the
+      // "Loading blueprint…" copy, which couples tests to user-facing wording.
+      // `data-object-key` comes from the payload, not from `selected`, so it
+      // changes only once *this* object's fetch has landed — `selected.name`
+      // updates synchronously on click and proves nothing about the fetch.
+      data-state={loading ? 'loading' : error ? 'error' : data ? 'ready' : 'empty'}
+      data-object-key={focus?.key ?? undefined}
       className="flex w-[360px] shrink-0 flex-col overflow-hidden border-l border-slate-800 bg-slate-950/80"
     >
       <header className="flex items-start gap-2 border-b border-slate-800 px-3 py-2">

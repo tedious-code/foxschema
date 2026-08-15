@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildVersionGraph, deriveObjectColumns, edgeStatusFor } from './buildGraph';
+import { buildVersionGraph, deriveObjectColumns, edgeStatusFor, type BuiltGraph } from './buildGraph';
 import {
   DEFAULT_LAYOUT,
   EMPTY_FILTERS,
@@ -7,7 +7,15 @@ import {
   type VersionGraphDTO,
   type VersionGraphFilters,
   type VersionGraphObject,
+  type LokeeVersionNode,
 } from './graphTypes';
+
+/** Narrows to a version node, so `.data` is the version payload not the union. */
+function versionNode(graph: BuiltGraph, id: string): LokeeVersionNode {
+  const node = graph.nodes.find((n) => n.id === id);
+  if (!node || node.type !== 'versionNode') throw new Error(`no version node ${id}`);
+  return node;
+}
 
 const filters = (over: Partial<VersionGraphFilters> = {}): VersionGraphFilters => ({
   ...EMPTY_FILTERS,
@@ -54,6 +62,7 @@ const dto: VersionGraphDTO = {
   ],
   totalVersions: 3,
   totalObjects: 3,
+    truncatedObjects: false,
 };
 
 const nodeIds = (g: ReturnType<typeof buildVersionGraph>) => g.nodes.map((n) => n.id);
@@ -88,8 +97,8 @@ describe('edgeStatusFor — lineage semantics', () => {
 describe('buildVersionGraph — layout', () => {
   it('puts the newest version at the top', () => {
     const g = buildVersionGraph(dto, filters());
-    const v3 = g.nodes.find((n) => n.id === 'version:v3')!;
-    const v1 = g.nodes.find((n) => n.id === 'version:v1')!;
+    const v3 = versionNode(g, 'version:v3');
+    const v1 = versionNode(g, 'version:v1');
     expect(v3.position.y).toBeLessThan(v1.position.y);
   });
 
@@ -125,14 +134,14 @@ describe('buildVersionGraph — layout', () => {
 
   it('honours a custom layout', () => {
     const g = buildVersionGraph(dto, filters(), { ...DEFAULT_LAYOUT, versionRowHeight: 500 });
-    const v3 = g.nodes.find((n) => n.id === 'version:v3')!;
-    const v2 = g.nodes.find((n) => n.id === 'version:v2')!;
+    const v3 = versionNode(g, 'version:v3');
+    const v2 = versionNode(g, 'version:v2');
     expect(Math.abs(v2.position.y - v3.position.y)).toBe(500);
   });
 
   it('nudge object cards down so they sit beside the version title', () => {
     const g = buildVersionGraph(dto, filters());
-    const version = g.nodes.find((n) => n.id === 'version:v3')!;
+    const version = versionNode(g, 'version:v3');
     const object = g.nodes.find((n) => n.id === 'object:v3:table:ORDERS')!;
     expect(object.position.y).toBe(version.position.y + DEFAULT_LAYOUT.objectYOffset);
   });
@@ -196,7 +205,7 @@ describe('buildVersionGraph — tombstones and status', () => {
 
   it('counts only real changes on the version node', () => {
     const g = buildVersionGraph(dto, filters());
-    const v2 = g.nodes.find((n) => n.id === 'version:v2')!;
+    const v2 = versionNode(g, 'version:v2');
     // v2 is two unchanged objects — nothing actually changed.
     expect(v2.data.changeCount).toBe(0);
   });
@@ -274,7 +283,7 @@ describe('buildVersionGraph — filters', () => {
       ],
     };
     const g = buildVersionGraph(named, filters());
-    const v1 = g.nodes.find((n) => n.id === 'version:v1')!;
+    const v1 = versionNode(g, 'version:v1');
     expect(v1.data.name).toBe('Baseline');
     expect(v1.data.description).toBe('First capture');
   });
@@ -300,7 +309,7 @@ describe('buildVersionGraph — large graphs', () => {
     const g = buildVersionGraph(many, filters(), DEFAULT_LAYOUT, 10);
     const kept = g.nodes
       .filter((n) => n.type === 'schemaObjectNode')
-      .map((n) => n.data.status);
+      .map((n) => (n.type === 'schemaObjectNode' ? n.data.status : undefined));
     expect(kept.every((s) => s === 'modified')).toBe(true);
   });
 
@@ -346,7 +355,7 @@ describe('deriveObjectColumns / shortHash', () => {
 describe('buildVersionGraph — degenerate input', () => {
   it('handles an empty history', () => {
     const g = buildVersionGraph(
-      { databaseId: 'db', versions: [], objects: [], totalVersions: 0, totalObjects: 0 },
+      { databaseId: 'db', versions: [], objects: [], totalVersions: 0, totalObjects: 0, truncatedObjects: false },
       filters()
     );
     expect(g.nodes).toEqual([]);
@@ -361,6 +370,7 @@ describe('buildVersionGraph — degenerate input', () => {
         objects: [obj('v1', 'table:A', 'H', 'added')],
         totalVersions: 1,
         totalObjects: 1,
+    truncatedObjects: false,
       },
       filters()
     );

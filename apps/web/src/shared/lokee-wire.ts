@@ -1,0 +1,187 @@
+/**
+ * Fox Schema (foxschema)
+ * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Lokee Weave — the shapes that cross the wire.
+ *
+ * One declaration per contract, imported by the backend that produces it and
+ * the frontend that consumes it. Before this file each of these existed twice —
+ * once in `lokee-weave.module.ts`, once hand-copied into `lokeeApi.ts` — and
+ * nothing checked the copies against each other, so renaming a field
+ * type-checked cleanly on both sides and broke only in the browser. Two had
+ * already drifted: `source` was widened from a four-value union to `string`,
+ * and `VersionGraphObject.schemaName` was declared on a field no producer ever
+ * emitted.
+ *
+ * `apps/web/tsconfig.json` includes both `src` and `../../packages`, so the
+ * repo's primary gate typechecks producer, contract and consumer in one pass.
+ *
+ * These belong here rather than in `@foxschema/sql` because they are *this
+ * app's* API contract, not dialect knowledge: they carry metadata-DB primary
+ * keys, user ids, and row counters, none of which mean anything outside
+ * FoxSchema. `@foxschema/sql` is published to npm, and putting app wire shapes
+ * in it would bind them to that package's semver. Types that genuinely are
+ * dialect knowledge — `ObjectBlueprint`, `StoredWeaveObject`, `ReversalPlan`,
+ * `ChangeOperation`, `LokeeObjectType` — stay there and are re-exported below
+ * where the wire needs them.
+ */
+import type {
+  ChangeOperation,
+  LokeeObjectType,
+  ObjectBlueprint,
+  ReversalPlan,
+} from '@foxschema/sql';
+
+/** How a version came to exist. */
+export type CaptureSource = 'migrate' | 'manual' | 'scan' | 'revert';
+
+/**
+ * The subset a client may ask for. `scan` is reachable only in-process (a
+ * scheduled sweep), and the route coerces anything else to `manual`, so
+ * deriving it keeps the two ends from drifting apart.
+ */
+export type CaptureRequestSource = Exclude<CaptureSource, 'scan'>;
+
+export interface CaptureResult {
+  databaseId: string;
+  versionId: string;
+  versionNumber: number;
+  rootHash: string;
+  /**
+   * False when the schema was byte-for-byte what the index already held.
+   * Not derivable from `changeCount`: a first capture of an empty schema is
+   * `changed: true, changeCount: 0` — a real version with no deltas.
+   */
+  changed: boolean;
+  changeCount: number;
+  objectCount: number;
+}
+
+export interface LokeeDatabase {
+  id: string;
+  dialect: string;
+  host?: string;
+  database?: string;
+  schema?: string;
+  versionCount: number;
+  lastSeenAt: string;
+}
+
+export interface VersionSummary {
+  id: string;
+  number: number;
+  rootHash: string;
+  createdAt: string;
+  lastObservedAt: string;
+  observationCount: number;
+  source: CaptureSource;
+  migrationRunId?: string;
+  authorUserId?: string;
+  /** Resolved email (or id) for filters / attribution. */
+  author?: string;
+  /** Optional user-facing label; absent means show "Version N". */
+  name?: string;
+  description?: string;
+  objectCount: number;
+  changeCount: number;
+}
+
+export interface ObjectHistoryEntry {
+  versionId: string;
+  versionNumber: number;
+  createdAt: string;
+  source: CaptureSource;
+  operation: ChangeOperation;
+  hash?: string;
+  previousHash?: string;
+  body?: Record<string, unknown>;
+  previousBody?: Record<string, unknown>;
+  // Absent and null differ here and both reach the client: `undefined` means
+  // the row was not found, `null` means it was found and carries no value.
+  lineCount?: number | null;
+  previousLineCount?: number | null;
+  firstSeenAt?: string | null;
+  /** True when this hash was stored before this version — a pointer, not a copy. */
+  reused: boolean;
+}
+
+export interface ContainerGrowthPoint {
+  versionId: string;
+  versionNumber: number;
+  createdAt: string;
+  columns: number;
+  indexes: number;
+  foreignKeys: number;
+  triggers: number;
+  objects: number;
+}
+
+export interface ColumnMutation {
+  objectKey: string;
+  columnName: string;
+  events: ObjectHistoryEntry[];
+}
+
+export interface ObjectInspectResult {
+  blueprint: ObjectBlueprint;
+  history: ObjectHistoryEntry[];
+  growth: ContainerGrowthPoint[];
+  /** Column ADD / MODIFY / DELETE across versions, when the focus is a table. */
+  columnMutations: ColumnMutation[];
+}
+
+export type GraphChangeStatus = 'added' | 'modified' | 'unchanged' | 'deleted';
+
+export interface VersionGraphVersion {
+  id: string;
+  /** 1-based, shown to the user as `v3` when no custom name is set. */
+  number: number;
+  createdAt: string;
+  rootHash: string;
+  /** Who ran the migration that produced this version, when known. */
+  author?: string;
+  /** Optional display name; falls back to `Version ${number}`. */
+  name?: string;
+  description?: string;
+}
+
+export interface VersionGraphObject {
+  versionId: string;
+  /** Logical identity — never the hash. A rename is a delete plus an add. */
+  objectKey: string;
+  name: string;
+  objectType: LokeeObjectType;
+  /** Content identity. Null for a tombstone. */
+  objectHash: string | null;
+  status: GraphChangeStatus;
+}
+
+export interface VersionGraphDTO {
+  databaseId: string;
+  versions: VersionGraphVersion[];
+  objects: VersionGraphObject[];
+  /** Totals for the whole history, not just the returned window. */
+  totalVersions: number;
+  totalObjects: number;
+  /** True when the object cap hid part of the schema. Always sent. */
+  truncatedObjects: boolean;
+}
+
+/**
+ * A revert plan as published.
+ *
+ * `RevertPlanResult` (backend-only) also carries `steps: MigrationStep[]`,
+ * which the routes strip before responding. Deriving the wire shape keeps that
+ * omission deliberate instead of re-typed.
+ */
+export interface RevertPlanWire {
+  fromVersion: VersionSummary;
+  toVersion: VersionSummary;
+  alreadyAtTarget: boolean;
+  reversal: ReversalPlan;
+  statements: string[];
+}
+
+/** Why a revert was refused. Named once; three call sites narrow on it. */
+export type LokeeRevertErrorCode = 'blocked' | 'confirm_lossy' | 'failed';

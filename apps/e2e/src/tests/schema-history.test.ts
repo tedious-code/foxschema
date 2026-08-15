@@ -107,7 +107,7 @@ describe.skipIf(!ready)('Schema Sync · History (SQLite)', () => {
   });
 
   it('opens a table blueprint with columns, indexes and triggers', async () => {
-    await history.clickTableNode('customers');
+    await history.clickObjectNamed('customers');
     const text = await history.inspectorText();
     expect(text).toMatch(/email/i);
     expect(await driver.locator('[data-testid="lokee-inspector-columns"]').isVisible()).toBe(true);
@@ -151,7 +151,7 @@ describe.skipIf(!ready)('Schema Sync · History (SQLite)', () => {
     await expect
       .poll(async () => history.versionCount(), { timeout: 20_000 })
       .toBeGreaterThan(before);
-    await history.clickTableNode('customers');
+    await history.clickObjectNamed('customers');
     const inspector = await history.inspectorText();
     expect(inspector).toMatch(/phone/i);
     expect(await driver.locator('[data-testid="lokee-inspector-growth"]').isVisible()).toBe(true);

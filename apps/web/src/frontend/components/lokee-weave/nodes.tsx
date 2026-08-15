@@ -10,7 +10,7 @@
  * a table's columns inline stops being readable at about four tables.
  */
 import React, { memo } from 'react';
-import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { Handle, Position, type NodeProps, type NodeTypes } from '@xyflow/react';
 import {
   Table2,
   Eye,
@@ -31,8 +31,8 @@ import { objectStyle, statusStyle } from '../../lib/lokeeColors';
 import {
   shortHash,
   versionDisplayName,
-  type SchemaObjectNodeData,
-  type VersionNodeData,
+  type LokeeObjectNode,
+  type LokeeVersionNode,
 } from './graphTypes';
 import { SQL_ICON_STROKE } from '../sql-editor/sqlIconStyle';
 
@@ -52,8 +52,7 @@ const TYPE_ICON: Record<LokeeObjectType, React.ComponentType<{ className?: strin
   type: Shapes,
 };
 
-export const VersionNode = memo(({ data, selected }: NodeProps) => {
-  const d = data as VersionNodeData;
+export const VersionNode = memo(({ data: d, selected }: NodeProps<LokeeVersionNode>) => {
   const when = d.createdAt.replace('T', ' ').slice(0, 16);
   const label = versionDisplayName(d);
   const hasCustomName = Boolean(d.name?.trim());
@@ -93,8 +92,7 @@ export const VersionNode = memo(({ data, selected }: NodeProps) => {
 });
 VersionNode.displayName = 'VersionNode';
 
-export const SchemaObjectNode = memo(({ data, selected }: NodeProps) => {
-  const d = data as SchemaObjectNodeData;
+export const SchemaObjectNode = memo(({ data: d, selected }: NodeProps<LokeeObjectNode>) => {
   const style = objectStyle(d.objectType);
   const status = statusStyle(d.status);
   const Icon = TYPE_ICON[d.objectType] ?? Shapes;
@@ -127,8 +125,7 @@ export const SchemaObjectNode = memo(({ data, selected }: NodeProps) => {
 SchemaObjectNode.displayName = 'SchemaObjectNode';
 
 /** A tombstone marks where an object stopped existing; it is not carried on. */
-export const DeletedObjectNode = memo(({ data, selected }: NodeProps) => {
-  const d = data as SchemaObjectNodeData;
+export const DeletedObjectNode = memo(({ data: d, selected }: NodeProps<LokeeObjectNode>) => {
   return (
     <div
       data-testid={`rf-object-${d.versionId}-${d.objectKey}`}
@@ -152,8 +149,16 @@ export const DeletedObjectNode = memo(({ data, selected }: NodeProps) => {
 });
 DeletedObjectNode.displayName = 'DeletedObjectNode';
 
+/**
+ * React Flow's `NodeTypes` is a `Record<string, ComponentType<NodeProps>>`
+ * over the *untyped* node, so a map of payload-typed renderers cannot satisfy
+ * it directly. One assertion here is the honest price: it puts the erasure at
+ * the registration boundary, where React Flow genuinely loses the types,
+ * instead of inside all three renderers where it silently disabled checking on
+ * every field they read.
+ */
 export const LOKEE_NODE_TYPES = {
   versionNode: VersionNode,
   schemaObjectNode: SchemaObjectNode,
   deletedObjectNode: DeletedObjectNode,
-};
+} as unknown as NodeTypes;
