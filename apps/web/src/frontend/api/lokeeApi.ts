@@ -207,11 +207,11 @@ export interface LokeeRevertPlan {
 }
 
 export class LokeeRevertError extends Error {
-  readonly code: 'blocked' | 'confirm_lossy' | 'failed';
+  readonly code: 'blocked' | 'confirm_lossy' | 'connection_mismatch' | 'failed';
   readonly plan?: LokeeRevertPlan;
   constructor(
     message: string,
-    code: 'blocked' | 'confirm_lossy' | 'failed',
+    code: 'blocked' | 'confirm_lossy' | 'connection_mismatch' | 'failed',
     plan?: LokeeRevertPlan
   ) {
     super(message);
@@ -262,7 +262,12 @@ export async function executeLokeeRevert(
     LokeeRevertPlan & { ok?: boolean; error?: string; code?: string; capture?: CaptureResult }
   >(res);
   if (res.ok) return { ...data, ok: true as const };
-  const code = data.code === 'blocked' || data.code === 'confirm_lossy' ? data.code : 'failed';
+  const code =
+    data.code === 'blocked' ||
+    data.code === 'confirm_lossy' ||
+    data.code === 'connection_mismatch'
+      ? data.code
+      : 'failed';
   throw new LokeeRevertError(
     data.error || res.statusText || 'Revert failed',
     code,

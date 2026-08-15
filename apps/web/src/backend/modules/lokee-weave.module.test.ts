@@ -524,6 +524,32 @@ describe('inspectObject', () => {
   });
 });
 
+describe('matchDatabaseIdentity', () => {
+  it('accepts the same identity the history was captured under', async () => {
+    const { weave } = await freshStore();
+    const captured = await weave.capture(USER, { ...IDENTITY, tables: [CUSTOMER], source: 'manual' });
+    await expect(
+      weave.matchDatabaseIdentity(USER, captured.databaseId, IDENTITY)
+    ).resolves.toBe('ok');
+  });
+
+  it('rejects a different database so revert cannot target the wrong connection', async () => {
+    const { weave } = await freshStore();
+    const captured = await weave.capture(USER, { ...IDENTITY, tables: [CUSTOMER], source: 'manual' });
+    await expect(
+      weave.matchDatabaseIdentity(USER, captured.databaseId, {
+        ...IDENTITY,
+        database: 'other_shop',
+      })
+    ).resolves.toBe('mismatch');
+  });
+
+  it('returns not_found for an unknown or foreign history id', async () => {
+    const { weave } = await freshStore();
+    await expect(weave.matchDatabaseIdentity(USER, 'missing', IDENTITY)).resolves.toBe('not_found');
+  });
+});
+
 describe('planRevert', () => {
   it('classifies dropping a later column as lossy and emits DROP COLUMN', async () => {
     const { weave } = await freshStore();
