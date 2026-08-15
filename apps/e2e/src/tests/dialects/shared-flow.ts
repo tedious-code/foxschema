@@ -21,12 +21,31 @@ import { MigrationPage } from '../../pages/MigrationPage.js';
 import { LokeeHistoryPage } from '../../pages/LokeeHistoryPage.js';
 import type { DbConfig } from '../../helpers/db-config.js';
 
+/** What the History inspector must show for one object after migrate. */
+export interface HistoryObjectExpectation {
+  /** Node label as rendered in the graph, e.g. `fn_order_total`. */
+  name: string;
+  /** Routines have a Source section; tables do not. */
+  expectSource?: boolean;
+  /** Table growth is meaningless for a routine and must not be shown. */
+  expectGrowth: boolean;
+  /** Matched against the inspector's timeline text, e.g. /v\d+\s*·\s*ADD/i. */
+  expectTimeline?: RegExp;
+}
+
 export interface DialectFlowOptions {
   /**
    * Skip execute/history steps. Used for dialects whose adapter is SELECT-only
    * in the SQL Editor / e2e path (e.g. SQLite) so compare still gets coverage.
    */
   skipMigration?: boolean;
+  /**
+   * Objects to open in the History inspector after migrate, and what each must
+   * show. Expectations depend on the seed, so they live with the dialect that
+   * chooses it rather than as a dialect-name check inside this shared flow —
+   * another dialect running the same seed opts in with one line.
+   */
+  historyObjects?: HistoryObjectExpectation[];
 }
 
 export function runDialectFlow(
@@ -225,18 +244,19 @@ export function runDialectFlow(
       await driver.locator('[data-testid^="rf-version-"]').first().waitFor({ timeout: 10_000 });
       expect(await driver.locator('[data-testid^="rf-version-"]').count()).toBeGreaterThan(0);
 
-      // Postgres demo_a→demo_b migrate adds fn_order_total and widens customers.
-      // Functions must not show Table growth; tables must.
+      // Per-object inspector expectations, supplied by the dialect that knows
+      // its seed. Empty for dialects that have not opted in.
       const history = new LokeeHistoryPage(driver);
-      if (await history.objectNamedVisible('fn_order_total')) {
-        await history.clickObjectNamed('fn_order_total');
-        expect(await history.inspectorHasSource()).toBe(true);
-        expect(await history.inspectorHasGrowth()).toBe(false);
-        expect(await history.inspectorText()).toMatch(/v\d+\s*·\s*ADD/i);
-      }
-      if (await history.objectNamedVisible('customers')) {
-        await history.clickObjectNamed('customers');
-        expect(await history.inspectorHasGrowth()).toBe(true);
+      for (const expected of options.historyObjects ?? []) {
+        if (!(await history.objectNamedVisible(expected.name))) continue;
+        await history.clickObjectNamed(expected.name);
+        if (expected.expectSource !== undefined) {
+          expect(await history.inspectorHasSection('source')).toBe(expected.expectSource);
+        }
+        expect(await history.inspectorHasSection('growth')).toBe(expected.expectGrowth);
+        if (expected.expectTimeline) {
+          expect(await history.inspectorText()).toMatch(expected.expectTimeline);
+        }
       }
     }
     await clickWhen(driver, '[data-testid="sync-pane-compare-btn"]');

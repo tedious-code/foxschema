@@ -9,48 +9,32 @@
  * resolved and decrypted server-side, and an ad-hoc one carries only what the
  * user typed for this session.
  */
+import type { ObjectBlueprint, StoredWeaveObject } from '@foxschema/sql';
 import type { ConnectionRef } from './schemaApi';
 import type { VersionGraphDTO } from '../components/lokee-weave/graphTypes';
+import type {
+  CaptureRequestSource,
+  CaptureResult,
+  LokeeDatabase,
+  ColumnMutation,
+  ContainerGrowthPoint,
+  LokeeRevertErrorCode,
+  ObjectHistoryEntry,
+  ObjectInspectResult,
+  RevertPlanWire,
+  VersionSummary,
+} from '../../shared/lokee-wire';
 import { getApiBase, parseJsonBody, parseJsonResponse } from './apiBase';
 
-export interface LokeeDatabase {
-  id: string;
-  dialect: string;
-  host?: string;
-  database?: string;
-  schema?: string;
-  versionCount: number;
-  lastSeenAt: string;
-}
-
-export interface LokeeVersion {
-  id: string;
-  number: number;
-  rootHash: string;
-  createdAt: string;
-  lastObservedAt: string;
-  observationCount: number;
-  source: string;
-  migrationRunId?: string;
-  authorUserId?: string;
-  /** Resolved email for attribution / filters. */
-  author?: string;
-  /** Optional display name; omit to show "Version N". */
-  name?: string;
-  description?: string;
-  objectCount: number;
-  changeCount: number;
-}
-
-export interface CaptureResult {
-  databaseId: string;
-  versionId: string;
-  versionNumber: number;
-  rootHash: string;
-  changed: boolean;
-  changeCount: number;
-  objectCount: number;
-}
+// These were hand-copied from the backend until the shared contract landed;
+// two had already drifted (`source` widened to `string`). Aliases keep the
+// existing call sites while the declaration lives in one place.
+export type { CaptureResult, LokeeDatabase } from '../../shared/lokee-wire';
+export type LokeeVersion = VersionSummary;
+export type LokeeHistoryEvent = ObjectHistoryEntry;
+export type LokeeStoredObject = StoredWeaveObject;
+export type LokeeInspectResult = ObjectInspectResult;
+export type LokeeRevertPlan = RevertPlanWire;
 
 /**
  * Capture the current schema of a database.
@@ -93,12 +77,12 @@ export async function listLokeeVersions(
 export async function loadVersionGraph(
   databaseId: string,
   limit = 20
-): Promise<VersionGraphDTO & { truncatedObjects: boolean }> {
+): Promise<VersionGraphDTO> {
   const res = await fetch(
     `${getApiBase()}/lokee/databases/${encodeURIComponent(databaseId)}/graph?limit=${limit}`,
     { credentials: 'include' }
   );
-  return parseJsonResponse<VersionGraphDTO & { truncatedObjects: boolean }>(res);
+  return parseJsonResponse<VersionGraphDTO>(res);
 }
 
 /** Update the user-facing name and/or description on a version. */
@@ -120,64 +104,6 @@ export async function updateLokeeVersionMeta(
   return body.version;
 }
 
-export interface LokeeHistoryEvent {
-  versionId: string;
-  versionNumber: number;
-  createdAt: string;
-  source: string;
-  operation: 'ADD' | 'MODIFY' | 'DELETE';
-  hash?: string;
-  previousHash?: string;
-  body?: Record<string, unknown>;
-  previousBody?: Record<string, unknown>;
-  lineCount?: number | null;
-  previousLineCount?: number | null;
-  firstSeenAt?: string | null;
-  reused: boolean;
-}
-
-export interface LokeeInspectResult {
-  blueprint: {
-    focusKey: string;
-    container: LokeeStoredObject | null;
-    object: LokeeStoredObject | null;
-    columns: LokeeStoredObject[];
-    indexes: LokeeStoredObject[];
-    foreignKeys: LokeeStoredObject[];
-    triggers: LokeeStoredObject[];
-    primaryKey: LokeeStoredObject | null;
-  };
-  history: LokeeHistoryEvent[];
-  growth: Array<{
-    versionId: string;
-    versionNumber: number;
-    createdAt: string;
-    columns: number;
-    indexes: number;
-    foreignKeys: number;
-    triggers: number;
-    objects: number;
-  }>;
-  columnMutations: Array<{
-    objectKey: string;
-    columnName: string;
-    events: LokeeHistoryEvent[];
-  }>;
-  script?: string;
-  previousScript?: string;
-}
-
-export interface LokeeStoredObject {
-  key: string;
-  type: string;
-  name: string;
-  hash: string;
-  body: Record<string, unknown>;
-  sourceText?: string | null;
-  lineCount?: number | null;
-  firstSeenAt?: string | null;
-}
-
 /** Blueprint + change timeline for one object at one version. */
 export async function inspectLokeeObject(
   databaseId: string,
@@ -192,26 +118,12 @@ export async function inspectLokeeObject(
   return parseJsonResponse<LokeeInspectResult>(res);
 }
 
-export interface LokeeRevertPlan {
-  fromVersion: LokeeVersion;
-  toVersion: LokeeVersion;
-  alreadyAtTarget: boolean;
-  reversal: {
-    verdicts: Array<{ key: string; risk: 'safe' | 'lossy' | 'blocked'; summary: string; dataLoss?: string }>;
-    risk: 'safe' | 'lossy' | 'blocked';
-    safeCount: number;
-    lossyCount: number;
-    blockedCount: number;
-  };
-  statements: string[];
-}
-
 export class LokeeRevertError extends Error {
-  readonly code: 'blocked' | 'confirm_lossy' | 'connection_mismatch' | 'failed';
+  readonly code: LokeeRevertErrorCode;
   readonly plan?: LokeeRevertPlan;
   constructor(
     message: string,
-    code: 'blocked' | 'confirm_lossy' | 'connection_mismatch' | 'failed',
+    code: LokeeRevertErrorCode,
     plan?: LokeeRevertPlan
   ) {
     super(message);

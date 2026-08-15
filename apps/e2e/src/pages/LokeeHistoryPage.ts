@@ -76,35 +76,48 @@ export class LokeeHistoryPage {
     await select.selectOption(value);
   }
 
-  async clickTableNode(tableName: string): Promise<void> {
-    await this.clickObjectNamed(tableName);
+  /** Single owner of the object-node selector, shared by every accessor below. */
+  private objectNode(name: string) {
+    return this.page.locator('[data-testid^="rf-object-"]').filter({ hasText: name }).first();
   }
 
   async clickObjectNamed(name: string): Promise<void> {
-    const node = this.page
-      .locator('[data-testid^="rf-object-"]')
-      .filter({ hasText: name })
-      .first();
+    const node = this.objectNode(name);
     await node.waitFor({ state: 'visible', timeout: 15_000 });
-    await node.click();
-    await waitFor(this.page, '[data-testid="lokee-object-inspector"]', 20_000);
+    try {
+      await node.click({ timeout: 5_000 });
+    } catch {
+      // React Flow clips its pane, so a node in a far-right column can sit
+      // outside the viewport. Fit the graph and click again for real — a
+      // dispatched synthetic click would bypass the actionability check, which
+      // is the one thing this test exists to prove a user can do.
+      await this.page.locator('.react-flow__controls-fitview').click({ timeout: 5_000 });
+      await node.click({ timeout: 5_000 });
+    }
+    await this.waitForInspectorLoaded();
   }
 
-  async objectNamedVisible(name: string): Promise<boolean> {
-    return this.page
-      .locator('[data-testid^="rf-object-"]')
-      .filter({ hasText: name })
-      .first()
-      .isVisible()
+  /**
+   * The inspector shell renders immediately and fills in after an async fetch,
+   * so callers must not read it until the payload is in. `data-state` is set by
+   * the component; matching on it beats string-matching the loading copy.
+   */
+  async waitForInspectorLoaded(timeoutMs = 20_000): Promise<void> {
+    await this.page.waitForSelector('[data-testid="lokee-object-inspector"][data-state="ready"]', {
+      timeout: timeoutMs,
+    });
+  }
+
+  async objectNamedVisible(name: string, timeoutMs = 5_000): Promise<boolean> {
+    return this.objectNode(name)
+      .waitFor({ state: 'visible', timeout: timeoutMs })
+      .then(() => true)
       .catch(() => false);
   }
 
-  async inspectorHasGrowth(): Promise<boolean> {
-    return this.page.locator('[data-testid="lokee-inspector-growth"]').isVisible();
-  }
-
-  async inspectorHasSource(): Promise<boolean> {
-    return this.page.locator('[data-testid="lokee-inspector-source"]').isVisible();
+  /** Sections render only once loaded, so callers must await the inspector first. */
+  async inspectorHasSection(section: 'growth' | 'source' | 'columns' | 'indexes'): Promise<boolean> {
+    return this.page.locator(`[data-testid="lokee-inspector-${section}"]`).isVisible();
   }
 
   async inspectorText(): Promise<string> {

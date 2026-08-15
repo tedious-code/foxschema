@@ -52,6 +52,19 @@ import {
   type TableSchema,
 } from '@foxschema/sql';
 import { getStore } from '../database/store';
+import type {
+  CaptureResult,
+  CaptureSource,
+  ColumnMutation,
+  ContainerGrowthPoint,
+  LokeeDatabase,
+  ObjectHistoryEntry,
+  ObjectInspectResult,
+  RevertPlanWire,
+  VersionGraphDTO,
+  VersionGraphObject,
+  VersionSummary,
+} from '../../shared/lokee-wire';
 import type { MetadataStore, SqlParam } from '../database/stores/types';
 
 const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8').digest('hex');
@@ -69,7 +82,16 @@ const MAX_BIND_PARAMS = 900;
 /** Objects returned for one graph window, before the view's own node cap. */
 const MAX_GRAPH_OBJECT_KEYS = 400;
 
-export type CaptureSource = 'migrate' | 'manual' | 'scan' | 'revert';
+export type {
+  CaptureResult,
+  CaptureSource,
+  ColumnMutation,
+  ContainerGrowthPoint,
+  LokeeDatabase,
+  ObjectHistoryEntry,
+  ObjectInspectResult,
+  VersionSummary,
+} from '../../shared/lokee-wire';
 
 export interface CaptureInput extends DatabaseIdentityInput {
   tables: TableSchema[];
@@ -78,99 +100,12 @@ export interface CaptureInput extends DatabaseIdentityInput {
   migrationRunId?: string;
 }
 
-export interface CaptureResult {
-  databaseId: string;
-  versionId: string;
-  versionNumber: number;
-  rootHash: string;
-  /** False when the schema was byte-for-byte what the index already held. */
-  changed: boolean;
-  changeCount: number;
-  objectCount: number;
-}
-
-export interface VersionedObject {
-  hash: string;
-  type: string;
-  name: string;
-  body: Record<string, unknown>;
-  sourceText?: string | null;
-  lineCount?: number | null;
-  firstSeenAt?: string | null;
-}
-
-export interface ObjectHistoryEntry {
-  versionId: string;
-  versionNumber: number;
-  createdAt: string;
-  source: CaptureSource;
-  operation: 'ADD' | 'MODIFY' | 'DELETE';
-  hash?: string;
-  previousHash?: string;
-  body?: Record<string, unknown>;
-  previousBody?: Record<string, unknown>;
-  lineCount?: number | null;
-  previousLineCount?: number | null;
-  firstSeenAt?: string | null;
-  /** True when this hash was stored before this version — a pointer, not a copy. */
-  reused: boolean;
-}
-
-export interface ContainerGrowthPoint {
-  versionId: string;
-  versionNumber: number;
-  createdAt: string;
-  columns: number;
-  indexes: number;
-  foreignKeys: number;
-  triggers: number;
-  objects: number;
-}
-
-export interface ColumnMutation {
-  objectKey: string;
-  columnName: string;
-  events: ObjectHistoryEntry[];
-}
-
-export interface ObjectInspectResult {
-  blueprint: ObjectBlueprint;
-  history: ObjectHistoryEntry[];
-  growth: ContainerGrowthPoint[];
-  /** Column ADD / MODIFY / DELETE across versions, when the focus is a table. */
-  columnMutations: ColumnMutation[];
-  /** CREATE script at this version (tables skip indexes). */
-  script: string;
-  /** Adjacent older version's script, empty on v1. */
-  previousScript: string;
-}
-
-export interface RevertPlanResult {
-  fromVersion: VersionSummary;
-  toVersion: VersionSummary;
-  alreadyAtTarget: boolean;
-  reversal: ReversalPlan;
+/**
+ * Backend-only: `steps` never crosses the wire (the routes strip it), so the
+ * published shape is `RevertPlanWire`.
+ */
+export interface RevertPlanResult extends RevertPlanWire {
   steps: MigrationStep[];
-  statements: string[];
-}
-
-export interface VersionSummary {
-  id: string;
-  number: number;
-  rootHash: string;
-  createdAt: string;
-  lastObservedAt: string;
-  observationCount: number;
-  source: CaptureSource;
-  migrationRunId?: string;
-  authorUserId?: string;
-  /** Resolved email (or id) for filters / attribution. */
-  author?: string;
-  /** Optional user-facing label; null means show "Version N". */
-  name?: string;
-  description?: string;
-  objectCount: number;
-  changeCount: number;
 }
 
 interface VersionRow {
@@ -237,17 +172,17 @@ export function chunkForBind<T>(rows: readonly T[], paramsPerRow: number): T[][]
   return out;
 }
 
-function toCanonical(key: string, object: VersionedObject): CanonicalObject {
+function toCanonical(object: StoredWeaveObject): CanonicalObject {
   return {
-    key,
+    key: object.key,
     type: object.type as LokeeObjectType,
     body: object.body,
     sourceText: object.sourceText,
   };
 }
 
-function canonicalList(objects: Map<string, VersionedObject>): CanonicalObject[] {
-  return [...objects.entries()].map(([key, object]) => toCanonical(key, object));
+function canonicalList(objects: Map<string, StoredWeaveObject>): CanonicalObject[] {
+  return [...objects.values()].map(toCanonical);
 }
 
 /** `LIKE` prefix for children of one owner. `!` is the ESCAPE character. */
@@ -788,31 +723,9 @@ export class LokeeWeaveStore {
     userId: string,
     databaseId: string,
     limit = 20
-  ): Promise<{
-    databaseId: string;
-    versions: Array<{
-      id: string;
-      number: number;
-      createdAt: string;
-      rootHash: string;
-      author?: string;
-      name?: string;
-      description?: string;
-    }>;
-    objects: Array<{
-      versionId: string;
-      objectKey: string;
-      name: string;
-      objectType: LokeeObjectType;
-      objectHash: string | null;
-      status: 'added' | 'modified' | 'unchanged' | 'deleted';
-    }>;
-    totalVersions: number;
-    totalObjects: number;
-    truncatedObjects: boolean;
-  }> {
+  ): Promise<VersionGraphDTO> {
     const store = await this.store();
-    const empty = {
+    const empty: VersionGraphDTO = {
       databaseId,
       versions: [],
       objects: [],
@@ -874,14 +787,7 @@ export class LokeeWeaveStore {
       }
     }
 
-    const objects: Array<{
-      versionId: string;
-      objectKey: string;
-      name: string;
-      objectType: LokeeObjectType;
-      objectHash: string | null;
-      status: 'added' | 'modified' | 'unchanged' | 'deleted';
-    }> = [];
+    const objects: VersionGraphObject[] = [];
 
     for (const version of versions) {
       const state = states.get(version.id) ?? new Map<string, string>();
@@ -943,9 +849,9 @@ export class LokeeWeaveStore {
     userId: string,
     databaseId: string,
     versionId: string
-  ): Promise<Map<string, VersionedObject>> {
+  ): Promise<Map<string, StoredWeaveObject>> {
     const store = await this.store();
-    const out = new Map<string, VersionedObject>();
+    const out = new Map<string, StoredWeaveObject>();
     if (!(await this.assertOwned(store, userId, databaseId))) return out;
 
     const target = await store.get<VersionRow>(
@@ -994,6 +900,7 @@ export class LokeeWeaveStore {
           // still exists and its identity is still known.
         }
         out.set(row.object_key, {
+          key: row.object_key,
           hash: row.hash,
           type: row.object_type,
           name: row.name ?? fallbackName(row.object_key),
@@ -1020,9 +927,11 @@ export class LokeeWeaveStore {
     const store = await this.store();
     if (!(await this.assertOwned(store, userId, databaseId))) return null;
 
-    const atVersion = await this.objectsAtVersion(userId, databaseId, versionId);
-    const stored = new Map<string, StoredWeaveObject>();
-    for (const [key, object] of atVersion) stored.set(key, { key, ...object });
+    // Carries `key`, so it is already the shape the blueprint wants. Rebuilding
+    // the map to add a field the map key already holds cost one object spread
+    // per live object — 20,000 of them on a schema this module budgets for,
+    // every time the inspector opened.
+    const stored = await this.objectsAtVersion(userId, databaseId, versionId);
     const owner = objectKeyOwner(objectKey);
     const kind = objectKeyKind(objectKey);
     const blueprint = assembleBlueprint(objectKey, stored);
@@ -1034,9 +943,9 @@ export class LokeeWeaveStore {
     const here = versions.findIndex((v) => v.id === versionId);
     const older = here >= 0 ? versions[here + 1] : undefined;
     if (older) {
-      const prevAt = await this.objectsAtVersion(userId, databaseId, older.id);
-      const prevStored = new Map<string, StoredWeaveObject>();
-      for (const [key, object] of prevAt) prevStored.set(key, { key, ...object });
+      // Already the blueprint's shape — see the note on the current-version
+      // read above; re-pairing it here would spread `key` over itself.
+      const prevStored = await this.objectsAtVersion(userId, databaseId, older.id);
       previousScript = renderLokeeObjectScript(assembleBlueprint(objectKey, prevStored));
     }
     return {
@@ -1089,8 +998,8 @@ export class LokeeWeaveStore {
       if (cur && tgt && cur.hash === tgt.hash) continue;
       entries.push({
         key,
-        current: cur ? toCanonical(key, cur) : undefined,
-        target: tgt ? toCanonical(key, tgt) : undefined,
+        current: cur ? toCanonical(cur) : undefined,
+        target: tgt ? toCanonical(tgt) : undefined,
       });
     }
 

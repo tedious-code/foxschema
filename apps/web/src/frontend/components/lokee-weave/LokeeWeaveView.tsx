@@ -43,6 +43,7 @@ const EMPTY_DTO: VersionGraphDTO = {
   objects: [],
   totalVersions: 0,
   totalObjects: 0,
+  truncatedObjects: false,
 };
 
 function describe(database: LokeeDatabase | undefined): string | undefined {
@@ -73,7 +74,6 @@ export function LokeeWeaveView({
   const [pickedId, setPickedId] = useState<string | undefined>(undefined);
   const [captureConnectionId, setCaptureConnectionId] = useState('');
   const [dto, setDto] = useState<VersionGraphDTO>(EMPTY_DTO);
-  const [truncated, setTruncated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [capturing, setCapturing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -135,7 +135,6 @@ export function LokeeWeaveView({
         const graph = await loadVersionGraph(activeId, versionLimit);
         if (cancelled) return;
         setDto(graph);
-        setTruncated(Boolean(graph.truncatedObjects));
       } catch (err) {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : 'Failed to load schema history');
@@ -353,7 +352,7 @@ export function LokeeWeaveView({
   return (
     <div className="flex flex-1 min-h-0 flex-col overflow-hidden" data-testid="lokee-weave-view">
       {chrome}
-      {truncated && (
+      {dto.truncatedObjects && (
         <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-1.5 text-[11px] text-amber-200">
           Showing the objects that changed in this window. This schema has more objects than the
           graph draws at once.
