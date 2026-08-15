@@ -71,5 +71,11 @@ export {
   type ObjectBlueprint,
   type StoredWeaveObject,
 } from './blueprint.js';
+export {
+  lokeeColumnChangeSubtitle,
+  lokeeColumnSubtitle,
+  lokeeTypeLabel,
+  renderLokeeObjectScript,
+} from './script.js';
 export { hydrateTableSchemas } from './hydrate.js';
 export { buildRevertMigration, type RevertMigration } from './revert-sql.js';

@@ -40,7 +40,7 @@ beforeEach(() => {
 });
 
 describe('LokeeObjectInspector', () => {
-  it('renders columns, indexes, triggers and a column type timeline', async () => {
+  it('renders updated columns with type/constraint subtitles and a GitHub script diff', async () => {
     inspectLokeeObject.mockResolvedValue({
       blueprint: {
         focusKey: 'table:CUSTOMER',
@@ -65,6 +65,13 @@ describe('LokeeObjectInspector', () => {
             name: 'email',
             hash: 'c1',
             body: { dataType: 'varchar(255)', nullable: true },
+          },
+          {
+            key: 'column:CUSTOMER.PHONE',
+            type: 'column',
+            name: 'phone',
+            hash: 'c2',
+            body: { dataType: 'varchar(20)', nullable: true },
           },
         ],
         indexes: [
@@ -180,6 +187,15 @@ describe('LokeeObjectInspector', () => {
           ],
         },
       ],
+      script: `CREATE TABLE customer (
+  id integer PRIMARY KEY,
+  email varchar(255),
+  phone varchar(20)
+);`,
+      previousScript: `CREATE TABLE customer (
+  id integer PRIMARY KEY,
+  email varchar(100)
+);`,
     });
 
     render(
@@ -188,15 +204,22 @@ describe('LokeeObjectInspector', () => {
 
     await waitFor(() => expect(screen.getByTestId('lokee-inspector-blueprint')).toBeTruthy());
     expect(screen.getByTestId('lokee-inspector-columns').textContent).toContain('email');
-    expect(screen.getByTestId('lokee-inspector-indexes').textContent).toContain('idx_email');
+    expect(screen.getByTestId('lokee-inspector-columns').textContent).toContain(
+      'varchar(100) → varchar(255)'
+    );
+    expect(screen.getByTestId('lokee-inspector-columns').textContent).toContain('MODIFY');
+    expect(screen.queryByTestId('lokee-inspector-indexes')).toBeNull();
     expect(screen.getByTestId('lokee-inspector-triggers').textContent).toContain('trg_audit');
     expect(screen.getByTestId('lokee-inspector-history').textContent).toContain('varchar(100) → varchar(255)');
     expect(screen.getByTestId('lokee-inspector-growth').textContent).toContain('3 cols');
+    expect(screen.getByTestId('lokee-inspector-growth').textContent).not.toMatch(/idx/i);
     expect(screen.getByTestId('lokee-inspector-growth').textContent).toContain('v1');
     expect(screen.getByTestId('lokee-inspector-column-mutations').textContent).toContain('phone');
     expect(screen.getByTestId('lokee-inspector-column-mutations').textContent).toContain(
       'varchar(100) → varchar(255)'
     );
+    expect(screen.getByTestId('lokee-inspector-script-diff').textContent).toMatch(/varchar\(255\)/);
+    expect(screen.getByTestId('lokee-inspector-script-diff').textContent).toMatch(/\+/);
     expect(screen.getByTestId('lokee-inspector-revert-1')).toBeTruthy();
     expect(screen.queryByTestId('lokee-inspector-revert-2')).toBeNull();
   });

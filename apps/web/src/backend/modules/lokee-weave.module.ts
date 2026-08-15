@@ -39,6 +39,7 @@ import {
   objectKeyKind,
   objectKeyOwner,
   planReversal,
+  renderLokeeObjectScript,
   weave,
   type CanonicalObject,
   type DatabaseIdentityInput,
@@ -599,6 +600,25 @@ export class LokeeWeaveStore {
     return Boolean(row?.id);
   }
 
+  /**
+   * Revert plans from `databaseId` history but executes on a caller-supplied
+   * connection. Refuse when that connection’s identity is not the same row —
+   * otherwise DDL from one history can run against another database.
+   */
+  async matchDatabaseIdentity(
+    userId: string,
+    databaseId: string,
+    input: DatabaseIdentityInput
+  ): Promise<'ok' | 'not_found' | 'mismatch'> {
+    const store = await this.store();
+    const row = await store.get<{ fingerprint: string }>(
+      'SELECT fingerprint FROM lokee_databases WHERE id = ? AND user_id = ?',
+      [databaseId, userId]
+    );
+    if (!row) return 'not_found';
+    return row.fingerprint === databaseIdentity(input, sha256) ? 'ok' : 'mismatch';
+  }
+
   async listVersions(userId: string, databaseId: string, limit = 100): Promise<VersionSummary[]> {
     const store = await this.store();
     if (!(await this.assertOwned(store, userId, databaseId))) return [];
@@ -917,11 +937,24 @@ export class LokeeWeaveStore {
     const blueprint = assembleBlueprint(objectKey, stored);
     // Growth is about the parent table/view, so clicking a column still counts.
     const tableLike = isLokeeTableLikeType(String(blueprint.container?.type ?? kind));
+    const script = renderLokeeObjectScript(blueprint);
+    let previousScript = '';
+    const versions = await this.listVersions(userId, databaseId, 500);
+    const here = versions.findIndex((v) => v.id === versionId);
+    const older = here >= 0 ? versions[here + 1] : undefined;
+    if (older) {
+      // Already the blueprint's shape — see the note on the current-version
+      // read above; re-pairing it here would spread `key` over itself.
+      const prevStored = await this.objectsAtVersion(userId, databaseId, older.id);
+      previousScript = renderLokeeObjectScript(assembleBlueprint(objectKey, prevStored));
+    }
     return {
       blueprint,
       history: await this.objectHistory(userId, databaseId, objectKey),
       growth: tableLike ? await this.containerGrowth(userId, databaseId, owner) : [],
       columnMutations: tableLike ? await this.columnMutations(userId, databaseId, owner) : [],
+      script,
+      previousScript,
     };
   }
 

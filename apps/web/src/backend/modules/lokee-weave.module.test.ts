@@ -470,6 +470,12 @@ describe('inspectObject', () => {
     expect(inspect!.growth).toHaveLength(2);
     expect(inspect!.growth[0]?.columns).toBe(2);
     expect(inspect!.growth[1]?.columns).toBe(3);
+    expect(inspect!.script).toMatch(/CREATE TABLE customer/i);
+    expect(inspect!.script).toMatch(/phone/);
+    expect(inspect!.script).toMatch(/varchar\(255\)/);
+    expect(inspect!.previousScript).toMatch(/varchar\(100\)/);
+    expect(inspect!.previousScript).not.toMatch(/phone/);
+    expect(inspect!.script).not.toMatch(/INDEX/i);
   });
 
   it('rolls up column mutations when inspecting the table', async () => {
@@ -515,6 +521,32 @@ describe('inspectObject', () => {
     expect(inspect?.blueprint.object?.sourceText).toContain('begin');
     expect(inspect?.growth).toEqual([]);
     expect(inspect?.columnMutations).toEqual([]);
+  });
+});
+
+describe('matchDatabaseIdentity', () => {
+  it('accepts the same identity the history was captured under', async () => {
+    const { weave } = await freshStore();
+    const captured = await weave.capture(USER, { ...IDENTITY, tables: [CUSTOMER], source: 'manual' });
+    await expect(
+      weave.matchDatabaseIdentity(USER, captured.databaseId, IDENTITY)
+    ).resolves.toBe('ok');
+  });
+
+  it('rejects a different database so revert cannot target the wrong connection', async () => {
+    const { weave } = await freshStore();
+    const captured = await weave.capture(USER, { ...IDENTITY, tables: [CUSTOMER], source: 'manual' });
+    await expect(
+      weave.matchDatabaseIdentity(USER, captured.databaseId, {
+        ...IDENTITY,
+        database: 'other_shop',
+      })
+    ).resolves.toBe('mismatch');
+  });
+
+  it('returns not_found for an unknown or foreign history id', async () => {
+    const { weave } = await freshStore();
+    await expect(weave.matchDatabaseIdentity(USER, 'missing', IDENTITY)).resolves.toBe('not_found');
   });
 });
 

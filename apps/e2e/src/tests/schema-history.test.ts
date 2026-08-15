@@ -106,15 +106,15 @@ describe.skipIf(!ready)('Schema Sync · History (SQLite)', () => {
     expect(await driver.locator('[data-testid^="rf-object-"]').count()).toBeGreaterThan(0);
   });
 
-  it('opens a table blueprint with columns, indexes and triggers', async () => {
+  it('opens a table blueprint with columns and a script diff', async () => {
     await history.clickObjectNamed('customers');
     const text = await history.inspectorText();
     expect(text).toMatch(/email/i);
     expect(await driver.locator('[data-testid="lokee-inspector-columns"]').isVisible()).toBe(true);
-    expect(await driver.locator('[data-testid="lokee-inspector-indexes"]').isVisible()).toBe(true);
+    expect(await driver.locator('[data-testid="lokee-inspector-indexes"]').count()).toBe(0);
     expect(await driver.locator('[data-testid="lokee-inspector-triggers"]').isVisible()).toBe(true);
-    expect(text).toMatch(/idx_customers_email/i);
     expect(text).toMatch(/trg_customers_audit/i);
+    expect(await driver.locator('[data-testid="lokee-inspector-script-diff"]').isVisible()).toBe(true);
   });
 
   it('defaults to tables, views, functions, procedures and changes only', async () => {

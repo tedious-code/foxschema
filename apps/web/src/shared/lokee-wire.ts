@@ -129,6 +129,10 @@ export interface ObjectInspectResult {
   growth: ContainerGrowthPoint[];
   /** Column ADD / MODIFY / DELETE across versions, when the focus is a table. */
   columnMutations: ColumnMutation[];
+  /** CREATE script at this version (tables skip indexes). */
+  script: string;
+  /** Adjacent older version's script; empty string on v1. */
+  previousScript: string;
 }
 
 export type GraphChangeStatus = 'added' | 'modified' | 'unchanged' | 'deleted';
@@ -183,5 +187,13 @@ export interface RevertPlanWire {
   statements: string[];
 }
 
-/** Why a revert was refused. Named once; three call sites narrow on it. */
-export type LokeeRevertErrorCode = 'blocked' | 'confirm_lossy' | 'failed';
+/**
+ * Why a revert was refused. Named once; three call sites narrow on it.
+ * `connection_mismatch` guards reverting through a connection that does not
+ * point at the database the history belongs to.
+ */
+export type LokeeRevertErrorCode =
+  | 'blocked'
+  | 'confirm_lossy'
+  | 'connection_mismatch'
+  | 'failed';
