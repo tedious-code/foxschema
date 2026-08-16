@@ -27,6 +27,8 @@ import { getSessionPassword } from '../../lib/sessionPasswords';
 import { toast } from '../../store/toastStore';
 import { useSyncStore } from '../../store/useSyncStore';
 import { useUiStore } from '../../store/uiStore';
+import { useLokeeHistoryStore } from '../../store/lokeeHistoryStore';
+import { lokeeDatabaseLabel, resolveHistoryCompare } from '../../lib/historyCompare';
 import { SQL_ICON_STROKE } from '../sql-editor/sqlIconStyle';
 
 export interface LokeeWeaveViewProps {
@@ -55,12 +57,6 @@ function describe(database: LokeeDatabase | undefined): string | undefined {
   return `[${database.dialect}] ${where}${schema}`;
 }
 
-function databaseLabel(database: LokeeDatabase): string {
-  const where = [database.host, database.database].filter(Boolean).join('/') || database.id.slice(0, 8);
-  const schema = database.schema ? ` · ${database.schema}` : '';
-  return `${database.dialect.toUpperCase()} · ${where}${schema} (${database.versionCount} v)`;
-}
-
 export function LokeeWeaveView({
   databaseId,
   versionLimit = 20,
@@ -72,8 +68,13 @@ export function LokeeWeaveView({
   const targetConfig = useSyncStore((s) => s.targetConfig);
   const lokeeEpoch = useUiStore((s) => s.lokeeEpoch);
   const bumpLokeeEpoch = useUiStore((s) => s.bumpLokeeEpoch);
+  const storeDatabaseId = useLokeeHistoryStore((s) => s.databaseId);
+  const setStoreDatabaseId = useLokeeHistoryStore((s) => s.setDatabaseId);
+  const setStoreDatabases = useLokeeHistoryStore((s) => s.setDatabases);
+  const setStoreVersions = useLokeeHistoryStore((s) => s.setVersions);
+  const originalVersionId = useLokeeHistoryStore((s) => s.originalVersionId);
+  const targetVersionId = useLokeeHistoryStore((s) => s.targetVersionId);
   const [databases, setDatabases] = useState<LokeeDatabase[]>([]);
-  const [pickedId, setPickedId] = useState<string | undefined>(undefined);
   const [captureConnectionId, setCaptureConnectionId] = useState('');
   const [dto, setDto] = useState<VersionGraphDTO>(EMPTY_DTO);
   const [loading, setLoading] = useState(true);
@@ -82,9 +83,8 @@ export function LokeeWeaveView({
   const [selectedObject, setSelectedObject] = useState<SchemaObjectNodeData | null>(null);
   // Bumped to re-run the effect; a plain refetch() would race the in-flight one.
   const [reloadToken, setReloadToken] = useState(0);
-  // The two sides of the version bar, and the pair currently being compared.
-  const [originalVersionId, setOriginalVersionId] = useState<string | undefined>();
-  const [targetVersionId, setTargetVersionId] = useState<string | undefined>();
+  // Which pair the modal is showing. The two *sides* live in the history store,
+  // because the picker that sets them is HistoryCompareBar up in the toolbar.
   const [comparePair, setComparePair] = useState<{ original: string; target: string } | null>(null);
 
   const matchedTargetId = useMemo(() => {
@@ -101,8 +101,39 @@ export function LokeeWeaveView({
     )?.id;
   }, [databases, targetConfig]);
 
-  // Prop wins; otherwise the user's pick; otherwise the Target database; else most recent.
-  const activeId = databaseId ?? pickedId ?? matchedTargetId ?? databases[0]?.id;
+  const storedId =
+    storeDatabaseId &&
+    (databases.length === 0 || databases.some((d) => d.id === storeDatabaseId))
+      ? storeDatabaseId
+      : undefined;
+  // Prop wins; otherwise the History Original picker; otherwise Target; else most recent.
+  const activeId = databaseId ?? storedId ?? matchedTargetId ?? databases[0]?.id;
+
+  useEffect(() => {
+    setStoreDatabases(databases);
+  }, [databases, setStoreDatabases]);
+
+  useEffect(() => {
+    if (databaseId) return;
+    if (activeId && storeDatabaseId !== activeId) setStoreDatabaseId(activeId);
+  }, [databaseId, activeId, storeDatabaseId, setStoreDatabaseId]);
+
+  useEffect(() => {
+    setStoreVersions(
+      dto.versions.map((v) => ({ id: v.id, number: v.number, name: v.name }))
+    );
+  }, [dto.versions, setStoreVersions]);
+
+  const compareVersionIds = useMemo(() => {
+    const resolved = resolveHistoryCompare(
+      dto.versions.map((v) => ({ id: v.id, number: v.number, name: v.name })),
+      { originalVersionId, targetVersionId }
+    );
+    const ids = [resolved.original?.id, resolved.target?.id].filter(
+      (id): id is string => Boolean(id)
+    );
+    return [...new Set(ids)];
+  }, [dto.versions, originalVersionId, targetVersionId]);
 
   useEffect(() => {
     if (!captureConnectionId && selectedTargetConnectionId) {
@@ -214,7 +245,7 @@ export function LokeeWeaveView({
         password: getSessionPassword(captureConnectionId) || undefined,
         source: 'manual',
       });
-      setPickedId(result.databaseId);
+      setStoreDatabaseId(result.databaseId);
       refresh();
       bumpLokeeEpoch();
       toast({
@@ -235,30 +266,32 @@ export function LokeeWeaveView({
     } finally {
       setCapturing(false);
     }
-  }, [captureConnectionId, capturing, connections, refresh, bumpLokeeEpoch]);
+  }, [captureConnectionId, capturing, connections, refresh, bumpLokeeEpoch, setStoreDatabaseId]);
 
   const chrome = (
     <div
       className="flex flex-wrap items-center gap-2 border-b border-slate-800 bg-slate-950/80 px-6 py-2"
       data-testid="lokee-weave-chrome"
     >
+      {!embedded && (
       <label className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400">
         History
         <select
           data-testid="lokee-database-select"
           value={activeId ?? ''}
           disabled={Boolean(databaseId) || databases.length === 0}
-          onChange={(e) => setPickedId(e.target.value || undefined)}
+          onChange={(e) => setStoreDatabaseId(e.target.value || null)}
           className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 outline-none focus:border-cyan-600 disabled:opacity-50"
         >
           {databases.length === 0 && <option value="">No captures yet</option>}
           {databases.map((d) => (
             <option key={d.id} value={d.id}>
-              {databaseLabel(d)}
+              {lokeeDatabaseLabel(d)}
             </option>
           ))}
         </select>
       </label>
+      )}
       <button
         type="button"
         data-testid="lokee-refresh-btn"
@@ -303,94 +336,28 @@ export function LokeeWeaveView({
   );
 
 
-  useEffect(() => {
-    const vs = dto?.versions ?? [];
-    if (vs.length < 2) return;
-    // Newest first, so [0] is head and [1] is the one before it. Original is the
-    // older side and Target the head: the bar then reads as "make the live head
-    // look like this earlier version", which is the revert question.
-    setTargetVersionId((cur) => (cur && vs.some((v) => v.id === cur) ? cur : vs[0]!.id));
-    setOriginalVersionId((cur) => (cur && vs.some((v) => v.id === cur) ? cur : vs[1]!.id));
-  }, [dto]);
 
-  // Version-vs-version bar, laid out like the connection bar above the compare
-  // workspace: an Original side, an arrow, a Target side. Same mental model —
-  // Original is the reference, Target is what would change to match it — except
-  // both sides are points in this database's own history rather than servers.
-  const versions = dto?.versions ?? [];
-  const versionLabel = (v: (typeof versions)[number]): string =>
-    `${versionDisplayName({ number: v.number, name: v.name })} · ${v.createdAt.slice(0, 10)}`;
-
-  const compareBar = versions.length >= 2 && (
+  // The two sides come from HistoryCompareBar in the toolbar; this is only the
+  // trigger that opens the diff for them, so it sits next to the graph it
+  // explains rather than in the bar.
+  const compareBar = compareVersionIds.length === 2 && (
     <div
       data-testid="lokee-version-bar"
-      className="flex flex-wrap items-stretch gap-2 border-b border-slate-800 bg-slate-950/60 px-6 py-2"
+      className="flex shrink-0 items-center gap-2 border-b border-slate-800 bg-slate-950/60 px-6 py-1.5"
     >
-      <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-1.5">
-        <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-cyan-400">
-          Original version
-        </span>
-        <select
-          data-testid="lokee-original-version"
-          value={originalVersionId ?? ''}
-          onChange={(e) => setOriginalVersionId(e.target.value || undefined)}
-          className="min-w-0 flex-1 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 outline-none focus:border-cyan-600"
-        >
-          {versions.map((v) => (
-            <option key={v.id} value={v.id}>
-              {versionLabel(v)}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="flex shrink-0 flex-col items-center justify-center px-1 text-[9px] font-bold uppercase tracking-wider text-slate-500">
-        <span>Original</span>
-        <ArrowRight className="h-4 w-4 text-cyan-400" strokeWidth={SQL_ICON_STROKE} />
-        <span>Target</span>
-      </div>
-
-      <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-1.5">
-        <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-violet-400">
-          Target version
-        </span>
-        <select
-          data-testid="lokee-target-version"
-          value={targetVersionId ?? ''}
-          onChange={(e) => setTargetVersionId(e.target.value || undefined)}
-          className="min-w-0 flex-1 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 outline-none focus:border-violet-600"
-        >
-          {versions.map((v) => (
-            <option key={v.id} value={v.id}>
-              {versionLabel(v)}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          data-testid="lokee-swap-versions"
-          onClick={() => {
-            const a = originalVersionId;
-            setOriginalVersionId(targetVersionId);
-            setTargetVersionId(a);
-          }}
-          title="Swap Original and Target (reverses the reading direction)"
-          className="shrink-0 rounded border border-slate-700 px-1.5 py-1 text-[10px] text-slate-300 hover:bg-slate-800"
-        >
-          Swap
-        </button>
-      </div>
-
       <button
         type="button"
         data-testid="lokee-compare-versions-btn"
-        disabled={!originalVersionId || !targetVersionId || originalVersionId === targetVersionId}
-        onClick={() => setComparePair({ original: originalVersionId!, target: targetVersionId! })}
-        title="Compare these two versions"
-        className="shrink-0 self-center rounded-md border border-cyan-500/40 bg-cyan-950/50 px-3 py-1.5 text-[11px] font-bold text-cyan-100 hover:bg-cyan-900/50 disabled:cursor-not-allowed disabled:opacity-40"
+        onClick={() =>
+          setComparePair({ original: compareVersionIds[0]!, target: compareVersionIds[1]! })
+        }
+        className="rounded-md border border-cyan-500/40 bg-cyan-950/30 px-3 py-1 text-[11px] font-bold text-cyan-100 transition hover:bg-cyan-900/40"
       >
         Compare versions
       </button>
+      <span className="text-[10px] text-slate-500">
+        Original and Target are set in the bar above.
+      </span>
     </div>
   );
 
@@ -439,8 +406,8 @@ export function LokeeWeaveView({
           <div className="max-w-md text-xs text-slate-400">
             Take an initial snapshot of the Target (Snapshot target in the toolbar), or pick a
             credential here and click <span className="text-slate-200">Capture schema</span>.
-            Migrating the Target records a new version automatically. Unchanged objects are stored
-            once and reused by hash pointer.
+            Then choose an Original version and a Target (current database or an older version),
+            the same way as Compare. Migrating the Target records a new version automatically.
           </div>
         </div>
       </div>
@@ -463,6 +430,7 @@ export function LokeeWeaveView({
             dto={dto}
             subtitle={subtitle}
             embedded={embedded}
+            compareVersionIds={compareVersionIds}
             onSelectObject={handleSelectObject}
             onSaveVersionMeta={saveVersionMeta}
           />

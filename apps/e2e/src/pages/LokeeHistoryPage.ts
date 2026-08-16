@@ -12,7 +12,12 @@ export class LokeeHistoryPage {
   constructor(private page: Page) {}
 
   async openHistoryPane(): Promise<void> {
-    await clickWhen(this.page, '[data-testid="view-sync-btn"]');
+    const historyView = this.page.locator('[data-testid="lokee-weave-view"]');
+    if (await historyView.isVisible().catch(() => false)) return;
+    const syncBtn = this.page.locator('[data-testid="view-sync-btn"]');
+    if (await syncBtn.isVisible().catch(() => false)) {
+      await clickWhen(this.page, '[data-testid="view-sync-btn"]');
+    }
     await clickWhen(this.page, '[data-testid="sync-pane-history-btn"]');
     await waitFor(this.page, '[data-testid="lokee-weave-view"]', 20_000);
   }

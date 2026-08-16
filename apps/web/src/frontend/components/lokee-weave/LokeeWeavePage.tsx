@@ -58,6 +58,8 @@ export interface LokeeWeavePageProps {
   ) => Promise<void>;
   /** Shorter header when shown inside Schema Sync. */
   embedded?: boolean;
+  /** Original + Target version ids from the Compare-style History bar. */
+  compareVersionIds?: readonly string[];
 }
 
 const FILTERABLE_TYPES: LokeeObjectType[] = [
@@ -185,8 +187,15 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
   onSelectObject,
   onSaveVersionMeta,
   embedded = false,
+  compareVersionIds,
 }) => {
-  const [filters, setFilters] = useState<VersionGraphFilters>(() => freshFilters());
+  const [filters, setFilters] = useState<VersionGraphFilters>(() => {
+    const base = freshFilters();
+    if (compareVersionIds && compareVersionIds.length > 0) {
+      return { ...base, versionIds: new Set(compareVersionIds) };
+    }
+    return base;
+  });
   const [locked, setLocked] = useState(true);
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
@@ -197,6 +206,12 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
     () => dto.versions.find((v) => v.id === selectedVersionId),
     [dto.versions, selectedVersionId]
   );
+
+  const compareKey = (compareVersionIds ?? []).join('|');
+  useEffect(() => {
+    if (!compareKey) return;
+    setFilters((f) => ({ ...f, versionIds: new Set(compareKey.split('|')) }));
+  }, [compareKey]);
 
   useEffect(() => {
     if (!selectedVersion) {

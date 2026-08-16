@@ -17,6 +17,7 @@ import { useAuthStore } from '../store/authStore';
 import { captureSchema } from '../api/lokeeApi';
 import { toast } from '../store/toastStore';
 import { getSessionPassword, setSessionPassword } from '../lib/sessionPasswords';
+import { HistoryCompareBar } from './lokee-weave/HistoryCompareBar';
 
 const ProfileMenu = ProfileMenuNamed ?? ProfileMenuDefault;
 
@@ -154,31 +155,31 @@ export const TopToolbar: React.FC = () => {
   ];
 
   return (
-    <header data-testid="toolbar" className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md px-6 py-3 flex flex-col gap-3">
+    <header data-testid="toolbar" className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md px-4 py-2 flex flex-col gap-2">
       {/* Brand + utilities. Workspace tabs sit on the next row so Lokee Weave
           cannot wrap under the logo and disappear in a narrow Cursor preview. */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Brand logoSize={42} textClassName="text-2xl font-bold" />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Brand logoSize={34} textClassName="text-xl font-bold" />
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             data-testid="credentials-btn"
             onClick={() => setShowCredentials(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-base font-semibold text-cyan-400 hover:text-cyan-300 border border-slate-700 hover:border-cyan-500/40 rounded-md transition cursor-pointer"
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-cyan-400 hover:text-cyan-300 border border-slate-700 hover:border-cyan-500/40 rounded-md transition cursor-pointer"
           >
-            <KeyRound className="w-4 h-4" /> Credentials
+            <KeyRound className="w-3.5 h-3.5" /> Credentials
           </button>
           <button
             data-testid="history-btn"
             onClick={() => setShowHistory(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-base font-semibold text-slate-300 hover:text-slate-100 border border-slate-700 hover:border-slate-500 rounded-md transition cursor-pointer"
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-slate-300 hover:text-slate-100 border border-slate-700 hover:border-slate-500 rounded-md transition cursor-pointer"
           >
-            <History className="w-4 h-4" /> History
+            <History className="w-3.5 h-3.5" /> History
           </button>
-          {compareResult && activeView === 'sync' && (
+          {compareResult && activeView === 'sync' && syncPane === 'compare' && (
             <button
               onClick={resetSync}
-              className="px-3 py-1.5 text-base font-semibold text-slate-400 hover:text-slate-200 border border-slate-700 hover:border-slate-600 rounded-md transition cursor-pointer"
+              className="px-2.5 py-1 text-xs font-semibold text-slate-400 hover:text-slate-200 border border-slate-700 hover:border-slate-600 rounded-md transition cursor-pointer"
             >
               Clear Comparison
             </button>
@@ -189,11 +190,13 @@ export const TopToolbar: React.FC = () => {
         </div>
       </div>
 
-      {/* Full-width workspace switcher — always its own row. */}
-      {(canSchemaBrowse || canSchemaCompare || canEditorAccess) && (
+      {/* Full-width workspace switcher — hidden on History so the version
+          Original → Target bar can reuse Compare's mental model. */}
+      {(canSchemaBrowse || canSchemaCompare || canEditorAccess) &&
+        !(activeView === 'sync' && syncPane === 'history') && (
         <div
           data-testid="workspace-switcher"
-          className="flex flex-wrap items-center gap-2 rounded-md border border-slate-700 bg-slate-950/50 p-1"
+          className="flex flex-wrap items-center gap-1.5 rounded-md border border-slate-700 bg-slate-950/50 p-0.5"
         >
           <span className="px-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
             Workspace
@@ -202,26 +205,26 @@ export const TopToolbar: React.FC = () => {
             <button
               data-testid="view-sync-btn"
               onClick={() => setActiveView('sync')}
-              className={`flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-semibold transition cursor-pointer ${
+              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
                 activeView === 'sync'
                   ? 'bg-slate-800 text-slate-100'
                   : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
               }`}
             >
-              <GitCompareArrows className="w-4 h-4" /> Schema Sync
+              <GitCompareArrows className="w-3.5 h-3.5" /> Schema Sync
             </button>
           )}
           {canEditorAccess && (
             <button
               data-testid="view-sql-editor-btn"
               onClick={() => setActiveView('sqlEditor')}
-              className={`flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-semibold transition cursor-pointer ${
+              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
                 activeView === 'sqlEditor'
                   ? 'bg-slate-800 text-slate-100'
                   : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
               }`}
             >
-              <Terminal className="w-4 h-4" /> SQL Editor
+              <Terminal className="w-3.5 h-3.5" /> SQL Editor
             </button>
           )}
         </div>
@@ -279,11 +282,13 @@ export const TopToolbar: React.FC = () => {
       {/* Database Connection Control Grid.
           Hidden in History: that pane compares two points in this database's
           own recorded past, so a live Original/Target pair says nothing about
-          what is on screen — History has its own version bar instead. */}
+          what is on screen — History gets the version bar in its place, which
+          is the same Original → Target gesture over stored versions. */}
+      {syncPane === 'history' && <HistoryCompareBar />}
       {syncPane === 'compare' && (
       <div className="grid grid-cols-1 xl:grid-cols-11 gap-3 items-stretch">
         {/* Source Configuration — left side is the Original Server (read / compare from). */}
-        <div className="xl:col-span-5 bg-slate-950/60 p-3 rounded-lg border border-slate-800/80 flex flex-col gap-2">
+        <div className="xl:col-span-5 bg-slate-950/60 p-2 rounded-md border border-slate-800/80 flex flex-col gap-1.5">
           <div className="text-[10px] font-bold uppercase tracking-wider text-cyan-500/80">
             Original Server
           </div>
@@ -295,7 +300,7 @@ export const TopToolbar: React.FC = () => {
                 value={selectedSourceConnectionId ?? ''}
                 onChange={(e) => e.target.value && selectSavedConnection('source', e.target.value)}
                 title="Saved connections"
-                className="shrink-0 w-40 max-w-[160px] text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-500 truncate"
+                className="shrink-0 w-36 max-w-[144px] text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-cyan-500 truncate"
               >
                 <option value="">— Saved —</option>
                 {connections.map((c) => (
@@ -323,14 +328,14 @@ export const TopToolbar: React.FC = () => {
                 setShowConnectionModal(true);
               }}
               title="Add or edit this connection's credentials"
-              className="shrink-0 text-xs font-semibold bg-slate-800 border border-slate-700 hover:bg-slate-700 hover:border-cyan-500/40 text-cyan-400 rounded transition cursor-pointer flex items-center gap-1.5 px-3 py-1.5"
+              className="shrink-0 text-xs font-semibold bg-slate-800 border border-slate-700 hover:bg-slate-700 hover:border-cyan-500/40 text-cyan-400 rounded transition cursor-pointer flex items-center gap-1.5 px-2 py-1"
             >
               <Settings className="w-3.5 h-3.5" />
               <span>{sourceConfig.option.database ? 'Edit' : 'Add'} Connection</span>
             </button>
 
             {isTestingSource ? (
-              <span className="text-base text-cyan-400 flex items-center gap-1 font-medium shrink-0">
+              <span className="text-xs text-cyan-400 flex items-center gap-1 font-medium shrink-0">
                 <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Connecting...
               </span>
             ) : sourceConnected ? (
@@ -338,7 +343,7 @@ export const TopToolbar: React.FC = () => {
                 data-testid="source-connected-btn"
                 onClick={testSourceConnection}
                 title="Reconnect and refresh schema list"
-                className="group text-base text-emerald-400 bg-emerald-950/40 px-2.5 py-1 rounded-full border border-emerald-500/20 hover:border-emerald-400/50 hover:bg-emerald-950/70 flex items-center gap-1 font-medium shrink-0 cursor-pointer transition"
+                className="group text-xs text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-500/20 hover:border-emerald-400/50 hover:bg-emerald-950/70 flex items-center gap-1 font-medium shrink-0 cursor-pointer transition"
               >
                 <CheckCircle2 className="w-3.5 h-3.5 group-hover:hidden" />
                 <RefreshCw className="w-3.5 h-3.5 hidden group-hover:block" />
@@ -350,7 +355,7 @@ export const TopToolbar: React.FC = () => {
                 data-testid="source-connect-btn"
                 onClick={testSourceConnection}
                 title="Retry connection"
-                className="text-base text-slate-400 hover:text-cyan-300 border border-slate-700 hover:border-cyan-500/40 bg-slate-900/60 hover:bg-slate-900 px-2.5 py-1 rounded-full flex items-center gap-1 font-medium shrink-0 cursor-pointer transition"
+                className="text-xs text-slate-400 hover:text-cyan-300 border border-slate-700 hover:border-cyan-500/40 bg-slate-900/60 hover:bg-slate-900 px-2 py-0.5 rounded-full flex items-center gap-1 font-medium shrink-0 cursor-pointer transition"
               >
                 <RefreshCw className="w-3.5 h-3.5" /> Retry Connection
               </button>
@@ -361,7 +366,7 @@ export const TopToolbar: React.FC = () => {
                 onClick={() => browseSchema('source')}
                 disabled={isBrowsing || selectedObjectTypes.length === 0}
                 title="Load this schema's objects to browse and search (no comparison)"
-                className="shrink-0 text-base text-cyan-400 border border-cyan-500/30 hover:border-cyan-400/60 bg-cyan-950/30 hover:bg-cyan-950/60 px-2.5 py-1 rounded-full flex items-center gap-1 font-medium cursor-pointer transition disabled:opacity-50 disabled:cursor-not-allowed"
+                className="shrink-0 text-xs text-cyan-400 border border-cyan-500/30 hover:border-cyan-400/60 bg-cyan-950/30 hover:bg-cyan-950/60 px-2 py-0.5 rounded-full flex items-center gap-1 font-medium cursor-pointer transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Search className="w-3.5 h-3.5" /> Browse
               </button>
@@ -379,8 +384,8 @@ export const TopToolbar: React.FC = () => {
             <span className="text-[9px] font-bold uppercase tracking-wider text-cyan-500/70 group-hover:text-cyan-400">
               Original
             </span>
-            <ArrowRight className="w-6 h-6 text-indigo-500/80 group-hover:hidden transition" />
-            <ArrowLeftRight className="w-6 h-6 text-cyan-400 hidden group-hover:block" />
+            <ArrowRight className="w-5 h-5 text-indigo-500/80 group-hover:hidden transition" />
+            <ArrowLeftRight className="w-5 h-5 text-cyan-400 hidden group-hover:block" />
             <span className="text-[9px] font-bold uppercase tracking-wider text-purple-400/70 group-hover:text-cyan-400">
               Target
             </span>
@@ -388,7 +393,7 @@ export const TopToolbar: React.FC = () => {
         </div>
 
         {/* Target Configuration */}
-        <div className="xl:col-span-5 bg-slate-950/60 p-3 rounded-lg border border-slate-800/80 flex flex-col gap-2">
+        <div className="xl:col-span-5 bg-slate-950/60 p-2 rounded-md border border-slate-800/80 flex flex-col gap-1.5">
           <div className="text-[10px] font-bold uppercase tracking-wider text-purple-400/80">
             Target
           </div>
@@ -400,7 +405,7 @@ export const TopToolbar: React.FC = () => {
                 value={selectedTargetConnectionId ?? ''}
                 onChange={(e) => e.target.value && selectSavedConnection('target', e.target.value)}
                 title="Saved connections"
-                className="shrink-0 w-40 max-w-[160px] text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-purple-500 truncate"
+                className="shrink-0 w-36 max-w-[144px] text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-purple-500 truncate"
               >
                 <option value="">— Saved —</option>
                 {connections.map((c) => (
@@ -428,14 +433,14 @@ export const TopToolbar: React.FC = () => {
                 setShowConnectionModal(true);
               }}
               title="Add or edit this connection's credentials"
-              className="shrink-0 text-xs font-semibold bg-slate-800 border border-slate-700 hover:bg-slate-700 hover:border-purple-500/40 text-purple-400 rounded transition cursor-pointer flex items-center gap-1.5 px-3 py-1.5"
+              className="shrink-0 text-xs font-semibold bg-slate-800 border border-slate-700 hover:bg-slate-700 hover:border-purple-500/40 text-purple-400 rounded transition cursor-pointer flex items-center gap-1.5 px-2 py-1"
             >
               <Settings className="w-3.5 h-3.5" />
               <span>{targetConfig.option.database ? 'Edit' : 'Add'} Connection</span>
             </button>
 
             {isTestingTarget ? (
-              <span className="text-base text-purple-400 flex items-center gap-1 font-medium shrink-0">
+              <span className="text-xs text-purple-400 flex items-center gap-1 font-medium shrink-0">
                 <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Connecting...
               </span>
             ) : targetConnected ? (
@@ -443,7 +448,7 @@ export const TopToolbar: React.FC = () => {
                 data-testid="target-connected-btn"
                 onClick={testTargetConnection}
                 title="Reconnect and refresh schema list"
-                className="group text-base text-emerald-400 bg-emerald-950/40 px-2.5 py-1 rounded-full border border-emerald-500/20 hover:border-emerald-400/50 hover:bg-emerald-950/70 flex items-center gap-1 font-medium shrink-0 cursor-pointer transition"
+                className="group text-xs text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-500/20 hover:border-emerald-400/50 hover:bg-emerald-950/70 flex items-center gap-1 font-medium shrink-0 cursor-pointer transition"
               >
                 <CheckCircle2 className="w-3.5 h-3.5 group-hover:hidden" />
                 <RefreshCw className="w-3.5 h-3.5 hidden group-hover:block" />
@@ -455,7 +460,7 @@ export const TopToolbar: React.FC = () => {
                 data-testid="target-connect-btn"
                 onClick={testTargetConnection}
                 title="Retry connection"
-                className="text-base text-slate-400 hover:text-purple-300 border border-slate-700 hover:border-purple-500/40 bg-slate-900/60 hover:bg-slate-900 px-2.5 py-1 rounded-full flex items-center gap-1 font-medium shrink-0 cursor-pointer transition"
+                className="text-xs text-slate-400 hover:text-purple-300 border border-slate-700 hover:border-purple-500/40 bg-slate-900/60 hover:bg-slate-900 px-2 py-0.5 rounded-full flex items-center gap-1 font-medium shrink-0 cursor-pointer transition"
               >
                 <RefreshCw className="w-3.5 h-3.5" /> Retry Connection
               </button>
@@ -466,7 +471,7 @@ export const TopToolbar: React.FC = () => {
                 onClick={() => browseSchema('target')}
                 disabled={isBrowsing || selectedObjectTypes.length === 0}
                 title="Load this schema's objects to browse and search (no comparison)"
-                className="shrink-0 text-base text-purple-300 border border-purple-500/30 hover:border-purple-400/60 bg-purple-950/30 hover:bg-purple-950/60 px-2.5 py-1 rounded-full flex items-center gap-1 font-medium cursor-pointer transition disabled:opacity-50 disabled:cursor-not-allowed"
+                className="shrink-0 text-xs text-purple-300 border border-purple-500/30 hover:border-purple-400/60 bg-purple-950/30 hover:bg-purple-950/60 px-2 py-0.5 rounded-full flex items-center gap-1 font-medium cursor-pointer transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Search className="w-3.5 h-3.5" /> Browse
               </button>
@@ -477,24 +482,24 @@ export const TopToolbar: React.FC = () => {
       )}
 
       {syncPane === 'compare' && (
-      <div className="flex flex-col md:flex-row justify-between md:items-center bg-slate-950/40 border border-slate-800/60 rounded-lg p-3 px-4 gap-3">
+      <div className="flex flex-col md:flex-row justify-between md:items-center bg-slate-950/40 border border-slate-800/60 rounded-md p-2 px-3 gap-2">
         {/* Scope Config Controls — two always-separate rows: which object types
             get compared (top), and which of the results are shown (bottom,
             once a compare has run). Each is its own flex-wrap line so the
             label always stays attached to its own pills. */}
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-3">
-            <span className="text-base font-semibold text-slate-400 flex items-center gap-1 uppercase tracking-wider border-r border-slate-800 pr-3">
+            <span className="text-xs font-semibold text-slate-400 flex items-center gap-1 uppercase tracking-wider border-r border-slate-800 pr-2">
               <Settings className="w-3.5 h-3.5 text-cyan-400" /> Comparison Scope:
             </span>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               {objectScopeOptions.map((opt) => {
                 const active = selectedObjectTypes.includes(opt.type);
                 return (
                   <button
                     key={opt.type}
                     onClick={() => toggleObjectTypeFilter(opt.type)}
-                    className={`px-3 py-1 rounded text-base font-semibold border transition cursor-pointer ${
+                    className={`px-2 py-0.5 rounded text-xs font-semibold border transition cursor-pointer ${
                       active
                         ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
                         : 'bg-slate-900/50 text-slate-500 border-slate-850 hover:text-slate-450 hover:bg-slate-900'
@@ -514,13 +519,13 @@ export const TopToolbar: React.FC = () => {
               pill row (esp. with 9 types + counts). */}
           {compareResult && (
             <div className="flex flex-wrap items-center gap-3">
-              <span className="text-base font-semibold text-slate-400 flex items-center gap-1 uppercase tracking-wider border-r border-slate-800 pr-3">
+              <span className="text-xs font-semibold text-slate-400 flex items-center gap-1 uppercase tracking-wider border-r border-slate-800 pr-2">
                 <Layers className="w-3.5 h-3.5 text-cyan-400" /> Viewing:
               </span>
-              <div className="flex items-center gap-2 overflow-x-auto">
+              <div className="flex items-center gap-1.5 overflow-x-auto">
                 <button
                   onClick={clearTypeFilter}
-                  className={`px-3 py-1 rounded text-base font-semibold border transition cursor-pointer whitespace-nowrap ${
+                  className={`px-2 py-0.5 rounded text-xs font-semibold border transition cursor-pointer whitespace-nowrap ${
                     typeFilter.length === 0
                       ? 'bg-slate-800 text-slate-100 border-slate-600'
                       : 'bg-slate-900/50 text-slate-500 border-slate-850 hover:text-slate-450 hover:bg-slate-900'
@@ -534,7 +539,7 @@ export const TopToolbar: React.FC = () => {
                     <button
                       key={type}
                       onClick={() => toggleTypeFilter(type)}
-                      className={`px-3 py-1 rounded text-base font-semibold border transition cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                      className={`px-2 py-0.5 rounded text-xs font-semibold border transition cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
                         active
                           ? 'bg-slate-800 text-slate-100 border-slate-600'
                           : 'bg-slate-900/50 text-slate-500 border-slate-850 hover:text-slate-450 hover:bg-slate-900'
@@ -553,7 +558,7 @@ export const TopToolbar: React.FC = () => {
 
         <div className="flex items-center gap-3">
           {sameConfig && (
-            <span className="flex items-center gap-1.5 text-sm font-medium text-amber-400 bg-amber-950/30 border border-amber-500/20 px-3 py-1.5 rounded-lg">
+            <span className="flex items-center gap-1.5 text-xs font-medium text-amber-400 bg-amber-950/30 border border-amber-500/20 px-2 py-1 rounded-md">
               <AlertCircle className="w-4 h-4 shrink-0" /> Original Server and Target are the same
             </span>
           )}
@@ -576,7 +581,7 @@ export const TopToolbar: React.FC = () => {
                   ? 'Original Server and Target point to the same database and schema'
                   : undefined
             }
-            className={`flex items-center gap-2 px-5 py-2 rounded-lg text-base font-bold transition shadow-lg ${
+            className={`flex items-center gap-1.5 px-4 py-1.5 rounded-md text-sm font-bold transition shadow-lg ${
               canSchemaCompare &&
               sourceConnected &&
               targetConnected &&

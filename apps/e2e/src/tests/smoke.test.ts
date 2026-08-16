@@ -36,6 +36,9 @@ describe('App boot', () => {
     await driver.locator('[data-testid="sync-pane-history-btn"]').click();
     await driver.waitForSelector('[data-testid="lokee-weave-view"]', { timeout: 15_000 });
     expect(await driver.locator('[data-testid="lokee-weave-view"]').isVisible()).toBe(true);
+    expect(await driver.locator('[data-testid="workspace-switcher"]').count()).toBe(0);
+    expect(await driver.locator('[data-testid="lokee-history-compare-bar"]').isVisible()).toBe(true);
     await driver.locator('[data-testid="sync-pane-compare-btn"]').click();
+    expect(await driver.locator('[data-testid="workspace-switcher"]').isVisible()).toBe(true);
   });
 });
