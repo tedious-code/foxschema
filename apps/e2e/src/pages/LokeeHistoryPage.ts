@@ -174,13 +174,42 @@ export class LokeeHistoryPage {
 
   /** Pick the Original side by its visible label (e.g. "Version 1"). */
   async selectOriginalVersion(label: string): Promise<void> {
-    const select = this.page.locator('[data-testid="lokee-original-version"]');
+    await this.selectVersionOption('lokee-original-version', label);
+  }
+
+  /** Pick Target by label. Use `selectTargetCurrent()` for the latest snapshot. */
+  async selectTargetVersion(label: string): Promise<void> {
+    await this.selectVersionOption('lokee-target-version', label);
+  }
+
+  async selectTargetCurrent(): Promise<void> {
+    const select = this.page.locator('[data-testid="lokee-target-version"]');
+    await select.waitFor({ state: 'visible', timeout: 20_000 });
+    await select.selectOption('');
+  }
+
+  private async selectVersionOption(testId: string, label: string): Promise<void> {
+    const select = this.page.locator(`[data-testid="${testId}"]`);
     await select.waitFor({ state: 'visible', timeout: 20_000 });
     const option = select.locator('option', { hasText: label });
     await option.waitFor({ state: 'attached', timeout: 20_000 });
     const value = await option.getAttribute('value');
-    if (!value) throw new Error(`No Original version option matching ${label}`);
+    if (value == null) throw new Error(`No ${testId} option matching ${label}`);
     await select.selectOption(value);
+  }
+
+  async originalVersionLabels(): Promise<string[]> {
+    const select = this.page.locator('[data-testid="lokee-original-version"]');
+    await select.waitFor({ state: 'visible', timeout: 20_000 });
+    return select.locator('option').allTextContents();
+  }
+
+  async graphVersionNodeCount(): Promise<number> {
+    return this.page.locator('[data-testid^="rf-version-"]').count();
+  }
+
+  async compareVersionsButtonVisible(): Promise<boolean> {
+    return this.page.locator('[data-testid="lokee-compare-versions-btn"]').isVisible();
   }
 
   async openCompareModal(): Promise<void> {
@@ -238,5 +267,80 @@ export class LokeeHistoryPage {
 
   async compareModalOpen(): Promise<boolean> {
     return this.page.locator('[data-testid="lokee-version-compare"]').isVisible();
+  }
+
+  async closeCompareModal(): Promise<void> {
+    if (!(await this.compareModalOpen())) return;
+    await clickWhen(this.page, '[data-testid="lokee-version-compare-close"]');
+    await this.page.waitForSelector('[data-testid="lokee-version-compare"]', {
+      state: 'detached',
+      timeout: 15_000,
+    });
+  }
+
+  async compareSummaryText(): Promise<string> {
+    const el = this.page.locator('[data-testid="lokee-cmp-summary"]');
+    await el.waitFor({ state: 'visible', timeout: 20_000 });
+    return (await el.innerText()) ?? '';
+  }
+
+  async compareIdenticalVisible(): Promise<boolean> {
+    return this.page.locator('[data-testid="lokee-cmp-identical"]').isVisible();
+  }
+
+  async runRevertButtonText(): Promise<string> {
+    const run = this.page.locator('[data-testid="lokee-cmp-run-revert"]');
+    await run.waitFor({ state: 'visible', timeout: 20_000 });
+    return (await run.innerText()) ?? '';
+  }
+
+  async runRevertDisabled(): Promise<boolean> {
+    const run = this.page.locator('[data-testid="lokee-cmp-run-revert"]');
+    await run.waitFor({ state: 'visible', timeout: 20_000 });
+    return run.isDisabled();
+  }
+
+  /** Tick/untick a changed object in the shared SchemaDiffTree. */
+  async toggleCompareObject(tableName: string): Promise<void> {
+    const row = this.page.locator(`[data-testid="diff-item"][data-object="${tableName}"]`);
+    await row.waitFor({ state: 'visible', timeout: 20_000 });
+    const box = row.locator('input[type="checkbox"]');
+    await box.waitFor({ state: 'visible', timeout: 10_000 });
+    await box.click();
+  }
+
+  async compareObjectNames(): Promise<string[]> {
+    const items = this.page.locator('[data-testid="diff-item"]');
+    await items.first().waitFor({ state: 'visible', timeout: 20_000 });
+    const count = await items.count();
+    const names: string[] = [];
+    for (let i = 0; i < count; i++) {
+      names.push((await items.nth(i).getAttribute('data-object')) ?? '');
+    }
+    return names.filter(Boolean);
+  }
+
+  async captureFromHistoryBar(): Promise<void> {
+    const btn = this.page.locator('[data-testid="lokee-capture-btn"]');
+    await btn.waitFor({ state: 'visible', timeout: 15_000 });
+    await this.page.waitForFunction(
+      () => {
+        const el = document.querySelector('[data-testid="lokee-capture-btn"]');
+        return el instanceof HTMLButtonElement && !el.disabled;
+      },
+      { timeout: 15_000 }
+    );
+    await btn.click();
+    await this.page.waitForFunction(
+      () => {
+        const el = document.querySelector('[data-testid="lokee-capture-btn"]');
+        return (
+          el instanceof HTMLButtonElement &&
+          !el.disabled &&
+          /(Capture|Capturing)/i.test(el.textContent ?? '')
+        );
+      },
+      { timeout: 30_000 }
+    );
   }
 }
