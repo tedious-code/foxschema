@@ -11,6 +11,7 @@ import {
   buildPeekUpdate,
   draftToArray,
   originalRowForPeekEdit,
+  firstCaseFoldedDuplicate,
   resolvePeekKeyColumns,
 } from './rowDml';
 import type { TableSchema } from './types';
@@ -53,6 +54,21 @@ describe('rowDml', () => {
         resultColumns: ['id', 'email'],
       }).editable
     ).toBe(false);
+  });
+
+  it('refuses to edit a result whose columns differ only by case', () => {
+    // Postgres and Db2 both allow "ID" next to "id". Column lookup folds case,
+    // so the key column would read its value from whichever came last and the
+    // WHERE clause could match a different row.
+    const ambiguous = assessPeekEditability({
+      dialect: 'postgres',
+      table: usersTable,
+      resultColumns: ['ID', 'email', 'id'],
+    });
+    expect(ambiguous.editable).toBe(false);
+    expect(ambiguous.reason).toMatch(/differing only by case/i);
+    expect(firstCaseFoldedDuplicate(['a', 'B', 'b'])).toBe('b');
+    expect(firstCaseFoldedDuplicate(['a', 'b'])).toBeNull();
   });
 
   it('builds UPDATE with bound params', () => {

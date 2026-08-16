@@ -54,6 +54,7 @@ import { createMetadataStore } from '../database/stores/registry';
 import { keySchemeInfo } from '../cores/crypto';
 import type { AuthedRequest } from './auth.routes';
 import { denyUnless, requirePermissions } from './rbac.middleware';
+import { isLocalSingleUser } from './deployment';
 import { CATEGORY_PERMISSION, DATAGRID_ACTION_PERMISSION, isDatagridAction, permissionSatisfied, type Permission } from '../../shared/permissions';
 import { toHttpError, type ActorContext } from '../features/actor';
 import { makeConnectionResolver, type ConnectionRef } from '../features/connections/resolve';
@@ -202,6 +203,18 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   // Restricted to the local/community edition — on multi-user web the metadata
   // DB is ops-managed, and a connection probe would be an SSRF vector.
   router.post('/db/test', async (req: Request, res: Response) => {
+    // The restriction above was documented but never implemented. On a
+    // multi-user deployment this handler dials any host:port the caller names
+    // and reports, through the error text, whether something answered — an
+    // SSRF and internal port-scan primitive, on a route that carries no
+    // permission check. Local single-user is the only place it belongs.
+    if (!isLocalSingleUser()) {
+      res.status(403).json({
+        ok: false,
+        error: 'Changing the metadata database is not available on this deployment.',
+      });
+      return;
+    }
     const { engine, url, path } = req.body as { engine?: string; url?: string; path?: string };
     if (!engine || !SUPPORTED_ENGINES.includes(engine as DbEngine)) {
       res.status(400).json({ ok: false, error: `Unsupported engine. Supported: ${SUPPORTED_ENGINES.join(', ')}.` });

@@ -25,7 +25,11 @@ import {
 } from '../../lib/sql-splitter';
 import { ensureSqlCompletions } from './completion';
 import { applyFoxscriptMarkers, clearFoxscriptMarkers } from './foxscriptDiagnostics';
-import { setSqlInsertHandler, setSqlSelectionGetter } from './sqlEditorBridge';
+import {
+  setSqlCaretOffsetGetter,
+  setSqlInsertHandler,
+  setSqlSelectionGetter,
+} from './sqlEditorBridge';
 import { buildVariableHoverDecorations } from './variableHover';
 import { isSelectOrFromKeyword } from '../../lib/selectClauseEdit';
 import {
@@ -50,6 +54,8 @@ interface Props {
   onRun?: () => void;
   /** Fired when Monaco selection becomes empty / non-empty (for Run label). */
   onSelectionChange?: (hasSelection: boolean) => void;
+  /** Caret moved — offset in the model, so Run can label the right statement. */
+  onCaretChange?: (offset: number | null) => void;
   /** Statement strip click → scroll/select that range. */
   reveal?: RevealRequest | null;
 }
@@ -65,6 +71,7 @@ export const SqlEditorPane: React.FC<Props> = ({
   onChange,
   onRun,
   onSelectionChange,
+  onCaretChange,
   reveal,
 }) => {
   const editorRef = useRef<any>(null);
@@ -76,6 +83,8 @@ export const SqlEditorPane: React.FC<Props> = ({
   onRunRef.current = onRun;
   const onSelectionChangeRef = useRef(onSelectionChange);
   onSelectionChangeRef.current = onSelectionChange;
+  const onCaretChangeRef = useRef(onCaretChange);
+  onCaretChangeRef.current = onCaretChange;
   const monacoTheme = useUiStore((s) => s.resolvedMode) === 'light' ? MONACO_THEME_LIGHT : MONACO_THEME;
   const fontSizePref = useUiStore((s) => s.fontSize);
   const monacoFontSize = MONACO_FONT_PX[fontSizePref] ?? MONACO_FONT_PX.md;
@@ -209,6 +218,7 @@ export const SqlEditorPane: React.FC<Props> = ({
     return () => {
       setSqlInsertHandler(null);
       setSqlSelectionGetter(null);
+      setSqlCaretOffsetGetter(null);
       const editor = editorRef.current;
       const monaco = monacoRef.current;
       const model = editor?.getModel?.();
@@ -313,9 +323,19 @@ export const SqlEditorPane: React.FC<Props> = ({
           const trimmed = text.trim();
           return trimmed.length > 0 ? trimmed : null;
         });
+        setSqlCaretOffsetGetter(() => {
+          const ed = editorRef.current;
+          const model = ed?.getModel?.();
+          const pos = ed?.getPosition?.();
+          if (!model || !pos) return null;
+          return model.getOffsetAt(pos);
+        });
         editor.onDidChangeCursorSelection(() => {
           const sel = editor.getSelection();
           onSelectionChangeRef.current?.(Boolean(sel && !sel.isEmpty()));
+          const model = editor.getModel?.();
+          const pos = editor.getPosition?.();
+          onCaretChangeRef.current?.(model && pos ? model.getOffsetAt(pos) : null);
         });
         setSqlInsertHandler((text) => {
           const ed = editorRef.current;

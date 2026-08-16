@@ -30,7 +30,12 @@ import { useSqlEditorStore } from '../../store/useSqlEditorStore';
 import { useAuthStore } from '../../store/authStore';
 import { splitSqlStatements, type SplitStatement } from '../../lib/sql-splitter';
 import { formatEditorSql } from '../../utils/formatSql';
-import { effectiveConnectionIds, canExecuteWithoutDestination, resolveRunStatements } from '../../store/sqlEditorTabLogic';
+import {
+  effectiveConnectionIds,
+  canExecuteWithoutDestination,
+  indicesToRun,
+  resolveRunStatements,
+} from '../../store/sqlEditorTabLogic';
 import { getSelectedSql, setCompletionContextGetter, setSqlMutator } from './sqlEditorBridge';
 import { ConnectionChecklist } from './ConnectionChecklist';
 import { EditorTabBar } from './EditorTabBar';
@@ -155,6 +160,7 @@ export const SqlEditorView: React.FC = () => {
   const [reveal, setReveal] = useState<RevealRequest | null>(null);
   const [editorPct, setEditorPct] = useState(EDITOR_PCT_DEFAULT);
   const [hasSelection, setHasSelection] = useState(false);
+  const [caretOffset, setCaretOffset] = useState<number | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(loadSidebarCollapsed);
   const splitRef = useRef<HTMLDivElement>(null);
@@ -280,22 +286,36 @@ export const SqlEditorView: React.FC = () => {
   const dialect = firstSelected?.dialect ?? 'sql';
 
   const selectedSqlForRun = hasSelection ? getSelectedSql() : null;
+  // The caret decides which statement Run defaults to, so the button's count and
+  // title have to follow it — otherwise the label disagrees with what runs.
   const runStatements = useMemo(
-    () => resolveRunStatements(tab.sql, tab.checkedStatements, selectedSqlForRun),
-    [tab.sql, tab.checkedStatements, selectedSqlForRun]
+    () => resolveRunStatements(tab.sql, tab.checkedStatements, selectedSqlForRun, caretOffset),
+    [tab.sql, tab.checkedStatements, selectedSqlForRun, caretOffset]
   );
   const canRunLocal = useMemo(
     () => canExecuteWithoutDestination(runStatements),
     [runStatements]
   );
   const runCount = runStatements.length;
+  // Which cell(s) Run will send. With nothing checked or selected that is the
+  // one under the caret, and saying so is the difference between "Run" doing
+  // something invisible and the user knowing their UPDATE is the one going out.
+  const runIndices = useMemo(
+    () =>
+      hasSelection ? [] : indicesToRun(tab.sql, tab.checkedStatements, caretOffset),
+    [hasSelection, tab.sql, tab.checkedStatements, caretOffset]
+  );
+  const runWhich =
+    tab.checkedStatements.length === 0 && runIndices.length === 1
+      ? ` — In [${runIndices[0]! + 1}] at the caret`
+      : '';
   const canRun = !runningTabId && (liveSelectedIds.length > 0 || canRunLocal);
   const runTitle = liveSelectedIds.length
     ? hasSelection
       ? 'Run the selected SQL  (⌘/Ctrl+Enter)'
       : !runCount
         ? `Run with empty editor against ${liveSelectedIds.length} server(s)  (⌘/Ctrl+Enter)`
-        : `Run ${runCount} statement(s) against ${liveSelectedIds.length} server(s)  (⌘/Ctrl+Enter)`
+        : `Run ${runCount} statement(s)${runWhich} against ${liveSelectedIds.length} server(s)  (⌘/Ctrl+Enter)`
     : canRunLocal
       ? `Run ${runCount} code cell(s) locally — no destination needed  (⌘/Ctrl+Enter)`
       : 'Check at least one destination server to run SQL, or use a JS/TS/Node code cell';
@@ -850,6 +870,7 @@ export const SqlEditorView: React.FC = () => {
                 onChange={setSql}
                 onRun={() => execute()}
                 onSelectionChange={setHasSelection}
+                onCaretChange={setCaretOffset}
                 reveal={reveal}
               />
             </Suspense>

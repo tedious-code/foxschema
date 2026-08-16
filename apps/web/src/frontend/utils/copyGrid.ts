@@ -10,6 +10,7 @@
  * (see `exportCsv.ts`) — a file goes through the spreadsheet's CSV importer,
  * the clipboard does not.
  */
+import { neutralizeSpreadsheetFormula } from './spreadsheetSafety';
 
 /**
  * Excel's clipboard dialect: a field is quoted only when it contains a tab, a
@@ -22,7 +23,8 @@ function escapeCell(value: unknown): string {
   // export. The grid renders NULL as the word "NULL"; copying that literal
   // would turn a numeric column into text on paste.
   if (value === null || value === undefined) return '';
-  const s = String(value);
+  // A pasted cell is evaluated by the spreadsheet exactly like an imported one.
+  const s = typeof value === 'number' ? String(value) : neutralizeSpreadsheetFormula(String(value));
   if (/["\t\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
 }
