@@ -9,7 +9,7 @@
  */
 import React from 'react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import type { VersionGraphDTO } from './graphTypes';
 
 const listLokeeDatabases = vi.fn();
