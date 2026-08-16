@@ -90,6 +90,16 @@ const ALWAYS = [
     file: 'src/tests/schema-history.test.ts',
     label: 'History',
   },
+  {
+    key: 'schema-revert',
+    file: 'src/tests/schema-revert.test.ts',
+    label: 'Revert',
+  },
+  {
+    key: 'schema-revert-edges',
+    file: 'src/tests/schema-version-revert-edges.test.ts',
+    label: 'Revert edges',
+  },
   ...(configured.length
     ? [
         {
@@ -112,7 +122,9 @@ for (const suite of ALWAYS) {
   const suiteTimeoutMs =
     suite.key === 'sql-editor-utilities'
       ? Math.max(600_000, configured.length * 60_000)
-      : 300_000;
+      : suite.key === 'schema-revert-edges'
+        ? 600_000
+        : 300_000;
   try {
     output = execSync(`${HEADED}${VITEST} ${suite.file}`, {
       cwd: ROOT,
