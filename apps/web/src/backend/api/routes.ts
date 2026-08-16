@@ -997,6 +997,28 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     res.json(result);
   });
 
+  // Version-to-version diff, served from the object store — no connection to
+  // the compared database is needed or opened.
+  router.get('/lokee/databases/:id/compare', async (req: Request, res: Response) => {
+    const versionId = String(req.query.versionId ?? '').trim();
+    if (!versionId) {
+      res.status(400).json({ error: 'versionId is required' });
+      return;
+    }
+    const against = String(req.query.againstVersionId ?? '').trim();
+    const result = await lokeeWeave.diffVersions(
+      (req as AuthedRequest).userId!,
+      String(req.params.id),
+      versionId,
+      against || undefined
+    );
+    if (!result) {
+      res.status(404).json({ error: 'Version not found' });
+      return;
+    }
+    res.json(result);
+  });
+
   router.get(
     '/lokee/databases/:id/revert/plan',
     requirePermissions('schema.browse'),
@@ -1006,10 +1028,24 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
         res.status(400).json({ error: 'toVersionId is required' });
         return;
       }
+      // Optional selective revert: `?objectKeys=a&objectKeys=b`, or omitted for
+      // the whole schema.
+      // Absent means "whole schema"; present-but-empty means "nothing", and
+      // those must stay distinguishable all the way down.
+      const objectKeys =
+        req.query.objectKeys === undefined
+          ? undefined
+          : ([] as string[])
+              .concat(req.query.objectKeys as string | string[])
+              .map((k) => String(k).trim())
+              .filter(Boolean);
       const plan = await lokeeWeave.planRevert(
         (req as AuthedRequest).userId!,
         String(req.params.id),
-        toVersionId
+        toVersionId,
+        undefined,
+        undefined,
+        objectKeys
       );
       if (!plan) {
         res.status(404).json({ error: 'Version not found' });
@@ -1025,7 +1061,12 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     lokeeCaptureLimiter,
     requirePermissions('schema.migrate'),
     async (req: Request, res: Response) => {
-      const body = req.body as ConnectionRef & { toVersionId?: string; confirmLossy?: boolean };
+      const body = req.body as ConnectionRef & {
+        toVersionId?: string;
+        confirmLossy?: boolean;
+        /** Revert only these objects; omit for the whole schema. */
+        objectKeys?: string[];
+      };
       const toVersionId = String(body.toVersionId ?? '').trim();
       if (!toVersionId) {
         res.status(400).json({ error: 'toVersionId is required' });
@@ -1066,7 +1107,17 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
         return;
       }
 
-      const plan = await lokeeWeave.planRevert(userId, databaseId, toVersionId, dialect, schema);
+      const objectKeys = Array.isArray(body.objectKeys)
+        ? body.objectKeys.map((k) => String(k).trim()).filter(Boolean)
+        : undefined;
+      const plan = await lokeeWeave.planRevert(
+        userId,
+        databaseId,
+        toVersionId,
+        dialect,
+        schema,
+        objectKeys
+      );
       if (!plan) {
         res.status(404).json({ error: 'Version not found' });
         return;

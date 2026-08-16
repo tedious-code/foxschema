@@ -17,7 +17,7 @@
  * shipped in the first draft of this file and was caught by screenshotting,
  * not by any test, which is why `lokeeColors.test.ts` now asserts it.
  */
-import type { LokeeObjectType, ReversalRisk } from '@foxschema/sql';
+import type { LokeeObjectType, ObjectChangeKind, ReversalRisk } from '@foxschema/sql';
 
 export interface ObjectStyle {
   /** Short label for a chip — the full key is in the title attribute. */
@@ -195,3 +195,30 @@ export const STATUS_STYLES: Record<string, StatusStyle> = {
 export function statusStyle(status: string | undefined): StatusStyle {
   return STATUS_STYLES[status ?? 'unchanged'] ?? STATUS_STYLES.unchanged!;
 }
+
+/**
+ * Badge colours for the kinds of child change a container node reports.
+ *
+ * Every family here must be one `uiStore` actually manages (`COLORED` /
+ * `TONE_FAMILIES`) — an unmanaged family keeps its literal value in light mode
+ * and the badge text goes invisible on a pale surface. `lokeeColors.test.ts`
+ * enforces that, and it caught exactly this bug once already.
+ *
+ * `type` is the loud one on purpose: narrowing a column truncates data, and it
+ * should not look like an index rebuild.
+ */
+const CHANGE_KIND_STYLES: Record<ObjectChangeKind, string> = {
+  type: 'bg-amber-500/20 text-amber-200',
+  column: 'bg-cyan-500/15 text-cyan-200',
+  constraint: 'bg-violet-500/15 text-violet-200',
+  index: 'bg-sky-500/15 text-sky-200',
+  trigger: 'bg-orange-500/15 text-orange-200',
+  definition: 'bg-slate-500/20 text-slate-300',
+};
+
+/** Falls back to a visible neutral rather than an unstyled chip. */
+export function changeKindStyle(kind: string): string {
+  return CHANGE_KIND_STYLES[kind as ObjectChangeKind] ?? CHANGE_KIND_STYLES.definition;
+}
+
+export { CHANGE_KIND_STYLES };

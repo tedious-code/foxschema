@@ -10,8 +10,10 @@
  * testable with a fixture and has no idea a network exists.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Camera, GitBranch, Loader2, RefreshCw, TriangleAlert } from 'lucide-react';
+import { ArrowRight, Camera, GitBranch, Loader2, RefreshCw, TriangleAlert } from 'lucide-react';
 import { LokeeWeavePage } from './LokeeWeavePage';
+import { VersionCompareModal } from './VersionCompareModal';
+import { versionDisplayName } from './graphTypes';
 import { LokeeObjectInspector } from './LokeeObjectInspector';
 import type { SchemaObjectNodeData, VersionGraphDTO } from './graphTypes';
 import {
@@ -80,6 +82,10 @@ export function LokeeWeaveView({
   const [selectedObject, setSelectedObject] = useState<SchemaObjectNodeData | null>(null);
   // Bumped to re-run the effect; a plain refetch() would race the in-flight one.
   const [reloadToken, setReloadToken] = useState(0);
+  // The two sides of the version bar, and the pair currently being compared.
+  const [originalVersionId, setOriginalVersionId] = useState<string | undefined>();
+  const [targetVersionId, setTargetVersionId] = useState<string | undefined>();
+  const [comparePair, setComparePair] = useState<{ original: string; target: string } | null>(null);
 
   const matchedTargetId = useMemo(() => {
     const host = (targetConfig.option.host ?? '').toLowerCase();
@@ -233,7 +239,7 @@ export function LokeeWeaveView({
 
   const chrome = (
     <div
-      className="flex flex-wrap items-center gap-2 border-b border-slate-800 bg-slate-950/80 px-4 py-2"
+      className="flex flex-wrap items-center gap-2 border-b border-slate-800 bg-slate-950/80 px-6 py-2"
       data-testid="lokee-weave-chrome"
     >
       <label className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400">
@@ -296,6 +302,98 @@ export function LokeeWeaveView({
     </div>
   );
 
+
+  useEffect(() => {
+    const vs = dto?.versions ?? [];
+    if (vs.length < 2) return;
+    // Newest first, so [0] is head and [1] is the one before it. Original is the
+    // older side and Target the head: the bar then reads as "make the live head
+    // look like this earlier version", which is the revert question.
+    setTargetVersionId((cur) => (cur && vs.some((v) => v.id === cur) ? cur : vs[0]!.id));
+    setOriginalVersionId((cur) => (cur && vs.some((v) => v.id === cur) ? cur : vs[1]!.id));
+  }, [dto]);
+
+  // Version-vs-version bar, laid out like the connection bar above the compare
+  // workspace: an Original side, an arrow, a Target side. Same mental model —
+  // Original is the reference, Target is what would change to match it — except
+  // both sides are points in this database's own history rather than servers.
+  const versions = dto?.versions ?? [];
+  const versionLabel = (v: (typeof versions)[number]): string =>
+    `${versionDisplayName({ number: v.number, name: v.name })} · ${v.createdAt.slice(0, 10)}`;
+
+  const compareBar = versions.length >= 2 && (
+    <div
+      data-testid="lokee-version-bar"
+      className="flex flex-wrap items-stretch gap-2 border-b border-slate-800 bg-slate-950/60 px-6 py-2"
+    >
+      <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-1.5">
+        <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-cyan-400">
+          Original version
+        </span>
+        <select
+          data-testid="lokee-original-version"
+          value={originalVersionId ?? ''}
+          onChange={(e) => setOriginalVersionId(e.target.value || undefined)}
+          className="min-w-0 flex-1 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 outline-none focus:border-cyan-600"
+        >
+          {versions.map((v) => (
+            <option key={v.id} value={v.id}>
+              {versionLabel(v)}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="flex shrink-0 flex-col items-center justify-center px-1 text-[9px] font-bold uppercase tracking-wider text-slate-500">
+        <span>Original</span>
+        <ArrowRight className="h-4 w-4 text-cyan-400" strokeWidth={SQL_ICON_STROKE} />
+        <span>Target</span>
+      </div>
+
+      <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-1.5">
+        <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-violet-400">
+          Target version
+        </span>
+        <select
+          data-testid="lokee-target-version"
+          value={targetVersionId ?? ''}
+          onChange={(e) => setTargetVersionId(e.target.value || undefined)}
+          className="min-w-0 flex-1 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 outline-none focus:border-violet-600"
+        >
+          {versions.map((v) => (
+            <option key={v.id} value={v.id}>
+              {versionLabel(v)}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          data-testid="lokee-swap-versions"
+          onClick={() => {
+            const a = originalVersionId;
+            setOriginalVersionId(targetVersionId);
+            setTargetVersionId(a);
+          }}
+          title="Swap Original and Target (reverses the reading direction)"
+          className="shrink-0 rounded border border-slate-700 px-1.5 py-1 text-[10px] text-slate-300 hover:bg-slate-800"
+        >
+          Swap
+        </button>
+      </div>
+
+      <button
+        type="button"
+        data-testid="lokee-compare-versions-btn"
+        disabled={!originalVersionId || !targetVersionId || originalVersionId === targetVersionId}
+        onClick={() => setComparePair({ original: originalVersionId!, target: targetVersionId! })}
+        title="Compare these two versions"
+        className="shrink-0 self-center rounded-md border border-cyan-500/40 bg-cyan-950/50 px-3 py-1.5 text-[11px] font-bold text-cyan-100 hover:bg-cyan-900/50 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        Compare versions
+      </button>
+    </div>
+  );
+
   // Every hook above any early return — a rules-of-hooks crash has happened in
   // this codebase before.
   if (loading) {
@@ -352,8 +450,9 @@ export function LokeeWeaveView({
   return (
     <div className="flex flex-1 min-h-0 flex-col overflow-hidden" data-testid="lokee-weave-view">
       {chrome}
+      {compareBar}
       {dto.truncatedObjects && (
-        <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-1.5 text-[11px] text-amber-200">
+        <div className="border-b border-amber-500/30 bg-amber-500/10 px-6 py-1.5 text-[11px] text-amber-200">
           Showing the objects that changed in this window. This schema has more objects than the
           graph draws at once.
         </div>
@@ -368,6 +467,16 @@ export function LokeeWeaveView({
             onSaveVersionMeta={saveVersionMeta}
           />
         </div>
+        {comparePair && activeId && (
+          <VersionCompareModal
+            databaseId={activeId}
+            versionId={comparePair.original}
+            againstVersionId={comparePair.target}
+            captureConnectionId={captureConnectionId || undefined}
+            onReverted={refresh}
+            onClose={() => setComparePair(null)}
+          />
+        )}
         {selectedObject && activeId && (
           <LokeeObjectInspector
             databaseId={activeId}

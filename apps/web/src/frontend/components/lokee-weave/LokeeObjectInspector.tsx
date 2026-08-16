@@ -21,6 +21,7 @@ import {
 } from '../../api/lokeeApi';
 import { getSessionPassword } from '../../lib/sessionPasswords';
 import { objectStyle, riskStyle } from '../../lib/lokeeColors';
+import { SchemaBlueprint } from '../SchemaBlueprint';
 import { toast } from '../../store/toastStore';
 import { shortHash, type SchemaObjectNodeData } from './graphTypes';
 import { GithubScriptDiff } from './GithubScriptDiff';
@@ -43,10 +44,6 @@ interface RevertUi {
   confirmLossy: boolean;
 }
 
-function asString(value: unknown): string | null {
-  return typeof value === 'string' && value.length > 0 ? value : null;
-}
-
 function typeLabel(body: Record<string, unknown> | undefined): string {
   return lokeeTypeLabel(body);
 }
@@ -56,129 +53,6 @@ function formatWhen(iso: string | null | undefined): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toISOString().slice(0, 10);
-}
-
-function ChildTable({
-  title,
-  rows,
-  testId,
-}: {
-  title: string;
-  rows: LokeeStoredObject[];
-  testId: string;
-}): React.ReactElement | null {
-  if (rows.length === 0) return null;
-  return (
-    <section data-testid={testId} className="flex flex-col gap-1">
-      <h3 className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{title}</h3>
-      <ul className="flex flex-col gap-0.5">
-        {rows.map((row) => (
-          <li
-            key={row.key}
-            className="rounded border border-slate-800 bg-slate-950/60 px-2 py-1 text-[11px] text-slate-200"
-          >
-            <div className="flex items-center justify-between gap-2">
-              <span className="truncate font-medium">{row.name}</span>
-              <span className="shrink-0 font-mono text-[10px] text-slate-500">{shortHash(row.hash)}</span>
-            </div>
-            {row.type === 'column' && (
-              <div className="text-[10px] text-slate-400">{lokeeColumnChangeSubtitle(row.body, undefined)}</div>
-            )}
-            {row.type === 'trigger' && (
-              <div className="text-[10px] text-slate-400">
-                {[asString(row.body.timing), asString(row.body.event)].filter(Boolean).join(' ')}
-                {row.lineCount ? ` · ${row.lineCount} lines` : ''}
-              </div>
-            )}
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-function pkNames(blueprint: LokeeInspectResult['blueprint']): Set<string> {
-  const cols = blueprint.primaryKey?.body.columns;
-  if (!Array.isArray(cols)) return new Set();
-  return new Set(cols.filter((c): c is string => typeof c === 'string').map((c) => c.toUpperCase()));
-}
-
-function ColumnUpdates({
-  columns,
-  mutations,
-  selectedVersionId,
-  primaryKeys,
-}: {
-  columns: LokeeStoredObject[];
-  mutations: LokeeInspectResult['columnMutations'];
-  selectedVersionId: string;
-  primaryKeys: Set<string>;
-}): React.ReactElement | null {
-  const byKey = new Map(mutations.map((m) => [m.objectKey, m]));
-  const byName = new Map(mutations.map((m) => [m.columnName.toUpperCase(), m]));
-  const liveKeys = new Set(columns.map((c) => c.key));
-  const dropped = mutations.filter((m) => {
-    if (liveKeys.has(m.objectKey)) return false;
-    return m.events.at(-1)?.operation === 'DELETE';
-  });
-  if (columns.length === 0 && dropped.length === 0) return null;
-  return (
-    <section data-testid="lokee-inspector-columns" className="flex flex-col gap-1">
-      <h3 className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Columns</h3>
-      <ul className="flex flex-col gap-0.5">
-        {columns.map((column) => {
-          const mutation = byKey.get(column.key) ?? byName.get(column.name.toUpperCase());
-          const atThis = mutation?.events.filter((e) => e.versionId === selectedVersionId).at(-1);
-          const previous = atThis?.previousBody;
-          const pk = primaryKeys.has(column.name.toUpperCase());
-          const subtitle = lokeeColumnChangeSubtitle(column.body, previous, { primaryKey: pk });
-          return (
-            <li
-              key={column.key}
-              className="rounded border border-slate-800 bg-slate-950/60 px-2 py-1 text-[11px] text-slate-200"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="truncate font-medium">{column.name}</span>
-                {atThis && (
-                  <span
-                    className={`shrink-0 rounded px-1 text-[9px] font-bold uppercase tracking-wide ${
-                      atThis.operation === 'ADD'
-                        ? 'bg-emerald-500/15 text-emerald-300'
-                        : atThis.operation === 'DELETE'
-                          ? 'bg-rose-500/15 text-rose-300'
-                          : 'bg-amber-500/15 text-amber-200'
-                    }`}
-                  >
-                    {atThis.operation}
-                  </span>
-                )}
-              </div>
-              <div className="text-[10px] text-slate-400">{subtitle}</div>
-            </li>
-          );
-        })}
-        {dropped.map((col) => {
-          const last = col.events.at(-1);
-          return (
-            <li
-              key={col.objectKey}
-              className="rounded border border-rose-500/30 bg-rose-950/20 px-2 py-1 text-[11px] text-rose-200"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="truncate font-medium line-through">{col.columnName}</span>
-                <span className="shrink-0 rounded bg-rose-500/15 px-1 text-[9px] font-bold uppercase tracking-wide text-rose-300">
-                  DELETE
-                </span>
-              </div>
-              {last?.previousBody && (
-                <div className="text-[10px] text-rose-300/80">{lokeeColumnChangeSubtitle(undefined, last.previousBody)}</div>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    </section>
-  );
 }
 
 function HistoryEvent({ point }: { point: LokeeHistoryEvent }): React.ReactElement {
@@ -431,7 +305,7 @@ export function LokeeObjectInspector({
       // updates synchronously on click and proves nothing about the fetch.
       data-state={loading ? 'loading' : error ? 'error' : data ? 'ready' : 'empty'}
       data-object-key={focus?.key ?? undefined}
-      className="flex w-[360px] shrink-0 flex-col overflow-hidden border-l border-slate-800 bg-slate-950/80"
+      className="flex w-[440px] shrink-0 flex-col overflow-hidden border-l border-slate-800 bg-slate-950/80"
     >
       <header className="flex items-start gap-2 border-b border-slate-800 px-3 py-2">
         <div className="min-w-0 flex-1">
@@ -464,35 +338,15 @@ export function LokeeObjectInspector({
         {error && <div className="text-xs text-rose-300">{error}</div>}
         {data && (
           <>
-            {(data.blueprint.columns.length > 0 ||
-              data.blueprint.foreignKeys.length > 0 ||
-              data.blueprint.triggers.length > 0 ||
-              data.blueprint.primaryKey) && (
-              <div className="flex flex-col gap-2" data-testid="lokee-inspector-blueprint">
-                <ColumnUpdates
-                  columns={data.blueprint.columns}
-                  mutations={mutations}
-                  selectedVersionId={selected.versionId}
-                  primaryKeys={pkNames(data.blueprint)}
-                />
-                {data.blueprint.primaryKey && (
-                  <section className="text-[11px] text-slate-300">
-                    <h3 className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                      Primary key
-                    </h3>
-                    <div className="mt-0.5">
-                      {Array.isArray(data.blueprint.primaryKey.body.columns)
-                        ? (data.blueprint.primaryKey.body.columns as string[]).join(', ')
-                        : '—'}
-                    </div>
-                  </section>
-                )}
-                <ChildTable
-                  title="Foreign keys"
-                  rows={data.blueprint.foreignKeys}
-                  testId="lokee-inspector-fks"
-                />
-                <ChildTable title="Triggers" rows={data.blueprint.triggers} testId="lokee-inspector-triggers" />
+            {/* The blueprint is Compare Schema's own tables, fed by a stored
+                diff instead of a live one — columns, primary key, indexes,
+                foreign keys and triggers, with the same original/target
+                columns and operation badges. `showUnchanged` because a version
+                is a snapshot: the reader wants the whole object, not only the
+                rows this version touched. */}
+            {data.diff && (
+              <div data-testid="lokee-inspector-blueprint">
+                <SchemaBlueprint diff={data.diff} density="compact" showUnchanged />
               </div>
             )}
 
@@ -505,8 +359,11 @@ export function LokeeObjectInspector({
             {showGrowth && (
               <section data-testid="lokee-inspector-growth">
                 <h3 className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                  Table growth · v{data.growth[0]?.versionNumber}…v
+                  Roadmap · v{data.growth[0]?.versionNumber}…v
                   {data.growth[data.growth.length - 1]?.versionNumber}
+                  <span className="ml-1 normal-case tracking-normal text-slate-600">
+                    ({data.growth.filter((g) => g.changed).length} changed)
+                  </span>
                 </h3>
                 <ul className="mt-1 flex flex-col gap-0.5">
                   {data.growth.map((g) => {
@@ -526,7 +383,20 @@ export function LokeeObjectInspector({
                           className="min-w-0 flex-1 text-left hover:text-cyan-200"
                           title={`Show this object at v${g.versionNumber}`}
                         >
+                          {/* A roadmap over a long history is mostly a flat line;
+                              the marker is what makes the few versions that
+                              actually touched this object findable. */}
+                          <span
+                            className={`mr-1 inline-block h-1.5 w-1.5 rounded-full align-middle ${
+                              g.changed ? 'bg-amber-400' : 'bg-slate-700'
+                            }`}
+                            title={g.changed ? 'Changed in this version' : 'Unchanged (reused)'}
+                            aria-hidden
+                          />
                           <span className="font-semibold text-slate-200">v{g.versionNumber}</span>
+                          {g.changed && (
+                            <span className="sr-only"> changed in this version</span>
+                          )}
                           {isHead && (
                             <span className="ml-1 text-[10px] uppercase tracking-wide text-cyan-400">
                               head

@@ -276,7 +276,11 @@ export const TopToolbar: React.FC = () => {
           </button>
         </div>
       )}
-      {/* Database Connection Control Grid */}
+      {/* Database Connection Control Grid.
+          Hidden in History: that pane compares two points in this database's
+          own recorded past, so a live Original/Target pair says nothing about
+          what is on screen — History has its own version bar instead. */}
+      {syncPane === 'compare' && (
       <div className="grid grid-cols-1 xl:grid-cols-11 gap-3 items-stretch">
         {/* Source Configuration — left side is the Original Server (read / compare from). */}
         <div className="xl:col-span-5 bg-slate-950/60 p-3 rounded-lg border border-slate-800/80 flex flex-col gap-2">
@@ -470,6 +474,7 @@ export const TopToolbar: React.FC = () => {
           </div>
         </div>
       </div>
+      )}
 
       {syncPane === 'compare' && (
       <div className="flex flex-col md:flex-row justify-between md:items-center bg-slate-950/40 border border-slate-800/60 rounded-lg p-3 px-4 gap-3">

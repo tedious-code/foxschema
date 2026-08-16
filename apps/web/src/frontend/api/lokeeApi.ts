@@ -22,6 +22,7 @@ import type {
   ObjectHistoryEntry,
   ObjectInspectResult,
   RevertPlanWire,
+  VersionCompare,
   VersionSummary,
 } from '../../shared/lokee-wire';
 import { getApiBase, parseJsonBody, parseJsonResponse } from './apiBase';
@@ -136,9 +137,12 @@ export class LokeeRevertError extends Error {
 /** Classify a revert to `toVersionId` and preview the reverse DDL. */
 export async function planLokeeRevert(
   databaseId: string,
-  toVersionId: string
+  toVersionId: string,
+  /** Plan a revert of only these objects; omit for the whole schema. */
+  objectKeys?: readonly string[]
 ): Promise<LokeeRevertPlan> {
   const params = new URLSearchParams({ toVersionId });
+  for (const key of objectKeys ?? []) params.append('objectKeys', key);
   const res = await fetch(
     `${getApiBase()}/lokee/databases/${encodeURIComponent(databaseId)}/revert/plan?${params}`,
     { credentials: 'include' }
@@ -159,6 +163,8 @@ export async function executeLokeeRevert(
     connectionId: string;
     password?: string;
     confirmLossy?: boolean;
+    /** Revert only these objects; omit for the whole schema. */
+    objectKeys?: readonly string[];
   }
 ): Promise<LokeeRevertResult> {
   const res = await fetch(
@@ -186,3 +192,25 @@ export async function executeLokeeRevert(
     data.fromVersion ? data : undefined
   );
 }
+
+/**
+ * Diff a version against another (its parent by default).
+ *
+ * Reads the object store, so this works on a database that is offline or no
+ * longer reachable — the whole point of keeping the objects.
+ */
+export async function compareLokeeVersions(
+  databaseId: string,
+  versionId: string,
+  againstVersionId?: string
+): Promise<VersionCompare> {
+  const params = new URLSearchParams({ versionId });
+  if (againstVersionId) params.set('againstVersionId', againstVersionId);
+  const res = await fetch(
+    `${getApiBase()}/lokee/databases/${encodeURIComponent(databaseId)}/compare?${params}`,
+    { credentials: 'include' }
+  );
+  return parseJsonResponse<VersionCompare>(res);
+}
+
+export type { VersionCompare } from '../../shared/lokee-wire';

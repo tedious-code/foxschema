@@ -27,10 +27,12 @@
  */
 import { createHash, randomUUID } from 'node:crypto';
 import {
+  CompareModule,
   applyChanges,
   assembleBlueprint,
-  buildRevertMigration,
+  migrationFromCompare,
   canonicalizeSchema,
+  changeKindsByOwner,
   collapseObjectHistory,
   countSourceLines,
   databaseIdentity,
@@ -38,8 +40,12 @@ import {
   isLokeeTableLikeType,
   objectKeyKind,
   objectKeyOwner,
+  mergeBody,
   planReversal,
   renderLokeeObjectScript,
+  roundTrips,
+  shapeKey,
+  splitBody,
   weave,
   type CanonicalObject,
   type DatabaseIdentityInput,
@@ -47,7 +53,9 @@ import {
   type MigrationStep,
   type ObjectBlueprint,
   type ObjectChange,
+  type ObjectChangeKind,
   type ReversalPlan,
+  type SchemaCompareResult,
   type StoredWeaveObject,
   type TableSchema,
 } from '@foxschema/sql';
@@ -62,6 +70,7 @@ import type {
   ObjectInspectResult,
   RevertPlanWire,
   VersionGraphDTO,
+  VersionCompare,
   VersionGraphObject,
   VersionSummary,
 } from '../../shared/lokee-wire';
@@ -81,6 +90,9 @@ const MAX_BIND_PARAMS = 900;
 
 /** Objects returned for one graph window, before the view's own node cap. */
 const MAX_GRAPH_OBJECT_KEYS = 400;
+
+/** Versions walked for an object roadmap. Matches listVersions' own ceiling. */
+const MAX_ROADMAP_VERSIONS = 500;
 
 export type {
   CaptureResult,
@@ -181,8 +193,26 @@ function toCanonical(object: StoredWeaveObject): CanonicalObject {
   };
 }
 
-function canonicalList(objects: Map<string, StoredWeaveObject>): CanonicalObject[] {
+function canonicalList(objects: ReadonlyMap<string, StoredWeaveObject>): CanonicalObject[] {
   return [...objects.values()].map(toCanonical);
+}
+
+/**
+ * Just the objects belonging to one container — the table and its columns,
+ * indexes, keys and triggers.
+ *
+ * Comparing a single object should not walk a 20,000-object schema, and a
+ * whole-schema compare would also report every *other* table as changed.
+ */
+function ownerSubtree(
+  objects: ReadonlyMap<string, StoredWeaveObject>,
+  owner: string
+): Map<string, StoredWeaveObject> {
+  const out = new Map<string, StoredWeaveObject>();
+  for (const [key, object] of objects) {
+    if (objectKeyOwner(key) === owner) out.set(key, object);
+  }
+  return out;
 }
 
 /** `LIKE` prefix for children of one owner. `!` is the ESCAPE character. */
@@ -369,30 +399,75 @@ export class LokeeWeaveStore {
 
     const missing = candidates.filter((o) => !present.has(o.hash));
     if (missing.length === 0) return;
+    await this.writeShapes(store, missing);
     const now = new Date().toISOString();
-    const COLUMNS = 8;
+    const COLUMNS = 9;
     for (const batch of chunkForBind(missing, COLUMNS)) {
-      const values = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const values = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
       const params: SqlParam[] = [];
       for (const object of batch) {
         const sourceText =
           object.sourceText ??
           (typeof object.body.definition === 'string' ? object.body.definition : null);
+        // Store the declaration once and point at it. A body that does not
+        // round-trip is written whole (shape_hash null) — a wrong body is far
+        // worse than a missed dedup, because the hash was taken over the
+        // original and a read would no longer reproduce it.
+        const dedup = roundTrips(object.body);
+        const split = dedup ? splitBody(object.body) : null;
         params.push(
           object.hash,
           object.key,
           object.type,
           typeof object.body.name === 'string' ? object.body.name : null,
-          JSON.stringify(object.body),
+          JSON.stringify(split ? split.identity : object.body),
           now,
           sourceText ? countSourceLines(sourceText) : null,
-          sourceText
+          sourceText,
+          split ? sha256(shapeKey(split.shape)) : null
         );
       }
       await store.run(
         `INSERT INTO lokee_objects
-           (hash, object_key, object_type, name, body_json, created_at, line_count, source_text)
+           (hash, object_key, object_type, name, body_json, created_at, line_count, source_text, shape_hash)
          VALUES ${values}`,
+        params
+      );
+    }
+  }
+
+  /** Insert any shape these objects need that is not already stored. */
+  private async writeShapes(
+    store: MetadataStore,
+    objects: readonly (CanonicalObject & { hash: string })[]
+  ): Promise<void> {
+    const byHash = new Map<string, string>();
+    for (const object of objects) {
+      if (!roundTrips(object.body)) continue;
+      const json = shapeKey(splitBody(object.body).shape);
+      byHash.set(sha256(json), json);
+    }
+    if (byHash.size === 0) return;
+
+    const present = new Set<string>();
+    for (const batch of chunkForBind([...byHash.keys()], 1)) {
+      const placeholders = batch.map(() => '?').join(', ');
+      const rows = await store.all<{ shape_hash: string }>(
+        `SELECT shape_hash FROM lokee_shapes WHERE shape_hash IN (${placeholders})`,
+        [...batch]
+      );
+      for (const row of rows) present.add(row.shape_hash);
+    }
+
+    const missing = [...byHash.entries()].filter(([hash]) => !present.has(hash));
+    if (missing.length === 0) return;
+    const now = new Date().toISOString();
+    for (const batch of chunkForBind(missing, 3)) {
+      const values = batch.map(() => '(?, ?, ?)').join(', ');
+      const params: SqlParam[] = [];
+      for (const [hash, json] of batch) params.push(hash, json, now);
+      await store.run(
+        `INSERT INTO lokee_shapes (shape_hash, shape_json, created_at) VALUES ${values}`,
         params
       );
     }
@@ -767,6 +842,43 @@ export class LokeeWeaveStore {
     const truncatedObjects = allKeys.length > keys.length;
     const keySet = new Set(keys);
 
+    // What kind of child changed, per container per version. Telling a data-type
+    // change from a column add needs both bodies, so load the bodies of the
+    // *delta* hashes only — that is the size of what changed, not of the schema.
+    const deltaHashes = new Set<string>();
+    for (const rows of deltas.values()) {
+      for (const row of rows) {
+        if (row.object_hash) deltaHashes.add(row.object_hash);
+        if (row.previous_hash) deltaHashes.add(row.previous_hash);
+      }
+    }
+    const deltaBodies = new Map<string, Record<string, unknown>>();
+    for (const batch of chunkForBind([...deltaHashes], 1)) {
+      const placeholders = batch.map(() => '?').join(', ');
+      const rows = await store.all<{ hash: string; body_json: string; shape_json: string | null }>(
+        `SELECT o.hash, o.body_json, s.shape_json
+           FROM lokee_objects o
+           LEFT JOIN lokee_shapes s ON s.shape_hash = o.shape_hash
+          WHERE o.hash IN (${placeholders})`,
+        [...batch]
+      );
+      for (const row of rows) deltaBodies.set(row.hash, bodyFromRow(row));
+    }
+    const kindsByVersion = new Map<string, Map<string, ObjectChangeKind[]>>();
+    for (const [versionId, rows] of deltas) {
+      kindsByVersion.set(
+        versionId,
+        changeKindsByOwner(
+          rows.map((row) => ({
+            objectKey: row.object_key,
+            operation: row.operation,
+            body: row.object_hash ? deltaBodies.get(row.object_hash) : undefined,
+            previousBody: row.previous_hash ? deltaBodies.get(row.previous_hash) : undefined,
+          }))
+        )
+      );
+    }
+
     // Names and types for every hash in play, in batches.
     const hashes = new Set<string>();
     for (const state of states.values()) {
@@ -811,6 +923,14 @@ export class LokeeWeaveStore {
         // inventing a node before the object was created.
         if (hash == null) continue;
         const info = meta.get(hash);
+        // A container carries the kinds of its children that moved, so the node
+        // can say "type, cols" instead of just "modified". Children carry none —
+        // the badge belongs on the thing the reader is looking at.
+        const owner = objectKeyOwner(key);
+        const childKinds =
+          owner && objectKeyKind(key) !== 'column'
+            ? kindsByVersion.get(version.id)?.get(owner)
+            : undefined;
         objects.push({
           versionId: version.id,
           objectKey: key,
@@ -819,6 +939,7 @@ export class LokeeWeaveStore {
           objectHash: hash,
           status:
             row?.operation === 'ADD' ? 'added' : row?.operation === 'MODIFY' ? 'modified' : 'unchanged',
+          ...(childKinds && childKinds.length > 0 ? { changeKinds: childKinds } : {}),
         });
       }
     }
@@ -883,22 +1004,20 @@ export class LokeeWeaveStore {
         object_type: string;
         name: string | null;
         body_json: string;
+        shape_json: string | null;
         source_text: string | null;
         line_count: number | null;
         created_at: string | null;
       }>(
-        `SELECT hash, object_key, object_type, name, body_json, source_text, line_count, created_at
-           FROM lokee_objects WHERE hash IN (${placeholders})`,
+        `SELECT o.hash, o.object_key, o.object_type, o.name, o.body_json, s.shape_json,
+                o.source_text, o.line_count, o.created_at
+           FROM lokee_objects o
+           LEFT JOIN lokee_shapes s ON s.shape_hash = o.shape_hash
+          WHERE o.hash IN (${placeholders})`,
         [...batch]
       );
       for (const row of rows) {
-        let body: Record<string, unknown> = {};
-        try {
-          body = JSON.parse(row.body_json) as Record<string, unknown>;
-        } catch {
-          // A corrupt body must not take down a whole version read; the object
-          // still exists and its identity is still known.
-        }
+        const body = bodyFromRow(row);
         out.set(row.object_key, {
           key: row.object_key,
           hash: row.hash,
@@ -939,17 +1058,34 @@ export class LokeeWeaveStore {
     const tableLike = isLokeeTableLikeType(String(blueprint.container?.type ?? kind));
     const script = renderLokeeObjectScript(blueprint);
     let previousScript = '';
+    let previousState = new Map<string, StoredWeaveObject>();
     const versions = await this.listVersions(userId, databaseId, 500);
     const here = versions.findIndex((v) => v.id === versionId);
     const older = here >= 0 ? versions[here + 1] : undefined;
     if (older) {
       // Already the blueprint's shape — see the note on the current-version
       // read above; re-pairing it here would spread `key` over itself.
-      const prevStored = await this.objectsAtVersion(userId, databaseId, older.id);
-      previousScript = renderLokeeObjectScript(assembleBlueprint(objectKey, prevStored));
+      previousState = await this.objectsAtVersion(userId, databaseId, older.id);
+      previousScript = renderLokeeObjectScript(assembleBlueprint(objectKey, previousState));
     }
+
+    // The inspector's blueprint tables are the *same* component Compare Schema
+    // renders, so give them the same input: a TableDiff. Both states are already
+    // in hand, so this costs one compare over a single object's subtree — not
+    // the whole schema, which is why the maps are narrowed first.
+    //
+    // Direction is Compare's own, and matches `diffVersions`: source = the newer
+    // state, so ADDED reads as "this version added it".
+    const dialect = await this.dialectOf(store, databaseId);
+    const compare = await this.compareVersionStates(
+      ownerSubtree(stored, owner),
+      ownerSubtree(previousState, owner),
+      dialect
+    );
+
     return {
       blueprint,
+      diff: compare.tables.find((t) => t.tableName === owner) ?? null,
       history: await this.objectHistory(userId, databaseId, objectKey),
       growth: tableLike ? await this.containerGrowth(userId, databaseId, owner) : [],
       columnMutations: tableLike ? await this.columnMutations(userId, databaseId, owner) : [],
@@ -969,8 +1105,33 @@ export class LokeeWeaveStore {
     databaseId: string,
     toVersionId: string,
     dialect?: string,
-    schema?: string
+    schema?: string,
+    /**
+     * Revert only these objects. Omit for the whole schema.
+     *
+     * Selecting a container pulls its children in: reverting `table:CUSTOMER`
+     * without its columns would apply half a change and leave the table in a
+     * state no version ever held.
+     */
+    objectKeys?: readonly string[]
   ): Promise<RevertPlanResult | null> {
+    // An explicit empty selection is a no-op plan, not a whole-schema revert.
+    if (objectKeys !== undefined && objectKeys.length === 0) {
+      const store0 = await this.store();
+      if (!(await this.assertOwned(store0, userId, databaseId))) return null;
+      const all = await this.listVersions(userId, databaseId, 500);
+      const head = all[0];
+      const target = all.find((v) => v.id === toVersionId);
+      if (!head || !target) return null;
+      return {
+        fromVersion: head,
+        toVersion: target,
+        alreadyAtTarget: true,
+        reversal: planReversal([]),
+        steps: [],
+        statements: [],
+      };
+    }
     const store = await this.store();
     if (!(await this.assertOwned(store, userId, databaseId))) return null;
 
@@ -991,8 +1152,24 @@ export class LokeeWeaveStore {
 
     const current = await this.objectsAtVersion(userId, databaseId, fromVersion.id);
     const desired = await this.objectsAtVersion(userId, databaseId, toVersion.id);
+    // `undefined` means "no filter given" — revert the whole schema.
+    // `[]` means "nothing selected", which must revert *nothing*: a UI with no
+    // boxes ticked sending an empty list must not wipe the database.
+    const selected = objectKeys === undefined ? null : new Set(objectKeys);
+    // Owners of the selected containers, so their children come along.
+    const selectedOwners = selected
+      ? new Set([...selected].filter((k) => !k.includes('.')).map((k) => objectKeyOwner(k)))
+      : null;
+    const wanted = (key: string): boolean => {
+      if (!selected) return true;
+      if (selected.has(key)) return true;
+      const owner = objectKeyOwner(key);
+      return owner ? selectedOwners!.has(owner) : false;
+    };
+
     const entries: Array<{ key: string; current?: CanonicalObject; target?: CanonicalObject }> = [];
     for (const key of new Set([...current.keys(), ...desired.keys()])) {
+      if (!wanted(key)) continue;
       const cur = current.get(key);
       const tgt = desired.get(key);
       if (cur && tgt && cur.hash === tgt.hash) continue;
@@ -1014,10 +1191,13 @@ export class LokeeWeaveStore {
       schemaName ??= db?.schema ?? undefined;
     }
 
+    // Revert is a migration whose source lives in the object store: the version
+    // the user picked is the reference ("Original server"), the current head is
+    // what changes to match it ("Target"). Same primitive as version compare,
+    // then the same SQL generator the live migrate flow uses.
     const migration = dialectName
-      ? await buildRevertMigration(
-          hydrateTableSchemas(canonicalList(current)),
-          hydrateTableSchemas(canonicalList(desired)),
+      ? migrationFromCompare(
+          await this.compareVersionStates(desired, current, dialectName, schemaName),
           dialectName,
           { targetSchema: schemaName, sourceSchema: schemaName }
         )
@@ -1114,17 +1294,16 @@ export class LokeeWeaveStore {
         body_json: string;
         line_count: number | null;
         created_at: string | null;
+        shape_json: string | null;
       }>(
-        `SELECT hash, body_json, line_count, created_at FROM lokee_objects WHERE hash IN (${placeholders})`,
+        `SELECT o.hash, o.body_json, s.shape_json, o.line_count, o.created_at
+           FROM lokee_objects o
+           LEFT JOIN lokee_shapes s ON s.shape_hash = o.shape_hash
+          WHERE o.hash IN (${placeholders})`,
         [...batch]
       );
       for (const row of found) {
-        let body: Record<string, unknown> = {};
-        try {
-          body = JSON.parse(row.body_json) as Record<string, unknown>;
-        } catch {
-          /* keep empty */
-        }
+        const body = bodyFromRow(row);
         bodies.set(row.hash, {
           body,
           lineCount: row.line_count,
@@ -1140,7 +1319,10 @@ export class LokeeWeaveStore {
     databaseId: string,
     owner: string
   ): Promise<ContainerGrowthPoint[]> {
-    const versions = await this.listVersions(userId, databaseId, 20);
+    // The whole history, not a recent window: a roadmap that starts at v(N-20)
+    // hides the moment a table was created, which is the point a reader looks
+    // for first. Still bounded — listVersions caps at 500.
+    const versions = await this.listVersions(userId, databaseId, MAX_ROADMAP_VERSIONS);
     if (versions.length === 0) return [];
     const store = await this.store();
     const latest = await this.loadLatestIndex(store, databaseId);
@@ -1152,6 +1334,12 @@ export class LokeeWeaveStore {
     const points: ContainerGrowthPoint[] = [];
     for (const version of [...versions].reverse()) {
       const state = states.get(version.id) ?? new Map<string, string>();
+      // Did anything under this container move in this version? A hundred
+      // versions of an untouched table is a flat line, and the reader needs the
+      // few points that are not.
+      const changed = (deltas.get(version.id) ?? []).some(
+        (row) => objectKeyOwner(row.object_key) === owner
+      );
       let columns = 0;
       let indexes = 0;
       let foreignKeys = 0;
@@ -1175,9 +1363,94 @@ export class LokeeWeaveStore {
         foreignKeys,
         triggers,
         objects,
+        changed,
       });
     }
     return points;
+  }
+
+  /**
+   * Compare two stored versions with the app's own Compare engine.
+   *
+   * One primitive, two callers, so revert and version-compare cannot drift
+   * apart. The direction is Compare's own: `source` is the reference — what the
+   * schema *should* look like — and `target` is the side that would change to
+   * match it.
+   *
+   *   version compare → source = newer, target = older  ("what did this add?")
+   *   revert          → source = the version you picked, target = current
+   *
+   * Revert is therefore not a special kind of diff; it is a migration whose
+   * source happens to live in the object store rather than on a server.
+   */
+  private async compareVersionStates(
+    sourceState: ReadonlyMap<string, StoredWeaveObject>,
+    targetState: ReadonlyMap<string, StoredWeaveObject>,
+    dialect?: string,
+    schema?: string
+  ): Promise<SchemaCompareResult> {
+    return new CompareModule().compare(
+      hydrateTableSchemas(canonicalList(sourceState)),
+      hydrateTableSchemas(canonicalList(targetState)),
+      { source: dialect, target: dialect },
+      schema ? { source: schema, target: schema } : undefined
+    );
+  }
+
+  /**
+   * Diff one version against another, from the object store alone.
+   *
+   * Needs no connection: both states are reconstructable, so a user can compare
+   * v3 to v7 on a database that is offline or long gone. `toVersionId` defaults
+   * to the version's own parent, which is the "what did this migrate do?" case.
+   */
+  async diffVersions(
+    userId: string,
+    databaseId: string,
+    versionId: string,
+    againstVersionId?: string
+  ): Promise<VersionCompare | null> {
+    const store = await this.store();
+    if (!(await this.assertOwned(store, userId, databaseId))) return null;
+
+    const versions = await this.listVersions(userId, databaseId, 500);
+    const to = versions.find((v) => v.id === versionId);
+    if (!to) return null;
+    // Default to the adjacent older version — the change this version made.
+    const from =
+      againstVersionId
+        ? versions.find((v) => v.id === againstVersionId)
+        : versions.find((v) => v.number === to.number - 1);
+
+    const toState = await this.objectsAtVersion(userId, databaseId, to.id);
+    const fromState = from
+      ? await this.objectsAtVersion(userId, databaseId, from.id)
+      : new Map<string, StoredWeaveObject>();
+
+    // Rebuild the nested shape Compare already speaks and run the *same* engine
+    // the live Compare Schema flow uses, rather than a second diff kept in step
+    // by hand. Stored objects fully describe the schema, so no connection is
+    // involved.
+    //
+    // Direction matters and is easy to get backwards: Compare answers "what must
+    // TARGET change to match SOURCE" (that is the migrate direction — source is
+    // the reference). So the *newer* version is the source and the older is the
+    // target, which makes ADDED mean "this version added it". Passing them the
+    // other way round reports every addition as a removal, which is exactly
+    // what it did before this was checked against real history.
+    const dialect = await this.dialectOf(store, databaseId);
+    const compare = await this.compareVersionStates(toState, fromState, dialect);
+
+    return { from: from ?? null, to, compare, dialect: dialect ?? null };
+  }
+
+  /** Dialect recorded for this database, for the compare engine's type rules. */
+  private async dialectOf(store: MetadataStore, databaseId: string): Promise<string | undefined> {
+    const row = await store.get<{ dialect: string }>(
+      'SELECT dialect FROM lokee_databases WHERE id = ?',
+      [databaseId]
+    );
+    return row?.dialect;
   }
 
   /**
@@ -1196,6 +1469,31 @@ export class LokeeWeaveStore {
           AND hash NOT IN (SELECT previous_hash FROM lokee_version_objects WHERE previous_hash IS NOT NULL)`
     );
     return result.changes;
+  }
+}
+
+
+/**
+ * Rebuild a body from its stored halves.
+ *
+ * `shape_json` is null for rows written before the dedup migration and for any
+ * body that did not round-trip; those kept their whole body in `body_json`, so
+ * returning it unchanged is correct rather than a fallback.
+ */
+function bodyFromRow(row: { body_json: string; shape_json?: string | null }): Record<string, unknown> {
+  let identity: Record<string, unknown> = {};
+  try {
+    identity = JSON.parse(row.body_json) as Record<string, unknown>;
+  } catch {
+    // A body we cannot parse yields an empty object rather than taking down the
+    // whole read; the object's identity and hash are still known.
+    return {};
+  }
+  if (!row.shape_json) return identity;
+  try {
+    return mergeBody({ identity, shape: JSON.parse(row.shape_json) as Record<string, unknown> });
+  } catch {
+    return identity;
   }
 }
 

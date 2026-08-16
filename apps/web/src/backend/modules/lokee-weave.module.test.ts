@@ -500,6 +500,36 @@ describe('inspectObject', () => {
     expect(inspect?.growth[0]?.versionId).toBe(v1.versionId);
   });
 
+  it('hands back a TableDiff scoped to this object, in the migrate direction', async () => {
+    // The inspector renders Compare Schema's own blueprint tables, so it needs
+    // Compare's own shape. Direction matches `diffVersions`: source is the newer
+    // state, so a column this version added reads ADDED, not REMOVED.
+    const { weave } = await freshStore();
+    await weave.capture(USER, { ...IDENTITY, tables: [CUSTOMER, table('orders', [['id', 'integer', false]])], source: 'manual' });
+    const widened = table('customer', [
+      ['id', 'integer', false],
+      ['email', 'varchar(255)'],
+      ['phone', 'varchar(20)'],
+    ]);
+    const v2 = await weave.capture(USER, {
+      ...IDENTITY,
+      tables: [widened, table('orders', [['id', 'integer', false]])],
+      source: 'migrate',
+    });
+
+    const inspect = await weave.inspectObject(USER, v2.databaseId, v2.versionId, 'table:CUSTOMER');
+    const diff = inspect?.diff;
+    expect(diff?.tableName).toBe('CUSTOMER');
+    expect(diff?.columnDiffs.find((c) => c.name.toUpperCase() === 'PHONE')?.status).toBe('ADDED');
+    const email = diff?.columnDiffs.find((c) => c.name.toUpperCase() === 'EMAIL');
+    expect(email?.status).toBe('MODIFIED');
+    expect(email?.source?.type).toBe('varchar(255)');
+    expect(email?.target?.type).toBe('varchar(100)');
+    // Scoped to the owner: the untouched sibling table is not compared, which is
+    // what keeps this cheap on a schema with thousands of objects.
+    expect(diff?.columnDiffs.every((c) => c.name.toUpperCase() !== 'ORDERS')).toBe(true);
+  });
+
   it('records procedure source lines without hashing whitespace', async () => {
     const { weave } = await freshStore();
     const proc = {
@@ -665,5 +695,346 @@ describe('reconstructStates', () => {
       ['v1', []],
     ]) as never);
     expect(states.get('v2')).not.toBe(states.get('v1'));
+  });
+});
+
+describe('shape dedup', () => {
+  it('stores one shape row for columns declared the same way', async () => {
+    // The optimisation: `integer not null` in three tables is one shape row.
+    const { weave, meta } = await freshStore();
+    const same: [string, string, boolean?][] = [['id', 'integer', false]];
+    await weave.capture(USER, {
+      ...IDENTITY,
+      tables: [table('a', same), table('b', same), table('c', same)],
+      source: 'manual',
+    });
+
+    const cols = await meta.get<{ n: number }>(
+      "SELECT COUNT(*) AS n FROM lokee_objects WHERE object_type = 'column'"
+    );
+    const shapes = await meta.get<{ n: number }>(
+      "SELECT COUNT(DISTINCT shape_hash) AS n FROM lokee_objects WHERE object_type = 'column'"
+    );
+    expect(Number(cols?.n)).toBe(3);
+    expect(Number(shapes?.n)).toBe(1);
+  });
+
+  it('rebuilds the exact body a read expects', async () => {
+    // The invariant the object hash rests on: what goes in comes back out. If
+    // this drifts, every stored hash stops matching its reconstructed body and
+    // the history becomes unverifiable.
+    const { weave } = await freshStore();
+    const v1 = await weave.capture(USER, { ...IDENTITY, tables: [CUSTOMER], source: 'manual' });
+    const at = await weave.objectsAtVersion(USER, v1.databaseId, v1.versionId);
+    const email = at.get('column:CUSTOMER.EMAIL');
+    expect(email?.body).toEqual({
+      name: 'email',
+      table: 'customer',
+      dataType: 'varchar(100)',
+      nullable: true,
+      default: null,
+      identity: false,
+      identityGeneration: null,
+      collation: null,
+    });
+  });
+
+  it('keeps distinct declarations apart', async () => {
+    const { weave, meta } = await freshStore();
+    await weave.capture(USER, {
+      ...IDENTITY,
+      tables: [
+        table('a', [['id', 'integer', false]]),
+        table('b', [['id', 'bigint', false]]),
+      ],
+      source: 'manual',
+    });
+    const shapes = await meta.get<{ n: number }>(
+      "SELECT COUNT(DISTINCT shape_hash) AS n FROM lokee_objects WHERE object_type = 'column'"
+    );
+    expect(Number(shapes?.n)).toBe(2);
+  });
+
+  it('does not change the root hash — this is storage, not identity', async () => {
+    // Two databases holding the same schema must still agree on the root hash
+    // after the split, or the "capture twice, get the same hash" invariant that
+    // the whole feature rests on is broken.
+    const { weave } = await freshStore();
+    const a = await weave.capture(USER, { ...IDENTITY, tables: [CUSTOMER], source: 'manual' });
+    const b = await weave.capture(USER, {
+      ...IDENTITY,
+      database: 'other',
+      tables: [CUSTOMER],
+      source: 'manual',
+    });
+    expect(a.rootHash).toBe(b.rootHash);
+  });
+});
+
+describe('object roadmap (container growth)', () => {
+  it('covers the whole history, including the version the table was created in', async () => {
+    // Capped at the last 20 versions, a roadmap hides the creation event —
+    // which is the first thing a reader looks for.
+    const { weave } = await freshStore();
+    const first = await weave.capture(USER, { ...IDENTITY, tables: [CUSTOMER], source: 'manual' });
+
+    // Grow the table one column at a time, well past the old 20-version window.
+    for (let i = 0; i < 22; i++) {
+      const cols: Array<[string, string, boolean?]> = [
+        ['id', 'integer', false],
+        ['email', 'varchar(100)'],
+        ...Array.from({ length: i + 1 }, (_, n) => [`extra_${n}`, 'text'] as [string, string]),
+      ];
+      await weave.capture(USER, { ...IDENTITY, tables: [table('customer', cols)], source: 'migrate' });
+    }
+
+    const result = await weave.inspectObject(USER, first.databaseId, first.versionId, 'table:CUSTOMER');
+    const growth = result!.growth;
+    expect(growth.length).toBeGreaterThan(20);
+    // Oldest point first, and it is the creation.
+    expect(growth[0]!.versionNumber).toBe(1);
+    expect(growth[0]!.columns).toBe(2);
+    // Monotonic growth, ending at 2 + 22 columns.
+    expect(growth.at(-1)!.columns).toBe(24);
+  });
+
+  it('marks only the versions where the container actually moved', async () => {
+    const { weave } = await freshStore();
+    const v1 = await weave.capture(USER, { ...IDENTITY, tables: [CUSTOMER], source: 'manual' });
+    // A version that changes a *different* table must not mark CUSTOMER.
+    await weave.capture(USER, {
+      ...IDENTITY,
+      tables: [CUSTOMER, table('unrelated', [['id', 'integer', false]])],
+      source: 'migrate',
+    });
+
+    const result = await weave.inspectObject(USER, v1.databaseId, v1.versionId, 'table:CUSTOMER');
+    const marks = result!.growth.map((g) => g.changed);
+    expect(marks[0]).toBe(true); // created here
+    expect(marks[1]).toBe(false); // untouched by the second migrate
+  });
+});
+
+describe('selective revert', () => {
+  /** v1 → v2 widens customer.email and adds an unrelated table. */
+  async function twoChanges() {
+    const { weave, meta } = await freshStore();
+    const v1 = await weave.capture(USER, { ...IDENTITY, tables: [CUSTOMER], source: 'manual' });
+    const v2 = await weave.capture(USER, {
+      ...IDENTITY,
+      tables: [
+        table('customer', [
+          ['id', 'integer', false],
+          ['email', 'varchar(255)'],
+        ]),
+        table('orders', [['id', 'integer', false]]),
+      ],
+      source: 'migrate',
+    });
+    return { weave, meta, v1, v2, databaseId: v1.databaseId };
+  }
+
+  it('reverts the whole schema when no objects are named', async () => {
+    const { weave, databaseId, v1 } = await twoChanges();
+    const plan = await weave.planRevert(USER, databaseId, v1.versionId);
+    const keys = plan!.reversal.verdicts.map((v) => v.key).sort();
+    // Both the widened column and the added table are in scope.
+    expect(keys).toContain('column:CUSTOMER.EMAIL');
+    expect(keys).toContain('table:ORDERS');
+  });
+
+  it('touches only what was selected', async () => {
+    const { weave, databaseId, v1 } = await twoChanges();
+    const plan = await weave.planRevert(USER, databaseId, v1.versionId, undefined, undefined, [
+      'column:CUSTOMER.EMAIL',
+    ]);
+    const keys = plan!.reversal.verdicts.map((v) => v.key);
+    expect(keys).toEqual(['column:CUSTOMER.EMAIL']);
+    // The unrelated table stays exactly where it is.
+    expect(keys).not.toContain('table:ORDERS');
+  });
+
+  it('pulls a container\'s children in with it', async () => {
+    // Reverting `table:ORDERS` without its columns would apply half a change
+    // and leave the table in a state no version ever held.
+    const { weave, databaseId, v1 } = await twoChanges();
+    const plan = await weave.planRevert(USER, databaseId, v1.versionId, undefined, undefined, [
+      'table:ORDERS',
+    ]);
+    const keys = plan!.reversal.verdicts.map((v) => v.key).sort();
+    expect(keys).toEqual(['column:ORDERS.ID', 'table:ORDERS']);
+  });
+
+  it('keeps the risk classification on the narrowed set', async () => {
+    // Narrowing must not quietly downgrade a lossy revert to safe — the
+    // confirmation depends on this verdict.
+    const { weave, databaseId, v1 } = await twoChanges();
+    const plan = await weave.planRevert(USER, databaseId, v1.versionId, undefined, undefined, [
+      'column:CUSTOMER.EMAIL',
+    ]);
+    const verdict = plan!.reversal.verdicts[0]!;
+    // varchar(255) → varchar(100) truncates, so this is lossy, not safe.
+    expect(verdict.risk).toBe('lossy');
+    expect(plan!.reversal.risk).toBe('lossy');
+  });
+
+  it('treats an empty selection as nothing, not as everything', async () => {
+    // A UI with no boxes ticked sends `[]`. If that were read as "no filter",
+    // clicking Revert with nothing selected would rewrite the whole database.
+    const { weave, databaseId, v1 } = await twoChanges();
+    const none = await weave.planRevert(USER, databaseId, v1.versionId, undefined, undefined, []);
+    expect(none!.reversal.verdicts).toEqual([]);
+    expect(none!.statements).toEqual([]);
+    expect(none!.alreadyAtTarget).toBe(true);
+
+    // Omitting the argument entirely still means the whole schema.
+    const all = await weave.planRevert(USER, databaseId, v1.versionId);
+    expect(all!.reversal.verdicts.length).toBeGreaterThan(1);
+  });
+});
+
+describe('version compare (shared Compare engine)', () => {
+  it('reads forward: what the newer version added', async () => {
+    // Direction is the trap. CompareModule answers "what must TARGET change to
+    // match SOURCE", so feeding (older, newer) reports every addition as a
+    // removal. This caught exactly that inversion against real history.
+    const { weave } = await freshStore();
+    const v1 = await weave.capture(USER, { ...IDENTITY, tables: [CUSTOMER], source: 'manual' });
+    const v2 = await weave.capture(USER, {
+      ...IDENTITY,
+      tables: [
+        table('customer', [
+          ['id', 'integer', false],
+          ['email', 'varchar(255)'],
+          ['phone', 'text'],
+        ]),
+      ],
+      source: 'migrate',
+    });
+
+    const result = await weave.diffVersions(USER, v1.databaseId, v2.versionId);
+    expect(result!.from!.number).toBe(1);
+    expect(result!.to.number).toBe(2);
+
+    const customer = result!.compare.tables.find((t) => t.tableName.toUpperCase() === 'CUSTOMER');
+    const byName = Object.fromEntries(
+      customer!.columnDiffs.map((c) => [c.name.toUpperCase(), c.status])
+    );
+    // phone appeared in v2 → ADDED, not REMOVED.
+    expect(byName.PHONE).toBe('ADDED');
+    expect(byName.EMAIL).toBe('MODIFIED');
+    expect(result!.compare.summary.removed).toBe(0);
+  });
+
+  it('reports a drop as removed', async () => {
+    const { weave } = await freshStore();
+    const v1 = await weave.capture(USER, { ...IDENTITY, tables: [CUSTOMER], source: 'manual' });
+    const v2 = await weave.capture(USER, {
+      ...IDENTITY,
+      tables: [table('customer', [['id', 'integer', false]])],
+      source: 'migrate',
+    });
+    const result = await weave.diffVersions(USER, v1.databaseId, v2.versionId);
+    const customer = result!.compare.tables.find((t) => t.tableName.toUpperCase() === 'CUSTOMER');
+    const email = customer!.columnDiffs.find((c) => c.name.toUpperCase() === 'EMAIL');
+    expect(email!.status).toBe('REMOVED');
+  });
+
+  it('compares against the parent by default, and any version on request', async () => {
+    const { weave } = await freshStore();
+    const v1 = await weave.capture(USER, { ...IDENTITY, tables: [CUSTOMER], source: 'manual' });
+    await weave.capture(USER, {
+      ...IDENTITY,
+      tables: [table('customer', [['id', 'integer', false], ['email', 'varchar(255)']])],
+      source: 'migrate',
+    });
+    const v3 = await weave.capture(USER, {
+      ...IDENTITY,
+      tables: [
+        table('customer', [['id', 'integer', false], ['email', 'varchar(255)'], ['phone', 'text']]),
+      ],
+      source: 'migrate',
+    });
+
+    const adjacent = await weave.diffVersions(USER, v1.databaseId, v3.versionId);
+    expect(adjacent!.from!.number).toBe(2);
+
+    const spanning = await weave.diffVersions(USER, v1.databaseId, v3.versionId, v1.versionId);
+    expect(spanning!.from!.number).toBe(1);
+    // Across two versions both changes show at once.
+    const customer = spanning!.compare.tables.find((t) => t.tableName.toUpperCase() === 'CUSTOMER');
+    const byName = Object.fromEntries(
+      customer!.columnDiffs.map((c) => [c.name.toUpperCase(), c.status])
+    );
+    expect(byName.EMAIL).toBe('MODIFIED');
+    expect(byName.PHONE).toBe('ADDED');
+  });
+
+  it('returns the first capture with no earlier side', async () => {
+    const { weave } = await freshStore();
+    const v1 = await weave.capture(USER, { ...IDENTITY, tables: [CUSTOMER], source: 'manual' });
+    const result = await weave.diffVersions(USER, v1.databaseId, v1.versionId);
+    expect(result!.from).toBeNull();
+    // Everything in v1 reads as added against an empty predecessor.
+    expect(result!.compare.summary.added).toBeGreaterThan(0);
+  });
+});
+
+describe('revert reuses the comparison logic', () => {
+  it('plans the reverse of what the version compare reports', async () => {
+    // Revert and version-compare are the same comparison read in opposite
+    // directions. If they ever disagree, one of them is lying to the user about
+    // what a button will do.
+    const { weave } = await freshStore();
+    const v1 = await weave.capture(USER, { ...IDENTITY, tables: [CUSTOMER], source: 'manual' });
+    const v2 = await weave.capture(USER, {
+      ...IDENTITY,
+      tables: [
+        table('customer', [
+          ['id', 'integer', false],
+          ['email', 'varchar(255)'],
+          ['phone', 'text'],
+        ]),
+      ],
+      source: 'migrate',
+    });
+
+    // Forward: v2 added `phone` and widened `email`.
+    const forward = await weave.diffVersions(USER, v1.databaseId, v2.versionId);
+    const fwd = Object.fromEntries(
+      forward!.compare.tables
+        .find((t) => t.tableName.toUpperCase() === 'CUSTOMER')!
+        .columnDiffs.map((c) => [c.name.toUpperCase(), c.status])
+    );
+    expect(fwd.PHONE).toBe('ADDED');
+    expect(fwd.EMAIL).toBe('MODIFIED');
+
+    // Reverting to v1 must undo exactly those: drop phone, narrow email back.
+    const plan = await weave.planRevert(USER, v1.databaseId, v1.versionId);
+    const keys = plan!.reversal.verdicts.map((v) => v.key);
+    expect(keys).toContain('column:CUSTOMER.PHONE');
+    expect(keys).toContain('column:CUSTOMER.EMAIL');
+
+    // And it is flagged lossy: varchar(255) → varchar(100) truncates, dropping
+    // a column loses its values.
+    expect(plan!.reversal.risk).toBe('lossy');
+  });
+
+  it('treats the picked version as the source, current as the target', async () => {
+    // The mental model the UI already has: "Original server" is the reference,
+    // "Target" is what changes. Reverting sets source = the version you picked.
+    const { weave } = await freshStore();
+    const v1 = await weave.capture(USER, { ...IDENTITY, tables: [CUSTOMER], source: 'manual' });
+    await weave.capture(USER, {
+      ...IDENTITY,
+      tables: [CUSTOMER, table('orders', [['id', 'integer', false]])],
+      source: 'migrate',
+    });
+
+    const plan = await weave.planRevert(USER, v1.databaseId, v1.versionId);
+    // v1 had no `orders`, so reverting to it removes the table.
+    expect(plan!.fromVersion.number).toBe(2);
+    expect(plan!.toVersion.number).toBe(1);
+    expect(plan!.reversal.verdicts.map((v) => v.key)).toContain('table:ORDERS');
   });
 });

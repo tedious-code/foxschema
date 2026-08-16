@@ -386,3 +386,30 @@ describe('buildVersionGraph — degenerate input', () => {
     expect(nodeIds(g).some((id) => id.includes('GHOST'))).toBe(false);
   });
 });
+
+describe('buildVersionGraph — change kinds', () => {
+  it('carries a container\'s change kinds onto its node', () => {
+    // The badge is the only place the graph says *what* changed; dropping it in
+    // the builder would leave every modified table reading just "modified".
+    const withKinds = {
+      ...dto,
+      objects: [
+        { ...obj('v2', 'table:CUSTOMER', 'H2', 'modified'), changeKinds: ['type', 'index'] as const },
+      ],
+    };
+    const g = buildVersionGraph(withKinds as never, filters());
+    const node = g.nodes.find((n) => n.type === 'schemaObjectNode');
+    expect(node && 'changeKinds' in node.data ? node.data.changeKinds : undefined).toEqual([
+      'type',
+      'index',
+    ]);
+  });
+
+  it('omits the field entirely when nothing changed', () => {
+    // `changeKinds: []` would render an empty badge row; absent is the honest
+    // shape for an unchanged object.
+    const g = buildVersionGraph(dto, filters());
+    const node = g.nodes.find((n) => n.type === 'schemaObjectNode');
+    expect(node && 'changeKinds' in node.data ? node.data.changeKinds : undefined).toBeUndefined();
+  });
+});

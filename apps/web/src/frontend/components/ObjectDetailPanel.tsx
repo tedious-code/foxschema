@@ -10,6 +10,13 @@ import { diffLines } from '../utils/lineDiff';
 import { highlightMatch } from '../utils/highlight';
 import { formatSql } from '../utils/formatSql';
 import type { TableDiff } from '../lib/types';
+import { SchemaBlueprint } from './SchemaBlueprint';
+import { DetailTabs, type DetailTab } from './DetailTabs';
+import {
+  buildTableDdlDiffLines,
+  DdlDiffLines,
+  stripSchemaQualifiers,
+} from './SchemaDdlDiff';
 import { MigrationProgressPanel } from './object-detail/MigrationProgressPanel';
 import { DeployConfirmDialog } from './object-detail/DeployConfirmDialog';
 import { DependencyWarningDialog } from './object-detail/DependencyWarningDialog';
@@ -37,125 +44,6 @@ function formatSqlBounded(sql: string, dialect: string): string {
 
 // Persisted "skip the deploy confirmation" preference.
 const SKIP_DEPLOY_CONFIRM_KEY = 'foxschema-skip-deploy-confirm';
-
-// ── Status-driven DDL diff for tables ────────────────────────────────────────
-// A raw text diff of two rendered CREATE TABLEs mis-reads a column *reorder* as a
-// change, and colours a source-only column as a deletion — when it's really an ADD
-// the migration will apply to the target. So for tables we drive the colouring from
-// the already-correct columnDiffs instead: render the source (the desired end state)
-// column-by-column, tag each line by its ColumnDiff status, then append the
-// target-only (REMOVED) columns. Same source of truth the column table uses.
-type DdlLineKind = 'added' | 'removed' | 'modified' | 'neutral';
-interface DdlDiffLine { kind: DdlLineKind; marker: string; text: string; }
-
-const kindForStatus = (status?: string): DdlLineKind =>
-  status === 'ADDED' ? 'added'
-    : status === 'REMOVED' ? 'removed'
-    : status === 'MODIFIED' ? 'modified'
-    : 'neutral';
-
-const markerForKind = (kind: DdlLineKind): string =>
-  kind === 'added' ? '+' : kind === 'removed' ? '-' : kind === 'modified' ? '~' : ' ';
-
-// Colour trailing CREATE INDEX / ADD CONSTRAINT lines by their own diff status.
-const trailingLineKind = (text: string, diff: TableDiff, baseIsSource: boolean): DdlLineKind => {
-  // security/detect-unsafe-regex false-positives here: no nested/overlapping
-  // quantifiers, so no catastrophic backtracking — verified against a 50k-char
-  // all-whitespace input at <1ms.
-  // eslint-disable-next-line security/detect-unsafe-regex
-  const idx = text.match(/^\s*CREATE(?:\s+UNIQUE)?\s+INDEX\s+(\S+)\s+ON\b/i);
-  if (idx) {
-    const st = (diff.indexDiffs ?? []).find((d) => d.name.toUpperCase() === idx[1].toUpperCase())?.status;
-    return baseIsSource ? kindForStatus(st) : 'removed';
-  }
-  const fk = text.match(/ADD\s+CONSTRAINT\s+(\S+)\s+FOREIGN\s+KEY\b/i);
-  if (fk) {
-    const st = (diff.foreignKeyDiffs ?? []).find((d) => d.name.toUpperCase() === fk[1].toUpperCase())?.status;
-    return baseIsSource ? kindForStatus(st) : 'removed';
-  }
-  return 'neutral';
-};
-
-function buildTableDdlDiffLines(
-  diff: TableDiff,
-  sourceDialect: string,
-  targetDialect: string,
-  strip: (ddl: string) => string,
-): DdlDiffLine[] {
-  const src = diff.sourceTable;
-  const tgt = diff.targetTable;
-  const base = src ?? tgt;
-  if (!base) return [];
-  const baseIsSource = !!src;
-
-  const colStatus = new Map<string, string>();
-  for (const c of diff.columnDiffs ?? []) colStatus.set(c.name.toUpperCase(), c.status);
-
-  const baseDialect = baseIsSource ? sourceDialect : targetDialect;
-  // Render the table WITHOUT triggers — generateObjectDdl only appends the raw trigger
-  // body (Oracle stores no CREATE TRIGGER header) and can't colour it, so we render
-  // triggers ourselves below with a name header + status colour.
-  const baseLines = strip(ddlGenerator.generateObjectDdl({ ...base, triggers: [] }, baseDialect)).split('\n');
-  const out: DdlDiffLine[] = [];
-
-  // renderCreateTable emits: header, one line per base.columns (in order), an optional
-  // PK line, then ");" — so column N is baseLines[1 + N].
-  out.push({ kind: 'neutral', marker: ' ', text: baseLines[0] ?? `CREATE TABLE ${base.name} (` });
-  let li = 1;
-  for (let c = 0; c < base.columns.length; c++, li++) {
-    const kind = baseIsSource ? kindForStatus(colStatus.get(base.columns[c].name.toUpperCase())) : 'removed';
-    out.push({ kind, marker: markerForKind(kind), text: baseLines[li] ?? '' });
-  }
-
-  // Target-only columns the migration will DROP — pull their rendered line from the
-  // target side and slot them in after the desired column set.
-  if (src && tgt) {
-    const tgtLines = strip(ddlGenerator.generateObjectDdl({ ...tgt, triggers: [] }, targetDialect)).split('\n');
-    tgt.columns.forEach((col, t) => {
-      if (colStatus.get(col.name.toUpperCase()) === 'REMOVED') {
-        out.push({ kind: 'removed', marker: '-', text: tgtLines[1 + t] ?? `  ${col.name}` });
-      }
-    });
-  }
-
-  // PK line, ");", and any CREATE INDEX / ADD CONSTRAINT lines appended after.
-  for (; li < baseLines.length; li++) {
-    const text = baseLines[li];
-    if (text === undefined) continue;
-    const kind = trailingLineKind(text, diff, baseIsSource);
-    out.push({ kind, marker: markerForKind(kind), text });
-  }
-
-  // Triggers — rendered from triggerDiffs so we surface the name (Oracle keeps only the
-  // raw body) and colour by status. Desired end-state triggers (source) first, then
-  // target-only (REMOVED) ones.
-  const pushTrigger = (
-    name: string,
-    trg: { timing?: string; event?: string; definition?: string },
-    kind: DdlLineKind,
-  ) => {
-    const marker = markerForKind(kind);
-    const meta = [trg.timing, trg.event].filter(Boolean).join(' ');
-    out.push({ kind, marker, text: `-- TRIGGER ${name}${meta ? ` (${meta})` : ''}` });
-    const body = (trg.definition ?? '').trim();
-    if (body) for (const bl of body.split('\n')) out.push({ kind, marker, text: bl });
-    else out.push({ kind, marker, text: '  -- no definition available' });
-  };
-  const trigDiffs = diff.triggerDiffs ?? [];
-  for (const td of trigDiffs) {
-    if (td.status === 'REMOVED') continue;
-    const trg = td.source ?? td.target;
-    if (trg) pushTrigger(td.name, trg, baseIsSource ? kindForStatus(td.status) : 'removed');
-  }
-  for (const td of trigDiffs) {
-    if (td.status === 'REMOVED' && td.target) pushTrigger(td.name, td.target, 'removed');
-  }
-
-  // Trim trailing blank lines left by the DDL generator.
-  while (out.length && out[out.length - 1].text.trim() === '') out.pop();
-
-  return out;
-}
 
 export const ObjectDetailPanel: React.FC = () => {
   const canMigrate = useAuthStore((s) => s.can('schema.migrate'));
@@ -186,7 +74,7 @@ export const ObjectDetailPanel: React.FC = () => {
 
   const includedCount = Object.values(syncSelection).filter(Boolean).length;
 
-  const [activeTab, setActiveTab] = useState<'DIFF' | 'DDL_DIFF' | 'SQL'>('DIFF');
+  const [activeTab, setActiveTab] = useState<DetailTab>('DIFF');
   const [copied, setCopied] = useState(false);
   const [expandedTriggers, setExpandedTriggers] = useState<Record<string, boolean>>({});
   // Matches the case-insensitive schema compare; toggle off to inspect raw identifier casing
@@ -278,15 +166,8 @@ export const ObjectDetailPanel: React.FC = () => {
     if (!selectedTable || selectedTable.objectType === 'TABLE' || activeTab !== 'DDL_DIFF') {
       return { sourceDdl: '', targetDdl: '' };
     }
-    const stripSchemas = (ddl: string) => {
-      const schemas = [sourceConfig.schema, targetConfig.schema].filter(Boolean);
-      let out = ddl;
-      for (const s of schemas) {
-        out = out.replace(new RegExp(`\\b${s}\\.`, 'gi'), '');
-        out = out.replace(new RegExp(`"${s}"\\s*\\.\\s*`, 'gi'), '');
-      }
-      return out;
-    };
+    const stripSchemas = (ddl: string) =>
+      stripSchemaQualifiers(ddl, [sourceConfig.schema, targetConfig.schema]);
     const rawSource = selectedTable.sourceTable
       ? ddlGenerator.generateObjectDdl(selectedTable.sourceTable, sourceConfig.dialect)
       : '';
@@ -373,15 +254,8 @@ export const ObjectDetailPanel: React.FC = () => {
     // Tables: status-driven colouring from columnDiffs (aligns by column name, colours
     // by what the migration DOES — see buildTableDdlDiffLines). Everything else
     // (views/functions/triggers/sequences) keeps the Monaco text diff.
-    const stripSchemas = (ddl: string) => {
-      const schemas = [sourceConfig.schema, targetConfig.schema].filter(Boolean);
-      let out = ddl;
-      for (const s of schemas) {
-        out = out.replace(new RegExp(`\\b${s}\\.`, 'gi'), '');
-        out = out.replace(new RegExp(`"${s}"\\s*\\.\\s*`, 'gi'), '');
-      }
-      return out;
-    };
+    const stripSchemas = (ddl: string) =>
+      stripSchemaQualifiers(ddl, [sourceConfig.schema, targetConfig.schema]);
     const tableLines = isTable
       ? buildTableDdlDiffLines(selectedTable, sourceConfig.dialect, targetConfig.dialect, stripSchemas)
       : [];
@@ -455,30 +329,7 @@ export const ObjectDetailPanel: React.FC = () => {
         <div className="flex-1 min-h-0 relative">
           {isTable ? (
             <div className="absolute inset-0 overflow-auto bg-slate-950/90">
-              <table className="w-full font-mono text-[12px] border-collapse">
-                <tbody>
-                  {tableLines.map((line, i) => {
-                    const textClass =
-                      line.kind === 'added' ? 'text-emerald-300'
-                        : line.kind === 'removed' ? 'text-rose-300'
-                        : line.kind === 'modified' ? 'text-amber-300'
-                        : 'text-slate-300';
-                    const rowBg =
-                      line.kind === 'added' ? 'bg-emerald-500/10'
-                        : line.kind === 'removed' ? 'bg-rose-500/10'
-                        : line.kind === 'modified' ? 'bg-amber-500/10'
-                        : '';
-                    return (
-                      <tr key={i} className={rowBg}>
-                        <td className={`w-6 text-center select-none align-top ${textClass}`}>{line.marker}</td>
-                        <td className={`px-3 py-0.5 whitespace-pre ${textClass} ${line.kind === 'removed' ? 'line-through decoration-rose-500/30' : ''}`}>
-                          {highlightMatch(line.text, q)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <DdlDiffLines lines={tableLines} query={q} />
             </div>
           ) : (
             <div className="absolute inset-0">
@@ -500,103 +351,10 @@ export const ObjectDetailPanel: React.FC = () => {
     );
   };
 
-  // Renders one side's column state, highlighting the attributes that differ from the other side
-  const renderColumnState = (
-    own?: { type: string; nullable: boolean; defaultValue?: string; primaryKey?: boolean; identity?: boolean },
-    other?: { type: string; nullable: boolean; defaultValue?: string; primaryKey?: boolean; identity?: boolean }
-  ) => {
-    if (!own) return <span className="text-slate-600 italic">none</span>;
-
-    const hl = 'text-amber-300 bg-amber-500/15 rounded px-1';
-    const typeChanged = !!other && own.type.toLowerCase() !== other.type.toLowerCase();
-    const nullChanged = !!other && own.nullable !== other.nullable;
-    const defChanged = !!other && (own.defaultValue ?? null) !== (other.defaultValue ?? null);
-    const pkChanged = !!other && !!own.primaryKey !== !!other.primaryKey;
-    const identityChanged = !!other && !!own.identity !== !!other.identity;
-    const hasDefault = own.defaultValue !== undefined && own.defaultValue !== null;
-
-    return (
-      <span className="inline-flex flex-wrap items-center gap-1.5">
-        <span className={typeChanged ? hl : ''}>{own.type}</span>
-
-        {(!own.nullable || nullChanged) && (
-          <span className={nullChanged ? hl : ''}>{own.nullable ? 'NULL' : 'NOT NULL'}</span>
-        )}
-
-        {hasDefault ? (
-          <span className={defChanged ? hl : ''}>DEFAULT {own.defaultValue}</span>
-        ) : defChanged ? (
-          <span className={`${hl} italic`}>no default</span>
-        ) : null}
-
-        {own.primaryKey ? (
-          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
-            pkChanged
-              ? 'text-amber-300 bg-amber-500/15 border-amber-500/40'
-              : 'text-amber-400 bg-amber-950/40 border-amber-500/20'
-          }`}>
-            PRIMARY KEY
-          </span>
-        ) : pkChanged ? (
-          <span className={`${hl} italic`}>not PK</span>
-        ) : null}
-
-        {own.identity ? (
-          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
-            identityChanged
-              ? 'text-amber-300 bg-amber-500/15 border-amber-500/40'
-              : 'text-emerald-400 bg-emerald-950/40 border-emerald-500/20'
-          }`}>
-            IDENTITY
-          </span>
-        ) : identityChanged ? (
-          <span className={`${hl} italic`}>not identity</span>
-        ) : null}
-      </span>
-    );
-  };
-
   const renderSchemaObjectDiff = () => {
     // Highlight the object-browser search keyword in the blueprint (e.g. a
     // matched column name), mirroring the SQL panels.
     const query = searchTerm.trim().toLowerCase();
-
-    // Role member deploy selection (changed members only).
-    const isRole = selectedTable.objectType === 'ROLE';
-    const roleChangedMembers = isRole ? selectedTable.columnDiffs.filter((c) => c.status !== 'UNCHANGED') : [];
-    const allMembersSelected =
-      roleChangedMembers.length > 0 &&
-      roleChangedMembers.every((m) => memberSelection[selectedTable.tableName]?.[m.name] !== false);
-    // Index deploy selection (changed indexes only) — opt-IN, so an index change
-    // is excluded from the migration unless the user explicitly checks it.
-    const indexChangedItems = selectedTable.indexDiffs.filter((i) => i.status !== 'UNCHANGED');
-    const allIndexesSelected =
-      indexChangedItems.length > 0 &&
-      indexChangedItems.every((i) => indexSelection[selectedTable.tableName]?.[i.name] === true);
-    // Hide UNCHANGED items unless the "Show unchanged" toggle is on.
-    // Browse mode synthesizes every field as UNCHANGED (no comparison) — always
-    // show them, otherwise the blueprint is empty and browsing looks broken.
-    const keep = (status: string) => browseMode || showUnchangedDetail || status !== 'UNCHANGED';
-    const colDiffs = selectedTable.columnDiffs.filter((c) => keep(c.status));
-    const indexDiffs = selectedTable.indexDiffs.filter((i) => keep(i.status));
-    const fkDiffs = selectedTable.foreignKeyDiffs.filter((f) => keep(f.status));
-    const trgDiffs = (selectedTable.triggerDiffs ?? []).filter((t) => keep(t.status));
-
-    // Counts for the summary — always over the FULL set (independent of the
-    // show-unchanged toggle). `original` is the count present in the original
-    // (target); ADDED items don't exist there yet.
-    const stat = (arr: { status: string }[]) => ({
-      original: arr.filter((x) => x.status !== 'ADDED').length,
-      added: arr.filter((x) => x.status === 'ADDED').length,
-      modified: arr.filter((x) => x.status === 'MODIFIED').length,
-      removed: arr.filter((x) => x.status === 'REMOVED').length,
-    });
-    const summary = [
-      { label: 'Columns', s: stat(selectedTable.columnDiffs) },
-      { label: 'Indexes', s: stat(selectedTable.indexDiffs) },
-      { label: 'Foreign Keys', s: stat(selectedTable.foreignKeyDiffs) },
-      { label: 'Triggers', s: stat(selectedTable.triggerDiffs ?? []) },
-    ];
 
     return (
       <div className="flex-1 flex flex-col min-h-0 text-xs overflow-y-auto p-6 space-y-6">
@@ -670,611 +428,44 @@ export const ObjectDetailPanel: React.FC = () => {
           </div>
         </div>
 
-        {/* Change summary — original count + added/modified/removed per category */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {summary.map(({ label, s }) => (
-            <div key={label} className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
-              <div className="flex items-baseline justify-between">
-                <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400">{label}</span>
-                <span className="text-xl font-extrabold text-slate-100 leading-none" title={`${s.original} in original`}>
-                  {s.original}
-                </span>
-              </div>
-              <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] font-bold">
-                {s.added > 0 && <span className="text-emerald-400">+{s.added} added</span>}
-                {s.modified > 0 && <span className="text-amber-400">~{s.modified} modified</span>}
-                {s.removed > 0 && <span className="text-rose-400">-{s.removed} removed</span>}
-                {s.added === 0 && s.modified === 0 && s.removed === 0 && <span className="text-slate-600">no changes</span>}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Routine Parameters (functions & procedures) */}
-        {(selectedTable.objectType === 'FUNCTION' || selectedTable.objectType === 'PROCEDURE') && (() => {
-          const routine = selectedTable.sourceTable ?? selectedTable.targetTable;
-          const params = routine?.parameters ?? [];
-          const modeCls = (m: string) =>
-            m === 'RETURN' || m === 'RESULT'
-              ? 'text-emerald-300 bg-emerald-950/40 border-emerald-500/25'
-              : m === 'OUT' || m === 'INOUT'
-              ? 'text-amber-300 bg-amber-950/40 border-amber-500/25'
-              : 'text-slate-300 bg-slate-800 border-slate-700/50';
-          return (
-            <div className="space-y-2">
-              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-                <span className="w-1.5 h-1.5 bg-cyan-500 rounded-full"></span>
-                Parameters
-                {selectedTable.objectType === 'FUNCTION' && routine?.functionKind && (
-                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded border text-indigo-300 bg-indigo-950/40 border-indigo-500/30 uppercase tracking-wider">
-                    {routine.functionKind}-valued
-                  </span>
-                )}
-              </h4>
-              {params.length === 0 ? (
-                <p className="text-xs text-slate-500 italic">No parameters.</p>
-              ) : (
-                <div className="bg-slate-950/60 border border-slate-800/80 rounded-lg overflow-hidden">
-                  <table className="w-full text-left border-collapse text-xs">
-                    <thead>
-                      <tr className="bg-slate-900 border-b border-slate-800 text-slate-400">
-                        <th className="p-3 font-semibold">Parameter</th>
-                        <th className="p-3 font-semibold">Type</th>
-                        <th className="p-3 font-semibold text-right">Mode</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-850">
-                      {params.map((p, i) => (
-                        <tr key={`${p.name}-${i}`} className="hover:bg-slate-900/30">
-                          <td className="p-3 font-mono text-slate-200">
-                            {p.name || <span className="text-slate-600 italic">(unnamed)</span>}
-                          </td>
-                          <td className="p-3 font-mono text-cyan-300/90">{p.type}</td>
-                          <td className="p-3 text-right">
-                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${modeCls(p.mode)}`}>{p.mode}</span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+        {/* The blueprint tables — the same component the version-history compare
+            renders, so a stored diff and a live diff never look different. */}
+        <SchemaBlueprint
+          diff={selectedTable}
+          query={query}
+          // Browse mode synthesizes every field as UNCHANGED (nothing is being
+          // compared), so hiding them would leave the blueprint empty.
+          showUnchanged={browseMode || showUnchangedDetail}
+          memberSelection={memberSelection[selectedTable.tableName]}
+          onToggleMember={(name) => toggleMemberSelection(selectedTable.tableName, name)}
+          onSelectAllMembers={(checked) => setAllMemberSelection(selectedTable.tableName, checked)}
+          indexSelection={indexSelection[selectedTable.tableName]}
+          onToggleIndex={(name) => toggleIndexSelection(selectedTable.tableName, name)}
+          onSelectAllIndexes={(checked) => setAllIndexSelection(selectedTable.tableName, checked)}
+          expandedTriggers={expandedTriggers}
+          onToggleTrigger={toggleTriggerDdl}
+          triggerDdls={formattedTriggerDdls}
+          ignoreCase={ignoreCase}
+          definitionSlot={
+            selectedTable.objectType !== 'TABLE' &&
+            (selectedTable.sourceTable?.definition || selectedTable.targetTable?.definition) ? (
+              <div className="space-y-2">
+                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full"></span> Source DDL Definition
+                </h4>
+                <div className="bg-slate-950 border border-slate-850 rounded-lg overflow-hidden h-64">
+                  <Suspense fallback={<EditorFallback />}>
+                    <SqlEditor
+                      highlight={searchTerm}
+                      dialect={selectedTable.sourceTable?.definition ? sourceConfig.dialect : targetConfig.dialect}
+                      value={blueprintDefinitionSql}
+                    />
+                  </Suspense>
                 </div>
-              )}
-            </div>
-          );
-        })()}
-
-        {/* Sequence / Type Attribute Section */}
-        {(selectedTable.objectType === 'SEQUENCE' || selectedTable.objectType === 'TYPE') && (() => {
-          const isSeq = selectedTable.objectType === 'SEQUENCE';
-          const src: any = isSeq ? selectedTable.sourceTable?.sequence : selectedTable.sourceTable?.userType;
-          const tgt: any = isSeq ? selectedTable.targetTable?.sequence : selectedTable.targetTable?.userType;
-          const rows: { label: string; key: string }[] = isSeq
-            ? [
-                { label: 'Data Type', key: 'dataType' },
-                { label: 'Start', key: 'start' },
-                { label: 'Increment', key: 'increment' },
-                { label: 'Min Value', key: 'minValue' },
-                { label: 'Max Value', key: 'maxValue' },
-                { label: 'Cycle', key: 'cycle' },
-                { label: 'Cache', key: 'cache' },
-              ]
-            : [
-                { label: 'Source Type', key: 'sourceType' },
-                { label: 'Meta Type', key: 'metaType' },
-              ];
-          const fmt = (v: any) => (v === undefined || v === null || v === '' ? '—' : String(v));
-
-          return (
-            <div>
-              <h4 className="text-sm font-bold text-slate-200 uppercase tracking-wider mb-2.5 flex items-center gap-2">
-                <span className={`w-2 h-2 rounded-full ${isSeq ? 'bg-teal-400' : 'bg-sky-400'}`}></span>
-                {isSeq ? 'Sequence Attributes' : 'Type Definition'}
-              </h4>
-              <div className="bg-slate-950/60 border border-slate-800/80 rounded-lg overflow-hidden">
-                <table className="w-full text-left border-collapse text-sm">
-                  <thead>
-                    <tr className="bg-slate-900 border-b border-slate-800 text-slate-300">
-                      <th className="p-3 text-[11px] font-bold uppercase tracking-wider">Attribute</th>
-                      <th className="p-3 text-[11px] font-bold uppercase tracking-wider">Original Server</th>
-                      <th className="p-3 text-[11px] font-bold uppercase tracking-wider text-center">Compare</th>
-                      <th className="p-3 text-[11px] font-bold uppercase tracking-wider">Target</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-850">
-                    {rows.map((r) => {
-                      const sv = fmt(src?.[r.key]);
-                      const tv = fmt(tgt?.[r.key]);
-                      const changed = sv !== tv;
-                      return (
-                        <tr key={r.key} className={changed ? 'bg-amber-950/10' : 'hover:bg-slate-900/20'}>
-                          <td className="p-3 text-slate-100 font-bold">{r.label}</td>
-                          <td className={`p-3 font-mono font-semibold ${changed ? 'text-amber-300' : 'text-slate-200'}`}>{sv}</td>
-                          <td className="p-3 text-center text-slate-600"><ChevronRight className="w-4 h-4 mx-auto" /></td>
-                          <td className={`p-3 font-mono font-semibold ${changed ? 'text-amber-300' : 'text-slate-200'}`}>{tv}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
               </div>
-
-              {/* Structured type member attributes */}
-              {!isSeq && ((src?.attributes?.length ?? 0) > 0 || (tgt?.attributes?.length ?? 0) > 0) && (() => {
-                const sAttrs: { name: string; type: string }[] = src?.attributes ?? [];
-                const tAttrs: { name: string; type: string }[] = tgt?.attributes ?? [];
-                const tMap = new Map(tAttrs.map((a) => [a.name.toUpperCase(), a]));
-                const sMap = new Map(sAttrs.map((a) => [a.name.toUpperCase(), a]));
-                const names = Array.from(new Set([...sAttrs.map((a) => a.name), ...tAttrs.map((a) => a.name)]));
-                return (
-                  <div className="mt-3">
-                    <h5 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">Attributes</h5>
-                    <div className="bg-slate-950/60 border border-slate-800/80 rounded-lg overflow-hidden">
-                      <table className="w-full text-left border-collapse text-sm">
-                        <thead>
-                          <tr className="bg-slate-900 border-b border-slate-800 text-slate-300">
-                            <th className="p-3 text-[11px] font-bold uppercase tracking-wider">Attribute</th>
-                            <th className="p-3 text-[11px] font-bold uppercase tracking-wider">Original Type</th>
-                            <th className="p-3 text-[11px] font-bold uppercase tracking-wider text-center">Compare</th>
-                            <th className="p-3 text-[11px] font-bold uppercase tracking-wider">Target Type</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-850">
-                          {names.map((n) => {
-                            const sa = sMap.get(n.toUpperCase());
-                            const ta = tMap.get(n.toUpperCase());
-                            const changed = (sa?.type ?? '') !== (ta?.type ?? '');
-                            return (
-                              <tr key={n} className={changed ? 'bg-amber-950/10' : 'hover:bg-slate-900/20'}>
-                                <td className="p-3 text-slate-100 font-bold font-mono">{n}</td>
-                                <td className={`p-3 font-mono font-semibold ${changed ? 'text-amber-300' : 'text-slate-200'}`}>{sa?.type ?? <span className="text-slate-600 italic font-normal">none</span>}</td>
-                                <td className="p-3 text-center text-slate-600"><ChevronRight className="w-4 h-4 mx-auto" /></td>
-                                <td className={`p-3 font-mono font-semibold ${changed ? 'text-amber-300' : 'text-slate-200'}`}>{ta?.type ?? <span className="text-slate-600 italic font-normal">none</span>}</td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
-          );
-        })()}
-
-        {/* Columns Diff Section (Only show if columns present, e.g., Tables or Views) */}
-        {colDiffs.length > 0 && (
-          <div>
-            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center gap-2">
-              <span className="w-1.5 h-1.5 bg-cyan-500 rounded-full"></span> {isRole ? 'Members' : 'Column Blueprint / Attributes'}
-              {isRole && roleChangedMembers.length > 0 && (
-                <label
-                  className="ml-auto flex items-center gap-1.5 normal-case text-[10px] font-semibold text-slate-300 cursor-pointer"
-                  title="Include/exclude all changed members in the deploy script"
-                >
-                  <input
-                    type="checkbox"
-                    checked={allMembersSelected}
-                    onChange={(e) => setAllMemberSelection(selectedTable.tableName, e.target.checked)}
-                    className="w-3.5 h-3.5 accent-cyan-500 cursor-pointer"
-                  />
-                  Deploy all members
-                </label>
-              )}
-            </h4>
-            <div className="bg-slate-950/60 border border-slate-800/80 rounded-lg overflow-hidden">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-slate-900 border-b border-slate-800 text-slate-400">
-                    <th className="p-3 font-semibold">{selectedTable.objectType === 'ROLE' ? 'Member' : 'Column Name'}</th>
-                    <th className="p-3 font-semibold">Original State</th>
-                    <th className="p-3 font-semibold text-center">Compare</th>
-                    <th className="p-3 font-semibold">Target State</th>
-                    <th className="p-3 font-semibold text-right">Operation</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-850">
-                  {colDiffs.map((col) => {
-                    let opBadge = (
-                      <span className="text-[10px] font-bold text-slate-500 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
-                        No Change
-                      </span>
-                    );
-                    let rowBg = 'hover:bg-slate-900/20';
-
-                    if (col.status === 'ADDED') {
-                      opBadge = (
-                        <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/20">
-                          ADD COLUMN
-                        </span>
-                      );
-                      rowBg = 'bg-emerald-950/10 hover:bg-emerald-950/20';
-                    } else if (col.status === 'REMOVED') {
-                      opBadge = (
-                        <span className="text-[10px] font-bold text-rose-400 bg-rose-950/40 px-2 py-0.5 rounded border border-rose-500/20">
-                          DROP COLUMN
-                        </span>
-                      );
-                      rowBg = 'bg-rose-950/10 hover:bg-rose-950/20';
-                    } else if (col.status === 'MODIFIED') {
-                      opBadge = (
-                        <span className="text-[10px] font-bold text-amber-400 bg-amber-950/40 px-2 py-0.5 rounded border border-amber-500/20">
-                          ALTER TYPE
-                        </span>
-                      );
-                      rowBg = 'bg-amber-950/10 hover:bg-amber-950/20';
-                    }
-
-                    const isPk = col.source?.primaryKey || col.target?.primaryKey;
-
-                    return (
-                      <tr key={col.name} className={`${rowBg} transition-colors`}>
-                        <td className="p-3 font-semibold text-slate-200 font-mono">
-                          <span className="flex items-center gap-1.5">
-                            {selectedTable.objectType === 'ROLE' && col.status !== 'UNCHANGED' && (
-                              <input
-                                type="checkbox"
-                                checked={memberSelection[selectedTable.tableName]?.[col.name] !== false}
-                                onChange={() => toggleMemberSelection(selectedTable.tableName, col.name)}
-                                title="Include this member in the deploy script"
-                                className="w-3.5 h-3.5 accent-cyan-500 cursor-pointer shrink-0"
-                              />
-                            )}
-                            {highlightMatch(col.name, query)}
-                            {isPk && <KeyRound className="w-3.5 h-3.5 text-amber-400" aria-label="Primary key" />}
-                          </span>
-                        </td>
-                        <td className="p-3 text-slate-400 font-mono">
-                          {renderColumnState(col.source, col.target)}
-                        </td>
-                        <td className="p-3 text-center text-slate-600">
-                          <ChevronRight className="w-4 h-4 mx-auto text-slate-600" />
-                        </td>
-                        <td className="p-3 text-slate-400 font-mono">
-                          {renderColumnState(col.target, col.source)}
-                        </td>
-                        <td className="p-3 text-right">{opBadge}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* Primary Key Diff Section */}
-        {selectedTable.objectType === 'TABLE' && (() => {
-          const srcPk = selectedTable.sourceTable?.primaryKey;
-          const tgtPk = selectedTable.targetTable?.primaryKey;
-          const pkChanged = JSON.stringify(srcPk?.columns ?? []) !== JSON.stringify(tgtPk?.columns ?? []);
-
-          let opBadge = <span className="text-[10px] text-slate-500 font-bold bg-slate-900 px-2 py-0.5 rounded border border-slate-800">No Change</span>;
-          let rowBg = 'hover:bg-slate-900/10';
-          if (srcPk && !tgtPk) {
-            opBadge = <span className="text-[10px] text-emerald-400 font-bold bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/20">ADD PRIMARY KEY</span>;
-            rowBg = 'bg-emerald-950/10';
-          } else if (!srcPk && tgtPk) {
-            opBadge = <span className="text-[10px] text-rose-400 font-bold bg-rose-950/40 px-2 py-0.5 rounded border border-rose-500/20">DROP PRIMARY KEY</span>;
-            rowBg = 'bg-rose-950/10';
-          } else if (srcPk && tgtPk && pkChanged) {
-            opBadge = <span className="text-[10px] text-amber-400 font-bold bg-amber-950/40 px-2 py-0.5 rounded border border-amber-500/20">RECREATE</span>;
-            rowBg = 'bg-amber-950/10';
+            ) : null
           }
-
-          return (
-            <div>
-              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center gap-2">
-                <span className="w-1.5 h-1.5 bg-amber-500 rounded-full"></span> Primary Key
-              </h4>
-              <div className="bg-slate-950/60 border border-slate-800/80 rounded-lg overflow-hidden">
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr className="bg-slate-900 border-b border-slate-800 text-slate-400">
-                      <th className="p-3 font-semibold">Constraint Name</th>
-                      <th className="p-3 font-semibold">Original Columns</th>
-                      <th className="p-3 font-semibold text-center">Compare</th>
-                      <th className="p-3 font-semibold">Target Columns</th>
-                      <th className="p-3 font-semibold text-right">Operation</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {!srcPk && !tgtPk ? (
-                      <tr>
-                        <td colSpan={5} className="p-3 text-slate-600 italic text-center">
-                          No primary key defined on this table
-                        </td>
-                      </tr>
-                    ) : (
-                      <tr className={`${rowBg} transition-colors`}>
-                        <td className="p-3 text-slate-200 font-semibold font-mono">
-                          <span className="flex items-center gap-1.5">
-                            <KeyRound className="w-3.5 h-3.5 text-amber-400" />
-                            {srcPk?.name ?? tgtPk?.name ?? '—'}
-                          </span>
-                        </td>
-                        <td className="p-3 text-slate-400 font-mono">
-                          {srcPk ? srcPk.columns.join(', ') : <span className="text-slate-600 italic">none</span>}
-                        </td>
-                        <td className="p-3 text-center text-slate-600">
-                          <ChevronRight className="w-4 h-4 mx-auto text-slate-600" />
-                        </td>
-                        <td className="p-3 text-slate-400 font-mono">
-                          {tgtPk ? tgtPk.columns.join(', ') : <span className="text-slate-600 italic">none</span>}
-                        </td>
-                        <td className="p-3 text-right">{opBadge}</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          );
-        })()}
-
-        {/* View / Function / Procedure Definition — below the column blueprint */}
-        {selectedTable.objectType !== 'TABLE' && (selectedTable.sourceTable?.definition || selectedTable.targetTable?.definition) && (
-          <div className="space-y-2">
-            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-              <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full"></span> Source DDL Definition
-            </h4>
-            <div className="bg-slate-950 border border-slate-850 rounded-lg overflow-hidden h-64">
-              <Suspense fallback={<EditorFallback />}>
-                <SqlEditor
-                  highlight={searchTerm}
-                  dialect={selectedTable.sourceTable?.definition ? sourceConfig.dialect : targetConfig.dialect}
-                  value={blueprintDefinitionSql}
-                />
-              </Suspense>
-            </div>
-          </div>
-        )}
-
-        {/* Indices Diff Section */}
-        {indexDiffs.length > 0 && (
-          <div>
-            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center gap-2">
-              <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full"></span> Table Indexes
-              {indexChangedItems.length > 0 && (
-                <label
-                  className="ml-auto flex items-center gap-1.5 normal-case text-[10px] font-semibold text-slate-300 cursor-pointer"
-                  title="Include/exclude all changed indexes in the deploy script"
-                >
-                  <input
-                    type="checkbox"
-                    checked={allIndexesSelected}
-                    onChange={(e) => setAllIndexSelection(selectedTable.tableName, e.target.checked)}
-                    className="w-3.5 h-3.5 accent-cyan-500 cursor-pointer"
-                  />
-                  Deploy all indexes
-                </label>
-              )}
-            </h4>
-            {indexChangedItems.some((i) => i.nameOnly) && (
-              <p className="text-[11px] text-slate-500 mb-2">
-                Same columns under a different name — optional; check an index to include DROP/CREATE in the migration.
-              </p>
-            )}
-            <div className="bg-slate-950/60 border border-slate-800/80 rounded-lg overflow-hidden">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-slate-900 border-b border-slate-800 text-slate-400">
-                    <th className="p-3 font-semibold">Index Name</th>
-                    <th className="p-3 font-semibold">Columns</th>
-                    <th className="p-3 font-semibold">Constraint</th>
-                    <th className="p-3 font-semibold text-right">Operation</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-850">
-                  {indexDiffs.map((idx) => {
-                    const info = idx.source || idx.target;
-                    let opBadge = <span className="text-[10px] text-slate-500 font-bold bg-slate-900 px-2 py-0.5 rounded border border-slate-800">No Change</span>;
-                    if (idx.status === 'ADDED') {
-                      opBadge = idx.nameOnly
-                        ? <span className="text-[10px] text-amber-300 font-bold bg-amber-950/40 px-2 py-0.5 rounded border border-amber-500/20" title="Same columns as a target index under a different name">CREATE (rename)</span>
-                        : <span className="text-[10px] text-emerald-400 font-bold bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/20">CREATE INDEX</span>;
-                    } else if (idx.status === 'REMOVED') {
-                      opBadge = idx.nameOnly
-                        ? <span className="text-[10px] text-amber-300 font-bold bg-amber-950/40 px-2 py-0.5 rounded border border-amber-500/20" title="Same columns as a source index under a different name">DROP (rename)</span>
-                        : <span className="text-[10px] text-rose-400 font-bold bg-rose-950/40 px-2 py-0.5 rounded border border-rose-500/20">DROP INDEX</span>;
-                    }
-
-                    return (
-                      <tr key={idx.name} className="hover:bg-slate-900/10">
-                        <td className="p-3 text-slate-200 font-semibold font-mono">
-                          <span className="flex items-center gap-1.5">
-                            {idx.status !== 'UNCHANGED' && (
-                              <input
-                                type="checkbox"
-                                checked={indexSelection[selectedTable.tableName]?.[idx.name] === true}
-                                onChange={() => toggleIndexSelection(selectedTable.tableName, idx.name)}
-                                title={idx.nameOnly
-                                  ? 'Optional: include this index rename (DROP + CREATE) in the deploy script'
-                                  : 'Include this index change in the deploy script'}
-                                className="w-3.5 h-3.5 accent-cyan-500 cursor-pointer shrink-0"
-                              />
-                            )}
-                            {highlightMatch(idx.name, query)}
-                          </span>
-                        </td>
-                        <td className="p-3 text-slate-400 font-mono">{info?.columns.join(', ')}</td>
-                        <td className="p-3 text-slate-400 font-mono">{info?.unique ? 'UNIQUE' : 'NON-UNIQUE'}</td>
-                        <td className="p-3 text-right">{opBadge}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* Foreign Keys Diff Section */}
-        {fkDiffs.length > 0 && (
-          <div>
-            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center gap-2">
-              <span className="w-1.5 h-1.5 bg-purple-500 rounded-full"></span> Foreign Key Relations
-            </h4>
-            <div className="bg-slate-950/60 border border-slate-800/80 rounded-lg overflow-hidden">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-slate-900 border-b border-slate-800 text-slate-400">
-                    <th className="p-3 font-semibold">Constraint Name</th>
-                    <th className="p-3 font-semibold">Columns</th>
-                    <th className="p-3 font-semibold">References Table</th>
-                    <th className="p-3 font-semibold text-right">Operation</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-850">
-                  {fkDiffs.map((fk) => {
-                    const info = fk.source || fk.target;
-                    let opBadge = <span className="text-[10px] text-slate-500 font-bold bg-slate-900 px-2 py-0.5 rounded border border-slate-800">No Change</span>;
-                    if (fk.status === 'ADDED') {
-                      opBadge = <span className="text-[10px] text-emerald-400 font-bold bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/20">ADD CONSTRAINT</span>;
-                    } else if (fk.status === 'REMOVED') {
-                      opBadge = <span className="text-[10px] text-rose-400 font-bold bg-rose-950/40 px-2 py-0.5 rounded border border-rose-500/20">DROP CONSTRAINT</span>;
-                    }
-
-                    return (
-                      <tr key={fk.name} className="hover:bg-slate-900/10">
-                        <td className="p-3 text-slate-200 font-semibold font-mono">{highlightMatch(fk.name, query)}</td>
-                        <td className="p-3 text-slate-400 font-mono">{info?.columns.join(', ')}</td>
-                        <td className="p-3 text-slate-400 font-mono">{info?.referencedTable} ({(info?.referencedColumns ?? []).join(', ')})</td>
-                        <td className="p-3 text-right">{opBadge}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* Triggers Diff Section — always visible for tables */}
-        {selectedTable.objectType === 'TABLE' && (
-          <div>
-            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center gap-2">
-              <span className="w-1.5 h-1.5 bg-yellow-500 rounded-full"></span> Table Triggers
-            </h4>
-            <div className="bg-slate-950/60 border border-slate-800/80 rounded-lg overflow-hidden">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-slate-900 border-b border-slate-800 text-slate-400">
-                    <th className="p-3 font-semibold">Trigger Name</th>
-                    <th className="p-3 font-semibold">Original State</th>
-                    <th className="p-3 font-semibold text-center">Compare</th>
-                    <th className="p-3 font-semibold">Target State</th>
-                    <th className="p-3 font-semibold text-right">Operation</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-850">
-                  {trgDiffs.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="p-3 text-slate-600 italic text-center">
-                        No triggers defined on this table
-                      </td>
-                    </tr>
-                  ) : (
-                    trgDiffs.map((trg) => {
-                      let opBadge = <span className="text-[10px] text-slate-500 font-bold bg-slate-900 px-2 py-0.5 rounded border border-slate-800">No Change</span>;
-                      let rowBg = 'hover:bg-slate-900/10';
-                      if (trg.status === 'ADDED') {
-                        opBadge = <span className="text-[10px] text-emerald-400 font-bold bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/20">CREATE TRIGGER</span>;
-                        rowBg = 'bg-emerald-950/10 hover:bg-emerald-950/20';
-                      } else if (trg.status === 'REMOVED') {
-                        opBadge = <span className="text-[10px] text-rose-400 font-bold bg-rose-950/40 px-2 py-0.5 rounded border border-rose-500/20">DROP TRIGGER</span>;
-                        rowBg = 'bg-rose-950/10 hover:bg-rose-950/20';
-                      } else if (trg.status === 'MODIFIED') {
-                        opBadge = <span className="text-[10px] text-amber-400 font-bold bg-amber-950/40 px-2 py-0.5 rounded border border-amber-500/20">RECREATE</span>;
-                        rowBg = 'bg-amber-950/10 hover:bg-amber-950/20';
-                      }
-
-                      const stateLabel = (info?: { timing?: string; event?: string }) =>
-                        info ? `${info.timing ?? ''} ${info.event ?? ''}`.trim() || 'present' : null;
-
-                      const isExpanded = !!expandedTriggers[trg.name];
-                      const { oldDdl = '', newDdl = '' } = formattedTriggerDdls[trg.name] ?? {};
-                      // A one-sided trigger diffs against '' — drop the resulting blank line
-                      const ddlLines = isExpanded
-                        ? diffLines(oldDdl, newDdl, { ignoreCase }).filter((l) => !(l.text === '' && (oldDdl === '' || newDdl === '')))
-                        : [];
-
-                      return (
-                        <React.Fragment key={trg.name}>
-                          <tr
-                            onClick={() => toggleTriggerDdl(trg.name)}
-                            title="Click to show DDL diff"
-                            className={`${rowBg} transition-colors cursor-pointer`}
-                          >
-                            <td className="p-3 text-slate-200 font-semibold font-mono">
-                              <span className="flex items-center gap-1.5">
-                                {isExpanded
-                                  ? <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
-                                  : <ChevronRight className="w-3.5 h-3.5 text-slate-500" />}
-                                {highlightMatch(trg.name, query)}
-                              </span>
-                            </td>
-                            <td className="p-3 text-slate-400 font-mono">
-                              {stateLabel(trg.source) ?? <span className="text-slate-600 italic">none</span>}
-                            </td>
-                            <td className="p-3 text-center text-slate-600">
-                              <ChevronRight className="w-4 h-4 mx-auto text-slate-600" />
-                            </td>
-                            <td className="p-3 text-slate-400 font-mono">
-                              {stateLabel(trg.target) ?? <span className="text-slate-600 italic">none</span>}
-                            </td>
-                            <td className="p-3 text-right">{opBadge}</td>
-                          </tr>
-
-                          {/* Expanded DDL diff for this trigger */}
-                          {isExpanded && (
-                            <tr>
-                              <td colSpan={5} className="p-0 bg-slate-950/90 border-t border-slate-800/60">
-                                {trg.source?.definition || trg.target?.definition ? (
-                                  <div className="max-h-72 overflow-auto">
-                                    <table className="w-full font-mono text-[11px] border-collapse">
-                                      <tbody>
-                                        {ddlLines.map((line, i) => {
-                                          const textClass =
-                                            line.type === 'added'
-                                              ? 'text-emerald-300'
-                                              : line.type === 'removed'
-                                              ? 'text-rose-300'
-                                              : 'text-slate-300';
-                                          const lineBg =
-                                            line.type === 'added'
-                                              ? 'bg-emerald-500/10'
-                                              : line.type === 'removed'
-                                              ? 'bg-rose-500/10'
-                                              : '';
-                                          const marker = line.type === 'added' ? '+' : line.type === 'removed' ? '-' : ' ';
-                                          return (
-                                            <tr key={i} className={lineBg}>
-                                              <td className={`w-5 text-center select-none ${textClass} align-top`}>{marker}</td>
-                                              <td className={`px-2 py-0.5 whitespace-pre ${textClass}`}>{line.text}</td>
-                                            </tr>
-                                          );
-                                        })}
-                                      </tbody>
-                                    </table>
-                                  </div>
-                                ) : (
-                                  <div className="p-3 text-slate-600 italic text-center">
-                                    No DDL definition available for this trigger
-                                  </div>
-                                )}
-                              </td>
-                            </tr>
-                          )}
-                        </React.Fragment>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+        />
       </div>
     );
   };
@@ -1318,43 +509,13 @@ export const ObjectDetailPanel: React.FC = () => {
     <div className="flex-1 flex flex-col min-w-0 bg-slate-900 h-full">
       {/* Detail Panel Toolbar */}
       <div className="flex justify-between items-center px-6 py-3 border-b border-slate-800 bg-slate-950/40">
-        <div className="flex gap-1.5">
-          <button
-            onClick={() => setActiveTab('DIFF')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer ${
-              activeTab === 'DIFF'
-                ? 'bg-slate-850 text-slate-100 border border-slate-700/80 shadow'
-                : 'text-slate-400 hover:text-slate-200 border border-transparent'
-            }`}
-          >
-            <FileText className="w-3.5 h-3.5" /> Schema Blueprint
-          </button>
-          {/* DDL Diff and Migration SQL are comparison-only — hidden when browsing one schema. */}
-          {!browseMode && (
-            <>
-              <button
-                onClick={() => setActiveTab('DDL_DIFF')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer ${
-                  activeTab === 'DDL_DIFF'
-                    ? 'bg-slate-850 text-slate-100 border border-slate-700/80 shadow'
-                    : 'text-slate-400 hover:text-slate-200 border border-transparent'
-                }`}
-              >
-                <GitCompareArrows className="w-3.5 h-3.5" /> DDL Diff
-              </button>
-              <button
-                onClick={() => setActiveTab('SQL')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer ${
-                  activeTab === 'SQL'
-                    ? 'bg-slate-850 text-slate-100 border border-slate-700/80 shadow'
-                    : 'text-slate-400 hover:text-slate-200 border border-transparent'
-                }`}
-              >
-                <Code className="w-3.5 h-3.5" /> Migration SQL
-              </button>
-            </>
-          )}
-        </div>
+        <DetailTabs
+          active={activeTab}
+          onSelect={setActiveTab}
+          // DDL Diff and Migration SQL are comparison-only — hidden when browsing
+          // one schema, where there is no other side to compare against.
+          tabs={browseMode ? ['DIFF'] : ['DIFF', 'DDL_DIFF', 'SQL']}
+        />
 
         {/* Action Panel Actions */}
         <div className="flex items-center gap-2">
