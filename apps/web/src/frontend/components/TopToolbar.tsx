@@ -279,10 +279,14 @@ export const TopToolbar: React.FC = () => {
           </button>
         </div>
       )}
-      {/* Compare: live Original Server → Target. History: version → current/older. */}
+      {/* Database Connection Control Grid.
+          Hidden in History: that pane compares two points in this database's
+          own recorded past, so a live Original/Target pair says nothing about
+          what is on screen — History gets the version bar in its place, which
+          is the same Original → Target gesture over stored versions. */}
       {syncPane === 'history' && <HistoryCompareBar />}
       {syncPane === 'compare' && (
-      <div className="grid grid-cols-1 xl:grid-cols-11 gap-2 items-stretch">
+      <div className="grid grid-cols-1 xl:grid-cols-11 gap-3 items-stretch">
         {/* Source Configuration — left side is the Original Server (read / compare from). */}
         <div className="xl:col-span-5 bg-slate-950/60 p-2 rounded-md border border-slate-800/80 flex flex-col gap-1.5">
           <div className="text-[10px] font-bold uppercase tracking-wider text-cyan-500/80">

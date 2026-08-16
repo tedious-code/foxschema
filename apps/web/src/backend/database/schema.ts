@@ -344,6 +344,35 @@ const MIGRATIONS: Migration[] = [
       ];
     },
   },
+  {
+    id: 14,
+    name: 'lokee_shape_dedup',
+    statements: (d) => {
+      const t = types(d);
+      return [
+        // Reusable half of an object body. An object body carries its own name
+        // and table, so `int not null` in forty tables was forty near-identical
+        // rows; the declaration is now stored once and pointed at.
+        //
+        // The object hash is unchanged — it is still computed over the whole
+        // body. This is a storage layout, not a change of identity, or every
+        // recorded version would need rehashing.
+        `CREATE TABLE IF NOT EXISTS lokee_shapes (
+           shape_hash ${t.id} PRIMARY KEY,
+           shape_json ${t.big} NOT NULL,
+           created_at ${t.ts} NOT NULL
+         )`,
+        // Null for rows written before this migration and for any body that
+        // does not round-trip; those keep their whole body in body_json.
+        `ALTER TABLE lokee_objects ADD COLUMN shape_hash ${t.id}`,
+        // The history read path filters children by key prefix (LIKE
+        // 'column:OWNER.%'), which scans without this.
+        `CREATE INDEX idx_lokee_objects_key ON lokee_objects(object_key)`,
+        // Graph reconstruction walks deltas newest-first per version.
+        `CREATE INDEX idx_lokee_version_objects_hash ON lokee_version_objects(object_hash)`,
+      ];
+    },
+  },
 ];
 
 const SIGNUP_WIZARD_SHOWN_KEY = 'signup.wizard_shown';

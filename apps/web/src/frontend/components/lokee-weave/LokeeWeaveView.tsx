@@ -10,8 +10,10 @@
  * testable with a fixture and has no idea a network exists.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Camera, GitBranch, Loader2, RefreshCw, TriangleAlert } from 'lucide-react';
+import { ArrowRight, Camera, GitBranch, Loader2, RefreshCw, TriangleAlert } from 'lucide-react';
 import { LokeeWeavePage } from './LokeeWeavePage';
+import { VersionCompareModal } from './VersionCompareModal';
+import { versionDisplayName } from './graphTypes';
 import { LokeeObjectInspector } from './LokeeObjectInspector';
 import type { SchemaObjectNodeData, VersionGraphDTO } from './graphTypes';
 import {
@@ -81,6 +83,9 @@ export function LokeeWeaveView({
   const [selectedObject, setSelectedObject] = useState<SchemaObjectNodeData | null>(null);
   // Bumped to re-run the effect; a plain refetch() would race the in-flight one.
   const [reloadToken, setReloadToken] = useState(0);
+  // Which pair the modal is showing. The two *sides* live in the history store,
+  // because the picker that sets them is HistoryCompareBar up in the toolbar.
+  const [comparePair, setComparePair] = useState<{ original: string; target: string } | null>(null);
 
   const matchedTargetId = useMemo(() => {
     const host = (targetConfig.option.host ?? '').toLowerCase();
@@ -265,7 +270,7 @@ export function LokeeWeaveView({
 
   const chrome = (
     <div
-      className="flex flex-wrap items-center gap-2 border-b border-slate-800 bg-slate-950/80 px-4 py-2"
+      className="flex flex-wrap items-center gap-2 border-b border-slate-800 bg-slate-950/80 px-6 py-2"
       data-testid="lokee-weave-chrome"
     >
       {!embedded && (
@@ -330,6 +335,32 @@ export function LokeeWeaveView({
     </div>
   );
 
+
+
+  // The two sides come from HistoryCompareBar in the toolbar; this is only the
+  // trigger that opens the diff for them, so it sits next to the graph it
+  // explains rather than in the bar.
+  const compareBar = compareVersionIds.length === 2 && (
+    <div
+      data-testid="lokee-version-bar"
+      className="flex shrink-0 items-center gap-2 border-b border-slate-800 bg-slate-950/60 px-6 py-1.5"
+    >
+      <button
+        type="button"
+        data-testid="lokee-compare-versions-btn"
+        onClick={() =>
+          setComparePair({ original: compareVersionIds[0]!, target: compareVersionIds[1]! })
+        }
+        className="rounded-md border border-cyan-500/40 bg-cyan-950/30 px-3 py-1 text-[11px] font-bold text-cyan-100 transition hover:bg-cyan-900/40"
+      >
+        Compare versions
+      </button>
+      <span className="text-[10px] text-slate-500">
+        Original and Target are set in the bar above.
+      </span>
+    </div>
+  );
+
   // Every hook above any early return — a rules-of-hooks crash has happened in
   // this codebase before.
   if (loading) {
@@ -386,8 +417,9 @@ export function LokeeWeaveView({
   return (
     <div className="flex flex-1 min-h-0 flex-col overflow-hidden" data-testid="lokee-weave-view">
       {chrome}
+      {compareBar}
       {dto.truncatedObjects && (
-        <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-1.5 text-[11px] text-amber-200">
+        <div className="border-b border-amber-500/30 bg-amber-500/10 px-6 py-1.5 text-[11px] text-amber-200">
           Showing the objects that changed in this window. This schema has more objects than the
           graph draws at once.
         </div>
@@ -403,6 +435,16 @@ export function LokeeWeaveView({
             onSaveVersionMeta={saveVersionMeta}
           />
         </div>
+        {comparePair && activeId && (
+          <VersionCompareModal
+            databaseId={activeId}
+            versionId={comparePair.original}
+            againstVersionId={comparePair.target}
+            captureConnectionId={captureConnectionId || undefined}
+            onReverted={refresh}
+            onClose={() => setComparePair(null)}
+          />
+        )}
         {selectedObject && activeId && (
           <LokeeObjectInspector
             databaseId={activeId}

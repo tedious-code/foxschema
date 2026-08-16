@@ -26,8 +26,8 @@ import {
   GitCommitVertical,
   X,
 } from 'lucide-react';
-import type { LokeeObjectType } from '@foxschema/sql';
-import { objectStyle, statusStyle } from '../../lib/lokeeColors';
+import { CHANGE_KIND_LABEL, CHANGE_KIND_TITLE, type LokeeObjectType } from '@foxschema/sql';
+import { changeKindStyle, objectStyle, statusStyle } from '../../lib/lokeeColors';
 import {
   shortHash,
   versionDisplayName,
@@ -100,7 +100,9 @@ export const SchemaObjectNode = memo(({ data: d, selected }: NodeProps<LokeeObje
     <div
       data-testid={`rf-object-${d.versionId}-${d.objectKey}`}
       // Status must be reachable without seeing colour.
-      aria-label={`${style.label} ${d.name}, ${status.label}`}
+      aria-label={`${style.label} ${d.name}, ${status.label}${
+        d.changeKinds?.length ? `, ${d.changeKinds.map((k) => CHANGE_KIND_TITLE[k]).join(', ')}` : ''
+      }`}
       title={`${d.objectKey}\n${status.label}\nhash ${d.objectHash ?? '—'}`}
       className={`w-[150px] rounded-lg border bg-slate-900/80 px-2 py-1.5 ${status.accent} ${
         selected ? 'ring-2 ring-cyan-400/70' : ''
@@ -118,6 +120,21 @@ export const SchemaObjectNode = memo(({ data: d, selected }: NodeProps<LokeeObje
           aria-hidden
         />
       </div>
+      {/* What kind of child moved. `modified` alone is true of a dropped column
+          and of a renamed comment, and the reader cannot tell from the node. */}
+      {d.changeKinds && d.changeKinds.length > 0 && (
+        <div data-testid={`rf-kinds-${d.objectKey}`} className="mt-1 flex flex-wrap gap-0.5 pl-5">
+          {d.changeKinds.map((kind) => (
+            <span
+              key={kind}
+              title={CHANGE_KIND_TITLE[kind]}
+              className={`rounded px-1 text-[9px] font-bold uppercase tracking-wide ${changeKindStyle(kind)}`}
+            >
+              {CHANGE_KIND_LABEL[kind]}
+            </span>
+          ))}
+        </div>
+      )}
       <Handle type="source" position={Position.Bottom} className="!opacity-0" />
     </div>
   );

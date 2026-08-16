@@ -76,6 +76,24 @@ export function getSelectedSql(): string | null {
   return selectionGetter();
 }
 
+type CaretGetter = () => number | null;
+let caretGetter: CaretGetter = () => null;
+
+/** Wired from SqlEditorPane — character offset of the caret in the model. */
+export function setSqlCaretOffsetGetter(fn: CaretGetter | null): void {
+  caretGetter = fn ?? (() => null);
+}
+
+/**
+ * Where the caret sits, so Run can default to the statement the user is
+ * actually looking at. Without this the default was "statement 1", and an
+ * editor holding a page of queries would silently re-run the top one when the
+ * user pressed Run on their UPDATE further down.
+ */
+export function getCaretOffset(): number | null {
+  return caretGetter();
+}
+
 /** CALL / function invocation args — skip RESULT / RETURN metadata. */
 export function isCallParamMode(mode: string): boolean {
   return mode === 'IN' || mode === 'OUT' || mode === 'INOUT';

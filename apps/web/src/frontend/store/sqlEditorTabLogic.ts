@@ -121,31 +121,70 @@ export function checkedAfterSqlChange(
 }
 
 /**
- * Statements to send on Run. Empty check set → first statement only.
- * Checked indices are sorted and de-duplicated.
+ * Which statement the caret is in, for the "nothing checked, nothing selected"
+ * default.
+ *
+ * Running statement 1 in that case is wrong the moment an editor holds more
+ * than one query: a user who writes a page of SELECTs, adds an UPDATE at the
+ * bottom and presses Run silently re-runs the first SELECT, and reads that as
+ * "the editor won't run my UPDATE".
+ *
+ * A caret between two statements belongs to the one it follows — that is the
+ * statement just typed. Before the first statement it belongs to the first.
+ */
+export function statementIndexAtOffset(sql: string, offset: number | null | undefined): number | null {
+  if (typeof offset !== 'number' || !Number.isFinite(offset)) return null;
+  const all = splitSqlStatements(sql);
+  if (all.length === 0) return null;
+  for (let i = 0; i < all.length; i++) {
+    const statement = all[i]!;
+    if (offset >= statement.start && offset <= statement.end) return i;
+  }
+  let previous: number | null = null;
+  for (let i = 0; i < all.length; i++) {
+    if (all[i]!.end < offset) previous = i;
+  }
+  return previous ?? 0;
+}
+
+/**
+ * Statements to send on Run. Empty check set → the statement under the caret
+ * (falling back to the first when the caret is unknown, e.g. the editor has
+ * never been focused). Checked indices are sorted and de-duplicated.
  * Re-attaches inter-statement `-- @set` comments the splitter would drop.
  */
-export function statementsToRun(sql: string, checkedStatements: number[]): string[] {
+export function statementsToRun(
+  sql: string,
+  checkedStatements: number[],
+  caretOffset?: number | null
+): string[] {
   const all = splitSqlStatements(sql);
   if (all.length === 0) return [];
   const enriched = reattachSetComments(sql, all);
-  if (checkedStatements.length === 0) return [enriched[0]!];
+  const fallback = statementIndexAtOffset(sql, caretOffset) ?? 0;
+  if (checkedStatements.length === 0) return [enriched[fallback] ?? enriched[0]!];
   const uniq = [...new Set(checkedStatements)]
     .filter((i) => i >= 0 && i < enriched.length)
     .sort((a, b) => a - b);
-  if (uniq.length === 0) return [enriched[0]!];
+  if (uniq.length === 0) return [enriched[fallback] ?? enriched[0]!];
   return uniq.map((i) => enriched[i]!);
 }
 
 /** Source cell indices matching {@link statementsToRun} (for Out [n] labels). */
-export function indicesToRun(sql: string, checkedStatements: number[]): number[] {
+export function indicesToRun(
+  sql: string,
+  checkedStatements: number[],
+  caretOffset?: number | null
+): number[] {
   const all = splitSqlStatements(sql);
   if (all.length === 0) return [];
-  if (checkedStatements.length === 0) return [0];
+  // Must stay in step with statementsToRun or Out [n] labels the wrong cell.
+  const fallback = statementIndexAtOffset(sql, caretOffset) ?? 0;
+  if (checkedStatements.length === 0) return [fallback];
   const uniq = [...new Set(checkedStatements)]
     .filter((i) => i >= 0 && i < all.length)
     .sort((a, b) => a - b);
-  if (uniq.length === 0) return [0];
+  if (uniq.length === 0) return [fallback];
   return uniq;
 }
 
@@ -176,10 +215,11 @@ export function canExecuteWithoutDestination(statements: string[]): boolean {
 export function resolveRunStatements(
   sql: string,
   checkedStatements: number[],
-  selectedSql: string | null | undefined
+  selectedSql: string | null | undefined,
+  caretOffset?: number | null
 ): string[] {
   if (selectedSql?.trim()) return statementsFromSelection(selectedSql);
-  return statementsToRun(sql, checkedStatements);
+  return statementsToRun(sql, checkedStatements, caretOffset);
 }
 
 export function toggleStatementCheck(checked: number[], index: number): number[] {

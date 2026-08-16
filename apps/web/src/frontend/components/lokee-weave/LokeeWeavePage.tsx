@@ -28,6 +28,7 @@ import type { LokeeObjectType } from '@foxschema/sql';
 import { OBJECT_STYLES, STATUS_STYLES, objectStyle, statusStyle } from '../../lib/lokeeColors';
 import { LOKEE_NODE_TYPES } from './nodes';
 import { buildVersionGraph } from './buildGraph';
+import { VersionCompareModal } from './VersionCompareModal';
 import {
   DEFAULT_LAYOUT,
   DEFAULT_HISTORY_OBJECT_TYPES,
@@ -282,13 +283,19 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
     });
   }, []);
 
+  // Which version the compare modal is showing; null when it is closed.
+  const [compareVersionId, setCompareVersionId] = useState<string | null>(null);
+
   const onNodeClick = useCallback(
     // Typed as the node union, so `node.type` narrows `node.data` — previously
     // the check and the cast were independent, and a fourth node type would
     // have been silently mis-cast to SchemaObjectNodeData.
     (_: React.MouseEvent, node: LokeeNode) => {
       if (node.type === 'versionNode') {
+        // Select it (the meta editor reads this) *and* open the compare, which
+        // is the question a version node actually raises: what changed here?
         setSelectedVersionId(node.data.versionId);
+        setCompareVersionId(node.data.versionId);
         return;
       }
       setSelectedVersionId(null);
@@ -314,32 +321,28 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
   const reused = dto.objects.length - changed;
 
   return (
-    <div data-testid="lokee-weave-page" className="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
-      <header className="flex shrink-0 flex-wrap items-start gap-4">
-        <div className="min-w-0">
-          <h1 className={`font-bold text-slate-100 ${embedded ? 'text-sm' : 'text-lg'}`}>
-            {embedded ? 'Schema history' : 'Lokee Weave'}
-          </h1>
-          <p className="text-xs text-slate-500">
-            {embedded
-              ? `Original version → current database or older version${subtitle ? ` · ${subtitle}` : ''}`
-              : `Database Schema Version Graph${subtitle ? ` · ${subtitle}` : ''}`}
-          </p>
-        </div>
-        <div
-          data-testid="lokee-summary"
-          className="ml-auto rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-[11px] text-slate-300"
-        >
-          <div>
-            Total Versions: <span className="font-bold text-slate-100">{dto.totalVersions}</span>
-          </div>
-          <div>
-            Total Objects: <span className="font-bold text-slate-100">{dto.totalObjects}</span>
-          </div>
-          <div className="mt-0.5 text-[10px] text-slate-500">
-            {changed} changed · {reused} reused
-          </div>
-        </div>
+    <div data-testid="lokee-weave-page" className="flex h-full min-h-0 flex-col gap-2 overflow-hidden px-6 pt-2">
+      {/* One compact line. The title, the subtitle and a three-line totals card
+          cost ~90px of vertical space above a graph that is the whole point of
+          the pane, and the database is already named in the picker above. */}
+      <header
+        className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400"
+        data-testid="lokee-summary"
+      >
+        <span className="font-semibold text-slate-300">
+          {embedded ? 'Schema history' : 'Lokee Weave'}
+        </span>
+        <span className="text-slate-600">·</span>
+        <span>
+          <span className="font-bold text-slate-100">{dto.totalVersions}</span> versions
+        </span>
+        <span>
+          <span className="font-bold text-slate-100">{dto.totalObjects}</span> objects
+        </span>
+        <span className="text-slate-500">
+          {changed} changed · {reused} reused
+        </span>
+        {subtitle && <span className="truncate text-slate-600">{subtitle}</span>}
       </header>
 
       <div className="flex min-h-0 flex-1 gap-3 overflow-hidden">
@@ -675,6 +678,14 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
           Deleted in this version
         </span>
       </footer>
+
+      {compareVersionId && (
+        <VersionCompareModal
+          databaseId={dto.databaseId}
+          versionId={compareVersionId}
+          onClose={() => setCompareVersionId(null)}
+        />
+      )}
     </div>
   );
 };

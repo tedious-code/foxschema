@@ -11,6 +11,7 @@
  * generator emits the DROP / ALTER / CREATE statements that close the gap.
  */
 import type { TableSchema } from '../../interfaces/schema.interface.js';
+import type { SchemaCompareResult } from '../../interfaces/diff.types.interface.js';
 import { CompareModule } from '../compare.module.js';
 import {
   SqlGeneratorModule,
@@ -21,6 +22,24 @@ import {
 export interface RevertMigration {
   steps: MigrationStep[];
   statements: string[];
+}
+
+/**
+ * Turn an already-computed comparison into migration steps.
+ *
+ * Split out so a caller holding a `SchemaCompareResult` — the Lokee revert
+ * planner does, having just compared two stored versions — does not run the
+ * comparison a second time just to reach the generator.
+ */
+export function migrationFromCompare(
+  result: SchemaCompareResult,
+  dialect: string,
+  mapping?: SchemaMapping
+): RevertMigration {
+  const gen = new SqlGeneratorModule();
+  const diffs = result.tables.filter((t) => t.status !== 'UNCHANGED');
+  const steps = gen.generateMigrationPlan(diffs, dialect, mapping, result.tables);
+  return { steps, statements: steps.flatMap((step) => (step.skipped ? [] : step.statements)) };
 }
 
 /**
@@ -41,9 +60,5 @@ export async function buildRevertMigration(
     { source: dialect, target: dialect },
     schema ? { source: schema, target: schema } : undefined
   );
-  const gen = new SqlGeneratorModule();
-  const diffs = result.tables.filter((t) => t.status !== 'UNCHANGED');
-  const steps = gen.generateMigrationPlan(diffs, dialect, mapping, result.tables);
-  const statements = steps.flatMap((step) => (step.skipped ? [] : step.statements));
-  return { steps, statements };
+  return migrationFromCompare(result, dialect, mapping);
 }

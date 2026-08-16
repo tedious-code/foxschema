@@ -11,7 +11,7 @@
  * reconstruct that however it likes.
  */
 import type { Edge, Node } from '@xyflow/react';
-import type { LokeeObjectType } from '@foxschema/sql';
+import type { LokeeObjectType, ObjectChangeKind } from '@foxschema/sql';
 import type {
   GraphChangeStatus,
   VersionGraphObject,
@@ -97,6 +97,8 @@ export type SchemaObjectNodeData = {
   objectHash: string | null;
   status: GraphChangeStatus;
   previousHash: string | null;
+  /** Kinds of child change on a container; absent on children and on leaves. */
+  changeKinds?: ObjectChangeKind[];
 };
 
 export type LokeeEdgeData = {

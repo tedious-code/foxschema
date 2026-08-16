@@ -10,6 +10,7 @@ import {
   nextTabTitle,
   persistableTabs,
   statementsToRun,
+  statementIndexAtOffset,
   statementsFromSelection,
   indicesToRun,
   canExecuteWithoutDestination,
@@ -71,6 +72,36 @@ describe('sqlEditorTabLogic', () => {
   it('statementsToRun supports single-index per-cell Play', () => {
     const sql = 'SELECT 1; SELECT 2; SELECT 3;';
     expect(statementsToRun(sql, [1])).toEqual(['SELECT 2;']);
+  });
+
+  it('runs the statement under the caret when nothing is checked or selected', () => {
+    // The reported bug: an editor holding several queries always re-ran the
+    // first one, so an UPDATE further down looked like it was being refused.
+    const sql = 'SELECT 1;\nSELECT 2;\nUPDATE t SET a = 1;';
+    const caret = sql.indexOf('UPDATE') + 3;
+    expect(statementsToRun(sql, [], caret)).toEqual(['UPDATE t SET a = 1;']);
+    expect(indicesToRun(sql, [], caret)).toEqual([2]);
+    expect(resolveRunStatements(sql, [], null, caret)).toEqual(['UPDATE t SET a = 1;']);
+
+    // Explicit checks and a selection still win over the caret.
+    expect(statementsToRun(sql, [0], caret)).toEqual(['SELECT 1;']);
+    expect(resolveRunStatements(sql, [], 'SELECT 9', caret)).toEqual(['SELECT 9']);
+
+    // No caret (editor never focused) keeps the old first-statement default.
+    expect(statementsToRun(sql, [], null)).toEqual(['SELECT 1;']);
+    expect(indicesToRun(sql, [], undefined)).toEqual([0]);
+  });
+
+  it('statementIndexAtOffset resolves carets inside, between and past statements', () => {
+    const sql = 'SELECT 1;\n\nSELECT 2;\n';
+    expect(statementIndexAtOffset(sql, 0)).toBe(0);
+    expect(statementIndexAtOffset(sql, sql.indexOf('SELECT 2') + 2)).toBe(1);
+    // The blank line between them belongs to the statement it follows.
+    expect(statementIndexAtOffset(sql, sql.indexOf('SELECT 1;') + 10)).toBe(0);
+    // Past the end of the buffer → the last statement, never out of range.
+    expect(statementIndexAtOffset(sql, sql.length + 50)).toBe(1);
+    expect(statementIndexAtOffset('', 0)).toBeNull();
+    expect(statementIndexAtOffset(sql, null)).toBeNull();
   });
 
   it('resolveRunStatements ignores selection when caller already narrowed checks', () => {
