@@ -4,8 +4,29 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, expect, it } from 'vitest';
-import { buildDataMigratePlans, buildDestSnapshotJson, buildRestorePlansFromSnapshot } from './dataMigratePlans';
+import {
+  buildDataMigratePlans,
+  buildDestSnapshotJson,
+  buildRestorePlansFromSnapshot,
+  isUsableDataMigrateSnapshot,
+  snapshotTargetConnectionId,
+} from './dataMigratePlans';
 import type { ClassifiedRowDiff } from './resultRowDiff';
+
+const DEST_CONN = 'conn-dest-b';
+
+function snapshotFor(ops: ClassifiedRowDiff[], cols = ['id', 'name']) {
+  return buildDestSnapshotJson({
+    tableName: 'customers',
+    dialect: 'sqlite',
+    connectionId: DEST_CONN,
+    destColumns: cols,
+    sourceColumns: cols,
+    keyNames: ['id'],
+    includeIdentity: true,
+    ops,
+  });
+}
 
 describe('buildDataMigratePlans', () => {
   const cols = ['id', 'name'];
@@ -42,19 +63,16 @@ describe('buildDataMigratePlans', () => {
   });
 
   it('snapshots dest rows for update/delete and source rows for insert', () => {
-    const json = buildDestSnapshotJson({
-      tableName: 'customers',
-      dialect: 'sqlite',
-      destColumns: cols,
-      sourceColumns: cols,
-      keyNames: ['id'],
-      includeIdentity: true,
-      ops,
-    });
-    const parsed = JSON.parse(json) as { rows: Array<{ _op: string }>; includeIdentity: boolean };
+    const json = snapshotFor(ops);
+    const parsed = JSON.parse(json) as {
+      rows: Array<{ _op: string }>;
+      includeIdentity: boolean;
+      connectionId: string;
+    };
     expect(parsed.rows).toHaveLength(3);
     expect(parsed.rows.map((r) => r._op).sort()).toEqual(['delete', 'insert', 'update']);
     expect(parsed.includeIdentity).toBe(true);
+    expect(parsed.connectionId).toBe(DEST_CONN);
   });
 
   it('omits identity columns from INSERT when includeIdentity is false', () => {
@@ -131,15 +149,7 @@ describe('buildRestorePlansFromSnapshot', () => {
   ];
 
   it('reverses successful insert/update/delete from Backup', () => {
-    const snapshotJson = buildDestSnapshotJson({
-      tableName: 'customers',
-      dialect: 'sqlite',
-      destColumns: cols,
-      sourceColumns: cols,
-      keyNames: ['id'],
-      includeIdentity: true,
-      ops,
-    });
+    const snapshotJson = snapshotFor(ops);
     const { plans, errors } = buildRestorePlansFromSnapshot({
       snapshotJson,
       successfulOps: [
@@ -157,10 +167,23 @@ describe('buildRestorePlansFromSnapshot', () => {
     expect(plans[2]!.plan.sql.toLowerCase()).toContain('delete');
   });
 
+  it('records the destination connection id for Restore binding', () => {
+    const snapshotJson = snapshotFor(ops);
+    expect(snapshotTargetConnectionId(snapshotJson)).toBe(DEST_CONN);
+    expect(isUsableDataMigrateSnapshot(snapshotJson)).toBe(true);
+  });
+
+  it('rejects truncated / non-JSON History snapshots', () => {
+    const bad = `${snapshotFor(ops).slice(0, 40)}\n… (truncated)`;
+    expect(isUsableDataMigrateSnapshot(bad)).toBe(false);
+    expect(snapshotTargetConnectionId(bad)).toBeUndefined();
+  });
+
   it('skips insert restore when identity was not preserved', () => {
     const snapshotJson = buildDestSnapshotJson({
       tableName: 'customers',
       dialect: 'sqlite',
+      connectionId: DEST_CONN,
       destColumns: cols,
       sourceColumns: cols,
       keyNames: ['id'],
@@ -176,22 +199,14 @@ describe('buildRestorePlansFromSnapshot', () => {
   });
 
   it('restores update to the pre-apply dest values', () => {
-    const snapshotJson = buildDestSnapshotJson({
-      tableName: 'customers',
-      dialect: 'sqlite',
-      destColumns: cols,
-      sourceColumns: cols,
-      keyNames: ['id'],
-      includeIdentity: true,
-      ops: [
-        {
-          op: 'update',
-          keyLabel: 'id=1',
-          sourceRow: [1, 'Alice'],
-          destRow: [1, 'Bob'],
-        },
-      ],
-    });
+    const snapshotJson = snapshotFor([
+      {
+        op: 'update',
+        keyLabel: 'id=1',
+        sourceRow: [1, 'Alice'],
+        destRow: [1, 'Bob'],
+      },
+    ]);
     const { plans, errors } = buildRestorePlansFromSnapshot({
       snapshotJson,
       successfulOps: [{ op: 'update', key: 'id=1' }],
@@ -206,15 +221,9 @@ describe('buildRestorePlansFromSnapshot', () => {
   });
 
   it('re-inserts a deleted dest row on restore', () => {
-    const snapshotJson = buildDestSnapshotJson({
-      tableName: 'customers',
-      dialect: 'sqlite',
-      destColumns: cols,
-      sourceColumns: cols,
-      keyNames: ['id'],
-      includeIdentity: true,
-      ops: [{ op: 'delete', keyLabel: 'id=4', destRow: [4, 'Gone'] }],
-    });
+    const snapshotJson = snapshotFor([
+      { op: 'delete', keyLabel: 'id=4', destRow: [4, 'Gone'] },
+    ]);
     const { plans, errors } = buildRestorePlansFromSnapshot({
       snapshotJson,
       successfulOps: [{ op: 'delete', key: 'id=4' }],
@@ -226,15 +235,9 @@ describe('buildRestorePlansFromSnapshot', () => {
   });
 
   it('ignores FAILED ops and reports missing snapshot rows', () => {
-    const snapshotJson = buildDestSnapshotJson({
-      tableName: 'customers',
-      dialect: 'sqlite',
-      destColumns: cols,
-      sourceColumns: cols,
-      keyNames: ['id'],
-      includeIdentity: true,
-      ops: [{ op: 'delete', keyLabel: 'id=4', destRow: [4, 'Gone'] }],
-    });
+    const snapshotJson = snapshotFor([
+      { op: 'delete', keyLabel: 'id=4', destRow: [4, 'Gone'] },
+    ]);
     const { plans, errors } = buildRestorePlansFromSnapshot({
       snapshotJson,
       successfulOps: [
@@ -260,6 +263,7 @@ describe('buildRestorePlansFromSnapshot', () => {
     expect(errors).toEqual([]);
     expect(plans).toHaveLength(1);
     expect(plans[0]!.op).toBe('insert');
+    expect(snapshotTargetConnectionId(legacy)).toBeUndefined();
   });
 });
 
