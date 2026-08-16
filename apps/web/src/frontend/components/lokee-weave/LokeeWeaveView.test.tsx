@@ -60,6 +60,7 @@ vi.mock('./LokeeWeavePage', () => ({
 
 import { LokeeWeaveView } from './LokeeWeaveView';
 import { toast } from '../../store/toastStore';
+import { useLokeeHistoryStore } from '../../store/lokeeHistoryStore';
 
 const DB = {
   id: 'db1',
@@ -88,6 +89,13 @@ beforeEach(() => {
   loadVersionGraph.mockReset();
   captureSchema.mockReset();
   vi.mocked(toast).mockReset();
+  useLokeeHistoryStore.setState({
+    databaseId: null,
+    originalVersionId: null,
+    targetVersionId: null,
+    databases: [],
+    versions: [],
+  });
 });
 
 describe('LokeeWeaveView', () => {
@@ -166,6 +174,18 @@ describe('LokeeWeaveView', () => {
 
     await waitFor(() => expect(loadVersionGraph).toHaveBeenCalled());
     expect(loadVersionGraph).toHaveBeenCalledWith('db2', 20);
+  });
+
+  it('hides the in-graph database picker when embedded (toolbar owns Original → Target)', async () => {
+    listLokeeDatabases.mockResolvedValue([DB]);
+    loadVersionGraph.mockResolvedValue({ ...DTO, truncatedObjects: false });
+
+    render(<LokeeWeaveView embedded />);
+
+    await waitFor(() => expect(screen.getByTestId('graph')).toBeTruthy());
+    expect(screen.queryByTestId('lokee-database-select')).toBeNull();
+    expect(useLokeeHistoryStore.getState().databaseId).toBe('db1');
+    expect(useLokeeHistoryStore.getState().versions.map((v) => v.id)).toEqual(['v2', 'v1']);
   });
 
   it('captures a schema from the chosen credential', async () => {

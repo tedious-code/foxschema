@@ -25,6 +25,8 @@ import { getSessionPassword } from '../../lib/sessionPasswords';
 import { toast } from '../../store/toastStore';
 import { useSyncStore } from '../../store/useSyncStore';
 import { useUiStore } from '../../store/uiStore';
+import { useLokeeHistoryStore } from '../../store/lokeeHistoryStore';
+import { lokeeDatabaseLabel, resolveHistoryCompare } from '../../lib/historyCompare';
 import { SQL_ICON_STROKE } from '../sql-editor/sqlIconStyle';
 
 export interface LokeeWeaveViewProps {
@@ -53,12 +55,6 @@ function describe(database: LokeeDatabase | undefined): string | undefined {
   return `[${database.dialect}] ${where}${schema}`;
 }
 
-function databaseLabel(database: LokeeDatabase): string {
-  const where = [database.host, database.database].filter(Boolean).join('/') || database.id.slice(0, 8);
-  const schema = database.schema ? ` · ${database.schema}` : '';
-  return `${database.dialect.toUpperCase()} · ${where}${schema} (${database.versionCount} v)`;
-}
-
 export function LokeeWeaveView({
   databaseId,
   versionLimit = 20,
@@ -70,8 +66,13 @@ export function LokeeWeaveView({
   const targetConfig = useSyncStore((s) => s.targetConfig);
   const lokeeEpoch = useUiStore((s) => s.lokeeEpoch);
   const bumpLokeeEpoch = useUiStore((s) => s.bumpLokeeEpoch);
+  const storeDatabaseId = useLokeeHistoryStore((s) => s.databaseId);
+  const setStoreDatabaseId = useLokeeHistoryStore((s) => s.setDatabaseId);
+  const setStoreDatabases = useLokeeHistoryStore((s) => s.setDatabases);
+  const setStoreVersions = useLokeeHistoryStore((s) => s.setVersions);
+  const originalVersionId = useLokeeHistoryStore((s) => s.originalVersionId);
+  const targetVersionId = useLokeeHistoryStore((s) => s.targetVersionId);
   const [databases, setDatabases] = useState<LokeeDatabase[]>([]);
-  const [pickedId, setPickedId] = useState<string | undefined>(undefined);
   const [captureConnectionId, setCaptureConnectionId] = useState('');
   const [dto, setDto] = useState<VersionGraphDTO>(EMPTY_DTO);
   const [loading, setLoading] = useState(true);
@@ -95,8 +96,39 @@ export function LokeeWeaveView({
     )?.id;
   }, [databases, targetConfig]);
 
-  // Prop wins; otherwise the user's pick; otherwise the Target database; else most recent.
-  const activeId = databaseId ?? pickedId ?? matchedTargetId ?? databases[0]?.id;
+  const storedId =
+    storeDatabaseId &&
+    (databases.length === 0 || databases.some((d) => d.id === storeDatabaseId))
+      ? storeDatabaseId
+      : undefined;
+  // Prop wins; otherwise the History Original picker; otherwise Target; else most recent.
+  const activeId = databaseId ?? storedId ?? matchedTargetId ?? databases[0]?.id;
+
+  useEffect(() => {
+    setStoreDatabases(databases);
+  }, [databases, setStoreDatabases]);
+
+  useEffect(() => {
+    if (databaseId) return;
+    if (activeId && storeDatabaseId !== activeId) setStoreDatabaseId(activeId);
+  }, [databaseId, activeId, storeDatabaseId, setStoreDatabaseId]);
+
+  useEffect(() => {
+    setStoreVersions(
+      dto.versions.map((v) => ({ id: v.id, number: v.number, name: v.name }))
+    );
+  }, [dto.versions, setStoreVersions]);
+
+  const compareVersionIds = useMemo(() => {
+    const resolved = resolveHistoryCompare(
+      dto.versions.map((v) => ({ id: v.id, number: v.number, name: v.name })),
+      { originalVersionId, targetVersionId }
+    );
+    const ids = [resolved.original?.id, resolved.target?.id].filter(
+      (id): id is string => Boolean(id)
+    );
+    return [...new Set(ids)];
+  }, [dto.versions, originalVersionId, targetVersionId]);
 
   useEffect(() => {
     if (!captureConnectionId && selectedTargetConnectionId) {
@@ -208,7 +240,7 @@ export function LokeeWeaveView({
         password: getSessionPassword(captureConnectionId) || undefined,
         source: 'manual',
       });
-      setPickedId(result.databaseId);
+      setStoreDatabaseId(result.databaseId);
       refresh();
       bumpLokeeEpoch();
       toast({
@@ -229,30 +261,32 @@ export function LokeeWeaveView({
     } finally {
       setCapturing(false);
     }
-  }, [captureConnectionId, capturing, connections, refresh, bumpLokeeEpoch]);
+  }, [captureConnectionId, capturing, connections, refresh, bumpLokeeEpoch, setStoreDatabaseId]);
 
   const chrome = (
     <div
       className="flex flex-wrap items-center gap-2 border-b border-slate-800 bg-slate-950/80 px-4 py-2"
       data-testid="lokee-weave-chrome"
     >
+      {!embedded && (
       <label className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400">
         History
         <select
           data-testid="lokee-database-select"
           value={activeId ?? ''}
           disabled={Boolean(databaseId) || databases.length === 0}
-          onChange={(e) => setPickedId(e.target.value || undefined)}
+          onChange={(e) => setStoreDatabaseId(e.target.value || null)}
           className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 outline-none focus:border-cyan-600 disabled:opacity-50"
         >
           {databases.length === 0 && <option value="">No captures yet</option>}
           {databases.map((d) => (
             <option key={d.id} value={d.id}>
-              {databaseLabel(d)}
+              {lokeeDatabaseLabel(d)}
             </option>
           ))}
         </select>
       </label>
+      )}
       <button
         type="button"
         data-testid="lokee-refresh-btn"
@@ -341,8 +375,8 @@ export function LokeeWeaveView({
           <div className="max-w-md text-xs text-slate-400">
             Take an initial snapshot of the Target (Snapshot target in the toolbar), or pick a
             credential here and click <span className="text-slate-200">Capture schema</span>.
-            Migrating the Target records a new version automatically. Unchanged objects are stored
-            once and reused by hash pointer.
+            Then choose an Original version and a Target (current database or an older version),
+            the same way as Compare. Migrating the Target records a new version automatically.
           </div>
         </div>
       </div>
@@ -364,6 +398,7 @@ export function LokeeWeaveView({
             dto={dto}
             subtitle={subtitle}
             embedded={embedded}
+            compareVersionIds={compareVersionIds}
             onSelectObject={handleSelectObject}
             onSaveVersionMeta={saveVersionMeta}
           />

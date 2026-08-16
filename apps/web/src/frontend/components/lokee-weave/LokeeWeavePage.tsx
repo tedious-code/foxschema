@@ -57,6 +57,8 @@ export interface LokeeWeavePageProps {
   ) => Promise<void>;
   /** Shorter header when shown inside Schema Sync. */
   embedded?: boolean;
+  /** Original + Target version ids from the Compare-style History bar. */
+  compareVersionIds?: readonly string[];
 }
 
 const FILTERABLE_TYPES: LokeeObjectType[] = [
@@ -184,8 +186,15 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
   onSelectObject,
   onSaveVersionMeta,
   embedded = false,
+  compareVersionIds,
 }) => {
-  const [filters, setFilters] = useState<VersionGraphFilters>(() => freshFilters());
+  const [filters, setFilters] = useState<VersionGraphFilters>(() => {
+    const base = freshFilters();
+    if (compareVersionIds && compareVersionIds.length > 0) {
+      return { ...base, versionIds: new Set(compareVersionIds) };
+    }
+    return base;
+  });
   const [locked, setLocked] = useState(true);
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
@@ -196,6 +205,12 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
     () => dto.versions.find((v) => v.id === selectedVersionId),
     [dto.versions, selectedVersionId]
   );
+
+  const compareKey = (compareVersionIds ?? []).join('|');
+  useEffect(() => {
+    if (!compareKey) return;
+    setFilters((f) => ({ ...f, versionIds: new Set(compareKey.split('|')) }));
+  }, [compareKey]);
 
   useEffect(() => {
     if (!selectedVersion) {
@@ -302,12 +317,12 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
     <div data-testid="lokee-weave-page" className="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
       <header className="flex shrink-0 flex-wrap items-start gap-4">
         <div className="min-w-0">
-          <h1 className="text-lg font-bold text-slate-100">
+          <h1 className={`font-bold text-slate-100 ${embedded ? 'text-sm' : 'text-lg'}`}>
             {embedded ? 'Schema history' : 'Lokee Weave'}
           </h1>
           <p className="text-xs text-slate-500">
             {embedded
-              ? `Version timeline for the Target database${subtitle ? ` · ${subtitle}` : ''}`
+              ? `Original version → current database or older version${subtitle ? ` · ${subtitle}` : ''}`
               : `Database Schema Version Graph${subtitle ? ` · ${subtitle}` : ''}`}
           </p>
         </div>
