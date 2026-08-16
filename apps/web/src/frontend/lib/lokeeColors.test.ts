@@ -5,6 +5,7 @@ import {
   OBJECT_STYLES,
   OPERATION_GLYPH,
   RISK_STYLES,
+  CHANGE_KIND_STYLES,
   STATUS_STYLES,
   UNKNOWN_OBJECT_STYLE,
   objectStyle,
@@ -27,6 +28,7 @@ describe('every colour must be one the theme actually manages', () => {
     ['unknown', `${UNKNOWN_OBJECT_STYLE.chip} ${UNKNOWN_OBJECT_STYLE.dot}`] as const,
     ...Object.entries(RISK_STYLES).map(([k, v]) => [k, `${v.ring} ${v.badge}`] as const),
     ...Object.entries(STATUS_STYLES).map(([k, v]) => [k, `${v.accent} ${v.dot}`] as const),
+    ...Object.entries(CHANGE_KIND_STYLES).map(([k, v]) => [`kind:${k}`, v] as const),
   ];
 
   it.each(allStyles)('%s uses only theme-managed colour families', (_name, classes) => {

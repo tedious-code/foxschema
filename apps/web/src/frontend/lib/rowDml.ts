@@ -46,6 +46,17 @@ function resultIndexMap(columns: string[]): Map<string, number> {
   return map;
 }
 
+/** First column name that repeats once case is folded, else null. */
+export function firstCaseFoldedDuplicate(columns: readonly string[]): string | null {
+  const seen = new Set<string>();
+  for (const column of columns) {
+    const folded = column.toLowerCase();
+    if (seen.has(folded)) return column;
+    seen.add(folded);
+  }
+  return null;
+}
+
 function isPartialUniqueIndex(index: { filter?: string }): boolean {
   return Boolean(index.filter && index.filter.trim());
 }
@@ -143,6 +154,21 @@ export function assessPeekEditability(opts: {
     return {
       editable: false,
       reason: `${table.objectType} objects are not editable in the data grid.`,
+      keyColumns: [],
+      editableColumns: [],
+      identityColumns: new Set(),
+    };
+  }
+  // Column lookup folds case, so two result columns that differ only by case
+  // (Postgres and Db2 both allow `"ID"` alongside `"id"`) collapse onto one
+  // index and the last one wins. A key column could then read its value from
+  // the wrong column and the WHERE clause would match a different row — a
+  // silent wrong-row UPDATE/DELETE. Refuse instead of guessing.
+  const duplicate = firstCaseFoldedDuplicate(resultColumns);
+  if (duplicate) {
+    return {
+      editable: false,
+      reason: `Result has two columns named "${duplicate}" (differing only by case) — row editing cannot tell them apart.`,
       keyColumns: [],
       editableColumns: [],
       identityColumns: new Set(),

@@ -34,6 +34,22 @@ export {
 } from './weave.js';
 export { stableStringify } from './stable-stringify.js';
 export {
+  mergeBody,
+  roundTrips,
+  shapeKey,
+  splitBody,
+  type SplitBody,
+} from './shape.js';
+export {
+  changeKindsByOwner,
+  classifyChildChange,
+  CHANGE_KIND_LABEL,
+  CHANGE_KIND_ORDER,
+  CHANGE_KIND_TITLE,
+  type ChildChange,
+  type ObjectChangeKind,
+} from './change-kinds.js';
+export {
   databaseIdentity,
   databaseIdentityText,
   type DatabaseIdentityInput,
@@ -78,4 +94,5 @@ export {
   renderLokeeObjectScript,
 } from './script.js';
 export { hydrateTableSchemas } from './hydrate.js';
-export { buildRevertMigration, type RevertMigration } from './revert-sql.js';
+export { buildRevertMigration,
+  migrationFromCompare, type RevertMigration } from './revert-sql.js';

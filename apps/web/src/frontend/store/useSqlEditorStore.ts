@@ -60,7 +60,7 @@ import {
 } from '../lib/sql-variables';
 import { useSyncStore } from './useSyncStore';
 import type { SchemaCacheEntry } from '../components/sql-editor/sqlEditorBridge';
-import { getSelectedSql } from '../components/sql-editor/sqlEditorBridge';
+import { getCaretOffset, getSelectedSql } from '../components/sql-editor/sqlEditorBridge';
 import {
   addTab as addTabLogic,
   checkedAfterSqlChange,
@@ -931,12 +931,15 @@ export const useSqlEditorStore = create<SqlEditorState>()(
 
         // Per-cell Play: run exactly those indices (ignore strip checks + selection).
         const selectedSql = getSelectedSql();
+        // Only consulted when nothing is checked and nothing is selected — then
+        // Run means "this statement", not "the first one in the buffer".
+        const caretOffset = getCaretOffset();
         const fromSelection =
           !(statementIndices && statementIndices.length > 0) && Boolean(selectedSql?.trim());
         const rawStatements =
           statementIndices && statementIndices.length > 0
             ? statementsToRun(tab.sql, statementIndices)
-            : resolveRunStatements(tab.sql, tab.checkedStatements, selectedSql);
+            : resolveRunStatements(tab.sql, tab.checkedStatements, selectedSql, caretOffset);
         // Align Out [n] with In [n] when running from strip / Play (not selection).
         const sourceIndices = fromSelection
           ? null
@@ -944,7 +947,8 @@ export const useSqlEditorStore = create<SqlEditorState>()(
               tab.sql,
               statementIndices && statementIndices.length > 0
                 ? statementIndices
-                : tab.checkedStatements
+                : tab.checkedStatements,
+              caretOffset
             );
 
         // Code cells (JS/TS/Node) can run with no Destination; SQL still needs one.
@@ -1015,7 +1019,13 @@ export const useSqlEditorStore = create<SqlEditorState>()(
               readonlyTargets,
               multiTableStatements,
               connectionIds: connectionIds?.length ? connectionIds : undefined,
-              statementIndices: statementIndices?.length ? statementIndices : undefined,
+              // Pin what was confirmed. Resuming re-derives from the editor, so
+              // without this the caret (or strip checks) could move between
+              // "Run" and "Confirm" and a different statement than the one
+              // listed in the dialog would execute.
+              statementIndices: statementIndices?.length
+                ? statementIndices
+                : (sourceIndices ?? undefined),
             },
           });
           return;

@@ -28,9 +28,12 @@
  */
 import type {
   ChangeOperation,
+  SchemaCompareResult,
   LokeeObjectType,
   ObjectBlueprint,
+  ObjectChangeKind,
   ReversalPlan,
+  TableDiff,
 } from '@foxschema/sql';
 
 /** How a version came to exist. */
@@ -115,6 +118,8 @@ export interface ContainerGrowthPoint {
   foreignKeys: number;
   triggers: number;
   objects: number;
+  /** True when this container changed in this version — the roadmap's markers. */
+  changed?: boolean;
 }
 
 export interface ColumnMutation {
@@ -125,6 +130,13 @@ export interface ColumnMutation {
 
 export interface ObjectInspectResult {
   blueprint: ObjectBlueprint;
+  /**
+   * This object at this version against the version before it, in the shape
+   * Compare Schema already speaks, so the inspector renders the same blueprint
+   * tables rather than a second one kept in step by hand. Null when the object
+   * has no container (nothing to diff).
+   */
+  diff: TableDiff | null;
   history: ObjectHistoryEntry[];
   growth: ContainerGrowthPoint[];
   /** Column ADD / MODIFY / DELETE across versions, when the focus is a table. */
@@ -159,6 +171,13 @@ export interface VersionGraphObject {
   /** Content identity. Null for a tombstone. */
   objectHash: string | null;
   status: GraphChangeStatus;
+  /**
+   * For a container, which kinds of child changed in this version — columns,
+   * data types, constraints, indexes, triggers. `status: 'modified'` alone is
+   * true of a renamed comment and of a dropped column, and the reader cannot
+   * tell those apart from the node.
+   */
+  changeKinds?: ObjectChangeKind[];
 }
 
 export interface VersionGraphDTO {
@@ -197,3 +216,23 @@ export type LokeeRevertErrorCode =
   | 'confirm_lossy'
   | 'connection_mismatch'
   | 'failed';
+
+/**
+ * A version compared against another (its parent, unless one is named).
+ *
+ * `compare` is the same `SchemaCompareResult` the live Compare Schema flow
+ * produces — one diff engine, not two. `from` is the source side (older) and
+ * `to` the target (newer), matching Compare's own vocabulary.
+ */
+export interface VersionCompare {
+  /** Null when `to` is the first version — nothing precedes it. */
+  from: VersionSummary | null;
+  to: VersionSummary;
+  compare: SchemaCompareResult;
+  /**
+   * Dialect the history was captured under. The DDL Diff pane renders real
+   * CREATE statements, which are dialect-specific; null on a pre-existing row
+   * with no recorded dialect.
+   */
+  dialect: string | null;
+}

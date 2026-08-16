@@ -187,6 +187,37 @@ describe('LokeeObjectInspector', () => {
           ],
         },
       ],
+      // The server compares this object's stored state against the previous
+      // version and hands back a TableDiff, so the inspector can render the
+      // very component Compare Schema does.
+      diff: {
+        tableName: 'CUSTOMER',
+        objectType: 'TABLE',
+        status: 'MODIFIED',
+        columnDiffs: [
+          { name: 'id', status: 'UNCHANGED', source: { type: 'integer', nullable: false, primaryKey: true }, target: { type: 'integer', nullable: false, primaryKey: true } },
+          {
+            name: 'email',
+            status: 'MODIFIED',
+            source: { type: 'varchar(255)', nullable: true },
+            target: { type: 'varchar(100)', nullable: true },
+          },
+          { name: 'phone', status: 'ADDED', source: { type: 'varchar(20)', nullable: true } },
+        ],
+        indexDiffs: [
+          { name: 'IDX_EMAIL', status: 'ADDED', source: { columns: ['email'], unique: true } },
+        ],
+        foreignKeyDiffs: [],
+        triggerDiffs: [
+          {
+            name: 'TRG_AUDIT',
+            status: 'ADDED',
+            source: { name: 'trg_audit', timing: 'AFTER', event: 'INSERT' },
+          },
+        ],
+        sourceTable: { primaryKey: { name: 'pk_customer', columns: ['id'] } },
+        targetTable: { primaryKey: { name: 'pk_customer', columns: ['id'] } },
+      },
       script: `CREATE TABLE customer (
   id integer PRIMARY KEY,
   email varchar(255),
@@ -203,13 +234,20 @@ describe('LokeeObjectInspector', () => {
     );
 
     await waitFor(() => expect(screen.getByTestId('lokee-inspector-blueprint')).toBeTruthy());
-    expect(screen.getByTestId('lokee-inspector-columns').textContent).toContain('email');
-    expect(screen.getByTestId('lokee-inspector-columns').textContent).toContain(
-      'varchar(100) → varchar(255)'
-    );
-    expect(screen.getByTestId('lokee-inspector-columns').textContent).toContain('MODIFY');
-    expect(screen.queryByTestId('lokee-inspector-indexes')).toBeNull();
-    expect(screen.getByTestId('lokee-inspector-triggers').textContent).toContain('trg_audit');
+
+    // The blueprint is `SchemaBlueprint` — the same tables Compare Schema
+    // renders. Old and new state are separate cells with an operation badge,
+    // not a hand-written "a → b" line that only history ever produced.
+    const columns = screen.getByTestId('blueprint-columns').textContent ?? '';
+    expect(columns).toContain('email');
+    expect(columns).toContain('varchar(255)');
+    expect(columns).toContain('varchar(100)');
+    expect(columns).toContain('ALTER TYPE');
+    expect(columns).toContain('ADD COLUMN');
+    // Indexes were stored but never surfaced by the old bespoke panel.
+    expect(screen.getByTestId('blueprint-indexes').textContent).toContain('IDX_EMAIL');
+    expect(screen.getByTestId('blueprint-primary-key').textContent).toContain('pk_customer');
+    expect(screen.getByTestId('blueprint-triggers').textContent).toContain('TRG_AUDIT');
     expect(screen.getByTestId('lokee-inspector-history').textContent).toContain('varchar(100) → varchar(255)');
     expect(screen.getByTestId('lokee-inspector-growth').textContent).toContain('3 cols');
     expect(screen.getByTestId('lokee-inspector-growth').textContent).not.toMatch(/idx/i);

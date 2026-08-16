@@ -1,10 +1,12 @@
 /**
  * Quote-escaped CSV join + Blob download for SQL Editor result grids.
  */
+import { neutralizeSpreadsheetFormula } from './spreadsheetSafety';
 
 function escapeCell(value: unknown): string {
   if (value === null || value === undefined) return '';
-  const s = String(value);
+  // Numbers come off the wire as numbers; only text can carry a formula.
+  const s = typeof value === 'number' ? String(value) : neutralizeSpreadsheetFormula(String(value));
   if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
 }
