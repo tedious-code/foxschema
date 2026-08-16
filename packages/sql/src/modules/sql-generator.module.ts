@@ -679,7 +679,15 @@ export class SqlGeneratorModule {
         if (!srcIdx) continue;
         // Bare index name (its schema follows the qualified table) — a qualified
         // index name is a syntax error in Postgres/MySQL/SQL Server.
-        statements.push(this.createIndexSql({ ...srcIdx, name: this.bareName(idx.name) }, tableName, dialect));
+        //
+        // `idx.name` is compare's uppercased match key, not an identifier, so
+        // it would create IDX_CUSTOMERS_EMAIL where the source has
+        // idx_customers_email — a different index on any dialect that does not
+        // fold case, and a phantom rename on the next compare. The source's own
+        // name is the identifier; the key is only the fallback for a source
+        // that somehow carries none.
+        const indexName = this.bareName(srcIdx.name || idx.name);
+        statements.push(this.createIndexSql({ ...srcIdx, name: indexName }, tableName, dialect));
       }
 
       // Add new / recreate modified FK constraints (after all column changes are done).

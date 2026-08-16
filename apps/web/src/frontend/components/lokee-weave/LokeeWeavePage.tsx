@@ -58,8 +58,6 @@ export interface LokeeWeavePageProps {
   ) => Promise<void>;
   /** Shorter header when shown inside Schema Sync. */
   embedded?: boolean;
-  /** Original + Target version ids from the Compare-style History bar. */
-  compareVersionIds?: readonly string[];
 }
 
 const FILTERABLE_TYPES: LokeeObjectType[] = [
@@ -187,15 +185,14 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
   onSelectObject,
   onSaveVersionMeta,
   embedded = false,
-  compareVersionIds,
 }) => {
-  const [filters, setFilters] = useState<VersionGraphFilters>(() => {
-    const base = freshFilters();
-    if (compareVersionIds && compareVersionIds.length > 0) {
-      return { ...base, versionIds: new Set(compareVersionIds) };
-    }
-    return base;
-  });
+  // Deliberately independent of the Original/Target pickers. Driving this
+  // filter from them hid every version between the two sides — pick "Version 1"
+  // as Original and Version 2 silently vanished from the graph — so the history
+  // overview changed under the reader as a side effect of choosing what to
+  // compare. The pickers choose the diff; the graph shows the history; the
+  // checkboxes below are the only thing that filters it.
+  const [filters, setFilters] = useState<VersionGraphFilters>(freshFilters);
   const [locked, setLocked] = useState(true);
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
@@ -206,12 +203,6 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
     () => dto.versions.find((v) => v.id === selectedVersionId),
     [dto.versions, selectedVersionId]
   );
-
-  const compareKey = (compareVersionIds ?? []).join('|');
-  useEffect(() => {
-    if (!compareKey) return;
-    setFilters((f) => ({ ...f, versionIds: new Set(compareKey.split('|')) }));
-  }, [compareKey]);
 
   useEffect(() => {
     if (!selectedVersion) {

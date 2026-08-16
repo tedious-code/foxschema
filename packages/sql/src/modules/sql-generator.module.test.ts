@@ -1109,3 +1109,50 @@ describe('SqlGeneratorModule foreign key hardening', () => {
     );
   });
 });
+
+describe('CREATE INDEX identifier', () => {
+  it('uses the index its own name, not compare\'s uppercased match key', () => {
+    // CLAUDE.md: "The compare key is not an identifier." The generator spread
+    // the source IndexInfo then overwrote `name` with the key, so a revert
+    // emitted IDX_CUSTOMERS_EMAIL for idx_customers_email — a different index
+    // on any dialect that does not fold case, and a phantom rename next compare.
+    const gen = new SqlGeneratorModule();
+    const steps = gen.generateMigrationPlan(
+      [
+        {
+          tableName: 'CUSTOMERS',
+          objectType: 'TABLE',
+          status: 'MODIFIED',
+          columnDiffs: [],
+          foreignKeyDiffs: [],
+          indexDiffs: [
+            {
+              name: 'IDX_CUSTOMERS_EMAIL',
+              status: 'ADDED',
+              source: { name: 'idx_customers_email', columns: ['email'], unique: false },
+            },
+          ],
+          sourceTable: {
+            name: 'customers',
+            objectType: 'TABLE',
+            columns: [],
+            indices: [],
+            foreignKeys: [],
+          },
+          targetTable: {
+            name: 'customers',
+            objectType: 'TABLE',
+            columns: [],
+            indices: [],
+            foreignKeys: [],
+          },
+        },
+      ],
+      'postgres'
+    );
+    const sql = steps.flatMap((s) => s.statements).join('\n');
+    expect(sql).toMatch(/idx_customers_email/);
+    expect(sql).not.toMatch(/IDX_CUSTOMERS_EMAIL/);
+  });
+});
+

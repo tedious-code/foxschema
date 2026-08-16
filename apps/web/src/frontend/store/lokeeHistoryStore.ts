@@ -25,6 +25,21 @@ interface LokeeHistoryState {
   setDatabases: (rows: LokeeDatabase[]) => void;
   setVersions: (rows: HistoryVersionOption[]) => void;
   swapSides: () => void;
+
+  /**
+   * Capture belongs to the same toolbar row as the pickers, but the fetching
+   * and the graph live in LokeeWeaveView. Rather than passing callbacks
+   * through the store, the bar bumps a counter and the view watches it — the
+   * store stays plain data, which is what keeps it testable.
+   */
+  captureConnectionId: string;
+  setCaptureConnectionId: (id: string) => void;
+  capturing: boolean;
+  setCapturing: (busy: boolean) => void;
+  captureRequest: number;
+  requestCapture: () => void;
+  refreshRequest: number;
+  requestRefresh: () => void;
 }
 
 export const useLokeeHistoryStore = create<LokeeHistoryState>((set, get) => ({
@@ -41,6 +56,14 @@ export const useLokeeHistoryStore = create<LokeeHistoryState>((set, get) => ({
   setTargetVersionId: (targetVersionId) => set({ targetVersionId }),
   setDatabases: (databases) => set({ databases }),
   setVersions: (versions) => set({ versions }),
+  captureConnectionId: '',
+  setCaptureConnectionId: (captureConnectionId) => set({ captureConnectionId }),
+  capturing: false,
+  setCapturing: (capturing) => set({ capturing }),
+  captureRequest: 0,
+  requestCapture: () => set({ captureRequest: get().captureRequest + 1 }),
+  refreshRequest: 0,
+  requestRefresh: () => set({ refreshRequest: get().refreshRequest + 1 }),
   swapSides: () => {
     const next = swapHistoryCompare(get().versions, {
       originalVersionId: get().originalVersionId,

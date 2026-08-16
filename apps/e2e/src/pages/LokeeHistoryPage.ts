@@ -55,7 +55,7 @@ export class LokeeHistoryPage {
       (expected) => {
         const el = document.querySelector('[data-testid="lokee-summary"]');
         const text = el?.textContent ?? '';
-        return new RegExp(`Total Versions:\\s*${expected}\\b`, 'i').test(text);
+        return new RegExp(`\\b${expected}\\s+versions?\\b`, 'i').test(text);
       },
       n,
       { timeout: timeoutMs }
@@ -121,8 +121,19 @@ export class LokeeHistoryPage {
   }
 
   /** Sections render only once loaded, so callers must await the inspector first. */
-  async inspectorHasSection(section: 'growth' | 'source' | 'columns' | 'indexes'): Promise<boolean> {
+  async inspectorHasSection(section: 'growth' | 'source' | 'history'): Promise<boolean> {
     return this.page.locator(`[data-testid="lokee-inspector-${section}"]`).isVisible();
+  }
+
+  /**
+   * Columns / indexes / keys / triggers are `SchemaBlueprint` now — the same
+   * component Compare Schema renders — so they carry `blueprint-*` ids wherever
+   * they appear rather than an inspector-specific one.
+   */
+  async blueprintHasSection(
+    section: 'summary' | 'columns' | 'primary-key' | 'indexes' | 'foreign-keys' | 'triggers'
+  ): Promise<boolean> {
+    return this.page.locator(`[data-testid="blueprint-${section}"]`).isVisible();
   }
 
   async inspectorText(): Promise<string> {
@@ -145,7 +156,7 @@ export class LokeeHistoryPage {
 
   async versionCount(): Promise<number> {
     const text = await this.summaryText();
-    const match = text.match(/Total Versions:\s*(\d+)/i);
+    const match = text.match(/(\d+)\s+versions?\b/i);
     return match ? Number(match[1]) : 0;
   }
 
@@ -157,5 +168,75 @@ export class LokeeHistoryPage {
     const box = this.page.locator(`[data-testid="lokee-rf-type-${type}"]`);
     await box.waitFor({ state: 'visible', timeout: 10_000 });
     if (!(await box.isChecked())) await box.check();
+  }
+
+  // ── Compare versions → revert ────────────────────────────────────────────
+
+  /** Pick the Original side by its visible label (e.g. "Version 1"). */
+  async selectOriginalVersion(label: string): Promise<void> {
+    const select = this.page.locator('[data-testid="lokee-original-version"]');
+    await select.waitFor({ state: 'visible', timeout: 20_000 });
+    const option = select.locator('option', { hasText: label });
+    await option.waitFor({ state: 'attached', timeout: 20_000 });
+    const value = await option.getAttribute('value');
+    if (!value) throw new Error(`No Original version option matching ${label}`);
+    await select.selectOption(value);
+  }
+
+  async openCompareModal(): Promise<void> {
+    await clickWhen(this.page, '[data-testid="lokee-compare-versions-btn"]');
+    await this.page.waitForSelector('[data-testid="lokee-version-compare"][data-state="ready"]', {
+      timeout: 30_000,
+    });
+  }
+
+  async compareTab(tab: 'DIFF' | 'DDL_DIFF' | 'SQL'): Promise<void> {
+    await clickWhen(this.page, `[data-testid="lokee-cmp-tab-${tab}"]`);
+  }
+
+  async migrationSqlText(): Promise<string> {
+    await this.compareTab('SQL');
+    const pane = this.page.locator('[data-testid="lokee-cmp-ddl"]');
+    await pane.waitFor({ state: 'visible', timeout: 20_000 });
+    return pane.innerText();
+  }
+
+  /**
+   * Apply the revert. A lossy plan parks the button on "Review data loss…",
+   * which navigates to Migration SQL rather than running — acknowledge there,
+   * then press it again. A safe plan runs on the first press.
+   */
+  async executeRevert(): Promise<void> {
+    const run = this.page.locator('[data-testid="lokee-cmp-run-revert"]');
+    await run.waitFor({ state: 'visible', timeout: 20_000 });
+    await this.page.waitForFunction(
+      () => {
+        const el = document.querySelector('[data-testid="lokee-cmp-run-revert"]');
+        return el instanceof HTMLButtonElement && !el.disabled;
+      },
+      { timeout: 30_000 }
+    );
+    if ((await run.innerText()).includes('Review data loss')) {
+      await run.click();
+      const ack = this.page.locator('[data-testid="lokee-cmp-confirm-lossy"]');
+      await ack.waitFor({ state: 'visible', timeout: 10_000 });
+      await ack.check();
+    }
+    await run.click();
+  }
+
+  /** Visible toast text, so a failed revert reports the driver's reason. */
+  async toastText(): Promise<string> {
+    const toasts = this.page.locator('[data-testid="app-toast"]');
+    const count = await toasts.count();
+    const parts: string[] = [];
+    for (let i = 0; i < count; i++) {
+      parts.push((await toasts.nth(i).innerText().catch(() => '')) ?? '');
+    }
+    return parts.join(' | ');
+  }
+
+  async compareModalOpen(): Promise<boolean> {
+    return this.page.locator('[data-testid="lokee-version-compare"]').isVisible();
   }
 }

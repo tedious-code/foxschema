@@ -9,7 +9,7 @@
  */
 import React from 'react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import type { VersionGraphDTO } from './graphTypes';
 
 const listLokeeDatabases = vi.fn();
@@ -108,7 +108,8 @@ describe('LokeeWeaveView', () => {
     await waitFor(() => expect(screen.getByTestId('graph')).toBeTruthy());
     // The subtitle must name the database, not the saved connection.
     expect(screen.getByTestId('graph').textContent).toContain('[postgres] localhost/foxdb.public');
-    expect(screen.getByTestId('lokee-weave-chrome')).toBeTruthy();
+    // The chrome row is gone — Refresh and Capture moved into HistoryCompareBar.
+    expect(screen.queryByTestId('lokee-weave-chrome')).toBeNull();
   });
 
   it('shows an empty state rather than an empty canvas', async () => {
@@ -188,7 +189,10 @@ describe('LokeeWeaveView', () => {
     expect(useLokeeHistoryStore.getState().versions.map((v) => v.id)).toEqual(['v2', 'v1']);
   });
 
-  it('captures a schema from the chosen credential', async () => {
+  it('captures when the toolbar bar asks for it', async () => {
+    // The credential picker and Capture button moved to HistoryCompareBar, which
+    // renders in TopToolbar. It asks by bumping the store counter, so that is
+    // the seam to test here rather than a button this component no longer owns.
     listLokeeDatabases.mockResolvedValueOnce([]).mockResolvedValue([DB]);
     loadVersionGraph.mockResolvedValue({ ...DTO, truncatedObjects: false });
     captureSchema.mockResolvedValue({
@@ -202,12 +206,12 @@ describe('LokeeWeaveView', () => {
     });
 
     render(<LokeeWeaveView />);
+    await waitFor(() => expect(listLokeeDatabases).toHaveBeenCalled());
 
-    await waitFor(() => expect(screen.getByTestId('lokee-capture-btn')).toBeTruthy());
-    fireEvent.change(screen.getByTestId('lokee-capture-connection'), {
-      target: { value: 'c1' },
+    act(() => {
+      useLokeeHistoryStore.getState().setCaptureConnectionId('c1');
+      useLokeeHistoryStore.getState().requestCapture();
     });
-    fireEvent.click(screen.getByTestId('lokee-capture-btn'));
 
     await waitFor(() =>
       expect(captureSchema).toHaveBeenCalledWith(
@@ -217,5 +221,18 @@ describe('LokeeWeaveView', () => {
     await waitFor(() =>
       expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Captured v1' }))
     );
+  });
+
+  it('does not capture or refetch on mount — the counters start at zero', async () => {
+    // A naive effect on the request counters would fire once per mount, so a
+    // visit to History would silently snapshot the database.
+    listLokeeDatabases.mockResolvedValue([DB]);
+    loadVersionGraph.mockResolvedValue({ ...DTO, truncatedObjects: false });
+
+    render(<LokeeWeaveView />);
+    await waitFor(() => expect(screen.getByTestId('graph')).toBeTruthy());
+
+    expect(captureSchema).not.toHaveBeenCalled();
+    expect(loadVersionGraph).toHaveBeenCalledTimes(1);
   });
 });
