@@ -236,6 +236,17 @@ export class LokeeHistoryPage {
     return parts.join(' | ');
   }
 
+  /** "↩ reverted to vN" labels on the version nodes, newest first. */
+  async revertedToLabels(): Promise<string[]> {
+    const marks = this.page.locator('[data-testid^="rf-version-revert-"]');
+    const count = await marks.count();
+    const out: string[] = [];
+    for (let i = 0; i < count; i++) {
+      out.push((await marks.nth(i).innerText().catch(() => '')) ?? '');
+    }
+    return out;
+  }
+
   async compareModalOpen(): Promise<boolean> {
     return this.page.locator('[data-testid="lokee-version-compare"]').isVisible();
   }

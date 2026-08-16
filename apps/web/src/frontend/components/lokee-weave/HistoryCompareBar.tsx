@@ -7,7 +7,7 @@
  * are versions of one captured database instead of two live connections.
  */
 import React, { useMemo } from 'react';
-import { ArrowLeftRight, ArrowRight, Camera, Loader2, RefreshCw } from 'lucide-react';
+import { ArrowLeftRight, ArrowRight, Camera, GitCompareArrows, Loader2, RefreshCw } from 'lucide-react';
 import { useLokeeHistoryStore } from '../../store/lokeeHistoryStore';
 import { useSyncStore } from '../../store/useSyncStore';
 import { SQL_ICON_STROKE } from '../sql-editor/sqlIconStyle';
@@ -34,6 +34,7 @@ export function HistoryCompareBar(): React.ReactElement {
   const capturing = useLokeeHistoryStore((s) => s.capturing);
   const requestCapture = useLokeeHistoryStore((s) => s.requestCapture);
   const requestRefresh = useLokeeHistoryStore((s) => s.requestRefresh);
+  const requestCompare = useLokeeHistoryStore((s) => s.requestCompare);
 
   const newestFirst = useMemo(() => sortVersionsNewestFirst(versions), [versions]);
   const resolved = useMemo(
@@ -114,13 +115,14 @@ export function HistoryCompareBar(): React.ReactElement {
           </div>
           <div className="text-[10px] text-slate-500">Current database or older version</div>
         </div>
+        <div className="flex items-center gap-1.5">
         <select
           data-testid="lokee-target-version"
           value={resolved.targetIsCurrent ? '' : (resolved.target?.id ?? '')}
           disabled={newestFirst.length === 0}
           onChange={(e) => setTargetVersionId(e.target.value || null)}
           title="Current live snapshot, or an older version"
-          className="w-full text-xs bg-slate-900 border border-purple-500/30 rounded px-2 py-1 text-purple-100 focus:outline-none focus:border-purple-500 truncate disabled:opacity-50"
+          className="min-w-0 flex-1 text-xs bg-slate-900 border border-purple-500/30 rounded px-2 py-1 text-purple-100 focus:outline-none focus:border-purple-500 truncate disabled:opacity-50"
         >
           {resolved.latest ? (
             <option value="">{historyVersionLabel(resolved.latest, { current: true })}</option>
@@ -133,6 +135,21 @@ export function HistoryCompareBar(): React.ReactElement {
             </option>
           ))}
         </select>
+        {/* The diff belongs to the pair, and the pair is finished being chosen
+            here — so the button that opens it sits with the second side rather
+            than on a strip of its own below the bar. */}
+        <button
+          type="button"
+          data-testid="lokee-compare-versions-btn"
+          onClick={requestCompare}
+          disabled={sameSides || newestFirst.length < 2}
+          title="Diff Original against Target"
+          className="inline-flex shrink-0 items-center gap-1 rounded border border-cyan-500/40 bg-cyan-950/30 px-2 py-1 text-[11px] font-bold text-cyan-100 transition hover:bg-cyan-900/40 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <GitCompareArrows className="h-3 w-3" strokeWidth={SQL_ICON_STROKE} />
+          Compare
+        </button>
+        </div>
       </div>
 
       {/* Capture lives on this row too. It used to sit on a second bar with its

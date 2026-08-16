@@ -373,6 +373,24 @@ const MIGRATIONS: Migration[] = [
       ];
     },
   },
+  {
+    id: 15,
+    name: 'lokee_version_revert_provenance',
+    statements: (d) => {
+      const t = types(d);
+      return [
+        // Where a revert came from and where it went. A version recorded by a
+        // revert carried `source = 'revert'` and nothing else, so history could
+        // say a revert happened but never which version was restored — the one
+        // question you ask when reading back an undo.
+        //
+        // Nullable: every version captured before this, and every non-revert
+        // capture, legitimately has neither.
+        `ALTER TABLE lokee_versions ADD COLUMN revert_from_version_id ${t.id}`,
+        `ALTER TABLE lokee_versions ADD COLUMN revert_to_version_id ${t.id}`,
+      ];
+    },
+  },
 ];
 
 const SIGNUP_WIZARD_SHOWN_KEY = 'signup.wizard_shown';

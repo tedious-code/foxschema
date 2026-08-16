@@ -81,6 +81,18 @@ export const VersionNode = memo(({ data: d, selected }: NodeProps<LokeeVersionNo
           {d.description}
         </div>
       )}
+      {/* A revert reads as an ordinary version otherwise — same node, same
+          counts — and the one thing you want to know is which version it put
+          back. */}
+      {d.revertedToNumber != null && (
+        <div
+          data-testid={`rf-version-revert-${d.versionId}`}
+          className="mt-1 pl-6 text-[10px] font-semibold text-cyan-300"
+          title={`This version was produced by reverting to v${d.revertedToNumber}`}
+        >
+          ↩ reverted to v{d.revertedToNumber}
+        </div>
+      )}
       {d.changeCount > 0 && (
         <div className="mt-1 pl-6 text-[10px] font-semibold text-amber-300">
           {d.changeCount} changed

@@ -110,6 +110,12 @@ export interface CaptureInput extends DatabaseIdentityInput {
   source: CaptureSource;
   /** Links the version to the run that caused it — this is the attribution. */
   migrationRunId?: string;
+  /**
+   * For `source: 'revert'`: the head the database was at, and the version it was
+   * reverted to. Without it a revert records that *an* undo happened and loses
+   * the only thing you want when reading one back — which version was restored.
+   */
+  revert?: { fromVersionId: string; toVersionId: string };
 }
 
 /**
@@ -135,6 +141,8 @@ interface VersionRow {
   last_observed_at: string;
   display_name?: string | null;
   description?: string | null;
+  revert_from_version_id?: string | null;
+  revert_to_version_id?: string | null;
 }
 
 interface DeltaRow {
@@ -590,8 +598,8 @@ export class LokeeWeaveStore {
         `INSERT INTO lokee_versions
            (id, database_id, version_number, root_hash, parent_version_id, migration_run_id,
             author_user_id, source, object_count, change_count, observation_count,
-            created_at, last_observed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+            created_at, last_observed_at, revert_from_version_id, revert_to_version_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
         [
           versionId,
           databaseId,
@@ -605,6 +613,8 @@ export class LokeeWeaveStore {
           capture.changes.length,
           now,
           now,
+          input.revert?.fromVersionId ?? null,
+          input.revert?.toVersionId ?? null,
         ]
       );
       await this.writeDelta(store, versionId, capture.changes);
@@ -731,6 +741,8 @@ export class LokeeWeaveStore {
       description: r.description?.trim() || undefined,
       objectCount: Number(r.object_count) || 0,
       changeCount: Number(r.change_count) || 0,
+      revertFromVersionId: r.revert_from_version_id ?? undefined,
+      revertToVersionId: r.revert_to_version_id ?? undefined,
     }));
   }
 
@@ -954,6 +966,11 @@ export class LokeeWeaveStore {
         author: v.author,
         name: v.name,
         description: v.description,
+        source: v.source,
+        // Resolve the id to the number the reader actually sees on the graph.
+        revertedToNumber: v.revertToVersionId
+          ? versions.find((other) => other.id === v.revertToVersionId)?.number
+          : undefined,
       })),
       objects,
       totalVersions: Number(totalRow?.n) || versions.length,

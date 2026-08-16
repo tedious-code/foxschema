@@ -88,6 +88,13 @@ export interface VersionSummary {
   description?: string;
   objectCount: number;
   changeCount: number;
+  /**
+   * Set only on a version a revert produced: the head the database was at, and
+   * the version that was restored. `source: 'revert'` says an undo happened;
+   * these say which one, which is the question you ask when reading it back.
+   */
+  revertFromVersionId?: string;
+  revertToVersionId?: string;
 }
 
 export interface ObjectHistoryEntry {
@@ -160,6 +167,10 @@ export interface VersionGraphVersion {
   /** Optional display name; falls back to `Version ${number}`. */
   name?: string;
   description?: string;
+  /** How the version came to exist — a revert node is worth marking. */
+  source?: CaptureSource;
+  /** Version number this revert restored, when this version is one. */
+  revertedToNumber?: number;
 }
 
 export interface VersionGraphObject {

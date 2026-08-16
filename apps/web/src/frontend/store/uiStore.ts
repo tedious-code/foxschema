@@ -178,7 +178,14 @@ function applyToDocument(themeMode: ThemeMode, tone: ToneId, fontSize: FontSize,
 /** Top-level workspace views: schema sync (compare + history) vs the SQL Editor. */
 export type ActiveView = 'sync' | 'sqlEditor';
 /** Compare tree vs Lokee schema-history graph, both inside Schema Sync. */
-export type SyncPane = 'compare' | 'history';
+/**
+ * Browse is its own pane, not a mode hiding inside Compare. It answers a
+ * different question — "what is in this one database?" rather than "how do
+ * these two differ?" — and reaching it by pressing a button on one of Compare's
+ * two connection cards left the app showing a comparison workspace with no
+ * comparison in it.
+ */
+export type SyncPane = 'compare' | 'browse' | 'history';
 
 interface UiState {
   themeMode: ThemeMode;
@@ -189,7 +196,7 @@ interface UiState {
   resolvedMode: 'dark' | 'light';
   /** Which workspace view is showing (persisted; purely local, not synced to server prefs). */
   activeView: ActiveView;
-  /** Compare vs schema history, only meaningful when `activeView === 'sync'`. */
+  /** Compare / browse / history, only meaningful when `activeView === 'sync'`. */
   syncPane: SyncPane;
   /** Bumped after a Lokee capture so the history graph reloads. */
   lokeeEpoch: number;
@@ -230,7 +237,7 @@ function migrateUiPersist(persisted: unknown, _version: number): unknown {
     state.activeView = 'sync';
     state.syncPane = 'history';
   }
-  if (state.syncPane !== 'history' && state.syncPane !== 'compare') {
+  if (!['history', 'compare', 'browse'].includes(state.syncPane as string)) {
     state.syncPane = 'compare';
   }
   if (typeof state.lokeeEpoch !== 'number') state.lokeeEpoch = 0;

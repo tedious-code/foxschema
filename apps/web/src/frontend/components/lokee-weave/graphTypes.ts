@@ -76,6 +76,8 @@ export type VersionNodeData = {
   name?: string;
   description?: string;
   changeCount: number;
+  /** Version this one restored, when a revert produced it. */
+  revertedToNumber?: number;
 };
 
 /** Prefer a custom label; otherwise "Version N". */

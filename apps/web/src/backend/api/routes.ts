@@ -119,7 +119,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     userId: string,
     resolved: { dialect: string; option: ConnectionOptions; schema: string },
     source: 'manual' | 'migrate' | 'revert',
-    migrationRunId?: string
+    extra?: { migrationRunId?: string; revert?: { fromVersionId: string; toVersionId: string } }
   ) {
     const { tables } = await loadScopedTables(
       resolved.dialect,
@@ -135,7 +135,8 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       schema: resolved.schema ?? null,
       tables,
       source,
-      migrationRunId,
+      migrationRunId: extra?.migrationRunId,
+      revert: extra?.revert,
     });
   }
 
@@ -824,7 +825,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
           userId,
           { dialect, option, schema },
           'migrate',
-          runId ?? undefined
+          { migrationRunId: runId ?? undefined }
         );
         send({ type: 'lokee', phase: 'before', ...before });
       } catch (error: unknown) {
@@ -850,7 +851,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
           userId,
           { dialect, option, schema },
           'migrate',
-          runId ?? undefined
+          { migrationRunId: runId ?? undefined }
         );
         send({ type: 'lokee', phase: 'after', ...after });
       } catch (error: unknown) {
@@ -933,7 +934,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
           (req as AuthedRequest).userId!,
           resolved,
           body.source === 'migrate' || body.source === 'revert' ? body.source : 'manual',
-          body.migrationRunId
+          { migrationRunId: body.migrationRunId }
         );
         res.json(result);
       } catch (error: unknown) {
@@ -1178,7 +1179,15 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       }
 
       try {
-        const capture = await captureLiveSchema(userId, { dialect, option, schema }, 'revert');
+        // Record where this undo came from and where it went, so reading the
+        // history later answers "reverted to which version?" rather than just
+        // "a revert happened".
+        const capture = await captureLiveSchema(userId, { dialect, option, schema }, 'revert', {
+          revert: {
+            fromVersionId: plan.fromVersion.id,
+            toVersionId: plan.toVersion.id,
+          },
+        });
         res.json({ ok: true, capture, ...published });
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : 'capture failed';

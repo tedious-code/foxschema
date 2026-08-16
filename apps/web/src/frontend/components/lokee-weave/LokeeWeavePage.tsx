@@ -28,6 +28,7 @@ import type { LokeeObjectType } from '@foxschema/sql';
 import { OBJECT_STYLES, STATUS_STYLES, objectStyle, statusStyle } from '../../lib/lokeeColors';
 import { LOKEE_NODE_TYPES } from './nodes';
 import { buildVersionGraph } from './buildGraph';
+import { useUiStore } from '../../store/uiStore';
 import { VersionCompareModal } from './VersionCompareModal';
 import {
   DEFAULT_LAYOUT,
@@ -193,6 +194,7 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
   // compare. The pickers choose the diff; the graph shows the history; the
   // checkboxes below are the only thing that filters it.
   const [filters, setFilters] = useState<VersionGraphFilters>(freshFilters);
+  const isLight = useUiStore((s) => s.resolvedMode) === 'light';
   const [locked, setLocked] = useState(true);
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
@@ -628,17 +630,26 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
                 <MiniMap
                   pannable
                   zoomable
-                  // React Flow's default minimap is opaque white, which reads
-                  // as a hole in the canvas under either theme.
-                  className="!bg-slate-900"
-                  maskColor="rgba(15,23,42,0.6)"
+                  data-testid="lokee-minimap"
+                  // React Flow's default minimap is opaque white, which reads as
+                  // a hole in the canvas. The mask must follow the theme too: a
+                  // slate-900 mask over a light canvas is a solid grey slab with
+                  // a window punched in it, which is what "empty map" looked
+                  // like — the nodes were under it, not missing.
+                  className={isLight ? '!bg-white' : '!bg-slate-900'}
+                  maskColor={isLight ? 'rgba(148,163,184,0.25)' : 'rgba(15,23,42,0.6)'}
+                  // Literal colours, not `var(--color-*)`. These are painted
+                  // into SVG fills where an unresolved custom property yields
+                  // nothing at all rather than a fallback — the same silent
+                  // blanking CLAUDE.md warns about for the theme vars.
                   nodeColor={(n) =>
                     n.type === 'versionNode'
-                      ? 'var(--color-violet-400)'
+                      ? '#a78bfa'
                       : n.type === 'deletedObjectNode'
-                        ? 'var(--color-rose-400)'
-                        : 'var(--color-sky-400)'
+                        ? '#fb7185'
+                        : '#38bdf8'
                   }
+                  nodeStrokeWidth={3}
                 />
               </ReactFlow>
             </ReactFlowProvider>

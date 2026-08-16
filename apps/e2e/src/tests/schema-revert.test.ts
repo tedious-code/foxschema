@@ -166,4 +166,41 @@ INSERT INTO customers (id, name, email) VALUES (1, 'Ada', 'ada@example.com');
     const rows = sqlite('SELECT count(*) FROM customers;\n').trim();
     expect(rows).toBe('1');
   }, 180_000);
+
+  it('reverts forward again, and logs which version each revert restored', async () => {
+    // Backward was proven above (v2 → v1). Forward is the same machinery with
+    // the sides the other way round: pick the *newer* version as Original and
+    // the live database moves up to it. A revert is just a migration to a
+    // stored state, so "forward" and "backward" must not be different code.
+    await history.selectHistoryDatabaseContaining(RUN);
+    await history.waitForGraph();
+
+    // v3 (the revert) restored v1, so the index is present. Reverting to v2 —
+    // the version that dropped it — moves forward and drops it again.
+    await history.selectOriginalVersion('Version 2');
+    await history.openCompareModal();
+    const forward = await history.migrationSqlText();
+    expect(forward, forward).toMatch(/DROP INDEX/i);
+
+    await history.executeRevert();
+    await expect
+      .poll(() => schemaText(), { timeout: 30_000 })
+      .not.toMatch(/idx_customers_email/i);
+
+    await driver.waitForSelector('[data-testid="lokee-version-compare"]', {
+      state: 'detached',
+      timeout: 30_000,
+    });
+    await expect
+      .poll(async () => history.versionCount(), { timeout: 30_000 })
+      .toBeGreaterThanOrEqual(4);
+
+    // Both reverts are legible from the graph: each node says which version it
+    // put back, which is the whole point of recording the provenance.
+    await history.waitForGraph();
+    const restored = await history.revertedToLabels();
+    expect(restored.join(' '), restored.join(' ')).toMatch(/reverted to v1/i);
+    expect(restored.join(' '), restored.join(' ')).toMatch(/reverted to v2/i);
+  }, 180_000);
 });
+

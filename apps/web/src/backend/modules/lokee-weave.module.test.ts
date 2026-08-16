@@ -554,6 +554,61 @@ describe('inspectObject', () => {
   });
 });
 
+describe('revert provenance', () => {
+  it('records which version a revert restored, and from where', async () => {
+    // `source: 'revert'` says an undo happened; on its own it loses the only
+    // thing you want when reading one back — which version was put back.
+    const { weave } = await freshStore();
+    const v1 = await weave.capture(USER, { ...IDENTITY, tables: [CUSTOMER], source: 'manual' });
+    const widened = table('customer', [
+      ['id', 'integer', false],
+      ['email', 'varchar(255)'],
+    ]);
+    const v2 = await weave.capture(USER, { ...IDENTITY, tables: [widened], source: 'migrate' });
+
+    // The revert itself is a capture of the restored schema, tagged with where
+    // it came from and where it went.
+    const v3 = await weave.capture(USER, {
+      ...IDENTITY,
+      tables: [CUSTOMER],
+      source: 'revert',
+      revert: { fromVersionId: v2.versionId, toVersionId: v1.versionId },
+    });
+
+    const versions = await weave.listVersions(USER, v3.databaseId, 10);
+    const recorded = versions.find((v) => v.id === v3.versionId);
+    expect(recorded?.source).toBe('revert');
+    expect(recorded?.revertFromVersionId).toBe(v2.versionId);
+    expect(recorded?.revertToVersionId).toBe(v1.versionId);
+
+    // Ordinary captures carry neither, so the fields stay a positive signal.
+    const plain = versions.find((v) => v.id === v2.versionId);
+    expect(plain?.revertFromVersionId).toBeUndefined();
+    expect(plain?.revertToVersionId).toBeUndefined();
+  });
+
+  it('resolves the restored version to its number for the graph node', async () => {
+    const { weave } = await freshStore();
+    const v1 = await weave.capture(USER, { ...IDENTITY, tables: [CUSTOMER], source: 'manual' });
+    const v2 = await weave.capture(USER, {
+      ...IDENTITY,
+      tables: [table('customer', [['id', 'integer', false]])],
+      source: 'migrate',
+    });
+    await weave.capture(USER, {
+      ...IDENTITY,
+      tables: [CUSTOMER],
+      source: 'revert',
+      revert: { fromVersionId: v2.versionId, toVersionId: v1.versionId },
+    });
+
+    const dto = await weave.graph(USER, v1.databaseId, 10);
+    const revertNode = dto.versions.find((v) => v.number === 3);
+    expect(revertNode?.source).toBe('revert');
+    expect(revertNode?.revertedToNumber).toBe(1);
+  });
+});
+
 describe('matchDatabaseIdentity', () => {
   it('accepts the same identity the history was captured under', async () => {
     const { weave } = await freshStore();

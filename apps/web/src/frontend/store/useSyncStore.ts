@@ -461,12 +461,19 @@ export const useSyncStore = create<SyncState>()(
         selectedTable: result.tables[0] || null,
         isBrowsing: false,
       });
+      // Browse is a pane, so reading a schema takes you there. Before this the
+      // result landed in the Compare workspace, which then showed a comparison
+      // layout holding one database and no comparison.
+      useUiStore.getState().setSyncPane('browse');
     } catch (e: any) {
       set({ errorMsg: e.message || `Failed to load ${side} schema`, isBrowsing: false });
     }
   },
 
   runSchemaComparison: async () => {
+    // The mirror of browseSchema: comparing leaves Browse behind, so the pane
+    // and the state it renders can never disagree.
+    useUiStore.getState().setSyncPane('compare');
     set({ isComparing: true, errorMsg: null, warnings: [], compareResult: null, selectedTable: null, generatedSql: null, migrationExecuted: false, browseMode: false, browseSide: null });
     try {
       // Re-read the available schemas so the comparison runs against current server state

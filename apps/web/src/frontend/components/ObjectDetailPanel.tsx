@@ -58,6 +58,7 @@ export const ObjectDetailPanel: React.FC = () => {
     targetConnected,
     compareResult,
     browseMode,
+    browseSide,
     syncSelection,
     toggleSyncSelection,
     nonDestructive,
@@ -199,13 +200,47 @@ export const ObjectDetailPanel: React.FC = () => {
   }, [selectedTable, expandedTriggers, sourceConfig.dialect, targetConfig.dialect]);
 
   if (!selectedTable) {
+    // In Browse the left pane filters one database's objects, so this side
+    // should say *which* database that is. Comparing has two connections named
+    // in the toolbar already; browsing has one, and it was nowhere on screen.
+    const browsed = browseSide === 'target' ? targetConfig : sourceConfig;
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-slate-500 bg-slate-950/20 p-6">
         <FileText className="w-12 h-12 text-slate-800 mb-3 animate-pulse" />
         <p className="text-sm font-semibold text-slate-400">Select Object to View Details</p>
         <p className="text-xs text-slate-600 max-w-xs text-center mt-1">
-          Select an object from the left browser tree to inspect columns, indices, definitions, and generated migration DDL.
+          Select an object from the left browser tree to inspect columns, indices, definitions,
+          {browseMode ? ' and its CREATE script.' : ' and generated migration DDL.'}
         </p>
+        {browseMode && (
+          <dl
+            data-testid="browse-connection-card"
+            className="mt-5 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 rounded-lg border border-slate-800 bg-slate-950/50 px-4 py-3 text-xs"
+          >
+            <dt className="text-slate-500">Dialect</dt>
+            <dd className="font-mono text-cyan-300">{browsed.dialect.toUpperCase()}</dd>
+            {browsed.option.host && (
+              <>
+                <dt className="text-slate-500">Host</dt>
+                <dd className="font-mono text-slate-300">{browsed.option.host}</dd>
+              </>
+            )}
+            {browsed.option.database && (
+              <>
+                <dt className="text-slate-500">Database</dt>
+                <dd className="font-mono text-slate-300">{browsed.option.database}</dd>
+              </>
+            )}
+            {browsed.schema && (
+              <>
+                <dt className="text-slate-500">Schema</dt>
+                <dd className="font-mono text-slate-300">{browsed.schema}</dd>
+              </>
+            )}
+            <dt className="text-slate-500">Objects</dt>
+            <dd className="font-mono text-slate-300">{compareResult?.tables.length ?? 0}</dd>
+          </dl>
+        )}
       </div>
     );
   }
