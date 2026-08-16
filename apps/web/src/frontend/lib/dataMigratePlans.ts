@@ -197,6 +197,8 @@ export interface DataMigrateSnapshot {
   version: 1;
   tableName: string;
   dialect: string;
+  /** Destination credential the migrate wrote to — restore must use this, not the current Compare Destination. */
+  connectionId?: string;
   columns: string[];
   keyColumns: string[];
   /** True when INSERT preserved source identity values (required to DELETE inserts on restore). */
@@ -213,6 +215,8 @@ export interface DataMigrateSnapshot {
 export function buildDestSnapshotJson(opts: {
   tableName: string;
   dialect: string;
+  /** Destination connection id — required so Restore cannot target a different Compare Destination. */
+  connectionId: string;
   destColumns: string[];
   sourceColumns: string[];
   keyNames: string[];
@@ -222,6 +226,7 @@ export function buildDestSnapshotJson(opts: {
   const {
     tableName,
     dialect,
+    connectionId,
     destColumns,
     sourceColumns,
     keyNames,
@@ -253,12 +258,27 @@ export function buildDestSnapshotJson(opts: {
     version: 1,
     tableName,
     dialect,
+    connectionId,
     columns: destColumns,
     keyColumns: keyNames,
     includeIdentity,
     rows,
   };
   return JSON.stringify(snapshot, null, 2);
+}
+
+/** True when History can safely offer Restore (parseable JSON with rows/columns). */
+export function isUsableDataMigrateSnapshot(json: string | undefined | null): boolean {
+  if (!json) return false;
+  return !('error' in parseSnapshot(json));
+}
+
+/** Destination connection recorded in the snapshot, if any. */
+export function snapshotTargetConnectionId(json: string): string | undefined {
+  const parsed = parseSnapshot(json);
+  if ('error' in parsed) return undefined;
+  const id = parsed.connectionId?.trim();
+  return id || undefined;
 }
 
 function parseSnapshot(json: string): DataMigrateSnapshot | { error: string } {
@@ -275,6 +295,10 @@ function parseSnapshot(json: string): DataMigrateSnapshot | { error: string } {
       version: 1,
       tableName: raw.tableName || '',
       dialect: raw.dialect || 'sqlite',
+      connectionId:
+        typeof raw.connectionId === 'string' && raw.connectionId.trim()
+          ? raw.connectionId.trim()
+          : undefined,
       columns: raw.columns,
       keyColumns: raw.keyColumns?.length ? raw.keyColumns : guessKeyColumns(raw.rows),
       includeIdentity: raw.includeIdentity !== false,

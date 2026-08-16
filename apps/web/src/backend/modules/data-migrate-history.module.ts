@@ -68,11 +68,32 @@ interface Row {
 }
 
 const MAX_RUNS_PER_USER = 200;
-const MAX_TEXT_LEN = 1_000_000;
+/** Bound script / snapshot blobs so one run cannot bloat the metadata DB. */
+export const DATA_MIGRATE_MAX_TEXT_LEN = 1_000_000;
 
-function cap(text: string | undefined, max = MAX_TEXT_LEN): string | undefined {
+/** Truncate free-form script text for display; never used for machine-parsed JSON. */
+function capScript(text: string | undefined, max = DATA_MIGRATE_MAX_TEXT_LEN): string | undefined {
   if (text == null) return text;
-  return text.length > max ? `${text.slice(0, max)}\n… (truncated)` : text;
+  return text.length > max ? `${text.slice(0, max)}\n-- … (truncated)` : text;
+}
+
+/**
+ * Store snapshot JSON only when it fits intact. Appending a truncation marker
+ * (the old `cap()` behavior) produced invalid JSON, so History still offered
+ * Restore while `JSON.parse` always failed — a silent loss of the undo safety net.
+ */
+export function storeableSnapshotJson(
+  text: string | undefined,
+  max = DATA_MIGRATE_MAX_TEXT_LEN
+): { json: string | undefined; stored: boolean } {
+  if (text == null) return { json: undefined, stored: false };
+  if (text.length > max) return { json: undefined, stored: false };
+  try {
+    JSON.parse(text);
+  } catch {
+    return { json: undefined, stored: false };
+  }
+  return { json: text, stored: true };
 }
 
 function parseOps(raw: string | null): { insert: boolean; update: boolean; delete: boolean } {
@@ -105,8 +126,9 @@ export class DataMigrateHistoryStore {
       script: string;
       snapshotJson?: string;
     }
-  ): Promise<string> {
+  ): Promise<{ id: string; snapshotStored: boolean }> {
     const id = randomUUID();
+    const snapshot = storeableSnapshotJson(input.snapshotJson);
     const store = await getStore();
     await store.run(
       `INSERT INTO data_migrate_runs
@@ -126,13 +148,13 @@ export class DataMigrateHistoryStore {
         JSON.stringify(input.opsEnabled),
         input.includeIdentity ? 1 : 0,
         JSON.stringify(input.keyColumns),
-        cap(input.script) ?? null,
-        cap(input.snapshotJson) ?? null,
+        capScript(input.script) ?? null,
+        snapshot.json ?? null,
         new Date().toISOString(),
       ]
     );
     await this.prune(userId);
-    return id;
+    return { id, snapshotStored: snapshot.stored };
   }
 
   private async prune(userId: string): Promise<void> {
