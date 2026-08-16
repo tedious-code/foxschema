@@ -7,8 +7,10 @@
  * are versions of one captured database instead of two live connections.
  */
 import React, { useMemo } from 'react';
-import { ArrowLeftRight, ArrowRight } from 'lucide-react';
+import { ArrowLeftRight, ArrowRight, Camera, Loader2, RefreshCw } from 'lucide-react';
 import { useLokeeHistoryStore } from '../../store/lokeeHistoryStore';
+import { useSyncStore } from '../../store/useSyncStore';
+import { SQL_ICON_STROKE } from '../sql-editor/sqlIconStyle';
 import {
   historyVersionLabel,
   lokeeDatabaseLabel,
@@ -26,6 +28,12 @@ export function HistoryCompareBar(): React.ReactElement {
   const setOriginalVersionId = useLokeeHistoryStore((s) => s.setOriginalVersionId);
   const setTargetVersionId = useLokeeHistoryStore((s) => s.setTargetVersionId);
   const swapSides = useLokeeHistoryStore((s) => s.swapSides);
+  const connections = useSyncStore((s) => s.connections);
+  const captureConnectionId = useLokeeHistoryStore((s) => s.captureConnectionId);
+  const setCaptureConnectionId = useLokeeHistoryStore((s) => s.setCaptureConnectionId);
+  const capturing = useLokeeHistoryStore((s) => s.capturing);
+  const requestCapture = useLokeeHistoryStore((s) => s.requestCapture);
+  const requestRefresh = useLokeeHistoryStore((s) => s.requestRefresh);
 
   const newestFirst = useMemo(() => sortVersionsNewestFirst(versions), [versions]);
   const resolved = useMemo(
@@ -37,8 +45,8 @@ export function HistoryCompareBar(): React.ReactElement {
     Boolean(resolved.original && resolved.target && resolved.original.id === resolved.target.id);
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-11 gap-2 items-stretch" data-testid="lokee-history-compare-bar">
-      <div className="xl:col-span-5 bg-slate-950/60 p-2 rounded-md border border-slate-800/80 flex flex-col gap-1.5">
+    <div className="grid grid-cols-1 xl:grid-cols-12 gap-2 items-stretch" data-testid="lokee-history-compare-bar">
+      <div className="xl:col-span-4 bg-slate-950/60 p-2 rounded-md border border-slate-800/80 flex flex-col gap-1.5">
         <div className="flex items-baseline justify-between gap-2">
           <div className="text-[10px] font-bold uppercase tracking-wider text-cyan-500/80">
             Original
@@ -99,7 +107,7 @@ export function HistoryCompareBar(): React.ReactElement {
         </button>
       </div>
 
-      <div className="xl:col-span-5 bg-slate-950/60 p-2 rounded-md border border-slate-800/80 flex flex-col gap-1.5">
+      <div className="xl:col-span-4 bg-slate-950/60 p-2 rounded-md border border-slate-800/80 flex flex-col gap-1.5">
         <div className="flex items-baseline justify-between gap-2">
           <div className="text-[10px] font-bold uppercase tracking-wider text-purple-400/80">
             Target
@@ -125,6 +133,58 @@ export function HistoryCompareBar(): React.ReactElement {
             </option>
           ))}
         </select>
+      </div>
+
+      {/* Capture lives on this row too. It used to sit on a second bar with its
+          own credential picker, which read as a *third* connection control next
+          to the two above it — three pickers for two ideas. */}
+      <div className="xl:col-span-3 bg-slate-950/60 p-2 rounded-md border border-slate-800/80 flex flex-col gap-1.5">
+        <div className="flex items-baseline justify-between gap-2">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            Capture
+          </div>
+          <button
+            type="button"
+            data-testid="lokee-refresh-btn"
+            onClick={requestRefresh}
+            title="Reload databases and graph"
+            className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-400 hover:text-slate-200"
+          >
+            <RefreshCw className="h-3 w-3" strokeWidth={SQL_ICON_STROKE} />
+            Refresh
+          </button>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <select
+            data-testid="lokee-capture-connection"
+            value={captureConnectionId}
+            onChange={(e) => setCaptureConnectionId(e.target.value)}
+            title="Live credential to snapshot into this history"
+            className="min-w-0 flex-1 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-cyan-500 truncate"
+          >
+            <option value="">Credential…</option>
+            {connections.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name} [{c.dialect}]
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            data-testid="lokee-capture-btn"
+            disabled={!captureConnectionId || capturing}
+            onClick={requestCapture}
+            title="Read the live schema and record it as a new version"
+            className="inline-flex shrink-0 items-center gap-1 rounded border border-cyan-500/40 bg-cyan-950/40 px-2 py-1 text-[11px] font-semibold text-cyan-100 hover:bg-cyan-900/40 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {capturing ? (
+              <Loader2 className="h-3 w-3 animate-spin" strokeWidth={SQL_ICON_STROKE} />
+            ) : (
+              <Camera className="h-3 w-3" strokeWidth={SQL_ICON_STROKE} />
+            )}
+            {capturing ? 'Capturing…' : 'Capture'}
+          </button>
+        </div>
       </div>
     </div>
   );

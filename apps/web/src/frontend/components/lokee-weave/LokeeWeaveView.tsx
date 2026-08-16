@@ -9,7 +9,7 @@
  * load, or be empty is handled here, so the graph itself remains trivially
  * testable with a fixture and has no idea a network exists.
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, Camera, GitBranch, Loader2, RefreshCw, TriangleAlert } from 'lucide-react';
 import { LokeeWeavePage } from './LokeeWeavePage';
 import { VersionCompareModal } from './VersionCompareModal';
@@ -73,12 +73,18 @@ export function LokeeWeaveView({
   const setStoreDatabases = useLokeeHistoryStore((s) => s.setDatabases);
   const setStoreVersions = useLokeeHistoryStore((s) => s.setVersions);
   const originalVersionId = useLokeeHistoryStore((s) => s.originalVersionId);
+  const captureConnectionId = useLokeeHistoryStore((s) => s.captureConnectionId);
+  const setCaptureConnectionId = useLokeeHistoryStore((s) => s.setCaptureConnectionId);
+  const capturing = useLokeeHistoryStore((s) => s.capturing);
+  const setCapturing = useLokeeHistoryStore((s) => s.setCapturing);
+  const captureRequest = useLokeeHistoryStore((s) => s.captureRequest);
+  const refreshRequest = useLokeeHistoryStore((s) => s.refreshRequest);
   const targetVersionId = useLokeeHistoryStore((s) => s.targetVersionId);
   const [databases, setDatabases] = useState<LokeeDatabase[]>([]);
-  const [captureConnectionId, setCaptureConnectionId] = useState('');
+
   const [dto, setDto] = useState<VersionGraphDTO>(EMPTY_DTO);
   const [loading, setLoading] = useState(true);
-  const [capturing, setCapturing] = useState(false);
+
   const [error, setError] = useState<string | null>(null);
   const [selectedObject, setSelectedObject] = useState<SchemaObjectNodeData | null>(null);
   // Bumped to re-run the effect; a plain refetch() would race the in-flight one.
@@ -135,11 +141,39 @@ export function LokeeWeaveView({
     return [...new Set(ids)];
   }, [dto.versions, originalVersionId, targetVersionId]);
 
+  /**
+   * Default the capture credential to the saved connection that *is* the history
+   * database being viewed. Two connection-shaped controls sitting side by side
+   * with unrelated values is what made the bar read as "which of these two
+   * databases am I looking at?" — when they are the same database, one recorded
+   * and one live. Compare's Target is the fallback, as before.
+   */
+  const activeDatabase = useMemo(
+    () => databases.find((d) => d.id === activeId),
+    [databases, activeId]
+  );
+  const matchingCredentialId = useMemo(() => {
+    if (!activeDatabase) return undefined;
+    const same = (a?: string | null, b?: string | null) =>
+      (a ?? '').toLowerCase() === (b ?? '').toLowerCase();
+    return connections.find(
+      (c) =>
+        same(c.dialect, activeDatabase.dialect) &&
+        same(c.host, activeDatabase.host) &&
+        same(c.database, activeDatabase.database)
+    )?.id;
+  }, [connections, activeDatabase]);
+
   useEffect(() => {
-    if (!captureConnectionId && selectedTargetConnectionId) {
-      setCaptureConnectionId(selectedTargetConnectionId);
-    }
-  }, [captureConnectionId, selectedTargetConnectionId]);
+    if (captureConnectionId) return;
+    const next = matchingCredentialId ?? selectedTargetConnectionId;
+    if (next) setCaptureConnectionId(next);
+  }, [
+    captureConnectionId,
+    matchingCredentialId,
+    selectedTargetConnectionId,
+    setCaptureConnectionId,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -191,6 +225,16 @@ export function LokeeWeaveView({
   );
 
   const refresh = useCallback(() => setReloadToken((n) => n + 1), []);
+
+  // HistoryCompareBar renders in TopToolbar, so it asks for work by bumping a
+  // counter rather than holding a callback. 0 is the initial value — acting on
+  // it would refetch on every mount.
+  const seenRefreshRequest = useRef(refreshRequest);
+  useEffect(() => {
+    if (refreshRequest === seenRefreshRequest.current) return;
+    seenRefreshRequest.current = refreshRequest;
+    refresh();
+  }, [refreshRequest, refresh]);
 
   const saveVersionMeta = useCallback(
     async (versionId: string, patch: { name: string; description: string }) => {
@@ -266,74 +310,33 @@ export function LokeeWeaveView({
     } finally {
       setCapturing(false);
     }
-  }, [captureConnectionId, capturing, connections, refresh, bumpLokeeEpoch, setStoreDatabaseId]);
+  }, [
+    captureConnectionId,
+    capturing,
+    connections,
+    refresh,
+    bumpLokeeEpoch,
+    setStoreDatabaseId,
+    setCapturing,
+  ]);
 
-  const chrome = (
-    <div
-      className="flex flex-wrap items-center gap-2 border-b border-slate-800 bg-slate-950/80 px-6 py-2"
-      data-testid="lokee-weave-chrome"
-    >
-      {!embedded && (
-      <label className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400">
-        History
-        <select
-          data-testid="lokee-database-select"
-          value={activeId ?? ''}
-          disabled={Boolean(databaseId) || databases.length === 0}
-          onChange={(e) => setStoreDatabaseId(e.target.value || null)}
-          className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 outline-none focus:border-cyan-600 disabled:opacity-50"
-        >
-          {databases.length === 0 && <option value="">No captures yet</option>}
-          {databases.map((d) => (
-            <option key={d.id} value={d.id}>
-              {lokeeDatabaseLabel(d)}
-            </option>
-          ))}
-        </select>
-      </label>
-      )}
-      <button
-        type="button"
-        data-testid="lokee-refresh-btn"
-        onClick={refresh}
-        className="inline-flex items-center gap-1 rounded-md border border-slate-700 px-2 py-1 text-[11px] font-semibold text-slate-300 hover:bg-slate-800"
-        title="Reload databases and graph"
-      >
-        <RefreshCw className="h-3.5 w-3.5" strokeWidth={SQL_ICON_STROKE} />
-        Refresh
-      </button>
-      <div className="ml-auto flex flex-wrap items-center gap-2">
-        <select
-          data-testid="lokee-capture-connection"
-          value={captureConnectionId}
-          onChange={(e) => setCaptureConnectionId(e.target.value)}
-          className="max-w-[16rem] rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 outline-none focus:border-cyan-600"
-        >
-          <option value="">Credential to capture…</option>
-          {connections.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name} [{c.dialect}]
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          data-testid="lokee-capture-btn"
-          disabled={!captureConnectionId || capturing}
-          onClick={() => void runCapture()}
-          className="inline-flex items-center gap-1.5 rounded-md border border-cyan-500/40 bg-cyan-950/50 px-2.5 py-1 text-[11px] font-bold text-cyan-100 hover:bg-cyan-900/50 disabled:cursor-not-allowed disabled:opacity-40"
-          title="Read the live schema and record a version when anything changed"
-        >
-          {capturing ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={SQL_ICON_STROKE} />
-          ) : (
-            <Camera className="h-3.5 w-3.5" strokeWidth={SQL_ICON_STROKE} />
-          )}
-          {capturing ? 'Capturing…' : 'Capture schema'}
-        </button>
-      </div>
-    </div>
-  );
+  // Fire on the counter alone, through a ref. Depending on `runCapture` here
+  // is an infinite loop: it reads `capturing`, and it also *sets* it, so every
+  // toggle gives the callback a new identity, re-runs this effect while the
+  // counter is still non-zero, and captures again. Caught by a hanging test.
+  //
+  // The baseline is whatever the counter held at mount, not zero: the store
+  // outlives this component, so leaving History after a capture and coming
+  // back would otherwise re-fire that request and snapshot the database again.
+  const runCaptureRef = useRef(runCapture);
+  runCaptureRef.current = runCapture;
+  const seenCaptureRequest = useRef(captureRequest);
+  useEffect(() => {
+    if (captureRequest === seenCaptureRequest.current) return;
+    seenCaptureRequest.current = captureRequest;
+    void runCaptureRef.current();
+  }, [captureRequest]);
+
 
 
 
@@ -366,8 +369,7 @@ export function LokeeWeaveView({
   if (loading) {
     return (
       <div className="flex flex-1 min-h-0 flex-col overflow-hidden" data-testid="lokee-weave-view">
-        {chrome}
-        <div className="flex flex-1 items-center justify-center text-slate-400">
+          <div className="flex flex-1 items-center justify-center text-slate-400">
           <Loader2 className="mr-2 h-4 w-4 animate-spin" strokeWidth={SQL_ICON_STROKE} />
           Loading schema history…
         </div>
@@ -378,8 +380,7 @@ export function LokeeWeaveView({
   if (error) {
     return (
       <div className="flex flex-1 min-h-0 flex-col overflow-hidden" data-testid="lokee-weave-view">
-        {chrome}
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
           <TriangleAlert className="h-6 w-6 text-rose-400" strokeWidth={SQL_ICON_STROKE} />
           <div className="text-sm font-semibold text-slate-100">Could not load schema history</div>
           <div className="max-w-md text-xs text-slate-400">{error}</div>
@@ -399,8 +400,7 @@ export function LokeeWeaveView({
   if (!activeId || dto.versions.length === 0) {
     return (
       <div className="flex flex-1 min-h-0 flex-col overflow-hidden" data-testid="lokee-weave-view">
-        {chrome}
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
           <GitBranch className="h-6 w-6 text-slate-500" strokeWidth={SQL_ICON_STROKE} />
           <div className="text-sm font-semibold text-slate-100">No schema history yet</div>
           <div className="max-w-md text-xs text-slate-400">
@@ -416,7 +416,6 @@ export function LokeeWeaveView({
 
   return (
     <div className="flex flex-1 min-h-0 flex-col overflow-hidden" data-testid="lokee-weave-view">
-      {chrome}
       {compareBar}
       {dto.truncatedObjects && (
         <div className="border-b border-amber-500/30 bg-amber-500/10 px-6 py-1.5 text-[11px] text-amber-200">
@@ -430,7 +429,6 @@ export function LokeeWeaveView({
             dto={dto}
             subtitle={subtitle}
             embedded={embedded}
-            compareVersionIds={compareVersionIds}
             onSelectObject={handleSelectObject}
             onSaveVersionMeta={saveVersionMeta}
           />

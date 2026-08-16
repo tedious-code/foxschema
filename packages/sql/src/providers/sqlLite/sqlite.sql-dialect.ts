@@ -1,4 +1,5 @@
 import type { SqlDialect, ColumnSpec } from '../../modules/sql-dialect.interface.js';
+import type { IndexInfo } from '../../interfaces/schema.interface.js';
 import { makeDialectTypeFns, plain, sized, decimalAs } from '../../modules/type-mapping.js';
 
 const types = makeDialectTypeFns({
@@ -95,6 +96,23 @@ export const sqliteSqlDialect: SqlDialect = {
 
   dropIndexStatement(indexName: string, _qualifiedTable: string): string {
     return `DROP INDEX IF EXISTS ${indexName};`;
+  },
+
+  /**
+   * SQLite takes the schema on the *index* name, never on the table:
+   * `CREATE INDEX main.idx ON customers(email)` is valid, while
+   * `CREATE INDEX idx ON main.customers(email)` is `near ".": syntax error`.
+   * Every other dialect qualifies the table, so the shared generator does too —
+   * this hook moves the qualifier across.
+   */
+  createIndexStatement(index: IndexInfo, qualifiedTable: string): string {
+    const dot = qualifiedTable.lastIndexOf('.');
+    const schema = dot < 0 ? '' : qualifiedTable.slice(0, dot);
+    const table = dot < 0 ? qualifiedTable : qualifiedTable.slice(dot + 1);
+    const name = schema ? `${schema}.${index.name}` : index.name;
+    const unique = index.unique ? ' UNIQUE' : '';
+    const where = index.filter?.trim() ? ` WHERE ${index.filter.trim()}` : '';
+    return `CREATE${unique} INDEX IF NOT EXISTS ${name} ON ${table} (${index.columns.join(', ')})${where};`;
   },
 
   dropTriggerStatement(triggerName: string, _qualifiedTable: string): string {

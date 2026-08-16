@@ -10,10 +10,19 @@ export interface ColumnDiff {
 }
 
 export interface IndexDiff {
+  /** Uppercased compare-key match name — NOT a real identifier, see source.name. */
   name: string;
   status: 'ADDED' | 'REMOVED' | 'MODIFIED' | 'UNCHANGED';
-  source?: { columns: string[]; unique: boolean; constraint?: boolean };
-  target?: { columns: string[]; unique: boolean; constraint?: boolean };
+  /**
+   * `name` here is the index's own identifier in its native casing, which is
+   * what DDL must use. Compare has always passed the whole IndexInfo through;
+   * only this declaration hid the field, so generators reached for the
+   * uppercased key instead and emitted IDX_CUSTOMERS_EMAIL for
+   * idx_customers_email. Optional rather than required because this package is
+   * published — every producer inside the repo sets it.
+   */
+  source?: { name?: string; columns: string[]; unique: boolean; constraint?: boolean };
+  target?: { name?: string; columns: string[]; unique: boolean; constraint?: boolean };
   /**
    * True when this ADDED/REMOVED pair is only an index rename: same columns +
    * uniqueness as an unmatched index on the other side. Does not mark the table

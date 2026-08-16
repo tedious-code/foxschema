@@ -110,9 +110,12 @@ describe.skipIf(!ready)('Schema Sync · History (SQLite)', () => {
     await history.clickObjectNamed('customers');
     const text = await history.inspectorText();
     expect(text).toMatch(/email/i);
-    expect(await driver.locator('[data-testid="lokee-inspector-columns"]').isVisible()).toBe(true);
-    expect(await driver.locator('[data-testid="lokee-inspector-indexes"]').count()).toBe(0);
-    expect(await driver.locator('[data-testid="lokee-inspector-triggers"]').isVisible()).toBe(true);
+    // The blueprint is Compare Schema's own component now, so the sections
+    // carry `blueprint-*` ids — and indexes, which the old bespoke inspector
+    // stored but never surfaced, are among them.
+    expect(await history.blueprintHasSection('columns')).toBe(true);
+    expect(await history.blueprintHasSection('indexes')).toBe(true);
+    expect(await history.blueprintHasSection('triggers')).toBe(true);
     expect(text).toMatch(/trg_customers_audit/i);
     expect(await driver.locator('[data-testid="lokee-inspector-script-diff"]').isVisible()).toBe(true);
   });

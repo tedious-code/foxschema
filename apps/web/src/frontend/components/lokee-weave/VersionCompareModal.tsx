@@ -188,6 +188,27 @@ export function VersionCompareModal({
     if (data) void loadPlan();
   }, [data, loadPlan]);
 
+  /**
+   * Why Execute cannot run yet — the empty string means it can.
+   *
+   * The button lives in the toolbar and the data-loss acknowledgement lives on
+   * the Migration SQL tab, so a reader on the Blueprint tab saw a greyed-out
+   * button with no stated reason. Comparing before deciding is the whole point
+   * of this dialog; the decision has to be reachable from wherever you are.
+   */
+  const blockedReason = useMemo(() => {
+    if (!captureConnectionId) return 'Choose a credential in the bar above to run this.';
+    if (!plan) return planning ? 'Still planning…' : 'No plan yet.';
+    if (plan.alreadyAtTarget) return 'The live schema already matches Original.';
+    if (plan.statements.length === 0) return 'Nothing to apply.';
+    if (plan.reversal.risk === 'blocked') {
+      return 'Blocked — this cannot be applied without losing data the schema cannot restore.';
+    }
+    if (plan.reversal.risk === 'lossy' && !confirmLossy) return 'ACK_LOSSY';
+    return '';
+  }, [captureConnectionId, plan, planning, confirmLossy]);
+  const needsLossyAck = blockedReason === 'ACK_LOSSY';
+
   const runRevert = useCallback(async () => {
     if (!captureConnectionId || !plan) return;
     setRunning(true);
@@ -340,29 +361,50 @@ export function VersionCompareModal({
                         testIdPrefix="lokee-cmp"
                         size="compact"
                       />
-                      <button
-                        type="button"
-                        data-testid="lokee-cmp-run-revert"
-                        title={
-                          captureConnectionId
-                            ? `Apply ${plan?.statements.length ?? 0} statement(s) and record a new version`
-                            : 'Choose a credential in the bar above to run this'
-                        }
-                        disabled={
-                          running ||
-                          !captureConnectionId ||
-                          !plan ||
-                          plan.reversal.risk === 'blocked' ||
-                          plan.alreadyAtTarget ||
-                          plan.statements.length === 0 ||
-                          (plan.reversal.risk === 'lossy' && !confirmLossy)
-                        }
-                        onClick={() => void runRevert()}
-                        className="flex shrink-0 items-center gap-1.5 rounded border border-amber-500/50 bg-amber-950/40 px-2.5 py-1 text-[11px] font-bold text-amber-100 transition hover:bg-amber-900/40 disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        <Play className="h-3 w-3 fill-current" strokeWidth={SQL_ICON_STROKE} />
-                        {running ? 'Applying…' : `Execute migration (${plan?.statements.length ?? 0})`}
-                      </button>
+                      <div className="flex shrink-0 items-center gap-2">
+                        {/* Risk travels with the button, not just with the tab
+                            that happens to show the statements. */}
+                        {plan && plan.statements.length > 0 && (
+                          <span
+                            data-testid="lokee-cmp-risk-chip"
+                            className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                              riskStyle(plan.reversal.risk).badge
+                            }`}
+                          >
+                            {riskStyle(plan.reversal.risk).label}
+                            {plan.reversal.lossyCount > 0 ? ` · ${plan.reversal.lossyCount}` : ''}
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          data-testid="lokee-cmp-run-revert"
+                          title={
+                            needsLossyAck
+                              ? 'This revert destroys data — review it on Migration SQL and confirm there'
+                              : blockedReason ||
+                                `Apply ${plan?.statements.length ?? 0} statement(s) and record a new version`
+                          }
+                          // A lossy plan keeps the button live so it can carry the
+                          // reader to the acknowledgement; every other blocker is a
+                          // genuine dead end and stays disabled.
+                          disabled={running || (Boolean(blockedReason) && !needsLossyAck)}
+                          onClick={() => {
+                            if (needsLossyAck) {
+                              setTab('SQL');
+                              return;
+                            }
+                            void runRevert();
+                          }}
+                          className="flex shrink-0 items-center gap-1.5 rounded border border-amber-500/50 bg-amber-950/40 px-2.5 py-1 text-[11px] font-bold text-amber-100 transition hover:bg-amber-900/40 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <Play className="h-3 w-3 fill-current" strokeWidth={SQL_ICON_STROKE} />
+                          {running
+                            ? 'Applying…'
+                            : needsLossyAck
+                              ? 'Review data loss…'
+                              : `Execute migration (${plan?.statements.length ?? 0})`}
+                        </button>
+                      </div>
                     </div>
 
                     <div className="min-h-0 flex-1 overflow-auto">
