@@ -64,12 +64,11 @@ export async function apiStartDataMigrate(input: {
   keyColumns: string[];
   script: string;
   snapshotJson?: string;
-}): Promise<string> {
-  const { id } = await request<{ id: string }>('/data-migrations/start', {
+}): Promise<{ id: string; snapshotStored: boolean }> {
+  return request<{ id: string; snapshotStored: boolean }>('/data-migrations/start', {
     method: 'POST',
     body: JSON.stringify(input),
   });
-  return id;
 }
 
 export async function apiFinishDataMigrate(

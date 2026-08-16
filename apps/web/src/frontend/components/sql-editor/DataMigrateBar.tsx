@@ -19,7 +19,7 @@ import {
   type DataMigrateRunDetail,
   type DataMigrateRunSummary,
 } from '../../api/dataMigrateApi';
-import { buildDataMigratePlans, buildDestSnapshotJson, buildRestorePlansFromSnapshot } from '../../lib/dataMigratePlans';
+import { buildDataMigratePlans, buildDestSnapshotJson, buildRestorePlansFromSnapshot, isUsableDataMigrateSnapshot, snapshotTargetConnectionId } from '../../lib/dataMigratePlans';
 import {
   classifyRowsByKey,
   DATA_MIGRATE_ROW_CAP,
@@ -150,6 +150,8 @@ export const DataMigrateBar: React.FC<Props> = ({
   const [backupEnabled, setBackupEnabled] = useState(true);
   const [lastBackup, setLastBackup] = useState<{
     runId: string | null;
+    /** Destination that was migrated — Restore must not follow a later Destination switch. */
+    connectionId: string;
     snapshotJson: string;
     results: DataMigrateOpResult[];
     tableName: string;
@@ -434,6 +436,7 @@ export const DataMigrateBar: React.FC<Props> = ({
       ? buildDestSnapshotJson({
           tableName,
           dialect: dest.dialect,
+          connectionId: dest.connectionId,
           destColumns: dest.columns,
           sourceColumns: source.columns,
           keyNames,
@@ -457,8 +460,9 @@ export const DataMigrateBar: React.FC<Props> = ({
     );
 
     let runId: string | null = null;
+    let snapshotStored = false;
     try {
-      runId = await apiStartDataMigrate({
+      const started = await apiStartDataMigrate({
         dialect: dest.dialect,
         sourceHost: sourceConn?.host || source.label,
         targetHost: destConn?.host || dest.label,
@@ -472,6 +476,15 @@ export const DataMigrateBar: React.FC<Props> = ({
         script,
         snapshotJson,
       });
+      runId = started.id;
+      snapshotStored = started.snapshotStored;
+      if (backupEnabled && snapshotJson && !snapshotStored) {
+        toast({
+          tone: 'warning',
+          title: 'Backup too large for History',
+          body: 'The pre-apply snapshot exceeds the 1MB History limit, so durable Restore after reload is unavailable. Use Restore from the toast while this session still has the in-memory backup.',
+        });
+      }
     } catch (e) {
       toast({
         tone: 'warning',
@@ -557,13 +570,19 @@ export const DataMigrateBar: React.FC<Props> = ({
       !rolledBack &&
       succeeded.length > 0;
 
+    // Capture at apply time — toast onAction must not read a later Destination switch.
+    const migratedConnectionId = dest.connectionId;
+    const migratedDialect = dest.dialect;
+    const migratedLabel = dest.label;
+
     if (canOfferRestore && snapshotJson) {
       setLastBackup({
         runId,
+        connectionId: migratedConnectionId,
         snapshotJson,
         results,
         tableName,
-        dialect: dest.dialect,
+        dialect: migratedDialect,
       });
     } else {
       setLastBackup(null);
@@ -583,7 +602,13 @@ export const DataMigrateBar: React.FC<Props> = ({
             : `Finished with ${failCount} failure(s)`,
       body:
         failCount === 0
-          ? `Destination: ${dest.label}.${backupEnabled ? ' Backup snapshot saved to history.' : ''}`
+          ? `Destination: ${migratedLabel}.${
+              backupEnabled
+                ? snapshotStored
+                  ? ' Backup snapshot saved to history.'
+                  : ' Backup kept in-session only (too large for History).'
+                : ''
+            }`
           : `Failed: ${failedKeys.join('; ')}${
               results.filter((r) => r.status === 'FAILED').length > 5 ? '…' : ''
             }. ${rolledBack ? 'Transaction rolled back. ' : ''}${
@@ -594,10 +619,11 @@ export const DataMigrateBar: React.FC<Props> = ({
         ? () =>
             void restoreFromBackup({
               runId,
+              connectionId: migratedConnectionId,
               snapshotJson: snapshotJson!,
               results,
               tableName,
-              dialect: dest.dialect,
+              dialect: migratedDialect,
             })
         : () => void openHistory(),
       durationMs: 12_000,
@@ -607,6 +633,7 @@ export const DataMigrateBar: React.FC<Props> = ({
 
   const restoreFromBackup = async (backup: {
     runId: string | null;
+    connectionId: string;
     snapshotJson: string;
     results: DataMigrateOpResult[];
     tableName: string;
@@ -618,6 +645,31 @@ export const DataMigrateBar: React.FC<Props> = ({
       .map((r) => ({ op: r.op, key: r.key }));
     if (successfulOps.length === 0) {
       toast({ tone: 'info', title: 'Nothing to restore', body: 'No successful ops in that run.' });
+      return;
+    }
+
+    // Prefer the connection recorded at migrate time (snapshot / caller). Never
+    // silently follow a later Compare Destination switch — that would reverse
+    // DML onto the wrong database (same failure class as Lokee #256).
+    const targetConnectionId =
+      backup.connectionId.trim() ||
+      snapshotTargetConnectionId(backup.snapshotJson) ||
+      '';
+    if (!targetConnectionId) {
+      toast({
+        tone: 'warning',
+        title: 'Cannot restore',
+        body: 'This backup does not record which destination was migrated. Re-run migrate with Backup on, or restore only while the original Destination is selected.',
+      });
+      return;
+    }
+    const targetConn = connections.find((c) => c.id === targetConnectionId);
+    if (!targetConn) {
+      toast({
+        tone: 'warning',
+        title: 'Cannot restore',
+        body: 'The destination credential for this backup is no longer available.',
+      });
       return;
     }
 
@@ -647,12 +699,12 @@ export const DataMigrateBar: React.FC<Props> = ({
 
     let restoreRunId: string | null = null;
     try {
-      restoreRunId = await apiStartDataMigrate({
+      const started = await apiStartDataMigrate({
         dialect: backup.dialect,
         sourceHost: 'backup-restore',
-        targetHost: destConn?.host || dest.label,
-        database: destConn?.database,
-        schema: destConn?.schema,
+        targetHost: targetConn.host || targetConn.name || targetConnectionId,
+        database: targetConn.database,
+        schema: targetConn.schema,
         tableName: backup.tableName,
         rowCount: plans.length,
         opsEnabled: { insert: true, update: true, delete: true },
@@ -664,6 +716,7 @@ export const DataMigrateBar: React.FC<Props> = ({
         ].join('\n\n'),
         snapshotJson: backup.snapshotJson,
       });
+      restoreRunId = started.id;
     } catch {
       /* history best-effort */
     }
@@ -671,9 +724,9 @@ export const DataMigrateBar: React.FC<Props> = ({
     try {
       const out = await apiExecuteDataMigrate(
         {
-          connectionId: dest.connectionId,
-          password: sessionPasswords[dest.connectionId] || undefined,
-          schema: destConn?.schema?.trim() || undefined,
+          connectionId: targetConnectionId,
+          password: sessionPasswords[targetConnectionId] || undefined,
+          schema: targetConn.schema?.trim() || undefined,
         },
         plans.map((p) => ({
           op: p.op,
@@ -1113,7 +1166,7 @@ export const DataMigrateBar: React.FC<Props> = ({
                         <pre className="mt-1 max-h-40 overflow-auto rounded bg-slate-900 p-2 text-[10px] text-slate-400">
                           {historyDetail.snapshotJson || '(none — Backup was off)'}
                         </pre>
-                        {historyDetail.snapshotJson &&
+                        {isUsableDataMigrateSnapshot(historyDetail.snapshotJson) &&
                           historyDetail.results.some((r) => r.status === 'SUCCESS') &&
                           historyDetail.status !== 'SUCCESS' && (
                             <button
@@ -1122,9 +1175,30 @@ export const DataMigrateBar: React.FC<Props> = ({
                               disabled={restoring || applying}
                               className="mt-2 inline-flex items-center gap-1 rounded-md border border-amber-500/50 bg-amber-950/40 px-2 py-1 text-[11px] font-semibold text-amber-200 hover:bg-amber-900/50 disabled:opacity-40"
                               onClick={() => {
+                                const connectionId =
+                                  snapshotTargetConnectionId(historyDetail.snapshotJson!) ||
+                                  // Legacy backups (pre-connectionId): only restore when the
+                                  // current Destination still matches the recorded target.
+                                  (historyDetail.targetHost &&
+                                  destConn &&
+                                  (destConn.host === historyDetail.targetHost ||
+                                    dest.label === historyDetail.targetHost) &&
+                                  (!historyDetail.database ||
+                                    destConn.database === historyDetail.database)
+                                    ? dest.connectionId
+                                    : '');
+                                if (!connectionId) {
+                                  toast({
+                                    tone: 'warning',
+                                    title: 'Cannot restore',
+                                    body: 'Select the original Destination credential for this backup before restoring.',
+                                  });
+                                  return;
+                                }
                                 setHistoryOpen(false);
                                 void restoreFromBackup({
                                   runId: historyDetail.id,
+                                  connectionId,
                                   snapshotJson: historyDetail.snapshotJson!,
                                   results: historyDetail.results,
                                   tableName: historyDetail.tableName || tableName,
@@ -1135,6 +1209,13 @@ export const DataMigrateBar: React.FC<Props> = ({
                               <Undo2 className="w-3.5 h-3.5" strokeWidth={SQL_ICON_STROKE} />
                               Restore from this backup
                             </button>
+                          )}
+                        {historyDetail.snapshotJson &&
+                          !isUsableDataMigrateSnapshot(historyDetail.snapshotJson) && (
+                            <p className="mt-2 text-[11px] text-rose-300">
+                              Snapshot is not valid JSON — Restore is unavailable (likely an
+                              older truncated History entry).
+                            </p>
                           )}
                       </div>
                       <div>

@@ -1331,7 +1331,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
         res.status(400).json({ error: 'dialect and script are required' });
         return;
       }
-      const id = await dataMigrateHistory.start((req as AuthedRequest).userId!, {
+      const started = await dataMigrateHistory.start((req as AuthedRequest).userId!, {
         dialect: body.dialect,
         sourceHost: body.sourceHost,
         targetHost: body.targetHost,
@@ -1351,7 +1351,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
         script: body.script,
         snapshotJson: body.snapshotJson,
       });
-      res.json({ id });
+      res.json(started);
     }
   );
 
