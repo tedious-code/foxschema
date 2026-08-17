@@ -21,7 +21,7 @@
  * compose file but slow to boot; add them here once they are healthy.
  */
 import { afterAll, describe, expect, it } from 'vitest';
-import { ConnectionFactory, getAdapter } from '@foxschema/db';
+import { ConnectionFactory, getAdapter, getRegisteredProvider } from '@foxschema/db';
 import { CompareModule, SqlGeneratorModule } from '@foxschema/sql';
 import type { ConnectionOptions, TableSchema } from '@foxschema/sql';
 
@@ -247,6 +247,65 @@ afterAll(async () => {
   }
 });
 
+/**
+ * Native DDL for one function and one procedure, plus where to recreate them.
+ *
+ * Routine bodies are the least portable thing in SQL, so each engine gets its
+ * own. Engines absent here have no routine coverage rather than a pretend one.
+ */
+const ROUTINES: Record<
+  string,
+  {
+    from: string;
+    to: string;
+    makeSchema?: (s: string) => string[];
+    ddl: (s: string) => string[];
+    /** Credentials with rights the demo user lacks (creating a database). */
+    admin?: Partial<ConnectionOptions>;
+  }
+> = {
+  postgres: {
+    from: `fx_a_${TAG}`,
+    to: `fx_b_${TAG}`,
+    makeSchema: (s) => [`CREATE SCHEMA IF NOT EXISTS ${s}`],
+    ddl: (s) => [
+      `CREATE FUNCTION ${s}.double_it(x integer) RETURNS integer AS $$ SELECT x * 2 $$ LANGUAGE sql`,
+      `CREATE PROCEDURE ${s}.touch_it() LANGUAGE plpgsql AS $$ BEGIN PERFORM 1; END; $$`,
+    ],
+  },
+  mysql: {
+    // A MySQL schema *is* a database, so the round trip needs a second one.
+    from: 'foxdb',
+    to: `foxb_${TAG}`,
+    // The demo user cannot create a database ("Access denied for user
+    // 'foxuser'"), and this round trip needs a second one to recreate into.
+    admin: { username: 'root', password: 'foxrootpass' },
+    makeSchema: (s) => [`CREATE DATABASE IF NOT EXISTS ${s}`],
+    ddl: () => [
+      `CREATE FUNCTION double_it_${TAG}(x INT) RETURNS INT DETERMINISTIC RETURN x * 2`,
+      `CREATE PROCEDURE touch_it_${TAG}() BEGIN SELECT 1; END`,
+    ],
+  },
+  sqlserver: {
+    from: 'dbo',
+    to: `foxb_${TAG}`,
+    makeSchema: (s) => (s === 'dbo' ? [] : [`IF SCHEMA_ID('${s}') IS NULL EXEC('CREATE SCHEMA ${s}')`]),
+    ddl: () => [
+      `CREATE FUNCTION dbo.double_it_${TAG}(@x INT) RETURNS INT AS BEGIN RETURN @x * 2 END`,
+      `CREATE PROCEDURE dbo.touch_it_${TAG} AS BEGIN SELECT 1 END`,
+    ],
+  },
+  db2: {
+    from: `FXA${TAG}`,
+    to: `FXB${TAG}`,
+    makeSchema: (s) => [`CREATE SCHEMA ${s}`],
+    ddl: (s) => [
+      `CREATE FUNCTION ${s}.DOUBLE_IT(X INTEGER) RETURNS INTEGER LANGUAGE SQL RETURN X * 2`,
+      `CREATE PROCEDURE ${s}.TOUCH_IT() LANGUAGE SQL BEGIN DECLARE V INT; SET V = 1; END`,
+    ],
+  },
+};
+
 describe.runIf(RUN)('generated DDL runs on the real engines', () => {
   for (const target of TARGETS) {
     describe(target.dialect, () => {
@@ -262,6 +321,81 @@ describe.runIf(RUN)('generated DDL runs on the real engines', () => {
           reachable.set(target.dialect, false);
           // Not a failure: a partial stack should still test what is up.
           console.warn(`[skip] ${target.dialect}: ${(err as Error).message.split('\n')[0]}`);
+        }
+      });
+
+      const routines = ROUTINES[target.dialect];
+      it.runIf(routines)('captures a procedure and a function well enough to recreate them', async (ctx) => {
+        if (reachable.get(target.dialect) === false) ctx.skip();
+        const spec = routines!;
+        const opts = (schema: string) => ({
+          ...target.options,
+          ...spec.admin,
+          ...(target.dialect === 'mysql' ? { database: schema } : {}),
+          schema,
+        });
+
+        const admin = await ConnectionFactory.create(target.provider, opts(spec.from), { pooled: false });
+        const adapter = getAdapter(target.provider);
+        const exec = (conn: unknown, sql: string) => adapter.query(conn as never, sql, []);
+        try {
+          for (const schema of [spec.from, spec.to])
+            for (const stmt of spec.makeSchema?.(schema) ?? []) await exec(admin, stmt).catch(() => undefined);
+          for (const stmt of spec.ddl(spec.from)) await exec(admin, stmt);
+
+          // Read them back the way the app does.
+          const provider = getRegisteredProvider(target.provider)!;
+          const objects = (await provider.getTables!(opts(spec.from), spec.from)) as TableSchema[];
+          const mine = objects.filter(
+            (o) =>
+              (o.objectType === 'FUNCTION' || o.objectType === 'PROCEDURE') &&
+              new RegExp(`(double_it|touch_it)(_${TAG})?$`, 'i').test(o.name)
+          );
+          expect(mine.map((r) => r.objectType).sort()).toEqual(['FUNCTION', 'PROCEDURE']);
+
+          // A routine with no body cannot be migrated anywhere, and an empty
+          // string would still pass a "the object exists" assertion.
+          for (const r of mine) {
+            expect((r.definition ?? '').trim().length, `${r.name} was captured without a body`).toBeGreaterThan(0);
+          }
+
+          // The round trip: regenerate into the other schema and run it. This
+          // is what catches a definition that is missing its terminator or has
+          // the source schema baked into it.
+          const compare = await new CompareModule().compare(mine, [], {
+            source: target.dialect,
+            target: target.dialect,
+          });
+          const stmts = gen
+            .generateMigrationPlan(compare.tables, target.dialect, { sourceSchema: spec.from, targetSchema: spec.to })
+            .flatMap((s) => s.statements)
+            .filter((s) => !s.trim().startsWith('--'));
+          expect(stmts.length, 'no DDL generated for the routines').toBeGreaterThan(0);
+
+          const other = await ConnectionFactory.create(target.provider, opts(spec.to), { pooled: false });
+          try {
+            for (const raw of stmts) {
+              const sql = raw.replace(/;\s*$/, '');
+              try {
+                await exec(other, sql);
+              } catch (err) {
+                throw new Error(
+                  `${target.dialect} rejected the regenerated routine:\n${sql}\n\n${(err as Error).message.split('\n')[0]}`
+                );
+              }
+            }
+          } finally {
+            await ConnectionFactory.close(target.provider, other).catch(() => undefined);
+          }
+        } finally {
+          // Routines are dropped by name; the schemas themselves are left for
+          // the engine's own cleanup since each run uses a fresh TAG.
+          for (const stmt of spec.ddl(spec.from)) {
+            const kind = /FUNCTION/i.test(stmt) ? 'FUNCTION' : 'PROCEDURE';
+            const name = stmt.match(/CREATE (?:FUNCTION|PROCEDURE)\s+(\S+?)\s*[(\s]/i)?.[1];
+            if (name) await exec(admin, `DROP ${kind} ${name}`).catch(() => undefined);
+          }
+          await ConnectionFactory.close(target.provider, admin).catch(() => undefined);
         }
       });
 
