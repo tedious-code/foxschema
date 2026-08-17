@@ -38,7 +38,22 @@ const types = makeDialectTypeFns({
     smallint: plain('SMALLINT'),
     integer: plain('INTEGER'),
     bigint: plain('BIGINT'),
-    decimal: decimalAs('DECIMAL'),
+    // Db2's maximum DECIMAL precision is 31, not 38: DECIMAL(32,0) and above
+    // are SQL0604N. Passing a source precision straight through therefore
+    // broke any migration from an engine that allows more (Postgres numeric,
+    // Oracle NUMBER, SQL Server DECIMAL all go to 38), and it broke at CREATE
+    // TABLE time — after the plan had been reviewed and accepted.
+    decimal: (t) => {
+      const rendered = decimalAs('DECIMAL')(t);
+      if (t.precision === undefined || t.precision <= 31) return rendered;
+      const scale = Math.min(t.scale ?? 0, 31);
+      return {
+        sql: `DECIMAL(31${t.scale !== undefined ? `,${scale}` : ''})`,
+        warning: `Db2 caps DECIMAL precision at 31; ${t.raw} narrowed to DECIMAL(31${
+          t.scale !== undefined ? `,${scale}` : ''
+        })`,
+      };
+    },
     real: plain('REAL'),
     double: plain('DOUBLE'),
     char: sized('CHAR'),
