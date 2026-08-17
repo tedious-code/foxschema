@@ -94,6 +94,63 @@ describe('SqlGeneratorModule.generateMigrationPlan', () => {
     sourceTable: tableSchema({ name, columns: [{ name: 'ID', type: 'INTEGER', nullable: false, primaryKey: false }] }),
   });
 
+  describe('DB2 converges after adding a NOT NULL column', () => {
+    // DB2 cannot add a NOT NULL column to a populated table without a default
+    // (SQL0193N), so the dialect appends `WITH DEFAULT`. That leaves the column
+    // holding a default the source never declared, and the next comparison
+    // reports the same change again — for ever. Verified end to end against the
+    // shipped DEMO_A/DEMO_B samples on DB2 11.5: with this, re-comparing after
+    // the migration reports no differences at all.
+    const addNotNull = (over: Partial<{ nullable: boolean; defaultValue: string }> = {}): TableDiff => ({
+      tableName: 'PRODUCTS',
+      objectType: 'TABLE',
+      status: 'MODIFIED',
+      columnDiffs: [
+        {
+          name: 'SKU',
+          status: 'ADDED',
+          source: { name: 'SKU', type: 'VARCHAR(50)', nullable: false, ...over },
+        },
+      ],
+      indexDiffs: [],
+      foreignKeyDiffs: [],
+      sourceTable: tableSchema({ name: 'PRODUCTS' }),
+      targetTable: tableSchema({ name: 'PRODUCTS' }),
+    });
+
+    it('drops the implicit default it had to add', () => {
+      const sql = gen.generateMigrationPlan([addNotNull()], 'db2').flatMap((s) => s.statements);
+      const add = sql.findIndex((s) => /ADD\b/i.test(s) && /WITH DEFAULT/i.test(s));
+      const drop = sql.findIndex((s) => /DROP DEFAULT/i.test(s));
+      expect(add, 'no ADD … WITH DEFAULT emitted').toBeGreaterThanOrEqual(0);
+      expect(drop, 'the implicit default is never dropped — this never converges').toBeGreaterThan(add);
+    });
+
+    it('keeps a default the source actually declares', () => {
+      const sql = gen
+        .generateMigrationPlan([addNotNull({ defaultValue: "'x'" })], 'db2')
+        .flatMap((s) => s.statements)
+        .join('\n');
+      expect(sql).toContain("DEFAULT 'x'");
+      expect(sql, 'dropped a default the source asked for').not.toMatch(/DROP DEFAULT/i);
+    });
+
+    it('leaves a nullable column alone', () => {
+      const sql = gen
+        .generateMigrationPlan([addNotNull({ nullable: true })], 'db2')
+        .flatMap((s) => s.statements)
+        .join('\n');
+      expect(sql).not.toMatch(/DROP DEFAULT/i);
+    });
+
+    it('does not touch other dialects', () => {
+      for (const dialect of ['postgres', 'mysql', 'sqlserver', 'oracle']) {
+        const sql = gen.generateMigrationPlan([addNotNull()], dialect).flatMap((s) => s.statements).join('\n');
+        expect(sql, dialect).not.toMatch(/DROP DEFAULT/i);
+      }
+    });
+  });
+
   describe('DB2 reorg-pending after column changes', () => {
     // Verified against DB2 11.5: after ALTER TABLE … DROP COLUMN, a SELECT
     // still succeeds while every INSERT fails with SQL0668N reason code 7. A

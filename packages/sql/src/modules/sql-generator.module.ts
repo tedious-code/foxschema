@@ -758,6 +758,11 @@ export class SqlGeneratorModule {
           if (!col.source.nullable) colDef += ` NOT NULL`;
         }
         statements.push(dialect.addColumnStatement(tableName, colDef));
+        // Let the dialect clean up after its own workaround (DB2's implicit
+        // `WITH DEFAULT`), or the migration never converges.
+        statements.push(
+          ...(dialect.afterAddColumnStatements?.(tableName, this.columnIdent(col), col.source) ?? [])
+        );
       }
 
       // A type change can also leave a table needing maintenance (see

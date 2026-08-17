@@ -144,6 +144,20 @@ export interface SqlDialect {
    * Omit unless the engine needs it. Runs inside the migration's transaction
    * alongside the ALTERs.
    */
+  /**
+   * Statements that clean up after this dialect's own `addColumnStatement`.
+   *
+   * DB2 cannot add a NOT NULL column to a populated table without a default
+   * (SQL0193N), so the dialect appends `WITH DEFAULT` to make the ALTER
+   * succeed. That leaves the column carrying a default (`''`, `0`) the source
+   * column never had — so the very next comparison reports the column as
+   * changed, proposes the same migration again, and never converges. Dropping
+   * the implicit default afterwards makes the result actually match the source.
+   *
+   * Omit unless `addColumnStatement` adds something the source did not ask for.
+   */
+  afterAddColumnStatements?(qualifiedTable: string, colName: string, col: ColumnSpec): string[];
+
   postColumnChangeStatements?(
     qualifiedTable: string,
     changed: { dropped: boolean; retyped: boolean }
