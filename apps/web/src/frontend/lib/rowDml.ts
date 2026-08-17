@@ -303,8 +303,10 @@ export function buildPeekInsert(opts: {
   }
   if (Object.keys(row).length === 0) return { error: 'Nothing to insert.' };
 
-  // Postgres and Db2 refuse an explicit value for a GENERATED ALWAYS identity
-  // column unless the statement says so (SQLSTATE 428C9 / SQL0798N). The
+  // Postgres refuses an explicit value for a GENERATED ALWAYS identity column
+  // unless the statement says so (SQLSTATE 428C9). Db2 is *not* in this group
+  // despite the similar error: it has no overriding clause at all (SQL0798N,
+  // and SQL0104N if you try one), so its support entry is `unsupported`. The
   // clause comes from a fixed capability table, never from user input.
   const support = writeIdentityGeneration
     ? identityInsertFor(dialect, writeIdentityGeneration)

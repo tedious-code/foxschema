@@ -13,9 +13,12 @@ const build = (dialect: string, generation?: string) => {
 
 describe('explicit identity INSERT is shaped per dialect', () => {
   it('adds OVERRIDING SYSTEM VALUE where the engine demands it', () => {
-    // Postgres/Db2 reject an explicit GENERATED ALWAYS value without this
-    // (SQLSTATE 428C9 / SQL0798N).
-    for (const d of ['postgres', 'cockroachdb', 'yugabytedb', 'db2']) {
+    // The Postgres family rejects an explicit GENERATED ALWAYS value without
+    // this (SQLSTATE 428C9). Db2 is NOT one of them despite a similar error:
+    // verified on Db2 LUW 11.5, the clause itself is SQL0104N there, so a Db2
+    // GENERATED ALWAYS column is simply not writable — see the `unsupported`
+    // entry in dialect-identity-insert.
+    for (const d of ['postgres', 'cockroachdb', 'yugabytedb']) {
       expect(build(d, 'ALWAYS'), d).toContain('OVERRIDING SYSTEM VALUE');
       // It must sit between the column list and VALUES, not anywhere else.
       expect(build(d, 'ALWAYS'), d).toMatch(/\)\s+OVERRIDING SYSTEM VALUE\s+VALUES/);
