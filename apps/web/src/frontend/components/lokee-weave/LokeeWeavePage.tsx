@@ -340,30 +340,6 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
 
       <div className="flex min-h-0 flex-1 gap-3 overflow-hidden">
         <aside className="flex w-[220px] shrink-0 flex-col gap-2 overflow-y-auto text-[11px]">
-          <SidebarSection title="Legend">
-            <ul className="flex flex-col gap-1">
-              {(
-                ['table', 'view', 'mqt', 'index', 'column', 'trigger', 'function', 'procedure'] as LokeeObjectType[]
-              ).map((t) => (
-                <li key={t} className="flex items-center gap-2 text-slate-300">
-                  <span className={`h-2 w-2 rounded-full ${objectStyle(t).dot}`} aria-hidden />
-                  {OBJECT_STYLES[t].label}
-                </li>
-              ))}
-            </ul>
-          </SidebarSection>
-
-          <SidebarSection title="Object status">
-            <ul className="flex flex-col gap-1">
-              {STATUSES.map((s) => (
-                <li key={s} className="flex items-center gap-2 text-slate-300">
-                  <span className={`h-2 w-2 rounded-full ${statusStyle(s).dot}`} aria-hidden />
-                  {statusStyle(s).label}
-                </li>
-              ))}
-            </ul>
-          </SidebarSection>
-
           <SidebarSection title="Version">
             <div className="flex max-h-36 flex-col gap-1 overflow-y-auto">
               {versionsNewestFirst.map((v) => (
@@ -384,24 +360,40 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
             </div>
           </SidebarSection>
 
-          <SidebarSection title="Status filter">
-            <div className="flex flex-wrap gap-1">
-              {STATUSES.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  data-testid={`lokee-rf-status-${s}`}
-                  aria-pressed={filters.statuses.has(s)}
-                  onClick={() => toggleStatus(s)}
-                  className={`rounded border px-1.5 py-0.5 transition ${
-                    filters.statuses.has(s)
-                      ? `${statusStyle(s).accent} text-slate-100`
-                      : 'border-slate-700 text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  {statusStyle(s).label.split(' ')[0]}
-                </button>
-              ))}
+          {/* One control per concept. This used to be two panels — a Legend
+              that only showed the colours and a Status filter that only
+              filtered — so the colour key was never where the click was. The
+              dot stays (it is still the key to the graph) and the row is the
+              filter. */}
+          <SidebarSection title="Object status">
+            <div className="flex flex-col gap-1">
+              {STATUSES.map((s) => {
+                const on = filters.statuses.size === 0 || filters.statuses.has(s);
+                return (
+                  <button
+                    key={s}
+                    type="button"
+                    data-testid={`lokee-rf-status-${s}`}
+                    aria-pressed={filters.statuses.has(s)}
+                    onClick={() => toggleStatus(s)}
+                    title={`Show only ${statusStyle(s).label} objects`}
+                    className={`flex items-center gap-2 rounded px-1 py-0.5 text-left transition hover:bg-slate-800/60 ${
+                      on ? 'text-slate-200' : 'text-slate-500'
+                    }`}
+                  >
+                    <span
+                      className={`h-2 w-2 shrink-0 rounded-full ${statusStyle(s).dot} ${
+                        on ? '' : 'opacity-30'
+                      }`}
+                      aria-hidden
+                    />
+                    <span className="truncate">{statusStyle(s).label}</span>
+                    {filters.statuses.has(s) && (
+                      <span className="ml-auto text-[9px] font-bold uppercase text-cyan-300">only</span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           </SidebarSection>
 
@@ -455,7 +447,11 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
           <SidebarSection title="Object type">
             <div className="flex flex-col gap-1">
               {FILTERABLE_TYPES.map((t) => (
-                <label key={t} className="flex cursor-pointer items-center gap-2 text-slate-300">
+                <label
+                  key={t}
+                  className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-slate-300 hover:bg-slate-800/60"
+                  title={`Show ${OBJECT_STYLES[t].label} objects on the graph`}
+                >
                   <input
                     type="checkbox"
                     data-testid={`lokee-rf-type-${t}`}
@@ -464,7 +460,9 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
                     checked={filters.objectTypes.size === 0 || filters.objectTypes.has(t)}
                     onChange={() => toggleType(t)}
                   />
-                  Show {OBJECT_STYLES[t].label}s
+                  {/* The legend colour, now attached to the control that uses it. */}
+                  <span className={`h-2 w-2 shrink-0 rounded-full ${objectStyle(t).dot}`} aria-hidden />
+                  {OBJECT_STYLES[t].label}
                 </label>
               ))}
               <label className="flex cursor-pointer items-center gap-2 text-slate-300">
