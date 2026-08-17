@@ -21,7 +21,7 @@
  * compose file but slow to boot; add them here once they are healthy.
  */
 import { afterAll, describe, expect, it } from 'vitest';
-import { ConnectionFactory } from '@foxschema/db';
+import { ConnectionFactory, getAdapter } from '@foxschema/db';
 import { CompareModule, SqlGeneratorModule } from '@foxschema/sql';
 import type { ConnectionOptions, TableSchema } from '@foxschema/sql';
 
@@ -61,6 +61,14 @@ const TARGETS: Array<{ dialect: string; provider: string; options: ConnectionOpt
     dialect: 'yugabytedb',
     provider: 'yugabytedb',
     options: { host: 'localhost', port: 5433, database: 'yugabyte', username: 'yugabyte', schema: 'public' },
+  },
+  {
+    // Slowest of the set to boot (the compose healthcheck allows two minutes
+    // before it even starts probing) and the only one needing a native client
+    // driver, so it is the most likely to be skipped on a given machine.
+    dialect: 'db2',
+    provider: 'db2',
+    options: { host: 'localhost', port: 50000, database: 'foxdb', username: 'db2inst1', password: 'foxpass', schema: 'DB2INST1' },
   },
 ];
 
@@ -160,6 +168,61 @@ async function ddlFor(tables: TableSchema[], dialect: string): Promise<string[]>
   return gen.generateMigrationPlan(result.tables, dialect).flatMap((step) => step.statements);
 }
 
+/**
+ * Runs `statements` the way `MigrationModule` does: **one** unpooled connection,
+ * **one** transaction, for the whole plan.
+ *
+ * Both halves matter, and getting either wrong makes a correct plan look
+ * broken. Postgres's dependent-view hooks stash the view definitions in a
+ * `CREATE TEMP TABLE … ON COMMIT DROP` and read them back in a later statement:
+ * a connection per statement loses the table with the session, and a
+ * transaction per statement drops it at the first commit. Both produced
+ * `relation "_fs_vdep_…" does not exist`, which reads exactly like a product
+ * bug and was purely this harness being unfaithful.
+ */
+async function runPlan(
+  target: { dialect: string; provider: string; options: ConnectionOptions },
+  statements: string[],
+  onCreate?: (name: string) => void
+): Promise<void> {
+  const connection = await ConnectionFactory.create(target.provider, target.options, { pooled: false });
+  const adapter = getAdapter(target.provider);
+  try {
+    await adapter.beginTransaction(connection);
+    try {
+      for (const statement of statements) {
+        const sql = statement.replace(/;\s*$/, '');
+        if (!sql.trim() || sql.trim().startsWith('--')) continue;
+        try {
+          await adapter.query(connection, sql, []);
+        } catch (err) {
+          throw new Error(
+            `${target.dialect} rejected:\n${sql}\n\n${(err as Error).message.split('\n')[0]}`
+          );
+        }
+        const made = sql.match(/CREATE TABLE\s+("[^"]+"|`[^`]+`|\[[^\]]+\]|\S+)/i);
+        if (made && onCreate) onCreate(made[1]!);
+      }
+      await adapter.commitTransaction(connection);
+    } catch (err) {
+      await adapter.rollbackTransaction(connection).catch(() => undefined);
+      throw err;
+    }
+  } finally {
+    await ConnectionFactory.close(target.provider, connection).catch(() => undefined);
+  }
+}
+
+/** DDL that migrates `from` into `to` — the ALTER path, per dialect hooks. */
+async function alterDdl(
+  from: TableSchema[],
+  to: TableSchema[],
+  dialect: string
+): Promise<string[]> {
+  const result = await new CompareModule().compare(to, from, { source: dialect, target: dialect });
+  return gen.generateMigrationPlan(result.tables, dialect).flatMap((step) => step.statements);
+}
+
 const reachable = new Map<string, boolean>();
 const toDrop: Array<{ provider: string; options: ConnectionOptions; name: string }> = [];
 
@@ -184,6 +247,40 @@ describe.runIf(RUN)('generated DDL runs on the real engines', () => {
         }
       });
 
+      it('alters a table whose names need quoting', async () => {
+        if (reachable.get(target.dialect) === false) return;
+        // ADD / DROP / MODIFY COLUMN go through per-dialect hooks rather than
+        // the CREATE path, so they need their own proof on a real server —
+        // this is where the dialects diverge most.
+        const before = table({
+          name: `alter tbl ${TAG}`,
+          columns: [
+            { name: 'id', type: 'INTEGER', nullable: false, primaryKey: true },
+            { name: 'old col', type: 'VARCHAR(10)', nullable: true, primaryKey: false },
+          ],
+          primaryKey: { columns: ['id'] },
+        });
+        const after = table({
+          name: `alter tbl ${TAG}`,
+          columns: [
+            { name: 'id', type: 'INTEGER', nullable: false, primaryKey: true },
+            { name: 'new col', type: 'VARCHAR(50)', nullable: true, primaryKey: false },
+          ],
+          primaryKey: { columns: ['id'] },
+        });
+
+        await runPlan(target, await ddlFor([before], target.dialect), (name) =>
+          toDrop.push({ provider: target.provider, options: target.options, name })
+        );
+
+        const alters = (await alterDdl([before], [after], target.dialect)).filter(
+          (s) => !s.trim().startsWith('--')
+        );
+        expect(alters.length, 'compare reported a change but generated no ALTER').toBeGreaterThan(0);
+        // One session for the whole plan, exactly as MigrationModule runs it.
+        await runPlan(target, alters);
+      });
+
       for (const testCase of CASES) {
         it(`creates ${testCase.label}`, async () => {
           if (reachable.get(target.dialect) === false) return;
@@ -192,18 +289,9 @@ describe.runIf(RUN)('generated DDL runs on the real engines', () => {
           );
           expect(statements.length, 'generated no DDL to execute').toBeGreaterThan(0);
 
-          for (const statement of statements) {
-            const sql = statement.replace(/;\s*$/, '');
-            try {
-              await ConnectionFactory.executeQuery(target.provider, target.options, sql);
-            } catch (err) {
-              throw new Error(
-                `${target.dialect} rejected:\n${sql}\n\n${(err as Error).message.split('\n')[0]}`
-              );
-            }
-            const made = sql.match(/CREATE TABLE\s+("[^"]+"|`[^`]+`|\[[^\]]+\]|\S+)/i);
-            if (made) toDrop.push({ provider: target.provider, options: target.options, name: made[1]! });
-          }
+          await runPlan(target, statements, (name) =>
+            toDrop.push({ provider: target.provider, options: target.options, name })
+          );
         });
       }
     });
