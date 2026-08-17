@@ -94,6 +94,57 @@ describe('SqlGeneratorModule.generateMigrationPlan', () => {
     sourceTable: tableSchema({ name, columns: [{ name: 'ID', type: 'INTEGER', nullable: false, primaryKey: false }] }),
   });
 
+  describe('DB2 reorg-pending after column changes', () => {
+    // Verified against DB2 11.5: after ALTER TABLE … DROP COLUMN, a SELECT
+    // still succeeds while every INSERT fails with SQL0668N reason code 7. A
+    // migration without the REORG therefore reports success and hands back a
+    // table nobody can write to — and because reads work, it can be a long
+    // while before anyone notices.
+    const droppedColumn: TableDiff = {
+      tableName: 'CUSTOMER',
+      objectType: 'TABLE',
+      status: 'MODIFIED',
+      columnDiffs: [
+        { name: 'OLD_COL', status: 'REMOVED', target: { name: 'old_col', type: 'VARCHAR(10)', nullable: true } },
+      ],
+      indexDiffs: [],
+      foreignKeyDiffs: [],
+      sourceTable: tableSchema({ name: 'customer' }),
+      targetTable: tableSchema({ name: 'customer' }),
+    };
+
+    it('reorgs the table after a DROP COLUMN', () => {
+      const sql = gen.generateMigrationPlan([droppedColumn], 'db2').flatMap((s) => s.statements);
+      const drop = sql.findIndex((s) => /DROP COLUMN/i.test(s));
+      const reorg = sql.findIndex((s) => /REORG TABLE/i.test(s));
+      expect(drop, 'no DROP COLUMN emitted').toBeGreaterThanOrEqual(0);
+      expect(reorg, 'no REORG emitted — the table stays unwritable').toBeGreaterThan(drop);
+      // ADMIN_CMD is the callable form; bare `REORG TABLE` is a CLP command
+      // and cannot be sent over a client connection.
+      expect(sql[reorg]).toContain('SYSPROC.ADMIN_CMD');
+    });
+
+    it('does not reorg when nothing was dropped or retyped', () => {
+      const added: TableDiff = {
+        ...droppedColumn,
+        columnDiffs: [
+          { name: 'NEW_COL', status: 'ADDED', source: { name: 'new_col', type: 'VARCHAR(10)', nullable: true } },
+        ],
+      };
+      const sql = gen.generateMigrationPlan([added], 'db2').flatMap((s) => s.statements).join('\n');
+      expect(sql).toMatch(/ADD/i);
+      expect(sql).not.toMatch(/REORG/i);
+    });
+
+    it('leaves other dialects alone', () => {
+      // Only DB2 implements the hook; nobody else should grow a REORG.
+      for (const dialect of ['postgres', 'mysql', 'sqlserver', 'oracle', 'sqlite']) {
+        const sql = gen.generateMigrationPlan([droppedColumn], dialect).flatMap((s) => s.statements).join('\n');
+        expect(sql, dialect).not.toMatch(/REORG/i);
+      }
+    });
+  });
+
   it('orders steps drop → create → alter', () => {
     const diffs: TableDiff[] = [
       { ...addedTable('NEW') },

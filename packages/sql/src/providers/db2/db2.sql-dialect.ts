@@ -93,6 +93,23 @@ export const db2SqlDialect: SqlDialect = {
     return `ALTER TABLE ${tableName} DROP COLUMN ${colName};`;
   },
 
+  /**
+   * DROP COLUMN (and some type changes) leave the table in *reorg-pending*.
+   * `SELECT` still works, so nothing looks wrong — but every INSERT/UPDATE/
+   * DELETE fails with SQL0668N reason code 7, and so does rebuilding the
+   * table's indexes and keys, until REORG runs.
+   *
+   * Verified against DB2 11.5: after `ALTER TABLE … DROP COLUMN`, a SELECT
+   * succeeded and an INSERT returned SQL0668N. Without this the migration
+   * reports success and hands back a table nobody can write to.
+   *
+   * ADMIN_CMD is the callable form — plain `REORG TABLE` is a CLP command, not
+   * SQL, and cannot be sent over a client connection.
+   */
+  postColumnChangeStatements(qualifiedTable: string): string[] {
+    return [`CALL SYSPROC.ADMIN_CMD('REORG TABLE ${qualifiedTable.replace(/'/g, "''")}');`];
+  },
+
   setDefaultStatements(tableName: string, colName: string, defaultValue: string | undefined): string[] {
     return defaultValue
       ? [`ALTER TABLE ${tableName} ALTER COLUMN ${colName} SET DEFAULT ${defaultValue};`]

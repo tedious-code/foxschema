@@ -760,8 +760,12 @@ export class SqlGeneratorModule {
         statements.push(dialect.addColumnStatement(tableName, colDef));
       }
 
+      // A type change can also leave a table needing maintenance (see
+      // `postColumnChangeStatements`), so it is tracked alongside the drops.
+      let retypedColumns = false;
       for (const col of obj.columnDiffs.filter((c) => c.status === 'MODIFIED')) {
         if (!col.source) continue;
+        if (col.target && col.source.type !== col.target.type) retypedColumns = true;
         const translated = this.translateType(col.source.type, mapping);
         if (translated.warning) statements.push(`-- review: ${col.name}: ${translated.warning}`);
         // Cross-dialect: the raw default AND collation are source-dialect vocabulary
@@ -795,10 +799,24 @@ export class SqlGeneratorModule {
         }
       }
 
+      const droppedColumns =
+        !mapping?.nonDestructive && obj.columnDiffs.some((c) => c.status === 'REMOVED');
       if (!mapping?.nonDestructive) {
         for (const col of obj.columnDiffs.filter((c) => c.status === 'REMOVED')) {
           statements.push(dialect.dropColumnStatement(tableName, this.columnIdent(col)));
         }
+      }
+
+      // Before the keys and indexes are rebuilt, not after: an engine that
+      // needs maintenance here (DB2's REORG) rejects those rebuilds too while
+      // the table is pending.
+      if (droppedColumns || retypedColumns) {
+        statements.push(
+          ...(dialect.postColumnChangeStatements?.(tableName, {
+            dropped: droppedColumns,
+            retyped: retypedColumns,
+          }) ?? [])
+        );
       }
 
       const srcPk = obj.sourceTable ? this.primaryKeyColumns(obj.sourceTable) : [];
