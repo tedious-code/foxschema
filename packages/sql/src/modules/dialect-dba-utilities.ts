@@ -448,6 +448,10 @@ SELECT * FROM (
     };
   }
   if (f === 'db2') {
+    // `database_name` is CURRENT SERVER, not a partition column. The original
+    // query selected a partition number here under a column name that promised
+    // the database — and picked one MON_GET_CONNECTION does not expose, so DB2
+    // answered SQL0206N and Sessions failed outright for every DB2 user.
     return {
       mode: asMode(mode),
       params: [],
@@ -456,7 +460,7 @@ SELECT
   CAST(APPLICATION_HANDLE AS VARCHAR(32)) AS session_id,
   SESSION_AUTH_ID AS user_name,
   CLIENT_HOSTNAME AS client_host,
-  SESSION_DB_PARTITION_NUM AS database_name,
+  CURRENT SERVER AS database_name,
   APPLICATION_NAME AS state,
   CAST(NULL AS VARCHAR(128)) AS wait_event,
   CAST(NULL AS VARCHAR(500)) AS query_text,

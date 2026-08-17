@@ -112,3 +112,17 @@ describe('dialect-dba-utilities', () => {
     expect(q.params).toEqual(['CARTER', 'CARTER']);
   });
 });
+
+describe('DB2 session query columns', () => {
+  it('does not select SESSION_DB_PARTITION_NUM', () => {
+    // MON_GET_CONNECTION has no such column. DB2 answers SQL0206N, so the
+    // Sessions utility failed for every DB2 user until this was corrected.
+    const built = buildDbaUtilityQuery({ dialect: 'db2', kind: 'sessions' });
+    expect('error' in built).toBe(false);
+    const sql = (built as { sql: string }).sql;
+    expect(sql).not.toContain('SESSION_DB_PARTITION_NUM');
+    // Verified live on DB2 11.5: this returns the database, which is what the
+    // column claims to be — a partition number was wrong for it regardless.
+    expect(sql).toContain('CURRENT SERVER AS database_name');
+  });
+});

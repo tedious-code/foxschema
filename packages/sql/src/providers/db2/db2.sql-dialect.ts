@@ -80,6 +80,22 @@ export const db2SqlDialect: SqlDialect = {
     return `ALTER TABLE ${tableName} ADD ${def};`;
   },
 
+  /**
+   * Undo the `WITH DEFAULT` above once the rows are backfilled.
+   *
+   * Without this the new column keeps a default (`''`, `0`) the source column
+   * never declared, so re-comparing straight after a *successful* migration
+   * still reports the column as changed — the tool proposes the same migration
+   * for ever and never converges. Verified on DB2 11.5: DROP DEFAULT is
+   * accepted immediately after the ADD, needs no REORG in between, and leaves
+   * the catalog default NULL, matching the source exactly.
+   */
+  afterAddColumnStatements(tableName: string, colName: string, col: ColumnSpec): string[] {
+    const sourceHadDefault = col.defaultValue !== undefined && col.defaultValue !== null;
+    if (col.nullable || sourceHadDefault) return [];
+    return [`ALTER TABLE ${tableName} ALTER COLUMN ${colName} DROP DEFAULT;`];
+  },
+
   modifyColumnStatements(tableName: string, colName: string, col: ColumnSpec): string[] {
     const stmts = [`ALTER TABLE ${tableName} ALTER COLUMN ${colName} SET DATA TYPE ${col.type};`];
     // DB2 nullability is a separate clause — SET DATA TYPE does not carry it.
