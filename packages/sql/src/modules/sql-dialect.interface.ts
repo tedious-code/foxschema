@@ -257,6 +257,15 @@ export interface SqlDialect {
   wrapCreateSequence?(qualifiedName: string, createSql: string): string;
 
   /**
+   * Oracle spells the negative sequence options as single keywords —
+   * `NOCYCLE`, `NOCACHE`. The spaced `NO CYCLE` / `NO CACHE` that Postgres and
+   * DB2 accept is **ORA-03049** there, which kills the CREATE SEQUENCE and then
+   * everything that depends on it: the table whose default calls the sequence,
+   * and the views over that table.
+   */
+  unspacedSequenceNoKeywords?: boolean;
+
+  /**
    * Wrap the standard `ALTER SEQUENCE name ...;` into a dialect-safe form.
    * Called with the qualified name and the full `ALTER SEQUENCE name ...;` string.
    * MariaDB needs the CYCLE/CACHE negatives collapsed to the single tokens

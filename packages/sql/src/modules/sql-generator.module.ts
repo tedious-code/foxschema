@@ -349,6 +349,15 @@ export class SqlGeneratorModule {
    * index (SQL Server renders it as ALTER TABLE ADD CONSTRAINT). `idx.name` must be bare.
    */
   private createIndexSql(idx: IndexInfo, qualifiedTable: string, dialect?: SqlDialect): string {
+    // Oracle keeps a function-based index's expression in ALL_IND_EXPRESSIONS
+    // and puts a hidden `SYS_NC00006$` placeholder in ALL_IND_COLUMNS, which is
+    // what introspection reads. Emitting that name is ORA-00904 ("invalid
+    // identifier") — the index cannot be built from what we captured, so say so
+    // rather than shipping DDL that cannot run.
+    const hidden = idx.columns.find((c) => /^SYS_NC\d+\$$/i.test((c ?? '').trim()));
+    if (hidden) {
+      return `-- review: skip index ${idx.name} on ${qualifiedTable} — function-based index; its expression is not captured (column reads as ${hidden})`;
+    }
     // Quote the column names *before* handing them to a dialect hook: the hooks
     // build their own column list, so a hook-owning dialect (SQLite, SQL Server)
     // would otherwise emit `ON t (order id)` while the generic path below got
@@ -405,8 +414,11 @@ export class SqlGeneratorModule {
     if (s.increment !== undefined) opts += ` INCREMENT BY ${s.increment}`;
     if (s.minValue !== undefined) opts += ` MINVALUE ${s.minValue}`;
     if (s.maxValue !== undefined) opts += ` MAXVALUE ${s.maxValue}`;
-    opts += s.cycle ? ` CYCLE` : ` NO CYCLE`;
-    if (s.cache !== undefined) opts += s.cache > 0 ? ` CACHE ${s.cache}` : ` NO CACHE`;
+    // `NO CYCLE` on most engines, `NOCYCLE` on Oracle — the spaced form is
+    // ORA-03049 there, and it takes the dependent table and views down with it.
+    const no = dialect?.unspacedSequenceNoKeywords ? 'NO' : 'NO ';
+    opts += s.cycle ? ` CYCLE` : ` ${no}CYCLE`;
+    if (s.cache !== undefined) opts += s.cache > 0 ? ` CACHE ${s.cache}` : ` ${no}CACHE`;
     const createSql = `CREATE SEQUENCE ${name}${opts};`;
     return dialect?.wrapCreateSequence?.(name, createSql) ?? `CREATE SEQUENCE IF NOT EXISTS ${name}${opts};`;
   }
@@ -935,8 +947,9 @@ export class SqlGeneratorModule {
       if (s.increment !== undefined) alter += ` INCREMENT BY ${s.increment}`;
       if (s.minValue !== undefined) alter += ` MINVALUE ${s.minValue}`;
       if (s.maxValue !== undefined) alter += ` MAXVALUE ${s.maxValue}`;
-      alter += s.cycle ? ` CYCLE` : ` NO CYCLE`;
-      if (s.cache !== undefined) alter += s.cache > 0 ? ` CACHE ${s.cache}` : ` NO CACHE`;
+      const noAlter = dialect?.unspacedSequenceNoKeywords ? 'NO' : 'NO ';
+      alter += s.cycle ? ` CYCLE` : ` ${noAlter}CYCLE`;
+      if (s.cache !== undefined) alter += s.cache > 0 ? ` CACHE ${s.cache}` : ` ${noAlter}CACHE`;
       const alterSql = alter + `;`;
       statements.push(dialect.wrapAlterSequence?.(tableName, alterSql) ?? alterSql);
     } else if (obj.objectType === 'TYPE' && obj.sourceTable) {
@@ -1144,7 +1157,14 @@ export class SqlGeneratorModule {
     // Structural ADDED objects (TABLE, SEQUENCE, TYPE, ROLE) come before MODIFIED so
     // that new tables can be referenced by FK constraints added in ALTER steps.
     const addedStructural = diffs.filter((d) => d.status === 'ADDED' && !PROCEDURAL_TYPES.has(d.objectType));
-    for (const obj of this.sortAddedByDependency(addedStructural)) {
+    // Sequences, types and roles ahead of tables. `sortAddedByDependency` only
+    // knows about foreign keys, so a table whose column default calls a
+    // sequence (`DEFAULT order_seq.NEXTVAL`) was created before the sequence
+    // existed — ORA-02289 on Oracle, which then took out every view over that
+    // table. None of these can depend on a table, so first is always safe.
+    const supporting = addedStructural.filter((d) => d.objectType !== 'TABLE' && d.objectType !== 'MQT');
+    const tables = addedStructural.filter((d) => d.objectType === 'TABLE' || d.objectType === 'MQT');
+    for (const obj of [...supporting, ...this.sortAddedByDependency(tables)]) {
       const stmts = this.createObjectStatements(obj, dialect, m);
       steps.push({ objectName: obj.tableName, objectType: obj.objectType, action: 'CREATE', statements: stmts });
     }

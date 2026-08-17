@@ -75,6 +75,12 @@ export const oracleSqlDialect: SqlDialect = {
     return c.identity ? ` GENERATED ${c.identityGeneration ?? 'ALWAYS'} AS IDENTITY` : '';
   },
 
+  // NOCYCLE / NOCACHE, not NO CYCLE / NO CACHE. Verified on Oracle 23 Free: the
+  // spaced form raises ORA-03049 ("SQL keyword 'NO' is not syntactically
+  // valid"), which failed the CREATE SEQUENCE and then cascaded — the table
+  // whose default calls the sequence (ORA-02289) and the views over it.
+  unspacedSequenceNoKeywords: true,
+
   // Oracle can't RESTART a sequence portably (RESTART START WITH is 18c+; older has no
   // equivalent), so skip the clause rather than emit invalid SQL.
   alterSequenceRestart(): string {
@@ -130,13 +136,20 @@ export const oracleSqlDialect: SqlDialect = {
   dropIndexStatement(indexName: string, qualifiedTable: string): string {
     const dot = qualifiedTable.indexOf('.');
     const prefix = dot >= 0 ? qualifiedTable.slice(0, dot + 1) : '';
-    return `DROP INDEX ${prefix}${indexName};`;
+    // Tolerant like the table/view/sequence drops above: an index can already
+    // be gone (dropped with its table, or never created because it is
+    // function-based and its expression was not captured), and ORA-01418 then
+    // failed the whole step. This hook gets no server version, so it always
+    // uses the SQLCODE guard, which is valid on every release.
+    return oracleDrop('INDEX', `${prefix}${indexName}`, -1418);
   },
 
   dropTriggerStatement(triggerName: string, qualifiedTable: string): string {
     const dot = qualifiedTable.indexOf('.');
     const prefix = dot >= 0 ? qualifiedTable.slice(0, dot + 1) : '';
-    return `DROP TRIGGER ${prefix}${triggerName};`;
+    // Same tolerance as the index drop: a trigger goes away with its table, and
+    // ORA-04080 on an already-absent one failed the step for no good reason.
+    return oracleDrop('TRIGGER', `${prefix}${triggerName}`, -4080);
   },
 
   createTriggerStatement(
