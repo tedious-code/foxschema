@@ -265,3 +265,5 @@ export {
   groupForeignKeyRows,
 } from './cores/schema-to-tables.js';
 export type { FkRow } from './cores/schema-to-tables.js';
+
+export { autoAliasSelectColumns, type AliasedSelect } from './modules/select-alias.js';
