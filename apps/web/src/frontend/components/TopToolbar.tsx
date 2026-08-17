@@ -10,7 +10,6 @@ import { CredentialManager } from './CredentialManager';
 import { MigrationHistory } from './MigrationHistory';
 import { TYPE_META, TYPE_ORDER } from './SchemaTreePanel';
 import type { DbObjectType } from '../lib/types';
-import { PROVIDER_SETTINGS } from '../lib/provider-settings';
 import { ConnectionModal } from './ConnectionModal';
 import { PasswordInput } from './PasswordInput';
 import { useAuthStore } from '../store/authStore';
@@ -21,8 +20,6 @@ import { HistoryCompareBar } from './lokee-weave/HistoryCompareBar';
 import { BrowseBar } from './BrowseBar';
 
 const ProfileMenu = ProfileMenuNamed ?? ProfileMenuDefault;
-
-const dialectOptions = Object.values(PROVIDER_SETTINGS);
 
 export const TopToolbar: React.FC = () => {
   const {
@@ -38,8 +35,6 @@ export const TopToolbar: React.FC = () => {
     testTargetConnection,
     isComparing,
     runSchemaComparison,
-    browseSchema,
-    isBrowsing,
     compareResult,
     resetSync,
     selectedObjectTypes,

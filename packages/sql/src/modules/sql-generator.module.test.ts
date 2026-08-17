@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { SqlGeneratorModule } from './sql-generator.module.js';
+import { db2SqlDialect } from '../providers/db2/db2.sql-dialect.js';
 import { TableDiff } from '../interfaces/index.js';
 import { TableSchema } from '../interfaces/index.js';
 
@@ -92,6 +93,133 @@ describe('SqlGeneratorModule.generateMigrationPlan', () => {
     indexDiffs: [],
     foreignKeyDiffs: [],
     sourceTable: tableSchema({ name, columns: [{ name: 'ID', type: 'INTEGER', nullable: false, primaryKey: false }] }),
+  });
+
+  describe('DB2 tolerates a foreign key that is already gone', () => {
+    it('wraps the FK drop in the same 42704 handler as its other drops', () => {
+      // Dropping a parent table takes its inbound foreign keys with it, and
+      // table drops are ordered before the ALTERs — so by the time the explicit
+      // FK drop runs, the constraint often no longer exists. DB2 has no DROP
+      // CONSTRAINT IF EXISTS, and DB2 has transactional DDL, so the resulting
+      // SQL0204N rolled the *entire* migration back: on the live samples the
+      // revert reported no error and changed nothing at all.
+      const sql = db2SqlDialect.dropForeignKeyStatement!('S.CHILD', 'FK_CHILD_PARENT');
+      expect(sql).toContain("SQLSTATE '42704'");
+      expect(sql).toContain('DROP FOREIGN KEY FK_CHILD_PARENT');
+    });
+
+    it('still drops the constraint it was asked to drop', () => {
+      const sql = db2SqlDialect.dropForeignKeyStatement!('S.CHILD', 'FK_X');
+      expect(sql).toMatch(/ALTER TABLE S\.CHILD DROP FOREIGN KEY FK_X/);
+    });
+  });
+
+  describe('DB2 converges after adding a NOT NULL column', () => {
+    // DB2 cannot add a NOT NULL column to a populated table without a default
+    // (SQL0193N), so the dialect appends `WITH DEFAULT`. That leaves the column
+    // holding a default the source never declared, and the next comparison
+    // reports the same change again — for ever. Verified end to end against the
+    // shipped DEMO_A/DEMO_B samples on DB2 11.5: with this, re-comparing after
+    // the migration reports no differences at all.
+    const addNotNull = (over: Partial<{ nullable: boolean; defaultValue: string }> = {}): TableDiff => ({
+      tableName: 'PRODUCTS',
+      objectType: 'TABLE',
+      status: 'MODIFIED',
+      columnDiffs: [
+        {
+          name: 'SKU',
+          status: 'ADDED',
+          source: { name: 'SKU', type: 'VARCHAR(50)', nullable: false, ...over },
+        },
+      ],
+      indexDiffs: [],
+      foreignKeyDiffs: [],
+      sourceTable: tableSchema({ name: 'PRODUCTS' }),
+      targetTable: tableSchema({ name: 'PRODUCTS' }),
+    });
+
+    it('drops the implicit default it had to add', () => {
+      const sql = gen.generateMigrationPlan([addNotNull()], 'db2').flatMap((s) => s.statements);
+      const add = sql.findIndex((s) => /ADD\b/i.test(s) && /WITH DEFAULT/i.test(s));
+      const drop = sql.findIndex((s) => /DROP DEFAULT/i.test(s));
+      expect(add, 'no ADD … WITH DEFAULT emitted').toBeGreaterThanOrEqual(0);
+      expect(drop, 'the implicit default is never dropped — this never converges').toBeGreaterThan(add);
+    });
+
+    it('keeps a default the source actually declares', () => {
+      const sql = gen
+        .generateMigrationPlan([addNotNull({ defaultValue: "'x'" })], 'db2')
+        .flatMap((s) => s.statements)
+        .join('\n');
+      expect(sql).toContain("DEFAULT 'x'");
+      expect(sql, 'dropped a default the source asked for').not.toMatch(/DROP DEFAULT/i);
+    });
+
+    it('leaves a nullable column alone', () => {
+      const sql = gen
+        .generateMigrationPlan([addNotNull({ nullable: true })], 'db2')
+        .flatMap((s) => s.statements)
+        .join('\n');
+      expect(sql).not.toMatch(/DROP DEFAULT/i);
+    });
+
+    it('does not touch other dialects', () => {
+      for (const dialect of ['postgres', 'mysql', 'sqlserver', 'oracle']) {
+        const sql = gen.generateMigrationPlan([addNotNull()], dialect).flatMap((s) => s.statements).join('\n');
+        expect(sql, dialect).not.toMatch(/DROP DEFAULT/i);
+      }
+    });
+  });
+
+  describe('DB2 reorg-pending after column changes', () => {
+    // Verified against DB2 11.5: after ALTER TABLE … DROP COLUMN, a SELECT
+    // still succeeds while every INSERT fails with SQL0668N reason code 7. A
+    // migration without the REORG therefore reports success and hands back a
+    // table nobody can write to — and because reads work, it can be a long
+    // while before anyone notices.
+    const droppedColumn: TableDiff = {
+      tableName: 'CUSTOMER',
+      objectType: 'TABLE',
+      status: 'MODIFIED',
+      columnDiffs: [
+        { name: 'OLD_COL', status: 'REMOVED', target: { name: 'old_col', type: 'VARCHAR(10)', nullable: true } },
+      ],
+      indexDiffs: [],
+      foreignKeyDiffs: [],
+      sourceTable: tableSchema({ name: 'customer' }),
+      targetTable: tableSchema({ name: 'customer' }),
+    };
+
+    it('reorgs the table after a DROP COLUMN', () => {
+      const sql = gen.generateMigrationPlan([droppedColumn], 'db2').flatMap((s) => s.statements);
+      const drop = sql.findIndex((s) => /DROP COLUMN/i.test(s));
+      const reorg = sql.findIndex((s) => /REORG TABLE/i.test(s));
+      expect(drop, 'no DROP COLUMN emitted').toBeGreaterThanOrEqual(0);
+      expect(reorg, 'no REORG emitted — the table stays unwritable').toBeGreaterThan(drop);
+      // ADMIN_CMD is the callable form; bare `REORG TABLE` is a CLP command
+      // and cannot be sent over a client connection.
+      expect(sql[reorg]).toContain('SYSPROC.ADMIN_CMD');
+    });
+
+    it('does not reorg when nothing was dropped or retyped', () => {
+      const added: TableDiff = {
+        ...droppedColumn,
+        columnDiffs: [
+          { name: 'NEW_COL', status: 'ADDED', source: { name: 'new_col', type: 'VARCHAR(10)', nullable: true } },
+        ],
+      };
+      const sql = gen.generateMigrationPlan([added], 'db2').flatMap((s) => s.statements).join('\n');
+      expect(sql).toMatch(/ADD/i);
+      expect(sql).not.toMatch(/REORG/i);
+    });
+
+    it('leaves other dialects alone', () => {
+      // Only DB2 implements the hook; nobody else should grow a REORG.
+      for (const dialect of ['postgres', 'mysql', 'sqlserver', 'oracle', 'sqlite']) {
+        const sql = gen.generateMigrationPlan([droppedColumn], dialect).flatMap((s) => s.statements).join('\n');
+        expect(sql, dialect).not.toMatch(/REORG/i);
+      }
+    });
   });
 
   it('orders steps drop → create → alter', () => {

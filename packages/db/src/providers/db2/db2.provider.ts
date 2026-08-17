@@ -414,14 +414,22 @@ export class Db2Provider implements SchemaProvider {
           [schemaName]
         ),
         // Roles are database-global (not schema-scoped).
+        //
+        // `SYS%` is excluded because those are DB2's own built-in roles
+        // (SYSDEBUG, SYSTS_ADM, SYSGEOADM, …). They exist in every database,
+        // belong to nobody, and cannot be recreated — DB2 reserves the SYS
+        // prefix and answers `CREATE ROLE SYSDEBUG` with SQL0707N. Reporting
+        // them put six phantom objects in every DB2 comparison and put eleven
+        // statements that can never succeed into the migration.
         ConnectionFactory.executeOnConnection<Db2RoleRaw>(
           this.provider, conn,
-          `SELECT ROLENAME FROM SYSCAT.ROLES ORDER BY ROLENAME`,
+          `SELECT ROLENAME FROM SYSCAT.ROLES WHERE ROLENAME NOT LIKE 'SYS%' ORDER BY ROLENAME`,
           []
         ),
         ConnectionFactory.executeOnConnection<Db2RoleAuthRaw>(
           this.provider, conn,
-          `SELECT ROLENAME, GRANTEE, GRANTEETYPE FROM SYSCAT.ROLEAUTH ORDER BY ROLENAME, GRANTEE`,
+          `SELECT ROLENAME, GRANTEE, GRANTEETYPE FROM SYSCAT.ROLEAUTH
+           WHERE ROLENAME NOT LIKE 'SYS%' ORDER BY ROLENAME, GRANTEE`,
           []
         )
       ]);

@@ -132,6 +132,38 @@ export interface SqlDialect {
   quoteIdentifier?(name: string): string;
 
   /**
+   * Statements to run after a table's columns change, before its indexes,
+   * keys and triggers are rebuilt.
+   *
+   * DB2 puts a table into *reorg-pending* after DROP COLUMN and after some type
+   * changes: `SELECT` still works, but every write fails with SQL0668N reason
+   * code 7 until `REORG TABLE` runs. A migration that skips it reports success
+   * and hands back a table nobody can write to — and because reads still work,
+   * it can be a while before anyone notices.
+   *
+   * Omit unless the engine needs it. Runs inside the migration's transaction
+   * alongside the ALTERs.
+   */
+  /**
+   * Statements that clean up after this dialect's own `addColumnStatement`.
+   *
+   * DB2 cannot add a NOT NULL column to a populated table without a default
+   * (SQL0193N), so the dialect appends `WITH DEFAULT` to make the ALTER
+   * succeed. That leaves the column carrying a default (`''`, `0`) the source
+   * column never had — so the very next comparison reports the column as
+   * changed, proposes the same migration again, and never converges. Dropping
+   * the implicit default afterwards makes the result actually match the source.
+   *
+   * Omit unless `addColumnStatement` adds something the source did not ask for.
+   */
+  afterAddColumnStatements?(qualifiedTable: string, colName: string, col: ColumnSpec): string[];
+
+  postColumnChangeStatements?(
+    qualifiedTable: string,
+    changed: { dropped: boolean; retyped: boolean }
+  ): string[];
+
+  /**
    * Full ` COLLATE ...` clause (with leading space) for a column's collation, used in
    * CREATE TABLE / ADD COLUMN. Default: ` COLLATE <name>`, unquoted — correct for
    * MySQL/MariaDB/SQL Server/Oracle collation names. Postgres overrides this: its

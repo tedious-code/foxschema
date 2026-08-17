@@ -64,6 +64,12 @@ function db2Drop(keyword: string, name: string): string {
   return `BEGIN\n  DECLARE CONTINUE HANDLER FOR SQLSTATE '42704' BEGIN END;\n  EXECUTE IMMEDIATE 'DROP ${keyword} ${safe}';\nEND`;
 }
 
+/** Same tolerance for a constraint, which lives on ALTER TABLE rather than DROP. */
+function db2DropConstraint(tableName: string, fkName: string): string {
+  const safe = `ALTER TABLE ${tableName} DROP FOREIGN KEY ${fkName}`.replace(/'/g, "''");
+  return `BEGIN\n  DECLARE CONTINUE HANDLER FOR SQLSTATE '42704' BEGIN END;\n  EXECUTE IMMEDIATE '${safe}';\nEND`;
+}
+
 export const db2SqlDialect: SqlDialect = {
   identityClause(c: ColumnSpec): string {
     return c.identity ? ` GENERATED ${c.identityGeneration ?? 'ALWAYS'} AS IDENTITY` : '';
@@ -80,6 +86,22 @@ export const db2SqlDialect: SqlDialect = {
     return `ALTER TABLE ${tableName} ADD ${def};`;
   },
 
+  /**
+   * Undo the `WITH DEFAULT` above once the rows are backfilled.
+   *
+   * Without this the new column keeps a default (`''`, `0`) the source column
+   * never declared, so re-comparing straight after a *successful* migration
+   * still reports the column as changed — the tool proposes the same migration
+   * for ever and never converges. Verified on DB2 11.5: DROP DEFAULT is
+   * accepted immediately after the ADD, needs no REORG in between, and leaves
+   * the catalog default NULL, matching the source exactly.
+   */
+  afterAddColumnStatements(tableName: string, colName: string, col: ColumnSpec): string[] {
+    const sourceHadDefault = col.defaultValue !== undefined && col.defaultValue !== null;
+    if (col.nullable || sourceHadDefault) return [];
+    return [`ALTER TABLE ${tableName} ALTER COLUMN ${colName} DROP DEFAULT;`];
+  },
+
   modifyColumnStatements(tableName: string, colName: string, col: ColumnSpec): string[] {
     const stmts = [`ALTER TABLE ${tableName} ALTER COLUMN ${colName} SET DATA TYPE ${col.type};`];
     // DB2 nullability is a separate clause — SET DATA TYPE does not carry it.
@@ -91,6 +113,23 @@ export const db2SqlDialect: SqlDialect = {
 
   dropColumnStatement(tableName: string, colName: string): string {
     return `ALTER TABLE ${tableName} DROP COLUMN ${colName};`;
+  },
+
+  /**
+   * DROP COLUMN (and some type changes) leave the table in *reorg-pending*.
+   * `SELECT` still works, so nothing looks wrong — but every INSERT/UPDATE/
+   * DELETE fails with SQL0668N reason code 7, and so does rebuilding the
+   * table's indexes and keys, until REORG runs.
+   *
+   * Verified against DB2 11.5: after `ALTER TABLE … DROP COLUMN`, a SELECT
+   * succeeded and an INSERT returned SQL0668N. Without this the migration
+   * reports success and hands back a table nobody can write to.
+   *
+   * ADMIN_CMD is the callable form — plain `REORG TABLE` is a CLP command, not
+   * SQL, and cannot be sent over a client connection.
+   */
+  postColumnChangeStatements(qualifiedTable: string): string[] {
+    return [`CALL SYSPROC.ADMIN_CMD('REORG TABLE ${qualifiedTable.replace(/'/g, "''")}');`];
   },
 
   setDefaultStatements(tableName: string, colName: string, defaultValue: string | undefined): string[] {
@@ -105,7 +144,15 @@ export const db2SqlDialect: SqlDialect = {
 
   dropForeignKeyStatement(tableName: string, fkName: string): string {
     // DB2 has no DROP CONSTRAINT IF EXISTS; DROP FOREIGN KEY is the native form.
-    return `ALTER TABLE ${tableName} DROP FOREIGN KEY ${fkName};`;
+    //
+    // Wrapped in the same 42704 handler as the other drops, because the
+    // constraint may already be gone by the time this runs: dropping a parent
+    // table earlier in the plan takes its inbound foreign keys with it. Without
+    // the handler that raised SQL0204N, and since DB2 has transactional DDL the
+    // *whole* migration rolled back — a revert that reported no error and
+    // changed nothing. The generic fallback says `DROP CONSTRAINT IF EXISTS`
+    // for exactly this reason; this restores that tolerance for DB2.
+    return `${db2DropConstraint(tableName, fkName)};`;
   },
 
   dropIndexStatement(indexName: string, qualifiedTable: string): string {
