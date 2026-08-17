@@ -40,6 +40,9 @@ interface LokeeHistoryState {
   requestCapture: () => void;
   refreshRequest: number;
   requestRefresh: () => void;
+  /** Bumped by the Target card's Compare button; the graph view opens the modal. */
+  compareRequest: number;
+  requestCompare: () => void;
 }
 
 export const useLokeeHistoryStore = create<LokeeHistoryState>((set, get) => ({
@@ -64,6 +67,8 @@ export const useLokeeHistoryStore = create<LokeeHistoryState>((set, get) => ({
   requestCapture: () => set({ captureRequest: get().captureRequest + 1 }),
   refreshRequest: 0,
   requestRefresh: () => set({ refreshRequest: get().refreshRequest + 1 }),
+  compareRequest: 0,
+  requestCompare: () => set({ compareRequest: get().compareRequest + 1 }),
   swapSides: () => {
     const next = swapHistoryCompare(get().versions, {
       originalVersionId: get().originalVersionId,

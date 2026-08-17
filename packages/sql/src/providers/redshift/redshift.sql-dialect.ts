@@ -48,7 +48,9 @@ const types = makeDialectTypeFns({
     double: plain('double precision'),
     char: sized('char'),
     varchar: sized('varchar'),
-    text: plain('varchar(max)'),
+    // Redshift has no VARCHAR(MAX) — that is T-SQL, and the server rejects it.
+    // 65535 bytes is the documented maximum width for a Redshift VARCHAR.
+    text: plain('varchar(65535)'),
     binary: plain('varbyte'),
     varbinary: plain('varbyte'),
     blob: plain('varbyte'),
@@ -58,7 +60,7 @@ const types = makeDialectTypeFns({
     timestamptz: plain('timestamptz'),
     uuid: plain('varchar(36)'),
     json: plain('super'),
-    xml: plain('varchar(max)'),
+    xml: plain('varchar(65535)'),
   },
 });
 

@@ -81,6 +81,12 @@ const mysqlDialect: SqlDialect = {
     return c.identity ? ` AUTO_INCREMENT` : '';
   },
 
+  // Backticks, not ANSI double quotes: MySQL only reads `"x"` as an identifier
+  // under ANSI_QUOTES, which is off by default. An embedded backtick doubles.
+  quoteIdentifier(name: string): string {
+    return `\`${name.replace(/`/g, '``')}\``;
+  },
+
   addColumnStatement(tableName: string, colDef: string): string {
     return `ALTER TABLE ${tableName} ADD ${colDef};`;
   },

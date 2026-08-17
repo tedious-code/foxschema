@@ -1330,15 +1330,116 @@ export function collectMultiTableWriteWarnings(
   return out;
 }
 
-/** Unique bare/qualified table names from {@link extractTableAliases} values. */
+/**
+ * Names defined by this statement's `WITH` clause.
+ *
+ * A CTE name looks exactly like a table in `FROM recent`, but it exists only
+ * for the length of the query. Autocomplete still wants it (you can type
+ * `recent.`), so this filters at the caller rather than in
+ * {@link extractTableAliases}.
+ */
+function cteNames(sql: string): Set<string> {
+  const names = new Set<string>();
+  const s = stripSqlStringsAndComments(sql);
+  let i = 0;
+
+  // A hand-rolled scan rather than one regex. The pattern this replaces held
+  // several adjacent optional `\s*` groups, which is ambiguous enough to
+  // backtrack exponentially — a denial of service reachable from the SQL
+  // editor, where the input is whatever the user typed. This walks the string
+  // once instead, and reads more like the grammar it is matching.
+  const isSpace = (c: string | undefined): boolean => c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f' || c === '\v';
+  const skipSpace = (): void => {
+    while (i < s.length && isSpace(s[i])) i++;
+  };
+  /** Case-insensitive keyword match on a fixed-length slice, then consume it. */
+  const eatWord = (word: string): boolean => {
+    const end = i + word.length;
+    if (s.slice(i, end).toLowerCase() !== word) return false;
+    const after = s[end];
+    if (after !== undefined && /[\w$]/.test(after)) return false;
+    i = end;
+    return true;
+  };
+  /** Consume a balanced `( … )` run, respecting nesting. */
+  const skipParens = (): boolean => {
+    if (s[i] !== '(') return false;
+    let depth = 0;
+    for (; i < s.length; i++) {
+      if (s[i] === '(') depth++;
+      else if (s[i] === ')') {
+        depth--;
+        if (depth === 0) {
+          i++;
+          return true;
+        }
+      }
+    }
+    return false; // unbalanced — stop scanning rather than guess
+  };
+  const readIdent = (): string | null => {
+    const open = s[i];
+    const close = open === '"' ? '"' : open === '`' ? '`' : open === '[' ? ']' : null;
+    if (close) {
+      const end = s.indexOf(close, i + 1);
+      if (end < 0) return null;
+      const raw = s.slice(i, end + 1);
+      i = end + 1;
+      return stripIdentQuotes(raw);
+    }
+    const start = i;
+    while (i < s.length && /[\w$]/.test(s[i]!)) i++;
+    return i > start ? s.slice(start, i) : null;
+  };
+
+  skipSpace();
+  if (s[i] === '(') {
+    i++;
+    skipSpace();
+  }
+  if (!eatWord('with')) return names;
+  skipSpace();
+  eatWord('recursive');
+
+  for (;;) {
+    skipSpace();
+    const name = readIdent();
+    if (!name) return names;
+    skipSpace();
+    // Optional column list: `WITH t(a, b) AS (…)`.
+    if (s[i] === '(' && !skipParens()) return names;
+    skipSpace();
+    if (!eatWord('as')) return names;
+    skipSpace();
+    // Postgres optimisation fences.
+    if (eatWord('not')) skipSpace();
+    if (eatWord('materialized')) skipSpace();
+    if (s[i] !== '(') return names;
+    names.add(name.toLowerCase());
+    if (!skipParens()) return names;
+    skipSpace();
+    if (s[i] !== ',') return names;
+    i++;
+  }
+}
+
+/**
+ * Unique **physical** table names from {@link extractTableAliases} values.
+ *
+ * CTE names are excluded: counting `recent` in
+ * `WITH recent AS (SELECT * FROM orders) SELECT * FROM recent` as a table made
+ * the multi-table write warning count objects that do not exist.
+ */
 export function referencedTableNames(sql: string): string[] {
   const map = extractTableAliases(sql);
+  const ctes = cteNames(sql);
   const seen = new Set<string>();
   const out: string[] = [];
   for (const table of Object.values(map)) {
     const key = table.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
+    if (ctes.has(key)) continue;
     out.push(table);
   }
   return out;
@@ -1396,7 +1497,15 @@ export function extractTableAliases(sql: string): Record<string, string> {
     if (!aliasRaw) continue;
     const alias = stripIdentQuotes(aliasRaw);
     if (!alias) continue;
-    if (ALIAS_KEYWORD_BLACKLIST.has(alias.toLowerCase())) continue;
+    if (ALIAS_KEYWORD_BLACKLIST.has(alias.toLowerCase())) {
+      // The optional alias group swallowed a keyword: in `FROM orders JOIN
+      // customers`, `JOIN` matched as the alias of `orders`, leaving lastIndex
+      // past it so `customers` was never scanned at all. Rewind to where the
+      // keyword starts so it can open its own match. The alias always begins
+      // after the match start, so this still moves forward — no loop.
+      re.lastIndex = m.index + m[0].length - aliasRaw.length;
+      continue;
+    }
     out[alias.toLowerCase()] = table;
   }
   return out;

@@ -54,7 +54,10 @@ export class LokeeHistoryPage {
     await this.page.waitForFunction(
       (expected) => {
         const el = document.querySelector('[data-testid="lokee-summary"]');
-        const text = el?.textContent ?? '';
+        // innerText, not textContent: the summary is a row of sibling spans, so
+        // textContent runs them together as "…2 versions10 objects…" and the
+        // trailing \b never matches — `s` meets `1`, both word characters.
+        const text = (el as HTMLElement | null)?.innerText ?? '';
         return new RegExp(`\\b${expected}\\s+versions?\\b`, 'i').test(text);
       },
       n,
@@ -309,9 +312,30 @@ export class LokeeHistoryPage {
     await box.click();
   }
 
+  /**
+   * Tick every changed object. Required before Execute: an empty tick set is
+   * refused rather than silently widening to the whole schema, which is what
+   * used to revert an entire database from a dialog with nothing selected.
+   */
+  async selectAllCompareObjects(): Promise<void> {
+    await clickWhen(this.page, '[data-testid="lokee-cmp-select-all"]');
+  }
+
   async compareObjectNames(): Promise<string[]> {
     const items = this.page.locator('[data-testid="diff-item"]');
-    await items.first().waitFor({ state: 'visible', timeout: 20_000 });
+    try {
+      await items.first().waitFor({ state: 'visible', timeout: 20_000 });
+    } catch (error) {
+      // "no diff rows" and "the dialog says the versions are identical" look
+      // the same from a timeout, and they have opposite causes.
+      const open = await this.compareModalOpen();
+      const identical = await this.compareIdenticalVisible().catch(() => false);
+      const summary = await this.compareSummaryText().catch(() => '');
+      throw new Error(
+        `No objects in the compare tree. modalOpen=${open} identical=${identical} summary=${summary}`,
+        { cause: error }
+      );
+    }
     const count = await items.count();
     const names: string[] = [];
     for (let i = 0; i < count; i++) {
@@ -342,5 +366,16 @@ export class LokeeHistoryPage {
       },
       { timeout: 30_000 }
     );
+  }
+
+  /** "↩ reverted to vN" labels on the version nodes, newest first. */
+  async revertedToLabels(): Promise<string[]> {
+    const marks = this.page.locator('[data-testid^="rf-version-revert-"]');
+    const count = await marks.count();
+    const out: string[] = [];
+    for (let i = 0; i < count; i++) {
+      out.push((await marks.nth(i).innerText().catch(() => '')) ?? '');
+    }
+    return out;
   }
 }

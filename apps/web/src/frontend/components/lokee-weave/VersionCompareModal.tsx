@@ -14,7 +14,7 @@
  * forty columns across three tables is three rows to scan, not forty.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Loader2, Play, X } from 'lucide-react';
+import { Download, Loader2, Play, X } from 'lucide-react';
 import type { TableDiff } from '@foxschema/sql';
 import {
   compareLokeeVersions,
@@ -28,6 +28,7 @@ import { getSessionPassword } from '../../lib/sessionPasswords';
 import { toast } from '../../store/toastStore';
 import { riskStyle } from '../../lib/lokeeColors';
 import { SchemaBlueprint } from '../SchemaBlueprint';
+import { buildMigrationReport, migrationReportFilename } from '../../lib/migrationReport';
 import { SchemaDiffTree, orderTablesForDisplay } from '../SchemaDiffTree';
 import { DetailTabs, type DetailTab } from '../DetailTabs';
 import { buildTableDdlDiffLines, DdlDiffLines } from '../SchemaDdlDiff';
@@ -196,18 +197,65 @@ export function VersionCompareModal({
    * button with no stated reason. Comparing before deciding is the whole point
    * of this dialog; the decision has to be reachable from wherever you are.
    */
-  const blockedReason = useMemo(() => {
-    if (!captureConnectionId) return 'Choose a credential in the bar above to run this.';
-    if (!plan) return planning ? 'Still planning…' : 'No plan yet.';
-    if (plan.alreadyAtTarget) return 'The live schema already matches Original.';
-    if (plan.statements.length === 0) return 'Nothing to apply.';
-    if (plan.reversal.risk === 'blocked') {
-      return 'Blocked — this cannot be applied without losing data the schema cannot restore.';
+  const blocked = useMemo((): { code: string; label: string; why: string } | null => {
+    if (!captureConnectionId) {
+      return {
+        code: 'credential',
+        label: 'No credential',
+        why: 'Choose a credential in the bar above to run this.',
+      };
     }
-    if (plan.reversal.risk === 'lossy' && !confirmLossy) return 'ACK_LOSSY';
-    return '';
-  }, [captureConnectionId, plan, planning, confirmLossy]);
-  const needsLossyAck = blockedReason === 'ACK_LOSSY';
+    if (!plan) {
+      return {
+        code: 'planning',
+        label: planning ? 'Planning…' : 'No plan',
+        why: planning ? 'Still planning…' : 'No plan yet.',
+      };
+    }
+    // Revert always moves the *live* database to whatever sits on the Original
+    // side; the Target picker only chooses what the diff above is showing. So
+    // putting the newest version on Original asks to revert to where you
+    // already are, and the plan is empty. "(0)" did not say that.
+    if (plan.alreadyAtTarget) {
+      return {
+        code: 'already',
+        label: 'Already at Original',
+        why: 'Original is the current head — put the version you want to restore on the Original side.',
+      };
+    }
+    if (plan.statements.length === 0) {
+      return { code: 'empty', label: 'Nothing to apply', why: 'The plan is empty.' };
+    }
+    // An empty tick set used to send `undefined`, which the backend reads as
+    // "the whole schema" — so pressing Execute with nothing selected reverted
+    // the entire database. Selecting nothing must mean nothing.
+    if (changed.length > 0 && selectedKeys.length === 0) {
+      return {
+        code: 'nothing-ticked',
+        label: 'Tick objects to revert',
+        why: 'Tick the objects to revert in the tree, or use Select all.',
+      };
+    }
+    if (plan.reversal.risk === 'blocked') {
+      return {
+        code: 'blocked',
+        label: 'Blocked',
+        why: 'This cannot be applied without losing data the schema cannot restore.',
+      };
+    }
+    if (plan.reversal.risk === 'lossy' && !confirmLossy) {
+      return {
+        code: 'lossy',
+        label: 'Review data loss…',
+        why: 'This revert destroys data — review it on Migration SQL and confirm there.',
+      };
+    }
+    return null;
+    // selectedKeys and changed belong here: without them, ticking an object
+    // left this memo stale and the button kept saying "Tick objects to revert"
+    // after the user had ticked one.
+  }, [captureConnectionId, plan, planning, confirmLossy, selectedKeys, changed]);
+  const needsLossyAck = blocked?.code === 'lossy';
 
   const runRevert = useCallback(async () => {
     if (!captureConnectionId || !plan) return;
@@ -218,7 +266,9 @@ export function VersionCompareModal({
         connectionId: captureConnectionId,
         password: getSessionPassword(captureConnectionId),
         confirmLossy,
-        objectKeys: selectedKeys.length > 0 ? selectedKeys : undefined,
+        // Always explicit: the guard above refuses to run with an empty tick
+        // set, so this never silently widens to the whole schema.
+        objectKeys: selectedKeys,
       });
       toast({
         tone: 'success',
@@ -252,6 +302,31 @@ export function VersionCompareModal({
     const dialect = data?.dialect ?? '';
     return buildTableDdlDiffLines(selectedDiff, dialect, dialect, (ddl) => ddl);
   }, [selectedDiff, data]);
+
+  /**
+   * Download the change report. A separate artefact from the Migration SQL tab
+   * on purpose: this one is for the reviewer or the ticket, so it carries no
+   * DDL at all.
+   */
+  const exportReport = useCallback(() => {
+    if (!data) return;
+    const meta = {
+      originalLabel: versionDisplayName({ number: data.to.number, name: data.to.name }),
+      targetLabel: data.from
+        ? versionDisplayName({ number: data.from.number, name: data.from.name })
+        : 'first capture',
+      generatedAt: new Date(),
+    };
+    const blob = new Blob([buildMigrationReport(data.compare, meta)], {
+      type: 'text/markdown;charset=utf-8',
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = migrationReportFilename(meta);
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }, [data]);
 
   const heading = useMemo(() => {
     if (!data) return 'Compare versions';
@@ -290,6 +365,17 @@ export function VersionCompareModal({
           </div>
           <button
             type="button"
+            data-testid="lokee-cmp-export-report"
+            onClick={exportReport}
+            disabled={!data}
+            title="Download a Markdown summary of these changes (no SQL)"
+            className="mr-1 inline-flex shrink-0 items-center gap-1 rounded border border-slate-700 px-2 py-1 text-[11px] font-semibold text-slate-300 transition hover:bg-slate-800 hover:text-slate-100 disabled:opacity-40"
+          >
+            <Download className="h-3 w-3" strokeWidth={SQL_ICON_STROKE} />
+            Report
+          </button>
+          <button
+            type="button"
             onClick={onClose}
             data-testid="lokee-version-compare-close"
             aria-label="Close compare"
@@ -326,6 +412,18 @@ export function VersionCompareModal({
                 <span className="rounded bg-slate-500/15 px-1.5 py-0.5 text-slate-400">
                   {data.compare.summary.unchanged} unchanged
                 </span>
+                {/* Revert reads the Original side and moves the live database to
+                    it; the Target picker only frames the diff. Saying so where
+                    the sides are chosen beats a disabled button and a tooltip. */}
+                {blocked?.code === 'already' && (
+                  <span
+                    data-testid="lokee-cmp-already-hint"
+                    className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-200"
+                  >
+                    Nothing to revert — Original is the current head. Put the version you want to
+                    restore on the Original side.
+                  </span>
+                )}
               </div>
 
               {changed.length === 0 ? (
@@ -340,6 +438,31 @@ export function VersionCompareModal({
                 // gesture, one component.
                 <div className="flex gap-2" style={{ minHeight: 380 }}>
                   <div className="w-[300px] shrink-0 overflow-auto pr-1">
+                    <div className="mb-1 flex items-center gap-2 px-1 text-[10px] text-slate-400">
+                      <button
+                        type="button"
+                        data-testid="lokee-cmp-select-all"
+                        onClick={() =>
+                          setSelection(
+                            Object.fromEntries(changed.map((t) => [t.tableName, true]))
+                          )
+                        }
+                        className="rounded border border-slate-700 px-1.5 py-0.5 font-semibold hover:bg-slate-800 hover:text-slate-200"
+                      >
+                        Select all
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="lokee-cmp-select-none"
+                        onClick={() => setSelection({})}
+                        className="rounded border border-slate-700 px-1.5 py-0.5 font-semibold hover:bg-slate-800 hover:text-slate-200"
+                      >
+                        Clear
+                      </button>
+                      <span className="ml-auto">
+                        {selectedKeys.length} of {changed.length} ticked
+                      </span>
+                    </div>
                     <SchemaDiffTree
                       tables={changed}
                       selectedName={selectedDiff?.tableName ?? null}
@@ -379,15 +502,13 @@ export function VersionCompareModal({
                           type="button"
                           data-testid="lokee-cmp-run-revert"
                           title={
-                            needsLossyAck
-                              ? 'This revert destroys data — review it on Migration SQL and confirm there'
-                              : blockedReason ||
-                                `Apply ${plan?.statements.length ?? 0} statement(s) and record a new version`
+                            blocked?.why ??
+                            `Apply ${plan?.statements.length ?? 0} statement(s) and record a new version`
                           }
                           // A lossy plan keeps the button live so it can carry the
                           // reader to the acknowledgement; every other blocker is a
                           // genuine dead end and stays disabled.
-                          disabled={running || (Boolean(blockedReason) && !needsLossyAck)}
+                          disabled={running || (Boolean(blocked) && !needsLossyAck)}
                           onClick={() => {
                             if (needsLossyAck) {
                               setTab('SQL');
@@ -400,9 +521,8 @@ export function VersionCompareModal({
                           <Play className="h-3 w-3 fill-current" strokeWidth={SQL_ICON_STROKE} />
                           {running
                             ? 'Applying…'
-                            : needsLossyAck
-                              ? 'Review data loss…'
-                              : `Execute migration (${plan?.statements.length ?? 0})`}
+                            : (blocked?.label ??
+                              `Execute migration (${plan?.statements.length ?? 0})`)}
                         </button>
                       </div>
                     </div>

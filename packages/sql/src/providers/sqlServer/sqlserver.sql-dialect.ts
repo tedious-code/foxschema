@@ -64,6 +64,12 @@ export const sqlServerSqlDialect: SqlDialect = {
     return c.identity ? ` IDENTITY(1,1)` : '';
   },
 
+  // Brackets are the T-SQL form and work regardless of QUOTED_IDENTIFIER, which
+  // ANSI double quotes do not. A closing bracket inside the name is doubled.
+  quoteIdentifier(name: string): string {
+    return `[${name.replace(/]/g, ']]')}]`;
+  },
+
   addColumnStatement(tableName: string, colDef: string): string {
     return `ALTER TABLE ${tableName} ADD ${colDef};`;
   },

@@ -1,8 +1,9 @@
-import { type TableDiff } from '../interfaces/index.js';
+import { type TableDiff, type ColumnDiff } from '../interfaces/index.js';
 import { type TableSchema, type DbObjectType } from '../interfaces/index.js';
 import type { IndexInfo } from '../interfaces/index.js';
 import type { SqlDialect, ColumnSpec } from './sql-dialect.interface.js';
 import { resolveDialect } from './dialect-registry.js';
+import { dialectSupportsFk, type FkFeatureSupport } from './dialect-fk-support.js';
 
 export interface MigrationStep {
   objectName: string;
@@ -45,9 +46,118 @@ const PROCEDURAL_TYPES: ReadonlySet<DbObjectType> = new Set(['VIEW', 'FUNCTION',
 // unlike VIEW/TRIGGER, which are ordered after ALTER (see generateMigrationPlan).
 const ROUTINE_TYPES: ReadonlySet<DbObjectType> = new Set(['FUNCTION', 'PROCEDURE']);
 
+/**
+ * True when a name can be written into SQL exactly as it is.
+ *
+ * Deliberately conservative: letters, digits, underscore, `$` and `#` (Oracle
+ * and DB2 allow the last two bare), never starting with a digit. Anything else
+ * — a space, a dot, punctuation, a quote character, a non-ASCII letter — has to
+ * be quoted or the statement is a syntax error.
+ */
+/**
+ * Words that must be quoted to be usable as an identifier.
+ *
+ * The union across the supported engines, not any single one's list: a column
+ * called `key` is fine in SQLite and a syntax error in MySQL, and the generator
+ * emits for whichever dialect it was handed. Quoting a word one engine happens
+ * not to reserve costs nothing — the name is quoted exactly as the catalog
+ * spelled it, so it still resolves to the same object.
+ *
+ * Deliberately not exhaustive. It covers the clause keywords and the ones that
+ * turn up as real column names; a full per-dialect list is a bigger job and
+ * would only add words nobody names a column after.
+ */
+const RESERVED_WORDS: ReadonlySet<string> = new Set([
+  'ADD', 'ALL', 'ALTER', 'AND', 'ANY', 'AS', 'ASC', 'BETWEEN', 'BOTH', 'BY',
+  'CASE', 'CHECK', 'COLUMN', 'CONSTRAINT', 'CREATE', 'CROSS', 'CURRENT',
+  'CURRENT_DATE', 'CURRENT_TIME', 'CURRENT_TIMESTAMP', 'CURRENT_USER',
+  'DEFAULT', 'DELETE', 'DESC', 'DISTINCT', 'DROP', 'ELSE', 'END', 'EXCEPT',
+  'EXISTS', 'FALSE', 'FETCH', 'FOR', 'FOREIGN', 'FROM', 'FULL', 'GRANT',
+  'GROUP', 'HAVING', 'IN', 'INDEX', 'INNER', 'INSERT', 'INTERSECT', 'INTO',
+  'IS', 'JOIN', 'KEY', 'LEADING', 'LEFT', 'LIKE', 'LIMIT', 'NATURAL', 'NOT',
+  'NULL', 'OFFSET', 'ON', 'OR', 'ORDER', 'OUTER', 'PRIMARY', 'REFERENCES',
+  'RENAME', 'REVOKE', 'RIGHT', 'ROW', 'ROWS', 'SELECT', 'SESSION_USER', 'SET',
+  'SOME', 'TABLE', 'THEN', 'TO', 'TRAILING', 'TRUE', 'UNION', 'UNIQUE',
+  'UPDATE', 'USER', 'USING', 'VALUES', 'VIEW', 'WHEN', 'WHERE', 'WITH',
+]);
+
+function isBareIdentifier(name: string): boolean {
+  if (!/^[A-Za-z_][A-Za-z0-9_$#]*$/.test(name)) return false;
+  return !RESERVED_WORDS.has(name.toUpperCase());
+}
+
+/** ANSI quoting, correct everywhere except MySQL's default mode. */
+function ansiQuoteIdentifier(name: string): string {
+  return `"${name.replace(/"/g, '""')}"`;
+}
+
+/**
+ * Already wrapped — by an earlier pass here, or by the catalog that handed it
+ * over. Quoting it again nests the quotes and breaks the statement, and
+ * `bareName` genuinely is applied twice on some paths (the primary-key name
+ * reaches it once on the way in and once on the way out).
+ */
+function isQuotedIdentifier(name: string): boolean {
+  if (name.length < 2) return false;
+  const first = name[0]!;
+  const last = name[name.length - 1]!;
+  return (
+    (first === '"' && last === '"') ||
+    (first === '`' && last === '`') ||
+    (first === '[' && last === ']')
+  );
+}
+
 export class SqlGeneratorModule {
   /** Table keys left in an FK cycle after Kahn sort (uppercase bare names). */
   private fkCycleKeys = new Set<string>();
+
+  /**
+   * How this dialect wraps an identifier that cannot be written bare. Set from
+   * the resolved dialect at each entry point, like `fkCycleKeys` — threading it
+   * through all 30-odd `qualify`/`bareName` call sites buys nothing.
+   */
+  private quoteIdentifier: (name: string) => string = ansiQuoteIdentifier;
+
+  /**
+   * Dialect name for the run in progress, for the capability matrices that are
+   * keyed by name rather than by strategy object (`dialectSupportsFk`).
+   */
+  private dialectName = '';
+
+  /** What this dialect can do with foreign keys. Empty name ⇒ the full matrix. */
+  private fkSupport(): FkFeatureSupport {
+    return dialectSupportsFk(this.dialectName);
+  }
+
+  /**
+   * A name as it should appear in SQL: bare when that is legal, quoted when it
+   * is not.
+   *
+   * Names come from a live catalog, so they are whatever somebody actually
+   * created — `Order Details` (Northwind ships with it), a column called
+   * `order id`, a Postgres table created with quotes. Emitting those raw
+   * produced SQL that could not parse on any dialect.
+   *
+   * Quoting only what *needs* it keeps every ordinary name byte-identical to
+   * what this generator emitted before, which is why this could be fixed
+   * without rewriting the dialect test suites.
+   */
+  private ident(name: string): string {
+    if (isBareIdentifier(name) || isQuotedIdentifier(name)) return name;
+    return this.quoteIdentifier(name);
+  }
+
+  /**
+   * A column's real identifier, ready to emit.
+   *
+   * `ColumnDiff.name` is the uppercased match key, exactly like `tableName` —
+   * emitting it renamed `new col` to `NEW COL`. The native casing lives on
+   * whichever side of the diff exists.
+   */
+  private columnIdent(col: ColumnDiff): string {
+    return this.ident(col.source?.name ?? col.target?.name ?? col.name);
+  }
 
   /**
    * Source catalog definitions qualify names with the source schema (HUY.GPX_FILE);
@@ -64,9 +174,9 @@ export class SqlGeneratorModule {
       .replace(new RegExp(`\\b${escaped}\\.`, 'gi'), `${tgt}.`);
   }
 
-  /** Drops any leading "schema." prefix from an object name. */
+  /** Drops any leading "schema." prefix from an object name, and quotes if needed. */
   private bareName(name: string): string {
-    return name.replace(/^"?[^".]+"?\./, '');
+    return this.ident(name.replace(/^"?[^".]+"?\./, ''));
   }
 
   /**
@@ -191,7 +301,7 @@ export class SqlGeneratorModule {
     } else {
       typeSql = translated.sql + dialect.identityClause(c);
     }
-    let def = `${c.name} ${typeSql}`;
+    let def = `${this.ident(c.name)} ${typeSql}`;
     // COLLATE goes right after the type on every dialect that supports a per-column
     // collation (Postgres/MySQL/MariaDB/SQL Server/Oracle 12.2+), before DEFAULT/NOT
     // NULL. Dialects that never populate collation (DB2) simply never hit this.
@@ -213,7 +323,22 @@ export class SqlGeneratorModule {
       // MySQL names every PK constraint "PRIMARY" — emitting CONSTRAINT PRIMARY PRIMARY KEY
       // is redundant and confusing. Skip the CONSTRAINT clause for that reserved name.
       const constraintName = pkName && pkName.toUpperCase() !== 'PRIMARY' ? `CONSTRAINT ${this.bareName(pkName)} ` : '';
-      lines.push(`  ${constraintName}PRIMARY KEY (${pkCols.join(', ')})`);
+      lines.push(`  ${constraintName}PRIMARY KEY (${pkCols.map((c) => this.ident(c)).join(', ')})`);
+    }
+
+    // A dialect that cannot ALTER a constraint in must declare it here or lose
+    // it: for SQLite the CREATE TABLE is the only chance the FK ever gets.
+    const fk = this.fkSupport();
+    if (!fk.alterAdd && fk.createInline) {
+      for (const key of table.foreignKeys ?? []) {
+        const cols = (key.columns ?? []).map((c) => this.ident(c));
+        const parent = (key.referencedColumns ?? []).map((c) => this.ident(c));
+        if (cols.length === 0 || parent.length !== cols.length) continue;
+        const named = key.name ? `CONSTRAINT ${this.bareName(key.name)} ` : '';
+        lines.push(
+          `  ${named}FOREIGN KEY (${cols.join(', ')}) REFERENCES ${this.qualify(key.referencedTable, mapping)} (${parent.join(', ')})`
+        );
+      }
     }
 
     return `CREATE TABLE ${this.qualify(table.name, mapping)} (\n${lines.join(',\n')}\n);`;
@@ -224,10 +349,15 @@ export class SqlGeneratorModule {
    * index (SQL Server renders it as ALTER TABLE ADD CONSTRAINT). `idx.name` must be bare.
    */
   private createIndexSql(idx: IndexInfo, qualifiedTable: string, dialect?: SqlDialect): string {
-    if (dialect?.createIndexStatement) return dialect.createIndexStatement(idx, qualifiedTable);
-    const uniqueStr = idx.unique ? ' UNIQUE' : '';
-    const whereClause = idx.filter?.trim() ? ` WHERE ${idx.filter.trim()}` : '';
-    return `CREATE${uniqueStr} INDEX ${idx.name} ON ${qualifiedTable} (${idx.columns.join(', ')})${whereClause};`;
+    // Quote the column names *before* handing them to a dialect hook: the hooks
+    // build their own column list, so a hook-owning dialect (SQLite, SQL Server)
+    // would otherwise emit `ON t (order id)` while the generic path below got
+    // this right. `ident` is idempotent, so quoting here is safe either way.
+    const quoted: IndexInfo = { ...idx, columns: idx.columns.map((c) => this.ident(c)) };
+    if (dialect?.createIndexStatement) return dialect.createIndexStatement(quoted, qualifiedTable);
+    const uniqueStr = quoted.unique ? ' UNIQUE' : '';
+    const whereClause = quoted.filter?.trim() ? ` WHERE ${quoted.filter.trim()}` : '';
+    return `CREATE${uniqueStr} INDEX ${quoted.name} ON ${qualifiedTable} (${quoted.columns.join(', ')})${whereClause};`;
   }
 
   /**
@@ -247,9 +377,19 @@ export class SqlGeneratorModule {
     if (columns.length === 0 || refCols.length !== columns.length) {
       return `-- review: skip FK ${label} — referenced columns missing or length mismatch`;
     }
+    // SQLite and ClickHouse have no ALTER TABLE ... ADD CONSTRAINT. The matrix
+    // already knew that and only the blueprint UI was reading it, so the
+    // migration emitted a statement the engine rejects outright. A note beats
+    // DDL that cannot run.
+    const fk = this.fkSupport();
+    if (!fk.alterAdd) {
+      return `-- review: skip FK ${label} — ${fk.hint}`;
+    }
+    const cols = columns.map((c) => this.ident(c)).join(', ');
+    const parentCols = refCols.map((c) => this.ident(c)).join(', ');
     const fkBody = multiline
-      ? `FOREIGN KEY (${columns.join(', ')}) REFERENCES ${referencedTable} (${refCols.join(', ')})`
-      : `FOREIGN KEY (${columns.join(', ')}) REFERENCES ${referencedTable} (${refCols.join(', ')})`;
+      ? `FOREIGN KEY (${cols}) REFERENCES ${referencedTable} (${parentCols})`
+      : `FOREIGN KEY (${cols}) REFERENCES ${referencedTable} (${parentCols})`;
     if (multiline) {
       return `ALTER TABLE ${qualifiedTable} ADD CONSTRAINT ${constraintName} \n  ${fkBody};`;
     }
@@ -286,6 +426,8 @@ export class SqlGeneratorModule {
 
   generateObjectDdl(table: TableSchema, dialectStr = 'db2'): string {
     const dialect = resolveDialect(dialectStr);
+    this.quoteIdentifier = dialect.quoteIdentifier ?? ansiQuoteIdentifier;
+    this.dialectName = dialectStr;
     if (table.objectType === 'SEQUENCE') return this.renderCreateSequence(table, dialect);
     if (table.objectType === 'TYPE') return this.renderCreateType(table, dialect);
     if (table.objectType !== 'TABLE' && table.objectType !== 'MQT') {
@@ -604,7 +746,11 @@ export class SqlGeneratorModule {
         } else {
           addTypeSql = translated.sql;
         }
-        let colDef = `${col.name} ${addTypeSql}`;
+        // Pre-quoted here rather than inside each dialect's hook: the hooks all
+        // interpolate the name they are given, so quoting at the one call site
+        // fixes ADD COLUMN on all 14 at once. `ident` is idempotent, so a hook
+        // that already quotes is unaffected.
+        let colDef = `${this.columnIdent(col)} ${addTypeSql}`;
         if (col.source.collation) colDef += dialect.columnCollateClause?.(col.source.collation) ?? ` COLLATE ${col.source.collation}`;
         if (!dialect.nullableTypeWrapper) {
           // Oracle requires DEFAULT before NOT NULL; the standard allows either order.
@@ -627,7 +773,7 @@ export class SqlGeneratorModule {
         const colSpec = this.isCrossDialect(mapping)
           ? { ...col.source, type: translated.sql, defaultValue: undefined, collation: undefined }
           : { ...col.source, type: translated.sql };
-        statements.push(...dialect.modifyColumnStatements(tableName, col.name, colSpec, col.target?.nullable));
+        statements.push(...dialect.modifyColumnStatements(tableName, this.columnIdent(col), colSpec, col.target?.nullable));
 
         // The compare flags a column as MODIFIED when only its DEFAULT differs, but
         // the type/nullability statements above don't carry the default — apply it
@@ -644,14 +790,14 @@ export class SqlGeneratorModule {
             const seqForDefault = dialect.serialSequenceFromDefault?.(srcDef ?? '');
             if (seqForDefault) statements.push(`CREATE SEQUENCE IF NOT EXISTS ${this.qualify(seqForDefault, mapping)};`);
             const requalifiedDef = srcDef !== undefined ? this.requalifyDefault(srcDef, mapping) : srcDef;
-            statements.push(...dialect.setDefaultStatements(tableName, col.name, requalifiedDef));
+            statements.push(...dialect.setDefaultStatements(tableName, this.columnIdent(col), requalifiedDef));
           }
         }
       }
 
       if (!mapping?.nonDestructive) {
         for (const col of obj.columnDiffs.filter((c) => c.status === 'REMOVED')) {
-          statements.push(dialect.dropColumnStatement(tableName, col.name));
+          statements.push(dialect.dropColumnStatement(tableName, this.columnIdent(col)));
         }
       }
 
@@ -957,6 +1103,8 @@ export class SqlGeneratorModule {
     contextDiffs?: TableDiff[]
   ): MigrationStep[] {
     const dialect = resolveDialect(dialectStr);
+    this.quoteIdentifier = dialect.quoteIdentifier ?? ansiQuoteIdentifier;
+    this.dialectName = dialectStr;
     // Pin the target dialect into the mapping so the render helpers can detect a
     // cross-dialect migration and translate column types accordingly.
     const m: SchemaMapping = { ...mapping, targetDialect: mapping?.targetDialect ?? dialectStr };

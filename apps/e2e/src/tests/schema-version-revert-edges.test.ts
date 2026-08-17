@@ -71,7 +71,10 @@ async function boot(
 // ── 1. Versioning: capture, pickers, preview ────────────────────────────────
 
 describe.skipIf(!ready)('History · versioning edge cases (SQLite)', () => {
-  const RUN = Date.now().toString(36);
+  // Suffixed per suite: all three describes evaluate in the same
+  // millisecond, so a bare timestamp is not unique and the history
+  // picker matched more than one database.
+  const RUN = `${Date.now().toString(36)}-edges`;
   const DIR = `/tmp/foxschema-e2e-version-edges-${RUN}`;
   const DB = join(DIR, 'versions.db');
   const NAME = `E2E Versions ${RUN}`;
@@ -197,7 +200,10 @@ INSERT INTO invoices (id, total) VALUES (1, 10);
 // ── 2. Revert: no-op ticks, scoped object, new version ───────────────────────
 
 describe.skipIf(!ready)('History · revert scope edge cases (SQLite)', () => {
-  const RUN = Date.now().toString(36);
+  // Suffixed per suite: all three describes evaluate in the same
+  // millisecond, so a bare timestamp is not unique and the history
+  // picker matched more than one database.
+  const RUN = `${Date.now().toString(36)}-scope`;
   const DIR = `/tmp/foxschema-e2e-revert-scope-${RUN}`;
   const DB = join(DIR, 'scope.db');
   const NAME = `E2E Revert Scope ${RUN}`;
@@ -231,7 +237,19 @@ INSERT INTO invoices (id, total) VALUES (1, 10);
     await history.openHistoryPane();
     await history.selectHistoryDatabaseContaining(RUN);
     await history.waitForGraph();
-    await expect.poll(async () => history.versionCount(), { timeout: 30_000 }).toBe(2);
+    // `expect.poll` is only legal inside a test — this is a beforeAll hook, so
+    // wait on the page instead. The page object already owns that wait.
+    try {
+      await history.waitForVersionCount(2);
+    } catch (error) {
+      // A bare timeout here says "setup failed" and nothing else; the summary
+      // line names the database actually on screen, which is the difference
+      // between a missed capture and the wrong database being selected.
+      throw new Error(
+        `Setup never reached 2 versions.\nSummary: ${await history.summaryText()}`,
+        { cause: error }
+      );
+    }
   }, 180_000);
 
   afterAll(async () => {
@@ -305,7 +323,10 @@ INSERT INTO invoices (id, total) VALUES (1, 10);
 // ── 3. Revert: lossy ack, drop-table, pendulum ───────────────────────────────
 
 describe.skipIf(!ready)('History · revert lossy and pendulum (SQLite)', () => {
-  const RUN = Date.now().toString(36);
+  // Suffixed per suite: all three describes evaluate in the same
+  // millisecond, so a bare timestamp is not unique and the history
+  // picker matched more than one database.
+  const RUN = `${Date.now().toString(36)}-lossy`;
   const DIR = `/tmp/foxschema-e2e-revert-lossy-${RUN}`;
   const DB = join(DIR, 'lossy.db');
   const NAME = `E2E Revert Lossy ${RUN}`;
@@ -347,7 +368,19 @@ INSERT INTO audit (id, body) VALUES (1, 'gone on revert');
     await history.openHistoryPane();
     await history.selectHistoryDatabaseContaining(RUN);
     await history.waitForGraph();
-    await expect.poll(async () => history.versionCount(), { timeout: 30_000 }).toBe(2);
+    // `expect.poll` is only legal inside a test — this is a beforeAll hook, so
+    // wait on the page instead. The page object already owns that wait.
+    try {
+      await history.waitForVersionCount(2);
+    } catch (error) {
+      // A bare timeout here says "setup failed" and nothing else; the summary
+      // line names the database actually on screen, which is the difference
+      // between a missed capture and the wrong database being selected.
+      throw new Error(
+        `Setup never reached 2 versions.\nSummary: ${await history.summaryText()}`,
+        { cause: error }
+      );
+    }
   }, 180_000);
 
   afterAll(async () => {
@@ -359,6 +392,8 @@ INSERT INTO audit (id, body) VALUES (1, 'gone on revert');
     await history.selectOriginalVersion('Version 1');
     await history.selectTargetCurrent();
     await history.openCompareModal();
+    // Zero ticks is refused by design, so say "all of it" explicitly.
+    await history.selectAllCompareObjects();
 
     const run = driver.locator('[data-testid="lokee-cmp-run-revert"]');
     await run.waitFor({ state: 'visible', timeout: 20_000 });
@@ -387,6 +422,7 @@ INSERT INTO audit (id, body) VALUES (1, 'gone on revert');
     await history.selectOriginalVersion('Version 1');
     await history.selectTargetCurrent();
     await history.openCompareModal();
+    await history.selectAllCompareObjects();
 
     const calls: string[] = [];
     driver.on('response', (res) => {
@@ -424,6 +460,7 @@ INSERT INTO audit (id, body) VALUES (1, 'gone on revert');
     await history.selectOriginalVersion('Version 2');
     await history.selectTargetCurrent();
     await history.openCompareModal();
+    await history.selectAllCompareObjects();
     await history.executeRevert();
 
     try {

@@ -110,6 +110,12 @@ export interface CaptureInput extends DatabaseIdentityInput {
   source: CaptureSource;
   /** Links the version to the run that caused it — this is the attribution. */
   migrationRunId?: string;
+  /**
+   * For `source: 'revert'`: the head the database was at, and the version it was
+   * reverted to. Without it a revert records that *an* undo happened and loses
+   * the only thing you want when reading one back — which version was restored.
+   */
+  revert?: { fromVersionId: string; toVersionId: string };
 }
 
 /**
@@ -135,6 +141,8 @@ interface VersionRow {
   last_observed_at: string;
   display_name?: string | null;
   description?: string | null;
+  revert_from_version_id?: string | null;
+  revert_to_version_id?: string | null;
 }
 
 interface DeltaRow {
@@ -590,8 +598,8 @@ export class LokeeWeaveStore {
         `INSERT INTO lokee_versions
            (id, database_id, version_number, root_hash, parent_version_id, migration_run_id,
             author_user_id, source, object_count, change_count, observation_count,
-            created_at, last_observed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+            created_at, last_observed_at, revert_from_version_id, revert_to_version_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
         [
           versionId,
           databaseId,
@@ -605,6 +613,8 @@ export class LokeeWeaveStore {
           capture.changes.length,
           now,
           now,
+          input.revert?.fromVersionId ?? null,
+          input.revert?.toVersionId ?? null,
         ]
       );
       await this.writeDelta(store, versionId, capture.changes);
@@ -731,6 +741,8 @@ export class LokeeWeaveStore {
       description: r.description?.trim() || undefined,
       objectCount: Number(r.object_count) || 0,
       changeCount: Number(r.change_count) || 0,
+      revertFromVersionId: r.revert_from_version_id ?? undefined,
+      revertToVersionId: r.revert_to_version_id ?? undefined,
     }));
   }
 
@@ -954,6 +966,11 @@ export class LokeeWeaveStore {
         author: v.author,
         name: v.name,
         description: v.description,
+        source: v.source,
+        // Resolve the id to the number the reader actually sees on the graph.
+        revertedToNumber: v.revertToVersionId
+          ? versions.find((other) => other.id === v.revertToVersionId)?.number
+          : undefined,
       })),
       objects,
       totalVersions: Number(totalRow?.n) || versions.length,
@@ -1167,6 +1184,40 @@ export class LokeeWeaveStore {
       return owner ? selectedOwners!.has(owner) : false;
     };
 
+    /**
+     * Both sides narrowed to the ticked objects, so the generated DDL touches
+     * only them.
+     *
+     * Filtering `entries` alone classified the *risk* of the selection while
+     * the statements below still reverted everything: the dialog said "1 object"
+     * and the migration rewrote every table in the schema.
+     *
+     * Ticking a lone child needs its `table:` container carried along as
+     * context, because `hydrateTableSchemas` drops any group without one — a
+     * column with no table is not a schema, and the plan came back empty.
+     * That container is context only: it is added just when it exists on *both*
+     * sides, so it contributes the table's shape and never a CREATE/DROP of a
+     * table nobody ticked. A child whose container exists on one side only
+     * therefore reverts nothing on its own; tick the table for that.
+     */
+    const contextOwners = selected
+      ? new Set(
+          [...new Set([...current.keys(), ...desired.keys()])]
+            .filter((key) => wanted(key))
+            .map((key) => objectKeyOwner(key))
+        )
+      : null;
+    const isContainerFor = (key: string, owners: ReadonlySet<string>): boolean =>
+      !key.includes('.') && owners.has(objectKeyOwner(key)) && current.has(key) && desired.has(key);
+    const inSelection = (
+      objects: ReadonlyMap<string, StoredWeaveObject>
+    ): ReadonlyMap<string, StoredWeaveObject> =>
+      contextOwners
+        ? new Map(
+            [...objects].filter(([key]) => wanted(key) || isContainerFor(key, contextOwners))
+          )
+        : objects;
+
     const entries: Array<{ key: string; current?: CanonicalObject; target?: CanonicalObject }> = [];
     for (const key of new Set([...current.keys(), ...desired.keys()])) {
       if (!wanted(key)) continue;
@@ -1197,7 +1248,12 @@ export class LokeeWeaveStore {
     // then the same SQL generator the live migrate flow uses.
     const migration = dialectName
       ? migrationFromCompare(
-          await this.compareVersionStates(desired, current, dialectName, schemaName),
+          await this.compareVersionStates(
+            inSelection(desired),
+            inSelection(current),
+            dialectName,
+            schemaName
+          ),
           dialectName,
           { targetSchema: schemaName, sourceSchema: schemaName }
         )

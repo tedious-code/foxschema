@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSyncStore } from '../store/useSyncStore';
+import { useUiStore } from '../store/uiStore';
 import { Search, Layers, Table2, Eye, FunctionSquare, SquareTerminal, Zap, Hash, Box, Users } from 'lucide-react';
 import type { TableDiff } from '../lib/types';
 import { SchemaDiffTree, TYPE_META, TYPE_ORDER } from './SchemaDiffTree';
@@ -16,6 +17,7 @@ const MIN_WIDTH = 280;
 const MAX_WIDTH = 640;
 
 export const SchemaTreePanel: React.FC = () => {
+  const syncPane = useUiStore((s) => s.syncPane);
   const {
     compareResult,
     browseMode,
@@ -29,6 +31,8 @@ export const SchemaTreePanel: React.FC = () => {
     searchTerm,
     setSearchTerm,
     typeFilter,
+    toggleTypeFilter,
+    clearTypeFilter,
     syncSelection,
     toggleSyncSelection,
     setAllSyncSelection,
@@ -104,12 +108,22 @@ export const SchemaTreePanel: React.FC = () => {
   }, [compareResult, filteredTables, selectedTable, setSelectedTable]);
 
   if (!compareResult) {
+    // Browse is its own pane now, so the empty state has to name the thing the
+    // reader is actually looking at rather than always saying "comparison".
+    const browsing = syncPane === 'browse';
     return (
-      <div className="w-80 border-r border-slate-800 flex flex-col items-center justify-center text-slate-500 p-6 bg-slate-900/30">
+      <div
+        data-testid="schema-tree-empty"
+        className="w-80 border-r border-slate-800 flex flex-col items-center justify-center text-slate-500 p-6 bg-slate-900/30"
+      >
         <Layers className="w-10 h-10 mb-3 text-slate-700 animate-bounce" />
-        <p className="text-sm font-semibold text-slate-400">No Comparison Active</p>
+        <p className="text-sm font-semibold text-slate-400">
+          {browsing ? 'Nothing loaded' : 'No Comparison Active'}
+        </p>
         <p className="text-xs text-slate-600 text-center max-w-[220px] mt-1">
-          Connect and click "Compare Schemas" to view the difference tree — or "Browse" one side to search its objects.
+          {browsing
+            ? 'Pick a connection above and click "Browse" to read its objects.'
+            : 'Connect and click "Compare Schemas" to view the difference tree.'}
         </p>
       </div>
     );
@@ -223,10 +237,58 @@ export const SchemaTreePanel: React.FC = () => {
         </div>
       </div>
 
+      {/* Browse's own type filter. Compare puts these pills in the top toolbar,
+          which is full-width; Browse has no connection grid competing for that
+          bar, and the reader is filtering a single database's contents, so the
+          control belongs beside the list it filters. Written out here rather
+          than shared with the toolbar's row: same data, different container and
+          sizing, and one component bent to satisfy both would be worse than
+          twenty lines that read plainly. */}
+      {browseMode && (
+        <div
+          data-testid="browse-type-filter"
+          className="px-3 py-2 border-b border-slate-800/80 bg-slate-950/30 flex flex-wrap items-center gap-1"
+        >
+          <button
+            onClick={clearTypeFilter}
+            className={`px-2 py-0.5 rounded text-[11px] font-semibold border transition cursor-pointer ${
+              typeFilter.length === 0
+                ? 'bg-slate-800 text-slate-100 border-slate-600'
+                : 'bg-slate-900/50 text-slate-500 border-slate-850 hover:text-slate-300'
+            }`}
+          >
+            All
+          </button>
+          {TYPE_ORDER.filter((type) =>
+            compareResult.tables.some((t) => t.objectType === type)
+          ).map((type) => {
+            const count = compareResult.tables.filter((t) => t.objectType === type).length;
+            const active = typeFilter.includes(type);
+            return (
+              <button
+                key={type}
+                data-testid={`browse-type-${type}`}
+                onClick={() => toggleTypeFilter(type)}
+                title={`${TYPE_META[type].group} (${count})`}
+                className={`px-2 py-0.5 rounded text-[11px] font-semibold border transition cursor-pointer flex items-center gap-1 ${
+                  active
+                    ? 'bg-slate-800 text-slate-100 border-slate-600'
+                    : 'bg-slate-900/50 text-slate-500 border-slate-850 hover:text-slate-300'
+                }`}
+              >
+                <span className={TYPE_META[type].color}>{TYPE_META[type].icon}</span>
+                {TYPE_META[type].group}
+                <span className="text-slate-500">{count}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Deployment Selection Header — hidden in browse mode (nothing to deploy) */}
       {!browseMode && (
-      <div className="px-3 py-2 border-b border-slate-800/80 bg-slate-950/30 flex items-center justify-between gap-2">
-        <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-400 uppercase tracking-wider shrink-0">
+      <div className="px-3 py-2 border-b border-slate-800/80 bg-slate-950/30 flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
+        <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-400 uppercase tracking-wider shrink-0 whitespace-nowrap">
           <input
             type="checkbox"
             checked={changedCount > 0 && includedCount === changedCount}
@@ -235,9 +297,9 @@ export const SchemaTreePanel: React.FC = () => {
           />
           Deploy to Target
         </label>
-        <div className="flex items-center gap-2 ml-auto">
+        <div className="flex flex-wrap items-center gap-1.5 ml-auto">
           <label
-            className={`flex items-center gap-1.5 cursor-pointer text-[10px] font-semibold px-2 py-1 rounded border transition ${
+            className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap cursor-pointer text-[10px] font-semibold px-2 py-1 rounded border transition ${
               nonDestructive
                 ? 'text-emerald-300 bg-emerald-950/50 border-emerald-500/40'
                 : 'text-slate-500 bg-slate-950/40 border-slate-800 hover:border-slate-700'
@@ -254,7 +316,7 @@ export const SchemaTreePanel: React.FC = () => {
             No drops
           </label>
           <label
-            className={`flex items-center gap-1.5 cursor-pointer text-[10px] font-semibold px-2 py-1 rounded border transition ${
+            className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap cursor-pointer text-[10px] font-semibold px-2 py-1 rounded border transition ${
               continueOnError
                 ? 'text-amber-300 bg-amber-950/50 border-amber-500/40'
                 : 'text-slate-500 bg-slate-950/40 border-slate-800 hover:border-slate-700'

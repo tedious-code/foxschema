@@ -18,6 +18,7 @@ import { captureSchema } from '../api/lokeeApi';
 import { toast } from '../store/toastStore';
 import { getSessionPassword, setSessionPassword } from '../lib/sessionPasswords';
 import { HistoryCompareBar } from './lokee-weave/HistoryCompareBar';
+import { BrowseBar } from './BrowseBar';
 
 const ProfileMenu = ProfileMenuNamed ?? ProfileMenuDefault;
 
@@ -255,6 +256,19 @@ export const TopToolbar: React.FC = () => {
           </button>
           <button
             type="button"
+            data-testid="sync-pane-browse-btn"
+            onClick={() => setSyncPane('browse')}
+            title="Read one database's schema on its own — no comparison."
+            className={`rounded px-2.5 py-1 text-xs font-semibold transition ${
+              syncPane === 'browse'
+                ? 'bg-slate-800 text-slate-100'
+                : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+            }`}
+          >
+            Browse
+          </button>
+          <button
+            type="button"
             data-testid="sync-pane-history-btn"
             onClick={() => setSyncPane('history')}
             title="Content-addressed schema history (Lokee). Auto-snapshots on migrate."
@@ -285,6 +299,7 @@ export const TopToolbar: React.FC = () => {
           what is on screen — History gets the version bar in its place, which
           is the same Original → Target gesture over stored versions. */}
       {syncPane === 'history' && <HistoryCompareBar />}
+      {syncPane === 'browse' && <BrowseBar />}
       {syncPane === 'compare' && (
       <div className="grid grid-cols-1 xl:grid-cols-11 gap-3 items-stretch">
         {/* Source Configuration — left side is the Original Server (read / compare from). */}
@@ -358,17 +373,6 @@ export const TopToolbar: React.FC = () => {
                 className="text-xs text-slate-400 hover:text-cyan-300 border border-slate-700 hover:border-cyan-500/40 bg-slate-900/60 hover:bg-slate-900 px-2 py-0.5 rounded-full flex items-center gap-1 font-medium shrink-0 cursor-pointer transition"
               >
                 <RefreshCw className="w-3.5 h-3.5" /> Retry Connection
-              </button>
-            )}
-
-            {sourceConnected && canSchemaBrowse && (
-              <button
-                onClick={() => browseSchema('source')}
-                disabled={isBrowsing || selectedObjectTypes.length === 0}
-                title="Load this schema's objects to browse and search (no comparison)"
-                className="shrink-0 text-xs text-cyan-400 border border-cyan-500/30 hover:border-cyan-400/60 bg-cyan-950/30 hover:bg-cyan-950/60 px-2 py-0.5 rounded-full flex items-center gap-1 font-medium cursor-pointer transition disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Search className="w-3.5 h-3.5" /> Browse
               </button>
             )}
           </div>
@@ -463,17 +467,6 @@ export const TopToolbar: React.FC = () => {
                 className="text-xs text-slate-400 hover:text-purple-300 border border-slate-700 hover:border-purple-500/40 bg-slate-900/60 hover:bg-slate-900 px-2 py-0.5 rounded-full flex items-center gap-1 font-medium shrink-0 cursor-pointer transition"
               >
                 <RefreshCw className="w-3.5 h-3.5" /> Retry Connection
-              </button>
-            )}
-
-            {targetConnected && canSchemaBrowse && (
-              <button
-                onClick={() => browseSchema('target')}
-                disabled={isBrowsing || selectedObjectTypes.length === 0}
-                title="Load this schema's objects to browse and search (no comparison)"
-                className="shrink-0 text-xs text-purple-300 border border-purple-500/30 hover:border-purple-400/60 bg-purple-950/30 hover:bg-purple-950/60 px-2 py-0.5 rounded-full flex items-center gap-1 font-medium cursor-pointer transition disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Search className="w-3.5 h-3.5" /> Browse
               </button>
             )}
           </div>

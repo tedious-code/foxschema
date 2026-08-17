@@ -121,6 +121,17 @@ export interface SqlDialect {
   nullableTypeWrapper?(typeSql: string, nullable: boolean): string;
 
   /**
+   * Wrap an identifier that cannot be written bare — a name holding a space,
+   * punctuation, or a non-ASCII letter, as read from the live catalog.
+   *
+   * Omit for ANSI double quotes, which is right for every dialect here except
+   * MySQL's default mode (backticks) and SQL Server (brackets). The generator
+   * calls this **only** when the name actually needs it, so ordinary names are
+   * emitted bare exactly as before.
+   */
+  quoteIdentifier?(name: string): string;
+
+  /**
    * Full ` COLLATE ...` clause (with leading space) for a column's collation, used in
    * CREATE TABLE / ADD COLUMN. Default: ` COLLATE <name>`, unquoted — correct for
    * MySQL/MariaDB/SQL Server/Oracle collation names. Postgres overrides this: its
