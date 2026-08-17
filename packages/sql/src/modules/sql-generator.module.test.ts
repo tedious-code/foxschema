@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { SqlGeneratorModule } from './sql-generator.module.js';
+import { db2SqlDialect } from '../providers/db2/db2.sql-dialect.js';
 import { TableDiff } from '../interfaces/index.js';
 import { TableSchema } from '../interfaces/index.js';
 
@@ -92,6 +93,25 @@ describe('SqlGeneratorModule.generateMigrationPlan', () => {
     indexDiffs: [],
     foreignKeyDiffs: [],
     sourceTable: tableSchema({ name, columns: [{ name: 'ID', type: 'INTEGER', nullable: false, primaryKey: false }] }),
+  });
+
+  describe('DB2 tolerates a foreign key that is already gone', () => {
+    it('wraps the FK drop in the same 42704 handler as its other drops', () => {
+      // Dropping a parent table takes its inbound foreign keys with it, and
+      // table drops are ordered before the ALTERs — so by the time the explicit
+      // FK drop runs, the constraint often no longer exists. DB2 has no DROP
+      // CONSTRAINT IF EXISTS, and DB2 has transactional DDL, so the resulting
+      // SQL0204N rolled the *entire* migration back: on the live samples the
+      // revert reported no error and changed nothing at all.
+      const sql = db2SqlDialect.dropForeignKeyStatement!('S.CHILD', 'FK_CHILD_PARENT');
+      expect(sql).toContain("SQLSTATE '42704'");
+      expect(sql).toContain('DROP FOREIGN KEY FK_CHILD_PARENT');
+    });
+
+    it('still drops the constraint it was asked to drop', () => {
+      const sql = db2SqlDialect.dropForeignKeyStatement!('S.CHILD', 'FK_X');
+      expect(sql).toMatch(/ALTER TABLE S\.CHILD DROP FOREIGN KEY FK_X/);
+    });
   });
 
   describe('DB2 converges after adding a NOT NULL column', () => {
