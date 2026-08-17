@@ -137,18 +137,24 @@ export function HistoryCompareBar(): React.ReactElement {
         </select>
         {/* The diff belongs to the pair, and the pair is finished being chosen
             here — so the button that opens it sits with the second side rather
-            than on a strip of its own below the bar. */}
+            than on a strip of its own below the bar.
+            
+            Absent rather than disabled when the two sides resolve to the same
+            version: with a single-version history there is no pair and never
+            will be until another capture lands, so a permanently dead control
+            is just clutter. */}
+        {!sameSides && newestFirst.length >= 2 && (
         <button
           type="button"
           data-testid="lokee-compare-versions-btn"
           onClick={requestCompare}
-          disabled={sameSides || newestFirst.length < 2}
           title="Diff Original against Target"
           className="inline-flex shrink-0 items-center gap-1 rounded border border-cyan-500/40 bg-cyan-950/30 px-2 py-1 text-[11px] font-bold text-cyan-100 transition hover:bg-cyan-900/40 disabled:cursor-not-allowed disabled:opacity-40"
         >
           <GitCompareArrows className="h-3 w-3" strokeWidth={SQL_ICON_STROKE} />
           Compare
         </button>
+        )}
         </div>
       </div>
 

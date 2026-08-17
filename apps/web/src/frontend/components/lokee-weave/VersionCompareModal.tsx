@@ -226,6 +226,16 @@ export function VersionCompareModal({
     if (plan.statements.length === 0) {
       return { code: 'empty', label: 'Nothing to apply', why: 'The plan is empty.' };
     }
+    // An empty tick set used to send `undefined`, which the backend reads as
+    // "the whole schema" — so pressing Execute with nothing selected reverted
+    // the entire database. Selecting nothing must mean nothing.
+    if (changed.length > 0 && selectedKeys.length === 0) {
+      return {
+        code: 'nothing-ticked',
+        label: 'Tick objects to revert',
+        why: 'Tick the objects to revert in the tree, or use Select all.',
+      };
+    }
     if (plan.reversal.risk === 'blocked') {
       return {
         code: 'blocked',
@@ -241,7 +251,10 @@ export function VersionCompareModal({
       };
     }
     return null;
-  }, [captureConnectionId, plan, planning, confirmLossy]);
+    // selectedKeys and changed belong here: without them, ticking an object
+    // left this memo stale and the button kept saying "Tick objects to revert"
+    // after the user had ticked one.
+  }, [captureConnectionId, plan, planning, confirmLossy, selectedKeys, changed]);
   const needsLossyAck = blocked?.code === 'lossy';
 
   const runRevert = useCallback(async () => {
@@ -253,7 +266,9 @@ export function VersionCompareModal({
         connectionId: captureConnectionId,
         password: getSessionPassword(captureConnectionId),
         confirmLossy,
-        objectKeys: selectedKeys.length > 0 ? selectedKeys : undefined,
+        // Always explicit: the guard above refuses to run with an empty tick
+        // set, so this never silently widens to the whole schema.
+        objectKeys: selectedKeys,
       });
       toast({
         tone: 'success',
@@ -423,6 +438,31 @@ export function VersionCompareModal({
                 // gesture, one component.
                 <div className="flex gap-2" style={{ minHeight: 380 }}>
                   <div className="w-[300px] shrink-0 overflow-auto pr-1">
+                    <div className="mb-1 flex items-center gap-2 px-1 text-[10px] text-slate-400">
+                      <button
+                        type="button"
+                        data-testid="lokee-cmp-select-all"
+                        onClick={() =>
+                          setSelection(
+                            Object.fromEntries(changed.map((t) => [t.tableName, true]))
+                          )
+                        }
+                        className="rounded border border-slate-700 px-1.5 py-0.5 font-semibold hover:bg-slate-800 hover:text-slate-200"
+                      >
+                        Select all
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="lokee-cmp-select-none"
+                        onClick={() => setSelection({})}
+                        className="rounded border border-slate-700 px-1.5 py-0.5 font-semibold hover:bg-slate-800 hover:text-slate-200"
+                      >
+                        Clear
+                      </button>
+                      <span className="ml-auto">
+                        {selectedKeys.length} of {changed.length} ticked
+                      </span>
+                    </div>
                     <SchemaDiffTree
                       tables={changed}
                       selectedName={selectedDiff?.tableName ?? null}

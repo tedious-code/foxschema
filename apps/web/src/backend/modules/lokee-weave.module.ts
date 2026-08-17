@@ -1184,6 +1184,40 @@ export class LokeeWeaveStore {
       return owner ? selectedOwners!.has(owner) : false;
     };
 
+    /**
+     * Both sides narrowed to the ticked objects, so the generated DDL touches
+     * only them.
+     *
+     * Filtering `entries` alone classified the *risk* of the selection while
+     * the statements below still reverted everything: the dialog said "1 object"
+     * and the migration rewrote every table in the schema.
+     *
+     * Ticking a lone child needs its `table:` container carried along as
+     * context, because `hydrateTableSchemas` drops any group without one — a
+     * column with no table is not a schema, and the plan came back empty.
+     * That container is context only: it is added just when it exists on *both*
+     * sides, so it contributes the table's shape and never a CREATE/DROP of a
+     * table nobody ticked. A child whose container exists on one side only
+     * therefore reverts nothing on its own; tick the table for that.
+     */
+    const contextOwners = selected
+      ? new Set(
+          [...new Set([...current.keys(), ...desired.keys()])]
+            .filter((key) => wanted(key))
+            .map((key) => objectKeyOwner(key))
+        )
+      : null;
+    const isContainerFor = (key: string, owners: ReadonlySet<string>): boolean =>
+      !key.includes('.') && owners.has(objectKeyOwner(key)) && current.has(key) && desired.has(key);
+    const inSelection = (
+      objects: ReadonlyMap<string, StoredWeaveObject>
+    ): ReadonlyMap<string, StoredWeaveObject> =>
+      contextOwners
+        ? new Map(
+            [...objects].filter(([key]) => wanted(key) || isContainerFor(key, contextOwners))
+          )
+        : objects;
+
     const entries: Array<{ key: string; current?: CanonicalObject; target?: CanonicalObject }> = [];
     for (const key of new Set([...current.keys(), ...desired.keys()])) {
       if (!wanted(key)) continue;
@@ -1214,7 +1248,12 @@ export class LokeeWeaveStore {
     // then the same SQL generator the live migrate flow uses.
     const migration = dialectName
       ? migrationFromCompare(
-          await this.compareVersionStates(desired, current, dialectName, schemaName),
+          await this.compareVersionStates(
+            inSelection(desired),
+            inSelection(current),
+            dialectName,
+            schemaName
+          ),
           dialectName,
           { targetSchema: schemaName, sourceSchema: schemaName }
         )

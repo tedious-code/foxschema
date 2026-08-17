@@ -933,6 +933,46 @@ describe('selective revert', () => {
     expect(plan!.reversal.risk).toBe('lossy');
   });
 
+  it('generates DDL for the selection only, not for the whole schema', async () => {
+    // The verdicts above are the *classification*; these are what actually runs.
+    // They were filtered independently, and only the verdicts were narrowed — so
+    // the dialog said "1 object" while the migration rewrote every table. Assert
+    // on the statements, or the next divergence goes unnoticed again.
+    const { weave, databaseId, v1 } = await twoChanges();
+    const plan = await weave.planRevert(USER, databaseId, v1.versionId, 'postgres', 'public', [
+      'table:ORDERS',
+    ]);
+    const sql = plan!.statements.join('\n');
+    expect(sql).toMatch(/orders/i);
+    // v1's customer.email is varchar(100) and HEAD's is varchar(255): a
+    // whole-schema revert would narrow it here. The user did not tick it.
+    expect(sql).not.toMatch(/customer/i);
+  });
+
+  it('reverts the ticked column without touching the sibling table', async () => {
+    const { weave, databaseId, v1 } = await twoChanges();
+    const plan = await weave.planRevert(USER, databaseId, v1.versionId, 'postgres', 'public', [
+      'column:CUSTOMER.EMAIL',
+    ]);
+    const sql = plan!.statements.join('\n');
+    expect(sql).toMatch(/customer/i);
+    expect(sql).toMatch(/varchar\(100\)/i);
+    // ORDERS arrived in v2 and a whole-schema revert would drop it.
+    expect(sql).not.toMatch(/\borders\b/i);
+  });
+
+  it('will not drop a whole table because one of its columns was ticked', async () => {
+    // ORDERS arrived in v2, so reverting to v1 means it should not exist at all.
+    // Pulling its container in to satisfy hydration must not turn a one-column
+    // tick into a DROP TABLE — widening past the tick is the bug this whole
+    // group exists to prevent. Tick the table itself for that.
+    const { weave, databaseId, v1 } = await twoChanges();
+    const plan = await weave.planRevert(USER, databaseId, v1.versionId, 'postgres', 'public', [
+      'column:ORDERS.ID',
+    ]);
+    expect(plan!.statements.join('\n')).not.toMatch(/drop table/i);
+  });
+
   it('treats an empty selection as nothing, not as everything', async () => {
     // A UI with no boxes ticked sends `[]`. If that were read as "no filter",
     // clicking Revert with nothing selected would rewrite the whole database.
@@ -945,6 +985,57 @@ describe('selective revert', () => {
     // Omitting the argument entirely still means the whole schema.
     const all = await weave.planRevert(USER, databaseId, v1.versionId);
     expect(all!.reversal.verdicts.length).toBeGreaterThan(1);
+  });
+});
+
+describe('awkward names survive a capture', () => {
+  // Object keys are `kind:OWNER.CHILD`, so a name holding a dot is the one that
+  // can corrupt the addressing scheme the whole history is built on.
+  const AWKWARD = table('Order Details', [
+    ['order id', 'integer', false],
+    ['a.b', 'text'],
+  ]);
+
+  it('reconstructs a table whose name and columns contain spaces', async () => {
+    const { weave } = await freshStore();
+    const v1 = await weave.capture(USER, { ...IDENTITY, tables: [AWKWARD], source: 'manual' });
+    const at = await weave.objectsAtVersion(USER, v1.databaseId, v1.versionId);
+
+    // The container is addressable and keeps its real name for DDL.
+    const container = at.get('table:ORDER DETAILS');
+    expect(container?.body.name).toBe('Order Details');
+
+    const spaced = at.get('column:ORDER DETAILS.ORDER ID');
+    expect(spaced?.body.name).toBe('order id');
+  });
+
+  it('does not lose a column whose name contains a dot', async () => {
+    // `a.b` makes the key `column:ORDER DETAILS.A.B`, which owner-parsing splits
+    // at the first dot. The column must still round-trip to its own name — if
+    // this ever regresses, the blueprint and every revert plan lose the column.
+    const { weave } = await freshStore();
+    const v1 = await weave.capture(USER, { ...IDENTITY, tables: [AWKWARD], source: 'manual' });
+    const at = await weave.objectsAtVersion(USER, v1.databaseId, v1.versionId);
+
+    const dotted = [...at.values()].filter((o) => o.body.name === 'a.b');
+    expect(dotted).toHaveLength(1);
+  });
+
+  it('plans a revert for an awkward table without inventing changes', async () => {
+    const { weave } = await freshStore();
+    const v1 = await weave.capture(USER, { ...IDENTITY, tables: [AWKWARD], source: 'manual' });
+    const v2 = await weave.capture(USER, {
+      ...IDENTITY,
+      tables: [table('Order Details', [['order id', 'integer', false]])],
+      source: 'migrate',
+    });
+    expect(v2.changed).toBe(true);
+
+    const plan = await weave.planRevert(USER, v2.databaseId, v1.versionId, 'sqlite');
+    // Reverting restores the dropped column, and the DDL must carry the real
+    // name — quoted, since it cannot be written bare.
+    const sql = plan!.statements.join('\n');
+    expect(sql).toMatch(/"a\.b"|`a\.b`|\[a\.b]/);
   });
 });
 
