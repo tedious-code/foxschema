@@ -76,6 +76,14 @@ const TARGETS: Array<{
     options: { host: 'localhost', port: 5433, database: 'yugabyte', username: 'yugabyte', schema: 'public' },
   },
   {
+    // Oracle has no bare `SELECT 1` either — it wants a FROM, and DUAL is it.
+    // Schema and user are the same thing here, so the "schema" is the account.
+    dialect: 'oracle',
+    provider: 'oracle',
+    options: { host: 'localhost', port: 1521, database: 'FOXDB', username: 'foxuser', password: 'foxpass', schema: 'FOXUSER' },
+    probe: 'SELECT 1 FROM DUAL',
+  },
+  {
     // Slowest of the set to boot (the compose healthcheck allows two minutes
     // before it even starts probing) and the only one needing a native client
     // driver, so it is the most likely to be skipped on a given machine.
@@ -293,6 +301,24 @@ const ROUTINES: Record<
     ddl: () => [
       `CREATE FUNCTION dbo.double_it_${TAG}(@x INT) RETURNS INT AS BEGIN RETURN @x * 2 END`,
       `CREATE PROCEDURE dbo.touch_it_${TAG} AS BEGIN SELECT 1 END`,
+    ],
+  },
+  oracle: {
+    // An Oracle schema *is* a user, so the round trip needs a second account —
+    // which only a DBA can create, hence the admin credentials.
+    from: 'FOXUSER',
+    to: `FXRT${TAG.toUpperCase()}`,
+    admin: { username: 'system', password: 'FoxPass123' },
+    makeSchema: (s) =>
+      s === 'FOXUSER'
+        ? []
+        : [
+            `CREATE USER ${s} IDENTIFIED BY foxpass QUOTA UNLIMITED ON USERS`,
+            `GRANT CREATE SESSION, CREATE PROCEDURE TO ${s}`,
+          ],
+    ddl: (s) => [
+      `CREATE FUNCTION ${s}.DOUBLE_IT(X IN NUMBER) RETURN NUMBER AS BEGIN RETURN X * 2; END;`,
+      `CREATE PROCEDURE ${s}.TOUCH_IT AS BEGIN NULL; END;`,
     ],
   },
   db2: {
