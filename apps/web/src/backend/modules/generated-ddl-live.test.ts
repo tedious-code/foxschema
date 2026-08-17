@@ -31,7 +31,20 @@ const gen = new SqlGeneratorModule();
 /** Unique per run, so a rerun never collides with rows an earlier one left. */
 const TAG = Date.now().toString(36).slice(-5);
 
-const TARGETS: Array<{ dialect: string; provider: string; options: ConnectionOptions }> = [
+/**
+ * `probe` is the liveness query, and it is not universal: DB2 rejects a bare
+ * `SELECT 1` (SQL0104N — it wants a FROM clause), Oracle wants `FROM DUAL`.
+ * Getting this wrong is worse than it sounds. The first version probed every
+ * engine with `SELECT 1`, so DB2 was marked unreachable and every DB2 case
+ * returned early — reported as **passing**, in 0ms, while touching nothing.
+ * A skip that looks like a pass is the most expensive kind of green there is.
+ */
+const TARGETS: Array<{
+  dialect: string;
+  provider: string;
+  options: ConnectionOptions;
+  probe?: string;
+}> = [
   {
     dialect: 'postgres',
     provider: 'postgres',
@@ -69,6 +82,7 @@ const TARGETS: Array<{ dialect: string; provider: string; options: ConnectionOpt
     dialect: 'db2',
     provider: 'db2',
     options: { host: 'localhost', port: 50000, database: 'foxdb', username: 'db2inst1', password: 'foxpass', schema: 'DB2INST1' },
+    probe: 'SELECT 1 FROM SYSIBM.SYSDUMMY1',
   },
 ];
 
@@ -238,7 +252,11 @@ describe.runIf(RUN)('generated DDL runs on the real engines', () => {
     describe(target.dialect, () => {
       it('is reachable', async () => {
         try {
-          await ConnectionFactory.executeQuery(target.provider, target.options, 'SELECT 1');
+          await ConnectionFactory.executeQuery(
+            target.provider,
+            target.options,
+            target.probe ?? 'SELECT 1'
+          );
           reachable.set(target.dialect, true);
         } catch (err) {
           reachable.set(target.dialect, false);
@@ -247,8 +265,10 @@ describe.runIf(RUN)('generated DDL runs on the real engines', () => {
         }
       });
 
-      it('alters a table whose names need quoting', async () => {
-        if (reachable.get(target.dialect) === false) return;
+      it('alters a table whose names need quoting', async (ctx) => {
+        // ctx.skip() rather than `return`: a skipped engine must not report a
+        // green tick it never earned.
+        if (reachable.get(target.dialect) === false) ctx.skip();
         // ADD / DROP / MODIFY COLUMN go through per-dialect hooks rather than
         // the CREATE path, so they need their own proof on a real server —
         // this is where the dialects diverge most.
@@ -269,9 +289,11 @@ describe.runIf(RUN)('generated DDL runs on the real engines', () => {
           primaryKey: { columns: ['id'] },
         });
 
-        await runPlan(target, await ddlFor([before], target.dialect), (name) =>
-          toDrop.push({ provider: target.provider, options: target.options, name })
-        );
+        const created: string[] = [];
+        await runPlan(target, await ddlFor([before], target.dialect), (name) => {
+          created.push(name);
+          toDrop.push({ provider: target.provider, options: target.options, name });
+        });
 
         const alters = (await alterDdl([before], [after], target.dialect)).filter(
           (s) => !s.trim().startsWith('--')
@@ -279,11 +301,38 @@ describe.runIf(RUN)('generated DDL runs on the real engines', () => {
         expect(alters.length, 'compare reported a change but generated no ALTER').toBeGreaterThan(0);
         // One session for the whole plan, exactly as MigrationModule runs it.
         await runPlan(target, alters);
+
+        // "The statements ran" is not the same as "the table still works".
+        //
+        // It has to be a *write*. DB2 leaves a table in reorg-pending after
+        // DROP COLUMN, where SELECT still succeeds and every INSERT/UPDATE/
+        // DELETE fails with SQL0668N reason code 7 — so a read-back probe went
+        // green against a table the user could no longer write to. That is the
+        // failure this case exists to catch, and reading was blind to it.
+        const quoted = created[created.length - 1];
+        expect(quoted, 'no CREATE TABLE captured to write back').toBeTruthy();
+        try {
+          await ConnectionFactory.executeQuery(
+            target.provider,
+            target.options,
+            `INSERT INTO ${quoted} (id) VALUES (4242)`
+          );
+          await ConnectionFactory.executeQuery(
+            target.provider,
+            target.options,
+            `DELETE FROM ${quoted} WHERE id = 4242`
+          );
+        } catch (err) {
+          throw new Error(
+            `${target.dialect}: the table cannot be written to after the migration — ` +
+              `${(err as Error).message.split('\n')[0]}`
+          );
+        }
       });
 
       for (const testCase of CASES) {
-        it(`creates ${testCase.label}`, async () => {
-          if (reachable.get(target.dialect) === false) return;
+        it(`creates ${testCase.label}`, async (ctx) => {
+          if (reachable.get(target.dialect) === false) ctx.skip();
           const statements = (await ddlFor(testCase.tables, target.dialect)).filter(
             (s) => !s.trim().startsWith('--')
           );
