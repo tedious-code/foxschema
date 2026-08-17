@@ -64,6 +64,12 @@ function db2Drop(keyword: string, name: string): string {
   return `BEGIN\n  DECLARE CONTINUE HANDLER FOR SQLSTATE '42704' BEGIN END;\n  EXECUTE IMMEDIATE 'DROP ${keyword} ${safe}';\nEND`;
 }
 
+/** Same tolerance for a constraint, which lives on ALTER TABLE rather than DROP. */
+function db2DropConstraint(tableName: string, fkName: string): string {
+  const safe = `ALTER TABLE ${tableName} DROP FOREIGN KEY ${fkName}`.replace(/'/g, "''");
+  return `BEGIN\n  DECLARE CONTINUE HANDLER FOR SQLSTATE '42704' BEGIN END;\n  EXECUTE IMMEDIATE '${safe}';\nEND`;
+}
+
 export const db2SqlDialect: SqlDialect = {
   identityClause(c: ColumnSpec): string {
     return c.identity ? ` GENERATED ${c.identityGeneration ?? 'ALWAYS'} AS IDENTITY` : '';
@@ -138,7 +144,15 @@ export const db2SqlDialect: SqlDialect = {
 
   dropForeignKeyStatement(tableName: string, fkName: string): string {
     // DB2 has no DROP CONSTRAINT IF EXISTS; DROP FOREIGN KEY is the native form.
-    return `ALTER TABLE ${tableName} DROP FOREIGN KEY ${fkName};`;
+    //
+    // Wrapped in the same 42704 handler as the other drops, because the
+    // constraint may already be gone by the time this runs: dropping a parent
+    // table earlier in the plan takes its inbound foreign keys with it. Without
+    // the handler that raised SQL0204N, and since DB2 has transactional DDL the
+    // *whole* migration rolled back — a revert that reported no error and
+    // changed nothing. The generic fallback says `DROP CONSTRAINT IF EXISTS`
+    // for exactly this reason; this restores that tolerance for DB2.
+    return `${db2DropConstraint(tableName, fkName)};`;
   },
 
   dropIndexStatement(indexName: string, qualifiedTable: string): string {
