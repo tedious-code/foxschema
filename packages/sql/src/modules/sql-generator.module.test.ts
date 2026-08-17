@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { SqlGeneratorModule } from './sql-generator.module.js';
 import { db2SqlDialect } from '../providers/db2/db2.sql-dialect.js';
+import { DIALECT_MAP } from './dialect-registry.js';
 import { TableDiff } from '../interfaces/index.js';
 import { TableSchema } from '../interfaces/index.js';
 
@@ -93,6 +94,27 @@ describe('SqlGeneratorModule.generateMigrationPlan', () => {
     indexDiffs: [],
     foreignKeyDiffs: [],
     sourceTable: tableSchema({ name, columns: [{ name: 'ID', type: 'INTEGER', nullable: false, primaryKey: false }] }),
+  });
+
+  describe('DB2 caps DECIMAL precision', () => {
+    it('narrows a precision Db2 cannot store, and says so', () => {
+      // Postgres, Oracle and SQL Server all allow 38 digits; Db2 stops at 31
+      // and answers SQL0604N above it (verified on 11.5: 31 ok, 32 fails). The
+      // precision used to pass straight through, so a cross-dialect migration
+      // died at CREATE TABLE — after the plan had been reviewed and accepted.
+      const pg = DIALECT_MAP.POSTGRES!;
+      const wide = db2SqlDialect.renderType(pg.parseType('numeric(38,2)'));
+      expect(wide.sql).toBe('DECIMAL(31,2)');
+      expect(wide.warning).toMatch(/31/);
+    });
+
+    it('leaves a precision it can store untouched, with no warning', () => {
+      const pg = DIALECT_MAP.POSTGRES!;
+      for (const spec of ['numeric(31,2)', 'numeric(10,2)']) {
+        const out = db2SqlDialect.renderType(pg.parseType(spec));
+        expect(out.warning, spec).toBeUndefined();
+      }
+    });
   });
 
   describe('DB2 tolerates a foreign key that is already gone', () => {

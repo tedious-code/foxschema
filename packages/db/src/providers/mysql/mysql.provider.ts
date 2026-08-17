@@ -30,14 +30,21 @@ const STRING_TYPES = /^(varchar|char|tinytext|text|mediumtext|longtext|enum|set|
  * surrounding quotes (e.g. DEFAULT 'active' → stored as 'active'). Numeric and
  * expression defaults are fine as-is. This helper re-adds quotes for string types.
  */
-function normalizeDefault(columnType: string, raw: string | null): string | undefined {
+export function normalizeDefault(columnType: string, raw: string | null): string | undefined {
   if (raw === null) return undefined;
   if (SQL_KEYWORDS.test(raw.trim())) return raw; // keyword / function
   if (raw.includes('(')) return raw; // expression
   // eslint-disable-next-line security/detect-unsafe-regex -- false positive: fully anchored ^…$ with simple digit classes, cannot ReDoS
   if (/^\d+(\.\d+)?$/.test(raw)) return raw; // numeric literal
   if (raw.startsWith("'") || raw.startsWith('"')) return raw; // already quoted
-  if (STRING_TYPES.test(columnType.trim())) return `'${raw.replace(/'/g, "''")}'`;
+  // Backslash first, then the quote. MySQL treats `\` as an escape inside a
+// string literal, so a default of `C:\path\n` re-quoted with only the
+  // apostrophe doubled came back as `C:path` + a newline — the migrated column
+  // silently got a different default from the source. (In NO_BACKSLASH_ESCAPES
+  // mode a backslash is literal and this would double it; that mode is opt-in
+  // and rare, whereas losing the character is the default behaviour.)
+  if (STRING_TYPES.test(columnType.trim()))
+    return `'${raw.replace(/\\/g, '\\\\').replace(/'/g, "''")}'`;
   return raw;
 }
 
