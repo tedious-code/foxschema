@@ -55,7 +55,12 @@ describe('cross-dialect type translation', () => {
 
   it('Oracle → Postgres', () => {
     expect(xlate(oracle, pg, 'VARCHAR2(100)').sql).toBe('varchar(100)');
-    expect(xlate(oracle, pg, 'NUMBER(10,0)').sql).toBe('integer');
+    // NUMBER(p,0): width picks the integer family (int32 / int64 / decimal).
+    expect(xlate(oracle, pg, 'NUMBER(9,0)').sql).toBe('integer');
+    expect(xlate(oracle, pg, 'NUMBER(10,0)').sql).toBe('bigint');
+    expect(xlate(oracle, pg, 'NUMBER(18,0)').sql).toBe('bigint');
+    expect(xlate(oracle, pg, 'NUMBER(19,0)').sql).toBe('numeric(19,0)');
+    expect(xlate(oracle, pg, 'NUMBER(38,0)').sql).toBe('numeric(38,0)');
     expect(xlate(oracle, pg, 'NUMBER(10,2)').sql).toBe('numeric(10,2)');
     expect(xlate(oracle, pg, 'CLOB').sql).toBe('text');
   });
