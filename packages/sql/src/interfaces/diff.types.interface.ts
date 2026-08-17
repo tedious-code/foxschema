@@ -3,10 +3,19 @@ import { type TableSchema, type DbObjectType } from './schema-provider.interface
 export type DiffType = 'ADDED' | 'REMOVED' | 'MODIFIED' | 'UNCHANGED';
 
 export interface ColumnDiff {
+  /** Uppercased compare-key match name — NOT a real identifier, see source.name. */
   name: string;
   status: 'ADDED' | 'REMOVED' | 'MODIFIED' | 'UNCHANGED';
-  source?: { type: string; nullable: boolean; defaultValue?: string; primaryKey?: boolean; identity?: boolean; collation?: string };
-  target?: { type: string; nullable: boolean; defaultValue?: string; primaryKey?: boolean; identity?: boolean; collation?: string };
+  /**
+   * `name` is the column's own identifier in its native casing, which is what
+   * DDL must use — the same trap as `IndexDiff` below. Compare has always
+   * passed the whole ColumnInfo through; only this declaration hid the field,
+   * so `ALTER TABLE … ADD "NEW COL"` was emitted for a column actually called
+   * `new col`. Optional rather than required because this package is
+   * published — every producer inside the repo sets it.
+   */
+  source?: { name?: string; type: string; nullable: boolean; defaultValue?: string; primaryKey?: boolean; identity?: boolean; collation?: string };
+  target?: { name?: string; type: string; nullable: boolean; defaultValue?: string; primaryKey?: boolean; identity?: boolean; collation?: string };
 }
 
 export interface IndexDiff {

@@ -69,7 +69,14 @@ function shapeCanonical(base: CanonicalBase, tok: TypeToken, raw: string): Canon
   if (base === 'char' || base === 'varchar' || base === 'binary' || base === 'varbinary') {
     if (tok.length !== undefined) t.length = tok.length;
   } else if (base === 'decimal') {
-    if (tok.precision !== undefined) t.precision = tok.precision;
+    // A single-argument `NUMBER(10)` / `DECIMAL(10)` tokenizes as a *length*,
+    // because the tokenizer cannot know which types read one arg as a
+    // precision. For a decimal it is always a precision (SQL defines
+    // DECIMAL(p) as DECIMAL(p,0)), and ignoring it rendered a bare `NUMBER` —
+    // silently widening an Oracle NUMBER(10) column to full 38-digit precision
+    // on every migration.
+    const precision = tok.precision ?? tok.length;
+    if (precision !== undefined) t.precision = precision;
     if (tok.scale !== undefined) t.scale = tok.scale;
   }
   return t;
