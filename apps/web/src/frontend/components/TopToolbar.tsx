@@ -111,7 +111,7 @@ export const TopToolbar: React.FC = () => {
         title: result.changed ? `Snapshot v${result.versionNumber}` : `No changes since v${result.versionNumber}`,
         body: result.changed
           ? `${result.changeCount} object change(s) · ${result.objectCount} objects`
-          : 'Target schema matches the last snapshot (hash pointer reused).',
+          : 'Target schema matches the last snapshot — nothing new to record.',
       });
       setSyncPane('history');
     } catch (err) {
@@ -266,7 +266,7 @@ export const TopToolbar: React.FC = () => {
             type="button"
             data-testid="sync-pane-history-btn"
             onClick={() => setSyncPane('history')}
-            title="Content-addressed schema history (Lokee). Auto-snapshots on migrate."
+            title="Every version of this schema, and what changed between them. Snapshots automatically when you migrate."
             className={`rounded px-2.5 py-1 text-xs font-semibold transition ${
               syncPane === 'history'
                 ? 'bg-violet-700/80 text-violet-50 ring-1 ring-violet-400/40'

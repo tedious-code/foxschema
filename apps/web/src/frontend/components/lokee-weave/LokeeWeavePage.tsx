@@ -28,7 +28,7 @@ import { AlertTriangle, GripVertical, Lock, Unlock } from 'lucide-react';
 import type { LokeeObjectType } from '@foxschema/sql';
 import { OBJECT_STYLES, STATUS_STYLES, objectStyle, statusStyle } from '../../lib/lokeeColors';
 import { LOKEE_NODE_TYPES } from './nodes';
-import { buildVersionGraph, carryMeasurements } from './buildGraph';
+import { buildVersionGraph, carryMeasurements, offeredObjectTypes } from './buildGraph';
 import { useUiStore } from '../../store/uiStore';
 import { VersionCompareModal } from './VersionCompareModal';
 import {
@@ -83,16 +83,6 @@ export interface LokeeWeavePageProps {
   embedded?: boolean;
 }
 
-const FILTERABLE_TYPES: LokeeObjectType[] = [
-  'table',
-  'view',
-  'mqt',
-  'index',
-  'column',
-  'trigger',
-  'function',
-  'procedure',
-];
 const STATUSES: GraphChangeStatus[] = ['added', 'modified', 'unchanged', 'deleted'];
 
 /** When a schema has this many distinct objects, default to tables-only. */
@@ -505,7 +495,7 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
         return (
     <SidebarSection id="objectType" title="Object type" {...drag}>
                 <div className="flex flex-col gap-1">
-                  {FILTERABLE_TYPES.map((t) => (
+                  {offeredTypes.map((t) => (
                     <label
                       key={t}
                       className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-slate-300 hover:bg-slate-800/60"
@@ -661,8 +651,15 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
     }
   };
 
+  const offeredTypes = useMemo(
+    () => offeredObjectTypes(dto.objects, filters.objectTypes),
+    [dto.objects, filters.objectTypes]
+  );
+
   const changed = dto.objects.filter((o) => o.status !== 'unchanged').length;
-  const reused = dto.objects.length - changed;
+  // "reused" is how the store thinks — one object pointed at by many versions.
+  // A reader of the history is asking what moved and what did not.
+  const unchanged = dto.objects.length - changed;
 
   return (
     <div data-testid="lokee-weave-page" className="flex h-full min-h-0 flex-col gap-2 overflow-hidden px-6 pt-2">
@@ -674,7 +671,7 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
         data-testid="lokee-summary"
       >
         <span className="font-semibold text-slate-300">
-          {embedded ? 'Schema history' : 'Lokee Weave'}
+          Schema history
         </span>
         <span className="text-slate-600">·</span>
         <span>
@@ -684,7 +681,7 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
           <span className="font-bold text-slate-100">{dto.totalObjects}</span> objects
         </span>
         <span className="text-slate-500">
-          {changed} changed · {reused} reused
+          {changed} changed · {unchanged} unchanged
         </span>
         {subtitle && <span className="truncate text-slate-600">{subtitle}</span>}
       </header>
@@ -900,7 +897,7 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
         </span>
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-px w-6 border-t border-dashed border-sky-400" aria-hidden />{' '}
-          Reused from previous version
+          Unchanged from previous version
         </span>
         <span className="flex items-center gap-1.5">
           <span

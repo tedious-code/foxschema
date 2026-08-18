@@ -157,3 +157,25 @@ export const MAX_VISIBLE_OBJECT_NODES = 500;
 export function shortHash(hash: string | null | undefined): string {
   return typeof hash === 'string' && hash.length > 0 ? hash.slice(0, 6).toUpperCase() : '—';
 }
+
+/**
+ * Split a stored object name into what to show and what owns it.
+ *
+ * Children arrive named by their compare key — `ORDERS.NOTE` — because that is
+ * how the store addresses them. CLAUDE.md is explicit that the compare key is
+ * an uppercased match key and never an identifier, so putting it on a card
+ * verbatim shows the reader a string that exists nowhere in their database.
+ *
+ * The card wants the child's own name with its table as context. Presentation
+ * only: nothing here is used to build SQL.
+ */
+export function objectDisplayName(
+  name: string,
+  objectType: LokeeObjectType
+): { label: string; owner: string | null } {
+  const CHILDREN: LokeeObjectType[] = ['column', 'index', 'primary_key', 'foreign_key', 'trigger'];
+  if (!CHILDREN.includes(objectType)) return { label: name, owner: null };
+  const dot = name.lastIndexOf('.');
+  if (dot <= 0 || dot === name.length - 1) return { label: name, owner: null };
+  return { label: name.slice(dot + 1), owner: name.slice(0, dot) };
+}

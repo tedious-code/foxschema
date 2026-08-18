@@ -924,7 +924,11 @@ export class LokeeWeaveStore {
             versionId: version.id,
             objectKey: key,
             name: fallbackName(key),
-            objectType: (row.object_type as LokeeObjectType) ?? 'table',
+            // The key already carries the kind — `column:ORDERS.NOTE` is a
+            // column. Falling back to 'table' drew a deleted column with a
+            // table's icon and colour, and the card showed the raw compare key
+            // because the display split trusted that wrong type.
+            objectType: typeFromRowOrKey(row.object_type, key),
             objectHash: null,
             status: 'deleted',
           });
@@ -947,7 +951,7 @@ export class LokeeWeaveStore {
           versionId: version.id,
           objectKey: key,
           name: info?.name ?? fallbackName(key),
-          objectType: (info?.type as LokeeObjectType) ?? (row?.object_type as LokeeObjectType) ?? 'table',
+          objectType: (info?.type as LokeeObjectType) ?? typeFromRowOrKey(row?.object_type, key),
           objectHash: hash,
           status:
             row?.operation === 'ADD' ? 'added' : row?.operation === 'MODIFY' ? 'modified' : 'unchanged',
@@ -1554,6 +1558,17 @@ function bodyFromRow(row: { body_json: string; shape_json?: string | null }): Re
 }
 
 /** `column:CUSTOMER.EMAIL` → `CUSTOMER.EMAIL`, for rows with no stored name. */
+/**
+ * The object's kind, preferring what the delta row recorded and falling back to
+ * the key rather than to a guess. `table` was the old fallback, which is only
+ * right for containers — every deleted column came back typed as a table.
+ */
+function typeFromRowOrKey(rowType: string | null | undefined, key: string): LokeeObjectType {
+  if (rowType) return rowType as LokeeObjectType;
+  const kind = objectKeyKind(key);
+  return (kind || 'table') as LokeeObjectType;
+}
+
 function fallbackName(objectKey: string): string {
   const colon = objectKey.indexOf(':');
   return colon >= 0 ? objectKey.slice(colon + 1) : objectKey;

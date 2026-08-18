@@ -14,7 +14,9 @@
  * still occupies its lane, joined by a "reused" edge — the graph draws several
  * historical positions pointing at one immutable stored object.
  */
+import type { LokeeObjectType } from '@foxschema/sql';
 import {
+  DEFAULT_HISTORY_OBJECT_TYPES,
   DEFAULT_LAYOUT,
   MAX_VISIBLE_OBJECT_NODES,
   type GraphChangeStatus,
@@ -293,4 +295,39 @@ export function carryMeasurements<N extends LokeeNode>(
     if (!before?.measured?.width || !before.measured.height) return node;
     return { ...node, measured: { ...before.measured } };
   });
+}
+
+/** Display order for the object-type filter; not every one is always offered. */
+const FILTERABLE_TYPES: LokeeObjectType[] = [
+  'table',
+  'view',
+  'mqt',
+  'index',
+  'column',
+  'trigger',
+  'function',
+  'procedure',
+];
+
+/**
+ * Only offer types this history actually contains.
+ *
+ * The full list is the union of every dialect: a SQLite user was being shown
+ * MQT — a term only Db2 uses — plus Procedure and Function checkboxes that
+ * could never match anything. A filter that cannot change what you see is
+ * noise standing between the reader and the ones that can.
+ *
+ * `active` keeps a control from vanishing under the person using it, but only
+ * for types they ticked themselves. The four defaults are not a choice, and
+ * honouring them here would have pinned Function and Procedure to every SQLite
+ * database in the product — the exact noise this removes.
+ */
+export function offeredObjectTypes(
+  objects: readonly { objectType: LokeeObjectType }[],
+  active: ReadonlySet<LokeeObjectType>,
+  defaults: readonly LokeeObjectType[] = DEFAULT_HISTORY_OBJECT_TYPES
+): LokeeObjectType[] {
+  const present = new Set(objects.map((o) => o.objectType));
+  const chosen = new Set([...active].filter((t) => !defaults.includes(t)));
+  return FILTERABLE_TYPES.filter((t) => present.has(t) || chosen.has(t));
 }

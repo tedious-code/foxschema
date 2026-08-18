@@ -29,6 +29,7 @@ import {
 import { CHANGE_KIND_LABEL, CHANGE_KIND_TITLE, type LokeeObjectType } from '@foxschema/sql';
 import { changeKindStyle, objectStyle, statusStyle } from '../../lib/lokeeColors';
 import {
+  objectDisplayName,
   shortHash,
   versionDisplayName,
   type LokeeObjectNode,
@@ -108,6 +109,8 @@ export const SchemaObjectNode = memo(({ data: d, selected }: NodeProps<LokeeObje
   const style = objectStyle(d.objectType);
   const status = statusStyle(d.status);
   const Icon = TYPE_ICON[d.objectType] ?? Shapes;
+  // `ORDERS.NOTE` is the store's compare key, not anything in the database.
+  const { label, owner } = objectDisplayName(d.name, d.objectType);
   return (
     <div
       data-testid={`rf-object-${d.versionId}-${d.objectKey}`}
@@ -123,8 +126,15 @@ export const SchemaObjectNode = memo(({ data: d, selected }: NodeProps<LokeeObje
       <Handle type="target" position={Position.Top} className="!opacity-0" />
       <div className="flex items-center gap-1.5">
         <Icon className={`w-3.5 h-3.5 shrink-0 ${style.dot.replace('bg-', 'text-')}`} strokeWidth={SQL_ICON_STROKE} />
-        <span className="truncate text-[11px] font-semibold text-slate-100">{d.name}</span>
+        <span className="min-w-0 truncate text-[11px] font-semibold text-slate-100" title={d.name}>
+          {label}
+        </span>
       </div>
+      {owner && (
+        <div className="truncate pl-5 text-[9px] uppercase tracking-wide text-slate-500" title={owner}>
+          on {owner.toLowerCase()}
+        </div>
+      )}
       <div className="mt-0.5 flex items-center gap-1 pl-5">
         <span className="font-mono text-[10px] text-slate-400">{shortHash(d.objectHash)}</span>
         <span
@@ -155,6 +165,7 @@ SchemaObjectNode.displayName = 'SchemaObjectNode';
 
 /** A tombstone marks where an object stopped existing; it is not carried on. */
 export const DeletedObjectNode = memo(({ data: d, selected }: NodeProps<LokeeObjectNode>) => {
+  const { label, owner } = objectDisplayName(d.name, d.objectType);
   return (
     <div
       data-testid={`rf-object-${d.versionId}-${d.objectKey}`}
@@ -167,11 +178,16 @@ export const DeletedObjectNode = memo(({ data: d, selected }: NodeProps<LokeeObj
       <Handle type="target" position={Position.Top} className="!opacity-0" />
       <div className="flex items-center gap-1.5">
         <X className="w-3.5 h-3.5 shrink-0 text-rose-300" strokeWidth={SQL_ICON_STROKE} />
-        <span className="truncate text-[11px] font-semibold text-rose-200 line-through">
-          {d.name}
+        <span
+          className="min-w-0 truncate text-[11px] font-semibold text-rose-200 line-through"
+          title={d.name}
+        >
+          {label}
         </span>
       </div>
-      <div className="mt-0.5 pl-5 text-[10px] text-rose-300/80">deleted</div>
+      <div className="mt-0.5 truncate pl-5 text-[10px] text-rose-300/80">
+        {owner ? `deleted from ${owner.toLowerCase()}` : 'deleted'}
+      </div>
       <Handle type="source" position={Position.Bottom} className="!opacity-0" />
     </div>
   );

@@ -57,8 +57,10 @@ const EMPTY_DTO: VersionGraphDTO = {
 function describe(database: LokeeDatabase | undefined): string | undefined {
   if (!database) return undefined;
   const where = [database.host, database.database].filter(Boolean).join('/');
-  const schema = database.schema ? `.${database.schema}` : '';
-  return `[${database.dialect}] ${where}${schema}`;
+  // ` · schema`, not `.schema`: a SQLite path already ends in `.db`, so the
+  // dotted form rendered as `/tmp/app.db.main` and read like a file extension.
+  const schema = database.schema ? ` · ${database.schema}` : '';
+  return `${database.dialect} · ${where}${schema}`;
 }
 
 export function LokeeWeaveView({
@@ -412,17 +414,62 @@ export function LokeeWeaveView({
   }
 
   if (!activeId || dto.versions.length === 0) {
+    /**
+     * First run. This used to be a paragraph telling the reader to go and find
+     * a button somewhere else — the one screen where a newcomer has nothing to
+     * act on was the one screen with no action on it. The credential picker and
+     * the button now live here, and the explanation is two lines under them.
+     */
+    const chosen = connections.find((c) => c.id === captureConnectionId);
     return (
       <div className="flex flex-1 min-h-0 flex-col overflow-hidden" data-testid="lokee-weave-view">
-          <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-          <GitBranch className="h-6 w-6 text-slate-500" strokeWidth={SQL_ICON_STROKE} />
-          <div className="text-sm font-semibold text-slate-100">No schema history yet</div>
-          <div className="max-w-md text-xs text-slate-400">
-            Take an initial snapshot of the Target (Snapshot target in the toolbar), or pick a
-            credential here and click <span className="text-slate-200">Capture schema</span>.
-            Then choose an Original version and a Target (current database or an older version),
-            the same way as Compare. Migrating the Target records a new version automatically.
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
+          <GitBranch className="h-7 w-7 text-slate-500" strokeWidth={SQL_ICON_STROKE} />
+          <div>
+            <div className="text-sm font-semibold text-slate-100">No schema history yet</div>
+            <div className="mt-1 max-w-sm text-xs text-slate-400">
+              Take the first snapshot and Fox Schema starts tracking every change to this
+              database — what changed, when, and by whom.
+            </div>
           </div>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <select
+              data-testid="lokee-empty-credential"
+              value={captureConnectionId}
+              onChange={(e) => setCaptureConnectionId(e.target.value)}
+              className="min-w-[200px] rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-slate-200 focus:border-cyan-500 focus:outline-none"
+            >
+              <option value="">Choose a database…</option>
+              {connections.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} [{c.dialect}]
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              data-testid="lokee-empty-capture"
+              disabled={!chosen || capturing}
+              onClick={() => void runCapture()}
+              className="inline-flex items-center gap-1.5 rounded bg-cyan-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-cyan-500 disabled:bg-slate-700 disabled:text-slate-400"
+            >
+              {capturing ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={SQL_ICON_STROKE} />
+              ) : (
+                <Camera className="h-3.5 w-3.5" strokeWidth={SQL_ICON_STROKE} />
+              )}
+              {capturing ? 'Taking snapshot…' : 'Take first snapshot'}
+            </button>
+          </div>
+          {connections.length === 0 && (
+            <p className="text-[11px] text-slate-500">
+              No saved connections yet — add one from <span className="text-slate-300">Credentials</span> first.
+            </p>
+          )}
+          <p className="max-w-sm text-[11px] leading-relaxed text-slate-500">
+            After that, every migration you run records a version automatically. You can compare
+            any two, and restore the database to an earlier one.
+          </p>
         </div>
       </div>
     );

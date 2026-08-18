@@ -107,7 +107,11 @@ describe('LokeeWeaveView', () => {
 
     await waitFor(() => expect(screen.getByTestId('graph')).toBeTruthy());
     // The subtitle must name the database, not the saved connection.
-    expect(screen.getByTestId('graph').textContent).toContain('[postgres] localhost/foxdb.public');
+    // ` · schema`, not `.schema`: on SQLite the dotted form rendered as
+    // `/tmp/app.db.main` and read like a file extension.
+    expect(screen.getByTestId('graph').textContent).toContain(
+      'postgres · localhost/foxdb · public'
+    );
     // The chrome row is gone — Refresh and Capture moved into HistoryCompareBar.
     expect(screen.queryByTestId('lokee-weave-chrome')).toBeNull();
   });
@@ -120,6 +124,20 @@ describe('LokeeWeaveView', () => {
 
     await waitFor(() => expect(screen.getByText('No schema history yet')).toBeTruthy());
     expect(screen.queryByTestId('graph')).toBeNull();
+  });
+
+  it('puts the first snapshot within reach instead of describing where to find it', async () => {
+    // The one screen where a newcomer has nothing to act on used to be the one
+    // screen with no action on it — a paragraph pointing at a button elsewhere.
+    listLokeeDatabases.mockResolvedValue([DB]);
+    loadVersionGraph.mockResolvedValue({ ...DTO, versions: [], truncatedObjects: false });
+
+    render(<LokeeWeaveView />);
+
+    await waitFor(() => expect(screen.getByTestId('lokee-empty-capture')).toBeTruthy());
+    expect(screen.getByTestId('lokee-empty-credential')).toBeTruthy();
+    // Says what it does, in the words of the job — not "Capture schema".
+    expect(screen.getByTestId('lokee-empty-capture').textContent).toContain('Take first snapshot');
   });
 
   it('surfaces a failed load instead of pretending there is no history', async () => {

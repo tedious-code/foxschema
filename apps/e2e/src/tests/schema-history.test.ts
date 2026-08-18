@@ -130,10 +130,16 @@ describe.skipIf(!ready)('Schema Sync · History (SQLite)', () => {
     expect(await driver.locator('[data-testid="lokee-rf-changes-only"]').isChecked()).toBe(true);
   });
 
-  it('exposes view / procedure / function type filters', async () => {
+  it('offers the object types this schema actually has, and not the rest', async () => {
+    // The seed is a SQLite database with a table, an index, a view and a
+    // trigger. Procedure / Function / MQT filters could never match anything
+    // here, and MQT is a term only Db2 uses — a filter that cannot change what
+    // you see is noise in front of the ones that can.
     expect(await history.typeFilterVisible('view')).toBe(true);
-    expect(await history.typeFilterVisible('procedure')).toBe(true);
-    expect(await history.typeFilterVisible('function')).toBe(true);
+    expect(await history.typeFilterVisible('index')).toBe(true);
+    expect(await history.typeFilterVisible('trigger')).toBe(true);
+    expect(await history.typeFilterVisible('mqt')).toBe(false);
+    expect(await history.typeFilterVisible('procedure')).toBe(false);
     await history.enableType('view');
     await driver.locator('[data-testid^="rf-object-"]').filter({ hasText: 'v_customers' }).first().waitFor({
       timeout: 10_000,
