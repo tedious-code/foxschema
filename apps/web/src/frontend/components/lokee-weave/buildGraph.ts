@@ -256,3 +256,41 @@ export function buildVersionGraph(
 
   return { nodes, edges, hiddenByCap: hidden, columns };
 }
+
+/**
+ * Copy React Flow's measurements from the previous nodes onto freshly built
+ * ones with the same ids.
+ *
+ * Why this has to exist: React Flow decides an edge is drawable in
+ * `isNodeInitialized`, which needs the node's `internals.handleBounds`. Those
+ * bounds come from measuring the DOM — and `adoptUserNodes` throws them away
+ * whenever it is handed a *new* node object, keeping them only when the object
+ * still carries `measured`:
+ *
+ *     if (!userNode.handles) {
+ *       return !userNode.measured ? undefined : internalNode?.internals.handleBounds;
+ *     }
+ *
+ * `buildVersionGraph` returns brand-new objects on every filter change, none of
+ * which carry `measured`. So every rebuild reset handleBounds, `getEdgePosition`
+ * returned null, and each `EdgeWrapper` rendered nothing — the whole graph lost
+ * its edges, version spine included, and never got them back. (Re-measurement
+ * reports through `onNodesChange`, which this graph did not have.)
+ *
+ * Carrying the measurements forward keeps the edges on screen across a rebuild
+ * instead of dropping them for a frame while React Flow measures again.
+ */
+export function carryMeasurements<N extends LokeeNode>(
+  next: readonly N[],
+  previous: readonly N[]
+): N[] {
+  if (previous.length === 0) return [...next];
+  const measuredById = new Map(previous.map((node) => [node.id, node]));
+  return next.map((node) => {
+    const before = measuredById.get(node.id);
+    // Only a real measurement is worth carrying; an unmeasured predecessor
+    // would just copy `undefined` over and change nothing.
+    if (!before?.measured?.width || !before.measured.height) return node;
+    return { ...node, measured: { ...before.measured } };
+  });
+}

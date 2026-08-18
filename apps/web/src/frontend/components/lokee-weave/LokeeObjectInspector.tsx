@@ -4,44 +4,32 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Inspector for a Lokee graph node: columns with type/constraint subtitles,
- * a GitHub-style CREATE script diff, growth, and revert-to-version.
+ * a GitHub-style CREATE script diff, and a roadmap of the versions that moved
+ * the object. Reverting lives in the version compare modal, which can scope it
+ * to chosen objects; this panel is for reading.
  * Indexes are stored but not a first-class inspector surface.
  */
 import React, { useEffect, useState } from 'react';
 import { isLokeeTableLikeType, lokeeColumnChangeSubtitle, lokeeTypeLabel } from '@foxschema/sql';
-import { Loader2, RotateCcw, X } from 'lucide-react';
+import { ChevronsUpDown, Loader2, X } from 'lucide-react';
 import {
-  executeLokeeRevert,
   inspectLokeeObject,
-  planLokeeRevert,
   type LokeeHistoryEvent,
   type LokeeInspectResult,
-  type LokeeRevertPlan,
   type LokeeStoredObject,
 } from '../../api/lokeeApi';
-import { getSessionPassword } from '../../lib/sessionPasswords';
-import { objectStyle, riskStyle } from '../../lib/lokeeColors';
+import { objectStyle } from '../../lib/lokeeColors';
 import { SchemaBlueprint } from '../SchemaBlueprint';
-import { toast } from '../../store/toastStore';
 import { shortHash, type SchemaObjectNodeData } from './graphTypes';
 import { GithubScriptDiff } from './GithubScriptDiff';
+import { buildRoadmapRows, hiddenVersionCount } from './roadmap';
 import { SQL_ICON_STROKE } from '../sql-editor/sqlIconStyle';
 
 export interface LokeeObjectInspectorProps {
   databaseId: string;
   selected: SchemaObjectNodeData;
   onClose: () => void;
-  captureConnectionId?: string;
   onSelectVersion?: (versionId: string) => void;
-  onReverted?: () => void;
-}
-
-interface RevertUi {
-  versionId: string;
-  plan: LokeeRevertPlan | null;
-  busy: boolean;
-  error: string | null;
-  confirmLossy: boolean;
 }
 
 function typeLabel(body: Record<string, unknown> | undefined): string {
@@ -84,122 +72,7 @@ function HistoryEvent({ point }: { point: LokeeHistoryEvent }): React.ReactEleme
         </div>
       )}
       {lines && <div className="text-[10px] text-slate-400">{lines}</div>}
-      {point.reused && (
-        <div className="text-[10px] text-sky-400/80">Reused hash — stored once (pointer)</div>
-      )}
     </li>
-  );
-}
-
-function RevertCard({
-  connectionId,
-  revert,
-  onConfirmLossy,
-  onExecute,
-  onCancel,
-}: {
-  connectionId?: string;
-  revert: RevertUi;
-  onConfirmLossy: (checked: boolean) => void;
-  onExecute: () => void;
-  onCancel: () => void;
-}): React.ReactElement {
-  const plan = revert.plan;
-  const blocked = plan?.reversal.risk === 'blocked';
-  const lossy = plan?.reversal.risk === 'lossy';
-  const canRun =
-    Boolean(plan) &&
-    !revert.busy &&
-    !blocked &&
-    Boolean(connectionId) &&
-    (!lossy || revert.confirmLossy) &&
-    !plan?.alreadyAtTarget;
-
-  return (
-    <section
-      data-testid="lokee-inspector-revert-plan"
-      className="rounded border border-amber-500/40 bg-amber-950/20 px-2 py-2"
-    >
-      <h3 className="text-[10px] font-bold uppercase tracking-wider text-amber-200">Revert schema</h3>
-      {revert.busy && !plan && (
-        <div className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-400">
-          <Loader2 className="h-3 w-3 animate-spin" strokeWidth={SQL_ICON_STROKE} />
-          Planning reverse DDL…
-        </div>
-      )}
-      {revert.error && <p className="mt-1 text-[11px] text-rose-300">{revert.error}</p>}
-      {plan && (
-        <>
-          <p className="mt-1 text-[11px] text-slate-300">
-            Apply reverse DDL so the live schema matches v{plan.toVersion.number}, then record a new
-            version.
-          </p>
-          {plan.alreadyAtTarget ? (
-            <p className="mt-1 text-[11px] text-slate-400">Already at this version.</p>
-          ) : (
-            <>
-              <div
-                className={`mt-1 inline-flex rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-                  riskStyle(plan.reversal.risk).badge
-                }`}
-              >
-                {riskStyle(plan.reversal.risk).label}
-                {plan.reversal.lossyCount > 0 ? ` · ${plan.reversal.lossyCount} lossy` : ''}
-                {plan.reversal.blockedCount > 0 ? ` · ${plan.reversal.blockedCount} blocked` : ''}
-              </div>
-              <ul className="mt-1 max-h-32 overflow-auto text-[10px] text-slate-400">
-                {plan.reversal.verdicts.slice(0, 12).map((v) => (
-                  <li key={v.key} className="py-0.5">
-                    <span className="text-slate-300">{v.summary}</span>
-                    {v.dataLoss ? ` — ${v.dataLoss}` : ''}
-                  </li>
-                ))}
-              </ul>
-              {plan.statements.length > 0 && (
-                <pre className="mt-1 max-h-28 overflow-auto rounded border border-slate-800 bg-slate-950 p-1.5 font-mono text-[10px] leading-4 text-slate-400">
-                  {plan.statements.join('\n')}
-                </pre>
-              )}
-              {lossy && (
-                <label className="mt-1.5 flex cursor-pointer items-start gap-1.5 text-[11px] text-amber-100">
-                  <input
-                    type="checkbox"
-                    data-testid="lokee-revert-confirm-lossy"
-                    checked={revert.confirmLossy}
-                    onChange={(e) => onConfirmLossy(e.target.checked)}
-                  />
-                  I understand dropped columns and tables cannot be restored with their data.
-                </label>
-              )}
-              <div className="mt-2 flex gap-1">
-                <button
-                  type="button"
-                  data-testid="lokee-revert-execute"
-                  disabled={!canRun}
-                  onClick={onExecute}
-                  className="rounded border border-amber-500/40 bg-amber-950/60 px-2 py-1 text-[11px] font-semibold text-amber-50 disabled:opacity-40"
-                >
-                  {revert.busy ? 'Reverting…' : `Revert to v${plan.toVersion.number}`}
-                </button>
-                <button
-                  type="button"
-                  data-testid="lokee-revert-cancel"
-                  onClick={onCancel}
-                  className="rounded border border-slate-700 px-2 py-1 text-[11px] text-slate-300"
-                >
-                  Cancel
-                </button>
-              </div>
-              {!connectionId && (
-                <p className="mt-1 text-[10px] text-slate-500">
-                  Pick a credential in History to apply the revert.
-                </p>
-              )}
-            </>
-          )}
-        </>
-      )}
-    </section>
   );
 }
 
@@ -207,20 +80,21 @@ export function LokeeObjectInspector({
   databaseId,
   selected,
   onClose,
-  captureConnectionId,
   onSelectVersion,
-  onReverted,
 }: LokeeObjectInspectorProps): React.ReactElement {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<LokeeInspectResult | null>(null);
-  const [revert, setRevert] = useState<RevertUi | null>(null);
+  // Roadmap view state. `showAllVersions` opens the flat stretches back up;
+  // `expandedGaps` opens just one of them.
+  const [showAllVersions, setShowAllVersions] = useState(false);
+  const [expandedGaps, setExpandedGaps] = useState<ReadonlySet<string>>(() => new Set());
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    setRevert(null);
+    setExpandedGaps(new Set());
     // Drop the previous object's payload: this component is not remounted when
     // the selection changes, so keeping it would render the old blueprint,
     // source, and growth under the new object's name until the fetch lands.
@@ -251,48 +125,13 @@ export function LokeeObjectInspector({
   const growthKind = data?.blueprint.container?.type ?? selected.objectType;
   const showGrowth = isLokeeTableLikeType(growthKind) && (data?.growth.length ?? 0) > 0;
   const headVersionId = data?.growth.at(-1)?.versionId ?? null;
-
-  const openRevert = async (versionId: string) => {
-    setRevert({ versionId, plan: null, busy: true, error: null, confirmLossy: false });
-    try {
-      const plan = await planLokeeRevert(databaseId, versionId);
-      setRevert((prev) => (prev?.versionId === versionId ? { ...prev, plan, busy: false } : prev));
-    } catch (err: unknown) {
-      setRevert((prev) =>
-        prev?.versionId === versionId
-          ? { ...prev, busy: false, error: err instanceof Error ? err.message : 'Failed to plan revert' }
-          : prev
-      );
-    }
-  };
-
-  const runRevert = async () => {
-    if (!revert?.plan || !captureConnectionId) return;
-    setRevert((prev) => (prev ? { ...prev, busy: true, error: null } : prev));
-    try {
-      const result = await executeLokeeRevert(databaseId, {
-        toVersionId: revert.versionId,
-        connectionId: captureConnectionId,
-        password: getSessionPassword(captureConnectionId) || undefined,
-        confirmLossy: revert.plan.reversal.risk === 'lossy' ? revert.confirmLossy : undefined,
-      });
-      toast({
-        tone: 'success',
-        title: result.alreadyAtTarget
-          ? `Already at v${result.toVersion.number}`
-          : `Reverted to v${result.toVersion.number}`,
-        body: result.capture?.changed
-          ? `Recorded v${result.capture.versionNumber} · ${result.capture.changeCount} object change(s)`
-          : 'Live schema matches that version.',
-      });
-      setRevert(null);
-      onReverted?.();
-    } catch (err: unknown) {
-      setRevert((prev) =>
-        prev ? { ...prev, busy: false, error: err instanceof Error ? err.message : 'Revert failed' } : prev
-      );
-    }
-  };
+  const roadmapRows = buildRoadmapRows(data?.growth ?? [], {
+    headVersionId,
+    selectedVersionId: selected.versionId,
+    expandedGaps,
+    showAll: showAllVersions,
+  });
+  const hiddenVersions = hiddenVersionCount(roadmapRows);
 
   return (
     <aside
@@ -358,22 +197,58 @@ export function LokeeObjectInspector({
 
             {showGrowth && (
               <section data-testid="lokee-inspector-growth">
-                <h3 className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                  Roadmap · v{data.growth[0]?.versionNumber}…v
-                  {data.growth[data.growth.length - 1]?.versionNumber}
-                  <span className="ml-1 normal-case tracking-normal text-slate-600">
-                    ({data.growth.filter((g) => g.changed).length} changed)
-                  </span>
-                </h3>
+                <div className="flex items-baseline justify-between gap-2">
+                  <h3 className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                    Roadmap · v{data.growth[0]?.versionNumber}…v
+                    {data.growth[data.growth.length - 1]?.versionNumber}
+                    <span className="ml-1 normal-case tracking-normal text-slate-600">
+                      ({data.growth.filter((g) => g.changed).length} of {data.growth.length} touched
+                      this {isLokeeTableLikeType(growthKind) ? 'table' : 'object'})
+                    </span>
+                  </h3>
+                  {/* Only worth offering while something is actually folded —
+                      on a short history the button would toggle nothing. */}
+                  {(hiddenVersions > 0 || showAllVersions) && (
+                    <button
+                      type="button"
+                      data-testid="lokee-roadmap-toggle-all"
+                      onClick={() => {
+                        setShowAllVersions((prev) => !prev);
+                        setExpandedGaps(new Set());
+                      }}
+                      className="shrink-0 rounded border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400 hover:text-slate-100"
+                    >
+                      {showAllVersions ? 'Changes only' : 'Show all versions'}
+                    </button>
+                  )}
+                </div>
                 <ul className="mt-1 flex flex-col gap-0.5">
-                  {data.growth.map((g) => {
-                    const isHead = g.versionId === headVersionId;
-                    const isSelected = g.versionId === selected.versionId;
+                  {roadmapRows.map((row) => {
+                    if (row.kind === 'gap') {
+                      return (
+                        <li key={`gap-${row.id}`}>
+                          <button
+                            type="button"
+                            data-testid={`lokee-roadmap-gap-${row.id}`}
+                            onClick={() =>
+                              setExpandedGaps((prev) => new Set(prev).add(row.id))
+                            }
+                            className="flex w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-left text-[10px] text-slate-500 hover:bg-slate-900 hover:text-slate-300"
+                            title={`Show v${row.fromVersion}–v${row.toVersion}`}
+                          >
+                            <ChevronsUpDown className="h-3 w-3" strokeWidth={SQL_ICON_STROKE} />
+                            {row.count} versions left it unchanged · v{row.fromVersion}–v
+                            {row.toVersion}
+                          </button>
+                        </li>
+                      );
+                    }
+                    const g = row.point;
                     return (
                       <li
                         key={g.versionId}
                         className={`flex items-center justify-between gap-2 rounded px-1.5 py-1 text-[11px] ${
-                          isSelected ? 'bg-slate-800/80 text-slate-100' : 'text-slate-300'
+                          row.isSelected ? 'bg-slate-800/80 text-slate-100' : 'text-slate-300'
                         }`}
                       >
                         <button
@@ -394,10 +269,8 @@ export function LokeeObjectInspector({
                             aria-hidden
                           />
                           <span className="font-semibold text-slate-200">v{g.versionNumber}</span>
-                          {g.changed && (
-                            <span className="sr-only"> changed in this version</span>
-                          )}
-                          {isHead && (
+                          {g.changed && <span className="sr-only"> changed in this version</span>}
+                          {row.isHead && (
                             <span className="ml-1 text-[10px] uppercase tracking-wide text-cyan-400">
                               head
                             </span>
@@ -406,19 +279,22 @@ export function LokeeObjectInspector({
                             {g.columns} cols
                             {g.triggers > 0 ? ` · ${g.triggers} trg` : ''}
                           </span>
+                          {/* The delta is what "growth" means to a reader —
+                              without it every row is an absolute count they
+                              have to subtract in their head. */}
+                          {row.columnDelta !== 0 && (
+                            <span
+                              className={`ml-1 text-[10px] font-semibold ${
+                                row.columnDelta > 0 ? 'text-emerald-400' : 'text-rose-400'
+                              }`}
+                            >
+                              {row.columnDelta > 0 ? `+${row.columnDelta}` : row.columnDelta}
+                            </span>
+                          )}
                         </button>
-                        {!isHead && (
-                          <button
-                            type="button"
-                            data-testid={`lokee-inspector-revert-${g.versionNumber}`}
-                            onClick={() => void openRevert(g.versionId)}
-                            className="inline-flex shrink-0 items-center gap-0.5 rounded border border-amber-500/40 px-1.5 py-0.5 text-[10px] font-semibold text-amber-100 hover:bg-amber-950/50"
-                            title={`Revert live schema to v${g.versionNumber}`}
-                          >
-                            <RotateCcw className="h-3 w-3" strokeWidth={SQL_ICON_STROKE} />
-                            Revert
-                          </button>
-                        )}
+                        <span className="shrink-0 text-[10px] text-slate-600">
+                          {formatWhen(g.createdAt)}
+                        </span>
                       </li>
                     );
                   })}
@@ -453,18 +329,6 @@ export function LokeeObjectInspector({
                 </ol>
               )}
             </section>
-
-            {revert && (
-              <RevertCard
-                connectionId={captureConnectionId}
-                revert={revert}
-                onConfirmLossy={(checked) =>
-                  setRevert((prev) => (prev ? { ...prev, confirmLossy: checked } : prev))
-                }
-                onExecute={() => void runRevert()}
-                onCancel={() => setRevert(null)}
-              />
-            )}
           </>
         )}
       </div>

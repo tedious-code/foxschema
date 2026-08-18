@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { buildVersionGraph, deriveObjectColumns, edgeStatusFor, type BuiltGraph } from './buildGraph';
+import {
+  buildVersionGraph,
+  carryMeasurements,
+  deriveObjectColumns,
+  edgeStatusFor,
+  type BuiltGraph,
+} from './buildGraph';
 import {
   DEFAULT_LAYOUT,
   EMPTY_FILTERS,
@@ -7,6 +13,7 @@ import {
   type VersionGraphDTO,
   type VersionGraphFilters,
   type VersionGraphObject,
+  type LokeeNode,
   type LokeeVersionNode,
 } from './graphTypes';
 
@@ -411,5 +418,93 @@ describe('buildVersionGraph — change kinds', () => {
     const g = buildVersionGraph(dto, filters());
     const node = g.nodes.find((n) => n.type === 'schemaObjectNode');
     expect(node && 'changeKinds' in node.data ? node.data.changeKinds : undefined).toBeUndefined();
+  });
+});
+
+describe('carryMeasurements', () => {
+  // The contract this encodes comes from React Flow's own source. In
+  // `adoptUserNodes` → `parseHandles`:
+  //
+  //     if (!userNode.handles) {
+  //       return !userNode.measured ? undefined : internalNode?.internals.handleBounds;
+  //     }
+  //
+  // and an edge is only drawn when `isNodeInitialized` finds handle bounds. So a
+  // rebuilt node object with no `measured` silently un-draws every edge touching
+  // it — and this graph has no `onNodesChange` to re-report the measurement, so
+  // they would not come back.
+  const measured = (id: string, width = 150, height = 56): LokeeNode =>
+    ({
+      id,
+      type: 'schemaObjectNode',
+      position: { x: 0, y: 0 },
+      measured: { width, height },
+      data: {
+        versionId: 'v1',
+        objectKey: 'table:T',
+        name: 't',
+        objectType: 'table',
+        objectHash: 'h',
+        status: 'added',
+        previousHash: null,
+      },
+    }) as LokeeNode;
+
+  const fresh = (id: string): LokeeNode =>
+    ({
+      id,
+      type: 'schemaObjectNode',
+      position: { x: 10, y: 20 },
+      data: {
+        versionId: 'v1',
+        objectKey: 'table:T',
+        name: 't',
+        objectType: 'table',
+        objectHash: 'h2',
+        status: 'modified',
+        previousHash: 'h',
+      },
+    }) as LokeeNode;
+
+  it('carries a measurement onto the rebuilt node with the same id', () => {
+    const [node] = carryMeasurements([fresh('a')], [measured('a', 150, 72)]);
+    expect(node!.measured).toEqual({ width: 150, height: 72 });
+  });
+
+  it('keeps the rebuilt node’s own data and position — it copies size, nothing else', () => {
+    const [node] = carryMeasurements([fresh('a')], [measured('a')]);
+    expect(node!.position).toEqual({ x: 10, y: 20 });
+    expect((node!.data as { objectHash: string }).objectHash).toBe('h2');
+  });
+
+  it('leaves a node alone when nothing matched its id', () => {
+    const next = fresh('new');
+    expect(carryMeasurements([next], [measured('old')])[0]).toBe(next);
+  });
+
+  it('does not copy a half-measurement', () => {
+    const half = { ...measured('a'), measured: { width: 150, height: undefined } } as LokeeNode;
+    expect(carryMeasurements([fresh('a')], [half])[0]!.measured).toBeUndefined();
+  });
+
+  it('returns a copy on the first render, when there is nothing to carry', () => {
+    const next = [fresh('a')];
+    const out = carryMeasurements(next, []);
+    expect(out).toEqual(next);
+    expect(out).not.toBe(next);
+  });
+
+  it('does not mutate either input', () => {
+    const previous = [measured('a')];
+    const next = [fresh('a')];
+    carryMeasurements(next, previous);
+    expect(next[0]!.measured).toBeUndefined();
+    expect(previous[0]!.position).toEqual({ x: 0, y: 0 });
+  });
+
+  it('clones the measurement rather than sharing it', () => {
+    const previous = [measured('a')];
+    const [node] = carryMeasurements([fresh('a')], previous);
+    expect(node!.measured).not.toBe(previous[0]!.measured);
   });
 });

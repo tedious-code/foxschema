@@ -161,6 +161,8 @@ describe.skipIf(!ready)('Schema Sync · History (SQLite)', () => {
     expect(await driver.locator('[data-testid="lokee-inspector-column-mutations"]').isVisible()).toBe(
       true
     );
-    expect(await driver.locator('[data-testid="lokee-inspector-revert-1"]').isVisible()).toBe(true);
+    // The roadmap keeps the version that created the table reachable even
+    // though the panel now defaults to the versions that touched it.
+    expect(await driver.locator('[data-testid="lokee-inspector-version-1"]').isVisible()).toBe(true);
   });
 });
