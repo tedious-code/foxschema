@@ -5,8 +5,18 @@ import { makeDialectTypeFns, plain, sized, sizedOr, decimalAs, warn } from '../.
 const types = makeDialectTypeFns({
   label: 'Oracle',
   parseMap: {
-    // NUMBER(p,0) is an integer; NUMBER(p,s>0) or bare NUMBER is decimal
-    number: (tok) => (tok.scale && tok.scale > 0 ? 'decimal' : tok.precision !== undefined ? 'integer' : 'decimal'),
+    // NUMBER(p,s>0) / bare NUMBER / NUMBER(p) → decimal. NUMBER(p,0) is an
+    // integer-scaled value, but precision decides the family: p≤9 fits int32,
+    // p≤18 fits int64, anything wider must stay decimal. Mapping every
+    // NUMBER(p,0) to `integer` used to emit Postgres/MySQL `integer`/`int` for
+    // NUMBER(19,0) and NUMBER(38,0) — silent narrowing on cross-dialect migrate.
+    number: (tok) => {
+      if ((tok.scale ?? 0) > 0) return 'decimal';
+      if (tok.precision === undefined) return 'decimal';
+      if (tok.precision <= 9) return 'integer';
+      if (tok.precision <= 18) return 'bigint';
+      return 'decimal';
+    },
     integer: 'integer',
     int: 'integer',
     smallint: 'integer',
