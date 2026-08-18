@@ -28,7 +28,11 @@ import { toast } from '../../store/toastStore';
 import { useSyncStore } from '../../store/useSyncStore';
 import { useUiStore } from '../../store/uiStore';
 import { useLokeeHistoryStore } from '../../store/lokeeHistoryStore';
-import { lokeeDatabaseLabel, resolveHistoryCompare } from '../../lib/historyCompare';
+import {
+  lokeeDatabaseLabel,
+  resolveHistoryCompare,
+  sortVersionsNewestFirst,
+} from '../../lib/historyCompare';
 import { SQL_ICON_STROKE } from '../sql-editor/sqlIconStyle';
 
 export interface LokeeWeaveViewProps {
@@ -80,6 +84,7 @@ export function LokeeWeaveView({
   const captureRequest = useLokeeHistoryStore((s) => s.captureRequest);
   const refreshRequest = useLokeeHistoryStore((s) => s.refreshRequest);
   const targetVersionId = useLokeeHistoryStore((s) => s.targetVersionId);
+  const setTargetVersionId = useLokeeHistoryStore((s) => s.setTargetVersionId);
   const [databases, setDatabases] = useState<LokeeDatabase[]>([]);
 
   const [dto, setDto] = useState<VersionGraphDTO>(EMPTY_DTO);
@@ -92,6 +97,11 @@ export function LokeeWeaveView({
   // Which pair the modal is showing. The two *sides* live in the history store,
   // because the picker that sets them is HistoryCompareBar up in the toolbar.
   const [comparePair, setComparePair] = useState<{ original: string; target: string } | null>(null);
+  /** Newest captured version — the only Target a revert can legally run against. */
+  const latestVersionId = useMemo(
+    () => sortVersionsNewestFirst(dto?.versions ?? [])[0]?.id ?? null,
+    [dto?.versions]
+  );
 
   const matchedTargetId = useMemo(() => {
     const host = (targetConfig.option.host ?? '').toLowerCase();
@@ -352,6 +362,22 @@ export function LokeeWeaveView({
     }
   }, [compareRequest, compareVersionIds]);
 
+  /**
+   * Keep an open dialog on the sides the bar is showing.
+   *
+   * The pair used to be snapshotted when the dialog opened, so "Use current
+   * database" moved the picker behind the modal and the modal carried on
+   * refusing — a button that visibly did nothing. The guard on equality is what
+   * stops this from looping.
+   */
+  useEffect(() => {
+    if (!comparePair || compareVersionIds.length !== 2) return;
+    const [original, target] = compareVersionIds as [string, string];
+    setComparePair((prev) =>
+      prev && (prev.original !== original || prev.target !== target) ? { original, target } : prev
+    );
+  }, [comparePair, compareVersionIds]);
+
   // Every hook above any early return — a rules-of-hooks crash has happened in
   // this codebase before.
   if (loading) {
@@ -427,6 +453,10 @@ export function LokeeWeaveView({
             databaseId={activeId}
             versionId={comparePair.original}
             againstVersionId={comparePair.target}
+            // Reverting restores the live database, so it is only coherent
+            // while Target is the newest version — the modal refuses otherwise.
+            latestVersionId={latestVersionId ?? undefined}
+            onRetargetToLatest={() => setTargetVersionId(null)}
             captureConnectionId={captureConnectionId || undefined}
             onReverted={refresh}
             onClose={() => setComparePair(null)}

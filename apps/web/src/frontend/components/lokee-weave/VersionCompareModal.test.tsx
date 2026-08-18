@@ -8,9 +8,20 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 const compareLokeeVersions = vi.fn();
+const planLokeeRevert = vi.fn();
+const executeLokeeRevert = vi.fn();
 vi.mock('../../api/lokeeApi', () => ({
   compareLokeeVersions: (...args: unknown[]) => compareLokeeVersions(...args),
+  planLokeeRevert: (...args: unknown[]) => planLokeeRevert(...args),
+  executeLokeeRevert: (...args: unknown[]) => executeLokeeRevert(...args),
+  LokeeRevertError: class extends Error {
+    constructor(message: string, public code: string) {
+      super(message);
+    }
+  },
 }));
+vi.mock('../../store/toastStore', () => ({ toast: vi.fn() }));
+vi.mock('../../lib/sessionPasswords', () => ({ getSessionPassword: () => undefined }));
 
 import { VersionCompareModal } from './VersionCompareModal';
 
@@ -26,7 +37,11 @@ const VERSION = (number: number) => ({
   changeCount: 2,
 });
 
-beforeEach(() => compareLokeeVersions.mockReset());
+beforeEach(() => {
+  compareLokeeVersions.mockReset();
+  planLokeeRevert.mockReset();
+  executeLokeeRevert.mockReset();
+});
 
 describe('VersionCompareModal', () => {
   it('names the field that changed, with both values', async () => {
@@ -122,5 +137,131 @@ describe('VersionCompareModal', () => {
     await waitFor(() => expect(screen.getByTestId('lokee-version-compare-close')).toBeTruthy());
     fireEvent.click(screen.getByTestId('lokee-version-compare-close'));
     expect(onClose).toHaveBeenCalled();
+  });
+});
+
+describe('a revert only runs against the current database', () => {
+  /**
+   * The bug this pins: the diff came from `compareLokeeVersions(original,
+   * target)` while the plan and the execute call went to
+   * `planLokeeRevert(original)` — which reverses from the *live head*. With an
+   * older version on Target, the reader reviewed one script and Execute applied
+   * a different, usually larger one.
+   */
+  const CHANGED = {
+    from: VERSION(10),
+    to: VERSION(13),
+    compare: {
+      summary: { added: 0, removed: 0, modified: 1, unchanged: 4 },
+      tables: [
+        {
+          tableName: 'CUSTOMERS',
+          objectType: 'TABLE',
+          status: 'MODIFIED',
+          columnDiffs: [
+            {
+              name: 'name',
+              status: 'MODIFIED',
+              source: { type: 'varchar(100)', nullable: true },
+              target: { type: 'varchar(150)', nullable: true },
+            },
+          ],
+          indexDiffs: [],
+          foreignKeyDiffs: [],
+        },
+      ],
+    },
+  };
+
+  const PLAN = {
+    fromVersion: VERSION(15),
+    toVersion: VERSION(10),
+    alreadyAtTarget: false,
+    reversal: { risk: 'safe', safeCount: 1, lossyCount: 0, blockedCount: 0, verdicts: [] },
+    statements: ['ALTER TABLE customers ALTER COLUMN name TYPE varchar(100)'],
+  };
+
+  it('refuses when Target is an older version, and offers the one-click fix', async () => {
+    compareLokeeVersions.mockResolvedValue(CHANGED);
+    planLokeeRevert.mockResolvedValue(PLAN);
+    const onRetargetToLatest = vi.fn();
+
+    render(
+      <VersionCompareModal
+        databaseId="db1"
+        versionId="v10"
+        againstVersionId="v13"
+        latestVersionId="v15"
+        captureConnectionId="c1"
+        onRetargetToLatest={onRetargetToLatest}
+        onClose={() => undefined}
+      />
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId('lokee-cmp-run-revert').textContent).toContain(
+        'Target must be current'
+      )
+    );
+    const run = screen.getByTestId('lokee-cmp-run-revert') as HTMLButtonElement;
+    expect(run.disabled).toBe(true);
+    expect(run.title).toMatch(/not what would run/i);
+
+    fireEvent.click(screen.getByTestId('lokee-cmp-use-current-target'));
+    expect(onRetargetToLatest).toHaveBeenCalled();
+    expect(executeLokeeRevert).not.toHaveBeenCalled();
+  });
+
+  it('allows the run when Target is the newest version', async () => {
+    compareLokeeVersions.mockResolvedValue(CHANGED);
+    planLokeeRevert.mockResolvedValue(PLAN);
+
+    render(
+      <VersionCompareModal
+        databaseId="db1"
+        versionId="v10"
+        againstVersionId="v15"
+        latestVersionId="v15"
+        captureConnectionId="c1"
+        onClose={() => undefined}
+      />
+    );
+
+    // Falls through to the ordinary "tick something" guard — which is the
+    // point: the direction check is out of the way, not the last word.
+    await waitFor(() =>
+      expect(screen.getByTestId('lokee-cmp-run-revert').textContent).toContain(
+        'Tick objects to revert'
+      )
+    );
+    expect(screen.getByTestId('lokee-cmp-run-revert').textContent).not.toContain(
+      'Target must be current'
+    );
+    expect(screen.queryByTestId('lokee-cmp-use-current-target')).toBeNull();
+  });
+
+  it('does not block when the caller supplies no latest version', async () => {
+    // The graph inspector opens this modal without the history bar's context.
+    compareLokeeVersions.mockResolvedValue(CHANGED);
+    planLokeeRevert.mockResolvedValue(PLAN);
+
+    render(
+      <VersionCompareModal
+        databaseId="db1"
+        versionId="v10"
+        againstVersionId="v13"
+        captureConnectionId="c1"
+        onClose={() => undefined}
+      />
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId('lokee-cmp-run-revert').textContent).toContain(
+        'Tick objects to revert'
+      )
+    );
+    expect(screen.getByTestId('lokee-cmp-run-revert').textContent).not.toContain(
+      'Target must be current'
+    );
   });
 });

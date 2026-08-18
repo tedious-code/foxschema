@@ -226,6 +226,13 @@ export type LokeeRevertErrorCode =
   | 'blocked'
   | 'confirm_lossy'
   | 'connection_mismatch'
+  /**
+   * The pre-revert snapshot found the live schema had moved since the last
+   * capture. The plan the caller reviewed was computed against the old picture,
+   * so it is refused rather than applied — re-read the new diff and decide
+   * again.
+   */
+  | 'schema_drifted'
   | 'failed';
 
 /**

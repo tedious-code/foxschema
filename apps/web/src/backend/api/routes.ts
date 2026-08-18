@@ -1144,6 +1144,44 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
         return;
       }
 
+      /**
+       * Snapshot the live schema before touching it.
+       *
+       * Two reasons, and the second is the one that matters. It leaves a
+       * version to come back to — but it also makes the plan *correct*:
+       * `planRevert` reverses from the newest **captured** version, not from
+       * what is actually in the database. If someone changed the schema by
+       * hand since the last capture, the reverse DDL was being computed against
+       * a picture that no longer existed.
+       *
+       * So when this snapshot finds drift, the request is refused rather than
+       * applied. The caller reviewed a plan built on the old head; running a
+       * different one silently is exactly the surprise this is here to stop.
+       */
+      let preSnapshot: Awaited<ReturnType<typeof captureLiveSchema>>;
+      try {
+        preSnapshot = await captureLiveSchema(userId, { dialect, option, schema }, 'manual');
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'snapshot failed';
+        res.status(500).json({
+          ok: false,
+          error: `Could not snapshot the schema before reverting: ${message}`,
+          code: 'failed',
+        });
+        return;
+      }
+      if (preSnapshot.changed) {
+        res.status(409).json({
+          ok: false,
+          code: 'schema_drifted',
+          error:
+            `The live schema had changed since the last capture — snapshotted it as v${preSnapshot.versionNumber} ` +
+            `(${preSnapshot.changeCount} object change(s)). Review the diff against that version and run the revert again.`,
+          capture: preSnapshot,
+        });
+        return;
+      }
+
       const objectKeys = Array.isArray(body.objectKeys)
         ? body.objectKeys.map((k) => String(k).trim()).filter(Boolean)
         : undefined;

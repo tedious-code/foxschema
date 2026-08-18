@@ -55,6 +55,14 @@ export interface VersionCompareModalProps {
    * reference's own parent, which is the "what did this version do?" reading.
    */
   againstVersionId?: string;
+  /**
+   * Newest captured version. A revert always moves the *live* database, so it
+   * is only coherent when the Target side is that newest version — otherwise
+   * the diff on screen and the DDL that would run describe different pairs.
+   */
+  latestVersionId?: string;
+  /** Put the Target side back on "Current database", so a revert is possible. */
+  onRetargetToLatest?: () => void;
   onClose: () => void;
 }
 
@@ -86,6 +94,8 @@ export function VersionCompareModal({
   onReverted,
   versionId,
   againstVersionId,
+  latestVersionId,
+  onRetargetToLatest,
   onClose,
 }: VersionCompareModalProps): React.ReactElement {
   const [tab, setTab] = useState<ComparePaneTab>('DIFF');
@@ -212,6 +222,20 @@ export function VersionCompareModal({
         why: planning ? 'Still planning…' : 'No plan yet.',
       };
     }
+    /**
+     * A revert restores the Original version onto the *live* database. The diff
+     * above, though, is Original vs whatever Target says — so with an older
+     * version on Target the reader reviews one script and Execute applies a
+     * different, usually larger one. Refuse rather than reconcile: the rule is
+     * that a revert only ever runs against the newest version.
+     */
+    if (latestVersionId && againstVersionId && againstVersionId !== latestVersionId) {
+      return {
+        code: 'target-not-latest',
+        label: 'Target must be current',
+        why: 'A revert restores the live database, so Target has to be “Current database”. The diff shown here compares two older versions and is not what would run.',
+      };
+    }
     // Revert always moves the *live* database to whatever sits on the Original
     // side; the Target picker only chooses what the diff above is showing. So
     // putting the newest version on Original asks to revert to where you
@@ -254,7 +278,16 @@ export function VersionCompareModal({
     // selectedKeys and changed belong here: without them, ticking an object
     // left this memo stale and the button kept saying "Tick objects to revert"
     // after the user had ticked one.
-  }, [captureConnectionId, plan, planning, confirmLossy, selectedKeys, changed]);
+  }, [
+    captureConnectionId,
+    plan,
+    planning,
+    confirmLossy,
+    selectedKeys,
+    changed,
+    latestVersionId,
+    againstVersionId,
+  ]);
   const needsLossyAck = blocked?.code === 'lossy';
 
   const runRevert = useCallback(async () => {
@@ -280,6 +313,15 @@ export function VersionCompareModal({
     } catch (err) {
       const message =
         err instanceof LokeeRevertError ? err.message : err instanceof Error ? err.message : 'Revert failed';
+      // Drift is not a failure the user caused: the schema moved under the
+      // plan, the snapshot caught it, and nothing was applied. Reload so the
+      // new version is on screen before they decide again.
+      if (err instanceof LokeeRevertError && err.code === 'schema_drifted') {
+        toast({ tone: 'warning', title: 'Schema changed — nothing applied', body: message });
+        onReverted?.();
+        onClose();
+        return;
+      }
       toast({ tone: 'warning', title: 'Revert failed', body: message });
     } finally {
       setRunning(false);
@@ -485,6 +527,20 @@ export function VersionCompareModal({
                         size="compact"
                       />
                       <div className="flex shrink-0 items-center gap-2">
+                        {/* A dead Execute button with the reason hidden in a
+                            tooltip is a dead end; when the fix is one click,
+                            offer the click. */}
+                        {blocked?.code === 'target-not-latest' && onRetargetToLatest && (
+                          <button
+                            type="button"
+                            data-testid="lokee-cmp-use-current-target"
+                            onClick={onRetargetToLatest}
+                            title="Put Target back on the current database so this revert can run"
+                            className="shrink-0 rounded border border-cyan-500/50 bg-cyan-950/30 px-2 py-1 text-[11px] font-semibold text-cyan-100 hover:bg-cyan-900/40"
+                          >
+                            Use current database
+                          </button>
+                        )}
                         {/* Risk travels with the button, not just with the tab
                             that happens to show the statements. */}
                         {plan && plan.statements.length > 0 && (

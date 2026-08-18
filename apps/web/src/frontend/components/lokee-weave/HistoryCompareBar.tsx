@@ -81,7 +81,13 @@ export function HistoryCompareBar(): React.ReactElement {
             {newestFirst.length === 0 && <option value="">No versions</option>}
             {newestFirst.map((v) => (
               <option key={v.id} value={v.id}>
-                {historyVersionLabel(v)}
+                {/* The newest version stays selectable — it is a perfectly good
+                    baseline to compare against — but it says outright that a
+                    revert onto it has nothing to do. */}
+                {historyVersionLabel(
+                  v,
+                  v.id === resolved.latest?.id ? { compareOnly: 'is-current' } : undefined
+                )}
               </option>
             ))}
           </select>
@@ -129,9 +135,13 @@ export function HistoryCompareBar(): React.ReactElement {
           ) : (
             <option value="">Current database</option>
           )}
+          {/* A revert restores the live database, so anything other than
+              "Current database" here is a comparison only — the diff would not
+              be the DDL that runs. Said in the option rather than discovered at
+              a greyed-out Execute button. */}
           {olderTargets.map((v) => (
             <option key={v.id} value={v.id}>
-              {historyVersionLabel(v)}
+              {historyVersionLabel(v, { compareOnly: 'not-current' })}
             </option>
           ))}
         </select>
