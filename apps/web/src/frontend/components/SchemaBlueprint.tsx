@@ -215,6 +215,12 @@ export function SchemaBlueprint({
   const keep = (status: string) => showUnchanged || status !== 'UNCHANGED';
   const colDiffs = diff.columnDiffs.filter((c) => keep(c.status));
   const indexDiffs = diff.indexDiffs.filter((i) => keep(i.status));
+  // Position in the *unfiltered* list. Numbering the rendered rows instead
+  // would renumber them the moment "show unchanged" is off, so column 7 would
+  // read as 2 — a worse lie than showing nothing. Column order is the source
+  // table's own (compare.module builds it from the source columns first).
+  const positionOf = new Map(diff.columnDiffs.map((c, i) => [c.name, i + 1]));
+  const indexPositionOf = new Map(diff.indexDiffs.map((i, n) => [i.name, n + 1]));
   const fkDiffs = diff.foreignKeyDiffs.filter((f) => keep(f.status));
   const trgDiffs = (diff.triggerDiffs ?? []).filter((t) => keep(t.status));
 
@@ -518,6 +524,11 @@ export function SchemaBlueprint({
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className={head}>
+                  {!isRole && (
+                    <th className={`${cell} font-semibold text-right w-10`} title="Column position">
+                      #
+                    </th>
+                  )}
                   <th className={`${cell} font-semibold`}>{isRole ? 'Member' : 'Column Name'}</th>
                   <th className={`${cell} font-semibold`}>Original State</th>
                   <th className={`${cell} font-semibold text-center`}>Compare</th>
@@ -539,6 +550,14 @@ export function SchemaBlueprint({
 
                   return (
                     <tr key={col.name} className={`${rowTint(col.status)} transition-colors`}>
+                      {!isRole && (
+                        // Ordinal position, which is what "column id" means in
+                        // the catalogs that expose one (Oracle COLUMN_ID, SQL
+                        // Server column_id). Roles have members, not columns.
+                        <td className={`${cell} text-right font-mono text-slate-500 tabular-nums`}>
+                          {positionOf.get(col.name) ?? '—'}
+                        </td>
+                      )}
                       <td className={`${cell} font-semibold text-slate-200 font-mono`}>
                         <span className="flex items-center gap-1.5">
                           {isRole && col.status !== 'UNCHANGED' && onToggleMember && (
@@ -680,6 +699,9 @@ export function SchemaBlueprint({
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className={head}>
+                  <th className={`${cell} font-semibold text-right w-10`} title="Index position">
+                    #
+                  </th>
                   <th className={`${cell} font-semibold`}>Index Name</th>
                   <th className={`${cell} font-semibold`}>Columns</th>
                   <th className={`${cell} font-semibold`}>Constraint</th>
@@ -708,6 +730,9 @@ export function SchemaBlueprint({
 
                   return (
                     <tr key={idx.name} className="hover:bg-slate-900/10">
+                      <td className={`${cell} text-right font-mono text-slate-500 tabular-nums`}>
+                        {indexPositionOf.get(idx.name) ?? '—'}
+                      </td>
                       <td className={`${cell} text-slate-200 font-semibold font-mono`}>
                         <span className="flex items-center gap-1.5">
                           {idx.status !== 'UNCHANGED' && onToggleIndex && (

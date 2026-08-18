@@ -161,9 +161,18 @@ export const MONACO_EDITOR_BASE_OPTIONS = {
  */
 export function monacoLanguage(dialect: string): string {
   switch (dialect.toLowerCase()) {
+    // Wire-compatible relatives get their family's grammar rather than the
+    // generic one: MariaDB and TiDB speak MySQL, and CockroachDB, YugabyteDB
+    // and Redshift speak PostgreSQL. Falling through to plain `sql` cost them
+    // backtick and dollar-quote handling for no reason.
     case 'mysql':
+    case 'mariadb':
+    case 'tidb':
       return 'mysql';
     case 'postgres':
+    case 'cockroachdb':
+    case 'yugabytedb':
+    case 'redshift':
       return 'pgsql';
     default:
       return 'sql';

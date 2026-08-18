@@ -1,4 +1,5 @@
 import { ConnectionFactory, getAdapter, type ConnectionOptions } from '@foxschema/db';
+import { autoAliasSelectColumns } from '@foxschema/sql';
 import { isPageableStatement, trimPageProbe, wrapSqlForPage } from './sql-page-wrap';
 
 /**
@@ -110,8 +111,15 @@ export async function runStatements(
     }
 
     const results: StatementResult[] = [];
-    for (const [index, sql] of statements.entries()) {
+    for (const [index, original] of statements.entries()) {
       const started = Date.now();
+      // Name any SELECT expression the user left unaliased. The grid keys its
+      // columns off the row object, and Postgres calls every unaliased
+      // expression `?column?` while SQL Server leaves them unnamed — so
+      // `SELECT 1, 2` arrived as a single key and one column silently vanished.
+      // The rewrite is conservative and returns the statement untouched
+      // whenever it cannot parse the select list with confidence.
+      const sql = autoAliasSelectColumns(original).sql;
       // Placeholders survive the paging wrap (it only nests the SQL in a
       // subquery), so the same positional params apply on either path.
       const params = paramsList[index] ?? [];

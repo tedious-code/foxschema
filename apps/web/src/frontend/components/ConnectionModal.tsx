@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { X, CheckCircle, AlertTriangle, Loader2, ListTree, Download } from "lucide-react";
+import { X, CheckCircle, AlertTriangle, FolderOpen, Loader2, ListTree, Download } from "lucide-react";
 import { type ConnectionOptions, type Dialect, buildConnectionString, DEFAULT_PORTS, getProviderSettings, PROVIDER_SETTINGS } from '../lib/provider-settings';
 import type { DriverInfo } from '../lib/types';
 import { fetchSchemaList, checkDriver as apiCheckDriver, installDriver as apiInstallDriver } from "../api/schemaApi";
 import { PasswordInput } from './PasswordInput';
+import { DatabaseFilePicker } from './DatabaseFilePicker';
 
 
 interface CredentialInput {
@@ -68,7 +69,14 @@ export const ConnectionModal: React.FC<Props> = ({
 
   const [schemaList, setSchemaList] = useState<string[]>([]);
   const schemaRequired = getProviderSettings(selDialect).schemaRequired;
+  /**
+   * SQLite and DuckDB are a file on disk, not a server. Host, port, user,
+   * password and SSL have no meaning for them, and showing the boxes anyway
+   * has people filling in `localhost` and wondering why it changes nothing.
+   */
+  const isFileDialect = selDialect === 'sqlite' || selDialect === 'duckdb';
 
+  const [browsing, setBrowsing] = useState(false);
   const [driverInfo, setDriverInfo] = useState<DriverInfo | null>(null);
   const [installing, setInstalling] = useState(false);
 
@@ -106,6 +114,7 @@ export const ConnectionModal: React.FC<Props> = ({
       pool: { min: initialOptions?.pool?.min || 1, max: initialOptions?.pool?.max || 10 },
     });
     setSchemaList([]);
+    setBrowsing(false);
     // New credential → save password on by default; edit → match what's stored.
     setSavePassword(initialHasPassword ?? true);
     setTestingState({ status: 'idle' });
@@ -192,7 +201,7 @@ export const ConnectionModal: React.FC<Props> = ({
       return;
     }
 
-    if (isCredential && savePassword && !form.password?.trim() && !initialHasPassword) {
+    if (isCredential && !isFileDialect && savePassword && !form.password?.trim() && !initialHasPassword) {
       setTestingState({
         status: 'failed',
         error: 'Enter a password, or untick “Save password” to store the credential without one.',
@@ -215,7 +224,9 @@ export const ConnectionModal: React.FC<Props> = ({
       if (isCredential) {
         // Server persists option.password when savePassword !== false.
         await onSaveCredential?.({
-          name: name.trim() || `${form.host}/${form.database}`,
+          name:
+            name.trim() ||
+            (isFileDialect ? form.database || selDialect : `${form.host}/${form.database}`),
           dialect: selDialect,
           schema: form.schema,
           option,
@@ -234,6 +245,17 @@ export const ConnectionModal: React.FC<Props> = ({
   const labelCls = 'text-[10px] uppercase font-bold text-slate-400 tracking-wider';
 
   return createPortal(
+    <>
+    {browsing && (
+      <DatabaseFilePicker
+        initialPath={form.database || undefined}
+        onCancel={() => setBrowsing(false)}
+        onSelect={(path) => {
+          updateField('database', path);
+          setBrowsing(false);
+        }}
+      />
+    )}
     <div data-testid="conn-modal" className="modal-overlay">
       <div className="w-full max-w-[500px] bg-slate-900 border border-slate-800 rounded-xl shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/40">
@@ -341,34 +363,68 @@ export const ConnectionModal: React.FC<Props> = ({
             )
           )}
 
-          <div className="grid grid-cols-3 gap-3">
-            <div className="col-span-2">
-              <label className={labelCls}>Host</label>
-              <input data-testid="conn-host-input" placeholder="localhost" value={form.host} onChange={(e) => updateField('host', e.target.value)} className={inputCls} />
+          {!isFileDialect && (
+            <div className="grid grid-cols-3 gap-3">
+              <div className="col-span-2">
+                <label className={labelCls}>Host</label>
+                <input data-testid="conn-host-input" placeholder="localhost" value={form.host} onChange={(e) => updateField('host', e.target.value)} className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Port</label>
+                <input data-testid="conn-port-input" type="number" placeholder={String(defaultPorts[selDialect])} value={form.port} onChange={(e) => updateField('port', Number(e.target.value))} className={inputCls} />
+              </div>
             </div>
-            <div>
-              <label className={labelCls}>Port</label>
-              <input data-testid="conn-port-input" type="number" placeholder={String(defaultPorts[selDialect])} value={form.port} onChange={(e) => updateField('port', Number(e.target.value))} className={inputCls} />
-            </div>
-          </div>
+          )}
 
-          <div>
-            <label className={labelCls}>Database Name</label>
-            <input data-testid="conn-database-input" placeholder="my_database" value={form.database} onChange={(e) => updateField('database', e.target.value)} className={inputCls} />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
+          {isFileDialect ? (
             <div>
-              <label className={labelCls}>Username</label>
-              <input data-testid="conn-username-input" placeholder="user" value={form.username} onChange={(e) => updateField('username', e.target.value)} className={inputCls} />
+              <label className={labelCls}>Database File</label>
+              <div className="mt-1 flex gap-2">
+                <input
+                  data-testid="conn-database-input"
+                  placeholder={selDialect === 'duckdb' ? '/path/to/analytics.duckdb' : '/path/to/app.db'}
+                  value={form.database}
+                  onChange={(e) => updateField('database', e.target.value)}
+                  className={`${inputCls} mt-0 flex-1`}
+                />
+                <button
+                  type="button"
+                  data-testid="conn-database-browse"
+                  onClick={() => setBrowsing(true)}
+                  title="Pick a database file on the server"
+                  className="shrink-0 flex items-center gap-1.5 rounded border border-slate-700 bg-slate-950 px-3 text-xs font-semibold text-slate-200 hover:border-cyan-600 hover:text-cyan-200"
+                >
+                  <FolderOpen className="w-3.5 h-3.5" />
+                  Browse…
+                </button>
+              </div>
+              <p className="text-[10px] text-slate-500 mt-1">
+                Path on the machine running Fox Schema. A file that does not exist yet is
+                created on first connect
+                {selDialect === 'sqlite' ? '; `:memory:` opens a scratch database' : ''}.
+              </p>
             </div>
+          ) : (
             <div>
-              <label className={labelCls}>Password</label>
-              <PasswordInput data-testid="conn-password-input" placeholder={isCredential && initialHasPassword && !form.password ? '•••••••• (saved)' : '••••••••'} value={form.password} onChange={(e) => updateField('password', e.target.value)} className={inputCls} />
+              <label className={labelCls}>Database Name</label>
+              <input data-testid="conn-database-input" placeholder="my_database" value={form.database} onChange={(e) => updateField('database', e.target.value)} className={inputCls} />
             </div>
-          </div>
+          )}
 
-          {isCredential && (
+          {!isFileDialect && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>Username</label>
+                <input data-testid="conn-username-input" placeholder="user" value={form.username} onChange={(e) => updateField('username', e.target.value)} className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Password</label>
+                <PasswordInput data-testid="conn-password-input" placeholder={isCredential && initialHasPassword && !form.password ? '•••••••• (saved)' : '••••••••'} value={form.password} onChange={(e) => updateField('password', e.target.value)} className={inputCls} />
+              </div>
+            </div>
+          )}
+
+          {isCredential && !isFileDialect && (
             <label className="flex items-center gap-2.5 text-xs text-slate-350 cursor-pointer select-none pt-1">
               <input
                 data-testid="conn-save-password"
@@ -382,6 +438,7 @@ export const ConnectionModal: React.FC<Props> = ({
             </label>
           )}
 
+          {!isFileDialect && (
           <div className="flex items-center justify-between pt-2">
             <label className="flex items-center gap-2.5 text-xs text-slate-350 cursor-pointer select-none">
               <input
@@ -393,6 +450,7 @@ export const ConnectionModal: React.FC<Props> = ({
               Enable SSL Connection
             </label>
           </div>
+          )}
 
           <div>
             <label className={labelCls}>
@@ -464,7 +522,8 @@ export const ConnectionModal: React.FC<Props> = ({
           </button>
         </div>
       </div>
-    </div>,
+    </div>
+    </>,
     document.body
   );
 };

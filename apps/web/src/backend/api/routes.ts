@@ -33,6 +33,7 @@ import { isSingleSqlStatement } from './single-statement';
 import { AppSettingsStore } from '../modules/app-settings.module';
 import { LokeeWeaveStore } from '../modules/lokee-weave.module';
 import { rateLimit } from './rate-limit';
+import { browseDirectory, browseErrorMessage, resolveBrowsePath } from './file-browse';
 import {
   runStatements,
   clampMaxRows,
@@ -940,6 +941,28 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : 'Failed to capture schema';
         res.status(500).json({ error: message });
+      }
+    }
+  );
+
+  // Directory listing for the SQLite / DuckDB file picker. Read-only and
+  // name-only: it never returns file contents, and only names files a database
+  // driver could open. `schema.browse` because picking a database file is the
+  // first step of browsing one.
+  const fileBrowseLimiter = rateLimit({ windowMs: 60 * 1000, max: 60 });
+
+  router.get(
+    '/files/browse',
+    fileBrowseLimiter,
+    requirePermissions('schema.browse'),
+    async (req: Request, res: Response) => {
+      const requested = typeof req.query.path === 'string' ? req.query.path : undefined;
+      try {
+        res.json(await browseDirectory(requested));
+      } catch (error: unknown) {
+        // The path is echoed back resolved, so the message names the directory
+        // the server actually tried rather than the raw query string.
+        res.status(400).json({ error: browseErrorMessage(error, resolveBrowsePath(requested)) });
       }
     }
   );

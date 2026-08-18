@@ -862,6 +862,21 @@ function sqlTextIsWrite(text: string): boolean {
     const inner = peelExplainAnalyze(text);
     return inner !== null && sqlTextIsWrite(inner);
   }
+  if (kw === 'begin') {
+    // Two different statements share this keyword. `BEGIN;` / `BEGIN
+    // TRANSACTION` / `BEGIN WORK` is transaction control and writes nothing on
+    // its own — confirming those would only train people to click through.
+    // Anything else after BEGIN is a procedural block body (PL/SQL, Db2 SQL PL,
+    // T-SQL), and those fail closed: a block usually reaches the database via
+    // `EXECUTE IMMEDIATE '…'`, whose statement hides inside a string literal
+    // this scanner strips on purpose. `BEGIN EXECUTE IMMEDIATE 'DROP TABLE t';
+    // END` — the shape this repo itself generates for Db2 and Oracle tolerant
+    // drops — otherwise read as a plain read and skipped the confirmation.
+    const rest = stripSqlStringsAndComments(text)
+      .replace(/^\s*begin\b/i, '')
+      .trim();
+    return !/^(transaction|work)?\s*;?$/i.test(rest);
+  }
   if (kw === 'with') {
     const bodies: string[] = [];
     // Recurse into CTE bodies + the tail rather than matching its leading verb, so

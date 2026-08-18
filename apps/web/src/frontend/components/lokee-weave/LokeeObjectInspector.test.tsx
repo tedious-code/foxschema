@@ -9,17 +9,10 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { SchemaObjectNodeData } from './graphTypes';
 
 const inspectLokeeObject = vi.fn();
-const planLokeeRevert = vi.fn();
-const executeLokeeRevert = vi.fn();
 
 vi.mock('../../api/lokeeApi', () => ({
   inspectLokeeObject: (...args: unknown[]) => inspectLokeeObject(...args),
-  planLokeeRevert: (...args: unknown[]) => planLokeeRevert(...args),
-  executeLokeeRevert: (...args: unknown[]) => executeLokeeRevert(...args),
 }));
-
-vi.mock('../../store/toastStore', () => ({ toast: vi.fn() }));
-vi.mock('../../lib/sessionPasswords', () => ({ getSessionPassword: () => undefined }));
 
 import { LokeeObjectInspector } from './LokeeObjectInspector';
 
@@ -35,8 +28,6 @@ const SELECTED: SchemaObjectNodeData = {
 
 beforeEach(() => {
   inspectLokeeObject.mockReset();
-  planLokeeRevert.mockReset();
-  executeLokeeRevert.mockReset();
 });
 
 describe('LokeeObjectInspector', () => {
@@ -258,8 +249,9 @@ describe('LokeeObjectInspector', () => {
     );
     expect(screen.getByTestId('lokee-inspector-script-diff').textContent).toMatch(/varchar\(255\)/);
     expect(screen.getByTestId('lokee-inspector-script-diff').textContent).toMatch(/\+/);
-    expect(screen.getByTestId('lokee-inspector-revert-1')).toBeTruthy();
-    expect(screen.queryByTestId('lokee-inspector-revert-2')).toBeNull();
+    // Reverting is the compare modal's job — it can scope the revert to chosen
+    // objects, which a per-row button here never could.
+    expect(screen.queryByTestId('lokee-inspector-revert-1')).toBeNull();
   });
 
   it('does not show table growth on a function', async () => {
@@ -366,11 +358,14 @@ describe('LokeeObjectInspector', () => {
     expect(aside.getAttribute('data-object-key')).toBe('table:CUSTOMERS');
   });
 
-  it('plans a revert when a prior version is selected', async () => {
+  it('folds the versions that left the object alone, and opens them on demand', async () => {
+    // The case the roadmap exists for: a long history in which this table moved
+    // twice. Printing fifteen rows to show two changes is what made it
+    // unreadable.
     inspectLokeeObject.mockResolvedValue({
       blueprint: {
         focusKey: 'table:CUSTOMER',
-        container: null,
+        container: { key: 'table:CUSTOMER', type: 'table', name: 'customer', hash: 'h1', body: {} },
         object: null,
         columns: [],
         indexes: [],
@@ -384,63 +379,206 @@ describe('LokeeObjectInspector', () => {
           versionId: 'v1',
           versionNumber: 1,
           createdAt: '2026-08-01T00:00:00.000Z',
-          columns: 2,
+          columns: 3,
           indexes: 0,
           foreignKeys: 0,
           triggers: 0,
-          objects: 3,
+          objects: 4,
+          changed: true,
         },
         {
           versionId: 'v2',
           versionNumber: 2,
-          createdAt: '2026-08-12T00:00:00.000Z',
+          createdAt: '2026-08-02T00:00:00.000Z',
           columns: 3,
-          indexes: 1,
+          indexes: 0,
           foreignKeys: 0,
-          triggers: 1,
-          objects: 6,
+          triggers: 0,
+          objects: 4,
+          changed: false,
+        },
+        {
+          versionId: 'v3',
+          versionNumber: 3,
+          createdAt: '2026-08-03T00:00:00.000Z',
+          columns: 3,
+          indexes: 0,
+          foreignKeys: 0,
+          triggers: 0,
+          objects: 4,
+          changed: false,
+        },
+        {
+          versionId: 'v4',
+          versionNumber: 4,
+          createdAt: '2026-08-04T00:00:00.000Z',
+          columns: 3,
+          indexes: 0,
+          foreignKeys: 0,
+          triggers: 0,
+          objects: 4,
+          changed: false,
+        },
+        {
+          versionId: 'v5',
+          versionNumber: 5,
+          createdAt: '2026-08-05T00:00:00.000Z',
+          columns: 3,
+          indexes: 0,
+          foreignKeys: 0,
+          triggers: 0,
+          objects: 4,
+          changed: false,
+        },
+        {
+          versionId: 'v6',
+          versionNumber: 6,
+          createdAt: '2026-08-06T00:00:00.000Z',
+          columns: 3,
+          indexes: 0,
+          foreignKeys: 0,
+          triggers: 0,
+          objects: 4,
+          changed: false,
+        },
+        {
+          versionId: 'v7',
+          versionNumber: 7,
+          createdAt: '2026-08-07T00:00:00.000Z',
+          columns: 3,
+          indexes: 0,
+          foreignKeys: 0,
+          triggers: 0,
+          objects: 4,
+          changed: false,
+        },
+        {
+          versionId: 'v8',
+          versionNumber: 8,
+          createdAt: '2026-08-08T00:00:00.000Z',
+          columns: 3,
+          indexes: 0,
+          foreignKeys: 0,
+          triggers: 0,
+          objects: 4,
+          changed: false,
+        },
+        {
+          versionId: 'v9',
+          versionNumber: 9,
+          createdAt: '2026-08-09T00:00:00.000Z',
+          columns: 3,
+          indexes: 0,
+          foreignKeys: 0,
+          triggers: 0,
+          objects: 4,
+          changed: false,
+        },
+        {
+          versionId: 'v10',
+          versionNumber: 10,
+          createdAt: '2026-08-10T00:00:00.000Z',
+          columns: 4,
+          indexes: 0,
+          foreignKeys: 0,
+          triggers: 0,
+          objects: 5,
+          changed: true,
+        },
+        {
+          versionId: 'v11',
+          versionNumber: 11,
+          createdAt: '2026-08-11T00:00:00.000Z',
+          columns: 4,
+          indexes: 0,
+          foreignKeys: 0,
+          triggers: 0,
+          objects: 5,
+          changed: false,
+        },
+        {
+          versionId: 'v12',
+          versionNumber: 12,
+          createdAt: '2026-08-12T00:00:00.000Z',
+          columns: 4,
+          indexes: 0,
+          foreignKeys: 0,
+          triggers: 0,
+          objects: 5,
+          changed: false,
+        },
+        {
+          versionId: 'v13',
+          versionNumber: 13,
+          createdAt: '2026-08-13T00:00:00.000Z',
+          columns: 4,
+          indexes: 0,
+          foreignKeys: 0,
+          triggers: 0,
+          objects: 5,
+          changed: false,
+        },
+        {
+          versionId: 'v14',
+          versionNumber: 14,
+          createdAt: '2026-08-14T00:00:00.000Z',
+          columns: 4,
+          indexes: 0,
+          foreignKeys: 0,
+          triggers: 0,
+          objects: 5,
+          changed: false,
+        },
+        {
+          versionId: 'v15',
+          versionNumber: 15,
+          createdAt: '2026-08-15T00:00:00.000Z',
+          columns: 4,
+          indexes: 0,
+          foreignKeys: 0,
+          triggers: 0,
+          objects: 5,
+          changed: false,
         },
       ],
       columnMutations: [],
-    });
-    planLokeeRevert.mockResolvedValue({
-      fromVersion: { id: 'v2', number: 2 },
-      toVersion: { id: 'v1', number: 1 },
-      alreadyAtTarget: false,
-      reversal: {
-        risk: 'lossy',
-        safeCount: 0,
-        lossyCount: 1,
-        blockedCount: 0,
-        verdicts: [
-          {
-            key: 'column:CUSTOMER.PHONE',
-            risk: 'lossy',
-            summary: 'CUSTOMER.PHONE: dropped by the revert',
-            dataLoss: 'every value in this column is destroyed',
-          },
-        ],
-      },
-      statements: ['ALTER TABLE customer DROP COLUMN phone'],
     });
     const onSelectVersion = vi.fn();
     render(
       <LokeeObjectInspector
         databaseId="db1"
-        selected={SELECTED}
-        captureConnectionId="c1"
+        selected={{ ...SELECTED, versionId: 'v15' }}
         onClose={() => undefined}
         onSelectVersion={onSelectVersion}
       />
     );
-    await waitFor(() => expect(screen.getByTestId('lokee-inspector-revert-1')).toBeTruthy());
+
+    await waitFor(() => expect(screen.getByTestId('lokee-inspector-growth')).toBeTruthy());
+    // Shown: the two versions that changed it, plus the head.
+    expect(screen.getByTestId('lokee-inspector-version-1')).toBeTruthy();
+    expect(screen.getByTestId('lokee-inspector-version-10')).toBeTruthy();
+    expect(screen.getByTestId('lokee-inspector-version-15')).toBeTruthy();
+    // Folded: everything in between, and the count says how much.
+    expect(screen.queryByTestId('lokee-inspector-version-5')).toBeNull();
+    expect(screen.getByTestId('lokee-roadmap-gap-2-9').textContent).toContain('8 versions');
+    expect(screen.getByTestId('lokee-roadmap-gap-11-14')).toBeTruthy();
+
+    // Growth is stated as a delta, measured against the real previous version
+    // rather than the previous visible row.
+    expect(screen.getByTestId('lokee-inspector-version-10').textContent).toContain('+1');
+
+    // One gap opens without disturbing the other.
+    fireEvent.click(screen.getByTestId('lokee-roadmap-gap-2-9'));
+    await waitFor(() => expect(screen.getByTestId('lokee-inspector-version-5')).toBeTruthy());
+    expect(screen.getByTestId('lokee-roadmap-gap-11-14')).toBeTruthy();
+
+    // And the whole history is one click away.
+    fireEvent.click(screen.getByTestId('lokee-roadmap-toggle-all'));
+    await waitFor(() => expect(screen.getByTestId('lokee-inspector-version-12')).toBeTruthy());
+    expect(screen.queryByTestId('lokee-roadmap-gap-11-14')).toBeNull();
+
     fireEvent.click(screen.getByTestId('lokee-inspector-version-1'));
     expect(onSelectVersion).toHaveBeenCalledWith('v1');
-    fireEvent.click(screen.getByTestId('lokee-inspector-revert-1'));
-    await waitFor(() => expect(screen.getByTestId('lokee-inspector-revert-plan')).toBeTruthy());
-    expect(planLokeeRevert).toHaveBeenCalledWith('db1', 'v1');
-    expect(screen.getByTestId('lokee-inspector-revert-plan').textContent).toContain('DROP COLUMN');
-    expect(screen.getByTestId('lokee-revert-execute')).toBeTruthy();
   });
 
   it('closes from the header button', async () => {

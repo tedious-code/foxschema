@@ -417,6 +417,8 @@ export function LokeeWeaveView({
             subtitle={subtitle}
             embedded={embedded}
             onSelectObject={handleSelectObject}
+            selectedObject={selectedObject}
+            onClearSelection={() => setSelectedObject(null)}
             onSaveVersionMeta={saveVersionMeta}
           />
         </div>
@@ -434,7 +436,6 @@ export function LokeeWeaveView({
           <LokeeObjectInspector
             databaseId={activeId}
             selected={selectedObject}
-            captureConnectionId={captureConnectionId || undefined}
             onClose={() => setSelectedObject(null)}
             onSelectVersion={(versionId) => {
               setSelectedObject((prev) => {
@@ -449,11 +450,6 @@ export function LokeeWeaveView({
                   status: at?.status ?? prev.status,
                 };
               });
-            }}
-            onReverted={() => {
-              setSelectedObject(null);
-              refresh();
-              bumpLokeeEpoch();
             }}
           />
         )}
