@@ -10,6 +10,7 @@ import { CredentialManager } from './CredentialManager';
 import { MigrationHistory } from './MigrationHistory';
 import { TYPE_META, TYPE_ORDER } from './SchemaTreePanel';
 import type { DbObjectType } from '../lib/types';
+import { dialectUsesPassword } from '../lib/provider-settings';
 import { ConnectionModal } from './ConnectionModal';
 import { PasswordInput } from './PasswordInput';
 import { useAuthStore } from '../store/authStore';
@@ -69,7 +70,9 @@ export const TopToolbar: React.FC = () => {
 
   const selectSavedConnection = (side: 'source' | 'target', id: string) => {
     const conn = connections.find((c) => c.id === id);
-    if (conn && !conn.hasPassword) {
+    // A file dialect has no password to be missing. Prompting for one left the
+    // picker snapping back to "— Saved —" and no target selected at all.
+    if (conn && !conn.hasPassword && dialectUsesPassword(conn.dialect)) {
       // Reuse a password already typed this session (SQL Editor or prior Sync pick).
       const cfg = side === 'source' ? sourceConfig : targetConfig;
       const existing =

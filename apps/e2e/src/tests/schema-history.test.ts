@@ -120,11 +120,13 @@ describe.skipIf(!ready)('Schema Sync · History (SQLite)', () => {
     expect(await driver.locator('[data-testid="lokee-inspector-script-diff"]').isVisible()).toBe(true);
   });
 
-  it('defaults to tables, views, functions, procedures and changes only', async () => {
+  it('defaults to containers and changes only', async () => {
+    // Functions and procedures are still in the default set, but this seed has
+    // neither, so their boxes are not offered at all — the sibling test below
+    // covers that. Asserting `isChecked()` on a control that is deliberately
+    // absent just hangs until the timeout.
     expect(await driver.locator('[data-testid="lokee-rf-type-table"]').isChecked()).toBe(true);
     expect(await driver.locator('[data-testid="lokee-rf-type-view"]').isChecked()).toBe(true);
-    expect(await driver.locator('[data-testid="lokee-rf-type-function"]').isChecked()).toBe(true);
-    expect(await driver.locator('[data-testid="lokee-rf-type-procedure"]').isChecked()).toBe(true);
     expect(await driver.locator('[data-testid="lokee-rf-type-column"]').isChecked()).toBe(false);
     expect(await driver.locator('[data-testid="lokee-rf-type-index"]').isChecked()).toBe(false);
     expect(await driver.locator('[data-testid="lokee-rf-changes-only"]').isChecked()).toBe(true);
