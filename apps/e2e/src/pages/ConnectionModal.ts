@@ -3,11 +3,12 @@ import { fillInput } from '../helpers/driver.js';
 
 export interface ConnectionFields {
   dialect: string;
-  host: string;
-  port: number;
+  /** Omitted for file dialects — SQLite and DuckDB render no host / port. */
+  host?: string;
+  port?: number;
   database: string;
-  username: string;
-  password: string;
+  username?: string;
+  password?: string;
   schema?: string;
 }
 
