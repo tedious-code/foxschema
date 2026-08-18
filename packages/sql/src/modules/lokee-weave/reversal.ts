@@ -32,7 +32,12 @@ export interface ReversalVerdict {
   risk: ReversalRisk;
   /** One line, written for a confirm dialog rather than a log. */
   summary: string;
-  /** Present when data cannot come back; names what is lost. */
+  /**
+   * Present when data cannot come back; names what is lost.
+   *
+   * Not the same as `risk: 'lossy'`. A re-created column carries this note —
+   * its old rows are gone — while destroying nothing itself, so it is `safe`.
+   */
   dataLoss?: string;
 }
 
@@ -187,9 +192,22 @@ export function classifyReversal(
   // Absent now, present in the target → the revert re-creates it.
   if (current === undefined && target !== undefined) {
     if (HOLDS_DATA.has(type)) {
+      /**
+       * Safe, not lossy — measured against this type's own contract, where
+       * `lossy` means "succeeds but destroys or truncates data". Re-creating a
+       * dropped column does neither: it adds one back, empty, because the rows
+       * went when it was dropped.
+       *
+       * Calling it lossy put the loudest warning in the product ("this revert
+       * destroys data — confirm") on its safest and most common operation:
+       * bringing a database that has fallen behind back up to the schema
+       * everyone else is on, which is nothing but ADD COLUMN. The note stays,
+       * because "the column is back but empty" is worth knowing; the
+       * destructive gate does not.
+       */
       return {
         key,
-        risk: 'lossy',
+        risk: 'safe',
         summary: `${label}: re-created empty`,
         dataLoss: 'the structure returns but its data was already lost when it was dropped',
       };

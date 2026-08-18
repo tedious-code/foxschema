@@ -160,6 +160,16 @@ export function buildVersionGraph(
     changeCount.set(o.versionId, (changeCount.get(o.versionId) ?? 0) + 1);
   }
 
+  /**
+   * Whether the author is worth a line on every card.
+   *
+   * It answers "who did this?" only when the versions disagree. On a
+   * single-user install it was the same address repeated down the whole
+   * column, crowding out the date and the change count that do differ.
+   */
+  const authors = new Set(versions.map((v) => v.author?.trim()).filter(Boolean));
+  const showAuthor = authors.size > 1;
+
   const nodes: LokeeNode[] = versions.map((version, row) => ({
     id: `version:${version.id}`,
     type: 'versionNode' as const,
@@ -179,7 +189,7 @@ export function buildVersionGraph(
       versionNumber: version.number,
       createdAt: version.createdAt,
       rootHash: version.rootHash,
-      author: version.author,
+      ...(showAuthor ? { author: version.author } : {}),
       name: version.name,
       description: version.description,
       changeCount: changeCount.get(version.id) ?? 0,

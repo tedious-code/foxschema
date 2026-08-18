@@ -290,6 +290,21 @@ export function VersionCompareModal({
   ]);
   const needsLossyAck = blocked?.code === 'lossy';
 
+  /**
+   * "Execute migration (3)" says how many statements and nothing about where
+   * they take you — and it reads as an undo even when the plan only adds.
+   *
+   * Direction cannot come from the version numbers: the plan always runs from
+   * the head, so the target is always the lower number. What separates the two
+   * cases is what the plan *does*. A plan that destroys nothing is bringing a
+   * database up to a schema it is missing — catching up, not rolling back —
+   * and that is the common shape when a database has fallen behind.
+   */
+  const catchingUp = plan?.reversal.risk === 'safe';
+  const runLabel = plan
+    ? `${catchingUp ? 'Update' : 'Revert'} to v${plan.toVersion.number} (${plan.statements.length})`
+    : 'Execute migration';
+
   const runRevert = useCallback(async () => {
     if (!captureConnectionId || !plan) return;
     setRunning(true);
@@ -559,7 +574,9 @@ export function VersionCompareModal({
                           data-testid="lokee-cmp-run-revert"
                           title={
                             blocked?.why ??
-                            `Apply ${plan?.statements.length ?? 0} statement(s) and record a new version`
+                            (catchingUp
+                              ? `Bring this database up to v${plan?.toVersion.number} — this plan destroys nothing. Records a new version.`
+                              : `Apply ${plan?.statements.length ?? 0} statement(s) to go back to v${plan?.toVersion.number}. Records a new version.`)
                           }
                           // A lossy plan keeps the button live so it can carry the
                           // reader to the acknowledgement; every other blocker is a
@@ -575,10 +592,7 @@ export function VersionCompareModal({
                           className="flex shrink-0 items-center gap-1.5 rounded border border-amber-500/50 bg-amber-950/40 px-2.5 py-1 text-[11px] font-bold text-amber-100 transition hover:bg-amber-900/40 disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           <Play className="h-3 w-3 fill-current" strokeWidth={SQL_ICON_STROKE} />
-                          {running
-                            ? 'Applying…'
-                            : (blocked?.label ??
-                              `Execute migration (${plan?.statements.length ?? 0})`)}
+                          {running ? 'Applying…' : (blocked?.label ?? runLabel)}
                         </button>
                       </div>
                     </div>

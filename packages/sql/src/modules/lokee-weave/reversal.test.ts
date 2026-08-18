@@ -77,10 +77,28 @@ describe('classifyReversal — the cases users actually ask about', () => {
     expect(verdict.dataLoss).toContain('cannot be recovered');
   });
 
-  it('warns that re-creating a dropped table brings back no rows', () => {
+  it('notes that re-creating a dropped table brings back no rows — without calling it lossy', () => {
+    // `lossy` is defined on this type as "succeeds but destroys or truncates
+    // data". Re-creating does neither: it adds the object back, empty, because
+    // the rows went when it was dropped. Calling it lossy put the product's
+    // loudest warning — "this revert destroys data, confirm" — on its safest
+    // and commonest operation: bringing a database that has fallen behind back
+    // up to the current schema, which is nothing but ADD.
     const verdict = classifyReversal('table:ORDERS', undefined, table());
-    expect(verdict.risk).toBe('lossy');
+    expect(verdict.risk).toBe('safe');
     expect(verdict.dataLoss).toContain('already lost');
+  });
+
+  it('keeps a catch-up plan safe end to end, so it needs no data-loss confirmation', () => {
+    // The shape of a database that fell behind: two columns it is missing.
+    const plan = planReversal([
+      { key: 'column:APP.EMAIL', target: column() },
+      { key: 'column:APP.CREATED_AT', target: column() },
+    ]);
+    expect(plan.risk).toBe('safe');
+    expect(plan.lossyCount).toBe(0);
+    // The explanation survives even though the gate does not.
+    expect(plan.verdicts.every((v) => v.dataLoss?.includes('already lost'))).toBe(true);
   });
 
   it('treats dropping an index as safe — it holds no data', () => {

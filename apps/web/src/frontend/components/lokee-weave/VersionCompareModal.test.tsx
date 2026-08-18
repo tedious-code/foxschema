@@ -265,3 +265,72 @@ describe('a revert only runs against the current database', () => {
     );
   });
 });
+
+describe('the run button names where it goes', () => {
+  const BASE = {
+    from: VERSION(10),
+    to: VERSION(15),
+    compare: {
+      summary: { added: 1, removed: 0, modified: 0, unchanged: 4 },
+      tables: [
+        {
+          tableName: 'CUSTOMERS',
+          objectType: 'TABLE',
+          status: 'MODIFIED',
+          columnDiffs: [{ name: 'phone', status: 'ADDED', target: { type: 'text', nullable: true } }],
+          indexDiffs: [],
+          foreignKeyDiffs: [],
+        },
+      ],
+    },
+  };
+
+  const planWith = (risk: string, lossyCount = 0) => ({
+    fromVersion: VERSION(15),
+    toVersion: VERSION(10),
+    alreadyAtTarget: false,
+    reversal: { risk, safeCount: 1, lossyCount, blockedCount: 0, verdicts: [] },
+    statements: ['ALTER TABLE customers ADD COLUMN phone text'],
+  });
+
+  const open = async () => {
+    render(
+      <VersionCompareModal
+        databaseId="db1"
+        versionId="v10"
+        againstVersionId="v15"
+        latestVersionId="v15"
+        captureConnectionId="c1"
+        onClose={() => undefined}
+      />
+    );
+    await waitFor(() => expect(screen.getByTestId('lokee-cmp-run-revert')).toBeTruthy());
+    // Tick something: an unblocked button is the only one that describes the
+    // run, because a blocker's reason rightly outranks the description.
+    fireEvent.click(screen.getByTestId('lokee-cmp-select-all'));
+  };
+
+  it('calls a plan that destroys nothing an update, not a revert', async () => {
+    // Direction cannot come from the version numbers — the plan always runs
+    // from the head, so the target is always the lower number. What separates
+    // catching up from rolling back is whether anything is destroyed.
+    compareLokeeVersions.mockResolvedValue(BASE);
+    planLokeeRevert.mockResolvedValue(planWith('safe'));
+    await open();
+    await waitFor(() =>
+      expect(screen.getByTestId('lokee-cmp-run-revert').textContent).toContain('Update to v10')
+    );
+    expect(screen.getByTestId('lokee-cmp-run-revert').title).toMatch(/destroys nothing/i);
+  });
+
+  it('calls a destructive plan a revert, and names the version either way', async () => {
+    compareLokeeVersions.mockResolvedValue(BASE);
+    planLokeeRevert.mockResolvedValue(planWith('lossy', 1));
+    await open();
+    // A lossy plan stops at the acknowledgement, which has its own label — so
+    // assert the reason names the data loss rather than the destination.
+    await waitFor(() =>
+      expect(screen.getByTestId('lokee-cmp-run-revert').textContent).toContain('Review data loss')
+    );
+  });
+});
