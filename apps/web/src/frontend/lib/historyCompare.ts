@@ -71,11 +71,26 @@ export function swapHistoryCompare(
 
 export function historyVersionLabel(
   version: HistoryVersionOption,
-  opts?: { current?: boolean }
+  opts?: {
+    current?: boolean;
+    /**
+     * Say so when a choice can be compared but never reverted, instead of
+     * letting it look like every other option and dead-ending at Execute.
+     *
+     * A revert restores the live database, so it only runs from the newest
+     * version: picking the newest as Original restores where you already are,
+     * and picking an older Target means the diff on screen is not the DDL that
+     * would run.
+     */
+    compareOnly?: 'is-current' | 'not-current';
+  }
 ): string {
   const custom = version.name?.trim();
   const base = custom ? `v${version.number} · ${custom}` : `Version ${version.number}`;
-  return opts?.current ? `Current database (${base})` : base;
+  if (opts?.current) return `Current database (${base})`;
+  if (opts?.compareOnly === 'is-current') return `${base} — current, nothing to restore`;
+  if (opts?.compareOnly === 'not-current') return `${base} — compare only`;
+  return base;
 }
 
 export function lokeeDatabaseLabel(database: {

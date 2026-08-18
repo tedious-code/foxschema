@@ -108,3 +108,36 @@ describe('labels', () => {
     ).toBe('POSTGRES · localhost/foxdb · public (3 v)');
   });
 });
+
+describe('compare-only labelling', () => {
+  // A revert restores the live database from the newest version. Two picks can
+  // be compared but never reverted, and both used to look exactly like every
+  // other option until Execute greyed out with the reason in a tooltip.
+  const v = { id: 'v7', number: 7 };
+
+  it('marks the newest version when it sits on the Original side', () => {
+    expect(historyVersionLabel(v, { compareOnly: 'is-current' })).toBe(
+      'Version 7 — current, nothing to restore'
+    );
+  });
+
+  it('marks an older version chosen as Target', () => {
+    expect(historyVersionLabel(v, { compareOnly: 'not-current' })).toBe('Version 7 — compare only');
+  });
+
+  it('leaves an ordinary choice unmarked', () => {
+    expect(historyVersionLabel(v)).toBe('Version 7');
+  });
+
+  it('keeps the current-database wording, which outranks the marker', () => {
+    expect(historyVersionLabel(v, { current: true, compareOnly: 'not-current' })).toBe(
+      'Current database (Version 7)'
+    );
+  });
+
+  it('keeps a custom version name in a marked label', () => {
+    expect(
+      historyVersionLabel({ id: 'v7', number: 7, name: 'before launch' }, { compareOnly: 'not-current' })
+    ).toBe('v7 · before launch — compare only');
+  });
+});

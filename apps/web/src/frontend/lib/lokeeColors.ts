@@ -177,7 +177,7 @@ export const STATUS_STYLES: Record<string, StatusStyle> = {
     dashed: true,
   },
   unchanged: {
-    label: 'Unchanged (reused)',
+    label: 'Unchanged',
     accent: 'border-sky-500/40',
     dot: 'bg-sky-400',
     stroke: 'var(--color-sky-400)',

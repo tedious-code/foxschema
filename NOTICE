@@ -8,6 +8,13 @@ to the Fox Schema project (https://github.com/tedious-code/foxschema).
 Licensed under the Apache License, Version 2.0.
 See the LICENSE file in the project root for full license text.
 
+Third-party software
+--------------------
+Fox Schema is distributed with open-source packages whose licences require
+their notices to travel with the code. Those notices are reproduced in
+THIRD-PARTY-NOTICES.md in the project root, regenerated with
+`node scripts/generate-third-party-notices.mjs`.
+
 Attribution notice
 ------------------
 Redistribution or reuse of this work must retain copyright notices and

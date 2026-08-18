@@ -1,7 +1,7 @@
 import type { Page } from 'playwright';
 import { clickWhen, waitFor, fillInput } from '../helpers/driver.js';
 import type { DbConfig } from '../helpers/db-config.js';
-import { ConnectionModal } from './ConnectionModal.js';
+import { ConnectionModal, type ConnectionFields } from './ConnectionModal.js';
 
 /**
  * Page object for the SQL Editor workspace (view switcher + run against
@@ -60,23 +60,18 @@ export class SqlEditorPage {
     await this.page.waitForSelector('[data-testid="cred-manager"]', { state: 'detached', timeout: 10_000 });
   }
 
-  /** Save a SQLite file path as a named credential (password saved so Run/schema don't re-prompt). */
+  /** Save a SQLite file path as a named credential. */
   async addSqliteCredential(name: string, dbPath: string): Promise<void> {
-    await this.addCredential(name, {
-      dialect: 'sqlite',
-      host: 'localhost',
-      port: 0,
-      database: dbPath,
-      username: 'unused',
-      password: 'unused',
-    });
+    // No host / port / user / password: SQLite is a file, and the form stops
+    // pretending otherwise — those boxes are not rendered for a file dialect.
+    await this.addCredential(name, { dialect: 'sqlite', database: dbPath });
   }
 
   /**
    * Save any dialect credential from Credentials → Add.
    * Fills the connection name, then reuses ConnectionModal.connect() (load schemas + save password).
    */
-  async addCredential(name: string, cfg: DbConfig): Promise<void> {
+  async addCredential(name: string, cfg: ConnectionFields | DbConfig): Promise<void> {
     await this.openCredentials();
     await clickWhen(this.page, '[data-testid="cred-add-btn"]');
     await waitFor(this.page, '[data-testid="conn-modal"]');
@@ -84,12 +79,14 @@ export class SqlEditorPage {
     // Dialect first — switching dialect can reset the form and wipe the name.
     await modal.selectDialect(cfg.dialect);
     await fillInput(this.page, '[data-testid="conn-name-input"]', name);
-    await modal.fillHost(cfg.host);
-    await modal.fillPort(cfg.port);
+    // A file dialect renders the path and nothing else — filling a hidden host
+    // box is what broke this helper when the form stopped showing one.
+    if (cfg.host !== undefined) await modal.fillHost(cfg.host);
+    if (cfg.port !== undefined) await modal.fillPort(cfg.port);
     await modal.fillDatabase(cfg.database);
-    await modal.fillUsername(cfg.username);
-    await modal.fillPassword(cfg.password);
-    await modal.checkSavePassword();
+    if (cfg.username !== undefined) await modal.fillUsername(cfg.username);
+    if (cfg.password !== undefined) await modal.fillPassword(cfg.password);
+    if (cfg.password !== undefined) await modal.checkSavePassword();
     // loadSchemas throws on conn-test-failed — never persist a bad credential.
     await modal.loadSchemas();
     if (cfg.schema) await modal.selectSchema(cfg.schema);

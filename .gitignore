@@ -46,6 +46,9 @@ CHANGELOG.md
 # Public project docs must be tracked
 !README.md
 !CONTRIBUTING.md
+# Licence notices for bundled dependencies must ship with the product —
+# MIT/BSD/ISC all require their notice to travel with the code.
+!THIRD-PARTY-NOTICES.md
 # Agent onboarding notes must be tracked
 !AGENTS.md
 !docs/ARCHITECTURE.md

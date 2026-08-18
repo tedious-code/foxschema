@@ -265,7 +265,7 @@ export function LokeeObjectInspector({
                             className={`mr-1 inline-block h-1.5 w-1.5 rounded-full align-middle ${
                               g.changed ? 'bg-amber-400' : 'bg-slate-700'
                             }`}
-                            title={g.changed ? 'Changed in this version' : 'Unchanged (reused)'}
+                            title={g.changed ? 'Changed in this version' : 'Unchanged in this version'}
                             aria-hidden
                           />
                           <span className="font-semibold text-slate-200">v{g.versionNumber}</span>

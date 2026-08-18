@@ -4,11 +4,13 @@ import {
   carryMeasurements,
   deriveObjectColumns,
   edgeStatusFor,
+  offeredObjectTypes,
   type BuiltGraph,
 } from './buildGraph';
 import {
   DEFAULT_LAYOUT,
   EMPTY_FILTERS,
+  objectDisplayName,
   shortHash,
   type VersionGraphDTO,
   type VersionGraphFilters,
@@ -16,6 +18,7 @@ import {
   type LokeeNode,
   type LokeeVersionNode,
 } from './graphTypes';
+import type { LokeeObjectType } from '@foxschema/sql';
 
 /** Narrows to a version node, so `.data` is the version payload not the union. */
 function versionNode(graph: BuiltGraph, id: string): LokeeVersionNode {
@@ -506,5 +509,105 @@ describe('carryMeasurements', () => {
     const previous = [measured('a')];
     const [node] = carryMeasurements([fresh('a')], previous);
     expect(node!.measured).not.toBe(previous[0]!.measured);
+  });
+});
+
+describe('offeredObjectTypes', () => {
+  // The full list is the union of every dialect. A SQLite user was shown MQT —
+  // a term only Db2 uses — next to Procedure and Function checkboxes that could
+  // never match anything in their schema.
+  const obj = (objectType: string) => ({ objectType }) as { objectType: LokeeObjectType };
+  const none = new Set<LokeeObjectType>();
+
+  it('offers only the types present in the history', () => {
+    expect(offeredObjectTypes([obj('table'), obj('view'), obj('index')], none)).toEqual([
+      'table',
+      'view',
+      'index',
+    ]);
+  });
+
+  it('drops the ones that could never match — MQT, procedures, functions', () => {
+    const offered = offeredObjectTypes([obj('table'), obj('trigger')], none);
+    expect(offered).not.toContain('mqt');
+    expect(offered).not.toContain('procedure');
+    expect(offered).not.toContain('function');
+  });
+
+  it('keeps the canonical display order rather than order of appearance', () => {
+    expect(offeredObjectTypes([obj('trigger'), obj('table'), obj('view')], none)).toEqual([
+      'table',
+      'view',
+      'trigger',
+    ]);
+  });
+
+  it('keeps a type the user ticked themselves, even once nothing matches it', () => {
+    // Otherwise the control vanishes from under the person using it, and the
+    // filter stays applied with no way to see or clear it. `index` is not one
+    // of the defaults, so it counts as a deliberate choice.
+    expect(
+      offeredObjectTypes([obj('table')], new Set<LokeeObjectType>(['index']))
+    ).toEqual(['table', 'index']);
+  });
+
+  it('does not pin the defaults to a schema that has none of them', () => {
+    // The four defaults are not a choice. Honouring them here put Function and
+    // Procedure checkboxes on every SQLite database in the product.
+    const offered = offeredObjectTypes(
+      [obj('table'), obj('view')],
+      new Set<LokeeObjectType>(['table', 'view', 'function', 'procedure'])
+    );
+    expect(offered).toEqual(['table', 'view']);
+  });
+
+  it('offers nothing for an empty history', () => {
+    expect(offeredObjectTypes([], none)).toEqual([]);
+  });
+
+  it('de-duplicates — one checkbox per type however many objects share it', () => {
+    expect(offeredObjectTypes([obj('table'), obj('table'), obj('table')], none)).toEqual(['table']);
+  });
+});
+
+describe('objectDisplayName', () => {
+  // CLAUDE.md: the compare key is an uppercased match key and never an
+  // identifier. `ORDERS.NOTE` on a card shows the reader a string that exists
+  // nowhere in their database.
+  it('splits a child into its own name and the table that owns it', () => {
+    expect(objectDisplayName('ORDERS.NOTE', 'column')).toEqual({
+      label: 'NOTE',
+      owner: 'ORDERS',
+    });
+  });
+
+  it.each(['index', 'trigger', 'primary_key', 'foreign_key'] as const)(
+    'does the same for a %s',
+    (type) => {
+      expect(objectDisplayName('CUSTOMERS.IDX_EMAIL', type).owner).toBe('CUSTOMERS');
+    }
+  );
+
+  it('leaves a container name alone — a table is not owned by anything', () => {
+    expect(objectDisplayName('CUSTOMERS', 'table')).toEqual({ label: 'CUSTOMERS', owner: null });
+  });
+
+  it('does not split a dotted name on a container', () => {
+    // A view can legitimately be named with a dot; it has no owner to strip.
+    expect(objectDisplayName('reports.v_daily', 'view')).toEqual({
+      label: 'reports.v_daily',
+      owner: null,
+    });
+  });
+
+  it('splits on the last dot, so a qualified owner survives', () => {
+    expect(objectDisplayName('SALES.ORDERS.NOTE', 'column')).toEqual({
+      label: 'NOTE',
+      owner: 'SALES.ORDERS',
+    });
+  });
+
+  it.each([['NOTE'], ['.NOTE'], ['ORDERS.']])('leaves %p alone rather than producing an empty half', (name) => {
+    expect(objectDisplayName(name, 'column').owner).toBeNull();
   });
 });
