@@ -53,6 +53,9 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/packages ./packages
 COPY --from=build /app/apps/web ./apps/web
 COPY --from=build /app/package.json ./package.json
+# The licences of the packages baked into this image travel with it — MIT,
+# BSD and ISC all require their notice to accompany the code.
+COPY --from=build /app/LICENSE /app/NOTICE /app/THIRD-PARTY-NOTICES.md ./
 
 # Persistent volume for the SQLite metadata store (saved connections, history)
 # and the auto-generated encryption key (/data/.app_encryption_key).

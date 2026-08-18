@@ -856,7 +856,15 @@ export const LokeeWeavePage: React.FC<LokeeWeavePageProps> = ({
                 maxZoom={1.75}
                 defaultViewport={{ x: 24, y: 24, zoom: 1 }}
                 style={{ width: '100%', height: '100%' }}
-                proOptions={{ hideAttribution: false }}
+                /**
+                 * React Flow is plain MIT (see node_modules/@xyflow/react/LICENSE).
+                 * Its only condition is that the copyright and permission notice
+                 * travel with the software, which THIRD-PARTY-NOTICES.md at the
+                 * repo root does — the on-canvas badge is not a licence term.
+                 * xyflow asks that you subscribe to Pro when you hide it; that is
+                 * a request, and the project has chosen not to.
+                 */
+                proOptions={{ hideAttribution: true }}
               >
                 <FitReadableView nodes={built.nodes} />
                 <Background gap={20} />
