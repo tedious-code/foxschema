@@ -28,11 +28,7 @@ import { toast } from '../../store/toastStore';
 import { useSyncStore } from '../../store/useSyncStore';
 import { useUiStore } from '../../store/uiStore';
 import { useLokeeHistoryStore } from '../../store/lokeeHistoryStore';
-import {
-  lokeeDatabaseLabel,
-  resolveHistoryCompare,
-  sortVersionsNewestFirst,
-} from '../../lib/historyCompare';
+import { resolveHistoryCompare, sortVersionsNewestFirst } from '../../lib/historyCompare';
 import { SQL_ICON_STROKE } from '../sql-editor/sqlIconStyle';
 
 export interface LokeeWeaveViewProps {
