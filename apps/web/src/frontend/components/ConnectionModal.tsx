@@ -1,7 +1,15 @@
 import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { X, CheckCircle, AlertTriangle, FolderOpen, Loader2, ListTree, Download } from "lucide-react";
-import { type ConnectionOptions, type Dialect, buildConnectionString, DEFAULT_PORTS, getProviderSettings, PROVIDER_SETTINGS } from '../lib/provider-settings';
+import {
+  type ConnectionOptions,
+  type Dialect,
+  buildConnectionString,
+  DEFAULT_PORTS,
+  getProviderSettings,
+  isFileDialect as isFileDialectOf,
+  PROVIDER_SETTINGS,
+} from '../lib/provider-settings';
 import type { DriverInfo } from '../lib/types';
 import { fetchSchemaList, checkDriver as apiCheckDriver, installDriver as apiInstallDriver } from "../api/schemaApi";
 import { PasswordInput } from './PasswordInput';
@@ -74,7 +82,7 @@ export const ConnectionModal: React.FC<Props> = ({
    * password and SSL have no meaning for them, and showing the boxes anyway
    * has people filling in `localhost` and wondering why it changes nothing.
    */
-  const isFileDialect = selDialect === 'sqlite' || selDialect === 'duckdb';
+  const isFileDialect = isFileDialectOf(selDialect);
 
   const [browsing, setBrowsing] = useState(false);
   const [driverInfo, setDriverInfo] = useState<DriverInfo | null>(null);

@@ -230,6 +230,24 @@ export const PROVIDER_SETTINGS: Record<string, ProviderSettings> = {
   mongodb: mongodbSettings,
 };
 
+/**
+ * Dialects that are a file on disk rather than a server.
+ *
+ * They have no host, port, user or password, so anything that asks for one has
+ * to know not to. Selecting a saved SQLite connection used to open a password
+ * prompt — the credential form had stopped offering a password to store, and
+ * the picker still treated "no stored password" as "ask the user for one",
+ * which snapped the selection back and left no target set.
+ */
+export function isFileDialect(dialect: string): boolean {
+  return dialect === 'sqlite' || dialect === 'duckdb';
+}
+
+/** True when a connection of this dialect can meaningfully carry a password. */
+export function dialectUsesPassword(dialect: string): boolean {
+  return !isFileDialect(dialect);
+}
+
 export const DEFAULT_PORTS: Record<string, number> = Object.fromEntries(
   Object.values(PROVIDER_SETTINGS).map((s) => [s.dialect, s.defaultPort])
 );
