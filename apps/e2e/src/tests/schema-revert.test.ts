@@ -136,6 +136,7 @@ INSERT INTO customers (id, name, email) VALUES (1, 'Ada', 'ada@example.com');
       }
     });
 
+    await history.selectAllCompareObjects();
     await history.executeRevert();
 
     // The file is the source of truth: the index is back. If it is not, the
@@ -182,6 +183,7 @@ INSERT INTO customers (id, name, email) VALUES (1, 'Ada', 'ada@example.com');
     const forward = await history.migrationSqlText();
     expect(forward, forward).toMatch(/DROP INDEX/i);
 
+    await history.selectAllCompareObjects();
     await history.executeRevert();
     await expect
       .poll(() => schemaText(), { timeout: 30_000 })
