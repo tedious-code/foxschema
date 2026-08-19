@@ -28,7 +28,11 @@ import { toast } from '../../store/toastStore';
 import { useSyncStore } from '../../store/useSyncStore';
 import { useUiStore } from '../../store/uiStore';
 import { useLokeeHistoryStore } from '../../store/lokeeHistoryStore';
-import { resolveHistoryCompare, sortVersionsNewestFirst } from '../../lib/historyCompare';
+import {
+  databaseLocation,
+  resolveHistoryCompare,
+  sortVersionsNewestFirst,
+} from '../../lib/historyCompare';
 import { SQL_ICON_STROKE } from '../sql-editor/sqlIconStyle';
 
 export interface LokeeWeaveViewProps {
@@ -52,7 +56,7 @@ const EMPTY_DTO: VersionGraphDTO = {
 
 function describe(database: LokeeDatabase | undefined): string | undefined {
   if (!database) return undefined;
-  const where = [database.host, database.database].filter(Boolean).join('/');
+  const where = databaseLocation(database);
   // ` · schema`, not `.schema`: a SQLite path already ends in `.db`, so the
   // dotted form rendered as `/tmp/app.db.main` and read like a file extension.
   const schema = database.schema ? ` · ${database.schema}` : '';
