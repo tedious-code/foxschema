@@ -84,7 +84,18 @@ const UNSUPPORTED: DbaUtilitySupport = {
 function family(dialect: string): string {
   const d = (dialect || '').toLowerCase();
   if (d === 'azuresql') return 'sqlserver';
-  if (d === 'mariadb' || d === 'tidb') return 'mysql';
+  /**
+   * MariaDB is its own family here, not a MySQL alias.
+   *
+   * Two of these probes are wrong on it. `@@innodb_buffer_pool_instances` was
+   * removed in MariaDB 10.5, so System info died on `Unknown system variable`
+   * before returning anything. And `performance_schema` is off by default, so
+   * the status lookups the pool probe leans on came back *empty* — no error, a
+   * blank connection count, which is worse. MariaDB keeps the same figures in
+   * `information_schema.GLOBAL_STATUS`.
+   */
+  if (d === 'mariadb') return 'mariadb';
+  if (d === 'tidb') return 'mysql';
   if (d === 'cockroachdb' || d === 'yugabytedb') return 'postgres';
   return d;
 }
@@ -287,6 +298,20 @@ SELECT
 `.trim(),
     };
   }
+  if (f === 'mariadb') {
+    return {
+      mode: asMode(mode),
+      params: [],
+      sql: `
+SELECT
+  CAST(@@max_connections AS SIGNED) AS max_connections,
+  (SELECT VARIABLE_VALUE FROM information_schema.GLOBAL_STATUS WHERE VARIABLE_NAME = 'Threads_connected' LIMIT 1) AS current_connections,
+  (SELECT VARIABLE_VALUE FROM information_schema.GLOBAL_STATUS WHERE VARIABLE_NAME = 'Threads_running' LIMIT 1) AS active_connections,
+  (SELECT VARIABLE_VALUE FROM information_schema.GLOBAL_STATUS WHERE VARIABLE_NAME = 'Threads_cached' LIMIT 1) AS available_connections,
+  (SELECT VARIABLE_VALUE FROM information_schema.GLOBAL_STATUS WHERE VARIABLE_NAME = 'Connection_errors_max_connections' LIMIT 1) AS wait_count
+`.trim(),
+    };
+  }
   if (f === 'sqlserver') {
     return {
       mode: asMode(mode),
@@ -380,7 +405,7 @@ LIMIT 500
 `.trim(),
     };
   }
-  if (f === 'mysql') {
+  if (f === 'mysql' || f === 'mariadb') {
     return {
       mode: asMode(mode),
       params: [],
@@ -560,6 +585,25 @@ SELECT
 `.trim(),
     };
   }
+  if (f === 'mariadb') {
+    return {
+      mode: asMode(mode),
+      params: [],
+      sql: `
+SELECT
+  NULL AS cpu_count,
+  NULL AS cpu_usage_percent,
+  CAST(@@innodb_buffer_pool_size AS SIGNED) AS memory_total_bytes,
+  NULL AS memory_used_bytes,
+  NULL AS memory_available_bytes,
+  NULL AS storage_total_bytes,
+  (SELECT SUM(DATA_LENGTH + INDEX_LENGTH) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()) AS storage_used_bytes,
+  NULL AS storage_available_bytes,
+  (SELECT VARIABLE_VALUE FROM information_schema.GLOBAL_STATUS WHERE VARIABLE_NAME = 'Uptime' LIMIT 1) AS uptime_seconds,
+  VERSION() AS server_version
+`.trim(),
+    };
+  }
   if (f === 'mysql') {
     return {
       mode: asMode(mode),
@@ -729,7 +773,7 @@ LIMIT 1000
 `.trim(),
     };
   }
-  if (f === 'mysql') {
+  if (f === 'mysql' || f === 'mariadb') {
     return {
       mode: asMode(mode),
       params: [],

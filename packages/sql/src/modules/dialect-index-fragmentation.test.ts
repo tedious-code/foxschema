@@ -68,7 +68,20 @@ describe('buildIndexFragmentationQuery', () => {
     expect(q.sql).toMatch(/OBJECT_ID\(\?\)/);
   });
 
-  it('builds Postgres pgstattuple probe', () => {
+  it('asks pgstatindex for leaf_fragmentation, not pgstattuple', () => {
+    /**
+     * The bug this pins, verified against PostgreSQL 17:
+     *
+     *   SELECT leaf_fragmentation FROM pgstattuple('i'::regclass::oid)
+     *     ERROR: column "leaf_fragmentation" does not exist
+     *   SELECT leaf_fragmentation FROM pgstatindex('i')
+     *     0
+     *
+     * `pgstattuple` reports *table* statistics. Naming it here failed twice
+     * over: without the extension Postgres says the function does not exist —
+     * which is what users hit — and installing the extension, the obvious fix,
+     * then failed on the missing column. The probe could never have worked.
+     */
     const q = buildIndexFragmentationQuery({
       dialect: 'postgres',
       table: 'public.users',
@@ -76,7 +89,17 @@ describe('buildIndexFragmentationQuery', () => {
     expect('error' in q).toBe(false);
     if ('error' in q) return;
     expect(q.params).toEqual(['public', 'users']);
-    expect(q.sql).toMatch(/pgstattuple/);
+    expect(q.sql).toMatch(/pgstatindex\(/);
+    expect(q.sql).not.toMatch(/FROM pgstattuple\(/);
+  });
+
+  it('does not let an unmeasured index reach the grid as NaN', () => {
+    // pgstatindex returns NaN for an index with no leaf pages yet. That is
+    // "nothing measured", not a number, and "NaN%" in a column reads as a bug.
+    const q = buildIndexFragmentationQuery({ dialect: 'postgres', table: 'public.users' });
+    if ('error' in q) throw new Error(q.error);
+    expect(q.sql).toMatch(/NULLIF\(/);
+    expect(q.sql).toMatch(/'NaN'::float8/);
   });
 
   it('builds probes for formerly unsupported dialects', () => {
