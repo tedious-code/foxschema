@@ -2,8 +2,8 @@
 
 > **For users:** this is the page the in-app update toast links to (**What's new**).
 
-Since **`v0.2.73`** (last npm/Homebrew publish). Docker Hub / GHCR already have
-`5nickels/foxschema:v0.2.111` and `ghcr.io/tedious-code/foxschema:v0.2.111`.
+Since **`v0.2.73`**. npm `foxschema@0.2.111` is on the registry. Docker Hub / GHCR
+have `5nickels/foxschema:v0.2.111` and `ghcr.io/tedious-code/foxschema:v0.2.111`.
 
 ---
 
@@ -83,7 +83,7 @@ docker pull 5nickels/foxschema:v0.2.111
 
 Then hard-refresh the browser tab (Cmd/Ctrl-Shift-R).
 
-### Run from git (before npm is published)
+### Run from git
 
 ```bash
 git clone https://github.com/tedious-code/foxschema.git
