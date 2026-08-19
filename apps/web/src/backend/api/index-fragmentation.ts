@@ -104,6 +104,26 @@ async function runProbe(
  * Probe one table. Returns either a result or a structured failure
  * (caller maps `status` onto the HTTP response).
  */
+/**
+ * Turn a driver error into something the reader can act on.
+ *
+ * The physical probes lean on optional server features — pgstatindex comes from
+ * the pgstattuple extension, and it is not installed by default. "function
+ * pgstatindex(regclass) does not exist" is true and useless; the reader wants
+ * the one line that fixes it.
+ */
+export function explainFragmentationError(message: string, dialect: string): string {
+  const missingFn = /function\s+pgstat(index|tuple)[^)]*\)?\s+does not exist/i.test(message);
+  if (missingFn) {
+    return (
+      `Index fragmentation on ${dialect} needs the pgstattuple extension, which is not ` +
+      `installed on this server. A superuser can add it with: CREATE EXTENSION pgstattuple; ` +
+      `— or supply your own query below. (${message})`
+    );
+  }
+  return message;
+}
+
 export async function probeTableFragmentation(opts: {
   dialect: string;
   option: ConnectionOptions;
@@ -239,8 +259,9 @@ export async function probeTableFragmentation(opts: {
     );
     return { ok: true, value };
   } catch (defaultErr: unknown) {
-    const defaultMessage =
+    const rawDefaultMessage =
       defaultErr instanceof Error ? defaultErr.message : 'Default fragmentation query failed';
+    const defaultMessage = explainFragmentationError(rawDefaultMessage, dialect);
     if (!customSql) {
       return {
         ok: false,

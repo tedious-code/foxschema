@@ -126,3 +126,54 @@ describe('DB2 session query columns', () => {
     expect(sql).toContain('CURRENT SERVER AS database_name');
   });
 });
+
+describe('MariaDB is not a MySQL alias for these probes', () => {
+  /**
+   * Both bugs verified against MariaDB 11.8:
+   *
+   *   SELECT @@innodb_buffer_pool_instances;
+   *     ERROR 1193 (HY000): Unknown system variable
+   *   SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE ...
+   *     (empty — performance_schema is off by default)
+   *   SELECT VARIABLE_VALUE FROM information_schema.GLOBAL_STATUS WHERE ...
+   *     245412
+   *
+   * The first killed System info outright. The second was worse: no error, a
+   * blank connection count in the pool panel.
+   */
+  const sqlFor = (kind: 'pool' | 'sessions' | 'system' | 'sizes') => {
+    const q = buildDbaUtilityQuery({ dialect: 'mariadb', kind, schema: 'foxdb' });
+    if ('error' in q) throw new Error(`${kind}: ${q.error}`);
+    return q.sql;
+  };
+
+  it('does not reference a system variable MariaDB removed in 10.5', () => {
+    expect(sqlFor('system')).not.toMatch(/innodb_buffer_pool_instances/);
+  });
+
+  it('reads status from information_schema, which MariaDB populates by default', () => {
+    for (const kind of ['pool', 'system'] as const) {
+      expect(sqlFor(kind), kind).toMatch(/information_schema\.GLOBAL_STATUS/i);
+      expect(sqlFor(kind), kind).not.toMatch(/performance_schema\.global_status/i);
+    }
+  });
+
+  it('still answers every utility kind rather than erroring on an unknown family', () => {
+    // Splitting mariadb out of the mysql family is what would break these.
+    for (const kind of ['pool', 'sessions', 'system', 'sizes'] as const) {
+      expect(sqlFor(kind).length, kind).toBeGreaterThan(0);
+    }
+  });
+
+  it('keeps buffer pool size and uptime, which MariaDB does have', () => {
+    const sql = sqlFor('system');
+    expect(sql).toMatch(/innodb_buffer_pool_size/);
+    expect(sql).toMatch(/'Uptime'/);
+  });
+
+  it('leaves MySQL itself on the performance_schema path', () => {
+    const q = buildDbaUtilityQuery({ dialect: 'mysql', kind: 'pool' });
+    if ('error' in q) throw new Error(q.error);
+    expect(q.sql).toMatch(/performance_schema\.global_status/i);
+  });
+});

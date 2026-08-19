@@ -8,7 +8,11 @@
  *
  * Quality ladder:
  * - SQL Server / Azure SQL: physical % via dm_db_index_physical_stats
- * - PostgreSQL family: leaf_fragmentation via pgstattuple (extension; may fail)
+ * - PostgreSQL family: leaf_fragmentation via pgstatindex, from the pgstattuple
+ *   extension. `pgstattuple` itself reports *table* statistics and has no
+ *   leaf_fragmentation column — naming it here failed twice over: without the
+ *   extension Postgres says the function does not exist, and with it installed
+ *   the column does not exist either.
  * - MySQL family: table-level DATA_FREE ratio applied per index (estimate)
  * - DB2: empty-leaf ratio from SYSCAT.INDEXES (estimate)
  * - Oracle: weak estimate from ALL_INDEXES stats (prefer custom ANALYZE)
@@ -68,21 +72,21 @@ const SUPPORT: Record<string, IndexFragmentationSupport> = {
     mode: 'physical',
     query: true,
     defrag: true,
-    hint: 'PostgreSQL: leaf_fragmentation via pgstattuple (requires extension). Falls back to custom SQL on failure.',
+    hint: 'PostgreSQL: leaf_fragmentation via pgstatindex, from the pgstattuple extension. Install it with CREATE EXTENSION pgstattuple; falls back to custom SQL on failure.',
     customSqlHint: CUSTOM_HINT,
   },
   cockroachdb: {
     mode: 'estimated',
     query: true,
     defrag: true,
-    hint: 'CockroachDB: tries pgstattuple-compatible probe; often needs custom SQL.',
+    hint: 'CockroachDB: tries the pgstatindex probe; often needs custom SQL.',
     customSqlHint: CUSTOM_HINT,
   },
   yugabytedb: {
     mode: 'physical',
     query: true,
     defrag: true,
-    hint: 'YugabyteDB: tries pgstattuple-compatible probe; falls back to custom SQL on failure.',
+    hint: 'YugabyteDB: tries the pgstatindex probe; falls back to custom SQL on failure.',
     customSqlHint: CUSTOM_HINT,
   },
   mysql: {
@@ -243,7 +247,9 @@ ORDER BY i.name
       sql: `
 SELECT
   ci.relname AS index_name,
-  (SELECT leaf_fragmentation FROM pgstattuple(ci.oid)) AS fragmentation_percent,
+  -- pgstatindex reports NaN for an index with no leaf pages yet; that is
+  -- "nothing measured", not a number, and "NaN%" in the grid reads as a bug.
+  NULLIF((SELECT leaf_fragmentation FROM pgstatindex(ci.oid::regclass)), 'NaN'::float8) AS fragmentation_percent,
   NULL::bigint AS page_count
 FROM pg_index ix
 JOIN pg_class ct ON ct.oid = ix.indrelid
@@ -585,7 +591,7 @@ WHERE i.name IS NOT NULL AND ps.index_level = 0;`;
   if (dialect === 'postgres' || dialect === 'cockroachdb' || dialect === 'yugabytedb') {
     return `-- Requires: CREATE EXTENSION IF NOT EXISTS pgstattuple;
 SELECT ci.relname AS index_name,
-       (pgstattuple(ci.oid)).leaf_fragmentation AS fragmentation_percent
+       (pgstatindex(ci.oid::regclass)).leaf_fragmentation AS fragmentation_percent
 FROM pg_index ix
 JOIN pg_class ct ON ct.oid = ix.indrelid
 JOIN pg_namespace n ON n.oid = ct.relnamespace
