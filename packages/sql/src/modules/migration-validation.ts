@@ -74,7 +74,12 @@ function isNarrowing(source: CanonicalType, target: CanonicalType): boolean {
     if (source.length !== undefined && target.length !== undefined && target.length < source.length) return true;
     if (source.base === 'decimal') {
       if (source.precision !== undefined && target.precision !== undefined && target.precision < source.precision) return true;
-      if (source.scale !== undefined && target.scale !== undefined && target.scale < source.scale) return true;
+      // SQL: DECIMAL(p) ≡ DECIMAL(p,0). A missing scale on a sized decimal is
+      // zero, not "unknown" — treating it as unknown skipped DECIMAL(10,2) →
+      // DECIMAL(10) and let migrates truncate fractional digits unwarned.
+      const sourceScale = source.precision !== undefined ? (source.scale ?? 0) : undefined;
+      const targetScale = target.precision !== undefined ? (target.scale ?? 0) : undefined;
+      if (sourceScale !== undefined && targetScale !== undefined && targetScale < sourceScale) return true;
     }
     return false;
   }
