@@ -93,6 +93,24 @@ export function historyVersionLabel(
   return base;
 }
 
+/**
+ * Where a captured database lives, in the words that dialect uses.
+ *
+ * A file dialect has no host. Joining one on produced `localhost//tmp/app.db` —
+ * a stray double slash in front of a path, from a value that means nothing for
+ * SQLite or DuckDB in the first place.
+ */
+export function databaseLocation(database: {
+  dialect: string;
+  host?: string;
+  database?: string;
+}): string {
+  const path = (database.database ?? '').trim();
+  const isFile = database.dialect === 'sqlite' || database.dialect === 'duckdb';
+  if (isFile) return path;
+  return [database.host, path].filter(Boolean).join('/');
+}
+
 export function lokeeDatabaseLabel(database: {
   id: string;
   dialect: string;
@@ -101,8 +119,7 @@ export function lokeeDatabaseLabel(database: {
   schema?: string;
   versionCount?: number;
 }): string {
-  const where =
-    [database.host, database.database].filter(Boolean).join('/') || database.id.slice(0, 8);
+  const where = databaseLocation(database) || database.id.slice(0, 8);
   const schema = database.schema ? ` · ${database.schema}` : '';
   const versions =
     typeof database.versionCount === 'number' ? ` (${database.versionCount} v)` : '';

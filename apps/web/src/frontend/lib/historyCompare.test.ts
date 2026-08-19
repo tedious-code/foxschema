@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  databaseLocation,
   historyVersionLabel,
   lokeeDatabaseLabel,
   resolveHistoryCompare,
@@ -139,5 +140,49 @@ describe('compare-only labelling', () => {
     expect(
       historyVersionLabel({ id: 'v7', number: 7, name: 'before launch' }, { compareOnly: 'not-current' })
     ).toBe('v7 · before launch — compare only');
+  });
+});
+
+describe('databaseLocation', () => {
+  // `localhost//tmp/app.db` — a stray double slash in front of a path, from a
+  // host value that means nothing for a file dialect in the first place.
+  it.each(['sqlite', 'duckdb'])('drops the host for %s', (dialect) => {
+    expect(databaseLocation({ dialect, host: 'localhost', database: '/tmp/app.db' })).toBe(
+      '/tmp/app.db'
+    );
+  });
+
+  it('keeps host and database for a server dialect', () => {
+    expect(databaseLocation({ dialect: 'postgres', host: 'localhost', database: 'foxdb' })).toBe(
+      'localhost/foxdb'
+    );
+  });
+
+  it('does not leave a dangling separator when one half is missing', () => {
+    expect(databaseLocation({ dialect: 'postgres', database: 'foxdb' })).toBe('foxdb');
+    expect(databaseLocation({ dialect: 'postgres', host: 'db.internal' })).toBe('db.internal');
+  });
+
+  it('is empty when there is nothing to show, so callers can fall back', () => {
+    expect(databaseLocation({ dialect: 'sqlite' })).toBe('');
+  });
+});
+
+describe('lokeeDatabaseLabel reads the same way', () => {
+  it('names a SQLite file without inventing a host', () => {
+    expect(
+      lokeeDatabaseLabel({
+        id: 'abc12345',
+        dialect: 'sqlite',
+        host: 'localhost',
+        database: '/tmp/app.db',
+        schema: 'main',
+        versionCount: 3,
+      })
+    ).toBe('SQLITE · /tmp/app.db · main (3 v)');
+  });
+
+  it('falls back to a short id when the database has no location at all', () => {
+    expect(lokeeDatabaseLabel({ id: 'abcdef1234', dialect: 'sqlite' })).toContain('abcdef12');
   });
 });
