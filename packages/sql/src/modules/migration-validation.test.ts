@@ -91,6 +91,49 @@ describe('findNarrowingTypeChanges', () => {
     expect(findNarrowingTypeChanges(tables, { ORDERS: true }, postgresSqlDialect)).toHaveLength(1);
   });
 
+  it('flags decimal scale decrease', () => {
+    const tables = [
+      diff({
+        tableName: 'ORDERS',
+        objectType: 'TABLE',
+        status: 'MODIFIED',
+        columnDiffs: [
+          {
+            name: 'AMOUNT',
+            status: 'MODIFIED',
+            source: { type: 'numeric(10,0)', nullable: true },
+            target: { type: 'numeric(10,2)', nullable: true },
+          },
+        ],
+      }),
+    ];
+    expect(findNarrowingTypeChanges(tables, { ORDERS: true }, postgresSqlDialect)).toHaveLength(1);
+  });
+
+  it('flags DECIMAL(p) as scale-0 narrowing (SQL: DECIMAL(p) ≡ DECIMAL(p,0))', () => {
+    // Omitted scale used to skip the check entirely — migrate truncated cents
+    // with no NARROWING_TYPE_CHANGE warning.
+    const tables = [
+      diff({
+        tableName: 'ORDERS',
+        objectType: 'TABLE',
+        status: 'MODIFIED',
+        columnDiffs: [
+          {
+            name: 'AMOUNT',
+            status: 'MODIFIED',
+            source: { type: 'numeric(10)', nullable: true },
+            target: { type: 'numeric(10,2)', nullable: true },
+          },
+        ],
+      }),
+    ];
+    const issues = findNarrowingTypeChanges(tables, { ORDERS: true }, postgresSqlDialect);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatchObject({ code: 'NARROWING_TYPE_CHANGE', tableName: 'ORDERS' });
+    expect(issues[0]!.message).toMatch(/numeric\(10,2\).*numeric\(10\)/);
+  });
+
   it('does not flag a widening change', () => {
     const tables = [
       diff({

@@ -29,6 +29,12 @@ describe('parseTypeText', () => {
     expect(parseTypeText('numeric(10,2)')).toEqual({ base: 'numeric', precision: 10, scale: 2 });
   });
 
+  it('reads DECIMAL(p) as precision with scale 0', () => {
+    expect(parseTypeText('numeric(10)')).toEqual({ base: 'numeric', precision: 10, scale: 0 });
+    expect(parseTypeText('decimal(8)')).toEqual({ base: 'decimal', precision: 8, scale: 0 });
+    expect(parseTypeText('NUMBER(19)')).toEqual({ base: 'number', precision: 19, scale: 0 });
+  });
+
   it('reads an unparameterised type', () => {
     expect(parseTypeText('integer')).toEqual({ base: 'integer' });
   });
@@ -147,6 +153,17 @@ describe('classifyReversal — the cases users actually ask about', () => {
     );
     expect(verdict.risk).toBe('lossy');
     expect(verdict.dataLoss).toContain('2 decimal places');
+  });
+
+  it('warns when reverting to DECIMAL(p) from a scaled decimal', () => {
+    const verdict = classifyReversal(
+      'column:ORDER.TOTAL',
+      column({ dataType: 'numeric(10,2)' }),
+      column({ dataType: 'numeric(10)' })
+    );
+    expect(verdict.risk).toBe('lossy');
+    expect(verdict.summary).toMatch(/scale 2 → 0/);
+    expect(verdict.dataLoss).toContain('0 decimal places');
   });
 
   it('warns when numeric precision is reduced', () => {

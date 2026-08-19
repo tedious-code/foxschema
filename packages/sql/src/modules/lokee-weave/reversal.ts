@@ -74,7 +74,18 @@ export function parseTypeText(text: string | null | undefined): ParsedType | nul
     .map((a) => a.trim());
   const nums = args.map((a) => (/^\d+$/.test(a) ? Number(a) : undefined));
   // `varchar(max)` carries no usable bound — treat as unbounded.
-  if (args.length === 1) return { base, length: nums[0] };
+  if (args.length === 1) {
+    // SQL / Oracle: DECIMAL(p) / NUMERIC(p) / NUMBER(p) ≡ (p,0). Storing the
+    // sole arg as `length` made scale comparisons skip DECIMAL(10,2) →
+    // DECIMAL(10) and classify a truncating revert as safe.
+    if (
+      (base === 'numeric' || base === 'decimal' || base === 'number' || base === 'dec') &&
+      nums[0] !== undefined
+    ) {
+      return { base, precision: nums[0], scale: 0 };
+    }
+    return { base, length: nums[0] };
+  }
   return { base, precision: nums[0], scale: nums[1] };
 }
 
