@@ -28,6 +28,16 @@ import type { DbObjectType, TableSchema } from '../../lib/types';
 import { SQL_ICON_STROKE } from './sqlIconStyle';
 import { TableBlueprintModal, type BlueprintMode } from './TableBlueprintModal';
 import { isScriptableObject, objectSourceScript } from './objectSourceScript';
+import { fetchDbaUtility } from '../../api/schemaApi';
+import {
+  dialectSupportsDbaUtility,
+  formatBytes,
+  formatRowCount,
+  groupObjectSizes,
+  lookupIndexSizeRow,
+  lookupTableSizeGroup,
+  type TableSizeGroup,
+} from '@foxschema/sql';
 
 /** Imperative API for the Schema section header (New table). */
 export interface SqlSchemaExplorerHandle {
@@ -97,6 +107,7 @@ export const SqlSchemaExplorer = forwardRef<SqlSchemaExplorerHandle>(function Sq
   const ensureConnectionSelected = useSqlEditorStore((s) => s.ensureConnectionSelected);
   const pendingPasswordId = useSqlEditorStore((s) => s.pendingPassword?.id);
   const setSql = useSqlEditorStore((s) => s.setSql);
+  const sessionPasswords = useSqlEditorStore((s) => s.sessionPasswords);
 
   const tab = tabs.find((t) => t.id === activeTabId) ?? tabs[0]!;
   const selectedDestinationIds = shareDestinations
@@ -118,6 +129,7 @@ export const SqlSchemaExplorer = forwardRef<SqlSchemaExplorerHandle>(function Sq
   });
   const [blueprintTable, setBlueprintTable] = useState<TableSchema | null>(null);
   const [blueprintMode, setBlueprintMode] = useState<BlueprintMode>('edit');
+  const [sizeGroups, setSizeGroups] = useState<TableSizeGroup[]>([]);
 
   const selectExplorerId = (id: string) => {
     setExplorerId(id);
@@ -201,6 +213,33 @@ export const SqlSchemaExplorer = forwardRef<SqlSchemaExplorerHandle>(function Sq
   );
 
   const conn = connections.find((c) => c.id === explorerId);
+  const sessionPassword = explorerId ? sessionPasswords[explorerId] : undefined;
+
+  useEffect(() => {
+    if (!explorerId || entry?.status !== 'ready' || !conn) {
+      setSizeGroups((prev) => (prev.length === 0 ? prev : []));
+      return;
+    }
+    if (!dialectSupportsDbaUtility(conn.dialect, 'sizes').query) {
+      setSizeGroups((prev) => (prev.length === 0 ? prev : []));
+      return;
+    }
+    if (!conn.hasPassword && !sessionPassword) return;
+    let cancelled = false;
+    void fetchDbaUtility(
+      { connectionId: explorerId, password: sessionPassword },
+      { kind: 'sizes', schema: conn.schema }
+    )
+      .then((res) => {
+        if (!cancelled) setSizeGroups(groupObjectSizes(res.sizes ?? []));
+      })
+      .catch(() => {
+        if (!cancelled) setSizeGroups((prev) => (prev.length === 0 ? prev : []));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [explorerId, entry?.status, conn, sessionPassword]);
   let schemaMissingHint: string | null = null;
   if (conn) {
     try {
@@ -334,6 +373,7 @@ export const SqlSchemaExplorer = forwardRef<SqlSchemaExplorerHandle>(function Sq
                             })
                           }
                           dialect={conn?.dialect ?? 'sql'}
+                          sizeGroup={lookupTableSizeGroup(sizeGroups, t.name, conn?.schema)}
                           onOpenBlueprint={
                             t.objectType === 'TABLE' || t.objectType === 'MQT'
                               ? () => {
@@ -386,6 +426,7 @@ const ObjectNode: React.FC<{
   open: boolean;
   onToggle: () => void;
   dialect: string;
+  sizeGroup?: TableSizeGroup;
   onOpenBlueprint?: () => void;
   /** Data peek is only meaningful for row-bearing objects (not routines). */
   canPeek?: boolean;
@@ -396,6 +437,7 @@ const ObjectNode: React.FC<{
   open,
   onToggle,
   dialect,
+  sizeGroup,
   onOpenBlueprint,
   onOpenSource,
   canPeek,
@@ -434,7 +476,8 @@ const ObjectNode: React.FC<{
       onOpenSource();
       return;
     }
-    insertObject();
+    // Click the table name to expand columns + indexes (insert is the From button).
+    onToggle();
   };
 
   const insertIdent = (name: string) => {
@@ -483,20 +526,52 @@ const ObjectNode: React.FC<{
               : isRoutine
                 ? `Insert ${table.name}(${params.map((p) => `${p.mode} ${p.name}`).join(', ')})`
                 : canPeek
-                  ? `Add ${table.name} to FROM with auto alias — ${peekModifierLabel()}-click to peek at its data`
-                  : `Add ${table.name} to FROM with auto alias`
+                  ? `Expand to show columns and indexes — ${peekModifierLabel()}-click to peek at its data`
+                  : `Expand to show columns and indexes`
           }
           onClick={onNameClick}
-          className="flex-1 flex items-center gap-1.5 min-w-0 text-left text-[13px] font-semibold text-slate-200 hover:text-cyan-300 py-1 truncate"
+          className="flex-1 flex items-center gap-1.5 min-w-0 text-left text-[13px] font-semibold text-slate-200 hover:text-cyan-300 py-1"
         >
           <span className="shrink-0">{meta.icon}</span>
-          <span className="truncate font-mono font-bold">{table.name}</span>
-          {isRoutine && params.length > 0 && (
-            <span className="shrink-0 text-[11px] font-mono font-medium text-slate-500 truncate max-w-[40%]">
-              ({params.length})
+          <span className="flex flex-col min-w-0 flex-1">
+            <span className="flex items-center gap-1.5 min-w-0">
+              <span className="truncate font-mono font-bold">{table.name}</span>
+              {!isRoutine && indexes.length > 0 && (
+                <span className="shrink-0 text-[10px] font-mono font-medium text-slate-500">
+                  {indexes.length} idx
+                </span>
+              )}
+              {isRoutine && params.length > 0 && (
+                <span className="shrink-0 text-[11px] font-mono font-medium text-slate-500 truncate max-w-[40%]">
+                  ({params.length})
+                </span>
+              )}
             </span>
-          )}
+            {!isRoutine && sizeGroup && (
+              <span
+                className="text-[10px] font-mono font-medium text-slate-500 truncate"
+                data-testid={`sql-explorer-table-stats-${table.name}`}
+              >
+                {formatRowCount(sizeGroup.rowCount)} rows · {formatBytes(sizeGroup.dataBytes)} data ·{' '}
+                {formatBytes(sizeGroup.indexBytes)} idx
+              </span>
+            )}
+          </span>
         </button>
+        {onOpenBlueprint && (
+          <button
+            type="button"
+            title={`Add ${table.name} to FROM with auto alias`}
+            data-testid={`sql-explorer-from-${table.name}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              insertObject();
+            }}
+            className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold text-cyan-200 bg-cyan-950/60 border border-cyan-600/50 hover:bg-cyan-900/70 transition whitespace-nowrap"
+          >
+            From
+          </button>
+        )}
         {onOpenBlueprint && (
           <button
             type="button"
@@ -621,7 +696,9 @@ const ObjectNode: React.FC<{
           </button>
           {openIdx && (
             <ul className="border-l border-indigo-900/60 pl-2.5 flex flex-col gap-0.5">
-            {indexes.map((idx) => (
+            {indexes.map((idx) => {
+              const idxSize = lookupIndexSizeRow(sizeGroup, idx.name);
+              return (
               <li key={idx.name} className="min-w-0">
                 <button
                   type="button"
@@ -639,9 +716,18 @@ const ObjectNode: React.FC<{
                       ({idx.columns.join(', ')})
                     </span>
                   ) : null}
+                  {idxSize ? (
+                    <span className="ml-1.5 text-[10px] font-sans text-slate-500">
+                      {formatBytes(idxSize.indexBytes ?? idxSize.totalBytes)}
+                      {idxSize.rowCount != null
+                        ? ` · ${formatRowCount(idxSize.rowCount)} rows`
+                        : ''}
+                    </span>
+                  ) : null}
                 </button>
               </li>
-            ))}
+              );
+            })}
           </ul>
           )}
         </div>

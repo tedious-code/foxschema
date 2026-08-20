@@ -1138,3 +1138,137 @@ export function formatBytes(bytes: number | null | undefined): string {
   const signed = bytes < 0 ? '-' : '';
   return `${signed}${n < 10 && i > 0 ? n.toFixed(1) : Math.round(n)} ${units[i]}`;
 }
+
+/** Stable thousands separators so UI and tests do not depend on host locale. */
+export function formatRowCount(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return '—';
+  return Math.round(n).toLocaleString('en-US');
+}
+
+/** One table plus the indexes that belong to it, with rolled-up size stats. */
+export interface TableSizeGroup {
+  schemaName: string | null;
+  tableName: string;
+  rowCount: number | null;
+  dataBytes: number | null;
+  indexBytes: number | null;
+  totalBytes: number | null;
+  indexes: ObjectSizeRow[];
+}
+
+function sizeGroupKey(schemaName: string | null | undefined, tableName: string): string {
+  return `${(schemaName ?? '').toLowerCase()}\0${tableName.toLowerCase()}`;
+}
+
+/**
+ * Nest DBA size rows under their table. Table totals keep catalog data/index
+ * bytes when present; otherwise index size is the sum of child index rows
+ * (SQL Server reports heap/clustered as the table row with indexBytes 0).
+ */
+export function groupObjectSizes(rows: readonly ObjectSizeRow[]): TableSizeGroup[] {
+  const map = new Map<string, TableSizeGroup>();
+
+  const ensure = (schemaName: string | null, tableName: string): TableSizeGroup => {
+    const key = sizeGroupKey(schemaName, tableName);
+    let group = map.get(key);
+    if (!group) {
+      group = {
+        schemaName,
+        tableName,
+        rowCount: null,
+        dataBytes: null,
+        indexBytes: null,
+        totalBytes: null,
+        indexes: [],
+      };
+      map.set(key, group);
+    }
+    return group;
+  };
+
+  for (const row of rows) {
+    if (row.objectType === 'index') {
+      const parent = row.tableName?.trim() || '(other indexes)';
+      ensure(row.schemaName, parent).indexes.push(row);
+      continue;
+    }
+    const name = (row.tableName || row.objectName).trim() || row.objectName;
+    const group = ensure(row.schemaName, name);
+    group.rowCount = row.rowCount ?? group.rowCount;
+    group.dataBytes = row.dataBytes ?? group.dataBytes;
+    group.indexBytes = row.indexBytes ?? group.indexBytes;
+    group.totalBytes = row.totalBytes ?? group.totalBytes;
+  }
+
+  for (const group of map.values()) {
+    const childIndexBytes = group.indexes.reduce<number | null>((acc, idx) => {
+      const n = idx.indexBytes ?? idx.totalBytes;
+      if (n == null || !Number.isFinite(n)) return acc;
+      return (acc ?? 0) + n;
+    }, null);
+    if (childIndexBytes != null && (group.indexBytes == null || group.indexBytes === 0)) {
+      group.indexBytes = childIndexBytes;
+    }
+    if (group.totalBytes == null && (group.dataBytes != null || group.indexBytes != null)) {
+      group.totalBytes = (group.dataBytes ?? 0) + (group.indexBytes ?? 0);
+    }
+    group.indexes.sort((a, b) => a.objectName.localeCompare(b.objectName));
+  }
+
+  return [...map.values()].sort((a, b) => {
+    const schemaCmp = (a.schemaName ?? '').localeCompare(b.schemaName ?? '', 'en', {
+      sensitivity: 'base',
+    });
+    return schemaCmp !== 0
+      ? schemaCmp
+      : a.tableName.localeCompare(b.tableName, 'en', { sensitivity: 'base' });
+  });
+}
+
+/** Keep a table if its name/schema or any nested index matches `query`. */
+export function filterTableSizeGroups(
+  groups: readonly TableSizeGroup[],
+  query: string
+): TableSizeGroup[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [...groups];
+  const out: TableSizeGroup[] = [];
+  for (const group of groups) {
+    const tableHit =
+      group.tableName.toLowerCase().includes(q) ||
+      (group.schemaName ?? '').toLowerCase().includes(q);
+    const indexes = tableHit
+      ? group.indexes
+      : group.indexes.filter((idx) => idx.objectName.toLowerCase().includes(q));
+    if (tableHit || indexes.length > 0) {
+      out.push(tableHit ? group : { ...group, indexes });
+    }
+  }
+  return out;
+}
+
+export function lookupTableSizeGroup(
+  groups: readonly TableSizeGroup[],
+  tableName: string,
+  schemaName?: string | null
+): TableSizeGroup | undefined {
+  const table = tableName.toLowerCase();
+  const schema = schemaName?.toLowerCase();
+  if (schema) {
+    const exact = groups.find(
+      (g) =>
+        g.tableName.toLowerCase() === table && (g.schemaName ?? '').toLowerCase() === schema
+    );
+    if (exact) return exact;
+  }
+  return groups.find((g) => g.tableName.toLowerCase() === table);
+}
+
+export function lookupIndexSizeRow(
+  group: TableSizeGroup | undefined,
+  indexName: string
+): ObjectSizeRow | undefined {
+  if (!group) return undefined;
+  const name = indexName.toLowerCase();
+  return group.indexes.find((idx) => idx.objectName.toLowerCase() === name);
+}

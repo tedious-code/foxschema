@@ -7,11 +7,17 @@ import { describe, expect, it } from 'vitest';
 import {
   buildDbaUtilityQuery,
   dialectSupportsDbaUtility,
+  filterTableSizeGroups,
   formatBytes,
+  formatRowCount,
+  groupObjectSizes,
+  lookupIndexSizeRow,
+  lookupTableSizeGroup,
   normalizeConnectionPoolRows,
   normalizeObjectSizeRows,
   normalizeSystemInfoRows,
   normalizeUserSessionRows,
+  type ObjectSizeRow,
 } from './dialect-dba-utilities.js';
 
 describe('dialect-dba-utilities', () => {
@@ -99,6 +105,62 @@ describe('dialect-dba-utilities', () => {
     expect(formatBytes(512)).toBe('512 B');
     expect(formatBytes(2048)).toBe('2.0 KB');
     expect(formatBytes(5 * 1024 * 1024)).toBe('5.0 MB');
+  });
+
+  it('formats row counts', () => {
+    expect(formatRowCount(null)).toBe('—');
+    expect(formatRowCount(12_345)).toBe('12,345');
+  });
+
+  it('groups size rows under tables and sums index bytes when the table row has none', () => {
+    const rows: ObjectSizeRow[] = [
+      {
+        schemaName: 'public',
+        objectName: 'PK_ORDERS',
+        objectType: 'table',
+        tableName: 'ORDERS',
+        totalBytes: 8_192,
+        dataBytes: 8_192,
+        indexBytes: 0,
+        rowCount: 100,
+      },
+      {
+        schemaName: 'public',
+        objectName: 'IX_ORDERS_EMAIL',
+        objectType: 'index',
+        tableName: 'ORDERS',
+        totalBytes: 2_048,
+        dataBytes: null,
+        indexBytes: 2_048,
+        rowCount: 100,
+      },
+      {
+        schemaName: 'public',
+        objectName: 'customers',
+        objectType: 'table',
+        tableName: 'customers',
+        totalBytes: 16_384,
+        dataBytes: 12_000,
+        indexBytes: 4_384,
+        rowCount: 50,
+      },
+    ];
+    const groups = groupObjectSizes(rows);
+    expect(groups.map((g) => g.tableName)).toEqual(['customers', 'ORDERS']);
+    const orders = lookupTableSizeGroup(groups, 'ORDERS', 'public');
+    expect(orders).toMatchObject({
+      rowCount: 100,
+      dataBytes: 8_192,
+      indexBytes: 2_048,
+    });
+    expect(lookupIndexSizeRow(orders, 'IX_ORDERS_EMAIL')?.totalBytes).toBe(2_048);
+    const customers = lookupTableSizeGroup(groups, 'CUSTOMERS');
+    expect(customers?.indexBytes).toBe(4_384);
+
+    const filtered = filterTableSizeGroups(groups, 'email');
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]?.tableName).toBe('ORDERS');
+    expect(filtered[0]?.indexes).toHaveLength(1);
   });
 
   it('builds DB2 sizes with total >= data and index rows', () => {
