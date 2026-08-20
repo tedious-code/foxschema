@@ -58,7 +58,11 @@ import {
 
 interface Props {
   open: boolean;
-  onClose: () => void;
+  onClose?: () => void;
+  /** Embed in Server Insights (no modal shell / credential picker). */
+  embedded?: boolean;
+  /** When set, the grid follows this credential instead of its own dropdown. */
+  lockedConnectionId?: string;
 }
 
 type IndexRow = {
@@ -85,7 +89,12 @@ function fragClass(severity: ReturnType<typeof fragmentationSeverity>): string {
 const LS_CONN = 'foxschema-utilities-index-mgmt-connection';
 
 /** Utilities modal: credentials → indexes by table → filter → defragment. */
-export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
+export const IndexManagementModal: React.FC<Props> = ({
+  open,
+  onClose,
+  embedded = false,
+  lockedConnectionId,
+}) => {
   const connections = useSyncStore((s) => s.connections);
   const ensureSchema = useSqlEditorStore((s) => s.ensureSchema);
   const ensureConnectionSelected = useSqlEditorStore((s) => s.ensureConnectionSelected);
@@ -122,7 +131,11 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
     initOpen.current = true;
     const saved = localStorage.getItem(LS_CONN) || '';
     const fallback = connections[0]?.id || '';
-    const next = connections.some((c) => c.id === saved) ? saved : fallback;
+    const next = lockedConnectionId
+      ? lockedConnectionId
+      : connections.some((c) => c.id === saved)
+        ? saved
+        : fallback;
     setConnectionId(next);
     setError(null);
     setStatus(null);
@@ -130,7 +143,15 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
     setSizeGroups([]);
     setSelected(new Set());
     setSort(DEFAULT_INDEX_MGMT_SORT);
-  }, [open, connections]);
+  }, [open, connections, lockedConnectionId]);
+
+  useEffect(() => {
+    if (!open || !lockedConnectionId) return;
+    setConnectionId(lockedConnectionId);
+    setFragByKey({});
+    setSizeGroups([]);
+    setSelected(new Set());
+  }, [open, lockedConnectionId]);
 
   const conn = connections.find((c) => c.id === connectionId) || null;
   const needsPassword = Boolean(conn && !conn.hasPassword && !sessionPasswords[connectionId]);
@@ -537,16 +558,9 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
 
   if (!open) return null;
 
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[90] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4"
-      data-testid="index-management-modal"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-6xl max-h-[90vh] flex flex-col bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
+  const content = (
+    <>
+      {!embedded && (
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-800 bg-slate-950/50 shrink-0">
           <div>
             <h2 className="text-sm font-bold text-slate-100 flex items-center gap-2">
@@ -568,9 +582,11 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
             <X className="w-4 h-4" />
           </button>
         </div>
+      )}
 
         <div className="px-5 py-3 border-b border-slate-800 space-y-2.5 shrink-0 bg-slate-950/30">
           <div className="flex flex-wrap items-end gap-2">
+            {!embedded && (
             <label className="flex flex-col gap-1 min-w-[14rem] flex-1">
               <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
                 Credential
@@ -581,7 +597,7 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
                 onChange={(e) => {
                   const id = e.target.value;
                   setConnectionId(id);
-                  localStorage.setItem(LS_CONN, id);
+                  if (!lockedConnectionId) localStorage.setItem(LS_CONN, id);
                   setFragByKey({});
                   setSizeGroups([]);
                   setSelected(new Set());
@@ -600,6 +616,7 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
                 ))}
               </select>
             </label>
+            )}
             {needsPassword && (
               <label className="flex flex-col gap-1 min-w-[10rem]">
                 <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
@@ -661,7 +678,10 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
           </div>
 
           <div className="flex flex-wrap items-end gap-2">
-            <label className="flex flex-col gap-1 min-w-[12rem] flex-1">
+            <label
+              className="flex flex-col gap-1 min-w-[12rem] flex-1"
+              data-testid={embedded ? 'server-insights-size-filter' : undefined}
+            >
               <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
                 Filter table / index
               </span>
@@ -761,7 +781,10 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
           )}
         </div>
 
-        <div className="flex-1 min-h-0 overflow-auto">
+        <div
+          className="flex-1 min-h-0 overflow-auto"
+          data-testid={embedded ? 'server-insights-size-groups' : undefined}
+        >
           {grouped.length === 0 ? (
             <p className="px-5 py-8 text-center text-sm text-slate-500">
               {connectionId
@@ -1096,6 +1119,31 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
             </div>,
             document.body
           )}
+    </>
+  );
+
+  if (embedded) {
+    return (
+      <div
+        className="flex min-h-0 flex-1 flex-col overflow-hidden"
+        data-testid="index-management-embed"
+      >
+        {content}
+      </div>
+    );
+  }
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[90] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4"
+      data-testid="index-management-modal"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-6xl max-h-[90vh] flex flex-col bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {content}
       </div>
     </div>,
     document.body
