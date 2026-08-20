@@ -13,6 +13,8 @@ import {
   CheckSquare,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
+  ChevronsUpDown,
   Database,
   Loader2,
   RefreshCw,
@@ -43,6 +45,16 @@ import { useSyncStore } from '../../store/useSyncStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
 import type { IndexInfo, TableSchema } from '../../lib/types';
 import { PROVIDER_SETTINGS } from '../../lib/provider-settings';
+import {
+  DEFAULT_INDEX_MGMT_SORT,
+  averageFragmentation,
+  indexSortValue,
+  nextIndexMgmtSort,
+  sortGroupedIndexes,
+  tableSortValue,
+  type IndexMgmtSort,
+  type IndexMgmtSortKey,
+} from '../../lib/indexManagementGrid';
 
 interface Props {
   open: boolean;
@@ -98,6 +110,7 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [confirmDefrag, setConfirmDefrag] = useState<'selected' | 'filtered' | null>(null);
+  const [sort, setSort] = useState<IndexMgmtSort>(DEFAULT_INDEX_MGMT_SORT);
 
   const initOpen = React.useRef(false);
   useEffect(() => {
@@ -116,6 +129,7 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
     setFragByKey({});
     setSizeGroups([]);
     setSelected(new Set());
+    setSort(DEFAULT_INDEX_MGMT_SORT);
   }, [open, connections]);
 
   const conn = connections.find((c) => c.id === connectionId) || null;
@@ -189,10 +203,44 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
       list.push(row);
       map.set(row.tableName, list);
     }
-    return [...map.entries()];
-  }, [filteredRows]);
+    const groups = [...map.entries()].map(([tableName, rows]) => {
+      const size = lookupTableSizeGroup(sizeGroups, tableName, conn?.schema);
+      return {
+        tableName,
+        rows,
+        indexCount: rows.length,
+        avgFrag: averageFragmentation(rows.map((r) => r.frag?.fragmentationPercent)),
+        rowCount: size?.rowCount ?? null,
+        dataBytes: size?.dataBytes ?? null,
+        indexBytes: size?.indexBytes ?? null,
+      };
+    });
+    return sortGroupedIndexes(
+      groups,
+      sort,
+      (g) => tableSortValue(sort.key, g),
+      (row, g) => {
+        const size = lookupTableSizeGroup(sizeGroups, g.tableName, conn?.schema);
+        const idxSize = lookupIndexSizeRow(size, row.index.name);
+        return indexSortValue(sort.key, {
+          indexName: row.index.name,
+          columns: row.index.columns.join(', '),
+          type: row.index.constraint
+            ? 'constraint'
+            : row.index.unique
+              ? 'unique'
+              : 'duplicates ok',
+          rowCount: idxSize?.rowCount ?? null,
+          dataBytes: null,
+          indexBytes: idxSize?.indexBytes ?? idxSize?.totalBytes ?? null,
+          fragPct: row.frag?.fragmentationPercent ?? null,
+        });
+      },
+      (row) => row.index.name
+    );
+  }, [filteredRows, sizeGroups, sort, conn?.schema]);
 
-  const groupedTableKey = grouped.map(([name]) => name).join('\0');
+  const groupedTableKey = grouped.map((g) => g.tableName).join('\0');
 
   // A table/index filter should reveal matching rows, not leave them collapsed.
   useEffect(() => {
@@ -507,8 +555,8 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
             </h2>
             <p className="text-[11px] text-slate-500 mt-0.5">
               Indexes grouped under each table. Click a table to expand its indexes.
-              Row counts, data size, and index size load with the catalog (when the dialect
-              supports them). The header stays frozen while you scroll.
+              Table headers show index count and average fragmentation. Click a column
+              heading to sort tables and the indexes inside them.
             </p>
           </div>
           <button
@@ -645,7 +693,7 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
               type="button"
               data-testid="index-mgmt-expand-all"
               disabled={grouped.length === 0}
-              onClick={() => setExpanded(new Set(grouped.map(([name]) => name)))}
+              onClick={() => setExpanded(new Set(grouped.map((g) => g.tableName)))}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md border border-slate-600 text-slate-200 hover:bg-slate-800 disabled:opacity-50"
             >
               <ChevronDown className="w-3.5 h-3.5" />
@@ -731,24 +779,80 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
                   data-testid="index-mgmt-table-header"
                 >
                   <th className="w-8 pl-3 pr-1 py-2 font-bold" aria-label="Select" />
-                  <th className="px-2 py-2 font-bold">Table / index</th>
-                  <th className="px-2 py-2 font-bold hidden sm:table-cell">Columns</th>
-                  <th className="px-2 py-2 font-bold w-28">Type</th>
-                  <th className="px-2 py-2 font-bold w-24 text-right">Rows</th>
-                  <th className="px-2 py-2 font-bold w-24 text-right">Data</th>
-                  <th className="px-2 py-2 font-bold w-24 text-right">Index size</th>
-                  <th className="px-2 py-2 font-bold w-16 text-right">Frag %</th>
+                  <SortableTh
+                    label="Table / index"
+                    column="name"
+                    sort={sort}
+                    onSort={(key) => setSort((s) => nextIndexMgmtSort(s, key))}
+                    className="px-2 py-2"
+                  />
+                  <SortableTh
+                    label="Columns"
+                    column="columns"
+                    sort={sort}
+                    onSort={(key) => setSort((s) => nextIndexMgmtSort(s, key))}
+                    className="px-2 py-2 hidden sm:table-cell"
+                  />
+                  <SortableTh
+                    label="Type"
+                    column="type"
+                    sort={sort}
+                    onSort={(key) => setSort((s) => nextIndexMgmtSort(s, key))}
+                    className="px-2 py-2 w-28"
+                  />
+                  <SortableTh
+                    label="Indexes"
+                    column="indexes"
+                    sort={sort}
+                    onSort={(key) => setSort((s) => nextIndexMgmtSort(s, key))}
+                    className="px-2 py-2 w-20"
+                    align="right"
+                  />
+                  <SortableTh
+                    label="Rows"
+                    column="rows"
+                    sort={sort}
+                    onSort={(key) => setSort((s) => nextIndexMgmtSort(s, key))}
+                    className="px-2 py-2 w-24"
+                    align="right"
+                  />
+                  <SortableTh
+                    label="Data"
+                    column="data"
+                    sort={sort}
+                    onSort={(key) => setSort((s) => nextIndexMgmtSort(s, key))}
+                    className="px-2 py-2 w-24"
+                    align="right"
+                  />
+                  <SortableTh
+                    label="Index size"
+                    column="indexSize"
+                    sort={sort}
+                    onSort={(key) => setSort((s) => nextIndexMgmtSort(s, key))}
+                    className="px-2 py-2 w-24"
+                    align="right"
+                  />
+                  <SortableTh
+                    label="Frag %"
+                    column="frag"
+                    sort={sort}
+                    onSort={(key) => setSort((s) => nextIndexMgmtSort(s, key))}
+                    className="px-2 py-2 w-20"
+                    align="right"
+                  />
                   <th className="px-3 py-2 font-bold w-28 text-right"> </th>
                 </tr>
               </thead>
               <tbody>
-                {grouped.map(([tableName, rows]) => {
+                {grouped.map((group) => {
+                  const { tableName, rows, indexCount, avgFrag } = group;
                   const openGroup = expanded.has(tableName);
                   const tableKeys = rows.map((r) => r.key);
                   const tableAllSelected =
                     tableKeys.length > 0 && tableKeys.every((k) => selected.has(k));
                   const tableSomeSelected = tableKeys.some((k) => selected.has(k));
                   const size = lookupTableSizeGroup(sizeGroups, tableName, conn?.schema);
+                  const avgSeverity = fragmentationSeverity(avgFrag);
                   return (
                     <React.Fragment key={tableName}>
                       <tr
@@ -799,18 +903,20 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
                           </div>
                         </td>
                         <td className="px-2 py-1.5 min-w-0">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="font-mono text-sm font-semibold text-slate-100 truncate">
-                              {tableName}
-                            </span>
-                            <span className="text-[11px] text-slate-500 shrink-0">
-                              {rows.length} index{rows.length === 1 ? '' : 'es'}
-                            </span>
-                          </div>
+                          <span className="font-mono text-sm font-semibold text-slate-100 truncate">
+                            {tableName}
+                          </span>
                         </td>
                         <td className="px-2 py-1.5 hidden sm:table-cell" />
                         <td className="px-2 py-1.5 text-[10px] font-bold uppercase text-cyan-300/80">
                           table
+                        </td>
+                        <td
+                          className="px-2 py-1.5 text-right tabular-nums font-semibold text-slate-100"
+                          data-testid={`index-mgmt-table-index-count-${tableName}`}
+                          title="Indexes on this table"
+                        >
+                          {indexCount}
                         </td>
                         <td
                           className="px-2 py-1.5 text-right tabular-nums font-semibold text-slate-100"
@@ -830,7 +936,16 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
                         >
                           {formatBytes(size?.indexBytes)}
                         </td>
-                        <td />
+                        <td
+                          className={`px-2 py-1.5 text-right font-bold tabular-nums ${fragClass(avgSeverity)}`}
+                          data-testid={`index-mgmt-table-avg-frag-${tableName}`}
+                          title="Average fragmentation of indexes on this table"
+                        >
+                          <span className="mr-1 text-[9px] font-bold uppercase tracking-wide text-slate-500">
+                            avg
+                          </span>
+                          {formatPct(avgFrag)}
+                        </td>
                         <td />
                       </tr>
                       {openGroup &&
@@ -887,6 +1002,9 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
                                     constraint
                                   </span>
                                 ) : null}
+                              </td>
+                              <td className="px-2 py-2 align-top text-right tabular-nums text-slate-600">
+                                —
                               </td>
                               <td className="px-2 py-2 align-top text-right tabular-nums text-slate-400">
                                 {formatRowCount(idxSize?.rowCount)}
@@ -983,3 +1101,47 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
     document.body
   );
 };
+
+function SortableTh({
+  label,
+  column,
+  sort,
+  onSort,
+  className = '',
+  align = 'left',
+}: {
+  label: string;
+  column: IndexMgmtSortKey;
+  sort: IndexMgmtSort;
+  onSort: (key: IndexMgmtSortKey) => void;
+  className?: string;
+  align?: 'left' | 'right';
+}): React.ReactElement {
+  const active = sort.key === column;
+  return (
+    <th
+      className={`font-bold ${className}`}
+      aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+    >
+      <button
+        type="button"
+        data-testid={`index-mgmt-sort-${column}`}
+        onClick={() => onSort(column)}
+        className={`inline-flex items-center gap-0.5 font-bold uppercase tracking-wide hover:text-slate-200 ${
+          align === 'right' ? 'w-full justify-end' : ''
+        } ${active ? 'text-amber-200' : 'text-slate-500'}`}
+      >
+        {label}
+        {active ? (
+          sort.dir === 'asc' ? (
+            <ChevronUp className="w-3 h-3 shrink-0" />
+          ) : (
+            <ChevronDown className="w-3 h-3 shrink-0" />
+          )
+        ) : (
+          <ChevronsUpDown className="w-3 h-3 shrink-0 opacity-40" />
+        )}
+      </button>
+    </th>
+  );
+}
