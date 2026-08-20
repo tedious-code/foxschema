@@ -207,9 +207,10 @@ export function SchemaBlueprint({
   // Five columns do not fit a 400px inspector, and clipping them silently hides
   // the target side. Narrow hosts scroll the table instead.
   const shell = `bg-slate-950/60 border border-slate-800/80 rounded-lg ${
-    compact ? 'overflow-x-auto' : 'overflow-hidden'
+    compact ? 'overflow-x-auto' : ''
   }`;
-  const head = 'bg-slate-900 border-b border-slate-800 text-slate-400';
+  const head =
+    'sticky top-0 z-[1] bg-slate-900 border-b border-slate-800 text-slate-400 shadow-[0_1px_0_0_rgb(30_41_59)]';
 
   const isRole = diff.objectType === 'ROLE';
   const keep = (status: string) => showUnchanged || status !== 'UNCHANGED';

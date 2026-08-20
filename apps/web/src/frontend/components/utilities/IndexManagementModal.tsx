@@ -182,6 +182,14 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
     return [...map.entries()];
   }, [filteredRows]);
 
+  const groupedTableKey = grouped.map(([name]) => name).join('\0');
+
+  // A table/index filter should reveal matching rows, not leave them collapsed.
+  useEffect(() => {
+    if (!tableFilter.trim() && !minFragPct.trim()) return;
+    setExpanded(new Set(groupedTableKey.split('\0').filter(Boolean)));
+  }, [tableFilter, minFragPct, groupedTableKey]);
+
   const applyFragBatch = useCallback(
     (
       results: Awaited<ReturnType<typeof fetchIndexFragmentationBatch>>['results'],
@@ -464,8 +472,8 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
               Index Management
             </h2>
             <p className="text-[11px] text-slate-500 mt-0.5">
-              Utilities — list indexes by table, fetch fragmentation, defragment selected or all
-              filtered.
+              Indexes grouped under each table. Expand a table to see its indexes; the header stays
+              frozen while you scroll.
             </p>
           </div>
           <button
@@ -599,6 +607,26 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
             </label>
             <button
               type="button"
+              data-testid="index-mgmt-expand-all"
+              disabled={grouped.length === 0}
+              onClick={() => setExpanded(new Set(grouped.map(([name]) => name)))}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md border border-slate-600 text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+            >
+              <ChevronDown className="w-3.5 h-3.5" />
+              Expand tables
+            </button>
+            <button
+              type="button"
+              data-testid="index-mgmt-collapse-all"
+              disabled={grouped.length === 0}
+              onClick={() => setExpanded(new Set())}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md border border-slate-600 text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+              Collapse tables
+            </button>
+            <button
+              type="button"
               data-testid="index-mgmt-select-filtered"
               disabled={filteredKeys.length === 0}
               onClick={() => {
@@ -649,71 +677,126 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
           )}
         </div>
 
-        <div className="flex-1 min-h-0 overflow-auto px-3 py-2">
+        <div className="flex-1 min-h-0 overflow-auto">
           {grouped.length === 0 ? (
-            <p className="px-2 py-8 text-center text-sm text-slate-500">
+            <p className="px-5 py-8 text-center text-sm text-slate-500">
               {connectionId
                 ? 'No indexes to show. Indexes and fragmentation load automatically when you pick a credential (or click Load indexes).'
                 : 'Select a credential to begin.'}
             </p>
           ) : (
-            <ul className="space-y-1.5" data-testid="index-mgmt-groups">
-              {grouped.map(([tableName, rows]) => {
-                const openGroup = expanded.has(tableName);
-                return (
-                  <li
-                    key={tableName}
-                    className="rounded-lg border border-slate-800 bg-slate-950/40 overflow-hidden"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => toggleExpand(tableName)}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-slate-900/60"
-                    >
-                      {openGroup ? (
-                        <ChevronDown className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                      ) : (
-                        <ChevronRight className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                      )}
-                      <span className="font-mono text-sm font-semibold text-slate-100 truncate">
-                        {tableName}
-                      </span>
-                      <span className="text-[11px] text-slate-500 shrink-0">
-                        {rows.length} index{rows.length === 1 ? '' : 'es'}
-                      </span>
-                    </button>
-                    {openGroup && (
-                      <ul className="border-t border-slate-800 divide-y divide-slate-800/80">
-                        {rows.map((row) => {
-                          const severity = fragmentationSeverity(
-                            row.frag?.fragmentationPercent
-                          );
+            <table
+              className="w-full text-left border-collapse"
+              data-testid="index-mgmt-groups"
+            >
+              <thead className="sticky top-0 z-10">
+                <tr
+                  className="bg-slate-950 text-[10px] font-bold uppercase tracking-wide text-slate-500 border-b border-slate-800 shadow-[0_1px_0_0_rgb(30_41_59)]"
+                  data-testid="index-mgmt-table-header"
+                >
+                  <th className="w-8 pl-3 pr-1 py-2 font-bold" aria-label="Select" />
+                  <th className="px-2 py-2 font-bold">Index</th>
+                  <th className="px-2 py-2 font-bold hidden sm:table-cell">Columns</th>
+                  <th className="px-2 py-2 font-bold w-28">Type</th>
+                  <th className="px-2 py-2 font-bold w-16 text-right">Frag %</th>
+                  <th className="px-3 py-2 font-bold w-28 text-right"> </th>
+                </tr>
+              </thead>
+              <tbody>
+                {grouped.map(([tableName, rows]) => {
+                  const openGroup = expanded.has(tableName);
+                  const tableKeys = rows.map((r) => r.key);
+                  const tableAllSelected =
+                    tableKeys.length > 0 && tableKeys.every((k) => selected.has(k));
+                  const tableSomeSelected = tableKeys.some((k) => selected.has(k));
+                  return (
+                    <React.Fragment key={tableName}>
+                      <tr
+                        className="bg-slate-900/90 border-y border-slate-800"
+                        data-testid={`index-mgmt-group-${tableName}`}
+                      >
+                        <td colSpan={6} className="px-2 py-1.5">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <button
+                              type="button"
+                              onClick={() => toggleExpand(tableName)}
+                              className="p-0.5 text-slate-400 hover:text-slate-100 shrink-0"
+                              aria-expanded={openGroup}
+                              aria-label={openGroup ? `Collapse ${tableName}` : `Expand ${tableName}`}
+                            >
+                              {openGroup ? (
+                                <ChevronDown className="w-3.5 h-3.5" />
+                              ) : (
+                                <ChevronRight className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelected((prev) => {
+                                  const next = new Set(prev);
+                                  if (tableAllSelected) {
+                                    for (const k of tableKeys) next.delete(k);
+                                  } else {
+                                    for (const k of tableKeys) next.add(k);
+                                  }
+                                  return next;
+                                });
+                              }}
+                              className="text-slate-400 hover:text-slate-100 shrink-0"
+                              aria-label={`Select indexes on ${tableName}`}
+                            >
+                              {tableAllSelected ? (
+                                <CheckSquare className="w-3.5 h-3.5 text-amber-300" />
+                              ) : tableSomeSelected ? (
+                                <CheckSquare className="w-3.5 h-3.5 text-amber-300/50" />
+                              ) : (
+                                <Square className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => toggleExpand(tableName)}
+                              className="flex-1 flex items-center gap-2 min-w-0 text-left hover:text-amber-100"
+                            >
+                              <span className="font-mono text-sm font-semibold text-slate-100 truncate">
+                                {tableName}
+                              </span>
+                              <span className="text-[11px] text-slate-500 shrink-0">
+                                {rows.length} index{rows.length === 1 ? '' : 'es'}
+                              </span>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                      {openGroup &&
+                        rows.map((row) => {
+                          const severity = fragmentationSeverity(row.frag?.fragmentationPercent);
                           return (
-                            <li
+                            <tr
                               key={row.key}
-                              className="flex items-center gap-2 px-3 py-2 text-[12px]"
+                              className="border-b border-slate-800/70 bg-slate-950/40 hover:bg-slate-900/50 text-[12px]"
                               data-testid={`index-mgmt-row-${row.key}`}
                             >
-                              <button
-                                type="button"
-                                onClick={() => toggleSelected(row.key)}
-                                className="text-slate-400 hover:text-slate-100 shrink-0"
-                                aria-label={`Select ${row.index.name}`}
-                              >
-                                {selected.has(row.key) ? (
-                                  <CheckSquare className="w-3.5 h-3.5 text-amber-300" />
-                                ) : (
-                                  <Square className="w-3.5 h-3.5" />
-                                )}
-                              </button>
-                              <div className="min-w-0 flex-1">
+                              <td className="pl-8 pr-1 py-2 align-top">
+                                <button
+                                  type="button"
+                                  onClick={() => toggleSelected(row.key)}
+                                  className="text-slate-400 hover:text-slate-100"
+                                  aria-label={`Select ${row.index.name}`}
+                                >
+                                  {selected.has(row.key) ? (
+                                    <CheckSquare className="w-3.5 h-3.5 text-amber-300" />
+                                  ) : (
+                                    <Square className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                              </td>
+                              <td className="px-2 py-2 align-top min-w-0">
                                 <div className="font-mono font-semibold text-slate-200 truncate">
                                   {row.index.name}
-                                  <span className="ml-1.5 text-[10px] font-bold uppercase text-sky-300/80">
-                                    {row.index.unique ? 'unique' : 'duplicates ok'}
-                                  </span>
                                 </div>
-                                <div className="font-mono text-slate-500 truncate">
+                                <div className="font-mono text-slate-500 truncate sm:hidden">
                                   ({row.index.columns.join(', ')})
                                 </div>
                                 {row.tableError ? (
@@ -721,32 +804,51 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
                                     {row.tableError}
                                   </div>
                                 ) : null}
-                              </div>
-                              <div
-                                className={`w-14 shrink-0 text-right font-bold tabular-nums ${fragClass(severity)}`}
+                              </td>
+                              <td className="px-2 py-2 align-top hidden sm:table-cell">
+                                <span className="font-mono text-slate-400 break-all">
+                                  {row.index.columns.join(', ') || '—'}
+                                  {row.index.filter?.trim()
+                                    ? ` WHERE ${row.index.filter.trim()}`
+                                    : ''}
+                                </span>
+                              </td>
+                              <td className="px-2 py-2 align-top">
+                                <span className="text-[10px] font-bold uppercase text-sky-300/80">
+                                  {row.index.unique ? 'unique' : 'duplicates ok'}
+                                </span>
+                                {row.index.constraint ? (
+                                  <span className="ml-1 text-[10px] font-bold uppercase text-amber-300/80">
+                                    constraint
+                                  </span>
+                                ) : null}
+                              </td>
+                              <td
+                                className={`px-2 py-2 align-top text-right font-bold tabular-nums ${fragClass(severity)}`}
                                 title={row.frag ? 'Fragmentation percent' : 'Fetch fragmentation'}
                               >
                                 {formatPct(row.frag?.fragmentationPercent)}
-                              </div>
-                              <button
-                                type="button"
-                                disabled={!row.defragSql.length || runningDefrag}
-                                title={row.defragSql.join('\n') || 'No defrag SQL'}
-                                onClick={() => void runDefrag([row.key])}
-                                className="inline-flex items-center gap-1 shrink-0 rounded border border-slate-600 px-2 py-1 text-[11px] font-bold text-slate-200 hover:border-amber-400/50 hover:text-amber-100 disabled:opacity-40"
-                              >
-                                <Wrench className="w-3 h-3" />
-                                Defragment
-                              </button>
-                            </li>
+                              </td>
+                              <td className="px-3 py-2 align-top text-right">
+                                <button
+                                  type="button"
+                                  disabled={!row.defragSql.length || runningDefrag}
+                                  title={row.defragSql.join('\n') || 'No defrag SQL'}
+                                  onClick={() => void runDefrag([row.key])}
+                                  className="inline-flex items-center gap-1 rounded border border-slate-600 px-2 py-1 text-[11px] font-bold text-slate-200 hover:border-amber-400/50 hover:text-amber-100 disabled:opacity-40"
+                                >
+                                  <Wrench className="w-3 h-3" />
+                                  Defragment
+                                </button>
+                              </td>
+                            </tr>
                           );
                         })}
-                      </ul>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
           )}
         </div>
 

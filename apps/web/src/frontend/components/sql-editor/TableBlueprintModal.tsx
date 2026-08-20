@@ -1676,7 +1676,7 @@ export const TableBlueprintModal: React.FC<Props> = ({
                   )}
                 </div>
               )}
-              <div className="bg-sky-950/20 border border-sky-400/25 rounded-xl overflow-hidden">
+              <div className="bg-sky-950/20 border border-sky-400/25 rounded-xl">
                 {existingIndexes.length === 0 &&
                 pendingIndexes.length === 0 &&
                 !indexFormOpen ? (
@@ -1690,7 +1690,7 @@ export const TableBlueprintModal: React.FC<Props> = ({
                 ) : (
                   <ul className="divide-y divide-slate-800/80">
                     {mode === 'edit' && existingIndexes.length > 0 && (
-                      <li className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500 flex items-center gap-2 bg-slate-950/40">
+                      <li className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500 flex items-center gap-2 bg-slate-900/95 sticky top-0 z-[1] border-b border-slate-800/80">
                         <span className="min-w-0 flex-1">Index</span>
                         <span className="w-14 text-center shrink-0">%</span>
                         <span className="w-16 text-center shrink-0">Defrag</span>
