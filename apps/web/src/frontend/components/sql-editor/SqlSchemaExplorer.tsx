@@ -4,6 +4,7 @@ import {
   ChevronRight,
   Columns3,
   FileCode2,
+  Hash,
   Loader2,
   Plus,
   RefreshCw,
@@ -407,7 +408,10 @@ const ObjectNode: React.FC<{
   const columns = !isRoutine
     ? (table.columns ?? []).map((c) => ({ name: c.name, detail: c.type }))
     : [];
+  const indexes = !isRoutine ? (table.indices ?? []) : [];
   const opensSource = Boolean(onOpenSource);
+  const [openCols, setOpenCols] = useState(true);
+  const [openIdx, setOpenIdx] = useState(true);
 
   const insertObject = () => {
     if (isRoutine) {
@@ -552,32 +556,95 @@ const ObjectNode: React.FC<{
         </ul>
       )}
       {open && !isRoutine && columns.length > 0 && (
-        <ul className="ml-6 border-l border-slate-700/80 pl-2.5 flex flex-col gap-0.5 mb-1">
-          {columns.map((col) => (
-            <li key={col.name} className="flex items-center gap-1 min-w-0">
-              <button
-                type="button"
-                title={`Insert ${col.name} at cursor`}
-                onClick={() => insertIdent(col.name)}
-                className="flex-1 min-w-0 text-left text-[12.5px] font-mono font-medium text-slate-300 hover:text-cyan-300 truncate py-1"
-              >
-                {col.name}
-                {col.detail ? (
-                  <span className="text-slate-500 ml-1.5 font-sans text-[12px]">{col.detail}</span>
-                ) : null}
-              </button>
-              <button
-                type="button"
-                data-testid={`sql-explorer-col-select-${table.name}-${col.name}`}
-                title={`Add ${insertName}.${col.name} into SELECT`}
-                onClick={() => insertColumnIntoSelect(col.name)}
-                className="shrink-0 px-1 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide text-cyan-300/90 border border-cyan-700/40 hover:bg-cyan-950/50"
-              >
-                Sel
-              </button>
-            </li>
-          ))}
-        </ul>
+        <div className="ml-6 mb-0.5">
+          <button
+            type="button"
+            onClick={() => setOpenCols((v) => !v)}
+            className="w-full flex items-center gap-1 px-0.5 py-0.5 text-left text-[10px] font-bold uppercase tracking-wide text-slate-500 hover:text-slate-300"
+            aria-expanded={openCols}
+          >
+            {openCols ? (
+              <ChevronDown className="w-3 h-3 text-sky-400/80" strokeWidth={SQL_ICON_STROKE} />
+            ) : (
+              <ChevronRight className="w-3 h-3 text-sky-400/80" strokeWidth={SQL_ICON_STROKE} />
+            )}
+            <Columns3 className="w-3 h-3 text-sky-400/80" strokeWidth={SQL_ICON_STROKE} />
+            Columns
+            <span className="font-mono font-medium">({columns.length})</span>
+          </button>
+          {openCols && (
+            <ul className="border-l border-slate-700/80 pl-2.5 flex flex-col gap-0.5">
+            {columns.map((col) => (
+              <li key={col.name} className="flex items-center gap-1 min-w-0">
+                <button
+                  type="button"
+                  title={`Insert ${col.name} at cursor`}
+                  onClick={() => insertIdent(col.name)}
+                  className="flex-1 min-w-0 text-left text-[12.5px] font-mono font-medium text-slate-300 hover:text-cyan-300 truncate py-1"
+                >
+                  {col.name}
+                  {col.detail ? (
+                    <span className="text-slate-500 ml-1.5 font-sans text-[12px]">{col.detail}</span>
+                  ) : null}
+                </button>
+                <button
+                  type="button"
+                  data-testid={`sql-explorer-col-select-${table.name}-${col.name}`}
+                  title={`Add ${insertName}.${col.name} into SELECT`}
+                  onClick={() => insertColumnIntoSelect(col.name)}
+                  className="shrink-0 px-1 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide text-cyan-300/90 border border-cyan-700/40 hover:bg-cyan-950/50"
+                >
+                  Sel
+                </button>
+              </li>
+            ))}
+            </ul>
+          )}
+        </div>
+      )}
+      {open && !isRoutine && indexes.length > 0 && (
+        <div className="ml-6 mb-1" data-testid={`sql-explorer-indexes-${table.name}`}>
+          <button
+            type="button"
+            onClick={() => setOpenIdx((v) => !v)}
+            className="w-full flex items-center gap-1 px-0.5 py-0.5 text-left text-[10px] font-bold uppercase tracking-wide text-indigo-400/90 hover:text-indigo-200"
+            aria-expanded={openIdx}
+          >
+            {openIdx ? (
+              <ChevronDown className="w-3 h-3" strokeWidth={SQL_ICON_STROKE} />
+            ) : (
+              <ChevronRight className="w-3 h-3" strokeWidth={SQL_ICON_STROKE} />
+            )}
+            <Hash className="w-3 h-3" strokeWidth={SQL_ICON_STROKE} />
+            Indexes
+            <span className="font-mono font-medium text-slate-500">({indexes.length})</span>
+          </button>
+          {openIdx && (
+            <ul className="border-l border-indigo-900/60 pl-2.5 flex flex-col gap-0.5">
+            {indexes.map((idx) => (
+              <li key={idx.name} className="min-w-0">
+                <button
+                  type="button"
+                  data-testid={`sql-explorer-index-${table.name}-${idx.name}`}
+                  title={`Insert ${idx.name}`}
+                  onClick={() => insertIdent(idx.name)}
+                  className="w-full min-w-0 text-left text-[12.5px] font-mono font-medium text-slate-300 hover:text-indigo-300 truncate py-1"
+                >
+                  <span className="font-bold">{idx.name}</span>
+                  <span className="ml-1.5 text-[10px] font-bold uppercase font-sans text-indigo-300/80">
+                    {idx.unique ? 'unique' : 'non-unique'}
+                  </span>
+                  {idx.columns.length > 0 ? (
+                    <span className="text-slate-500 ml-1.5 font-sans text-[11px]">
+                      ({idx.columns.join(', ')})
+                    </span>
+                  ) : null}
+                </button>
+              </li>
+            ))}
+          </ul>
+          )}
+        </div>
       )}
     </div>
   );
