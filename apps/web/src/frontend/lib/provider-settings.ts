@@ -105,7 +105,7 @@ const db2Settings: ProviderSettings = {
   defaultPort: 50000,
   defaultSchema: '',
   schemaRequired: true,
-  // Delegate to core so pasted strings always get Authentication=SERVER /
+  // Delegate to core so pasted strings always get Authentication /
   // CurrentSchema (verbatim early-return caused SQL1042C / empty browse on Windows).
   buildConnectionString(o) {
     return coreBuildConnectionString('db2', o);

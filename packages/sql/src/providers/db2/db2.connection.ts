@@ -62,11 +62,21 @@ export function resolveDb2Authentication(
   options: ConnectionOptions,
   extras?: Map<string, string>
 ): Db2Authentication {
-  const explicit = String(options.authentication ?? extras?.get('AUTHENTICATION') ?? '')
+  const fromOptions = String(options.authentication ?? '')
     .trim()
     .toUpperCase();
-  if (explicit === 'SERVER' || explicit === 'SERVER_ENCRYPT' || explicit === 'SERVER_ENCRYPT_AES') {
-    return explicit;
+  if (fromOptions === 'SERVER' || fromOptions === 'SERVER_ENCRYPT' || fromOptions === 'SERVER_ENCRYPT_AES') {
+    return fromOptions;
+  }
+  // The credential form always sends host/database plus a rebuilt connectionString.
+  // That string used to contain Authentication=SERVER; treating it as a user paste
+  // pinned the old type and modern LUW kept returning SQL30082N reason 17.
+  const fieldForm = Boolean(options.host || options.database);
+  if (!fieldForm) {
+    const fromPaste = (extras?.get('AUTHENTICATION') ?? '').trim().toUpperCase();
+    if (fromPaste === 'SERVER' || fromPaste === 'SERVER_ENCRYPT' || fromPaste === 'SERVER_ENCRYPT_AES') {
+      return fromPaste;
+    }
   }
   return 'SERVER_ENCRYPT';
 }

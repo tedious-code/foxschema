@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DRIVER_NPM_INSTALL_ENV,
   driverInstallHints,
+  ibmDbPackageDir,
   isCacheKeyForPackage,
   purgePackageRequireCache,
 } from './driver-install';
@@ -22,6 +24,21 @@ describe('driverInstallHints — advice must match the driver', () => {
 
   it('names the package it is actually talking about', () => {
     expect(driverInstallHints('better-sqlite3')).toContain('better-sqlite3');
+  });
+});
+
+describe('DRIVER_NPM_INSTALL_ENV', () => {
+  it('forces npm 11 allow-scripts on so ibm_db postinstall can run', () => {
+    expect(DRIVER_NPM_INSTALL_ENV.npm_config_ignore_scripts).toBe('false');
+    expect(DRIVER_NPM_INSTALL_ENV.npm_config_dangerously_allow_all_scripts).toBe('true');
+  });
+});
+
+describe('ibmDbPackageDir', () => {
+  it('resolves the installed ibm_db package', () => {
+    const dir = ibmDbPackageDir();
+    expect(dir).toBeTruthy();
+    expect(dir).toMatch(/ibm_db$/);
   });
 });
 

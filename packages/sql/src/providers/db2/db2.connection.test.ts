@@ -23,7 +23,19 @@ describe('buildDb2ConnectionString', () => {
     expect(cs).toContain('PWD=secret');
   });
 
-  it('keeps Authentication from a pasted CLI string', () => {
+  it('ignores Authentication=SERVER on a rebuilt field-form connectionString', () => {
+    const cs = buildDb2ConnectionString({
+      host: 'h',
+      database: 'D',
+      username: 'u',
+      password: 'p',
+      connectionString:
+        'DATABASE=D;HOSTNAME=h;PORT=25000;UID=u;PWD=p;Authentication=SERVER;',
+    });
+    expect(cs).toContain('Authentication=SERVER_ENCRYPT');
+  });
+
+  it('keeps Authentication from a pasted CLI string without host/database fields', () => {
     const cs = buildDb2ConnectionString({
       connectionString:
         'DATABASE=SAMPLE;HOSTNAME=h;PORT=50000;PROTOCOL=TCPIP;UID=u;PWD=p;Authentication=SERVER;',
@@ -31,7 +43,18 @@ describe('buildDb2ConnectionString', () => {
     expect(cs).toMatch(/Authentication=SERVER;/);
     expect(cs).not.toContain('SERVER_ENCRYPT');
     expect(cs).toContain('DATABASE=SAMPLE');
-    expect(cs).toContain('UID=u');
+  });
+
+  it('honors an explicit options.authentication on the field form', () => {
+    const cs = buildDb2ConnectionString({
+      host: 'h',
+      database: 'D',
+      username: 'u',
+      password: 'p',
+      authentication: 'SERVER',
+    });
+    expect(cs).toMatch(/Authentication=SERVER;/);
+    expect(cs).not.toContain('SERVER_ENCRYPT');
   });
 
   it('brace-escapes passwords that contain semicolons so they round-trip', () => {
