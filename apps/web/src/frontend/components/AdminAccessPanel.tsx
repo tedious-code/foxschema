@@ -17,6 +17,11 @@ import {
   apiAdminSetUserRole,
 } from '../api/authApi';
 import {
+  permissionSetEqual,
+  userActiveCheckboxLock,
+  userRoleSelectLock,
+} from '../lib/adminAccess';
+import {
   APP_ROLES,
   type AppRole,
   type Permission,
@@ -41,16 +46,18 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
 }) => {
   const refreshMe = useAuthStore((s) => s.refreshMe);
   const me = useAuthStore((s) => s.user);
+  const localSingleUser = useAuthStore((s) => s.localSingleUser);
   const canUsers = useAuthStore((s) => s.can('admin.users'));
   const canRoles = useAuthStore((s) => s.can('admin.roles'));
   const [tab, setTab] = useState<Tab>('users');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const [users, setUsers] = useState<AdminUserRow[]>([]);
   const [matrix, setMatrix] = useState<Record<AppRole, Permission[]> | null>(null);
   const [catalog, setCatalog] = useState<PermissionMeta[]>([]);
   const [editRole, setEditRole] = useState<AppRole>('editor');
-  const [draft, setDraft] = useState<Set<Permission>>(new Set());
+  const [draftByRole, setDraftByRole] = useState<Partial<Record<AppRole, Permission[]>>>({});
   const [passwordUser, setPasswordUser] = useState<AdminUserRow | null>(null);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -80,10 +87,21 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
     if (open) void load();
   }, [open, load]);
 
+  // Keep unsaved checkbox drafts when the server matrix reloads.
   useEffect(() => {
     if (!matrix) return;
-    setDraft(new Set(matrix[editRole] ?? []));
-  }, [editRole, matrix]);
+    setDraftByRole((prev) => {
+      const next: Partial<Record<AppRole, Permission[]>> = { ...prev };
+      for (const role of APP_ROLES) {
+        if (role === 'admin') continue;
+        const saved = matrix[role] ?? [];
+        const draft = prev[role];
+        if (draft && !permissionSetEqual(draft, saved)) continue;
+        next[role] = saved;
+      }
+      return next;
+    });
+  }, [matrix]);
 
   const groups = useMemo(() => {
     const map = new Map<string, PermissionMeta[]>();
@@ -94,6 +112,12 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
     }
     return [...map.entries()];
   }, [catalog]);
+
+  const savedPerms = matrix?.[editRole] ?? [];
+  const draftPerms = draftByRole[editRole] ?? savedPerms;
+  const draft = useMemo(() => new Set(draftPerms), [draftPerms]);
+  const readOnlyRole = editRole === 'admin';
+  const dirty = !readOnlyRole && !permissionSetEqual(draftPerms, savedPerms);
 
   if (!open) return null;
 
@@ -153,15 +177,29 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
     if (editRole === 'admin') return;
     setBusy(true);
     setError(null);
+    setSavedMsg(null);
     try {
       const next = await apiAdminSetRolePermissions(editRole, [...draft]);
       setMatrix((prev) => (prev ? { ...prev, [editRole]: next } : prev));
+      setDraftByRole((prev) => ({ ...prev, [editRole]: next }));
+      setSavedMsg(`Saved ${editRole} permissions`);
       await refreshMe();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to save permissions');
     } finally {
       setBusy(false);
     }
+  };
+
+  const togglePerm = (id: Permission) => {
+    if (readOnlyRole) return;
+    setSavedMsg(null);
+    setDraftByRole((prev) => {
+      const current = new Set(prev[editRole] ?? matrix?.[editRole] ?? []);
+      if (current.has(id)) current.delete(id);
+      else current.add(id);
+      return { ...prev, [editRole]: [...current] };
+    });
   };
 
   return createPortal(
@@ -210,12 +248,13 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
           )}
         </div>
 
+        {error && (
+          <div className="mx-4 mt-3 shrink-0 text-xs text-rose-300 border border-rose-500/30 bg-rose-950/30 rounded-md px-3 py-2">
+            {error}
+          </div>
+        )}
+
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
-          {error && (
-            <div className="text-xs text-rose-300 border border-rose-500/30 bg-rose-950/30 rounded-md px-3 py-2">
-              {error}
-            </div>
-          )}
           {busy && !users.length && !matrix && (
             <div className="flex items-center gap-2 text-xs text-slate-400 py-8 justify-center">
               <Loader2 className="w-4 h-4 animate-spin" /> Loading…
@@ -223,82 +262,103 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
           )}
 
           {tab === 'users' && canUsers && (
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="text-slate-500 text-left">
-                  <th className="py-1.5 font-semibold">Email</th>
-                  <th className="py-1.5 font-semibold">Role</th>
-                  <th className="py-1.5 font-semibold text-center">Active</th>
-                  <th className="py-1.5 font-semibold">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((u) => (
-                  <tr key={u.id} className="border-t border-slate-800">
-                    <td className="py-2 text-slate-200 font-mono">{u.email}</td>
-                    <td className="py-2">
-                      <select
-                        data-testid={`admin-user-role-${u.id}`}
-                        value={u.role}
-                        disabled={busy}
-                        onChange={(e) => void setUserRole(u.id, e.target.value as AppRole)}
-                        className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-100"
-                      >
-                        {APP_ROLES.map((r) => (
-                          <option key={r} value={r}>
-                            {r}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="py-2 text-center">
-                      <input
-                        type="checkbox"
-                        data-testid={`admin-active-${u.id}`}
-                        checked={u.active !== false}
-                        disabled={busy || u.id === me?.id}
-                        onChange={(e) => void toggleActive(u, e.target.checked)}
-                        className="rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500/40 disabled:opacity-40"
-                        title={
-                          u.id === me?.id
-                            ? 'You cannot deactivate your own account'
-                            : u.active !== false
-                              ? 'Active — can sign in'
-                              : 'Inactive — login blocked'
-                        }
-                      />
-                    </td>
-                    <td className="py-2">
-                      <button
-                        type="button"
-                        data-testid={`admin-change-password-${u.id}`}
-                        disabled={busy}
-                        onClick={() => {
-                          setPasswordUser(u);
-                          setNewPassword('');
-                          setConfirmPassword('');
-                          setPasswordMsg(null);
-                        }}
-                        className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-slate-700 bg-slate-950 text-slate-300 hover:border-slate-500 hover:text-white disabled:opacity-40"
-                      >
-                        <KeyRound className="w-3 h-3" />
-                        Change password
-                      </button>
-                    </td>
+            <>
+              {localSingleUser && (
+                <p
+                  data-testid="admin-single-user-hint"
+                  className="text-[11px] text-slate-400 leading-snug rounded-md border border-slate-800 bg-slate-950/50 px-3 py-2"
+                >
+                  Single-user mode keeps this account as <span className="text-slate-200">admin</span>{' '}
+                  — role and Active cannot be changed. Open{' '}
+                  <span className="text-slate-200">Roles & permissions</span> to edit what editor /
+                  owner / viewer may do (applied when you enable multi-user login).
+                </p>
+              )}
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-slate-500 text-left">
+                    <th className="py-1.5 font-semibold">Email</th>
+                    <th className="py-1.5 font-semibold">Role</th>
+                    <th className="py-1.5 font-semibold text-center">Active</th>
+                    <th className="py-1.5 font-semibold">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {users.map((u) => {
+                    const roleLock = userRoleSelectLock(u, { busy, localSingleUser, users });
+                    const activeLock = userActiveCheckboxLock(u, {
+                      busy,
+                      localSingleUser,
+                      meId: me?.id,
+                      users,
+                    });
+                    return (
+                      <tr key={u.id} className="border-t border-slate-800">
+                        <td className="py-2 text-slate-200 font-mono">{u.email}</td>
+                        <td className="py-2">
+                          <select
+                            data-testid={`admin-user-role-${u.id}`}
+                            value={u.role}
+                            disabled={roleLock.disabled}
+                            title={roleLock.reason}
+                            onChange={(e) => void setUserRole(u.id, e.target.value as AppRole)}
+                            className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-100 disabled:opacity-40"
+                          >
+                            {APP_ROLES.map((r) => (
+                              <option key={r} value={r}>
+                                {r}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="py-2 text-center">
+                          <input
+                            type="checkbox"
+                            data-testid={`admin-active-${u.id}`}
+                            checked={u.active !== false}
+                            disabled={activeLock.disabled}
+                            onChange={(e) => void toggleActive(u, e.target.checked)}
+                            className="rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500/40 disabled:opacity-40"
+                            title={
+                              activeLock.reason ??
+                              (u.active !== false ? 'Active — can sign in' : 'Inactive — login blocked')
+                            }
+                          />
+                        </td>
+                        <td className="py-2">
+                          <button
+                            type="button"
+                            data-testid={`admin-change-password-${u.id}`}
+                            disabled={busy}
+                            onClick={() => {
+                              setPasswordUser(u);
+                              setNewPassword('');
+                              setConfirmPassword('');
+                              setPasswordMsg(null);
+                            }}
+                            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-slate-700 bg-slate-950 text-slate-300 hover:border-slate-500 hover:text-white disabled:opacity-40"
+                          >
+                            <KeyRound className="w-3 h-3" />
+                            Change password
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </>
           )}
 
           {tab === 'roles' && canRoles && (
             <div className="space-y-3">
               <div className="flex flex-wrap gap-2 items-center">
                 <span className="text-[10px] uppercase font-bold text-slate-500">Role</span>
-                {APP_ROLES.filter((r) => r !== 'admin').map((r) => (
+                {APP_ROLES.map((r) => (
                   <button
                     key={r}
                     type="button"
+                    data-testid={`admin-edit-role-${r}`}
                     onClick={() => setEditRole(r)}
                     className={`px-2.5 py-1 rounded text-xs font-semibold ${
                       editRole === r
@@ -309,33 +369,42 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
                     {r}
                   </button>
                 ))}
-                <span className="text-[11px] text-slate-500">Admin always has all permissions.</span>
               </div>
+              <p
+                data-testid="admin-roles-hint"
+                className="text-[11px] text-slate-400 leading-snug rounded-md border border-slate-800 bg-slate-950/50 px-3 py-2"
+              >
+                {readOnlyRole
+                  ? 'Admin always has every permission. This role cannot be reduced — pick editor, owner, or viewer to edit grants, then Save.'
+                  : `Check boxes for ${editRole}, then Save ${editRole} permissions in the bar below. Changes are not applied until you save.`}
+              </p>
 
               {groups.map(([group, items]) => (
                 <div key={group} className="rounded-lg border border-slate-800 p-3 space-y-1.5">
                   <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
                     {group}
                   </div>
+                  {group === 'Admin' && !readOnlyRole && (
+                    <p className="text-[11px] text-slate-500 leading-snug">
+                      Not granted to {editRole} by default. Check and Save to let this role open
+                      Access control (Manage users / Configure roles).
+                    </p>
+                  )}
                   {items.map((m) => {
-                    const checked = draft.has(m.id);
+                    const checked = readOnlyRole || draft.has(m.id);
                     return (
                       <label
                         key={m.id}
-                        className="flex items-start gap-2 text-xs text-slate-300 cursor-pointer"
+                        className={`flex items-start gap-2 text-xs text-slate-300 ${
+                          readOnlyRole ? 'cursor-default opacity-80' : 'cursor-pointer'
+                        }`}
                       >
                         <input
                           type="checkbox"
                           checked={checked}
+                          disabled={readOnlyRole}
                           data-testid={`admin-perm-${m.id}`}
-                          onChange={() => {
-                            setDraft((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(m.id)) next.delete(m.id);
-                              else next.add(m.id);
-                              return next;
-                            });
-                          }}
+                          onChange={() => togglePerm(m.id)}
                           className="mt-0.5"
                         />
                         <span>
@@ -347,19 +416,39 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
                   })}
                 </div>
               ))}
-
-              <button
-                type="button"
-                data-testid="admin-save-role-perms"
-                disabled={busy || editRole === 'admin'}
-                onClick={() => void saveRolePerms()}
-                className="px-3 py-1.5 text-xs font-bold rounded-md border border-amber-500/40 bg-amber-500/15 text-amber-100 hover:bg-amber-500/25 disabled:opacity-40"
-              >
-                Save {editRole} permissions
-              </button>
             </div>
           )}
         </div>
+
+        {tab === 'roles' && canRoles && (
+          <div className="shrink-0 flex flex-wrap items-center gap-2 px-4 py-3 border-t border-slate-800 bg-slate-950/60">
+            {savedMsg && (
+              <span data-testid="admin-save-status" className="text-[11px] text-emerald-300">
+                {savedMsg}
+              </span>
+            )}
+            {!savedMsg && dirty && (
+              <span data-testid="admin-unsaved" className="text-[11px] text-amber-200">
+                Unsaved changes
+              </span>
+            )}
+            {!savedMsg && !dirty && !readOnlyRole && (
+              <span className="text-[11px] text-slate-500">No unsaved changes</span>
+            )}
+            {readOnlyRole && (
+              <span className="text-[11px] text-slate-500">Admin grants cannot be edited</span>
+            )}
+            <button
+              type="button"
+              data-testid="admin-save-role-perms"
+              disabled={busy || readOnlyRole || !dirty}
+              onClick={() => void saveRolePerms()}
+              className="ml-auto px-3 py-1.5 text-xs font-bold rounded-md border border-amber-500/40 bg-amber-500/15 text-amber-100 hover:bg-amber-500/25 disabled:opacity-40"
+            >
+              Save {editRole} permissions
+            </button>
+          </div>
+        )}
       </div>
 
       {passwordUser && (
