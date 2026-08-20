@@ -3,6 +3,7 @@ import { ConnectionOptions, DriverAdapter } from '@foxschema/sql';
 import { assertSafeIdentifier } from '../../cores/sql-identifier';
 import { BoundedPoolCache, disposePoolEndOrClose } from '../../cores/pool-cache';
 import { setupDb2ClientEnv, hasDb2Clidriver } from './db2.env';
+import { explainDb2ConnectError, resolveDb2SslConnectionString } from './db2.ssl';
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -42,17 +43,19 @@ class Db2Adapter implements DriverAdapter {
 
   async acquire(connectionString: string, options: ConnectionOptions, pooled: boolean): Promise<any> {
     const ibmdb = this.load();
+    const cs = resolveDb2SslConnectionString(connectionString, options);
+    const fail = (err: unknown) => explainDb2ConnectError(err, options);
 
     // Transactional callers (migrations) want a dedicated connection so a
     // mid-transaction connection is never returned to the shared pool.
     // Older ibm_db builds may also lack Pool — fall back to a raw open.
     if (!pooled || !ibmdb.Pool) {
       return new Promise((resolve, reject) =>
-        ibmdb.open(connectionString, (err: Error | null, conn: any) => (err ? reject(err) : resolve(conn)))
+        ibmdb.open(cs, (err: Error | null, conn: any) => (err ? reject(fail(err)) : resolve(conn)))
       );
     }
 
-    const pool = await this.pools.getOrCreate(connectionString, () => {
+    const pool = await this.pools.getOrCreate(cs, () => {
       const created = new ibmdb.Pool();
       if (typeof created.setMaxPoolSize === 'function') created.setMaxPoolSize(options.pool?.max ?? 10);
       if (typeof created.setConnectTimeout === 'function' && options.timeout?.connectMs) {
@@ -65,7 +68,7 @@ class Db2Adapter implements DriverAdapter {
     });
 
     return new Promise((resolve, reject) =>
-      pool.open(connectionString, (err: Error | null, conn: any) => (err ? reject(err) : resolve(conn)))
+      pool.open(cs, (err: Error | null, conn: any) => (err ? reject(fail(err)) : resolve(conn)))
     );
   }
 

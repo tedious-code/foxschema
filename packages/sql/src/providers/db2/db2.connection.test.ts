@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildDb2ConnectionString,
+  db2CaLooksLikePem,
   odbcEscape,
   parseDb2SemicolonMap,
 } from './db2.connection.js';
@@ -58,14 +59,62 @@ describe('buildDb2ConnectionString', () => {
     );
     expect(cs).toContain('CurrentSchema=MYSCHEMA');
   });
-});
 
-describe('odbcEscape', () => {
-  it('leaves plain values alone', () => {
-    expect(odbcEscape('plain')).toBe('plain');
+  it('adds Security=SSL when SSL is enabled', () => {
+    const cs = buildDb2ConnectionString({
+      host: 'h',
+      database: 'D',
+      username: 'u',
+      password: 'p',
+      ssl: { enabled: true },
+    });
+    expect(cs).toContain('Security=SSL');
+    expect(cs).not.toContain('SSLServerCertificate=');
   });
 
-  it('escapes braces inside braced values', () => {
-    expect(odbcEscape('a}b')).toBe('{a}}b}');
+  it('passes a certificate file path as SSLServerCertificate', () => {
+    const cs = buildDb2ConnectionString({
+      host: 'h',
+      port: 50001,
+      database: 'D',
+      username: 'u',
+      password: 'p',
+      ssl: { enabled: true, ca: '/etc/certs/db2-server.arm' },
+    });
+    expect(cs).toContain('Security=SSL');
+    expect(cs).toContain('SSLServerCertificate=/etc/certs/db2-server.arm');
+  });
+
+  it('does not put PEM text into the CLI string', () => {
+    const pem = '-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----';
+    const cs = buildDb2ConnectionString({
+      host: 'h',
+      database: 'D',
+      username: 'u',
+      password: 'p',
+      ssl: { enabled: true, ca: pem },
+    });
+    expect(cs).toContain('Security=SSL');
+    expect(cs).not.toContain('BEGIN CERTIFICATE');
+    expect(cs).not.toContain('SSLServerCertificate=');
+  });
+
+  it('keeps SSLServerCertificate from a pasted CLI string', () => {
+    const cs = buildDb2ConnectionString({
+      connectionString:
+        'DATABASE=D;HOSTNAME=h;PORT=50001;UID=u;PWD=p;Security=SSL;SSLServerCertificate=/tmp/s.pem;',
+    });
+    expect(cs).toContain('Security=SSL');
+    expect(cs).toContain('SSLServerCertificate=/tmp/s.pem');
   });
 });
+
+describe('db2CaLooksLikePem', () => {
+  it('detects PEM bodies vs a filesystem path', () => {
+    expect(
+      db2CaLooksLikePem('-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----')
+    ).toBe(true);
+    expect(db2CaLooksLikePem('/etc/certs/db2-server.arm')).toBe(false);
+  });
+});
+

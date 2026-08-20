@@ -103,6 +103,7 @@ export const ConnectionModal: React.FC<Props> = ({
     initialOptions?.username ?? '',
     initialOptions?.password ?? '',
     initialOptions?.ssl?.enabled ? '1' : '0',
+    initialOptions?.ssl?.ca ?? '',
     initialOptions?.pool?.min ?? '',
     initialOptions?.pool?.max ?? '',
   ].join('\0');
@@ -118,7 +119,10 @@ export const ConnectionModal: React.FC<Props> = ({
       schema: initialOptions?.schema || getProviderSettings(dialect).defaultSchema || '',
       username: initialOptions?.username || '',
       password: initialOptions?.password || '',
-      ssl: { enabled: initialOptions?.ssl?.enabled || false },
+      ssl: {
+        enabled: initialOptions?.ssl?.enabled || false,
+        ca: initialOptions?.ssl?.ca || '',
+      },
       pool: { min: initialOptions?.pool?.min || 1, max: initialOptions?.pool?.max || 10 },
     });
     setSchemaList([]);
@@ -447,9 +451,10 @@ export const ConnectionModal: React.FC<Props> = ({
           )}
 
           {!isFileDialect && (
-          <div className="flex items-center justify-between pt-2">
+          <div className="flex flex-col gap-2 pt-2">
             <label className="flex items-center gap-2.5 text-xs text-slate-350 cursor-pointer select-none">
               <input
+                data-testid="conn-ssl-enabled"
                 type="checkbox"
                 checked={form.ssl?.enabled}
                 onChange={(e) => setForm((prev) => ({ ...prev, ssl: { ...prev.ssl, enabled: e.target.checked } }))}
@@ -457,6 +462,25 @@ export const ConnectionModal: React.FC<Props> = ({
               />
               Enable SSL Connection
             </label>
+            {selDialect === 'db2' && form.ssl?.enabled && (
+              <div>
+                <label className={labelCls}>SSL server certificate</label>
+                <textarea
+                  data-testid="conn-ssl-ca-input"
+                  rows={3}
+                  placeholder="Absolute path to .arm / .pem / .crt, or paste the PEM. Not a Java .jks."
+                  value={form.ssl?.ca ?? ''}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, ssl: { ...prev.ssl, enabled: true, ca: e.target.value } }))
+                  }
+                  className={`${inputCls} font-mono text-[11px] leading-snug`}
+                />
+                <p className="mt-1 text-[10px] text-slate-500">
+                  ibm_db needs the server certificate as a file. Use the TLS listener port (often 50001, not 50000).
+                  Security=SSL alone is not enough for a self-signed or private CA.
+                </p>
+              </div>
+            )}
           </div>
           )}
 
