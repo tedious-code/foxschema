@@ -30,11 +30,68 @@ declare const URL: {
  * Build a DB2 CLI connection string (semicolon-delimited key=value pairs).
  * ibm_db does not accept db2:// URLs — those must be converted first.
  *
- * Authentication=SERVER is required by IBM to avoid SQL1042C on many setups
- * (especially Windows when GSKit / system CLI libraries pollute PATH).
+ * Authentication defaults to SERVER_ENCRYPT (DBeaver Database Native). Hard-coding
+ * SERVER made modern LUW return SQL30082N reason 17. The Node adapter retries
+ * the other type if the server refuses.
+ *
+ * ibm_db's GSKit wants a filesystem path. PEM pasted into `ssl.ca` is written
+ * to a temp file in the Node adapter — do not put the PEM in the CLI string.
  */
+export function db2CaLooksLikePem(value: string): boolean {
+  return /-----BEGIN [A-Z ]*CERTIFICATE-----/.test(value);
+}
+
+const PASTED_SSL_KEYWORDS: ReadonlyArray<{ key: string; out: string }> = [
+  { key: 'SSLSERVERCERTIFICATE', out: 'SSLServerCertificate' },
+  { key: 'SSLCLIENTKEYSTOREDB', out: 'SSLClientKeystoredb' },
+  { key: 'SSLCLIENTKEYSTASH', out: 'SSLClientKeystash' },
+  { key: 'SSLCLIENTKEYSTOREDBPASSWORD', out: 'SSLClientKeystoreDBPassword' },
+  { key: 'SSLCLIENTLABEL', out: 'SSLClientLabel' },
+];
+
+/** CLI values IBM accepts for userid/password auth (not Kerberos / IAM). */
+export type Db2Authentication = 'SERVER' | 'SERVER_ENCRYPT' | 'SERVER_ENCRYPT_AES';
+
+/**
+ * DBeaver "Database Native" negotiates encrypted password auth.
+ * ibm_db used to hard-code Authentication=SERVER, which modern LUW rejects
+ * with SQL30082N reason 17 (UNSUPPORTED FUNCTION) when the server is
+ * SERVER_ENCRYPT. Default to SERVER_ENCRYPT; honor a pasted/explicit value.
+ */
+export function resolveDb2Authentication(
+  options: ConnectionOptions,
+  extras?: Map<string, string>
+): Db2Authentication {
+  const fromOptions = String(options.authentication ?? '')
+    .trim()
+    .toUpperCase();
+  if (fromOptions === 'SERVER' || fromOptions === 'SERVER_ENCRYPT' || fromOptions === 'SERVER_ENCRYPT_AES') {
+    return fromOptions;
+  }
+  // The credential form always sends host/database plus a rebuilt connectionString.
+  // That string used to contain Authentication=SERVER; treating it as a user paste
+  // pinned the old type and modern LUW kept returning SQL30082N reason 17.
+  const fieldForm = Boolean(options.host || options.database);
+  if (!fieldForm) {
+    const fromPaste = (extras?.get('AUTHENTICATION') ?? '').trim().toUpperCase();
+    if (fromPaste === 'SERVER' || fromPaste === 'SERVER_ENCRYPT' || fromPaste === 'SERVER_ENCRYPT_AES') {
+      return fromPaste;
+    }
+  }
+  return 'SERVER_ENCRYPT';
+}
+
+export function withDb2Authentication(connectionString: string, authentication: string): string {
+  const value = authentication.trim();
+  if (/Authentication\s*=/i.test(connectionString)) {
+    return connectionString.replace(/Authentication\s*=[^;]*/i, `Authentication=${value}`);
+  }
+  return `${connectionString.replace(/;+$/, '')};Authentication=${value};`;
+}
+
 export function buildDb2ConnectionString(options: ConnectionOptions, schema?: string): string {
   const parsed = parseDb2ConnectionInput(options.connectionString, options);
+  const authentication = resolveDb2Authentication(options, parsed.extras);
 
   const parts: string[] = [
     `DATABASE=${odbcEscape(parsed.database)}`,
@@ -43,12 +100,10 @@ export function buildDb2ConnectionString(options: ConnectionOptions, schema?: st
     'PROTOCOL=TCPIP',
     `UID=${odbcEscape(parsed.username)}`,
     `PWD=${odbcEscape(parsed.password)}`,
-    'Authentication=SERVER',
+    `Authentication=${authentication}`,
   ];
 
-  if (options.ssl?.enabled) {
-    parts.push('Security=SSL');
-  }
+  appendDb2Ssl(parts, options, parsed.extras);
 
   const schemaName = schema?.trim() || options.schema?.trim();
   if (schemaName) {
@@ -58,10 +113,40 @@ export function buildDb2ConnectionString(options: ConnectionOptions, schema?: st
   return parts.join(';') + ';';
 }
 
+function appendDb2Ssl(
+  parts: string[],
+  options: ConnectionOptions,
+  extras: Map<string, string>
+): void {
+  const pastedSecurity = extras.get('SECURITY') ?? extras.get('SECURITYTRANSPORTMODE') ?? '';
+  const sslOn = Boolean(options.ssl?.enabled) || /^ssl$/i.test(pastedSecurity);
+  if (!sslOn) return;
+
+  parts.push('Security=SSL');
+
+  const ca = options.ssl?.ca?.trim();
+  if (ca && !db2CaLooksLikePem(ca)) {
+    parts.push(`SSLServerCertificate=${odbcEscape(ca)}`);
+  } else if (!ca || !db2CaLooksLikePem(ca)) {
+    const pastedCert = extras.get('SSLSERVERCERTIFICATE');
+    if (pastedCert) parts.push(`SSLServerCertificate=${odbcEscape(pastedCert)}`);
+  }
+
+  for (const { key, out } of PASTED_SSL_KEYWORDS) {
+    if (key === 'SSLSERVERCERTIFICATE') continue;
+    const value = extras.get(key);
+    if (value) parts.push(`${out}=${odbcEscape(value)}`);
+  }
+}
+
 /** ODBC brace-escape so values containing `;` or `}` do not truncate the string. */
 export function odbcEscape(value: string): string {
   if (!/[;{}]/.test(value) && value === value.trim()) return value;
   return `{${value.replace(/}/g, '}}')}}`;
+}
+
+function emptyExtras(): Map<string, string> {
+  return new Map();
 }
 
 function parseDb2ConnectionInput(
@@ -73,12 +158,13 @@ function parseDb2ConnectionInput(
   database: string;
   username: string;
   password: string;
+  extras: Map<string, string>;
 } {
   if (connectionString?.trim()) {
     const trimmed = connectionString.trim();
 
     if (/^db2:\/\//i.test(trimmed)) {
-      return parseDb2Url(trimmed);
+      return { ...parseDb2Url(trimmed), extras: emptyExtras() };
     }
 
     if (/DATABASE\s*=/i.test(trimmed)) {
@@ -92,6 +178,7 @@ function parseDb2ConnectionInput(
     database: options.database ?? '',
     username: options.username ?? '',
     password: options.password ?? '',
+    extras: emptyExtras(),
   };
 }
 
@@ -174,6 +261,7 @@ function parseDb2Semicolon(
   database: string;
   username: string;
   password: string;
+  extras: Map<string, string>;
 } {
   const map = parseDb2SemicolonMap(connStr);
 
@@ -183,5 +271,6 @@ function parseDb2Semicolon(
     port: Number(map.get('PORT') ?? fallback.port ?? 50000),
     username: map.get('UID') ?? fallback.username ?? '',
     password: map.get('PWD') ?? fallback.password ?? '',
+    extras: map,
   };
 }

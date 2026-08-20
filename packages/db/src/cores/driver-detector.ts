@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 import type { DriverInfo } from '@foxschema/sql';
 import { getAdapter, ADAPTERS } from '../providers/adapter-registry';
-import { setupDb2ClientEnv } from '../providers/db2/db2.env';
+import { hasDb2Clidriver, setupDb2ClientEnv } from '../providers/db2/db2.env';
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -23,7 +23,23 @@ export class DriverDetector {
   private static checkPackage(dialect: string, packageName: string): DriverInfo {
     // ibm_db's native bindings need the bundled clidriver on PATH/LD_LIBRARY_PATH
     // (especially on Windows) — same setup the DB2 adapter runs before open().
-    if (packageName === 'ibm_db') setupDb2ClientEnv();
+    if (packageName === 'ibm_db') {
+      setupDb2ClientEnv();
+      // `require('ibm_db')` can still throw a bindings-path dump when scripts
+      // were skipped. Prefer the clidriver check so the UI does not say
+      // "Driver ready" and the Install hint names the missing download.
+      if (!hasDb2Clidriver()) {
+        return {
+          provider: dialect,
+          packageName,
+          installed: false,
+          installCommand:
+            'foxschema drivers install db2   # or: npm install ibm_db@4.0.1 --foreground-scripts -w @foxschema/db',
+          error:
+            'ibm_db is present but the DB2 clidriver was not downloaded (install scripts were skipped).',
+        };
+      }
+    }
 
     try {
       const mod = nodeRequire(packageName);

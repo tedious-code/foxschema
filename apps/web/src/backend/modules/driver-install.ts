@@ -170,10 +170,14 @@ export type NpmInstallResult = {
  * from a user or CI .npmrc in force — install scripts stay skipped, ibm_db's
  * clidriver never downloads, and the driver installs "successfully" while
  * being unusable. Verified on npm 11.6.2: `''` skips, `'false'` runs.
+ *
+ * npm 11+ `allow-scripts` is a separate allowlist. An empty allowlist skips
+ * ibm_db's postinstall even when ignore-scripts is false.
  */
-const NPM_SCRIPTS_ON_ENV = {
+export const DRIVER_NPM_INSTALL_ENV = {
   npm_config_ignore_scripts: 'false',
   npm_config_foreground_scripts: 'true',
+  npm_config_dangerously_allow_all_scripts: 'true',
 } as const;
 
 /** Spawn npm with install scripts forced on, resolving rather than throwing. */
@@ -186,7 +190,7 @@ function runNpm(
     const proc = spawn('npm', args, {
       cwd,
       stdio: 'pipe',
-      env: { ...process.env, ...NPM_SCRIPTS_ON_ENV },
+      env: { ...process.env, ...DRIVER_NPM_INSTALL_ENV },
       shell: process.platform === 'win32',
     });
     let stdout = '';
@@ -214,6 +218,75 @@ function runNpm(
       resolvePromise({ ok: code === 0, code, stdout, stderr, cwd, args, manualCommand });
     });
   });
+}
+
+/** Spawn `node` in a package directory (ibm_db postinstall, ignoring npm allow-scripts). */
+function runNode(
+  args: string[],
+  cwd: string,
+  manualCommand: string
+): Promise<NpmInstallResult> {
+  return new Promise((resolvePromise) => {
+    const proc = spawn(process.execPath, args, {
+      cwd,
+      stdio: 'pipe',
+      env: { ...process.env, ...DRIVER_NPM_INSTALL_ENV },
+    });
+    let stdout = '';
+    let stderr = '';
+    proc.stdout?.on('data', (d: Buffer) => {
+      stdout += d.toString();
+    });
+    proc.stderr?.on('data', (d: Buffer) => {
+      stderr += d.toString();
+    });
+    proc.on('error', (err: Error) => {
+      resolvePromise({
+        ok: false,
+        code: null,
+        stdout,
+        stderr: stderr || err.message,
+        cwd,
+        args,
+        manualCommand,
+      });
+    });
+    proc.on('close', (code) => {
+      resolvePromise({ ok: code === 0, code, stdout, stderr, cwd, args, manualCommand });
+    });
+  });
+}
+
+/** Directory of the resolved `ibm_db` package, or null if it is not installed. */
+export function ibmDbPackageDir(): string | null {
+  try {
+    return dirname(nodeRequire.resolve('ibm_db/package.json'));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * ibm_db's postinstall is `node installer/driverInstall.js`. npm 11 can skip
+ * that even with `--foreground-scripts` when `allow-scripts` is empty. Running
+ * the script from the package dir downloads clidriver and builds bindings.
+ */
+export function runIbmDbDriverInstallJs(): Promise<NpmInstallResult> {
+  const dir = ibmDbPackageDir();
+  const args = ['installer/driverInstall.js'];
+  const manualCommand = 'node installer/driverInstall.js';
+  if (!dir) {
+    return Promise.resolve({
+      ok: false,
+      code: null,
+      stdout: '',
+      stderr: 'ibm_db is not installed; cannot run installer/driverInstall.js',
+      cwd: process.cwd(),
+      args,
+      manualCommand,
+    });
+  }
+  return runNode(args, dir, manualCommand);
 }
 
 /** Run `npm install <spec> --foreground-scripts` into the resolved target. */
@@ -324,6 +397,11 @@ export async function installAndVerifyDriver(
         ? ['rebuild', 'ibm_db', '--foreground-scripts', '-w', target.workspacePkg ?? '@foxschema/db']
         : ['rebuild', 'ibm_db', '--foreground-scripts', '--prefix', target.cwd];
     result = await runNpm(rebuildArgs, target.cwd, `npm ${rebuildArgs.join(' ')}`);
+    verify = verifyInstalledDriver(packageName);
+  }
+
+  if (!verify.ok && packageName === 'ibm_db' && verify.needsClidriverRebuild) {
+    result = await runIbmDbDriverInstallJs();
     verify = verifyInstalledDriver(packageName);
   }
 
