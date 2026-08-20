@@ -4,10 +4,11 @@ import {
   db2CaLooksLikePem,
   odbcEscape,
   parseDb2SemicolonMap,
+  withDb2Authentication,
 } from './db2.connection.js';
 
 describe('buildDb2ConnectionString', () => {
-  it('always injects Authentication=SERVER', () => {
+  it('defaults to SERVER_ENCRYPT (DBeaver Database Native / modern LUW)', () => {
     const cs = buildDb2ConnectionString({
       host: 'db.example',
       port: 50000,
@@ -15,19 +16,20 @@ describe('buildDb2ConnectionString', () => {
       username: 'db2inst1',
       password: 'secret',
     });
-    expect(cs).toContain('Authentication=SERVER');
+    expect(cs).toContain('Authentication=SERVER_ENCRYPT');
     expect(cs).toContain('DATABASE=SAMPLE');
     expect(cs).toContain('HOSTNAME=db.example');
     expect(cs).toContain('UID=db2inst1');
     expect(cs).toContain('PWD=secret');
   });
 
-  it('normalizes a pasted semicolon string and still forces Authentication=SERVER', () => {
+  it('keeps Authentication from a pasted CLI string', () => {
     const cs = buildDb2ConnectionString({
       connectionString:
-        'DATABASE=SAMPLE;HOSTNAME=h;PORT=50000;PROTOCOL=TCPIP;UID=u;PWD=p;',
+        'DATABASE=SAMPLE;HOSTNAME=h;PORT=50000;PROTOCOL=TCPIP;UID=u;PWD=p;Authentication=SERVER;',
     });
-    expect(cs).toMatch(/Authentication=SERVER/);
+    expect(cs).toMatch(/Authentication=SERVER;/);
+    expect(cs).not.toContain('SERVER_ENCRYPT');
     expect(cs).toContain('DATABASE=SAMPLE');
     expect(cs).toContain('UID=u');
   });
@@ -106,6 +108,14 @@ describe('buildDb2ConnectionString', () => {
     });
     expect(cs).toContain('Security=SSL');
     expect(cs).toContain('SSLServerCertificate=/tmp/s.pem');
+  });
+});
+
+describe('withDb2Authentication', () => {
+  it('swaps SERVER for SERVER_ENCRYPT', () => {
+    expect(
+      withDb2Authentication('DATABASE=D;Authentication=SERVER;', 'SERVER_ENCRYPT')
+    ).toBe('DATABASE=D;Authentication=SERVER_ENCRYPT;');
   });
 });
 

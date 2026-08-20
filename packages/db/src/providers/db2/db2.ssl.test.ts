@@ -8,9 +8,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  alternateDb2Authentication,
   explainDb2ConnectError,
   materializeDb2CaPem,
   resolveDb2SslConnectionString,
+  shouldRetryDb2Authentication,
 } from './db2.ssl';
 
 describe('resolveDb2SslConnectionString', () => {
@@ -58,5 +60,26 @@ describe('explainDb2ConnectError', () => {
   it('passes through unrelated errors', () => {
     const src = new Error('SQL30081N TCP/IP communication error');
     expect(explainDb2ConnectError(src, { ssl: { enabled: true } })).toBe(src);
+  });
+
+  it('translates SQL30082N reason 17 into an authentication hint', () => {
+    const err = explainDb2ConnectError(
+      new Error(
+        '[IBM][CLI Driver] SQL30082N  Security processing failed with reason "17" ("UNSUPPORTED FUNCTION").  SQLSTATE=08001'
+      ),
+      { ssl: { enabled: false } }
+    );
+    expect(err.message).toContain('SERVER_ENCRYPT');
+    expect(err.message).toContain('not TLS');
+  });
+});
+
+describe('alternateDb2Authentication', () => {
+  it('retries SERVER_ENCRYPT after SERVER', () => {
+    expect(shouldRetryDb2Authentication(new Error('SQL30082N reason "17"'))).toBe(true);
+    expect(alternateDb2Authentication('A=1;Authentication=SERVER;')).toContain('SERVER_ENCRYPT');
+    expect(alternateDb2Authentication('A=1;Authentication=SERVER_ENCRYPT;')).toMatch(
+      /Authentication=SERVER;/
+    );
   });
 });

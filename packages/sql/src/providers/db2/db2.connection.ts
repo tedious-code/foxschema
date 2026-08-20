@@ -30,8 +30,9 @@ declare const URL: {
  * Build a DB2 CLI connection string (semicolon-delimited key=value pairs).
  * ibm_db does not accept db2:// URLs — those must be converted first.
  *
- * Authentication=SERVER is required by IBM to avoid SQL1042C on many setups
- * (especially Windows when GSKit / system CLI libraries pollute PATH).
+ * Authentication defaults to SERVER_ENCRYPT (DBeaver Database Native). Hard-coding
+ * SERVER made modern LUW return SQL30082N reason 17. The Node adapter retries
+ * the other type if the server refuses.
  *
  * ibm_db's GSKit wants a filesystem path. PEM pasted into `ssl.ca` is written
  * to a temp file in the Node adapter — do not put the PEM in the CLI string.
@@ -48,8 +49,39 @@ const PASTED_SSL_KEYWORDS: ReadonlyArray<{ key: string; out: string }> = [
   { key: 'SSLCLIENTLABEL', out: 'SSLClientLabel' },
 ];
 
+/** CLI values IBM accepts for userid/password auth (not Kerberos / IAM). */
+export type Db2Authentication = 'SERVER' | 'SERVER_ENCRYPT' | 'SERVER_ENCRYPT_AES';
+
+/**
+ * DBeaver "Database Native" negotiates encrypted password auth.
+ * ibm_db used to hard-code Authentication=SERVER, which modern LUW rejects
+ * with SQL30082N reason 17 (UNSUPPORTED FUNCTION) when the server is
+ * SERVER_ENCRYPT. Default to SERVER_ENCRYPT; honor a pasted/explicit value.
+ */
+export function resolveDb2Authentication(
+  options: ConnectionOptions,
+  extras?: Map<string, string>
+): Db2Authentication {
+  const explicit = String(options.authentication ?? extras?.get('AUTHENTICATION') ?? '')
+    .trim()
+    .toUpperCase();
+  if (explicit === 'SERVER' || explicit === 'SERVER_ENCRYPT' || explicit === 'SERVER_ENCRYPT_AES') {
+    return explicit;
+  }
+  return 'SERVER_ENCRYPT';
+}
+
+export function withDb2Authentication(connectionString: string, authentication: string): string {
+  const value = authentication.trim();
+  if (/Authentication\s*=/i.test(connectionString)) {
+    return connectionString.replace(/Authentication\s*=[^;]*/i, `Authentication=${value}`);
+  }
+  return `${connectionString.replace(/;+$/, '')};Authentication=${value};`;
+}
+
 export function buildDb2ConnectionString(options: ConnectionOptions, schema?: string): string {
   const parsed = parseDb2ConnectionInput(options.connectionString, options);
+  const authentication = resolveDb2Authentication(options, parsed.extras);
 
   const parts: string[] = [
     `DATABASE=${odbcEscape(parsed.database)}`,
@@ -58,7 +90,7 @@ export function buildDb2ConnectionString(options: ConnectionOptions, schema?: st
     'PROTOCOL=TCPIP',
     `UID=${odbcEscape(parsed.username)}`,
     `PWD=${odbcEscape(parsed.password)}`,
-    'Authentication=SERVER',
+    `Authentication=${authentication}`,
   ];
 
   appendDb2Ssl(parts, options, parsed.extras);

@@ -59,6 +59,16 @@ export function materializeDb2CaPem(pem: string): string {
 export function explainDb2ConnectError(error: unknown, options: ConnectionOptions): Error {
   const original = error instanceof Error ? error : new Error(String(error));
   const text = original.message || String(error);
+
+  if (/SQL30082N/i.test(text) && /reason\s*"17"/i.test(text)) {
+    return new Error(
+      'Db2 rejected the client authentication type (SQL30082N reason 17, UNSUPPORTED FUNCTION). ' +
+        'This is not TLS — DBeaver “Database Native” encrypts the userid/password (SERVER_ENCRYPT). ' +
+        'FoxSchema now sends SERVER_ENCRYPT first and retries SERVER if the server refuses. ' +
+        `Original: ${text}`
+    );
+  }
+
   const catalogGap = /SQL0969N|-842216502|SQLJCMN/i.test(text);
   if (!catalogGap) return original;
 
@@ -69,4 +79,23 @@ export function explainDb2ConnectError(error: unknown, options: ConnectionOption
   return new Error(
     `Db2 CLI has no message text for this error on this workstation. ${sslHint} Original: ${text}`
   );
+}
+
+/** SQL30082N 17 = auth type mismatch; SQL1042C = GSKit often needed for SERVER_ENCRYPT. */
+export function shouldRetryDb2Authentication(error: unknown): boolean {
+  const text = error instanceof Error ? error.message : String(error);
+  if (/SQL30082N/i.test(text) && /reason\s*"17"/i.test(text)) return true;
+  return /SQL1042C/i.test(text);
+}
+
+export function alternateDb2Authentication(connectionString: string): string | null {
+  const match = /Authentication\s*=([^;]*)/i.exec(connectionString);
+  const current = (match?.[1] ?? '').trim().toUpperCase();
+  if (current === 'SERVER') {
+    return connectionString.replace(/Authentication\s*=[^;]*/i, 'Authentication=SERVER_ENCRYPT');
+  }
+  if (current === 'SERVER_ENCRYPT' || current === 'SERVER_ENCRYPT_AES') {
+    return connectionString.replace(/Authentication\s*=[^;]*/i, 'Authentication=SERVER');
+  }
+  return null;
 }
