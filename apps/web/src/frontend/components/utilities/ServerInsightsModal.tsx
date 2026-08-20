@@ -27,7 +27,7 @@ import { fetchDbaUtility, type DbaUtilityResponse } from '../../api/schemaApi';
 import { useSyncStore } from '../../store/useSyncStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
 import { PROVIDER_SETTINGS } from '../../lib/provider-settings';
-import { TableIndexSizeTree } from './TableIndexSizeTree';
+import { IndexManagementModal } from './IndexManagementModal';
 
 export type ServerInsightsTab = DbaUtilityKind;
 
@@ -83,7 +83,6 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<DbaUtilityResponse | null>(null);
-  const [sizeFilter, setSizeFilter] = useState('');
 
   useEffect(() => {
     if (!open) return;
@@ -95,7 +94,6 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
     setError(null);
     setData(null);
     setPasswordDraft('');
-    setSizeFilter('');
   }, [open, connections, initialTab]);
 
   const conn = connections.find((c) => c.id === connectionId) || null;
@@ -141,7 +139,8 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
   ]);
 
   useEffect(() => {
-    if (!open || !connectionId || needsPassword || !support.query) return;
+    if (!open || !connectionId || needsPassword || tab === 'sizes') return;
+    if (!support.query) return;
     void load();
     // Intentionally omit `load` — tab/connection changes already re-trigger.
   }, [open, connectionId, tab, needsPassword, support.query]);
@@ -174,7 +173,7 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
             <div className="min-w-0">
               <h2 className="text-sm font-bold text-slate-100">Server Insights</h2>
               <p className="text-[11px] text-slate-500 mt-0.5">
-                Connection pool, sessions, system resources, and object sizes
+                Connection pool, sessions, system resources, and Index Management
               </p>
             </div>
           </div>
@@ -238,7 +237,7 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
           <button
             type="button"
             data-testid="server-insights-refresh"
-            disabled={loading || !connectionId || needsPassword || !support.query}
+            disabled={loading || !connectionId || needsPassword || !support.query || tab === 'sizes'}
             onClick={() => void load()}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md border border-amber-500/40 bg-amber-500/15 text-amber-100 hover:bg-amber-500/25 disabled:opacity-50"
           >
@@ -270,11 +269,20 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
         </div>
 
         <div className="min-h-0 flex-1 flex flex-col overflow-hidden">
-          <div
-            className={`px-5 py-3 ${
-              tab === 'sizes' ? 'shrink-0' : 'min-h-0 flex-1 overflow-auto'
-            }`}
-          >
+          {tab === 'sizes' ? (
+            <>
+              <p className="shrink-0 px-5 pt-3 pb-1 text-[12px] text-slate-400">
+                Same Index Management grid — expand tables, sort columns, see sizes and
+                average fragmentation, and defragment indexes.
+              </p>
+              <IndexManagementModal
+                open={open}
+                embedded
+                lockedConnectionId={connectionId}
+              />
+            </>
+          ) : (
+          <div className="px-5 py-3 min-h-0 flex-1 overflow-auto">
           <p className="mb-3 text-[12px] text-slate-400">{support.hint}</p>
           {error && (
             <div className="mb-3 rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-[13px] text-rose-200">
@@ -387,35 +395,12 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
             </div>
           )}
 
-          {!loading && data?.kind === 'sizes' && (
-            <div className="space-y-3">
-              <input
-                data-testid="server-insights-size-filter"
-                value={sizeFilter}
-                onChange={(e) => setSizeFilter(e.target.value)}
-                placeholder="Filter tables / indexes…"
-                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-[13px] text-slate-100 outline-none focus:border-amber-500"
-              />
-            </div>
-          )}
-
-          {!loading && !error && support.query && !data && tab !== 'sizes' && (
+          {!loading && !error && support.query && !data && (
             <div className="flex items-center gap-2 text-[13px] font-semibold text-slate-500">
               <Database className="h-4 w-4 text-amber-400" /> Select a connection and refresh.
             </div>
           )}
           </div>
-
-          {tab === 'sizes' && !loading && data?.kind === 'sizes' && (
-            <div className="min-h-0 flex-1 flex flex-col overflow-hidden px-5 pb-3">
-              <TableIndexSizeTree rows={data.sizes ?? []} filter={sizeFilter} />
-            </div>
-          )}
-
-          {tab === 'sizes' && !loading && !error && support.query && !data && (
-            <div className="px-5 pb-3 flex items-center gap-2 text-[13px] font-semibold text-slate-500">
-              <Database className="h-4 w-4 text-amber-400" /> Select a connection and refresh.
-            </div>
           )}
         </div>
       </div>
