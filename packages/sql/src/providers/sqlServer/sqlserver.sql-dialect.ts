@@ -1,6 +1,14 @@
 import type { SqlDialect, ColumnSpec } from '../../modules/sql-dialect.interface.js';
 import type { IndexInfo, TableSchema } from '../../interfaces/index.js';
-import { makeDialectTypeFns, plain, sized, sizedOr, decimalAs, warn } from '../../modules/type-mapping.js';
+import {
+  makeDialectTypeFns,
+  plain,
+  sized,
+  sizedOr,
+  decimalAs,
+  warn,
+  tokenizeType,
+} from '../../modules/type-mapping.js';
 
 const types = makeDialectTypeFns({
   label: 'SQL Server',
@@ -12,6 +20,9 @@ const types = makeDialectTypeFns({
     bigint: 'bigint',
     decimal: 'decimal',
     numeric: 'decimal',
+    // MONEY / SMALLMONEY are fixed-scale decimals (19,4) / (10,4). Mapping them
+    // to bare `decimal` used to drop that size: MySQL then created DECIMAL(10,0)
+    // and silently truncated currency on cross-dialect migrate.
     money: 'decimal',
     smallmoney: 'decimal',
     real: 'real',
@@ -58,6 +69,16 @@ const types = makeDialectTypeFns({
     xml: plain('xml'),
   },
 });
+
+/** Attach the fixed MONEY/SMALLMONEY precision the bare parse map cannot express. */
+function parseSqlServerType(raw: string) {
+  const parsed = types.parseType(raw);
+  if (parsed.base !== 'decimal' || parsed.precision !== undefined) return parsed;
+  const name = tokenizeType(raw).name;
+  if (name === 'money') return { ...parsed, precision: 19, scale: 4 };
+  if (name === 'smallmoney') return { ...parsed, precision: 10, scale: 4 };
+  return parsed;
+}
 
 export const sqlServerSqlDialect: SqlDialect = {
   identityClause(c: ColumnSpec): string {
@@ -174,4 +195,5 @@ export const sqlServerSqlDialect: SqlDialect = {
   },
 
   ...types,
+  parseType: parseSqlServerType,
 };

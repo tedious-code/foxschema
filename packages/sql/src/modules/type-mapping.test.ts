@@ -65,6 +65,20 @@ describe('cross-dialect type translation', () => {
     expect(xlate(oracle, pg, 'CLOB').sql).toBe('text');
   });
 
+  it('SQL Server MONEY keeps currency scale on cross-dialect migrate', () => {
+    // Bare `decimal` on MySQL is DECIMAL(10,0) — truncates cents and large amounts.
+    expect(mssql.parseType('money')).toMatchObject({ base: 'decimal', precision: 19, scale: 4 });
+    expect(mssql.parseType('smallmoney')).toMatchObject({
+      base: 'decimal',
+      precision: 10,
+      scale: 4,
+    });
+    expect(xlate(mssql, mysql, 'money').sql).toBe('decimal(19,4)');
+    expect(xlate(mssql, mysql, 'smallmoney').sql).toBe('decimal(10,4)');
+    expect(xlate(mssql, pg, 'money').sql).toBe('numeric(19,4)');
+    expect(xlate(mssql, oracle, 'money').sql).toBe('NUMBER(19,4)');
+  });
+
   it('attaches a warning when the target has no exact equivalent', () => {
     // Postgres uuid → Oracle has no uuid type
     const r = xlate(pg, oracle, 'uuid');
