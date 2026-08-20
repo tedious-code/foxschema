@@ -140,6 +140,11 @@ export {
   normalizeSystemInfoRows,
   normalizeObjectSizeRows,
   formatBytes,
+  formatRowCount,
+  groupObjectSizes,
+  filterTableSizeGroups,
+  lookupTableSizeGroup,
+  lookupIndexSizeRow,
 } from './modules/dialect-dba-utilities.js';
 export type {
   DbaProbeMode,
@@ -150,6 +155,7 @@ export type {
   UserSessionRow,
   SystemInfoMetric,
   ObjectSizeRow,
+  TableSizeGroup,
 } from './modules/dialect-dba-utilities.js';
 export { findMissingFkTargets, findNarrowingTypeChanges, extractReviewNotices, validateMigrationPlan } from './modules/migration-validation.js';
 export type { ValidationIssue, ValidationSeverity, ValidationCode } from './modules/migration-validation.js';

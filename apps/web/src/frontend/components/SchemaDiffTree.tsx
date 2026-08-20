@@ -19,9 +19,21 @@
  * deploy; history uses the identical mechanism to pick objects to revert. Those
  * are the same gesture over the same shape, so they are the same code.
  */
-import React from 'react';
-import { Layers, Table2, Eye, FunctionSquare, SquareTerminal, Zap, Hash, Box, Users } from 'lucide-react';
-import type { TableDiff, DbObjectType } from '../lib/types';
+import React, { useState } from 'react';
+import {
+  Box,
+  ChevronDown,
+  ChevronRight,
+  Eye,
+  FunctionSquare,
+  Hash,
+  Layers,
+  SquareTerminal,
+  Table2,
+  Users,
+  Zap,
+} from 'lucide-react';
+import type { IndexDiff, TableDiff, DbObjectType } from '../lib/types';
 import { highlightMatch } from '../utils/highlight';
 
 export interface TypeMeta {
@@ -132,6 +144,20 @@ export interface SchemaDiffTreeProps {
   emptyMessage?: string;
 }
 
+function tableCanNestIndexes(table: TableDiff): boolean {
+  return table.objectType === 'TABLE' || table.objectType === 'MQT' || table.objectType === 'VIEW';
+}
+
+function indexDisplayName(idx: IndexDiff): string {
+  return idx.source?.name || idx.target?.name || idx.name;
+}
+
+function indexInfo(idx: IndexDiff): { columns: string[]; unique: boolean } | null {
+  const info = idx.source || idx.target;
+  if (!info) return null;
+  return { columns: info.columns ?? [], unique: !!info.unique };
+}
+
 export function SchemaDiffTree({
   tables,
   selectedName,
@@ -143,6 +169,12 @@ export function SchemaDiffTree({
   selectionTitle = 'Include this change',
   emptyMessage = 'No matching schema objects.',
 }: SchemaDiffTreeProps): React.ReactElement {
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  const toggleExpand = (tableName: string) => {
+    setExpanded((prev) => ({ ...prev, [tableName]: !prev[tableName] }));
+  };
+
   const groups = TYPE_ORDER.map((type) => ({
     type,
     items: tables.filter((t) => t.objectType === type),
@@ -156,7 +188,7 @@ export function SchemaDiffTree({
     <div className="space-y-3">
       {groups.map((group) => (
         <div key={group.type}>
-          <div className="flex items-center gap-2 px-2 py-1.5 mb-1">
+          <div className="flex items-center gap-2 px-2 py-1.5 mb-1 sticky top-0 z-[1] bg-slate-950/95">
             {TYPE_META[group.type].icon}
             <span
               className={`text-xs font-bold uppercase tracking-wider ${TYPE_META[group.type].color}`}
@@ -171,62 +203,136 @@ export function SchemaDiffTree({
             {group.items.map((table) => {
               const isSelected = selectedName === table.tableName;
               const matchedIn = matchLocationOf(table, query);
+              const nestIndexes = tableCanNestIndexes(table);
+              const isOpen = !!expanded[table.tableName];
+              const indexes = table.indexDiffs ?? [];
               return (
                 <div
                   key={table.tableName}
                   data-testid="diff-item"
                   data-object={table.tableName}
                   data-status={table.status}
-                  onClick={() => onSelect?.(table)}
-                  className={`group flex items-center justify-between p-2.5 rounded-lg border transition ${
-                    onSelect ? 'cursor-pointer' : ''
+                  data-expanded={nestIndexes ? (isOpen ? 'true' : 'false') : undefined}
+                  onClick={() => {
+                    onSelect?.(table);
+                    if (nestIndexes && !isOpen) toggleExpand(table.tableName);
+                  }}
+                  className={`rounded-lg border transition ${
+                    onSelect || nestIndexes ? 'cursor-pointer' : ''
                   } ${
                     isSelected
                       ? 'bg-slate-800/80 border-slate-700/80 shadow-md shadow-indigo-500/5'
                       : 'bg-slate-950/30 border-transparent hover:border-slate-800/80 hover:bg-slate-900/40'
                   }`}
                 >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    {selection && table.status !== 'UNCHANGED' ? (
-                      <input
-                        type="checkbox"
-                        checked={!!selection[table.tableName]}
-                        onChange={() => onToggleSelection?.(table.tableName)}
-                        onClick={(e) => e.stopPropagation()}
-                        title={selectionTitle}
-                        className="w-4 h-4 accent-cyan-500 cursor-pointer shrink-0"
-                      />
-                    ) : (
-                      <span className="w-4 shrink-0" />
-                    )}
-                    <span className="shrink-0">{TYPE_META[table.objectType].icon}</span>
-                    <div className="flex flex-col min-w-0">
-                      <span
-                        className={`text-sm font-semibold truncate ${
-                          isSelected ? 'text-slate-100' : 'text-slate-300 group-hover:text-slate-200'
-                        }`}
-                      >
-                        {highlightMatch(table.tableName, query)}
-                      </span>
-                      {matchedIn && (
-                        <span
-                          className="text-[10px] text-slate-500 truncate"
-                          title={`Search matched in ${matchedIn}`}
+                  <div className="group flex items-center justify-between p-2.5">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {nestIndexes ? (
+                        <button
+                          type="button"
+                          data-testid={`diff-item-expand-${table.tableName}`}
+                          aria-label={isOpen ? `Collapse ${table.tableName}` : `Expand ${table.tableName}`}
+                          aria-expanded={isOpen}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleExpand(table.tableName);
+                          }}
+                          className="p-0.5 text-slate-400 hover:text-slate-100 shrink-0"
                         >
-                          matched in {matchedIn}
+                          {isOpen ? (
+                            <ChevronDown className="w-4 h-4 text-sky-400" />
+                          ) : (
+                            <ChevronRight className="w-4 h-4 text-sky-400" />
+                          )}
+                        </button>
+                      ) : selection && table.status !== 'UNCHANGED' ? null : (
+                        <span className="w-5 shrink-0" />
+                      )}
+                      {selection && table.status !== 'UNCHANGED' ? (
+                        <input
+                          type="checkbox"
+                          checked={!!selection[table.tableName]}
+                          onChange={() => onToggleSelection?.(table.tableName)}
+                          onClick={(e) => e.stopPropagation()}
+                          title={selectionTitle}
+                          className="w-4 h-4 accent-cyan-500 cursor-pointer shrink-0"
+                        />
+                      ) : nestIndexes ? null : (
+                        <span className="w-4 shrink-0" />
+                      )}
+                      <span className="shrink-0">{TYPE_META[table.objectType].icon}</span>
+                      <div className="flex flex-col min-w-0">
+                        <span
+                          className={`text-sm font-semibold truncate ${
+                            isSelected ? 'text-slate-100' : 'text-slate-300 group-hover:text-slate-200'
+                          }`}
+                        >
+                          {highlightMatch(table.tableName, query)}
+                        </span>
+                        {matchedIn && (
+                          <span
+                            className="text-[10px] text-slate-500 truncate"
+                            title={`Search matched in ${matchedIn}`}
+                          >
+                            matched in {matchedIn}
+                          </span>
+                        )}
+                      </div>
+                      {nestIndexes && (
+                        <span className="text-[10px] font-mono text-slate-500 shrink-0">
+                          {indexes.length} idx
                         </span>
                       )}
                     </div>
-                  </div>
 
-                  {showStatusBadge && (
-                    <span
-                      className={`text-[10px] font-bold px-1.5 py-0.5 rounded border shrink-0 ml-2 ${statusBadgeClass(
-                        table.status
-                      )}`}
+                    {showStatusBadge && (
+                      <span
+                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded border shrink-0 ml-2 ${statusBadgeClass(
+                          table.status
+                        )}`}
+                      >
+                        {table.status}
+                      </span>
+                    )}
+                  </div>
+                  {nestIndexes && isOpen && (
+                    <ul
+                      className="border-t border-slate-800/80 px-2.5 py-1.5 ml-6 mb-1.5 space-y-0.5"
+                      data-testid={`diff-item-indexes-${table.tableName}`}
                     >
-                      {table.status}
-                    </span>
+                      <li className="text-[10px] font-bold uppercase tracking-wide text-indigo-400/90 pb-0.5">
+                        Indexes
+                      </li>
+                      {indexes.length === 0 ? (
+                        <li className="text-[11px] text-slate-600 italic">No indexes</li>
+                      ) : (
+                        indexes.map((idx) => {
+                          const info = indexInfo(idx);
+                          const label = indexDisplayName(idx);
+                          return (
+                            <li
+                              key={idx.name}
+                              className="text-[12px] font-mono text-slate-300 truncate"
+                              data-testid={`diff-item-index-${table.tableName}-${idx.name}`}
+                            >
+                              <span className="font-semibold">{highlightMatch(label, query)}</span>
+                              {info ? (
+                                <>
+                                  <span className="ml-1.5 text-[10px] font-bold uppercase font-sans text-indigo-300/80">
+                                    {info.unique ? 'unique' : 'non-unique'}
+                                  </span>
+                                  {info.columns.length > 0 ? (
+                                    <span className="text-slate-500 ml-1.5 font-sans text-[11px]">
+                                      ({info.columns.join(', ')})
+                                    </span>
+                                  ) : null}
+                                </>
+                              ) : null}
+                            </li>
+                          );
+                        })
+                      )}
+                    </ul>
                   )}
                 </div>
               );

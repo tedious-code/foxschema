@@ -22,10 +22,18 @@ import {
 } from 'lucide-react';
 import {
   buildIndexDefragSql,
+  dialectSupportsDbaUtility,
   dialectSupportsIndexFragmentation,
+  formatBytes,
+  formatRowCount,
   fragmentationSeverity,
+  groupObjectSizes,
+  lookupIndexSizeRow,
+  lookupTableSizeGroup,
+  type TableSizeGroup,
 } from '@foxschema/sql';
 import {
+  fetchDbaUtility,
   fetchIndexFragmentationBatch,
   matchIndexFragmentationRow,
   type IndexFragmentationApiRow,
@@ -83,6 +91,7 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
   const [fragByKey, setFragByKey] = useState<
     Record<string, { frag: IndexFragmentationApiRow | null; defragSql: string[]; tableError?: string }>
   >({});
+  const [sizeGroups, setSizeGroups] = useState<TableSizeGroup[]>([]);
   const [loadingSchema, setLoadingSchema] = useState(false);
   const [loadingFrag, setLoadingFrag] = useState(false);
   const [runningDefrag, setRunningDefrag] = useState(false);
@@ -105,6 +114,7 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
     setError(null);
     setStatus(null);
     setFragByKey({});
+    setSizeGroups([]);
     setSelected(new Set());
   }, [open, connections]);
 
@@ -305,6 +315,26 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
     ]
   );
 
+  const fetchSizes = useCallback(async () => {
+    if (!connectionId || !conn || needsPassword) return;
+    if (!dialectSupportsDbaUtility(conn.dialect, 'sizes').query) {
+      setSizeGroups([]);
+      return;
+    }
+    try {
+      const result = await fetchDbaUtility(
+        {
+          connectionId,
+          password: sessionPasswords[connectionId] || undefined,
+        },
+        { kind: 'sizes', schema: conn.schema?.trim() || undefined }
+      );
+      setSizeGroups(groupObjectSizes(result.sizes ?? []));
+    } catch {
+      setSizeGroups([]);
+    }
+  }, [connectionId, conn, needsPassword, sessionPasswords]);
+
   const loadSchema = useCallback(
     async (opts?: { force?: boolean }) => {
       if (!connectionId) return;
@@ -326,12 +356,15 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
           .sort((a, b) => a.name.localeCompare(b.name));
         const n = tables.reduce((acc, t) => acc + (t.indices?.length ?? 0), 0);
         setStatus(`Loaded ${n} index(es) from schema catalog.`);
-        setExpanded(new Set(tables.slice(0, 12).map((t) => t.name)));
+        setExpanded(new Set(tables.map((t) => t.name)));
         setLoadingSchema(false);
+        const extra: Promise<void>[] = [];
+        extra.push(fetchSizes());
         // Same path as Edit Table: load % automatically so Utilities is not empty.
         if (tables.length > 0 && conn && !needsPassword) {
-          await fetchFragmentation(tables);
+          extra.push(fetchFragmentation(tables));
         }
+        await Promise.all(extra);
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : String(err));
       } finally {
@@ -345,6 +378,7 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
       conn,
       needsPassword,
       fetchFragmentation,
+      fetchSizes,
     ]
   );
 
@@ -462,7 +496,7 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
       onClick={onClose}
     >
       <div
-        className="w-full max-w-5xl max-h-[90vh] flex flex-col bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden"
+        className="w-full max-w-6xl max-h-[90vh] flex flex-col bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-800 bg-slate-950/50 shrink-0">
@@ -472,8 +506,9 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
               Index Management
             </h2>
             <p className="text-[11px] text-slate-500 mt-0.5">
-              Indexes grouped under each table. Expand a table to see its indexes; the header stays
-              frozen while you scroll.
+              Indexes grouped under each table. Click a table to expand its indexes.
+              Row counts, data size, and index size load with the catalog (when the dialect
+              supports them). The header stays frozen while you scroll.
             </p>
           </div>
           <button
@@ -500,6 +535,7 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
                   setConnectionId(id);
                   localStorage.setItem(LS_CONN, id);
                   setFragByKey({});
+                  setSizeGroups([]);
                   setSelected(new Set());
                   setPasswordDraft('');
                   setError(null);
@@ -695,9 +731,12 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
                   data-testid="index-mgmt-table-header"
                 >
                   <th className="w-8 pl-3 pr-1 py-2 font-bold" aria-label="Select" />
-                  <th className="px-2 py-2 font-bold">Index</th>
+                  <th className="px-2 py-2 font-bold">Table / index</th>
                   <th className="px-2 py-2 font-bold hidden sm:table-cell">Columns</th>
                   <th className="px-2 py-2 font-bold w-28">Type</th>
+                  <th className="px-2 py-2 font-bold w-24 text-right">Rows</th>
+                  <th className="px-2 py-2 font-bold w-24 text-right">Data</th>
+                  <th className="px-2 py-2 font-bold w-24 text-right">Index size</th>
                   <th className="px-2 py-2 font-bold w-16 text-right">Frag %</th>
                   <th className="px-3 py-2 font-bold w-28 text-right"> </th>
                 </tr>
@@ -709,17 +748,19 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
                   const tableAllSelected =
                     tableKeys.length > 0 && tableKeys.every((k) => selected.has(k));
                   const tableSomeSelected = tableKeys.some((k) => selected.has(k));
+                  const size = lookupTableSizeGroup(sizeGroups, tableName, conn?.schema);
                   return (
                     <React.Fragment key={tableName}>
                       <tr
-                        className="bg-slate-900/90 border-y border-slate-800"
+                        className="bg-slate-900/90 border-y border-slate-800 cursor-pointer"
                         data-testid={`index-mgmt-group-${tableName}`}
+                        data-expanded={openGroup ? 'true' : 'false'}
+                        onClick={() => toggleExpand(tableName)}
                       >
-                        <td colSpan={6} className="px-2 py-1.5">
-                          <div className="flex items-center gap-2 min-w-0">
+                        <td className="pl-3 pr-1 py-1.5">
+                          <div className="flex items-center gap-1.5">
                             <button
                               type="button"
-                              onClick={() => toggleExpand(tableName)}
                               className="p-0.5 text-slate-400 hover:text-slate-100 shrink-0"
                               aria-expanded={openGroup}
                               aria-label={openGroup ? `Collapse ${tableName}` : `Expand ${tableName}`}
@@ -732,7 +773,8 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
                             </button>
                             <button
                               type="button"
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 setSelected((prev) => {
                                   const next = new Set(prev);
                                   if (tableAllSelected) {
@@ -754,24 +796,47 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
                                 <Square className="w-3.5 h-3.5" />
                               )}
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => toggleExpand(tableName)}
-                              className="flex-1 flex items-center gap-2 min-w-0 text-left hover:text-amber-100"
-                            >
-                              <span className="font-mono text-sm font-semibold text-slate-100 truncate">
-                                {tableName}
-                              </span>
-                              <span className="text-[11px] text-slate-500 shrink-0">
-                                {rows.length} index{rows.length === 1 ? '' : 'es'}
-                              </span>
-                            </button>
                           </div>
                         </td>
+                        <td className="px-2 py-1.5 min-w-0">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="font-mono text-sm font-semibold text-slate-100 truncate">
+                              {tableName}
+                            </span>
+                            <span className="text-[11px] text-slate-500 shrink-0">
+                              {rows.length} index{rows.length === 1 ? '' : 'es'}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-2 py-1.5 hidden sm:table-cell" />
+                        <td className="px-2 py-1.5 text-[10px] font-bold uppercase text-cyan-300/80">
+                          table
+                        </td>
+                        <td
+                          className="px-2 py-1.5 text-right tabular-nums font-semibold text-slate-100"
+                          data-testid={`index-mgmt-table-rows-${tableName}`}
+                        >
+                          {formatRowCount(size?.rowCount)}
+                        </td>
+                        <td
+                          className="px-2 py-1.5 text-right tabular-nums text-slate-200"
+                          data-testid={`index-mgmt-table-data-${tableName}`}
+                        >
+                          {formatBytes(size?.dataBytes)}
+                        </td>
+                        <td
+                          className="px-2 py-1.5 text-right tabular-nums text-slate-200"
+                          data-testid={`index-mgmt-table-index-size-${tableName}`}
+                        >
+                          {formatBytes(size?.indexBytes)}
+                        </td>
+                        <td />
+                        <td />
                       </tr>
                       {openGroup &&
                         rows.map((row) => {
                           const severity = fragmentationSeverity(row.frag?.fragmentationPercent);
+                          const idxSize = lookupIndexSizeRow(size, row.index.name);
                           return (
                             <tr
                               key={row.key}
@@ -822,6 +887,15 @@ export const IndexManagementModal: React.FC<Props> = ({ open, onClose }) => {
                                     constraint
                                   </span>
                                 ) : null}
+                              </td>
+                              <td className="px-2 py-2 align-top text-right tabular-nums text-slate-400">
+                                {formatRowCount(idxSize?.rowCount)}
+                              </td>
+                              <td className="px-2 py-2 align-top text-right tabular-nums text-slate-600">
+                                —
+                              </td>
+                              <td className="px-2 py-2 align-top text-right tabular-nums text-slate-200">
+                                {formatBytes(idxSize?.indexBytes ?? idxSize?.totalBytes)}
                               </td>
                               <td
                                 className={`px-2 py-2 align-top text-right font-bold tabular-nums ${fragClass(severity)}`}

@@ -27,6 +27,7 @@ import { fetchDbaUtility, type DbaUtilityResponse } from '../../api/schemaApi';
 import { useSyncStore } from '../../store/useSyncStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
 import { PROVIDER_SETTINGS } from '../../lib/provider-settings';
+import { TableIndexSizeTree } from './TableIndexSizeTree';
 
 export type ServerInsightsTab = DbaUtilityKind;
 
@@ -153,17 +154,6 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
     setError(null);
   };
 
-  const filteredSizes = useMemo(() => {
-    const rows = data?.sizes ?? [];
-    const q = sizeFilter.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) =>
-      [r.schemaName, r.objectName, r.tableName, r.objectType]
-        .filter(Boolean)
-        .some((v) => String(v).toLowerCase().includes(q))
-    );
-  }, [data?.sizes, sizeFilter]);
-
   if (!open) return null;
 
   return createPortal(
@@ -175,7 +165,7 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
       }}
     >
       <div
-        className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-2xl"
+        className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-2xl"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-slate-800 bg-slate-950/50 px-5 py-3.5 shrink-0">
@@ -279,7 +269,12 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
           })}
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto px-5 py-3">
+        <div className="min-h-0 flex-1 flex flex-col overflow-hidden">
+          <div
+            className={`px-5 py-3 ${
+              tab === 'sizes' ? 'shrink-0' : 'min-h-0 flex-1 overflow-auto'
+            }`}
+          >
           <p className="mb-3 text-[12px] text-slate-400">{support.hint}</p>
           {error && (
             <div className="mb-3 rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-[13px] text-rose-200">
@@ -401,58 +396,24 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
                 placeholder="Filter tables / indexes…"
                 className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-[13px] text-slate-100 outline-none focus:border-amber-500"
               />
-              <div className="overflow-auto rounded-lg border border-slate-700">
-                <table className="min-w-full text-left text-[12px]">
-                  <thead className="bg-slate-950/60 text-slate-400">
-                    <tr>
-                      <th className="px-3 py-2 font-bold">Object</th>
-                      <th className="px-3 py-2 font-bold">Type</th>
-                      <th className="px-3 py-2 font-bold">Table</th>
-                      <th className="px-3 py-2 font-bold text-right">Total</th>
-                      <th className="px-3 py-2 font-bold text-right">Data</th>
-                      <th className="px-3 py-2 font-bold text-right">Index</th>
-                      <th className="px-3 py-2 font-bold text-right">Rows</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredSizes.length === 0 ? (
-                      <tr>
-                        <td colSpan={7} className="px-3 py-6 text-center text-slate-500">
-                          No size rows returned.
-                        </td>
-                      </tr>
-                    ) : (
-                      filteredSizes.map((r, i) => (
-                        <tr key={`${r.schemaName}-${r.objectName}-${i}`} className="border-t border-slate-800">
-                          <td className="px-3 py-1.5 font-semibold text-slate-100">
-                            {r.schemaName ? `${r.schemaName}.` : ''}
-                            {r.objectName}
-                          </td>
-                          <td className="px-3 py-1.5 text-slate-400">{r.objectType}</td>
-                          <td className="px-3 py-1.5 text-slate-400">{r.tableName || '—'}</td>
-                          <td className="px-3 py-1.5 text-right tabular-nums font-semibold text-slate-100">
-                            {formatBytes(r.totalBytes)}
-                          </td>
-                          <td className="px-3 py-1.5 text-right tabular-nums text-slate-400">
-                            {formatBytes(r.dataBytes)}
-                          </td>
-                          <td className="px-3 py-1.5 text-right tabular-nums text-slate-400">
-                            {formatBytes(r.indexBytes)}
-                          </td>
-                          <td className="px-3 py-1.5 text-right tabular-nums text-slate-400">
-                            {r.rowCount?.toLocaleString() ?? '—'}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
             </div>
           )}
 
-          {!loading && !error && support.query && !data && (
+          {!loading && !error && support.query && !data && tab !== 'sizes' && (
             <div className="flex items-center gap-2 text-[13px] font-semibold text-slate-500">
+              <Database className="h-4 w-4 text-amber-400" /> Select a connection and refresh.
+            </div>
+          )}
+          </div>
+
+          {tab === 'sizes' && !loading && data?.kind === 'sizes' && (
+            <div className="min-h-0 flex-1 flex flex-col overflow-hidden px-5 pb-3">
+              <TableIndexSizeTree rows={data.sizes ?? []} filter={sizeFilter} />
+            </div>
+          )}
+
+          {tab === 'sizes' && !loading && !error && support.query && !data && (
+            <div className="px-5 pb-3 flex items-center gap-2 text-[13px] font-semibold text-slate-500">
               <Database className="h-4 w-4 text-amber-400" /> Select a connection and refresh.
             </div>
           )}
