@@ -1,5 +1,5 @@
 import type { SqlDialect, ColumnSpec } from '../../modules/sql-dialect.interface.js';
-import { makeDialectTypeFns, plain, sized, sizedOr, decimalAs, warn } from '../../modules/type-mapping.js';
+import { makeDialectTypeFns, plain, sized, sizedOr, decimalAs, temporalAsMax, warn } from '../../modules/type-mapping.js';
 
 const types = makeDialectTypeFns({
   label: 'MySQL',
@@ -58,9 +58,20 @@ const types = makeDialectTypeFns({
     varbinary: sizedOr('varbinary', 'varbinary(255)', 'MySQL VARBINARY requires a length; defaulted to varbinary(255)'),
     blob: plain('blob'),
     date: plain('date'),
-    time: plain('time'),
-    timestamp: plain('datetime'),
-    timestamptz: warn('timestamp', 'MySQL TIMESTAMP is stored as UTC; review timezone semantics'),
+    // Bare datetime/time ≡ fsp 0. Preserve source fsp when present; MySQL max is 6
+    // (SQL Server datetime2(7) must clamp or CREATE TABLE fails).
+    time: temporalAsMax('time', 6),
+    timestamp: temporalAsMax('datetime', 6),
+    timestamptz: (t) => {
+      const rendered = temporalAsMax('timestamp', 6)(t);
+      if (typeof rendered === 'string') {
+        return { sql: rendered, warning: 'MySQL TIMESTAMP is stored as UTC; review timezone semantics' };
+      }
+      return {
+        sql: rendered.sql,
+        warning: `${rendered.warning}; MySQL TIMESTAMP is stored as UTC; review timezone semantics`,
+      };
+    },
     uuid: warn('char(36)', 'MySQL has no uuid type; mapped to char(36)'),
     json: plain('json'),
     xml: warn('longtext', 'MySQL has no xml type; mapped to longtext'),

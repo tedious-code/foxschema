@@ -1,6 +1,6 @@
 import type { SqlDialect, ColumnSpec } from '../../modules/sql-dialect.interface.js';
 import type { TableSchema } from '../../interfaces/index.js';
-import { makeDialectTypeFns, plain, sized, sizedOr, decimalAs, warn } from '../../modules/type-mapping.js';
+import { makeDialectTypeFns, plain, sized, sizedOr, decimalAs, temporalAs, warn } from '../../modules/type-mapping.js';
 
 const types = makeDialectTypeFns({
   label: 'Oracle',
@@ -56,8 +56,11 @@ const types = makeDialectTypeFns({
     blob: plain('BLOB'),
     date: plain('DATE'),
     time: warn('TIMESTAMP', 'Oracle has no time-only type; mapped to TIMESTAMP'),
-    timestamp: plain('TIMESTAMP'),
-    timestamptz: plain('TIMESTAMP WITH TIME ZONE'),
+    timestamp: temporalAs('TIMESTAMP'),
+    timestamptz: (t) =>
+      t.length !== undefined
+        ? `TIMESTAMP(${t.length}) WITH TIME ZONE`
+        : 'TIMESTAMP WITH TIME ZONE',
     uuid: warn('VARCHAR2(36)', 'Oracle has no uuid type; mapped to VARCHAR2(36)'),
     json: warn('CLOB', 'Oracle (pre-21c) has no json type; mapped to CLOB'),
     xml: plain('XMLTYPE'),

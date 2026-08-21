@@ -68,6 +68,12 @@ function shapeCanonical(base: CanonicalBase, tok: TypeToken, raw: string): Canon
   const t: CanonicalType = { base, raw: raw.trim() };
   if (base === 'char' || base === 'varchar' || base === 'binary' || base === 'varbinary') {
     if (tok.length !== undefined) t.length = tok.length;
+  } else if (base === 'time' || base === 'timestamp' || base === 'timestamptz') {
+    // Fractional-seconds precision is tokenized as a single parenthetical
+    // length (`timestamp(6)`, `datetime2(7)`, `time(3)`). Dropping it made
+    // MySQL/MariaDB render bare `datetime`/`time` (= fsp 0) and silently
+    // truncate sub-second values on cross-dialect migrate.
+    if (tok.length !== undefined) t.length = tok.length;
   } else if (base === 'decimal') {
     // A single-argument `NUMBER(10)` / `DECIMAL(10)` tokenizes as a *length*,
     // because the tokenizer cannot know which types read one arg as a
@@ -111,6 +117,26 @@ export const plain = (kw: string): RenderRule => () => kw;
 /** Renders `kw(length)` when a length is present, else bare `kw`. */
 export const sized = (kw: string): RenderRule => (t) => (t.length ? `${kw}(${t.length})` : kw);
 
+/**
+ * Like `sized`, but treats length `0` as significant (MySQL `datetime(0)` /
+ * `time(0)`). Plain `sized` uses truthiness and would drop fsp 0.
+ */
+export const temporalAs = (kw: string): RenderRule => (t) =>
+  t.length !== undefined ? `${kw}(${t.length})` : kw;
+
+/**
+ * Temporal render with an engine max fractional-seconds precision. Values above
+ * `maxFsp` are clamped and warned (e.g. SQL Server datetime2(7) → MySQL max 6).
+ */
+export const temporalAsMax = (kw: string, maxFsp: number): RenderRule => (t) => {
+  if (t.length === undefined) return kw;
+  if (t.length <= maxFsp) return `${kw}(${t.length})`;
+  return {
+    sql: `${kw}(${maxFsp})`,
+    warning: `${kw} fractional seconds capped at ${maxFsp}; source precision ${t.length} narrowed`,
+  };
+};
+
 /** Renders `kw(length)`, falling back to a fixed string (with optional warning) when unsized. */
 export const sizedOr = (kw: string, fallbackSql: string, fallbackWarn?: string): RenderRule => (t) =>
   t.length ? `${kw}(${t.length})` : fallbackWarn ? { sql: fallbackSql, warning: fallbackWarn } : fallbackSql;
@@ -130,6 +156,9 @@ export function canonicalEquals(a: CanonicalType, b: CanonicalType): boolean {
     case 'varchar':
     case 'binary':
     case 'varbinary':
+    case 'time':
+    case 'timestamp':
+    case 'timestamptz':
       return (a.length ?? null) === (b.length ?? null);
     case 'decimal':
       return (a.precision ?? null) === (b.precision ?? null) && (a.scale ?? null) === (b.scale ?? null);

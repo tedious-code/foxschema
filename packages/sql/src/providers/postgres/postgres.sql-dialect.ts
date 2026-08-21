@@ -1,6 +1,6 @@
 import type { SqlDialect, ColumnSpec } from '../../modules/sql-dialect.interface.js';
 import type { TableSchema } from '../../interfaces/index.js';
-import { makeDialectTypeFns, plain, sized, decimalAs } from '../../modules/type-mapping.js';
+import { makeDialectTypeFns, plain, sized, decimalAs, temporalAs } from '../../modules/type-mapping.js';
 
 const types = makeDialectTypeFns({
   label: 'PostgreSQL',
@@ -55,9 +55,9 @@ const types = makeDialectTypeFns({
     varbinary: plain('bytea'),
     blob: plain('bytea'),
     date: plain('date'),
-    time: plain('time'),
-    timestamp: plain('timestamp'),
-    timestamptz: plain('timestamptz'),
+    time: temporalAs('time'),
+    timestamp: temporalAs('timestamp'),
+    timestamptz: temporalAs('timestamptz'),
     uuid: plain('uuid'),
     json: plain('jsonb'),
     xml: plain('xml'),

@@ -42,7 +42,7 @@ export type CanonicalBase =
 /** A native column type normalized into the canonical model. */
 export interface CanonicalType {
   base: CanonicalBase;
-  length?: number; // char / varchar / binary
+  length?: number; // char / varchar / binary / temporal fractional-seconds precision
   precision?: number; // decimal
   scale?: number; // decimal
   /** Original native type string — used as fallback and in review comments. */
