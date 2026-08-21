@@ -6,11 +6,16 @@
 import { describe, expect, it } from 'vitest';
 import {
   activeAdminCount,
+  groupPermissionsForDisplay,
+  groupUsersByRole,
   permissionSetEqual,
+  roleGroupLabel,
+  ROLE_GROUP_ORDER,
   userActiveCheckboxLock,
   userRoleSelectLock,
 } from './adminAccess';
 import type { AdminUserLike } from './adminAccess';
+import { DEFAULT_ROLE_PERMISSIONS, type Permission } from '../../shared/permissions';
 
 const admin: AdminUserLike = { id: 'a', role: 'admin', active: true };
 const editor: AdminUserLike = { id: 'e', role: 'editor', active: true };
@@ -74,5 +79,53 @@ describe('last-admin / single-user locks', () => {
     expect(
       userActiveCheckboxLock(otherAdmin, { meId: admin.id, users: [admin, otherAdmin] }).disabled
     ).toBe(false);
+  });
+});
+
+describe('groupUsersByRole', () => {
+  it('lists Admin → Viewer and keeps empty groups by default', () => {
+    expect(ROLE_GROUP_ORDER).toEqual(['admin', 'owner', 'editor', 'viewer']);
+    const groups = groupUsersByRole([editor, admin]);
+    expect(groups.map((g) => g.role)).toEqual(['admin', 'owner', 'editor', 'viewer']);
+    expect(groups.map((g) => g.label)).toEqual(['Admin', 'Owner', 'Editor', 'Viewer']);
+    expect(groups.find((g) => g.role === 'admin')?.users).toEqual([admin]);
+    expect(groups.find((g) => g.role === 'editor')?.users).toEqual([editor]);
+    expect(groups.find((g) => g.role === 'owner')?.users).toEqual([]);
+  });
+
+  it('can omit empty groups', () => {
+    const groups = groupUsersByRole([editor], { includeEmpty: false });
+    expect(groups.map((g) => g.role)).toEqual(['editor']);
+  });
+});
+
+describe('groupPermissionsForDisplay', () => {
+  it('clusters grants under catalog groups and keeps unknown keys', () => {
+    const groups = groupPermissionsForDisplay([
+      'schema.browse',
+      'admin.users',
+      'editor.run',
+      'future.perm' as Permission,
+    ]);
+    expect(groups.map((g) => g.group)).toEqual(['Schema Sync', 'SQL Editor', 'Admin', 'Other']);
+    expect(groups[0].items.map((i) => i.label)).toEqual(['Browse schema']);
+    expect(groups[2].items.map((i) => i.label)).toEqual(['Manage users']);
+    expect(groups[3].items.map((i) => i.id)).toEqual(['future.perm']);
+  });
+
+  it('uses viewer defaults as a representative role set', () => {
+    const groups = groupPermissionsForDisplay(DEFAULT_ROLE_PERMISSIONS.viewer);
+    expect(groups.some((g) => g.group === 'Schema Sync')).toBe(true);
+    expect(groups.some((g) => g.group === 'Admin')).toBe(false);
+    expect(groups.flatMap((g) => g.items.map((i) => i.id))).toEqual(
+      expect.arrayContaining(DEFAULT_ROLE_PERMISSIONS.viewer)
+    );
+  });
+});
+
+describe('roleGroupLabel', () => {
+  it('title-cases built-in roles', () => {
+    expect(roleGroupLabel('admin')).toBe('Admin');
+    expect(roleGroupLabel('viewer')).toBe('Viewer');
   });
 });

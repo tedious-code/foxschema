@@ -33,6 +33,7 @@ const localUser = {
   role: 'admin' as const,
   active: true,
   createdAt: '2026-01-01T00:00:00.000Z',
+  permissions: [...DEFAULT_ROLE_PERMISSIONS.admin],
 };
 
 beforeEach(() => {
@@ -162,5 +163,36 @@ describe('AdminAccessPanel', () => {
     await waitFor(() => expect(screen.getByTestId('admin-tab-roles')).toBeTruthy());
     expect(screen.queryByTestId('admin-tab-users')).toBeNull();
     expect(screen.getByTestId('admin-edit-role-editor')).toBeTruthy();
+  });
+
+  it('groups users by role and expands to show permission labels', async () => {
+    const editorUser = {
+      id: 'ed-1',
+      email: 'ed@example.com',
+      role: 'editor' as const,
+      active: true,
+      createdAt: '2026-01-02T00:00:00.000Z',
+      permissions: [...DEFAULT_ROLE_PERMISSIONS.editor],
+    };
+    apiAdminListUsers.mockResolvedValue({ users: [localUser, editorUser] });
+    useAuthStore.setState({ localSingleUser: false });
+
+    render(<AdminAccessPanel open onClose={() => undefined} />);
+
+    await waitFor(() => expect(screen.getByTestId('admin-user-group-admin')).toBeTruthy());
+    expect(screen.getByTestId('admin-user-group-editor').textContent).toMatch(/1 user/i);
+    expect(screen.getByTestId('admin-user-group-empty-owner').textContent).toMatch(/no users/i);
+    expect(screen.getByTestId('admin-user-group-empty-viewer').textContent).toMatch(/no users/i);
+
+    expect(screen.getByTestId(`admin-user-perm-count-${localUser.id}`).textContent).toMatch(
+      /permission/i
+    );
+    expect(screen.getByTestId(`admin-user-perms-${localUser.id}`).textContent).toMatch(/Manage users/);
+    expect(screen.getByTestId(`admin-user-perm-${localUser.id}-admin.users`)).toBeTruthy();
+
+    expect(screen.queryByTestId(`admin-user-perms-${editorUser.id}`)).toBeNull();
+    fireEvent.click(screen.getByTestId(`admin-user-expand-${editorUser.id}`));
+    expect(screen.getByTestId(`admin-user-perms-${editorUser.id}`).textContent).toMatch(/Change data/);
+    expect(screen.queryByTestId(`admin-user-perm-${editorUser.id}-admin.users`)).toBeNull();
   });
 });
