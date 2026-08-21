@@ -82,42 +82,42 @@ const SUPPORT: Record<string, IndexFragmentationSupport> = {
     mode: 'physical',
     query: true,
     defrag: true,
-    hint: 'PostgreSQL: leaf_fragmentation via pgstatindex, from the pgstattuple extension. Install it with CREATE EXTENSION pgstattuple; falls back to custom SQL on failure.',
+    hint: 'PostgreSQL: leaf_fragmentation via pgstatindex (pgstattuple extension). Last used from pg_stat_user_indexes.last_idx_scan on PG 16+; idx_scan on older servers.',
     customSqlHint: CUSTOM_HINT,
   },
   cockroachdb: {
     mode: 'estimated',
     query: true,
     defrag: true,
-    hint: 'CockroachDB: tries the pgstatindex probe; often needs custom SQL.',
+    hint: 'CockroachDB: tries the pgstatindex probe; idx_scan when pg_stat_user_indexes is available.',
     customSqlHint: CUSTOM_HINT,
   },
   yugabytedb: {
     mode: 'physical',
     query: true,
     defrag: true,
-    hint: 'YugabyteDB: tries the pgstatindex probe; falls back to custom SQL on failure.',
+    hint: 'YugabyteDB: tries the pgstatindex probe; idx_scan when pg_stat_user_indexes is available.',
     customSqlHint: CUSTOM_HINT,
   },
   mysql: {
     mode: 'estimated',
     query: true,
     defrag: true,
-    hint: 'MySQL: table-level DATA_FREE ratio (same estimate on each index). Prefer custom InnoDB stats SQL when available.',
+    hint: 'MySQL: table-level DATA_FREE ratio (same estimate on each index). Scan count from performance_schema.table_io_waits_summary_by_index_usage (COUNT_READ since restart).',
     customSqlHint: CUSTOM_HINT,
   },
   mariadb: {
     mode: 'estimated',
     query: true,
     defrag: true,
-    hint: 'MariaDB: table-level DATA_FREE ratio (same estimate on each index). Prefer custom stats SQL when available.',
+    hint: 'MariaDB: table-level DATA_FREE ratio (same estimate on each index). Usage from performance_schema, then information_schema.INDEX_STATISTICS (userstat).',
     customSqlHint: CUSTOM_HINT,
   },
   tidb: {
     mode: 'estimated',
     query: true,
     defrag: true,
-    hint: 'TiDB: table-level DATA_FREE-style estimate when available; otherwise use custom SQL.',
+    hint: 'TiDB: table-level DATA_FREE-style estimate. Last used from INFORMATION_SCHEMA.TIDB_INDEX_USAGE (LAST_ACCESS_TIME, QUERY_TOTAL).',
     customSqlHint: CUSTOM_HINT,
   },
   db2: {
@@ -131,28 +131,28 @@ const SUPPORT: Record<string, IndexFragmentationSupport> = {
     mode: 'estimated',
     query: true,
     defrag: true,
-    hint: 'Oracle: weak estimate from ALL_INDEXES. Prefer ANALYZE INDEX … VALIDATE STRUCTURE + INDEX_STATS via custom SQL.',
+    hint: 'Oracle: weak estimate from ALL_INDEXES. Last used from DBA_INDEX_USAGE (LAST_USED / TOTAL_ACCESS_COUNT); falls back to DBA_OBJECT_USAGE / V$OBJECT_USAGE.',
     customSqlHint: CUSTOM_HINT,
   },
   sqlite: {
     mode: 'estimated',
     query: true,
     defrag: true,
-    hint: 'SQLite: lists indexes (no native fragmentation %). Use custom SQL / dbstat for page sizes; Defrag suggests REINDEX.',
+    hint: 'SQLite: lists indexes (no native fragmentation % or last-used catalog). Use custom SQL / dbstat for page sizes; Defrag suggests REINDEX.',
     customSqlHint: CUSTOM_HINT,
   },
   duckdb: {
     mode: 'estimated',
     query: true,
     defrag: true,
-    hint: 'DuckDB: lists indexes from duckdb_indexes() (no native %). Prefer custom SQL for ART / zone-map stats.',
+    hint: 'DuckDB: lists indexes from duckdb_indexes() (no native % or last-used catalog). Prefer custom SQL for ART / zone-map stats.',
     customSqlHint: CUSTOM_HINT,
   },
   clickhouse: {
     mode: 'estimated',
     query: true,
     defrag: true,
-    hint: 'ClickHouse: data-skipping indices from system.data_skipping_indices (no B-tree %). OPTIMIZE TABLE for merges.',
+    hint: 'ClickHouse: data-skipping indices from system.data_skipping_indices (no B-tree % or last-used catalog). OPTIMIZE TABLE for merges.',
     customSqlHint: CUSTOM_HINT,
   },
   redshift: {
@@ -477,6 +477,179 @@ WHERE 1 = 0
   };
 }
 
+export type IndexUsageQuery = { sql: string; params: unknown[] };
+
+function mysqlFamilyIndexIoUsageSql(): string {
+  return `
+SELECT INDEX_NAME AS index_name,
+       CAST(NULL AS DATETIME) AS last_used,
+       COUNT_READ AS scan_count
+FROM performance_schema.table_io_waits_summary_by_index_usage
+WHERE OBJECT_SCHEMA = ?
+  AND OBJECT_NAME = ?
+  AND INDEX_NAME IS NOT NULL
+`.trim();
+}
+
+function postgresLastIdxScanSql(): string {
+  return `
+SELECT
+  ci.relname AS index_name,
+  psi.last_idx_scan AS last_used,
+  COALESCE(psi.idx_scan, 0)::bigint AS scan_count
+FROM pg_index ix
+JOIN pg_class ct ON ct.oid = ix.indrelid
+JOIN pg_namespace n ON n.oid = ct.relnamespace
+JOIN pg_class ci ON ci.oid = ix.indexrelid
+LEFT JOIN pg_stat_user_indexes psi ON psi.indexrelid = ci.oid
+WHERE n.nspname = $1
+  AND ct.relname = $2
+`.trim();
+}
+
+/**
+ * Extra SELECTs that fill `last_used` / `scan_count` from dialect usage catalogs.
+ * Tried in order until one succeeds — a missing view or missing grant must not
+ * fail the fragmentation probe (Oracle DBA_INDEX_USAGE is a common example).
+ *
+ * SQL Server / Azure SQL / DB2 already join usage into the main probe, so they
+ * return an empty list here.
+ */
+export function buildIndexUsageQueries(opts: {
+  dialect: string;
+  schema?: string;
+  table: string;
+}): IndexUsageQuery[] {
+  const dialect = opts.dialect.toLowerCase();
+  const { schema, table } = splitSchemaTable(opts.table, opts.schema);
+  if (!table) return [];
+
+  if (dialect === 'oracle') {
+    if (!schema) return [];
+    const owner = schema.toUpperCase();
+    const tbl = table.toUpperCase();
+    return [
+      {
+        params: [owner, tbl],
+        sql: `
+SELECT
+  i.INDEX_NAME AS index_name,
+  u.LAST_USED AS last_used,
+  COALESCE(u.TOTAL_ACCESS_COUNT, 0) AS scan_count
+FROM ALL_INDEXES i
+LEFT JOIN DBA_INDEX_USAGE u
+  ON u.OWNER = i.OWNER AND u.NAME = i.INDEX_NAME
+WHERE i.OWNER = :1
+  AND i.TABLE_NAME = :2
+`.trim(),
+      },
+      {
+        params: [owner, tbl],
+        sql: `
+SELECT
+  INDEX_NAME AS index_name,
+  CAST(NULL AS TIMESTAMP) AS last_used,
+  CASE WHEN USED = 'YES' THEN 1 ELSE 0 END AS scan_count
+FROM DBA_OBJECT_USAGE
+WHERE OWNER = :1
+  AND TABLE_NAME = :2
+`.trim(),
+      },
+      {
+        params: [tbl],
+        sql: `
+SELECT
+  INDEX_NAME AS index_name,
+  CAST(NULL AS TIMESTAMP) AS last_used,
+  CASE WHEN USED = 'YES' THEN 1 ELSE 0 END AS scan_count
+FROM V$OBJECT_USAGE
+WHERE TABLE_NAME = :1
+`.trim(),
+      },
+    ];
+  }
+
+  if (dialect === 'tidb') {
+    if (!schema) return [];
+    return [
+      {
+        params: [schema, table],
+        sql: `
+SELECT INDEX_NAME AS index_name,
+       LAST_ACCESS_TIME AS last_used,
+       QUERY_TOTAL AS scan_count
+FROM INFORMATION_SCHEMA.CLUSTER_TIDB_INDEX_USAGE
+WHERE TABLE_SCHEMA = ?
+  AND TABLE_NAME = ?
+`.trim(),
+      },
+      {
+        params: [schema, table],
+        sql: `
+SELECT INDEX_NAME AS index_name,
+       LAST_ACCESS_TIME AS last_used,
+       QUERY_TOTAL AS scan_count
+FROM INFORMATION_SCHEMA.TIDB_INDEX_USAGE
+WHERE TABLE_SCHEMA = ?
+  AND TABLE_NAME = ?
+`.trim(),
+      },
+      { params: [schema, table], sql: mysqlFamilyIndexIoUsageSql() },
+    ];
+  }
+
+  if (dialect === 'mysql') {
+    if (!schema) return [];
+    return [{ params: [schema, table], sql: mysqlFamilyIndexIoUsageSql() }];
+  }
+
+  if (dialect === 'mariadb') {
+    if (!schema) return [];
+    return [
+      { params: [schema, table], sql: mysqlFamilyIndexIoUsageSql() },
+      {
+        params: [schema, table],
+        sql: `
+SELECT INDEX_NAME AS index_name,
+       CAST(NULL AS DATETIME) AS last_used,
+       ROWS_READ AS scan_count
+FROM information_schema.INDEX_STATISTICS
+WHERE TABLE_SCHEMA = ?
+  AND TABLE_NAME = ?
+`.trim(),
+      },
+    ];
+  }
+
+  if (dialect === 'postgres' || dialect === 'cockroachdb' || dialect === 'yugabytedb') {
+    const sch = schema || 'public';
+    return [{ params: [sch, table], sql: postgresLastIdxScanSql() }];
+  }
+
+  return [];
+}
+
+/** Overlay usage-catalog rows onto fragmentation rows, matched by index name. */
+export function mergeIndexUsageRows(
+  rows: IndexFragmentationRow[],
+  usage: ReadonlyArray<IndexFragmentationRow>
+): IndexFragmentationRow[] {
+  if (usage.length === 0) return rows;
+  const byName = new Map<string, IndexFragmentationRow>();
+  for (const u of usage) {
+    byName.set(u.indexName.toLowerCase(), u);
+  }
+  return rows.map((row) => {
+    const u = byName.get(row.indexName.toLowerCase());
+    if (!u) return row;
+    return {
+      ...row,
+      lastUsed: row.lastUsed ?? u.lastUsed ?? null,
+      scanCount: row.scanCount ?? u.scanCount ?? null,
+    };
+  });
+}
+
 function pickField(row: Record<string, unknown>, keys: string[]): unknown {
   for (const key of keys) {
     if (key in row) return row[key];
@@ -555,10 +728,27 @@ export function normalizeIndexFragmentationRows(
       pickField(row, ['page_count', 'pagecount', 'nleaf', 'leaf_blocks'])
     );
     const lastUsed = normalizeIndexLastUsed(
-      pickField(row, ['last_used', 'lastused', 'last_idx_scan', 'lastusedate'])
+      pickField(row, [
+        'last_used',
+        'lastused',
+        'last_idx_scan',
+        'last_access_time',
+        'last_used_at',
+        'lastusedate',
+      ])
     );
     const scanCount = asFiniteNumber(
-      pickField(row, ['scan_count', 'scancount', 'idx_scan', 'user_seeks'])
+      pickField(row, [
+        'scan_count',
+        'scancount',
+        'idx_scan',
+        'user_seeks',
+        'query_total',
+        'total_access_count',
+        'count_read',
+        'count_star',
+        'rows_read',
+      ])
     );
     out.push({
       indexName,
@@ -722,7 +912,7 @@ WHERE i.name IS NOT NULL AND ps.index_level = 0;`;
     return `-- Requires: CREATE EXTENSION IF NOT EXISTS pgstattuple;
 SELECT ci.relname AS index_name,
        (pgstatindex(ci.oid::regclass)).leaf_fragmentation AS fragmentation_percent,
-       NULL::timestamptz AS last_used,
+       psi.last_idx_scan AS last_used,
        COALESCE(psi.idx_scan, 0)::bigint AS scan_count
 FROM pg_index ix
 JOIN pg_class ct ON ct.oid = ix.indrelid
@@ -732,11 +922,19 @@ LEFT JOIN pg_stat_user_indexes psi ON psi.indexrelid = ci.oid
 WHERE n.nspname = '${sch}' AND ct.relname = '${tbl}';`;
   }
 
-  if (dialect === 'mysql' || dialect === 'mariadb' || dialect === 'tidb') {
-    return `SELECT INDEX_NAME AS index_name, NULL AS fragmentation_percent
-FROM information_schema.STATISTICS
-WHERE TABLE_SCHEMA = '${sch}' AND TABLE_NAME = '${tbl}'
-GROUP BY INDEX_NAME;`;
+  if (dialect === 'tidb') {
+    return `SELECT INDEX_NAME AS index_name, NULL AS fragmentation_percent,
+       LAST_ACCESS_TIME AS last_used, QUERY_TOTAL AS scan_count
+FROM INFORMATION_SCHEMA.TIDB_INDEX_USAGE
+WHERE TABLE_SCHEMA = '${sch}' AND TABLE_NAME = '${tbl}';`;
+  }
+
+  if (dialect === 'mysql' || dialect === 'mariadb') {
+    return `SELECT INDEX_NAME AS index_name, NULL AS fragmentation_percent,
+       CAST(NULL AS DATETIME) AS last_used, COUNT_READ AS scan_count
+FROM performance_schema.table_io_waits_summary_by_index_usage
+WHERE OBJECT_SCHEMA = '${sch}' AND OBJECT_NAME = '${tbl}'
+  AND INDEX_NAME IS NOT NULL;`;
   }
 
   if (dialect === 'db2') {
@@ -749,10 +947,14 @@ WHERE TABSCHEMA = '${sch.toUpperCase()}' AND TABNAME = '${tbl.toUpperCase()}';`;
   }
 
   if (dialect === 'oracle') {
-    return `-- After: ANALYZE INDEX ${sch}.${tbl}_idx VALIDATE STRUCTURE;
-SELECT name AS index_name,
-       ROUND(del_lf_rows_len / NULLIF(lf_rows_len, 0) * 100, 2) AS fragmentation_percent
-FROM index_stats;`;
+    return `-- Last used: DBA_INDEX_USAGE (12.2+). Fragmentation: ANALYZE INDEX … VALIDATE STRUCTURE.
+SELECT i.INDEX_NAME AS index_name,
+       CAST(NULL AS NUMBER) AS fragmentation_percent,
+       u.LAST_USED AS last_used,
+       COALESCE(u.TOTAL_ACCESS_COUNT, 0) AS scan_count
+FROM ALL_INDEXES i
+LEFT JOIN DBA_INDEX_USAGE u ON u.OWNER = i.OWNER AND u.NAME = i.INDEX_NAME
+WHERE i.OWNER = '${sch.toUpperCase()}' AND i.TABLE_NAME = '${tbl.toUpperCase()}';`;
   }
 
   if (dialect === 'sqlite') {

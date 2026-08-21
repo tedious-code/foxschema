@@ -4,9 +4,11 @@ import {
   buildIndexDropSql,
   buildIndexFragmentationCustomTemplate,
   buildIndexFragmentationQuery,
+  buildIndexUsageQueries,
   dialectSupportsIndexFragmentation,
   fragmentationSeverity,
   isSafeIndexFragmentationCustomSql,
+  mergeIndexUsageRows,
   normalizeIndexFragmentationRows,
   normalizeIndexLastUsed,
   splitSchemaTable,
@@ -171,6 +173,112 @@ describe('buildIndexFragmentationQuery', () => {
   });
 });
 
+describe('buildIndexUsageQueries', () => {
+  it('does not extra-query SQL Server or DB2 (usage is on the main probe)', () => {
+    expect(
+      buildIndexUsageQueries({ dialect: 'sqlserver', schema: 'dbo', table: 'Orders' })
+    ).toEqual([]);
+    expect(
+      buildIndexUsageQueries({ dialect: 'db2', schema: 'DB2INST1', table: 'ORDERS' })
+    ).toEqual([]);
+    expect(buildIndexUsageQueries({ dialect: 'sqlite', table: 'orders' })).toEqual([]);
+  });
+
+  it('probes Oracle DBA_INDEX_USAGE then object-usage fallbacks', () => {
+    const qs = buildIndexUsageQueries({
+      dialect: 'oracle',
+      schema: 'HR',
+      table: 'EMPLOYEES',
+    });
+    expect(qs).toHaveLength(3);
+    expect(qs[0]?.sql).toMatch(/DBA_INDEX_USAGE/);
+    expect(qs[0]?.sql).toMatch(/LAST_USED/);
+    expect(qs[0]?.sql).toMatch(/TOTAL_ACCESS_COUNT/);
+    expect(qs[0]?.params).toEqual(['HR', 'EMPLOYEES']);
+    expect(qs[1]?.sql).toMatch(/DBA_OBJECT_USAGE/);
+    expect(qs[2]?.sql).toMatch(/V\$OBJECT_USAGE/);
+  });
+
+  it('probes MySQL performance_schema, MariaDB INDEX_STATISTICS, TiDB TIDB_INDEX_USAGE', () => {
+    const mysql = buildIndexUsageQueries({ dialect: 'mysql', schema: 'app', table: 'users' });
+    expect(mysql[0]?.sql).toMatch(/table_io_waits_summary_by_index_usage/i);
+    expect(mysql[0]?.sql).toMatch(/COUNT_READ/);
+
+    const maria = buildIndexUsageQueries({ dialect: 'mariadb', schema: 'app', table: 'users' });
+    expect(maria.map((q) => q.sql).join('\n')).toMatch(/INDEX_STATISTICS/);
+
+    const tidb = buildIndexUsageQueries({ dialect: 'tidb', schema: 'app', table: 'users' });
+    expect(tidb[0]?.sql).toMatch(/CLUSTER_TIDB_INDEX_USAGE/);
+    expect(tidb[1]?.sql).toMatch(/TIDB_INDEX_USAGE/);
+    expect(tidb[1]?.sql).toMatch(/LAST_ACCESS_TIME/);
+    expect(tidb[1]?.sql).toMatch(/QUERY_TOTAL/);
+  });
+
+  it('overlays last_idx_scan for the Postgres family', () => {
+    const qs = buildIndexUsageQueries({
+      dialect: 'postgres',
+      schema: 'public',
+      table: 'orders',
+    });
+    expect(qs[0]?.sql).toMatch(/last_idx_scan/);
+    expect(qs[0]?.params).toEqual(['public', 'orders']);
+  });
+});
+
+describe('mergeIndexUsageRows', () => {
+  it('fills missing lastUsed / scanCount without clobbering existing values', () => {
+    expect(
+      mergeIndexUsageRows(
+        [
+          {
+            indexName: 'IX_A',
+            fragmentationPercent: 10,
+            pageCount: 2,
+            lastUsed: '2024-01-01T00:00:00.000Z',
+            scanCount: 5,
+          },
+          {
+            indexName: 'ix_b',
+            fragmentationPercent: 1,
+            pageCount: null,
+            lastUsed: null,
+            scanCount: null,
+          },
+        ],
+        [
+          {
+            indexName: 'ix_a',
+            fragmentationPercent: null,
+            lastUsed: '2025-01-01T00:00:00.000Z',
+            scanCount: 99,
+          },
+          {
+            indexName: 'IX_B',
+            fragmentationPercent: null,
+            lastUsed: '2024-06-01T00:00:00.000Z',
+            scanCount: 3,
+          },
+        ]
+      )
+    ).toEqual([
+      {
+        indexName: 'IX_A',
+        fragmentationPercent: 10,
+        pageCount: 2,
+        lastUsed: '2024-01-01T00:00:00.000Z',
+        scanCount: 5,
+      },
+      {
+        indexName: 'ix_b',
+        fragmentationPercent: 1,
+        pageCount: null,
+        lastUsed: '2024-06-01T00:00:00.000Z',
+        scanCount: 3,
+      },
+    ]);
+  });
+});
+
 describe('normalizeIndexFragmentationRows', () => {
   it('accepts mixed casings and clamps percents', () => {
     expect(
@@ -227,6 +335,26 @@ describe('normalizeIndexFragmentationRows', () => {
         pageCount: null,
         lastUsed: null,
         scanCount: 0,
+      },
+    ]);
+  });
+
+  it('accepts TiDB LAST_ACCESS_TIME / QUERY_TOTAL aliases', () => {
+    expect(
+      normalizeIndexFragmentationRows([
+        {
+          index_name: 'idx_tidb',
+          LAST_ACCESS_TIME: '2024-07-01T00:00:00.000Z',
+          QUERY_TOTAL: 7,
+        },
+      ])
+    ).toEqual([
+      {
+        indexName: 'idx_tidb',
+        fragmentationPercent: null,
+        pageCount: null,
+        lastUsed: '2024-07-01T00:00:00.000Z',
+        scanCount: 7,
       },
     ]);
   });
@@ -344,6 +472,30 @@ describe('buildIndexDropSql', () => {
         indexName: 'ix_orders_customer',
       })
     ).toEqual(['DROP INDEX IF EXISTS "ix_orders_customer";']);
+    expect(
+      buildIndexDropSql({
+        dialect: 'oracle',
+        schema: 'HR',
+        table: 'EMPLOYEES',
+        indexName: 'IX_EMP_EMAIL',
+      })
+    ).toEqual(['DROP INDEX "HR"."IX_EMP_EMAIL";']);
+    expect(
+      buildIndexDropSql({
+        dialect: 'mariadb',
+        schema: 'app',
+        table: 'users',
+        indexName: 'ix_email',
+      })
+    ).toEqual(['DROP INDEX `ix_email` ON `app`.`users`;']);
+    expect(
+      buildIndexDropSql({
+        dialect: 'duckdb',
+        schema: 'main',
+        table: 't',
+        indexName: 'ix_t',
+      })
+    ).toEqual(['DROP INDEX IF EXISTS "main"."ix_t";']);
     expect(
       buildIndexDropSql({
         dialect: 'clickhouse',

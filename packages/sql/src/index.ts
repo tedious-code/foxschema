@@ -121,6 +121,8 @@ export {
   buildIndexFragmentationCustomTemplate,
   buildIndexDefragSql,
   buildIndexDropSql,
+  buildIndexUsageQueries,
+  mergeIndexUsageRows,
   normalizeIndexFragmentationRows,
   normalizeIndexLastUsed,
   fragmentationSeverity,
@@ -133,6 +135,7 @@ export type {
   IndexFragmentationRow,
   IndexFragmentationMode,
   IndexFragmentationSeverity,
+  IndexUsageQuery,
 } from './modules/dialect-index-fragmentation.js';
 export {
   dialectSupportsDbaUtility,
