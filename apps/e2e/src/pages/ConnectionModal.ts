@@ -87,12 +87,15 @@ export class ConnectionModal {
   /** Fill all fields then save. */
   async connect(fields: ConnectionFields): Promise<void> {
     await this.selectDialect(fields.dialect);
-    await this.fillHost(fields.host);
-    await this.fillPort(fields.port);
+    const fileDialect = fields.dialect === 'sqlite' || fields.dialect === 'duckdb';
+    if (!fileDialect) {
+      await this.fillHost(fields.host ?? '');
+      if (fields.port !== undefined) await this.fillPort(fields.port);
+      await this.fillUsername(fields.username ?? '');
+      await this.fillPassword(fields.password ?? '');
+      await this.checkSavePassword();
+    }
     await this.fillDatabase(fields.database);
-    await this.fillUsername(fields.username);
-    await this.fillPassword(fields.password);
-    await this.checkSavePassword();
     await this.loadSchemas();
     if (fields.schema) {
       await this.selectSchema(fields.schema);
