@@ -14,7 +14,8 @@ export type IndexMgmtSortKey =
   | 'rows'
   | 'data'
   | 'indexSize'
-  | 'frag';
+  | 'frag'
+  | 'lastUsed';
 
 export type SortDir = 'asc' | 'desc';
 
@@ -104,6 +105,7 @@ export function tableSortValue(
     rowCount: number | null;
     dataBytes: number | null;
     indexBytes: number | null;
+    lastUsedMs?: number | null;
   }
 ): string | number | null {
   switch (key) {
@@ -123,6 +125,8 @@ export function tableSortValue(
       return group.indexBytes;
     case 'frag':
       return group.avgFrag;
+    case 'lastUsed':
+      return group.lastUsedMs ?? null;
     default:
       return group.tableName;
   }
@@ -138,6 +142,8 @@ export function indexSortValue(
     dataBytes: number | null;
     indexBytes: number | null;
     fragPct: number | null;
+    lastUsed?: string | null;
+    scanCount?: number | null;
   }
 ): string | number | null {
   switch (key) {
@@ -157,7 +163,79 @@ export function indexSortValue(
       return row.indexBytes;
     case 'frag':
       return row.fragPct;
+    case 'lastUsed':
+      return lastUsedSortValue(row.lastUsed, row.scanCount);
     default:
       return row.indexName;
   }
+}
+
+/** Milliseconds since epoch, or scan count when no timestamp is available. */
+export function lastUsedSortValue(
+  lastUsed: string | null | undefined,
+  scanCount?: number | null
+): number | null {
+  if (lastUsed) {
+    const ms = Date.parse(lastUsed);
+    if (Number.isFinite(ms) && new Date(ms).getUTCFullYear() >= 1971) return ms;
+  }
+  if (scanCount != null && Number.isFinite(scanCount)) return scanCount;
+  return null;
+}
+
+export function latestLastUsedSortValue(
+  items: ReadonlyArray<{ lastUsed?: string | null; scanCount?: number | null }>
+): number | null {
+  let best: number | null = null;
+  for (const item of items) {
+    const v = lastUsedSortValue(item.lastUsed, item.scanCount);
+    if (v == null) continue;
+    if (best == null || v > best) best = v;
+  }
+  return best;
+}
+
+export function pickLatestIndexUsage(
+  items: ReadonlyArray<{ lastUsed?: string | null; scanCount?: number | null }>
+): { lastUsed: string | null; scanCount: number | null } {
+  let bestLast: string | null = null;
+  let bestLastMs = -1;
+  let bestScan: number | null = null;
+  for (const item of items) {
+    const ms = lastUsedSortValue(item.lastUsed, null);
+    if (ms != null && ms > bestLastMs) {
+      bestLastMs = ms;
+      bestLast = item.lastUsed ?? null;
+    }
+    if (item.scanCount != null && Number.isFinite(item.scanCount)) {
+      if (bestScan == null || item.scanCount > bestScan) bestScan = item.scanCount;
+    }
+  }
+  return { lastUsed: bestLast, scanCount: bestScan };
+}
+
+/** Compact grid label: timestamp, else scan count / never / em dash. */
+export function formatIndexLastUsed(opts: {
+  lastUsed?: string | null;
+  scanCount?: number | null;
+}): string {
+  const lastUsed = opts.lastUsed?.trim() || null;
+  if (lastUsed) {
+    const ms = Date.parse(lastUsed);
+    if (Number.isFinite(ms) && new Date(ms).getUTCFullYear() >= 1971) {
+      return new Date(ms).toLocaleString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    }
+  }
+  const scans = opts.scanCount;
+  if (scans === 0) return 'never';
+  if (scans != null && Number.isFinite(scans)) {
+    return `${scans.toLocaleString()} scans`;
+  }
+  return '—';
 }

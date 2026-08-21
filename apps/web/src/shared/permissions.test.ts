@@ -30,19 +30,21 @@ describe('role ladder', () => {
     expect(editor.has('editor.ddl')).toBe(true);
     expect(editor.has('editor.grant')).toBe(false);
     expect(editor.has('schema.migrate')).toBe(false);
+    expect(editor.has('utility.index.drop')).toBe(true);
   });
 
   it('owner adds privileges and migrations but not app administration', () => {
     const owner = new Set(DEFAULT_ROLE_PERMISSIONS.owner);
     expect(owner.has('editor.grant')).toBe(true);
     expect(owner.has('schema.migrate')).toBe(true);
+    expect(owner.has('utility.index.drop')).toBe(true);
     expect(owner.has('admin.users')).toBe(false);
     expect(owner.has('admin.roles')).toBe(false);
   });
 
   it('viewer stays read-only', () => {
     const viewer = new Set(DEFAULT_ROLE_PERMISSIONS.viewer);
-    for (const p of ['editor.dml', 'editor.ddl', 'editor.grant', 'schema.migrate'] as Permission[]) {
+    for (const p of ['editor.dml', 'editor.ddl', 'editor.grant', 'schema.migrate', 'utility.index.drop'] as Permission[]) {
       expect(viewer.has(p), p).toBe(false);
     }
   });

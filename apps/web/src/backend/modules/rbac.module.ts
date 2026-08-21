@@ -163,16 +163,33 @@ export async function seedDefaultRolePermissions(store: MetadataStore): Promise<
 
 /**
  * Additive backfill: when a role was customized before newer default permissions
- * existed (e.g. Data grid insert/update/delete), copy those defaults in if the
- * role already has the related capability (`editor.dml` / `editor.write`).
+ * existed (e.g. Data grid insert/update/delete, Drop indexes, Grant privileges),
+ * copy those defaults in if the role already has the related capability.
  * Never re-fills intentionally emptied roles (sentinel-only).
  */
+const BACKFILL_RULES: Array<{
+  perms: Permission[];
+  when: (granted: Set<string>) => boolean;
+}> = [
+  {
+    perms: ['editor.datagrid.insert', 'editor.datagrid.update', 'editor.datagrid.delete'],
+    when: (p) => p.has('editor.dml') || p.has('editor.write'),
+  },
+  {
+    perms: ['utility.index.drop'],
+    when: (p) =>
+      p.has('utility.access') && (p.has('editor.ddl') || p.has('editor.write')),
+  },
+  {
+    // Owner-like roles that already deploy migrations should also get GRANT
+    // if they were customized before `editor.grant` existed. Editor defaults
+    // do not include this key, so editors are not escalated.
+    perms: ['editor.grant'],
+    when: (p) => p.has('schema.migrate'),
+  },
+];
+
 export async function backfillDatagridRolePermissions(store: MetadataStore): Promise<void> {
-  const datagridPerms: Permission[] = [
-    'editor.datagrid.insert',
-    'editor.datagrid.update',
-    'editor.datagrid.delete',
-  ];
   for (const role of APP_ROLES) {
     if (role === 'admin') continue;
     const rows = await store.all<{ permission: string }>(
@@ -183,13 +200,16 @@ export async function backfillDatagridRolePermissions(store: MetadataStore): Pro
     const perms = new Set(rows.map((r) => r.permission));
     // Intentional empty grant list.
     if (perms.size === 1 && perms.has(EMPTY_ROLE_PERMISSIONS_SENTINEL)) continue;
-    const canChangeData = perms.has('editor.dml') || perms.has('editor.write');
-    if (!canChangeData) continue;
-    for (const p of datagridPerms) {
-      if (perms.has(p)) continue;
-      // Only backfill keys that belong in this role's built-in defaults.
-      if (!DEFAULT_ROLE_PERMISSIONS[role].includes(p)) continue;
-      await store.run('INSERT INTO role_permissions (role, permission) VALUES (?, ?)', [role, p]);
+    const defaults = DEFAULT_ROLE_PERMISSIONS[role];
+    for (const rule of BACKFILL_RULES) {
+      if (!rule.when(perms)) continue;
+      for (const p of rule.perms) {
+        if (perms.has(p)) continue;
+        // Only backfill keys that belong in this role's built-in defaults.
+        if (!defaults.includes(p)) continue;
+        await store.run('INSERT INTO role_permissions (role, permission) VALUES (?, ?)', [role, p]);
+        perms.add(p);
+      }
     }
   }
 }
