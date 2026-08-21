@@ -130,7 +130,26 @@ describe('AdminAccessPanel', () => {
     expect(screen.getByTestId('admin-roles-hint').textContent).toMatch(/cannot be reduced/i);
   });
 
-  it('opens for a role without admin grants and explains how to get access', async () => {
+  it('opens for a viewer without admin or utility grants and explains how to get access', async () => {
+    useAuthStore.setState({
+      user: {
+        id: 'u-viewer',
+        email: 'viewer@example.com',
+        onboardingCompleted: true,
+        role: 'viewer',
+        permissions: [...DEFAULT_ROLE_PERMISSIONS.viewer],
+      },
+      localSingleUser: false,
+    });
+    render(<AdminAccessPanel open onClose={() => undefined} />);
+    expect(screen.getByTestId('admin-access-panel')).toBeTruthy();
+    expect(screen.getByTestId('admin-access-denied').textContent).toMatch(/use utilities/i);
+    expect(screen.queryByTestId('admin-tab-users')).toBeNull();
+    expect(screen.queryByTestId('admin-tab-roles')).toBeNull();
+    expect(screen.queryByTestId('admin-tab-database')).toBeNull();
+  });
+
+  it('shows the Database tab for an editor (live GRANT/REVOKE)', async () => {
     useAuthStore.setState({
       user: {
         id: 'u-editor',
@@ -142,10 +161,11 @@ describe('AdminAccessPanel', () => {
       localSingleUser: false,
     });
     render(<AdminAccessPanel open onClose={() => undefined} />);
-    expect(screen.getByTestId('admin-access-panel')).toBeTruthy();
-    expect(screen.getByTestId('admin-access-denied').textContent).toMatch(/configure roles/i);
+    await waitFor(() => expect(screen.getByTestId('admin-tab-database')).toBeTruthy());
     expect(screen.queryByTestId('admin-tab-users')).toBeNull();
     expect(screen.queryByTestId('admin-tab-roles')).toBeNull();
+    expect(screen.getByTestId('db-access-embedded')).toBeTruthy();
+    expect(screen.getByTestId('db-access-connection')).toBeTruthy();
   });
 
   it('defaults to Roles when the user can configure roles but not users', async () => {

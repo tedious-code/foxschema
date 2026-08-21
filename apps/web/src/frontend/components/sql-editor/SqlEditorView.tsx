@@ -59,6 +59,7 @@ import { IndexManagementModal } from '../utilities/IndexManagementModal';
 import { CloneTableModal } from '../utilities/CloneTableModal';
 import { FileQueryModal } from '../utilities/FileQueryModal';
 import { ServerInsightsModal, type ServerInsightsTab } from '../utilities/ServerInsightsModal';
+import { DatabaseAccessModal } from '../utilities/DatabaseAccessModal';
 import { FileImportsPanel } from './FileImportsPanel';
 import type { RevealRequest } from './SqlEditorPane';
 
@@ -175,6 +176,7 @@ export const SqlEditorView: React.FC = () => {
   const [showIndexManagement, setShowIndexManagement] = useState(false);
   const [showCloneTable, setShowCloneTable] = useState(false);
   const [showFileQuery, setShowFileQuery] = useState(false);
+  const [showDatabaseAccess, setShowDatabaseAccess] = useState(false);
   const [fileImportsKey, setFileImportsKey] = useState(0);
   const [serverInsightsTab, setServerInsightsTab] = useState<ServerInsightsTab | null>(null);
 
@@ -499,6 +501,15 @@ export const SqlEditorView: React.FC = () => {
                 >
                   <Database className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
                   Index Management
+                </button>
+                <button
+                  type="button"
+                  data-testid="utilities-database-access"
+                  onClick={() => setShowDatabaseAccess(true)}
+                  className={UTIL_MENU_BTN}
+                >
+                  <KeyRound className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
+                  Database Access
                 </button>
                 <button
                   type="button"
@@ -936,6 +947,10 @@ export const SqlEditorView: React.FC = () => {
       <IndexManagementModal
         open={showIndexManagement}
         onClose={() => setShowIndexManagement(false)}
+      />
+      <DatabaseAccessModal
+        open={showDatabaseAccess}
+        onClose={() => setShowDatabaseAccess(false)}
       />
       <CloneTableModal open={showCloneTable} onClose={() => setShowCloneTable(false)} />
       <FileQueryModal

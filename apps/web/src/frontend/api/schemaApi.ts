@@ -7,6 +7,7 @@ import type {
   MigrationEvent,
   TableSchema,
 } from '../lib/types';
+import type { DbPrincipal, DbPrivilege } from '@foxschema/sql';
 import { getApiBase, parseJsonBody, parseJsonResponse } from './apiBase';
 
 
@@ -384,6 +385,38 @@ export async function fetchDbaUtility(
   const data = await parseJsonBody<DbaUtilityResponse & { error?: string }>(res);
   if (!res.ok) {
     throw new Error(data.error || `DBA utility failed (${res.status})`);
+  }
+  return data;
+}
+
+export type DbAccessResponse = {
+  dialect: string;
+  schema: string;
+  mode: 'native' | 'estimated' | 'unsupported';
+  support: { mode: string; query: boolean; grant: boolean; hint: string };
+  principals: DbPrincipal[];
+  privileges: DbPrivilege[];
+  warning?: string;
+  error?: string;
+};
+
+/** Utilities / Access control → database users, groups, and privileges. */
+export async function fetchDbAccess(
+  ref: ConnectionRef,
+  opts?: { schema?: string }
+): Promise<DbAccessResponse> {
+  const res = await fetch(`${getApiBase()}/schema/db-access`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ...ref,
+      schema: opts?.schema,
+    }),
+  });
+  const data = await parseJsonBody<DbAccessResponse & { error?: string }>(res);
+  if (!res.ok) {
+    throw new Error(data.error || `Database access failed (${res.status})`);
   }
   return data;
 }

@@ -32,8 +32,9 @@ import {
 } from '../lib/permissions';
 import { useAuthStore } from '../store/authStore';
 import { PasswordInput } from './PasswordInput';
+import { DatabaseAccessModal } from './utilities/DatabaseAccessModal';
 
-type Tab = 'users' | 'roles';
+type Tab = 'users' | 'roles' | 'database';
 
 type AdminUserRow = {
   id: string;
@@ -53,6 +54,7 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
   const localSingleUser = useAuthStore((s) => s.localSingleUser);
   const canUsers = useAuthStore((s) => s.can('admin.users'));
   const canRoles = useAuthStore((s) => s.can('admin.roles'));
+  const canDatabase = useAuthStore((s) => s.can('utility.access'));
   const [tab, setTab] = useState<Tab>('users');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -99,9 +101,19 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
 
   useEffect(() => {
     if (!open) return;
-    if (tab === 'users' && !canUsers && canRoles) setTab('roles');
-    if (tab === 'roles' && !canRoles && canUsers) setTab('users');
-  }, [open, tab, canUsers, canRoles]);
+    if (tab === 'users' && !canUsers) {
+      if (canRoles) setTab('roles');
+      else if (canDatabase) setTab('database');
+    }
+    if (tab === 'roles' && !canRoles) {
+      if (canUsers) setTab('users');
+      else if (canDatabase) setTab('database');
+    }
+    if (tab === 'database' && !canDatabase) {
+      if (canUsers) setTab('users');
+      else if (canRoles) setTab('roles');
+    }
+  }, [open, tab, canUsers, canRoles, canDatabase]);
 
   useEffect(() => {
     if (!open || !me?.id) return;
@@ -245,7 +257,7 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
       onClick={onClose}
     >
       <div
-        className="w-full max-w-4xl max-h-[90vh] flex flex-col rounded-xl border border-slate-700 bg-slate-900 shadow-2xl overflow-hidden"
+        className="w-full max-w-6xl max-h-[90vh] flex flex-col rounded-xl border border-slate-700 bg-slate-900 shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-800 shrink-0">
@@ -282,6 +294,18 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
               Roles & permissions
             </button>
           )}
+          {canDatabase && (
+            <button
+              type="button"
+              data-testid="admin-tab-database"
+              onClick={() => setTab('database')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md ${
+                tab === 'database' ? 'bg-slate-800 text-slate-100' : 'text-slate-400'
+              }`}
+            >
+              Database
+            </button>
+          )}
         </div>
 
         {error && (
@@ -297,14 +321,15 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
             </div>
           )}
 
-          {!canUsers && !canRoles && (
+          {!canUsers && !canRoles && !canDatabase && (
             <p
               data-testid="admin-access-denied"
               className="text-[11px] text-slate-400 leading-snug rounded-md border border-slate-800 bg-slate-950/50 px-3 py-2"
             >
-              Your role cannot manage users or configure roles. An admin must grant{' '}
-              <span className="text-slate-200">Manage users</span> or{' '}
-              <span className="text-slate-200">Configure roles</span> in Access control.
+              Your role cannot manage FoxSchema users, configure roles, or inspect database
+              privileges. An admin must grant <span className="text-slate-200">Manage users</span>,{' '}
+              <span className="text-slate-200">Configure roles</span>, or{' '}
+              <span className="text-slate-200">Use utilities</span> in Access control.
             </p>
           )}
 
@@ -551,6 +576,10 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
                 </div>
               ))}
             </div>
+          )}
+
+          {tab === 'database' && canDatabase && (
+            <DatabaseAccessModal open embedded />
           )}
         </div>
 

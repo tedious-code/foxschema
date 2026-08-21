@@ -96,7 +96,7 @@ export const PERMISSION_META: PermissionMeta[] = [
   { id: 'editor.datagrid.insert', group: 'Data grid', label: 'Insert rows', description: 'Add / clone rows in Data Peek and editable query-result grids (also needs Change data).' },
   { id: 'editor.datagrid.update', group: 'Data grid', label: 'Update rows', description: 'Edit rows in Data Peek and editable query-result grids (also needs Change data).' },
   { id: 'editor.datagrid.delete', group: 'Data grid', label: 'Delete rows', description: 'Delete rows in Data Peek and editable query-result grids (also needs Change data).' },
-  { id: 'utility.access', group: 'Utilities', label: 'Use utilities', description: 'Run Clone Table, Index Management, Server Insights, etc.' },
+  { id: 'utility.access', group: 'Utilities', label: 'Use utilities', description: 'Run Clone Table, Index Management, Database Access, Server Insights, etc.' },
   { id: 'utility.index.drop', group: 'Utilities', label: 'Drop indexes', description: 'Drop secondary indexes from Index Management. Constraint-backed indexes still need Edit table. Also needs Change schema.' },
   { id: 'secrets.view', group: 'Secrets', label: 'View secrets', description: 'List secrets (values still resolved only when needed).' },
   { id: 'secrets.create', group: 'Secrets', label: 'Add secrets', description: 'Create vault entries and cloud provider credentials.' },

@@ -20,6 +20,7 @@ import {
 } from '@foxschema/db';
 import { probeTableFragmentation, mapPool } from './index-fragmentation';
 import { probeDbaUtility } from './dba-utilities';
+import { probeDbAccess } from './db-access';
 
 import { ConnectionStore } from '../modules/connection-store.module';
 import { MigrationHistoryStore, type MigrationObjectResult, type MigrationRunStatus } from '../modules/migration-history.module';
@@ -543,6 +544,41 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       res.status(500).json({ error: message });
     }
   });
+
+  /**
+   * Database users, roles/groups, and object privileges for Access control /
+   * Utilities → Database Access. GRANT/REVOKE still go through /sql/execute
+   * (editor.grant).
+   */
+  const dbAccessLimiter = rateLimit({ windowMs: 60 * 1000, max: 20 });
+  router.post(
+    '/schema/db-access',
+    dbAccessLimiter,
+    requirePermissions('utility.access'),
+    async (req: Request, res: Response) => {
+      const body = req.body as ConnectionRef & { schema?: unknown };
+      try {
+        const resolved = await resolveRef((req as AuthedRequest).userId, body);
+        const schema =
+          (typeof body.schema === 'string' && body.schema.trim()) || resolved.schema || '';
+        const probed = await probeDbAccess({
+          dialect: resolved.dialect,
+          option: resolved.option,
+          schema,
+        });
+        if (!probed.ok) {
+          const { status, ...rest } = probed.failure;
+          res.status(status).json(rest);
+          return;
+        }
+        res.json(probed.value);
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error ? error.message : 'Failed to load database users and privileges';
+        res.status(500).json({ error: message });
+      }
+    }
+  );
 
   // SQL Editor: run ad-hoc statements against ONE credential and return shaped
   // row results. The frontend fans out across selected credentials with one
