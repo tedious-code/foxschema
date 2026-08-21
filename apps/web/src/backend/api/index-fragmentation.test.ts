@@ -142,7 +142,7 @@ describe('probeTableFragmentation against a real SQLite file', () => {
     if (!probed.ok) return;
     expect(probed.value.source).toBe('custom');
     expect(probed.value.rows).toEqual([
-      { indexName: 'idx_orders_customer', fragmentationPercent: 100, pageCount: null },
+      { indexName: 'idx_orders_customer', fragmentationPercent: 100, pageCount: null, lastUsed: null, scanCount: null },
     ]);
     expect(probed.value.defrag['idx_orders_customer']?.[0]).toMatch(/^REINDEX/);
   });

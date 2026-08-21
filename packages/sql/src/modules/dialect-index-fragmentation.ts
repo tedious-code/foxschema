@@ -46,26 +46,36 @@ export interface IndexFragmentationRow {
   /** 0–100 when known; null when the engine could not compute a percent. */
   fragmentationPercent: number | null;
   pageCount?: number | null;
+  /**
+   * Last time the engine observed this index being used (ISO-8601), when the
+   * dialect exposes it. Null means unknown or never (see `scanCount`).
+   */
+  lastUsed?: string | null;
+  /**
+   * User seeks/scans/lookups (SQL Server) or `idx_scan` (Postgres family).
+   * Null when the dialect has no usage counter. `0` means never used.
+   */
+  scanCount?: number | null;
 }
 
 export type IndexFragmentationSeverity = 'ok' | 'warn' | 'critical' | 'unknown';
 
 const CUSTOM_HINT =
-  'Custom SQL must return columns index_name, fragmentation_percent (0–100), optional page_count.';
+  'Custom SQL must return columns index_name, fragmentation_percent (0–100), optional page_count, last_used, scan_count.';
 
 const SUPPORT: Record<string, IndexFragmentationSupport> = {
   sqlserver: {
     mode: 'physical',
     query: true,
     defrag: true,
-    hint: 'SQL Server: avg_fragmentation_in_percent from sys.dm_db_index_physical_stats (LIMITED).',
+    hint: 'SQL Server: avg_fragmentation_in_percent from sys.dm_db_index_physical_stats (LIMITED); last used from dm_db_index_usage_stats.',
     customSqlHint: CUSTOM_HINT,
   },
   azuresql: {
     mode: 'physical',
     query: true,
     defrag: true,
-    hint: 'Azure SQL: avg_fragmentation_in_percent from sys.dm_db_index_physical_stats (LIMITED).',
+    hint: 'Azure SQL: avg_fragmentation_in_percent from sys.dm_db_index_physical_stats (LIMITED); last used from dm_db_index_usage_stats.',
     customSqlHint: CUSTOM_HINT,
   },
   postgres: {
@@ -114,7 +124,7 @@ const SUPPORT: Record<string, IndexFragmentationSupport> = {
     mode: 'estimated',
     query: true,
     defrag: true,
-    hint: 'DB2: empty-leaf ratio from SYSCAT.INDEXES (estimate). Use REORGCHK custom SQL for fuller guidance.',
+    hint: 'DB2: empty-leaf ratio from SYSCAT.INDEXES (estimate) plus LASTUSED. Use REORGCHK custom SQL for fuller guidance.',
     customSqlHint: CUSTOM_HINT,
   },
   oracle: {
@@ -228,10 +238,24 @@ export function buildIndexFragmentationQuery(opts: {
 SELECT
   i.name AS index_name,
   CAST(ps.avg_fragmentation_in_percent AS float) AS fragmentation_percent,
-  CAST(ps.page_count AS bigint) AS page_count
+  CAST(ps.page_count AS bigint) AS page_count,
+  (
+    SELECT MAX(v)
+    FROM (VALUES
+      (us.last_user_seek),
+      (us.last_user_scan),
+      (us.last_user_lookup),
+      (us.last_user_update)
+    ) AS t(v)
+  ) AS last_used,
+  CAST(ISNULL(us.user_seeks, 0) + ISNULL(us.user_scans, 0) + ISNULL(us.user_lookups, 0) AS bigint) AS scan_count
 FROM sys.dm_db_index_physical_stats(DB_ID(), OBJECT_ID(?), NULL, NULL, 'LIMITED') AS ps
 INNER JOIN sys.indexes AS i
   ON ps.object_id = i.object_id AND ps.index_id = i.index_id
+LEFT JOIN sys.dm_db_index_usage_stats AS us
+  ON us.database_id = DB_ID()
+ AND us.object_id = i.object_id
+ AND us.index_id = i.index_id
 WHERE i.name IS NOT NULL
   AND ps.index_level = 0
 ORDER BY i.name
@@ -250,11 +274,16 @@ SELECT
   -- pgstatindex reports NaN for an index with no leaf pages yet; that is
   -- "nothing measured", not a number, and "NaN%" in the grid reads as a bug.
   NULLIF((SELECT leaf_fragmentation FROM pgstatindex(ci.oid::regclass)), 'NaN'::float8) AS fragmentation_percent,
-  NULL::bigint AS page_count
+  NULL::bigint AS page_count,
+  -- last_idx_scan exists only on PostgreSQL 16+; keep last_used NULL so older
+  -- servers (and Cockroach / Yugabyte) still run this probe. idx_scan is the usage signal.
+  NULL::timestamptz AS last_used,
+  COALESCE(psi.idx_scan, 0)::bigint AS scan_count
 FROM pg_index ix
 JOIN pg_class ct ON ct.oid = ix.indrelid
 JOIN pg_namespace n ON n.oid = ct.relnamespace
 JOIN pg_class ci ON ci.oid = ix.indexrelid
+LEFT JOIN pg_stat_user_indexes psi ON psi.indexrelid = ci.oid
 WHERE n.nspname = $1
   AND ct.relname = $2
 ORDER BY ci.relname
@@ -279,7 +308,9 @@ SELECT
       2
     )
   END AS fragmentation_percent,
-  NULL AS page_count
+  NULL AS page_count,
+  NULL AS last_used,
+  NULL AS scan_count
 FROM information_schema.STATISTICS s
 JOIN information_schema.TABLES t
   ON t.TABLE_SCHEMA = s.TABLE_SCHEMA AND t.TABLE_NAME = s.TABLE_NAME
@@ -305,7 +336,12 @@ SELECT
     WHEN NLEAF IS NULL OR NLEAF = 0 THEN NULL
     ELSE DECIMAL(100.0 * FLOAT(COALESCE(NUM_EMPTY_LEAFS, 0)) / FLOAT(NLEAF), 5, 2)
   END AS fragmentation_percent,
-  NLEAF AS page_count
+  NLEAF AS page_count,
+  CASE
+    WHEN LASTUSED IS NULL OR LASTUSED <= DATE('1971-01-01') THEN NULL
+    ELSE LASTUSED
+  END AS last_used,
+  CAST(NULL AS BIGINT) AS scan_count
 FROM SYSCAT.INDEXES
 WHERE TABSCHEMA = ?
   AND TABNAME = ?
@@ -331,7 +367,9 @@ SELECT
       2
     )
   END AS fragmentation_percent,
-  LEAF_BLOCKS AS page_count
+  LEAF_BLOCKS AS page_count,
+  CAST(NULL AS TIMESTAMP) AS last_used,
+  CAST(NULL AS NUMBER) AS scan_count
 FROM ALL_INDEXES
 WHERE OWNER = :1
   AND TABLE_NAME = :2
@@ -350,7 +388,9 @@ ORDER BY INDEX_NAME
 SELECT
   name AS index_name,
   CAST(NULL AS REAL) AS fragmentation_percent,
-  CAST(NULL AS INTEGER) AS page_count
+  CAST(NULL AS INTEGER) AS page_count,
+  CAST(NULL AS TEXT) AS last_used,
+  CAST(NULL AS INTEGER) AS scan_count
 FROM sqlite_master
 WHERE type = 'index'
   AND tbl_name = ?
@@ -369,7 +409,9 @@ ORDER BY name
 SELECT
   index_name AS index_name,
   CAST(NULL AS DOUBLE) AS fragmentation_percent,
-  CAST(NULL AS BIGINT) AS page_count
+  CAST(NULL AS BIGINT) AS page_count,
+  CAST(NULL AS TIMESTAMP) AS last_used,
+  CAST(NULL AS BIGINT) AS scan_count
 FROM duckdb_indexes()
 WHERE table_name = ?
   AND schema_name = ?
@@ -379,7 +421,9 @@ ORDER BY index_name
 SELECT
   index_name AS index_name,
   CAST(NULL AS DOUBLE) AS fragmentation_percent,
-  CAST(NULL AS BIGINT) AS page_count
+  CAST(NULL AS BIGINT) AS page_count,
+  CAST(NULL AS TIMESTAMP) AS last_used,
+  CAST(NULL AS BIGINT) AS scan_count
 FROM duckdb_indexes()
 WHERE table_name = ?
 ORDER BY index_name
@@ -396,7 +440,9 @@ ORDER BY index_name
 SELECT
   name AS index_name,
   CAST(NULL AS Float64) AS fragmentation_percent,
-  CAST(NULL AS UInt64) AS page_count
+  CAST(NULL AS UInt64) AS page_count,
+  CAST(NULL AS DateTime) AS last_used,
+  CAST(NULL AS UInt64) AS scan_count
 FROM system.data_skipping_indices
 WHERE database = ?
   AND table = ?
@@ -415,7 +461,9 @@ ORDER BY name
 SELECT
   CAST(NULL AS VARCHAR(128)) AS index_name,
   CAST(NULL AS FLOAT) AS fragmentation_percent,
-  CAST(NULL AS BIGINT) AS page_count
+  CAST(NULL AS BIGINT) AS page_count,
+  CAST(NULL AS TIMESTAMP) AS last_used,
+  CAST(NULL AS BIGINT) AS scan_count
 WHERE 1 = 0
 `.trim(),
     };
@@ -425,7 +473,7 @@ WHERE 1 = 0
   return {
     mode: 'estimated',
     params: [],
-    sql: `SELECT CAST(NULL AS VARCHAR(128)) AS index_name, CAST(NULL AS FLOAT) AS fragmentation_percent WHERE 1 = 0`,
+    sql: `SELECT CAST(NULL AS VARCHAR(128)) AS index_name, CAST(NULL AS FLOAT) AS fragmentation_percent, CAST(NULL AS TIMESTAMP) AS last_used, CAST(NULL AS BIGINT) AS scan_count WHERE 1 = 0`,
   };
 }
 
@@ -450,6 +498,28 @@ function asFiniteNumber(value: unknown): number | null {
     return Number.isFinite(n) ? n : null;
   }
   return null;
+}
+
+/**
+ * Driver timestamps (Date, ISO string, dialect DATE) → ISO-8601, or null when
+ * missing / the engine's "never used" sentinel (year before 1971, e.g. DB2 0001-01-01).
+ */
+export function normalizeIndexLastUsed(value: unknown): string | null {
+  if (value == null || value === '') return null;
+  let date: Date | null = null;
+  if (value instanceof Date) {
+    date = value;
+  } else if (typeof value === 'number' && Number.isFinite(value)) {
+    date = new Date(value > 1e12 ? value : value * 1000);
+  } else if (typeof value === 'string') {
+    const t = value.trim();
+    if (!t || /^0+1[-/]0*1[-/]0*1/.test(t)) return null;
+    const parsed = new Date(t);
+    date = Number.isFinite(parsed.getTime()) ? parsed : null;
+  }
+  if (!date || !Number.isFinite(date.getTime())) return null;
+  if (date.getUTCFullYear() < 1971) return null;
+  return date.toISOString();
 }
 
 /** Normalize driver rows (any casing) into IndexFragmentationRow[]. */
@@ -484,10 +554,18 @@ export function normalizeIndexFragmentationRows(
     const pageCount = asFiniteNumber(
       pickField(row, ['page_count', 'pagecount', 'nleaf', 'leaf_blocks'])
     );
+    const lastUsed = normalizeIndexLastUsed(
+      pickField(row, ['last_used', 'lastused', 'last_idx_scan', 'lastusedate'])
+    );
+    const scanCount = asFiniteNumber(
+      pickField(row, ['scan_count', 'scancount', 'idx_scan', 'user_seeks'])
+    );
     out.push({
       indexName,
       fragmentationPercent: pct,
       pageCount,
+      lastUsed,
+      scanCount,
     });
   }
   return out;
@@ -567,6 +645,54 @@ export function buildIndexDefragSql(opts: {
   return [];
 }
 
+/**
+ * Quoted DROP INDEX (or dialect equivalent) for Utilities → Index Management.
+ * Returns empty when the name/table is missing, the dialect has no secondary
+ * indexes (Redshift), or the index backs a UNIQUE/PK constraint — those must
+ * be dropped from Edit table as constraints, not with DROP INDEX.
+ */
+export function buildIndexDropSql(opts: {
+  dialect: string;
+  schema?: string;
+  table: string;
+  indexName: string;
+  constraint?: boolean;
+}): string[] {
+  const dialect = opts.dialect.toLowerCase();
+  if (opts.constraint) return [];
+  if (dialect === 'redshift') return [];
+  const { schema, table } = splitSchemaTable(opts.table, opts.schema);
+  if (!table || !opts.indexName.trim()) return [];
+  const idx = opts.indexName.trim();
+  const qTable = schema ? `${q(schema, dialect)}.${q(table, dialect)}` : q(table, dialect);
+  const qIndex = q(idx, dialect);
+  const qIndexQualified = schema ? `${q(schema, dialect)}.${qIndex}` : qIndex;
+
+  if (dialect === 'sqlserver' || dialect === 'azuresql') {
+    return [`DROP INDEX ${qIndex} ON ${qTable};`];
+  }
+  if (dialect === 'mysql' || dialect === 'mariadb' || dialect === 'tidb') {
+    return [`DROP INDEX ${qIndex} ON ${qTable};`];
+  }
+  if (dialect === 'postgres' || dialect === 'cockroachdb' || dialect === 'yugabytedb') {
+    return [`DROP INDEX IF EXISTS ${qIndexQualified};`];
+  }
+  if (dialect === 'db2' || dialect === 'oracle') {
+    return [`DROP INDEX ${qIndexQualified};`];
+  }
+  if (dialect === 'sqlite') {
+    return [`DROP INDEX IF EXISTS ${qIndex};`];
+  }
+  if (dialect === 'duckdb') {
+    return [`DROP INDEX IF EXISTS ${qIndexQualified};`];
+  }
+  if (dialect === 'clickhouse') {
+    // Data-skipping indexes listed in Index Management, not traditional B-trees.
+    return [`ALTER TABLE ${qTable} DROP INDEX ${qIndex};`];
+  }
+  return [`DROP INDEX ${qIndexQualified};`];
+}
+
 /** Example custom SELECT admins can paste when the default probe fails. */
 export function buildIndexFragmentationCustomTemplate(opts: {
   dialect: string;
@@ -582,20 +708,27 @@ export function buildIndexFragmentationCustomTemplate(opts: {
     return `-- Custom fragmentation probe (must return index_name, fragmentation_percent)
 SELECT i.name AS index_name,
        CAST(ps.avg_fragmentation_in_percent AS float) AS fragmentation_percent,
-       CAST(ps.page_count AS bigint) AS page_count
+       CAST(ps.page_count AS bigint) AS page_count,
+       (SELECT MAX(v) FROM (VALUES (us.last_user_seek),(us.last_user_scan),(us.last_user_lookup),(us.last_user_update)) AS t(v)) AS last_used,
+       CAST(ISNULL(us.user_seeks,0)+ISNULL(us.user_scans,0)+ISNULL(us.user_lookups,0) AS bigint) AS scan_count
 FROM sys.dm_db_index_physical_stats(DB_ID(), OBJECT_ID(N'${sch}.${tbl}'), NULL, NULL, 'DETAILED') ps
 JOIN sys.indexes i ON ps.object_id = i.object_id AND ps.index_id = i.index_id
+LEFT JOIN sys.dm_db_index_usage_stats us
+  ON us.database_id = DB_ID() AND us.object_id = i.object_id AND us.index_id = i.index_id
 WHERE i.name IS NOT NULL AND ps.index_level = 0;`;
   }
 
   if (dialect === 'postgres' || dialect === 'cockroachdb' || dialect === 'yugabytedb') {
     return `-- Requires: CREATE EXTENSION IF NOT EXISTS pgstattuple;
 SELECT ci.relname AS index_name,
-       (pgstatindex(ci.oid::regclass)).leaf_fragmentation AS fragmentation_percent
+       (pgstatindex(ci.oid::regclass)).leaf_fragmentation AS fragmentation_percent,
+       NULL::timestamptz AS last_used,
+       COALESCE(psi.idx_scan, 0)::bigint AS scan_count
 FROM pg_index ix
 JOIN pg_class ct ON ct.oid = ix.indrelid
 JOIN pg_namespace n ON n.oid = ct.relnamespace
 JOIN pg_class ci ON ci.oid = ix.indexrelid
+LEFT JOIN pg_stat_user_indexes psi ON psi.indexrelid = ci.oid
 WHERE n.nspname = '${sch}' AND ct.relname = '${tbl}';`;
   }
 
@@ -609,7 +742,8 @@ GROUP BY INDEX_NAME;`;
   if (dialect === 'db2') {
     return `SELECT INDNAME AS index_name,
        DECIMAL(100.0 * FLOAT(COALESCE(NUM_EMPTY_LEAFS,0)) / NULLIF(FLOAT(NLEAF),0), 5, 2)
-         AS fragmentation_percent
+         AS fragmentation_percent,
+       CASE WHEN LASTUSED IS NULL OR LASTUSED <= DATE('1971-01-01') THEN NULL ELSE LASTUSED END AS last_used
 FROM SYSCAT.INDEXES
 WHERE TABSCHEMA = '${sch.toUpperCase()}' AND TABNAME = '${tbl.toUpperCase()}';`;
   }

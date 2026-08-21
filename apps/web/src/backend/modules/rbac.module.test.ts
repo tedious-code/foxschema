@@ -217,4 +217,45 @@ describe('RbacModule', () => {
       await rbac.setRolePermissions('viewer', DEFAULT_ROLE_PERMISSIONS.viewer);
     }
   });
+
+  it('backfills Drop indexes onto roles that already have utilities + Change schema', async () => {
+    const store = await getStore();
+    try {
+      await rbac.setRolePermissions(
+        'editor',
+        DEFAULT_ROLE_PERMISSIONS.editor.filter((p) => p !== 'utility.index.drop')
+      );
+      expect((await rbac.permissionsForRole('editor')).includes('utility.index.drop')).toBe(false);
+      await backfillDatagridRolePermissions(store);
+      expect(new Set(await rbac.permissionsForRole('editor')).has('utility.index.drop')).toBe(true);
+    } finally {
+      await rbac.setRolePermissions('editor', DEFAULT_ROLE_PERMISSIONS.editor);
+    }
+  });
+
+  it('backfills Grant privileges onto owner-like roles that already migrate', async () => {
+    const store = await getStore();
+    try {
+      await rbac.setRolePermissions(
+        'owner',
+        DEFAULT_ROLE_PERMISSIONS.owner.filter((p) => p !== 'editor.grant')
+      );
+      expect((await rbac.permissionsForRole('owner')).includes('editor.grant')).toBe(false);
+      await backfillDatagridRolePermissions(store);
+      expect(new Set(await rbac.permissionsForRole('owner')).has('editor.grant')).toBe(true);
+    } finally {
+      await rbac.setRolePermissions('owner', DEFAULT_ROLE_PERMISSIONS.owner);
+    }
+  });
+
+  it('does not backfill Grant privileges onto editor', async () => {
+    const store = await getStore();
+    try {
+      await rbac.setRolePermissions('editor', [...DEFAULT_ROLE_PERMISSIONS.editor, 'schema.migrate']);
+      await backfillDatagridRolePermissions(store);
+      expect(new Set(await rbac.permissionsForRole('editor')).has('editor.grant')).toBe(false);
+    } finally {
+      await rbac.setRolePermissions('editor', DEFAULT_ROLE_PERMISSIONS.editor);
+    }
+  });
 });

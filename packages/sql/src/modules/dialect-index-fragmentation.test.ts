@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildIndexDefragSql,
+  buildIndexDropSql,
   buildIndexFragmentationCustomTemplate,
   buildIndexFragmentationQuery,
   dialectSupportsIndexFragmentation,
   fragmentationSeverity,
   isSafeIndexFragmentationCustomSql,
   normalizeIndexFragmentationRows,
+  normalizeIndexLastUsed,
   splitSchemaTable,
 } from './dialect-index-fragmentation.js';
 
@@ -41,6 +43,7 @@ describe('dialectSupportsIndexFragmentation', () => {
       expect(s.query, d).toBe(true);
       expect(s.mode, d).not.toBe('unsupported');
       expect(s.customSqlHint, d).toMatch(/index_name/i);
+      expect(s.customSqlHint, d).toMatch(/last_used/i);
     }
   });
 });
@@ -66,6 +69,9 @@ describe('buildIndexFragmentationQuery', () => {
     expect(q.params).toEqual(['dbo.Orders']);
     expect(q.sql).toMatch(/dm_db_index_physical_stats/i);
     expect(q.sql).toMatch(/OBJECT_ID\(\?\)/);
+    expect(q.sql).toMatch(/dm_db_index_usage_stats/i);
+    expect(q.sql).toMatch(/last_used/i);
+    expect(q.sql).toMatch(/scan_count/i);
   });
 
   it('asks pgstatindex for leaf_fragmentation, not pgstattuple', () => {
@@ -91,6 +97,9 @@ describe('buildIndexFragmentationQuery', () => {
     expect(q.params).toEqual(['public', 'users']);
     expect(q.sql).toMatch(/pgstatindex\(/);
     expect(q.sql).not.toMatch(/FROM pgstattuple\(/);
+    expect(q.sql).toMatch(/pg_stat_user_indexes/);
+    expect(q.sql).toMatch(/idx_scan/);
+    expect(q.sql).toMatch(/NULL::timestamptz AS last_used/);
   });
 
   it('does not let an unmeasured index reach the grid as NaN', () => {
@@ -147,6 +156,19 @@ describe('buildIndexFragmentationQuery', () => {
       error: 'DB2 fragmentation probe needs a schema name.',
     });
   });
+
+  it('includes LASTUSED on the DB2 probe', () => {
+    const db2 = buildIndexFragmentationQuery({
+      dialect: 'db2',
+      schema: 'DB2INST1',
+      table: 'ORDERS',
+    });
+    expect('error' in db2).toBe(false);
+    if (!('error' in db2)) {
+      expect(db2.sql).toMatch(/LASTUSED/);
+      expect(db2.sql).toMatch(/last_used/i);
+    }
+  });
 });
 
 describe('normalizeIndexFragmentationRows', () => {
@@ -158,9 +180,67 @@ describe('normalizeIndexFragmentationRows', () => {
         { name: '', fragmentation_percent: 1 },
       ])
     ).toEqual([
-      { indexName: 'ix1', fragmentationPercent: 12.5, pageCount: 9 },
-      { indexName: 'ix2', fragmentationPercent: 100, pageCount: null },
+      {
+        indexName: 'ix1',
+        fragmentationPercent: 12.5,
+        pageCount: 9,
+        lastUsed: null,
+        scanCount: null,
+      },
+      {
+        indexName: 'ix2',
+        fragmentationPercent: 100,
+        pageCount: null,
+        lastUsed: null,
+        scanCount: null,
+      },
     ]);
+  });
+
+  it('normalizes last_used timestamps and scan_count (any casing)', () => {
+    expect(
+      normalizeIndexFragmentationRows([
+        {
+          index_name: 'ix_used',
+          fragmentation_percent: 1,
+          LAST_USED: '2024-06-15T12:00:00.000Z',
+          Scan_Count: 42,
+        },
+        {
+          index_name: 'ix_never',
+          fragmentation_percent: 0,
+          lastused: '0001-01-01',
+          idx_scan: 0,
+        },
+      ])
+    ).toEqual([
+      {
+        indexName: 'ix_used',
+        fragmentationPercent: 1,
+        pageCount: null,
+        lastUsed: '2024-06-15T12:00:00.000Z',
+        scanCount: 42,
+      },
+      {
+        indexName: 'ix_never',
+        fragmentationPercent: 0,
+        pageCount: null,
+        lastUsed: null,
+        scanCount: 0,
+      },
+    ]);
+  });
+});
+
+describe('normalizeIndexLastUsed', () => {
+  it('treats DB2 never-used dates as null', () => {
+    expect(normalizeIndexLastUsed('0001-01-01')).toBeNull();
+    expect(normalizeIndexLastUsed(new Date('0001-01-01T00:00:00Z'))).toBeNull();
+    expect(normalizeIndexLastUsed(null)).toBeNull();
+  });
+
+  it('keeps real timestamps as ISO', () => {
+    expect(normalizeIndexLastUsed('2024-03-01T08:30:00.000Z')).toBe('2024-03-01T08:30:00.000Z');
   });
 });
 
@@ -220,6 +300,78 @@ describe('fragmentationSeverity / defrag SQL', () => {
         indexName: 'idx_ts',
       })
     ).toEqual(['OPTIMIZE TABLE `default`.`events` FINAL;']);
+  });
+});
+
+describe('buildIndexDropSql', () => {
+  it('quotes DROP INDEX per major dialect', () => {
+    expect(
+      buildIndexDropSql({
+        dialect: 'postgres',
+        schema: 'public',
+        table: 'orders',
+        indexName: 'ix_orders_customer',
+      })
+    ).toEqual(['DROP INDEX IF EXISTS "public"."ix_orders_customer";']);
+    expect(
+      buildIndexDropSql({
+        dialect: 'mysql',
+        schema: 'app',
+        table: 'users',
+        indexName: 'ix_email',
+      })
+    ).toEqual(['DROP INDEX `ix_email` ON `app`.`users`;']);
+    expect(
+      buildIndexDropSql({
+        dialect: 'sqlserver',
+        schema: 'dbo',
+        table: 'Orders',
+        indexName: 'IX_A',
+      })
+    ).toEqual(['DROP INDEX [IX_A] ON [dbo].[Orders];']);
+    expect(
+      buildIndexDropSql({
+        dialect: 'db2',
+        schema: 'DB2INST1',
+        table: 'ORDERS',
+        indexName: 'IX_CUSTOMER',
+      })
+    ).toEqual(['DROP INDEX "DB2INST1"."IX_CUSTOMER";']);
+    expect(
+      buildIndexDropSql({
+        dialect: 'sqlite',
+        table: 'orders',
+        indexName: 'ix_orders_customer',
+      })
+    ).toEqual(['DROP INDEX IF EXISTS "ix_orders_customer";']);
+    expect(
+      buildIndexDropSql({
+        dialect: 'clickhouse',
+        schema: 'default',
+        table: 'events',
+        indexName: 'idx_ts',
+      })
+    ).toEqual(['ALTER TABLE `default`.`events` DROP INDEX `idx_ts`;']);
+  });
+
+  it('refuses constraint-backed indexes and Redshift', () => {
+    expect(
+      buildIndexDropSql({
+        dialect: 'sqlserver',
+        schema: 'dbo',
+        table: 'Orders',
+        indexName: 'PK_Orders',
+        constraint: true,
+      })
+    ).toEqual([]);
+    expect(
+      buildIndexDropSql({
+        dialect: 'redshift',
+        schema: 'public',
+        table: 'fact',
+        indexName: 'ix_x',
+      })
+    ).toEqual([]);
   });
 });
 
