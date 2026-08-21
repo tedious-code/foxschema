@@ -47,8 +47,14 @@ const types = makeDialectTypeFns({
     blob: plain('String'),
     date: plain('Date'),
     time: plain('String'),
-    timestamp: plain('DateTime64(3)'),
-    timestamptz: plain("DateTime64(3, 'UTC')"),
+    timestamp: (t) => {
+      const p = t.length !== undefined ? Math.min(Math.max(t.length, 0), 9) : 3;
+      return `DateTime64(${p})`;
+    },
+    timestamptz: (t) => {
+      const p = t.length !== undefined ? Math.min(Math.max(t.length, 0), 9) : 3;
+      return `DateTime64(${p}, 'UTC')`;
+    },
     uuid: plain('UUID'),
     json: plain('JSON'),
     xml: plain('String'),

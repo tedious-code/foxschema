@@ -79,6 +79,29 @@ describe('cross-dialect type translation', () => {
     expect(xlate(mssql, oracle, 'money').sql).toBe('NUMBER(19,4)');
   });
 
+  it('preserves temporal fractional-seconds precision on cross-dialect migrate', () => {
+    // MySQL bare datetime ≡ DATETIME(0). Dropping fsp used to emit that and
+    // silently truncate sub-second values from Postgres / SQL Server / MySQL.
+    expect(pg.parseType('timestamp(6)')).toMatchObject({ base: 'timestamp', length: 6 });
+    expect(mssql.parseType('datetime2(7)')).toMatchObject({ base: 'timestamp', length: 7 });
+    expect(mysql.parseType('datetime(6)')).toMatchObject({ base: 'timestamp', length: 6 });
+    expect(xlate(pg, mysql, 'timestamp(6)').sql).toBe('datetime(6)');
+    expect(xlate(mysql, mysql, 'datetime(6)').sql).toBe('datetime(6)');
+    expect(xlate(mssql, pg, 'datetime2(7)').sql).toBe('timestamp(7)');
+    // MySQL max fsp is 6 — clamp datetime2(7) rather than inventing datetime(7).
+    const mssqlToMysql = xlate(mssql, mysql, 'datetime2(7)');
+    expect(mssqlToMysql.sql).toBe('datetime(6)');
+    expect(mssqlToMysql.warning).toMatch(/capped at 6/i);
+    expect(xlate(pg, mssql, 'timestamp(6)').sql).toBe('datetime2(6)');
+    expect(xlate(pg, oracle, 'timestamp(6)').sql).toBe('TIMESTAMP(6)');
+  });
+
+  it('distinguishes temporal fsp in canonicalEquals', () => {
+    expect(canonicalEquals(mysql.parseType('datetime(6)'), mysql.parseType('datetime'))).toBe(false);
+    expect(canonicalEquals(pg.parseType('timestamp(6)'), pg.parseType('timestamp(3)'))).toBe(false);
+    expect(canonicalEquals(pg.parseType('timestamp(6)'), pg.parseType('timestamp(6)'))).toBe(true);
+  });
+
   it('attaches a warning when the target has no exact equivalent', () => {
     // Postgres uuid → Oracle has no uuid type
     const r = xlate(pg, oracle, 'uuid');

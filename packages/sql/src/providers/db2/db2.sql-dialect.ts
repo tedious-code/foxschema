@@ -1,5 +1,5 @@
 import type { SqlDialect, ColumnSpec } from '../../modules/sql-dialect.interface.js';
-import { makeDialectTypeFns, plain, sized, sizedOr, decimalAs, warn } from '../../modules/type-mapping.js';
+import { makeDialectTypeFns, plain, sized, sizedOr, decimalAs, temporalAs, warn } from '../../modules/type-mapping.js';
 
 const types = makeDialectTypeFns({
   label: 'Db2',
@@ -64,8 +64,11 @@ const types = makeDialectTypeFns({
     blob: plain('BLOB'),
     date: plain('DATE'),
     time: plain('TIME'),
-    timestamp: plain('TIMESTAMP'),
-    timestamptz: warn('TIMESTAMP', 'Db2 has no timezone-aware timestamp; mapped to TIMESTAMP'),
+    timestamp: temporalAs('TIMESTAMP'),
+    timestamptz: (t) => {
+      const sql = t.length !== undefined ? `TIMESTAMP(${t.length})` : 'TIMESTAMP';
+      return { sql, warning: 'Db2 has no timezone-aware timestamp; mapped to TIMESTAMP' };
+    },
     uuid: warn('CHAR(36)', 'Db2 has no uuid type; mapped to CHAR(36)'),
     json: warn('CLOB', 'Db2 has no json type; mapped to CLOB'),
     xml: plain('XML'),
