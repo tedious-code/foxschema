@@ -80,13 +80,18 @@ export class SqlEditorPage {
     await modal.selectDialect(cfg.dialect);
     await fillInput(this.page, '[data-testid="conn-name-input"]', name);
     // A file dialect renders the path and nothing else — filling a hidden host
-    // box is what broke this helper when the form stopped showing one.
-    if (cfg.host !== undefined) await modal.fillHost(cfg.host);
-    if (cfg.port !== undefined) await modal.fillPort(cfg.port);
+    // box is what broke this helper when the form stopped showing one. Dummy
+    // E2E_*_HOST values (required by hasConfig) must not be typed into those
+    // missing fields.
+    const fileDialect = cfg.dialect === 'sqlite' || cfg.dialect === 'duckdb';
+    if (!fileDialect) {
+      if (cfg.host !== undefined) await modal.fillHost(cfg.host);
+      if (cfg.port !== undefined) await modal.fillPort(cfg.port);
+      if (cfg.username !== undefined) await modal.fillUsername(cfg.username);
+      if (cfg.password !== undefined) await modal.fillPassword(cfg.password);
+      if (cfg.password !== undefined) await modal.checkSavePassword();
+    }
     await modal.fillDatabase(cfg.database);
-    if (cfg.username !== undefined) await modal.fillUsername(cfg.username);
-    if (cfg.password !== undefined) await modal.fillPassword(cfg.password);
-    if (cfg.password !== undefined) await modal.checkSavePassword();
     // loadSchemas throws on conn-test-failed — never persist a bad credential.
     await modal.loadSchemas();
     if (cfg.schema) await modal.selectSchema(cfg.schema);
