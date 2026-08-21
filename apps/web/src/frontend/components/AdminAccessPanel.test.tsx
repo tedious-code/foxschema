@@ -128,4 +128,39 @@ describe('AdminAccessPanel', () => {
     expect((screen.getByTestId('admin-save-role-perms') as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByTestId('admin-roles-hint').textContent).toMatch(/cannot be reduced/i);
   });
+
+  it('opens for a role without admin grants and explains how to get access', async () => {
+    useAuthStore.setState({
+      user: {
+        id: 'u-editor',
+        email: 'editor@example.com',
+        onboardingCompleted: true,
+        role: 'editor',
+        permissions: [...DEFAULT_ROLE_PERMISSIONS.editor],
+      },
+      localSingleUser: false,
+    });
+    render(<AdminAccessPanel open onClose={() => undefined} />);
+    expect(screen.getByTestId('admin-access-panel')).toBeTruthy();
+    expect(screen.getByTestId('admin-access-denied').textContent).toMatch(/configure roles/i);
+    expect(screen.queryByTestId('admin-tab-users')).toBeNull();
+    expect(screen.queryByTestId('admin-tab-roles')).toBeNull();
+  });
+
+  it('defaults to Roles when the user can configure roles but not users', async () => {
+    useAuthStore.setState({
+      user: {
+        id: 'u-owner',
+        email: 'owner@example.com',
+        onboardingCompleted: true,
+        role: 'owner',
+        permissions: [...DEFAULT_ROLE_PERMISSIONS.owner, 'admin.roles'],
+      },
+      localSingleUser: false,
+    });
+    render(<AdminAccessPanel open onClose={() => undefined} />);
+    await waitFor(() => expect(screen.getByTestId('admin-tab-roles')).toBeTruthy());
+    expect(screen.queryByTestId('admin-tab-users')).toBeNull();
+    expect(screen.getByTestId('admin-edit-role-editor')).toBeTruthy();
+  });
 });

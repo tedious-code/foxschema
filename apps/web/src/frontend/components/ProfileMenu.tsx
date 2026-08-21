@@ -14,8 +14,6 @@ const SettingsPanel = lazy(() =>
 
 export function ProfileMenu(): React.ReactElement | null {
   const { user, logout, localSingleUser } = useAuthStore();
-  const canAdminUsers = useAuthStore((s) => s.can('admin.users'));
-  const canAdminRoles = useAuthStore((s) => s.can('admin.roles'));
   const [open, setOpen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
@@ -114,19 +112,18 @@ export function ProfileMenu(): React.ReactElement | null {
             <Palette className="w-4 h-4" /> User Preference
           </button>
 
-          {(canAdminUsers || canAdminRoles) && (
-            <button
-              type="button"
-              data-testid="profile-access-control"
-              onClick={() => {
-                setShowAdmin(true);
-                setOpen(false);
-              }}
-              className="w-full flex items-center gap-2 px-4 py-3 text-sm font-semibold text-slate-300 hover:text-slate-100 hover:bg-slate-800/60 transition cursor-pointer"
-            >
-              <Shield className="w-4 h-4" /> Access control
-            </button>
-          )}
+          <button
+            type="button"
+            data-testid="profile-access-control"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen(false);
+              setShowAdmin(true);
+            }}
+            className="w-full flex items-center gap-2 px-4 py-3 text-sm font-semibold text-slate-300 hover:text-slate-100 hover:bg-slate-800/60 transition cursor-pointer"
+          >
+            <Shield className="w-4 h-4" /> Access control
+          </button>
 
           <a
             href="https://foxschema.com"

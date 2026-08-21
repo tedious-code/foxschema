@@ -87,6 +87,12 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
     if (open) void load();
   }, [open, load]);
 
+  useEffect(() => {
+    if (!open) return;
+    if (tab === 'users' && !canUsers && canRoles) setTab('roles');
+    if (tab === 'roles' && !canRoles && canUsers) setTab('users');
+  }, [open, tab, canUsers, canRoles]);
+
   // Keep unsaved checkbox drafts when the server matrix reloads.
   useEffect(() => {
     if (!matrix) return;
@@ -205,7 +211,7 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
   return createPortal(
     <div
       data-testid="admin-access-panel"
-      className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/70 p-4"
+      className="fixed inset-0 z-[320] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4"
       onClick={onClose}
     >
       <div
@@ -255,10 +261,21 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
         )}
 
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
-          {busy && !users.length && !matrix && (
+          {busy && !users.length && !matrix && (canUsers || canRoles) && (
             <div className="flex items-center gap-2 text-xs text-slate-400 py-8 justify-center">
               <Loader2 className="w-4 h-4 animate-spin" /> Loading…
             </div>
+          )}
+
+          {!canUsers && !canRoles && (
+            <p
+              data-testid="admin-access-denied"
+              className="text-[11px] text-slate-400 leading-snug rounded-md border border-slate-800 bg-slate-950/50 px-3 py-2"
+            >
+              Your role cannot manage users or configure roles. An admin must grant{' '}
+              <span className="text-slate-200">Manage users</span> or{' '}
+              <span className="text-slate-200">Configure roles</span> in Access control.
+            </p>
           )}
 
           {tab === 'users' && canUsers && (
