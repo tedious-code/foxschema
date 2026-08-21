@@ -81,6 +81,10 @@ describe('AdminAccessPanel', () => {
     await waitFor(() => {
       expect(screen.getByTestId(`admin-user-role-${localUser.id}`)).toBeTruthy();
     });
+    expect(screen.getByTestId('admin-access-layers').textContent).toMatch(/two layers/i);
+    expect(screen.getByTestId('admin-tab-users').textContent).toMatch(/app users/i);
+    expect(screen.getByTestId('admin-tab-roles').textContent).toMatch(/app roles/i);
+    expect(screen.getByTestId('admin-tab-database').textContent).toMatch(/database/i);
     expect(screen.getByTestId('admin-single-user-hint').textContent).toMatch(/single-user/i);
     expect((screen.getByTestId(`admin-user-role-${localUser.id}`) as HTMLSelectElement).disabled).toBe(
       true
@@ -99,6 +103,8 @@ describe('AdminAccessPanel', () => {
     const save = screen.getByTestId('admin-save-role-perms') as HTMLButtonElement;
     expect(save).toBeTruthy();
     expect(save.disabled).toBe(true);
+    expect(screen.getByTestId('admin-roles-hint').textContent).toMatch(/database tab/i);
+    expect(screen.getByText(/Grant privileges is the FoxSchema gate/i)).toBeTruthy();
 
     fireEvent.click(screen.getByTestId('admin-edit-role-owner'));
     const manageUsers = screen.getByTestId('admin-perm-admin.users') as HTMLInputElement;

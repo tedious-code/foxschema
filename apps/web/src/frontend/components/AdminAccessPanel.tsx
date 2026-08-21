@@ -267,6 +267,14 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
             <X className="w-4 h-4" />
           </button>
         </div>
+        <p
+          data-testid="admin-access-layers"
+          className="px-4 py-1.5 text-[11px] text-slate-500 border-b border-slate-800 shrink-0"
+        >
+          Two layers: <span className="text-slate-300">App users / App roles</span> control who may
+          use FoxSchema. <span className="text-slate-300">Database</span> inspects users, groups, and
+          GRANT / REVOKE on a connected server.
+        </p>
 
         <div className="flex gap-1 px-4 pt-3 shrink-0">
           {canUsers && (
@@ -279,7 +287,7 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
               }`}
             >
               <Users className="w-3.5 h-3.5 inline mr-1" />
-              Users
+              App users
             </button>
           )}
           {canRoles && (
@@ -291,7 +299,7 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
                 tab === 'roles' ? 'bg-slate-800 text-slate-100' : 'text-slate-400'
               }`}
             >
-              Roles & permissions
+              App roles
             </button>
           )}
           {canDatabase && (
@@ -341,16 +349,18 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
                   className="text-[11px] text-slate-400 leading-snug rounded-md border border-slate-800 bg-slate-950/50 px-3 py-2"
                 >
                   Single-user mode keeps this account as <span className="text-slate-200">admin</span>{' '}
-                  — role and Active cannot be changed. Expand a user to see their permissions (from
-                  their group). Open <span className="text-slate-200">Roles & permissions</span> to
-                  edit what editor / owner / viewer may do (applied when you enable multi-user
-                  login).
+                  — role and Active cannot be changed. Expand a user to see FoxSchema permissions
+                  (from their app role). Open <span className="text-slate-200">App roles</span> to
+                  edit what editor / owner / viewer may do, including{' '}
+                  <span className="text-slate-200">Grant privileges</span> for the Database tab
+                  (applied when you enable multi-user login).
                 </p>
               )}
               {!localSingleUser && (
                 <p className="text-[11px] text-slate-400 leading-snug">
-                  Users are grouped by role. Expand a row to see that user’s permissions — they come
-                  from the group, not a per-user override.
+                  FoxSchema logins grouped by app role. Expand a row to see that role’s permissions —
+                  they are not per-user overrides. Database users, groups, and GRANT / REVOKE live on
+                  the Database tab.
                 </p>
               )}
             <div data-testid="admin-user-groups" className="space-y-3">
@@ -493,8 +503,9 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
                                   ))
                                 )}
                                 <p className="text-[11px] text-slate-500">
-                                  Permissions come from the {group.label} group. Change them on the
-                                  Roles & permissions tab.
+                                  FoxSchema permissions come from the {group.label} app role. Change
+                                  them on App roles. Database GRANT / REVOKE is on the Database tab
+                                  and needs Grant privileges.
                                 </p>
                               </div>
                             )}
@@ -534,8 +545,8 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
                 className="text-[11px] text-slate-400 leading-snug rounded-md border border-slate-800 bg-slate-950/50 px-3 py-2"
               >
                 {readOnlyRole
-                  ? 'Admin always has every permission. This role cannot be reduced — pick editor, owner, or viewer to edit grants, then Save.'
-                  : `Check boxes for ${editRole}, then Save ${editRole} permissions in the bar below. Changes are not applied until you save.`}
+                  ? 'Admin always has every FoxSchema permission, including database GRANT/REVOKE. This role cannot be reduced — pick editor, owner, or viewer to edit grants, then Save.'
+                  : `Check boxes for ${editRole}, then Save ${editRole} permissions. Grant privileges (SQL Editor) is what unlocks GRANT / REVOKE on the Database tab.`}
               </p>
 
               {groups.map(([group, items]) => (
@@ -543,10 +554,10 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
                   <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
                     {group}
                   </div>
-                  {group === 'Admin' && !readOnlyRole && (
+                  {group === 'SQL Editor' && !readOnlyRole && (
                     <p className="text-[11px] text-slate-500 leading-snug">
-                      Not granted to {editRole} by default. Check and Save to let this role open
-                      Access control (Manage users / Configure roles).
+                      Grant privileges is the FoxSchema gate for the Database tab’s GRANT / REVOKE.
+                      Owner has it by default; editor does not.
                     </p>
                   )}
                   {items.map((m) => {
@@ -579,7 +590,11 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
           )}
 
           {tab === 'database' && canDatabase && (
-            <DatabaseAccessModal open embedded />
+            <DatabaseAccessModal
+              open
+              embedded
+              onOpenAppRoles={canRoles ? () => setTab('roles') : undefined}
+            />
           )}
         </div>
 

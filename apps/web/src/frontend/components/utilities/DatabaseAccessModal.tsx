@@ -27,6 +27,7 @@ import {
   type DbPrivilege,
   type DbPrivilegeObjectType,
 } from '@foxschema/sql';
+import { PERMISSION_META } from '../../../shared/permissions';
 import { fetchDbAccess } from '../../api/schemaApi';
 import { executeSql } from '../../api/sqlApi';
 import { useSyncStore } from '../../store/useSyncStore';
@@ -39,6 +40,8 @@ interface Props {
   onClose?: () => void;
   /** Embed in Access control (no modal shell). */
   embedded?: boolean;
+  /** Jump to Access control → App roles (Grant privileges). */
+  onOpenAppRoles?: () => void;
 }
 
 type ConfirmAction = {
@@ -48,8 +51,14 @@ type ConfirmAction = {
 };
 
 const LS_CONN = 'foxschema-utilities-db-access-connection';
+const GRANT_PRIV_META = PERMISSION_META.find((m) => m.id === 'editor.grant');
 
-export const DatabaseAccessModal: React.FC<Props> = ({ open, onClose, embedded = false }) => {
+export const DatabaseAccessModal: React.FC<Props> = ({
+  open,
+  onClose,
+  embedded = false,
+  onOpenAppRoles,
+}) => {
   const connections = useSyncStore((s) => s.connections);
   const ensureConnectionSelected = useSqlEditorStore((s) => s.ensureConnectionSelected);
   const submitSessionPassword = useSqlEditorStore((s) => s.submitSessionPassword);
@@ -209,8 +218,9 @@ export const DatabaseAccessModal: React.FC<Props> = ({ open, onClose, embedded =
               Database Access
             </h2>
             <p className="text-[11px] text-slate-500 mt-0.5">
-              Users and groups on the connected database, with GRANT / REVOKE for table and role
-              privileges.
+              Users and groups on the <span className="text-slate-300">connected database</span>, plus
+              GRANT / REVOKE. FoxSchema logins and app permissions stay on Access control → App users
+              / App roles.
             </p>
           </div>
           {onClose && (
@@ -486,8 +496,24 @@ export const DatabaseAccessModal: React.FC<Props> = ({ open, onClose, embedded =
                 </div>
                 {!canGrant && (
                   <p className="text-[11px] text-slate-500">
-                    Your FoxSchema role cannot run GRANT / REVOKE. An admin must grant{' '}
-                    <span className="text-slate-200">Grant privileges</span> on Roles & permissions.
+                    Your FoxSchema role cannot run GRANT / REVOKE. That is the{' '}
+                    <span className="text-slate-200">{GRANT_PRIV_META?.label ?? 'Grant privileges'}</span>{' '}
+                    permission on App roles (owner has it by default; editor does not).
+                    {onOpenAppRoles ? (
+                      <>
+                        {' '}
+                        <button
+                          type="button"
+                          data-testid="db-access-open-app-roles"
+                          onClick={onOpenAppRoles}
+                          className="text-amber-200 hover:text-amber-100 underline-offset-2 hover:underline"
+                        >
+                          Open App roles
+                        </button>
+                      </>
+                    ) : (
+                      ' Open Access control → App roles to grant it.'
+                    )}
                   </p>
                 )}
                 <div className="grid grid-cols-2 gap-2">
