@@ -19,11 +19,13 @@ import {
   Loader2,
   RefreshCw,
   Square,
+  Trash2,
   Wrench,
   X,
 } from 'lucide-react';
 import {
   buildIndexDefragSql,
+  buildIndexDropSql,
   dialectSupportsDbaUtility,
   dialectSupportsIndexFragmentation,
   formatBytes,
@@ -43,13 +45,17 @@ import {
 import { executeSql } from '../../api/sqlApi';
 import { useSyncStore } from '../../store/useSyncStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
+import { useAuthStore } from '../../store/authStore';
 import type { IndexInfo, TableSchema } from '../../lib/types';
 import { PROVIDER_SETTINGS } from '../../lib/provider-settings';
 import {
   DEFAULT_INDEX_MGMT_SORT,
   averageFragmentation,
+  formatIndexLastUsed,
   indexSortValue,
+  latestLastUsedSortValue,
   nextIndexMgmtSort,
+  pickLatestIndexUsage,
   sortGroupedIndexes,
   tableSortValue,
   type IndexMgmtSort,
@@ -71,6 +77,7 @@ type IndexRow = {
   index: IndexInfo;
   frag: IndexFragmentationApiRow | null;
   defragSql: string[];
+  dropSql: string[];
   tableError?: string;
 };
 
@@ -102,6 +109,9 @@ export const IndexManagementModal: React.FC<Props> = ({
   const sessionPasswords = useSqlEditorStore((s) => s.sessionPasswords);
   const schemaCache = useSqlEditorStore((s) => s.schemaCache);
   const safeMode = useSqlEditorStore((s) => s.safeMode);
+  const canDropIndexes = useAuthStore(
+    (s) => s.can('utility.index.drop') && s.can('editor.ddl')
+  );
 
   const [connectionId, setConnectionId] = useState('');
   const [passwordDraft, setPasswordDraft] = useState('');
@@ -116,9 +126,11 @@ export const IndexManagementModal: React.FC<Props> = ({
   const [loadingSchema, setLoadingSchema] = useState(false);
   const [loadingFrag, setLoadingFrag] = useState(false);
   const [runningDefrag, setRunningDefrag] = useState(false);
+  const [runningDrop, setRunningDrop] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [confirmDefrag, setConfirmDefrag] = useState<'selected' | 'filtered' | null>(null);
+  const [confirmDrop, setConfirmDrop] = useState<string[] | null>(null);
   const [sort, setSort] = useState<IndexMgmtSort>(DEFAULT_INDEX_MGMT_SORT);
 
   const initOpen = React.useRef(false);
@@ -189,12 +201,20 @@ export const IndexManagementModal: React.FC<Props> = ({
                 indexName: index.name,
                 fragmentationPercent: frag?.fragmentationPercent,
               });
+        const dropSql = buildIndexDropSql({
+          dialect,
+          schema,
+          table: table.name,
+          indexName: index.name,
+          constraint: index.constraint,
+        });
         rows.push({
           key,
           tableName: table.name,
           index,
           frag,
           defragSql,
+          dropSql,
           tableError: hit?.tableError,
         });
       }
@@ -231,6 +251,9 @@ export const IndexManagementModal: React.FC<Props> = ({
         rows,
         indexCount: rows.length,
         avgFrag: averageFragmentation(rows.map((r) => r.frag?.fragmentationPercent)),
+        lastUsedMs: latestLastUsedSortValue(
+          rows.map((r) => ({ lastUsed: r.frag?.lastUsed, scanCount: r.frag?.scanCount }))
+        ),
         rowCount: size?.rowCount ?? null,
         dataBytes: size?.dataBytes ?? null,
         indexBytes: size?.indexBytes ?? null,
@@ -255,6 +278,8 @@ export const IndexManagementModal: React.FC<Props> = ({
           dataBytes: null,
           indexBytes: idxSize?.indexBytes ?? idxSize?.totalBytes ?? null,
           fragPct: row.frag?.fragmentationPercent ?? null,
+          lastUsed: row.frag?.lastUsed ?? null,
+          scanCount: row.frag?.scanCount ?? null,
         });
       },
       (row) => row.index.name
@@ -534,6 +559,84 @@ export const IndexManagementModal: React.FC<Props> = ({
     ]
   );
 
+  const runDrop = useCallback(
+    async (keys: string[]) => {
+      if (!connectionId || !conn || keys.length === 0) return;
+      if (!canDropIndexes) {
+        setError('Drop indexes requires the Drop indexes and Change schema permissions.');
+        return;
+      }
+      if (needsPassword) {
+        setError('Enter the session password for this credential first.');
+        return;
+      }
+      const statements: string[] = [];
+      const seen = new Set<string>();
+      for (const key of keys) {
+        const row = allRows.find((r) => r.key === key);
+        if (!row?.dropSql.length) continue;
+        for (const stmt of row.dropSql) {
+          if (stmt.trim().startsWith('--')) continue;
+          if (seen.has(stmt)) continue;
+          seen.add(stmt);
+          statements.push(stmt);
+        }
+      }
+      if (statements.length === 0) {
+        setError(
+          'No DROP INDEX SQL for the selection. Constraint-backed indexes must be dropped from Edit table.'
+        );
+        return;
+      }
+      setRunningDrop(true);
+      setError(null);
+      setStatus(null);
+      try {
+        const { results } = await executeSql(
+          {
+            connectionId,
+            password: sessionPasswords[connectionId] || undefined,
+          },
+          statements
+        );
+        const failed = results.filter((r) => !r.ok);
+        if (failed.length) {
+          setError(
+            failed
+              .map((r) => ('error' in r ? r.error : 'failed'))
+              .slice(0, 3)
+              .join(' · ')
+          );
+        } else {
+          setStatus(`Dropped ${statements.length} index(es). Reloading schema…`);
+          setSelected(new Set());
+          ensureConnectionSelected(connectionId);
+          await ensureSchema(connectionId, { force: true });
+          void fetchFragmentation();
+          void fetchSizes();
+          setStatus(`Dropped ${statements.length} index(es).`);
+        }
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setRunningDrop(false);
+        setConfirmDrop(null);
+      }
+    },
+    [
+      connectionId,
+      conn,
+      canDropIndexes,
+      needsPassword,
+      allRows,
+      sessionPasswords,
+      ensureConnectionSelected,
+      ensureSchema,
+      fetchFragmentation,
+      fetchSizes,
+    ]
+  );
+
   const toggleExpand = (table: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -569,8 +672,8 @@ export const IndexManagementModal: React.FC<Props> = ({
             </h2>
             <p className="text-[11px] text-slate-500 mt-0.5">
               Indexes grouped under each table. Click a table to expand its indexes.
-              Table headers show index count and average fragmentation. Click a column
-              heading to sort tables and the indexes inside them.
+              Table headers show index count, average fragmentation, and last used.
+              Click a column heading to sort tables and the indexes inside them.
             </p>
           </div>
           <button
@@ -749,7 +852,7 @@ export const IndexManagementModal: React.FC<Props> = ({
             <button
               type="button"
               data-testid="index-mgmt-defrag-selected"
-              disabled={selected.size === 0 || runningDefrag}
+              disabled={selected.size === 0 || runningDefrag || runningDrop}
               onClick={() => setConfirmDefrag('selected')}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md border border-rose-500/40 bg-rose-500/15 text-rose-100 hover:bg-rose-500/25 disabled:opacity-50"
             >
@@ -759,12 +862,44 @@ export const IndexManagementModal: React.FC<Props> = ({
             <button
               type="button"
               data-testid="index-mgmt-defrag-filtered"
-              disabled={filteredKeys.length === 0 || runningDefrag}
+              disabled={filteredKeys.length === 0 || runningDefrag || runningDrop}
               onClick={() => setConfirmDefrag('filtered')}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-100 hover:bg-amber-500/20 disabled:opacity-50"
             >
               <Wrench className="w-3.5 h-3.5" />
               Defragment filtered ({filteredKeys.length})
+            </button>
+            <button
+              type="button"
+              data-testid="index-mgmt-drop-selected"
+              disabled={
+                !canDropIndexes ||
+                selected.size === 0 ||
+                runningDefrag ||
+                runningDrop
+              }
+              title={
+                canDropIndexes
+                  ? 'Drop selected secondary indexes. Constraint-backed indexes are skipped.'
+                  : 'Requires Drop indexes and Change schema (grant these in Access control).'
+              }
+              onClick={() => {
+                const keys = [...selected].filter((k) => {
+                  const row = allRows.find((r) => r.key === k);
+                  return Boolean(row?.dropSql.length);
+                });
+                if (keys.length === 0) {
+                  setError(
+                    'Nothing droppable in the selection. Constraint-backed indexes must be dropped from Edit table.'
+                  );
+                  return;
+                }
+                setConfirmDrop(keys);
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md border border-rose-500/40 bg-rose-500/10 text-rose-100 hover:bg-rose-500/20 disabled:opacity-50"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Drop selected ({selected.size})
             </button>
           </div>
 
@@ -774,8 +909,8 @@ export const IndexManagementModal: React.FC<Props> = ({
               data-testid="index-mgmt-status"
             >
               {error || status}
-              {safeMode && confirmDefrag
-                ? ' Safe mode is on — confirm carefully before running rebuild/reorg.'
+              {safeMode && (confirmDefrag || confirmDrop)
+                ? ' Safe mode is on — confirm carefully before running rebuild/reorg or DROP INDEX.'
                 : ''}
             </p>
           )}
@@ -863,7 +998,15 @@ export const IndexManagementModal: React.FC<Props> = ({
                     className="px-2 py-2 w-20"
                     align="right"
                   />
-                  <th className="px-3 py-2 font-bold w-28 text-right"> </th>
+                  <SortableTh
+                    label="Last used"
+                    column="lastUsed"
+                    sort={sort}
+                    onSort={(key) => setSort((s) => nextIndexMgmtSort(s, key))}
+                    className="px-2 py-2 w-32"
+                    align="right"
+                  />
+                  <th className="px-3 py-2 font-bold w-40 text-right"> </th>
                 </tr>
               </thead>
               <tbody>
@@ -876,6 +1019,12 @@ export const IndexManagementModal: React.FC<Props> = ({
                   const tableSomeSelected = tableKeys.some((k) => selected.has(k));
                   const size = lookupTableSizeGroup(sizeGroups, tableName, conn?.schema);
                   const avgSeverity = fragmentationSeverity(avgFrag);
+                  const tableUsage = pickLatestIndexUsage(
+                    rows.map((r) => ({
+                      lastUsed: r.frag?.lastUsed,
+                      scanCount: r.frag?.scanCount,
+                    }))
+                  );
                   return (
                     <React.Fragment key={tableName}>
                       <tr
@@ -969,6 +1118,13 @@ export const IndexManagementModal: React.FC<Props> = ({
                           </span>
                           {formatPct(avgFrag)}
                         </td>
+                        <td
+                          className="px-2 py-1.5 text-right tabular-nums text-slate-300"
+                          data-testid={`index-mgmt-table-last-used-${tableName}`}
+                          title="Most recent index usage on this table"
+                        >
+                          {formatIndexLastUsed(tableUsage)}
+                        </td>
                         <td />
                       </tr>
                       {openGroup &&
@@ -1044,17 +1200,55 @@ export const IndexManagementModal: React.FC<Props> = ({
                               >
                                 {formatPct(row.frag?.fragmentationPercent)}
                               </td>
+                              <td
+                                className="px-2 py-2 align-top text-right tabular-nums text-slate-300"
+                                data-testid={`index-mgmt-last-used-${row.key}`}
+                                title={
+                                  row.frag?.scanCount != null
+                                    ? `${row.frag.scanCount.toLocaleString()} scans/seeks`
+                                    : 'Last used (when the engine reports it)'
+                                }
+                              >
+                                {formatIndexLastUsed({
+                                  lastUsed: row.frag?.lastUsed,
+                                  scanCount: row.frag?.scanCount,
+                                })}
+                              </td>
                               <td className="px-3 py-2 align-top text-right">
-                                <button
-                                  type="button"
-                                  disabled={!row.defragSql.length || runningDefrag}
-                                  title={row.defragSql.join('\n') || 'No defrag SQL'}
-                                  onClick={() => void runDefrag([row.key])}
-                                  className="inline-flex items-center gap-1 rounded border border-slate-600 px-2 py-1 text-[11px] font-bold text-slate-200 hover:border-amber-400/50 hover:text-amber-100 disabled:opacity-40"
-                                >
-                                  <Wrench className="w-3 h-3" />
-                                  Defragment
-                                </button>
+                                <div className="inline-flex items-center justify-end gap-1">
+                                  <button
+                                    type="button"
+                                    disabled={!row.defragSql.length || runningDefrag || runningDrop}
+                                    title={row.defragSql.join('\n') || 'No defrag SQL'}
+                                    onClick={() => void runDefrag([row.key])}
+                                    className="inline-flex items-center gap-1 rounded border border-slate-600 px-2 py-1 text-[11px] font-bold text-slate-200 hover:border-amber-400/50 hover:text-amber-100 disabled:opacity-40"
+                                  >
+                                    <Wrench className="w-3 h-3" />
+                                    Defragment
+                                  </button>
+                                  <button
+                                    type="button"
+                                    data-testid={`index-mgmt-drop-${row.key}`}
+                                    disabled={
+                                      !canDropIndexes ||
+                                      !row.dropSql.length ||
+                                      runningDefrag ||
+                                      runningDrop
+                                    }
+                                    title={
+                                      !canDropIndexes
+                                        ? 'Requires Drop indexes and Change schema (Access control).'
+                                        : row.index.constraint
+                                          ? 'Constraint-backed index — drop it from Edit table.'
+                                          : row.dropSql.join('\n') || 'No DROP INDEX SQL for this dialect'
+                                    }
+                                    onClick={() => setConfirmDrop([row.key])}
+                                    className="inline-flex items-center gap-1 rounded border border-rose-500/40 px-2 py-1 text-[11px] font-bold text-rose-100 hover:border-rose-400/70 hover:bg-rose-500/15 disabled:opacity-40"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                    Drop
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           );
@@ -1119,6 +1313,54 @@ export const IndexManagementModal: React.FC<Props> = ({
             </div>,
             document.body
           )}
+
+        {confirmDrop &&
+          createPortal(
+            <div
+              className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 p-4"
+              onClick={() => setConfirmDrop(null)}
+            >
+              <div
+                className="w-full max-w-md rounded-xl border border-slate-700 bg-slate-900 p-5 shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+                data-testid="index-mgmt-confirm-drop"
+              >
+                <h3 className="text-sm font-bold text-slate-100 mb-2">Confirm drop index</h3>
+                <p className="text-xs text-slate-400 mb-4">
+                  Run DROP INDEX for{' '}
+                  <span className="text-slate-200 font-semibold">{confirmDrop.length}</span>{' '}
+                  index(es) on{' '}
+                  <span className="font-mono text-amber-200">{conn?.name || 'credential'}</span>?
+                  This cannot be undone from here. Constraint-backed indexes are not included.
+                  {safeMode ? ' Safe mode is on — confirm carefully.' : ''}
+                </p>
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    className="px-3 py-1.5 text-xs font-semibold text-slate-400 hover:text-slate-200"
+                    onClick={() => setConfirmDrop(null)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="index-mgmt-confirm-drop-run"
+                    disabled={runningDrop}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md border border-rose-500/50 bg-rose-500/20 text-rose-50"
+                    onClick={() => void runDrop(confirmDrop)}
+                  >
+                    {runningDrop ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-3.5 h-3.5" />
+                    )}
+                    Drop indexes
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )}
     </>
   );
 
@@ -1140,7 +1382,7 @@ export const IndexManagementModal: React.FC<Props> = ({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-6xl max-h-[90vh] flex flex-col bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden"
+        className="w-full max-w-7xl max-h-[90vh] flex flex-col bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {content}

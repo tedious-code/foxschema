@@ -178,6 +178,8 @@ export type IndexFragmentationApiRow = {
   indexName: string;
   fragmentationPercent: number | null;
   pageCount?: number | null;
+  lastUsed?: string | null;
+  scanCount?: number | null;
 };
 
 /** Bare index name after an optional schema/owner qualifier (`dbo.ix` → `ix`). */
