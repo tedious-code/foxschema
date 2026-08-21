@@ -7,8 +7,10 @@ import {
   buildIndexDefragSql,
   buildIndexFragmentationCustomTemplate,
   buildIndexFragmentationQuery,
+  buildIndexUsageQueries,
   dialectSupportsIndexFragmentation,
   isSafeIndexFragmentationCustomSql,
+  mergeIndexUsageRows,
   normalizeIndexFragmentationRows,
   type ConnectionOptions,
   type IndexFragmentationRow,
@@ -60,6 +62,32 @@ export function resolveFragmentationSchema(
   return '';
 }
 
+async function overlayIndexUsage(
+  dialect: string,
+  option: ConnectionOptions,
+  schema: string,
+  table: string,
+  rows: IndexFragmentationRow[]
+): Promise<IndexFragmentationRow[]> {
+  const queries = buildIndexUsageQueries({ dialect, schema, table });
+  for (const q of queries) {
+    try {
+      const raw = await ConnectionFactory.executeQuery<Record<string, unknown>>(
+        dialect,
+        option,
+        q.sql,
+        q.params
+      );
+      const usage = normalizeIndexFragmentationRows(raw);
+      if (usage.length === 0) continue;
+      return mergeIndexUsageRows(rows, usage);
+    } catch {
+      // Missing catalog / grant (DBA_INDEX_USAGE, last_idx_scan, performance_schema…).
+    }
+  }
+  return rows;
+}
+
 async function runProbe(
   dialect: string,
   option: ConnectionOptions,
@@ -78,7 +106,13 @@ async function runProbe(
     sql,
     params
   );
-  const rows = normalizeIndexFragmentationRows(raw);
+  const rows = await overlayIndexUsage(
+    dialect,
+    option,
+    schema,
+    table,
+    normalizeIndexFragmentationRows(raw)
+  );
   const defrag: Record<string, string[]> = {};
   for (const row of rows) {
     const stmts = buildIndexDefragSql({
