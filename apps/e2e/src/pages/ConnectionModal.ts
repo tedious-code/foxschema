@@ -84,6 +84,13 @@ export class ConnectionModal {
     }
   }
 
+  async uncheckSavePassword(): Promise<void> {
+    const box = this.page.locator('[data-testid="conn-save-password"]');
+    if ((await box.count()) > 0 && (await box.isChecked())) {
+      await box.uncheck();
+    }
+  }
+
   /** Fill all fields then save. */
   async connect(fields: ConnectionFields): Promise<void> {
     await this.selectDialect(fields.dialect);
@@ -93,7 +100,10 @@ export class ConnectionModal {
       if (fields.port !== undefined) await this.fillPort(fields.port);
       await this.fillUsername(fields.username ?? '');
       await this.fillPassword(fields.password ?? '');
-      await this.checkSavePassword();
+      // Empty password (e.g. local TiDB root) cannot be stored while “Save
+      // password” is ticked — the modal blocks save. Untick in that case.
+      if (fields.password?.trim()) await this.checkSavePassword();
+      else await this.uncheckSavePassword();
     }
     await this.fillDatabase(fields.database);
     await this.loadSchemas();

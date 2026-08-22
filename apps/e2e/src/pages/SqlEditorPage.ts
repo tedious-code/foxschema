@@ -89,7 +89,8 @@ export class SqlEditorPage {
       if (cfg.port !== undefined) await modal.fillPort(cfg.port);
       if (cfg.username !== undefined) await modal.fillUsername(cfg.username);
       if (cfg.password !== undefined) await modal.fillPassword(cfg.password);
-      if (cfg.password !== undefined) await modal.checkSavePassword();
+      if (cfg.password?.trim()) await modal.checkSavePassword();
+      else await modal.uncheckSavePassword();
     }
     await modal.fillDatabase(cfg.database);
     // loadSchemas throws on conn-test-failed — never persist a bad credential.

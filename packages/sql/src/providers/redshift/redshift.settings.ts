@@ -13,8 +13,13 @@ export const redshiftSettings: ProviderConnectionSettings = {
     const port = option.port || this.defaultPort;
     const username = encodeURIComponent(option.username || '');
     const password = encodeURIComponent(option.password || '');
-    const params: string[] = ['sslmode=require'];
+    // Do not put sslmode= in the URL. Recent node-pg maps require→verify-full and
+    // rejects self-signed certs (local stand-in) even when the adapter passes
+    // ssl: { rejectUnauthorized: false }. TLS is toggled via ConnectionOptions.ssl
+    // → redshift.adapter Pool.ssl (UI defaults SSL on for Redshift).
+    const params: string[] = [];
     if (option.schema) params.push(`options=${encodeURIComponent(`-csearch_path=${option.schema}`)}`);
-    return `postgresql://${username}:${password}@${host}:${port}/${option.database || ''}?${params.join('&')}`;
+    const qs = params.length ? `?${params.join('&')}` : '';
+    return `postgresql://${username}:${password}@${host}:${port}/${option.database || ''}${qs}`;
   },
 };

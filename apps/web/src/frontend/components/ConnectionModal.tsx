@@ -160,6 +160,12 @@ export const ConnectionModal: React.FC<Props> = ({
       ...prev,
       port: defaultPorts[d],
       schema: getProviderSettings(d).defaultSchema || '',
+      // Redshift (and Azure SQL) expect TLS; keep the checkbox in sync with
+      // connection-string sslmode=require so local stand-ins can opt out.
+      ssl: {
+        ...prev.ssl,
+        enabled: d === 'redshift' || d === 'azuresql' ? true : !!prev.ssl?.enabled,
+      },
     }));
   };
 

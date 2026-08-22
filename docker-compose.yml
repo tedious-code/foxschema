@@ -231,7 +231,8 @@ services:
   # ── Redshift local stand-in (Postgres 16 on host port 5439) ─────────────────
   # Amazon Redshift is cloud-only; this Postgres image lets the Redshift
   # provider / e2e path run locally. Catalog parity is Postgres-shaped, not a
-  # full Redshift clone. Seeds reuse docker/init/postgres/01_seed.sql.
+  # full Redshift clone. SSL is enabled because the Redshift connection string
+  # defaults to sslmode=require. Seeds reuse docker/init/postgres/01_seed.sql.
   redshift:
     image: postgres:16
     container_name: foxschema-redshift
@@ -244,6 +245,8 @@ services:
     volumes:
       - redshift_data:/var/lib/postgresql/data
       - ./docker/init/postgres/01_seed.sql:/docker-entrypoint-initdb.d/01_seed.sql:ro
+      - ./docker/init/redshift/entrypoint.sh:/usr/local/bin/foxschema-redshift-entrypoint.sh:ro
+    entrypoint: ["/bin/bash", "/usr/local/bin/foxschema-redshift-entrypoint.sh"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U foxuser -d foxdb"]
       interval: 5s
