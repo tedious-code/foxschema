@@ -33,7 +33,7 @@ describe('cross-dialect type translation', () => {
     expect(xlate(db2, pg, 'INTEGER').sql).toBe('integer');
     expect(xlate(db2, pg, 'DECIMAL(10,2)').sql).toBe('numeric(10,2)');
     expect(xlate(db2, pg, 'CLOB').sql).toBe('text');
-    expect(xlate(db2, pg, 'TIMESTAMP').sql).toBe('timestamp');
+    expect(xlate(db2, pg, 'TIMESTAMP').sql).toBe('timestamp(6)');
     // DBCLOB has no direct Postgres type → mapped to text (no warning needed, text covers it)
     expect(xlate(db2, pg, 'DBCLOB(1048576)').sql).toBe('text');
   });
@@ -49,7 +49,8 @@ describe('cross-dialect type translation', () => {
   it('SQL Server → Postgres', () => {
     expect(xlate(mssql, pg, 'bit').sql).toBe('boolean');
     expect(xlate(mssql, pg, 'nvarchar(max)').sql).toBe('text');
-    expect(xlate(mssql, pg, 'datetime2').sql).toBe('timestamp');
+    // Bare datetime2 ≡ datetime2(7) in SQL Server.
+    expect(xlate(mssql, pg, 'datetime2').sql).toBe('timestamp(7)');
     expect(xlate(mssql, pg, 'uniqueidentifier').sql).toBe('uuid');
   });
 
@@ -96,10 +97,41 @@ describe('cross-dialect type translation', () => {
     expect(xlate(pg, oracle, 'timestamp(6)').sql).toBe('TIMESTAMP(6)');
   });
 
+  it('fills dialect-default fsp when catalogs omit the parenthetical', () => {
+    // Postgres format_type omits (6) for the default typmod; Oracle TIMESTAMP
+    // defaults to TIMESTAMP(6). Without attaching that length, MySQL rendered
+    // bare datetime (= fsp 0) and silently dropped microseconds on migrate.
+    expect(pg.parseType('timestamp without time zone')).toMatchObject({
+      base: 'timestamp',
+      length: 6,
+    });
+    expect(pg.parseType('timestamp with time zone')).toMatchObject({
+      base: 'timestamptz',
+      length: 6,
+    });
+    expect(pg.parseType('time without time zone')).toMatchObject({ base: 'time', length: 6 });
+    expect(xlate(pg, mysql, 'timestamp without time zone').sql).toBe('datetime(6)');
+    expect(xlate(pg, mysql, 'time').sql).toBe('time(6)');
+    expect(oracle.parseType('TIMESTAMP')).toMatchObject({ base: 'timestamp', length: 6 });
+    expect(xlate(oracle, mysql, 'TIMESTAMP').sql).toBe('datetime(6)');
+    // SQL Server datetime ≈ ms; smalldatetime has no fractional seconds.
+    expect(mssql.parseType('datetime')).toMatchObject({ base: 'timestamp', length: 3 });
+    expect(mssql.parseType('smalldatetime')).toMatchObject({ base: 'timestamp', length: 0 });
+    expect(xlate(mssql, mysql, 'datetime').sql).toBe('datetime(3)');
+    expect(xlate(mssql, mysql, 'smalldatetime').sql).toBe('datetime(0)');
+    expect(mssql.parseType('datetime2')).toMatchObject({ base: 'timestamp', length: 7 });
+    // MySQL bare datetime/time really are fsp 0 — do not invent a default.
+    expect(mysql.parseType('datetime')).toMatchObject({ base: 'timestamp' });
+    expect(mysql.parseType('datetime').length).toBeUndefined();
+    expect(xlate(mysql, mysql, 'datetime').sql).toBe('datetime');
+  });
+
   it('distinguishes temporal fsp in canonicalEquals', () => {
     expect(canonicalEquals(mysql.parseType('datetime(6)'), mysql.parseType('datetime'))).toBe(false);
     expect(canonicalEquals(pg.parseType('timestamp(6)'), pg.parseType('timestamp(3)'))).toBe(false);
     expect(canonicalEquals(pg.parseType('timestamp(6)'), pg.parseType('timestamp(6)'))).toBe(true);
+    // Bare Postgres timestamp ≡ timestamp(6).
+    expect(canonicalEquals(pg.parseType('timestamp'), pg.parseType('timestamp(6)'))).toBe(true);
   });
 
   it('attaches a warning when the target has no exact equivalent', () => {

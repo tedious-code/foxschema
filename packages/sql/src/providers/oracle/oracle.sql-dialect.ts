@@ -1,6 +1,15 @@
 import type { SqlDialect, ColumnSpec } from '../../modules/sql-dialect.interface.js';
 import type { TableSchema } from '../../interfaces/index.js';
-import { makeDialectTypeFns, plain, sized, sizedOr, decimalAs, temporalAs, warn } from '../../modules/type-mapping.js';
+import {
+  makeDialectTypeFns,
+  plain,
+  sized,
+  sizedOr,
+  decimalAs,
+  temporalAs,
+  warn,
+  withDefaultTemporalFsp,
+} from '../../modules/type-mapping.js';
 
 const types = makeDialectTypeFns({
   label: 'Oracle',
@@ -205,4 +214,6 @@ export const oracleSqlDialect: SqlDialect = {
   },
 
   ...types,
+  // Bare TIMESTAMP ≡ TIMESTAMP(6). Catalogs sometimes omit DATA_SCALE.
+  parseType: (raw: string) => withDefaultTemporalFsp(types.parseType(raw), 6),
 };
