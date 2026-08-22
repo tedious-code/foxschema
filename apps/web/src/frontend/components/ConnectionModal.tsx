@@ -499,9 +499,9 @@ export const ConnectionModal: React.FC<Props> = ({
                 <select data-testid="conn-schema-select" value={form.schema} onChange={(e) => updateField('schema', e.target.value)} className={`${inputCls} !mt-0 flex-1`}>
                   {!schemaRequired && <option value="">— all schemas —</option>}
                   {form.schema && !schemaList.includes(form.schema) && <option value={form.schema}>{form.schema}</option>}
-                  {schemaList.map((s) => (
+                    {[...new Set(schemaList)].map((s) => (
                     <option key={s} value={s}>{s}</option>
-                  ))}
+                    ))}
                 </select>
               ) : (
                 <input

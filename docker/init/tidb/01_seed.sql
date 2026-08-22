@@ -7,6 +7,13 @@ DROP DATABASE IF EXISTS demo_b;
 CREATE DATABASE demo_a CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
 CREATE DATABASE demo_b CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
 
+-- App user with a real password (empty root + Save-password blocks e2e save,
+-- and credential reload drops source connected state without a stored secret).
+CREATE USER IF NOT EXISTS 'foxuser'@'%' IDENTIFIED BY 'foxpass';
+GRANT ALL PRIVILEGES ON demo_a.* TO 'foxuser'@'%';
+GRANT ALL PRIVILEGES ON demo_b.* TO 'foxuser'@'%';
+
+
 USE demo_a;
 
 CREATE TABLE categories (
