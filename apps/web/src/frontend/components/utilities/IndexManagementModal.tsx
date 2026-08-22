@@ -28,6 +28,7 @@ import {
   buildIndexDropSql,
   dialectSupportsDbaUtility,
   dialectSupportsIndexFragmentation,
+  indexMaintenanceVerb,
   formatBytes,
   formatRowCount,
   fragmentationSeverity,
@@ -47,7 +48,7 @@ import { useSyncStore } from '../../store/useSyncStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
 import { useAuthStore } from '../../store/authStore';
 import type { IndexInfo, TableSchema } from '../../lib/types';
-import { PROVIDER_SETTINGS } from '../../lib/provider-settings';
+import { PROVIDER_SETTINGS, dialectUsesPassword } from '../../lib/provider-settings';
 import {
   DEFAULT_INDEX_MGMT_SORT,
   averageFragmentation,
@@ -166,7 +167,10 @@ export const IndexManagementModal: React.FC<Props> = ({
   }, [open, lockedConnectionId]);
 
   const conn = connections.find((c) => c.id === connectionId) || null;
-  const needsPassword = Boolean(conn && !conn.hasPassword && !sessionPasswords[connectionId]);
+  // File dialects carry no password; asking for one blocked the utility outright.
+  const needsPassword = Boolean(
+    conn && !conn.hasPassword && dialectUsesPassword(conn.dialect) && !sessionPasswords[connectionId]
+  );
   const cache = connectionId ? schemaCache[connectionId] : undefined;
   /**
    * The failure to show, from whichever path found it.
@@ -178,6 +182,8 @@ export const IndexManagementModal: React.FC<Props> = ({
    * unreachable database are not the same answer.
    */
   const loadError = error || (cache?.status === 'error' ? cache.error ?? 'Failed to load schema' : null);
+  /** The engine's own word for this maintenance, not SQL Server's for all of them. */
+  const maintenanceVerb = indexMaintenanceVerb(conn?.dialect || '');
   const fragSupport = useMemo(
     () => dialectSupportsIndexFragmentation(conn?.dialect || ''),
     [conn?.dialect]
@@ -552,7 +558,9 @@ export const IndexManagementModal: React.FC<Props> = ({
               .join(' · ')
           );
         } else {
-          setStatus(`Defragmented ${statements.length} statement(s) successfully.`);
+          setStatus(
+            `Ran ${statements.length} ${statements.length === 1 ? 'statement' : 'statements'}.`
+          );
           setSelected(new Set());
           void fetchFragmentation();
         }
@@ -684,10 +692,11 @@ export const IndexManagementModal: React.FC<Props> = ({
               <Database className="w-4 h-4 text-amber-400" />
               Index Management
             </h2>
+            {/* Three sentences of instructions for a table that demonstrates
+                itself. What the reader cannot guess is what this panel is for
+                and what it can change — the rest they learn by clicking. */}
             <p className="text-[11px] text-slate-500 mt-0.5">
-              Indexes grouped under each table. Click a table to expand its indexes.
-              Table headers show index count, average fragmentation, and last used.
-              Click a column heading to sort tables and the indexes inside them.
+              Index health per table — how fragmented each one is, and when it was last used.
             </p>
           </div>
           <button
@@ -794,7 +803,13 @@ export const IndexManagementModal: React.FC<Props> = ({
             </button>
           </div>
 
-          <div className="flex flex-wrap items-end gap-2">
+          {/* Filters and bulk actions only mean something once there are rows
+              to filter and act on. Shown before that, they are six disabled
+              controls between the reader and the one button that does anything
+              — and three of them count "(0)" of a list that has not loaded. */}
+          <div
+            className={`flex flex-wrap items-end gap-2 ${grouped.length === 0 ? 'hidden' : ''}`}
+          >
             <label
               className="flex flex-col gap-1 min-w-[12rem] flex-1"
               data-testid={embedded ? 'server-insights-size-filter' : undefined}
@@ -871,7 +886,7 @@ export const IndexManagementModal: React.FC<Props> = ({
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md border border-rose-500/40 bg-rose-500/15 text-rose-100 hover:bg-rose-500/25 disabled:opacity-50"
             >
               <Wrench className="w-3.5 h-3.5" />
-              Defragment selected ({selected.size})
+              {maintenanceVerb} selected ({selected.size})
             </button>
             <button
               type="button"
@@ -881,7 +896,7 @@ export const IndexManagementModal: React.FC<Props> = ({
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-100 hover:bg-amber-500/20 disabled:opacity-50"
             >
               <Wrench className="w-3.5 h-3.5" />
-              Defragment filtered ({filteredKeys.length})
+              {maintenanceVerb} filtered ({filteredKeys.length})
             </button>
             <button
               type="button"

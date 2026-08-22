@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildIndexDefragSql,
+  indexMaintenanceVerb,
   buildIndexDropSql,
   buildIndexFragmentationCustomTemplate,
   buildIndexFragmentationQuery,
@@ -567,5 +568,44 @@ describe('custom SQL safety', () => {
         /index_name/i
       );
     }
+  });
+});
+
+describe('indexMaintenanceVerb', () => {
+  /**
+   * "Defragment" is SQL Server's word, and the button said it on every engine
+   * while the SQL underneath was already dialect-correct. The label should be
+   * the verb the reader would have typed themselves.
+   */
+  it.each([
+    ['postgres', 'Reindex'],
+    ['cockroachdb', 'Reindex'],
+    ['yugabytedb', 'Reindex'],
+    ['sqlite', 'Reindex'],
+    ['mysql', 'Optimize'],
+    ['mariadb', 'Optimize'],
+    ['tidb', 'Optimize'],
+    ['db2', 'Reorg'],
+    ['sqlserver', 'Rebuild'],
+    ['azuresql', 'Rebuild'],
+    ['oracle', 'Rebuild'],
+  ])('%s says %s', (dialect, verb) => {
+    expect(indexMaintenanceVerb(dialect)).toBe(verb);
+  });
+
+  it('matches the statement the engine is actually sent', () => {
+    // The label and the SQL must not drift apart — that is the whole point.
+    const sqlFor = (dialect: string) =>
+      buildIndexDefragSql({ dialect, schema: 'app', table: 'orders', indexName: 'idx_a' }).join(' ');
+    expect(sqlFor('postgres')).toMatch(/REINDEX/i);
+    expect(sqlFor('mysql')).toMatch(/OPTIMIZE/i);
+    expect(sqlFor('db2')).toMatch(/REORG/i);
+    expect(sqlFor('oracle')).toMatch(/REBUILD/i);
+  });
+
+  it('is case-insensitive and falls back rather than throwing', () => {
+    expect(indexMaintenanceVerb('POSTGRES')).toBe('Reindex');
+    expect(indexMaintenanceVerb('')).toBe('Rebuild');
+    expect(indexMaintenanceVerb('something-new')).toBe('Rebuild');
   });
 });

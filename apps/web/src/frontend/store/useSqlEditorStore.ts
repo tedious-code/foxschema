@@ -58,6 +58,7 @@ import {
   type SqlVariableKind,
   type VariableOverride,
 } from '../lib/sql-variables';
+import { dialectUsesPassword } from '../lib/provider-settings';
 import { useSyncStore } from './useSyncStore';
 import type { SchemaCacheEntry } from '../components/sql-editor/sqlEditorBridge';
 import { getCaretOffset, getSelectedSql } from '../components/sql-editor/sqlEditorBridge';
@@ -649,7 +650,15 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         if (current.includes(id)) return;
 
         const conn = useSyncStore.getState().connections.find((c) => c.id === id);
-        if (conn && !conn.hasPassword && !sessionPasswordFor(id, sessionPasswords)) {
+        // A file database has no password to be missing. Prompting for one
+        // left the destination checkbox refusing to tick, so SQLite could not
+        // be run against at all.
+        if (
+          conn &&
+          !conn.hasPassword &&
+          dialectUsesPassword(conn.dialect) &&
+          !sessionPasswordFor(id, sessionPasswords)
+        ) {
           set({
             pendingPassword: {
               id,
@@ -843,7 +852,11 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         }
 
         const { sessionPasswords } = get();
-        if (!conn.hasPassword && !sessionPasswordFor(connectionId, sessionPasswords)) {
+        if (
+          !conn.hasPassword &&
+          dialectUsesPassword(conn.dialect) &&
+          !sessionPasswordFor(connectionId, sessionPasswords)
+        ) {
           set({
             pendingPassword: {
               id: connectionId,
@@ -984,7 +997,10 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         }
 
         const needingPassword = connections.find(
-          (c) => !c.hasPassword && !sessionPasswordFor(c.id, sessionPasswords)
+          (c) =>
+            !c.hasPassword &&
+            dialectUsesPassword(c.dialect) &&
+            !sessionPasswordFor(c.id, sessionPasswords)
         );
         if (needingPassword) {
           set({

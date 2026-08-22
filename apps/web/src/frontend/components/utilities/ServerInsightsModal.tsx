@@ -26,7 +26,7 @@ import { dialectSupportsDbaUtility, formatBytes, type DbaUtilityKind } from '@fo
 import { fetchDbaUtility, type DbaUtilityResponse } from '../../api/schemaApi';
 import { useSyncStore } from '../../store/useSyncStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
-import { PROVIDER_SETTINGS } from '../../lib/provider-settings';
+import { PROVIDER_SETTINGS, dialectUsesPassword } from '../../lib/provider-settings';
 import { IndexManagementModal } from './IndexManagementModal';
 
 export type ServerInsightsTab = DbaUtilityKind;
@@ -97,7 +97,10 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
   }, [open, connections, initialTab]);
 
   const conn = connections.find((c) => c.id === connectionId) || null;
-  const needsPassword = Boolean(conn && !conn.hasPassword && !sessionPasswords[connectionId]);
+  // File dialects carry no password; asking for one blocked the utility outright.
+  const needsPassword = Boolean(
+    conn && !conn.hasPassword && dialectUsesPassword(conn.dialect) && !sessionPasswords[connectionId]
+  );
   const support = useMemo(
     () => dialectSupportsDbaUtility(conn?.dialect || '', tab),
     [conn?.dialect, tab]

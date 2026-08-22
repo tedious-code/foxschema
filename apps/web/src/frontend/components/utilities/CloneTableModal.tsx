@@ -14,7 +14,7 @@ import { executeSql } from '../../api/sqlApi';
 import { useSyncStore } from '../../store/useSyncStore';
 import { useSqlEditorStore } from '../../store/useSqlEditorStore';
 import type { TableSchema } from '../../lib/types';
-import { PROVIDER_SETTINGS } from '../../lib/provider-settings';
+import { PROVIDER_SETTINGS, dialectUsesPassword } from '../../lib/provider-settings';
 import { insertAtCursor } from '../sql-editor/sqlEditorBridge';
 import { WriteConfirmDialog } from '../sql-editor/WriteConfirmDialog';
 import { SQL_ICON_STROKE } from '../sql-editor/sqlIconStyle';
@@ -91,7 +91,10 @@ export const CloneTableModal: React.FC<Props> = ({
   }, [open, initialTableName]);
 
   const conn = connections.find((c) => c.id === connectionId) || null;
-  const needsPassword = Boolean(conn && !conn.hasPassword && !sessionPasswords[connectionId]);
+  // File dialects carry no password; asking for one blocked the utility outright.
+  const needsPassword = Boolean(
+    conn && !conn.hasPassword && dialectUsesPassword(conn.dialect) && !sessionPasswords[connectionId]
+  );
   const cache = connectionId ? schemaCache[connectionId] : undefined;
 
   const tables: TableSchema[] = useMemo(() => {

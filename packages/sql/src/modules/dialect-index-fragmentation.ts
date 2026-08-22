@@ -762,6 +762,39 @@ export function normalizeIndexFragmentationRows(
 }
 
 /**
+ * What this engine calls the operation, for buttons and confirmations.
+ *
+ * "Defragment" is SQL Server's word. Postgres reindexes, MySQL optimises, Db2
+ * reorgs — and the SQL emitted below has always been dialect-correct, so the
+ * label was the only part still speaking one engine's language to all of them.
+ * A reader who knows their own database should recognise the verb on the
+ * button as the one they would have typed.
+ */
+export function indexMaintenanceVerb(dialect: string): string {
+  switch ((dialect || '').toLowerCase()) {
+    case 'postgres':
+    case 'cockroachdb':
+    case 'yugabytedb':
+    case 'redshift':
+    case 'sqlite':
+      return 'Reindex';
+    case 'mysql':
+    case 'mariadb':
+    case 'tidb':
+      return 'Optimize';
+    case 'db2':
+      return 'Reorg';
+    case 'sqlserver':
+    case 'azuresql':
+    case 'oracle':
+      return 'Rebuild';
+    default:
+      // Nothing engine-specific to promise, so describe the intent instead.
+      return 'Rebuild';
+  }
+}
+
+/**
  * Suggest maintenance SQL for one index. Uses Microsoft-style bands when the
  * engine supports REBUILD vs REORGANIZE; otherwise a single dialect action.
  */
