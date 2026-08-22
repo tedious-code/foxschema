@@ -184,6 +184,75 @@ services:
       retries: 30
       start_period: 60s
 
+  # ── ClickHouse (HTTP interface on 8123 — matches @clickhouse/client) ────────
+  # Seeded via scripts/seed/seed-all.sh (clickhouse-client). Databases demo_a /
+  # demo_b act as schemas for the FoxSchema ClickHouse provider.
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    container_name: foxschema-clickhouse
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: foxpass
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --user default --password foxpass -q 'SELECT 1' >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  # ── TiDB (MySQL protocol on 4000, unistore single-node) ─────────────────────
+  # Seeded via seed-all.sh with docker/init/tidb/01_seed.sql (demo_a / demo_b).
+  tidb:
+    image: pingcap/tidb:v8.5.0
+    container_name: foxschema-tidb
+    command: ["--store=unistore", "--path=/tmp/tidb", "-P=4000", "--status=10080"]
+    ports:
+      - "4000:4000"
+      - "10080:10080"
+    healthcheck:
+      # Image has no mysql client — probe the status HTTP port.
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/10080'"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  # ── Redshift local stand-in (Postgres 16 on host port 5439) ─────────────────
+  # Amazon Redshift is cloud-only; this Postgres image lets the Redshift
+  # provider / e2e path run locally. Catalog parity is Postgres-shaped, not a
+  # full Redshift clone. Seeds reuse docker/init/postgres/01_seed.sql.
+  redshift:
+    image: postgres:16
+    container_name: foxschema-redshift
+    environment:
+      POSTGRES_USER: foxuser
+      POSTGRES_PASSWORD: foxpass
+      POSTGRES_DB: foxdb
+    ports:
+      - "5439:5432"
+    volumes:
+      - redshift_data:/var/lib/postgresql/data
+      - ./docker/init/postgres/01_seed.sql:/docker-entrypoint-initdb.d/01_seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U foxuser -d foxdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # DuckDB is file-based (like SQLite) — no server container. seed-all.sh writes
+  # /tmp/foxschema-duckdb/demo_{a,b}.duckdb via scripts/seed/seed-duckdb.mjs.
+
 volumes:
   pg_data:
   mysql_data:
@@ -193,3 +262,5 @@ volumes:
   db2_data:
   cockroach_data:
   yugabyte_data:
+  clickhouse_data:
+  redshift_data:
