@@ -309,6 +309,35 @@ export function formatDbGrantee(
   return ident;
 }
 
+/**
+ * The one shape every engine's GRANT and REVOKE share.
+ *
+ * Each family used to write this ternary out for itself — nine copies, varying
+ * only in the ON clause. That is how Db2 came to omit DATABASE and emit
+ * `ON TABLE` for a database authority: the case was handled in the generic
+ * copy and missing from Db2's own. One emitter, and a family can only get its
+ * ON clause wrong, not the statement around it.
+ *
+ * `on` is empty for privileges that take no object — a Db2 or SQL Server
+ * system authority, or role membership.
+ */
+function emitGrant(opts: {
+  action: 'grant' | 'revoke';
+  privilege: string;
+  on: string;
+  grantee: string;
+  /** Only ever set when granting; REVOKE has no such clause. */
+  grantOption?: string;
+}): { sql: string } {
+  const on = opts.on ? ` ${opts.on}` : '';
+  return {
+    sql:
+      opts.action === 'grant'
+        ? `GRANT ${opts.privilege}${on} TO ${opts.grantee}${opts.grantOption ?? ''};`
+        : `REVOKE ${opts.privilege}${on} FROM ${opts.grantee};`,
+  };
+}
+
 export function buildGrantRevokeSql(args: DbAccessGrantArgs): { sql: string } | { error: string } {
   const support = dialectSupportsDbAccess(args.dialect);
   if (!support.grant) {
@@ -325,126 +354,94 @@ export function buildGrantRevokeSql(args: DbAccessGrantArgs): { sql: string } | 
   const granteeSql = formatDbGrantee(args.dialect, grantee, args.granteeKind ?? 'user');
   const objectSql = qualifyObject(args.dialect, objectType, args.objectSchema, args.objectName);
   const privSql = privilegeSql(fam, privilege);
-  const grantOpt =
-    args.action === 'grant' && args.withGrantOption ? grantOptionClause(fam) : '';
+  const action = args.action === 'grant' ? 'grant' : 'revoke';
+  const grantOption = action === 'grant' && args.withGrantOption ? grantOptionClause(fam) : '';
+  /** The schema or database being addressed, for the clauses that name one. */
+  const namedObject = () => ident(args.objectName || args.objectSchema || '');
 
+  // --- Role membership -----------------------------------------------------
   if (objectType === 'ROLE') {
     const roleName = (args.objectName || privilege).trim();
     if (!roleName) return { error: 'role name is required.' };
     const roleSql = ident(roleName);
+    // SQL Server does not grant a role, it adds a member to one.
     if (fam === 'sqlserver') {
+      const member = ident(stripQuotes(grantee));
       return {
         sql:
-          args.action === 'grant'
-            ? `ALTER ROLE ${roleSql} ADD MEMBER ${ident(stripQuotes(grantee))};`
-            : `ALTER ROLE ${roleSql} DROP MEMBER ${ident(stripQuotes(grantee))};`,
+          action === 'grant'
+            ? `ALTER ROLE ${roleSql} ADD MEMBER ${member};`
+            : `ALTER ROLE ${roleSql} DROP MEMBER ${member};`,
       };
     }
-    if (fam === 'db2') {
-      return {
-        sql:
-          args.action === 'grant'
-            ? `GRANT ROLE ${roleSql} TO ${granteeSql};`
-            : `REVOKE ROLE ${roleSql} FROM ${granteeSql};`,
-      };
-    }
-    if (fam === 'oracle') {
-      return {
-        sql:
-          args.action === 'grant'
-            ? `GRANT ${roleSql} TO ${granteeSql};`
-            : `REVOKE ${roleSql} FROM ${granteeSql};`,
-      };
-    }
-    // Postgres / MySQL / ClickHouse: GRANT role TO user
-    return {
-      sql:
-        args.action === 'grant'
-          ? `GRANT ${roleSql} TO ${granteeSql};`
-          : `REVOKE ${roleSql} FROM ${granteeSql};`,
-    };
+    // Db2 names the object kind; every other engine grants the role directly,
+    // Oracle included — it had its own branch emitting exactly this.
+    return emitGrant({
+      action,
+      privilege: fam === 'db2' ? `ROLE ${roleSql}` : roleSql,
+      on: '',
+      grantee: granteeSql,
+    });
   }
 
   if (!objectSql && objectType !== 'SYSTEM' && objectType !== 'DATABASE') {
     return { error: 'object name is required.' };
   }
 
+  // --- Object privileges: each family supplies only its ON clause ----------
   if (fam === 'sqlserver') {
-    const target =
-      objectType === 'DATABASE'
-        ? 'DATABASE::' + ident(args.objectName || args.objectSchema || 'current')
-        : objectType === 'SCHEMA'
-          ? 'SCHEMA::' + ident(args.objectName || args.objectSchema || '')
-          : objectType === 'SYSTEM'
-            ? privSql
-            : 'OBJECT::' + objectSql;
-    if (objectType === 'SYSTEM') {
-      return {
-        sql:
-          args.action === 'grant'
-            ? `GRANT ${privSql} TO ${granteeSql}${grantOpt};`
-            : `REVOKE ${privSql} FROM ${granteeSql};`,
-      };
-    }
-    return {
-      sql:
-        args.action === 'grant'
-          ? `GRANT ${privSql} ON ${target} TO ${granteeSql}${grantOpt};`
-          : `REVOKE ${privSql} ON ${target} FROM ${granteeSql};`,
-    };
+    // SQL Server scopes with a securable prefix rather than a keyword.
+    const on =
+      objectType === 'SYSTEM'
+        ? ''
+        : objectType === 'DATABASE'
+          ? `ON DATABASE::${namedObject()}`
+          : objectType === 'SCHEMA'
+            ? `ON SCHEMA::${namedObject()}`
+            : `ON OBJECT::${objectSql}`;
+    return emitGrant({ action, privilege: privSql, on, grantee: granteeSql, grantOption });
   }
 
   if (fam === 'mysql' || fam === 'mariadb') {
-    const target = objectSql || '*.*';
-    const all = privSql === 'ALL' ? 'ALL PRIVILEGES' : privSql;
-    return {
-      sql:
-        args.action === 'grant'
-          ? `GRANT ${all} ON ${target} TO ${granteeSql}${grantOpt};`
-          : `REVOKE ${all} ON ${target} FROM ${granteeSql};`,
-    };
-  }
-
-  if (fam === 'db2') {
-    const on =
-      objectType === 'SCHEMA'
-        ? `ON SCHEMA ${ident(args.objectName || args.objectSchema || '')}`
-        : objectType === 'SYSTEM'
-          ? ''
-          : `ON TABLE ${objectSql}`;
-    return {
-      sql:
-        args.action === 'grant'
-          ? `GRANT ${privSql}${on ? ` ${on}` : ''} TO ${granteeSql}${grantOpt};`
-          : `REVOKE ${privSql}${on ? ` ${on}` : ''} FROM ${granteeSql};`,
-    };
+    // MySQL names a whole database as `db`.* — a bare `db` is a table
+    // reference, so a database-level grant landed on a table of that name.
+    const target =
+      objectType === 'DATABASE' || objectType === 'SCHEMA'
+        ? `${objectSql || namedObject()}.*`
+        : objectSql || '*.*';
+    return emitGrant({
+      action,
+      privilege: privSql === 'ALL' ? 'ALL PRIVILEGES' : privSql,
+      on: `ON ${target}`,
+      grantee: granteeSql,
+      grantOption,
+    });
   }
 
   if (fam === 'clickhouse') {
-    const target = objectSql || '*.*';
-    return {
-      sql:
-        args.action === 'grant'
-          ? `GRANT ${privSql} ON ${target} TO ${granteeSql}${grantOpt};`
-          : `REVOKE ${privSql} ON ${target} FROM ${granteeSql};`,
-    };
+    // ClickHouse takes no object keyword; `db.table` or `db.*` is the target.
+    return emitGrant({
+      action,
+      privilege: privSql,
+      on: `ON ${objectSql || '*.*'}`,
+      grantee: granteeSql,
+      grantOption,
+    });
   }
 
-  const onClause =
-    objectType === 'SCHEMA'
-      ? `ON SCHEMA ${ident(args.objectName || args.objectSchema || '')}`
-      : objectType === 'DATABASE'
-        ? `ON DATABASE ${ident(args.objectName || args.objectSchema || '')}`
-        : objectType === 'SYSTEM'
-          ? ''
+  // Postgres, Oracle and Db2 share the keyword form; Db2 differs only in that
+  // a database authority is granted ON DATABASE with no object named.
+  const on =
+    objectType === 'SYSTEM'
+      ? ''
+      : objectType === 'SCHEMA'
+        ? `ON SCHEMA ${namedObject()}`
+        : objectType === 'DATABASE'
+          ? fam === 'db2'
+            ? 'ON DATABASE'
+            : `ON DATABASE ${namedObject()}`
           : `ON TABLE ${objectSql}`;
-
-  return {
-    sql:
-      args.action === 'grant'
-        ? `GRANT ${privSql}${onClause ? ` ${onClause}` : ''} TO ${granteeSql}${grantOpt};`
-        : `REVOKE ${privSql}${onClause ? ` ${onClause}` : ''} FROM ${granteeSql};`,
-  };
+  return emitGrant({ action, privilege: privSql, on, grantee: granteeSql, grantOption });
 }
 
 function privilegeSql(fam: string, privilege: string): string {

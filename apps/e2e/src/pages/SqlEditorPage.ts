@@ -120,12 +120,31 @@ export class SqlEditorPage {
     await this.page.waitForTimeout(350);
   }
 
-  /** Editor text (rendered lines + hidden textarea), whitespace-normalised for matching. */
+  /**
+   * Full editor text, whitespace-normalised for matching.
+   *
+   * Monaco virtualises: `.view-lines` only holds the rendered viewport, so
+   * reading the DOM silently drops anything below the fold. The store persists
+   * the active tab's SQL in full (up to 256KB), so prefer that and keep the DOM
+   * as a fallback for the rare case where nothing is persisted yet.
+   */
   async editorText(): Promise<string> {
     const raw = await this.page.evaluate(() => {
-      const lines = document.querySelector('.monaco-editor .view-lines');
-      const ta = document.querySelector('.monaco-editor textarea') as HTMLTextAreaElement | null;
-      return `${lines?.textContent ?? ''}\n${ta?.value ?? ''}`;
+      const dom = () => {
+        const lines = document.querySelector('.monaco-editor .view-lines');
+        const ta = document.querySelector('.monaco-editor textarea') as HTMLTextAreaElement | null;
+        return `${lines?.textContent ?? ''}\n${ta?.value ?? ''}`;
+      };
+      try {
+        const stored = localStorage.getItem('foxschema-sql-editor');
+        if (!stored) return dom();
+        const state = JSON.parse(stored)?.state;
+        const tabs: Array<{ id?: string; sql?: string }> = state?.tabs ?? [];
+        const active = tabs.find((t) => t.id === state?.activeTabId) ?? tabs[0];
+        return active?.sql ? `${active.sql}\n${dom()}` : dom();
+      } catch {
+        return dom();
+      }
     });
     return raw.replace(/\u00a0/g, ' ').replace(/[ \t]+/g, ' ');
   }
@@ -225,6 +244,14 @@ export class SqlEditorPage {
       '[data-testid="sql-results-by-credential"], [data-testid="sql-results-side-by-side"]',
       { timeout: timeoutMs }
     );
+    // The container mounts as soon as the run starts, showing only the
+    // credential headers, so waiting on it alone returns before any row
+    // exists. Every credential drops its spinner when its run settles.
+    await this.page
+      .locator('[data-testid="sql-results-running"]')
+      .last()
+      .waitFor({ state: 'detached', timeout: timeoutMs })
+      .catch(() => {});
   }
 
   async resultsText(): Promise<string> {

@@ -11,9 +11,12 @@ import { buildDriver, quitDriver } from '../helpers/driver.js';
 import { AppPage } from '../pages/AppPage.js';
 import { SqlEditorPage } from '../pages/SqlEditorPage.js';
 
-const DIR = '/tmp/foxschema-e2e-sql-result-edit';
-const DB = join(DIR, 'result_edit.db');
 const RUN = Date.now().toString(36);
+// Per-run path: the backend pools SQLite handles by file path, so reusing one
+// path across runs leaves a handle open on the deleted inode and every write
+// fails with "attempt to write a readonly database".
+const DIR = `/tmp/foxschema-e2e-sql-result-edit-${RUN}`;
+const DB = join(DIR, 'result_edit.db');
 const NAME = `E2E Result Edit ${RUN}`;
 
 function hasSqlite3(): boolean {
@@ -82,7 +85,9 @@ INSERT INTO items (id, label, qty) VALUES (1, 'seed', 3);
 
     const form = driver.locator('[data-testid="peek-row-editor"]');
     await form.waitFor({ state: 'visible', timeout: 10_000 });
-    await form.locator('[data-testid="peek-row-field-id"]').fill('2');
+    // id is `INTEGER PRIMARY KEY` — a SQLite rowid alias, so the form disables
+    // it as auto-generated. SQLite assigns id=2 on insert.
+    expect(await form.locator('[data-testid="peek-row-field-id"]').isDisabled()).toBe(true);
     await form.locator('[data-testid="peek-row-field-label"]').fill('from-grid');
     await form.locator('[data-testid="peek-row-field-qty"]').fill('9');
     await driver.locator('[data-testid="peek-row-submit"]').click();

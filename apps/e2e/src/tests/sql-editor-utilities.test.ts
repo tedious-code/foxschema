@@ -165,11 +165,7 @@ describe.skipIf(!ready)('SQL Editor · Utilities + Clone Table (SQLite)', () => 
     await driver.waitForTimeout(500);
     await sql.closeCloneTable();
 
-    const editorText = await driver.evaluate(() => {
-      const lines = document.querySelector('.monaco-editor .view-lines');
-      const ta = document.querySelector('.monaco-editor textarea') as HTMLTextAreaElement | null;
-      return `${lines?.textContent ?? ''}\n${ta?.value ?? ''}`;
-    });
+    const editorText = await sql.editorText();
     expect(editorText.toLowerCase()).toMatch(/rename|alter table/);
     expect(editorText.toLowerCase()).toMatch(/create\s+table/);
   });

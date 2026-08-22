@@ -120,6 +120,7 @@ export {
   buildIndexFragmentationQuery,
   buildIndexFragmentationCustomTemplate,
   buildIndexDefragSql,
+  indexMaintenanceVerb,
   buildIndexDropSql,
   buildIndexUsageQueries,
   mergeIndexUsageRows,
