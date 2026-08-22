@@ -1,5 +1,11 @@
 import type { SqlDialect, ColumnSpec } from '../../modules/sql-dialect.interface.js';
-import { makeDialectTypeFns, plain, sized, decimalAs } from '../../modules/type-mapping.js';
+import {
+  makeDialectTypeFns,
+  plain,
+  sized,
+  decimalAs,
+  withDefaultTemporalFsp,
+} from '../../modules/type-mapping.js';
 
 // Redshift type system is a subset of Postgres. information_schema returns
 // standard SQL type names, so the mapping mirrors the Postgres dialect.
@@ -117,4 +123,6 @@ export const redshiftSqlDialect: SqlDialect = {
   dropRoutineSignature: true,
 
   ...types,
+  // Same as Postgres: bare timestamp/time still carry microsecond precision.
+  parseType: (raw: string) => withDefaultTemporalFsp(types.parseType(raw), 6),
 };

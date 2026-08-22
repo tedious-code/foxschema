@@ -1,6 +1,13 @@
 import type { SqlDialect, ColumnSpec } from '../../modules/sql-dialect.interface.js';
 import type { TableSchema } from '../../interfaces/index.js';
-import { makeDialectTypeFns, plain, sized, decimalAs, temporalAs } from '../../modules/type-mapping.js';
+import {
+  makeDialectTypeFns,
+  plain,
+  sized,
+  decimalAs,
+  temporalAs,
+  withDefaultTemporalFsp,
+} from '../../modules/type-mapping.js';
 
 const types = makeDialectTypeFns({
   label: 'PostgreSQL',
@@ -66,6 +73,14 @@ const types = makeDialectTypeFns({
 
 function viewDepTag(qualifiedTable: string): string {
   return qualifiedTable.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 48);
+}
+
+/**
+ * Postgres `format_type` omits `(6)` when typmod is the default (-1). Bare
+ * `timestamp` / `timestamptz` / `time` still store 6 fractional digits.
+ */
+function parsePostgresType(raw: string) {
+  return withDefaultTemporalFsp(types.parseType(raw), 6);
 }
 
 export const postgresSqlDialect: SqlDialect = {
@@ -220,4 +235,5 @@ export const postgresSqlDialect: SqlDialect = {
   },
 
   ...types,
+  parseType: parsePostgresType,
 };

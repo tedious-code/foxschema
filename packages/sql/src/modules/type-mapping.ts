@@ -148,6 +148,20 @@ export const decimalAs = (kw: string): RenderRule => (t) =>
 /** Always renders `sql`, attaching a warning (for known inexact mappings). */
 export const warn = (sql: string, message: string): RenderRule => () => ({ sql, warning: message });
 
+/**
+ * Catalogs often omit the parenthetical when a temporal type uses its dialect
+ * default fractional-seconds precision (Postgres `timestamp` ≡ timestamp(6),
+ * Oracle `TIMESTAMP` ≡ TIMESTAMP(6)). Without that length, MySQL/MariaDB render
+ * bare `datetime`/`time` (= fsp 0) and silently truncate sub-seconds on migrate.
+ */
+export function withDefaultTemporalFsp(parsed: CanonicalType, defaultFsp: number): CanonicalType {
+  if (parsed.length !== undefined) return parsed;
+  if (parsed.base !== 'time' && parsed.base !== 'timestamp' && parsed.base !== 'timestamptz') {
+    return parsed;
+  }
+  return { ...parsed, length: defaultFsp };
+}
+
 /** True when two canonical types are equivalent (base + relevant size fields). */
 export function canonicalEquals(a: CanonicalType, b: CanonicalType): boolean {
   if (a.base !== b.base) return false;

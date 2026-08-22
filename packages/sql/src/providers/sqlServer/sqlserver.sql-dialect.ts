@@ -71,13 +71,25 @@ const types = makeDialectTypeFns({
   },
 });
 
-/** Attach the fixed MONEY/SMALLMONEY precision the bare parse map cannot express. */
+/**
+ * Attach sizes the bare parse map cannot express:
+ * - MONEY / SMALLMONEY fixed decimal precision
+ * - datetime (~ms) / smalldatetime (minutes) / default datetime2|time|datetimeoffset(7)
+ *   when the catalog omits the scale parenthetical
+ */
 function parseSqlServerType(raw: string) {
   const parsed = types.parseType(raw);
-  if (parsed.base !== 'decimal' || parsed.precision !== undefined) return parsed;
   const name = tokenizeType(raw).name;
-  if (name === 'money') return { ...parsed, precision: 19, scale: 4 };
-  if (name === 'smallmoney') return { ...parsed, precision: 10, scale: 4 };
+  if (parsed.base === 'decimal' && parsed.precision === undefined) {
+    if (name === 'money') return { ...parsed, precision: 19, scale: 4 };
+    if (name === 'smallmoney') return { ...parsed, precision: 10, scale: 4 };
+  }
+  if (parsed.length !== undefined) return parsed;
+  if (name === 'datetime') return { ...parsed, length: 3 };
+  if (name === 'smalldatetime') return { ...parsed, length: 0 };
+  if (name === 'datetime2' || name === 'time' || name === 'datetimeoffset') {
+    return { ...parsed, length: 7 };
+  }
   return parsed;
 }
 

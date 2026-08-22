@@ -1,5 +1,14 @@
 import type { SqlDialect, ColumnSpec } from '../../modules/sql-dialect.interface.js';
-import { makeDialectTypeFns, plain, sized, sizedOr, decimalAs, temporalAs, warn } from '../../modules/type-mapping.js';
+import {
+  makeDialectTypeFns,
+  plain,
+  sized,
+  sizedOr,
+  decimalAs,
+  temporalAs,
+  warn,
+  withDefaultTemporalFsp,
+} from '../../modules/type-mapping.js';
 
 const types = makeDialectTypeFns({
   label: 'Db2',
@@ -206,4 +215,12 @@ export const db2SqlDialect: SqlDialect = {
   },
 
   ...types,
+  // Bare TIMESTAMP ≡ TIMESTAMP(6). TIME has no fractional seconds on Db2.
+  parseType: (raw: string) => {
+    const parsed = types.parseType(raw);
+    if (parsed.base === 'timestamp' && parsed.length === undefined) {
+      return withDefaultTemporalFsp(parsed, 6);
+    }
+    return parsed;
+  },
 };

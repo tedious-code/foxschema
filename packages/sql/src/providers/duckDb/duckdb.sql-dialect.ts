@@ -1,6 +1,12 @@
 import type { SqlDialect, ColumnSpec } from '../../modules/sql-dialect.interface.js';
 import type { TableSchema } from '../../interfaces/index.js';
-import { makeDialectTypeFns, plain, sized, decimalAs } from '../../modules/type-mapping.js';
+import {
+  makeDialectTypeFns,
+  plain,
+  sized,
+  decimalAs,
+  withDefaultTemporalFsp,
+} from '../../modules/type-mapping.js';
 
 // DuckDB's type system is Postgres-flavored. Key differences from Postgres:
 // binary is BLOB (not bytea), and it exposes HUGEINT / unsigned ints (mapped
@@ -142,4 +148,6 @@ export const duckDbSqlDialect: SqlDialect = {
   },
 
   ...types,
+  // DuckDB TIMESTAMP defaults to microsecond precision when scale is omitted.
+  parseType: (raw: string) => withDefaultTemporalFsp(types.parseType(raw), 6),
 };
