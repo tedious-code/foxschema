@@ -257,3 +257,97 @@ describe('buildGrantRevokeSql', () => {
     ).toMatchObject({ error: expect.stringMatching(/GRANT\/REVOKE/i) });
   });
 });
+
+describe('every family emits a valid clause for every object type', () => {
+  /**
+   * The net that has to exist before this emitter is refactored, and the test
+   * that would have caught the two bugs below.
+   *
+   * Each family had its own copy of the emit, and a copy can quietly lose a
+   * case: Db2's branch handled SCHEMA and SYSTEM and sent everything else to
+   * `ON TABLE`, so a database authority came out as
+   * `GRANT DBADM ON TABLE "appdb"` — not valid Db2, and a table grant instead
+   * if a table of that name existed. MySQL had the mirror of it: a whole
+   * database is `db`.*, and a bare `db` is a table reference.
+   */
+  const GRANTEE = { grantee: 'analyst', granteeKind: 'user' as const };
+
+  const FAMILIES = ['postgres', 'mysql', 'mariadb', 'sqlserver', 'db2', 'oracle', 'clickhouse'];
+
+  const emit = (dialect: string, objectType: string, extra: Record<string, unknown> = {}) => {
+    const r = buildGrantRevokeSql({
+      dialect,
+      action: 'grant',
+      privilege: 'SELECT',
+      objectType,
+      objectSchema: 'app',
+      objectName: 'orders',
+      ...GRANTEE,
+      ...extra,
+    } as never);
+    if ('error' in r) throw new Error(`${dialect}/${objectType}: ${r.error}`);
+    return r.sql;
+  };
+
+  it.each(FAMILIES)('%s emits a TABLE grant naming the table', (dialect) => {
+    const sql = emit(dialect, 'TABLE');
+    expect(sql).toMatch(/^GRANT SELECT ON /);
+    expect(sql.toLowerCase()).toContain('orders');
+    expect(sql.endsWith(';')).toBe(true);
+  });
+
+  it.each(FAMILIES)('%s never sends a DATABASE grant through the TABLE clause', (dialect) => {
+    const sql = emit(dialect, 'DATABASE', { objectName: 'appdb', privilege: 'CONNECT' });
+    expect(sql, sql).not.toMatch(/ON TABLE/i);
+  });
+
+  it.each(FAMILIES)('%s never sends a SCHEMA grant through the TABLE clause', (dialect) => {
+    const sql = emit(dialect, 'SCHEMA', { objectName: 'app', privilege: 'USAGE' });
+    expect(sql, sql).not.toMatch(/ON TABLE/i);
+  });
+
+  it('names a MySQL-family database as db.*, not as a bare identifier', () => {
+    // `GRANT SELECT ON `appdb`` is a *table* reference in MySQL.
+    for (const dialect of ['mysql', 'mariadb']) {
+      expect(emit(dialect, 'DATABASE', { objectName: 'appdb' })).toContain('`appdb`.*');
+    }
+  });
+
+  it('grants a Db2 database authority ON DATABASE, with no object name', () => {
+    // Db2 grants database authorities on the connected database; naming one is
+    // a syntax error.
+    expect(emit('db2', 'DATABASE', { objectName: 'appdb', privilege: 'DBADM' })).toBe(
+      'GRANT DBADM ON DATABASE TO USER "analyst";'
+    );
+  });
+
+  it.each(FAMILIES)('%s pairs its GRANT with a matching REVOKE', (dialect) => {
+    const granted = emit(dialect, 'TABLE');
+    const revoked = buildGrantRevokeSql({
+      dialect,
+      action: 'revoke',
+      privilege: 'SELECT',
+      objectType: 'TABLE',
+      objectSchema: 'app',
+      objectName: 'orders',
+      ...GRANTEE,
+    } as never);
+    if ('error' in revoked) throw new Error(revoked.error);
+    expect(revoked.sql).toMatch(/^REVOKE /);
+    expect(revoked.sql).toContain('FROM');
+    // The object being addressed must be the same either way.
+    const objectOf = (s: string) => s.replace(/^(GRANT|REVOKE)\s+\S+\s+/, '').replace(/\s+(TO|FROM)\s+.*$/, '');
+    expect(objectOf(revoked.sql)).toBe(objectOf(granted));
+  });
+
+  it('grants role membership on Oracle exactly as the generic path does', () => {
+    // Oracle carries a dedicated ROLE branch that emits what the fallback
+    // emits; this pins the behaviour before that branch is removed.
+    const oracle = buildGrantRevokeSql({
+      dialect: 'oracle', action: 'grant', privilege: 'reader',
+      objectType: 'ROLE', objectName: 'reader', ...GRANTEE,
+    } as never);
+    if ('error' in oracle) throw new Error(oracle.error);
+    expect(oracle.sql).toBe('GRANT "reader" TO "analyst";');
+  });
+});
