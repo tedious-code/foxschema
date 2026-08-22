@@ -55,7 +55,7 @@ export class DuckDbProvider implements SchemaProvider {
        WHERE schema_name NOT IN ('information_schema','pg_catalog','system','temp')
        ORDER BY schema_name`
     );
-    return rows.map((r) => r.schema_name);
+    return [...new Set(rows.map((r) => r.schema_name))];
   }
 
   async getTables(options: ConnectionOptions, schema: string): Promise<TableSchema[]> {

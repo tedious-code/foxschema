@@ -177,6 +177,28 @@ const tidbSettings: ProviderSettings = {
   defaultPort: 4000,
 };
 
+const clickhouseSettings: ProviderSettings = {
+  dialect: 'clickhouse',
+  label: 'ClickHouse',
+  defaultPort: 8123,
+  defaultSchema: 'default',
+  schemaRequired: true,
+  buildConnectionString(o) {
+    return coreBuildConnectionString('clickhouse', o);
+  },
+};
+
+const redshiftSettings: ProviderSettings = {
+  dialect: 'redshift',
+  label: 'Amazon Redshift',
+  defaultPort: 5439,
+  defaultSchema: 'public',
+  schemaRequired: true,
+  buildConnectionString(o) {
+    return coreBuildConnectionString('redshift', o);
+  },
+};
+
 const duckdbSettings: ProviderSettings = {
   dialect: 'duckdb',
   label: 'DuckDB',
@@ -226,6 +248,8 @@ export const PROVIDER_SETTINGS: Record<string, ProviderSettings> = {
   oracle: oracleSettings,
   sqlite: sqliteSettings,
   duckdb: duckdbSettings,
+  clickhouse: clickhouseSettings,
+  redshift: redshiftSettings,
   redis: redisSettings,
   mongodb: mongodbSettings,
 };

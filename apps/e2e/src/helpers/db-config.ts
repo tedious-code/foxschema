@@ -32,8 +32,9 @@ function readConfig(envPrefix: string, dialect: string): DbConfig | null {
   const host = process.env[`${envPrefix}_HOST`];
   const db = process.env[`${envPrefix}_DB`];
   const user = process.env[`${envPrefix}_USER`];
+  // Empty password is valid (e.g. local TiDB root) — only missing key skips.
   const pass = process.env[`${envPrefix}_PASS`];
-  if (!host || !db || !user || !pass) return null;
+  if (!host || !db || !user || pass === undefined) return null;
   return {
     dialect,
     host,

@@ -122,6 +122,43 @@ seed_yugabytedb() {
   echo "  ✓ done"
 }
 
+seed_clickhouse() {
+  echo "▶ ClickHouse …"
+  require_container foxschema-clickhouse || return 1
+  step docker exec -i foxschema-clickhouse \
+    clickhouse-client --user default --password foxpass --multiquery \
+    < "$INIT/clickhouse/01_seed.sql" || return 1
+  echo "  ✓ done"
+}
+
+seed_tidb() {
+  echo "▶ TiDB …"
+  require_container foxschema-tidb || return 1
+  # TiDB image has no mysql client — use a one-shot mysql:8 client on host net.
+  if command -v mysql >/dev/null 2>&1; then
+    step mysql -h127.0.0.1 -P4000 -uroot --protocol=TCP \
+      < "$INIT/tidb/01_seed.sql" || return 1
+  else
+    step docker run --rm -i --network host mysql:8 \
+      mysql -h127.0.0.1 -P4000 -uroot --protocol=TCP \
+      < "$INIT/tidb/01_seed.sql" || return 1
+  fi
+  echo "  ✓ done"
+}
+
+seed_redshift() {
+  echo "▶ Redshift (local Postgres stand-in) …"
+  require_container foxschema-redshift || return 1
+  step docker exec -i foxschema-redshift psql -U foxuser -d foxdb \
+    < "$INIT/postgres/01_seed.sql" || return 1
+  echo "  ✓ done"
+}
+
+seed_duckdb() {
+  echo "▶ DuckDB …"
+  step node "$REPO/scripts/seed/seed-duckdb.mjs" || return 1
+}
+
 TARGET="${1:-all}"
 case "$TARGET" in
   postgres)    seed_postgres ;;
@@ -133,10 +170,14 @@ case "$TARGET" in
   sqlite)      seed_sqlite ;;
   cockroachdb) seed_cockroachdb ;;
   yugabytedb)  seed_yugabytedb ;;
+  clickhouse)  seed_clickhouse ;;
+  tidb)        seed_tidb ;;
+  redshift)    seed_redshift ;;
+  duckdb)      seed_duckdb ;;
   all)
     # Continue past a failing dialect on purpose — not every machine runs all
-    # nine — but keep a list, because a wall of output makes a single "✗" easy
-    # to miss and reseeding is the control that stops stale data producing
+    # containers — but keep a list, because a wall of output makes a single "✗"
+    # easy to miss and reseeding is the control that stops stale data producing
     # convincing-but-fake E2E failures.
     FAILED=()
     seed_postgres    || FAILED+=("PostgreSQL")
@@ -148,6 +189,10 @@ case "$TARGET" in
     seed_sqlite      || FAILED+=("SQLite")
     seed_cockroachdb || FAILED+=("CockroachDB")
     seed_yugabytedb  || FAILED+=("YugabyteDB")
+    seed_clickhouse  || FAILED+=("ClickHouse")
+    seed_tidb        || FAILED+=("TiDB")
+    seed_redshift    || FAILED+=("Redshift")
+    seed_duckdb      || FAILED+=("DuckDB")
     echo ""
     if [ ${#FAILED[@]} -eq 0 ]; then
       echo "  ✓ all dialects seeded"
@@ -158,11 +203,12 @@ case "$TARGET" in
     ;;
   *)
     echo "Unknown target: $TARGET"
-    echo "Usage: $0 [postgres|mysql|mariadb|sqlserver|oracle|db2|sqlite|cockroachdb|yugabytedb|all]"
+    echo "Usage: $0 [postgres|mysql|mariadb|sqlserver|oracle|db2|sqlite|cockroachdb|yugabytedb|clickhouse|tidb|redshift|duckdb|all]"
     exit 1
     ;;
 esac
 
+DD_DIR=/tmp/foxschema-duckdb
 echo ""
 echo "Connection reference:"
 echo "  PostgreSQL  localhost:5432  foxuser/foxpass      db=foxdb     schema=demo_a vs demo_b"
@@ -174,3 +220,8 @@ echo "  DB2         localhost:50000 db2inst1/foxpass     db=foxdb     schema=DEM
 echo "  SQLite      $SL_DIR/demo_a.db  vs  demo_b.db"
 echo "  CockroachDB localhost:26257 root (insecure)      db=foxdb     schema=demo_a vs demo_b"
 echo "  YugabyteDB  localhost:5433  yugabyte (no pass)   db=foxdb     schema=demo_a vs demo_b"
+echo "  ClickHouse  localhost:8123  default/foxpass      db=demo_a vs demo_b"
+echo "  TiDB        localhost:4000  foxuser/foxpass       db=demo_a vs demo_b"
+echo "  Redshift*   localhost:5439  foxuser/foxpass      db=foxdb     schema=demo_a vs demo_b"
+echo "  DuckDB      $DD_DIR/demo_a.duckdb  vs  demo_b.duckdb"
+echo "  * Redshift service is a local Postgres stand-in for e2e (not Amazon Redshift)."
