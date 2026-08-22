@@ -162,6 +162,28 @@ export type {
   ObjectSizeRow,
   TableSizeGroup,
 } from './modules/dialect-dba-utilities.js';
+export {
+  dialectSupportsDbAccess,
+  buildDbAccessPrincipalQueries,
+  buildDbAccessPrivilegeQueries,
+  normalizeDbPrincipals,
+  normalizeDbPrivileges,
+  privilegesForPrincipal,
+  groupDbPrincipals,
+  formatDbGrantee,
+  buildGrantRevokeSql,
+  DB_OBJECT_PRIVILEGES,
+} from './modules/dialect-db-access.js';
+export type {
+  DbAccessProbeMode,
+  DbAccessSupport,
+  DbAccessQuery,
+  DbPrincipalKind,
+  DbPrincipal,
+  DbPrivilegeObjectType,
+  DbPrivilege,
+  DbAccessGrantArgs,
+} from './modules/dialect-db-access.js';
 export { findMissingFkTargets, findNarrowingTypeChanges, extractReviewNotices, validateMigrationPlan } from './modules/migration-validation.js';
 export type { ValidationIssue, ValidationSeverity, ValidationCode } from './modules/migration-validation.js';
 export { CROSS_DIALECT_READINESS } from './modules/cross-dialect-readiness.js';

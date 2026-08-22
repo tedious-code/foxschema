@@ -124,6 +124,35 @@ describe('RbacModule', () => {
     expect((await rbac.listUsers()).find((u) => u.id === 'u-active')?.active).toBe(true);
   });
 
+  it('listUsers includes effective permissions from the user role', async () => {
+    const store = await getStore();
+    await store.run(
+      'INSERT INTO users (id, email, password_hash, created_at, app_role) VALUES (?, ?, ?, ?, ?)',
+      ['u-perm-viewer', 'perm-viewer@example.com', 'x', new Date().toISOString(), 'viewer']
+    );
+    await store.run(
+      'INSERT INTO users (id, email, password_hash, created_at, app_role) VALUES (?, ?, ?, ?, ?)',
+      ['u-perm-editor', 'perm-editor@example.com', 'x', new Date().toISOString(), 'editor']
+    );
+    await store.run(
+      'INSERT INTO users (id, email, password_hash, created_at, app_role) VALUES (?, ?, ?, ?, ?)',
+      ['u-perm-admin', 'perm-admin@example.com', 'x', new Date().toISOString(), 'admin']
+    );
+    try {
+      await rbac.setRolePermissions('editor', ['schema.browse', 'editor.run']);
+      const users = await rbac.listUsers();
+      const viewer = users.find((u) => u.id === 'u-perm-viewer');
+      const editor = users.find((u) => u.id === 'u-perm-editor');
+      const admin = users.find((u) => u.id === 'u-perm-admin');
+
+      expect(viewer?.permissions.sort()).toEqual([...DEFAULT_ROLE_PERMISSIONS.viewer].sort());
+      expect(editor?.permissions.sort()).toEqual(['editor.run', 'schema.browse']);
+      expect(admin?.permissions).toEqual([...PERMISSIONS]);
+    } finally {
+      await rbac.setRolePermissions('editor', DEFAULT_ROLE_PERMISSIONS.editor);
+    }
+  });
+
   it('refuses to deactivate the last active admin', async () => {
     const store = await getStore();
     await store.run(

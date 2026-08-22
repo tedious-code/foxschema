@@ -102,7 +102,14 @@ export class RbacModule {
   }
 
   async listUsers(): Promise<
-    Array<{ id: string; email: string; role: AppRole; active: boolean; createdAt: string }>
+    Array<{
+      id: string;
+      email: string;
+      role: AppRole;
+      active: boolean;
+      createdAt: string;
+      permissions: Permission[];
+    }>
   > {
     const store = await getStore();
     const rows = await store.all<{
@@ -112,14 +119,22 @@ export class RbacModule {
       active: number | null;
       created_at: string;
     }>('SELECT id, email, app_role, active, created_at FROM users ORDER BY created_at ASC');
-    return rows.map((r) => ({
-      id: r.id,
-      email: r.email,
-      role: toAppRole(r.app_role),
-      // Pre-migration rows / NULL → treat as active.
-      active: r.active === null || r.active === undefined ? true : Number(r.active) !== 0,
-      createdAt: r.created_at,
-    }));
+    const permsByRole = {} as Record<AppRole, Permission[]>;
+    for (const role of APP_ROLES) {
+      permsByRole[role] = await this.permissionsForRole(role);
+    }
+    return rows.map((r) => {
+      const role = toAppRole(r.app_role);
+      return {
+        id: r.id,
+        email: r.email,
+        role,
+        // Pre-migration rows / NULL → treat as active.
+        active: r.active === null || r.active === undefined ? true : Number(r.active) !== 0,
+        createdAt: r.created_at,
+        permissions: [...permsByRole[role]],
+      };
+    });
   }
 
   async setUserActive(userId: string, active: boolean): Promise<void> {

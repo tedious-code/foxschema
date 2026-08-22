@@ -7,7 +7,7 @@
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { KeyRound, Loader2, Shield, Users, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, KeyRound, Loader2, Shield, Users, X } from 'lucide-react';
 import {
   apiAdminListUsers,
   apiAdminRolePermissions,
@@ -17,7 +17,10 @@ import {
   apiAdminSetUserRole,
 } from '../api/authApi';
 import {
+  groupPermissionsForDisplay,
+  groupUsersByRole,
   permissionSetEqual,
+  roleGroupLabel,
   userActiveCheckboxLock,
   userRoleSelectLock,
 } from '../lib/adminAccess';
@@ -29,8 +32,9 @@ import {
 } from '../lib/permissions';
 import { useAuthStore } from '../store/authStore';
 import { PasswordInput } from './PasswordInput';
+import { DatabaseAccessModal } from './utilities/DatabaseAccessModal';
 
-type Tab = 'users' | 'roles';
+type Tab = 'users' | 'roles' | 'database';
 
 type AdminUserRow = {
   id: string;
@@ -38,6 +42,7 @@ type AdminUserRow = {
   role: AppRole;
   active: boolean;
   createdAt: string;
+  permissions: Permission[];
 };
 
 export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> = ({
@@ -49,6 +54,7 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
   const localSingleUser = useAuthStore((s) => s.localSingleUser);
   const canUsers = useAuthStore((s) => s.can('admin.users'));
   const canRoles = useAuthStore((s) => s.can('admin.roles'));
+  const canDatabase = useAuthStore((s) => s.can('utility.access'));
   const [tab, setTab] = useState<Tab>('users');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +68,7 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordMsg, setPasswordMsg] = useState<string | null>(null);
+  const [expandedUserIds, setExpandedUserIds] = useState<Set<string>>(() => new Set());
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -69,7 +76,12 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
     try {
       if (canUsers) {
         const u = await apiAdminListUsers();
-        setUsers(u.users);
+        setUsers(
+          u.users.map((row) => ({
+            ...row,
+            permissions: Array.isArray(row.permissions) ? row.permissions : [],
+          }))
+        );
       }
       if (canRoles) {
         const r = await apiAdminRolePermissions();
@@ -86,6 +98,32 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
   useEffect(() => {
     if (open) void load();
   }, [open, load]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (tab === 'users' && !canUsers) {
+      if (canRoles) setTab('roles');
+      else if (canDatabase) setTab('database');
+    }
+    if (tab === 'roles' && !canRoles) {
+      if (canUsers) setTab('users');
+      else if (canDatabase) setTab('database');
+    }
+    if (tab === 'database' && !canDatabase) {
+      if (canUsers) setTab('users');
+      else if (canRoles) setTab('roles');
+    }
+  }, [open, tab, canUsers, canRoles, canDatabase]);
+
+  useEffect(() => {
+    if (!open || !me?.id) return;
+    setExpandedUserIds((prev) => {
+      if (prev.has(me.id)) return prev;
+      const next = new Set(prev);
+      next.add(me.id);
+      return next;
+    });
+  }, [open, me?.id]);
 
   // Keep unsaved checkbox drafts when the server matrix reloads.
   useEffect(() => {
@@ -118,6 +156,16 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
   const draft = useMemo(() => new Set(draftPerms), [draftPerms]);
   const readOnlyRole = editRole === 'admin';
   const dirty = !readOnlyRole && !permissionSetEqual(draftPerms, savedPerms);
+  const userGroups = useMemo(() => groupUsersByRole(users), [users]);
+
+  const toggleUserExpanded = (userId: string) => {
+    setExpandedUserIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(userId)) next.delete(userId);
+      else next.add(userId);
+      return next;
+    });
+  };
 
   if (!open) return null;
 
@@ -205,11 +253,11 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
   return createPortal(
     <div
       data-testid="admin-access-panel"
-      className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/70 p-4"
+      className="fixed inset-0 z-[320] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-3xl max-h-[90vh] flex flex-col rounded-xl border border-slate-700 bg-slate-900 shadow-2xl overflow-hidden"
+        className="w-full max-w-6xl max-h-[90vh] flex flex-col rounded-xl border border-slate-700 bg-slate-900 shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-800 shrink-0">
@@ -219,6 +267,14 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
             <X className="w-4 h-4" />
           </button>
         </div>
+        <p
+          data-testid="admin-access-layers"
+          className="px-4 py-1.5 text-[11px] text-slate-500 border-b border-slate-800 shrink-0"
+        >
+          Two layers: <span className="text-slate-300">App users / App roles</span> control who may
+          use FoxSchema. <span className="text-slate-300">Database</span> inspects users, groups, and
+          GRANT / REVOKE on a connected server.
+        </p>
 
         <div className="flex gap-1 px-4 pt-3 shrink-0">
           {canUsers && (
@@ -231,7 +287,7 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
               }`}
             >
               <Users className="w-3.5 h-3.5 inline mr-1" />
-              Users
+              App users
             </button>
           )}
           {canRoles && (
@@ -243,7 +299,19 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
                 tab === 'roles' ? 'bg-slate-800 text-slate-100' : 'text-slate-400'
               }`}
             >
-              Roles & permissions
+              App roles
+            </button>
+          )}
+          {canDatabase && (
+            <button
+              type="button"
+              data-testid="admin-tab-database"
+              onClick={() => setTab('database')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md ${
+                tab === 'database' ? 'bg-slate-800 text-slate-100' : 'text-slate-400'
+              }`}
+            >
+              Database
             </button>
           )}
         </div>
@@ -255,10 +323,22 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
         )}
 
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
-          {busy && !users.length && !matrix && (
+          {busy && !users.length && !matrix && (canUsers || canRoles) && (
             <div className="flex items-center gap-2 text-xs text-slate-400 py-8 justify-center">
               <Loader2 className="w-4 h-4 animate-spin" /> Loading…
             </div>
+          )}
+
+          {!canUsers && !canRoles && !canDatabase && (
+            <p
+              data-testid="admin-access-denied"
+              className="text-[11px] text-slate-400 leading-snug rounded-md border border-slate-800 bg-slate-950/50 px-3 py-2"
+            >
+              Your role cannot manage FoxSchema users, configure roles, or inspect database
+              privileges. An admin must grant <span className="text-slate-200">Manage users</span>,{' '}
+              <span className="text-slate-200">Configure roles</span>, or{' '}
+              <span className="text-slate-200">Use utilities</span> in Access control.
+            </p>
           )}
 
           {tab === 'users' && canUsers && (
@@ -269,86 +349,176 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
                   className="text-[11px] text-slate-400 leading-snug rounded-md border border-slate-800 bg-slate-950/50 px-3 py-2"
                 >
                   Single-user mode keeps this account as <span className="text-slate-200">admin</span>{' '}
-                  — role and Active cannot be changed. Open{' '}
-                  <span className="text-slate-200">Roles & permissions</span> to edit what editor /
-                  owner / viewer may do (applied when you enable multi-user login).
+                  — role and Active cannot be changed. Expand a user to see FoxSchema permissions
+                  (from their app role). Open <span className="text-slate-200">App roles</span> to
+                  edit what editor / owner / viewer may do, including{' '}
+                  <span className="text-slate-200">Grant privileges</span> for the Database tab
+                  (applied when you enable multi-user login).
                 </p>
               )}
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-slate-500 text-left">
-                    <th className="py-1.5 font-semibold">Email</th>
-                    <th className="py-1.5 font-semibold">Role</th>
-                    <th className="py-1.5 font-semibold text-center">Active</th>
-                    <th className="py-1.5 font-semibold">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {users.map((u) => {
-                    const roleLock = userRoleSelectLock(u, { busy, localSingleUser, users });
-                    const activeLock = userActiveCheckboxLock(u, {
-                      busy,
-                      localSingleUser,
-                      meId: me?.id,
-                      users,
-                    });
-                    return (
-                      <tr key={u.id} className="border-t border-slate-800">
-                        <td className="py-2 text-slate-200 font-mono">{u.email}</td>
-                        <td className="py-2">
-                          <select
-                            data-testid={`admin-user-role-${u.id}`}
-                            value={u.role}
-                            disabled={roleLock.disabled}
-                            title={roleLock.reason}
-                            onChange={(e) => void setUserRole(u.id, e.target.value as AppRole)}
-                            className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-100 disabled:opacity-40"
-                          >
-                            {APP_ROLES.map((r) => (
-                              <option key={r} value={r}>
-                                {r}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="py-2 text-center">
-                          <input
-                            type="checkbox"
-                            data-testid={`admin-active-${u.id}`}
-                            checked={u.active !== false}
-                            disabled={activeLock.disabled}
-                            onChange={(e) => void toggleActive(u, e.target.checked)}
-                            className="rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500/40 disabled:opacity-40"
-                            title={
-                              activeLock.reason ??
-                              (u.active !== false ? 'Active — can sign in' : 'Inactive — login blocked')
-                            }
-                          />
-                        </td>
-                        <td className="py-2">
-                          <button
-                            type="button"
-                            data-testid={`admin-change-password-${u.id}`}
-                            disabled={busy}
-                            onClick={() => {
-                              setPasswordUser(u);
-                              setNewPassword('');
-                              setConfirmPassword('');
-                              setPasswordMsg(null);
-                            }}
-                            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-slate-700 bg-slate-950 text-slate-300 hover:border-slate-500 hover:text-white disabled:opacity-40"
-                          >
-                            <KeyRound className="w-3 h-3" />
-                            Change password
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </>
-          )}
+              {!localSingleUser && (
+                <p className="text-[11px] text-slate-400 leading-snug">
+                  FoxSchema logins grouped by app role. Expand a row to see that role’s permissions —
+                  they are not per-user overrides. Database users, groups, and GRANT / REVOKE live on
+                  the Database tab.
+                </p>
+              )}
+            <div data-testid="admin-user-groups" className="space-y-3">
+              {userGroups.map((group) => (
+                <section
+                  key={group.role}
+                  data-testid={`admin-user-group-${group.role}`}
+                  className="rounded-lg border border-slate-800 overflow-hidden"
+                >
+                  <header className="flex items-center gap-2 px-3 py-2 bg-slate-950/60 border-b border-slate-800">
+                    <span className="text-xs font-bold text-slate-200">{group.label}</span>
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                      {group.users.length} {group.users.length === 1 ? 'user' : 'users'}
+                    </span>
+                  </header>
+                  {group.users.length === 0 ? (
+                    <p
+                      data-testid={`admin-user-group-empty-${group.role}`}
+                      className="px-3 py-2 text-[11px] text-slate-500"
+                    >
+                      No users in this group.
+                    </p>
+                  ) : (
+                    <ul className="divide-y divide-slate-800">
+                      {group.users.map((u) => {
+                        const roleLock = userRoleSelectLock(u, { busy, localSingleUser, users });
+                        const activeLock = userActiveCheckboxLock(u, {
+                          busy,
+                          localSingleUser,
+                          meId: me?.id,
+                          users,
+                        });
+                        const expanded = expandedUserIds.has(u.id);
+                        const permGroups = groupPermissionsForDisplay(
+                          u.permissions,
+                          catalog.length ? catalog : undefined
+                        );
+                        const Chevron = expanded ? ChevronDown : ChevronRight;
+                        return (
+                          <li key={u.id} data-testid={`admin-user-row-${u.id}`}>
+                            <div className="flex flex-wrap items-center gap-2 px-3 py-2">
+                              <button
+                                type="button"
+                                data-testid={`admin-user-expand-${u.id}`}
+                                aria-expanded={expanded}
+                                aria-label={
+                                  expanded
+                                    ? `Hide permissions for ${u.email}`
+                                    : `Show permissions for ${u.email}`
+                                }
+                                onClick={() => toggleUserExpanded(u.id)}
+                                className="p-0.5 text-slate-400 hover:text-slate-100"
+                              >
+                                <Chevron className="w-3.5 h-3.5" />
+                              </button>
+                              <span className="text-xs text-slate-200 font-mono flex-1 min-w-[10rem]">
+                                {u.email}
+                              </span>
+                              <span
+                                data-testid={`admin-user-perm-count-${u.id}`}
+                                className="text-[10px] font-semibold tabular-nums text-slate-400 border border-slate-700 rounded-full px-2 py-0.5"
+                              >
+                                {u.permissions.length}{' '}
+                                {u.permissions.length === 1 ? 'permission' : 'permissions'}
+                              </span>
+                              <select
+                                data-testid={`admin-user-role-${u.id}`}
+                                value={u.role}
+                                disabled={roleLock.disabled}
+                                title={roleLock.reason}
+                                onChange={(e) => void setUserRole(u.id, e.target.value as AppRole)}
+                                className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-100 disabled:opacity-40"
+                              >
+                                {APP_ROLES.map((r) => (
+                                  <option key={r} value={r}>
+                                    {roleGroupLabel(r)}
+                                  </option>
+                                ))}
+                              </select>
+                              <label className="inline-flex items-center gap-1 text-[11px] text-slate-400">
+                                <input
+                                  type="checkbox"
+                                  data-testid={`admin-active-${u.id}`}
+                                  checked={u.active !== false}
+                                  disabled={activeLock.disabled}
+                                  onChange={(e) => void toggleActive(u, e.target.checked)}
+                                  className="rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500/40 disabled:opacity-40"
+                                  title={
+                                    activeLock.reason ??
+                                    (u.active !== false
+                                      ? 'Active — can sign in'
+                                      : 'Inactive — login blocked')
+                                  }
+                                />
+                                Active
+                              </label>
+                              <button
+                                type="button"
+                                data-testid={`admin-change-password-${u.id}`}
+                                disabled={busy}
+                                onClick={() => {
+                                  setPasswordUser(u);
+                                  setNewPassword('');
+                                  setConfirmPassword('');
+                                  setPasswordMsg(null);
+                                }}
+                                className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-slate-700 bg-slate-950 text-slate-300 hover:border-slate-500 hover:text-white disabled:opacity-40"
+                              >
+                                <KeyRound className="w-3 h-3" />
+                                Change password
+                              </button>
+                            </div>
+                            {expanded && (
+                              <div
+                                data-testid={`admin-user-perms-${u.id}`}
+                                className="px-3 pb-3 pt-0 space-y-2"
+                              >
+                                {permGroups.length === 0 ? (
+                                  <p className="text-[11px] text-slate-500">
+                                    This group currently has no permissions.
+                                  </p>
+                                ) : (
+                                  permGroups.map((pg) => (
+                                    <div key={pg.group}>
+                                      <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500 mb-1">
+                                        {pg.group}
+                                      </div>
+                                      <ul className="flex flex-wrap gap-1">
+                                        {pg.items.map((item) => (
+                                          <li
+                                            key={item.id}
+                                            data-testid={`admin-user-perm-${u.id}-${item.id}`}
+                                            className="text-[11px] text-slate-200 border border-slate-700 bg-slate-950/70 rounded px-1.5 py-0.5"
+                                          >
+                                            {item.label}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  ))
+                                )}
+                                <p className="text-[11px] text-slate-500">
+                                  FoxSchema permissions come from the {group.label} app role. Change
+                                  them on App roles. Database GRANT / REVOKE is on the Database tab
+                                  and needs Grant privileges.
+                                </p>
+                              </div>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </section>
+              ))}
+            </div>
+          </>
+        )}
 
           {tab === 'roles' && canRoles && (
             <div className="space-y-3">
@@ -375,8 +545,8 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
                 className="text-[11px] text-slate-400 leading-snug rounded-md border border-slate-800 bg-slate-950/50 px-3 py-2"
               >
                 {readOnlyRole
-                  ? 'Admin always has every permission. This role cannot be reduced — pick editor, owner, or viewer to edit grants, then Save.'
-                  : `Check boxes for ${editRole}, then Save ${editRole} permissions in the bar below. Changes are not applied until you save.`}
+                  ? 'Admin always has every FoxSchema permission, including database GRANT/REVOKE. This role cannot be reduced — pick editor, owner, or viewer to edit grants, then Save.'
+                  : `Check boxes for ${editRole}, then Save ${editRole} permissions. Grant privileges (SQL Editor) is what unlocks GRANT / REVOKE on the Database tab.`}
               </p>
 
               {groups.map(([group, items]) => (
@@ -384,10 +554,10 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
                   <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
                     {group}
                   </div>
-                  {group === 'Admin' && !readOnlyRole && (
+                  {group === 'SQL Editor' && !readOnlyRole && (
                     <p className="text-[11px] text-slate-500 leading-snug">
-                      Not granted to {editRole} by default. Check and Save to let this role open
-                      Access control (Manage users / Configure roles).
+                      Grant privileges is the FoxSchema gate for the Database tab’s GRANT / REVOKE.
+                      Owner has it by default; editor does not.
                     </p>
                   )}
                   {items.map((m) => {
@@ -417,6 +587,14 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
                 </div>
               ))}
             </div>
+          )}
+
+          {tab === 'database' && canDatabase && (
+            <DatabaseAccessModal
+              open
+              embedded
+              onOpenAppRoles={canRoles ? () => setTab('roles') : undefined}
+            />
           )}
         </div>
 

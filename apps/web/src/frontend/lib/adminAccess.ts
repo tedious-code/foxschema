@@ -3,9 +3,10 @@
  * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
  * SPDX-License-Identifier: Apache-2.0
  *
- * Access control panel helpers: dirty drafts and last-admin / single-user locks.
+ * Access control panel helpers: dirty drafts, last-admin / single-user locks,
+ * user-role groups, and permission display grouping.
  */
-import type { AppRole, Permission } from '../../shared/permissions';
+import { APP_ROLES, PERMISSION_META, type AppRole, type Permission } from '../../shared/permissions';
 
 export function permissionSetEqual(
   a: Iterable<Permission> | undefined,
@@ -77,4 +78,67 @@ export function userActiveCheckboxLock(
     return { disabled: true, reason: 'Cannot deactivate the last active admin' };
   }
   return { disabled: false };
+}
+
+/** Most privileged first — Access control lists users under these role groups. */
+export const ROLE_GROUP_ORDER: AppRole[] = [...APP_ROLES].reverse();
+
+export function roleGroupLabel(role: AppRole): string {
+  switch (role) {
+    case 'admin':
+      return 'Admin';
+    case 'owner':
+      return 'Owner';
+    case 'editor':
+      return 'Editor';
+    case 'viewer':
+      return 'Viewer';
+  }
+}
+
+export type UserRoleGroup<T extends { role: AppRole }> = {
+  role: AppRole;
+  label: string;
+  users: T[];
+};
+
+export function groupUsersByRole<T extends { role: AppRole }>(
+  users: readonly T[],
+  opts?: { includeEmpty?: boolean }
+): UserRoleGroup<T>[] {
+  const includeEmpty = opts?.includeEmpty !== false;
+  return ROLE_GROUP_ORDER.map((role) => ({
+    role,
+    label: roleGroupLabel(role),
+    users: users.filter((u) => u.role === role),
+  })).filter((g) => includeEmpty || g.users.length > 0);
+}
+
+export type PermissionGroupView = {
+  group: string;
+  items: { id: Permission; label: string }[];
+};
+
+/** Cluster a user's grants under PERMISSION_META.group for the Users tab. */
+export function groupPermissionsForDisplay(
+  permissions: readonly Permission[],
+  catalog: readonly { id: Permission; group: string; label: string }[] = PERMISSION_META
+): PermissionGroupView[] {
+  const granted = new Set(permissions);
+  const byGroup = new Map<string, { id: Permission; label: string }[]>();
+  const seen = new Set<Permission>();
+  for (const meta of catalog) {
+    if (!granted.has(meta.id)) continue;
+    const list = byGroup.get(meta.group) ?? [];
+    list.push({ id: meta.id, label: meta.label });
+    byGroup.set(meta.group, list);
+    seen.add(meta.id);
+  }
+  for (const p of permissions) {
+    if (seen.has(p)) continue;
+    const list = byGroup.get('Other') ?? [];
+    list.push({ id: p, label: p });
+    byGroup.set('Other', list);
+  }
+  return [...byGroup.entries()].map(([group, items]) => ({ group, items }));
 }
