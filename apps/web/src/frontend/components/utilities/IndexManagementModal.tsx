@@ -168,6 +168,16 @@ export const IndexManagementModal: React.FC<Props> = ({
   const conn = connections.find((c) => c.id === connectionId) || null;
   const needsPassword = Boolean(conn && !conn.hasPassword && !sessionPasswords[connectionId]);
   const cache = connectionId ? schemaCache[connectionId] : undefined;
+  /**
+   * The failure to show, from whichever path found it.
+   *
+   * `error` is only set by loads this modal started. The schema is shared, so
+   * the Schema panel can discover the database is unreachable first and cache
+   * that — leaving the modal with a null error and an empty table, which it
+   * then reported as "this schema has no indexes". An empty list and an
+   * unreachable database are not the same answer.
+   */
+  const loadError = error || (cache?.status === 'error' ? cache.error ?? 'Failed to load schema' : null);
   const fragSupport = useMemo(
     () => dialectSupportsIndexFragmentation(conn?.dialect || ''),
     [conn?.dialect]
@@ -449,7 +459,11 @@ export const IndexManagementModal: React.FC<Props> = ({
           .slice()
           .sort((a, b) => a.name.localeCompare(b.name));
         const n = tables.reduce((acc, t) => acc + (t.indices?.length ?? 0), 0);
-        setStatus(`Loaded ${n} index(es) from schema catalog.`);
+        setStatus(
+          n === 0
+            ? 'No indexes in this schema.'
+            : `Loaded ${n} ${n === 1 ? 'index' : 'indexes'} from the schema catalog.`
+        );
         setExpanded(new Set(tables.map((t) => t.name)));
         setLoadingSchema(false);
         const extra: Promise<void>[] = [];
@@ -903,12 +917,12 @@ export const IndexManagementModal: React.FC<Props> = ({
             </button>
           </div>
 
-          {(error || status) && (
+          {(loadError || status) && (
             <p
-              className={`text-[11px] ${error ? 'text-rose-300' : 'text-slate-400'}`}
+              className={`text-[11px] ${loadError ? 'text-rose-300' : 'text-slate-400'}`}
               data-testid="index-mgmt-status"
             >
-              {error || status}
+              {loadError || status}
               {safeMode && (confirmDefrag || confirmDrop)
                 ? ' Safe mode is on — confirm carefully before running rebuild/reorg or DROP INDEX.'
                 : ''}
@@ -922,9 +936,17 @@ export const IndexManagementModal: React.FC<Props> = ({
         >
           {grouped.length === 0 ? (
             <p className="px-5 py-8 text-center text-sm text-slate-500">
-              {connectionId
-                ? 'No indexes to show. Indexes and fragmentation load automatically when you pick a credential (or click Load indexes).'
-                : 'Select a credential to begin.'}
+              {/* An empty list and a failed read are not the same thing, and
+                  saying "no indexes" for a database that could not be reached
+                  sends the reader looking for missing indexes instead of a
+                  missing connection. */}
+              {!connectionId
+                ? 'Select a credential to begin.'
+                : loadError
+                  ? 'Could not read the indexes.'
+                  : loadingSchema
+                    ? 'Reading indexes…'
+                    : 'This schema has no indexes.'}
             </p>
           ) : (
             <table

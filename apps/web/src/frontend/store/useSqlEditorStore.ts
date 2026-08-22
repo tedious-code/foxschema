@@ -816,11 +816,18 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           existing?.status === 'ready' &&
           typeof existing.loadedAt === 'number' &&
           Date.now() - existing.loadedAt < SCHEMA_CACHE_TTL_MS;
-        if (
-          !force &&
-          scopeOk &&
-          (existing?.status === 'loading' || (existing?.status === 'ready' && fresh))
-        ) {
+        /**
+         * Only a finished load short-circuits. Returning early on `loading`
+         * looked like de-duplication but was not: `loadSchema` already joins
+         * concurrent identical calls through `idempotent()`, so one request is
+         * made either way. What the early return actually did was break the
+         * promise — a caller that awaited this got control back while the fetch
+         * was still in flight, read a cache entry with no tables and no error
+         * yet, and reported an empty result. Index Management said
+         * "Loaded 0 index(es)" for a database it could not reach, because the
+         * ECONNREFUSED landed after it had already drawn its answer.
+         */
+        if (!force && scopeOk && existing?.status === 'ready' && fresh) {
           return;
         }
 
