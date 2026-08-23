@@ -71,6 +71,25 @@ describe('rowDml', () => {
     expect(firstCaseFoldedDuplicate(['a', 'b'])).toBeNull();
   });
 
+  it('refuses to edit when a binary/blob column is in the result', () => {
+    // /sql/execute shows BYTEA as 0x… hex (and truncates long values). Clone
+    // would INSERT that ASCII string and corrupt the column.
+    const withBlob: TableSchema = {
+      ...usersTable,
+      columns: [
+        ...usersTable.columns,
+        { name: 'avatar', type: 'bytea', nullable: true, primaryKey: false },
+      ],
+    };
+    const blocked = assessPeekEditability({
+      dialect: 'postgres',
+      table: withBlob,
+      resultColumns: ['id', 'email', 'avatar'],
+    });
+    expect(blocked.editable).toBe(false);
+    expect(blocked.reason).toMatch(/binary/i);
+  });
+
   it('builds UPDATE with bound params', () => {
     const keys = resolvePeekKeyColumns(usersTable, ['id', 'email', 'name']);
     const plan = buildPeekUpdate({

@@ -50,6 +50,9 @@ function serializeCell(v: unknown): unknown {
   if (typeof v === 'bigint') return v.toString();
   if (v instanceof Date) return v.toISOString();
   if (v instanceof Uint8Array) {
+    // Display-only hex. Long values are truncated for payload size — Peek / result
+    // grid CRUD refuses tables with binary columns so this string is never written
+    // back (see assessPeekEditability / columnTypeIsBinary).
     const hex = Buffer.from(v).toString('hex');
     return `0x${hex.length > 64 ? hex.slice(0, 64) + '…' : hex}`;
   }

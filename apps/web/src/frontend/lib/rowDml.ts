@@ -40,6 +40,18 @@ export interface PeekEditability {
 /** Dialects that reject writes in the SQL Editor adapters. */
 const PEEK_READONLY_DIALECTS = new Set(['clickhouse']);
 
+/**
+ * Column types whose grid cells are display-only hex (`0x…`), not round-trippable
+ * bind values. Clone/edit would INSERT/UPDATE the ASCII hex string (or a
+ * truncated `0xabcd…` prefix) and corrupt the binary.
+ */
+const BINARY_SQL_TYPE_RE =
+  /\b(bytea|blob|binary|varbinary|raw|image|longblob|mediumblob|tinyblob|varbinary\(max\)|binary\(max\))\b/i;
+
+export function columnTypeIsBinary(type: string | undefined | null): boolean {
+  return BINARY_SQL_TYPE_RE.test(String(type ?? ''));
+}
+
 function resultIndexMap(columns: string[]): Map<string, number> {
   const map = new Map<string, number>();
   columns.forEach((c, i) => map.set(c.toLowerCase(), i));
@@ -197,6 +209,21 @@ export function assessPeekEditability(opts: {
   const editableColumns = table.columns
     .map((c) => c.name)
     .filter((name) => colSet.has(name.toLowerCase()));
+  // `/sql/execute` serializes BYTEA/BLOB as `0x…` hex for the grid (and truncates
+  // long values). Feeding that string back through Clone / Edit would store
+  // ASCII hex — or a truncated prefix — instead of the original bytes.
+  const binaryInResult = table.columns.find(
+    (c) => colSet.has(c.name.toLowerCase()) && columnTypeIsBinary(c.type)
+  );
+  if (binaryInResult) {
+    return {
+      editable: false,
+      reason: `Column "${binaryInResult.name}" is binary — grid cells are display-only hex and cannot safely round-trip on Clone / Edit.`,
+      keyColumns,
+      editableColumns: [],
+      identityColumns: new Set(),
+    };
+  }
   const identityColumns = new Set(
     table.columns.filter((c) => c.identity || c.identityGeneration).map((c) => c.name)
   );
