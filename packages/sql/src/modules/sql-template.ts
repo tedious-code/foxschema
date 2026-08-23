@@ -18,7 +18,17 @@
 /** Placeholder syntax per engine family. */
 export type SqlPlaceholderStyle = 'dollar' | 'question' | 'colon';
 
-const DOLLAR_DIALECTS = new Set(['postgres', 'redshift', 'cockroachdb', 'yugabytedb']);
+// ClickHouse's adapter substitutes `$N` (string-escaped) — it does not bind `?`.
+// Emitting question-mark placeholders left peek FK drills and `sql\`…\`` cells
+// unbound ("Syntax error … failed at position") while catalog probes that
+// already used `$1` worked. Keep ClickHouse on dollar so every path matches.
+const DOLLAR_DIALECTS = new Set([
+  'postgres',
+  'redshift',
+  'cockroachdb',
+  'yugabytedb',
+  'clickhouse',
+]);
 const COLON_DIALECTS = new Set(['oracle']);
 const BACKTICK_DIALECTS = new Set(['mysql', 'mariadb', 'tidb', 'clickhouse']);
 const BRACKET_DIALECTS = new Set(['sqlserver', 'azuresql']);

@@ -6,6 +6,8 @@ describe('placeholderStyleFor', () => {
     expect(placeholderStyleFor('postgres')).toBe('dollar');
     expect(placeholderStyleFor('redshift')).toBe('dollar');
     expect(placeholderStyleFor('cockroachdb')).toBe('dollar');
+    // Adapter substitutes $N — must not emit ? (see clickhouse.adapter.ts).
+    expect(placeholderStyleFor('clickhouse')).toBe('dollar');
     expect(placeholderStyleFor('oracle')).toBe('colon');
     expect(placeholderStyleFor('mysql')).toBe('question');
     expect(placeholderStyleFor('sqlite')).toBe('question');
@@ -42,6 +44,7 @@ describe('renderSqlQuery', () => {
     expect(renderSqlQuery(q, 'postgres').text).toBe('SELECT $1, $2, $3');
     expect(renderSqlQuery(q, 'oracle').text).toBe('SELECT :1, :2, :3');
     expect(renderSqlQuery(q, 'mysql').text).toBe('SELECT ?, ?, ?');
+    expect(renderSqlQuery(q, 'clickhouse').text).toBe('SELECT $1, $2, $3');
   });
 
   it('expands a bare array into an IN list', () => {
