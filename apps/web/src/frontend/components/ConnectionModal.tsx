@@ -283,7 +283,7 @@ export const ConnectionModal: React.FC<Props> = ({
               {isCredential ? 'Saved encrypted and reusable from the connection dropdowns' : `Configure options for ${selDialect.toUpperCase()}`}
             </p>
           </div>
-          <button onClick={onClose} className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-slate-200 transition">
+          <button data-testid="conn-close" aria-label="Close" onClick={onClose} className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-slate-200 transition">
             <X className="w-5 h-5" />
           </button>
         </div>
