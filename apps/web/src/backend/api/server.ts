@@ -32,6 +32,13 @@ const AUTH_REQUIRED = LOCAL_SINGLE_USER
   ? false
   : process.env.AUTH_REQUIRED !== 'false';
 
+/**
+ * One body ceiling for both servers. Fastify's own `bodyLimit` does not apply
+ * while Express owns body parsing under `@fastify/express`, so the number that
+ * actually bites lives here.
+ */
+export const BODY_LIMIT = process.env.FOX_BODY_LIMIT || '10mb';
+
 export function createApp() {
   const app = express();
 
@@ -70,7 +77,28 @@ export function createApp() {
 
   // Bounded body size — migration payloads carry routine bodies, but cap to
   // avoid unbounded memory use from a hostile request.
-  app.use(express.json({ limit: '10mb' }));
+  app.use(express.json({ limit: BODY_LIMIT }));
+
+  /**
+   * A body the parser rejected — too large, or not JSON — used to end as an
+   * empty 400 that a JSON client cannot parse, leaving the UI to report
+   * "Empty response from server" for what is really a bad request.
+   *
+   * Registered immediately after the parser so it only sees parse failures.
+   */
+  app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
+    const status = (err as { status?: number; statusCode?: number } | null)?.status
+      ?? (err as { statusCode?: number } | null)?.statusCode;
+    const type = (err as { type?: string } | null)?.type;
+    if (!status || !type) return next(err);
+    res.status(status).json({
+      ok: false,
+      error:
+        type === 'entity.too.large'
+          ? `Request body is larger than the ${BODY_LIMIT} limit.`
+          : 'Request body could not be parsed as JSON.',
+    });
+  });
 
   // Public liveness check (registered before auth). Include version so
   // `foxschema open` can detect a stale pre-upgrade process on this port.
