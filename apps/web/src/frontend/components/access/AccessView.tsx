@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { ShieldCheck, SearchCheck, FileBarChart } from 'lucide-react';
 import { PermissionBuilder } from './PermissionBuilder';
+import { PermissionInspector } from './PermissionInspector';
 
 export type AccessTab = 'builder' | 'inspector' | 'report';
 
 const TABS: { id: AccessTab; label: string; icon: React.ElementType; ready: boolean }[] = [
   { id: 'builder', label: 'Permission Builder', icon: ShieldCheck, ready: true },
-  { id: 'inspector', label: 'Permission Inspector', icon: SearchCheck, ready: false },
+  { id: 'inspector', label: 'Permission Inspector', icon: SearchCheck, ready: true },
   { id: 'report', label: 'Access Report', icon: FileBarChart, ready: false },
 ];
 
@@ -47,17 +48,17 @@ export const AccessView: React.FC = () => {
       </div>
 
       {tab === 'builder' && <PermissionBuilder />}
+      {tab === 'inspector' && <PermissionInspector />}
 
-      {tab !== 'builder' && (
+      {tab === 'report' && (
         <div className="flex-1 flex items-center justify-center p-8">
           <div className="max-w-md text-center">
             <p className="text-sm font-bold text-slate-300">
               {TABS.find((t) => t.id === tab)?.label}
             </p>
             <p className="mt-1.5 text-[11px] text-slate-500">
-              {tab === 'inspector'
-                ? 'Reads the grants that already exist and explains where each one comes from — direct grant, role membership, or inheritance. Built on the same intent model as the builder, once that is settled.'
-                : 'Aggregates access across every principal, with risk findings and “who can reach this table?”. Depends on the inspector’s effective-permission resolution.'}
+              Aggregates access across every principal, with risk findings and “who can reach this
+              table?”. Builds on the inspector’s effective-permission resolution.
             </p>
           </div>
         </div>

@@ -29,4 +29,12 @@ export {
   type PermissionRequest,
   type PermissionRisk,
   type PermissionWarning,
+  permissionsForPrivilege,
+  resolveEffectiveAccess,
+  resolveRoleChain,
+  type AccessSource,
+  type AccessSourceKind,
+  type EffectiveAccess,
+  type EffectiveEntry,
+  type EffectiveObject,
 } from '@foxschema/sql';

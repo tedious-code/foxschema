@@ -331,3 +331,13 @@ export {
   type GeneratedStatement,
   type PermissionWarning,
 } from './modules/dialect-access-sql.js';
+export {
+  permissionsForPrivilege,
+  resolveEffectiveAccess,
+  resolveRoleChain,
+  type AccessSource,
+  type AccessSourceKind,
+  type EffectiveAccess,
+  type EffectiveEntry,
+  type EffectiveObject,
+} from './modules/access-effective.js';
