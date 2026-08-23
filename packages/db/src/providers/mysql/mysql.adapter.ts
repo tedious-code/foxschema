@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import { ConnectionOptions, DriverAdapter } from '@foxschema/sql';
 import { BoundedPoolCache, disposePoolEndOrClose } from '../../cores/pool-cache';
+import { guardPoolErrors } from '../../cores/pool-error-guard';
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -56,14 +57,17 @@ class MysqlAdapter implements DriverAdapter {
     }
 
     const pool = await this.pools.getOrCreate(connectionString, () =>
-      mysql.createPool({
-        uri: connectionString,
-        ssl,
-        connectionLimit: options.pool?.max ?? 10,
-        connectTimeout: options.timeout?.connectMs ?? 10000,
-        waitForConnections: true,
-        multipleStatements: false,
-      })
+      guardPoolErrors(
+        mysql.createPool({
+          uri: connectionString,
+          ssl,
+          connectionLimit: options.pool?.max ?? 10,
+          connectTimeout: options.timeout?.connectMs ?? 10000,
+          waitForConnections: true,
+          multipleStatements: false,
+        }),
+        'mysql'
+      )
     );
     return pool.getConnection();
   }
