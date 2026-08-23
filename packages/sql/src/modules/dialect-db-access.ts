@@ -12,6 +12,7 @@
  */
 
 import { quoteSqlIdentifier } from './sql-template.js';
+import { accessFamily } from './access-intent.js';
 
 export type DbAccessProbeMode = 'native' | 'estimated' | 'unsupported';
 
@@ -83,13 +84,11 @@ const UNSUPPORTED: DbAccessSupport = {
   hint: 'This dialect has no GRANT/REVOKE catalog — access is file- or engine-level.',
 };
 
-function family(dialect: string): string {
-  const d = (dialect || '').toLowerCase();
-  if (d === 'azuresql') return 'sqlserver';
-  if (d === 'tidb') return 'mysql';
-  if (d === 'cockroachdb' || d === 'yugabytedb' || d === 'redshift') return 'postgres';
-  return d;
-}
+/**
+ * One family map for both access surfaces — this used to be a second copy of
+ * `accessFamily`, which is exactly how two views of the same engine drift.
+ */
+const family = accessFamily;
 
 const SUPPORT: Record<string, DbAccessSupport> = {
   postgres: {
