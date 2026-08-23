@@ -27,24 +27,26 @@
  * The policies themselves are shared with the Express server (`api/policy/*`),
  * so the two cannot drift while both exist. Selected with `FOX_SERVER=fastify`.
  *
- * ## What this does not buy: throughput
+ * ## Performance, measured
  *
- * Measured on this machine, 50 concurrent keep-alive connections against
- * /api/health:
+ * 50 concurrent keep-alive connections, load generator in its own process:
  *
- *     express               11584 req/s   p50 3.57ms   p99 16.58ms
- *     fastify native route   7578 req/s   p50 6.21ms   p99 10.59ms
- *     fastify via express    8603 req/s   p50 4.70ms   p99 11.30ms
+ *     fastify, no express bridge     53474 req/s   p50 0.82ms   p99 2.50ms
+ *     express                        15209 req/s   p50 2.80ms   p99 9.15ms
+ *     fastify + express bridge        6786 req/s   p50 5.42ms   p99 11.10ms
  *
- * Fastify is *slower* here on raw throughput, and porting a route natively did
- * not reverse that. What it does give is a materially tighter tail — p99 drops
- * by a third — which for a UI that polls health and schema endpoints matters
- * more than peak requests per second nobody is issuing.
+ * Fastify itself is ~3.5x Express on this route. The bridge is what costs:
+ * `app.use()` runs Express's whole middleware chain on every request, native
+ * routes included, and that alone is an 8x drop.
  *
- * Recording the numbers because the reason to run this edge is the lifecycle,
- * not the speed: hooks that cannot be bypassed by mount ordering, a request
- * timeout, and JSON errors. If throughput ever becomes the reason, this comment
- * should be the first thing challenged with a fresh measurement.
+ * So this edge is currently *slower* than plain Express, and the migration only
+ * pays once routes become native handlers. That is the honest trade for having
+ * hooks that mount ordering cannot bypass, a request timeout, and JSON errors —
+ * and it is why `FOX_SERVER` defaults to express.
+ *
+ * An earlier in-process benchmark reported Fastify as slower with a *better*
+ * tail. Both halves were artifacts of the client sharing the server's event
+ * loop; anyone re-measuring should keep the load generator in its own process.
  */
 
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
@@ -130,7 +132,21 @@ export async function createFastifyApp(
 
   // --- Express routers underneath -----------------------------------------
   // The 38 existing routes keep their handlers, their guards and their tests.
-  // They move to native Fastify routes incrementally, behind this same edge.
+  //
+  // Mounted globally with `use()`, which is measurably expensive: it runs the
+  // whole Express middleware chain on every request, native routes included.
+  // Bare Fastify serves this app's health route at 53k req/s; with the bridge
+  // it is 6.8k, against Express's own 15-18k.
+  //
+  // Delegating from `setNotFoundHandler` instead — so a native route never
+  // touches Express — measured 24k req/s and looked like the obvious fix. It
+  // is not: Fastify parses the body before the not-found handler runs, so
+  // Express receives an empty stream and *every POST* returns 500 while GETs
+  // keep working. A pass-through content-type parser did not rescue it either.
+  // Recorded so the next attempt does not rediscover it the same way.
+  //
+  // So the value of this migration is in porting routes to native handlers,
+  // not in the edge alone. Until a route moves, it pays the bridge.
   await app.register(fastifyExpress);
   app.use(createApp());
 
