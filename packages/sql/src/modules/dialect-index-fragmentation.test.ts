@@ -652,13 +652,22 @@ describe('placeholder style matches each driver', () => {
     expect(q.sql).not.toMatch(/\?/);
   });
 
+  it('clickhouse uses $N — its adapter substitutes those, not ?', () => {
+    // This test previously asserted `?` for ClickHouse, which was an
+    // assumption, not a checked fact: the adapter replaces $1/$2 and a bare
+    // `?` reaches the server unbound ("Syntax error ... failed at position").
+    const q = built('clickhouse', 'app', 'orders');
+    expect(q.sql).toContain('$1');
+    expect(q.sql).toContain('$2');
+    expect(q.sql).not.toMatch(/\?/);
+  });
+
   it('drivers that take positional ? get exactly one per param', () => {
     for (const [d, schema, table] of [
       ['mysql', 'app', 'orders'],
       ['mariadb', 'app', 'orders'],
       ['db2', 'app', 'orders'],
       ['sqlite', undefined, 'orders'],
-      ['clickhouse', 'app', 'orders'],
     ] as const) {
       const q = built(d, schema, table);
       expect(q.sql.match(/\?/g) ?? []).toHaveLength(q.params.length);
@@ -681,14 +690,23 @@ describe('postgres fallback when pgstattuple is missing', () => {
     return q;
   };
 
-  it.each(['postgres', 'cockroachdb', 'yugabytedb'])('%s carries a fallback', (d) => {
-    const q = pg(d);
+  it('postgres carries a fallback — it is the only one that tries pgstatindex', () => {
+    const q = pg('postgres');
     expect(q.fallback).toBeDefined();
     expect(q.fallback!.sql).not.toMatch(/pgstatindex|pgstattuple/i);
     expect(q.fallback!.params).toEqual(q.params);
     expect(q.fallback!.mode).toBe('estimated');
     expect(q.fallback!.warning).toMatch(/pgstattuple/i);
   });
+
+  it.each(['cockroachdb', 'yugabytedb'])(
+    '%s needs no fallback: its primary probe already avoids the extension',
+    (d) => {
+      const q = pg(d);
+      expect(q.fallback).toBeUndefined();
+      expect(q.sql).not.toMatch(/pgstatindex/);
+    }
+  );
 
   it('the primary probe is still the one that uses pgstatindex', () => {
     expect(pg('postgres').sql).toMatch(/pgstatindex/);
@@ -709,5 +727,90 @@ describe('postgres fallback when pgstattuple is missing', () => {
       if ('error' in q) continue;
       expect(q.fallback).toBeUndefined();
     }
+  });
+});
+
+describe('defrag statements the engines actually accept', () => {
+  /**
+   * Every case below was run against a live server; the comments record what
+   * the engine said when the previous statement was wrong. Generation being
+   * plausible is not the same as the engine accepting it — none of these
+   * failures were visible from unit tests alone.
+   */
+  const defrag = (dialect: string, schema: string | undefined, table: string, index: string) =>
+    buildIndexDefragSql({ dialect, schema, table, indexName: index, fragmentationPercent: 42 });
+
+  it('Db2 goes through ADMIN_CMD and reorgs the whole table', () => {
+    // `REORG INDEX <name>` → SQL0270N "Function not supported (Reason code 89)":
+    // Db2 has no single-index REORG. And REORG is a command, not SQL, so over a
+    // driver connection it must be wrapped in SYSPROC.ADMIN_CMD (otherwise
+    // SQL0104N, "expected tokens may include: JOIN").
+    const [stmt, note] = defrag('db2', 'DEMO_A', 'ORDERS', 'IDX_ORDERS_CUST');
+    expect(stmt).toBe(
+      `CALL SYSPROC.ADMIN_CMD('REORG INDEXES ALL FOR TABLE "DEMO_A"."ORDERS"');`
+    );
+    // The reader has to know one index was not the unit of work.
+    expect(note).toMatch(/no single-index REORG/i);
+  });
+
+  it('Db2 doubles a quote inside the ADMIN_CMD literal', () => {
+    // The table name sits inside a string literal; an unescaped quote would
+    // end it early and change the command.
+    const [stmt] = defrag('db2', `IT'S`, 'ORDERS', 'IDX');
+    const literal = stmt.slice(stmt.indexOf("('") + 2, stmt.lastIndexOf("')"));
+    expect(literal).not.toMatch(/(^|[^'])'([^']|$)/);
+  });
+
+  it('TiDB analyses instead of optimising', () => {
+    // "OPTIMIZE TABLE is not supported" — TiDB compacts storage itself.
+    expect(defrag('tidb', 'demo_a', 'orders', 'idx')).toEqual([
+      'ANALYZE TABLE `demo_a`.`orders`;',
+    ]);
+    // MySQL/MariaDB keep OPTIMIZE, which they do accept.
+    expect(defrag('mysql', 'demo_a', 'orders', 'idx')).toEqual([
+      'OPTIMIZE TABLE `demo_a`.`orders`;',
+    ]);
+  });
+
+  it.each([
+    // CockroachDB: "unimplemented: this syntax" + "does not require reindexing".
+    'cockroachdb',
+    // YugabyteDB: "REINDEX not supported yet", in every form.
+    'yugabytedb',
+  ])('%s offers nothing rather than SQL that always errors', (dialect) => {
+    expect(defrag(dialect, 'demo_a', 'orders', 'idx')).toEqual([]);
+    expect(dialectSupportsIndexFragmentation(dialect).defrag).toBe(false);
+    // …but they can still list indexes, which is why query stays on.
+    expect(dialectSupportsIndexFragmentation(dialect).query).toBe(true);
+  });
+
+  it('the Postgres family probe survives a non-public search_path', () => {
+    // The connection sets search_path to the schema under inspection, so an
+    // unqualified pgstatindex resolved for nobody except users in public.
+    const q = buildIndexFragmentationQuery({ dialect: 'postgres', schema: 'app', table: 'orders' });
+    if ('error' in q) throw new Error(q.error);
+    expect(q.sql).toContain('public.pgstatindex');
+  });
+
+  it.each(['cockroachdb', 'yugabytedb'])(
+    '%s never calls pgstatindex — it cannot answer it',
+    (dialect) => {
+      const q = buildIndexFragmentationQuery({ dialect, schema: 'app', table: 'orders' });
+      if ('error' in q) throw new Error(q.error);
+      // Cockroach has no pgstattuple; Yugabyte's indexes are LSM, so the call
+      // dies with "is not a btree index" — which does not name the function,
+      // so the missing-extension fallback would not have caught it either.
+      expect(q.sql).not.toMatch(/pgstatindex/);
+      expect(q.sql).toContain('relpages');
+    }
+  );
+
+  it('ClickHouse casts through Nullable so the probe can return unknowns', () => {
+    // "Cannot convert NULL to a non-nullable type" — ClickHouse types are
+    // non-nullable by default.
+    const q = buildIndexFragmentationQuery({ dialect: 'clickhouse', schema: 'demo_a', table: 'orders' });
+    if ('error' in q) throw new Error(q.error);
+    expect(q.sql).toMatch(/Nullable\(Float64\)/);
+    expect(q.sql).not.toMatch(/CAST\(NULL AS (Float64|UInt64|DateTime)\)/);
   });
 });

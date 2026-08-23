@@ -246,11 +246,11 @@ export function buildDbaUtilityQuery(opts: {
 
   switch (opts.kind) {
     case 'pool':
-      return buildPoolQuery(f, support.mode === 'unsupported' ? 'estimated' : support.mode);
+      return buildPoolQuery(f, support.mode === 'unsupported' ? 'estimated' : support.mode, opts.dialect);
     case 'sessions':
       return buildSessionsQuery(f, support.mode === 'unsupported' ? 'estimated' : support.mode);
     case 'system':
-      return buildSystemQuery(f, support.mode === 'unsupported' ? 'estimated' : support.mode);
+      return buildSystemQuery(f, support.mode === 'unsupported' ? 'estimated' : support.mode, opts.dialect);
     case 'sizes':
       return buildSizesQuery(
         f,
@@ -269,7 +269,7 @@ function asMode(mode: DbaProbeMode): Exclude<DbaProbeMode, 'unsupported'> {
 function buildPoolQuery(
   f: string,
   mode: Exclude<DbaProbeMode, 'unsupported'>
-): DbaUtilityQuery | { error: string } {
+, dialect = ''): DbaUtilityQuery | { error: string } {
   if (f === 'postgres') {
     return {
       mode: asMode(mode),
@@ -285,16 +285,25 @@ SELECT
     };
   }
   if (f === 'mysql') {
+  // TiDB keeps status variables in information_schema, not performance_schema
+  // — reading the latter fails outright with "SELECT command denied ... for
+  // table 'global_status'". Same split that already gave MariaDB its own
+  // family above; TiDB stays MySQL-shaped everywhere else, so only the table
+  // name moves.
+  const statusTable =
+    dialect.toLowerCase() === 'tidb'
+      ? 'information_schema.global_status'
+      : 'performance_schema.global_status';
     return {
       mode: asMode(mode),
       params: [],
       sql: `
 SELECT
   CAST(@@max_connections AS SIGNED) AS max_connections,
-  (SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Threads_connected' LIMIT 1) AS current_connections,
-  (SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Threads_running' LIMIT 1) AS active_connections,
-  (SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Threads_cached' LIMIT 1) AS available_connections,
-  (SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Connection_errors_max_connections' LIMIT 1) AS wait_count
+  (SELECT VARIABLE_VALUE FROM ${statusTable} WHERE VARIABLE_NAME = 'Threads_connected' LIMIT 1) AS current_connections,
+  (SELECT VARIABLE_VALUE FROM ${statusTable} WHERE VARIABLE_NAME = 'Threads_running' LIMIT 1) AS active_connections,
+  (SELECT VARIABLE_VALUE FROM ${statusTable} WHERE VARIABLE_NAME = 'Threads_cached' LIMIT 1) AS available_connections,
+  (SELECT VARIABLE_VALUE FROM ${statusTable} WHERE VARIABLE_NAME = 'Connection_errors_max_connections' LIMIT 1) AS wait_count
 `.trim(),
     };
   }
@@ -543,7 +552,7 @@ LIMIT 500
 function buildSystemQuery(
   f: string,
   mode: Exclude<DbaProbeMode, 'unsupported'>
-): DbaUtilityQuery | { error: string } {
+, dialect = ''): DbaUtilityQuery | { error: string } {
   if (f === 'sqlserver') {
     return {
       mode: asMode(mode),
@@ -566,6 +575,13 @@ CROSS JOIN sys.dm_os_sys_memory m
     };
   }
   if (f === 'postgres') {
+    // CockroachDB is Postgres-wire but has no pg_postmaster_start_time(); the
+    // call fails with "unknown function" and takes the whole System tab with
+    // it. Everything else in this query it answers fine, so only uptime drops.
+    const uptime =
+      dialect.toLowerCase() === 'cockroachdb'
+        ? 'NULL::bigint AS uptime_seconds'
+        : 'EXTRACT(EPOCH FROM (now() - pg_postmaster_start_time()))::bigint AS uptime_seconds';
     return {
       mode: asMode(mode),
       params: [],
@@ -580,7 +596,7 @@ SELECT
   NULL::bigint AS storage_total_bytes,
   pg_database_size(current_database()) AS storage_used_bytes,
   NULL::bigint AS storage_available_bytes,
-  EXTRACT(EPOCH FROM (now() - pg_postmaster_start_time()))::bigint AS uptime_seconds,
+  ${uptime},
   version() AS server_version
 `.trim(),
     };
@@ -605,6 +621,15 @@ SELECT
     };
   }
   if (f === 'mysql') {
+  // TiDB keeps status variables in information_schema, not performance_schema
+  // — reading the latter fails outright with "SELECT command denied ... for
+  // table 'global_status'". Same split that already gave MariaDB its own
+  // family above; TiDB stays MySQL-shaped everywhere else, so only the table
+  // name moves.
+  const statusTable =
+    dialect.toLowerCase() === 'tidb'
+      ? 'information_schema.global_status'
+      : 'performance_schema.global_status';
     return {
       mode: asMode(mode),
       params: [],
@@ -618,7 +643,7 @@ SELECT
   NULL AS storage_total_bytes,
   (SELECT SUM(DATA_LENGTH + INDEX_LENGTH) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()) AS storage_used_bytes,
   NULL AS storage_available_bytes,
-  (SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Uptime' LIMIT 1) AS uptime_seconds,
+  (SELECT VARIABLE_VALUE FROM ${statusTable} WHERE VARIABLE_NAME = 'Uptime' LIMIT 1) AS uptime_seconds,
   VERSION() AS server_version
 `.trim(),
     };
@@ -687,16 +712,21 @@ SELECT
       mode: asMode(mode),
       params: [],
       sql: `
+-- CAST, not toInt64OrNull: the *OrNull conversions take a String, while
+-- system.asynchronous_metrics.value is Float64 and system.metrics.value is
+-- Int64. Passing a number gave "Illegal type Float64 of first argument of
+-- function toInt64OrNull", which failed the whole System tab. (The pool query
+-- above may keep toInt64OrNull — system.settings.value really is a String.)
 SELECT
-  toInt64OrNull((SELECT value FROM system.asynchronous_metrics WHERE metric = 'NumberOfProcessors' LIMIT 1)) AS cpu_count,
-  toFloat64OrNull((SELECT value FROM system.asynchronous_metrics WHERE metric = 'OSCPUUtilization' LIMIT 1)) AS cpu_usage_percent,
-  toInt64OrNull((SELECT value FROM system.asynchronous_metrics WHERE metric = 'OSMemoryTotal' LIMIT 1)) AS memory_total_bytes,
-  toInt64OrNull((SELECT value FROM system.asynchronous_metrics WHERE metric = 'OSMemoryAvailable' LIMIT 1)) AS memory_available_bytes,
+  CAST((SELECT value FROM system.asynchronous_metrics WHERE metric = 'NumberOfProcessors' LIMIT 1) AS Nullable(Int64)) AS cpu_count,
+  CAST((SELECT value FROM system.asynchronous_metrics WHERE metric = 'OSCPUUtilization' LIMIT 1) AS Nullable(Float64)) AS cpu_usage_percent,
+  CAST((SELECT value FROM system.asynchronous_metrics WHERE metric = 'OSMemoryTotal' LIMIT 1) AS Nullable(Int64)) AS memory_total_bytes,
+  CAST((SELECT value FROM system.asynchronous_metrics WHERE metric = 'OSMemoryAvailable' LIMIT 1) AS Nullable(Int64)) AS memory_available_bytes,
   NULL AS memory_used_bytes,
   NULL AS storage_total_bytes,
-  toInt64OrNull((SELECT value FROM system.asynchronous_metrics WHERE metric = 'DiskUsed_default' LIMIT 1)) AS storage_used_bytes,
+  CAST((SELECT value FROM system.asynchronous_metrics WHERE metric = 'DiskUsed_default' LIMIT 1) AS Nullable(Int64)) AS storage_used_bytes,
   NULL AS storage_available_bytes,
-  toInt64OrNull((SELECT value FROM system.metrics WHERE metric = 'Uptime' LIMIT 1)) AS uptime_seconds,
+  CAST((SELECT value FROM system.metrics WHERE metric = 'Uptime' LIMIT 1) AS Nullable(Int64)) AS uptime_seconds,
   version() AS server_version
 `.trim(),
     };

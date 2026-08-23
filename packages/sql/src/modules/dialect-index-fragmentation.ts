@@ -98,15 +98,20 @@ const SUPPORT: Record<string, IndexFragmentationSupport> = {
   cockroachdb: {
     mode: 'estimated',
     query: true,
-    defrag: true,
-    hint: 'CockroachDB: tries the pgstatindex probe; idx_scan when pg_stat_user_indexes is available.',
+    // REINDEX is rejected as "unimplemented: this syntax", and the server's own
+    // hint explains why there is nothing to offer: "CockroachDB does not
+    // require reindexing." Emitting a statement that always errors is worse
+    // than saying so.
+    defrag: false,
+    hint: 'CockroachDB: index size and usage from the core catalogs (no pgstattuple). Storage is compacted automatically — CockroachDB does not require reindexing.',
     customSqlHint: CUSTOM_HINT,
   },
   yugabytedb: {
-    mode: 'physical',
+    mode: 'estimated',
     query: true,
-    defrag: true,
-    hint: 'YugabyteDB: tries the pgstatindex probe; idx_scan when pg_stat_user_indexes is available.',
+    // REINDEX in any form answers "REINDEX not supported yet".
+    defrag: false,
+    hint: 'YugabyteDB: index size and usage from the core catalogs. Indexes are LSM-backed, so there is no leaf fragmentation to measure and REINDEX is not supported yet.',
     customSqlHint: CUSTOM_HINT,
   },
   mysql: {
@@ -226,6 +231,34 @@ function q(name: string, dialect: string): string {
 }
 
 /** Build the default fragmentation SELECT for a dialect, or an error if unsupported. */
+/**
+ * Postgres-family index facts that need no extension: name, size in pages and
+ * whether anything has ever scanned it. No fragmentation percent — that is the
+ * one thing pgstatindex was for, and reporting a guess would be worse than
+ * reporting nothing.
+ *
+ * Used both as the fallback when pgstattuple is absent and as the primary
+ * probe for CockroachDB and YugabyteDB, which can never answer pgstatindex.
+ */
+function pgNoExtensionFragmentationSql(): string {
+  return `
+SELECT
+  ci.relname AS index_name,
+  NULL::float8 AS fragmentation_percent,
+  ci.relpages::bigint AS page_count,
+  NULL::timestamptz AS last_used,
+  COALESCE(psi.idx_scan, 0)::bigint AS scan_count
+FROM pg_index ix
+JOIN pg_class ct ON ct.oid = ix.indrelid
+JOIN pg_namespace n ON n.oid = ct.relnamespace
+JOIN pg_class ci ON ci.oid = ix.indexrelid
+LEFT JOIN pg_stat_user_indexes psi ON psi.indexrelid = ci.oid
+WHERE n.nspname = $1
+  AND ct.relname = $2
+ORDER BY ci.relname
+`.trim();
+}
+
 export function buildIndexFragmentationQuery(opts: {
   dialect: string;
   schema?: string;
@@ -273,17 +306,37 @@ ORDER BY i.name
     };
   }
 
-  if (dialect === 'postgres' || dialect === 'cockroachdb' || dialect === 'yugabytedb') {
+  // CockroachDB and YugabyteDB can never answer pgstatindex: Cockroach has no
+  // pgstattuple at all ("unknown function"), and Yugabyte stores every index in
+  // LSM form, so the call dies with "is not a btree index" — a message that
+  // does not even name the function, so the missing-extension fallback would
+  // not catch it. Skip the doomed round trip and report what they can answer:
+  // index list, size and usage.
+  if (dialect === 'cockroachdb' || dialect === 'yugabytedb') {
     const sch = schema || 'public';
     return {
-      mode: dialect === 'cockroachdb' ? 'estimated' : 'physical',
+      mode: 'estimated',
+      params: [sch, table],
+      sql: pgNoExtensionFragmentationSql(),
+    };
+  }
+
+  if (dialect === 'postgres') {
+    const sch = schema || 'public';
+    return {
+      mode: 'physical',
       params: [sch, table],
       sql: `
 SELECT
   ci.relname AS index_name,
   -- pgstatindex reports NaN for an index with no leaf pages yet; that is
   -- "nothing measured", not a number, and "NaN%" in the grid reads as a bug.
-  NULLIF((SELECT leaf_fragmentation FROM pgstatindex(ci.oid::regclass)), 'NaN'::float8) AS fragmentation_percent,
+  -- Schema-qualified on purpose. The connection's search_path is the schema
+  -- being inspected, not public, so an unqualified call resolved for nobody
+  -- except users working in public. CREATE EXTENSION puts pgstattuple in
+  -- public by default; an install elsewhere still fails cleanly and takes the
+  -- no-extension fallback, which names the extension in its warning.
+  NULLIF((SELECT leaf_fragmentation FROM public.pgstatindex(ci.oid::regclass)), 'NaN'::float8) AS fragmentation_percent,
   NULL::bigint AS page_count,
   -- last_idx_scan exists only on PostgreSQL 16+; keep last_used NULL so older
   -- servers (and Cockroach / Yugabyte) still run this probe. idx_scan is the usage signal.
@@ -307,22 +360,7 @@ ORDER BY ci.relname
         params: [sch, table],
         warning:
           'Fragmentation needs the pgstattuple extension (CREATE EXTENSION pgstattuple). Showing index size and usage only.',
-        sql: `
-SELECT
-  ci.relname AS index_name,
-  NULL::float8 AS fragmentation_percent,
-  ci.relpages::bigint AS page_count,
-  NULL::timestamptz AS last_used,
-  COALESCE(psi.idx_scan, 0)::bigint AS scan_count
-FROM pg_index ix
-JOIN pg_class ct ON ct.oid = ix.indrelid
-JOIN pg_namespace n ON n.oid = ct.relnamespace
-JOIN pg_class ci ON ci.oid = ix.indexrelid
-LEFT JOIN pg_stat_user_indexes psi ON psi.indexrelid = ci.oid
-WHERE n.nspname = $1
-  AND ct.relname = $2
-ORDER BY ci.relname
-`.trim(),
+        sql: pgNoExtensionFragmentationSql(),
       },
     };
   }
@@ -475,13 +513,19 @@ ORDER BY index_name
       sql: `
 SELECT
   name AS index_name,
-  CAST(NULL AS Float64) AS fragmentation_percent,
-  CAST(NULL AS UInt64) AS page_count,
-  CAST(NULL AS DateTime) AS last_used,
-  CAST(NULL AS UInt64) AS scan_count
+  -- Nullable(...) is required: ClickHouse types are non-nullable by default
+  -- and rejects the cast outright ("Cannot convert NULL to a non-nullable
+  -- type"). These columns are genuinely unknown for skip indexes.
+  CAST(NULL AS Nullable(Float64)) AS fragmentation_percent,
+  CAST(NULL AS Nullable(UInt64)) AS page_count,
+  CAST(NULL AS Nullable(DateTime)) AS last_used,
+  CAST(NULL AS Nullable(UInt64)) AS scan_count
 FROM system.data_skipping_indices
-WHERE database = ?
-  AND table = ?
+-- Numbered placeholders, not positional ones: the ClickHouse adapter
+-- substitutes $1/$2 itself, so a bare question mark would reach the server
+-- unbound and fail to parse.
+WHERE database = $1
+  AND table = $2
 ORDER BY name
 `.trim(),
     };
@@ -867,14 +911,35 @@ export function buildIndexDefragSql(opts: {
     return [`REINDEX INDEX ${qIndexQualified};`];
   }
 
-  if (dialect === 'mysql' || dialect === 'mariadb' || dialect === 'tidb') {
+  if (dialect === 'tidb') {
+    // TiDB answers OPTIMIZE TABLE with "OPTIMIZE TABLE is not supported" — it
+    // compacts storage itself and gives no way to ask. Refreshing the
+    // optimiser statistics is the real, supported maintenance here.
+    return [`ANALYZE TABLE ${qTable};`];
+  }
+
+  if (dialect === 'mysql' || dialect === 'mariadb') {
     return [`OPTIMIZE TABLE ${qTable};`];
   }
 
   if (dialect === 'db2') {
+    // Two things make Db2 unlike every other dialect here, both verified
+    // against a live server:
+    //
+    // 1. It cannot reorganise a single index. `REORG INDEX <name>` returns
+    //    SQL0270N "Function not supported (Reason code 89)". Only the
+    //    table-level `REORG INDEXES ALL FOR TABLE` form exists, so selecting
+    //    one index necessarily reorganises every index on its table.
+    // 2. REORG is a command, not SQL. Sent over a driver connection it is
+    //    rejected by the statement parser (SQL0104N, "expected tokens may
+    //    include: JOIN"). It has to be handed to SYSPROC.ADMIN_CMD.
+    //
+    // The table name is embedded in a string literal, so any single quote in
+    // an identifier has to be doubled or it would end the literal early.
+    const literal = qTable.replace(/'/g, "''");
     return [
-      `REORG INDEX ${qIndexQualified};`,
-      `-- Or all indexes: REORG INDEXES ALL FOR TABLE ${qTable};`,
+      `CALL SYSPROC.ADMIN_CMD('REORG INDEXES ALL FOR TABLE ${literal}');`,
+      `-- Db2 has no single-index REORG: this reorganises every index on ${table}.`,
     ];
   }
 

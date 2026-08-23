@@ -239,3 +239,62 @@ describe('MariaDB is not a MySQL alias for these probes', () => {
     expect(q.sql).toMatch(/performance_schema\.global_status/i);
   });
 });
+
+describe('Server Insights probes the engines actually accept', () => {
+  /**
+   * Every failure quoted below was reproduced against a live server. All four
+   * probes now run clean on postgres, mysql, mariadb, sqlserver, oracle, db2,
+   * cockroachdb, yugabytedb, clickhouse and tidb.
+   *
+   * Redshift is deliberately absent: the local stand-in is Postgres, which has
+   * no stv_/svv_ views, so those queries cannot be validated here either way.
+   */
+  const sqlFor = (dialect: string, kind: 'pool' | 'sessions' | 'system' | 'sizes') => {
+    const q = buildDbaUtilityQuery({ dialect, kind, schema: 'demo_a' });
+    if ('error' in q) throw new Error(`${dialect}/${kind}: ${q.error}`);
+    // Comments explain the fixes and name the wrong functions on purpose, so
+    // assertions have to look at the statement, not the prose around it.
+    return q.sql
+      .split('\n')
+      .filter((l) => !l.trim().startsWith('--'))
+      .join('\n');
+  };
+
+  it('CockroachDB does not call pg_postmaster_start_time', () => {
+    // "unknown function: pg_postmaster_start_time()" killed the whole System
+    // tab; Cockroach answers everything else in that query.
+    const sql = sqlFor('cockroachdb', 'system');
+    expect(sql).not.toMatch(/pg_postmaster_start_time/);
+    expect(sql).toMatch(/NULL::bigint AS uptime_seconds/);
+    // Real Postgres keeps it.
+    expect(sqlFor('postgres', 'system')).toMatch(/pg_postmaster_start_time/);
+  });
+
+  it('TiDB reads status variables from information_schema', () => {
+    // "SELECT command denied to user ... for table 'global_status'" — TiDB does
+    // not expose performance_schema.global_status.
+    for (const kind of ['pool', 'system'] as const) {
+      const sql = sqlFor('tidb', kind);
+      expect(sql).toMatch(/information_schema\.global_status/);
+      expect(sql).not.toMatch(/performance_schema\.global_status/);
+    }
+    // MySQL 8 is the other way round and must keep performance_schema.
+    expect(sqlFor('mysql', 'pool')).toMatch(/performance_schema\.global_status/);
+  });
+
+  it('ClickHouse casts numeric metrics instead of parsing them as strings', () => {
+    // "Illegal type Float64 of first argument of function toInt64OrNull" —
+    // asynchronous_metrics.value is Float64, and the *OrNull family takes a
+    // String. The whole System tab failed on it.
+    const sql = sqlFor('clickhouse', 'system');
+    expect(sql).not.toMatch(/toInt64OrNull|toFloat64OrNull/);
+    expect(sql).toMatch(/Nullable\(Int64\)/);
+    expect(sql).toMatch(/Nullable\(Float64\)/);
+  });
+
+  it('ClickHouse keeps toInt64OrNull where the column really is a String', () => {
+    // system.settings.value is a String, so the pool probe was always correct —
+    // the fix must not be applied indiscriminately.
+    expect(sqlFor('clickhouse', 'pool')).toMatch(/toInt64OrNull/);
+  });
+});
