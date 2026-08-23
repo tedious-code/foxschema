@@ -18,6 +18,23 @@ CREATE USER demo_b IDENTIFIED BY foxpass QUOTA UNLIMITED ON USERS;
 GRANT CREATE SESSION, CREATE TABLE, CREATE VIEW, CREATE SEQUENCE,
       CREATE PROCEDURE, CREATE TRIGGER, CREATE TYPE TO demo_b;
 
+-- Server Insights reads the dynamic performance views. A plain user cannot,
+-- and Oracle reports the miss as ORA-00942 on the SYS.V_$ synonym rather than
+-- as a permission error, which reads like the view does not exist. Granted
+-- explicitly (not via SELECT ANY DICTIONARY) so the demo users stay minimal.
+GRANT SELECT ON SYS.V_$SESSION TO demo_a;
+GRANT SELECT ON SYS.V_$SESSION TO demo_b;
+GRANT SELECT ON SYS.V_$PARAMETER TO demo_a;
+GRANT SELECT ON SYS.V_$PARAMETER TO demo_b;
+GRANT SELECT ON SYS.V_$OSSTAT TO demo_a;
+GRANT SELECT ON SYS.V_$OSSTAT TO demo_b;
+GRANT SELECT ON SYS.V_$INSTANCE TO demo_a;
+GRANT SELECT ON SYS.V_$INSTANCE TO demo_b;
+GRANT SELECT ON SYS.V_$SGASTAT TO demo_a;
+GRANT SELECT ON SYS.V_$SGASTAT TO demo_b;
+GRANT SELECT ON SYS.V_$SESSION_WAIT TO demo_a;
+GRANT SELECT ON SYS.V_$SESSION_WAIT TO demo_b;
+
 -- ============================================================
 -- SCHEMA A  (source — more complete, newer version)
 -- ============================================================

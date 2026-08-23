@@ -12,6 +12,11 @@ CREATE DATABASE demo_b CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
 CREATE USER IF NOT EXISTS 'foxuser'@'%' IDENTIFIED BY 'foxpass';
 GRANT ALL PRIVILEGES ON demo_a.* TO 'foxuser'@'%';
 GRANT ALL PRIVILEGES ON demo_b.* TO 'foxuser'@'%';
+-- Server Insights reads INFORMATION_SCHEMA.GLOBAL_STATUS / GLOBAL_VARIABLES
+-- for uptime and buffer-pool size. TiDB gates those behind PROCESS; without it
+-- the probe fails with "SELECT command denied to user ... for table
+-- 'global_status'".
+GRANT PROCESS ON *.* TO 'foxuser'@'%';
 
 
 USE demo_a;
