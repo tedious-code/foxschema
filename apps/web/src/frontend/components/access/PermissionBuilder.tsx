@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Copy, Check, AlertTriangle, ShieldAlert, Info, RotateCcw } from 'lucide-react';
 import {
-  ACCESS_PRESETS,
   availablePermissions,
   accessCapabilities,
   buildAccessSql,
