@@ -1,0 +1,305 @@
+import { describe, it, expect } from 'vitest';
+import {
+  buildAccessSql,
+  invertAccessRequest,
+  type GeneratedPermissionSql,
+} from './dialect-access-sql';
+import {
+  accessCapabilities,
+  availablePermissions,
+  highestRisk,
+  permissionsForPreset,
+  presetForPermissions,
+  supportsAccessBuilder,
+  type PermissionRequest,
+} from './access-intent';
+
+const user = { type: 'user' as const, name: 'report_user' };
+
+function ok(req: PermissionRequest, dialect: string): GeneratedPermissionSql {
+  const r = buildAccessSql(req, dialect);
+  if ('error' in r) throw new Error(`${dialect}: ${r.error}`);
+  return r;
+}
+const sqlOf = (r: GeneratedPermissionSql) => r.statements.map((s) => s.sql).join('\n');
+
+describe('PostgreSQL generation', () => {
+  it('read on a schema needs USAGE before SELECT — the prerequisite a reader should not have to know', () => {
+    const r = ok(
+      { principal: user, action: 'grant', permissions: ['read'], scope: { type: 'schema', schema: 'reporting' } },
+      'postgres'
+    );
+    const sql = sqlOf(r);
+    expect(sql).toMatch(/GRANT USAGE ON SCHEMA "reporting" TO "report_user";/);
+    expect(sql).toMatch(/GRANT SELECT ON ALL TABLES IN SCHEMA "reporting" TO "report_user";/);
+    // USAGE must come first: the SELECT grant is inert without it.
+    expect(sql.indexOf('USAGE')).toBeLessThan(sql.indexOf('ALL TABLES'));
+  });
+
+  it('future tables add ALTER DEFAULT PRIVILEGES, and say whose objects it covers', () => {
+    const r = ok(
+      {
+        principal: user, action: 'grant', permissions: ['read'],
+        scope: { type: 'schema', schema: 'reporting' }, includeFutureObjects: true,
+      },
+      'postgres'
+    );
+    expect(sqlOf(r)).toMatch(
+      /ALTER DEFAULT PRIVILEGES IN SCHEMA "reporting" GRANT SELECT ON TABLES TO "report_user";/
+    );
+    // The ownership caveat is the thing that trips people up in production.
+    expect(r.warnings.some((w) => /only applies to objects created by the role/i.test(w.message))).toBe(true);
+  });
+
+  it('read/write on a schema grants all four verbs in one statement', () => {
+    const r = ok(
+      {
+        principal: user, action: 'grant',
+        permissions: ['read', 'insert', 'update', 'delete'],
+        scope: { type: 'schema', schema: 'reporting' },
+      },
+      'postgres'
+    );
+    expect(sqlOf(r)).toMatch(/GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES/);
+  });
+
+  it('one statement per table at table scope', () => {
+    const r = ok(
+      {
+        principal: user, action: 'grant', permissions: ['read'],
+        scope: { type: 'tables', schema: 'public', tables: ['orders', 'customers'] },
+      },
+      'postgres'
+    );
+    expect(r.statements.filter((s) => !s.sql.startsWith('--'))).toHaveLength(3); // USAGE + 2 tables
+    expect(sqlOf(r)).toMatch(/ON "public"\."orders"/);
+    expect(sqlOf(r)).toMatch(/ON "public"\."customers"/);
+  });
+
+  it('says ALTER and DROP are ownership, not privileges — instead of emitting SQL that will not work', () => {
+    const r = ok(
+      { principal: user, action: 'grant', permissions: ['drop-object'], scope: { type: 'schema', schema: 'app' } },
+      'postgres'
+    );
+    expect(sqlOf(r)).toMatch(/no ALTER or DROP privilege/);
+    expect(r.risk).toBe('critical');
+  });
+
+  it('revoke mirrors the grant', () => {
+    const r = ok(
+      { principal: user, action: 'revoke', permissions: ['read'], scope: { type: 'schema', schema: 'reporting' } },
+      'postgres'
+    );
+    expect(sqlOf(r)).toMatch(/REVOKE SELECT ON ALL TABLES IN SCHEMA "reporting" FROM "report_user";/);
+    expect(r.warnings.some((w) => /inherited through a role/i.test(w.message))).toBe(true);
+  });
+});
+
+describe('MySQL generation', () => {
+  it('database read uses db.* and notes that future tables are included', () => {
+    const r = ok(
+      { principal: user, action: 'grant', permissions: ['read'], scope: { type: 'database', database: 'sales' } },
+      'mysql'
+    );
+    expect(sqlOf(r)).toMatch(/GRANT SELECT ON `sales`\.\* TO/);
+    expect(r.statements[0].explanation).toMatch(/including tables created later/i);
+  });
+
+  it('a user@host principal keeps its host', () => {
+    const r = ok(
+      {
+        principal: { type: 'user', name: 'report_user@10.0.0.5' }, action: 'grant',
+        permissions: ['read'], scope: { type: 'database', database: 'sales' },
+      },
+      'mysql'
+    );
+    expect(sqlOf(r)).toContain(`'report_user'@'10.0.0.5'`);
+  });
+
+  it('offers no schema scope — database and schema are one thing', () => {
+    expect(accessCapabilities('mysql').schemaScope).toBe(false);
+    const r = buildAccessSql(
+      { principal: user, action: 'grant', permissions: ['read'], scope: { type: 'schema', schema: 'sales' } },
+      'mysql'
+    );
+    expect('error' in r && /no schema-level grants/i.test(r.error)).toBe(true);
+  });
+});
+
+describe('SQL Server generation', () => {
+  it('schema read uses SCHEMA:: and explains that future objects are covered', () => {
+    const r = ok(
+      { principal: user, action: 'grant', permissions: ['read'], scope: { type: 'schema', schema: 'reporting' } },
+      'sqlserver'
+    );
+    expect(sqlOf(r)).toMatch(/GRANT SELECT ON SCHEMA::\[reporting\] TO \[report_user\];/);
+    expect(r.statements[0].explanation).toMatch(/including objects added later/i);
+  });
+
+  it('table scope targets OBJECT::', () => {
+    const r = ok(
+      {
+        principal: user, action: 'grant', permissions: ['read'],
+        scope: { type: 'tables', schema: 'dbo', tables: ['Orders'] },
+      },
+      'sqlserver'
+    );
+    expect(sqlOf(r)).toMatch(/ON OBJECT::\[dbo\]\.\[Orders\]/);
+  });
+
+  it('azuresql behaves as sqlserver', () => {
+    expect(sqlOf(ok(
+      { principal: user, action: 'grant', permissions: ['read'], scope: { type: 'schema', schema: 'reporting' } },
+      'azuresql'
+    ))).toMatch(/SCHEMA::/);
+  });
+});
+
+describe('Db2 and Oracle', () => {
+  it('Db2 names the grantee as USER or ROLE', () => {
+    const r = ok(
+      {
+        principal: { type: 'user', name: 'REPORT_USER' }, action: 'grant', permissions: ['read'],
+        scope: { type: 'tables', schema: 'REPORTING', tables: ['SALES'] },
+      },
+      'db2'
+    );
+    expect(sqlOf(r)).toMatch(/GRANT SELECT ON TABLE "REPORTING"\."SALES" TO USER "REPORT_USER";/);
+  });
+
+  it('Db2 refuses to invent a schema-wide table grant', () => {
+    const r = ok(
+      { principal: user, action: 'grant', permissions: ['read'], scope: { type: 'schema', schema: 'REPORTING' } },
+      'db2'
+    );
+    expect(sqlOf(r)).toMatch(/^--/m);
+    expect(r.statements.some((s) => /no schema-wide table grant/i.test(s.explanation))).toBe(true);
+  });
+
+  it('Oracle calls connecting CREATE SESSION', () => {
+    const r = ok(
+      { principal: user, action: 'grant', permissions: ['connect'], scope: { type: 'database', database: 'ORCL' } },
+      'oracle'
+    );
+    expect(sqlOf(r)).toMatch(/GRANT CREATE SESSION TO/);
+  });
+});
+
+describe('capabilities keep the UI honest', () => {
+  it('engines with no GRANT model are excluded outright', () => {
+    for (const d of ['sqlite', 'duckdb', 'clickhouse']) {
+      expect(supportsAccessBuilder(d)).toBe(false);
+    }
+  });
+
+  it('postgres-wire engines inherit the postgres model', () => {
+    for (const d of ['cockroachdb', 'yugabytedb', 'redshift']) {
+      expect(sqlOf(ok(
+        { principal: user, action: 'grant', permissions: ['read'], scope: { type: 'schema', schema: 'app' } },
+        d
+      ))).toMatch(/GRANT USAGE ON SCHEMA/);
+    }
+  });
+
+  it('future objects are refused where they cannot be expressed, not silently dropped', () => {
+    const r = buildAccessSql(
+      {
+        principal: user, action: 'grant', permissions: ['read'],
+        scope: { type: 'tables', schema: 'dbo', tables: ['Orders'] }, includeFutureObjects: true,
+      },
+      'sqlserver'
+    );
+    expect('error' in r).toBe(true);
+  });
+
+  it('connect is only offered where it is a real privilege at database scope', () => {
+    expect(availablePermissions('postgres', 'database')).toContain('connect');
+    expect(availablePermissions('postgres', 'schema')).not.toContain('connect');
+    // MySQL has no CONNECT privilege — reaching the server is the account itself.
+    expect(availablePermissions('mysql', 'database')).not.toContain('connect');
+  });
+});
+
+describe('presets and risk', () => {
+  it('round-trip: a preset maps to permissions and back', () => {
+    for (const p of ['read-only', 'read-write', 'application-writer', 'procedure-executor', 'schema-developer'] as const) {
+      expect(presetForPermissions(permissionsForPreset(p))).toBe(p);
+    }
+  });
+
+  it('application-writer deliberately withholds delete', () => {
+    expect(permissionsForPreset('application-writer')).not.toContain('delete');
+    expect(permissionsForPreset('read-write')).toContain('delete');
+  });
+
+  it('risk climbs with what the permission can destroy', () => {
+    expect(highestRisk(['read'])).toBe('low');
+    expect(highestRisk(['read', 'insert'])).toBe('elevated');
+    expect(highestRisk(['create-object'])).toBe('administrative');
+    expect(highestRisk(['drop-object'])).toBe('critical');
+  });
+
+  it('grant option outranks whatever it is attached to', () => {
+    // Read is low risk; the ability to pass it on to anyone is not.
+    expect(highestRisk(['read'], true)).toBe('critical');
+  });
+
+  it('destructive permissions raise a danger warning', () => {
+    const r = ok(
+      { principal: user, action: 'grant', permissions: ['read'], scope: { type: 'schema', schema: 'app' }, withGrantOption: true },
+      'postgres'
+    );
+    expect(r.warnings.some((w) => w.level === 'danger')).toBe(true);
+    expect(sqlOf(r)).toMatch(/WITH GRANT OPTION/);
+  });
+});
+
+describe('identifier safety', () => {
+  it.each([
+    ['a name with spaces', 'my schema'],
+    ['a reserved word', 'select'],
+    ['an embedded double quote', 'we"ird'],
+    ['a hyphen', 'report-user'],
+  ])('quotes %s rather than concatenating it raw', (_label, name) => {
+    const r = ok(
+      { principal: user, action: 'grant', permissions: ['read'], scope: { type: 'schema', schema: name } },
+      'postgres'
+    );
+    const sql = sqlOf(r);
+    // The bare identifier must never appear unquoted next to a keyword.
+    expect(sql).toMatch(/ON SCHEMA "/);
+    expect(sql).not.toMatch(new RegExp(`SCHEMA ${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`));
+  });
+
+  it('a quote in a principal name cannot break out of the statement', () => {
+    const r = ok(
+      { principal: { type: 'user', name: 'ev"il' }, action: 'grant', permissions: ['read'], scope: { type: 'schema', schema: 'app' } },
+      'postgres'
+    );
+    // Doubled, so the identifier stays one token.
+    expect(sqlOf(r)).toContain('"ev""il"');
+  });
+
+  it('rejects an empty principal instead of generating a dangling grant', () => {
+    const r = buildAccessSql(
+      { principal: { type: 'user', name: '  ' }, action: 'grant', permissions: ['read'], scope: { type: 'schema', schema: 'app' } },
+      'postgres'
+    );
+    expect('error' in r).toBe(true);
+  });
+});
+
+describe('invertAccessRequest', () => {
+  it('flips grant to revoke and drops the grant option', () => {
+    const req: PermissionRequest = {
+      principal: user, action: 'grant', permissions: ['read'],
+      scope: { type: 'schema', schema: 'app' }, withGrantOption: true,
+    };
+    const inv = invertAccessRequest(req);
+    expect(inv.action).toBe('revoke');
+    expect(inv.withGrantOption).toBe(false);
+    // Regenerated, not text-substituted: REVOKE has its own statement shapes.
+    expect(sqlOf(ok(inv, 'postgres'))).toMatch(/REVOKE SELECT ON ALL TABLES/);
+    expect(sqlOf(ok(inv, 'postgres'))).not.toMatch(/WITH GRANT OPTION/);
+  });
+});

@@ -176,7 +176,7 @@ function applyToDocument(themeMode: ThemeMode, tone: ToneId, fontSize: FontSize,
 }
 
 /** Top-level workspace views: schema sync (compare + history) vs the SQL Editor. */
-export type ActiveView = 'sync' | 'sqlEditor';
+export type ActiveView = 'sync' | 'sqlEditor' | 'access';
 /** Compare tree vs Lokee schema-history graph, both inside Schema Sync. */
 /**
  * Browse is its own pane, not a mode hiding inside Compare. It answers a
