@@ -340,4 +340,9 @@ export {
   type EffectiveAccess,
   type EffectiveEntry,
   type EffectiveObject,
+  buildAccessReport,
+  principalsWithAccessTo,
+  type AccessFinding,
+  type AccessReport,
+  type PrincipalAccessRow,
 } from './modules/access-effective.js';

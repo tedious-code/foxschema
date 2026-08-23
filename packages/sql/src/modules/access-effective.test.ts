@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
+  buildAccessReport,
   permissionsForPrivilege,
+  principalsWithAccessTo,
   resolveEffectiveAccess,
   resolveRoleChain,
 } from './access-effective';
@@ -209,5 +211,96 @@ describe('effective access', () => {
     const r = resolveEffectiveAccess({ principal: 'nobody', principals: [], privileges: [] });
     expect(r.objects).toEqual([]);
     expect(r.summary.every((s) => !s.granted)).toBe(true);
+  });
+});
+
+describe('access report', () => {
+  const people = [
+    principal('report_user', ['reporting_reader']),
+    principal('reporting_reader', []),
+    principal('admin_role', []),
+    principal('nobody', []),
+  ];
+
+  it('classifies each principal by what it can actually do', () => {
+    const r = buildAccessReport({
+      principals: people,
+      privileges: [
+        priv({ grantee: 'reporting_reader', privilege: 'SELECT' }),
+        priv({ grantee: 'admin_role', privilege: 'DROP' }),
+      ],
+    });
+    const row = (n: string) => r.principals.find((p) => p.principal === n);
+    expect(row('report_user')?.accessType).toBe('Read Only');
+    expect(row('admin_role')?.accessType).toBe('Full Access');
+    // A principal holding nothing is noise in a review table.
+    expect(row('nobody')).toBeUndefined();
+  });
+
+  it('names the role a principal inherits through, not just "direct"', () => {
+    const r = buildAccessReport({
+      principals: people,
+      privileges: [priv({ grantee: 'reporting_reader', privilege: 'SELECT' })],
+    });
+    expect(r.principals.find((p) => p.principal === 'report_user')?.source).toBe(
+      'Role: reporting_reader'
+    );
+  });
+
+  it('sorts the riskiest principals to the top — that is what a reviewer opens this for', () => {
+    const r = buildAccessReport({
+      principals: people,
+      privileges: [
+        priv({ grantee: 'reporting_reader', privilege: 'SELECT' }),
+        priv({ grantee: 'admin_role', privilege: 'DROP' }),
+      ],
+    });
+    expect(r.principals[0].risk).toBe('critical');
+  });
+
+  it('raises a finding for a privilege that can be passed on', () => {
+    const r = buildAccessReport({
+      principals: people,
+      privileges: [priv({ grantee: 'admin_role', privilege: 'SELECT', grantable: true })],
+    });
+    expect(r.findings.some((f) => /pass on/i.test(f.message) && f.severity === 'critical')).toBe(true);
+  });
+
+  it('does not count a DENY as a granted privilege', () => {
+    const r = buildAccessReport({
+      principals: people,
+      privileges: [
+        priv({ grantee: 'admin_role', privilege: 'SELECT' }),
+        priv({ grantee: 'admin_role', privilege: 'DELETE', state: 'deny' }),
+      ],
+    });
+    expect(r.grantedPrivilegeCount).toBe(1);
+  });
+
+  it('answers who can reach one object', () => {
+    const who = principalsWithAccessTo({
+      principals: people,
+      privileges: [
+        priv({ grantee: 'reporting_reader', privilege: 'SELECT', objectName: 'payments' }),
+        priv({ grantee: 'admin_role', privilege: 'ALL', objectName: 'payments' }),
+        priv({ grantee: 'admin_role', privilege: 'SELECT', objectName: 'other' }),
+      ],
+      schema: 'reporting',
+      object: 'payments',
+    });
+    const names = who.map((w) => w.principal).sort();
+    // report_user reaches it through its role, which is the whole point — and
+    // the role itself holds the grant, so a reviewer should see both.
+    expect(names).toEqual(['admin_role', 'report_user', 'reporting_reader']);
+  });
+
+  it('matches object names case-insensitively', () => {
+    const who = principalsWithAccessTo({
+      principals: people,
+      privileges: [priv({ grantee: 'admin_role', privilege: 'SELECT', objectName: 'PAYMENTS' })],
+      schema: 'reporting',
+      object: 'payments',
+    });
+    expect(who).toHaveLength(1);
   });
 });
