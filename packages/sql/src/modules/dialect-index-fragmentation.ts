@@ -39,6 +39,16 @@ export interface IndexFragmentationQuery {
   sql: string;
   params: unknown[];
   mode: Exclude<IndexFragmentationMode, 'unsupported'>;
+  /**
+   * A second probe to try when the first fails because an optional server
+   * feature is missing — Postgres `pgstatindex` needs the `pgstattuple`
+   * extension, which most managed servers do not install by default.
+   *
+   * The fallback answers a strictly smaller question (no fragmentation
+   * percent), but index list, size, and usage are what the panel is mostly
+   * read for, and those need no extension. A dead panel is the worse answer.
+   */
+  fallback?: { sql: string; params: unknown[]; mode: Exclude<IndexFragmentationMode, 'unsupported'>; warning: string };
 }
 
 export interface IndexFragmentationRow {
@@ -249,7 +259,7 @@ SELECT
     ) AS t(v)
   ) AS last_used,
   CAST(ISNULL(us.user_seeks, 0) + ISNULL(us.user_scans, 0) + ISNULL(us.user_lookups, 0) AS bigint) AS scan_count
-FROM sys.dm_db_index_physical_stats(DB_ID(), OBJECT_ID(?), NULL, NULL, 'LIMITED') AS ps
+FROM sys.dm_db_index_physical_stats(DB_ID(), OBJECT_ID(@p0), NULL, NULL, 'LIMITED') AS ps
 INNER JOIN sys.indexes AS i
   ON ps.object_id = i.object_id AND ps.index_id = i.index_id
 LEFT JOIN sys.dm_db_index_usage_stats AS us
@@ -288,6 +298,32 @@ WHERE n.nspname = $1
   AND ct.relname = $2
 ORDER BY ci.relname
 `.trim(),
+      // pgstatindex lives in the pgstattuple extension, which most servers do
+      // not install. Without it there is no fragmentation percent to report —
+      // but the index list, its size, and whether anything has ever used it
+      // need nothing but the core catalogs, and that is most of the panel.
+      fallback: {
+        mode: 'estimated',
+        params: [sch, table],
+        warning:
+          'Fragmentation needs the pgstattuple extension (CREATE EXTENSION pgstattuple). Showing index size and usage only.',
+        sql: `
+SELECT
+  ci.relname AS index_name,
+  NULL::float8 AS fragmentation_percent,
+  ci.relpages::bigint AS page_count,
+  NULL::timestamptz AS last_used,
+  COALESCE(psi.idx_scan, 0)::bigint AS scan_count
+FROM pg_index ix
+JOIN pg_class ct ON ct.oid = ix.indrelid
+JOIN pg_namespace n ON n.oid = ct.relnamespace
+JOIN pg_class ci ON ci.oid = ix.indexrelid
+LEFT JOIN pg_stat_user_indexes psi ON psi.indexrelid = ci.oid
+WHERE n.nspname = $1
+  AND ct.relname = $2
+ORDER BY ci.relname
+`.trim(),
+      },
     };
   }
 

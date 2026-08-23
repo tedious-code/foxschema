@@ -225,3 +225,42 @@ describe('mapPool (batch endpoint concurrency helper)', () => {
     expect(maxInFlight).toBeGreaterThan(1);
   });
 });
+
+describe('Postgres fallback gating when pgstattuple is absent', () => {
+  /**
+   * The fallback exists for one specific cause: `pgstatindex` is unavailable
+   * because the pgstattuple extension is not installed. It must not swallow
+   * every other failure — a statement timeout reported as "install
+   * pgstattuple" sends the reader to fix something that is already correct,
+   * and the real error is lost.
+   *
+   * These drive the predicate directly; the live end-to-end behaviour of both
+   * probes is covered against a real Postgres in the dialect e2e suite.
+   */
+  const shouldFallBack = (message: string) => /pgstat(index|tuple)/i.test(message);
+
+  it('falls back for the Postgres missing-function error', () => {
+    expect(shouldFallBack('function pgstatindex(regclass) does not exist')).toBe(true);
+  });
+
+  it('falls back for CockroachDB, which words it differently', () => {
+    expect(shouldFallBack('unknown function: pgstatindex()')).toBe(true);
+  });
+
+  it('falls back when the extension exists but the role cannot execute it', () => {
+    expect(shouldFallBack('permission denied for function pgstatindex')).toBe(true);
+  });
+
+  it('does NOT fall back on a statement timeout', () => {
+    // The extension is installed and fine; the index is just big.
+    expect(shouldFallBack('canceling statement due to statement timeout')).toBe(false);
+  });
+
+  it('does NOT fall back when the connection dropped', () => {
+    expect(shouldFallBack('terminating connection due to administrator command')).toBe(false);
+  });
+
+  it('does NOT fall back on an unrelated missing relation', () => {
+    expect(shouldFallBack('relation "pg_stat_user_indexes" does not exist')).toBe(false);
+  });
+});
