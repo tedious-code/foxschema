@@ -558,11 +558,16 @@ export const IndexManagementModal: React.FC<Props> = ({
               .join(' · ')
           );
         } else {
-          setStatus(
-            `Ran ${statements.length} ${statements.length === 1 ? 'statement' : 'statements'}.`
-          );
+          const ran = `${maintenanceVerb.toLowerCase()}: ran ${statements.length} ${
+            statements.length === 1 ? 'statement' : 'statements'
+          }`;
           setSelected(new Set());
-          void fetchFragmentation();
+          // The refresh sets its own status when it lands, so setting ours
+          // first meant the only confirmation the reader ever got was wiped
+          // milliseconds later — the click looked like it did nothing. Wait
+          // for the reload, then say what happened.
+          await fetchFragmentation();
+          setStatus(`${ran} — reloaded.`);
         }
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : String(err));
@@ -578,6 +583,7 @@ export const IndexManagementModal: React.FC<Props> = ({
       allRows,
       sessionPasswords,
       fetchFragmentation,
+      maintenanceVerb,
     ]
   );
 
@@ -878,26 +884,45 @@ export const IndexManagementModal: React.FC<Props> = ({
               )}
               {allFilteredSelected ? 'Clear selection' : 'Select filtered'}
             </button>
-            <button
-              type="button"
-              data-testid="index-mgmt-defrag-selected"
-              disabled={selected.size === 0 || runningDefrag || runningDrop}
-              onClick={() => setConfirmDefrag('selected')}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md border border-rose-500/40 bg-rose-500/15 text-rose-100 hover:bg-rose-500/25 disabled:opacity-50"
-            >
-              <Wrench className="w-3.5 h-3.5" />
-              {maintenanceVerb} selected ({selected.size})
-            </button>
-            <button
-              type="button"
-              data-testid="index-mgmt-defrag-filtered"
-              disabled={filteredKeys.length === 0 || runningDefrag || runningDrop}
-              onClick={() => setConfirmDefrag('filtered')}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-100 hover:bg-amber-500/20 disabled:opacity-50"
-            >
-              <Wrench className="w-3.5 h-3.5" />
-              {maintenanceVerb} filtered ({filteredKeys.length})
-            </button>
+            {/* Some engines have no index maintenance at all — CockroachDB
+                rejects REINDEX and says it does not require one, YugabyteDB
+                has not implemented it. Offering the button anyway meant a
+                click that failed with "No defragment SQL available for the
+                selection", which reads as the feature being broken. Say the
+                engine has nothing to run instead. */}
+            {fragSupport.defrag ? (
+              <>
+                <button
+                  type="button"
+                  data-testid="index-mgmt-defrag-selected"
+                  disabled={selected.size === 0 || runningDefrag || runningDrop}
+                  onClick={() => setConfirmDefrag('selected')}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md border border-rose-500/40 bg-rose-500/15 text-rose-100 hover:bg-rose-500/25 disabled:opacity-50"
+                >
+                  <Wrench className="w-3.5 h-3.5" />
+                  {maintenanceVerb} selected ({selected.size})
+                </button>
+                <button
+                  type="button"
+                  data-testid="index-mgmt-defrag-filtered"
+                  disabled={filteredKeys.length === 0 || runningDefrag || runningDrop}
+                  onClick={() => setConfirmDefrag('filtered')}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-100 hover:bg-amber-500/20 disabled:opacity-50"
+                >
+                  <Wrench className="w-3.5 h-3.5" />
+                  {maintenanceVerb} filtered ({filteredKeys.length})
+                </button>
+              </>
+            ) : (
+              <span
+                data-testid="index-mgmt-no-defrag"
+                className="inline-flex items-center gap-1.5 px-2 py-1.5 text-[11px] text-slate-400"
+              >
+                <Wrench className="w-3.5 h-3.5 text-slate-600" />
+                No index maintenance on {conn?.dialect || 'this engine'} — it compacts indexes
+                itself.
+              </span>
+            )}
             <button
               type="button"
               data-testid="index-mgmt-drop-selected"

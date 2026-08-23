@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import { ConnectionOptions, DriverAdapter } from '@foxschema/sql';
 import { BoundedPoolCache, disposePoolEndOrClose } from '../../cores/pool-cache';
+import { guardPoolErrors } from '../../cores/pool-error-guard';
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -53,6 +54,7 @@ class AzureSqlAdapter implements DriverAdapter {
     const mssql = this.load();
     const pool = await this.pools.getOrCreate(connectionString, async () => {
       const created = new mssql.ConnectionPool(this.buildConfig(options));
+      guardPoolErrors(created, 'azuresql');
       await created.connect();
       return created;
     });
