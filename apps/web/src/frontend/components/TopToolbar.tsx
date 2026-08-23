@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSyncStore } from '../store/useSyncStore';
 import { useUiStore } from '../store/uiStore';
-import { ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, CheckCircle2, Zap, Settings, KeyRound, History, Search, X, Layers, GitCompareArrows, Terminal, Camera } from 'lucide-react';
+import { ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, CheckCircle2, Zap, Settings, KeyRound, History, Search, X, Layers, GitCompareArrows, Terminal, Camera, ShieldCheck } from 'lucide-react';
 import { Brand } from './Brand';
 // Support both default and named exports (avoids blank-page Vite/HMR mismatches).
 import ProfileMenuDefault, { ProfileMenu as ProfileMenuNamed } from './ProfileMenu';
@@ -213,6 +213,17 @@ export const TopToolbar: React.FC = () => {
               <GitCompareArrows className="w-3.5 h-3.5" /> Schema Sync
             </button>
           )}
+          <button
+            data-testid="view-access-btn"
+            onClick={() => setActiveView('access')}
+            className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
+              activeView === 'access'
+                ? 'bg-slate-800 text-slate-100'
+                : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+            }`}
+          >
+            <ShieldCheck className="w-3.5 h-3.5" /> Access
+          </button>
           {canEditorAccess && (
             <button
               data-testid="view-sql-editor-btn"

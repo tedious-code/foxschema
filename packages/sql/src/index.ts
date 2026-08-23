@@ -301,3 +301,33 @@ export {
 export type { FkRow } from './cores/schema-to-tables.js';
 
 export { autoAliasSelectColumns, type AliasedSelect } from './modules/select-alias.js';
+export {
+  ACCESS_PERMISSIONS,
+  ACCESS_PRESETS,
+  PERMISSION_DESCRIPTORS,
+  PERMISSION_RISK,
+  accessCapabilities,
+  accessFamily,
+  availablePermissions,
+  describePermission,
+  highestRisk,
+  permissionsForPreset,
+  presetForPermissions,
+  supportsAccessBuilder,
+  type AccessCapabilities,
+  type AccessPermission,
+  type AccessPreset,
+  type AccessPrincipal,
+  type AccessScope,
+  type PermissionDescriptor,
+  type PermissionRequest,
+  type PermissionRisk,
+} from './modules/access-intent.js';
+export {
+  buildAccessSql,
+  invertAccessRequest,
+  type AccessWarningLevel,
+  type GeneratedPermissionSql,
+  type GeneratedStatement,
+  type PermissionWarning,
+} from './modules/dialect-access-sql.js';
