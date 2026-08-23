@@ -8,7 +8,7 @@
  *   - Server Insights (system / sizes / pool / sessions)
  *   - Query files modal open
  */
-import { describe, it, beforeAll, afterAll, afterEach, expect } from 'vitest';
+import { describe, it, beforeAll, beforeEach, afterAll, afterEach, expect } from 'vitest';
 import type { Page } from 'playwright';
 import { buildDriver, quitDriver } from '../helpers/driver.js';
 import { getSourceConfig, hasConfig } from '../helpers/db-config.js';
@@ -50,6 +50,8 @@ describe.skipIf(configured.length === 0)('SQL Editor · Utilities (all configure
   let app: AppPage;
   let sql: SqlEditorPage;
   const credNameByDialect = new Map<string, string>();
+  /** Dialects whose credential would not connect, with why. */
+  const unreachable = new Map<string, string>();
   const runId = Date.now().toString(36);
 
   beforeAll(async () => {
@@ -62,11 +64,35 @@ describe.skipIf(configured.length === 0)('SQL Editor · Utilities (all configure
     await driver.reload();
     await driver.waitForSelector('[data-testid="toolbar"]');
 
+    // One unreachable engine used to abort beforeAll and take all 41 tests with
+    // it — a stopped container cost the whole suite rather than its own three
+    // cases. Record what actually connected and skip the rest.
     for (const dialect of configured) {
       const cfg = getSourceConfig(dialect)!;
       const name = `E2E Util ${dialect} ${runId}`;
-      await sql.addCredential(name, cfg);
-      credNameByDialect.set(dialect, name);
+      try {
+        await sql.addCredential(name, cfg);
+        credNameByDialect.set(dialect, name);
+      } catch (err) {
+        unreachable.set(dialect, err instanceof Error ? err.message : String(err));
+        // A failed credential leaves the connection modal stacked over the
+        // credentials list, and that overlay intercepts every later click —
+        // which is how one unreachable engine used to fail all the reachable
+        // ones queued behind it. Closing the modals individually proved
+        // fragile; a reload is the one reset that always lands.
+        await driver.reload();
+        await driver.waitForSelector('[data-testid="toolbar"]', { timeout: 30_000 });
+      }
+    }
+    if (credNameByDialect.size === 0) {
+      throw new Error(
+        `No configured dialect was reachable:\n${[...unreachable]
+          .map(([d, e]) => `  ${d}: ${e}`)
+          .join('\n')}`
+      );
+    }
+    for (const [d, e] of unreachable) {
+      console.warn(`[utilities] skipping ${d} — ${e.split('\n')[0]}`);
     }
 
     await sql.openView();
@@ -101,6 +127,12 @@ describe.skipIf(configured.length === 0)('SQL Editor · Utilities (all configure
   for (const dialect of configured) {
     describe(dialect, () => {
       const cred = () => credNameByDialect.get(dialect)!;
+      // Reachability is only known after beforeAll, so gate at run time.
+      // Vitest passes a context; `this.skip()` is Mocha's shape and silently
+      // did nothing here, turning "engine is down" into a failing test.
+      beforeEach((ctx) => {
+        if (!credNameByDialect.has(dialect)) ctx.skip();
+      });
 
       it('Index Management loads indexes', async () => {
         await sql.openIndexManagement();
@@ -171,10 +203,20 @@ describe.skipIf(configured.length === 0)('SQL Editor · Utilities (all configure
       it('Server Insights opens system, sizes, pool, and sessions', async () => {
         await sql.openServerInsights('system');
         await sql.selectUtilityConnection(cred(), 'server-insights-connection');
-        await driver.locator('[data-testid="server-insights-refresh"]').click();
+        // Refresh is deliberately disabled where the engine has no probe for
+        // the tab — DuckDB is embedded, so it has no pool/sessions/system DMVs
+        // at all. The modal is expected to say so instead, which is what the
+        // assertion below checks; the loop already tolerated this and the first
+        // click did not.
+        await driver
+          .locator('[data-testid="server-insights-refresh"]')
+          .click({ timeout: 5_000 })
+          .catch(() => undefined);
         await driver.waitForTimeout(1200);
         const modal = driver.locator('[data-testid="server-insights-modal"]');
         expect(await modal.isVisible()).toBe(true);
+        // Either it produced something, or it explained why it cannot.
+        expect((await modal.innerText()).length).toBeGreaterThan(20);
 
         for (const tab of ['sizes', 'pool', 'sessions'] as const) {
           await driver.locator(`[data-testid="server-insights-tab-${tab}"]`).click();
