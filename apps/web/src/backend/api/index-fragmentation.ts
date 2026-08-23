@@ -158,6 +158,24 @@ export function explainFragmentationError(message: string, dialect: string): str
   return message;
 }
 
+/**
+ * Did the default probe fail *because of* the pgstattuple functions?
+ *
+ * The extension-less fallback is only an honest answer to that one cause. Any
+ * other failure — a statement timeout on a huge index, a revoked EXECUTE grant
+ * on the table, a dropped connection — would otherwise be answered with a
+ * banner telling the reader to install an extension they already have, while
+ * the real error is discarded.
+ *
+ * Deliberately looser than `explainFragmentationError`'s phrasing check: the
+ * wording differs per engine ("function pgstatindex(regclass) does not exist"
+ * on Postgres, "unknown function: pgstatindex()" on CockroachDB), and the
+ * function name is the part they all share.
+ */
+function isPgstattupleFailure(message: string): boolean {
+  return /pgstat(index|tuple)/i.test(message);
+}
+
 export async function probeTableFragmentation(opts: {
   dialect: string;
   option: ConnectionOptions;
@@ -296,6 +314,34 @@ export async function probeTableFragmentation(opts: {
     const rawDefaultMessage =
       defaultErr instanceof Error ? defaultErr.message : 'Default fragmentation query failed';
     const defaultMessage = explainFragmentationError(rawDefaultMessage, dialect);
+    // The probe may have failed only because an optional server feature is
+    // missing (Postgres `pgstatindex` without the pgstattuple extension). The
+    // fallback drops the fragmentation percent and keeps index size and usage,
+    // which is most of what the panel is read for.
+    //
+    // Only for that one cause, and only when the caller has not supplied its
+    // own retry SQL: `customSql` is an explicit request for a *better* answer
+    // than the built-in probe, so silently serving the weaker fallback instead
+    // would never run it.
+    if (built.fallback && !customSql && isPgstattupleFailure(rawDefaultMessage)) {
+      try {
+        const value = await runProbe(
+          dialect,
+          option,
+          schema,
+          table,
+          built.fallback.sql,
+          built.fallback.params,
+          'default',
+          built.fallback.mode,
+          support,
+          customTemplate
+        );
+        return { ok: true, value: { ...value, warning: built.fallback.warning } };
+      } catch {
+        // Fall through and report the original failure — it is the useful one.
+      }
+    }
     if (!customSql) {
       return {
         ok: false,

@@ -71,7 +71,9 @@ describe('buildIndexFragmentationQuery', () => {
     expect(q.mode).toBe('physical');
     expect(q.params).toEqual(['dbo.Orders']);
     expect(q.sql).toMatch(/dm_db_index_physical_stats/i);
-    expect(q.sql).toMatch(/OBJECT_ID\(\?\)/);
+    // `?` here was the bug: the mssql adapter binds named @pN, so the server
+    // received a literal ? and rejected it.
+    expect(q.sql).toMatch(/OBJECT_ID\(@p0\)/);
     expect(q.sql).toMatch(/dm_db_index_usage_stats/i);
     expect(q.sql).toMatch(/last_used/i);
     expect(q.sql).toMatch(/scan_count/i);
@@ -607,5 +609,105 @@ describe('indexMaintenanceVerb', () => {
     expect(indexMaintenanceVerb('POSTGRES')).toBe('Reindex');
     expect(indexMaintenanceVerb('')).toBe('Rebuild');
     expect(indexMaintenanceVerb('something-new')).toBe('Rebuild');
+  });
+});
+
+describe('placeholder style matches each driver', () => {
+  /**
+   * SQL Server shipped `OBJECT_ID(?)` while its adapter binds named `@p0`
+   * parameters (`sqlserver.adapter.ts`), so the server received a literal `?`
+   * and answered "Incorrect syntax near '?'". Index Management was dead on
+   * SQL Server. Every dialect's placeholder has to match its own driver.
+   */
+  const built = (dialect: string, schema: string | undefined, table: string) => {
+    const q = buildIndexFragmentationQuery({ dialect, schema, table });
+    if ('error' in q) throw new Error(`${dialect}: ${q.error}`);
+    return q;
+  };
+
+  it('sqlserver and azuresql use named @pN, never a bare ?', () => {
+    for (const d of ['sqlserver', 'azuresql']) {
+      const q = built(d, 'dbo', 'orders');
+      expect(q.sql).toContain('OBJECT_ID(@p0)');
+      // A stray ? would be sent verbatim and fail at parse time.
+      expect(q.sql).not.toMatch(/\?/);
+      expect(q.params).toEqual(['dbo.orders']);
+    }
+  });
+
+  it('postgres family uses $1/$2', () => {
+    for (const d of ['postgres', 'cockroachdb', 'yugabytedb']) {
+      const q = built(d, 'app', 'orders');
+      expect(q.sql).toContain('$1');
+      expect(q.sql).toContain('$2');
+      expect(q.sql).not.toMatch(/\?/);
+      expect(q.params).toEqual(['app', 'orders']);
+    }
+  });
+
+  it('oracle uses :1/:2', () => {
+    const q = built('oracle', 'app', 'orders');
+    expect(q.sql).toContain(':1');
+    expect(q.sql).toContain(':2');
+    expect(q.sql).not.toMatch(/\?/);
+  });
+
+  it('drivers that take positional ? get exactly one per param', () => {
+    for (const [d, schema, table] of [
+      ['mysql', 'app', 'orders'],
+      ['mariadb', 'app', 'orders'],
+      ['db2', 'app', 'orders'],
+      ['sqlite', undefined, 'orders'],
+      ['clickhouse', 'app', 'orders'],
+    ] as const) {
+      const q = built(d, schema, table);
+      expect(q.sql.match(/\?/g) ?? []).toHaveLength(q.params.length);
+      // and none of the named/numbered styles leaked in
+      expect(q.sql).not.toMatch(/@p\d|\$\d|:\d/);
+    }
+  });
+});
+
+describe('postgres fallback when pgstattuple is missing', () => {
+  /**
+   * `pgstatindex` lives in the pgstattuple extension, which most servers do
+   * not install — the probe then fails outright and the panel shows nothing.
+   * Index list, size, and usage need only the core catalogs, so a second probe
+   * keeps the panel useful instead of dead.
+   */
+  const pg = (dialect: string) => {
+    const q = buildIndexFragmentationQuery({ dialect, schema: 'app', table: 'orders' });
+    if ('error' in q) throw new Error(q.error);
+    return q;
+  };
+
+  it.each(['postgres', 'cockroachdb', 'yugabytedb'])('%s carries a fallback', (d) => {
+    const q = pg(d);
+    expect(q.fallback).toBeDefined();
+    expect(q.fallback!.sql).not.toMatch(/pgstatindex|pgstattuple/i);
+    expect(q.fallback!.params).toEqual(q.params);
+    expect(q.fallback!.mode).toBe('estimated');
+    expect(q.fallback!.warning).toMatch(/pgstattuple/i);
+  });
+
+  it('the primary probe is still the one that uses pgstatindex', () => {
+    expect(pg('postgres').sql).toMatch(/pgstatindex/);
+  });
+
+  it('the fallback returns the same column set, so normalisation is unchanged', () => {
+    const cols = ['index_name', 'fragmentation_percent', 'page_count', 'last_used', 'scan_count'];
+    for (const c of cols) expect(pg('postgres').fallback!.sql).toContain(c);
+  });
+
+  it('the fallback reports no fragmentation rather than a made-up number', () => {
+    expect(pg('postgres').fallback!.sql).toMatch(/NULL::float8 AS fragmentation_percent/);
+  });
+
+  it('dialects with no optional-extension problem carry no fallback', () => {
+    for (const d of ['sqlserver', 'mysql', 'oracle', 'db2', 'sqlite']) {
+      const q = buildIndexFragmentationQuery({ dialect: d, schema: 'app', table: 'orders' });
+      if ('error' in q) continue;
+      expect(q.fallback).toBeUndefined();
+    }
   });
 });

@@ -2,6 +2,11 @@
 -- Two schemas: demo_a (source, newer) vs demo_b (target, older)
 -- Scopes covered: Tables, Views, Functions, Procedures, Triggers, Sequences, Types (enum)
 
+-- Index Management reports real fragmentation via pgstatindex, which lives in
+-- the pgstattuple extension. Without it the panel falls back to size + usage
+-- only, so install it here to exercise the full path locally.
+CREATE EXTENSION IF NOT EXISTS pgstattuple;
+
 DROP SCHEMA IF EXISTS demo_a CASCADE;
 DROP SCHEMA IF EXISTS demo_b CASCADE;
 CREATE SCHEMA demo_a;

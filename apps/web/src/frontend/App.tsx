@@ -12,6 +12,7 @@ import { useUiStore } from './store/uiStore';
 import { apiGetPreferences } from './api/authApi';
 import { ToastHost } from './components/ToastHost';
 import { AlertCircle, AlertTriangle, Loader2, X } from 'lucide-react';
+import { BackendOfflineBanner } from './components/BackendOfflineBanner';
 
 const SqlEditorView = lazy(() =>
   import('./components/sql-editor/SqlEditorView').then((m) => ({ default: m.SqlEditorView }))
@@ -52,6 +53,10 @@ const Workspace: React.FC = () => {
   return (
     <div className="h-screen flex flex-col bg-slate-950 text-slate-100 antialiased overflow-hidden">
       <TopToolbar />
+
+      {/* Above every other banner: when the backend is gone, nothing else on
+          screen is trustworthy and no other message explains why. */}
+      <BackendOfflineBanner />
 
       {errorMsg && (
         <div data-testid="error-banner" className="bg-rose-950/60 border-y border-rose-500/20 px-6 py-2.5 flex items-center gap-2.5 text-xs text-rose-300 font-semibold animate-slide-down">
@@ -152,10 +157,17 @@ const App: React.FC = () => {
     };
   }, [status, hydrateFromServer]);
 
+  // The banner belongs here too, not only in Workspace: `init()` is what talks
+  // to the API first, so a reload while the backend is down leaves `status` on
+  // 'loading' forever. Without this the reader gets an eternal spinner and no
+  // hint of why — the exact confusion the banner exists to end.
   if (status === 'loading') {
     return (
-      <div className="h-screen flex items-center justify-center bg-slate-950 text-slate-500">
-        <Loader2 className="w-6 h-6 animate-spin" />
+      <div className="h-screen flex flex-col bg-slate-950 text-slate-500">
+        <BackendOfflineBanner />
+        <div className="flex-1 flex items-center justify-center">
+          <Loader2 className="w-6 h-6 animate-spin" />
+        </div>
       </div>
     );
   }

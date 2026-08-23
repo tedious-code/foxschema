@@ -171,7 +171,18 @@ services:
   yugabytedb:
     image: yugabytedb/yugabyte:latest
     container_name: foxschema-yugabytedb
-    command: bin/yugabyted start --background=false
+    # yugabyted defaults advertise_address to the container hostname and then
+    # resolves it; when that name has no DNS entry it dies at startup with
+    # "socket.gaierror: Name or service not known". Pin it to the container's
+    # own IP — always resolvable, and unlike loopback it stays reachable from
+    # the seed scripts, which connect via `hostname -i`.
+    # `hostname -i` prints every address the container holds, so take the first
+    # — a second attached network would otherwise word-split into a stray
+    # positional argument (seed-all.sh already guards this the same way).
+    command:
+      - bash
+      - -c
+      - bin/yugabyted start --background=false --advertise_address=$$(hostname -i | awk '{print $$1}')
     ports:
       - "5433:5433"
       - "15433:15433"

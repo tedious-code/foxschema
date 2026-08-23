@@ -28,7 +28,7 @@ class PostgresAdapter implements DriverAdapter {
   async acquire(connectionString: string, options: ConnectionOptions, _pooled: boolean): Promise<any> {
     const pool = await this.pools.getOrCreate(connectionString, () => {
       const pg = this.load();
-      return new pg.Pool({
+      const pool = new pg.Pool({
         connectionString,
         max: options.pool?.max ?? 10,
         min: options.pool?.min ?? 1,
@@ -43,6 +43,17 @@ class PostgresAdapter implements DriverAdapter {
             }
           : false,
       });
+
+      // pg emits 'error' on the POOL when an IDLE client fails — a server
+      // restart, a failover, or an admin terminating the backend (57P01).
+      // With no listener Node treats it as an unhandled 'error' event and
+      // kills the process: reseeding one database took down the whole API.
+      // The pool discards the dead client and reconnects on next use, so
+      // there is nothing to do here but keep the process alive.
+      pool.on('error', (err: Error) => {
+        console.error('[postgres] idle pool client error (recovering):', err.message);
+      });
+      return pool;
     });
     // pg clients reset transaction state on release, so pooling is safe for migrations too
     return pool.connect();

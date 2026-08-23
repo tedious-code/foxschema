@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { buildBrowseResult } from '../lib/browse';
-import type { ConnectionOptions } from '../lib/provider-settings';
+import { dialectUsesPassword, type ConnectionOptions } from '../lib/provider-settings';
 import {
   testConnection as apiTestConnection,
   fetchSchemaList,
@@ -140,7 +140,16 @@ export const useSyncStore = create<SyncState>()(
           connectionId: id,
         };
         const wasConnected = side === 'source' ? live.sourceConnected : live.targetConnected;
-        const canRetest = !!(conn.hasPassword || sessionPassword);
+        // A file database has no password to store, so `hasPassword` is false
+        // forever. Requiring one here silently dropped SQLite/DuckDB from
+        // connected to disconnected on every credential reload — saving any
+        // other connection knocked the source offline with no way back but
+        // reconnecting by hand.
+        const canRetest = !!(
+          conn.hasPassword ||
+          sessionPassword ||
+          !dialectUsesPassword(conn.dialect)
+        );
         if (side === 'source') {
           patch.selectedSourceConnectionId = id;
           patch.sourceConfig = config;
