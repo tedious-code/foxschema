@@ -52,6 +52,7 @@
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import fastifyExpress from '@fastify/express';
 import { createApp } from './server';
+import { loggerConfig } from '../modules/logger.module';
 import { resolveAppVersion } from '../modules/updates.module';
 import { securityHeadersFor } from './policy/security-headers-core';
 import { RateLimitCore, RATE_LIMIT_MESSAGE, rateLimitKey } from './policy/rate-limit-core';
@@ -82,7 +83,9 @@ export async function createFastifyApp(
   options: FastifyServerOptions = {}
 ): Promise<FastifyInstance> {
   const app = Fastify({
-    logger: false,
+    // Fastify owns the logger, which is what gives every line a request id
+    // without a correlation mechanism of our own.
+    logger: loggerConfig(),
     // Behind the CLI launcher and Docker this is the local process; trusting
     // the proxy headers is what makes req.ip meaningful for rate limiting.
     trustProxy: true,
@@ -128,7 +131,13 @@ export async function createFastifyApp(
   // migration path: each route moved here stops paying for two frameworks.
   // Health is first because it is trivial, has no dependencies, and is polled
   // constantly by the CLI launcher and the UI's offline banner.
-  app.get('/api/health', async () => ({ ok: true, version: resolveAppVersion() }));
+  // `silent` because the CLI launcher and the UI's offline banner poll this
+  // constantly; at info it would be most of the log volume and none of the
+  // signal.
+  app.get('/api/health', { logLevel: 'silent' }, async () => ({
+    ok: true,
+    version: resolveAppVersion(),
+  }));
 
   // --- Express routers underneath -----------------------------------------
   // The 38 existing routes keep their handlers, their guards and their tests.
@@ -151,7 +160,22 @@ export async function createFastifyApp(
   app.use(createApp());
 
   // An unhandled throw must not return an HTML stack page to a JSON client.
-  app.setErrorHandler((error: unknown, _req, reply) => {
+  // The single place a request failure is logged. The database layer reports
+  // timings at debug and re-throws; logging there as well would turn one
+  // failure into several lines saying the same thing.
+  app.setErrorHandler((error: unknown, req, reply) => {
+    const code = (error as { statusCode?: number })?.statusCode ?? 500;
+    // A 4xx is the caller's mistake, not a server failure — logging those at
+    // error makes the level meaningless.
+    if (code >= 500) {
+      req.log.error({ err: error, method: req.method, url: req.url }, 'request failed');
+    } else {
+      req.log.debug({ err: error, method: req.method, url: req.url }, 'request rejected');
+    }
+    return errorReply(error, reply);
+  });
+
+  function errorReply(error: unknown, reply: FastifyReply) {
     const status = (error as { statusCode?: number })?.statusCode ?? 500;
     const message = error instanceof Error ? error.message : 'Request failed.';
     reply.code(status).send({
@@ -160,7 +184,7 @@ export async function createFastifyApp(
       // is more useful stated plainly.
       error: status >= 500 ? 'Internal server error.' : message,
     });
-  });
+  }
 
   return app;
 }

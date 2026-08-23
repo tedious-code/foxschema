@@ -19,6 +19,7 @@ import { toast } from '../store/toastStore';
 import { getSessionPassword, setSessionPassword } from '../lib/sessionPasswords';
 import { HistoryCompareBar } from './lokee-weave/HistoryCompareBar';
 import { BrowseBar } from './BrowseBar';
+import { ActivityIndicator } from './ActivityIndicator';
 
 const ProfileMenu = ProfileMenuNamed ?? ProfileMenuDefault;
 
@@ -161,6 +162,8 @@ export const TopToolbar: React.FC = () => {
         <Brand logoSize={34} textClassName="text-xl font-bold" />
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* Only renders while something is actually running. */}
+          <ActivityIndicator />
           <button
             data-testid="credentials-btn"
             onClick={() => setShowCredentials(true)}

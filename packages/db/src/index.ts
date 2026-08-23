@@ -31,3 +31,9 @@ export { setupDb2ClientEnv, hasDb2Clidriver } from './providers/db2/db2.env';
 // Provider/adapter registries
 export { getAdapter, ADAPTERS } from './providers/adapter-registry';
 export { getRegisteredProvider, PROVIDERS } from './providers/provider-registry';
+export {
+  noopLogger,
+  safeTarget,
+  type AppLogger,
+  type DbLogFields,
+} from './cores/logger';
