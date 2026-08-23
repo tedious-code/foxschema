@@ -29,7 +29,13 @@ const types = makeDialectTypeFns({
     integer: 'integer',
     int: 'integer',
     smallint: 'integer',
-    float: 'real',
+    float: (tok) => {
+      // Oracle FLOAT(p) is binary precision (default 126 ≈ float64). Mapping
+      // every FLOAT to `real` used to emit MySQL `float` / PG `real` and
+      // silently drop precision past ~7 decimal digits.
+      if (tok.length !== undefined && tok.length <= 24) return 'real';
+      return 'double';
+    },
     binary_float: 'real',
     binary_double: 'double',
     char: 'char',

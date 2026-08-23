@@ -53,8 +53,17 @@ const types = makeDialectTypeFns({
     // Oracle NUMBER, SQL Server DECIMAL all go to 38), and it broke at CREATE
     // TABLE time — after the plan had been reviewed and accepted.
     decimal: (t) => {
+      if (t.precision === undefined) {
+        // Bare DECIMAL is DECIMAL(5,0) on Db2 — far too small for Oracle NUMBER
+        // / Postgres numeric. Prefer the engine max with a reviewable scale.
+        return {
+          sql: 'DECIMAL(31,10)',
+          warning:
+            'Db2 bare DECIMAL is DECIMAL(5,0); unsized source decimal mapped to DECIMAL(31,10) — review precision/scale',
+        };
+      }
       const rendered = decimalAs('DECIMAL')(t);
-      if (t.precision === undefined || t.precision <= 31) return rendered;
+      if (t.precision <= 31) return rendered;
       const scale = Math.min(t.scale ?? 0, 31);
       return {
         sql: `DECIMAL(31${t.scale !== undefined ? `,${scale}` : ''})`,

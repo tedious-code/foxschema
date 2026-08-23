@@ -5,7 +5,7 @@ import {
   plain,
   sized,
   sizedOr,
-  decimalAs,
+  decimalAsOr,
   temporalAs,
   warn,
   tokenizeType,
@@ -52,7 +52,11 @@ const types = makeDialectTypeFns({
     smallint: plain('smallint'),
     integer: plain('int'),
     bigint: plain('bigint'),
-    decimal: decimalAs('decimal'),
+    decimal: decimalAsOr(
+      'decimal',
+      'decimal(38,18)',
+      'SQL Server bare decimal is decimal(18,0); unsized source decimal mapped to decimal(38,18) — review precision/scale'
+    ),
     real: plain('real'),
     double: plain('float'),
     char: sized('char'),
