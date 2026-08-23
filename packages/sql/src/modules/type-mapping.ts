@@ -69,11 +69,12 @@ function shapeCanonical(base: CanonicalBase, tok: TypeToken, raw: string): Canon
   if (base === 'char' || base === 'varchar' || base === 'binary' || base === 'varbinary') {
     if (tok.length !== undefined) t.length = tok.length;
   } else if (base === 'time' || base === 'timestamp' || base === 'timestamptz') {
-    // Fractional-seconds precision is tokenized as a single parenthetical
-    // length (`timestamp(6)`, `datetime2(7)`, `time(3)`). Dropping it made
-    // MySQL/MariaDB render bare `datetime`/`time` (= fsp 0) and silently
-    // truncate sub-second values on cross-dialect migrate.
-    if (tok.length !== undefined) t.length = tok.length;
+    // Fractional-seconds precision is usually a single parenthetical
+    // (`timestamp(6)`, `datetime2(7)`). Two-arg forms like ClickHouse
+    // `DateTime64(3, 'UTC')` tokenize the fsp as *precision* instead — treat
+    // that the same so MySQL does not render bare datetime (= fsp 0).
+    const fsp = tok.length ?? tok.precision;
+    if (fsp !== undefined) t.length = fsp;
   } else if (base === 'decimal') {
     // A single-argument `NUMBER(10)` / `DECIMAL(10)` tokenizes as a *length*,
     // because the tokenizer cannot know which types read one arg as a
@@ -144,6 +145,17 @@ export const sizedOr = (kw: string, fallbackSql: string, fallbackWarn?: string):
 /** Renders `kw(precision[,scale])` when a precision is present, else bare `kw`. */
 export const decimalAs = (kw: string): RenderRule => (t) =>
   t.precision !== undefined ? `${kw}(${t.precision}${t.scale !== undefined ? `,${t.scale}` : ''})` : kw;
+
+/**
+ * Like `decimalAs`, but unsized decimals get an explicit max + warning.
+ * Engines that treat bare DECIMAL as a tiny default (MySQL DECIMAL(10,0),
+ * SQL Server decimal(18,0), Db2 DECIMAL(5,0)) would otherwise silently
+ * truncate Oracle NUMBER / Postgres numeric on cross-dialect migrate.
+ */
+export const decimalAsOr = (kw: string, fallbackSql: string, fallbackWarn: string): RenderRule => (t) =>
+  t.precision !== undefined
+    ? `${kw}(${t.precision}${t.scale !== undefined ? `,${t.scale}` : ''})`
+    : { sql: fallbackSql, warning: fallbackWarn };
 
 /** Always renders `sql`, attaching a warning (for known inexact mappings). */
 export const warn = (sql: string, message: string): RenderRule => () => ({ sql, warning: message });

@@ -1,5 +1,5 @@
 import type { SqlDialect, ColumnSpec } from '../../modules/sql-dialect.interface.js';
-import { makeDialectTypeFns, plain, sized, decimalAs } from '../../modules/type-mapping.js';
+import { makeDialectTypeFns, plain, sized, decimalAs, tokenizeType } from '../../modules/type-mapping.js';
 
 // ClickHouse type names are case-sensitive. Lowercase the token for parseMap lookup.
 const types = makeDialectTypeFns({
@@ -21,7 +21,7 @@ const types = makeDialectTypeFns({
     // Date/time
     date: 'date', date32: 'date',
     datetime: 'timestamp', datetime64: 'timestamp',
-    // Decimal
+    // Decimal — DecimalN(S) paren is *scale*; fixed precision is per family.
     decimal: 'decimal', decimal32: 'decimal', decimal64: 'decimal',
     decimal128: 'decimal', decimal256: 'decimal',
     // UUID
@@ -61,6 +61,32 @@ const types = makeDialectTypeFns({
   },
 });
 
+/** Fixed precision for ClickHouse Decimal32/64/128/256; the paren is scale only. */
+const CH_DECIMAL_PRECISION: Record<string, number> = {
+  decimal32: 9,
+  decimal64: 18,
+  decimal128: 38,
+  decimal256: 76,
+};
+
+function parseClickHouseType(raw: string) {
+  const parsed = types.parseType(raw);
+  const tok = tokenizeType(raw);
+  const name = tok.name;
+  const fixed = CH_DECIMAL_PRECISION[name];
+  if (fixed !== undefined) {
+    // Decimal64(4) tokenizes as length/precision 4 — that value is the *scale*.
+    const scale = tok.scale ?? tok.length ?? tok.precision ?? 0;
+    return { ...parsed, base: 'decimal' as const, precision: fixed, scale };
+  }
+  if (name === 'datetime64' && parsed.length === undefined) {
+    // DateTime64(3, 'UTC') — fsp is the first arg (precision after tokenize).
+    const fsp = tok.length ?? tok.precision ?? 3;
+    return { ...parsed, length: fsp };
+  }
+  return parsed;
+}
+
 export const clickHouseSqlDialect: SqlDialect = {
   // ClickHouse has no auto-increment / identity concept
   identityClause(_c: ColumnSpec): string {
@@ -97,4 +123,5 @@ export const clickHouseSqlDialect: SqlDialect = {
   },
 
   ...types,
+  parseType: parseClickHouseType,
 };

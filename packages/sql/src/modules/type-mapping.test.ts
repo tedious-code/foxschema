@@ -80,6 +80,48 @@ describe('cross-dialect type translation', () => {
     expect(xlate(mssql, oracle, 'money').sql).toBe('NUMBER(19,4)');
   });
 
+  it('unbounded binary/text maps to MySQL longblob/longtext (not 64KB blob/text)', () => {
+    // MySQL bare blob/text are 64KB — varbinary(max) / bytea / nvarchar(max)
+    // must not silently truncate on migrate.
+    expect(xlate(mssql, mysql, 'varbinary(max)').sql).toBe('longblob');
+    expect(xlate(pg, mysql, 'bytea').sql).toBe('longblob');
+    expect(xlate(mssql, mysql, 'nvarchar(max)').sql).toBe('longtext');
+    expect(xlate(pg, mysql, 'text').sql).toBe('longtext');
+  });
+
+  it('unsized NUMBER/numeric does not become MySQL DECIMAL(10,0)', () => {
+    const ora = xlate(oracle, mysql, 'NUMBER');
+    expect(ora.sql).toBe('decimal(65,30)');
+    expect(ora.warning).toMatch(/DECIMAL\(10,0\)/i);
+    const bare = xlate(pg, mysql, 'numeric');
+    expect(bare.sql).toBe('decimal(65,30)');
+    expect(xlate(oracle, mssql, 'NUMBER').sql).toBe('decimal(38,18)');
+    expect(xlate(oracle, db2, 'NUMBER').sql).toBe('DECIMAL(31,10)');
+  });
+
+  it('Oracle FLOAT defaults to double, not float32', () => {
+    expect(oracle.parseType('FLOAT').base).toBe('double');
+    expect(oracle.parseType('FLOAT(126)').base).toBe('double');
+    expect(oracle.parseType('FLOAT(24)').base).toBe('real');
+    expect(xlate(oracle, mysql, 'FLOAT').sql).toBe('double');
+    expect(xlate(oracle, mysql, 'FLOAT(24)').sql).toBe('float');
+  });
+
+  it('ClickHouse DecimalN(S) keeps fixed precision and scale', () => {
+    const ch = resolveDialect('clickhouse');
+    expect(ch.parseType('Decimal64(4)')).toMatchObject({
+      base: 'decimal',
+      precision: 18,
+      scale: 4,
+    });
+    expect(xlate(ch, mysql, 'Decimal64(4)').sql).toBe('decimal(18,4)');
+    expect(ch.parseType("DateTime64(3, 'UTC')")).toMatchObject({
+      base: 'timestamp',
+      length: 3,
+    });
+    expect(xlate(ch, mysql, "DateTime64(3, 'UTC')").sql).toBe('datetime(3)');
+  });
+
   it('preserves temporal fractional-seconds precision on cross-dialect migrate', () => {
     // MySQL bare datetime ≡ DATETIME(0). Dropping fsp used to emit that and
     // silently truncate sub-second values from Postgres / SQL Server / MySQL.

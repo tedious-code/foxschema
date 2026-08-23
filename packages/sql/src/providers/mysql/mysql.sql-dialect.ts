@@ -1,5 +1,5 @@
 import type { SqlDialect, ColumnSpec } from '../../modules/sql-dialect.interface.js';
-import { makeDialectTypeFns, plain, sized, sizedOr, decimalAs, temporalAsMax, warn } from '../../modules/type-mapping.js';
+import { makeDialectTypeFns, plain, sized, sizedOr, decimalAsOr, temporalAsMax, warn } from '../../modules/type-mapping.js';
 
 const types = makeDialectTypeFns({
   label: 'MySQL',
@@ -48,15 +48,23 @@ const types = makeDialectTypeFns({
     smallint: plain('smallint'),
     integer: plain('int'),
     bigint: plain('bigint'),
-    decimal: decimalAs('decimal'),
+    decimal: decimalAsOr(
+      'decimal',
+      'decimal(65,30)',
+      'MySQL bare DECIMAL is DECIMAL(10,0); unsized source decimal mapped to DECIMAL(65,30) — review precision/scale'
+    ),
     real: plain('float'),
     double: plain('double'),
     char: sized('char'),
     varchar: sizedOr('varchar', 'varchar(255)', 'MySQL VARCHAR requires a length; defaulted to varchar(255)'),
-    text: plain('text'),
+    // Unbounded text/blob on other engines (bytea, nvarchar(max), longtext, …)
+    // must not land on MySQL's 64KB `text`/`blob` — that silently truncates on
+    // migrate. Prefer the large variants; same-dialect tiny/medium stay lossy
+    // only when the source catalog already collapsed them to canonical text/blob.
+    text: plain('longtext'),
     binary: sized('binary'),
     varbinary: sizedOr('varbinary', 'varbinary(255)', 'MySQL VARBINARY requires a length; defaulted to varbinary(255)'),
-    blob: plain('blob'),
+    blob: plain('longblob'),
     date: plain('date'),
     // Bare datetime/time ≡ fsp 0. Preserve source fsp when present; MySQL max is 6
     // (SQL Server datetime2(7) must clamp or CREATE TABLE fails).
