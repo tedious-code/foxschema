@@ -11,6 +11,8 @@ import { ConnectionStore } from '../modules/connection-store.module';
 import { sweepOrphanedUploadFiles } from '../modules/file-query-session.module';
 import { UserModule } from '../modules/user.module';
 import { createApiRoutes } from './routes';
+import { defaultApiRateLimit, globalApiFloodgate } from './rate-limit';
+import { securityHeaders } from './security-headers';
 import { createAuthRoutes, authGuard, localUserGuard } from './auth.routes';
 import { createSsoRoutes } from './sso.routes';
 import { createConnectionStoreRoutes } from './connection-store.routes';
@@ -32,6 +34,10 @@ const AUTH_REQUIRED = LOCAL_SINGLE_USER
 
 export function createApp() {
   const app = express();
+
+  // Before anything else, so even an early error response carries them.
+  app.disable('x-powered-by');
+  app.use(securityHeaders({ hsts: process.env.FOX_HSTS === '1' }));
   const connectionModule = new ConnectionModule();
 
   // The API holds DB credentials and can run migrations, so only allow the
@@ -79,6 +85,11 @@ export function createApp() {
   // Auth endpoints are public (you can't be logged in to log in). SSO is mounted
   // first so its sub-paths take precedence over the base auth router.
   const auth = new AuthModule();
+  // Ahead of every sub-router below, so nothing mounted on a more specific
+  // path can slip past it — that is precisely how the first attempt at this
+  // ended up covering only a third of the surface.
+  app.use('/api', globalApiFloodgate());
+
   app.use('/api/auth/sso', createSsoRoutes(auth));
   app.use('/api/auth', createAuthRoutes(auth));
   // First-open email subscriber wizard — must stay public (before login).
@@ -101,7 +112,9 @@ export function createApp() {
     : AUTH_REQUIRED
       ? authGuard(auth)
       : (_req: Request, _res: Response, next: NextFunction) => next();
-  app.use('/api', guard, createApiRoutes(connectionModule, connectionStore));
+  // The guard runs first so the limiter can charge an authenticated user
+  // rather than lumping everyone behind one shared IP bucket.
+  app.use('/api', guard, defaultApiRateLimit(), createApiRoutes(connectionModule, connectionStore));
 
   return app;
 }
