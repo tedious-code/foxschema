@@ -34,6 +34,7 @@ import { isSingleSqlStatement } from './single-statement';
 import { AppSettingsStore } from '../modules/app-settings.module';
 import { LokeeWeaveStore } from '../modules/lokee-weave.module';
 import { rateLimit } from './rate-limit';
+import { idempotency } from './idempotency';
 import { browseDirectory, browseErrorMessage, resolveBrowsePath } from './file-browse';
 import {
   runStatements,
@@ -586,7 +587,14 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   // /migration/execute's pre-split statements); the server validates shape and
   // caps only. Rate-limited: each call can hold a DB connection for a while.
   const sqlExecuteLimiter = rateLimit({ windowMs: 60 * 1000, max: 60 });
-  router.post('/sql/execute', sqlExecuteLimiter, async (req: Request, res: Response) => {
+  /**
+   * One instance across the mutating routes: a retry carrying the same key must
+   * be recognised wherever it lands, and the key is bound to route + body so
+   * two different requests cannot collide.
+   */
+  const writeIdempotency = idempotency();
+
+  router.post('/sql/execute', sqlExecuteLimiter, writeIdempotency, async (req: Request, res: Response) => {
     const { statements, maxRows, offset, params, datagridAction, ...ref } = req.body as ConnectionRef & {
       statements?: unknown;
       maxRows?: unknown;
@@ -777,7 +785,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     }
   });
 
-  router.post('/migration/execute', requirePermissions('schema.migrate'), async (req: Request, res: Response) => {
+  router.post('/migration/execute', requirePermissions('schema.migrate'), writeIdempotency, async (req: Request, res: Response) => {
     const { steps, continueOnError, ...ref } = req.body as ConnectionRef & { steps: MigrationStep[]; continueOnError?: boolean };
     let dialect: string;
     let option: ConnectionOptions;

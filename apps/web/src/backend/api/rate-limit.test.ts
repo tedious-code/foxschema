@@ -1,80 +1,119 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Request, Response } from 'express';
 import { rateLimit } from './rate-limit';
 
-/** Minimal Express req/res doubles for driving the middleware. */
-function reqFor(ip: string): Request {
-  return { ip } as unknown as Request;
+/** Minimal express doubles — the limiter only touches these. */
+function reqOf(over: Partial<Request> & { userId?: string } = {}) {
+  return { ip: '1.2.3.4', ...over } as Request;
 }
-function resDouble(): Response & { statusCode?: number; body?: unknown; headers: Record<string, string> } {
+function resOf() {
+  const headers: Record<string, string> = {};
   const res = {
-    headers: {} as Record<string, string>,
-    statusCode: undefined as number | undefined,
-    body: undefined as unknown,
-    setHeader(k: string, v: string) {
-      this.headers[k] = v;
-    },
-    status(code: number) {
-      this.statusCode = code;
-      return this;
-    },
-    json(payload: unknown) {
-      this.body = payload;
-      return this;
-    },
+    headers,
+    statusCode: 0,
+    body: null as unknown,
+    setHeader: (k: string, v: string) => { headers[k] = v; },
+    status(code: number) { res.statusCode = code; return res; },
+    json(payload: unknown) { res.body = payload; return res; },
   };
-  return res as unknown as Response & { statusCode?: number; body?: unknown; headers: Record<string, string> };
+  return res as unknown as Response & { headers: Record<string, string>; statusCode: number; body: unknown };
 }
 
-describe('rateLimit', () => {
-  it('allows up to `max` requests then 429s further ones from the same IP', () => {
-    const limit = rateLimit({ windowMs: 60_000, max: 3 });
-    const next = vi.fn();
+const run = (mw: ReturnType<typeof rateLimit>, req: Request) => {
+  const res = resOf();
+  const next = vi.fn();
+  mw(req, res, next);
+  return { res, passed: next.mock.calls.length === 1 };
+};
 
-    for (let i = 0; i < 3; i++) limit(reqFor('1.1.1.1'), resDouble(), next);
-    expect(next).toHaveBeenCalledTimes(3);
+describe('rate limit', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
 
-    const res = resDouble();
-    limit(reqFor('1.1.1.1'), res, next);
-    expect(next).toHaveBeenCalledTimes(3); // not called again
+  it('allows up to the limit and blocks the next one', () => {
+    const mw = rateLimit({ windowMs: 1000, max: 3, name: 't' });
+    for (let i = 0; i < 3; i++) expect(run(mw, reqOf()).passed).toBe(true);
+    const { res, passed } = run(mw, reqOf());
+    expect(passed).toBe(false);
     expect(res.statusCode).toBe(429);
-    expect(res.headers['Retry-After']).toBeTruthy();
   });
 
-  it('tracks each IP independently', () => {
-    const limit = rateLimit({ windowMs: 60_000, max: 1 });
-    const next = vi.fn();
-
-    limit(reqFor('1.1.1.1'), resDouble(), next);
-    const blocked = resDouble();
-    limit(reqFor('1.1.1.1'), blocked, next);
-    expect(blocked.statusCode).toBe(429);
-
-    // A different IP is unaffected.
-    const other = resDouble();
-    limit(reqFor('2.2.2.2'), other, next);
-    expect(other.statusCode).toBeUndefined();
-    expect(next).toHaveBeenCalledTimes(2); // 1.1.1.1 first hit + 2.2.2.2 first hit
+  it('does not allow a double burst across the window edge', () => {
+    // The fixed-window bug: max at the end of one window plus max at the start
+    // of the next is twice the intended rate, back to back.
+    const mw = rateLimit({ windowMs: 1000, max: 2, name: 't' });
+    vi.advanceTimersByTime(900);
+    expect(run(mw, reqOf()).passed).toBe(true);
+    expect(run(mw, reqOf()).passed).toBe(true);
+    vi.advanceTimersByTime(200); // a fixed window would have reset here
+    expect(run(mw, reqOf()).passed).toBe(false);
   });
 
-  it('resets the window after windowMs elapses', () => {
-    vi.useFakeTimers();
-    try {
-      const limit = rateLimit({ windowMs: 1000, max: 1 });
-      const next = vi.fn();
+  it('lets requests through again as individual hits age out', () => {
+    const mw = rateLimit({ windowMs: 1000, max: 2, name: 't' });
+    expect(run(mw, reqOf()).passed).toBe(true);
+    vi.advanceTimersByTime(600);
+    expect(run(mw, reqOf()).passed).toBe(true);
+    expect(run(mw, reqOf()).passed).toBe(false);
+    // Only the first hit has aged out, so exactly one slot opens.
+    vi.advanceTimersByTime(401);
+    expect(run(mw, reqOf()).passed).toBe(true);
+    expect(run(mw, reqOf()).passed).toBe(false);
+  });
 
-      limit(reqFor('9.9.9.9'), resDouble(), next);
-      const blocked = resDouble();
-      limit(reqFor('9.9.9.9'), blocked, next);
-      expect(blocked.statusCode).toBe(429);
+  it('charges an authenticated user, not their IP', () => {
+    // Otherwise one heavy user behind a shared address locks out everyone else.
+    const mw = rateLimit({ windowMs: 1000, max: 1, name: 't' });
+    const shared = '10.0.0.1';
+    expect(run(mw, reqOf({ ip: shared, userId: 'alice' })).passed).toBe(true);
+    expect(run(mw, reqOf({ ip: shared, userId: 'bob' })).passed).toBe(true);
+    expect(run(mw, reqOf({ ip: shared, userId: 'alice' })).passed).toBe(false);
+  });
 
-      vi.advanceTimersByTime(1001);
-      const afterReset = resDouble();
-      limit(reqFor('9.9.9.9'), afterReset, next);
-      expect(afterReset.statusCode).toBeUndefined();
-      expect(next).toHaveBeenCalledTimes(2);
-    } finally {
-      vi.useRealTimers();
-    }
+  it('falls back to IP when there is no session', () => {
+    const mw = rateLimit({ windowMs: 1000, max: 1, name: 't' });
+    expect(run(mw, reqOf({ ip: '9.9.9.9' })).passed).toBe(true);
+    expect(run(mw, reqOf({ ip: '9.9.9.9' })).passed).toBe(false);
+    expect(run(mw, reqOf({ ip: '8.8.8.8' })).passed).toBe(true);
+  });
+
+  it('keeps named limiters independent', () => {
+    // One endpoint's flood must not spend another endpoint's allowance.
+    const a = rateLimit({ windowMs: 1000, max: 1, name: 'a' });
+    const b = rateLimit({ windowMs: 1000, max: 1, name: 'b' });
+    expect(run(a, reqOf()).passed).toBe(true);
+    expect(run(a, reqOf()).passed).toBe(false);
+    expect(run(b, reqOf()).passed).toBe(true);
+  });
+
+  it('tells the caller when to retry, and how much is left', () => {
+    const mw = rateLimit({ windowMs: 2000, max: 1, name: 't' });
+    const first = run(mw, reqOf());
+    expect(first.res.headers['RateLimit-Limit']).toBe('1');
+    expect(first.res.headers['RateLimit-Remaining']).toBe('0');
+
+    vi.advanceTimersByTime(500);
+    const blocked = run(mw, reqOf());
+    expect(blocked.res.statusCode).toBe(429);
+    // 2000ms window, 500ms elapsed → ~1.5s until the oldest hit ages out.
+    expect(Number(blocked.res.headers['Retry-After'])).toBe(2);
+    expect(blocked.res.headers['RateLimit-Remaining']).toBe('0');
+  });
+
+  it('never advertises a Retry-After of zero', () => {
+    // A client reading 0 would retry instantly and be refused again.
+    const mw = rateLimit({ windowMs: 1000, max: 1, name: 't' });
+    run(mw, reqOf());
+    vi.advanceTimersByTime(999);
+    expect(Number(run(mw, reqOf()).res.headers['Retry-After'])).toBeGreaterThanOrEqual(1);
+  });
+
+  it('does not count a blocked request against the caller again', () => {
+    // Otherwise a client that keeps retrying extends its own penalty forever.
+    const mw = rateLimit({ windowMs: 1000, max: 1, name: 't' });
+    run(mw, reqOf());
+    for (let i = 0; i < 5; i++) run(mw, reqOf());
+    vi.advanceTimersByTime(1001);
+    expect(run(mw, reqOf()).passed).toBe(true);
   });
 });

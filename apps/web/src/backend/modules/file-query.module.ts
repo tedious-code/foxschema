@@ -555,10 +555,15 @@ function writeTableWithDb(
  */
 export function materializeFileToSqlite(
   input: FileQueryImportInput,
-  opts?: { maxChars?: number; connectionName?: string }
+  /**
+   * `parsed` lets the caller hand in a table already parsed off the event loop
+   * (see the worker pool). Parsing here is synchronous and, on a large upload,
+   * freezes every other request for the duration.
+   */
+  opts?: { maxChars?: number; connectionName?: string; parsed?: ParsedFileTable }
 ): FileQueryImportResult {
   cleanupStaleFileQueryDbs();
-  const parsed = parseFileToTable(input, { maxChars: opts?.maxChars });
+  const parsed = opts?.parsed ?? parseFileToTable(input, { maxChars: opts?.maxChars });
   const id = randomUUID().replace(/-/g, '').slice(0, 12);
   const dbPath = join(fileQueryTempDir(), `files-${id}.db`);
   try {
@@ -587,12 +592,12 @@ export function materializeFileToSqlite(
 export function appendFileToSqliteWorkspace(
   dbPath: string,
   input: FileQueryImportInput,
-  opts?: { maxChars?: number; replaceTable?: boolean }
+  opts?: { maxChars?: number; replaceTable?: boolean; parsed?: ParsedFileTable }
 ): { tableName: string; rowCount: number; columns: string[] } {
   if (!isFileQueryDbPath(dbPath)) {
     throw new Error('Not a Query-files workspace database');
   }
-  const parsed = parseFileToTable(input, { maxChars: opts?.maxChars });
+  const parsed = opts?.parsed ?? parseFileToTable(input, { maxChars: opts?.maxChars });
   const written = writeTableToSqliteFile(dbPath, parsed, {
     replaceTable: opts?.replaceTable,
     uniqueName: !opts?.replaceTable,

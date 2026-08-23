@@ -29,6 +29,7 @@ import {
   type TextOffsetColumn,
 } from '../modules/file-query.module';
 import { bulkLoadIntoConnection } from '../modules/file-query-bulk.module';
+import { cpuPool } from '../modules/worker-pool';
 import {
   abortUploadSession,
   appendUploadChunk,
@@ -498,6 +499,33 @@ type FileUploadCsv = FileQueryImportInput['csv'];
 type FileUploadJson = FileQueryImportInput['json'];
 type FileUploadText = FileQueryImportInput['text'];
 
+
+/**
+ * Parse an upload without freezing the server.
+ *
+ * Measured: a 22MB CSV blocks the event loop for 784ms with zero ticks on the
+ * main thread — every other request, including health checks, stalls for that
+ * whole stretch. In a worker the same parse leaves the loop free.
+ *
+ * Small inputs stay on the main thread: below this size the structured-clone
+ * round trip costs more than the parse it avoids.
+ */
+const WORKER_PARSE_MIN_CHARS = 512 * 1024;
+
+async function parseUpload(
+  input: FileQueryImportInput,
+  maxChars: number
+): Promise<ReturnType<typeof parseFileToTable>> {
+  if ((input.content?.length ?? 0) < WORKER_PARSE_MIN_CHARS) {
+    return parseFileToTable(input, { maxChars });
+  }
+  return cpuPool.run<{ input: FileQueryImportInput; maxChars: number }, ReturnType<typeof parseFileToTable>>({
+    script: new URL('../modules/parse-file.worker.ts', import.meta.url),
+    input: { input, maxChars },
+    timeoutMs: 120_000,
+  }).promise;
+}
+
 async function runImport(
   connectionStore: ConnectionStore,
   userId: string,
@@ -517,7 +545,7 @@ async function runImport(
   if (parsed.targetConnectionId) {
     const resolved = await connectionStore.resolve(userId, parsed.targetConnectionId);
     if (!resolved) throw new Error('Target credential not found');
-    const table = parseFileToTable(parsed.input, { maxChars });
+    const table = await parseUpload(parsed.input, maxChars);
     const load = await bulkLoadIntoConnection({
       dialect: resolved.dialect,
       option: resolved.option,
@@ -553,9 +581,12 @@ async function runImport(
       userId,
       parsed.workspaceConnectionId
     );
+    // Parsed off the event loop when it is big enough to matter; the SQLite
+    // write itself is fast and stays here.
     const appended = appendFileToSqliteWorkspace(ws.dbPath, parsed.input, {
       maxChars,
       replaceTable: parsed.replaceTable,
+      parsed: await parseUpload(parsed.input, maxChars),
     });
     const list = await connectionStore.list(userId);
     const connection = list.find((c) => c.id === ws.connectionId);
@@ -584,6 +615,7 @@ async function runImport(
   const result = materializeFileToSqlite(parsed.input, {
     maxChars,
     connectionName: `Files: ${workspaceLabel}`,
+    parsed: await parseUpload(parsed.input, maxChars),
   });
   const connection = await connectionStore.create(userId, {
     name: result.connectionName,

@@ -27,6 +27,18 @@ export interface StartedUiServer {
  * Start the single-origin UI + API server (Docker / CLI browser launcher).
  * Shared by `serve.ts` and the CLI `foxschema open` child process.
  */
+/**
+ * Which HTTP server to run.
+ *
+ * `FOX_SERVER=fastify` puts the Fastify edge in front of the same Express
+ * routers: same routes, same handlers, same guards, with the security policies
+ * enforced in native hooks before anything downstream. Express stays the
+ * default until the flag has run in anger.
+ */
+export function serverFlavour(): 'express' | 'fastify' {
+  return process.env.FOX_SERVER === 'fastify' ? 'fastify' : 'express';
+}
+
 export function startUiServer(opts: StartUiServerOptions = {}): StartedUiServer {
   setupDb2ClientEnv();
 

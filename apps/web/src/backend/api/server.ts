@@ -11,6 +11,8 @@ import { ConnectionStore } from '../modules/connection-store.module';
 import { sweepOrphanedUploadFiles } from '../modules/file-query-session.module';
 import { UserModule } from '../modules/user.module';
 import { createApiRoutes } from './routes';
+import { defaultApiRateLimit, globalApiFloodgate } from './rate-limit';
+import { securityHeaders } from './security-headers';
 import { createAuthRoutes, authGuard, localUserGuard } from './auth.routes';
 import { createSsoRoutes } from './sso.routes';
 import { createConnectionStoreRoutes } from './connection-store.routes';
@@ -30,8 +32,19 @@ const AUTH_REQUIRED = LOCAL_SINGLE_USER
   ? false
   : process.env.AUTH_REQUIRED !== 'false';
 
+/**
+ * One body ceiling for both servers. Fastify's own `bodyLimit` does not apply
+ * while Express owns body parsing under `@fastify/express`, so the number that
+ * actually bites lives here.
+ */
+export const BODY_LIMIT = process.env.FOX_BODY_LIMIT || '10mb';
+
 export function createApp() {
   const app = express();
+
+  // Before anything else, so even an early error response carries them.
+  app.disable('x-powered-by');
+  app.use(securityHeaders({ hsts: process.env.FOX_HSTS === '1' }));
   const connectionModule = new ConnectionModule();
 
   // The API holds DB credentials and can run migrations, so only allow the
@@ -64,7 +77,28 @@ export function createApp() {
 
   // Bounded body size — migration payloads carry routine bodies, but cap to
   // avoid unbounded memory use from a hostile request.
-  app.use(express.json({ limit: '10mb' }));
+  app.use(express.json({ limit: BODY_LIMIT }));
+
+  /**
+   * A body the parser rejected — too large, or not JSON — used to end as an
+   * empty 400 that a JSON client cannot parse, leaving the UI to report
+   * "Empty response from server" for what is really a bad request.
+   *
+   * Registered immediately after the parser so it only sees parse failures.
+   */
+  app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
+    const status = (err as { status?: number; statusCode?: number } | null)?.status
+      ?? (err as { statusCode?: number } | null)?.statusCode;
+    const type = (err as { type?: string } | null)?.type;
+    if (!status || !type) return next(err);
+    res.status(status).json({
+      ok: false,
+      error:
+        type === 'entity.too.large'
+          ? `Request body is larger than the ${BODY_LIMIT} limit.`
+          : 'Request body could not be parsed as JSON.',
+    });
+  });
 
   // Public liveness check (registered before auth). Include version so
   // `foxschema open` can detect a stale pre-upgrade process on this port.
@@ -79,6 +113,11 @@ export function createApp() {
   // Auth endpoints are public (you can't be logged in to log in). SSO is mounted
   // first so its sub-paths take precedence over the base auth router.
   const auth = new AuthModule();
+  // Ahead of every sub-router below, so nothing mounted on a more specific
+  // path can slip past it — that is precisely how the first attempt at this
+  // ended up covering only a third of the surface.
+  app.use('/api', globalApiFloodgate());
+
   app.use('/api/auth/sso', createSsoRoutes(auth));
   app.use('/api/auth', createAuthRoutes(auth));
   // First-open email subscriber wizard — must stay public (before login).
@@ -101,7 +140,9 @@ export function createApp() {
     : AUTH_REQUIRED
       ? authGuard(auth)
       : (_req: Request, _res: Response, next: NextFunction) => next();
-  app.use('/api', guard, createApiRoutes(connectionModule, connectionStore));
+  // The guard runs first so the limiter can charge an authenticated user
+  // rather than lumping everyone behind one shared IP bucket.
+  app.use('/api', guard, defaultApiRateLimit(), createApiRoutes(connectionModule, connectionStore));
 
   return app;
 }

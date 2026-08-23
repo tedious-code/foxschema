@@ -2,6 +2,7 @@
 import { ConnectionOptions } from '@foxschema/sql';
 import { getProviderSettings } from '@foxschema/sql';
 import { getAdapter, ADAPTERS } from '../providers/adapter-registry';
+import { circuitKey, dbCircuitBreaker } from './circuit-breaker';
 
 /**
  * Generic connection orchestrator. All dialect-specific behaviour lives in the
@@ -34,11 +35,16 @@ export class ConnectionFactory {
   ): Promise<any> {
     const adapter = getAdapter(provider);
     const connectionString = getProviderSettings(provider).buildConnectionString(options);
-    try {
-      return await adapter.acquire(connectionString, options, opts.pooled !== false);
-    } catch (error) {
-      throw describeConnectionError(error);
-    }
+    // Acquire is where an unreachable target costs the most: every caller waits
+    // out the full connect timeout holding a request slot. The breaker turns
+    // repeat attempts against a known-down target into an instant rejection.
+    return dbCircuitBreaker.run(circuitKey(provider, options), async () => {
+      try {
+        return await adapter.acquire(connectionString, options, opts.pooled !== false);
+      } catch (error) {
+        throw describeConnectionError(error);
+      }
+    });
   }
 
   static async close(provider: string, connection: any): Promise<void> {
