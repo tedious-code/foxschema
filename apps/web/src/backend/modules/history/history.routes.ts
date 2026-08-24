@@ -276,5 +276,67 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
     }
   );
 
+  router.patch(
+    '/lokee/databases/:id/versions/:versionId',
+    requirePermissions('schema.browse'),
+    async (req: Request, res: Response) => {
+      const body = req.body as { name?: string | null; description?: string | null };
+      const updated = await deps.lokee.updateVersionMeta(
+        (req as AuthedRequest).userId!,
+        String(req.params.id),
+        String(req.params.versionId),
+        {
+          name: body.name,
+          description: body.description,
+        }
+      );
+      if (!updated) {
+        res.status(404).json({ error: 'Version not found' });
+        return;
+      }
+      res.json({ version: updated });
+    }
+  );
+
+  router.get('/lokee/databases/:id/inspect', async (req: Request, res: Response) => {
+    const versionId = String(req.query.versionId ?? '').trim();
+    const objectKey = String(req.query.objectKey ?? '').trim();
+    if (!versionId || !objectKey) {
+      res.status(400).json({ error: 'versionId and objectKey are required' });
+      return;
+    }
+    const result = await deps.lokee.inspectObject(
+      (req as AuthedRequest).userId!,
+      String(req.params.id),
+      versionId,
+      objectKey
+    );
+    if (!result) {
+      res.status(404).json({ error: 'Object not found' });
+      return;
+    }
+    res.json(result);
+  });
+
+  router.get('/lokee/databases/:id/compare', async (req: Request, res: Response) => {
+    const versionId = String(req.query.versionId ?? '').trim();
+    if (!versionId) {
+      res.status(400).json({ error: 'versionId is required' });
+      return;
+    }
+    const against = String(req.query.againstVersionId ?? '').trim();
+    const result = await deps.lokee.diffVersions(
+      (req as AuthedRequest).userId!,
+      String(req.params.id),
+      versionId,
+      against || undefined
+    );
+    if (!result) {
+      res.status(404).json({ error: 'Version not found' });
+      return;
+    }
+    res.json(result);
+  });
+
   return router;
 }
