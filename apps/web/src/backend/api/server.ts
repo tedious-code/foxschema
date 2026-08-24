@@ -5,6 +5,7 @@
  */
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
+import { corsOriginDelegate, originVerdict } from '../platform/guards/origin-policy';
 import { ConnectionModule, ConnectionFactory } from '@foxschema/db';
 import { AuthModule } from '../modules/auth.module';
 import { ConnectionStore } from '../modules/connection-store.module';
@@ -52,29 +53,21 @@ export function createApp() {
   app.use(securityHeaders({ hsts: process.env.FOX_HSTS === '1' }));
   const connectionModule = new ConnectionModule();
 
-  // The API holds DB credentials and can run migrations, so only allow the
-  // local app to call it — this blocks a malicious site in the user's browser
-  // from reaching http://localhost:<port>/api and reading/triggering anything.
+  // The API holds DB credentials and can run migrations, so only named origins
+  // may call it with cookies. This used to allow *any* localhost port and any
+  // `.localhost` host, which let a page on an unrelated local dev server drive
+  // the API with the user's session — see platform/guards/origin-policy.
+  // Before cors, so a refusal is a 403 the caller can read rather than the 500
+  // the cors package produces by throwing — and so a refused cross-origin
+  // request never reaches a route.
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const verdict = originVerdict(req.headers.origin);
+    if (verdict.allowed) return next();
+    res.status(verdict.status).json({ ok: false, error: verdict.error });
+  });
   app.use(
     cors({
-      origin: (origin, cb) => {
-        if (!origin) return cb(null, true); // same-origin / curl / dev proxy
-        try {
-          const url = new URL(origin);
-          const host = url.hostname;
-          if (
-            host === 'localhost' ||
-            host === '127.0.0.1' ||
-            host === '::1' ||
-            host.endsWith('.localhost')
-          ) {
-            return cb(null, true);
-          }
-        } catch {
-          /* malformed origin → reject below */
-        }
-        cb(new Error('Origin not allowed'));
-      },
+      origin: corsOriginDelegate(),
       // The frontend sends `credentials: 'include'` (session cookie).
       credentials: true,
     })
