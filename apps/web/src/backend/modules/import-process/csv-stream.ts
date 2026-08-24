@@ -8,7 +8,7 @@
  * upload through a stream and flush batches to the database instead of building
  * a matrix the heap cannot hold.
  *
- * The grammar is deliberately identical to `parseCsv` in file-query.module.ts,
+ * The grammar is deliberately identical to `parseCsv` in files/file-query.service.ts,
  * character for character — same BOM strip, same `""` unescaping, same
  * multi-character delimiter, same "\r is skipped everywhere", same rule that a
  * lone trailing newline does not produce a row. A streaming reader that parsed

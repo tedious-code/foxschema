@@ -1,13 +1,13 @@
 import { Router, Response } from 'express';
-import { AppSecretsStore, type AppSecretInput } from '../app-secrets.module';
+import { AppSecretsStore, type AppSecretInput } from './app-secrets.service';
 import {
   CloudProviderCredentialsStore,
   type CloudProviderCredentials,
-} from '../cloud-provider-credentials.module';
+} from './cloud-provider-credentials.service';
 import type { CloudSecretRef } from '../../internal/cloud-secrets';
 import { isCloudSecretSource } from '../../internal/cloud-secrets';
 import { AuthedRequest } from '../auth/auth.routes';
-import { requirePermissions } from '../../api/rbac.middleware';
+import { requirePermissions } from '../authorization/rbac.guard';
 
 function parseSecretBody(body: unknown): Partial<AppSecretInput> {
   const b = (body ?? {}) as Record<string, unknown>;

@@ -3,8 +3,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 process.env.APP_DB_PATH = ':memory:';
 process.env.APP_ENCRYPTION_KEY = '0'.repeat(64);
 
-import { AppSettingsStore } from './app-settings.module';
-import { SignupModule } from './signup.module';
+import { AppSettingsStore } from '../admin/app-settings.service';
+import { SignupModule } from './signup-wizard.service';
 
 const appSettings = new AppSettingsStore();
 const signup = new SignupModule(appSettings);

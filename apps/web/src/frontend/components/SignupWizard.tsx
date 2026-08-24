@@ -14,7 +14,7 @@ import { Brand } from './Brand';
 /**
  * One-time, skippable first-run prompt: collect a subscriber email when the
  * app is opened for the first time. Submitting or skipping dismisses it for
- * the install (see signup.module.ts).
+ * the install (see signup-wizard.service.ts).
  */
 export const SignupWizard: React.FC<{ onDone: () => void }> = ({ onDone }) => {
   const [email, setEmail] = useState('');

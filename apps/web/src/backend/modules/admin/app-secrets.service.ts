@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { getStore } from '../database/store';
-import { encryptSecret, decryptSecret } from '../cores/crypto';
+import { getStore } from '../../database/store';
+import { encryptSecret, decryptSecret } from '../../cores/crypto';
 import {
   assertAzureVaultUrl,
   parseCloudRef,
@@ -8,10 +8,10 @@ import {
   serializeCloudRef,
   type CloudSecretRef,
   type CloudSecretSource,
-} from '../internal/cloud-secrets';
-import { rethrowUniqueViolation } from './db-errors';
-import { CloudProviderCredentialsStore } from './cloud-provider-credentials.module';
-import type { CloudProviderCredentials } from '../internal/cloud-secrets';
+} from '../../internal/cloud-secrets';
+import { rethrowUniqueViolation } from '../../platform/db/db-errors';
+import { CloudProviderCredentialsStore } from './cloud-provider-credentials.service';
+import type { CloudProviderCredentials } from '../../internal/cloud-secrets';
 
 export type AppSecretSource = 'local' | CloudSecretSource;
 

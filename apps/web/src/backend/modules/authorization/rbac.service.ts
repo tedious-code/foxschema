@@ -5,8 +5,8 @@
  *
  * Role-based access control: resolve / persist role permission grants.
  */
-import { getStore } from '../database/store';
-import type { MetadataStore } from '../database/stores/types';
+import { getStore } from '../../database/store';
+import type { MetadataStore } from '../../database/stores/types';
 import {
   APP_ROLES,
   DEFAULT_ROLE_PERMISSIONS,
@@ -14,7 +14,7 @@ import {
   type Permission,
   isAppRole,
   uniquePermissions,
-} from '../../shared/permissions';
+} from '../../../shared/permissions';
 
 /** Unknown / missing role values fall back to the least-privileged role. */
 export function toAppRole(value: unknown): AppRole {

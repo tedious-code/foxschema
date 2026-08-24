@@ -10,7 +10,7 @@ import { ConnectionModule, ConnectionFactory } from '@foxschema/db';
 import { AuthModule } from '../modules/auth/auth.service';
 import { ConnectionStore } from '../modules/connections/connection-store.service';
 import { sweepOrphanedUploadFiles } from '../modules/files/file-session.service';
-import { UserModule } from '../modules/user.module';
+import { UserModule } from '../modules/users/user.service';
 import { createApiRoutes } from './routes';
 import { defaultApiRateLimit, globalApiFloodgate } from '../platform/guards/rate-limit';
 import { securityHeaders } from './security-headers';
@@ -18,12 +18,12 @@ import { createAuthRoutes, authGuard, localUserGuard } from '../modules/auth/aut
 import { createSsoRoutes } from '../modules/auth/sso.routes';
 import { createConnectionStoreRoutes } from '../modules/connections/connections.routes';
 import { createAppSecretsRoutes } from '../modules/admin/app-secrets.routes';
-import { createUserRoutes } from '../modules/admin/user.routes';
+import { createUserRoutes } from '../modules/users/user.routes';
 import { createAdminRoutes } from '../modules/admin/admin.routes';
-import { createSignupRoutes } from '../modules/admin/signup.routes';
+import { createSignupRoutes } from '../modules/users/signup-wizard.routes';
 import { createFileQueryRoutes } from '../modules/files/files.routes';
 import { DEFAULT_API_PORT } from '../defaultApiPort';
-import { AppSecretsStore } from '../modules/app-secrets.module';
+import { AppSecretsStore } from '../modules/admin/app-secrets.service';
 import { resolveAppVersion } from '../internal/updates.service';
 import { asAppLogger, getLogger } from '../platform/logger/logger';
 

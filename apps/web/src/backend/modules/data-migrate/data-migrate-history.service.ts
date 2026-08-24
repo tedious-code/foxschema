@@ -7,7 +7,7 @@
  * Separate from Schema Sync `migration_runs`.
  */
 import { randomUUID } from 'node:crypto';
-import { getStore } from '../database/store';
+import { getStore } from '../../database/store';
 
 export type DataMigrateRunStatus =
   | 'RUNNING'

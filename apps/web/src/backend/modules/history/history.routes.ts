@@ -8,7 +8,7 @@
  * Extracted verbatim from api/routes.ts; handler bodies are unchanged.
  */
 import { Router, type Request, type Response } from 'express';
-import { requirePermissions } from '../../api/rbac.middleware';
+import { requirePermissions } from '../authorization/rbac.guard';
 import type { AuthedRequest } from '../auth/auth.routes';
 import { rateLimit } from '../../platform/guards/rate-limit';
 import type { ConnectionRef } from '../../platform/db/resolve';

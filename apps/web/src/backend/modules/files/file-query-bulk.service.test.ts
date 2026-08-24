@@ -4,7 +4,7 @@ import {
   bulkChunkSize,
   inferColumnTypes,
   sqlTypeForDialect,
-} from './file-query-bulk.module';
+} from './file-query-bulk.service';
 
 describe('file-query bulk helpers', () => {
   it('maps types per dialect', () => {

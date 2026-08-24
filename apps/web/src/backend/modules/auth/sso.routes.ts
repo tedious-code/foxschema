@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { AuthModule } from '../auth/auth.service';
 import { newToken } from '../../cores/crypto';
 import { readCookie, setSessionCookie } from '../auth/auth.routes';
-import { authorizeUrl, configuredProviders, fetchVerifiedEmail, getProvider, redirectUri } from '../sso.module';
+import { authorizeUrl, configuredProviders, fetchVerifiedEmail, getProvider, redirectUri } from './sso.service';
 
 const STATE_COOKIE = 'sso_state';
 const STATE_PATH = '/api/auth/sso';

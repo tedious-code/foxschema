@@ -1,4 +1,4 @@
-import { getStore } from '../database/store';
+import { getStore } from '../../database/store';
 
 export interface UserPreferences {
   role?: string;

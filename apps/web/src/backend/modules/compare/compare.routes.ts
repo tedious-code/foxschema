@@ -6,7 +6,7 @@
  * Declaration only: path, method, guards. No logic.
  */
 import { Router } from 'express';
-import { requirePermissions } from '../../api/rbac.middleware';
+import { requirePermissions } from '../authorization/rbac.guard';
 import { makeCompareController } from './compare.controller';
 import { makeCompareHandlers } from './compare.handler';
 import type { CompareService } from './compare.service';
