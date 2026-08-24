@@ -10,7 +10,7 @@
  * cannot accidentally skip it. Every RBAC gap found so far came from a second
  * code path re-implementing a check.
  */
-import type { Permission } from '../../shared/permissions';
+import type { Permission } from '../../../shared/permissions';
 
 export interface ActorContext {
   /** Undefined for an unauthenticated caller. */

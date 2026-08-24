@@ -6,8 +6,8 @@
  * point of the split.
  */
 import { CompareModule, type DbObjectType } from '@foxschema/db';
-import { requirePermission, type ActorContext } from '../actor';
-import type { ConnectionRef, ConnectionResolver } from '../connections/resolve';
+import { requirePermission, type ActorContext } from '../../platform/contracts/actor';
+import type { ConnectionRef, ConnectionResolver } from '../../platform/db/resolve';
 
 export interface CompareInput {
   source: ConnectionRef;

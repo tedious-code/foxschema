@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { makeCompareService } from './service';
-import { ServiceError, type ActorContext } from '../actor';
-import type { ConnectionResolver } from '../connections/resolve';
+import { makeCompareService } from './compare.service';
+import { ServiceError, type ActorContext } from '../../platform/contracts/actor';
+import type { ConnectionResolver } from '../../platform/db/resolve';
 import type { Permission } from '../../../shared/permissions';
 
 /**

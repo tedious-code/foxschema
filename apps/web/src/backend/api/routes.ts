@@ -60,9 +60,10 @@ import type { AuthedRequest } from './auth.routes';
 import { denyUnless, requirePermissions } from './rbac.middleware';
 import { isLocalSingleUser } from './deployment';
 import { CATEGORY_PERMISSION, DATAGRID_ACTION_PERMISSION, isDatagridAction, permissionSatisfied, type Permission } from '../../shared/permissions';
-import { toHttpError, type ActorContext } from '../features/actor';
-import { makeConnectionResolver, type ConnectionRef } from '../features/connections/resolve';
-import { makeCompareService } from '../features/compare/service';
+import { toHttpError, type ActorContext } from '../platform/contracts/actor';
+import { makeConnectionResolver, type ConnectionRef } from '../platform/db/resolve';
+import { makeCompareService } from '../modules/compare/compare.service';
+import { createCompareRoutes } from '../modules/compare/compare.routes';
 import {
   applyNpmGlobalUpdate,
   canSelfUpdate,
@@ -73,7 +74,7 @@ import {
   scheduleUiRelaunch,
 } from '../modules/updates.module';
 
-// ConnectionRef and its resolution moved to features/connections/resolve.ts so
+// ConnectionRef and its resolution moved to platform/db/resolve.ts so
 // services can share them; re-exported here because other modules import it
 // from this file.
 export type { ConnectionRef };
@@ -107,6 +108,10 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   // Single implementation, shared with the feature services. Destructured so the
   // handlers below keep their existing call sites unchanged.
   const { resolveRef, loadScopedTables } = resolver;
+
+  // Feature modules, each owning its own routes/handler/controller/service.
+  // routes.ts shrinks by one feature every time another moves across.
+  router.use(createCompareRoutes({ compareService }));
 
   const LOKEE_FULL_SCOPE: DbObjectType[] = [
     'TABLE',
@@ -773,19 +778,6 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
 
   // requirePermissions stays for the 401/403 shape the client already expects;
   // the service re-checks so a non-REST caller cannot bypass it.
-  router.post('/compare', requirePermissions('schema.compare'), async (req: Request, res: Response) => {
-    try {
-      const result = await compareService.compare(
-        req.body as { source: ConnectionRef; target: ConnectionRef; scope: DbObjectType[] },
-        actorOf(req)
-      );
-      res.json(result);
-    } catch (error: unknown) {
-      const { status, error: message } = toHttpError(error, 'Schema comparison failed');
-      res.status(status).json({ error: message });
-    }
-  });
-
   router.post('/migration/execute', requirePermissions('schema.migrate'), writeIdempotency, async (req: Request, res: Response) => {
     const { steps, continueOnError, ...ref } = req.body as ConnectionRef & { steps: MigrationStep[]; continueOnError?: boolean };
     let dialect: string;

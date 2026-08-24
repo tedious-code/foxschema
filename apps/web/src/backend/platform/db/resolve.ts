@@ -15,7 +15,7 @@ import {
   type TableSchema,
 } from '@foxschema/db';
 import type { ConnectionStore } from '../../modules/connection-store.module';
-import { ServiceError } from '../actor';
+import { ServiceError } from '../contracts/actor';
 
 /**
  * A connection reference: either a saved connection (resolved server-side so the
