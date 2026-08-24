@@ -29,11 +29,25 @@ export interface RateLimitCoreOptions {
 /** How often a full sweep may run, so distinct keys cannot grow without bound. */
 const SWEEP_EVERY_MS = 30_000;
 
+/**
+ * Hard ceiling on tracked keys.
+ *
+ * The periodic sweep bounds keys *over time*, not *between sweeps*: a flood
+ * from rotating source addresses can add a key per request for a full 30
+ * seconds, which is the memory exhaustion this limiter exists to prevent.
+ */
+const MAX_KEYS = 20_000;
+
 export class RateLimitCore {
   private readonly buckets = new Map<string, number[]>();
   private lastSweep = 0;
 
   constructor(private readonly options: RateLimitCoreOptions) {}
+
+  /** Tracked keys — exposed so the memory bound is testable. */
+  get size(): number {
+    return this.buckets.size;
+  }
 
   /**
    * Record an attempt and say whether it may proceed.
@@ -54,6 +68,27 @@ export class RateLimitCore {
 
     let hits = this.buckets.get(key);
     if (!hits) {
+      if (this.buckets.size >= MAX_KEYS) {
+        // Sweep early — most entries at this point are usually expired.
+        this.lastSweep = now;
+        for (const [k, h] of this.buckets) {
+          if (h.length === 0 || now - h[h.length - 1] > windowMs) this.buckets.delete(k);
+        }
+      }
+      if (this.buckets.size >= MAX_KEYS) {
+        // Still full: refuse the *new* key rather than evicting an existing
+        // one. Eviction would be backwards here — under a rotating-address
+        // flood the attacker's buckets are the freshest, so any recency-based
+        // eviction discards the legitimate users and hands the attacker a
+        // clean allowance. Refusing new keys degrades toward a global limit,
+        // which is the safe direction.
+        return {
+          allowed: false,
+          limit: max,
+          remaining: 0,
+          retryAfterSec: Math.max(1, Math.ceil(windowMs / 1000)),
+        };
+      }
       hits = [];
       this.buckets.set(key, hits);
     }

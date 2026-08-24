@@ -78,6 +78,9 @@ interface Circuit {
   lastError: string | null;
 }
 
+/** Far above any real deployment's distinct-target count. */
+const MAX_CIRCUITS = 5_000;
+
 const DEFAULTS = {
   failureThreshold: 3,
   resetAfterMs: 15_000,
@@ -131,6 +134,20 @@ export class CircuitBreaker {
   private circuit(key: string): Circuit {
     let c = this.circuits.get(key);
     if (!c) {
+      // Keys come from connection details, so a caller able to invent targets
+      // could otherwise grow this without limit. Healthy circuits carry no
+      // state worth keeping, so they are the ones to drop.
+      if (this.circuits.size >= MAX_CIRCUITS) {
+        for (const [k, existing] of this.circuits) {
+          if (existing.state === 'closed' && existing.failures === 0) this.circuits.delete(k);
+        }
+        // Still full means they are genuinely all failing; keep the oldest
+        // rather than grow, since an open circuit is the state that saves work.
+        if (this.circuits.size >= MAX_CIRCUITS) {
+          const oldest = this.circuits.keys().next().value;
+          if (oldest !== undefined) this.circuits.delete(oldest);
+        }
+      }
       c = { state: 'closed', failures: 0, successes: 0, openUntil: 0, lastError: null };
       this.circuits.set(key, c);
     }

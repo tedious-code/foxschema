@@ -50,8 +50,8 @@
  */
 
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
-import fastifyExpress from '@fastify/express';
-import { createApp } from './server';
+import { BODY_LIMIT, createApp } from './server';
+import { loggerConfig } from '../modules/logger.module';
 import { resolveAppVersion } from '../modules/updates.module';
 import { securityHeadersFor } from './policy/security-headers-core';
 import { RateLimitCore, RATE_LIMIT_MESSAGE, rateLimitKey } from './policy/rate-limit-core';
@@ -70,7 +70,24 @@ export interface FastifyServerOptions {
  * through `@fastify/express`, Express's parser runs first and its limit is the
  * effective one — this becomes load-bearing as routes move to native handlers.
  */
-const DEFAULT_BODY_LIMIT = 32 * 1024 * 1024;
+/**
+ * The edge must not be looser than the layer behind it.
+ *
+ * Fastify defaulted to 32MB while Express enforced FOX_BODY_LIMIT (10mb), so a
+ * 20MB body passed the edge and was rejected deeper in — surfacing as a 400
+ * about bad JSON rather than the 413 it actually was. One limit, enforced
+ * where the bytes arrive.
+ */
+function parseByteSize(value: string): number {
+  const m = /^(\d+(?:\.\d+)?)\s*(b|kb|mb|gb)?$/i.exec(value.trim());
+  if (!m) return 10 * 1024 * 1024;
+  const scale = { b: 1, kb: 1024, mb: 1024 ** 2, gb: 1024 ** 3 }[
+    (m[2] ?? 'b').toLowerCase() as 'b' | 'kb' | 'mb' | 'gb'
+  ];
+  return Math.floor(Number(m[1]) * scale);
+}
+
+const DEFAULT_BODY_LIMIT = parseByteSize(BODY_LIMIT);
 
 /**
  * A request still running after this is not going to finish usefully, and it is
@@ -82,7 +99,9 @@ export async function createFastifyApp(
   options: FastifyServerOptions = {}
 ): Promise<FastifyInstance> {
   const app = Fastify({
-    logger: false,
+    // Fastify owns the logger, which is what gives every line a request id
+    // without a correlation mechanism of our own.
+    logger: loggerConfig(),
     // Behind the CLI launcher and Docker this is the local process; trusting
     // the proxy headers is what makes req.ip meaningful for rate limiting.
     trustProxy: true,
@@ -128,39 +147,70 @@ export async function createFastifyApp(
   // migration path: each route moved here stops paying for two frameworks.
   // Health is first because it is trivial, has no dependencies, and is polled
   // constantly by the CLI launcher and the UI's offline banner.
-  app.get('/api/health', async () => ({ ok: true, version: resolveAppVersion() }));
+  // `silent` because the CLI launcher and the UI's offline banner poll this
+  // constantly; at info it would be most of the log volume and none of the
+  // signal.
+  app.get('/api/health', { logLevel: 'silent' }, async () => ({
+    ok: true,
+    version: resolveAppVersion(),
+  }));
 
   // --- Express routers underneath -----------------------------------------
-  // The 38 existing routes keep their handlers, their guards and their tests.
+  // Reached only when Fastify has no route for the path, so a ported route
+  // pays nothing for the ones that have not moved yet. `app.use()` would run
+  // Express's whole middleware chain on every request instead — measured at
+  // 6.8k req/s against 53k for the same route without it.
   //
-  // Mounted globally with `use()`, which is measurably expensive: it runs the
-  // whole Express middleware chain on every request, native routes included.
-  // Bare Fastify serves this app's health route at 53k req/s; with the bridge
-  // it is 6.8k, against Express's own 15-18k.
-  //
-  // Delegating from `setNotFoundHandler` instead — so a native route never
-  // touches Express — measured 24k req/s and looked like the obvious fix. It
-  // is not: Fastify parses the body before the not-found handler runs, so
-  // Express receives an empty stream and *every POST* returns 500 while GETs
-  // keep working. A pass-through content-type parser did not rescue it either.
-  // Recorded so the next attempt does not rediscover it the same way.
-  //
-  // So the value of this migration is in porting routes to native handlers,
-  // not in the edge alone. Until a route moves, it pays the bridge.
-  await app.register(fastifyExpress);
-  app.use(createApp());
+  // The catch that broke this before: Fastify parses the body first, so
+  // Express's parser found an empty stream and every POST returned 500. The
+  // fix is to hand Express the already-parsed body and mark it parsed —
+  // body-parser skips when `_body` is set, which is exactly what that flag is
+  // for.
+  const expressApp = createApp();
+  app.setNotFoundHandler((req, reply) => {
+    const raw = req.raw as unknown as { body?: unknown; _body?: boolean };
+    if (req.body !== undefined) {
+      raw.body = req.body;
+      raw._body = true;
+    }
+    expressApp(req.raw, reply.raw);
+  });
 
   // An unhandled throw must not return an HTML stack page to a JSON client.
-  app.setErrorHandler((error: unknown, _req, reply) => {
+  // The single place a request failure is logged. The database layer reports
+  // timings at debug and re-throws; logging there as well would turn one
+  // failure into several lines saying the same thing.
+  app.setErrorHandler((error: unknown, req, reply) => {
+    const code = (error as { statusCode?: number })?.statusCode ?? 500;
+    // A 4xx is the caller's mistake, not a server failure — logging those at
+    // error makes the level meaningless.
+    if (code >= 500) {
+      req.log.error({ err: error, method: req.method, url: req.url }, 'request failed');
+    } else {
+      req.log.debug({ err: error, method: req.method, url: req.url }, 'request rejected');
+    }
+    return errorReply(error, reply);
+  });
+
+  function errorReply(error: unknown, reply: FastifyReply) {
     const status = (error as { statusCode?: number })?.statusCode ?? 500;
-    const message = error instanceof Error ? error.message : 'Request failed.';
+    const errCode = (error as { code?: string })?.code;
+    // Fastify's own text is "Request body is too large", which does not say
+    // what "too large" is. Naming the limit is the difference between an error
+    // a caller can act on and one they have to go looking for.
+    const message =
+      errCode === 'FST_ERR_CTP_BODY_TOO_LARGE'
+        ? `Request body is larger than the ${BODY_LIMIT} limit.`
+        : error instanceof Error
+          ? error.message
+          : 'Request failed.';
     reply.code(status).send({
       ok: false,
       // A 5xx must not leak internals; a 4xx is the caller's own mistake and
       // is more useful stated plainly.
       error: status >= 500 ? 'Internal server error.' : message,
     });
-  });
+  }
 
   return app;
 }

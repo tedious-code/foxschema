@@ -34,6 +34,7 @@ import { isSingleSqlStatement } from './single-statement';
 import { AppSettingsStore } from '../modules/app-settings.module';
 import { LokeeWeaveStore } from '../modules/lokee-weave.module';
 import { rateLimit } from './rate-limit';
+import { targetKey, targetLocks } from '../modules/target-lock.module';
 import { idempotency } from './idempotency';
 import { browseDirectory, browseErrorMessage, resolveBrowsePath } from './file-browse';
 import {
@@ -797,6 +798,22 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       return;
     }
 
+    // One writer at a time. A second migration planned against a schema this
+    // one is about to change would apply steps derived from a shape that no
+    // longer exists, and the database will not arbitrate that for us.
+    const lock = targetLocks.acquire(
+      targetKey({ dialect, host: option.host, database: option.database, schema }),
+      { userId: (req as AuthedRequest).userId!, operation: 'migrate' }
+    );
+    if (!lock.ok) {
+      res.status(409).json({ error: lock.message, heldBy: lock.heldBy.operation });
+      return;
+    }
+
+    // finally, not a trailing call: an unexpected throw anywhere below would
+    // otherwise leave the target locked until the stale timeout, blocking
+    // everyone from a database that is actually free.
+    try {
     // Record this run in history (best-effort — never let logging break a deploy).
     const userId = (req as AuthedRequest).userId!;
     const script = steps
@@ -923,6 +940,27 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     }
 
     res.end();
+    } finally {
+      lock.release();
+    }
+  });
+
+  /**
+   * What long-running work is in flight, for the UI's activity indicator.
+   * Cheap and read-only — safe to poll.
+   */
+  router.get('/activity', (_req: Request, res: Response) => {
+    const running = targetLocks.active();
+    res.json({
+      count: running.length,
+      tasks: running.map((t) => ({
+        operation: t.operation,
+        label: t.label,
+        startedAt: t.startedAt,
+        // The key names host/database/schema, never a credential.
+        target: t.key,
+      })),
+    });
   });
 
   // --- Migration history (per user) ----------------------------------------

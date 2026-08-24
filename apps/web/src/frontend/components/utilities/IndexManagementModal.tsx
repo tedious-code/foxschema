@@ -82,6 +82,45 @@ type IndexRow = {
   tableError?: string;
 };
 
+/**
+ * Turn a before/after fragmentation reading into a sentence that distinguishes
+ * the three outcomes a reader cannot otherwise tell apart.
+ *
+ * Running maintenance and seeing the same percentage looks exactly like a
+ * button that does nothing — and usually it is not. An index with one leaf page
+ * has no fragmentation to reclaim (Postgres reports NaN for it, which arrives
+ * here as null), and an already-compact index legitimately does not move. Say
+ * which happened.
+ */
+export function describeFragmentationChange(
+  before: ReadonlyArray<number | null>,
+  after: ReadonlyArray<number | null>
+): string {
+  const measured = (xs: ReadonlyArray<number | null>) =>
+    xs.filter((x): x is number => x != null && Number.isFinite(x));
+  const b = measured(before);
+  const a = measured(after);
+
+  if (b.length === 0 && a.length === 0) {
+    return 'these indexes report no fragmentation figure — too small to measure, so there was nothing to reclaim.';
+  }
+  const avg = (xs: number[]) => xs.reduce((t, x) => t + x, 0) / xs.length;
+  const from = b.length ? avg(b) : null;
+  const to = a.length ? avg(a) : null;
+  if (from == null || to == null) return 'reloaded.';
+
+  const delta = from - to;
+  // Sub-0.5pt moves are noise on an estimate, not a result worth claiming.
+  if (Math.abs(delta) < 0.5) {
+    return from < 1
+      ? 'these indexes were already compact, so the figure did not move.'
+      : `fragmentation is unchanged at ${formatPct(from)} — this engine may need its statistics refreshed before the figure moves.`;
+  }
+  return delta > 0
+    ? `fragmentation ${formatPct(from)} → ${formatPct(to)}.`
+    : `fragmentation rose ${formatPct(from)} → ${formatPct(to)}, which usually means the rebuild is still settling.`;
+}
+
 function formatPct(pct: number | null | undefined): string {
   if (pct == null || !Number.isFinite(pct)) return '—';
   return `${pct < 10 ? pct.toFixed(1) : Math.round(pct)}%`;
@@ -515,6 +554,13 @@ export const IndexManagementModal: React.FC<Props> = ({
     void loadSchema({ force: false });
   }, [open, connectionId, needsPassword, loadSchema]);
 
+  /** Current fragmentation for the given rows, in the order given. */
+  const readFragmentation = useCallback(
+    (keys: string[]): Array<number | null> =>
+      keys.map((k) => allRows.find((r) => r.key === k)?.frag?.fragmentationPercent ?? null),
+    [allRows]
+  );
+
   const runDefrag = useCallback(
     async (keys: string[]) => {
       if (!connectionId || !conn || keys.length === 0) return;
@@ -541,6 +587,10 @@ export const IndexManagementModal: React.FC<Props> = ({
       setRunningDefrag(true);
       setError(null);
       setStatus(null);
+      // Read the numbers first so the outcome can be stated as a change rather
+      // than left for the reader to eyeball. "Ran 5 statements" and an
+      // unmoved percentage is indistinguishable from a broken button.
+      const before = readFragmentation(keys);
       try {
         const { results } = await executeSql(
           {
@@ -567,7 +617,7 @@ export const IndexManagementModal: React.FC<Props> = ({
           // milliseconds later — the click looked like it did nothing. Wait
           // for the reload, then say what happened.
           await fetchFragmentation();
-          setStatus(`${ran} — reloaded.`);
+          setStatus(`${ran} — ${describeFragmentationChange(before, readFragmentation(keys))}`);
         }
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : String(err));
@@ -584,6 +634,7 @@ export const IndexManagementModal: React.FC<Props> = ({
       sessionPasswords,
       fetchFragmentation,
       maintenanceVerb,
+      readFragmentation,
     ]
   );
 

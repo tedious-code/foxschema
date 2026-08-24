@@ -24,6 +24,7 @@ import { createFileQueryRoutes } from './file-query.routes';
 import { DEFAULT_API_PORT } from '../defaultApiPort';
 import { AppSecretsStore } from '../modules/app-secrets.module';
 import { resolveAppVersion } from '../modules/updates.module';
+import { asAppLogger, getLogger } from '../modules/logger.module';
 
 // Default to single-user (no login). Set LOCAL_SINGLE_USER=false to enable
 // multi-user auth. In multi-user mode AUTH_REQUIRED defaults to true (safe).
@@ -41,6 +42,10 @@ export const BODY_LIMIT = process.env.FOX_BODY_LIMIT || '10mb';
 
 export function createApp() {
   const app = express();
+
+  // The driver runtime logs through whatever it is given; without this it stays
+  // silent. Installed here so both servers get query timing.
+  ConnectionFactory.useLogger(asAppLogger(getLogger()));
 
   // Before anything else, so even an early error response carries them.
   app.disable('x-powered-by');
@@ -155,10 +160,12 @@ export function startServer(port = Number(process.env.API_PORT) || DEFAULT_API_P
   // moment we know they are orphans; without this they are never collected.
   try {
     const swept = sweepOrphanedUploadFiles();
-    if (swept > 0) console.log(`Removed ${swept} orphaned upload part file(s)`);
+    if (swept > 0) {
+      getLogger().info({ component: 'uploads', removed: swept }, 'swept orphaned upload parts');
+    }
   } catch (error: unknown) {
     // Never block boot on temp-dir housekeeping.
-    console.warn('Upload sweep skipped:', error instanceof Error ? error.message : error);
+    getLogger().warn({ component: 'uploads', err: error }, 'upload sweep skipped');
   }
 
   const server = app.listen(port, () => {

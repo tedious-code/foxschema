@@ -127,13 +127,26 @@ describe('fastify body handling', () => {
       // "Empty response from server" for what is really a bad request.
       expect((await malformed.json()).ok).toBe(false);
 
+      // Two acceptable outcomes, and which one arrives is a race.
+      //
+      // Fastify aborts as soon as the declared body exceeds the limit rather
+      // than reading 20MB it has already decided to reject — so the client can
+      // see ECONNRESET mid-upload instead of a response. That is the better
+      // server behaviour, and asserting only on the 413 made this test fail
+      // whenever machine load tipped the race. Both mean "refused".
       const oversized = await fetch(`http://127.0.0.1:${port}/api/sql/execute`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ s: 'x'.repeat(20 * 1024 * 1024) }),
-      });
-      expect(oversized.status).toBe(413);
-      expect((await oversized.json()).error).toMatch(/larger than/i);
+      }).catch((err: unknown) => err as Error);
+
+      if (oversized instanceof Error) {
+        expect(String(oversized)).toMatch(/fetch failed|ECONNRESET|socket/i);
+      } else {
+        expect(oversized.status).toBe(413);
+        // The limit is named, so a caller knows what to shrink to.
+        expect((await oversized.json()).error).toMatch(/larger than/i);
+      }
     } finally {
       await app.close();
     }

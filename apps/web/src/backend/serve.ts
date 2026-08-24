@@ -1,5 +1,6 @@
 import { ConnectionFactory } from '@foxschema/db';
 import { startUiServer } from './startUiServer';
+import { getLogger } from './modules/logger.module';
 
 /**
  * Production web entry (Docker / self-host / CLI child process).
@@ -34,11 +35,11 @@ if (process.env.NODE_ENV === 'production' && !process.env.APP_ENCRYPTION_KEY) {
 const { port, server } = startUiServer();
 
 server.on('listening', () => {
-  console.log(`Fox listening on http://localhost:${port}  (UI + API)`);
+  getLogger().info({ component: 'server', port, url: `http://localhost:${port}` }, 'Fox Schema listening');
 });
 
 const shutdown = async (signal: string) => {
-  console.log(`${signal} received — closing connection pools...`);
+  getLogger().info({ component: 'server', signal }, 'shutting down — closing connection pools');
   await ConnectionFactory.closeAll();
   server.close(() => process.exit(0));
 };
