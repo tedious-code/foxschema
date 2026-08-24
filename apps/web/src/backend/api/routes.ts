@@ -64,6 +64,7 @@ import { toHttpError, type ActorContext } from '../platform/contracts/actor';
 import { makeConnectionResolver, type ConnectionRef } from '../platform/db/resolve';
 import { makeCompareService } from '../modules/compare/compare.service';
 import { createCompareRoutes } from '../modules/compare/compare.routes';
+import { createAccessRoutes } from '../modules/access/access.routes';
 import {
   applyNpmGlobalUpdate,
   canSelfUpdate,
@@ -112,6 +113,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   // Feature modules, each owning its own routes/handler/controller/service.
   // routes.ts shrinks by one feature every time another moves across.
   router.use(createCompareRoutes({ compareService }));
+  router.use(createAccessRoutes({ resolveRef, connectionModule }));
 
   const LOKEE_FULL_SCOPE: DbObjectType[] = [
     'TABLE',
@@ -387,205 +389,22 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
    * Tries the dialect default probe first; on failure accepts `customSql`
    * (single SELECT returning index_name + fragmentation_percent).
    */
-  const indexFragLimiter = rateLimit({ windowMs: 60 * 1000, max: 30 });
-  router.post(
-    '/schema/index-fragmentation',
-    indexFragLimiter,
-    requirePermissions('utility.access'),
-    async (req: Request, res: Response) => {
-    const body = req.body as ConnectionRef & {
-      table?: unknown;
-      schema?: unknown;
-      customSql?: unknown;
-      preferCustom?: unknown;
-    };
-    const table = typeof body.table === 'string' ? body.table.trim() : '';
-    if (!table) {
-      res.status(400).json({ error: 'table is required.' });
-      return;
-    }
-    const customSql = typeof body.customSql === 'string' ? body.customSql.trim() : '';
-    const preferCustom = body.preferCustom === true;
-    try {
-      const resolved = await resolveRef((req as AuthedRequest).userId, body);
-      const schema =
-        (typeof body.schema === 'string' && body.schema.trim()) || resolved.schema || '';
-      const probed = await probeTableFragmentation({
-        dialect: resolved.dialect,
-        option: resolved.option,
-        schema,
-        table,
-        customSql,
-        preferCustom,
-      });
-      if (!probed.ok) {
-        const { status, ...rest } = probed.failure;
-        res.status(status).json(rest);
-        return;
-      }
-      res.json(probed.value);
-    } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : 'Failed to load index fragmentation';
-      res.status(500).json({ error: message });
-    }
-  });
 
   /**
    * Batch index fragmentation for Utilities → Index Management.
    * Probes many tables (capped) with bounded concurrency on one connection ref.
    */
-  const indexFragBatchLimiter = rateLimit({ windowMs: 60 * 1000, max: 10 });
-  router.post(
-    '/schema/index-fragmentation-batch',
-    indexFragBatchLimiter,
-    requirePermissions('utility.access'),
-    async (req: Request, res: Response) => {
-      const body = req.body as ConnectionRef & {
-        tables?: unknown;
-        schema?: unknown;
-      };
-      const tables = Array.isArray(body.tables)
-        ? body.tables
-            .filter((t): t is string => typeof t === 'string')
-            .map((t) => t.trim())
-            .filter(Boolean)
-        : [];
-      if (tables.length === 0) {
-        res.status(400).json({ error: 'tables[] is required.' });
-        return;
-      }
-      if (tables.length > 80) {
-        res.status(400).json({ error: 'At most 80 tables per batch request.' });
-        return;
-      }
-      try {
-        const resolved = await resolveRef((req as AuthedRequest).userId, body);
-        const schema =
-          (typeof body.schema === 'string' && body.schema.trim()) || resolved.schema || '';
-        const support = dialectSupportsIndexFragmentation(resolved.dialect);
-        const results = await mapPool(tables, 3, async (table) => {
-          const probed = await probeTableFragmentation({
-            dialect: resolved.dialect,
-            option: resolved.option,
-            schema,
-            table,
-          });
-          if (!probed.ok) {
-            return {
-              table,
-              ok: false as const,
-              error: probed.failure.error,
-              rows: [],
-              defrag: {} as Record<string, string[]>,
-            };
-          }
-          return {
-            table,
-            ok: true as const,
-            rows: probed.value.rows,
-            defrag: probed.value.defrag,
-            mode: probed.value.mode,
-            source: probed.value.source,
-            warning: probed.value.warning,
-          };
-        });
-        res.json({
-          support,
-          dialect: resolved.dialect,
-          schema,
-          results,
-          customSqlTemplate: buildIndexFragmentationCustomTemplate({
-            dialect: resolved.dialect,
-            schema,
-            table: tables[0]!,
-          }),
-        });
-      } catch (error: unknown) {
-        const message =
-          error instanceof Error ? error.message : 'Failed to load index fragmentation batch';
-        res.status(500).json({ error: message });
-      }
-    }
-  );
 
   /**
    * DBA utilities: connection pool, user sessions, system info, object sizes.
    * One connection ref + kind; dialect probes live in @foxschema/db.
    */
-  const dbaUtilityLimiter = rateLimit({ windowMs: 60 * 1000, max: 30 });
-  router.post(
-    '/schema/dba-utility',
-    dbaUtilityLimiter,
-    requirePermissions('utility.access'),
-    async (req: Request, res: Response) => {
-    const body = req.body as ConnectionRef & {
-      kind?: unknown;
-      schema?: unknown;
-    };
-    const kindRaw = typeof body.kind === 'string' ? body.kind.trim() : '';
-    const allowed: DbaUtilityKind[] = ['pool', 'sessions', 'system', 'sizes'];
-    if (!allowed.includes(kindRaw as DbaUtilityKind)) {
-      res.status(400).json({ error: 'kind must be one of: pool, sessions, system, sizes.' });
-      return;
-    }
-    const kind = kindRaw as DbaUtilityKind;
-    try {
-      const resolved = await resolveRef((req as AuthedRequest).userId, body);
-      const schema =
-        (typeof body.schema === 'string' && body.schema.trim()) || resolved.schema || '';
-      const probed = await probeDbaUtility({
-        dialect: resolved.dialect,
-        option: resolved.option,
-        kind,
-        schema,
-      });
-      if (!probed.ok) {
-        const { status, ...rest } = probed.failure;
-        res.status(status).json(rest);
-        return;
-      }
-      res.json({ ...probed.value, dialect: resolved.dialect, schema });
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Failed to run DBA utility';
-      res.status(500).json({ error: message });
-    }
-  });
 
   /**
    * Database users, roles/groups, and object privileges for Access control /
    * Utilities → Database Access. GRANT/REVOKE still go through /sql/execute
    * (editor.grant).
    */
-  const dbAccessLimiter = rateLimit({ windowMs: 60 * 1000, max: 20 });
-  router.post(
-    '/schema/db-access',
-    dbAccessLimiter,
-    requirePermissions('utility.access'),
-    async (req: Request, res: Response) => {
-      const body = req.body as ConnectionRef & { schema?: unknown };
-      try {
-        const resolved = await resolveRef((req as AuthedRequest).userId, body);
-        const schema =
-          (typeof body.schema === 'string' && body.schema.trim()) || resolved.schema || '';
-        const probed = await probeDbAccess({
-          dialect: resolved.dialect,
-          option: resolved.option,
-          schema,
-        });
-        if (!probed.ok) {
-          const { status, ...rest } = probed.failure;
-          res.status(status).json(rest);
-          return;
-        }
-        res.json(probed.value);
-      } catch (error: unknown) {
-        const message =
-          error instanceof Error ? error.message : 'Failed to load database users and privileges';
-        res.status(500).json({ error: message });
-      }
-    }
-  );
 
   // SQL Editor: run ad-hoc statements against ONE credential and return shaped
   // row results. The frontend fans out across selected credentials with one
