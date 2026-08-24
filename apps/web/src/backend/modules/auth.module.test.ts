@@ -3,7 +3,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 // Use an isolated in-memory DB before anything calls getStore()
 process.env.APP_DB_PATH = ':memory:';
 
-import { AuthModule } from './auth.module';
+import { AuthModule } from './auth/auth.service';
 import { RbacModule } from './rbac.module';
 
 const auth = new AuthModule();

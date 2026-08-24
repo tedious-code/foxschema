@@ -8,7 +8,7 @@
 import type { Response, NextFunction } from 'express';
 import { permissionSatisfied } from '../../shared/permissions';
 import type { Permission } from '../../shared/permissions';
-import type { AuthedRequest } from './auth.routes';
+import type { AuthedRequest } from '../modules/auth/auth.routes';
 
 /** After a session is resolved, reject when any required permission is missing. */
 export function requirePermissions(...required: Permission[]) {

@@ -8,10 +8,10 @@ import {
   serializeCloudRef,
   type CloudSecretRef,
   type CloudSecretSource,
-} from './cloud-secrets';
+} from '../internal/cloud-secrets';
 import { rethrowUniqueViolation } from './db-errors';
 import { CloudProviderCredentialsStore } from './cloud-provider-credentials.module';
-import type { CloudProviderCredentials } from './cloud-secrets';
+import type { CloudProviderCredentials } from '../internal/cloud-secrets';
 
 export type AppSecretSource = 'local' | CloudSecretSource;
 

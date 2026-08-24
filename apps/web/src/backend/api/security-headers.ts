@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
-import { securityHeadersFor, type SecurityHeaderOptions } from './policy/security-headers-core';
+import { securityHeadersFor, type SecurityHeaderOptions } from '../platform/guards/security-headers-core';
 
 export type { SecurityHeaderOptions };
 

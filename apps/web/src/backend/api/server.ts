@@ -5,26 +5,27 @@
  */
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
+import { corsOriginDelegate, originVerdict } from '../platform/guards/origin-policy';
 import { ConnectionModule, ConnectionFactory } from '@foxschema/db';
-import { AuthModule } from '../modules/auth.module';
-import { ConnectionStore } from '../modules/connection-store.module';
-import { sweepOrphanedUploadFiles } from '../modules/file-query-session.module';
+import { AuthModule } from '../modules/auth/auth.service';
+import { ConnectionStore } from '../modules/connections/connection-store.service';
+import { sweepOrphanedUploadFiles } from '../modules/files/file-session.service';
 import { UserModule } from '../modules/user.module';
 import { createApiRoutes } from './routes';
-import { defaultApiRateLimit, globalApiFloodgate } from './rate-limit';
+import { defaultApiRateLimit, globalApiFloodgate } from '../platform/guards/rate-limit';
 import { securityHeaders } from './security-headers';
-import { createAuthRoutes, authGuard, localUserGuard } from './auth.routes';
-import { createSsoRoutes } from './sso.routes';
-import { createConnectionStoreRoutes } from './connection-store.routes';
-import { createAppSecretsRoutes } from './app-secrets.routes';
-import { createUserRoutes } from './user.routes';
-import { createAdminRoutes } from './admin.routes';
-import { createSignupRoutes } from './signup.routes';
-import { createFileQueryRoutes } from './file-query.routes';
+import { createAuthRoutes, authGuard, localUserGuard } from '../modules/auth/auth.routes';
+import { createSsoRoutes } from '../modules/auth/sso.routes';
+import { createConnectionStoreRoutes } from '../modules/connections/connections.routes';
+import { createAppSecretsRoutes } from '../modules/admin/app-secrets.routes';
+import { createUserRoutes } from '../modules/admin/user.routes';
+import { createAdminRoutes } from '../modules/admin/admin.routes';
+import { createSignupRoutes } from '../modules/admin/signup.routes';
+import { createFileQueryRoutes } from '../modules/files/files.routes';
 import { DEFAULT_API_PORT } from '../defaultApiPort';
 import { AppSecretsStore } from '../modules/app-secrets.module';
-import { resolveAppVersion } from '../modules/updates.module';
-import { asAppLogger, getLogger } from '../modules/logger.module';
+import { resolveAppVersion } from '../internal/updates.service';
+import { asAppLogger, getLogger } from '../platform/logger/logger';
 
 // Default to single-user (no login). Set LOCAL_SINGLE_USER=false to enable
 // multi-user auth. In multi-user mode AUTH_REQUIRED defaults to true (safe).
@@ -52,29 +53,21 @@ export function createApp() {
   app.use(securityHeaders({ hsts: process.env.FOX_HSTS === '1' }));
   const connectionModule = new ConnectionModule();
 
-  // The API holds DB credentials and can run migrations, so only allow the
-  // local app to call it — this blocks a malicious site in the user's browser
-  // from reaching http://localhost:<port>/api and reading/triggering anything.
+  // The API holds DB credentials and can run migrations, so only named origins
+  // may call it with cookies. This used to allow *any* localhost port and any
+  // `.localhost` host, which let a page on an unrelated local dev server drive
+  // the API with the user's session — see platform/guards/origin-policy.
+  // Before cors, so a refusal is a 403 the caller can read rather than the 500
+  // the cors package produces by throwing — and so a refused cross-origin
+  // request never reaches a route.
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const verdict = originVerdict(req.headers.origin);
+    if (verdict.allowed) return next();
+    res.status(verdict.status).json({ ok: false, error: verdict.error });
+  });
   app.use(
     cors({
-      origin: (origin, cb) => {
-        if (!origin) return cb(null, true); // same-origin / curl / dev proxy
-        try {
-          const url = new URL(origin);
-          const host = url.hostname;
-          if (
-            host === 'localhost' ||
-            host === '127.0.0.1' ||
-            host === '::1' ||
-            host.endsWith('.localhost')
-          ) {
-            return cb(null, true);
-          }
-        } catch {
-          /* malformed origin → reject below */
-        }
-        cb(new Error('Origin not allowed'));
-      },
+      origin: corsOriginDelegate(),
       // The frontend sends `credentials: 'include'` (session cookie).
       credentials: true,
     })

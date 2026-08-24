@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Request, Response } from 'express';
-import { rateLimit } from './rate-limit';
+import { rateLimit } from '../platform/guards/rate-limit';
 
 /** Minimal express doubles — the limiter only touches these. */
 function reqOf(over: Partial<Request> & { userId?: string } = {}) {
