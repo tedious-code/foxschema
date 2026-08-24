@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isCellDoneMessage, isCellQueryRequest } from './code-cell-bridge';
+import { isCellDoneMessage, isCellQueryRequest } from './code-cell-bridge.service';
 
 describe('code-cell-bridge message guards', () => {
   it('accepts a minimal cell-query and optional Server Beam fields', () => {

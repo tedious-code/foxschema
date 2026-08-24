@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rmSync } from 'node:fs';
-import { clampMaxRows, shapeRows, runStatements } from './sql-execute';
+import { clampMaxRows, shapeRows, runStatements } from './sql-execute.service';
 import { ConnectionFactory } from '@foxschema/db';
 
 describe('clampMaxRows', () => {

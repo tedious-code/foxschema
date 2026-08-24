@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { executeCodeCellNode } from './code-cell-node-exec';
+import { executeCodeCellNode } from './code-cell-node-exec.service';
 import {
   clampCodeCellTimeout,
   codeCellWorkerEnv,
   runCodeCellOnServer,
   validateCodeCellRequest,
-} from './code-cell-execute';
-import { MAX_SQL } from '../../shared/server-beam';
+} from './code-cell-execute.service';
+import { MAX_SQL } from '../../../shared/server-beam';
 
 /** Value planted in APP_ENCRYPTION_KEY to prove an escaped cell cannot read it. */
 const SENTINEL_SECRET = 'sentinel-must-not-leak';

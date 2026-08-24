@@ -8,7 +8,7 @@ import cors from 'cors';
 import { corsOriginDelegate, originVerdict } from '../platform/guards/origin-policy';
 import { ConnectionModule, ConnectionFactory } from '@foxschema/db';
 import { AuthModule } from '../modules/auth/auth.service';
-import { ConnectionStore } from '../modules/connection-store.module';
+import { ConnectionStore } from '../modules/connections/connection-store.service';
 import { sweepOrphanedUploadFiles } from '../modules/files/file-session.service';
 import { UserModule } from '../modules/user.module';
 import { createApiRoutes } from './routes';
@@ -16,15 +16,15 @@ import { defaultApiRateLimit, globalApiFloodgate } from '../platform/guards/rate
 import { securityHeaders } from './security-headers';
 import { createAuthRoutes, authGuard, localUserGuard } from '../modules/auth/auth.routes';
 import { createSsoRoutes } from '../modules/auth/sso.routes';
-import { createConnectionStoreRoutes } from './connection-store.routes';
-import { createAppSecretsRoutes } from './app-secrets.routes';
-import { createUserRoutes } from './user.routes';
-import { createAdminRoutes } from './admin.routes';
-import { createSignupRoutes } from './signup.routes';
+import { createConnectionStoreRoutes } from '../modules/connections/connections.routes';
+import { createAppSecretsRoutes } from '../modules/admin/app-secrets.routes';
+import { createUserRoutes } from '../modules/admin/user.routes';
+import { createAdminRoutes } from '../modules/admin/admin.routes';
+import { createSignupRoutes } from '../modules/admin/signup.routes';
 import { createFileQueryRoutes } from '../modules/files/files.routes';
 import { DEFAULT_API_PORT } from '../defaultApiPort';
 import { AppSecretsStore } from '../modules/app-secrets.module';
-import { resolveAppVersion } from '../modules/updates.module';
+import { resolveAppVersion } from '../internal/updates.service';
 import { asAppLogger, getLogger } from '../platform/logger/logger';
 
 // Default to single-user (no login). Set LOCAL_SINGLE_USER=false to enable

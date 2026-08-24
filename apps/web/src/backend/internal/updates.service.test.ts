@@ -11,7 +11,7 @@ import {
   scheduleUiRelaunch,
   DEFAULT_UPDATE_FEED_URL,
   NPM_PACKAGE,
-} from './updates.module';
+} from './updates.service';
 
 describe('updates.module (npm publish channel)', () => {
   beforeEach(() => {

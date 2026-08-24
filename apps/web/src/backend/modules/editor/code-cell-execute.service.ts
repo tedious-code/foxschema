@@ -8,13 +8,13 @@ import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import type { BrowserCodeCellKind } from '@foxschema/db';
 import { isCodeCellLast, isCodeCellVars } from '@foxschema/db';
-import type { CodeCellLast, CodeCellResult, CodeCellVars } from './code-cell-node-exec';
+import type { CodeCellLast, CodeCellResult, CodeCellVars } from './code-cell-node-exec.service';
 import {
   isCellDoneMessage,
   isCellQueryRequest,
   type CellQueryRequest,
   type CellQueryResponse,
-} from './code-cell-bridge';
+} from './code-cell-bridge.service';
 
 /** Runs one bridged statement for a cell and returns rows as objects. */
 export type CellQueryRunner = (
@@ -22,8 +22,8 @@ export type CellQueryRunner = (
   params: unknown[],
   alias?: string
 ) => Promise<Record<string, unknown>[]>;
-import { clampMaxRows } from './sql-execute';
-import { createBeamSqlCap } from '../../shared/server-beam';
+import { clampMaxRows } from './sql-execute.service';
+import { createBeamSqlCap } from '../../../shared/server-beam';
 
 export const MAX_CODE_CELL_LENGTH = 100_000;
 export const DEFAULT_CODE_CELL_TIMEOUT_MS = 10_000;

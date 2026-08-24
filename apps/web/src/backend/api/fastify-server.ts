@@ -52,7 +52,7 @@
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { BODY_LIMIT, createApp } from './server';
 import { loggerConfig } from '../platform/logger/logger';
-import { resolveAppVersion } from '../modules/updates.module';
+import { resolveAppVersion } from '../internal/updates.service';
 import { securityHeadersFor } from '../platform/guards/security-headers-core';
 import { RateLimitCore, RATE_LIMIT_MESSAGE, rateLimitKey } from '../platform/guards/rate-limit-core';
 

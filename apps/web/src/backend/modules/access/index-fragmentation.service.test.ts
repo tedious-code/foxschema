@@ -9,7 +9,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rmSync } from 'node:fs';
-import { probeTableFragmentation, mapPool, resolveFragmentationSchema } from './index-fragmentation';
+import { probeTableFragmentation, mapPool, resolveFragmentationSchema } from './index-fragmentation.service';
 import { ConnectionFactory } from '@foxschema/db';
 
 const dbPath = join(tmpdir(), `fox-index-frag-test-${process.pid}.db`);

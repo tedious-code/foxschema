@@ -14,7 +14,7 @@ import {
   MAX_DETECT_LINES,
 } from '../text-columns';
 import { rateLimit } from '../../platform/guards/rate-limit';
-import { ConnectionStore } from '../connection-store.module';
+import { ConnectionStore } from '../connections/connection-store.service';
 import {
   appendFileToSqliteWorkspace,
   isFileQueryConnectionName,
@@ -520,7 +520,7 @@ async function parseUpload(
     return parseFileToTable(input, { maxChars });
   }
   return cpuPool.run<{ input: FileQueryImportInput; maxChars: number }, ReturnType<typeof parseFileToTable>>({
-    script: new URL('../modules/parse-file.worker.ts', import.meta.url),
+    script: new URL('../parse-file.worker.ts', import.meta.url),
     input: { input, maxChars },
     timeoutMs: 120_000,
   }).promise;

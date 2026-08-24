@@ -11,8 +11,8 @@ import {
   isSqlQuery,
   type SqlQuery,
 } from '@foxschema/db';
-import { executeCodeCellNode, type CodeCellLast, type CodeCellVars } from './code-cell-node-exec';
-import type { CellQueryResponse } from './code-cell-bridge';
+import { executeCodeCellNode, type CodeCellLast, type CodeCellVars } from './code-cell-node-exec.service';
+import type { CellQueryResponse } from './code-cell-bridge.service';
 
 /**
  * Worker threads inherit a copy of process.env. The parent already passes a

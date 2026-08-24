@@ -7,11 +7,11 @@
  * configure role permission matrices.
  */
 import { Router, Response } from 'express';
-import { RbacModule } from '../modules/rbac.module';
-import { AuthModule } from '../modules/auth/auth.service';
-import { APP_ROLES, PERMISSION_META, isAppRole } from '../../shared/permissions';
-import type { AuthedRequest } from '../modules/auth/auth.routes';
-import { requirePermissions } from './rbac.middleware';
+import { RbacModule } from '../rbac.module';
+import { AuthModule } from '../auth/auth.service';
+import { APP_ROLES, PERMISSION_META, isAppRole } from '../../../shared/permissions';
+import type { AuthedRequest } from '../auth/auth.routes';
+import { requirePermissions } from '../../api/rbac.middleware';
 
 export function createAdminRoutes(rbac = new RbacModule(), auth = new AuthModule()): Router {
   const router = Router();

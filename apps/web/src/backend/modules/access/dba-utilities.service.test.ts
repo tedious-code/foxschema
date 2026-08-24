@@ -9,7 +9,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rmSync } from 'node:fs';
-import { probeDbaUtility } from './dba-utilities';
+import { probeDbaUtility } from './dba-utilities.service';
 import { ConnectionFactory } from '@foxschema/db';
 
 const dbPath = join(tmpdir(), `fox-dba-util-test-${process.pid}.db`);

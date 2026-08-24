@@ -1,6 +1,6 @@
 import { ConnectionFactory, getAdapter, type ConnectionOptions } from '@foxschema/db';
 import { autoAliasSelectColumns } from '@foxschema/sql';
-import { isPageableStatement, trimPageProbe, wrapSqlForPage } from './sql-page-wrap';
+import { isPageableStatement, trimPageProbe, wrapSqlForPage } from './sql-page-wrap.service';
 
 /**
  * Helpers behind POST /api/sql/execute (SQL Editor). One request = one

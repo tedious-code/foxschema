@@ -18,11 +18,11 @@ import {
   type TableSchema,
   type DbaUtilityKind,
 } from '@foxschema/db';
-import { probeTableFragmentation, mapPool } from './index-fragmentation';
-import { probeDbaUtility } from './dba-utilities';
-import { probeDbAccess } from './db-access';
+import { probeTableFragmentation, mapPool } from '../modules/access/index-fragmentation.service';
+import { probeDbaUtility } from '../modules/access/dba-utilities.service';
+import { probeDbAccess } from '../modules/access/db-access.service';
 
-import { ConnectionStore } from '../modules/connection-store.module';
+import { ConnectionStore } from '../modules/connections/connection-store.service';
 import { MigrationHistoryStore, type MigrationObjectResult, type MigrationRunStatus } from '../modules/migration-history.module';
 import {
   DataMigrateHistoryStore,
@@ -43,15 +43,15 @@ import {
   isRunnableStatement,
   MAX_STATEMENTS,
   MAX_STATEMENT_LENGTH,
-} from './sql-execute';
-import { clampOffset } from './sql-page-wrap';
+} from '../modules/editor/sql-execute.service';
+import { clampOffset } from '../modules/editor/sql-page-wrap.service';
 import {
   runCodeCellOnServer,
   validateCodeCellRequest,
   type CodeCellRequestBody,
   type CellQueryRunner,
-} from './code-cell-execute';
-import { makeBeamCellQueryRunner, makeCellQueryRunner } from './code-cell-query';
+} from '../modules/editor/code-cell-execute.service';
+import { makeBeamCellQueryRunner, makeCellQueryRunner } from '../modules/editor/code-cell-query.service';
 import { parseBeamEndpoints } from '../../shared/server-beam';
 import { getMetadataDbConfig, SUPPORTED_ENGINES, type DbEngine } from '../database/config';
 import { createMetadataStore } from '../database/stores/registry';
@@ -72,7 +72,7 @@ import {
   MANUAL_UPDATE_COMMAND,
   resolveAppVersion,
   scheduleUiRelaunch,
-} from '../modules/updates.module';
+} from '../internal/updates.service';
 
 // ConnectionRef and its resolution moved to platform/db/resolve.ts so
 // services can share them; re-exported here because other modules import it
@@ -273,7 +273,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       const {
         installAndVerifyDriver,
         driverInstallHints,
-      } = await import('../modules/driver-install');
+      } = await import('../internal/driver-install');
 
       const result = await installAndVerifyDriver(packageName, versionPin);
 

@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
-import { ConnectionStore } from '../modules/connection-store.module';
-import { pruneOrphanFileQueryConnections } from '../modules/files/file-query.service';
-import { AuthedRequest } from '../modules/auth/auth.routes';
+import { ConnectionStore } from './connection-store.service';
+import { pruneOrphanFileQueryConnections } from '../files/file-query.service';
+import { AuthedRequest } from '../auth/auth.routes';
 
 /** CRUD for the signed-in user's saved connections (credentials encrypted at rest). */
 export function createConnectionStoreRoutes(store: ConnectionStore): Router {

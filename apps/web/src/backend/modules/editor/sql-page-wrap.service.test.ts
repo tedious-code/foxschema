@@ -4,7 +4,7 @@ import {
   isPageableStatement,
   trimPageProbe,
   wrapSqlForPage,
-} from './sql-page-wrap';
+} from './sql-page-wrap.service';
 
 describe('sql-page-wrap', () => {
   it('wraps postgres-style with LIMIT/OFFSET and +1 probe', () => {

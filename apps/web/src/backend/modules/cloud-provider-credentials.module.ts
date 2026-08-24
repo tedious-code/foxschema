@@ -8,15 +8,15 @@ import type {
   CloudProviderCredentials,
   CloudSecretSource,
   GcpProviderCredentials,
-} from './cloud-secrets';
-import { isCloudSecretSource } from './cloud-secrets';
+} from '../internal/cloud-secrets';
+import { isCloudSecretSource } from '../internal/cloud-secrets';
 
 export type {
   AwsProviderCredentials,
   AzureProviderCredentials,
   CloudProviderCredentials,
   GcpProviderCredentials,
-} from './cloud-secrets';
+} from '../internal/cloud-secrets';
 
 /** Named cloud credential (like a saved DB connection) — used by Secrets fetch. */
 export type CloudProviderCredentialSummary = {
