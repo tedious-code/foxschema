@@ -14,13 +14,13 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { capacityMessage, importCapacity } from './import-capacity';
+import { capacityMessage, importCapacity } from '../import-capacity';
 import {
   fileQueryTempDir,
   type FileQueryFormat,
   type FileQueryImportInput,
   type TextOffsetColumn,
-} from './file-query.module';
+} from './file-query.service';
 
 export type FileUploadSession = {
   id: string;

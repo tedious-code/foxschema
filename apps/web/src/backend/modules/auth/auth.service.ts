@@ -4,11 +4,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { randomUUID } from 'node:crypto';
-import { getStore } from '../database/store';
-import { hashPassword, verifyPassword, newToken } from '../cores/crypto';
-import { RbacModule, toAppRole } from './rbac.module';
-import type { MetadataStore } from '../database/stores/types';
-import type { AppRole, Permission } from '../../shared/permissions';
+import { getStore } from '../../database/store';
+import { hashPassword, verifyPassword, newToken } from '../../cores/crypto';
+import { RbacModule, toAppRole } from '../rbac.module';
+import type { MetadataStore } from '../../database/stores/types';
+import type { AppRole, Permission } from '../../../shared/permissions';
 
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
 

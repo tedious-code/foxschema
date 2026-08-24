@@ -59,7 +59,7 @@ import {
   type StoredWeaveObject,
   type TableSchema,
 } from '@foxschema/sql';
-import { getStore } from '../database/store';
+import { getStore } from '../../database/store';
 import type {
   CaptureResult,
   CaptureSource,
@@ -73,8 +73,8 @@ import type {
   VersionCompare,
   VersionGraphObject,
   VersionSummary,
-} from '../../shared/lokee-wire';
-import type { MetadataStore, SqlParam } from '../database/stores/types';
+} from '../../../shared/lokee-wire';
+import type { MetadataStore, SqlParam } from '../../database/stores/types';
 
 const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8').digest('hex');
 
@@ -103,7 +103,7 @@ export type {
   ObjectHistoryEntry,
   ObjectInspectResult,
   VersionSummary,
-} from '../../shared/lokee-wire';
+} from '../../../shared/lokee-wire';
 
 export interface CaptureInput extends DatabaseIdentityInput {
   tables: TableSchema[];

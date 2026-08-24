@@ -7,25 +7,25 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { corsOriginDelegate, originVerdict } from '../platform/guards/origin-policy';
 import { ConnectionModule, ConnectionFactory } from '@foxschema/db';
-import { AuthModule } from '../modules/auth.module';
+import { AuthModule } from '../modules/auth/auth.service';
 import { ConnectionStore } from '../modules/connection-store.module';
-import { sweepOrphanedUploadFiles } from '../modules/file-query-session.module';
+import { sweepOrphanedUploadFiles } from '../modules/files/file-session.service';
 import { UserModule } from '../modules/user.module';
 import { createApiRoutes } from './routes';
-import { defaultApiRateLimit, globalApiFloodgate } from './rate-limit';
+import { defaultApiRateLimit, globalApiFloodgate } from '../platform/guards/rate-limit';
 import { securityHeaders } from './security-headers';
-import { createAuthRoutes, authGuard, localUserGuard } from './auth.routes';
-import { createSsoRoutes } from './sso.routes';
+import { createAuthRoutes, authGuard, localUserGuard } from '../modules/auth/auth.routes';
+import { createSsoRoutes } from '../modules/auth/sso.routes';
 import { createConnectionStoreRoutes } from './connection-store.routes';
 import { createAppSecretsRoutes } from './app-secrets.routes';
 import { createUserRoutes } from './user.routes';
 import { createAdminRoutes } from './admin.routes';
 import { createSignupRoutes } from './signup.routes';
-import { createFileQueryRoutes } from './file-query.routes';
+import { createFileQueryRoutes } from '../modules/files/files.routes';
 import { DEFAULT_API_PORT } from '../defaultApiPort';
 import { AppSecretsStore } from '../modules/app-secrets.module';
 import { resolveAppVersion } from '../modules/updates.module';
-import { asAppLogger, getLogger } from '../modules/logger.module';
+import { asAppLogger, getLogger } from '../platform/logger/logger';
 
 // Default to single-user (no login). Set LOCAL_SINGLE_USER=false to enable
 // multi-user auth. In multi-user mode AUTH_REQUIRED defaults to true (safe).

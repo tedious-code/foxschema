@@ -9,7 +9,7 @@
 import { Router, Request, Response } from 'express';
 import { AppSettingsStore } from '../modules/app-settings.module';
 import { SignupModule } from '../modules/signup.module';
-import { rateLimit } from './rate-limit';
+import { rateLimit } from '../platform/guards/rate-limit';
 
 export function createSignupRoutes(
   signupModule = new SignupModule(new AppSettingsStore())

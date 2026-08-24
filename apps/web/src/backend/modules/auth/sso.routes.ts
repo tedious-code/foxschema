@@ -1,8 +1,8 @@
 import { Router, Request, Response } from 'express';
-import { AuthModule } from '../modules/auth.module';
-import { newToken } from '../cores/crypto';
-import { readCookie, setSessionCookie } from './auth.routes';
-import { authorizeUrl, configuredProviders, fetchVerifiedEmail, getProvider, redirectUri } from '../modules/sso.module';
+import { AuthModule } from '../auth/auth.service';
+import { newToken } from '../../cores/crypto';
+import { readCookie, setSessionCookie } from '../auth/auth.routes';
+import { authorizeUrl, configuredProviders, fetchVerifiedEmail, getProvider, redirectUri } from '../sso.module';
 
 const STATE_COOKIE = 'sso_state';
 const STATE_PATH = '/api/auth/sso';

@@ -1,6 +1,6 @@
 import { ConnectionFactory } from '@foxschema/db';
 import { startUiServer } from './startUiServer';
-import { getLogger } from './modules/logger.module';
+import { getLogger } from './platform/logger/logger';
 
 /**
  * Production web entry (Docker / self-host / CLI child process).

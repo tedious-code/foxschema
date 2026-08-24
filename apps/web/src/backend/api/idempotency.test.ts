@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import type { Request, Response } from 'express';
-import { idempotency } from './idempotency';
+import { idempotency } from '../platform/guards/idempotency';
 
 function reqOf(key: string | undefined, body: unknown, url = '/sql/execute'): Request {
   return {

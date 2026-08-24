@@ -11,10 +11,10 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import type { TableSchema } from '@foxschema/sql';
-import { createMetadataStore } from '../database/stores/registry';
-import { runMigrations } from '../database/schema';
-import type { MetadataStore } from '../database/stores/types';
-import { LokeeWeaveStore, chunkForBind, reconstructStates } from './lokee-weave.module';
+import { createMetadataStore } from '../../database/stores/registry';
+import { runMigrations } from '../../database/schema';
+import type { MetadataStore } from '../../database/stores/types';
+import { LokeeWeaveStore, chunkForBind, reconstructStates } from './lokee-weave.service';
 
 const USER = 'u1';
 const IDENTITY = {

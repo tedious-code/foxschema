@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { UserModule, UserPreferences } from '../modules/user.module';
-import { AuthedRequest } from './auth.routes';
+import { AuthedRequest } from '../modules/auth/auth.routes';
 
 /** The signed-in user's preferences / onboarding state. */
 export function createUserRoutes(user: UserModule): Router {

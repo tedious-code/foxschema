@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { TargetLocks, targetKey } from './target-lock.module';
+import { TargetLocks, targetKey } from './target-lock';
 
 function clock(start = 1_000_000) {
   let t = start;

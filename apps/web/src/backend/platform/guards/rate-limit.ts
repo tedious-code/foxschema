@@ -3,7 +3,7 @@ import {
   RateLimitCore,
   RATE_LIMIT_MESSAGE,
   rateLimitKey,
-} from './policy/rate-limit-core';
+} from './rate-limit-core';
 
 export interface RateLimitOptions {
   windowMs: number;

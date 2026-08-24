@@ -6,7 +6,7 @@ import {
 } from '../modules/cloud-provider-credentials.module';
 import type { CloudSecretRef } from '../modules/cloud-secrets';
 import { isCloudSecretSource } from '../modules/cloud-secrets';
-import { AuthedRequest } from './auth.routes';
+import { AuthedRequest } from '../modules/auth/auth.routes';
 import { requirePermissions } from './rbac.middleware';
 
 function parseSecretBody(body: unknown): Partial<AppSecretInput> {

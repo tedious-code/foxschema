@@ -7,7 +7,7 @@
  * network — which is exactly the shape worth moving.
  */
 import { parentPort, workerData } from 'node:worker_threads';
-import { parseFileToTable, type FileQueryImportInput } from './file-query.module';
+import { parseFileToTable, type FileQueryImportInput } from './files/file-query.service';
 
 interface ParseJob {
   input: FileQueryImportInput;

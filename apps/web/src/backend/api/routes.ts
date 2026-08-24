@@ -32,10 +32,10 @@ import {
 import { executeDataMigrateOps, type DataMigrateExecOp } from './data-migrate-execute';
 import { isSingleSqlStatement } from './single-statement';
 import { AppSettingsStore } from '../modules/app-settings.module';
-import { LokeeWeaveStore } from '../modules/lokee-weave.module';
-import { rateLimit } from './rate-limit';
-import { targetKey, targetLocks } from '../modules/target-lock.module';
-import { idempotency } from './idempotency';
+import { LokeeWeaveStore } from '../modules/history/lokee-weave.service';
+import { rateLimit } from '../platform/guards/rate-limit';
+import { targetKey, targetLocks } from '../platform/guards/target-lock';
+import { idempotency } from '../platform/guards/idempotency';
 import { browseDirectory, browseErrorMessage, resolveBrowsePath } from './file-browse';
 import {
   runStatements,
@@ -56,7 +56,7 @@ import { parseBeamEndpoints } from '../../shared/server-beam';
 import { getMetadataDbConfig, SUPPORTED_ENGINES, type DbEngine } from '../database/config';
 import { createMetadataStore } from '../database/stores/registry';
 import { keySchemeInfo } from '../cores/crypto';
-import type { AuthedRequest } from './auth.routes';
+import type { AuthedRequest } from '../modules/auth/auth.routes';
 import { denyUnless, requirePermissions } from './rbac.middleware';
 import { isLocalSingleUser } from './deployment';
 import { CATEGORY_PERMISSION, DATAGRID_ACTION_PERMISSION, isDatagridAction, permissionSatisfied, type Permission } from '../../shared/permissions';

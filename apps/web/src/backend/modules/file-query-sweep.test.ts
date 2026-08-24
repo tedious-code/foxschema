@@ -6,8 +6,8 @@ import {
   appendUploadChunk,
   createUploadSession,
   sweepOrphanedUploadFiles,
-} from './file-query-session.module';
-import { fileQueryTempDir } from './file-query.module';
+} from './files/file-session.service';
+import { fileQueryTempDir } from './files/file-query.service';
 
 /**
  * `fileQueryTempDir()` creates its own directory but not the `uploads` child —

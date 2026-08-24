@@ -4,7 +4,7 @@ import {
   detectFixedWidthColumns,
   splitByDelimiters,
 } from './text-columns';
-import { parseTextOffsets } from './file-query.module';
+import { parseTextOffsets } from './files/file-query.service';
 
 const lines = (s: string) => s.split('\n').filter((l) => l.length > 0);
 

@@ -3,7 +3,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 process.env.APP_DB_PATH = ':memory:';
 process.env.APP_ENCRYPTION_KEY = '0'.repeat(64);
 
-import { AuthModule } from './auth.module';
+import { AuthModule } from './auth/auth.service';
 import { ConnectionStore } from './connection-store.module';
 import { getStore } from '../database/store';
 import { buildConnectionString } from '@foxschema/db';

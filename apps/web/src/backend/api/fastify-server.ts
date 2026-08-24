@@ -51,10 +51,10 @@
 
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { BODY_LIMIT, createApp } from './server';
-import { loggerConfig } from '../modules/logger.module';
+import { loggerConfig } from '../platform/logger/logger';
 import { resolveAppVersion } from '../modules/updates.module';
-import { securityHeadersFor } from './policy/security-headers-core';
-import { RateLimitCore, RATE_LIMIT_MESSAGE, rateLimitKey } from './policy/rate-limit-core';
+import { securityHeadersFor } from '../platform/guards/security-headers-core';
+import { RateLimitCore, RATE_LIMIT_MESSAGE, rateLimitKey } from '../platform/guards/rate-limit-core';
 
 export interface FastifyServerOptions {
   /** Send HSTS. Off by default; see the header policy for why. */

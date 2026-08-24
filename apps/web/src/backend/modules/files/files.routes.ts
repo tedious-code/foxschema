@@ -4,17 +4,17 @@
 import { createRequire } from 'node:module';
 import { existsSync } from 'node:fs';
 import { Router, Request, Response } from 'express';
-import type { AuthedRequest } from './auth.routes';
-import { denyUnless, requirePermissions } from './rbac.middleware';
-import { capacityMessage, importCapacity } from '../modules/import-capacity';
+import type { AuthedRequest } from '../auth/auth.routes';
+import { denyUnless, requirePermissions } from '../../api/rbac.middleware';
+import { capacityMessage, importCapacity } from '../import-capacity';
 import {
   detectDelimitedColumns,
   detectFixedWidthColumns,
   MAX_DETECT_CHARS,
   MAX_DETECT_LINES,
-} from '../modules/text-columns';
-import { rateLimit } from './rate-limit';
-import { ConnectionStore } from '../modules/connection-store.module';
+} from '../text-columns';
+import { rateLimit } from '../../platform/guards/rate-limit';
+import { ConnectionStore } from '../connection-store.module';
 import {
   appendFileToSqliteWorkspace,
   isFileQueryConnectionName,
@@ -27,9 +27,9 @@ import {
   type FileQueryFormat,
   type FileQueryImportInput,
   type TextOffsetColumn,
-} from '../modules/file-query.module';
-import { bulkLoadIntoConnection } from '../modules/file-query-bulk.module';
-import { cpuPool } from '../modules/worker-pool';
+} from '../files/file-query.service';
+import { bulkLoadIntoConnection } from '../file-query-bulk.module';
+import { cpuPool } from '../worker-pool';
 import {
   abortUploadSession,
   appendUploadChunk,
@@ -39,7 +39,7 @@ import {
   MAX_UPLOAD_BYTES,
   sessionToImportInput,
   uploadLimitBytes,
-} from '../modules/file-query-session.module';
+} from '../files/file-session.service';
 
 const nodeRequire = createRequire(import.meta.url);
 const importLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 60 });

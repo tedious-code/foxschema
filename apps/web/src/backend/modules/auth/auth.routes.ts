@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { Router, Request, Response, NextFunction } from 'express';
-import { AuthModule, SESSION_COOKIE, SESSION_MAX_AGE_MS, type AuthUser } from '../modules/auth.module';
-import type { AppRole, Permission } from '../../shared/permissions';
+import { AuthModule, SESSION_COOKIE, SESSION_MAX_AGE_MS, type AuthUser } from '../auth/auth.service';
+import type { AppRole, Permission } from '../../../shared/permissions';
 
 export interface AuthedRequest extends Request {
   userId?: string;

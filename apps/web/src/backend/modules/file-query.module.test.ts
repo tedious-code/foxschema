@@ -11,7 +11,7 @@ import {
   pruneOrphanFileQueryConnections,
   sanitizeTableName,
   fileQueryTempDir,
-} from './file-query.module';
+} from './files/file-query.service';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 

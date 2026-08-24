@@ -12,7 +12,7 @@
  */
 import type { Request } from 'express';
 import type { ActorContext } from '../contracts/actor';
-import type { AuthedRequest } from '../../api/auth.routes';
+import type { AuthedRequest } from '../../modules/auth/auth.routes';
 import { permissionSatisfied, type Permission } from '../../../shared/permissions';
 
 export function actorOf(req: Request): ActorContext {
