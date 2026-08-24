@@ -67,6 +67,7 @@ import { createCompareRoutes } from '../modules/compare/compare.routes';
 import { createAccessRoutes } from '../modules/access/access.routes';
 import { createHistoryRoutes } from '../modules/history/history.routes';
 import { createEditorRoutes } from '../modules/editor/editor.routes';
+import { createMigrationRoutes } from '../modules/migration/migration.routes';
 import {
   applyNpmGlobalUpdate,
   canSelfUpdate,
@@ -116,6 +117,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   // routes.ts shrinks by one feature every time another moves across.
   router.use(createCompareRoutes({ compareService }));
   router.use(createAccessRoutes({ resolveRef, connectionModule }));
+  router.use(createMigrationRoutes({ resolveRef, migrationModule, migrationHistory, connectionModule, sqlGenerator, captureLiveSchema, normalizeTableSchemas }));
   router.use(createEditorRoutes({ resolveRef, MAX_STATEMENTS, MAX_STATEMENT_LENGTH, isRunnableStatement }));
   router.use(createHistoryRoutes({ lokee: lokeeWeave, captureLiveSchema, resolveRef, migrationModule }));
 
@@ -430,164 +432,6 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
 
   // requirePermissions stays for the 401/403 shape the client already expects;
   // the service re-checks so a non-REST caller cannot bypass it.
-  router.post('/migration/execute', requirePermissions('schema.migrate'), writeIdempotency, async (req: Request, res: Response) => {
-    const { steps, continueOnError, ...ref } = req.body as ConnectionRef & { steps: MigrationStep[]; continueOnError?: boolean };
-    let dialect: string;
-    let option: ConnectionOptions;
-    let schema: string;
-    try {
-      ({ dialect, option, schema } = await resolveRef((req as AuthedRequest).userId, ref));
-    } catch (error: unknown) {
-      res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid connection' });
-      return;
-    }
-
-    // One writer at a time. A second migration planned against a schema this
-    // one is about to change would apply steps derived from a shape that no
-    // longer exists, and the database will not arbitrate that for us.
-    const lock = targetLocks.acquire(
-      targetKey({ dialect, host: option.host, database: option.database, schema }),
-      { userId: (req as AuthedRequest).userId!, operation: 'migrate' }
-    );
-    if (!lock.ok) {
-      res.status(409).json({ error: lock.message, heldBy: lock.heldBy.operation });
-      return;
-    }
-
-    // finally, not a trailing call: an unexpected throw anywhere below would
-    // otherwise leave the target locked until the stale timeout, blocking
-    // everyone from a database that is actually free.
-    try {
-    // Record this run in history (best-effort — never let logging break a deploy).
-    const userId = (req as AuthedRequest).userId!;
-    const script = steps
-      .map((s) => `-- ${s.action} ${s.objectType} ${s.objectName}\n${s.statements.join('\n')}`)
-      .join('\n\n');
-    let runId: string | null = null;
-    try {
-      runId = await migrationHistory.start(userId, {
-        dialect,
-        host: option.host,
-        database: option.database,
-        schema,
-        objectCount: steps.length,
-        script,
-      });
-    } catch {
-      /* history is non-critical */
-    }
-
-    // Stream NDJSON progress events as the migration runs, while capturing the
-    // snapshot, per-object results, and final status for the history record.
-    res.setHeader('Content-Type', 'application/x-ndjson');
-    res.setHeader('Cache-Control', 'no-cache');
-    let snapshotDdl: string | undefined;
-    const resultMap = new Map<string, MigrationObjectResult>();
-    let finalStatus: MigrationRunStatus = 'FAILED';
-    let finalError: string | undefined;
-    let captureAfter = false;
-    const send = (event: any) => {
-      res.write(JSON.stringify(event) + '\n');
-      if (event?.type === 'snapshot') {
-        snapshotDdl = event.ddl;
-      } else if (event?.type === 'object') {
-        // Keep the latest status per object (RUNNING → SUCCESS/FAILED).
-        resultMap.set(event.objectName, {
-          name: event.objectName,
-          type: event.objectType,
-          action: event.action,
-          status: event.status,
-          error: event.error,
-        });
-      } else if (event?.type === 'done') {
-        // continueOnError can commit successfully while individual objects failed
-        // and were skipped — distinguish that from a clean run for the history log.
-        const anyObjectFailed = Array.from(resultMap.values()).some((r) => r.status === 'FAILED');
-        finalStatus = event.success
-          ? (anyObjectFailed ? 'PARTIAL_SUCCESS' : 'SUCCESS')
-          : event.rolledBack ? 'ROLLED_BACK' : 'FAILED';
-        finalError = event.error;
-        captureAfter = event.success === true;
-      }
-    };
-
-    try {
-      // 1. Snapshot the target schema DDL before touching anything
-      const provider = connectionModule.getProvider(dialect);
-      if (provider.getTables) {
-        const targetObjects = normalizeTableSchemas(await provider.getTables(option, schema));
-        let snapshot = `-- =========================================================================\n`;
-        snapshot += `-- Target schema snapshot (pre-migration)\n`;
-        snapshot += `-- Schema: ${schema}  |  Taken At: ${new Date().toISOString()}\n`;
-        snapshot += `-- =========================================================================\n\n`;
-        snapshot += targetObjects.map((t) => sqlGenerator.generateObjectDdl(t)).join('\n');
-        send({ type: 'snapshot', ddl: snapshot });
-      }
-
-      // Content-addressed Lokee snapshot of the target *before* DDL, so a first
-      // migrate still has a baseline version to compare against.
-      try {
-        const before = await captureLiveSchema(
-          userId,
-          { dialect, option, schema },
-          'migrate',
-          { migrationRunId: runId ?? undefined }
-        );
-        send({ type: 'lokee', phase: 'before', ...before });
-      } catch (error: unknown) {
-        send({
-          type: 'lokee',
-          phase: 'before',
-          error: error instanceof Error ? error.message : 'Lokee snapshot failed',
-        });
-      }
-
-      // 2. Execute the plan in a single transaction, reporting per object
-      await migrationModule.execute(dialect, option, schema, steps, send, { continueOnError: !!continueOnError });
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Migration failed';
-      finalStatus = 'FAILED';
-      finalError = message;
-      send({ type: 'done', success: false, rolledBack: false, error: message });
-    }
-
-    if (captureAfter) {
-      try {
-        const after = await captureLiveSchema(
-          userId,
-          { dialect, option, schema },
-          'migrate',
-          { migrationRunId: runId ?? undefined }
-        );
-        send({ type: 'lokee', phase: 'after', ...after });
-      } catch (error: unknown) {
-        send({
-          type: 'lokee',
-          phase: 'after',
-          error: error instanceof Error ? error.message : 'Lokee snapshot failed',
-        });
-      }
-    }
-
-    // Finalize the history record with the outcome.
-    if (runId) {
-      try {
-        await migrationHistory.finish(runId, {
-          status: finalStatus,
-          results: [...resultMap.values()],
-          snapshotDdl,
-          error: finalError,
-        });
-      } catch {
-        /* history is non-critical */
-      }
-    }
-
-    res.end();
-    } finally {
-      lock.release();
-    }
-  });
 
   /**
    * What long-running work is in flight, for the UI's activity indicator.
@@ -608,39 +452,13 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   });
 
   // --- Migration history (per user) ----------------------------------------
-  router.get('/migrations', async (req: Request, res: Response) => {
-    res.json({ runs: await migrationHistory.list((req as AuthedRequest).userId!) });
-  });
 
   // Bulk delete selected runs. Registered before '/migrations/:id' so the
   // literal path isn't captured as an :id.
-  router.post('/migrations/delete', async (req: Request, res: Response) => {
-    const ids = Array.isArray((req.body as { ids?: unknown }).ids)
-      ? ((req.body as { ids: unknown[] }).ids.filter((i) => typeof i === 'string') as string[])
-      : [];
-    const removed = await migrationHistory.removeMany((req as AuthedRequest).userId!, ids);
-    res.json({ removed });
-  });
 
   // Clear the entire history for the user.
-  router.delete('/migrations', async (req: Request, res: Response) => {
-    const removed = await migrationHistory.clear((req as AuthedRequest).userId!);
-    res.json({ removed });
-  });
 
-  router.get('/migrations/:id', async (req: Request, res: Response) => {
-    const run = await migrationHistory.get((req as AuthedRequest).userId!, String(req.params.id));
-    if (!run) {
-      res.status(404).json({ error: 'Migration run not found' });
-      return;
-    }
-    res.json({ run });
-  });
 
-  router.delete('/migrations/:id', async (req: Request, res: Response) => {
-    const removed = await migrationHistory.remove((req as AuthedRequest).userId!, String(req.params.id));
-    res.status(removed ? 200 : 404).json({ ok: removed });
-  });
 
   // --- Lokee Weave: schema versioning (Compare Schema history) -------------
   //
