@@ -125,6 +125,7 @@ Imports may run `app → features → shared`, never `shared → features`.
 | Something the frontend and backend both need | `packages/shared/src/` |
 | New screen or panel | `apps/web/src/frontend/features/<domain>/` |
 | Reusable UI or helper | `apps/web/src/frontend/shared/` |
+| Calling an API endpoint | use `http` from `@/shared/api/http` — never `fetch` directly |
 | Guard or cross-cutting HTTP concern | `packages/server/src/platform/` |
 
 ## Checks to run
@@ -139,3 +140,36 @@ npm run build -w @foxschema/web     # the bundler catches what tsc cannot
 Run `npx vitest run` from the repository root. Running it from `apps/web`
 selects a different project configuration and reports failures that are not
 real.
+
+## Calling the API from the frontend
+
+Every request goes through one client, so the base URL, the session cookie, the
+JSON headers and error handling are applied in a single place:
+
+```ts
+import { http } from '@/shared/api/http';
+
+const info = await http.get<UpdateInfo>('/updates/check');
+const runs = await http.get<Runs>('/migrations', { query: { limit: 20 } });
+const { secret } = await http.post<{ secret: Secret }>('/app-secrets', input);
+await http.put(`/connections/${id}`, changes);
+await http.delete(`/connections/${id}`);
+```
+
+Paths are relative to the API base, so write `/schema/load`, not
+`/api/schema/load`.
+
+Options: `query`, `signal`, `headers`, `allowEmpty`, `noStore`.
+
+A failed request throws `ApiError`, carrying `status` and the server's `code`:
+
+```ts
+try {
+  await http.post('/compare', ref);
+} catch (e) {
+  if (e instanceof ApiError && e.code === 'unauthenticated') redirectToLogin();
+}
+```
+
+For responses that are not JSON — a streamed NDJSON migration, a file download
+— use `http.raw`, which returns the `Response` untouched.

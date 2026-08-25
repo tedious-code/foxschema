@@ -1,4 +1,5 @@
 import type { ConnectionOptions } from '../lib/provider-settings';
+import { http } from './http';
 import type {
   DriverInfo,
   DbObjectType,
@@ -425,21 +426,15 @@ export async function checkDriver(dialect: string): Promise<DriverInfo> {
   // Driver-installed status rarely changes — cache for 30s, dedupe concurrent checks
   return idempotent(
     `driver:${dialect}`,
-    async () =>
-      parseJsonResponse<DriverInfo>(
-        await fetch(`${getApiBase()}/driver/check?dialect=${encodeURIComponent(dialect)}`)
-      ),
+    async () => http.get<DriverInfo>('/driver/check', { query: { dialect } }),
     30000
   );
 }
 
 export async function installDriver(dialect: string): Promise<{ success: boolean; stdout?: string; error?: string }> {
-  const result = await parseJsonResponse<{ success: boolean; stdout?: string; error?: string }>(
-    await fetch(`${getApiBase()}/driver/install`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dialect }),
-    })
+  const result = await http.post<{ success: boolean; stdout?: string; error?: string }>(
+    '/driver/install',
+    { dialect }
   );
   // An install changes driver availability — drop the stale cached check
   invalidateCache(`driver:${dialect}`);
@@ -448,14 +443,7 @@ export async function installDriver(dialect: string): Promise<{ success: boolean
 
 
 export async function testConnection(ref: ConnectionRef): Promise<{ version?: string }> {
-  const res = await fetch(`${getApiBase()}/connection/test`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(ref),
-  });
-
-  const data = await parseJsonResponse<{ success: boolean; version?: string; error?: string }>(res);
+  const data = await http.post<{ success: boolean; version?: string; error?: string }>(`/connection/test`, ref);
   if (!data.success) {
     throw new Error(data.error ?? 'Connection test returned false');
   }
