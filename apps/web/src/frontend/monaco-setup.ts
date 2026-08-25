@@ -2,11 +2,11 @@
 // so the editor works in offline / firewalled enterprise networks.
 import { loader } from '@monaco-editor/react';
 // Import only the editor core + the SQL dialects we use, not all ~90 languages
-import * as monaco from 'monaco-editor/esm/vs/editor/editor.api';
-import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution';
-import 'monaco-editor/esm/vs/basic-languages/pgsql/pgsql.contribution';
-import 'monaco-editor/esm/vs/basic-languages/mysql/mysql.contribution';
-import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
+import * as monaco from 'monaco-editor/editor/editor.api';
+import 'monaco-editor/languages/definitions/sql/register';
+import 'monaco-editor/languages/definitions/pgsql/register';
+import 'monaco-editor/languages/definitions/mysql/register';
+import editorWorker from 'monaco-editor/editor/editor.worker?worker';
 import { FOXSCHEMA_SQL_LANG, FOXSCRIPT_LANG } from './lib/foxschemaSqlLanguage';
 
 // SQL highlighting runs on the main thread (basic-languages); only the core

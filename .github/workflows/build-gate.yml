@@ -46,6 +46,21 @@ jobs:
       - run: npm install --ignore-scripts
       - run: npx vitest run
 
+  frontend-build:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: npm install --ignore-scripts
+      # Typecheck and tests both passed while `vite build` was broken for
+      # months: a dependency's `exports` map changed and only the bundler's
+      # resolver could see it. Nothing else in this workflow builds the
+      # frontend, which is the artifact users actually run.
+      - run: npm run build -w @foxschema/web
+
   lint:
     name: ESLint
     runs-on: ubuntu-latest

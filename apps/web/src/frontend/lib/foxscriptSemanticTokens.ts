@@ -3,7 +3,7 @@
  * schema cache when they appear in SQL blocks (not inside code fences).
  */
 
-import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api';
+import type * as Monaco from 'monaco-editor/editor/editor.api';
 import type { SchemaCacheEntry } from '../components/sql-editor/sqlEditorBridge';
 import { FOXSCRIPT_LANG, FOXSCHEMA_SQL_LANG } from './foxschemaSqlLanguage';
 import { parseFoxScript } from './sql-splitter';

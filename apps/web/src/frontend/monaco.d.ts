@@ -1,13 +1,13 @@
 // monaco-editor's deep ESM subpaths aren't mapped in its type exports; declare them.
-declare module 'monaco-editor/esm/vs/editor/editor.api' {
+declare module 'monaco-editor/editor/editor.api' {
   export * from 'monaco-editor';
 }
-declare module 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution';
-declare module 'monaco-editor/esm/vs/basic-languages/pgsql/pgsql.contribution';
-declare module 'monaco-editor/esm/vs/basic-languages/mysql/mysql.contribution';
-declare module 'monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution';
-declare module 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution';
-declare module 'monaco-editor/esm/vs/basic-languages/sql/sql' {
+declare module 'monaco-editor/languages/definitions/sql/register';
+declare module 'monaco-editor/languages/definitions/pgsql/register';
+declare module 'monaco-editor/languages/definitions/mysql/register';
+declare module 'monaco-editor/languages/definitions/javascript/register';
+declare module 'monaco-editor/languages/definitions/typescript/register';
+declare module 'monaco-editor/languages/definitions/sql/sql' {
   import type { languages } from 'monaco-editor';
   export const conf: languages.LanguageConfiguration;
   export const language: languages.IMonarchLanguage;
