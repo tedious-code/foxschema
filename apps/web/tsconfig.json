@@ -20,6 +20,7 @@
     "noFallthroughCasesInSwitch": true,
 
     "paths": {
+      "@/*": ["./src/frontend/*"],
       "@foxschema/sql": ["../../packages/sql/src/index.ts"],
       "@foxschema/db": ["../../packages/db/src/index.ts"],
       "@foxschema/shared": ["../../packages/shared/src/index.ts"],

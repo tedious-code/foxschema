@@ -1,14 +1,14 @@
 import React, { useMemo, useState } from 'react';
 import { RefreshCw, ArrowDown, ShieldX, Check, X, AlertTriangle, Info } from 'lucide-react';
-import { fetchDbAccess } from '../../api/schemaApi';
-import { useSyncStore } from '../../store/useSyncStore';
-import { useSqlEditorStore } from '../../store/useSqlEditorStore';
+import { fetchDbAccess } from '@/api/schemaApi';
+import { useSyncStore } from '@/store/useSyncStore';
+import { useSqlEditorStore } from '@/store/useSqlEditorStore';
 import {
   describePermission,
   resolveEffectiveAccess,
   type AccessPermission,
   type EffectiveAccess,
-} from '../../lib/access';
+} from '../lib/access';
 import type { DbPrincipal, DbPrivilege } from '@foxschema/sql';
 
 /** The columns the effective-permission table reports on, in reading order. */

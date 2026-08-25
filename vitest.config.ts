@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 const pkg = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 
 const aliases = [
+  { find: /^@\//, replacement: pkg('./apps/web/src/frontend/') },
   { find: '@foxschema/sql', replacement: pkg('./packages/sql/src/index.ts') },
   { find: '@foxschema/db', replacement: pkg('./packages/db/src/index.ts') },
   { find: '@foxschema/shared', replacement: pkg('./packages/shared/src/index.ts') },

@@ -15,7 +15,7 @@ import { AlertCircle, AlertTriangle, Loader2, X } from 'lucide-react';
 import { BackendOfflineBanner } from './components/BackendOfflineBanner';
 
 const AccessView = lazy(() =>
-  import('./components/access/AccessView').then((m) => ({ default: m.AccessView }))
+  import('@/features/access').then((m) => ({ default: m.AccessView }))
 );
 const SqlEditorView = lazy(() =>
   import('./components/sql-editor/SqlEditorView').then((m) => ({ default: m.SqlEditorView }))
