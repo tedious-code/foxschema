@@ -76,6 +76,21 @@ const OPERATION_LABEL: Record<TargetOperation, string> = {
  */
 const STALE_AFTER_MS = 30 * 60 * 1000;
 
+/**
+ * How long ago something started, in the units a person would use.
+ *
+ * This used to round to minutes with a floor of 1, so a lock one second old
+ * reported "started 1 minute ago" — misleading in the direction that matters,
+ * since someone told a migration has been running a minute is more likely to
+ * assume it is stuck and go looking for a way to force past it.
+ */
+export function describeAge(ms: number): string {
+  const seconds = Math.max(0, Math.round(ms / 1000));
+  if (seconds < 60) return `${seconds} second${seconds === 1 ? '' : 's'}`;
+  const minutes = Math.round(seconds / 60);
+  return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+}
+
 export class TargetLocks {
   private readonly held = new Map<string, TargetLockHolder>();
   private readonly now: () => number;
@@ -93,12 +108,11 @@ export class TargetLocks {
   acquire(key: string, holder: Omit<TargetLockHolder, 'startedAt' | 'label'>): TargetLockResult {
     const existing = this.held.get(key);
     if (existing && this.now() - existing.startedAt < STALE_AFTER_MS) {
-      const minutes = Math.max(1, Math.round((this.now() - existing.startedAt) / 60000));
       const who = existing.userId === holder.userId ? 'You have' : 'Another user has';
       return {
         ok: false,
         heldBy: existing,
-        message: `${who} ${OPERATION_LABEL[existing.operation]} running against this database and schema, started ${minutes} minute${minutes === 1 ? '' : 's'} ago. Wait for it to finish — running both at once can apply changes planned against a schema that has since moved.`,
+        message: `${who} ${OPERATION_LABEL[existing.operation]} running against this database and schema, started ${describeAge(this.now() - existing.startedAt)} ago. Wait for it to finish — running both at once can apply changes planned against a schema that has since moved.`,
       };
     }
 

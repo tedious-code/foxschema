@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { TargetLocks, targetKey } from './target-lock';
+import { describeAge, TargetLocks, targetKey } from './target-lock';
 
 function clock(start = 1_000_000) {
   let t = start;
@@ -118,5 +118,21 @@ describe('one writer per target', () => {
     locks.acquire('t', { userId: 'u1', operation: 'migrate' });
     c.advance(31 * 60 * 1000);
     expect(locks.active()).toEqual([]);
+  });
+});
+
+describe('describeAge', () => {
+  // The message this feeds is the only thing a blocked user sees, and the old
+  // version floored at one minute — so a lock a second old read as "started
+  // 1 minute ago", which invites someone to assume it is stuck.
+  it.each([
+    [0, '0 seconds'],
+    [1_000, '1 second'],
+    [2_400, '2 seconds'],
+    [59_000, '59 seconds'],
+    [60_000, '1 minute'],
+    [150_000, '3 minutes'],
+  ])('describes %ims as %s', (ms, expected) => {
+    expect(describeAge(ms)).toBe(expected);
   });
 });
