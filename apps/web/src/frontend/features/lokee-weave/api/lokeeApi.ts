@@ -14,7 +14,7 @@ import type { ConnectionRef } from '@/shared/api/schemaApi';
 import type { VersionGraphDTO } from '@/features/lokee-weave/components/graphTypes';
 import type { CaptureResult, LokeeDatabase, LokeeRevertErrorCode, ObjectHistoryEntry, ObjectInspectResult, RevertPlanWire, VersionCompare, VersionSummary } from '@foxschema/shared';
 import { getApiBase, parseJsonBody, parseJsonResponse } from '@/shared/api/apiBase';
-import { http } from '@/shared/api/http';
+import { api } from '@/shared/api/client';
 
 // These were hand-copied from the backend until the shared contract landed;
 // two had already drifted (`source` widened to `string`). Aliases keep the
@@ -46,7 +46,7 @@ export async function captureSchema(
 }
 
 export async function listLokeeDatabases(): Promise<LokeeDatabase[]> {
-  const body = await http.get<{ databases: LokeeDatabase[] }>(`/lokee/databases`);
+  const body = await api.get<{ databases: LokeeDatabase[] }>(`/lokee/databases`);
   return body.databases ?? [];
 }
 
@@ -54,7 +54,7 @@ export async function listLokeeVersions(
   databaseId: string,
   limit = 100
 ): Promise<LokeeVersion[]> {
-  const body = await http.get<{ versions: LokeeVersion[] }>(
+  const body = await api.get<{ versions: LokeeVersion[] }>(
     `/lokee/databases/${encodeURIComponent(databaseId)}/versions`,
     { query: { limit } }
   );
@@ -79,7 +79,7 @@ export async function updateLokeeVersionMeta(
   versionId: string,
   patch: { name?: string | null; description?: string | null }
 ): Promise<LokeeVersion> {
-  const body = await http.patch<{ version: LokeeVersion }>(`/lokee/databases/${encodeURIComponent(databaseId)}/versions/${encodeURIComponent(versionId)}`, patch);
+  const body = await api.patch<{ version: LokeeVersion }>(`/lokee/databases/${encodeURIComponent(databaseId)}/versions/${encodeURIComponent(versionId)}`, patch);
   return body.version;
 }
 

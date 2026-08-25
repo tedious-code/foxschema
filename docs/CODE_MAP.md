@@ -125,7 +125,7 @@ Imports may run `app → features → shared`, never `shared → features`.
 | Something the frontend and backend both need | `packages/shared/src/` |
 | New screen or panel | `apps/web/src/frontend/features/<domain>/` |
 | Reusable UI or helper | `apps/web/src/frontend/shared/` |
-| Calling an API endpoint | use `http` from `@/shared/api/http` — never `fetch` directly |
+| Calling an API endpoint | use `api` from `@/shared/api/client` — never `fetch` directly |
 | Guard or cross-cutting HTTP concern | `packages/server/src/platform/` |
 
 ## Checks to run
@@ -147,13 +147,13 @@ Every request goes through one client, so the base URL, the session cookie, the
 JSON headers and error handling are applied in a single place:
 
 ```ts
-import { http } from '@/shared/api/http';
+import { api } from '@/shared/api/client';
 
-const info = await http.get<UpdateInfo>('/updates/check');
-const runs = await http.get<Runs>('/migrations', { query: { limit: 20 } });
-const { secret } = await http.post<{ secret: Secret }>('/app-secrets', input);
-await http.put(`/connections/${id}`, changes);
-await http.delete(`/connections/${id}`);
+const info = await api.get<UpdateInfo>('/updates/check');
+const runs = await api.get<Runs>('/migrations', { query: { limit: 20 } });
+const { secret } = await api.post<{ secret: Secret }>('/app-secrets', input);
+await api.put(`/connections/${id}`, changes);
+await api.delete(`/connections/${id}`);
 ```
 
 Paths are relative to the API base, so write `/schema/load`, not
@@ -165,11 +165,11 @@ A failed request throws `ApiError`, carrying `status` and the server's `code`:
 
 ```ts
 try {
-  await http.post('/compare', ref);
+  await api.post('/compare', ref);
 } catch (e) {
   if (e instanceof ApiError && e.code === 'unauthenticated') redirectToLogin();
 }
 ```
 
 For responses that are not JSON — a streamed NDJSON migration, a file download
-— use `http.raw`, which returns the `Response` untouched.
+— use `api.raw`, which returns the `Response` untouched.

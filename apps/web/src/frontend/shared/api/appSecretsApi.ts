@@ -1,5 +1,5 @@
 import { getApiBase, parseJsonResponse } from './apiBase';
-import { http } from './http';
+import { api } from './client';
 import type { CloudSecretProviderId } from '../lib/cloud-provider-settings';
 
 export type AppSecretSource = 'local' | CloudSecretProviderId;
@@ -53,7 +53,7 @@ export type CloudProviderCredentials =
   | AzureProviderCredentials;
 
 export async function listAppSecrets(): Promise<AppSecretSummary[]> {
-  const data = await http.get<{ secrets: AppSecretSummary[] }>(`/app-secrets`);
+  const data = await api.get<{ secrets: AppSecretSummary[] }>(`/app-secrets`);
   return data.secrets ?? [];
 }
 
@@ -63,7 +63,7 @@ export async function createAppSecret(input: {
   value?: string;
   cloudRef?: AppSecretCloudRef;
 }): Promise<AppSecretSummary> {
-  const data = await http.post<{ secret: AppSecretSummary }>(`/app-secrets`, input);
+  const data = await api.post<{ secret: AppSecretSummary }>(`/app-secrets`, input);
   return data.secret;
 }
 
@@ -76,12 +76,12 @@ export async function updateAppSecret(
     cloudRef?: AppSecretCloudRef;
   }
 ): Promise<AppSecretSummary> {
-  const data = await http.put<{ secret: AppSecretSummary }>(`/app-secrets/${encodeURIComponent(id)}`, input);
+  const data = await api.put<{ secret: AppSecretSummary }>(`/app-secrets/${encodeURIComponent(id)}`, input);
   return data.secret;
 }
 
 export async function deleteAppSecret(id: string): Promise<void> {
-  await http.delete<{ ok: boolean }>(`/app-secrets/${encodeURIComponent(id)}`);
+  await api.delete<{ ok: boolean }>(`/app-secrets/${encodeURIComponent(id)}`);
 }
 
 export async function resolveAppSecrets(names?: string[]): Promise<{
@@ -98,7 +98,7 @@ export async function resolveAppSecrets(names?: string[]): Promise<{
 }
 
 export async function listCloudProviders(): Promise<CloudProviderCredentialSummary[]> {
-  const data = await http.get<{ providers: CloudProviderCredentialSummary[] }>(`/app-secrets/providers`);
+  const data = await api.get<{ providers: CloudProviderCredentialSummary[] }>(`/app-secrets/providers`);
   return data.providers ?? [];
 }
 
@@ -107,7 +107,7 @@ export async function createCloudProviderCredential(input: {
   provider: CloudSecretProviderId;
   credentials: CloudProviderCredentials;
 }): Promise<CloudProviderCredentialSummary> {
-  const data = await http.post<{ provider: CloudProviderCredentialSummary }>(`/app-secrets/providers`, input);
+  const data = await api.post<{ provider: CloudProviderCredentialSummary }>(`/app-secrets/providers`, input);
   return data.provider;
 }
 
@@ -115,10 +115,10 @@ export async function updateCloudProviderCredential(
   id: string,
   input: { name?: string; credentials?: CloudProviderCredentials }
 ): Promise<CloudProviderCredentialSummary> {
-  const data = await http.put<{ provider: CloudProviderCredentialSummary }>(`/app-secrets/providers/${encodeURIComponent(id)}`, input);
+  const data = await api.put<{ provider: CloudProviderCredentialSummary }>(`/app-secrets/providers/${encodeURIComponent(id)}`, input);
   return data.provider;
 }
 
 export async function deleteCloudProviderCredential(id: string): Promise<void> {
-  await http.delete<{ ok: boolean }>(`/app-secrets/providers/${encodeURIComponent(id)}`);
+  await api.delete<{ ok: boolean }>(`/app-secrets/providers/${encodeURIComponent(id)}`);
 }

@@ -1,5 +1,5 @@
 import { getApiBase, parseJsonResponse } from './apiBase';
-import { http } from './http';
+import { api } from './client';
 import type { ConnectionRef } from './schemaApi';
 import type { BrowserCodeCellKind, CodeCellLast, CodeCellVars } from '../lib/sql-splitter';
 
@@ -34,7 +34,7 @@ export async function executeSql(
    */
   opts?: { datagridAction?: 'insert' | 'update' | 'delete' }
 ): Promise<{ results: SqlStatementResult[] }> {
-  const data = await http.post<{ results?: SqlStatementResult[]; error?: string }>(`/sql/execute`, {
+  const data = await api.post<{ results?: SqlStatementResult[]; error?: string }>(`/sql/execute`, {
       ...ref,
       statements,
       maxRows,
@@ -138,7 +138,7 @@ export async function runCodeCellOnServer(
   payload: ServerCodeCellPayload
 ): Promise<SqlStatementResult> {
   const { ref, beam, ...rest } = payload;
-  const data = await http.post<unknown>(`/sql/code-cell`, { ...ref, ...rest, ...(beam?.length ? { beam } : {}) });
+  const data = await api.post<unknown>(`/sql/code-cell`, { ...ref, ...rest, ...(beam?.length ? { beam } : {}) });
   const parsed = parseSqlStatementResult(data);
   if (!parsed.ok) {
     throw new Error(parsed.error);

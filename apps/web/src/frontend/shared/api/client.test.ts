@@ -11,7 +11,7 @@
  * multi-user auth is enabled.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { http, ApiError } from './http';
+import { api, ApiError } from './client';
 
 const realFetch = globalThis.fetch;
 
@@ -40,11 +40,11 @@ afterEach(() => {
 describe('request defaults', () => {
   it('sends the session cookie on every method', async () => {
     for (const send of [
-      () => http.get('/thing'),
-      () => http.post('/thing', {}),
-      () => http.put('/thing', {}),
-      () => http.patch('/thing', {}),
-      () => http.delete('/thing'),
+      () => api.get('/thing'),
+      () => api.post('/thing', {}),
+      () => api.put('/thing', {}),
+      () => api.patch('/thing', {}),
+      () => api.delete('/thing'),
     ]) {
       const calls = stubFetch({ body: { ok: true } });
       await send();
@@ -54,16 +54,16 @@ describe('request defaults', () => {
 
   it('uses the API base and the given path', async () => {
     const calls = stubFetch({ body: {} });
-    await http.get('/updates/check');
+    await api.get('/updates/check');
     expect(calls[0]!.url).toBe('/api/updates/check');
   });
 
   it.each([
-    ['get', () => http.get('/x'), 'GET'],
-    ['post', () => http.post('/x', {}), 'POST'],
-    ['put', () => http.put('/x', {}), 'PUT'],
-    ['patch', () => http.patch('/x', {}), 'PATCH'],
-    ['delete', () => http.delete('/x'), 'DELETE'],
+    ['get', () => api.get('/x'), 'GET'],
+    ['post', () => api.post('/x', {}), 'POST'],
+    ['put', () => api.put('/x', {}), 'PUT'],
+    ['patch', () => api.patch('/x', {}), 'PATCH'],
+    ['delete', () => api.delete('/x'), 'DELETE'],
   ])('%s sends the right method', async (_name, send, method) => {
     const calls = stubFetch({ body: {} });
     await send();
@@ -72,14 +72,14 @@ describe('request defaults', () => {
 
   it('sends a JSON content type only when there is a body', async () => {
     const withBody = stubFetch({ body: {} });
-    await http.post('/x', { a: 1 });
+    await api.post('/x', { a: 1 });
     expect((withBody[0]!.init.headers as Record<string, string>)['Content-Type']).toBe(
       'application/json'
     );
     expect(withBody[0]!.init.body).toBe('{"a":1}');
 
     const withoutBody = stubFetch({ body: {} });
-    await http.get('/x');
+    await api.get('/x');
     expect((withoutBody[0]!.init.headers as Record<string, string>)['Content-Type']).toBeUndefined();
     expect(withoutBody[0]!.init.body).toBeUndefined();
   });
@@ -88,7 +88,7 @@ describe('request defaults', () => {
 describe('query strings', () => {
   it('appends and encodes parameters', async () => {
     const calls = stubFetch({ body: {} });
-    await http.get('/driver/check', { query: { dialect: 'sql server', limit: 20 } });
+    await api.get('/driver/check', { query: { dialect: 'sql server', limit: 20 } });
     expect(calls[0]!.url).toBe('/api/driver/check?dialect=sql+server&limit=20');
   });
 
@@ -96,13 +96,13 @@ describe('query strings', () => {
     // Callers pass optional filters straight through, so undefined must not
     // become the string "undefined".
     const calls = stubFetch({ body: {} });
-    await http.get('/x', { query: { a: 1, b: undefined, c: null, d: false } });
+    await api.get('/x', { query: { a: 1, b: undefined, c: null, d: false } });
     expect(calls[0]!.url).toBe('/api/x?a=1&d=false');
   });
 
   it('keeps a query already present on the path', async () => {
     const calls = stubFetch({ body: {} });
-    await http.get('/x?first=1', { query: { second: 2 } });
+    await api.get('/x?first=1', { query: { second: 2 } });
     expect(calls[0]!.url).toBe('/api/x?first=1&second=2');
   });
 });
@@ -110,7 +110,7 @@ describe('query strings', () => {
 describe('failures', () => {
   it('throws ApiError carrying the server message and code', async () => {
     stubFetch({ status: 400, body: { ok: false, error: 'source is required.', code: 'invalid_input' } });
-    const err = await http.post('/compare', {}).catch((e: unknown) => e);
+    const err = await api.post('/compare', {}).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect((err as ApiError).message).toBe('source is required.');
     expect((err as ApiError).status).toBe(400);
@@ -119,18 +119,18 @@ describe('failures', () => {
 
   it('falls back to a status message when the body has no error text', async () => {
     stubFetch({ status: 500, body: {} });
-    const err = await http.get('/x').catch((e: unknown) => e);
+    const err = await api.get('/x').catch((e: unknown) => e);
     expect((err as ApiError).message).toContain('500');
   });
 
   it('reports an empty response rather than returning undefined', async () => {
     stubFetch({ status: 200, text: '' });
-    await expect(http.get('/x')).rejects.toThrow(/Empty response/);
+    await expect(api.get('/x')).rejects.toThrow(/Empty response/);
   });
 
   it('accepts an empty response when the caller allows it', async () => {
     stubFetch({ status: 200, text: '' });
-    await expect(http.get('/x', { allowEmpty: true })).resolves.toEqual({});
+    await expect(api.get('/x', { allowEmpty: true })).resolves.toEqual({});
   });
 });
 
@@ -139,7 +139,7 @@ describe('raw', () => {
     // Used for streamed NDJSON and file downloads, where the caller reads the
     // body itself.
     stubFetch({ status: 409, text: 'not json' });
-    const res = await http.raw('POST', '/migration/execute', { steps: [] });
+    const res = await api.raw('POST', '/migration/execute', { steps: [] });
     expect(res.status).toBe(409);
     expect(await res.text()).toBe('not json');
   });

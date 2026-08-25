@@ -1,5 +1,5 @@
 import type { ConnectionOptions } from '../lib/provider-settings';
-import { http } from './http';
+import { api } from './client';
 import type {
   DriverInfo,
   DbObjectType,
@@ -426,13 +426,13 @@ export async function checkDriver(dialect: string): Promise<DriverInfo> {
   // Driver-installed status rarely changes — cache for 30s, dedupe concurrent checks
   return idempotent(
     `driver:${dialect}`,
-    async () => http.get<DriverInfo>('/driver/check', { query: { dialect } }),
+    async () => api.get<DriverInfo>('/driver/check', { query: { dialect } }),
     30000
   );
 }
 
 export async function installDriver(dialect: string): Promise<{ success: boolean; stdout?: string; error?: string }> {
-  const result = await http.post<{ success: boolean; stdout?: string; error?: string }>(
+  const result = await api.post<{ success: boolean; stdout?: string; error?: string }>(
     '/driver/install',
     { dialect }
   );
@@ -443,7 +443,7 @@ export async function installDriver(dialect: string): Promise<{ success: boolean
 
 
 export async function testConnection(ref: ConnectionRef): Promise<{ version?: string }> {
-  const data = await http.post<{ success: boolean; version?: string; error?: string }>(`/connection/test`, ref);
+  const data = await api.post<{ success: boolean; version?: string; error?: string }>(`/connection/test`, ref);
   if (!data.success) {
     throw new Error(data.error ?? 'Connection test returned false');
   }

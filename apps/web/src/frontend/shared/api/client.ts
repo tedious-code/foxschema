@@ -7,10 +7,10 @@
  *
  * Callers give a path, optionally a body and options, and get parsed JSON back:
  *
- *   const { tables } = await http.post<LoadSchemaResult>('/schema/load', ref);
- *   const info = await http.get<UpdateInfo>('/updates/check');
- *   await http.delete(`/connections/${id}`);
- *   const runs = await http.get<Runs>('/migrations', { query: { limit: 20 } });
+ *   const { tables } = await api.post<LoadSchemaResult>('/schema/load', ref);
+ *   const info = await api.get<UpdateInfo>('/updates/check');
+ *   await api.delete(`/connections/${id}`);
+ *   const runs = await api.get<Runs>('/migrations', { query: { limit: 20 } });
  *
  * The base URL, the session cookie, the JSON headers and error handling are
  * applied here so a call site cannot forget one. Omitting `credentials` in
@@ -22,7 +22,7 @@
  * of failure rather than parsing text.
  *
  * For responses that are not JSON — a streamed NDJSON migration, a file
- * download — use `http.raw`, which returns the `Response` untouched.
+ * download — use `api.raw`, which returns the `Response` untouched.
  */
 import type { ErrorCode } from '@foxschema/shared';
 import { getApiBase, parseJsonBody } from './apiBase';
@@ -140,7 +140,7 @@ async function request<T>(
  * Paths are relative to the API base, so pass `/schema/load`, not
  * `/api/schema/load`.
  */
-export const http = {
+export const api = {
   get: <T>(path: string, options?: RequestOptions): Promise<T> =>
     request<T>('GET', path, undefined, options),
 
