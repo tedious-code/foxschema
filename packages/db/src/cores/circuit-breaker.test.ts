@@ -98,6 +98,42 @@ describe('circuit breaker', () => {
     expect(cb.stateOf('pg')).toBe('half-open');
   });
 
+  it('rejects concurrent probes while a half-open trial is in flight', async () => {
+    // Docs promise one trial after cooldown. Without a trialInFlight gate,
+    // every parallel caller (multi-destination Run, compare retries) would
+    // open a socket again and re-create the connect-timeout pile-up.
+    const clock = at();
+    const cb = new CircuitBreaker({ failureThreshold: 1, resetAfterMs: 10_000, now: clock.now });
+    await expect(cb.run('pg', async () => { throw refused(); })).rejects.toThrow();
+    clock.advance(10_000);
+    expect(cb.stateOf('pg')).toBe('half-open');
+
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const trial = cb.run('pg', async () => {
+      await gate;
+      return 'back';
+    });
+
+    const fn = vi.fn(async () => 'should not run');
+    const blocked = await Promise.allSettled([
+      cb.run('pg', fn),
+      cb.run('pg', fn),
+      cb.run('pg', fn),
+    ]);
+    for (const result of blocked) {
+      expect(result.status).toBe('rejected');
+      expect((result as PromiseRejectedResult).reason).toBeInstanceOf(CircuitOpenError);
+    }
+    expect(fn).not.toHaveBeenCalled();
+
+    release();
+    await expect(trial).resolves.toBe('back');
+    expect(cb.stateOf('pg')).toBe('closed');
+  });
+
   it('closes when the trial call succeeds', async () => {
     const clock = at();
     const cb = new CircuitBreaker({ failureThreshold: 1, resetAfterMs: 10_000, now: clock.now });

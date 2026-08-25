@@ -76,6 +76,13 @@ interface Circuit {
   successes: number;
   openUntil: number;
   lastError: string | null;
+  /**
+   * Half-open admits exactly one trial. Without this flag, every concurrent
+   * caller that arrives after the cooldown (multi-destination SQL Editor,
+   * compare retries) would open a socket again — the pile-up the breaker
+   * exists to stop, recurring every resetAfterMs.
+   */
+  trialInFlight: boolean;
 }
 
 /** Far above any real deployment's distinct-target count. */
@@ -148,7 +155,14 @@ export class CircuitBreaker {
           if (oldest !== undefined) this.circuits.delete(oldest);
         }
       }
-      c = { state: 'closed', failures: 0, successes: 0, openUntil: 0, lastError: null };
+      c = {
+        state: 'closed',
+        failures: 0,
+        successes: 0,
+        openUntil: 0,
+        lastError: null,
+        trialInFlight: false,
+      };
       this.circuits.set(key, c);
     }
     return c;
@@ -161,6 +175,7 @@ export class CircuitBreaker {
     if (c.state === 'open' && this.now() >= c.openUntil) {
       c.state = 'half-open';
       c.successes = 0;
+      c.trialInFlight = false;
     }
     return c.state;
   }
@@ -168,7 +183,8 @@ export class CircuitBreaker {
   /**
    * Run `fn` under the breaker.
    *
-   * Rejects with CircuitOpenError — without calling `fn` — while open.
+   * Rejects with CircuitOpenError — without calling `fn` — while open, and
+   * while a half-open trial is already in flight (only one probe at a time).
    */
   async run<T>(key: string, fn: () => Promise<T>): Promise<T> {
     const state = this.stateOf(key);
@@ -176,6 +192,22 @@ export class CircuitBreaker {
 
     if (state === 'open') {
       throw new CircuitOpenError(key, Math.max(0, c.openUntil - this.now()), c.lastError);
+    }
+
+    // Half-open: claim the single trial slot synchronously before any await,
+    // so concurrent callers cannot all slip through between the state check
+    // and the probe.
+    let holdingTrial = false;
+    if (state === 'half-open') {
+      if (c.trialInFlight) {
+        throw new CircuitOpenError(
+          key,
+          Math.max(1_000, Math.ceil(this.resetAfterMs / 10)),
+          c.lastError
+        );
+      }
+      c.trialInFlight = true;
+      holdingTrial = true;
     }
 
     try {
@@ -187,6 +219,8 @@ export class CircuitBreaker {
       if (isAvailabilityFailure(error)) this.recordFailure(key, error);
       else this.recordSuccess(key);
       throw error;
+    } finally {
+      if (holdingTrial) c.trialInFlight = false;
     }
   }
 
