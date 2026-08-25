@@ -123,26 +123,37 @@ export function idempotency(options: IdempotencyOptions = {}): Middleware {
     // handler writes it.
     const originalJson = res.json.bind(res);
     let settled = false;
+
+    const settle = (status: number, body: unknown) => {
+      if (settled) return;
+      settled = true;
+      const done: Completed = {
+        kind: 'done',
+        status,
+        body,
+        fingerprint,
+        storedAt: Date.now(),
+      };
+      entries.set(key, done);
+      for (const waiter of inFlight.waiters) waiter(done);
+      inFlight.waiters.length = 0;
+    };
+
     res.json = ((body: unknown) => {
-      if (!settled) {
-        settled = true;
-        const done: Completed = {
-          kind: 'done',
-          status: res.statusCode,
-          body,
-          fingerprint,
-          storedAt: Date.now(),
-        };
-        entries.set(key, done);
-        for (const waiter of inFlight.waiters) waiter(done);
-        inFlight.waiters.length = 0;
-      }
+      settle(res.statusCode, body);
       return originalJson(body);
     }) as typeof res.json;
 
-    // A handler that throws, or a socket that closes, must not leave the key
-    // wedged in-flight — the next attempt would hang behind a request that is
-    // never going to answer.
+    // /migration/execute streams NDJSON via write/end and never calls json().
+    // Without settling on a completed stream, `close` frees the key and a
+    // retry with the same Idempotency-Key re-applies the DDL.
+    res.on('finish', () => {
+      settle(res.statusCode || 200, { ok: true, streamed: true });
+    });
+
+    // A handler that throws, or a socket that closes before finish, must not
+    // leave the key wedged in-flight — the next attempt would hang behind a
+    // request that is never going to answer.
     res.on('close', () => {
       if (settled) return;
       settled = true;

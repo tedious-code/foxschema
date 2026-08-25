@@ -129,6 +129,29 @@ describe('idempotency', () => {
     expect(next).toHaveBeenCalledTimes(1);
   });
 
+  it('remembers a streamed response that never called json()', async () => {
+    // /migration/execute writes NDJSON and ends the socket. If finish does not
+    // settle the key, close frees it and a retry re-applies the migration.
+    const mw = idempotency();
+    const body = { steps: [{ action: 'create', objectName: 't' }] };
+    const first = resOf();
+    const next1 = vi.fn(() => {
+      first.statusCode = 200;
+      first.emit('finish');
+      first.emit('close');
+    });
+    mw(reqOf('mig', body, '/migration/execute'), first, next1);
+    expect(next1).toHaveBeenCalledTimes(1);
+    await tick();
+
+    const second = resOf();
+    const next2 = vi.fn();
+    mw(reqOf('mig', body, '/migration/execute'), second, next2);
+    expect(next2).not.toHaveBeenCalled();
+    expect(second.sent).toEqual({ ok: true, streamed: true });
+    expect(second.headers['Idempotency-Replayed']).toBe('true');
+  });
+
   it('answers waiters when the original dies mid-flight', async () => {
     const mw = idempotency();
     const first = resOf();
