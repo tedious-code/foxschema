@@ -17,6 +17,7 @@
  */
 import { ERROR_STATUS, type ApiErrorBody, type ErrorCode, type FieldError } from '@foxschema/shared';
 import { toApiError } from '../contracts/actor';
+import { redactCredentials } from './redact';
 
 /**
  * The only part of a response these helpers need.
@@ -74,7 +75,10 @@ export function sendError(
 ): void {
   const body: ApiErrorBody & Record<string, unknown> = {
     ok: false,
-    error: message,
+    // Every error body leaves through here, so this is the one place that has
+    // to strip credentials — some drivers quote the connection string back,
+    // password included, and that used to reach the client verbatim.
+    error: redactCredentials(message),
     code,
     ...(details.fields?.length ? { fields: details.fields } : {}),
     ...(details.retryAfterSec !== undefined ? { retryAfterSec: details.retryAfterSec } : {}),
