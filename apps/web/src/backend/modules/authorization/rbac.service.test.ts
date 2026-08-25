@@ -5,7 +5,7 @@ process.env.APP_DB_PATH = ':memory:';
 
 import { RbacModule, toAppRole, backfillDatagridRolePermissions } from './rbac.service';
 import { getStore } from '../../database/store';
-import { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS } from '../../../shared/permissions';
+import { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS } from '@foxschema/shared';
 
 const rbac = new RbacModule();
 

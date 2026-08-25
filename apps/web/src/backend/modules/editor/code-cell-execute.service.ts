@@ -23,7 +23,7 @@ export type CellQueryRunner = (
   alias?: string
 ) => Promise<Record<string, unknown>[]>;
 import { clampMaxRows } from './sql-execute.service';
-import { createBeamSqlCap } from '../../../shared/server-beam';
+import { createBeamSqlCap } from '@foxschema/shared';
 
 export const MAX_CODE_CELL_LENGTH = 100_000;
 export const DEFAULT_CODE_CELL_TIMEOUT_MS = 10_000;

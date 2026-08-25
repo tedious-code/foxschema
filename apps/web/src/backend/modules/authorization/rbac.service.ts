@@ -14,7 +14,7 @@ import {
   type Permission,
   isAppRole,
   uniquePermissions,
-} from '../../../shared/permissions';
+} from '@foxschema/shared';
 
 /** Unknown / missing role values fall back to the least-privileged role. */
 export function toAppRole(value: unknown): AppRole {

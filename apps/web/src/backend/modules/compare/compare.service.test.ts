@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { makeCompareService } from './compare.service';
 import { ServiceError, type ActorContext } from '../../platform/contracts/actor';
 import type { ConnectionResolver } from '../../platform/db/resolve';
-import type { Permission } from '../../../shared/permissions';
+import type { Permission } from '@foxschema/shared';
 
 /**
  * The point of the service layer: this exercises the real permission gate and

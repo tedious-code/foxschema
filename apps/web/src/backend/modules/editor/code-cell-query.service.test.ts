@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ConnectionFactory } from '@foxschema/db';
 import { MAX_CELL_QUERY_ROWS } from './code-cell-bridge.service';
 import { makeBeamCellQueryRunner, makeCellQueryRunner } from './code-cell-query.service';
-import type { Permission } from '../../../shared/permissions';
+import type { Permission } from '@foxschema/shared';
 import type { CellQueryRunner } from './code-cell-execute.service';
 
 vi.mock('@foxschema/db', async (importOriginal) => {

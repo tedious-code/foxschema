@@ -18,14 +18,14 @@ import {
   DATAGRID_ACTION_PERMISSION,
   isDatagridAction,
   type Permission,
-} from '../../../shared/permissions';
+} from '@foxschema/shared';
 import { sqlStatementCategories, statementVerb } from '@foxschema/sql';
 import { isSingleSqlStatement } from '../../api/single-statement';
-import { permissionSatisfied } from '../../../shared/permissions';
+import { permissionSatisfied } from '@foxschema/shared';
 import { clampOffset } from './sql-page-wrap.service';
 import { makeBeamCellQueryRunner, makeCellQueryRunner } from './code-cell-query.service';
 import type { CellQueryRunner } from './code-cell-execute.service';
-import { parseBeamEndpoints } from '../../../shared/server-beam';
+import { parseBeamEndpoints } from '@foxschema/shared';
 import type { CodeCellRequestBody } from './code-cell-execute.service';
 import { validateCodeCellRequest } from './code-cell-execute.service';
 import { runStatements, clampMaxRows } from './sql-execute.service';

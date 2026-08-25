@@ -52,14 +52,14 @@ import {
   type CellQueryRunner,
 } from '../modules/editor/code-cell-execute.service';
 import { makeBeamCellQueryRunner, makeCellQueryRunner } from '../modules/editor/code-cell-query.service';
-import { parseBeamEndpoints } from '../../shared/server-beam';
+import { parseBeamEndpoints } from '@foxschema/shared';
 import { getMetadataDbConfig, SUPPORTED_ENGINES, type DbEngine } from '../database/config';
 import { createMetadataStore } from '../database/stores/registry';
 import { keySchemeInfo } from '../cores/crypto';
 import type { AuthedRequest } from '../modules/auth/auth.routes';
 import { denyUnless, requirePermissions } from '../modules/authorization/rbac.guard';
 import { isLocalSingleUser } from './deployment';
-import { CATEGORY_PERMISSION, DATAGRID_ACTION_PERMISSION, isDatagridAction, permissionSatisfied, type Permission } from '../../shared/permissions';
+import { CATEGORY_PERMISSION, DATAGRID_ACTION_PERMISSION, isDatagridAction, permissionSatisfied, type Permission } from '@foxschema/shared';
 import { toHttpError, type ActorContext } from '../platform/contracts/actor';
 import { makeConnectionResolver, type ConnectionRef } from '../platform/db/resolve';
 import { makeCompareService } from '../modules/compare/compare.service';

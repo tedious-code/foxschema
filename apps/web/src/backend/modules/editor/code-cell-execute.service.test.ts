@@ -6,7 +6,7 @@ import {
   runCodeCellOnServer,
   validateCodeCellRequest,
 } from './code-cell-execute.service';
-import { MAX_SQL } from '../../../shared/server-beam';
+import { MAX_SQL } from '@foxschema/shared';
 
 /** Value planted in APP_ENCRYPTION_KEY to prove an escaped cell cannot read it. */
 const SENTINEL_SECRET = 'sentinel-must-not-leak';

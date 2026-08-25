@@ -9,7 +9,7 @@
 import { Router, Response } from 'express';
 import { RbacModule } from '../authorization/rbac.service';
 import { AuthModule } from '../auth/auth.service';
-import { APP_ROLES, PERMISSION_META, isAppRole } from '../../../shared/permissions';
+import { APP_ROLES, PERMISSION_META, isAppRole } from '@foxschema/shared';
 import type { AuthedRequest } from '../auth/auth.routes';
 import { requirePermissions } from '../authorization/rbac.guard';
 

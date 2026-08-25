@@ -13,7 +13,7 @@
 import type { Request } from 'express';
 import type { ActorContext } from '../contracts/actor';
 import type { AuthedRequest } from '../../modules/auth/auth.routes';
-import { permissionSatisfied, type Permission } from '../../../shared/permissions';
+import { permissionSatisfied, type Permission } from '@foxschema/shared';
 
 export function actorOf(req: Request): ActorContext {
   const authed = req as AuthedRequest;

@@ -8,7 +8,7 @@ import { getStore } from '../../database/store';
 import { hashPassword, verifyPassword, newToken } from '../../cores/crypto';
 import { RbacModule, toAppRole } from '../authorization/rbac.service';
 import type { MetadataStore } from '../../database/stores/types';
-import type { AppRole, Permission } from '../../../shared/permissions';
+import type { AppRole, Permission } from '@foxschema/shared';
 
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
 

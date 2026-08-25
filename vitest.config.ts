@@ -6,6 +6,7 @@ const pkg = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 const aliases = [
   { find: '@foxschema/sql', replacement: pkg('./packages/sql/src/index.ts') },
   { find: '@foxschema/db', replacement: pkg('./packages/db/src/index.ts') },
+  { find: '@foxschema/shared', replacement: pkg('./packages/shared/src/index.ts') },
   { find: '@foxschema/web/auth', replacement: pkg('./apps/web/src/backend/modules/auth/auth.service.ts') },
   { find: '@foxschema/web/connection-store', replacement: pkg('./apps/web/src/backend/modules/connections/connection-store.service.ts') },
   { find: '@foxschema/web/migration-history', replacement: pkg('./apps/web/src/backend/modules/migration/migration-history.service.ts') },

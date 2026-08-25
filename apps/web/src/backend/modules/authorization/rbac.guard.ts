@@ -6,8 +6,8 @@
  * Permission guards for Express routes.
  */
 import type { Response, NextFunction } from 'express';
-import { permissionSatisfied } from '../../../shared/permissions';
-import type { Permission } from '../../../shared/permissions';
+import { permissionSatisfied } from '@foxschema/shared';
+import type { Permission } from '@foxschema/shared';
 import type { AuthedRequest } from '../auth/auth.routes';
 
 /** After a session is resolved, reject when any required permission is missing. */

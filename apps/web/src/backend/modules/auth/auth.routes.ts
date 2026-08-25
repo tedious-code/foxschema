@@ -5,7 +5,7 @@
  */
 import { Router, Request, Response, NextFunction } from 'express';
 import { AuthModule, SESSION_COOKIE, SESSION_MAX_AGE_MS, type AuthUser } from '../auth/auth.service';
-import type { AppRole, Permission } from '../../../shared/permissions';
+import type { AppRole, Permission } from '@foxschema/shared';
 
 export interface AuthedRequest extends Request {
   userId?: string;

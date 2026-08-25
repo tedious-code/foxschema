@@ -27,7 +27,7 @@ import {
   type DbPrivilege,
   type DbPrivilegeObjectType,
 } from '@foxschema/sql';
-import { PERMISSION_META } from '../../../shared/permissions';
+import { PERMISSION_META } from '@foxschema/shared';
 import { fetchDbAccess } from '../../api/schemaApi';
 import { executeSql } from '../../api/sqlApi';
 import { useSyncStore } from '../../store/useSyncStore';

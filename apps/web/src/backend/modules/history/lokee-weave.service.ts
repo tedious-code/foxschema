@@ -73,7 +73,7 @@ import type {
   VersionCompare,
   VersionGraphObject,
   VersionSummary,
-} from '../../../shared/lokee-wire';
+} from '@foxschema/shared';
 import type { MetadataStore, SqlParam } from '../../database/stores/types';
 
 const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8').digest('hex');
@@ -103,7 +103,7 @@ export type {
   ObjectHistoryEntry,
   ObjectInspectResult,
   VersionSummary,
-} from '../../../shared/lokee-wire';
+} from '@foxschema/shared';
 
 export interface CaptureInput extends DatabaseIdentityInput {
   tables: TableSchema[];

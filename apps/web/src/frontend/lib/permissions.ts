@@ -5,11 +5,11 @@
  *
  * Frontend helpers for app RBAC, over the shared in-app catalog.
  */
-export type { AppRole, Permission, PermissionMeta } from '../../shared/permissions';
-export { APP_ROLES } from '../../shared/permissions';
+export type { AppRole, Permission, PermissionMeta } from '@foxschema/shared';
+export { APP_ROLES } from '@foxschema/shared';
 
-import { permissionSatisfied } from '../../shared/permissions';
-import type { AppRole, Permission } from '../../shared/permissions';
+import { permissionSatisfied } from '@foxschema/shared';
+import type { AppRole, Permission } from '@foxschema/shared';
 
 export function userCan(
   user: { role: AppRole; permissions: Permission[] } | null | undefined,

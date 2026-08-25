@@ -24,13 +24,13 @@ import type {
   RevertPlanWire,
   VersionCompare,
   VersionSummary,
-} from '../../shared/lokee-wire';
+} from '@foxschema/shared';
 import { getApiBase, parseJsonBody, parseJsonResponse } from './apiBase';
 
 // These were hand-copied from the backend until the shared contract landed;
 // two had already drifted (`source` widened to `string`). Aliases keep the
 // existing call sites while the declaration lives in one place.
-export type { CaptureResult, LokeeDatabase } from '../../shared/lokee-wire';
+export type { CaptureResult, LokeeDatabase } from '@foxschema/shared';
 export type LokeeVersion = VersionSummary;
 export type LokeeHistoryEvent = ObjectHistoryEntry;
 export type LokeeStoredObject = StoredWeaveObject;
@@ -214,4 +214,4 @@ export async function compareLokeeVersions(
   return parseJsonResponse<VersionCompare>(res);
 }
 
-export type { VersionCompare } from '../../shared/lokee-wire';
+export type { VersionCompare } from '@foxschema/shared';

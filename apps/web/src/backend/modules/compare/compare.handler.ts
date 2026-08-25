@@ -18,8 +18,8 @@ export function makeCompareHandlers(controller: CompareController) {
         const result = await controller.compare(parseCompareInput(req.body), actorOf(req));
         res.json(result);
       } catch (error: unknown) {
-        const { status, error: message } = toHttpError(error, 'Schema comparison failed');
-        res.status(status).json({ error: message });
+        const { status, body } = toHttpError(error, 'Schema comparison failed');
+        res.status(status).json(body);
       }
     },
   };

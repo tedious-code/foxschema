@@ -11,13 +11,13 @@ import type { AuthedRequest } from '../auth/auth.routes';
 import type { ConnectionRef } from '../../platform/db/resolve';
 import { rateLimit } from '../../platform/guards/rate-limit';
 import { MAX_STATEMENT_LENGTH } from '../editor/sql-execute.service';
-import type { Permission } from '../../../shared/permissions';
+import type { Permission } from '@foxschema/shared';
 import {
   CATEGORY_PERMISSION,
   DATAGRID_ACTION_PERMISSION,
   isDatagridAction,
   permissionSatisfied,
-} from '../../../shared/permissions';
+} from '@foxschema/shared';
 import { sqlStatementCategories, statementVerb } from '@foxschema/sql';
 import { isSingleSqlStatement } from '../../api/single-statement';
 import { executeDataMigrateOps, type DataMigrateExecOp } from '../../api/data-migrate-execute';

@@ -6,7 +6,7 @@
  * Access control panel helpers: dirty drafts, last-admin / single-user locks,
  * user-role groups, and permission display grouping.
  */
-import { APP_ROLES, PERMISSION_META, type AppRole, type Permission } from '../../shared/permissions';
+import { APP_ROLES, PERMISSION_META, type AppRole, type Permission } from '@foxschema/shared';
 
 export function permissionSetEqual(
   a: Iterable<Permission> | undefined,

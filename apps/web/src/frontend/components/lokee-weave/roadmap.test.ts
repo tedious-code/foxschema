@@ -7,7 +7,7 @@
  * fold away the version the reader is standing on.
  */
 import { describe, expect, it } from 'vitest';
-import type { ContainerGrowthPoint } from '../../../shared/lokee-wire';
+import type { ContainerGrowthPoint } from '@foxschema/shared';
 import { buildRoadmapRows, hiddenVersionCount } from './roadmap';
 
 const point = (n: number, columns: number, changed: boolean): ContainerGrowthPoint => ({
