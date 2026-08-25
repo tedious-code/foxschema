@@ -109,13 +109,17 @@ export function resolveDriverInstallTarget(
   const here = dirname(fileURLToPath(fromUrl));
   const wsPkg = workspacePackageForDriver(packageName);
 
-  // Source: apps/web/src/backend/api → ../../../../.. = monorepo root
+  // Candidate roots by depth, each validated by isFoxschemaMonorepo before
+  // use — which is why the backend moving from apps/web/src/backend to
+  // packages/server/src did not break this: the five-level guess stopped
+  // matching and the four-level one started. Depth guesses are load-bearing
+  // and invisible to tsc, so they are checked, never trusted.
   const fromApiSource = resolve(here, '../../../../..');
   if (isFoxschemaMonorepo(fromApiSource)) {
     return workspaceTarget(fromApiSource, wsPkg);
   }
 
-  // Source: apps/web/src/backend/modules → ../../../.. = monorepo root
+  // packages/server/src/<dir> → ../../../.. = monorepo root
   const fromModules = resolve(here, '../../../..');
   if (isFoxschemaMonorepo(fromModules)) {
     return workspaceTarget(fromModules, wsPkg);

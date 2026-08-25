@@ -1,5 +1,4 @@
-import { fileURLToPath } from 'node:url';
-import { dirname, resolve, join } from 'node:path';
+import { join } from 'node:path';
 import http from 'node:http';
 import express from 'express';
 import { ConnectionFactory, setupDb2ClientEnv } from '@foxschema/db';
@@ -43,10 +42,18 @@ export function startUiServer(opts: StartUiServerOptions = {}): StartedUiServer 
   setupDb2ClientEnv();
 
   const app = createApp();
-  const staticDir =
-    opts.staticDir ||
-    process.env.STATIC_DIR ||
-    resolve(dirname(fileURLToPath(import.meta.url)), '../../dist');
+  // The frontend's location is the caller's business, not the server's.
+  // This used to default to `../../dist`, which resolved to apps/web/dist —
+  // fine while this code lived inside that app, and a dependency pointing the
+  // wrong way now that it does not. Both real callers already know the answer:
+  // the CLI resolves the packaged or workspace dist and passes STATIC_DIR, and
+  // apps/web's serve entry passes its own.
+  const staticDir = opts.staticDir || process.env.STATIC_DIR;
+  if (!staticDir) {
+    throw new Error(
+      'startUiServer needs a staticDir: pass it, or set STATIC_DIR to the built frontend.'
+    );
+  }
 
   app.use(express.static(staticDir));
   app.get(/^(?!\/api\/).*/, (_req, res) => {

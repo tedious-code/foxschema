@@ -1,6 +1,7 @@
 # Backend extraction + Express removal — review and plan
 
-> **Phase 0 landed.** `packages/shared` exists, 42 import sites moved, and the
+> **Phases 0 and 1 landed.** `packages/shared` and `packages/server` exist, the
+> backend is out of `apps/web`, the six-subpath exports map is one entry, and the
 > error contract is on the wire. See §6 for the two layers added to the brief
 > after this plan was first written: standardized error codes, and per-endpoint
 > input validation.
@@ -304,7 +305,7 @@ edits that touch the same lines the Express port does:
 | Phase | Work |
 |---|---|
 | **0** ✅ | `packages/shared` + the error contract on the wire |
-| **1** | `packages/server` — move the backend, collapse the exports map |
+| **1** ✅ | `packages/server` — backend moved, exports map collapsed to one entry |
 | **2** | HTTP contract suite over all 71 routes, against Express, in CI |
 | **3** | Transport-agnostic cores for `idempotency`, `rbac.guard`, auth guard |
 | **4** | **Per module, in one pass:** schema file → error codes → native Fastify |
@@ -317,9 +318,10 @@ phase 2 covers all three kinds of change at once.
 
 ---
 
-## 7. Found along the way — not part of this plan
+## 7. Found along the way — fixed separately
 
-**The production frontend build is broken on `main`, and CI does not catch it.**
+**The production frontend build was broken on `main`, and CI did not catch it.** Fixed
+in its own commit; a `Frontend build` job now guards it.
 
 `npm run build -w @foxschema/web` — the command the CLI tells users to run —
 fails to resolve `monaco-editor/esm/vs/editor/editor.api`. The cause is not the

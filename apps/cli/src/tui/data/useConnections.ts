@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ConnectionOptions } from '@foxschema/db';
-import type { SavedConnectionSummary } from '@foxschema/web/connection-store';
+import type { SavedConnectionSummary } from '@foxschema/server';
 import { getContext } from '../../runtime/store';
 import { friendlyError } from '../../format/friendlyError';
 import type { AsyncState } from '../types';

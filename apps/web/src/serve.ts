@@ -1,6 +1,7 @@
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
 import { ConnectionFactory } from '@foxschema/db';
-import { startUiServer } from './startUiServer';
-import { getLogger } from './platform/logger/logger';
+import { startUiServer, getLogger } from '@foxschema/server';
 
 /**
  * Production web entry (Docker / self-host / CLI child process).
@@ -32,7 +33,11 @@ if (process.env.NODE_ENV === 'production' && !process.env.APP_ENCRYPTION_KEY) {
   process.exit(1);
 }
 
-const { port, server } = startUiServer();
+// This app owns its build output, so this entry is the right place to know
+// where it is: src/ → ../dist. @foxschema/server deliberately has no default.
+const staticDir = resolve(dirname(fileURLToPath(import.meta.url)), '../dist');
+
+const { port, server } = startUiServer({ staticDir });
 
 server.on('listening', () => {
   getLogger().info({ component: 'server', port, url: `http://localhost:${port}` }, 'Fox Schema listening');

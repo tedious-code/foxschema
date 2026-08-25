@@ -1,8 +1,8 @@
 import { readConfig } from './config';
 import { applyEnv } from './bootstrap';
-import { AuthModule } from '@foxschema/web/auth';
-import { ConnectionStore } from '@foxschema/web/connection-store';
-import { MigrationHistoryStore } from '@foxschema/web/migration-history';
+import { AuthModule } from '@foxschema/server';
+import { ConnectionStore } from '@foxschema/server';
+import { MigrationHistoryStore } from '@foxschema/server';
 
 export interface CliContext {
   userId: string;

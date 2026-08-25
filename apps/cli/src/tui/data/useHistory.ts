@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { MigrationRunDetail, MigrationRunSummary } from '@foxschema/web/migration-history';
+import type { MigrationRunDetail, MigrationRunSummary } from '@foxschema/server';
 import { getContext } from '../../runtime/store';
 import { friendlyError } from '../../format/friendlyError';
 import type { AsyncState } from '../types';

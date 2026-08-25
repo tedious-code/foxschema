@@ -3,7 +3,7 @@
  * Detached UI server process entry for `foxschema open`.
  * Env (API_PORT, STATIC_DIR, APP_ENCRYPTION_KEY, APP_DB_*) is set by the parent.
  */
-import { startUiServer } from '@foxschema/web/serve';
+import { startUiServer } from '@foxschema/server';
 
 // So Activity Monitor / `ps` / Task Manager “window title” can identify us
 // (Image Name on Windows is still node.exe — see docs).

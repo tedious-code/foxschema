@@ -14,7 +14,7 @@
  * Gated behind FOX_IT_DB=1 so the default `vitest run` and CI stay DB-free:
  *
  *   docker compose up -d
- *   FOX_IT_DB=1 npx vitest run apps/web/src/backend/modules/migration/generated-ddl-live.test.ts
+ *   FOX_IT_DB=1 npx vitest run packages/server/src/modules/migration/generated-ddl-live.test.ts
  *
  * Engines that are not up are skipped individually rather than failing the run,
  * so a partial stack still tells you something. Oracle and DB2 are in the

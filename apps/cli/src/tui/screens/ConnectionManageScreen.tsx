@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Box, Text } from 'ink';
 import Spinner from 'ink-spinner';
 import SelectInput from 'ink-select-input';
-import type { SavedConnectionSummary } from '@foxschema/web/connection-store';
+import type { SavedConnectionSummary } from '@foxschema/server';
 import { useConnections } from '../data/useConnections';
 import { getContext } from '../../runtime/store';
 import { friendlyError } from '../../format/friendlyError';

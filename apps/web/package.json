@@ -4,24 +4,18 @@
   "version": "0.2.138",
   "type": "module",
   "exports": {
-    "./package.json": "./package.json",
-    "./auth": "./src/backend/modules/auth/auth.service.ts",
-    "./connection-store": "./src/backend/modules/connections/connection-store.service.ts",
-    "./migration-history": "./src/backend/modules/migration/migration-history.service.ts",
-    "./app-settings": "./src/backend/modules/admin/app-settings.service.ts",
-    "./store": "./src/backend/database/store.ts",
-    "./serve": "./src/backend/startUiServer.ts"
+    "./package.json": "./package.json"
   },
   "scripts": {
     "dev": "vite",
-    "dev:api": "cross-env AUTH_REQUIRED=true APP_ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000 tsx watch src/backend/index.ts",
+    "dev:api": "cross-env AUTH_REQUIRED=true APP_ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000 tsx watch ../../packages/server/src/main.ts",
     "dev:all": "concurrently -n api,web -c cyan,magenta \"npm run dev:api\" \"npm run dev\"",
     "dev:auth": "cross-env AUTH_REQUIRED=true LOCAL_SINGLE_USER=false vite",
-    "dev:api:auth": "cross-env AUTH_REQUIRED=true LOCAL_SINGLE_USER=false APP_ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000 tsx watch src/backend/index.ts",
+    "dev:api:auth": "cross-env AUTH_REQUIRED=true LOCAL_SINGLE_USER=false APP_ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000 tsx watch ../../packages/server/src/main.ts",
     "dev:all:auth": "concurrently -n api,web -c cyan,magenta \"npm run dev:api:auth\" \"npm run dev:auth\"",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "serve": "tsx src/backend/serve.ts",
+    "serve": "tsx src/serve.ts",
     "start": "npm run serve",
     "test": "vitest run"
   },
@@ -33,6 +27,7 @@
     "@fastify/express": "^4.0.7",
     "@fastify/static": "^10.1.3",
     "@foxschema/db": "*",
+    "@foxschema/server": "*",
     "@foxschema/shared": "*",
     "@foxschema/sql": "*",
     "@monaco-editor/react": "^4.7.0",

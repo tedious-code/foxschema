@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 #
 # Fox Schema — self-host / cloud image. Single container that serves the built
-# web UI AND the /api on one configurable port (apps/web/src/backend/serve.ts).
+# web UI AND the /api on one configurable port (apps/web/src/serve.ts).
 #
 # One image (includes IBM Db2 via ibm_db). ibm_db has no linux/arm64 build, so
 # this image targets linux/amd64:
@@ -85,4 +85,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
 # tsx is present in node_modules (a devDependency, kept because we run TS at
 # runtime). node:sqlite is flag-free on Node 24.
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["node_modules/.bin/tsx", "apps/web/src/backend/serve.ts"]
+CMD ["node_modules/.bin/tsx", "apps/web/src/serve.ts"]
