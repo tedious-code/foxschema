@@ -51,6 +51,7 @@
 
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { BODY_LIMIT, buildApiRoutes } from './server';
+import { ERROR_STATUS, type ErrorCode } from '@foxschema/shared';
 import fastifyCors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import { bindRoutes } from '../platform/http/fastify-bind';
@@ -103,6 +104,19 @@ function parseByteSize(value: string): number {
 }
 
 const DEFAULT_BODY_LIMIT = parseByteSize(BODY_LIMIT);
+
+/**
+ * The shared error code for a status Fastify produced itself.
+ *
+ * Derived from `ERROR_STATUS` rather than a second hand-written table, so the
+ * two cannot drift; `failed` covers anything without a mapping.
+ */
+function codeForStatus(status: number): ErrorCode {
+  const match = (Object.entries(ERROR_STATUS) as [ErrorCode, number][]).find(
+    ([, code]) => code === status
+  );
+  return match?.[0] ?? 'failed';
+}
 
 /**
  * A request still running after this is not going to finish usefully, and it is
@@ -242,6 +256,11 @@ export async function createFastifyApp(
       // A 5xx must not leak internals; a 4xx is the caller's own mistake and
       // is more useful stated plainly.
       error: status >= 500 ? 'Internal server error.' : message,
+      // Framework-level failures are answered before any route runs, so they
+      // never passed through `sendError` and were the one class of error
+      // without a code — a client parsing `code` had to special-case exactly
+      // the responses it is least able to predict.
+      code: codeForStatus(status),
     });
   }
 
