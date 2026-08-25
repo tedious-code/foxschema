@@ -11,7 +11,7 @@ import {
   type SqlStatementResult,
 } from '../api/sqlApi';
 import type { ConnectionRef } from '../api/schemaApi';
-import { usesServerBeam } from '../../shared/server-beam';
+import { usesServerBeam } from '@foxschema/shared';
 export { usesServerBeam };
 import type { SetDirective, SqlVariable } from './sql-variables';
 import { parseSetDirectives } from './sql-variables';

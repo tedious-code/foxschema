@@ -6,7 +6,7 @@
 import React from 'react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { DEFAULT_ROLE_PERMISSIONS } from '../../shared/permissions';
+import { DEFAULT_ROLE_PERMISSIONS } from '@foxschema/shared';
 import { useAuthStore } from '../store/authStore';
 
 vi.mock('../api/updatesApi', () => ({

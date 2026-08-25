@@ -15,7 +15,7 @@ import {
   userRoleSelectLock,
 } from './adminAccess';
 import type { AdminUserLike } from './adminAccess';
-import { DEFAULT_ROLE_PERMISSIONS, type Permission } from '../../shared/permissions';
+import { DEFAULT_ROLE_PERMISSIONS, type Permission } from '@foxschema/shared';
 
 const admin: AdminUserLike = { id: 'a', role: 'admin', active: true };
 const editor: AdminUserLike = { id: 'e', role: 'editor', active: true };

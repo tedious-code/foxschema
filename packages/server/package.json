@@ -1,0 +1,29 @@
+{
+  "name": "@foxschema/server",
+  "version": "0.1.0",
+  "description": "The Fox Schema backend: HTTP edge, feature modules, and the metadata store. Shared by the web app and the CLI.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tedious-code/foxschema.git",
+    "directory": "packages/server"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "private": true,
+  "//": "`private` and the TS-source `exports` follow packages/sql \u2014 see the note there. One entry on purpose: the six deep subpaths this replaced had to be kept in sync by hand in two files, and a move that updated only one typechecked clean and failed in the CLI tests. A single barrel makes that failure impossible to express.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.3.0",
+    "@fastify/static": "^10.1.3",
+    "@foxschema/db": "*",
+    "@foxschema/shared": "*",
+    "@foxschema/sql": "*",
+    "fastify": "^5.12.1",
+    "pino": "^10.3.1"
+  }
+}

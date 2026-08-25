@@ -9,28 +9,16 @@
  * resolved and decrypted server-side, and an ad-hoc one carries only what the
  * user typed for this session.
  */
-import type { ObjectBlueprint, StoredWeaveObject } from '@foxschema/sql';
+import type { StoredWeaveObject } from '@foxschema/sql';
 import type { ConnectionRef } from './schemaApi';
 import type { VersionGraphDTO } from '../components/lokee-weave/graphTypes';
-import type {
-  CaptureRequestSource,
-  CaptureResult,
-  LokeeDatabase,
-  ColumnMutation,
-  ContainerGrowthPoint,
-  LokeeRevertErrorCode,
-  ObjectHistoryEntry,
-  ObjectInspectResult,
-  RevertPlanWire,
-  VersionCompare,
-  VersionSummary,
-} from '../../shared/lokee-wire';
+import type { CaptureResult, LokeeDatabase, LokeeRevertErrorCode, ObjectHistoryEntry, ObjectInspectResult, RevertPlanWire, VersionCompare, VersionSummary } from '@foxschema/shared';
 import { getApiBase, parseJsonBody, parseJsonResponse } from './apiBase';
 
 // These were hand-copied from the backend until the shared contract landed;
 // two had already drifted (`source` widened to `string`). Aliases keep the
 // existing call sites while the declaration lives in one place.
-export type { CaptureResult, LokeeDatabase } from '../../shared/lokee-wire';
+export type { CaptureResult, LokeeDatabase } from '@foxschema/shared';
 export type LokeeVersion = VersionSummary;
 export type LokeeHistoryEvent = ObjectHistoryEntry;
 export type LokeeStoredObject = StoredWeaveObject;
@@ -214,4 +202,4 @@ export async function compareLokeeVersions(
   return parseJsonResponse<VersionCompare>(res);
 }
 
-export type { VersionCompare } from '../../shared/lokee-wire';
+export type { VersionCompare } from '@foxschema/shared';

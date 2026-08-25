@@ -1,0 +1,24 @@
+{
+  "name": "@foxschema/shared",
+  "version": "0.1.0",
+  "description": "Wire contracts shared by the Fox Schema frontend, server and CLI: permissions, error codes, and the schema-history/server-beam message shapes. Runtime-pure — safe to import from browser code.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tedious-code/foxschema.git",
+    "directory": "packages/shared"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "sideEffects": false,
+  "private": true,
+  "//": "`private` and the TS-source `exports` follow packages/sql — see the note there. This package is imported by browser code, so it must stay free of Node built-ins; packages/shared/src/purity.test.ts enforces that.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@foxschema/sql": "*"
+  }
+}

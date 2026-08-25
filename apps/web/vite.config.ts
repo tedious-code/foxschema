@@ -20,6 +20,9 @@ export default defineConfig({
       // '@foxschema/core' at different entry points, so tsc and the bundler
       // disagreed about what the name meant.
       { find: '@foxschema/sql', replacement: pkg('../../packages/sql/src/index.ts') },
+      // Shared is browser-safe by contract (packages/shared/src/purity.test.ts),
+      // so unlike @foxschema/db it belongs in the frontend bundle.
+      { find: '@foxschema/shared', replacement: pkg('../../packages/shared/src/index.ts') },
     ],
     // Force a single copy of React resolved from this app's node_modules. The
     // monorepo also contains the Ink-based CLI, which pins react@18; npm hoists

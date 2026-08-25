@@ -16,7 +16,7 @@ import type {
   GraphChangeStatus,
   VersionGraphObject,
   VersionGraphVersion,
-} from '../../../shared/lokee-wire';
+} from '@foxschema/shared';
 
 // The wire contract lives in src/shared so the backend that produces it and
 // this view that renders it are checked against one declaration. Re-exported
@@ -26,7 +26,7 @@ export type {
   VersionGraphDTO,
   VersionGraphObject,
   VersionGraphVersion,
-} from '../../../shared/lokee-wire';
+} from '@foxschema/shared';
 
 export type VersionEdgeStatus = 'created' | 'reused' | 'modified' | 'deleted';
 

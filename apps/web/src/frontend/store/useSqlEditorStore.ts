@@ -21,7 +21,7 @@ import {
 } from '../lib/sql-splitter';
 import type { CodeCellLast } from '../lib/codeCellExec';
 import { detectCodeCell, runCodeCell, usesServerBeam } from '../lib/codeCellRunner';
-import { beamAliasesForCount, MAX_SERVERS } from '../../shared/server-beam';
+import { beamAliasesForCount, MAX_SERVERS } from '@foxschema/shared';
 import { buildSampleBookmarks } from '../lib/sqlEditorSamples';
 import {
   buildForeignKeyDrilldown,

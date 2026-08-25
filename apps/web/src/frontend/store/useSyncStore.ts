@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { buildBrowseResult } from '../lib/browse';
-import { dialectUsesPassword, type ConnectionOptions } from '../lib/provider-settings';
+import { dialectUsesPassword } from '../lib/provider-settings';
 import {
   testConnection as apiTestConnection,
   fetchSchemaList,
@@ -275,7 +275,6 @@ export const useSyncStore = create<SyncState>()(
       browseSide: null,
     });
   },
-
 
   toggleObjectTypeFilter: (type) =>
     set((state) => {

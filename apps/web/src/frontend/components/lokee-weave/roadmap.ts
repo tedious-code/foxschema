@@ -16,7 +16,7 @@
  * were skipped and can be opened on demand. Nothing is dropped; the flat parts
  * are just no longer spelled out one version at a time.
  */
-import type { ContainerGrowthPoint } from '../../../shared/lokee-wire';
+import type { ContainerGrowthPoint } from '@foxschema/shared';
 
 export interface RoadmapVersionRow {
   kind: 'version';
