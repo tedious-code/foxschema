@@ -7,6 +7,7 @@ import {
   validateCodeCellRequest,
 } from './code-cell-execute.service';
 import { MAX_SQL } from '@foxschema/shared';
+import { createServer } from 'node:http';
 
 /** Value planted in APP_ENCRYPTION_KEY to prove an escaped cell cannot read it. */
 const SENTINEL_SECRET = 'sentinel-must-not-leak';
@@ -157,6 +158,38 @@ describe('runCodeCellOnServer (worker_threads sandbox)', () => {
     if (!result.ok) throw new Error(result.error);
     expect(result.rows).toEqual([[6]]);
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
+  }, 30_000);
+
+  it('runs a real fetch through the worker, not a mocked one', async () => {
+    // This has to live in the worker suite: executeCodeCellNode runs in-process,
+    // where Buffer still exists, so the same assertions passed there while the
+    // real thing was broken. The worker lockdown deleted globalThis.Buffer, and
+    // Node's bundled undici resolves Buffer from the global when its dispatcher
+    // modules initialise — so every `-- @node` cell calling fetch failed with
+    // "Buffer is not defined", including three shipped samples. The existing
+    // fetch test mocks fetch, so it never touched undici.
+    //
+    // A local server rather than the internet: this must exercise the real
+    // undici path without depending on a network.
+    const server = createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ hello: 'undici' }));
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const { port } = server.address() as { port: number };
+    try {
+      const result = await run(
+        `const res = await fetch('http://127.0.0.1:${port}/');
+         const json = await res.json();
+         return [{ status: res.status, hello: json.hello }];`,
+        'js',
+        20_000
+      );
+      expect(result.ok, result.ok ? '' : result.error).toBe(true);
+      if (result.ok) expect(result.rows[0]).toEqual([200, 'undici']);
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+    }
   }, 30_000);
 
   it('denies an escaped cell the server environment', async () => {
