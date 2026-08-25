@@ -10,7 +10,7 @@
  * SQL-only Monaco bundle yet) — structural FoxScript markers cover fences.
  */
 
-import type * as Monaco from 'monaco-editor/editor/editor.api';
+import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api';
 import {
   parseFoxScript,
   type FoxScriptCodeBlock,
