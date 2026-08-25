@@ -36,9 +36,31 @@ function lockdownWorkerGlobals(): void {
   } catch {
     /* ignore */
   }
+  // Buffer stays on the global, deliberately, and this is a narrowing of the
+  // original lockdown rather than an oversight.
+  //
+  // Node's bundled undici resolves `Buffer` from the global scope when its
+  // dispatcher modules initialise, so deleting it broke `fetch` outright —
+  // every `-- @node` cell that called fetch failed with "Buffer is not
+  // defined", including three shipped samples. The unit test did not catch it
+  // because it mocks fetch, so the real undici path never ran.
+  //
+  // What the deletion actually bought was small: Buffer is a data type, not an
+  // escape route. It exposes no fs, net or process. User code still cannot
+  // *name* it — the sandbox preamble shadows `Buffer`, `globalThis` and
+  // `Function` lexically, and `assertCodeCellSandboxSafe` rejects the
+  // constructor and import() tricks that would be needed to reach a global at
+  // all. `process`, which is the one that matters, is still deleted above.
+  //
+  // The one genuine risk in Buffer is uninitialised memory, so that edge is
+  // closed rather than left: allocUnsafe becomes a zero-filling alloc. Slower,
+  // and undici does not depend on the difference.
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    delete (globalThis as any).Buffer;
+    const buf = (globalThis as { Buffer?: typeof Buffer }).Buffer;
+    if (buf) {
+      buf.allocUnsafe = buf.alloc.bind(buf) as typeof buf.allocUnsafe;
+      buf.allocUnsafeSlow = buf.alloc.bind(buf) as typeof buf.allocUnsafeSlow;
+    }
   } catch {
     /* ignore */
   }

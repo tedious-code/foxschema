@@ -15,8 +15,11 @@
  * seconds, so passing the value straight through would have turned a ten-minute
  * SSO state cookie into one lasting nearly seven days.
  */
-import { describe, it, expect } from 'vitest';
-import { serializeCookie } from './fastify-bind';
+import { describe, it, expect, afterEach } from 'vitest';
+import Fastify, { type FastifyInstance } from 'fastify';
+import { serializeCookie, bindRoutes } from './fastify-bind';
+import { Router } from './router';
+import type { HttpRequest, HttpResponse } from './types';
 
 describe('serializeCookie', () => {
   it('defaults to a root path', () => {
@@ -59,5 +62,73 @@ describe('serializeCookie', () => {
   it('capitalises SameSite values the way browsers expect', () => {
     expect(serializeCookie('c', 'v', { sameSite: 'strict' })).toContain('SameSite=Strict');
     expect(serializeCookie('c', 'v', { sameSite: 'none' })).toContain('SameSite=None');
+  });
+});
+
+describe('streaming responses', () => {
+  let app: FastifyInstance | undefined;
+  afterEach(async () => {
+    await app?.close();
+    app = undefined;
+  });
+
+  /** Start a server whose one route streams, with headers set beforehand. */
+  async function streamingServer(handler: (req: HttpRequest, res: HttpResponse) => void) {
+    const router = Router();
+    router.get('/stream', handler);
+    app = Fastify();
+    // Stand in for the security-headers hook the real app installs.
+    app.addHook('onRequest', async (_req, reply) => {
+      reply.header('x-content-type-options', 'nosniff');
+      reply.header('x-frame-options', 'DENY');
+    });
+    bindRoutes(app, router.flatten());
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    const { port } = app.server.address() as { port: number };
+    return `http://127.0.0.1:${port}/stream`;
+  }
+
+  it('flushes headers set before the first write', async () => {
+    // Writing to reply.raw skips Fastify's header flush. Measured on
+    // /migration/execute: the response arrived with only Transfer-Encoding,
+    // losing Content-Type *and* every security header, while still parsing
+    // fine — a silent hole rather than a visible failure.
+    const url = await streamingServer((_req, res) => {
+      res.setHeader('Content-Type', 'application/x-ndjson');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.write(JSON.stringify({ type: 'start' }) + '\n');
+      res.write(JSON.stringify({ type: 'done' }) + '\n');
+      res.end();
+    });
+
+    const res = await fetch(url);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('application/x-ndjson');
+    expect(res.headers.get('cache-control')).toBe('no-cache');
+    // The ones whose absence is a security regression, not a cosmetic one.
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(res.headers.get('x-frame-options')).toBe('DENY');
+  });
+
+  it('delivers every chunk in order', async () => {
+    const url = await streamingServer((_req, res) => {
+      res.setHeader('Content-Type', 'application/x-ndjson');
+      for (const type of ['snapshot', 'start', 'object', 'done']) {
+        res.write(JSON.stringify({ type }) + '\n');
+      }
+      res.end();
+    });
+
+    const lines = (await (await fetch(url)).text()).trim().split('\n');
+    expect(lines.map((l) => JSON.parse(l).type)).toEqual(['snapshot', 'start', 'object', 'done']);
+  });
+
+  it('honours a status set before streaming begins', async () => {
+    const url = await streamingServer((_req, res) => {
+      res.status(207);
+      res.write('partial\n');
+      res.end();
+    });
+    expect((await fetch(url)).status).toBe(207);
   });
 });

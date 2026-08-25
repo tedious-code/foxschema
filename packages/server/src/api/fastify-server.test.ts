@@ -104,6 +104,20 @@ describe('fastify floodgate', () => {
   });
 });
 
+describe('fastify not-found', () => {
+  it('answers an unknown API path with the shared error contract', async () => {
+    process.env.LOCAL_SINGLE_USER = 'true';
+    const app = await createFastifyApp({});
+    try {
+      const res = await app.inject({ method: 'GET', url: '/api/definitely-not-a-route' });
+      expect(res.statusCode).toBe(404);
+      expect(res.json()).toMatchObject({ ok: false, code: 'not_found' });
+    } finally {
+      await app.close();
+    }
+  }, 60_000);
+});
+
 describe('fastify body handling', () => {
   /**
    * Body-parse failures are Fastify's own now, and
@@ -125,7 +139,13 @@ describe('fastify body handling', () => {
       expect(malformed.status).toBe(400);
       // This used to be an empty 400, which the UI reported as
       // "Empty response from server" for what is really a bad request.
-      expect((await malformed.json()).ok).toBe(false);
+      const malformedBody = await malformed.json();
+      expect(malformedBody.ok).toBe(false);
+      // Framework-level failures answer before any route runs, so they never
+      // pass through sendError. They were the one class of error with no code,
+      // which left a client parsing `code` special-casing exactly the responses
+      // it can least predict.
+      expect(malformedBody.code).toBe('invalid_input');
 
       // Two acceptable outcomes, and which one arrives is a race.
       //

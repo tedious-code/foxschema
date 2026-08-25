@@ -44,6 +44,28 @@ export function serializeCookie(name: string, value: string, options: CookieOpti
 
 /** Adapter presenting a Fastify reply as the `HttpResponse` handlers expect. */
 export function asHttpResponse(reply: FastifyReply): HttpResponse {
+  /**
+   * Streaming has to take the socket over deliberately.
+   *
+   * Writing straight to `reply.raw` skips Fastify's header flush, so everything
+   * set through `reply.header()` is silently dropped — measured on
+   * `/migration/execute`, which came back with only `Transfer-Encoding:
+   * chunked`: no `Content-Type: application/x-ndjson`, no `Cache-Control`, and
+   * **none of the security headers**. The response still parsed, so nothing
+   * failed loudly; the endpoint was just unprotected.
+   *
+   * `hijack()` tells Fastify this reply is ours, and `writeHead` flushes the
+   * headers it had already collected before the first chunk goes out.
+   */
+  let streaming = false;
+  const beginStream = () => {
+    if (streaming) return;
+    streaming = true;
+    const headers = reply.getHeaders();
+    reply.hijack();
+    reply.raw.writeHead(reply.statusCode, headers as Record<string, number | string | string[]>);
+  };
+
   const res: HttpResponse = {
     status(code: number) {
       void reply.status(code);
@@ -76,11 +98,11 @@ export function asHttpResponse(reply: FastifyReply): HttpResponse {
       void reply.redirect(location, 302);
     },
     write(chunk: string) {
-      // Streaming replies bypass Fastify's serializer and write to the socket,
-      // which is what the NDJSON migration progress feed needs.
+      beginStream();
       return reply.raw.write(chunk);
     },
     end() {
+      beginStream();
       reply.raw.end();
     },
     get headersSent() {
