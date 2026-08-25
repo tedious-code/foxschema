@@ -55,7 +55,11 @@ import { ERROR_STATUS, type ErrorCode } from '@foxschema/shared';
 import fastifyCors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import { bindRoutes } from '../platform/http/fastify-bind';
-import { isAllowedOrigin, originVerdict } from '../platform/guards/origin-policy';
+import {
+  isAllowedOrigin,
+  originVerdict,
+  requestOriginFrom,
+} from '../platform/guards/origin-policy';
 import { loggerConfig } from '../platform/logger/logger';
 
 import { securityHeadersFor } from '../platform/guards/security-headers-core';
@@ -147,16 +151,23 @@ export async function createFastifyApp(
   // instead of the 500 that throwing produces — and keeps a refused
   // cross-origin request from ever reaching a route.
   app.addHook('onRequest', async (req: FastifyRequest, reply: FastifyReply) => {
-    const verdict = originVerdict(req.headers.origin);
+    // Host is the authority the browser addressed; paired with Origin it is the
+    // same-origin check Docker / foxschema open need under NODE_ENV=production
+    // (browsers send Origin on same-origin fetch, contrary to an earlier assumption).
+    const host = Array.isArray(req.headers.host) ? req.headers.host[0] : req.headers.host;
+    const verdict = originVerdict(req.headers.origin, {
+      requestOrigin: requestOriginFrom(req.protocol, host),
+    });
     if (verdict.allowed) return;
     return reply.code(verdict.status).send({ ok: false, error: verdict.error, code: 'forbidden' });
   });
 
   await app.register(fastifyCors, {
     // The hook above has already refused anything not on the allowlist, so this
-    // only ever sees permitted origins. It re-checks anyway rather than
-    // reflecting whatever arrives: if the hook is ever reordered or removed,
+    // only ever sees permitted origins. It re-checks the static allowlist rather
+    // than reflecting whatever arrives: if the hook is ever reordered or removed,
     // the failure should be a missing header, not a silently open API.
+    // Same-origin requests do not need ACAO; returning false here only omits it.
     origin: (origin, cb) => cb(null, isAllowedOrigin(origin)),
     // The frontend sends `credentials: 'include'` (session cookie).
     credentials: true,

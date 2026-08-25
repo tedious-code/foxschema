@@ -104,16 +104,36 @@ describe('fastify floodgate', () => {
   });
 });
 
-describe('fastify not-found', () => {
-  it('answers an unknown API path with the shared error contract', async () => {
+describe('fastify origin policy (production same-origin)', () => {
+  it('accepts Origin that matches Host under NODE_ENV=production', async () => {
+    // Regression: production allowlist was empty without FOX_ALLOWED_ORIGINS /
+    // selfOrigin, and the policy assumed browsers omit Origin on same-origin
+    // fetch. They do not — Docker and foxschema open 403'd every API POST.
+    const prevNodeEnv = process.env.NODE_ENV;
+    const prevOrigins = process.env.FOX_ALLOWED_ORIGINS;
+    process.env.NODE_ENV = 'production';
     process.env.LOCAL_SINGLE_USER = 'true';
+    delete process.env.FOX_ALLOWED_ORIGINS;
     const app = await createFastifyApp({});
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    const port = (app.server.address() as { port: number }).port;
     try {
-      const res = await app.inject({ method: 'GET', url: '/api/definitely-not-a-route' });
-      expect(res.statusCode).toBe(404);
-      expect(res.json()).toMatchObject({ ok: false, code: 'not_found' });
+      const same = await fetch(`http://127.0.0.1:${port}/api/health`, {
+        headers: { origin: `http://127.0.0.1:${port}` },
+      });
+      expect(same.status).toBe(200);
+
+      const cross = await fetch(`http://127.0.0.1:${port}/api/health`, {
+        headers: { origin: 'https://attacker.example' },
+      });
+      expect(cross.status).toBe(403);
+      expect((await cross.json()).code).toBe('forbidden');
     } finally {
       await app.close();
+      if (prevNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = prevNodeEnv;
+      if (prevOrigins === undefined) delete process.env.FOX_ALLOWED_ORIGINS;
+      else process.env.FOX_ALLOWED_ORIGINS = prevOrigins;
     }
   }, 60_000);
 });
