@@ -1,5 +1,10 @@
 # Backend extraction + Express removal — review and plan
 
+> **Phase 0 landed.** `packages/shared` exists, 42 import sites moved, and the
+> error contract is on the wire. See §6 for the two layers added to the brief
+> after this plan was first written: standardized error codes, and per-endpoint
+> input validation.
+
 Three asks, reviewed against the code as it stands today:
 
 1. Move the backend out of the web app
@@ -231,3 +236,104 @@ is hoped-for.
    eventually talk to the HTTP API like any other client? The first keeps today's
    arrangement; the second would make `packages/server` a server and nothing
    else. This plan assumes the first, since that is what the code does now.
+
+---
+
+## 6. Error codes and input validation
+
+Added to the brief after the first draft. Both were described as missing; both
+turned out to be **designed and then barely adopted**, which is a better
+starting position than it sounds.
+
+### Error codes — the standard existed, the wire did not carry it
+
+`ServiceError` with a code enum and a status table already lived in
+`platform/contracts/actor.ts`. Two problems, both measured:
+
+- **Used at 1 of 144 error sites.** The other 143 are hand-rolled
+  `res.status(400).json({ error: '...' })`.
+- **The code never left the server.** Even the one adopting handler sent
+  `{ error: message }`. A client could see a 400 but not tell a malformed body
+  from a rejected value, and could not tell a lock conflict from any other 409.
+
+The response envelope was inconsistent too: some routes send `{ error }`, others
+`{ ok: false, error }`.
+
+**Done (phase 0):** the vocabulary moved to `@foxschema/shared` — the frontend
+is the party that switches on it, and a contract only one side can read is not a
+contract. Codes were grounded in the statuses the API already returns rather
+than invented, and the envelope now always carries `ok`, `error` and `code`,
+with optional `fields` and `retryAfterSec`.
+
+**Remaining:** adopt it at the other 143 sites. That is one module at a time,
+and it is the same edit as the Express port — so **do them together**, per
+module, rather than touching every route twice.
+
+### Input validation — one module has it, fourteen do not
+
+`compare/compare.schema.ts` is the existing pattern, and its header records why
+it exists: `POST /compare {}` used to reach the service and surface as
+`500 Cannot read properties of undefined`. A caller's malformed request,
+reported as a server fault.
+
+**No other module has a schema file.** Validation elsewhere is ad-hoc inside
+handlers, or absent.
+
+**Approach — hand-written parsers, not a schema library.** Fastify can compile
+JSON Schema natively, which is the tempting answer given where this is heading.
+Rejecting it for now, for the same reason `csv-stream.ts` and `ndjson-stream.ts`
+were hand-written: this repo treats a dependency as supply-chain surface that CI
+scans on every build, and the existing parser is 50 readable lines that produce
+better messages than a generic validator would. Revisit only if the count of
+schema files makes the repetition real.
+
+Each `parse*Input` returns the typed input or throws
+`ServiceError('invalid_input', …)`, and now populates `fields` so a form can
+mark the offending input instead of showing a banner.
+
+**Where it runs:** in the handler, before the controller. Not in the route — a
+route is transport wiring, and validation that lives in Express middleware is
+validation a second transport can skip. That is the same failure mode the
+`ActorContext` design exists to prevent.
+
+### Revised phase order
+
+Phases 2–4 change, because error-code adoption and validation are per-module
+edits that touch the same lines the Express port does:
+
+| Phase | Work |
+|---|---|
+| **0** ✅ | `packages/shared` + the error contract on the wire |
+| **1** | `packages/server` — move the backend, collapse the exports map |
+| **2** | HTTP contract suite over all 71 routes, against Express, in CI |
+| **3** | Transport-agnostic cores for `idempotency`, `rbac.guard`, auth guard |
+| **4** | **Per module, in one pass:** schema file → error codes → native Fastify |
+| **5** | The hard five: streaming, cookies, redirects, uploads, static |
+| **6** | Delete express, cors, @fastify/express, and the dual-server branch |
+
+Phase 4 doing all three edits per module is the point: visiting 15 modules once
+costs far less than visiting them three times, and the contract suite from
+phase 2 covers all three kinds of change at once.
+
+---
+
+## 7. Found along the way — not part of this plan
+
+**The production frontend build is broken on `main`, and CI does not catch it.**
+
+`npm run build -w @foxschema/web` — the command the CLI tells users to run —
+fails to resolve `monaco-editor/esm/vs/editor/editor.api`. The cause is not the
+pin: `monaco-editor@0.56.0` and the deep-import style landed in the same June
+commit. `monaco-editor@0.56.0` ships `exports: { "./*": "./esm/vs/*.js" }`, and
+Vite 8's rolldown resolver enforces `exports` where the previous bundler did
+not, so every `monaco-editor/esm/vs/...` specifier now resolves to
+`esm/vs/esm/vs/...`.
+
+Rewriting the 21 specifiers is **not** the fix: 0.56 also removed the
+per-language files, and `esm/vs/basic-languages/` now contains only
+`monaco.contribution.js`. Restoring the SQL editor's language registration
+under 0.56 needs its own change and real browser verification.
+
+`.github/workflows/build-gate.yml` runs typecheck, vitest and eslint — **never
+`vite build`**, which is why this has gone unnoticed. Adding the build to CI is
+worth doing regardless of when Monaco gets fixed.
