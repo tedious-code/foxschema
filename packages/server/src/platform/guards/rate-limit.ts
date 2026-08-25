@@ -1,4 +1,4 @@
-import type { Request, Response, NextFunction, RequestHandler } from 'express';
+import type { HttpRequest, HttpResponse, NextFunction, Middleware } from '../../platform/http/types';
 import {
   RateLimitCore,
   RATE_LIMIT_MESSAGE,
@@ -20,12 +20,12 @@ export interface RateLimitOptions {
  * The sliding-window decision lives in `policy/rate-limit-core` so the Fastify
  * server enforces the identical policy during the staged migration.
  */
-export function rateLimit(options: RateLimitOptions): RequestHandler {
+export function rateLimit(options: RateLimitOptions): Middleware {
   const { windowMs, max, name = 'default' } = options;
   const message = options.message ?? RATE_LIMIT_MESSAGE;
   const core = new RateLimitCore({ windowMs, max });
 
-  return (req: Request, res: Response, next: NextFunction): void => {
+  return (req: HttpRequest, res: HttpResponse, next: NextFunction): void => {
     const userId = (req as { userId?: string }).userId;
     const decision = core.consume(rateLimitKey(name, userId, req.ip));
 
@@ -51,7 +51,7 @@ export function rateLimit(options: RateLimitOptions): RequestHandler {
  * right trade: this layer stops a flood, and the per-user limiter below
  * apportions a fair share.
  */
-export function globalApiFloodgate(): RequestHandler {
+export function globalApiFloodgate(): Middleware {
   return rateLimit({
     name: 'api-global',
     windowMs: 60_000,
@@ -66,7 +66,7 @@ export function globalApiFloodgate(): RequestHandler {
  * Before this existed, 28 of the 38 routes in `createApiRoutes` had no limit at
  * all, including every one that opens a connection.
  */
-export function defaultApiRateLimit(): RequestHandler {
+export function defaultApiRateLimit(): Middleware {
   return rateLimit({
     name: 'api',
     windowMs: 60_000,

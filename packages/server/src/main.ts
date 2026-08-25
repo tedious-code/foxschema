@@ -10,4 +10,10 @@ try {
 }
 
 setupDb2ClientEnv();
-startServer();
+
+// startServer is async now (Fastify's listen is). Without awaiting, a boot
+// failure would surface as an unhandled rejection with no exit code.
+startServer().catch((error: unknown) => {
+  console.error(error);
+  process.exit(1);
+});

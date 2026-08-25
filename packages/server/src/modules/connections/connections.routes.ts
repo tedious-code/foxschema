@@ -1,4 +1,5 @@
-import { Router, Response } from 'express';
+import { Router } from '../../platform/http/router';
+import type { HttpResponse } from '../../platform/http/types';
 import { ConnectionStore } from './connection-store.service';
 import { pruneOrphanFileQueryConnections } from '../files/file-query.service';
 import { AuthedRequest } from '../auth/auth.routes';
@@ -8,14 +9,14 @@ import { sendError, sendThrown } from '../../platform/http/respond';
 export function createConnectionStoreRoutes(store: ConnectionStore): Router {
   const router = Router();
 
-  router.get('/', async (req: AuthedRequest, res: Response) => {
+  router.get('/', async (req: AuthedRequest, res: HttpResponse) => {
     // Drop stale Query-files workspaces whose temp DB expired — keeps upgrades
     // and long-running sessions free of dead `Files:` credentials.
     await pruneOrphanFileQueryConnections(store, req.userId!).catch(() => undefined);
     res.json({ connections: await store.list(req.userId!) });
   });
 
-  router.post('/', async (req: AuthedRequest, res: Response) => {
+  router.post('/', async (req: AuthedRequest, res: HttpResponse) => {
     const { name, dialect, schema, option, savePassword } = req.body as {
       name?: string;
       dialect?: string;
@@ -34,7 +35,7 @@ export function createConnectionStoreRoutes(store: ConnectionStore): Router {
     }
   });
 
-  router.put('/:id', async (req: AuthedRequest, res: Response) => {
+  router.put('/:id', async (req: AuthedRequest, res: HttpResponse) => {
     const { name, dialect, schema, option, savePassword } = req.body as {
       name?: string;
       dialect?: string;
@@ -58,7 +59,7 @@ export function createConnectionStoreRoutes(store: ConnectionStore): Router {
     }
   });
 
-  router.delete('/:id', async (req: AuthedRequest, res: Response) => {
+  router.delete('/:id', async (req: AuthedRequest, res: HttpResponse) => {
     const removed = await store.remove(req.userId!, String(req.params.id));
     if (!removed) {
       sendError(res, 'not_found', 'Saved connection not found');

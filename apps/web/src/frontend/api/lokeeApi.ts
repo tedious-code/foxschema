@@ -9,22 +9,10 @@
  * resolved and decrypted server-side, and an ad-hoc one carries only what the
  * user typed for this session.
  */
-import type { ObjectBlueprint, StoredWeaveObject } from '@foxschema/sql';
+import type { StoredWeaveObject } from '@foxschema/sql';
 import type { ConnectionRef } from './schemaApi';
 import type { VersionGraphDTO } from '../components/lokee-weave/graphTypes';
-import type {
-  CaptureRequestSource,
-  CaptureResult,
-  LokeeDatabase,
-  ColumnMutation,
-  ContainerGrowthPoint,
-  LokeeRevertErrorCode,
-  ObjectHistoryEntry,
-  ObjectInspectResult,
-  RevertPlanWire,
-  VersionCompare,
-  VersionSummary,
-} from '@foxschema/shared';
+import type { CaptureResult, LokeeDatabase, LokeeRevertErrorCode, ObjectHistoryEntry, ObjectInspectResult, RevertPlanWire, VersionCompare, VersionSummary } from '@foxschema/shared';
 import { getApiBase, parseJsonBody, parseJsonResponse } from './apiBase';
 
 // These were hand-copied from the backend until the shared contract landed;

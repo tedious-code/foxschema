@@ -1,4 +1,5 @@
-import { Router, Request, Response } from 'express';
+import { Router } from '../../platform/http/router';
+import type { HttpRequest, HttpResponse } from '../../platform/http/types';
 import { AuthModule } from '../auth/auth.service';
 import { newToken } from '../../cores/crypto';
 import { readCookie, setSessionCookie } from '../auth/auth.routes';
@@ -14,12 +15,12 @@ export function createSsoRoutes(auth: AuthModule): Router {
   const secure = process.env.NODE_ENV === 'production';
 
   // Which providers are configured (drives which buttons the login shows).
-  router.get('/providers', (_req: Request, res: Response) => {
+  router.get('/providers', (_req: HttpRequest, res: HttpResponse) => {
     res.json({ providers: configuredProviders().map((p) => ({ id: p.id, label: p.label })) });
   });
 
   // Begin the flow: set a CSRF state cookie and redirect to the provider.
-  router.get('/:provider/start', (req: Request, res: Response) => {
+  router.get('/:provider/start', (req: HttpRequest, res: HttpResponse) => {
     const provider = getProvider(String(req.params.provider));
     if (!provider) {
       // Plain text here would be the one error in the API a client cannot
@@ -40,7 +41,7 @@ export function createSsoRoutes(auth: AuthModule): Router {
   });
 
   // Provider redirects back here with ?code&state.
-  router.get('/:provider/callback', async (req: Request, res: Response) => {
+  router.get('/:provider/callback', async (req: HttpRequest, res: HttpResponse) => {
     try {
       const provider = getProvider(String(req.params.provider));
       if (!provider) throw new Error('Unknown SSO provider');

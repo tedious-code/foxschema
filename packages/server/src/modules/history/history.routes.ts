@@ -7,7 +7,8 @@
  *
  * Extracted verbatim from api/routes.ts; handler bodies are unchanged.
  */
-import { Router, type Request, type Response } from 'express';
+import { Router } from '../../platform/http/router';
+import type { HttpRequest, HttpResponse } from '../../platform/http/types';
 import { requirePermissions } from '../authorization/rbac.guard';
 import type { AuthedRequest } from '../auth/auth.routes';
 import { rateLimit } from '../../platform/guards/rate-limit';
@@ -29,7 +30,7 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
     '/lokee/capture',
     lokeeCaptureLimiter,
     requirePermissions('schema.browse'),
-    async (req: Request, res: Response) => {
+    async (req: HttpRequest, res: HttpResponse) => {
       const body = req.body as ConnectionRef & { source?: string; migrationRunId?: string };
       try {
         const resolved = await deps.resolveRef((req as AuthedRequest).userId, body);
@@ -46,11 +47,11 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
     }
   );
 
-  router.get('/lokee/databases', async (req: Request, res: Response) => {
+  router.get('/lokee/databases', async (req: HttpRequest, res: HttpResponse) => {
     res.json({ databases: await deps.lokee.listDatabases((req as AuthedRequest).userId!) });
   });
 
-  router.get('/lokee/databases/:id/versions', async (req: Request, res: Response) => {
+  router.get('/lokee/databases/:id/versions', async (req: HttpRequest, res: HttpResponse) => {
     const versions = await deps.lokee.listVersions(
       (req as AuthedRequest).userId!,
       String(req.params.id),
@@ -59,7 +60,7 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
     res.json({ versions });
   });
 
-  router.get('/lokee/databases/:id/graph', async (req: Request, res: Response) => {
+  router.get('/lokee/databases/:id/graph', async (req: HttpRequest, res: HttpResponse) => {
     // The store scopes every read to the caller, so an unknown or unowned id
     // returns an empty graph rather than another user's history.
     res.json(
@@ -74,7 +75,7 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
   router.get(
     '/lokee/databases/:id/revert/plan',
     requirePermissions('schema.browse'),
-    async (req: Request, res: Response) => {
+    async (req: HttpRequest, res: HttpResponse) => {
       const toVersionId = String(req.query.toVersionId ?? '').trim();
       if (!toVersionId) {
         sendError(res, 'invalid_input', 'toVersionId is required');
@@ -112,7 +113,7 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
     '/lokee/databases/:id/revert',
     lokeeCaptureLimiter,
     requirePermissions('schema.migrate'),
-    async (req: Request, res: Response) => {
+    async (req: HttpRequest, res: HttpResponse) => {
       const body = req.body as ConnectionRef & {
         toVersionId?: string;
         confirmLossy?: boolean;
@@ -268,7 +269,7 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
   router.patch(
     '/lokee/databases/:id/versions/:versionId',
     requirePermissions('schema.browse'),
-    async (req: Request, res: Response) => {
+    async (req: HttpRequest, res: HttpResponse) => {
       const body = req.body as { name?: string | null; description?: string | null };
       const updated = await deps.lokee.updateVersionMeta(
         (req as AuthedRequest).userId!,
@@ -287,7 +288,7 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
     }
   );
 
-  router.get('/lokee/databases/:id/inspect', async (req: Request, res: Response) => {
+  router.get('/lokee/databases/:id/inspect', async (req: HttpRequest, res: HttpResponse) => {
     const versionId = String(req.query.versionId ?? '').trim();
     const objectKey = String(req.query.objectKey ?? '').trim();
     if (!versionId || !objectKey) {
@@ -307,7 +308,7 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
     res.json(result);
   });
 
-  router.get('/lokee/databases/:id/compare', async (req: Request, res: Response) => {
+  router.get('/lokee/databases/:id/compare', async (req: HttpRequest, res: HttpResponse) => {
     const versionId = String(req.query.versionId ?? '').trim();
     if (!versionId) {
       sendError(res, 'invalid_input', 'versionId is required');

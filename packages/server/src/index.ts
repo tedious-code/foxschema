@@ -25,7 +25,8 @@ export type { StartUiServerOptions, StartedUiServer } from './startUiServer';
 export { DEFAULT_API_PORT } from './defaultApiPort';
 
 /** The HTTP app itself, for tests and for embedding. */
-export { createApp, startServer } from './api/server';
+export { buildApiRoutes, startServer } from './api/server';
+export { createFastifyApp } from './api/fastify-server';
 
 /** Metadata store access, for callers that talk to the database directly. */
 export { getStore } from './database/store';

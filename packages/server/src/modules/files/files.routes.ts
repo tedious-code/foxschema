@@ -3,7 +3,8 @@
  */
 import { createRequire } from 'node:module';
 import { existsSync } from 'node:fs';
-import { Router, Request, Response } from 'express';
+import { Router } from '../../platform/http/router';
+import type { HttpRequest, HttpResponse } from '../../platform/http/types';
 import type { AuthedRequest } from '../auth/auth.routes';
 import { denyUnless, requirePermissions } from '../authorization/rbac.guard';
 import { capacityMessage, importCapacity } from '../import-process/import-capacity';
@@ -197,7 +198,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
   router.get(
     '/imports',
     requirePermissions('editor.access'),
-    async (req: Request, res: Response) => {
+    async (req: HttpRequest, res: HttpResponse) => {
       try {
         const userId = (req as AuthedRequest).userId!;
         const imports = await listFileImportConnections(connectionStore, userId);
@@ -213,7 +214,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
    * What this server can actually take, so the UI can warn before a long
    * upload rather than after. Measured from live heap, not a constant.
    */
-  router.get('/capacity', requirePermissions('editor.access'), (_req: Request, res: Response) => {
+  router.get('/capacity', requirePermissions('editor.access'), (_req: HttpRequest, res: HttpResponse) => {
     const cap = importCapacity();
     res.json({
       maxBytes: uploadLimitBytes(),
@@ -231,7 +232,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
   router.post(
     '/detect-columns',
     requirePermissions('editor.access'),
-    (req: Request, res: Response) => {
+    (req: HttpRequest, res: HttpResponse) => {
       const body = req.body as {
         sample?: unknown;
         mode?: unknown;
@@ -290,7 +291,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
     '/import',
     importLimiter,
     requirePermissions('editor.access'),
-    async (req: Request, res: Response) => {
+    async (req: HttpRequest, res: HttpResponse) => {
       try {
         const userId = (req as AuthedRequest).userId!;
         const parsed = parseImportBody(req.body as Record<string, unknown>);
@@ -312,7 +313,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
     '/sessions',
     importLimiter,
     requirePermissions('editor.access'),
-    async (req: Request, res: Response) => {
+    async (req: HttpRequest, res: HttpResponse) => {
       try {
         const userId = (req as AuthedRequest).userId!;
         const body = req.body as Record<string, unknown>;
@@ -360,7 +361,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
     '/sessions/:id/chunk',
     importLimiter,
     requirePermissions('editor.access'),
-    async (req: Request, res: Response) => {
+    async (req: HttpRequest, res: HttpResponse) => {
       try {
         const userId = (req as AuthedRequest).userId!;
         const id = String(req.params.id || '');
@@ -387,7 +388,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
     '/sessions/:id/commit',
     importLimiter,
     requirePermissions('editor.access'),
-    async (req: Request, res: Response) => {
+    async (req: HttpRequest, res: HttpResponse) => {
       try {
         const userId = (req as AuthedRequest).userId!;
         const id = String(req.params.id || '');
@@ -427,7 +428,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
     '/sessions/:id',
     importLimiter,
     requirePermissions('editor.access'),
-    async (req: Request, res: Response) => {
+    async (req: HttpRequest, res: HttpResponse) => {
       const userId = (req as AuthedRequest).userId!;
       const ok = abortUploadSession(userId, String(req.params.id || ''));
       res.json({ ok });
@@ -438,7 +439,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
     '/imports/:id',
     importLimiter,
     requirePermissions('editor.access'),
-    async (req: Request, res: Response) => {
+    async (req: HttpRequest, res: HttpResponse) => {
       try {
         const userId = (req as AuthedRequest).userId!;
         const id = String(req.params.id || '');
@@ -471,7 +472,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
     '/imports',
     importLimiter,
     requirePermissions('editor.access'),
-    async (req: Request, res: Response) => {
+    async (req: HttpRequest, res: HttpResponse) => {
       try {
         const userId = (req as AuthedRequest).userId!;
         const cleared = await clearPreviousFileImports(connectionStore, userId);

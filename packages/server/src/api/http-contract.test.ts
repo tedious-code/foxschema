@@ -20,10 +20,9 @@
  * answers 400 correctly. A harness that reports false failures is worse than
  * none — it trains you to ignore it.
  *
- * **Both servers, same table.** The suite runs against Express and Fastify, so
- * "nothing changed when the server swapped" is a test rather than a hope. A
- * route ported to a native Fastify handler has to keep answering exactly what
- * the Express one did.
+ * **The table is the Express baseline.** Every expectation below was recorded
+ * from the Express server before it was removed, so this suite still asserts
+ * "nothing changed when the server swapped" — it is the only thing that does.
  *
  * The expectations are what the API does today, captured deliberately: this is
  * a regression net, not a wish list. It started with two shrinking allow-lists
@@ -32,7 +31,6 @@
  * both assertions are now unconditional.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import type { Server } from 'node:http';
 import type { FastifyInstance } from 'fastify';
 import { isApiErrorBody } from '@foxschema/shared';
 
@@ -139,17 +137,7 @@ function url(path: string): string {
   return path.replace(/:(\w+)/g, '00000000-0000-0000-0000-000000000000');
 }
 
-/** Both servers, started on an ephemeral port so parallel test files cannot collide. */
-async function startExpress(): Promise<{ port: number; stop: () => Promise<void> }> {
-  const { createApp } = await import('./server');
-  const app = createApp();
-  const server: Server = await new Promise((resolve) => {
-    const s = app.listen(0, '127.0.0.1', () => resolve(s));
-  });
-  const port = (server.address() as { port: number }).port;
-  return { port, stop: () => new Promise<void>((r) => server.close(() => r())) };
-}
-
+/** Started on an ephemeral port so parallel test files cannot collide. */
 async function startFastify(): Promise<{ port: number; stop: () => Promise<void> }> {
   const { createFastifyApp } = await import('./fastify-server');
   const app: FastifyInstance = await createFastifyApp({});
@@ -181,15 +169,14 @@ async function probe(port: number, route: RouteExpectation): Promise<Probe> {
   return { status: res.status, body, text };
 }
 
-for (const flavour of ['express', 'fastify'] as const) {
-  describe(`HTTP contract (${flavour})`, () => {
+describe('HTTP contract', () => {
     let port: number;
     let stop: () => Promise<void>;
 
     beforeAll(async () => {
       process.env.LOCAL_SINGLE_USER = 'true';
       process.env.APP_ENCRYPTION_KEY ||= KEY;
-      ({ port, stop } = flavour === 'express' ? await startExpress() : await startFastify());
+      ({ port, stop } = await startFastify());
     }, 120_000);
 
     afterAll(async () => {
@@ -232,4 +219,3 @@ for (const flavour of ['express', 'fastify'] as const) {
       30_000
     );
   });
-}

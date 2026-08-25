@@ -1,6 +1,5 @@
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { ConnectionFactory } from '@foxschema/db';
 import { startUiServer, getLogger } from '@foxschema/server';
 
 /**
@@ -37,16 +36,16 @@ if (process.env.NODE_ENV === 'production' && !process.env.APP_ENCRYPTION_KEY) {
 // where it is: src/ → ../dist. @foxschema/server deliberately has no default.
 const staticDir = resolve(dirname(fileURLToPath(import.meta.url)), '../dist');
 
-const { port, server } = startUiServer({ staticDir });
-
-server.on('listening', () => {
-  getLogger().info({ component: 'server', port, url: `http://localhost:${port}` }, 'Fox Schema listening');
-});
+const { port, close } = await startUiServer({ staticDir });
+getLogger().info(
+  { component: 'server', port, url: `http://localhost:${port}` },
+  'Fox Schema listening'
+);
 
 const shutdown = async (signal: string) => {
   getLogger().info({ component: 'server', signal }, 'shutting down — closing connection pools');
-  await ConnectionFactory.closeAll();
-  server.close(() => process.exit(0));
+  await close();
+  process.exit(0);
 };
 process.on('SIGTERM', () => void shutdown('SIGTERM'));
 process.on('SIGINT', () => void shutdown('SIGINT'));

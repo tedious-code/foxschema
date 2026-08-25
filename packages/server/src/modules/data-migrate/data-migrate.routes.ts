@@ -5,7 +5,8 @@
  *
  * Data migration routes. Extracted verbatim from api/routes.ts.
  */
-import { Router, type Request, type Response } from 'express';
+import { Router } from '../../platform/http/router';
+import type { HttpRequest, HttpResponse } from '../../platform/http/types';
 import { requirePermissions, denyUnless } from '../authorization/rbac.guard';
 import type { AuthedRequest } from '../auth/auth.routes';
 import type { ConnectionRef } from '../../platform/db/resolve';
@@ -34,7 +35,7 @@ export function createDataMigrateRoutes(deps: DataMigrateRouteDeps): Router {
     '/data-migrate/execute',
     requirePermissions('editor.dml'),
     sqlExecuteLimiter,
-    async (req: Request, res: Response) => {
+    async (req: HttpRequest, res: HttpResponse) => {
       const body = req.body as ConnectionRef & {
         ops?: unknown;
         useTransaction?: unknown;
@@ -134,14 +135,14 @@ export function createDataMigrateRoutes(deps: DataMigrateRouteDeps): Router {
     }
   );
 
-  router.get('/data-migrations', requirePermissions('editor.dml'), async (req: Request, res: Response) => {
+  router.get('/data-migrations', requirePermissions('editor.dml'), async (req: HttpRequest, res: HttpResponse) => {
     res.json({ runs: await deps.dataMigrateHistory.list((req as AuthedRequest).userId!) });
   });
 
   router.post(
     '/data-migrations/start',
     requirePermissions('editor.dml'),
-    async (req: Request, res: Response) => {
+    async (req: HttpRequest, res: HttpResponse) => {
       const body = req.body as {
         dialect?: string;
         sourceHost?: string;
@@ -187,7 +188,7 @@ export function createDataMigrateRoutes(deps: DataMigrateRouteDeps): Router {
   router.post(
     '/data-migrations/:id/finish',
     requirePermissions('editor.dml'),
-    async (req: Request, res: Response) => {
+    async (req: HttpRequest, res: HttpResponse) => {
       const body = req.body as {
         status?: DataMigrateRunStatus;
         results?: DataMigrateOpResult[];
@@ -218,7 +219,7 @@ export function createDataMigrateRoutes(deps: DataMigrateRouteDeps): Router {
   router.get(
     '/data-migrations/:id',
     requirePermissions('editor.dml'),
-    async (req: Request, res: Response) => {
+    async (req: HttpRequest, res: HttpResponse) => {
       const run = await deps.dataMigrateHistory.get(
         (req as AuthedRequest).userId!,
         String(req.params.id)
@@ -234,7 +235,7 @@ export function createDataMigrateRoutes(deps: DataMigrateRouteDeps): Router {
   router.delete(
     '/data-migrations/:id',
     requirePermissions('editor.dml'),
-    async (req: Request, res: Response) => {
+    async (req: HttpRequest, res: HttpResponse) => {
       const removed = await deps.dataMigrateHistory.remove(
         (req as AuthedRequest).userId!,
         String(req.params.id)

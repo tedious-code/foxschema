@@ -1,4 +1,4 @@
-import type { Request, Response, NextFunction, RequestHandler } from 'express';
+import type { HttpRequest, HttpResponse, NextFunction, Middleware } from '../platform/http/types';
 import { securityHeadersFor, type SecurityHeaderOptions } from '../platform/guards/security-headers-core';
 
 export type { SecurityHeaderOptions };
@@ -10,8 +10,8 @@ export type { SecurityHeaderOptions };
  * applies exactly the same set — two copies of a security control is how one
  * gets a fix and the other quietly does not.
  */
-export function securityHeaders(options: SecurityHeaderOptions = {}): RequestHandler {
-  return (req: Request, res: Response, next: NextFunction): void => {
+export function securityHeaders(options: SecurityHeaderOptions = {}): Middleware {
+  return (req: HttpRequest, res: HttpResponse, next: NextFunction): void => {
     for (const [key, value] of Object.entries(securityHeadersFor(req.path, options))) {
       res.setHeader(key, value);
     }

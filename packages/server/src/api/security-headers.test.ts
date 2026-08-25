@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { Request, Response } from 'express';
+import type { HttpRequest, HttpResponse } from '../platform/http/types';
 import { securityHeaders } from './security-headers';
 
 function run(path: string, opts = {}) {
@@ -8,9 +8,9 @@ function run(path: string, opts = {}) {
   const res = {
     setHeader: (k: string, v: string) => { headers[k] = v; },
     removeHeader: (k: string) => removed.push(k),
-  } as unknown as Response;
+  } as unknown as HttpResponse;
   const next = vi.fn();
-  securityHeaders(opts)({ path } as Request, res, next);
+  securityHeaders(opts)({ path } as HttpRequest, res, next);
   return { headers, removed, called: next.mock.calls.length === 1 };
 }
 

@@ -106,7 +106,7 @@ describe('fastify floodgate', () => {
 
 describe('fastify body handling', () => {
   /**
-   * Body-parse failures are handled by Express under `@fastify/express`, and
+   * Body-parse failures are Fastify's own now, and
    * `inject()` does not drive that bridge far enough to surface them — these go
    * over a real socket, which is also closer to what a client does. Its own
    * instance, because listening and closing would disturb the shared one.

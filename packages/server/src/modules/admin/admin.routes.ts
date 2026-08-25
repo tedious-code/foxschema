@@ -6,7 +6,8 @@
  * Admin APIs: list/assign users roles, activate/deactivate, set passwords,
  * configure role permission matrices.
  */
-import { Router, Response } from 'express';
+import { Router } from '../../platform/http/router';
+import type { HttpResponse } from '../../platform/http/types';
 import { RbacModule } from '../authorization/rbac.service';
 import { AuthModule } from '../auth/auth.service';
 import { APP_ROLES, PERMISSION_META, isAppRole } from '@foxschema/shared';
@@ -20,7 +21,7 @@ export function createAdminRoutes(rbac = new RbacModule(), auth = new AuthModule
   router.get(
     '/users',
     requirePermissions('admin.users'),
-    async (_req: AuthedRequest, res: Response) => {
+    async (_req: AuthedRequest, res: HttpResponse) => {
       res.json({ users: await rbac.listUsers() });
     }
   );
@@ -28,7 +29,7 @@ export function createAdminRoutes(rbac = new RbacModule(), auth = new AuthModule
   router.put(
     '/users/:id/role',
     requirePermissions('admin.users'),
-    async (req: AuthedRequest, res: Response) => {
+    async (req: AuthedRequest, res: HttpResponse) => {
       const role = (req.body as { role?: unknown })?.role;
       if (!isAppRole(role)) {
         sendError(res, 'invalid_input', `role must be one of: ${APP_ROLES.join(', ')}`);
@@ -64,7 +65,7 @@ export function createAdminRoutes(rbac = new RbacModule(), auth = new AuthModule
   router.put(
     '/users/:id/active',
     requirePermissions('admin.users'),
-    async (req: AuthedRequest, res: Response) => {
+    async (req: AuthedRequest, res: HttpResponse) => {
       const userId = String(req.params.id ?? '');
       if (!userId) {
         sendError(res, 'invalid_input', 'User id is required.');
@@ -92,7 +93,7 @@ export function createAdminRoutes(rbac = new RbacModule(), auth = new AuthModule
   router.put(
     '/users/:id/password',
     requirePermissions('admin.users'),
-    async (req: AuthedRequest, res: Response) => {
+    async (req: AuthedRequest, res: HttpResponse) => {
       const userId = String(req.params.id ?? '');
       if (!userId) {
         sendError(res, 'invalid_input', 'User id is required.');
@@ -116,7 +117,7 @@ export function createAdminRoutes(rbac = new RbacModule(), auth = new AuthModule
   router.get(
     '/role-permissions',
     requirePermissions('admin.roles'),
-    async (_req: AuthedRequest, res: Response) => {
+    async (_req: AuthedRequest, res: HttpResponse) => {
       res.json({
         matrix: await rbac.listRolePermissionMatrix(),
         catalog: PERMISSION_META,
@@ -127,7 +128,7 @@ export function createAdminRoutes(rbac = new RbacModule(), auth = new AuthModule
   router.put(
     '/role-permissions/:role',
     requirePermissions('admin.roles'),
-    async (req: AuthedRequest, res: Response) => {
+    async (req: AuthedRequest, res: HttpResponse) => {
       const role = req.params.role;
       if (!isAppRole(role)) {
         sendError(res, 'invalid_input', `role must be one of: ${APP_ROLES.join(', ')}`);

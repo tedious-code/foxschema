@@ -5,7 +5,8 @@
  *
  * Schema browse routes. Extracted verbatim from api/routes.ts.
  */
-import { Router, type Request, type Response } from 'express';
+import { Router } from '../../platform/http/router';
+import type { HttpRequest, HttpResponse } from '../../platform/http/types';
 import { requirePermissions } from '../authorization/rbac.guard';
 import type { AuthedRequest } from '../auth/auth.routes';
 import type { ConnectionRef } from '../../platform/db/resolve';
@@ -20,7 +21,7 @@ export interface SchemaRouteDeps {
 
 export function createSchemaRoutes(deps: SchemaRouteDeps): Router {
   const router = Router();
-  router.post('/schema/list', requirePermissions('schema.browse'), async (req: Request, res: Response) => {
+  router.post('/schema/list', requirePermissions('schema.browse'), async (req: HttpRequest, res: HttpResponse) => {
     try {
       const { dialect, option } = await deps.resolveRef((req as AuthedRequest).userId, req.body as ConnectionRef);
       const provider = deps.connectionModule.getProvider(dialect);
@@ -34,7 +35,7 @@ export function createSchemaRoutes(deps: SchemaRouteDeps): Router {
     }
   });
 
-  router.post('/schema/load', requirePermissions('schema.browse'), async (req: Request, res: Response) => {
+  router.post('/schema/load', requirePermissions('schema.browse'), async (req: HttpRequest, res: HttpResponse) => {
     const { scope, ...ref } = req.body as ConnectionRef & { scope: DbObjectType[] };
     try {
       const { dialect, option, schema } = await deps.resolveRef((req as AuthedRequest).userId, ref);

@@ -6,7 +6,8 @@
  * Public first-open email subscriber wizard (no login required).
  * Mounted before authGuard so it still appears when AUTH_REQUIRED=true.
  */
-import { Router, Request, Response } from 'express';
+import { Router } from '../../platform/http/router';
+import type { HttpRequest, HttpResponse } from '../../platform/http/types';
 import { AppSettingsStore } from '../admin/app-settings.service';
 import { SignupModule } from './signup-wizard.service';
 import { rateLimit } from '../../platform/guards/rate-limit';
@@ -20,11 +21,11 @@ export function createSignupRoutes(
   // Cap per IP: legit use is one or two calls (submit / retry / skip).
   const signupLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10 });
 
-  router.get('/state', async (_req: Request, res: Response) => {
+  router.get('/state', async (_req: HttpRequest, res: HttpResponse) => {
     res.json(await signupModule.getState());
   });
 
-  router.post('/', signupLimiter, async (req: Request, res: Response) => {
+  router.post('/', signupLimiter, async (req: HttpRequest, res: HttpResponse) => {
     const { email, source } = req.body as { email?: string; source?: string };
     if (!email) {
       sendError(res, 'invalid_input', 'Email is required.');
@@ -34,7 +35,7 @@ export function createSignupRoutes(
     res.json(await signupModule.submit(email, src));
   });
 
-  router.post('/skip', signupLimiter, async (_req: Request, res: Response) => {
+  router.post('/skip', signupLimiter, async (_req: HttpRequest, res: HttpResponse) => {
     await signupModule.skip();
     res.json({ ok: true });
   });

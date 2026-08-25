@@ -9,7 +9,7 @@
  * staged shape instead: Fastify owns the socket and the request lifecycle, and
  * enforces every security policy natively in hooks that run before anything
  * else. The existing Express routers are mounted underneath through
- * `@fastify/express` and keep serving their paths unchanged, so no route
+ * one framework. Every route is a native Fastify registration, so no route
  * changes behaviour on the day the server swaps.
  *
  * What that buys immediately:
@@ -50,9 +50,13 @@
  */
 
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
-import { BODY_LIMIT, createApp } from './server';
+import { BODY_LIMIT, buildApiRoutes } from './server';
+import fastifyCors from '@fastify/cors';
+import fastifyStatic from '@fastify/static';
+import { bindRoutes } from '../platform/http/fastify-bind';
+import { isAllowedOrigin, originVerdict } from '../platform/guards/origin-policy';
 import { loggerConfig } from '../platform/logger/logger';
-import { resolveAppVersion } from '../internal/updates.service';
+
 import { securityHeadersFor } from '../platform/guards/security-headers-core';
 import { RateLimitCore, RATE_LIMIT_MESSAGE, rateLimitKey } from '../platform/guards/rate-limit-core';
 
@@ -63,12 +67,17 @@ export interface FastifyServerOptions {
   bodyLimitBytes?: number;
   /** Abort a request that takes longer than this. */
   requestTimeoutMs?: number;
+  /**
+   * Built frontend to serve alongside the API, for the single-origin server.
+   * Omitted by the API-only server and by tests, which want a 404 to be a 404.
+   */
+  staticDir?: string;
 }
 
 /**
- * Applies only to requests Fastify parses itself. While every route is served
- * through `@fastify/express`, Express's parser runs first and its limit is the
- * effective one — this becomes load-bearing as routes move to native handlers.
+ * The one body limit. Express used to parse first under `@fastify/express`,
+ * which made its own limit the effective one and let the edge default to 32MB
+ * while Express enforced 10; with a single server there is a single number.
  */
 /**
  * The edge must not be looser than the layer behind it.
@@ -117,6 +126,28 @@ export async function createFastifyApp(
 
   const hsts = options.hsts ?? process.env.FOX_HSTS === '1';
 
+  // --- Origin policy, then CORS -------------------------------------------
+  // The API holds database credentials and can run migrations, so only named
+  // origins may call it with cookies. Refusing here rather than inside the cors
+  // plugin turns a deliberate policy decision into a 403 the caller can read,
+  // instead of the 500 that throwing produces — and keeps a refused
+  // cross-origin request from ever reaching a route.
+  app.addHook('onRequest', async (req: FastifyRequest, reply: FastifyReply) => {
+    const verdict = originVerdict(req.headers.origin);
+    if (verdict.allowed) return;
+    return reply.code(verdict.status).send({ ok: false, error: verdict.error, code: 'forbidden' });
+  });
+
+  await app.register(fastifyCors, {
+    // The hook above has already refused anything not on the allowlist, so this
+    // only ever sees permitted origins. It re-checks anyway rather than
+    // reflecting whatever arrives: if the hook is ever reordered or removed,
+    // the failure should be a missing header, not a silently open API.
+    origin: (origin, cb) => cb(null, isAllowedOrigin(origin)),
+    // The frontend sends `credentials: 'include'` (session cookie).
+    credentials: true,
+  });
+
   // --- Security headers, before any route can answer ----------------------
   // An onRequest hook covers 404s, rate-limit rejections and error responses,
   // which is exactly where Express middleware ordering tends to leave gaps.
@@ -156,30 +187,26 @@ export async function createFastifyApp(
   // `silent` because the CLI launcher and the UI's offline banner poll this
   // constantly; at info it would be most of the log volume and none of the
   // signal.
-  app.get('/api/health', { logLevel: 'silent' }, async () => ({
-    ok: true,
-    version: resolveAppVersion(),
-  }));
+  // --- The built frontend, when this server also serves it -----------------
+  if (options.staticDir) {
+    await app.register(fastifyStatic, { root: options.staticDir, wildcard: false });
+  }
 
-  // --- Express routers underneath -----------------------------------------
-  // Reached only when Fastify has no route for the path, so a ported route
-  // pays nothing for the ones that have not moved yet. `app.use()` would run
-  // Express's whole middleware chain on every request instead — measured at
-  // 6.8k req/s against 53k for the same route without it.
-  //
-  // The catch that broke this before: Fastify parses the body first, so
-  // Express's parser found an empty stream and every POST returned 500. The
-  // fix is to hand Express the already-parsed body and mark it parsed —
-  // body-parser skips when `_body` is set, which is exactly what that flag is
-  // for.
-  const expressApp = createApp();
+  // --- The API ------------------------------------------------------------
+  // Every route registered individually, with its own guards as its own
+  // preHandler chain. There is no bridge and no shared middleware chain: a
+  // limiter on an upload path costs nothing on /api/health.
+  bindRoutes(app, buildApiRoutes());
+
+  // Fastify allows exactly one not-found handler per instance, so it has one
+  // owner: this function. When a staticDir is given, anything that is not an
+  // API path and matched no file is the client-side router's problem and gets
+  // index.html; an API path always gets JSON, because a 404 there is real.
   app.setNotFoundHandler((req, reply) => {
-    const raw = req.raw as unknown as { body?: unknown; _body?: boolean };
-    if (req.body !== undefined) {
-      raw.body = req.body;
-      raw._body = true;
+    if (!req.url.startsWith('/api') && options.staticDir) {
+      return reply.sendFile('index.html', options.staticDir);
     }
-    expressApp(req.raw, reply.raw);
+    return reply.code(404).send({ ok: false, error: 'Not found', code: 'not_found' });
   });
 
   // An unhandled throw must not return an HTML stack page to a JSON client.

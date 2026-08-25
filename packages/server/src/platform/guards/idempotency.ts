@@ -1,4 +1,4 @@
-import type { Request, Response, NextFunction, RequestHandler } from 'express';
+import type { HttpRequest, HttpResponse, NextFunction, Middleware } from '../../platform/http/types';
 import { createHash } from 'node:crypto';
 import { sendError } from '../../platform/http/respond';
 
@@ -56,12 +56,12 @@ const DEFAULT_TTL_MS = 10 * 60_000;
 const DEFAULT_MAX_ENTRIES = 500;
 
 /** Body hash, so the same key with different content cannot silently replay. */
-function fingerprintOf(req: Request): string {
+function fingerprintOf(req: HttpRequest): string {
   const material = JSON.stringify({ path: req.originalUrl ?? req.url, body: req.body ?? null });
   return createHash('sha256').update(material).digest('hex').slice(0, 32);
 }
 
-export function idempotency(options: IdempotencyOptions = {}): RequestHandler {
+export function idempotency(options: IdempotencyOptions = {}): Middleware {
   const ttlMs = options.ttlMs ?? DEFAULT_TTL_MS;
   const maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES;
   const entries = new Map<string, Entry>();
@@ -79,7 +79,7 @@ export function idempotency(options: IdempotencyOptions = {}): RequestHandler {
     }
   };
 
-  return (req: Request, res: Response, next: NextFunction): void => {
+  return (req: HttpRequest, res: HttpResponse, next: NextFunction): void => {
     const header = req.get('Idempotency-Key');
     const key = typeof header === 'string' ? header.trim() : '';
     // Opt-in: without a key this behaves exactly as before.

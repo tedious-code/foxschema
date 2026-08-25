@@ -13,13 +13,17 @@
     "node": ">=18"
   },
   "private": true,
-  "//": "`private` and the TS-source `exports` follow packages/sql — see the note there. One entry on purpose: the six deep subpaths this replaced had to be kept in sync by hand in two files, and a move that updated only one typechecked clean and failed in the CLI tests. A single barrel makes that failure impossible to express.",
+  "//": "`private` and the TS-source `exports` follow packages/sql \u2014 see the note there. One entry on purpose: the six deep subpaths this replaced had to be kept in sync by hand in two files, and a move that updated only one typechecked clean and failed in the CLI tests. A single barrel makes that failure impossible to express.",
   "exports": {
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@fastify/cors": "^11.3.0",
+    "@fastify/static": "^10.1.3",
     "@foxschema/db": "*",
     "@foxschema/shared": "*",
-    "@foxschema/sql": "*"
+    "@foxschema/sql": "*",
+    "fastify": "^5.12.1",
+    "pino": "^10.3.1"
   }
 }

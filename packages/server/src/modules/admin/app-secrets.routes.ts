@@ -1,4 +1,5 @@
-import { Router, Response } from 'express';
+import { Router } from '../../platform/http/router';
+import type { HttpResponse } from '../../platform/http/types';
 import { AppSecretsStore, type AppSecretInput } from './app-secrets.service';
 import {
   CloudProviderCredentialsStore,
@@ -42,15 +43,15 @@ export function createAppSecretsRoutes(
 ): Router {
   const router = Router();
 
-  router.get('/', requirePermissions('secrets.view'), async (req: AuthedRequest, res: Response) => {
+  router.get('/', requirePermissions('secrets.view'), async (req: AuthedRequest, res: HttpResponse) => {
     res.json({ secrets: await store.list(req.userId!) });
   });
 
-  router.get('/providers', requirePermissions('secrets.view'), async (req: AuthedRequest, res: Response) => {
+  router.get('/providers', requirePermissions('secrets.view'), async (req: AuthedRequest, res: HttpResponse) => {
     res.json({ providers: await providers.list(req.userId!) });
   });
 
-  router.post('/providers', requirePermissions('secrets.create'), async (req: AuthedRequest, res: Response) => {
+  router.post('/providers', requirePermissions('secrets.create'), async (req: AuthedRequest, res: HttpResponse) => {
     const body = (req.body ?? {}) as {
       name?: unknown;
       provider?: unknown;
@@ -77,7 +78,7 @@ export function createAppSecretsRoutes(
     }
   });
 
-  router.put('/providers/:id', requirePermissions('secrets.edit'), async (req: AuthedRequest, res: Response) => {
+  router.put('/providers/:id', requirePermissions('secrets.edit'), async (req: AuthedRequest, res: HttpResponse) => {
     const body = (req.body ?? {}) as {
       name?: unknown;
       credentials?: CloudProviderCredentials;
@@ -100,7 +101,7 @@ export function createAppSecretsRoutes(
     }
   });
 
-  router.delete('/providers/:id', requirePermissions('secrets.delete'), async (req: AuthedRequest, res: Response) => {
+  router.delete('/providers/:id', requirePermissions('secrets.delete'), async (req: AuthedRequest, res: HttpResponse) => {
     const removed = await providers.remove(req.userId!, String(req.params.id));
     if (!removed) {
       sendError(res, 'not_found', 'Secret not found');
@@ -109,7 +110,7 @@ export function createAppSecretsRoutes(
     res.json({ ok: true });
   });
 
-  router.post('/', requirePermissions('secrets.create'), async (req: AuthedRequest, res: Response) => {
+  router.post('/', requirePermissions('secrets.create'), async (req: AuthedRequest, res: HttpResponse) => {
     const input = parseSecretBody(req.body);
     if (!input.name || !input.source) {
       sendError(res, 'invalid_input', 'name and source are required');
@@ -131,7 +132,7 @@ export function createAppSecretsRoutes(
     }
   });
 
-  router.post('/resolve', requirePermissions('secrets.view'), async (req: AuthedRequest, res: Response) => {
+  router.post('/resolve', requirePermissions('secrets.view'), async (req: AuthedRequest, res: HttpResponse) => {
     const names = Array.isArray((req.body as { names?: unknown })?.names)
       ? ((req.body as { names: unknown[] }).names.filter((n) => typeof n === 'string') as string[])
       : undefined;
@@ -143,7 +144,7 @@ export function createAppSecretsRoutes(
     }
   });
 
-  router.put('/:id', requirePermissions('secrets.edit'), async (req: AuthedRequest, res: Response) => {
+  router.put('/:id', requirePermissions('secrets.edit'), async (req: AuthedRequest, res: HttpResponse) => {
     const input = parseSecretBody(req.body);
     try {
       const updated = await store.update(req.userId!, String(req.params.id), input);
@@ -159,7 +160,7 @@ export function createAppSecretsRoutes(
     }
   });
 
-  router.delete('/:id', requirePermissions('secrets.delete'), async (req: AuthedRequest, res: Response) => {
+  router.delete('/:id', requirePermissions('secrets.delete'), async (req: AuthedRequest, res: HttpResponse) => {
     const removed = await store.remove(req.userId!, String(req.params.id));
     if (!removed) {
       sendError(res, 'not_found', 'Secret not found');

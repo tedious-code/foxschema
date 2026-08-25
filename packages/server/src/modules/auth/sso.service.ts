@@ -1,4 +1,4 @@
-import type { Request } from 'express';
+import type { HttpRequest } from '../../platform/http/types';
 
 /**
  * Config-driven SSO (OAuth2 / OIDC). Providers activate only when their client
@@ -82,7 +82,7 @@ export function getProvider(id: string): SsoProviderConfig | null {
   return configuredProviders().find((p) => p.id === id) ?? null;
 }
 
-export function redirectUri(req: Request, providerId: string): string {
+export function redirectUri(req: HttpRequest, providerId: string): string {
   const base = process.env.SSO_REDIRECT_BASE || `${req.protocol}://${req.get('host')}`;
   return `${base.replace(/\/$/, '')}/api/auth/sso/${providerId}/callback`;
 }

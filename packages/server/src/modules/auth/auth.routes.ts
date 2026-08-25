@@ -3,12 +3,13 @@
  * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
  * SPDX-License-Identifier: Apache-2.0
  */
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router } from '../../platform/http/router';
+import type { HttpRequest, HttpResponse, NextFunction } from '../../platform/http/types';
 import { AuthModule, SESSION_COOKIE, SESSION_MAX_AGE_MS, type AuthUser } from '../auth/auth.service';
 import type { AppRole, Permission } from '@foxschema/shared';
 import { sendError } from '../../platform/http/respond';
 
-export interface AuthedRequest extends Request {
+export interface AuthedRequest extends HttpRequest {
   userId?: string;
   appRole?: AppRole;
   permissions?: Set<Permission>;
@@ -22,8 +23,11 @@ export function attachAuthUser(user: AuthUser, req: AuthedRequest): void {
 }
 
 /** Minimal cookie reader (avoids a cookie-parser dependency). */
-export function readCookie(req: Request, name: string): string | undefined {
-  const header = req.headers.cookie;
+export function readCookie(req: HttpRequest, name: string): string | undefined {
+  // Node types a repeated header as an array; a browser never sends Cookie
+  // twice, but the type is honest and the join costs nothing.
+  const raw = req.headers.cookie;
+  const header = Array.isArray(raw) ? raw.join('; ') : raw;
   if (!header) return undefined;
   for (const part of header.split(';')) {
     const eq = part.indexOf('=');
@@ -33,7 +37,7 @@ export function readCookie(req: Request, name: string): string | undefined {
   return undefined;
 }
 
-export function setSessionCookie(res: Response, token: string): void {
+export function setSessionCookie(res: HttpResponse, token: string): void {
   res.cookie(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: 'lax',
@@ -46,7 +50,7 @@ export function setSessionCookie(res: Response, token: string): void {
 export function createAuthRoutes(auth: AuthModule): Router {
   const router = Router();
 
-  router.post('/register', async (req: Request, res: Response) => {
+  router.post('/register', async (req: HttpRequest, res: HttpResponse) => {
     const { email, password } = req.body as { email: string; password: string };
     try {
       const { user, token } = await auth.register(email, password);
@@ -57,7 +61,7 @@ export function createAuthRoutes(auth: AuthModule): Router {
     }
   });
 
-  router.post('/login', async (req: Request, res: Response) => {
+  router.post('/login', async (req: HttpRequest, res: HttpResponse) => {
     const { email, password } = req.body as { email: string; password: string };
     try {
       const { user, token } = await auth.login(email, password);
@@ -68,13 +72,13 @@ export function createAuthRoutes(auth: AuthModule): Router {
     }
   });
 
-  router.post('/logout', async (req: Request, res: Response) => {
+  router.post('/logout', async (req: HttpRequest, res: HttpResponse) => {
     await auth.logout(readCookie(req, SESSION_COOKIE));
     res.clearCookie(SESSION_COOKIE, { path: '/' });
     res.json({ ok: true });
   });
 
-  router.get('/me', async (req: Request, res: Response) => {
+  router.get('/me', async (req: HttpRequest, res: HttpResponse) => {
     const user = await auth.getUserByToken(readCookie(req, SESSION_COOKIE));
     if (user) {
       res.json({ user });
@@ -96,7 +100,7 @@ export function createAuthRoutes(auth: AuthModule): Router {
 
 /** Guard for protected routes — attaches userId + RBAC or 401s. */
 export function authGuard(auth: AuthModule) {
-  return async (req: AuthedRequest, res: Response, next: NextFunction) => {
+  return async (req: AuthedRequest, res: HttpResponse, next: NextFunction) => {
     try {
       const user = await auth.getUserByToken(readCookie(req, SESSION_COOKIE));
       if (!user) {
@@ -116,7 +120,7 @@ export function authGuard(auth: AuthModule) {
  * local user as admin so per-user routes work without an auth flow.
  */
 export function localUserGuard(auth: AuthModule) {
-  return async (req: AuthedRequest, _res: Response, next: NextFunction) => {
+  return async (req: AuthedRequest, _res: HttpResponse, next: NextFunction) => {
     try {
       const user = await auth.ensureLocalUser();
       attachAuthUser(user, req);

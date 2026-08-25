@@ -1,15 +1,15 @@
 import { describe, it, expect, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
-import type { Request, Response } from 'express';
+import type { HttpRequest, HttpResponse } from '../platform/http/types';
 import { idempotency } from '../platform/guards/idempotency';
 
-function reqOf(key: string | undefined, body: unknown, url = '/sql/execute'): Request {
+function reqOf(key: string | undefined, body: unknown, url = '/sql/execute'): HttpRequest {
   return {
     originalUrl: url,
     url,
     body,
     get: (h: string) => (h.toLowerCase() === 'idempotency-key' ? key : undefined),
-  } as unknown as Request;
+  } as unknown as HttpRequest;
 }
 
 function resOf() {
@@ -22,7 +22,7 @@ function resOf() {
     status(code: number) { res.statusCode = code; return res; },
     json(payload: unknown) { res.sent = payload; return res; },
   });
-  return res as unknown as Response & {
+  return res as unknown as HttpResponse & {
     statusCode: number; headers: Record<string, string>; sent: unknown;
     emit(e: string): boolean;
   };

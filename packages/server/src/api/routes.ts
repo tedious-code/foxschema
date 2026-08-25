@@ -1,4 +1,5 @@
-import { Router, Request, Response } from 'express';
+import { Router } from '../platform/http/router';
+import type { HttpRequest, HttpResponse } from '../platform/http/types';
 import {
   ConnectionModule,
   CompareModule,
@@ -72,7 +73,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   const compareService = makeCompareService({ resolver, compareModule });
 
   /** Express request → the transport-free ActorContext services are written against. */
-  const actorOf = (req: Request): ActorContext => {
+  const actorOf = (req: HttpRequest): ActorContext => {
     const authed = req as AuthedRequest;
     return {
       userId: authed.userId,
@@ -137,13 +138,13 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   // already includes `version` for stale-process detection — do not re-add here.
 
   // In-app update check — compares the running version against npm (default).
-  router.get('/updates/check', async (_req: Request, res: Response) => {
+  router.get('/updates/check', async (_req: HttpRequest, res: HttpResponse) => {
     res.json(await checkForUpdate());
   });
 
   // One-click self-update for local npm CLI installs (`foxschema open`).
   // Runs `npm install -g foxschema@latest`, then relaunches the UI server.
-  router.post('/updates/apply', async (_req: Request, res: Response) => {
+  router.post('/updates/apply', async (_req: HttpRequest, res: HttpResponse) => {
     if (!canSelfUpdate()) {
       sendError(
         res,
@@ -171,7 +172,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   // Non-secret info about where the app's metadata DB lives and how the
   // credential-encryption key is bound — for the "Database & Security" settings
   // section. Never exposes the key itself.
-  router.get('/app-info', async (_req: Request, res: Response) => {
+  router.get('/app-info', async (_req: HttpRequest, res: HttpResponse) => {
     const cfg = getMetadataDbConfig();
     const key = keySchemeInfo();
     // Persist a durable record of the active config (useful for later tooling).
@@ -195,7 +196,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   // Opens a throwaway connection (no migrations, no effect on the live store).
   // Restricted to the local/community edition — on multi-user web the metadata
   // DB is ops-managed, and a connection probe would be an SSRF vector.
-  router.post('/db/test', async (req: Request, res: Response) => {
+  router.post('/db/test', async (req: HttpRequest, res: HttpResponse) => {
     // The restriction above was documented but never implemented. On a
     // multi-user deployment this handler dials any host:port the caller names
     // and reports, through the error text, whether something answered — an
@@ -230,7 +231,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     }
   });
 
-  router.get('/driver/check', (req: Request, res: Response) => {
+  router.get('/driver/check', (req: HttpRequest, res: HttpResponse) => {
     const dialect = String(req.query.dialect ?? '');
     try {
       const driver = connectionModule.checkDriver(dialect);
@@ -241,7 +242,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     }
   });
 
-  router.post('/driver/install', async (req: Request, res: Response) => {
+  router.post('/driver/install', async (req: HttpRequest, res: HttpResponse) => {
     const { dialect } = (req.body ?? {}) as { dialect?: unknown };
     // Without this, a missing dialect reached DriverDetector and came back as a
     // 500 — the caller's malformed request reported as a server fault.
@@ -309,7 +310,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     }
   });
 
-  router.post('/connection/test', async (req: Request, res: Response) => {
+  router.post('/connection/test', async (req: HttpRequest, res: HttpResponse) => {
     try {
       const { dialect, option } = await resolveRef((req as AuthedRequest).userId, req.body as ConnectionRef);
       const { success, version } = await connectionModule.testConnection(dialect, option);
@@ -371,7 +372,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
    * What long-running work is in flight, for the UI's activity indicator.
    * Cheap and read-only — safe to poll.
    */
-  router.get('/activity', (_req: Request, res: Response) => {
+  router.get('/activity', (_req: HttpRequest, res: HttpResponse) => {
     const running = targetLocks.active();
     res.json({
       count: running.length,
@@ -412,7 +413,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     '/files/browse',
     fileBrowseLimiter,
     requirePermissions('schema.browse'),
-    async (req: Request, res: Response) => {
+    async (req: HttpRequest, res: HttpResponse) => {
       const requested = typeof req.query.path === 'string' ? req.query.path : undefined;
       try {
         res.json(await browseDirectory(requested));

@@ -1,16 +1,29 @@
+/**
+ * Fox Schema (foxschema)
+ * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * The single-origin server: the built frontend and the API on one port.
+ *
+ * Used by Docker, by `apps/web`'s serve entry, and by the CLI's `foxschema
+ * open` child process.
+ */
 import { join } from 'node:path';
-import http from 'node:http';
-import express from 'express';
+import type http from 'node:http';
 import { ConnectionFactory, setupDb2ClientEnv } from '@foxschema/db';
-import { createApp } from './api/server';
+import { createFastifyApp } from './api/fastify-server';
+import { sweepOnBoot } from './api/server';
 import { DEFAULT_API_PORT } from './defaultApiPort';
 
 export interface StartUiServerOptions {
   /** Listen port. Defaults to API_PORT / PORT / DEFAULT_API_PORT (3210). */
   port?: number;
-  /** Absolute path to the Vite `dist` directory. Defaults to STATIC_DIR or apps/web/dist. */
+  /**
+   * Absolute path to the built frontend. Falls back to STATIC_DIR; there is
+   * no default, because this package must not know where an app puts its dist.
+   */
   staticDir?: string;
-  /** Bind address. Defaults to 127.0.0.1 for local CLI; Docker uses 0.0.0.0 via listen(). */
+  /** Bind address. Defaults to 0.0.0.0 so Docker can reach it. */
   host?: string;
 }
 
@@ -18,30 +31,14 @@ export interface StartedUiServer {
   port: number;
   host: string;
   staticDir: string;
+  /** The underlying Node server, already listening. */
   server: http.Server;
   close: () => Promise<void>;
 }
 
-/**
- * Start the single-origin UI + API server (Docker / CLI browser launcher).
- * Shared by `serve.ts` and the CLI `foxschema open` child process.
- */
-/**
- * Which HTTP server to run.
- *
- * `FOX_SERVER=fastify` puts the Fastify edge in front of the same Express
- * routers: same routes, same handlers, same guards, with the security policies
- * enforced in native hooks before anything downstream. Express stays the
- * default until the flag has run in anger.
- */
-export function serverFlavour(): 'express' | 'fastify' {
-  return process.env.FOX_SERVER === 'fastify' ? 'fastify' : 'express';
-}
-
-export function startUiServer(opts: StartUiServerOptions = {}): StartedUiServer {
+export async function startUiServer(opts: StartUiServerOptions = {}): Promise<StartedUiServer> {
   setupDb2ClientEnv();
 
-  const app = createApp();
   // The frontend's location is the caller's business, not the server's.
   // This used to default to `../../dist`, which resolved to apps/web/dist —
   // fine while this code lived inside that app, and a dependency pointing the
@@ -55,21 +52,43 @@ export function startUiServer(opts: StartUiServerOptions = {}): StartedUiServer 
     );
   }
 
-  app.use(express.static(staticDir));
-  app.get(/^(?!\/api\/).*/, (_req, res) => {
-    res.sendFile(join(staticDir, 'index.html'));
-  });
+  // Static serving and the SPA fallback live in createFastifyApp, because
+  // Fastify permits exactly one not-found handler per instance and setting a
+  // second one throws at boot — which is how this was found.
+  const app = await createFastifyApp({ staticDir });
 
-  const port = opts.port ?? (Number(process.env.API_PORT || process.env.PORT) || DEFAULT_API_PORT);
+  sweepOnBoot();
+
+  const requested =
+    opts.port ?? (Number(process.env.API_PORT || process.env.PORT) || DEFAULT_API_PORT);
   const host = opts.host ?? process.env.LISTEN_HOST ?? '0.0.0.0';
+  await app.listen({ port: requested, host });
 
-  const server = app.listen(port, host);
+  // Report the port actually bound, not the one asked for: port 0 means "any
+  // free port", and returning the 0 back is useless to a caller that has to
+  // connect to it.
+  const address = app.server.address();
+  const port = typeof address === 'object' && address ? address.port : requested;
+
   const close = async () => {
     await ConnectionFactory.closeAll();
-    await new Promise<void>((resolveClose, reject) => {
-      server.close((err) => (err ? reject(err) : resolveClose()));
-    });
+    await app.close();
   };
 
-  return { port, host, staticDir, server, close };
+  return { port, host, staticDir, server: app.server, close };
 }
+
+/**
+ * Which HTTP server to run.
+ *
+ * There is only one now. Kept as a function because the CLI and the Docker
+ * entrypoint both report it, and because `FOX_SERVER` may still be set in an
+ * existing deployment's environment — answering honestly beats pretending the
+ * flag still switches anything.
+ */
+export function serverFlavour(): 'fastify' {
+  return 'fastify';
+}
+
+/** Retained for callers that only need the SPA fallback path. */
+export const spaFallbackFile = (staticDir: string): string => join(staticDir, 'index.html');

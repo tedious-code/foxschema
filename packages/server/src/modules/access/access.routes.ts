@@ -9,7 +9,8 @@
  * this move cannot alter behaviour. Splitting them into handler/controller
  * layers is a separate step, deliberately not mixed with the extraction.
  */
-import { Router, type Request, type Response } from 'express';
+import { Router } from '../../platform/http/router';
+import type { HttpRequest, HttpResponse } from '../../platform/http/types';
 import type { ConnectionModule } from '@foxschema/db';
 import { requirePermissions } from '../authorization/rbac.guard';
 import { rateLimit } from '../../platform/guards/rate-limit';
@@ -44,7 +45,7 @@ export function createAccessRoutes(deps: AccessRouteDeps): Router {
     '/schema/index-fragmentation',
     indexFragLimiter,
     requirePermissions('utility.access'),
-    async (req: Request, res: Response) => {
+    async (req: HttpRequest, res: HttpResponse) => {
     const body = req.body as ConnectionRef & {
       table?: unknown;
       schema?: unknown;
@@ -87,7 +88,7 @@ export function createAccessRoutes(deps: AccessRouteDeps): Router {
     '/schema/index-fragmentation-batch',
     indexFragBatchLimiter,
     requirePermissions('utility.access'),
-    async (req: Request, res: Response) => {
+    async (req: HttpRequest, res: HttpResponse) => {
       const body = req.body as ConnectionRef & {
         tables?: unknown;
         schema?: unknown;
@@ -160,7 +161,7 @@ export function createAccessRoutes(deps: AccessRouteDeps): Router {
     '/schema/dba-utility',
     dbaUtilityLimiter,
     requirePermissions('utility.access'),
-    async (req: Request, res: Response) => {
+    async (req: HttpRequest, res: HttpResponse) => {
     const body = req.body as ConnectionRef & {
       kind?: unknown;
       schema?: unknown;
@@ -197,7 +198,7 @@ export function createAccessRoutes(deps: AccessRouteDeps): Router {
     '/schema/db-access',
     dbAccessLimiter,
     requirePermissions('utility.access'),
-    async (req: Request, res: Response) => {
+    async (req: HttpRequest, res: HttpResponse) => {
       const body = req.body as ConnectionRef & { schema?: unknown };
       try {
         const resolved = await deps.resolveRef((req as AuthedRequest).userId, body);

@@ -7,7 +7,8 @@
  *
  * Extracted verbatim from api/routes.ts; handler bodies are unchanged.
  */
-import { Router, type Request, type Response } from 'express';
+import { Router } from '../../platform/http/router';
+import type { HttpRequest, HttpResponse } from '../../platform/http/types';
 import { denyUnless } from '../authorization/rbac.guard';
 import { rateLimit } from '../../platform/guards/rate-limit';
 import { idempotency } from '../../platform/guards/idempotency';
@@ -47,7 +48,7 @@ export function createEditorRoutes(deps: EditorRouteDeps): Router {
   // made Express call it with (req, res, next); it returned a handler and never
   // called next(), so the request hung with no error and no response.
   const writeIdempotency = idempotency();
-  router.post('/sql/execute', sqlExecuteLimiter, writeIdempotency, async (req: Request, res: Response) => {
+  router.post('/sql/execute', sqlExecuteLimiter, writeIdempotency, async (req: HttpRequest, res: HttpResponse) => {
     const { statements, maxRows, offset, params, datagridAction, ...ref } = req.body as ConnectionRef & {
       statements?: unknown;
       maxRows?: unknown;
@@ -142,7 +143,7 @@ export function createEditorRoutes(deps: EditorRouteDeps): Router {
     }
   });
 
-  router.post('/sql/code-cell', codeCellLimiter, async (req: Request, res: Response) => {
+  router.post('/sql/code-cell', codeCellLimiter, async (req: HttpRequest, res: HttpResponse) => {
     const body = req.body as CodeCellRequestBody &
       ConnectionRef & { allowWrites?: boolean; beam?: unknown };
     const authed = req as AuthedRequest;

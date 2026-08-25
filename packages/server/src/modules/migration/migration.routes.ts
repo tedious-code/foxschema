@@ -9,7 +9,8 @@
  * databases, so the handler bodies are copied unchanged and only closure
  * references become explicit deps — a rewrite here does not belong in a move.
  */
-import { Router, type Request, type Response } from 'express';
+import { Router } from '../../platform/http/router';
+import type { HttpRequest, HttpResponse } from '../../platform/http/types';
 import type { ConnectionOptions, MigrationStep } from '@foxschema/db';
 import { requirePermissions } from '../authorization/rbac.guard';
 import { idempotency } from '../../platform/guards/idempotency';
@@ -36,7 +37,7 @@ export function createMigrationRoutes(deps: MigrationRouteDeps): Router {
   const router = Router();
   // A factory, not the middleware — see the editor extraction.
   const writeIdempotency = idempotency();
-  router.post('/migration/execute', requirePermissions('schema.migrate'), writeIdempotency, async (req: Request, res: Response) => {
+  router.post('/migration/execute', requirePermissions('schema.migrate'), writeIdempotency, async (req: HttpRequest, res: HttpResponse) => {
     const { steps, continueOnError, ...ref } = req.body as ConnectionRef & { steps: MigrationStep[]; continueOnError?: boolean };
     let dialect: string;
     let option: ConnectionOptions;
@@ -195,11 +196,11 @@ export function createMigrationRoutes(deps: MigrationRouteDeps): Router {
     }
   });
 
-  router.get('/migrations', async (req: Request, res: Response) => {
+  router.get('/migrations', async (req: HttpRequest, res: HttpResponse) => {
     res.json({ runs: await deps.migrationHistory.list((req as AuthedRequest).userId!) });
   });
 
-  router.post('/migrations/delete', async (req: Request, res: Response) => {
+  router.post('/migrations/delete', async (req: HttpRequest, res: HttpResponse) => {
     const ids = Array.isArray((req.body as { ids?: unknown }).ids)
       ? ((req.body as { ids: unknown[] }).ids.filter((i) => typeof i === 'string') as string[])
       : [];
@@ -207,12 +208,12 @@ export function createMigrationRoutes(deps: MigrationRouteDeps): Router {
     res.json({ removed });
   });
 
-  router.delete('/migrations', async (req: Request, res: Response) => {
+  router.delete('/migrations', async (req: HttpRequest, res: HttpResponse) => {
     const removed = await deps.migrationHistory.clear((req as AuthedRequest).userId!);
     res.json({ removed });
   });
 
-  router.get('/migrations/:id', async (req: Request, res: Response) => {
+  router.get('/migrations/:id', async (req: HttpRequest, res: HttpResponse) => {
     const run = await deps.migrationHistory.get((req as AuthedRequest).userId!, String(req.params.id));
     if (!run) {
       sendError(res, 'not_found', 'Migration run not found');
@@ -221,7 +222,7 @@ export function createMigrationRoutes(deps: MigrationRouteDeps): Router {
     res.json({ run });
   });
 
-  router.delete('/migrations/:id', async (req: Request, res: Response) => {
+  router.delete('/migrations/:id', async (req: HttpRequest, res: HttpResponse) => {
     const removed = await deps.migrationHistory.remove((req as AuthedRequest).userId!, String(req.params.id));
     if (!removed) {
       sendError(res, 'not_found', 'Migration run not found');
