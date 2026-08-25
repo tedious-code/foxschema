@@ -1,5 +1,5 @@
 import React, { useMemo, useReducer } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, useInput } from 'ink';
 import { checkReady } from '../runtime/bootstrap';
 import { appReducer, initialState } from './state/appReducer';
 import type { ConnRef, Screen } from './types';

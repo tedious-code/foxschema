@@ -1,27 +1,27 @@
 import React, { Suspense, lazy, useEffect } from 'react';
-import { TopToolbar } from './components/TopToolbar';
-import { SchemaTreePanel } from './components/SchemaTreePanel';
-import { ObjectDetailPanel } from './components/ObjectDetailPanel';
-import { ErrorBoundary } from './components/ErrorBoundary';
-import { LoadingScreen } from './components/LoadingScreen';
-import { AuthPage } from './components/AuthPage';
-import { OnboardingWizard } from './components/OnboardingWizard';
-import { useSyncStore } from './store/useSyncStore';
-import { useAuthStore } from './store/authStore';
-import { useUiStore } from './store/uiStore';
-import { apiGetPreferences } from './api/authApi';
-import { ToastHost } from './components/ToastHost';
+import { TopToolbar } from '@/app/shell/TopToolbar';
+import { SchemaTreePanel } from '@/features/sql-editor';
+import { ObjectDetailPanel } from '@/features/object-detail';
+import { ErrorBoundary } from '@/app/shell/ErrorBoundary';
+import { LoadingScreen } from '@/app/shell/LoadingScreen';
+import { AuthPage } from '@/features/auth';
+import { OnboardingWizard } from '@/features/auth';
+import { useSyncStore } from '@/app/store/useSyncStore';
+import { useAuthStore } from '@/app/store/authStore';
+import { useUiStore } from '@/app/store/uiStore';
+import { apiGetPreferences } from '@/shared/api/authApi';
+import { ToastHost } from '@/app/shell/ToastHost';
 import { AlertCircle, AlertTriangle, Loader2, X } from 'lucide-react';
-import { BackendOfflineBanner } from './components/BackendOfflineBanner';
+import { BackendOfflineBanner } from '@/app/shell/BackendOfflineBanner';
 
 const AccessView = lazy(() =>
-  import('./components/access/AccessView').then((m) => ({ default: m.AccessView }))
+  import('@/features/access').then((m) => ({ default: m.AccessView }))
 );
 const SqlEditorView = lazy(() =>
-  import('./components/sql-editor/SqlEditorView').then((m) => ({ default: m.SqlEditorView }))
+  import('@/features/sql-editor').then((m) => ({ default: m.SqlEditorView }))
 );
 const LokeeWeaveView = lazy(() =>
-  import('./components/lokee-weave/LokeeWeaveView').then((m) => ({ default: m.LokeeWeaveView }))
+  import('@/features/lokee-weave').then((m) => ({ default: m.LokeeWeaveView }))
 );
 
 const Workspace: React.FC = () => {

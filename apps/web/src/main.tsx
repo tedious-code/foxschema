@@ -1,10 +1,10 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './frontend/App.tsx'
-import { SignupWizard } from './frontend/components/SignupWizard'
-import { LoadingScreen } from './frontend/components/LoadingScreen'
-import { resolveApiBase } from './frontend/api/apiBase'
-import { getSignupState } from './frontend/api/signupApi'
+import { SignupWizard } from '@/features/auth/components/SignupWizard'
+import { LoadingScreen } from '@/app/shell/LoadingScreen'
+import { resolveApiBase } from '@/shared/api/apiBase'
+import { getSignupState } from '@/features/auth/api/signupApi'
 import './style.css'
 
 const rootEl = document.getElementById('app')

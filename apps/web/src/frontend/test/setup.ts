@@ -37,3 +37,17 @@ globalThis.matchMedia ??= ((query: string) => ({
 
 // Element.scrollTo is unimplemented in jsdom; grids call it on mount.
 Element.prototype.scrollTo ??= function scrollTo(): void {};
+
+/**
+ * jsdom does not implement the deprecated `document.queryCommand*` API, and
+ * Monaco's clipboard contribution probes it at module load — so any test that
+ * transitively reaches the editor dies on import rather than on an assertion.
+ *
+ * It surfaced when features gained public APIs: importing `@/features/utilities`
+ * for one modal pulls the whole feature, editor included. Vite tree-shakes that
+ * for the real bundle; jsdom loads everything.
+ */
+if (typeof document !== 'undefined' && typeof document.queryCommandSupported !== 'function') {
+  document.queryCommandSupported = () => false;
+  document.queryCommandEnabled = () => false;
+}

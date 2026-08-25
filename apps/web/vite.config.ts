@@ -19,6 +19,11 @@ export default defineConfig({
       // This alias and apps/web/tsconfig.json must agree — they used to point
       // '@foxschema/core' at different entry points, so tsc and the bundler
       // disagreed about what the name meant.
+      // Frontend-internal alias, so a feature is imported by name rather than
+      // by counting ../ hops. Must agree with apps/web/tsconfig.json and the
+      // root vitest.config.ts — three copies of resolution, and only the
+      // bundler catches a mismatch.
+      { find: /^@\//, replacement: pkg('./src/frontend/') },
       { find: '@foxschema/sql', replacement: pkg('../../packages/sql/src/index.ts') },
       // Shared is browser-safe by contract (packages/shared/src/purity.test.ts),
       // so unlike @foxschema/db it belongs in the frontend bundle.
