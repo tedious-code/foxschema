@@ -71,26 +71,28 @@ export class RouteCollector {
    * Overloads mirror how the app already calls it: `use(router)`,
    * `use(prefix, router)`, and `use(prefix, ...guards, router)`.
    */
-  use(...args: [RouteCollector] | [string, ...(Middleware | RouteCollector)[]] | Middleware[]): void {
+  use(...args: [RouteCollector] | [string, ...(Middleware | RouteCollector)[]]): void {
     if (args.length === 1 && args[0] instanceof RouteCollector) {
       this.mounted.push({ prefix: '', middlewares: [], router: args[0] });
       return;
     }
     const prefix = typeof args[0] === 'string' ? args[0] : '';
-    const rest = (typeof args[0] === 'string' ? args.slice(1) : args) as (Middleware | RouteCollector)[];
+    const rest = (typeof args[0] === 'string' ? args.slice(1) : args) as (
+      | Middleware
+      | RouteCollector
+    )[];
     const router = rest.find((r): r is RouteCollector => r instanceof RouteCollector);
     const middlewares = rest.filter((r): r is Middleware => !(r instanceof RouteCollector));
     if (!router) {
-      // `use(guard)` with no router — a guard for everything mounted here.
-      this.mounted.push({ prefix, middlewares, router: new RouteCollector() });
-      this.pending.push(...middlewares);
-      return;
+      // Express also accepts `use(guard)` with no router, meaning "guard
+      // everything mounted after this". Nothing in this app uses it, and
+      // supporting it here meant guards that applied retroactively to routes
+      // declared *earlier* — silently unlike Express. Refusing loudly beats
+      // carrying a subtly wrong feature nobody calls.
+      throw new Error('Router.use requires a router; guard-only use() is not supported.');
     }
     this.mounted.push({ prefix, middlewares, router });
   }
-
-  /** Guards added by `use(mw)` with no router; they apply to later mounts. */
-  private readonly pending: Middleware[] = [];
 
   /**
    * Flatten to absolute routes.
@@ -100,7 +102,7 @@ export class RouteCollector {
    */
   flatten(prefix = '', inherited: Middleware[] = []): RouteDefinition[] {
     const out: RouteDefinition[] = [];
-    const base = [...inherited, ...this.pending];
+    const base = inherited;
     for (const r of this.routes) {
       out.push({
         method: r.method,

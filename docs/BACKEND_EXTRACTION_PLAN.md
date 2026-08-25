@@ -1,8 +1,8 @@
 # Backend extraction + Express removal — review and plan
 
-> **Phases 0 and 1 landed.** `packages/shared` and `packages/server` exist, the
-> backend is out of `apps/web`, the six-subpath exports map is one entry, and the
-> error contract is on the wire. See §6 for the two layers added to the brief
+> **All phases landed.** The backend is its own package, Express is gone, every
+> error carries a code, and no route answers 500 to a malformed body. The
+> per-phase notes below are kept as the record of why each step was taken. See §6 for the two layers added to the brief
 > after this plan was first written: standardized error codes, and per-endpoint
 > input validation.
 
@@ -215,7 +215,7 @@ Every phase below must leave the app shippable.
 | **2** | **HTTP contract suite** over all 71 routes against the Express server; wire it into CI | Suite green as the baseline |
 | **3** | Give `idempotency`, `rbac.guard` and the auth guard transport-agnostic cores, following `rate-limit-core.ts` | Contract suite still green |
 | **4** | Port routes to native Fastify, module by module, JSON-only first. Flip `FOX_SERVER` default to fastify once a module is native | Contract suite green after each module |
-| **5** | The hard five: streaming, cookies, redirects, uploads, static | Contract suite + a manual live migration and a real SSO login |
+| **5** ✅ | Streaming, cookies, redirects, uploads and static all native | Contract suite + a manual live migration and a real SSO login |
 | **6** | Delete `express`, `cors`, `@fastify/express`, `@types/express`, `@types/cors`; drop the dual-server branch in `startUiServer.ts` | Full suite + e2e run |
 
 Phases 0 and 1 are worth doing on their own merits and are independent of
@@ -306,11 +306,11 @@ edits that touch the same lines the Express port does:
 |---|---|
 | **0** ✅ | `packages/shared` + the error contract on the wire |
 | **1** ✅ | `packages/server` — backend moved, exports map collapsed to one entry |
-| **2** | HTTP contract suite over all 71 routes, against Express, in CI |
-| **3** | Transport-agnostic cores for `idempotency`, `rbac.guard`, auth guard |
-| **4** | **Per module, in one pass:** schema file → error codes → native Fastify |
-| **5** | The hard five: streaming, cookies, redirects, uploads, static |
-| **6** | Delete express, cors, @fastify/express, and the dual-server branch |
+| **2** ✅ | HTTP contract suite over all 80 routes, in CI |
+| **3** ✅ | Guards run unchanged on Fastify — the shared `HttpRequest`/`HttpResponse` subset made per-guard cores unnecessary |
+| **4** ✅ | Error codes at all 123 sites; the 6 unvalidated routes fixed |
+| **5** ✅ | Streaming, cookies, redirects, uploads and static all native |
+| **6** ✅ | `express`, `cors`, `@fastify/express` and both `@types` removed |
 
 Phase 4 doing all three edits per module is the point: visiting 15 modules once
 costs far less than visiting them three times, and the contract suite from
@@ -339,3 +339,55 @@ under 0.56 needs its own change and real browser verification.
 `.github/workflows/build-gate.yml` runs typecheck, vitest and eslint — **never
 `vite build`**, which is why this has gone unnoticed. Adding the build to CI is
 worth doing regardless of when Monaco gets fixed.
+
+---
+
+## 8. How Express actually came out
+
+Not by rewriting 80 handlers. The HTTP contract suite proves statuses and error
+bodies; success-path payloads need live database state, so a hand-rewrite would
+have changed code nothing verifies. Instead the layer *underneath* the handlers
+was replaced:
+
+| File | Job |
+|---|---|
+| `platform/http/types.ts` | The request/response subset the handlers use — a subset on purpose, so adding to it is a decision |
+| `platform/http/router.ts` | Collects route declarations. Matches no URLs, runs no chain |
+| `platform/http/fastify-bind.ts` | One `fastify.route()` per declaration, guards as that route's `preHandler` |
+
+Handler bodies are byte-identical. The framework under them is completely
+different, and every route is its own registration — which is the performance
+argument made good: a limiter on an upload path now costs nothing on
+`/api/health`.
+
+**Two bugs only running it could find**, both after a green typecheck and 2448
+passing tests:
+
+- Fastify allows one not-found handler per instance; `createFastifyApp` and
+  `startUiServer` each set one, so the process threw on boot. The 404 now has a
+  single owner and `startUiServer.test.ts` covers assembly.
+- `startUiServer` returned the *requested* port, so `port: 0` — "any free
+  port" — came back as 0, useless to the caller.
+
+**What was deliberately not standardised:** the revert flow answers with
+`schema_drifted`, `blocked` and `confirm_lossy`, declared in `lokee-wire.ts` and
+switched on by `VersionCompareModal`. Replacing those with a generic `conflict`
+would have broken a working feature to satisfy a pattern. Endpoints returning
+`success` keep it too.
+
+## 9. e2e status
+
+Run against the Express-free server, with the app driven in a real browser:
+
+| Suite | Result |
+|---|---|
+| smoke, schema-history, schema-browse, auto-error | pass |
+| SQL editor (9 files) | pass |
+| postgres, mysql, mariadb, sqlite, duckdb, clickhouse | pass |
+| sqlserver, oracle, db2, tidb, redshift, azuresql, yugabytedb | pass |
+| **cockroachdb** | **container is down** — exited with `disk slowness detected`, a known limit of this machine, not a code failure |
+| **sql-editor-peek-row-form** (2 tests) | **pre-existing failure** — fails identically on the commit before the port, confirmed by A/B |
+
+`sqlite` and `duckdb` failed until reseeded: macOS had cleaned
+`/tmp/foxschema-sqlite` and `/tmp/foxschema-duckdb`. Reseed those before an e2e
+run, or file-based dialects fail for reasons that have nothing to do with the code.
