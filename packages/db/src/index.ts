@@ -16,7 +16,10 @@ export * from '@foxschema/sql';
 // Runtime (Node-only)
 export { ConnectionModule } from './modules/connection.module';
 export { MigrationModule } from './modules/migration.module';
-export { dialectSupportsTransactionalRollback } from './modules/dialect-transaction-support';
+export {
+  dialectSupportsTransactionalRollback,
+  dialectSupportsTransactionalDdlRollback,
+} from './modules/dialect-transaction-support';
 export { ConnectionFactory } from './cores/connection-factory';
 export { DriverDetector } from './cores/driver-detector';
 export { assertSafeIdentifier } from './cores/sql-identifier';
