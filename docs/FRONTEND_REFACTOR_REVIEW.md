@@ -114,20 +114,52 @@ dialect. The build matters — path aliases are resolved by the bundler, and
 
 ---
 
-## 5. The adapted plan
+## 5. The adapted plan — phases 0-6 complete
 
-Same spirit as the document, minus what does not exist, plus the net.
-
-| Phase | Work | Risk |
+| Phase | Work | State |
 |---|---|---|
-| **0** | Inventory by import graph — done, see §1 and §3 above | none |
-| **1** | Add the `@/` alias to `tsconfig.json` *and* `vite.config.ts` *and* the root `vitest.config.ts`. Create `features/` and `shared/` | low — three copies of resolution, all must agree |
-| **2** | Move the **35 single-consumer files** into the feature that uses them | low — mechanical, verified by build + e2e |
-| **3** | Promote the 5 existing component groups to `features/*`, add `index.ts` public APIs | low |
-| **4** | Sort the 36 loose components: feature-owned vs app-shell | medium — needs judgement per file |
-| **5** | `shared/` gets the 31 genuinely-shared files; keep the `@foxschema/sql` facades intact | low |
-| **6** | Enforce boundaries with a lint rule / purity-style test, as `packages/shared` already does | low |
-| **7** | *Separately*: split the oversized files, one PR each | **high — not part of the move** |
+| **0** | Inventory by import graph | ✅ §1 and §3 above |
+| **1** | `@/` alias in all three resolvers | ✅ proven in tsc, vitest *and* a real `vite build` |
+| **2** | Move single-consumer files into their feature | ✅ |
+| **3** | Promote component groups to `features/*` with `index.ts` | ✅ 10 features |
+| **4** | Sort the loose components | ✅ `components/` no longer exists |
+| **5** | `shared/` and `app/` for the rest | ✅ |
+| **6** | Enforce boundaries by test | ✅ `architecture.test.ts`, 6 rules |
+| **7** | Split the oversized files | **deliberately not done — see §3** |
+
+Final shape:
+
+```
+app/        shell · settings · store          30 files
+features/   access · admin · auth · connections · lokee-weave ·
+            migrations · object-detail · schema-diff ·
+            sql-editor · utilities            153 files
+shared/     api · components · lib · utils     49 files
+```
+
+### What the boundary test found that review would not
+
+Writing the rules as assertions surfaced two things immediately:
+
+- **`shared/api/lokeeApi.ts` imported the Lokee graph DTO** — `shared → feature`,
+  the one direction the plan forbids outright. Moved into the feature it serves.
+- **21 test files had been orphaned from their subjects.** Their modules moved
+  into features; the tests stayed in `shared/`, which is how `shared` re-acquires
+  a dependency on a feature without anyone deciding to.
+
+### One rule the evidence changed
+
+The first version of the test forbade any `feature → feature` import. That was
+wrong for this app: the schema-diff renderers are shared between Lokee history
+and object detail *by design*, and migrations embeds the SQL editor. Enforcing
+it would have pushed half the app into `shared/`.
+
+Worse, routing everything through barrels had a real cost: importing
+`@/features/utilities` for one modal pulls **the whole feature, Monaco
+included**, which broke admin tests that have nothing to do with an editor. So
+the rule now draws the line at *internals* — `lib`, `api`, `store`, `utils` —
+and leaves component composition alone. A component is a UI surface another
+feature may legitimately place; a lib function is an implementation detail.
 
 ### Naming
 

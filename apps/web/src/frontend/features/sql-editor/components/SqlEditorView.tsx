@@ -1,0 +1,968 @@
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Loader2,
+  Play,
+  Eraser,
+  AlignLeft,
+  Columns2,
+  Rows3,
+  RefreshCw,
+  BookmarkPlus,
+  Database,
+  Bookmark,
+  Network,
+  Shield,
+  Braces,
+  KeyRound,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Plus,
+  Copy,
+  Wrench,
+  Users,
+  Cpu,
+  HardDrive,
+  Activity,
+  FileSpreadsheet,
+} from 'lucide-react';
+import { useSyncStore } from '@/app/store/useSyncStore';
+import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
+import { useAuthStore } from '@/app/store/authStore';
+import { splitSqlStatements, type SplitStatement } from '@/shared/lib/sql-splitter';
+import { formatEditorSql } from '@/shared/utils/formatSql';
+import {
+  effectiveConnectionIds,
+  canExecuteWithoutDestination,
+  indicesToRun,
+  resolveRunStatements,
+} from '@/app/store/sqlEditorTabLogic';
+import { getSelectedSql, setCompletionContextGetter, setSqlMutator } from './sqlEditorBridge';
+import { ConnectionChecklist } from './ConnectionChecklist';
+import { EditorTabBar } from './EditorTabBar';
+import { ResultsPanel } from './ResultsPanel';
+import { DataPeekPanel } from './DataPeekPanel';
+import { StatementStrip } from './StatementStrip';
+import { SqlBookmarksPanel } from './SqlBookmarksPanel';
+import { SqlVariablesPanel } from './SqlVariablesPanel';
+import { SqlSecretsPanel, type SqlSecretsPanelHandle } from './SqlSecretsPanel';
+import { SQL_ICON_STROKE } from '@/shared/lib/iconStyle';
+import { SqlSchemaExplorer, type SqlSchemaExplorerHandle } from './SqlSchemaExplorer';
+import {
+  SqlSidebarSection,
+  useSidebarSectionHeights,
+  useSidebarSectionOrder,
+  useSidebarSectionsOpen,
+  type SidebarSectionId,
+} from './SqlSidebarSection';
+import { WriteConfirmDialog } from './WriteConfirmDialog';
+import { IndexManagementModal } from '@/features/utilities';
+import { CloneTableModal } from '@/features/utilities';
+import { FileQueryModal } from '@/features/utilities';
+import { ServerInsightsModal, type ServerInsightsTab } from '@/features/utilities';
+import { DatabaseAccessModal } from '@/features/utilities';
+import { FileImportsPanel } from './FileImportsPanel';
+import type { RevealRequest } from './SqlEditorPane';
+
+const SqlEditorPane = lazy(() => import('./SqlEditorPane'));
+
+const EditorFallback: React.FC = () => (
+  <div className="flex-1 flex items-center justify-center text-slate-600">
+    <Loader2 className="w-5 h-5 animate-spin text-cyan-400" strokeWidth={SQL_ICON_STROKE} />
+  </div>
+);
+
+const UTIL_MENU_BTN =
+  'w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] font-semibold text-slate-100 hover:bg-slate-800 hover:text-slate-50 border border-transparent hover:border-amber-500/35';
+const UTIL_MENU_ICON = 'w-3.5 h-3.5 text-amber-400 shrink-0';
+const EDITOR_PCT_MIN = 15;
+const EDITOR_PCT_MAX = 70;
+const EDITOR_PCT_DEFAULT = 26;
+
+const SIDEBAR_WIDTH_KEY = 'foxschema-sql-sidebar-width';
+const SIDEBAR_COLLAPSED_KEY = 'foxschema-sql-sidebar-collapsed';
+const SIDEBAR_MIN = 200;
+const SIDEBAR_MAX = 480;
+const SIDEBAR_DEFAULT = 288;
+
+function loadSidebarWidth(): number {
+  try {
+    const n = Number(localStorage.getItem(SIDEBAR_WIDTH_KEY));
+    if (Number.isFinite(n)) return Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, n));
+  } catch {
+    /* ignore */
+  }
+  return SIDEBAR_DEFAULT;
+}
+
+function loadSidebarCollapsed(): boolean {
+  try {
+    return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * SQL Editor workspace: multi-tab buffers, destination servers, schema explorer,
+ * statement strip, layout toggle, Format/CSV. Results are per-tab and not persisted.
+ */
+export const SqlEditorView: React.FC = () => {
+  const canEditorDestinations = useAuthStore((s) => s.can('editor.sidebar.destinations'));
+  const canEditorBookmarks = useAuthStore((s) => s.can('editor.sidebar.bookmarks'));
+  const canEditorVariables = useAuthStore((s) => s.can('editor.sidebar.variables'));
+  const canEditorSecrets = useAuthStore((s) => s.can('editor.sidebar.secrets'));
+  const canEditorUtilities = useAuthStore((s) => s.can('editor.sidebar.utilities'));
+  const canUtilityAccess = useAuthStore((s) => s.can('utility.access'));
+  const canEditorSchema = useAuthStore((s) => s.can('editor.sidebar.schema'));
+  const canSecretsView = useAuthStore((s) => s.can('secrets.view'));
+  const canVariablesRead = useAuthStore((s) => s.can('editor.variables.read'));
+
+  const connections = useSyncStore((s) => s.connections);
+  const tabs = useSqlEditorStore((s) => s.tabs);
+  const activeTabId = useSqlEditorStore((s) => s.activeTabId);
+  const resultsByTab = useSqlEditorStore((s) => s.resultsByTab);
+  const runningTabId = useSqlEditorStore((s) => s.runningTabId);
+  const pendingWriteConfirm = useSqlEditorStore((s) => s.pendingWriteConfirm);
+  const schemaCache = useSqlEditorStore((s) => s.schemaCache);
+  const setSql = useSqlEditorStore((s) => s.setSql);
+  const execute = useSqlEditorStore((s) => s.execute);
+  const cancelWriteConfirm = useSqlEditorStore((s) => s.cancelWriteConfirm);
+  const clearResults = useSqlEditorStore((s) => s.clearResults);
+  const toggleStatement = useSqlEditorStore((s) => s.toggleStatement);
+  const setLayout = useSqlEditorStore((s) => s.setLayout);
+  const addTab = useSqlEditorStore((s) => s.addTab);
+  const closeTab = useSqlEditorStore((s) => s.closeTab);
+  const setActiveTab = useSqlEditorStore((s) => s.setActiveTab);
+  const renameTab = useSqlEditorStore((s) => s.renameTab);
+  const moveTab = useSqlEditorStore((s) => s.moveTab);
+  const ensureSchema = useSqlEditorStore((s) => s.ensureSchema);
+  const setMaxRows = useSqlEditorStore((s) => s.setMaxRows);
+  const maxRows = useSqlEditorStore((s) => s.maxRows);
+  const saveBookmark = useSqlEditorStore((s) => s.saveBookmark);
+  const shareDestinations = useSqlEditorStore((s) => s.shareDestinations);
+  const sharedConnectionIds = useSqlEditorStore((s) => s.sharedConnectionIds);
+  const safeMode = useSqlEditorStore((s) => s.safeMode);
+  const setSafeMode = useSqlEditorStore((s) => s.setSafeMode);
+  const multiTableConfirmThreshold = useSqlEditorStore((s) => s.multiTableConfirmThreshold);
+  const setMultiTableConfirmThreshold = useSqlEditorStore((s) => s.setMultiTableConfirmThreshold);
+
+  const tab = tabs.find((t) => t.id === activeTabId) ?? tabs[0]!;
+  // Drop connection ids that no longer exist in the saved list (persist-safe).
+  const liveSelectedIds = effectiveConnectionIds(
+    tab,
+    shareDestinations,
+    sharedConnectionIds
+  ).filter((id) => connections.some((c) => c.id === id));
+
+  const statements = useMemo(() => splitSqlStatements(tab.sql), [tab.sql]);
+  const results = resultsByTab[tab.id];
+  const running = runningTabId === tab.id;
+
+  const [reveal, setReveal] = useState<RevealRequest | null>(null);
+  const [editorPct, setEditorPct] = useState(EDITOR_PCT_DEFAULT);
+  const [hasSelection, setHasSelection] = useState(false);
+  const [caretOffset, setCaretOffset] = useState<number | null>(null);
+  const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(loadSidebarCollapsed);
+  const splitRef = useRef<HTMLDivElement>(null);
+  const [sidebarOpen, toggleSidebar] = useSidebarSectionsOpen();
+  const [sectionHeights, setSectionHeight] = useSidebarSectionHeights();
+  const [sectionOrder, moveSection] = useSidebarSectionOrder();
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [dragOver, setDragOver] = useState<number | null>(null);
+  const secretsPanelRef = useRef<SqlSecretsPanelHandle>(null);
+  const schemaExplorerRef = useRef<SqlSchemaExplorerHandle>(null);
+  const [secretsRefreshing, setSecretsRefreshing] = useState(false);
+  const [showIndexManagement, setShowIndexManagement] = useState(false);
+  const [showCloneTable, setShowCloneTable] = useState(false);
+  const [showFileQuery, setShowFileQuery] = useState(false);
+  const [showDatabaseAccess, setShowDatabaseAccess] = useState(false);
+  const [fileImportsKey, setFileImportsKey] = useState(0);
+  const [serverInsightsTab, setServerInsightsTab] = useState<ServerInsightsTab | null>(null);
+
+  const onSecretsRefresh = useCallback(async () => {
+    setSecretsRefreshing(true);
+    try {
+      await secretsPanelRef.current?.refresh();
+    } finally {
+      setSecretsRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
+    } catch {
+      /* ignore */
+    }
+  }, [sidebarWidth]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, sidebarCollapsed ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  }, [sidebarCollapsed]);
+
+  // Completion provider reads active SQL + checked schemas + variables via this getter.
+  useEffect(() => {
+    setCompletionContextGetter(() => {
+      const state = useSqlEditorStore.getState();
+      const active = state.tabs.find((t) => t.id === state.activeTabId) ?? state.tabs[0]!;
+      const destIds = state.activeConnectionIds();
+      const schemas = destIds
+        .map((id) => {
+          const entry = state.schemaCache[id];
+          if (entry?.status !== 'ready' || !entry.tables) return null;
+          return { connectionId: id, tables: entry.tables };
+        })
+        .filter((x): x is NonNullable<typeof x> => x != null);
+      return { sql: active.sql, schemas, variables: state.variables };
+    });
+    setSqlMutator((fn) => {
+      const state = useSqlEditorStore.getState();
+      const active = state.tabs.find((t) => t.id === state.activeTabId);
+      if (!active) return;
+      state.setSql(fn(active.sql));
+    });
+    return () => setSqlMutator(null);
+  }, []);
+
+  // Warm schema cache for checked credentials (autocomplete).
+  useEffect(() => {
+    for (const id of liveSelectedIds) {
+      if (!schemaCache[id] || schemaCache[id]?.status === 'idle') {
+        void ensureSchema(id);
+      }
+    }
+  }, [liveSelectedIds.join(','), ensureSchema]);
+
+  const startEditorResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const root = splitRef.current;
+    if (!root) return;
+    const rect = root.getBoundingClientRect();
+    const onMove = (ev: MouseEvent) => {
+      const pct = ((ev.clientY - rect.top) / rect.height) * 100;
+      setEditorPct(Math.min(EDITOR_PCT_MAX, Math.max(EDITOR_PCT_MIN, pct)));
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, []);
+
+  const startSidebarResize = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      if (sidebarCollapsed) return;
+      const startX = e.clientX;
+      const startW = sidebarWidth;
+      const onMove = (ev: MouseEvent) => {
+        setSidebarWidth(
+          Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, startW + ev.clientX - startX))
+        );
+      };
+      const onUp = () => {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      };
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    },
+    [sidebarCollapsed, sidebarWidth]
+  );
+
+  const firstSelected = connections.find((c) => liveSelectedIds.includes(c.id));
+  const dialect = firstSelected?.dialect ?? 'sql';
+
+  const selectedSqlForRun = hasSelection ? getSelectedSql() : null;
+  // The caret decides which statement Run defaults to, so the button's count and
+  // title have to follow it — otherwise the label disagrees with what runs.
+  const runStatements = useMemo(
+    () => resolveRunStatements(tab.sql, tab.checkedStatements, selectedSqlForRun, caretOffset),
+    [tab.sql, tab.checkedStatements, selectedSqlForRun, caretOffset]
+  );
+  const canRunLocal = useMemo(
+    () => canExecuteWithoutDestination(runStatements),
+    [runStatements]
+  );
+  const runCount = runStatements.length;
+  // Which cell(s) Run will send. With nothing checked or selected that is the
+  // one under the caret, and saying so is the difference between "Run" doing
+  // something invisible and the user knowing their UPDATE is the one going out.
+  const runIndices = useMemo(
+    () =>
+      hasSelection ? [] : indicesToRun(tab.sql, tab.checkedStatements, caretOffset),
+    [hasSelection, tab.sql, tab.checkedStatements, caretOffset]
+  );
+  const runWhich =
+    tab.checkedStatements.length === 0 && runIndices.length === 1
+      ? ` — In [${runIndices[0]! + 1}] at the caret`
+      : '';
+  const canRun = !runningTabId && (liveSelectedIds.length > 0 || canRunLocal);
+  const runTitle = liveSelectedIds.length
+    ? hasSelection
+      ? 'Run the selected SQL  (⌘/Ctrl+Enter)'
+      : !runCount
+        ? `Run with empty editor against ${liveSelectedIds.length} server(s)  (⌘/Ctrl+Enter)`
+        : `Run ${runCount} statement(s)${runWhich} against ${liveSelectedIds.length} server(s)  (⌘/Ctrl+Enter)`
+    : canRunLocal
+      ? `Run ${runCount} code cell(s) locally — no destination needed  (⌘/Ctrl+Enter)`
+      : 'Check at least one destination server to run SQL, or use a JS/TS/Node code cell';
+
+  const [formatNote, setFormatNote] = useState<string | null>(null);
+  const formatNoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const onReveal = (stmt: SplitStatement) => {
+    setReveal({ startLine: stmt.startLine, endLine: stmt.endLine, nonce: Date.now() });
+  };
+
+  const onFormat = () => {
+    void (async () => {
+      const before = tab.sql;
+      const formatted = await formatEditorSql(before, dialect);
+      if (formatted !== before) setSql(formatted);
+      const fences = (before.match(/^\s*--\s*@(?:js|ts|node|nodets)\b/gim) ?? []).length;
+      const note =
+        formatted === before
+          ? fences > 0
+            ? 'Already formatted (SQL + Prettier JS/TS)'
+            : 'Already formatted'
+          : fences > 0
+            ? `Formatted SQL + ${fences} JS/TS cell${fences === 1 ? '' : 's'} (Prettier)`
+            : 'Formatted SQL';
+      setFormatNote(note);
+      if (formatNoteTimer.current) clearTimeout(formatNoteTimer.current);
+      formatNoteTimer.current = setTimeout(() => setFormatNote(null), 2800);
+    })();
+  };
+
+  useEffect(() => {
+    return () => {
+      if (formatNoteTimer.current) clearTimeout(formatNoteTimer.current);
+    };
+  }, []);
+
+  const sidebarDragProps = useCallback(
+    (orderIndex: number) => ({
+      draggable: true as const,
+      isDragging: dragFrom === orderIndex,
+      isDragOver: dragOver === orderIndex && dragFrom !== orderIndex,
+      onDragStart: (e: React.DragEvent) => {
+        setDragFrom(orderIndex);
+        e.dataTransfer.effectAllowed = 'move';
+      },
+      onDragOver: (e: React.DragEvent) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        setDragOver(orderIndex);
+      },
+      onDrop: (e: React.DragEvent) => {
+        e.preventDefault();
+        if (dragFrom !== null && dragFrom !== orderIndex) {
+          moveSection(dragFrom, orderIndex);
+        }
+        setDragFrom(null);
+        setDragOver(null);
+      },
+      onDragEnd: () => {
+        setDragFrom(null);
+        setDragOver(null);
+      },
+    }),
+    [dragFrom, dragOver, moveSection]
+  );
+
+  const renderSidebarSection = useCallback(
+    (id: SidebarSectionId, orderIndex: number): React.ReactNode => {
+      const drag = sidebarDragProps(orderIndex);
+      switch (id) {
+        case 'destinations':
+          if (!canEditorDestinations) return null;
+          return (
+            <SqlSidebarSection
+              id="destinations"
+              title="Destination servers"
+              icon={<Database className="text-[#0284c7]" strokeWidth={SQL_ICON_STROKE} />}
+              open={sidebarOpen.destinations}
+              onToggle={() => toggleSidebar('destinations')}
+              height={sectionHeights.destinations}
+              onResizeHeight={(h) => setSectionHeight('destinations', h)}
+              {...drag}
+            >
+              <ConnectionChecklist />
+            </SqlSidebarSection>
+          );
+        case 'bookmarks':
+          if (!canEditorBookmarks) return null;
+          return (
+            <SqlSidebarSection
+              id="bookmarks"
+              title="Bookmarks"
+              icon={<Bookmark className="text-[#f59e0b]" strokeWidth={SQL_ICON_STROKE} />}
+              open={sidebarOpen.bookmarks}
+              onToggle={() => toggleSidebar('bookmarks')}
+              height={sectionHeights.bookmarks}
+              onResizeHeight={(h) => setSectionHeight('bookmarks', h)}
+              actions={
+                <button
+                  type="button"
+                  data-testid="sql-bookmark-save"
+                  title="Save current query as a bookmark (uses the tab title)"
+                  disabled={!tab.sql.trim()}
+                  onClick={() => saveBookmark()}
+                  className="flex items-center gap-0.5 text-[12px] font-bold text-[#d97706] hover:text-[#b45309] transition disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <BookmarkPlus className="w-3.5 h-3.5 text-[#f59e0b]" strokeWidth={SQL_ICON_STROKE} /> Save
+                </button>
+              }
+              {...drag}
+            >
+              <SqlBookmarksPanel />
+            </SqlSidebarSection>
+          );
+        case 'variables':
+          if (!canEditorVariables || !canVariablesRead) return null;
+          return (
+            <SqlSidebarSection
+              id="variables"
+              title="Variables"
+              icon={<Braces className="text-[#7c3aed]" strokeWidth={SQL_ICON_STROKE} />}
+              open={sidebarOpen.variables}
+              onToggle={() => toggleSidebar('variables')}
+              height={sectionHeights.variables}
+              onResizeHeight={(h) => setSectionHeight('variables', h)}
+              {...drag}
+            >
+              <SqlVariablesPanel />
+            </SqlSidebarSection>
+          );
+        case 'vault':
+          if (!canEditorSecrets || !canSecretsView) return null;
+          return (
+            <SqlSidebarSection
+              id="vault"
+              title="Secrets"
+              icon={<KeyRound className="text-[#d97706]" strokeWidth={SQL_ICON_STROKE} />}
+              open={sidebarOpen.vault}
+              onToggle={() => toggleSidebar('vault')}
+              height={sectionHeights.vault}
+              onResizeHeight={(h) => setSectionHeight('vault', h)}
+              actions={
+                <button
+                  type="button"
+                  data-testid="sql-secrets-refresh"
+                  title="Re-fetch cloud secrets into Variables"
+                  disabled={secretsRefreshing}
+                  onClick={() => void onSecretsRefresh()}
+                  className="flex items-center gap-0.5 text-[12px] font-bold text-[#0284c7] hover:text-[#0369a1] transition disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <RefreshCw
+                    className={`w-3.5 h-3.5 text-[#0284c7] ${secretsRefreshing ? 'animate-spin' : ''}`}
+                    strokeWidth={SQL_ICON_STROKE}
+                  />
+                  Refresh
+                </button>
+              }
+              {...drag}
+            >
+              <SqlSecretsPanel ref={secretsPanelRef} />
+            </SqlSidebarSection>
+          );
+        case 'utilities':
+          if (!canEditorUtilities || !canUtilityAccess) return null;
+          return (
+            <SqlSidebarSection
+              id="utilities"
+              title="Utilities"
+              icon={<Wrench className="text-[#d97706]" strokeWidth={SQL_ICON_STROKE} />}
+              open={sidebarOpen.utilities}
+              onToggle={() => toggleSidebar('utilities')}
+              {...drag}
+            >
+              <div className="px-1 pb-2 flex flex-col gap-0.5">
+                <button
+                  type="button"
+                  data-testid="utilities-index-management"
+                  onClick={() => setShowIndexManagement(true)}
+                  className={UTIL_MENU_BTN}
+                >
+                  <Database className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
+                  Index Management
+                </button>
+                <button
+                  type="button"
+                  data-testid="utilities-database-access"
+                  onClick={() => setShowDatabaseAccess(true)}
+                  className={UTIL_MENU_BTN}
+                >
+                  <KeyRound className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
+                  Database Access
+                </button>
+                <button
+                  type="button"
+                  data-testid="utilities-clone-table"
+                  onClick={() => setShowCloneTable(true)}
+                  className={UTIL_MENU_BTN}
+                >
+                  <Copy className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
+                  Clone Table
+                </button>
+                <button
+                  type="button"
+                  data-testid="utilities-query-files"
+                  onClick={() => setShowFileQuery(true)}
+                  className={UTIL_MENU_BTN}
+                >
+                  <FileSpreadsheet className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
+                  Query files
+                </button>
+                <button
+                  type="button"
+                  data-testid="utilities-connection-pool"
+                  onClick={() => setServerInsightsTab('pool')}
+                  className={UTIL_MENU_BTN}
+                >
+                  <Activity className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
+                  Connection Pool
+                </button>
+                <button
+                  type="button"
+                  data-testid="utilities-user-connections"
+                  onClick={() => setServerInsightsTab('sessions')}
+                  className={UTIL_MENU_BTN}
+                >
+                  <Users className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
+                  User Connections
+                </button>
+                <button
+                  type="button"
+                  data-testid="utilities-system-info"
+                  onClick={() => setServerInsightsTab('system')}
+                  className={UTIL_MENU_BTN}
+                >
+                  <Cpu className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
+                  System Info
+                </button>
+                <button
+                  type="button"
+                  data-testid="utilities-object-sizes"
+                  onClick={() => setServerInsightsTab('sizes')}
+                  className={UTIL_MENU_BTN}
+                >
+                  <HardDrive className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
+                  Table & Index Size
+                </button>
+              </div>
+            </SqlSidebarSection>
+          );
+        case 'files':
+          if (!canEditorUtilities || !canUtilityAccess) return null;
+          return (
+            <SqlSidebarSection
+              id="files"
+              title="Files"
+              icon={<FileSpreadsheet className="text-[#f59e0b]" strokeWidth={SQL_ICON_STROKE} />}
+              open={sidebarOpen.files}
+              onToggle={() => toggleSidebar('files')}
+              height={sectionHeights.files}
+              onResizeHeight={(h) => setSectionHeight('files', h)}
+              {...drag}
+            >
+              <FileImportsPanel
+                refreshKey={fileImportsKey}
+                onImportClick={() => setShowFileQuery(true)}
+              />
+            </SqlSidebarSection>
+          );
+        case 'schema':
+          if (!canEditorSchema) return null;
+          return (
+            <SqlSidebarSection
+              id="schema"
+              title="Schema"
+              icon={<Network className="text-[#059669]" strokeWidth={SQL_ICON_STROKE} />}
+              open={sidebarOpen.schema}
+              onToggle={() => toggleSidebar('schema')}
+              grow
+              height={sectionHeights.schema}
+              onResizeHeight={(h) => setSectionHeight('schema', h)}
+              actions={
+                <button
+                  type="button"
+                  data-testid="sql-schema-new-table"
+                  title="Create table — opens blueprint to add columns"
+                  onClick={() => schemaExplorerRef.current?.openCreateTable()}
+                  className="flex items-center gap-0.5 text-[12px] font-bold text-[#059669] hover:text-[#047857] transition"
+                >
+                  <Plus className="w-3.5 h-3.5 text-[#059669]" strokeWidth={SQL_ICON_STROKE} />
+                  New table
+                </button>
+              }
+              {...drag}
+            >
+              <SqlSchemaExplorer ref={schemaExplorerRef} />
+            </SqlSidebarSection>
+          );
+        default:
+          return null;
+      }
+    },
+    [
+      canEditorDestinations,
+      canEditorBookmarks,
+      canEditorVariables,
+      canVariablesRead,
+      canEditorSecrets,
+      canSecretsView,
+      canEditorUtilities,
+      canUtilityAccess,
+      canEditorSchema,
+      sidebarOpen,
+      toggleSidebar,
+      sectionHeights,
+      setSectionHeight,
+      tab.sql,
+      saveBookmark,
+      secretsRefreshing,
+      onSecretsRefresh,
+      fileImportsKey,
+      sidebarDragProps,
+    ]
+  );
+
+  return (
+    <div className="flex-1 flex min-h-0 overflow-hidden" data-testid="sql-editor-view">
+      {sidebarCollapsed ? (
+        <aside
+          className="w-10 shrink-0 border-r border-slate-800 bg-slate-950 flex flex-col items-center py-2 gap-1"
+          data-testid="sql-sidebar-collapsed"
+        >
+          <button
+            type="button"
+            data-testid="sql-sidebar-expand"
+            title="Show sidebar"
+            aria-label="Show sidebar"
+            onClick={() => setSidebarCollapsed(false)}
+            className="p-1.5 rounded text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition"
+          >
+            <PanelLeftOpen className="w-4 h-4 text-sky-500" strokeWidth={SQL_ICON_STROKE} />
+          </button>
+        </aside>
+      ) : (
+        <aside
+          className="relative shrink-0 border-r border-slate-800 bg-slate-950 overflow-hidden flex flex-col min-h-0"
+          style={{ width: sidebarWidth }}
+          data-testid="sql-sidebar"
+        >
+          <div className="flex items-center justify-end px-2 py-1 border-b border-slate-800 shrink-0 bg-slate-950">
+            <button
+              type="button"
+              data-testid="sql-sidebar-collapse"
+              title="Hide sidebar"
+              aria-label="Hide sidebar"
+              onClick={() => setSidebarCollapsed(true)}
+              className="p-1 rounded text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition"
+            >
+              <PanelLeftClose className="w-3.5 h-3.5 text-sky-500" strokeWidth={SQL_ICON_STROKE} />
+            </button>
+          </div>
+          <div className="flex-1 flex flex-col min-h-0 overflow-y-auto overflow-x-hidden bg-slate-950">
+            {sectionOrder.map((id, index) => (
+              <React.Fragment key={id}>{renderSidebarSection(id, index)}</React.Fragment>
+            ))}
+          </div>
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize sidebar"
+            data-testid="sql-sidebar-resize"
+            title="Drag to resize sidebar"
+            onMouseDown={startSidebarResize}
+            className="absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-cyan-500/40 active:bg-cyan-500/60 transition-colors z-10"
+          />
+        </aside>
+      )}
+
+      <section className="flex-1 flex flex-col min-w-0 min-h-0">
+        <EditorTabBar
+          tabs={tabs}
+          activeTabId={tab.id}
+          onSelect={setActiveTab}
+          onClose={closeTab}
+          onAdd={addTab}
+          onRename={renameTab}
+          onMove={moveTab}
+        />
+
+        <div className="flex items-center gap-2 px-4 py-2 border-b border-slate-800 bg-slate-900/60 shrink-0">
+          <button
+            data-testid="sql-run-btn"
+            onClick={() => execute()}
+            disabled={!canRun}
+            title={runTitle}
+            className={`flex items-center gap-1.5 px-4 py-1.5 rounded text-xs font-bold transition shadow ${
+              canRun
+                ? 'accent-grad on-accent-fg cursor-pointer'
+                : 'bg-slate-800 text-slate-500 border border-slate-700/50 cursor-not-allowed'
+            }`}
+          >
+            {running ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-200" strokeWidth={SQL_ICON_STROKE} />
+            ) : (
+              <Play className="w-3.5 h-3.5 fill-current text-emerald-50" strokeWidth={SQL_ICON_STROKE} />
+            )}
+            {hasSelection ? 'Run selection' : 'Run'}
+          </button>
+          <button
+            type="button"
+            data-testid="sql-refresh-btn"
+            onClick={() => execute()}
+            disabled={!canRun || !results}
+            title={results ? 'Refresh results (re-run on all checked servers)' : 'Run a query first'}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 transition disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <RefreshCw
+              className={`w-3.5 h-3.5 text-cyan-400 ${running ? 'animate-spin' : ''}`}
+              strokeWidth={SQL_ICON_STROKE}
+            />{' '}
+            Refresh
+          </button>
+          <button
+            type="button"
+            data-testid="sql-format-btn"
+            onClick={onFormat}
+            disabled={!tab.sql.trim()}
+            title="Pretty-print SQL (sql-formatter) and JS/TS/Node cells (Prettier)"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 transition disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <AlignLeft className="w-3.5 h-3.5 text-teal-400" strokeWidth={SQL_ICON_STROKE} /> Format
+            SQL+JS
+          </button>
+          {formatNote && (
+            <span
+              data-testid="sql-format-note"
+              className="text-[10px] font-semibold text-teal-300/90 animate-pulse max-w-[14rem] truncate"
+              title={formatNote}
+            >
+              {formatNote}
+            </span>
+          )}
+          <button
+            type="button"
+            data-testid="sql-bookmark-save-toolbar"
+            onClick={() => saveBookmark()}
+            disabled={!tab.sql.trim()}
+            title="Bookmark this query (uses the tab title)"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 transition disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <BookmarkPlus className="w-3.5 h-3.5 text-amber-400" strokeWidth={SQL_ICON_STROKE} /> Bookmark
+          </button>
+
+          <div className="flex items-center rounded border border-slate-800 overflow-hidden ml-1">
+            <button
+              type="button"
+              title="By credential — statements stacked vertically"
+              data-testid="sql-layout-by-credential"
+              onClick={() => setLayout('byCredential')}
+              className={`flex items-center gap-1 px-2 py-1 text-[10px] font-bold transition ${
+                tab.layout === 'byCredential'
+                  ? 'bg-slate-800 text-cyan-400'
+                  : 'text-slate-500 hover:text-slate-300'
+              }`}
+            >
+              <Rows3 className="w-3 h-3 text-cyan-400" strokeWidth={SQL_ICON_STROKE} /> By cred
+            </button>
+            <button
+              type="button"
+              title="Side by side (per statement) — compare cell values across servers"
+              data-testid="sql-layout-side-by-side"
+              onClick={() => setLayout('sideBySide')}
+              className={`flex items-center gap-1 px-2 py-1 text-[10px] font-bold transition border-l border-slate-800 ${
+                tab.layout === 'sideBySide'
+                  ? 'bg-slate-800 text-cyan-400'
+                  : 'text-slate-500 hover:text-slate-300'
+              }`}
+            >
+              <Columns2 className="w-3 h-3 text-sky-400" strokeWidth={SQL_ICON_STROKE} /> Side-by-side
+            </button>
+          </div>
+
+          <label
+            className="flex items-center gap-1.5 text-[10px] font-semibold ml-1 cursor-pointer select-none"
+            title="When on, UPDATE / DELETE / MERGE (and other writes) require confirmation before Run"
+          >
+            <input
+              type="checkbox"
+              data-testid="sql-safe-mode"
+              checked={safeMode}
+              onChange={(e) => setSafeMode(e.target.checked)}
+              className="w-3.5 h-3.5 accent-rose-500 cursor-pointer"
+            />
+            <Shield
+              className={`w-3 h-3 ${safeMode ? 'text-rose-400' : 'text-slate-500'}`}
+              strokeWidth={SQL_ICON_STROKE}
+            />
+            <span className={safeMode ? 'text-rose-300' : 'text-slate-500'}>Safe mode</span>
+          </label>
+
+          <label className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-500 ml-1" title="Rows fetched per page (Next/Prev use this size)">
+            Rows/page
+            <input
+              data-testid="sql-max-rows"
+              type="number"
+              min={1}
+              max={5000}
+              value={maxRows}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                if (!Number.isFinite(n)) return;
+                setMaxRows(Math.min(5000, Math.max(1, Math.floor(n))));
+              }}
+              className="w-14 bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-[11px] text-slate-200 font-mono outline-none focus:border-cyan-600"
+            />
+          </label>
+
+          <label
+            className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-500 ml-1"
+            title="When Safe mode is on, confirm writes that reference this many tables in one statement (0 = off). SELECT / JOIN reads skip this check. Suggests wrapping related writes in a transaction."
+          >
+            Tables≥
+            <input
+              data-testid="sql-multi-table-threshold"
+              type="number"
+              min={0}
+              max={50}
+              value={multiTableConfirmThreshold}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                if (!Number.isFinite(n)) return;
+                setMultiTableConfirmThreshold(n);
+              }}
+              className="w-10 bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-[11px] text-slate-200 font-mono outline-none focus:border-cyan-600"
+            />
+          </label>
+
+          <span className="text-[11px] text-slate-500 ml-1">
+            {runCount} statement{runCount === 1 ? '' : 's'} · {liveSelectedIds.length} server
+            {liveSelectedIds.length === 1 ? '' : 's'}
+          </span>
+          <div className="flex-1" />
+          {results && results.runs.length > 0 && (
+            <button
+              onClick={clearResults}
+              className="flex items-center gap-1 text-[11px] font-semibold text-slate-500 hover:text-slate-300 transition"
+            >
+              <Eraser className="w-3 h-3 text-orange-400" strokeWidth={SQL_ICON_STROKE} /> Clear results
+            </button>
+          )}
+        </div>
+
+        <div ref={splitRef} className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          <div className="min-h-[6rem] overflow-hidden border-b border-slate-800" style={{ height: `${editorPct}%` }}>
+            <Suspense fallback={<EditorFallback />}>
+              <SqlEditorPane
+                key={tab.id}
+                value={tab.sql}
+                statements={statements}
+                dialect={dialect}
+                onChange={setSql}
+                onRun={() => execute()}
+                onSelectionChange={setHasSelection}
+                onCaretChange={setCaretOffset}
+                reveal={reveal}
+              />
+            </Suspense>
+          </div>
+
+          <div
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize editor and results"
+            data-testid="sql-editor-resize"
+            onMouseDown={startEditorResize}
+            title="Drag to resize editor / results"
+            className="h-1.5 shrink-0 cursor-row-resize bg-slate-900 hover:bg-cyan-500/40 active:bg-cyan-500/60 transition-colors border-y border-slate-800/80"
+          />
+
+          <StatementStrip
+            statements={statements}
+            checked={tab.checkedStatements}
+            running={running}
+            sqlNeedsDestination={liveSelectedIds.length === 0}
+            onToggle={toggleStatement}
+            onReveal={onReveal}
+            onRunCell={(index) => void execute({ statementIndices: [index] })}
+          />
+
+          <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+            <ResultsPanel
+              runs={results?.runs ?? []}
+              statements={results?.ranStatements ?? []}
+              statementIndices={results?.ranStatementIndices}
+              layout={tab.layout}
+              refreshing={running}
+              warnings={results?.warnings}
+              pageState={results?.pageMeta}
+              onPage={(args) => void useSqlEditorStore.getState().loadResultPage(args)}
+              onRefresh={(connectionId) =>
+                execute(connectionId ? { connectionIds: [connectionId] } : undefined)
+              }
+            />
+          </div>
+        </div>
+      </section>
+
+      {pendingWriteConfirm && pendingWriteConfirm.tabId === tab.id && (
+        <WriteConfirmDialog
+          writeStatements={pendingWriteConfirm.writeStatements}
+          credentialCount={pendingWriteConfirm.credentialCount}
+          readonlyTargets={pendingWriteConfirm.readonlyTargets}
+          multiTableStatements={pendingWriteConfirm.multiTableStatements}
+          requireMissingWhereAck
+          onCancel={cancelWriteConfirm}
+          onConfirm={() =>
+            execute({
+              confirmedWrites: true,
+              connectionIds: pendingWriteConfirm.connectionIds,
+              statementIndices: pendingWriteConfirm.statementIndices,
+            })
+          }
+        />
+      )}
+      {/* Always mounted so FK clicks from results work even when Schema is collapsed. */}
+      <DataPeekPanel />
+      <IndexManagementModal
+        open={showIndexManagement}
+        onClose={() => setShowIndexManagement(false)}
+      />
+      <DatabaseAccessModal
+        open={showDatabaseAccess}
+        onClose={() => setShowDatabaseAccess(false)}
+      />
+      <CloneTableModal open={showCloneTable} onClose={() => setShowCloneTable(false)} />
+      <FileQueryModal
+        open={showFileQuery}
+        onClose={() => setShowFileQuery(false)}
+        onImported={() => setFileImportsKey((k) => k + 1)}
+      />
+      <ServerInsightsModal
+        open={serverInsightsTab != null}
+        initialTab={serverInsightsTab ?? 'pool'}
+        onClose={() => setServerInsightsTab(null)}
+      />
+    </div>
+  );
+};

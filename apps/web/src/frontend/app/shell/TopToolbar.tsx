@@ -1,0 +1,701 @@
+import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
+import { useSyncStore } from '@/app/store/useSyncStore';
+import { useUiStore } from '@/app/store/uiStore';
+import { ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, CheckCircle2, Zap, Settings, KeyRound, History, X, Layers, GitCompareArrows, Terminal, Camera, ShieldCheck } from 'lucide-react';
+import { Brand } from './Brand';
+// Support both default and named exports (avoids blank-page Vite/HMR mismatches).
+import ProfileMenuDefault, { ProfileMenu as ProfileMenuNamed } from './ProfileMenu';
+import { CredentialManager } from '@/features/connections';
+import { MigrationHistory } from '@/features/migrations';
+import { TYPE_META, TYPE_ORDER } from '@/features/sql-editor';
+import type { DbObjectType } from '@/shared/lib/types';
+import { dialectUsesPassword } from '@/shared/lib/provider-settings';
+import { ConnectionModal } from '@/features/connections';
+import { PasswordInput } from '@/shared/components/PasswordInput';
+import { useAuthStore } from '@/app/store/authStore';
+import { captureSchema } from '@/features/lokee-weave';
+import { toast } from '@/app/store/toastStore';
+import { getSessionPassword, setSessionPassword } from '@/shared/lib/sessionPasswords';
+import { HistoryCompareBar } from '@/features/lokee-weave';
+import { BrowseBar } from '@/features/object-detail';
+import { ActivityIndicator } from './ActivityIndicator';
+
+const ProfileMenu = ProfileMenuNamed ?? ProfileMenuDefault;
+
+export const TopToolbar: React.FC = () => {
+  const {
+    sourceConfig,
+    targetConfig,
+    setSourceConfig,
+    setTargetConfig,
+    isTestingSource,
+    isTestingTarget,
+    sourceConnected,
+    targetConnected,
+    testSourceConnection,
+    testTargetConnection,
+    isComparing,
+    runSchemaComparison,
+    compareResult,
+    resetSync,
+    selectedObjectTypes,
+    toggleObjectTypeFilter,
+    typeFilter,
+    toggleTypeFilter,
+    clearTypeFilter,
+    showConnectionModal,
+    setShowConnectionModal,
+    addConnection,
+    connections,
+    selectedSourceConnectionId,
+    selectedTargetConnectionId,
+    applySavedConnection,
+    swapSourceTarget,
+  } = useSyncStore();
+
+  const [activeModalTarget, setActiveModalTarget] = useState<'source' | 'target' | null>(null);
+  const [showCredentials, setShowCredentials] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [capturingSnapshot, setCapturingSnapshot] = useState(false);
+  const { activeView, setActiveView, syncPane, setSyncPane, bumpLokeeEpoch } = useUiStore();
+  const canSchemaBrowse = useAuthStore((s) => s.can('schema.browse'));
+  const canSchemaCompare = useAuthStore((s) => s.can('schema.compare'));
+  const canEditorAccess = useAuthStore((s) => s.can('editor.access'));
+
+  // A saved connection created without a stored password ("Save password" left
+  // unticked) has no password to apply automatically — selecting it from either
+  // dropdown must prompt for a session-only password instead of connecting with none.
+  const [pendingPassword, setPendingPassword] = useState<{ side: 'source' | 'target'; id: string; name: string } | null>(null);
+  const [pendingPasswordValue, setPendingPasswordValue] = useState('');
+
+  const selectSavedConnection = (side: 'source' | 'target', id: string) => {
+    const conn = connections.find((c) => c.id === id);
+    // A file dialect has no password to be missing. Prompting for one left the
+    // picker snapping back to "— Saved —" and no target selected at all.
+    if (conn && !conn.hasPassword && dialectUsesPassword(conn.dialect)) {
+      // Reuse a password already typed this session (SQL Editor or prior Sync pick).
+      const cfg = side === 'source' ? sourceConfig : targetConfig;
+      const existing =
+        getSessionPassword(id) ||
+        (cfg.connectionId === id && cfg.option?.password ? cfg.option.password : undefined);
+      if (existing) {
+        applySavedConnection(side, id, existing);
+        return;
+      }
+      setPendingPassword({ side, id, name: conn.name });
+      setPendingPasswordValue('');
+      return;
+    }
+    applySavedConnection(side, id);
+  };
+
+  const confirmPendingPassword = () => {
+    if (!pendingPassword) return;
+    const trimmed = pendingPasswordValue.trim();
+    if (!trimmed) return;
+    setSessionPassword(pendingPassword.id, trimmed);
+    applySavedConnection(pendingPassword.side, pendingPassword.id, trimmed);
+    setPendingPassword(null);
+    setPendingPasswordValue('');
+  };
+
+  const snapshotTarget = async () => {
+    if (!selectedTargetConnectionId || capturingSnapshot) return;
+    setCapturingSnapshot(true);
+    try {
+      const result = await captureSchema({
+        connectionId: selectedTargetConnectionId,
+        password: getSessionPassword(selectedTargetConnectionId) || undefined,
+        source: 'manual',
+      });
+      bumpLokeeEpoch();
+      toast({
+        tone: 'success',
+        title: result.changed ? `Snapshot v${result.versionNumber}` : `No changes since v${result.versionNumber}`,
+        body: result.changed
+          ? `${result.changeCount} object change(s) · ${result.objectCount} objects`
+          : 'Target schema matches the last snapshot — nothing new to record.',
+      });
+      setSyncPane('history');
+    } catch (err) {
+      toast({
+        tone: 'warning',
+        title: 'Snapshot failed',
+        body: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setCapturingSnapshot(false);
+    }
+  };
+
+  // Same dialect + server + database + schema means you'd be comparing a schema
+  // with itself (everything UNCHANGED) — almost always a misconfiguration
+  const sameConfig =
+    sourceConfig.dialect === targetConfig.dialect &&
+    (sourceConfig.option.host ?? '') === (targetConfig.option.host ?? '') &&
+    (sourceConfig.option.database ?? '') === (targetConfig.option.database ?? '') &&
+    sourceConfig.schema.trim().toUpperCase() === targetConfig.schema.trim().toUpperCase();
+
+  const typeCounts = (type: 'ALL' | DbObjectType) =>
+    type === 'ALL'
+      ? (compareResult?.tables.length ?? 0)
+      : (compareResult?.tables.filter((t) => t.objectType === type).length ?? 0);
+
+  const objectScopeOptions: { type: DbObjectType; label: string }[] = [
+    { type: 'TABLE', label: 'Tables' },
+    { type: 'MQT', label: 'MQTs' },
+    { type: 'VIEW', label: 'Views' },
+    { type: 'FUNCTION', label: 'Functions' },
+    { type: 'PROCEDURE', label: 'Procedures' },
+    { type: 'TRIGGER', label: 'Triggers' },
+    { type: 'SEQUENCE', label: 'Sequences' },
+    { type: 'TYPE', label: 'Types' },
+    { type: 'ROLE', label: 'Roles' },
+  ];
+
+  return (
+    <header data-testid="toolbar" className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md px-4 py-2 flex flex-col gap-2">
+      {/* Brand + utilities. Workspace tabs sit on the next row so Lokee Weave
+          cannot wrap under the logo and disappear in a narrow Cursor preview. */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Brand logoSize={34} textClassName="text-xl font-bold" />
+
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Only renders while something is actually running. */}
+          <ActivityIndicator />
+          <button
+            data-testid="credentials-btn"
+            onClick={() => setShowCredentials(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-cyan-400 hover:text-cyan-300 border border-slate-700 hover:border-cyan-500/40 rounded-md transition cursor-pointer"
+          >
+            <KeyRound className="w-3.5 h-3.5" /> Credentials
+          </button>
+          <button
+            data-testid="history-btn"
+            onClick={() => setShowHistory(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-slate-300 hover:text-slate-100 border border-slate-700 hover:border-slate-500 rounded-md transition cursor-pointer"
+          >
+            <History className="w-3.5 h-3.5" /> History
+          </button>
+          {compareResult && activeView === 'sync' && syncPane === 'compare' && (
+            <button
+              onClick={resetSync}
+              className="px-2.5 py-1 text-xs font-semibold text-slate-400 hover:text-slate-200 border border-slate-700 hover:border-slate-600 rounded-md transition cursor-pointer"
+            >
+              Clear Comparison
+            </button>
+          )}
+          <div className="pl-3 border-l border-slate-800">
+            <ProfileMenu />
+          </div>
+        </div>
+      </div>
+
+      {/* Full-width workspace switcher — hidden on History so the version
+          Original → Target bar can reuse Compare's mental model. */}
+      {(canSchemaBrowse || canSchemaCompare || canEditorAccess) &&
+        !(activeView === 'sync' && syncPane === 'history') && (
+        <div
+          data-testid="workspace-switcher"
+          className="flex flex-wrap items-center gap-1.5 rounded-md border border-slate-700 bg-slate-950/50 p-0.5"
+        >
+          <span className="px-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+            Workspace
+          </span>
+          {(canSchemaBrowse || canSchemaCompare) && (
+            <button
+              data-testid="view-sync-btn"
+              onClick={() => setActiveView('sync')}
+              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
+                activeView === 'sync'
+                  ? 'bg-slate-800 text-slate-100'
+                  : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+              }`}
+            >
+              <GitCompareArrows className="w-3.5 h-3.5" /> Schema Sync
+            </button>
+          )}
+          <button
+            data-testid="view-access-btn"
+            onClick={() => setActiveView('access')}
+            className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
+              activeView === 'access'
+                ? 'bg-slate-800 text-slate-100'
+                : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+            }`}
+          >
+            <ShieldCheck className="w-3.5 h-3.5" /> Access
+          </button>
+          {canEditorAccess && (
+            <button
+              data-testid="view-sql-editor-btn"
+              onClick={() => setActiveView('sqlEditor')}
+              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
+                activeView === 'sqlEditor'
+                  ? 'bg-slate-800 text-slate-100'
+                  : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+              }`}
+            >
+              <Terminal className="w-3.5 h-3.5" /> SQL Editor
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Sync-only controls — the SQL Editor view brings its own left panel. */}
+      {activeView === 'sync' && (
+        <>
+      {canSchemaBrowse && (
+        <div
+          data-testid="sync-pane-switcher"
+          className="flex flex-wrap items-center gap-2 rounded-md border border-slate-800 bg-slate-950/40 px-2 py-1"
+        >
+          <span className="px-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+            Schema
+          </span>
+          <button
+            type="button"
+            data-testid="sync-pane-compare-btn"
+            onClick={() => setSyncPane('compare')}
+            className={`rounded px-2.5 py-1 text-xs font-semibold transition ${
+              syncPane === 'compare'
+                ? 'bg-slate-800 text-slate-100'
+                : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+            }`}
+          >
+            Compare
+          </button>
+          <button
+            type="button"
+            data-testid="sync-pane-browse-btn"
+            onClick={() => setSyncPane('browse')}
+            title="Read one database's schema on its own — no comparison."
+            className={`rounded px-2.5 py-1 text-xs font-semibold transition ${
+              syncPane === 'browse'
+                ? 'bg-slate-800 text-slate-100'
+                : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+            }`}
+          >
+            Browse
+          </button>
+          <button
+            type="button"
+            data-testid="sync-pane-history-btn"
+            onClick={() => setSyncPane('history')}
+            title="Every version of this schema, and what changed between them. Snapshots automatically when you migrate."
+            className={`rounded px-2.5 py-1 text-xs font-semibold transition ${
+              syncPane === 'history'
+                ? 'bg-violet-700/80 text-violet-50 ring-1 ring-violet-400/40'
+                : 'text-violet-300 hover:bg-violet-950/50 hover:text-violet-100'
+            }`}
+          >
+            History
+          </button>
+          <button
+            type="button"
+            data-testid="lokee-snapshot-target-btn"
+            disabled={!selectedTargetConnectionId || capturingSnapshot}
+            onClick={() => void snapshotTarget()}
+            title="Take an initial snapshot of the Target schema. Later migrates snapshot automatically."
+            className="ml-auto inline-flex items-center gap-1.5 rounded border border-cyan-500/40 bg-cyan-950/40 px-2.5 py-1 text-[11px] font-bold text-cyan-100 hover:bg-cyan-900/50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Camera className="h-3.5 w-3.5" />
+            {capturingSnapshot ? 'Snapshotting…' : 'Snapshot target'}
+          </button>
+        </div>
+      )}
+      {/* Database Connection Control Grid.
+          Hidden in History: that pane compares two points in this database's
+          own recorded past, so a live Original/Target pair says nothing about
+          what is on screen — History gets the version bar in its place, which
+          is the same Original → Target gesture over stored versions. */}
+      {syncPane === 'history' && <HistoryCompareBar />}
+      {syncPane === 'browse' && <BrowseBar />}
+      {syncPane === 'compare' && (
+      <div className="grid grid-cols-1 xl:grid-cols-11 gap-3 items-stretch">
+        {/* Source Configuration — left side is the Original Server (read / compare from). */}
+        <div className="xl:col-span-5 bg-slate-950/60 p-2 rounded-md border border-slate-800/80 flex flex-col gap-1.5">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-cyan-500/80">
+            Original Server
+          </div>
+          {/* Label + Add/Edit Connection + status, all inline */}
+          <div className="flex items-center gap-2">
+            {connections.length > 0 && (
+              <select
+                data-testid="source-saved-select"
+                value={selectedSourceConnectionId ?? ''}
+                onChange={(e) => e.target.value && selectSavedConnection('source', e.target.value)}
+                title="Saved connections"
+                className="shrink-0 w-36 max-w-[144px] text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-cyan-500 truncate"
+              >
+                <option value="">— Saved —</option>
+                {connections.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    [{c.dialect.toUpperCase()}] {c.name}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            <span className={`flex-1 min-w-0 text-xs font-bold truncate ${
+              sourceConfig.option.database
+                ? 'text-cyan-300 font-mono'
+                : 'text-cyan-200 bg-cyan-500/10 border border-cyan-500/30 rounded px-2 py-1'
+            }`}>
+              {sourceConfig.option.database
+                ? `${sourceConfig.option.host ?? 'localhost'} / ${sourceConfig.option.database}${sourceConfig.schema ? ` / ${sourceConfig.schema}` : ''}`
+                : 'Configure credentials via Params'}
+            </span>
+
+            <button
+              data-testid="source-config-btn"
+              onClick={() => {
+                setActiveModalTarget('source');
+                setShowConnectionModal(true);
+              }}
+              title="Add or edit this connection's credentials"
+              className="shrink-0 text-xs font-semibold bg-slate-800 border border-slate-700 hover:bg-slate-700 hover:border-cyan-500/40 text-cyan-400 rounded transition cursor-pointer flex items-center gap-1.5 px-2 py-1"
+            >
+              <Settings className="w-3.5 h-3.5" />
+              <span>{sourceConfig.option.database ? 'Edit' : 'Add'} Connection</span>
+            </button>
+
+            {isTestingSource ? (
+              <span className="text-xs text-cyan-400 flex items-center gap-1 font-medium shrink-0">
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Connecting...
+              </span>
+            ) : sourceConnected ? (
+              <button
+                data-testid="source-connected-btn"
+                onClick={testSourceConnection}
+                title="Reconnect and refresh schema list"
+                className="group text-xs text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-500/20 hover:border-emerald-400/50 hover:bg-emerald-950/70 flex items-center gap-1 font-medium shrink-0 cursor-pointer transition"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 group-hover:hidden" />
+                <RefreshCw className="w-3.5 h-3.5 hidden group-hover:block" />
+                <span className="group-hover:hidden">Connected</span>
+                <span className="hidden group-hover:inline">Refresh</span>
+              </button>
+            ) : (
+              <button
+                data-testid="source-connect-btn"
+                onClick={testSourceConnection}
+                title="Retry connection"
+                className="text-xs text-slate-400 hover:text-cyan-300 border border-slate-700 hover:border-cyan-500/40 bg-slate-900/60 hover:bg-slate-900 px-2 py-0.5 rounded-full flex items-center gap-1 font-medium shrink-0 cursor-pointer transition"
+              >
+                <RefreshCw className="w-3.5 h-3.5" /> Retry Connection
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Direction / Swap control — migration always flows Original Server → Target */}
+        <div className="flex xl:col-span-1 justify-center items-center">
+          <button
+            onClick={swapSourceTarget}
+            title="Swap Original Server and Target (reverse migration direction)"
+            className="group flex flex-col items-center gap-0.5 transition cursor-pointer"
+          >
+            <span className="text-[9px] font-bold uppercase tracking-wider text-cyan-500/70 group-hover:text-cyan-400">
+              Original
+            </span>
+            <ArrowRight className="w-5 h-5 text-indigo-500/80 group-hover:hidden transition" />
+            <ArrowLeftRight className="w-5 h-5 text-cyan-400 hidden group-hover:block" />
+            <span className="text-[9px] font-bold uppercase tracking-wider text-purple-400/70 group-hover:text-cyan-400">
+              Target
+            </span>
+          </button>
+        </div>
+
+        {/* Target Configuration */}
+        <div className="xl:col-span-5 bg-slate-950/60 p-2 rounded-md border border-slate-800/80 flex flex-col gap-1.5">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-purple-400/80">
+            Target
+          </div>
+          {/* Label + Add/Edit Connection + status, all inline */}
+          <div className="flex items-center gap-2">
+            {connections.length > 0 && (
+              <select
+                data-testid="target-saved-select"
+                value={selectedTargetConnectionId ?? ''}
+                onChange={(e) => e.target.value && selectSavedConnection('target', e.target.value)}
+                title="Saved connections"
+                className="shrink-0 w-36 max-w-[144px] text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-purple-500 truncate"
+              >
+                <option value="">— Saved —</option>
+                {connections.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    [{c.dialect.toUpperCase()}] {c.name}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            <span className={`flex-1 min-w-0 text-xs font-bold truncate ${
+              targetConfig.option.database
+                ? 'text-purple-300 font-mono'
+                : 'text-purple-200 bg-purple-500/10 border border-purple-500/30 rounded px-2 py-1'
+            }`}>
+              {targetConfig.option.database
+                ? `${targetConfig.option.host ?? 'localhost'} / ${targetConfig.option.database}${targetConfig.schema ? ` / ${targetConfig.schema}` : ''}`
+                : 'Configure credentials via Params'}
+            </span>
+
+            <button
+              data-testid="target-config-btn"
+              onClick={() => {
+                setActiveModalTarget('target');
+                setShowConnectionModal(true);
+              }}
+              title="Add or edit this connection's credentials"
+              className="shrink-0 text-xs font-semibold bg-slate-800 border border-slate-700 hover:bg-slate-700 hover:border-purple-500/40 text-purple-400 rounded transition cursor-pointer flex items-center gap-1.5 px-2 py-1"
+            >
+              <Settings className="w-3.5 h-3.5" />
+              <span>{targetConfig.option.database ? 'Edit' : 'Add'} Connection</span>
+            </button>
+
+            {isTestingTarget ? (
+              <span className="text-xs text-purple-400 flex items-center gap-1 font-medium shrink-0">
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Connecting...
+              </span>
+            ) : targetConnected ? (
+              <button
+                data-testid="target-connected-btn"
+                onClick={testTargetConnection}
+                title="Reconnect and refresh schema list"
+                className="group text-xs text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-500/20 hover:border-emerald-400/50 hover:bg-emerald-950/70 flex items-center gap-1 font-medium shrink-0 cursor-pointer transition"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 group-hover:hidden" />
+                <RefreshCw className="w-3.5 h-3.5 hidden group-hover:block" />
+                <span className="group-hover:hidden">Connected</span>
+                <span className="hidden group-hover:inline">Refresh</span>
+              </button>
+            ) : (
+              <button
+                data-testid="target-connect-btn"
+                onClick={testTargetConnection}
+                title="Retry connection"
+                className="text-xs text-slate-400 hover:text-purple-300 border border-slate-700 hover:border-purple-500/40 bg-slate-900/60 hover:bg-slate-900 px-2 py-0.5 rounded-full flex items-center gap-1 font-medium shrink-0 cursor-pointer transition"
+              >
+                <RefreshCw className="w-3.5 h-3.5" /> Retry Connection
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+      )}
+
+      {syncPane === 'compare' && (
+      <div className="flex flex-col md:flex-row justify-between md:items-center bg-slate-950/40 border border-slate-800/60 rounded-md p-2 px-3 gap-2">
+        {/* Scope Config Controls — two always-separate rows: which object types
+            get compared (top), and which of the results are shown (bottom,
+            once a compare has run). Each is its own flex-wrap line so the
+            label always stays attached to its own pills. */}
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-xs font-semibold text-slate-400 flex items-center gap-1 uppercase tracking-wider border-r border-slate-800 pr-2">
+              <Settings className="w-3.5 h-3.5 text-cyan-400" /> Comparison Scope:
+            </span>
+            <div className="flex items-center gap-1.5">
+              {objectScopeOptions.map((opt) => {
+                const active = selectedObjectTypes.includes(opt.type);
+                return (
+                  <button
+                    key={opt.type}
+                    onClick={() => toggleObjectTypeFilter(opt.type)}
+                    className={`px-2 py-0.5 rounded text-xs font-semibold border transition cursor-pointer ${
+                      active
+                        ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
+                        : 'bg-slate-900/50 text-slate-500 border-slate-850 hover:text-slate-450 hover:bg-slate-900'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Results type filter — narrows the compare-results tree (SchemaTreePanel)
+              to one or more object types (multi-select, like Comparison Scope above).
+              Lives here rather than in that panel because this bar spans the full
+              page width; the panel's 280-640px resizable width kept clipping the
+              pill row (esp. with 9 types + counts). */}
+          {compareResult && (
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-xs font-semibold text-slate-400 flex items-center gap-1 uppercase tracking-wider border-r border-slate-800 pr-2">
+                <Layers className="w-3.5 h-3.5 text-cyan-400" /> Viewing:
+              </span>
+              <div className="flex items-center gap-1.5 overflow-x-auto">
+                <button
+                  onClick={clearTypeFilter}
+                  className={`px-2 py-0.5 rounded text-xs font-semibold border transition cursor-pointer whitespace-nowrap ${
+                    typeFilter.length === 0
+                      ? 'bg-slate-800 text-slate-100 border-slate-600'
+                      : 'bg-slate-900/50 text-slate-500 border-slate-850 hover:text-slate-450 hover:bg-slate-900'
+                  }`}
+                >
+                  All {typeCounts('ALL')}
+                </button>
+                {TYPE_ORDER.map((type) => {
+                  const active = typeFilter.includes(type);
+                  return (
+                    <button
+                      key={type}
+                      onClick={() => toggleTypeFilter(type)}
+                      className={`px-2 py-0.5 rounded text-xs font-semibold border transition cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                        active
+                          ? 'bg-slate-800 text-slate-100 border-slate-600'
+                          : 'bg-slate-900/50 text-slate-500 border-slate-850 hover:text-slate-450 hover:bg-slate-900'
+                      }`}
+                    >
+                      <span className={TYPE_META[type].color}>{TYPE_META[type].icon}</span>
+                      {TYPE_META[type].group}
+                      <span className="text-slate-500">{typeCounts(type)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-3">
+          {sameConfig && (
+            <span className="flex items-center gap-1.5 text-xs font-medium text-amber-400 bg-amber-950/30 border border-amber-500/20 px-2 py-1 rounded-md">
+              <AlertCircle className="w-4 h-4 shrink-0" /> Original Server and Target are the same
+            </span>
+          )}
+
+          <button
+            data-testid="compare-btn"
+            onClick={runSchemaComparison}
+            disabled={
+              !canSchemaCompare ||
+              isComparing ||
+              !sourceConnected ||
+              !targetConnected ||
+              selectedObjectTypes.length === 0 ||
+              sameConfig
+            }
+            title={
+              !canSchemaCompare
+                ? 'Your role cannot compare schemas'
+                : sameConfig
+                  ? 'Original Server and Target point to the same database and schema'
+                  : undefined
+            }
+            className={`flex items-center gap-1.5 px-4 py-1.5 rounded-md text-sm font-bold transition shadow-lg ${
+              canSchemaCompare &&
+              sourceConnected &&
+              targetConnected &&
+              selectedObjectTypes.length > 0 &&
+              !sameConfig
+                ? 'accent-grad on-accent-fg shadow-indigo-500/10 cursor-pointer'
+                : 'bg-slate-850 text-slate-500 cursor-not-allowed border border-slate-800/50'
+            }`}
+          >
+            {isComparing ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" /> Analyzing Schema...
+              </>
+            ) : (
+              <>
+                <Zap className="w-4 h-4 fill-current" /> Compare Schemas
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+      )}
+        </>
+      )}
+
+      <ConnectionModal
+        open={showConnectionModal}
+        mode="credential"
+        dialect={activeModalTarget === 'target' ? targetConfig.dialect : sourceConfig.dialect}
+        initialOptions={activeModalTarget === 'target' ? targetConfig.option : sourceConfig.option}
+        initialName={
+          (activeModalTarget === 'target'
+            ? connections.find((c) => c.id === selectedTargetConnectionId)?.name
+            : connections.find((c) => c.id === selectedSourceConnectionId)?.name) ?? ''
+        }
+        onClose={() => {
+          setShowConnectionModal(false);
+          setActiveModalTarget(null);
+        }}
+        onSaveCredential={async (input) => {
+          // Same credential form as the Credentials manager: save it (encrypted,
+          // server-side) then bind it to this side by id.
+          const side = activeModalTarget === 'target' ? 'target' : 'source';
+          const saved = await addConnection(input);
+          // If the password wasn't persisted, keep it in-memory for this session so the
+          // just-bound connection can be used without re-entering it.
+          const sessionPw = saved.hasPassword ? undefined : input.option.password;
+          if (sessionPw) setSessionPassword(saved.id, sessionPw);
+          applySavedConnection(side, saved.id, sessionPw);
+        }}
+      />
+
+      <CredentialManager open={showCredentials} onClose={() => setShowCredentials(false)} />
+
+      <MigrationHistory open={showHistory} onClose={() => setShowHistory(false)} />
+
+      {pendingPassword && createPortal(
+        <div
+          className="modal-overlay"
+          onClick={() => setPendingPassword(null)}
+        >
+          <div
+            className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-xl shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-800 bg-slate-950/40">
+              <span className="flex items-center gap-2 text-sm font-bold text-slate-100">
+                <KeyRound className="w-4 h-4 text-cyan-400" /> Enter Password
+              </span>
+              <button
+                onClick={() => setPendingPassword(null)}
+                className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-slate-200 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-xs text-slate-400">
+                <span className="font-semibold text-slate-200">{pendingPassword.name}</span> was saved without a
+                stored password. Enter it for this session only — it won't be persisted.
+              </p>
+              <PasswordInput
+                autoFocus
+                value={pendingPasswordValue}
+                onChange={(e) => setPendingPasswordValue(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && confirmPendingPassword()}
+                placeholder="••••••••"
+                className="w-full bg-slate-950 border border-slate-850 focus:border-cyan-500 text-sm text-slate-200 rounded px-3 py-2 outline-none font-mono"
+              />
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  onClick={() => setPendingPassword(null)}
+                  className="text-xs font-semibold text-slate-400 hover:text-slate-200 px-3 py-1.5 rounded transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmPendingPassword}
+                  disabled={!pendingPasswordValue.trim()}
+                  className="text-xs font-bold accent-grad on-accent-fg rounded px-4 py-1.5 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Connect
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+    </header>
+  );
+};

@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { RefreshCw, AlertTriangle, Users, KeyRound, Search } from 'lucide-react';
-import { fetchDbAccess } from '@/api/schemaApi';
-import { useSyncStore } from '@/store/useSyncStore';
-import { useSqlEditorStore } from '@/store/useSqlEditorStore';
+import { fetchDbAccess } from '@/shared/api/schemaApi';
+import { useSyncStore } from '@/app/store/useSyncStore';
+import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { buildAccessReport, principalsWithAccessTo, type AccessReport as Report } from '../lib/access';
 import type { DbPrincipal, DbPrivilege } from '@foxschema/sql';
 

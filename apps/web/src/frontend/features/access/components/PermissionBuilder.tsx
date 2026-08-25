@@ -15,7 +15,7 @@ import {
   type PermissionRequest,
   type PermissionRisk,
 } from '../lib/access';
-import { useSyncStore } from '@/store/useSyncStore';
+import { useSyncStore } from '@/app/store/useSyncStore';
 
 const RISK_STYLE: Record<PermissionRisk, string> = {
   low: 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10',

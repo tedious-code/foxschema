@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { RefreshCw, ArrowDown, ShieldX, Check, X, AlertTriangle, Info } from 'lucide-react';
-import { fetchDbAccess } from '@/api/schemaApi';
-import { useSyncStore } from '@/store/useSyncStore';
-import { useSqlEditorStore } from '@/store/useSqlEditorStore';
+import { fetchDbAccess } from '@/shared/api/schemaApi';
+import { useSyncStore } from '@/app/store/useSyncStore';
+import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import {
   describePermission,
   resolveEffectiveAccess,
