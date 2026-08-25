@@ -5,33 +5,35 @@
  *
  * The API's route tree: what exists, and which guards stand in front of it.
  *
- * This used to build an Express application. It now builds a *declaration* —
- * `bindRoutes` turns it into real Fastify routes, one registration each, with
- * each route's guards as its own `preHandler` chain. Nothing here matches a
- * URL or runs a chain; that is Fastify's job now.
+ * This builds a declaration of the routes. `bindRoutes` registers each one with
+ * Fastify, using that route's guards as its `preHandler` chain.
  *
- * Mount order still matters and is unchanged: SSO before the base auth router
- * so its sub-paths win, auth and signup before any guard because you cannot be
- * logged in to log in, and the guard ahead of the rate limiter so the limiter
- * can charge a user rather than lumping everyone behind one shared IP bucket.
+ * Mount order matters:
+ *
+ *  - SSO is mounted before the base auth router so its sub-paths take
+ *    precedence.
+ *  - Auth and signup are mounted before any guard, since a caller cannot be
+ *    signed in yet.
+ *  - The session guard runs before the rate limiter so the limiter can count
+ *    requests per user rather than per IP.
  */
 import { ConnectionModule, ConnectionFactory } from '@foxschema/db';
-import { AuthModule } from '../modules/auth/auth.service';
-import { ConnectionStore } from '../modules/connections/connection-store.service';
-import { sweepOrphanedUploadFiles } from '../modules/files/file-session.service';
-import { UserModule } from '../modules/users/user.service';
+import { AuthModule } from '../features/auth/auth.service';
+import { ConnectionStore } from '../features/connections/connection-store.service';
+import { sweepOrphanedUploadFiles } from '../features/files/file-session.service';
+import { UserModule } from '../features/users/user.service';
 import { createApiRoutes } from './routes';
 import { defaultApiRateLimit } from '../platform/guards/rate-limit';
-import { createAuthRoutes, authGuard, localUserGuard } from '../modules/auth/auth.routes';
-import { createSsoRoutes } from '../modules/auth/sso.routes';
-import { createConnectionStoreRoutes } from '../modules/connections/connections.routes';
-import { createAppSecretsRoutes } from '../modules/admin/app-secrets.routes';
-import { createUserRoutes } from '../modules/users/user.routes';
-import { createAdminRoutes } from '../modules/admin/admin.routes';
-import { createSignupRoutes } from '../modules/users/signup-wizard.routes';
-import { createFileQueryRoutes } from '../modules/files/files.routes';
+import { createAuthRoutes, authGuard, localUserGuard } from '../features/auth/auth.routes';
+import { createSsoRoutes } from '../features/auth/sso.routes';
+import { createConnectionStoreRoutes } from '../features/connections/connections.routes';
+import { createAppSecretsRoutes } from '../features/admin/app-secrets.routes';
+import { createUserRoutes } from '../features/users/user.routes';
+import { createAdminRoutes } from '../features/admin/admin.routes';
+import { createSignupRoutes } from '../features/users/signup-wizard.routes';
+import { createFileQueryRoutes } from '../features/files/files.routes';
 import { DEFAULT_API_PORT } from '../defaultApiPort';
-import { AppSecretsStore } from '../modules/admin/app-secrets.service';
+import { AppSecretsStore } from '../features/admin/app-secrets.service';
 import { resolveAppVersion } from '../internal/updates.service';
 import { asAppLogger, getLogger } from '../platform/logger/logger';
 import { Router, type RouteDefinition } from '../platform/http/router';
@@ -42,13 +44,7 @@ import type { HttpRequest, HttpResponse, NextFunction } from '../platform/http/t
 const LOCAL_SINGLE_USER = process.env.LOCAL_SINGLE_USER !== 'false';
 const AUTH_REQUIRED = LOCAL_SINGLE_USER ? false : process.env.AUTH_REQUIRED !== 'false';
 
-/**
- * The body ceiling.
- *
- * Fastify enforces this itself now. While Express owned body parsing under the
- * bridge, the edge defaulted to 32MB while Express enforced 10 — with one
- * server there is one limit, applied where the bytes arrive.
- */
+/** Largest request body the API accepts. Enforced by Fastify as bytes arrive. */
 export const BODY_LIMIT = process.env.FOX_BODY_LIMIT || '10mb';
 
 /** Every route the API serves, flattened to absolute paths with their guards. */
@@ -103,11 +99,11 @@ export function buildApiRoutes(): RouteDefinition[] {
 }
 
 /**
- * Housekeeping that only makes sense once, at boot.
+ * Remove upload fragments left behind by a previous process.
  *
- * Partial uploads are tracked in memory, so anything in flight when the last
- * process stopped left a .part file no live session owns. Startup is the one
- * moment we know they are orphans; without this they are never collected.
+ * Partial uploads are tracked in memory, so any `.part` file on disk at startup
+ * belongs to no live session and can be deleted. Startup is the only point at
+ * which that is safe to assume.
  */
 export function sweepOnBoot(): void {
   try {

@@ -1,7 +1,7 @@
 import { Router } from '../../platform/http/router';
 import type { HttpRequest, HttpResponse } from '../../platform/http/types';
 import { AuthModule } from '../auth/auth.service';
-import { newToken } from '../../cores/crypto';
+import { newToken } from '../../platform/crypto/crypto';
 import { readCookie, setSessionCookie } from '../auth/auth.routes';
 import { authorizeUrl, configuredProviders, fetchVerifiedEmail, getProvider, redirectUri } from './sso.service';
 import { sendError } from '../../platform/http/respond';

@@ -3,22 +3,22 @@
  * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
  * SPDX-License-Identifier: Apache-2.0
  *
- * The frontend's dependency rules, asserted rather than documented.
+ * The frontend's dependency rules, checked automatically.
  *
- * A layering rule that lives only in a document is a rule that decays: nothing
- * fails when someone breaks it, and by the time anyone notices, the fix is a
- * week of untangling. `packages/sql` and `packages/shared` already guard their
- * boundaries this way, and it is the same idea here.
+ * Layers, and which direction imports may run:
  *
- * The direction that matters is **shared must not depend on a feature**. When
- * it does, the shared module can no longer be reused without dragging a
- * business domain along, which is how a "shared" folder turns back into the
- * dumping ground the split was meant to end. That edge existed while this
- * refactor was in flight — `shared/api/lokeeApi.ts` imported the Lokee graph
- * DTO — and it was invisible until asserted.
+ *   app      the application shell, settings and global stores
+ *   features one folder per business domain
+ *   shared   code reusable by any feature: api clients, ui, lib, utils
  *
- * `app -> feature` is deliberately allowed: the shell composes features, which
- * is its job.
+ *   app     -> features, shared    allowed (the shell composes features)
+ *   features -> shared             allowed
+ *   shared  -> features            not allowed
+ *
+ * `shared` must not depend on a feature, or it can no longer be reused without
+ * pulling a business domain along with it.
+ *
+ * `packages/sql` and `packages/shared` guard their boundaries the same way.
  */
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
@@ -66,7 +66,8 @@ const featureTarget = (spec: string): string | null =>
 
 describe('frontend layering', () => {
   it('covers the whole frontend', () => {
-    // Guards against the walker matching nothing and passing vacuously.
+    // If the file walker matched nothing, every other test here would pass
+    // without checking anything.
     expect(sourceFiles(FE).length).toBeGreaterThan(150);
     expect(imports.length).toBeGreaterThan(300);
   });
@@ -79,20 +80,17 @@ describe('frontend layering', () => {
   });
 
   it('one feature never reaches another feature\'s internals', () => {
-    // Features genuinely compose here: the schema-diff renderers are shared
-    // between Lokee history and object detail by design, and migrations embeds
-    // the SQL editor. Banning that outright would push half the app into
-    // shared/.
+    // Features may compose each other's components: the schema-diff renderers
+    // are used by both Lokee history and object detail, and migrations embeds
+    // the SQL editor.
     //
-    // So the line is drawn at *internals* — lib, api, store, utils — rather
-    // than at the feature edge. A component is a UI surface another feature may
-    // legitimately place; a lib function is an implementation detail, and
-    // depending on one pins the owner's layout in place.
+    // What they may not import is another feature's lib, api, store or utils.
+    // Those are implementation details, and depending on one prevents the
+    // owning feature from being reorganised.
     //
-    // The barrel is not required, and deliberately so: `@/features/utilities`
-    // pulls every modal in that feature, which dragged Monaco into the admin
-    // panel and broke tests that have nothing to do with an editor. A named
-    // component import is the smaller dependency, and smaller is the point.
+    // Importing a named component directly is allowed and usually preferable to
+    // the feature's index barrel, which pulls in every module the feature
+    // exports.
     const INTERNAL = ['lib', 'api', 'store', 'utils'];
     const offenders = imports
       .filter((i) => layerOf(i.from) === 'features')
@@ -117,9 +115,9 @@ describe('frontend layering', () => {
   });
 
   it('nothing imports the backend or the driver runtime', () => {
-    // @foxschema/db is deliberately not aliased for the frontend build, so this
-    // would fail at bundle time — but it fails here first, with a message that
-    // says why instead of a resolver error.
+    // @foxschema/db is not aliased for the frontend build, so importing it also
+    // fails at bundle time. Checking here gives a clearer message than a module
+    // resolution error.
     const banned = imports
       .filter((i) => i.spec === '@foxschema/db' || i.spec.startsWith('@foxschema/server'))
       .map((i) => `${i.from} → ${i.spec}`);
@@ -127,8 +125,8 @@ describe('frontend layering', () => {
   });
 
   it('no import escapes the frontend root', () => {
-    // A `../../backend/...` climb is how the package boundary gets crossed by
-    // accident once folders are nested deeper than people expect.
+    // Relative imports must stay inside the frontend. A path that climbs out of
+    // it crosses a package boundary.
     const escapes = imports
       .filter((i) => i.spec.startsWith('.'))
       .filter((i) => {

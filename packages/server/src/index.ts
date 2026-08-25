@@ -5,18 +5,14 @@
  *
  * The public surface of the server package.
  *
- * Deliberately narrow. This replaced six deep subpaths into `apps/web`
- * (`@foxschema/web/auth`, `/connection-store`, `/migration-history`,
- * `/app-settings`, `/store`, `/serve`) which had to be listed by hand in both
- * `apps/web/package.json` and the root `vitest.config.ts` — two copies that no
- * type checker compares. Moving a file while updating only one of them
- * typechecked clean, passed the unit suite, and failed only in the CLI tests.
- * That happened twice. One entry point cannot drift from itself.
+ * Consumers are the CLI and the web app's serve entry. Everything not exported
+ * here is internal, so the package can be reorganised without breaking them.
  *
- * What belongs here is what a *consumer* needs — the CLI, and the web app's
- * serve entry. Everything else stays internal, so the package can be
- * restructured without breaking anyone. Adding an export is a decision, not a
- * convenience: it becomes a contract the next refactor has to honour.
+ * The package has a single entry point (`.` in package.json) rather than
+ * several deep subpaths, so module resolution is configured in one place.
+ *
+ * Adding an export makes it part of the package's contract, so add
+ * deliberately.
  */
 
 /** Running the whole thing: single-origin UI + API. */
@@ -32,17 +28,17 @@ export { createFastifyApp } from './api/fastify-server';
 export { getStore } from './database/store';
 
 /** Feature services the CLI drives without going through HTTP. */
-export { AuthModule } from './modules/auth/auth.service';
-export { ConnectionStore } from './modules/connections/connection-store.service';
-export type { SavedConnectionSummary } from './modules/connections/connection-store.service';
-export { MigrationHistoryStore } from './modules/migration/migration-history.service';
+export { AuthModule } from './features/auth/auth.service';
+export { ConnectionStore } from './features/connections/connection-store.service';
+export type { SavedConnectionSummary } from './features/connections/connection-store.service';
+export { MigrationHistoryStore } from './features/migration/migration-history.service';
 export type {
   MigrationRunDetail,
   MigrationRunSummary,
   MigrationObjectResult,
   MigrationRunStatus,
-} from './modules/migration/migration-history.service';
-export { AppSettingsStore } from './modules/admin/app-settings.service';
+} from './features/migration/migration-history.service';
+export { AppSettingsStore } from './features/admin/app-settings.service';
 
 /** Logging, so a host process writes into the same stream as the server. */
 export { getLogger } from './platform/logger/logger';

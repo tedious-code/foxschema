@@ -3,19 +3,14 @@
  * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
  * SPDX-License-Identifier: Apache-2.0
  *
- * The request/response shapes route handlers are written against.
+ * The request and response shapes route handlers are written against.
  *
- * These replace the `Request`/`Response`/`NextFunction` types the handlers used
- * to import from Express. They are deliberately a *subset*: only what the 80
- * handlers in this codebase actually call. Anything Express offered that is not
- * here was not being used, and adding to this file is a decision rather than an
- * accident — which is the difference between an interface and a framework.
+ * This is a subset: only the members the handlers in this codebase actually
+ * use. Keeping it small is intentional, so adding a member is a deliberate
+ * choice rather than inheriting a whole framework's surface.
  *
- * Keeping the handler signature stable is the point. The Fastify port had to
- * move routing, matching and the middleware chain without touching the bodies
- * of 80 handlers, because the contract suite can only prove status codes and
- * error shapes — success-path response bodies need real database state, so a
- * hand-rewrite of every handler would have changed code that nothing verifies.
+ * Handlers depend on these types rather than on Fastify's, which keeps the
+ * server framework replaceable without editing every handler.
  */
 
 /** Loosely-typed bag; handlers narrow it themselves, as they did with Express. */

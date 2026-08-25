@@ -5,20 +5,13 @@
  *
  * Which browser origins may call this API with credentials.
  *
- * The previous policy allowed **any** localhost origin regardless of port, plus
- * anything under `.localhost`. For this product that is a real hole rather than
- * a theoretical one: the audience runs several local dev servers at once, and
- * the API holds database credentials and can execute migrations. A page on
- * `http://localhost:1337` — or on `evil.localhost`, which attacker-controlled
- * DNS can point wherever it likes — could read and write everything using the
- * user's session cookie.
+ * The API holds database credentials and can execute migrations, so only named
+ * origins may call it with cookies. The allowlist is explicit rather than
+ * pattern-based: trusting all of `localhost` would let a page served by any
+ * other local process drive this API with the user's session cookie, and
+ * `*.localhost` names can be pointed anywhere by DNS.
  *
- * It also defeated the usual CSRF defence: a required custom header only helps
- * when the attacker's preflight is refused, and a policy that trusts all of
- * localhost approves it.
- *
- * So the allowlist is explicit. Pure and separately testable, because an origin
- * check that is only exercised through a running server is one nobody revisits.
+ * These functions are pure so they can be tested without a running server.
  */
 
 /** Ports the dev setup legitimately serves the UI from. */

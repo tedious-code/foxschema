@@ -10,11 +10,11 @@ import {
   type ConnectionOptions,
   type DbObjectType,
 } from '@foxschema/db';
-import { ConnectionStore } from '../modules/connections/connection-store.service';
-import { MigrationHistoryStore } from '../modules/migration/migration-history.service';
-import { DataMigrateHistoryStore } from '../modules/data-migrate/data-migrate-history.service';
-import { AppSettingsStore } from '../modules/admin/app-settings.service';
-import { LokeeWeaveStore } from '../modules/history/lokee-weave.service';
+import { ConnectionStore } from '../features/connections/connection-store.service';
+import { MigrationHistoryStore } from '../features/migration/migration-history.service';
+import { DataMigrateHistoryStore } from '../features/data-migrate/data-migrate-history.service';
+import { AppSettingsStore } from '../features/admin/app-settings.service';
+import { LokeeWeaveStore } from '../features/history/lokee-weave.service';
 import { rateLimit } from '../platform/guards/rate-limit';
 import { targetLocks } from '../platform/guards/target-lock';
 import { idempotency } from '../platform/guards/idempotency';
@@ -23,23 +23,23 @@ import {
   isRunnableStatement,
   MAX_STATEMENTS,
   MAX_STATEMENT_LENGTH,
-} from '../modules/editor/sql-execute.service';
+} from '../features/sql-editor/sql-execute.service';
 import { getMetadataDbConfig, SUPPORTED_ENGINES, type DbEngine } from '../database/config';
 import { createMetadataStore } from '../database/stores/registry';
-import type { AuthedRequest } from '../modules/auth/auth.routes';
-import { requirePermissions } from '../modules/authorization/rbac.guard';
+import type { AuthedRequest } from '../features/auth/auth.routes';
+import { requirePermissions } from '../features/authorization/rbac.guard';
 import { isLocalSingleUser } from './deployment';
 import { permissionSatisfied, type Permission } from '@foxschema/shared';
 import { type ActorContext } from '../platform/contracts/actor';
 import { makeConnectionResolver, type ConnectionRef } from '../platform/db/resolve';
-import { makeCompareService } from '../modules/compare/compare.service';
-import { createCompareRoutes } from '../modules/compare/compare.routes';
-import { createAccessRoutes } from '../modules/access/access.routes';
-import { createHistoryRoutes } from '../modules/history/history.routes';
-import { createEditorRoutes } from '../modules/editor/editor.routes';
-import { createMigrationRoutes } from '../modules/migration/migration.routes';
-import { createSchemaRoutes } from '../modules/schema/schema.routes';
-import { createDataMigrateRoutes } from '../modules/data-migrate/data-migrate.routes';
+import { makeCompareService } from '../features/compare/compare.service';
+import { createCompareRoutes } from '../features/compare/compare.routes';
+import { createAccessRoutes } from '../features/access/access.routes';
+import { createHistoryRoutes } from '../features/history/history.routes';
+import { createEditorRoutes } from '../features/sql-editor/editor.routes';
+import { createMigrationRoutes } from '../features/migration/migration.routes';
+import { createSchemaRoutes } from '../features/schema/schema.routes';
+import { createDataMigrateRoutes } from '../features/data-migrate/data-migrate.routes';
 import {
   applyNpmGlobalUpdate,
   canSelfUpdate,
@@ -50,7 +50,7 @@ import {
   scheduleUiRelaunch,
 } from '../internal/updates.service';
 import { sendError, sendThrown } from '../platform/http/respond';
-import { keySchemeInfo } from '../cores/crypto';
+import { keySchemeInfo } from '../platform/crypto/crypto';
 
 // ConnectionRef and its resolution moved to platform/db/resolve.ts so
 // services can share them; re-exported here because other modules import it

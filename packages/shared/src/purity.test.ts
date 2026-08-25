@@ -36,12 +36,10 @@ function sourceFiles(dir: string): string[] {
 }
 
 /**
- * Comments out, so prose cannot be mistaken for code.
+ * Remove comments before scanning for imports.
  *
- * Without this the scan reads `from "your session expired"` in a doc comment as
- * an import of a package by that name — which is exactly what happened the
- * first time this test ran. A guard that fails on English is a guard people
- * learn to edit around.
+ * Without this, prose in a doc comment such as `from "another module"` is read
+ * as an import specifier and reported as a dependency.
  */
 function stripComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');

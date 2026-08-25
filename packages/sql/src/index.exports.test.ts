@@ -5,12 +5,10 @@
  *
  * The package index must re-export everything a module index makes public.
  *
- * A module can be fully tested and still be unreachable: the module's own tests
- * import it by path, so a missing line in `src/index.ts` breaks nothing until an
- * app tries to import the symbol. That happened twice while Lokee Weave was
- * being built — first with the reversal exports, then when two merges collided
- * in the module index and left it syntactically invalid. Both were found by
- * something downstream rather than here.
+ * A module can be fully tested and still be unreachable: a module's own tests
+ * import it by path, so a symbol missing from `src/index.ts` breaks nothing
+ * until an application tries to import it. This test compares the two so the
+ * gap is caught in this package rather than downstream.
  *
  * Value-level re-exports are checked by comparison. Types are erased at runtime,
  * so those are checked by the `import type` block below: if a type stops being

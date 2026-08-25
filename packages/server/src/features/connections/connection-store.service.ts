@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { getStore } from '../../database/store';
-import { encryptSecret, decryptSecret } from '../../cores/crypto';
+import { encryptSecret, decryptSecret } from '../../platform/crypto/crypto';
 import { ConnectionOptions, buildConnectionString } from '@foxschema/db';
 
 export interface SavedConnectionInput {

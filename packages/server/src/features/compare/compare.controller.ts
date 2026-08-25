@@ -24,14 +24,12 @@ export function makeCompareController(deps: {
 }): CompareController {
   return {
     /**
-     * Thin today by design. The service already performs its own permission
-     * check, so adding a wrapper that only forwards would be the pass-through
-     * this layer exists to avoid.
+     * Forwards to the service, which performs its own permission check.
      *
-     * It earns its place when the plan's next two steps land: the resource-level
-     * authorization check (docs/API_RESTRUCTURE_PLAN.md §6) and the scope-aware
-     * cache (§4) both attach here, before the service runs, so neither can be
-     * forgotten by an endpoint.
+     * This layer exists as the place where cross-cutting work runs before the
+     * service: resource-level authorization and the scope-aware cache both
+     * attach here, so an endpoint cannot skip them. See
+     * docs/API_RESTRUCTURE_PLAN.md §4 and §6.
      */
     compare(input, actor) {
       return deps.compareService.compare(input, actor);

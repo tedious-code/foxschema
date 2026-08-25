@@ -3,17 +3,15 @@
  * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
  * SPDX-License-Identifier: Apache-2.0
  *
- * Cookie serialisation, asserted because it replaced a library.
+ * Tests for cookie serialisation and streaming responses.
  *
- * `readCookie` already avoided cookie-parser deliberately, so removing Express
- * meant writing the *writing* half too. Session cookies are a security
- * boundary: a dropped `HttpOnly` is readable by any script on the page, and a
- * dropped `SameSite` re-opens the CSRF door the origin allowlist just closed.
- * Neither shows up in a status-code test.
+ * Cookies: session cookies are a security boundary. A missing `HttpOnly` makes
+ * the cookie readable by page scripts, and a missing `SameSite` weakens CSRF
+ * protection, so each flag is asserted. `maxAge` is given in milliseconds and
+ * must be emitted as seconds.
  *
- * The Max-Age unit is the trap. Express takes milliseconds and Set-Cookie takes
- * seconds, so passing the value straight through would have turned a ten-minute
- * SSO state cookie into one lasting nearly seven days.
+ * Streaming: headers set before the first write must still reach the client,
+ * including the security headers added by the server's onRequest hook.
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
@@ -89,10 +87,9 @@ describe('streaming responses', () => {
   }
 
   it('flushes headers set before the first write', async () => {
-    // Writing to reply.raw skips Fastify's header flush. Measured on
-    // /migration/execute: the response arrived with only Transfer-Encoding,
-    // losing Content-Type *and* every security header, while still parsing
-    // fine — a silent hole rather than a visible failure.
+    // Writing directly to the raw socket would skip Fastify's header flush and
+    // drop everything set via reply.header(), including the security headers.
+    // The response body would still parse, so this is checked explicitly.
     const url = await streamingServer((_req, res) => {
       res.setHeader('Content-Type', 'application/x-ndjson');
       res.setHeader('Cache-Control', 'no-cache');

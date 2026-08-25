@@ -3,31 +3,28 @@
  * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
  * SPDX-License-Identifier: Apache-2.0
  *
- * Turn collected route declarations into real Fastify routes.
+ * Registers collected route declarations as Fastify routes.
  *
- * Each declaration becomes one `fastify.route(...)`, with its guards as that
- * route's `preHandler` array. Nothing runs globally: a limiter attached to one
- * upload path costs zero on `/api/health`, which is exactly what the Express
- * mount could not do.
+ * Each declaration becomes one `fastify.route(...)` call, with that route's
+ * guards as its `preHandler` chain. No guard runs globally, so a rate limiter
+ * on an upload path adds nothing to other routes.
  *
- * The response object handed to a handler is an adapter over Fastify's reply,
- * implementing the `HttpResponse` subset the handlers use. Adapting rather than
- * rewriting is a deliberate trade: the HTTP contract suite can prove statuses
- * and error bodies, but success-path payloads need live database state, so
- * rewriting 80 handler bodies would have changed code nothing verifies. The
- * adapter keeps those bodies byte-identical while the framework underneath
- * changes completely.
+ * Handlers receive an adapter over Fastify's reply that implements the
+ * `HttpResponse` interface in `./types`. The adapter is what lets handlers stay
+ * independent of the server framework.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { CookieOptions, HttpRequest, HttpResponse, Middleware } from './types';
 import type { RouteDefinition } from './router';
 
 /**
- * Serialise a Set-Cookie value.
+ * Build a Set-Cookie header value.
  *
- * Hand-rolled to match `readCookie`, which already avoids a cookie-parser
- * dependency on purpose. Session cookies are a security boundary, so the flags
- * are explicit and there is no library between the intent and the header.
+ * Written by hand to match `readCookie`, which also avoids a cookie library.
+ * Session cookies are a security boundary, so every flag is set explicitly.
+ *
+ * Note that `maxAge` is given in milliseconds (as Express accepted) and is
+ * converted to the seconds Set-Cookie requires.
  */
 export function serializeCookie(name: string, value: string, options: CookieOptions = {}): string {
   const parts = [`${name}=${encodeURIComponent(value)}`];
@@ -47,15 +44,12 @@ export function asHttpResponse(reply: FastifyReply): HttpResponse {
   /**
    * Streaming has to take the socket over deliberately.
    *
-   * Writing straight to `reply.raw` skips Fastify's header flush, so everything
-   * set through `reply.header()` is silently dropped — measured on
-   * `/migration/execute`, which came back with only `Transfer-Encoding:
-   * chunked`: no `Content-Type: application/x-ndjson`, no `Cache-Control`, and
-   * **none of the security headers**. The response still parsed, so nothing
-   * failed loudly; the endpoint was just unprotected.
+   * Writing straight to `reply.raw` skips Fastify's header flush, so anything
+   * set through `reply.header()` — the content type, cache control and the
+   * security headers — would never reach the client.
    *
-   * `hijack()` tells Fastify this reply is ours, and `writeHead` flushes the
-   * headers it had already collected before the first chunk goes out.
+   * `hijack()` hands ownership of the reply to this code, and `writeHead`
+   * flushes the headers Fastify has already collected before the first chunk.
    */
   let streaming = false;
   const beginStream = () => {
@@ -156,10 +150,11 @@ function asHttpRequest(request: FastifyRequest): HttpRequest {
 }
 
 /**
- * Run a route's guards, then its handler.
+ * Run a route's guards in order, then its handler.
  *
- * A guard signals "I answered this" by not calling `next()`, which is how the
- * Express versions already worked — so the guard bodies did not change either.
+ * A guard that calls `next()` allows the request to continue. A guard that
+ * responds without calling `next()` ends the request, and the handler is
+ * skipped.
  */
 async function runChain(
   middlewares: Middleware[],

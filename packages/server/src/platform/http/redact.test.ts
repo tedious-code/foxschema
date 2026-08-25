@@ -8,13 +8,14 @@ import { redactCredentials } from './redact';
 
 describe('redactCredentials', () => {
   it('censors the password in a connection URL but keeps the user', () => {
-    // The exact message that leaked, from a live /api/connection/test.
+    // An Oracle driver message that quotes the connection string back.
     const leak =
       'NJS-515: error in Easy Connect connection string: input string not in ' +
       'easy connect format: oracle://u:LEAKME_PW_XYZ@127.0.0.1:9999/nodb';
     const safe = redactCredentials(leak);
     expect(safe).not.toContain('LEAKME_PW_XYZ');
-    // Which account failed is most of the diagnostic value, and is not secret.
+    // The username is kept: it identifies which account failed and is not a
+    // secret.
     expect(safe).toContain('oracle://u:***@127.0.0.1:9999/nodb');
   });
 
@@ -34,8 +35,8 @@ describe('redactCredentials', () => {
   });
 
   it('leaves an ordinary message alone', () => {
-    // A message mangled into uselessness is its own kind of bug, so the rules
-    // are narrow: mentioning the word is not the same as carrying a secret.
+    // The rules are narrow so that ordinary messages stay readable: mentioning
+    // the word "password" is not the same as containing one.
     const msg = 'password authentication failed for user "nope_user"';
     expect(redactCredentials(msg)).toBe(msg);
   });

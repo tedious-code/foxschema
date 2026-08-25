@@ -20,8 +20,8 @@ const POLL_MS = 5000;
  * 409 with no way to see what is actually running or how long it has been
  * going.
  *
- * Silent when nothing is running — an always-present indicator becomes
- * furniture, and furniture does not get read when it matters.
+ * Renders nothing when no work is running, so its presence itself signals that
+ * something is in progress.
  */
 export const ActivityIndicator: React.FC = () => {
   const [tasks, setTasks] = useState<ActivityTask[]>([]);

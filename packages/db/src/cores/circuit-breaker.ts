@@ -8,8 +8,8 @@
  * Without one, a database that is down or hanging costs the same on every
  * request: each caller waits out the full connect timeout, holding a socket and
  * a request slot the whole time. A handful of unreachable targets is enough to
- * saturate the API — this session watched exactly that happen, with requests
- * piling up behind engines that were never going to answer.
+ * saturate the API, with requests queueing behind engines that will not
+ * answer.
  *
  * The breaker turns the second and subsequent failures into an instant, cheap
  * rejection until the target has had time to recover, and then lets exactly one

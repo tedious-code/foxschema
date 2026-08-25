@@ -39,12 +39,10 @@ export interface StartedUiServer {
 export async function startUiServer(opts: StartUiServerOptions = {}): Promise<StartedUiServer> {
   setupDb2ClientEnv();
 
-  // The frontend's location is the caller's business, not the server's.
-  // This used to default to `../../dist`, which resolved to apps/web/dist —
-  // fine while this code lived inside that app, and a dependency pointing the
-  // wrong way now that it does not. Both real callers already know the answer:
-  // the CLI resolves the packaged or workspace dist and passes STATIC_DIR, and
-  // apps/web's serve entry passes its own.
+  // The caller supplies the frontend's location. This package must not assume
+  // where an application keeps its build output, so there is no default: the
+  // CLI resolves the packaged or workspace dist, and apps/web's serve entry
+  // passes its own.
   const staticDir = opts.staticDir || process.env.STATIC_DIR;
   if (!staticDir) {
     throw new Error(
@@ -52,9 +50,9 @@ export async function startUiServer(opts: StartUiServerOptions = {}): Promise<St
     );
   }
 
-  // Static serving and the SPA fallback live in createFastifyApp, because
-  // Fastify permits exactly one not-found handler per instance and setting a
-  // second one throws at boot — which is how this was found.
+  // Static serving and the SPA fallback are configured in createFastifyApp.
+  // Fastify allows only one not-found handler per instance, so it has a single
+  // owner there.
   const app = await createFastifyApp({ staticDir });
 
   sweepOnBoot();
@@ -64,9 +62,8 @@ export async function startUiServer(opts: StartUiServerOptions = {}): Promise<St
   const host = opts.host ?? process.env.LISTEN_HOST ?? '0.0.0.0';
   await app.listen({ port: requested, host });
 
-  // Report the port actually bound, not the one asked for: port 0 means "any
-  // free port", and returning the 0 back is useless to a caller that has to
-  // connect to it.
+  // Report the port that was actually bound. A requested port of 0 means "any
+  // free port", so the caller needs the resolved value to connect.
   const address = app.server.address();
   const port = typeof address === 'object' && address ? address.port : requested;
 

@@ -44,23 +44,23 @@ describe('ibmDbPackageDir', () => {
 
 describe('isCacheKeyForPackage — match a path segment, not a substring', () => {
   it('matches the package itself', () => {
-    expect(isCacheKeyForPackage('/repo/node_modules/pg/lib/index.js', 'pg')).toBe(true);
+    expect(isCacheKeyForPackage('/repo/node_features/pg/lib/index.js', 'pg')).toBe(true);
   });
 
   it('does not match packages whose name merely starts the same', () => {
     // Purging `pg` by substring also evicted pg-pool and pg-protocol,
     // re-instantiating module state unrelated to the install.
-    expect(isCacheKeyForPackage('/repo/node_modules/pg-pool/index.js', 'pg')).toBe(false);
-    expect(isCacheKeyForPackage('/repo/node_modules/pg-protocol/dist/x.js', 'pg')).toBe(false);
+    expect(isCacheKeyForPackage('/repo/node_features/pg-pool/index.js', 'pg')).toBe(false);
+    expect(isCacheKeyForPackage('/repo/node_features/pg-protocol/dist/x.js', 'pg')).toBe(false);
   });
 
   it('does not match a path that merely contains the name', () => {
-    expect(isCacheKeyForPackage('/home/pg/project/node_modules/mssql/x.js', 'pg')).toBe(false);
+    expect(isCacheKeyForPackage('/home/pg/project/node_features/mssql/x.js', 'pg')).toBe(false);
   });
 
   it('matches a nested copy', () => {
     expect(
-      isCacheKeyForPackage('/repo/node_modules/foo/node_modules/pg/lib/x.js', 'pg')
+      isCacheKeyForPackage('/repo/node_features/foo/node_features/pg/lib/x.js', 'pg')
     ).toBe(true);
   });
 

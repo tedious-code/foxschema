@@ -5,10 +5,10 @@
  *
  * A small bounded worker-thread pool for CPU-bound work.
  *
- * Node runs one thread. Any synchronous stretch freezes *everything* — other
- * users' requests, the health endpoint, the shutdown handler. Measured here:
- * parsing a 22MB CSV blocks the loop for 784ms with zero ticks, and a 100MB
- * import would hold it for several seconds.
+ * Node runs one thread, so a long synchronous stretch blocks every other
+ * request, the health endpoint and the shutdown handler. Parsing a 22MB CSV
+ * occupies the event loop for roughly 784ms; a 100MB import would hold it for
+ * several seconds.
  *
  * What belongs in a worker is narrower than it first appears. Database calls
  * are I/O and already yield; moving them here would only add serialisation
@@ -53,7 +53,7 @@ export class TaskHandle<TResult> extends EventEmitter {
       this.#fail = reject;
     });
     // A caller may only want events; an unhandled rejection must not crash the
-    // process just because nobody awaited the promise.
+    // process when the promise has no attached handler.
     this.promise.catch(() => undefined);
   }
 
