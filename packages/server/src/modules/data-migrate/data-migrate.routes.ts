@@ -12,12 +12,7 @@ import type { ConnectionRef } from '../../platform/db/resolve';
 import { rateLimit } from '../../platform/guards/rate-limit';
 import { MAX_STATEMENT_LENGTH } from '../editor/sql-execute.service';
 import type { Permission } from '@foxschema/shared';
-import {
-  CATEGORY_PERMISSION,
-  DATAGRID_ACTION_PERMISSION,
-  isDatagridAction,
-  permissionSatisfied,
-} from '@foxschema/shared';
+import { CATEGORY_PERMISSION, DATAGRID_ACTION_PERMISSION } from '@foxschema/shared';
 import { sqlStatementCategories, statementVerb } from '@foxschema/sql';
 import { isSingleSqlStatement } from '../../api/single-statement';
 import { executeDataMigrateOps, type DataMigrateExecOp } from '../../api/data-migrate-execute';
@@ -25,6 +20,7 @@ import type {
   DataMigrateOpResult,
   DataMigrateRunStatus,
 } from './data-migrate-history.service';
+import { sendError, sendThrown } from '../../platform/http/respond';
 
 export interface DataMigrateRouteDeps {
   resolveRef: (...args: any[]) => Promise<any>;
@@ -46,64 +42,60 @@ export function createDataMigrateRoutes(deps: DataMigrateRouteDeps): Router {
       };
       const authed = req as AuthedRequest;
       if (!Array.isArray(body.ops) || body.ops.length === 0) {
-        res.status(400).json({ error: 'ops[] is required.' });
+        sendError(res, 'invalid_input', 'ops[] is required.');
         return;
       }
       if (body.ops.length > 500) {
-        res.status(400).json({ error: 'At most 500 ops per data migrate.' });
+        sendError(res, 'invalid_input', 'At most 500 ops per data migrate.');
         return;
       }
       const ops: DataMigrateExecOp[] = [];
       const needed = new Set<Permission>(['editor.dml']);
       for (const raw of body.ops) {
         if (!raw || typeof raw !== 'object') {
-          res.status(400).json({ error: 'Each op must be an object.' });
+          sendError(res, 'invalid_input', 'Each op must be an object.');
           return;
         }
         const o = raw as Record<string, unknown>;
         if (o.op !== 'insert' && o.op !== 'update' && o.op !== 'delete') {
-          res.status(400).json({ error: 'op must be insert, update, or delete.' });
+          sendError(res, 'invalid_input', 'op must be insert, update, or delete.');
           return;
         }
         if (typeof o.key !== 'string' || typeof o.sql !== 'string' || !o.sql.trim()) {
-          res.status(400).json({ error: 'Each op needs key and sql.' });
+          sendError(res, 'invalid_input', 'Each op needs key and sql.');
           return;
         }
         if (o.sql.length > MAX_STATEMENT_LENGTH) {
-          res.status(400).json({ error: `Each op.sql must be under ${MAX_STATEMENT_LENGTH} characters.` });
+          sendError(res, 'invalid_input', `Each op.sql must be under ${MAX_STATEMENT_LENGTH} characters.`);
           return;
         }
         if (o.params !== undefined && !Array.isArray(o.params)) {
-          res.status(400).json({ error: 'op.params must be an array when set.' });
+          sendError(res, 'invalid_input', 'op.params must be an array when set.');
           return;
         }
         // Fail-closed like /sql/execute: classify the SQL itself so a client cannot
         // label op=insert while sending DELETE/DDL/GRANT and bypass finer permissions.
         const categories = sqlStatementCategories(o.sql);
         if (categories.length === 0) {
-          res.status(400).json({ error: 'Could not classify op.sql.' });
+          sendError(res, 'invalid_input', 'Could not classify op.sql.');
           return;
         }
         for (const category of categories) {
           const permission = CATEGORY_PERMISSION[category as keyof typeof CATEGORY_PERMISSION];
           if (permission) needed.add(permission);
           if (category !== 'dml') {
-            res.status(400).json({
-              error: `Data migrate op.sql must be DML (got ${category}).`,
-            });
+            sendError(res, 'invalid_input', `Data migrate op.sql must be DML (got ${category}).`);
             return;
           }
         }
         // Same batch-smuggling guard as /sql/execute — see isSingleSqlStatement.
         if (!isSingleSqlStatement(o.sql)) {
-          res.status(400).json({ error: 'Each op.sql must be a single statement.' });
+          sendError(res, 'invalid_input', 'Each op.sql must be a single statement.');
           return;
         }
         const verb = statementVerb(o.sql);
         if (verb !== o.op) {
-          res.status(400).json({
-            error: `op.sql verb (${verb ?? 'unknown'}) must match op (${o.op}).`,
-          });
+          sendError(res, 'invalid_input', `op.sql verb (${verb ?? 'unknown'}) must match op (${o.op}).`);
           return;
         }
         needed.add(DATAGRID_ACTION_PERMISSION[o.op]);
@@ -120,9 +112,7 @@ export function createDataMigrateRoutes(deps: DataMigrateRouteDeps): Router {
       try {
         resolved = await deps.resolveRef(authed.userId, body);
       } catch (error: unknown) {
-        res.status(400).json({
-          error: error instanceof Error ? error.message : 'Invalid connection',
-        });
+        sendError(res, 'invalid_input', error instanceof Error ? error.message : 'Invalid connection');
         return;
       }
 
@@ -139,9 +129,7 @@ export function createDataMigrateRoutes(deps: DataMigrateRouteDeps): Router {
         );
         res.json(out);
       } catch (error: unknown) {
-        res.status(500).json({
-          error: error instanceof Error ? error.message : 'Data migrate failed',
-        });
+        sendThrown(res, error, 'Data migrate failed');
       }
     }
   );
@@ -169,7 +157,7 @@ export function createDataMigrateRoutes(deps: DataMigrateRouteDeps): Router {
         snapshotJson?: string;
       };
       if (!body.dialect || typeof body.script !== 'string') {
-        res.status(400).json({ error: 'dialect and script are required' });
+        sendError(res, 'invalid_input', 'dialect and script are required');
         return;
       }
       const started = await deps.dataMigrateHistory.start((req as AuthedRequest).userId!, {
@@ -207,7 +195,7 @@ export function createDataMigrateRoutes(deps: DataMigrateRouteDeps): Router {
       };
       const status = body.status;
       if (status !== 'SUCCESS' && status !== 'PARTIAL_SUCCESS' && status !== 'FAILED') {
-        res.status(400).json({ error: 'Invalid status' });
+        sendError(res, 'invalid_input', 'Invalid status');
         return;
       }
       const run = await deps.dataMigrateHistory.get(
@@ -215,7 +203,7 @@ export function createDataMigrateRoutes(deps: DataMigrateRouteDeps): Router {
         String(req.params.id)
       );
       if (!run) {
-        res.status(404).json({ error: 'Data migrate run not found' });
+        sendError(res, 'not_found', 'Data migrate run not found');
         return;
       }
       await deps.dataMigrateHistory.finish(String(req.params.id), {
@@ -236,7 +224,7 @@ export function createDataMigrateRoutes(deps: DataMigrateRouteDeps): Router {
         String(req.params.id)
       );
       if (!run) {
-        res.status(404).json({ error: 'Data migrate run not found' });
+        sendError(res, 'not_found', 'Data migrate run not found');
         return;
       }
       res.json({ run });
@@ -251,7 +239,11 @@ export function createDataMigrateRoutes(deps: DataMigrateRouteDeps): Router {
         (req as AuthedRequest).userId!,
         String(req.params.id)
       );
-      res.status(removed ? 200 : 404).json({ ok: removed });
+      if (!removed) {
+        sendError(res, 'not_found', 'Data migration run not found');
+        return;
+      }
+      res.json({ ok: true });
     }
   );
 

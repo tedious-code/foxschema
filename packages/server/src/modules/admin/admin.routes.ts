@@ -12,6 +12,7 @@ import { AuthModule } from '../auth/auth.service';
 import { APP_ROLES, PERMISSION_META, isAppRole } from '@foxschema/shared';
 import type { AuthedRequest } from '../auth/auth.routes';
 import { requirePermissions } from '../authorization/rbac.guard';
+import { sendError } from '../../platform/http/respond';
 
 export function createAdminRoutes(rbac = new RbacModule(), auth = new AuthModule()): Router {
   const router = Router();
@@ -30,12 +31,12 @@ export function createAdminRoutes(rbac = new RbacModule(), auth = new AuthModule
     async (req: AuthedRequest, res: Response) => {
       const role = (req.body as { role?: unknown })?.role;
       if (!isAppRole(role)) {
-        res.status(400).json({ error: `role must be one of: ${APP_ROLES.join(', ')}` });
+        sendError(res, 'invalid_input', `role must be one of: ${APP_ROLES.join(', ')}`);
         return;
       }
       const userId = String(req.params.id ?? '');
       if (!userId) {
-        res.status(400).json({ error: 'User id is required.' });
+        sendError(res, 'invalid_input', 'User id is required.');
         return;
       }
       // Soft check for the common self-demotion path; setUserRole enforces the
@@ -46,7 +47,7 @@ export function createAdminRoutes(rbac = new RbacModule(), auth = new AuthModule
           (u) => u.role === 'admin' && u.active && u.id !== req.userId
         );
         if (otherActiveAdmins.length === 0) {
-          res.status(400).json({ error: 'Cannot demote the last active admin.' });
+          sendError(res, 'invalid_input', 'Cannot demote the last active admin.');
           return;
         }
       }
@@ -55,7 +56,7 @@ export function createAdminRoutes(rbac = new RbacModule(), auth = new AuthModule
         res.json({ ok: true, userId, role });
       } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : 'User not found';
-        res.status(msg.includes('not found') ? 404 : 400).json({ error: msg });
+        sendError(res, msg.includes('not found') ? 'not_found' : 'invalid_input', msg);
       }
     }
   );
@@ -66,16 +67,16 @@ export function createAdminRoutes(rbac = new RbacModule(), auth = new AuthModule
     async (req: AuthedRequest, res: Response) => {
       const userId = String(req.params.id ?? '');
       if (!userId) {
-        res.status(400).json({ error: 'User id is required.' });
+        sendError(res, 'invalid_input', 'User id is required.');
         return;
       }
       const active = (req.body as { active?: unknown })?.active;
       if (typeof active !== 'boolean') {
-        res.status(400).json({ error: 'active must be a boolean.' });
+        sendError(res, 'invalid_input', 'active must be a boolean.');
         return;
       }
       if (req.userId === userId && active === false) {
-        res.status(400).json({ error: 'Cannot deactivate your own account.' });
+        sendError(res, 'invalid_input', 'Cannot deactivate your own account.');
         return;
       }
       try {
@@ -83,7 +84,7 @@ export function createAdminRoutes(rbac = new RbacModule(), auth = new AuthModule
         res.json({ ok: true, userId, active });
       } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : 'Update failed';
-        res.status(msg.includes('not found') ? 404 : 400).json({ error: msg });
+        sendError(res, msg.includes('not found') ? 'not_found' : 'invalid_input', msg);
       }
     }
   );
@@ -94,12 +95,12 @@ export function createAdminRoutes(rbac = new RbacModule(), auth = new AuthModule
     async (req: AuthedRequest, res: Response) => {
       const userId = String(req.params.id ?? '');
       if (!userId) {
-        res.status(400).json({ error: 'User id is required.' });
+        sendError(res, 'invalid_input', 'User id is required.');
         return;
       }
       const password = (req.body as { password?: unknown })?.password;
       if (typeof password !== 'string') {
-        res.status(400).json({ error: 'password is required.' });
+        sendError(res, 'invalid_input', 'password is required.');
         return;
       }
       try {
@@ -107,7 +108,7 @@ export function createAdminRoutes(rbac = new RbacModule(), auth = new AuthModule
         res.json({ ok: true, userId });
       } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : 'Update failed';
-        res.status(msg.includes('not found') ? 404 : 400).json({ error: msg });
+        sendError(res, msg.includes('not found') ? 'not_found' : 'invalid_input', msg);
       }
     }
   );
@@ -129,19 +130,19 @@ export function createAdminRoutes(rbac = new RbacModule(), auth = new AuthModule
     async (req: AuthedRequest, res: Response) => {
       const role = req.params.role;
       if (!isAppRole(role)) {
-        res.status(400).json({ error: `role must be one of: ${APP_ROLES.join(', ')}` });
+        sendError(res, 'invalid_input', `role must be one of: ${APP_ROLES.join(', ')}`);
         return;
       }
       const permissions = (req.body as { permissions?: unknown })?.permissions;
       if (!Array.isArray(permissions)) {
-        res.status(400).json({ error: 'permissions must be an array of permission ids' });
+        sendError(res, 'invalid_input', 'permissions must be an array of permission ids');
         return;
       }
       try {
         const next = await rbac.setRolePermissions(role, permissions);
         res.json({ role, permissions: next });
       } catch (error: unknown) {
-        res.status(400).json({ error: error instanceof Error ? error.message : 'Update failed' });
+        sendError(res, 'invalid_input', error instanceof Error ? error.message : 'Update failed');
       }
     }
   );

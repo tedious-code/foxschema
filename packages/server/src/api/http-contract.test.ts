@@ -25,10 +25,11 @@
  * route ported to a native Fastify handler has to keep answering exactly what
  * the Express one did.
  *
- * The expectations are what the API does *today*, captured deliberately: this
- * is a regression net, not a wish list. Where today's behaviour is wrong, it is
- * recorded in one of the two exception lists below, which are only allowed to
- * shrink.
+ * The expectations are what the API does today, captured deliberately: this is
+ * a regression net, not a wish list. It started with two shrinking allow-lists
+ * for behaviour that was wrong — 6 routes answering 500 to an empty body, and
+ * 50 of 51 error responses with no machine-readable code. Both reached zero, so
+ * both assertions are now unconditional.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import type { Server } from 'node:http';
@@ -75,7 +76,7 @@ const ROUTES: RouteExpectation[] = [
   { method: 'GET', path: '/api/auth/sso/:provider/start', status: 404 },
   { method: 'GET', path: '/api/auth/sso/providers', status: 200 },
   { method: 'POST', path: '/api/compare', status: 400 },
-  { method: 'POST', path: '/api/connection/test', status: 500 },
+  { method: 'POST', path: '/api/connection/test', status: 400 },
   { method: 'GET', path: '/api/connections', status: 200 },
   { method: 'POST', path: '/api/connections', status: 400 },
   { method: 'DELETE', path: '/api/connections/:id', status: 404 },
@@ -88,7 +89,7 @@ const ROUTES: RouteExpectation[] = [
   { method: 'POST', path: '/api/data-migrations/start', status: 400 },
   { method: 'POST', path: '/api/db/test', status: 400 },
   { method: 'GET', path: '/api/driver/check', status: 400 },
-  { method: 'POST', path: '/api/driver/install', status: 500 },
+  { method: 'POST', path: '/api/driver/install', status: 400 },
   { method: 'GET', path: '/api/files/browse', status: 200 },
   { method: 'GET', path: '/api/files/capacity', status: 200 },
   { method: 'POST', path: '/api/files/detect-columns', status: 400 },
@@ -100,7 +101,7 @@ const ROUTES: RouteExpectation[] = [
   { method: 'DELETE', path: '/api/files/sessions/:id', status: 200 },
   { method: 'PUT', path: '/api/files/sessions/:id/chunk', status: 400 },
   { method: 'POST', path: '/api/files/sessions/:id/commit', status: 404 },
-  { method: 'POST', path: '/api/lokee/capture', status: 500 },
+  { method: 'POST', path: '/api/lokee/capture', status: 400 },
   { method: 'GET', path: '/api/lokee/databases', status: 200 },
   { method: 'GET', path: '/api/lokee/databases/:id/compare', status: 400 },
   { method: 'GET', path: '/api/lokee/databases/:id/graph', status: 200 },
@@ -115,12 +116,12 @@ const ROUTES: RouteExpectation[] = [
   { method: 'DELETE', path: '/api/migrations/:id', status: 404 },
   { method: 'GET', path: '/api/migrations/:id', status: 404 },
   { method: 'POST', path: '/api/migrations/delete', status: 200 },
-  { method: 'POST', path: '/api/schema/db-access', status: 500 },
+  { method: 'POST', path: '/api/schema/db-access', status: 400 },
   { method: 'POST', path: '/api/schema/dba-utility', status: 400 },
   { method: 'POST', path: '/api/schema/index-fragmentation', status: 400 },
   { method: 'POST', path: '/api/schema/index-fragmentation-batch', status: 400 },
-  { method: 'POST', path: '/api/schema/list', status: 500 },
-  { method: 'POST', path: '/api/schema/load', status: 500 },
+  { method: 'POST', path: '/api/schema/list', status: 400 },
+  { method: 'POST', path: '/api/schema/load', status: 400 },
   { method: 'POST', path: '/api/signup', status: 400 },
   { method: 'POST', path: '/api/signup/skip', status: 200 },
   { method: 'GET', path: '/api/signup/state', status: 200 },
@@ -131,85 +132,6 @@ const ROUTES: RouteExpectation[] = [
   { method: 'GET', path: '/api/user/preferences', status: 200 },
   { method: 'PUT', path: '/api/user/preferences', status: 200 },
 ];
-
-/**
- * Error responses that do not yet carry a machine-readable `code`.
- *
- * The contract lives in `@foxschema/shared`; adoption is per-module and happens
- * alongside the Fastify port, so each module is visited once instead of three
- * times. **This list may only shrink.** The assertion below fails if a route
- * outside it omits `code`, which stops new routes from being written the old
- * way while the migration is in progress.
- */
-const NO_ERROR_CODE_YET = new Set([
-  'PUT /api/admin/role-permissions/:role',
-  'PUT /api/admin/users/:id/active',
-  'PUT /api/admin/users/:id/password',
-  'PUT /api/admin/users/:id/role',
-  'POST /api/app-secrets',
-  'DELETE /api/app-secrets/:id',
-  'PUT /api/app-secrets/:id',
-  'POST /api/app-secrets/providers',
-  'DELETE /api/app-secrets/providers/:id',
-  'PUT /api/app-secrets/providers/:id',
-  'POST /api/auth/login',
-  'POST /api/auth/register',
-  'GET /api/auth/sso/:provider/start',
-  'POST /api/connection/test',
-  'POST /api/connections',
-  'DELETE /api/connections/:id',
-  'PUT /api/connections/:id',
-  'POST /api/data-migrate/execute',
-  'DELETE /api/data-migrations/:id',
-  'GET /api/data-migrations/:id',
-  'POST /api/data-migrations/:id/finish',
-  'POST /api/data-migrations/start',
-  'POST /api/db/test',
-  'GET /api/driver/check',
-  'POST /api/driver/install',
-  'POST /api/files/detect-columns',
-  'POST /api/files/import',
-  'DELETE /api/files/imports/:id',
-  'POST /api/files/sessions',
-  'PUT /api/files/sessions/:id/chunk',
-  'POST /api/files/sessions/:id/commit',
-  'POST /api/lokee/capture',
-  'GET /api/lokee/databases/:id/compare',
-  'GET /api/lokee/databases/:id/inspect',
-  'POST /api/lokee/databases/:id/revert',
-  'GET /api/lokee/databases/:id/revert/plan',
-  'PATCH /api/lokee/databases/:id/versions/:versionId',
-  'POST /api/migration/execute',
-  'DELETE /api/migrations/:id',
-  'GET /api/migrations/:id',
-  'POST /api/schema/db-access',
-  'POST /api/schema/dba-utility',
-  'POST /api/schema/index-fragmentation',
-  'POST /api/schema/index-fragmentation-batch',
-  'POST /api/schema/list',
-  'POST /api/schema/load',
-  'POST /api/signup',
-  'POST /api/sql/code-cell',
-  'POST /api/sql/execute',
-  'POST /api/updates/apply',
-]);
-
-/**
- * Routes that answer 500 to an empty body.
- *
- * Every one of these is a missing validation layer: a caller's malformed
- * request reported as a server fault. This is the exact bug that produced
- * `compare.schema.ts` — `POST /compare {}` used to surface as
- * `500 Cannot read properties of undefined`. **This list may only shrink.**
- */
-const UNVALIDATED_YET = new Set([
-  'POST /api/connection/test',
-  'POST /api/driver/install',
-  'POST /api/lokee/capture',
-  'POST /api/schema/db-access',
-  'POST /api/schema/list',
-  'POST /api/schema/load',
-]);
 
 const KEY = '0'.repeat(64);
 
@@ -294,22 +216,17 @@ for (const flavour of ['express', 'fastify'] as const) {
         );
 
         if (status >= 400 && status !== 302) {
-          if (UNVALIDATED_YET.has(key)) {
-            expect(status, `${key} is on the unvalidated list but no longer 500s — remove it`).toBe(
-              500
-            );
-          } else {
-            expect(status, `${key} answers 500 to an empty body — add input validation`).not.toBe(
-              500
-            );
-          }
-
-          if (!NO_ERROR_CODE_YET.has(key)) {
-            expect(
-              isApiErrorBody(body),
-              `${key} must answer with the shared error contract { ok, error, code }`
-            ).toBe(true);
-          }
+          // No exceptions to either rule. Both started as allow-lists — 6 routes
+          // answered 500 to an empty body, and 50 of 51 error responses carried
+          // no code — and both lists reached zero, so they are gone. A new route
+          // that regresses either fails here rather than being added to a list.
+          expect(status, `${key} answers 500 to an empty body — add input validation`).not.toBe(
+            500
+          );
+          expect(
+            isApiErrorBody(body),
+            `${key} must answer with the shared error contract { ok, error, code }`
+          ).toBe(true);
         }
       },
       30_000

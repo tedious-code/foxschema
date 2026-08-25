@@ -20,6 +20,7 @@ import type {
   MigrationObjectResult,
   MigrationRunStatus,
 } from './migration-history.service';
+import { sendError } from '../../platform/http/respond';
 
 export interface MigrationRouteDeps {
   resolveRef: (...args: any[]) => Promise<any>;
@@ -43,7 +44,7 @@ export function createMigrationRoutes(deps: MigrationRouteDeps): Router {
     try {
       ({ dialect, option, schema } = await deps.resolveRef((req as AuthedRequest).userId, ref));
     } catch (error: unknown) {
-      res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid connection' });
+      sendError(res, 'invalid_input', error instanceof Error ? error.message : 'Invalid connection');
       return;
     }
 
@@ -55,7 +56,7 @@ export function createMigrationRoutes(deps: MigrationRouteDeps): Router {
       { userId: (req as AuthedRequest).userId!, operation: 'migrate' }
     );
     if (!lock.ok) {
-      res.status(409).json({ error: lock.message, heldBy: lock.heldBy.operation });
+      sendError(res, 'conflict', lock.message, { extra: { heldBy: lock.heldBy.operation } });
       return;
     }
 
@@ -214,7 +215,7 @@ export function createMigrationRoutes(deps: MigrationRouteDeps): Router {
   router.get('/migrations/:id', async (req: Request, res: Response) => {
     const run = await deps.migrationHistory.get((req as AuthedRequest).userId!, String(req.params.id));
     if (!run) {
-      res.status(404).json({ error: 'Migration run not found' });
+      sendError(res, 'not_found', 'Migration run not found');
       return;
     }
     res.json({ run });
@@ -222,7 +223,11 @@ export function createMigrationRoutes(deps: MigrationRouteDeps): Router {
 
   router.delete('/migrations/:id', async (req: Request, res: Response) => {
     const removed = await deps.migrationHistory.remove((req as AuthedRequest).userId!, String(req.params.id));
-    res.status(removed ? 200 : 404).json({ ok: removed });
+    if (!removed) {
+      sendError(res, 'not_found', 'Migration run not found');
+      return;
+    }
+    res.json({ ok: true });
   });
 
   return router;

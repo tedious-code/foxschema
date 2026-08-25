@@ -10,6 +10,7 @@ import { requirePermissions } from '../authorization/rbac.guard';
 import type { AuthedRequest } from '../auth/auth.routes';
 import type { ConnectionRef } from '../../platform/db/resolve';
 import { getProviderSettings, type DbObjectType } from '@foxschema/db';
+import { sendError, sendThrown } from '../../platform/http/respond';
 
 export interface SchemaRouteDeps {
   resolveRef: (...args: any[]) => Promise<any>;
@@ -29,8 +30,7 @@ export function createSchemaRoutes(deps: SchemaRouteDeps): Router {
       const schemas = await provider.listSchemas(option);
       res.json({ schemas });
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Failed to list schemas';
-      res.status(500).json({ error: message });
+      sendThrown(res, error, 'Failed to list schemas');
     }
   });
 
@@ -40,16 +40,13 @@ export function createSchemaRoutes(deps: SchemaRouteDeps): Router {
       const { dialect, option, schema } = await deps.resolveRef((req as AuthedRequest).userId, ref);
       const settings = getProviderSettings(dialect);
       if (settings.schemaRequired && !schema?.trim()) {
-        res.status(400).json({
-          error: `${settings.label} requires a schema. Load schemas for the connection, then pick one before browsing or editing tables.`,
-        });
+        sendError(res, 'invalid_input', `${settings.label} requires a schema. Load schemas for the connection, then pick one before browsing or editing tables.`);
         return;
       }
       const { tables, warnings } = await deps.loadScopedTables(dialect, option, schema, scope);
       res.json(warnings.length ? { tables, warnings } : { tables });
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Failed to load schema';
-      res.status(500).json({ error: message });
+      sendThrown(res, error, 'Failed to load schema');
     }
   });
 

@@ -5,62 +5,31 @@ import {
   MigrationModule,
   SqlGeneratorModule,
   DriverDetector,
-  buildConnectionString,
   normalizeTableSchemas,
-  getProviderSettings,
-  dialectSupportsIndexFragmentation,
-  buildIndexFragmentationCustomTemplate,
-  sqlStatementCategories,
-  statementVerb,
-  type MigrationStep,
   type ConnectionOptions,
   type DbObjectType,
-  type TableSchema,
-  type DbaUtilityKind,
 } from '@foxschema/db';
-import { probeTableFragmentation, mapPool } from '../modules/access/index-fragmentation.service';
-import { probeDbaUtility } from '../modules/access/dba-utilities.service';
-import { probeDbAccess } from '../modules/access/db-access.service';
-
 import { ConnectionStore } from '../modules/connections/connection-store.service';
-import { MigrationHistoryStore, type MigrationObjectResult, type MigrationRunStatus } from '../modules/migration/migration-history.service';
-import {
-  DataMigrateHistoryStore,
-  type DataMigrateOpResult,
-  type DataMigrateRunStatus,
-} from '../modules/data-migrate/data-migrate-history.service';
-import { executeDataMigrateOps, type DataMigrateExecOp } from './data-migrate-execute';
-import { isSingleSqlStatement } from './single-statement';
+import { MigrationHistoryStore } from '../modules/migration/migration-history.service';
+import { DataMigrateHistoryStore } from '../modules/data-migrate/data-migrate-history.service';
 import { AppSettingsStore } from '../modules/admin/app-settings.service';
 import { LokeeWeaveStore } from '../modules/history/lokee-weave.service';
 import { rateLimit } from '../platform/guards/rate-limit';
-import { targetKey, targetLocks } from '../platform/guards/target-lock';
+import { targetLocks } from '../platform/guards/target-lock';
 import { idempotency } from '../platform/guards/idempotency';
 import { browseDirectory, browseErrorMessage, resolveBrowsePath } from './file-browse';
 import {
-  runStatements,
-  clampMaxRows,
   isRunnableStatement,
   MAX_STATEMENTS,
   MAX_STATEMENT_LENGTH,
 } from '../modules/editor/sql-execute.service';
-import { clampOffset } from '../modules/editor/sql-page-wrap.service';
-import {
-  runCodeCellOnServer,
-  validateCodeCellRequest,
-  type CodeCellRequestBody,
-  type CellQueryRunner,
-} from '../modules/editor/code-cell-execute.service';
-import { makeBeamCellQueryRunner, makeCellQueryRunner } from '../modules/editor/code-cell-query.service';
-import { parseBeamEndpoints } from '@foxschema/shared';
 import { getMetadataDbConfig, SUPPORTED_ENGINES, type DbEngine } from '../database/config';
 import { createMetadataStore } from '../database/stores/registry';
-import { keySchemeInfo } from '../cores/crypto';
 import type { AuthedRequest } from '../modules/auth/auth.routes';
-import { denyUnless, requirePermissions } from '../modules/authorization/rbac.guard';
+import { requirePermissions } from '../modules/authorization/rbac.guard';
 import { isLocalSingleUser } from './deployment';
-import { CATEGORY_PERMISSION, DATAGRID_ACTION_PERMISSION, isDatagridAction, permissionSatisfied, type Permission } from '@foxschema/shared';
-import { toHttpError, type ActorContext } from '../platform/contracts/actor';
+import { permissionSatisfied, type Permission } from '@foxschema/shared';
+import { type ActorContext } from '../platform/contracts/actor';
 import { makeConnectionResolver, type ConnectionRef } from '../platform/db/resolve';
 import { makeCompareService } from '../modules/compare/compare.service';
 import { createCompareRoutes } from '../modules/compare/compare.routes';
@@ -79,6 +48,8 @@ import {
   resolveAppVersion,
   scheduleUiRelaunch,
 } from '../internal/updates.service';
+import { sendError, sendThrown } from '../platform/http/respond';
+import { keySchemeInfo } from '../cores/crypto';
 
 // ConnectionRef and its resolution moved to platform/db/resolve.ts so
 // services can share them; re-exported here because other modules import it
@@ -174,13 +145,13 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   // Runs `npm install -g foxschema@latest`, then relaunches the UI server.
   router.post('/updates/apply', async (_req: Request, res: Response) => {
     if (!canSelfUpdate()) {
-      res.status(403).json({
-        ok: false,
-        error:
-          'Automatic update is only available for local CLI installs. ' +
+      sendError(
+        res,
+        'forbidden',
+        'Automatic update is only available for local CLI installs. ' +
           `Run in a terminal: ${MANUAL_UPDATE_COMMAND}`,
-        upgradeCommand: MANUAL_UPDATE_COMMAND,
-      });
+        { extra: { upgradeCommand: MANUAL_UPDATE_COMMAND } }
+      );
       return;
     }
     const result = await applyNpmGlobalUpdate();
@@ -231,19 +202,16 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     // SSRF and internal port-scan primitive, on a route that carries no
     // permission check. Local single-user is the only place it belongs.
     if (!isLocalSingleUser()) {
-      res.status(403).json({
-        ok: false,
-        error: 'Changing the metadata database is not available on this deployment.',
-      });
+      sendError(res, 'forbidden', 'Changing the metadata database is not available on this deployment.');
       return;
     }
     const { engine, url, path } = req.body as { engine?: string; url?: string; path?: string };
     if (!engine || !SUPPORTED_ENGINES.includes(engine as DbEngine)) {
-      res.status(400).json({ ok: false, error: `Unsupported engine. Supported: ${SUPPORTED_ENGINES.join(', ')}.` });
+      sendError(res, 'invalid_input', `Unsupported engine. Supported: ${SUPPORTED_ENGINES.join(', ')}.`);
       return;
     }
     if ((engine === 'postgres' || engine === 'mysql') && !url) {
-      res.status(400).json({ ok: false, error: 'A connection string is required.' });
+      sendError(res, 'invalid_input', 'A connection string is required.');
       return;
     }
     let store;
@@ -269,12 +237,20 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       res.json(driver);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Invalid dialect';
-      res.status(400).json({ error: message });
+      sendError(res, 'invalid_input', message);
     }
   });
 
   router.post('/driver/install', async (req: Request, res: Response) => {
-    const { dialect } = req.body as { dialect: string };
+    const { dialect } = (req.body ?? {}) as { dialect?: unknown };
+    // Without this, a missing dialect reached DriverDetector and came back as a
+    // 500 — the caller's malformed request reported as a server fault.
+    if (typeof dialect !== 'string' || !dialect.trim()) {
+      sendError(res, 'invalid_input', 'A dialect is required to install a driver.', {
+        extra: { success: false },
+      });
+      return;
+    }
 
     try {
       const packageName = DriverDetector.getPackageName(dialect);
@@ -295,41 +271,29 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
         // finished but the driver failed to load", which sends the user off
         // debugging the driver instead of their PATH.
         const detail = (result.stderr || result.stdout).trim().slice(-2000);
-        res.status(500).json({
-          success: false,
-          error:
-            `Could not run npm for ${packageName}${detail ? `: ${detail}` : ''}. ` +
-            `Try it yourself: ${result.manualCommand}. ${driverInstallHints(packageName)}`,
-          stderr: result.stderr,
-          cwd: result.cwd,
+        sendError(res, 'failed',            `Could not run npm for ${packageName}${detail ? `: ${detail}` : ''}. ` +
+            `Try it yourself: ${result.manualCommand}. ${driverInstallHints(packageName)}`, {
+          extra: { success: false, stderr: result.stderr, cwd: result.cwd },
         });
         return;
       }
 
       if (result.code !== 0) {
         const detail = (result.stderr || result.stdout).trim().slice(-2000);
-        res.status(500).json({
-          success: false,
-          error:
-            `npm install ${packageName} failed (exit ${result.code})${detail ? `: ${detail}` : ''}. ` +
-            `Try: ${result.manualCommand}. ${driverInstallHints(packageName)}`,
-          stderr: result.stderr,
-          cwd: result.cwd,
+        sendError(res, 'failed',            `npm install ${packageName} failed (exit ${result.code})${detail ? `: ${detail}` : ''}. ` +
+            `Try: ${result.manualCommand}. ${driverInstallHints(packageName)}`, {
+          extra: { success: false, stderr: result.stderr, cwd: result.cwd },
         });
         return;
       }
 
       if (!result.ok) {
         // npm exited 0 but driver still does not load (scripts skipped / wrong arch).
-        res.status(500).json({
-          success: false,
-          error:
-            `Install finished but ${packageName} still failed to load` +
+        sendError(res, 'failed',            `Install finished but ${packageName} still failed to load` +
             (result.error ? `: ${result.error}` : '') +
             `. Try: ${result.manualCommand}. ${driverInstallHints(packageName)}` +
-            ` Then restart Fox Schema (\`foxschema stop && foxschema\`).`,
-          stderr: result.stderr,
-          cwd: result.cwd,
+            ` Then restart Fox Schema (\`foxschema stop && foxschema\`).`, {
+          extra: { success: false, stderr: result.stderr, cwd: result.cwd },
         });
         return;
       }
@@ -341,8 +305,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
         hint: 'If the driver still shows missing, restart Fox Schema so the process reloads native bindings.',
       });
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Installation failed';
-      res.status(500).json({ success: false, error: message });
+      sendThrown(res, error, 'Installation failed', { extra: { success: false } });
     }
   });
 
@@ -352,8 +315,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       const { success, version } = await connectionModule.testConnection(dialect, option);
       res.json({ success, version, error: success ? undefined : 'Connection test returned false' });
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Connection failed';
-      res.status(500).json({ success: false, error: message });
+      sendThrown(res, error, 'Connection failed', { extra: { success: false } });
     }
   });
 
@@ -457,7 +419,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       } catch (error: unknown) {
         // The path is echoed back resolved, so the message names the directory
         // the server actually tried rather than the raw query string.
-        res.status(400).json({ error: browseErrorMessage(error, resolveBrowsePath(requested)) });
+        sendError(res, 'invalid_input', browseErrorMessage(error, resolveBrowsePath(requested)));
       }
     }
   );

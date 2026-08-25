@@ -8,7 +8,7 @@
  * Extracted verbatim from api/routes.ts; handler bodies are unchanged.
  */
 import { Router, type Request, type Response } from 'express';
-import { requirePermissions, denyUnless } from '../authorization/rbac.guard';
+import { denyUnless } from '../authorization/rbac.guard';
 import { rateLimit } from '../../platform/guards/rate-limit';
 import { idempotency } from '../../platform/guards/idempotency';
 import type { AuthedRequest } from '../auth/auth.routes';
@@ -30,6 +30,7 @@ import type { CodeCellRequestBody } from './code-cell-execute.service';
 import { validateCodeCellRequest } from './code-cell-execute.service';
 import { runStatements, clampMaxRows } from './sql-execute.service';
 import { runCodeCellOnServer } from './code-cell-execute.service';
+import { sendError, sendThrown } from '../../platform/http/respond';
 
 export interface EditorRouteDeps {
   resolveRef: (...args: any[]) => Promise<any>;
@@ -56,17 +57,17 @@ export function createEditorRoutes(deps: EditorRouteDeps): Router {
       datagridAction?: unknown;
     };
     if (!Array.isArray(statements) || statements.length === 0) {
-      res.status(400).json({ error: 'statements[] is required.' });
+      sendError(res, 'invalid_input', 'statements[] is required.');
       return;
     }
     const authed = req as AuthedRequest;
     if (denyUnless(authed, res, 'editor.run')) return;
     if (statements.length > deps.MAX_STATEMENTS) {
-      res.status(400).json({ error: `At most ${deps.MAX_STATEMENTS} statements per request.` });
+      sendError(res, 'invalid_input', `At most ${deps.MAX_STATEMENTS} statements per request.`);
       return;
     }
     if (!statements.every(deps.isRunnableStatement)) {
-      res.status(400).json({ error: `Every statement must be a non-empty string under ${deps.MAX_STATEMENT_LENGTH} characters.` });
+      sendError(res, 'invalid_input', `Every statement must be a non-empty string under ${deps.MAX_STATEMENT_LENGTH} characters.`);
       return;
     }
     // Scan for writes only once the statements are known to be bounded strings.
@@ -90,23 +91,19 @@ export function createEditorRoutes(deps: EditorRouteDeps): Router {
     // datagridAction=insert while sending UPDATE/DELETE (or DDL).
     if (datagridAction !== undefined) {
       if (!isDatagridAction(datagridAction)) {
-        res.status(400).json({ error: 'datagridAction must be insert, update, or delete.' });
+        sendError(res, 'invalid_input', 'datagridAction must be insert, update, or delete.');
         return;
       }
       for (const sql of statements as string[]) {
         // A batch would smuggle a second verb past the per-action permission
         // below — see isSingleSqlStatement.
         if (!isSingleSqlStatement(sql)) {
-          res.status(400).json({
-            error: 'A Data grid write must be a single statement.',
-          });
+          sendError(res, 'invalid_input', 'A Data grid write must be a single statement.');
           return;
         }
         const verb = statementVerb(sql);
         if (verb !== datagridAction) {
-          res.status(400).json({
-            error: `datagridAction (${datagridAction}) must match SQL verb (${verb ?? 'unknown'}).`,
-          });
+          sendError(res, 'invalid_input', `datagridAction (${datagridAction}) must match SQL verb (${verb ?? 'unknown'}).`);
           return;
         }
       }
@@ -117,14 +114,14 @@ export function createEditorRoutes(deps: EditorRouteDeps): Router {
     // client bug — reject rather than silently dropping the values, which would
     // send a statement whose placeholders have nothing to bind to.
     if (params !== undefined && (!Array.isArray(params) || params.some((p) => !Array.isArray(p)))) {
-      res.status(400).json({ error: 'params must be an array of arrays (one per statement).' });
+      sendError(res, 'invalid_input', 'params must be an array of arrays (one per statement).');
       return;
     }
     let resolved;
     try {
       resolved = await deps.resolveRef((req as AuthedRequest).userId, ref);
     } catch (error: unknown) {
-      res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid connection' });
+      sendError(res, 'invalid_input', error instanceof Error ? error.message : 'Invalid connection');
       return;
     }
     try {
@@ -141,8 +138,7 @@ export function createEditorRoutes(deps: EditorRouteDeps): Router {
       );
       res.json({ results });
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Query execution failed';
-      res.status(500).json({ error: message });
+      sendThrown(res, error, 'Query execution failed');
     }
   });
 
@@ -156,12 +152,12 @@ export function createEditorRoutes(deps: EditorRouteDeps): Router {
     if (body.allowWrites === true && denyUnless(authed, res, 'editor.dml', 'editor.ddl')) return;
     const validated = validateCodeCellRequest(body);
     if (!validated.ok) {
-      res.status(400).json({ error: validated.error });
+      sendError(res, 'invalid_input', validated.error);
       return;
     }
     const beamParsed = parseBeamEndpoints(body.beam);
     if (!beamParsed.ok) {
-      res.status(400).json({ error: beamParsed.error });
+      sendError(res, 'invalid_input', beamParsed.error);
       return;
     }
     try {
@@ -214,8 +210,7 @@ export function createEditorRoutes(deps: EditorRouteDeps): Router {
       });
       res.json(result);
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Code cell execution failed';
-      res.status(500).json({ error: message });
+      sendThrown(res, error, 'Code cell execution failed');
     }
   });
 

@@ -40,6 +40,7 @@ import {
   sessionToImportInput,
   uploadLimitBytes,
 } from '../files/file-session.service';
+import { sendError, sendThrown } from '../../platform/http/respond';
 
 const nodeRequire = createRequire(import.meta.url);
 const importLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 60 });
@@ -202,8 +203,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
         const imports = await listFileImportConnections(connectionStore, userId);
         res.json({ imports });
       } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : 'List failed';
-        res.status(500).json({ error: message });
+        sendThrown(res, error, 'List failed');
       }
     }
   );
@@ -242,15 +242,13 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
         useHeader?: unknown;
       };
       if (typeof body.sample !== 'string' || !body.sample.trim()) {
-        res.status(400).json({ error: 'sample must be a non-empty string.' });
+        sendError(res, 'invalid_input', 'sample must be a non-empty string.');
         return;
       }
       // Bound the work: detection only needs a few hundred lines, and the
       // endpoint should not become a way to spend server CPU on a huge paste.
       if (body.sample.length > MAX_DETECT_CHARS) {
-        res.status(400).json({
-          error: `sample must be under ${MAX_DETECT_CHARS} characters — send the first few hundred lines.`,
-        });
+        sendError(res, 'invalid_input', `sample must be under ${MAX_DETECT_CHARS} characters — send the first few hundred lines.`);
         return;
       }
       const skip = Math.max(0, Math.min(1000, Number(body.skipLines) || 0));
@@ -276,9 +274,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
               });
         res.json({ columns, sampledLines: sampleLines.length });
       } catch (error: unknown) {
-        res.status(400).json({
-          error: error instanceof Error ? error.message : 'Detection failed',
-        });
+        sendError(res, 'invalid_input', error instanceof Error ? error.message : 'Detection failed');
       }
     }
   );
@@ -306,7 +302,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
         res.json(result);
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : 'Import failed';
-        res.status(400).json({ ok: false, error: message });
+        sendError(res, 'invalid_input', message);
       }
     }
   );
@@ -322,7 +318,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
         const body = req.body as Record<string, unknown>;
         const format = asFormat(body.format);
         if (!format) {
-          res.status(400).json({ ok: false, error: 'format must be csv, json, or text' });
+          sendError(res, 'invalid_input', 'format must be csv, json, or text');
           return;
         }
         const targetConnectionId = body.targetConnectionId
@@ -354,7 +350,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
         });
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : 'Session create failed';
-        res.status(400).json({ ok: false, error: message });
+        sendError(res, 'invalid_input', message);
       }
     }
   );
@@ -370,7 +366,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
         const id = String(req.params.id || '');
         const body = req.body as { data?: string; encoding?: 'utf8' | 'base64' };
         if (typeof body.data !== 'string' || !body.data) {
-          res.status(400).json({ ok: false, error: 'data is required' });
+          sendError(res, 'invalid_input', 'data is required');
           return;
         }
         const buf =
@@ -381,7 +377,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
         res.json({ ok: true, bytes: session.bytes, maxBytes: MAX_UPLOAD_BYTES });
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : 'Chunk failed';
-        res.status(400).json({ ok: false, error: message });
+        sendError(res, 'invalid_input', message);
       }
     }
   );
@@ -397,7 +393,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
         const id = String(req.params.id || '');
         const session = getUploadSession(userId, id);
         if (!session) {
-          res.status(404).json({ ok: false, error: 'Upload session not found or expired' });
+          sendError(res, 'not_found', 'Upload session not found or expired');
           return;
         }
         // Re-check at commit: session may have been created before a role change.
@@ -422,7 +418,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
         res.json(result);
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : 'Commit failed';
-        res.status(400).json({ ok: false, error: message });
+        sendError(res, 'invalid_input', message);
       }
     }
   );
@@ -448,26 +444,25 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
         const id = String(req.params.id || '');
         const resolved = await connectionStore.resolve(userId, id);
         if (!resolved || resolved.dialect !== 'sqlite') {
-          res.status(404).json({ ok: false, error: 'File import not found' });
+          sendError(res, 'not_found', 'File import not found');
           return;
         }
         const dbPath = resolved.option.connectionString || resolved.option.database;
         const list = await connectionStore.list(userId);
         const meta = list.find((c) => c.id === id);
         if (!isFileQueryConnectionName(meta?.name) && !isFileQueryDbPath(dbPath)) {
-          res.status(400).json({ ok: false, error: 'Not a Query-files import' });
+          sendError(res, 'invalid_input', 'Not a Query-files import');
           return;
         }
         const ok = await connectionStore.remove(userId, id);
         if (!ok) {
-          res.status(404).json({ ok: false, error: 'File import not found' });
+          sendError(res, 'not_found', 'File import not found');
           return;
         }
         const removedFile = dbPath ? removeFileQueryDb(dbPath) : false;
         res.json({ ok: true, removedConnectionIds: [id], removedFiles: removedFile ? 1 : 0 });
       } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : 'Delete failed';
-        res.status(500).json({ ok: false, error: message });
+        sendThrown(res, error, 'Delete failed');
       }
     }
   );
@@ -486,8 +481,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
           removedFiles: cleared.removedFiles,
         });
       } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : 'Clear failed';
-        res.status(500).json({ ok: false, error: message });
+        sendThrown(res, error, 'Clear failed');
       }
     }
   );

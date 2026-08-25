@@ -6,6 +6,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { AuthModule, SESSION_COOKIE, SESSION_MAX_AGE_MS, type AuthUser } from '../auth/auth.service';
 import type { AppRole, Permission } from '@foxschema/shared';
+import { sendError } from '../../platform/http/respond';
 
 export interface AuthedRequest extends Request {
   userId?: string;
@@ -52,7 +53,7 @@ export function createAuthRoutes(auth: AuthModule): Router {
       setSessionCookie(res, token);
       res.json({ user });
     } catch (error: unknown) {
-      res.status(400).json({ error: error instanceof Error ? error.message : 'Registration failed' });
+      sendError(res, 'invalid_input', error instanceof Error ? error.message : 'Registration failed');
     }
   });
 
@@ -63,7 +64,7 @@ export function createAuthRoutes(auth: AuthModule): Router {
       setSessionCookie(res, token);
       res.json({ user });
     } catch (error: unknown) {
-      res.status(401).json({ error: error instanceof Error ? error.message : 'Login failed' });
+      sendError(res, 'unauthenticated', error instanceof Error ? error.message : 'Login failed');
     }
   });
 
@@ -87,7 +88,7 @@ export function createAuthRoutes(auth: AuthModule): Router {
       res.json({ user: local });
       return;
     }
-    res.status(401).json({ error: 'Not authenticated' });
+    sendError(res, 'unauthenticated', 'Not authenticated');
   });
 
   return router;
@@ -99,7 +100,7 @@ export function authGuard(auth: AuthModule) {
     try {
       const user = await auth.getUserByToken(readCookie(req, SESSION_COOKIE));
       if (!user) {
-        res.status(401).json({ error: 'Authentication required' });
+        sendError(res, 'unauthenticated', 'Authentication required');
         return;
       }
       attachAuthUser(user, req);

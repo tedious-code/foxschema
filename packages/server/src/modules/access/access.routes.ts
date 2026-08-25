@@ -23,6 +23,7 @@ import {
   buildIndexFragmentationCustomTemplate,
   dialectSupportsIndexFragmentation,
 } from '@foxschema/db';
+import { sendError, sendThrown } from '../../platform/http/respond';
 
 export interface AccessRouteDeps {
   resolveRef: (
@@ -52,7 +53,7 @@ export function createAccessRoutes(deps: AccessRouteDeps): Router {
     };
     const table = typeof body.table === 'string' ? body.table.trim() : '';
     if (!table) {
-      res.status(400).json({ error: 'table is required.' });
+      sendError(res, 'invalid_input', 'table is required.');
       return;
     }
     const customSql = typeof body.customSql === 'string' ? body.customSql.trim() : '';
@@ -78,7 +79,7 @@ export function createAccessRoutes(deps: AccessRouteDeps): Router {
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : 'Failed to load index fragmentation';
-      res.status(500).json({ error: message });
+      sendError(res, 'failed', message);
     }
   });
 
@@ -98,11 +99,11 @@ export function createAccessRoutes(deps: AccessRouteDeps): Router {
             .filter(Boolean)
         : [];
       if (tables.length === 0) {
-        res.status(400).json({ error: 'tables[] is required.' });
+        sendError(res, 'invalid_input', 'tables[] is required.');
         return;
       }
       if (tables.length > 80) {
-        res.status(400).json({ error: 'At most 80 tables per batch request.' });
+        sendError(res, 'invalid_input', 'At most 80 tables per batch request.');
         return;
       }
       try {
@@ -150,7 +151,7 @@ export function createAccessRoutes(deps: AccessRouteDeps): Router {
       } catch (error: unknown) {
         const message =
           error instanceof Error ? error.message : 'Failed to load index fragmentation batch';
-        res.status(500).json({ error: message });
+        sendError(res, 'failed', message);
       }
     }
   );
@@ -167,7 +168,7 @@ export function createAccessRoutes(deps: AccessRouteDeps): Router {
     const kindRaw = typeof body.kind === 'string' ? body.kind.trim() : '';
     const allowed: DbaUtilityKind[] = ['pool', 'sessions', 'system', 'sizes'];
     if (!allowed.includes(kindRaw as DbaUtilityKind)) {
-      res.status(400).json({ error: 'kind must be one of: pool, sessions, system, sizes.' });
+      sendError(res, 'invalid_input', 'kind must be one of: pool, sessions, system, sizes.');
       return;
     }
     const kind = kindRaw as DbaUtilityKind;
@@ -188,8 +189,7 @@ export function createAccessRoutes(deps: AccessRouteDeps): Router {
       }
       res.json({ ...probed.value, dialect: resolved.dialect, schema });
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Failed to run DBA utility';
-      res.status(500).json({ error: message });
+      sendThrown(res, error, 'Failed to run DBA utility');
     }
   });
 
@@ -215,9 +215,7 @@ export function createAccessRoutes(deps: AccessRouteDeps): Router {
         }
         res.json(probed.value);
       } catch (error: unknown) {
-        const message =
-          error instanceof Error ? error.message : 'Failed to load database users and privileges';
-        res.status(500).json({ error: message });
+        sendThrown(res, error, 'Failed to load database users and privileges');
       }
     }
   );

@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import { createHash } from 'node:crypto';
+import { sendError } from '../../platform/http/respond';
 
 /**
  * Idempotency for the endpoints that change something.
@@ -84,7 +85,7 @@ export function idempotency(options: IdempotencyOptions = {}): RequestHandler {
     // Opt-in: without a key this behaves exactly as before.
     if (!key) return next();
     if (key.length > 200) {
-      res.status(400).json({ ok: false, error: 'Idempotency-Key must be 200 characters or fewer.' });
+      sendError(res, 'invalid_input', 'Idempotency-Key must be 200 characters or fewer.');
       return;
     }
 
@@ -98,11 +99,7 @@ export function idempotency(options: IdempotencyOptions = {}): RequestHandler {
       if (existing.fingerprint !== fingerprint) {
         // Silently replaying the first response here would hide a real client
         // bug and could return someone else's result.
-        res.status(422).json({
-          ok: false,
-          error:
-            'This Idempotency-Key was already used for a different request. Use a new key for a new request.',
-        });
+        sendError(res, 'idempotency_mismatch', 'This Idempotency-Key was already used for a different request. Use a new key for a new request.');
         return;
       }
       if (existing.kind === 'done') {

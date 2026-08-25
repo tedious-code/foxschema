@@ -10,6 +10,7 @@ import { Router, Request, Response } from 'express';
 import { AppSettingsStore } from '../admin/app-settings.service';
 import { SignupModule } from './signup-wizard.service';
 import { rateLimit } from '../../platform/guards/rate-limit';
+import { sendError } from '../../platform/http/respond';
 
 export function createSignupRoutes(
   signupModule = new SignupModule(new AppSettingsStore())
@@ -26,7 +27,7 @@ export function createSignupRoutes(
   router.post('/', signupLimiter, async (req: Request, res: Response) => {
     const { email, source } = req.body as { email?: string; source?: string };
     if (!email) {
-      res.status(400).json({ ok: false, error: 'Email is required.' });
+      sendError(res, 'invalid_input', 'Email is required.');
       return;
     }
     const src = source === 'cli' ? 'cli' : 'web';

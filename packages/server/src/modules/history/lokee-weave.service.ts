@@ -28,7 +28,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
   CompareModule,
-  applyChanges,
   assembleBlueprint,
   migrationFromCompare,
   canonicalizeSchema,
@@ -51,10 +50,8 @@ import {
   type DatabaseIdentityInput,
   type LokeeObjectType,
   type MigrationStep,
-  type ObjectBlueprint,
   type ObjectChange,
   type ObjectChangeKind,
-  type ReversalPlan,
   type SchemaCompareResult,
   type StoredWeaveObject,
   type TableSchema,

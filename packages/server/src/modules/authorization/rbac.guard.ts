@@ -9,6 +9,7 @@ import type { Response, NextFunction } from 'express';
 import { permissionSatisfied } from '@foxschema/shared';
 import type { Permission } from '@foxschema/shared';
 import type { AuthedRequest } from '../auth/auth.routes';
+import { sendError } from '../../platform/http/respond';
 
 /** After a session is resolved, reject when any required permission is missing. */
 export function requirePermissions(...required: Permission[]) {
@@ -25,7 +26,7 @@ export function denyUnless(
   ...required: Permission[]
 ): boolean {
   if (!req.userId) {
-    res.status(401).json({ error: 'Authentication required' });
+    sendError(res, 'unauthenticated', 'Authentication required');
     return true;
   }
   if (req.appRole === 'admin') return false;
@@ -34,7 +35,7 @@ export function denyUnless(
   // covers the finer dml/ddl keys for grants saved before the split.
   const missing = required.filter((p) => !permissionSatisfied(have, p));
   if (missing.length > 0) {
-    res.status(403).json({ error: 'Permission denied', missing });
+    sendError(res, 'forbidden', 'Permission denied', { extra: { missing } });
     return true;
   }
   return false;

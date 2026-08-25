@@ -3,6 +3,7 @@ import { AuthModule } from '../auth/auth.service';
 import { newToken } from '../../cores/crypto';
 import { readCookie, setSessionCookie } from '../auth/auth.routes';
 import { authorizeUrl, configuredProviders, fetchVerifiedEmail, getProvider, redirectUri } from './sso.service';
+import { sendError } from '../../platform/http/respond';
 
 const STATE_COOKIE = 'sso_state';
 const STATE_PATH = '/api/auth/sso';
@@ -21,7 +22,10 @@ export function createSsoRoutes(auth: AuthModule): Router {
   router.get('/:provider/start', (req: Request, res: Response) => {
     const provider = getProvider(String(req.params.provider));
     if (!provider) {
-      res.status(404).send('Unknown or unconfigured SSO provider');
+      // Plain text here would be the one error in the API a client cannot
+      // parse; the SSO flow is reached from a browser redirect, but the
+      // response is still ours to keep consistent.
+      sendError(res, 'not_found', 'Unknown or unconfigured SSO provider');
       return;
     }
     const state = newToken();

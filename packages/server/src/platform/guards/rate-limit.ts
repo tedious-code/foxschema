@@ -4,6 +4,7 @@ import {
   RATE_LIMIT_MESSAGE,
   rateLimitKey,
 } from './rate-limit-core';
+import { sendError } from '../../platform/http/respond';
 
 export interface RateLimitOptions {
   windowMs: number;
@@ -34,7 +35,7 @@ export function rateLimit(options: RateLimitOptions): RequestHandler {
     if (!decision.allowed) {
       res.setHeader('Retry-After', String(decision.retryAfterSec));
       res.setHeader('RateLimit-Reset', String(decision.retryAfterSec));
-      res.status(429).json({ ok: false, error: message });
+      sendError(res, 'rate_limited', message);
       return;
     }
     next();

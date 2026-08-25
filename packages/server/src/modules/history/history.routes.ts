@@ -13,6 +13,7 @@ import type { AuthedRequest } from '../auth/auth.routes';
 import { rateLimit } from '../../platform/guards/rate-limit';
 import type { ConnectionRef } from '../../platform/db/resolve';
 import type { ConnectionOptions, MigrationModule } from '@foxschema/db';
+import { sendError, sendThrown } from '../../platform/http/respond';
 
 export interface HistoryRouteDeps {
   lokee: Record<string, any>;
@@ -40,8 +41,7 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
         );
         res.json(result);
       } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : 'Failed to capture schema';
-        res.status(500).json({ error: message });
+        sendThrown(res, error, 'Failed to capture schema');
       }
     }
   );
@@ -77,7 +77,7 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
     async (req: Request, res: Response) => {
       const toVersionId = String(req.query.toVersionId ?? '').trim();
       if (!toVersionId) {
-        res.status(400).json({ error: 'toVersionId is required' });
+        sendError(res, 'invalid_input', 'toVersionId is required');
         return;
       }
       // Optional selective revert: `?objectKeys=a&objectKeys=b`, or omitted for
@@ -100,7 +100,7 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
         objectKeys
       );
       if (!plan) {
-        res.status(404).json({ error: 'Version not found' });
+        sendError(res, 'not_found', 'Version not found');
         return;
       }
       const { steps: _steps, ...published } = plan;
@@ -121,7 +121,7 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
       };
       const toVersionId = String(body.toVersionId ?? '').trim();
       if (!toVersionId) {
-        res.status(400).json({ error: 'toVersionId is required' });
+        sendError(res, 'invalid_input', 'toVersionId is required');
         return;
       }
       let dialect: string;
@@ -130,7 +130,7 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
       try {
         ({ dialect, option, schema } = await deps.resolveRef((req as AuthedRequest).userId, body));
       } catch (error: unknown) {
-        res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid connection' });
+        sendError(res, 'invalid_input', error instanceof Error ? error.message : 'Invalid connection');
         return;
       }
 
@@ -146,16 +146,11 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
         schema: schema ?? null,
       });
       if (identityMatch === 'not_found') {
-        res.status(404).json({ error: 'Database not found' });
+        sendError(res, 'not_found', 'Database not found');
         return;
       }
       if (identityMatch === 'mismatch') {
-        res.status(409).json({
-          ok: false,
-          error:
-            'The selected connection does not match this schema history. Choose the credential for the same database before reverting.',
-          code: 'connection_mismatch',
-        });
+        sendError(res, 'conflict', 'The selected connection does not match this schema history. Choose the credential for the same database before reverting.');
         return;
       }
 
@@ -178,11 +173,7 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
         preSnapshot = await deps.captureLiveSchema(userId, { dialect, option, schema }, 'manual');
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : 'snapshot failed';
-        res.status(500).json({
-          ok: false,
-          error: `Could not snapshot the schema before reverting: ${message}`,
-          code: 'failed',
-        });
+        sendError(res, 'failed', `Could not snapshot the schema before reverting: ${message}`);
         return;
       }
       if (preSnapshot.changed) {
@@ -209,7 +200,7 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
         objectKeys
       );
       if (!plan) {
-        res.status(404).json({ error: 'Version not found' });
+        sendError(res, 'not_found', 'Version not found');
         return;
       }
       const { steps, ...published } = plan;
@@ -250,7 +241,7 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
         executeError = error instanceof Error ? error.message : 'Revert failed';
       }
       if (failed) {
-        res.status(500).json({ ok: false, error: executeError, ...published });
+        sendError(res, 'failed', executeError, { extra: published });
         return;
       }
 
@@ -267,10 +258,8 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
         res.json({ ok: true, capture, ...published });
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : 'capture failed';
-        res.status(500).json({
-          ok: false,
-          error: `Schema reverted but capture failed: ${message}`,
-          ...published,
+        sendError(res, 'failed', `Schema reverted but capture failed: ${message}`, {
+          extra: published,
         });
       }
     }
@@ -291,7 +280,7 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
         }
       );
       if (!updated) {
-        res.status(404).json({ error: 'Version not found' });
+        sendError(res, 'not_found', 'Version not found');
         return;
       }
       res.json({ version: updated });
@@ -302,7 +291,7 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
     const versionId = String(req.query.versionId ?? '').trim();
     const objectKey = String(req.query.objectKey ?? '').trim();
     if (!versionId || !objectKey) {
-      res.status(400).json({ error: 'versionId and objectKey are required' });
+      sendError(res, 'invalid_input', 'versionId and objectKey are required');
       return;
     }
     const result = await deps.lokee.inspectObject(
@@ -312,7 +301,7 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
       objectKey
     );
     if (!result) {
-      res.status(404).json({ error: 'Object not found' });
+      sendError(res, 'not_found', 'Object not found');
       return;
     }
     res.json(result);
@@ -321,7 +310,7 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
   router.get('/lokee/databases/:id/compare', async (req: Request, res: Response) => {
     const versionId = String(req.query.versionId ?? '').trim();
     if (!versionId) {
-      res.status(400).json({ error: 'versionId is required' });
+      sendError(res, 'invalid_input', 'versionId is required');
       return;
     }
     const against = String(req.query.againstVersionId ?? '').trim();
@@ -332,7 +321,7 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
       against || undefined
     );
     if (!result) {
-      res.status(404).json({ error: 'Version not found' });
+      sendError(res, 'not_found', 'Version not found');
       return;
     }
     res.json(result);

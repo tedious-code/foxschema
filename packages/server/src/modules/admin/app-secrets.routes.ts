@@ -8,6 +8,7 @@ import type { CloudSecretRef } from '../../internal/cloud-secrets';
 import { isCloudSecretSource } from '../../internal/cloud-secrets';
 import { AuthedRequest } from '../auth/auth.routes';
 import { requirePermissions } from '../authorization/rbac.guard';
+import { sendError, sendThrown } from '../../platform/http/respond';
 
 function parseSecretBody(body: unknown): Partial<AppSecretInput> {
   const b = (body ?? {}) as Record<string, unknown>;
@@ -58,11 +59,11 @@ export function createAppSecretsRoutes(
     const name = typeof body.name === 'string' ? body.name : '';
     const providerRaw = typeof body.provider === 'string' ? body.provider : '';
     if (!isCloudSecretSource(providerRaw)) {
-      res.status(400).json({ error: 'provider must be aws, gcp, or azure' });
+      sendError(res, 'invalid_input', 'provider must be aws, gcp, or azure');
       return;
     }
     if (!body.credentials || typeof body.credentials !== 'object') {
-      res.status(400).json({ error: 'credentials object is required' });
+      sendError(res, 'invalid_input', 'credentials object is required');
       return;
     }
     try {
@@ -88,7 +89,7 @@ export function createAppSecretsRoutes(
           body.credentials && typeof body.credentials === 'object' ? body.credentials : undefined,
       });
       if (!updated) {
-        res.status(404).json({ error: 'Cloud credential not found' });
+        sendError(res, 'not_found', 'Cloud credential not found');
         return;
       }
       res.json({ provider: updated });
@@ -101,13 +102,17 @@ export function createAppSecretsRoutes(
 
   router.delete('/providers/:id', requirePermissions('secrets.delete'), async (req: AuthedRequest, res: Response) => {
     const removed = await providers.remove(req.userId!, String(req.params.id));
-    res.status(removed ? 200 : 404).json({ ok: removed });
+    if (!removed) {
+      sendError(res, 'not_found', 'Secret not found');
+      return;
+    }
+    res.json({ ok: true });
   });
 
   router.post('/', requirePermissions('secrets.create'), async (req: AuthedRequest, res: Response) => {
     const input = parseSecretBody(req.body);
     if (!input.name || !input.source) {
-      res.status(400).json({ error: 'name and source are required' });
+      sendError(res, 'invalid_input', 'name and source are required');
       return;
     }
     try {
@@ -134,9 +139,7 @@ export function createAppSecretsRoutes(
       const out = await store.resolve(req.userId!, names);
       res.json(out);
     } catch (error: unknown) {
-      res.status(500).json({
-        error: error instanceof Error ? error.message : 'Failed to resolve secrets',
-      });
+      sendThrown(res, error, 'Failed to resolve secrets');
     }
   });
 
@@ -145,7 +148,7 @@ export function createAppSecretsRoutes(
     try {
       const updated = await store.update(req.userId!, String(req.params.id), input);
       if (!updated) {
-        res.status(404).json({ error: 'Secret not found' });
+        sendError(res, 'not_found', 'Secret not found');
         return;
       }
       res.json({ secret: updated });
@@ -158,7 +161,11 @@ export function createAppSecretsRoutes(
 
   router.delete('/:id', requirePermissions('secrets.delete'), async (req: AuthedRequest, res: Response) => {
     const removed = await store.remove(req.userId!, String(req.params.id));
-    res.status(removed ? 200 : 404).json({ ok: removed });
+    if (!removed) {
+      sendError(res, 'not_found', 'Secret not found');
+      return;
+    }
+    res.json({ ok: true });
   });
 
   return router;
