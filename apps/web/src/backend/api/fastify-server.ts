@@ -79,12 +79,18 @@ export interface FastifyServerOptions {
  * where the bytes arrive.
  */
 function parseByteSize(value: string): number {
-  const m = /^(\d+(?:\.\d+)?)\s*(b|kb|mb|gb)?$/i.exec(value.trim());
-  if (!m) return 10 * 1024 * 1024;
+  const FALLBACK = 10 * 1024 * 1024;
+  // No quantifier inside a quantified group: the nested form was flagged as a
+  // ReDoS risk. This admits '1.2.3', so Number does the real validation — which
+  // it had to anyway, since the old pattern let NaN through as a body limit.
+  const m = /^([\d.]+)\s*(b|kb|mb|gb)?$/i.exec(value.trim());
+  if (!m) return FALLBACK;
+  const amount = Number(m[1]);
+  if (!Number.isFinite(amount) || amount < 0) return FALLBACK;
   const scale = { b: 1, kb: 1024, mb: 1024 ** 2, gb: 1024 ** 3 }[
     (m[2] ?? 'b').toLowerCase() as 'b' | 'kb' | 'mb' | 'gb'
   ];
-  return Math.floor(Number(m[1]) * scale);
+  return Math.floor(amount * scale);
 }
 
 const DEFAULT_BODY_LIMIT = parseByteSize(BODY_LIMIT);
