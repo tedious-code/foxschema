@@ -3,17 +3,15 @@
  * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
  * SPDX-License-Identifier: Apache-2.0
  *
- * One way to answer with an error.
+ * The single way to send an error response.
  *
- * Before this, 143 call sites built their own: `res.status(400).json({ error })`
- * in some places, `{ ok: false, error }` in others, and never a machine-readable
- * code — so a client could see a 400 but not tell a malformed body from a
- * rejected value, and could not tell a lock conflict from any other 409.
+ * Every error the API returns has the same shape: `{ ok, error, code }`, where
+ * `code` is a value from the shared `ErrorCode` vocabulary. Clients branch on
+ * `code`; `error` is the human-readable message.
  *
- * Passing the *code* rather than the status is the point. The status is derived
- * (`ERROR_STATUS`), so the two cannot disagree, and the thing a handler has to
- * decide is the thing it actually knows: what kind of failure this is. Picking
- * a number invites 400 for everything.
+ * Callers pass the code, not the HTTP status. The status is derived from the
+ * code via `ERROR_STATUS`, so the two can never disagree, and the caller only
+ * has to decide what kind of failure occurred.
  */
 import { ERROR_STATUS, type ApiErrorBody, type ErrorCode, type FieldError } from '@foxschema/shared';
 import { toApiError } from '../contracts/actor';

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { getStore } from '../../database/store';
-import { encryptSecret, decryptSecret } from '../../cores/crypto';
+import { encryptSecret, decryptSecret } from '../../platform/crypto/crypto';
 import { rethrowUniqueViolation } from '../../platform/db/db-errors';
 import type {
   AwsProviderCredentials,

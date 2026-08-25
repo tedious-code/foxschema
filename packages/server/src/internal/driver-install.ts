@@ -308,14 +308,14 @@ export function npmInstallPackage(
 /**
  * Does this require-cache key belong to `packageName`?
  *
- * Matches a whole `node_modules/<pkg>/` path segment, never a bare substring:
+ * Matches a whole `node_features/<pkg>/` path segment, never a bare substring:
  * purging `pg` by substring also evicts pg-pool, pg-protocol and anything else
  * whose path merely contains "pg", re-instantiating unrelated module state.
  * Both separators are checked so a Windows cache key is handled too.
  */
 export function isCacheKeyForPackage(key: string, packageName: string): boolean {
   return (
-    key.includes(`/node_modules/${packageName}/`) ||
+    key.includes(`/node_features/${packageName}/`) ||
     key.includes(`\\node_modules\\${packageName}\\`)
   );
 }

@@ -26,7 +26,7 @@
  * There is deliberately no explicit byte-order-mark strip: every line is
  * trimmed, and `String.prototype.trim()` treats U+FEFF as whitespace. An
  * earlier version stripped it separately; removing that code changed no test,
- * which is how it was found to be dead.
+ * with no callers at present.
  */
 
 export interface NdjsonStreamOptions {

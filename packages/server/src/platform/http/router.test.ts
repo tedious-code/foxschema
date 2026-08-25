@@ -3,10 +3,11 @@
  * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
  * SPDX-License-Identifier: Apache-2.0
  *
- * Every route in the API gets its guards from `flatten`, so a mistake here is a
- * mistake everywhere — and the dangerous direction is silent. A guard dropped
- * from one route leaves an endpoint unprotected while every response still
- * looks correct, which no status-code contract test can see.
+ * Tests for route collection and guard inheritance.
+ *
+ * `flatten` decides which guards each route runs, so these cases matter for
+ * every endpoint. A missing guard leaves an endpoint unprotected while its
+ * responses still look correct, so it is checked here directly.
  */
 import { describe, it, expect } from 'vitest';
 import { Router, joinPath } from './router';
@@ -72,9 +73,8 @@ describe('guard inheritance', () => {
   });
 
   it('keeps a sibling mount clean', () => {
-    // The failure this catches is a guard leaking across mounts — harmless
-    // when it over-applies, a hole when it under-applies, and invisible either
-    // way from the outside.
+    // Guards must not leak between mounts: a guarded mount and an open one
+    // registered side by side keep their own chains.
     const guarded = Router();
     guarded.get('/secret', noop);
     const open = Router();
@@ -114,10 +114,10 @@ describe('guard inheritance', () => {
 });
 
 describe('unsupported shapes', () => {
-  it('refuses a guard-only use() instead of applying it retroactively', () => {
-    // The signature already rejects this at compile time, which is the real
-    // guarantee; the throw is for a caller that reaches it dynamically. Asserted
-    // so removing the check cannot pass silently.
+  it('refuses a guard-only use()', () => {
+    // The type signature rejects this at compile time. The runtime check covers
+    // callers that reach it dynamically, and is asserted so it cannot be
+    // removed unnoticed.
     const r = Router();
     const useAsAny = r.use as unknown as (m: Middleware) => void;
     expect(() => useAsAny(guard('stray'))).toThrow(/requires a router/);

@@ -14,8 +14,8 @@
  *     be read at all — it throws before any parsing starts.
  *  2. Parsing costs roughly ten times the file size in heap: the row matrix
  *     holds one JS string per cell, each with its own object header, where the
- *     file held bytes. Measured on CSV at 3.7 / 11.1 / 22.2 MB: 9.6x, 10.9x,
- *     8.4x.
+ *     file held bytes. Observed ratios for CSV at 3.7 / 11.1 / 22.2 MB were
+ *     9.6x, 10.9x and 8.4x.
  *
  * Which one binds depends on the host. A 512 MB container hits (2) at ~25 MB;
  * a 16 GB workstation hits (1) first. Reading the live heap means both get an

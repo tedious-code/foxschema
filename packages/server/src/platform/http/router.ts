@@ -3,24 +3,15 @@
  * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
  * SPDX-License-Identifier: Apache-2.0
  *
- * A router that collects route declarations instead of serving them.
+ * Collects route declarations so they can be registered with Fastify.
  *
- * This replaces `express.Router()`, and it is worth being precise about what it
- * does and does not do: it **records** method, path, guards and handler, and
- * nothing else. It matches no URLs, parses no bodies, and runs no chain. All of
- * that stays with Fastify, which does it natively — `bindRouter` walks what was
- * collected here and registers each route individually.
+ * This records the method, path, guards and handler for each route. It does not
+ * match URLs, parse bodies or run middleware — Fastify does all of that.
+ * `bindRoutes` walks what is collected here and registers each route
+ * individually, so a guard attached to one path costs nothing on any other.
  *
- * That distinction is the whole performance argument for the port. Express runs
- * a middleware chain per request, and mounting it under Fastify ran the *entire*
- * chain for every request — measured at 6.8k req/s against 53k for the same
- * route without it. Collecting declarations and registering them as real Fastify
- * routes means a guard attached to one path costs nothing on any other.
- *
- * Keeping the `router.get(path, ...guards, handler)` shape is deliberate: the
- * 16 route files did not have to be rewritten to move off Express, so the diff
- * that removed a framework did not also rewrite 80 handler bodies that only the
- * database can fully exercise.
+ * The `router.get(path, ...guards, handler)` signature matches what route files
+ * already used, so route declarations read the same as before.
  */
 import type { HttpMethod, Middleware, RouteHandler } from './types';
 
@@ -84,11 +75,9 @@ export class RouteCollector {
     const router = rest.find((r): r is RouteCollector => r instanceof RouteCollector);
     const middlewares = rest.filter((r): r is Middleware => !(r instanceof RouteCollector));
     if (!router) {
-      // Express also accepts `use(guard)` with no router, meaning "guard
-      // everything mounted after this". Nothing in this app uses it, and
-      // supporting it here meant guards that applied retroactively to routes
-      // declared *earlier* — silently unlike Express. Refusing loudly beats
-      // carrying a subtly wrong feature nobody calls.
+      // A guard-only `use(guard)` is not supported. Guards must be attached to
+      // a specific route or to a mounted router, so it is always clear which
+      // routes they cover.
       throw new Error('Router.use requires a router; guard-only use() is not supported.');
     }
     this.mounted.push({ prefix, middlewares, router });

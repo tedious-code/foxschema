@@ -1,10 +1,11 @@
 /**
  * Connection resolution, shared by every feature that touches a database.
  *
- * These two functions used to be closures inside `createApiRoutes`, which is
- * the main reason routes.ts could not be split: any handler that needed them
- * had to live in the same 800-line function. They are the same code, lifted so
- * a service can take them as a dependency.
+ * `resolveRef` turns a connection reference — either a saved connection id or
+ * an inline dialect plus options — into concrete credentials. `loadScopedTables`
+ * reads a schema through the provider for that dialect.
+ *
+ * Both are plain functions so a service can take them as a dependency.
  */
 import {
   buildConnectionString,
@@ -14,7 +15,7 @@ import {
   type DbObjectType,
   type TableSchema,
 } from '@foxschema/db';
-import type { ConnectionStore } from '../../modules/connections/connection-store.service';
+import type { ConnectionStore } from '../../features/connections/connection-store.service';
 import { ServiceError } from '../contracts/actor';
 
 /**

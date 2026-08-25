@@ -77,12 +77,11 @@ const OPERATION_LABEL: Record<TargetOperation, string> = {
 const STALE_AFTER_MS = 30 * 60 * 1000;
 
 /**
- * How long ago something started, in the units a person would use.
+ * Describe an elapsed duration in the units a person would use.
  *
- * This used to round to minutes with a floor of 1, so a lock one second old
- * reported "started 1 minute ago" — misleading in the direction that matters,
- * since someone told a migration has been running a minute is more likely to
- * assume it is stuck and go looking for a way to force past it.
+ * Reports seconds below a minute and minutes above it. The message this feeds
+ * is what a blocked user sees, so an age of a few seconds must not be rounded
+ * up to a minute — that would suggest the other operation is stuck.
  */
 export function describeAge(ms: number): string {
   const seconds = Math.max(0, Math.round(ms / 1000));

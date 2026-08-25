@@ -12,7 +12,7 @@
  */
 import type { HttpRequest } from './types';
 import type { ActorContext } from '../contracts/actor';
-import type { AuthedRequest } from '../../modules/auth/auth.routes';
+import type { AuthedRequest } from '../../features/auth/auth.routes';
 import { permissionSatisfied, type Permission } from '@foxschema/shared';
 
 export function actorOf(req: HttpRequest): ActorContext {

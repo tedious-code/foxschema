@@ -7,9 +7,10 @@
  *
  * Content addressing already stores one row per distinct object, but an object
  * body carries its own name and table, so `id integer not null` in two tables
- * is two rows with near-identical contents. Measured on a real capture: 247
- * column objects, 112 distinct shapes — a 2.2× repeat, and the ratio grows with
- * the schema, because `int not null` is the same declaration everywhere.
+ * is two rows with near-identical contents. A representative capture held 247
+ * column objects across 112 distinct shapes — a 2.2x repeat, and the ratio
+ * grows with the schema, because `int not null` is the same declaration
+ * everywhere.
  *
  * So the body is stored in two parts: the identity fields, which are unique per
  * object, and the shape, which is shared by every object declared the same way.

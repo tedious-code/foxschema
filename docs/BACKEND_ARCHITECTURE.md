@@ -171,7 +171,7 @@ has not been done. Database lines correlate by time, not by `reqId`.
 
 ## 5. Module structure — one folder per business feature
 
-Every backend file lives in a feature module. Nothing sits loose in `modules/`,
+Every backend file lives in a feature folder. Nothing sits loose in `features/`,
 and `api/` holds only the shared HTTP edge.
 
 ```
@@ -181,11 +181,12 @@ backend/
                     contracts/  ActorContext
                     guards/     origin-policy · rate-limit · idempotency
                                 target-lock · security-headers
-                    http/       actor-of
+                    http/       types · router · fastify-bind · respond · redact
                     logger/     pino config + redaction
                     db/         connection resolve · db-errors
+                    crypto/     secret encryption
   internal/       callable in-process, deliberately not exposed as API
-  modules/        the features
+  features/       one folder per business domain
     auth            login, sessions, SSO
     authorization   RBAC: role/permission service + the requirePermissions guard
     users           profile, preferences, onboarding state, first-run wizard
@@ -195,7 +196,7 @@ backend/
     history         schema history (Lokee)
     migration       DDL migration + run history
     data-migrate    data movement + run history
-    editor          SQL editor, code cells, sandboxed execution
+    sql-editor      SQL editor, code cells, sandboxed execution
     access          permissions inspector, DBA utilities, index maintenance
     connections     saved connection store
     files           file upload sessions, file-query
@@ -292,7 +293,7 @@ engines and still missed this.
 | Express app | `backend/api/server.ts` |
 | Fastify edge | `backend/api/fastify-server.ts` |
 | Routes | `backend/api/routes.ts` |
-| Service pattern | `backend/modules/compare/compare.service.ts` |
+| Service pattern | `packages/server/src/features/compare/compare.service.ts` |
 | Module map | section 5 of this doc |
 | Logging | `backend/platform/logger/logger.ts` |
 | Target locks | `backend/platform/guards/target-lock.ts` |

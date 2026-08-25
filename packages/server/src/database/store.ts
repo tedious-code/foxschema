@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { getMetadataDbConfig } from './config';
 import { createMetadataStore } from './stores/registry';
 import { runMigrations } from './schema';
-import { seedDefaultRolePermissions, backfillDatagridRolePermissions } from '../modules/authorization/rbac.service';
+import { seedDefaultRolePermissions, backfillDatagridRolePermissions } from '../features/authorization/rbac.service';
 import type { MetadataStore } from './stores/types';
 
 // Default SQLite location, anchored to this module so it's independent of the
