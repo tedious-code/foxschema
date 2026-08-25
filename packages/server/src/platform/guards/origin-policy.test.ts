@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { allowedOriginSet, isAllowedOrigin } from './origin-policy';
+import { allowedOriginSet, isAllowedOrigin, requestOriginFrom } from './origin-policy';
 
 const dev = { isProduction: false, allowedOrigins: '' };
 const prod = { isProduction: true, allowedOrigins: '', selfOrigin: 'https://fox.example.com' };
@@ -82,13 +82,32 @@ describe('explicit configuration', () => {
     expect(isAllowedOrigin('://///', dev)).toBe(false);
   });
 
-  it('production with no self origin and no allowlist trusts nothing', () => {
+  it('production with no self origin and no allowlist trusts nothing cross-origin', () => {
     // Fail closed: an unconfigured production deploy should refuse
     // cross-origin credentials rather than guess.
     const bare = { isProduction: true, allowedOrigins: '' };
     expect(allowedOriginSet(bare).size).toBe(0);
     expect(isAllowedOrigin('http://localhost:5173', bare)).toBe(false);
-    // …while same-origin requests, which carry no Origin, still work.
+    // …while requests with no Origin (curl, health checks) still work.
     expect(isAllowedOrigin(undefined, bare)).toBe(true);
+  });
+
+  it('allows Origin that matches this request (same-origin fetch in production)', () => {
+    // Docker / foxschema open serve UI+API on one port with NODE_ENV=production.
+    // Browsers still send Origin on same-origin POST; rejecting that 403s login.
+    const bare = {
+      isProduction: true,
+      allowedOrigins: '',
+      requestOrigin: 'http://localhost:3210',
+    };
+    expect(isAllowedOrigin('http://localhost:3210', bare)).toBe(true);
+    expect(isAllowedOrigin('http://127.0.0.1:3210', bare)).toBe(false);
+    expect(isAllowedOrigin('https://attacker.com', bare)).toBe(false);
+  });
+
+  it('requestOriginFrom pairs protocol with Host', () => {
+    expect(requestOriginFrom('https', 'app.example.com')).toBe('https://app.example.com');
+    expect(requestOriginFrom('http', 'localhost:3210')).toBe('http://localhost:3210');
+    expect(requestOriginFrom('http', undefined)).toBeUndefined();
   });
 });

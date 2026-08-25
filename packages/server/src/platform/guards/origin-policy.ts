@@ -31,6 +31,14 @@ export interface OriginPolicyOptions {
   isProduction?: boolean;
   /** The origin this server is reachable on, when it knows it. */
   selfOrigin?: string;
+  /**
+   * This request's own origin (`${protocol}://${host}`). Same-origin browser
+   * `fetch` sends an `Origin` header even when UI and API share a host — Docker
+   * and `foxschema open` both run that way under `NODE_ENV=production`. Matching
+   * Origin to the request host keeps those working without `FOX_ALLOWED_ORIGINS`,
+   * while a cross-site Origin still fails the Host match.
+   */
+  requestOrigin?: string;
 }
 
 function normalize(origin: string): string {
@@ -78,9 +86,10 @@ export function allowedOriginSet(options: OriginPolicyOptions = {}): Set<string>
 /**
  * Decide one origin.
  *
- * A missing `Origin` is allowed: same-origin navigations, curl and the desktop
- * shell send none, and rejecting those breaks the product without stopping an
- * attacker — a browser always sends it on the cross-origin requests that matter.
+ * A missing `Origin` is allowed: curl, health checks and some navigations send
+ * none. Browsers *do* send `Origin` on same-origin `fetch` (especially POST),
+ * so production single-origin deploys must also accept Origin equal to this
+ * request's host — see `requestOrigin`.
  */
 export function isAllowedOrigin(
   origin: string | undefined,
@@ -89,7 +98,12 @@ export function isAllowedOrigin(
   if (!origin) return true;
   const normalized = normalize(origin);
   if (!normalized) return false;
-  return allowedOriginSet(options).has(normalized);
+  if (allowedOriginSet(options).has(normalized)) return true;
+  // Same-origin SPA → API on one port (Docker, CLI open, single-origin serve).
+  if (options.requestOrigin && normalize(options.requestOrigin) === normalized) {
+    return true;
+  }
+  return false;
 }
 
 /** Express/Fastify `cors` origin callback. */
@@ -123,4 +137,11 @@ export function originVerdict(
     // attacker-controlled text into a response body.
     error: 'This origin is not allowed to call the Fox Schema API.',
   };
+}
+
+/** Build `requestOrigin` from the live request (protocol honours trustProxy). */
+export function requestOriginFrom(protocol: string, host: string | undefined): string | undefined {
+  if (!host) return undefined;
+  const proto = protocol === 'https' ? 'https' : 'http';
+  return `${proto}://${host}`;
 }

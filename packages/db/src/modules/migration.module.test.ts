@@ -109,4 +109,35 @@ describe('MigrationModule.execute', () => {
     expect(fakeAdapter.rollbackTransaction).toHaveBeenCalledTimes(1);
     expect(events.find((e) => e.type === 'done')).toMatchObject({ success: false, rolledBack: false });
   });
+
+  it.each(['mysql', 'mariadb', 'tidb', 'oracle'])(
+    'does not claim DDL rollback for %s (DDL auto-commits)',
+    async (dialect) => {
+      // Prior steps may already be committed; rolledBack:true would tell the UI
+      // "target is unchanged" while CREATE/ALTER from earlier steps remain.
+      failOn = 'CREATE TABLE bad';
+      const steps: MigrationStep[] = [
+        {
+          objectName: 'OK',
+          objectType: 'TABLE',
+          action: 'CREATE',
+          statements: ['CREATE TABLE ok (id int);'],
+        },
+        {
+          objectName: 'BAD',
+          objectType: 'TABLE',
+          action: 'CREATE',
+          statements: ['CREATE TABLE bad (id int);'],
+        },
+      ];
+      const events: any[] = [];
+      await new MigrationModule().execute(dialect, {}, 'demo_b', steps, (e) => events.push(e));
+      expect(queries.some((q) => /CREATE TABLE ok/.test(q))).toBe(true);
+      expect(fakeAdapter.rollbackTransaction).toHaveBeenCalledTimes(1);
+      expect(events.find((e) => e.type === 'done')).toMatchObject({
+        success: false,
+        rolledBack: false,
+      });
+    }
+  );
 });
