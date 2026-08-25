@@ -6,7 +6,7 @@
  * Schema browse routes. Extracted verbatim from api/routes.ts.
  */
 import { Router, type Request, type Response } from 'express';
-import { requirePermissions } from '../../api/rbac.middleware';
+import { requirePermissions } from '../authorization/rbac.guard';
 import type { AuthedRequest } from '../auth/auth.routes';
 import type { ConnectionRef } from '../../platform/db/resolve';
 import { getProviderSettings, type DbObjectType } from '@foxschema/db';

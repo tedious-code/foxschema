@@ -3,10 +3,10 @@ import { describe, it, expect, beforeAll, vi } from 'vitest';
 process.env.APP_DB_PATH = ':memory:';
 process.env.APP_ENCRYPTION_KEY = '0'.repeat(64);
 
-import { AuthModule } from './auth/auth.service';
-import { AppSecretsStore } from './app-secrets.module';
-import { getStore } from '../database/store';
-import * as cloudSecrets from '../internal/cloud-secrets';
+import { AuthModule } from '../auth/auth.service';
+import { AppSecretsStore } from './app-secrets.service';
+import { getStore } from '../../database/store';
+import * as cloudSecrets from '../../internal/cloud-secrets';
 
 const auth = new AuthModule();
 const store = new AppSecretsStore();

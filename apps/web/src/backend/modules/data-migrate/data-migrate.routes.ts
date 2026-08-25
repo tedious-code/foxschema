@@ -6,7 +6,7 @@
  * Data migration routes. Extracted verbatim from api/routes.ts.
  */
 import { Router, type Request, type Response } from 'express';
-import { requirePermissions, denyUnless } from '../../api/rbac.middleware';
+import { requirePermissions, denyUnless } from '../authorization/rbac.guard';
 import type { AuthedRequest } from '../auth/auth.routes';
 import type { ConnectionRef } from '../../platform/db/resolve';
 import { rateLimit } from '../../platform/guards/rate-limit';
@@ -24,7 +24,7 @@ import { executeDataMigrateOps, type DataMigrateExecOp } from '../../api/data-mi
 import type {
   DataMigrateOpResult,
   DataMigrateRunStatus,
-} from '../data-migrate-history.module';
+} from './data-migrate-history.service';
 
 export interface DataMigrateRouteDeps {
   resolveRef: (...args: any[]) => Promise<any>;

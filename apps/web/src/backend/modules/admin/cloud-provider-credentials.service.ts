@@ -1,22 +1,22 @@
 import { randomUUID } from 'node:crypto';
-import { getStore } from '../database/store';
-import { encryptSecret, decryptSecret } from '../cores/crypto';
-import { rethrowUniqueViolation } from './db-errors';
+import { getStore } from '../../database/store';
+import { encryptSecret, decryptSecret } from '../../cores/crypto';
+import { rethrowUniqueViolation } from '../../platform/db/db-errors';
 import type {
   AwsProviderCredentials,
   AzureProviderCredentials,
   CloudProviderCredentials,
   CloudSecretSource,
   GcpProviderCredentials,
-} from '../internal/cloud-secrets';
-import { isCloudSecretSource } from '../internal/cloud-secrets';
+} from '../../internal/cloud-secrets';
+import { isCloudSecretSource } from '../../internal/cloud-secrets';
 
 export type {
   AwsProviderCredentials,
   AzureProviderCredentials,
   CloudProviderCredentials,
   GcpProviderCredentials,
-} from '../internal/cloud-secrets';
+} from '../../internal/cloud-secrets';
 
 /** Named cloud credential (like a saved DB connection) — used by Secrets fetch. */
 export type CloudProviderCredentialSummary = {

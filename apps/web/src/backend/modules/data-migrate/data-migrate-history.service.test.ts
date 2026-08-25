@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DATA_MIGRATE_MAX_TEXT_LEN,
   storeableSnapshotJson,
-} from './data-migrate-history.module';
+} from './data-migrate-history.service';
 
 describe('storeableSnapshotJson', () => {
   it('stores intact JSON under the size limit', () => {

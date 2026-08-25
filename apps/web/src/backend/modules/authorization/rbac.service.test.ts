@@ -3,9 +3,9 @@ import { describe, it, expect, beforeAll } from 'vitest';
 // Use an isolated in-memory DB before anything calls getStore()
 process.env.APP_DB_PATH = ':memory:';
 
-import { RbacModule, toAppRole, backfillDatagridRolePermissions } from './rbac.module';
-import { getStore } from '../database/store';
-import { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS } from '../../shared/permissions';
+import { RbacModule, toAppRole, backfillDatagridRolePermissions } from './rbac.service';
+import { getStore } from '../../database/store';
+import { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS } from '../../../shared/permissions';
 
 const rbac = new RbacModule();
 

@@ -8,7 +8,7 @@
  * Extracted verbatim from api/routes.ts; handler bodies are unchanged.
  */
 import { Router, type Request, type Response } from 'express';
-import { requirePermissions, denyUnless } from '../../api/rbac.middleware';
+import { requirePermissions, denyUnless } from '../authorization/rbac.guard';
 import { rateLimit } from '../../platform/guards/rate-limit';
 import { idempotency } from '../../platform/guards/idempotency';
 import type { AuthedRequest } from '../auth/auth.routes';

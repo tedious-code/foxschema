@@ -7,8 +7,8 @@
  * Mounted before authGuard so it still appears when AUTH_REQUIRED=true.
  */
 import { Router, Request, Response } from 'express';
-import { AppSettingsStore } from '../app-settings.module';
-import { SignupModule } from '../signup.module';
+import { AppSettingsStore } from '../admin/app-settings.service';
+import { SignupModule } from './signup-wizard.service';
 import { rateLimit } from '../../platform/guards/rate-limit';
 
 export function createSignupRoutes(

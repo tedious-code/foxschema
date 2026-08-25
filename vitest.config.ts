@@ -8,8 +8,8 @@ const aliases = [
   { find: '@foxschema/db', replacement: pkg('./packages/db/src/index.ts') },
   { find: '@foxschema/web/auth', replacement: pkg('./apps/web/src/backend/modules/auth/auth.service.ts') },
   { find: '@foxschema/web/connection-store', replacement: pkg('./apps/web/src/backend/modules/connections/connection-store.service.ts') },
-  { find: '@foxschema/web/migration-history', replacement: pkg('./apps/web/src/backend/modules/migration-history.module.ts') },
-  { find: '@foxschema/web/app-settings', replacement: pkg('./apps/web/src/backend/modules/app-settings.module.ts') },
+  { find: '@foxschema/web/migration-history', replacement: pkg('./apps/web/src/backend/modules/migration/migration-history.service.ts') },
+  { find: '@foxschema/web/app-settings', replacement: pkg('./apps/web/src/backend/modules/admin/app-settings.service.ts') },
   { find: '@foxschema/web/store', replacement: pkg('./apps/web/src/backend/database/store.ts') },
 ];
 

@@ -6,7 +6,7 @@
 import { randomUUID } from 'node:crypto';
 import { getStore } from '../../database/store';
 import { hashPassword, verifyPassword, newToken } from '../../cores/crypto';
-import { RbacModule, toAppRole } from '../rbac.module';
+import { RbacModule, toAppRole } from '../authorization/rbac.service';
 import type { MetadataStore } from '../../database/stores/types';
 import type { AppRole, Permission } from '../../../shared/permissions';
 

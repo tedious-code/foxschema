@@ -7,8 +7,8 @@
     "./package.json": "./package.json",
     "./auth": "./src/backend/modules/auth/auth.service.ts",
     "./connection-store": "./src/backend/modules/connections/connection-store.service.ts",
-    "./migration-history": "./src/backend/modules/migration-history.module.ts",
-    "./app-settings": "./src/backend/modules/app-settings.module.ts",
+    "./migration-history": "./src/backend/modules/migration/migration-history.service.ts",
+    "./app-settings": "./src/backend/modules/admin/app-settings.service.ts",
     "./store": "./src/backend/database/store.ts",
     "./serve": "./src/backend/startUiServer.ts"
   },

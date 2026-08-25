@@ -1,4 +1,4 @@
-import { getStore } from '../database/store';
+import { getStore } from '../../database/store';
 
 /**
  * Install-wide key/value settings (app_settings table). Holds non-secret config

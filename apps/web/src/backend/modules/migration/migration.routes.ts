@@ -11,7 +11,7 @@
  */
 import { Router, type Request, type Response } from 'express';
 import type { ConnectionOptions, MigrationStep } from '@foxschema/db';
-import { requirePermissions } from '../../api/rbac.middleware';
+import { requirePermissions } from '../authorization/rbac.guard';
 import { idempotency } from '../../platform/guards/idempotency';
 import { targetKey, targetLocks } from '../../platform/guards/target-lock';
 import type { AuthedRequest } from '../auth/auth.routes';
@@ -19,7 +19,7 @@ import type { ConnectionRef } from '../../platform/db/resolve';
 import type {
   MigrationObjectResult,
   MigrationRunStatus,
-} from '../migration-history.module';
+} from './migration-history.service';
 
 export interface MigrationRouteDeps {
   resolveRef: (...args: any[]) => Promise<any>;

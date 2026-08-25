@@ -5,14 +5,14 @@ import { createRequire } from 'node:module';
 import { existsSync } from 'node:fs';
 import { Router, Request, Response } from 'express';
 import type { AuthedRequest } from '../auth/auth.routes';
-import { denyUnless, requirePermissions } from '../../api/rbac.middleware';
-import { capacityMessage, importCapacity } from '../import-capacity';
+import { denyUnless, requirePermissions } from '../authorization/rbac.guard';
+import { capacityMessage, importCapacity } from '../import-process/import-capacity';
 import {
   detectDelimitedColumns,
   detectFixedWidthColumns,
   MAX_DETECT_CHARS,
   MAX_DETECT_LINES,
-} from '../text-columns';
+} from '../import-process/text-columns';
 import { rateLimit } from '../../platform/guards/rate-limit';
 import { ConnectionStore } from '../connections/connection-store.service';
 import {
@@ -27,9 +27,9 @@ import {
   type FileQueryFormat,
   type FileQueryImportInput,
   type TextOffsetColumn,
-} from '../files/file-query.service';
-import { bulkLoadIntoConnection } from '../file-query-bulk.module';
-import { cpuPool } from '../worker-pool';
+} from './file-query.service';
+import { bulkLoadIntoConnection } from './file-query-bulk.service';
+import { cpuPool } from '../import-process/worker-pool';
 import {
   abortUploadSession,
   appendUploadChunk,
@@ -520,7 +520,7 @@ async function parseUpload(
     return parseFileToTable(input, { maxChars });
   }
   return cpuPool.run<{ input: FileQueryImportInput; maxChars: number }, ReturnType<typeof parseFileToTable>>({
-    script: new URL('../parse-file.worker.ts', import.meta.url),
+    script: new URL('../import-process/parse-file.worker.ts', import.meta.url),
     input: { input, maxChars },
     timeoutMs: 120_000,
   }).promise;

@@ -23,15 +23,15 @@ import { probeDbaUtility } from '../modules/access/dba-utilities.service';
 import { probeDbAccess } from '../modules/access/db-access.service';
 
 import { ConnectionStore } from '../modules/connections/connection-store.service';
-import { MigrationHistoryStore, type MigrationObjectResult, type MigrationRunStatus } from '../modules/migration-history.module';
+import { MigrationHistoryStore, type MigrationObjectResult, type MigrationRunStatus } from '../modules/migration/migration-history.service';
 import {
   DataMigrateHistoryStore,
   type DataMigrateOpResult,
   type DataMigrateRunStatus,
-} from '../modules/data-migrate-history.module';
+} from '../modules/data-migrate/data-migrate-history.service';
 import { executeDataMigrateOps, type DataMigrateExecOp } from './data-migrate-execute';
 import { isSingleSqlStatement } from './single-statement';
-import { AppSettingsStore } from '../modules/app-settings.module';
+import { AppSettingsStore } from '../modules/admin/app-settings.service';
 import { LokeeWeaveStore } from '../modules/history/lokee-weave.service';
 import { rateLimit } from '../platform/guards/rate-limit';
 import { targetKey, targetLocks } from '../platform/guards/target-lock';
@@ -57,7 +57,7 @@ import { getMetadataDbConfig, SUPPORTED_ENGINES, type DbEngine } from '../databa
 import { createMetadataStore } from '../database/stores/registry';
 import { keySchemeInfo } from '../cores/crypto';
 import type { AuthedRequest } from '../modules/auth/auth.routes';
-import { denyUnless, requirePermissions } from './rbac.middleware';
+import { denyUnless, requirePermissions } from '../modules/authorization/rbac.guard';
 import { isLocalSingleUser } from './deployment';
 import { CATEGORY_PERMISSION, DATAGRID_ACTION_PERMISSION, isDatagridAction, permissionSatisfied, type Permission } from '../../shared/permissions';
 import { toHttpError, type ActorContext } from '../platform/contracts/actor';
