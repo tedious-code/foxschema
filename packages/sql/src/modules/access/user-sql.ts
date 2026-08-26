@@ -148,10 +148,23 @@ const UNSUPPORTED: UserManagementSupport = {
   reason: 'This engine has no database accounts to manage.',
 };
 
+/**
+ * Account-DDL family for this module.
+ *
+ * `accessFamily` keeps MariaDB distinct for GRANT catalogs (same as the Access
+ * Assistant), but CREATE/ALTER/DROP USER is MySQL syntax on both — treating
+ * MariaDB as its own family here fell through to the Postgres emitter and
+ * produced `CREATE ROLE … WITH LOGIN PASSWORD`, which MariaDB rejects.
+ */
+function accountFamily(dialect: string): string {
+  const family = accessFamily(dialect);
+  return family === 'mariadb' ? 'mysql' : family;
+}
+
 export function userManagementSupport(dialect: string): UserManagementSupport {
   const d = (dialect || '').toLowerCase();
   if (NO_ACCOUNTS.has(d)) return { ...UNSUPPORTED };
-  const family = accessFamily(d);
+  const family = accountFamily(d);
   // Redshift maps to the postgres family for GRANT, but its account DDL differs
   // enough (GROUP rather than ROLE) that it gets its own entry below.
   return { ...(SUPPORT[family] ?? SUPPORT.postgres!) };
@@ -159,7 +172,8 @@ export function userManagementSupport(dialect: string): UserManagementSupport {
 
 /** MySQL identifies an account by user and host together. */
 function mysqlAccount(name: string, host: string | undefined): string {
-  const quote = (v: string) => `'${v.replace(/'/g, "''")}'`;
+  // MySQL-family string literals treat `\` as an escape — double it before quotes.
+  const quote = (v: string) => `'${v.replace(/\\/g, '\\\\').replace(/'/g, "''")}'`;
   return `${quote(name)}@${quote(host?.trim() || '%')}`;
 }
 
@@ -189,7 +203,7 @@ export function buildUserSql(
     return { error: support.reason ?? 'This engine cannot create users in SQL.' };
   }
 
-  const family = accessFamily(dialect);
+  const family = accountFamily(dialect);
   const warnings: PermissionWarning[] = [];
   const statements: GeneratedStatement[] = [];
 
