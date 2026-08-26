@@ -11,6 +11,7 @@ import {
   buildDbAccessPrivilegeQueries,
   dialectSupportsDbAccess,
   normalizeDbPrincipals,
+  principalsFromPrivileges,
   normalizeDbPrivileges,
   type ConnectionOptions,
   type DbAccessSupport,
@@ -100,6 +101,20 @@ export async function probeDbAccess(opts: {
     if (principalsQ.failed.length && !warning) {
       warning = `Used a fallback user catalog after: ${principalsQ.failed[0]}`;
     }
+
+    // Db2 keeps its accounts outside the database, so an instance with no
+    // user-defined roles returns no principals while the privilege list still
+    // names real grantees. Deriving them keeps the panel usable instead of
+    // showing privileges nobody can be selected to explain.
+    let resolved = principals;
+    if (resolved.length === 0 && privileges.length > 0) {
+      resolved = principalsFromPrivileges(privileges);
+      if (resolved.length > 0 && !warning) {
+        warning =
+          'This engine has no user catalog to read, so the principals below are the grantees ' +
+          'named in its privileges.';
+      }
+    }
     return {
       ok: true,
       value: {
@@ -107,7 +122,7 @@ export async function probeDbAccess(opts: {
         schema,
         mode: support.mode,
         support,
-        principals,
+        principals: resolved,
         privileges,
         warning,
       },

@@ -39,6 +39,7 @@ import { useAuthStore } from '@/app/store/authStore';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { SQL_ICON_STROKE } from '@/shared/lib/iconStyle';
+import { dialectLabel } from '@/shared/lib/dialectLabel';
 
 export interface DataMigrateGrid {
   connectionId: string;
@@ -94,6 +95,11 @@ export const DataMigrateBar: React.FC<Props> = ({
   const connections = useSyncStore((s) => s.connections);
   const destConn = connections.find((c) => c.id === dest.connectionId);
   const sourceConn = connections.find((c) => c.id === source.connectionId);
+  // Which engine each grid came from. Worth showing at all times, and worth
+  // calling out when they differ: the destination is what governs the write.
+  const sourceProvider = dialectLabel(source.dialect);
+  const destProvider = dialectLabel(dest.dialect);
+  const crossDialect = source.dialect.toLowerCase() !== dest.dialect.toLowerCase();
   const destSchema = destConn?.schema;
   const tables = schemaCache[dest.connectionId]?.tables;
 
@@ -346,8 +352,12 @@ export const DataMigrateBar: React.FC<Props> = ({
 
     // Include identity writes the source id explicitly, which most engines
     // refuse unless the statement or session is shaped for it. Decide here,
-    // from the dialect and how the column was declared, so the user gets a
-    // sentence instead of Msg 544 / ORA-32795 / SQL0798N mid-run.
+    // from the destination dialect and how the column was declared, so the user
+    // gets a sentence instead of Msg 544 / ORA-32795 / SQL0798N mid-run.
+    //
+    // The destination decides, not the source: every statement runs there, so a
+    // Postgres → SQL Server migrate is governed by SQL Server's rules.
+    let identityInsertTable: string | undefined;
     if (includeIdentity && filtered.ops.some((o) => o.op === 'insert')) {
       const generations = new Set(
         (tables ?? [])
@@ -355,19 +365,44 @@ export const DataMigrateBar: React.FC<Props> = ({
           ?.columns.filter((c) => editability.identityColumns.has(c.name))
           .map((c) => c.identityGeneration) ?? []
       );
-      const blocked = [...(generations.size ? generations : [undefined])]
-        .map((g) => identityInsertFor(dest.dialect, g))
-        .find((s) => s.kind !== 'native' && s.kind !== 'overriding');
+      const supports = [...(generations.size ? generations : [undefined])].map((g) =>
+        identityInsertFor(dest.dialect, g)
+      );
+
+      // Nothing shapes an insert the engine will not take at all.
+      const blocked = supports.find((s) => s.kind === 'unsupported');
       if (blocked) {
         toast({
           tone: 'warning',
           title: 'Include identity is not supported here',
           body:
             blocked.reason ??
-            `${dest.dialect} needs SET IDENTITY_INSERT around the write, which side-by-side migrate does not yet issue. Turn off Include identity to let the destination assign ids.`,
+            `${dest.dialect} cannot take an explicit identity value. Turn off Include identity to let the destination assign ids.`,
           durationMs: 12_000,
         });
         return;
+      }
+
+      // SQL Server and Azure SQL gate it on the session instead. The server
+      // issues SET IDENTITY_INSERT ON before the ops and OFF after, on the same
+      // connection; all it needs from here is the table.
+      if (supports.some((s) => s.kind === 'toggle')) {
+        identityInsertTable = tableName;
+      }
+
+      // Where a sequence backs the column, writing an id explicitly does not
+      // advance it, so the destination will hand out ids that already exist.
+      // The migration itself succeeds, which is what makes it worth saying.
+      if (supports.some((s) => s.resyncSequence)) {
+        toast({
+          tone: 'warning',
+          title: 'Reset the identity sequence after this migrate',
+          body:
+            `${dest.dialect} keeps its sequence where it was when an id is written ` +
+            'explicitly, so the next generated id will collide with a row this ' +
+            'migrate inserted. Advance the sequence past the highest id once it finishes.',
+          durationMs: 14_000,
+        });
       }
     }
 
@@ -511,7 +546,7 @@ export const DataMigrateBar: React.FC<Props> = ({
           sql: p.plan.sql,
           params: p.plan.params,
         })),
-        { useTransaction, continueOnError }
+        { useTransaction, continueOnError, identityInsertTable }
       );
       results = out.results;
       failCount = out.failCount;
@@ -796,9 +831,26 @@ export const DataMigrateBar: React.FC<Props> = ({
           <ArrowRightLeft className="w-4 h-4" strokeWidth={SQL_ICON_STROKE} />
           Data migrate
         </span>
-        <span className="text-slate-400 truncate max-w-[20rem] font-semibold" title={`${source.label} → ${dest.label}`}>
-          {source.label} → {dest.label}
+        <span
+          className="text-slate-400 truncate max-w-[24rem] font-semibold"
+          title={`${source.label} (${sourceProvider}) → ${dest.label} (${destProvider})`}
+          data-testid={`sql-data-migrate-route-${statementIndex}`}
+        >
+          {source.label}{' '}
+          <span className="text-slate-500 font-medium">({sourceProvider})</span> →{' '}
+          {dest.label} <span className="text-slate-500 font-medium">({destProvider})</span>
         </span>
+        {crossDialect ? (
+          <span
+            className="rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide bg-amber-500/15 text-amber-300"
+            title={
+              `Every statement runs on the destination, so ${destProvider} decides what is ` +
+              'allowed — identity handling, type limits and quoting all follow it, not the source.'
+            }
+          >
+            cross-dialect
+          </span>
+        ) : null}
         <span className="text-slate-500 font-semibold text-[11px]">
           {classification.inserts.length} add · {classification.updates.length} edit ·{' '}
           {classification.deletes.length} delete available

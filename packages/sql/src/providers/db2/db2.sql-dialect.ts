@@ -1,4 +1,4 @@
-import type { SqlDialect, ColumnSpec } from '../../modules/sql-dialect.interface.js';
+import type { SqlDialect, ColumnSpec } from '../../modules/dialect/sql-dialect.interface.js';
 import {
   makeDialectTypeFns,
   plain,
@@ -8,7 +8,7 @@ import {
   temporalAs,
   warn,
   withDefaultTemporalFsp,
-} from '../../modules/type-mapping.js';
+} from '../../modules/dialect/type-mapping.js';
 
 const types = makeDialectTypeFns({
   label: 'Db2',

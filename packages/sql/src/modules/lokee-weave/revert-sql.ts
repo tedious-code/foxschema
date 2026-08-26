@@ -12,12 +12,12 @@
  */
 import type { TableSchema } from '../../interfaces/schema.interface.js';
 import type { SchemaCompareResult } from '../../interfaces/diff.types.interface.js';
-import { CompareModule } from '../compare.module.js';
+import { CompareModule } from '../schema-diff/compare.module.js';
 import {
   SqlGeneratorModule,
   type MigrationStep,
   type SchemaMapping,
-} from '../sql-generator.module.js';
+} from '../migrations/sql-generator.module.js';
 
 export interface RevertMigration {
   steps: MigrationStep[];

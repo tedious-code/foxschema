@@ -1,12 +1,16 @@
 import React, { useState } from 'react';
-import { ShieldCheck, SearchCheck, FileBarChart } from 'lucide-react';
+import { ShieldCheck, SearchCheck, FileBarChart, UserCog } from 'lucide-react';
 import { PermissionBuilder } from './PermissionBuilder';
 import { PermissionInspector } from './PermissionInspector';
 import { AccessReport } from './AccessReport';
+import { UserManagement } from './UserManagement';
 
-export type AccessTab = 'builder' | 'inspector' | 'report';
+export type AccessTab = 'users' | 'builder' | 'inspector' | 'report';
 
+// Ordered the way the work runs: make an account, give it access, check what it
+// ended up with, then review everything.
 const TABS: { id: AccessTab; label: string; icon: React.ElementType; ready: boolean }[] = [
+  { id: 'users', label: 'User Management', icon: UserCog, ready: true },
   { id: 'builder', label: 'Permission Builder', icon: ShieldCheck, ready: true },
   { id: 'inspector', label: 'Permission Inspector', icon: SearchCheck, ready: true },
   { id: 'report', label: 'Access Report', icon: FileBarChart, ready: true },
@@ -15,9 +19,10 @@ const TABS: { id: AccessTab; label: string; icon: React.ElementType; ready: bool
 /**
  * Database Access Assistant.
  *
- * Fox Schema builds and explains permission SQL; it is deliberately not an IAM
- * system. It does not create accounts, hold credentials, or apply access
- * changes — the database remains the source of truth.
+ * Fox Schema builds and explains SQL for accounts and permissions; it is
+ * deliberately not an IAM system. It does not create accounts, hold
+ * credentials, or apply access changes — the database remains the source of
+ * truth, and every tab here ends at SQL you copy and run.
  */
 export const AccessView: React.FC = () => {
   const [tab, setTab] = useState<AccessTab>('builder');
@@ -48,6 +53,7 @@ export const AccessView: React.FC = () => {
         ))}
       </div>
 
+      {tab === 'users' && <UserManagement />}
       {tab === 'builder' && <PermissionBuilder />}
       {tab === 'inspector' && <PermissionInspector />}
 

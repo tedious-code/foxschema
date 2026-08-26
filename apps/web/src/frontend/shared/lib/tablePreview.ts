@@ -14,6 +14,7 @@
  */
 
 import { sqlTag as sql, renderSqlQuery } from './sql-splitter';
+import { qualifiedNameParts as tableNameParts } from '@foxschema/sql';
 import type { ForeignKeyInfo, TableSchema } from './types';
 
 export interface PreviewQuery {
@@ -21,35 +22,13 @@ export interface PreviewQuery {
   params: unknown[];
 }
 
-/** Split `schema.table` into identifier parts, honoring quoted segments. */
-export function tableNameParts(qualified: string): string[] {
-  const trimmed = qualified.trim();
-  if (!trimmed) return [];
-  const parts: string[] = [];
-  let current = '';
-  let quoted = false;
-  for (let i = 0; i < trimmed.length; i++) {
-    const ch = trimmed[i]!;
-    if (ch === '"') {
-      // "" inside a quoted identifier is a literal quote.
-      if (quoted && trimmed[i + 1] === '"') {
-        current += '"';
-        i++;
-        continue;
-      }
-      quoted = !quoted;
-      continue;
-    }
-    if (ch === '.' && !quoted) {
-      parts.push(current);
-      current = '';
-      continue;
-    }
-    current += ch;
-  }
-  parts.push(current);
-  return parts.filter((p) => p.length > 0);
-}
+/**
+ * Split `schema.table` into identifier parts, honouring quoted segments.
+ *
+ * One implementation, in @foxschema/sql, so the frontend and the server split a
+ * qualified name the same way.
+ */
+export { tableNameParts };
 
 /** `SELECT * FROM <table>` — the row cap and paging come from the server. */
 export function buildTablePreview(tableName: string, dialect: string): PreviewQuery {

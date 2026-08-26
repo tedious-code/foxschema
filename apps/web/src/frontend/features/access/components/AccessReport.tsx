@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { RefreshCw, AlertTriangle, Users, KeyRound, Search } from 'lucide-react';
+import { RefreshCw, AlertTriangle, Users, KeyRound, Search, UserCog } from 'lucide-react';
 import { fetchDbAccess } from '@/shared/api/schemaApi';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
@@ -128,8 +128,10 @@ export const AccessReport: React.FC = () => {
       {report && (
         <>
           <div className="shrink-0 grid grid-cols-2 md:grid-cols-4 gap-2" data-testid="report-tiles">
-            <Tile icon={Users} label="Principals" value={report.principals.length} />
-            <Tile icon={KeyRound} label="Roles" value={report.roleCount} />
+            {/* Roles and privileges are counted in different units — principals
+                versus grants — so they do not share an icon. */}
+            <Tile icon={Users} label="Users" value={report.principals.length - report.roleCount} />
+            <Tile icon={UserCog} label="Roles" value={report.roleCount} />
             <Tile icon={KeyRound} label="Granted privileges" value={report.grantedPrivilegeCount} />
             <Tile
               icon={AlertTriangle}

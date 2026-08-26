@@ -22,19 +22,19 @@ export type {
 export * from './interfaces/diff.types.interface.js';
 export type { MigrationEvent } from './interfaces/migration.types.js';
 
-export { CompareModule } from './modules/compare.module.js';
-export { SqlGeneratorModule } from './modules/sql-generator.module.js';
-export type { MigrationStep, SchemaMapping } from './modules/sql-generator.module.js';
-export { findDropDependencies } from './modules/dependency-scan.js';
-export type { DropDependency, DropDependencyOptions } from './modules/dependency-scan.js';
-export { parseSqlSubset, subsetValue } from './modules/sql-subset.js';
+export { CompareModule } from './modules/schema-diff/compare.module.js';
+export { SqlGeneratorModule } from './modules/migrations/sql-generator.module.js';
+export type { MigrationStep, SchemaMapping } from './modules/migrations/sql-generator.module.js';
+export { findDropDependencies } from './modules/migrations/dependency-scan.js';
+export type { DropDependency, DropDependencyOptions } from './modules/migrations/dependency-scan.js';
+export { parseSqlSubset, subsetValue } from './modules/sql-editor/sql-subset.js';
 export type {
   SubsetIntent,
   SubsetParse,
   SubsetValue,
   SubsetColumnEq,
-} from './modules/sql-subset.js';
-export { identityInsertSupport, identityInsertFor } from './modules/dialect-identity-insert.js';
+} from './modules/sql-editor/sql-subset.js';
+export { identityInsertSupport, identityInsertFor } from './modules/dialect/identity-insert.js';
 // Lokee Weave — content-addressed schema versioning for Compare Schema.
 export {
   applyChanges,
@@ -110,11 +110,11 @@ export type {
 export type {
   IdentityInsertKind,
   IdentityInsertSupport,
-} from './modules/dialect-identity-insert.js';
-export { dialectSupportsFk } from './modules/dialect-fk-support.js';
-export type { FkFeatureSupport } from './modules/dialect-fk-support.js';
-export { dialectSupportsIndex } from './modules/dialect-index-support.js';
-export type { IndexFeatureSupport } from './modules/dialect-index-support.js';
+} from './modules/dialect/identity-insert.js';
+export { dialectSupportsFk } from './modules/dialect/fk-support.js';
+export type { FkFeatureSupport } from './modules/dialect/fk-support.js';
+export { dialectSupportsIndex } from './modules/dialect/index-support.js';
+export type { IndexFeatureSupport } from './modules/dialect/index-support.js';
 export {
   dialectSupportsIndexFragmentation,
   buildIndexFragmentationQuery,
@@ -129,7 +129,7 @@ export {
   fragmentationSeverity,
   splitSchemaTable,
   isSafeIndexFragmentationCustomSql,
-} from './modules/dialect-index-fragmentation.js';
+} from './modules/utilities/index-fragmentation.js';
 export type {
   IndexFragmentationSupport,
   IndexFragmentationQuery,
@@ -137,7 +137,7 @@ export type {
   IndexFragmentationMode,
   IndexFragmentationSeverity,
   IndexUsageQuery,
-} from './modules/dialect-index-fragmentation.js';
+} from './modules/utilities/index-fragmentation.js';
 export {
   dialectSupportsDbaUtility,
   buildDbaUtilityQuery,
@@ -151,7 +151,7 @@ export {
   filterTableSizeGroups,
   lookupTableSizeGroup,
   lookupIndexSizeRow,
-} from './modules/dialect-dba-utilities.js';
+} from './modules/utilities/dba-utilities.js';
 export type {
   DbaProbeMode,
   DbaUtilityKind,
@@ -162,19 +162,20 @@ export type {
   SystemInfoMetric,
   ObjectSizeRow,
   TableSizeGroup,
-} from './modules/dialect-dba-utilities.js';
+} from './modules/utilities/dba-utilities.js';
 export {
   dialectSupportsDbAccess,
   buildDbAccessPrincipalQueries,
   buildDbAccessPrivilegeQueries,
   normalizeDbPrincipals,
+  principalsFromPrivileges,
   normalizeDbPrivileges,
   privilegesForPrincipal,
   groupDbPrincipals,
   formatDbGrantee,
   buildGrantRevokeSql,
   DB_OBJECT_PRIVILEGES,
-} from './modules/dialect-db-access.js';
+} from './modules/access/db-access.js';
 export type {
   DbAccessProbeMode,
   DbAccessSupport,
@@ -184,12 +185,12 @@ export type {
   DbPrivilegeObjectType,
   DbPrivilege,
   DbAccessGrantArgs,
-} from './modules/dialect-db-access.js';
-export { findMissingFkTargets, findNarrowingTypeChanges, extractReviewNotices, validateMigrationPlan } from './modules/migration-validation.js';
-export type { ValidationIssue, ValidationSeverity, ValidationCode } from './modules/migration-validation.js';
-export { CROSS_DIALECT_READINESS } from './modules/cross-dialect-readiness.js';
-export type { ObjectTypeReadiness, ReadinessLevel } from './modules/cross-dialect-readiness.js';
-export { buildBrowseResult } from './modules/browse.js';
+} from './modules/access/db-access.js';
+export { findMissingFkTargets, findNarrowingTypeChanges, extractReviewNotices, validateMigrationPlan } from './modules/migrations/migration-validation.js';
+export type { ValidationIssue, ValidationSeverity, ValidationCode } from './modules/migrations/migration-validation.js';
+export { CROSS_DIALECT_READINESS } from './modules/dialect/cross-dialect-readiness.js';
+export type { ObjectTypeReadiness, ReadinessLevel } from './modules/dialect/cross-dialect-readiness.js';
+export { buildBrowseResult } from './modules/schema-diff/browse.js';
 export {
   splitSqlStatements,
   checkStatement,
@@ -217,7 +218,7 @@ export {
   isNodeCodeCellKind,
   codeCellNeedsTs,
   nodeCodeCellWireKind,
-} from './modules/sql-splitter.js';
+} from './modules/sql-text/sql-splitter.js';
 export type {
   SplitStatement,
   StatementStatus,
@@ -229,12 +230,12 @@ export type {
   TsCodeCellKind,
   CodeFenceRange,
   MultiTableWriteWarning,
-} from './modules/sql-splitter.js';
+} from './modules/sql-text/sql-splitter.js';
 export {
   parseFoxScript,
   compileFoxScriptPlan,
   foxScriptExecutableTexts,
-} from './modules/foxscript-ast.js';
+} from './modules/sql-editor/foxscript-ast.js';
 export type {
   FoxScriptBlock,
   FoxScriptCodeBlock,
@@ -245,17 +246,17 @@ export type {
   FoxScriptPlanStep,
   FoxScriptRange,
   FoxScriptBlockKind,
-} from './modules/foxscript-ast.js';
+} from './modules/sql-editor/foxscript-ast.js';
 export type {
   CodeCellLast,
   CodeCellVars,
   CodeCellOk,
   CodeCellErr,
   CodeCellResult,
-} from './modules/code-cell-types.js';
-export { isCodeCellLast, isCodeCellVars, CODE_CELL_KIND_LABEL } from './modules/code-cell-types.js';
-export type { SqlDialect, CanonicalType, CanonicalBase, RenderedType } from './modules/sql-dialect.interface.js';
-export { resolveDialect, DIALECT_MAP } from './modules/dialect-registry.js';
+} from './modules/sql-editor/code-cell-types.js';
+export { isCodeCellLast, isCodeCellVars, CODE_CELL_KIND_LABEL } from './modules/sql-editor/code-cell-types.js';
+export type { SqlDialect, CanonicalType, CanonicalBase, RenderedType } from './modules/dialect/sql-dialect.interface.js';
+export { resolveDialect, DIALECT_MAP } from './modules/dialect/registry.js';
 export {
   sqlTag,
   renderSqlQuery,
@@ -264,8 +265,10 @@ export {
   placeholderStyleFor,
   renderPlaceholder,
   quoteSqlIdentifier,
-} from './modules/sql-template.js';
-export type { SqlQuery, SqlTag, RenderedSql, SqlPlaceholderStyle } from './modules/sql-template.js';
+  qualifiedNameParts,
+  quoteQualifiedName,
+} from './modules/sql-text/sql-template.js';
+export type { SqlQuery, SqlTag, RenderedSql, SqlPlaceholderStyle } from './modules/sql-text/sql-template.js';
 export {
   CODE_CELL_ALLOWED_PACKAGES,
   parseCodeCellImports,
@@ -276,12 +279,12 @@ export {
   normalizeCodeCellReturn,
   cloneCodeCellLast,
   runCodeCellBody,
-} from './modules/code-cell-exec.js';
+} from './modules/sql-editor/code-cell-exec.js';
 export type {
   CodeCellAllowedPackage,
   CodeCellImportSpec,
   RunCodeCellBodyArgs,
-} from './modules/code-cell-exec.js';
+} from './modules/sql-editor/code-cell-exec.js';
 
 export { buildConnectionString, withConnectionString, DEFAULT_PORTS } from './cores/connection-string.js';
 export { PROVIDER_SETTINGS, getProviderSettings } from './providers/provider-settings.js';
@@ -300,7 +303,7 @@ export {
 } from './cores/schema-to-tables.js';
 export type { FkRow } from './cores/schema-to-tables.js';
 
-export { autoAliasSelectColumns, type AliasedSelect } from './modules/select-alias.js';
+export { autoAliasSelectColumns, type AliasedSelect } from './modules/sql-editor/select-alias.js';
 export {
   ACCESS_PERMISSIONS,
   ACCESS_PRESETS,
@@ -322,7 +325,18 @@ export {
   type PermissionDescriptor,
   type PermissionRequest,
   type PermissionRisk,
-} from './modules/access-intent.js';
+} from './modules/access/intent.js';
+export {
+  PASSWORD_PLACEHOLDER,
+  buildUserSql,
+  userManagementSupport,
+  type GeneratedUserSql,
+  type PrincipalType,
+  type UserAction,
+  type UserAlteration,
+  type UserManagementSupport,
+  type UserRequest,
+} from './modules/access/user-sql.js';
 export {
   buildAccessSql,
   invertAccessRequest,
@@ -330,7 +344,7 @@ export {
   type GeneratedPermissionSql,
   type GeneratedStatement,
   type PermissionWarning,
-} from './modules/dialect-access-sql.js';
+} from './modules/access/access-sql.js';
 export {
   permissionsForPrivilege,
   resolveEffectiveAccess,
@@ -345,4 +359,4 @@ export {
   type AccessFinding,
   type AccessReport,
   type PrincipalAccessRow,
-} from './modules/access-effective.js';
+} from './modules/access/effective.js';

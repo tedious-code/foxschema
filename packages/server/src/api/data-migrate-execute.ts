@@ -40,6 +40,27 @@ export type DataMigrateExecEvent =
       error?: string;
     };
 
+/**
+ * Statements that put the connection into a mode the ops need, and take it back
+ * out again.
+ *
+ * SQL Server and Azure SQL will not accept an explicit identity value until the
+ * session has `SET IDENTITY_INSERT <table> ON`, and the setting belongs to the
+ * session rather than the statement. The connection here is unpooled and used
+ * by one migration only, so the mode cannot leak to another caller — `after`
+ * still runs, because leaving it on would block a later write to a *different*
+ * table on the same session.
+ *
+ * Built by the caller from the dialect capability table, never from client
+ * input: `/data-migrate/execute` accepts DML for its ops and nothing else.
+ */
+export interface DataMigrateSessionSql {
+  /** Runs once before the first op. A failure here aborts the migration. */
+  before: string;
+  /** Runs after the last op, whether or not the ops succeeded. */
+  after: string;
+}
+
 export interface DataMigrateExecResult {
   results: Array<{
     op: DataMigrateOpKind;
@@ -66,7 +87,11 @@ export async function executeDataMigrateOps(
   option: ConnectionOptions,
   schema: string | undefined,
   ops: DataMigrateExecOp[],
-  opts: { useTransaction: boolean; continueOnError: boolean },
+  opts: {
+    useTransaction: boolean;
+    continueOnError: boolean;
+    sessionSql?: DataMigrateSessionSql;
+  },
   onEvent?: (e: DataMigrateExecEvent) => void
 ): Promise<DataMigrateExecResult> {
   const adapter = getAdapter(dialect);
@@ -75,6 +100,7 @@ export async function executeDataMigrateOps(
   const results: DataMigrateExecResult['results'] = [];
   let failCount = 0;
   let rolledBack = false;
+  let sessionOpen = false;
 
   const emit = (e: DataMigrateExecEvent) => onEvent?.(e);
   const stoppedAfterFailureMessage = (rolled: boolean) =>
@@ -86,6 +112,19 @@ export async function executeDataMigrateOps(
     if (schema?.trim()) {
       await adapter.setCurrentSchema(conn, schema.trim());
     }
+
+    if (opts.sessionSql) {
+      try {
+        await adapter.query(conn, opts.sessionSql.before, []);
+        sessionOpen = true;
+      } catch (err) {
+        // Every insert would fail the same way a moment later, one error per
+        // row. Stop here so the user gets the cause once.
+        const message = err instanceof Error ? err.message : String(err);
+        throw new Error(`Could not prepare the destination session: ${message}`);
+      }
+    }
+
     emit({ type: 'start', total: ops.length });
 
     if (opts.useTransaction && !opts.continueOnError) {
@@ -227,6 +266,14 @@ export async function executeDataMigrateOps(
     });
     return { results, rolledBack: false, failCount };
   } finally {
+    if (sessionOpen && opts.sessionSql) {
+      try {
+        await adapter.query(conn, opts.sessionSql.after, []);
+      } catch (err) {
+        // The connection is closed next, so this only matters as a signal.
+        console.error('Data migrate could not restore the destination session:', err);
+      }
+    }
     await ConnectionFactory.close(dialect, conn);
   }
 }

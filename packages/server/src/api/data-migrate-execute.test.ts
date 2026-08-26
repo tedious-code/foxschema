@@ -185,3 +185,101 @@ describe('executeDataMigrateOps', () => {
     }
   });
 });
+
+describe('executeDataMigrateOps session SQL', () => {
+  // SQL Server and Azure SQL gate explicit identity values on the session, so
+  // the migration has to open that mode and close it again around the ops.
+  // These exercise the lifecycle on SQLite: what matters is the ordering and
+  // that `after` still runs when the ops fail, neither of which is engine
+  // specific.
+  let dbPath: string;
+
+  const open = (path: string) => ({ connectionString: path });
+
+  beforeEach(async () => {
+    await ConnectionFactory.closeAll().catch(() => {});
+    dbPath = join(tmpdir(), `fox-session-sql-${process.pid}-${Date.now()}.db`);
+    await seedDb(dbPath);
+  });
+
+  afterEach(async () => {
+    await ConnectionFactory.closeAll().catch(() => {});
+    rmSync(dbPath, { force: true });
+  });
+
+  async function rows<T>(sql: string): Promise<T[]> {
+    await ConnectionFactory.closeAll().catch(() => {});
+    const conn = await ConnectionFactory.create('sqlite', open(dbPath), { pooled: false });
+    try {
+      return await getAdapter('sqlite').query<T>(conn, sql, []);
+    } finally {
+      await ConnectionFactory.close('sqlite', conn);
+    }
+  }
+
+  it('runs before the ops and after them', async () => {
+    const out = await executeDataMigrateOps(
+      'sqlite',
+      open(dbPath),
+      undefined,
+      [{ op: 'insert', key: 'id=3', sql: `INSERT INTO session_log (note) VALUES ('op')` }],
+      {
+        useTransaction: false,
+        continueOnError: false,
+        sessionSql: {
+          before: `CREATE TABLE session_log (note TEXT)`,
+          after: `INSERT INTO session_log (note) VALUES ('after')`,
+        },
+      }
+    );
+
+    expect(out.failCount).toBe(0);
+    // The op could only succeed if `before` had already created the table, and
+    // 'after' is last, so this single list pins the whole order.
+    const log = await rows<{ note: string }>(`SELECT note FROM session_log ORDER BY rowid`);
+    expect(log.map((r) => r.note)).toEqual(['op', 'after']);
+  });
+
+  it('runs after even when every op fails', async () => {
+    // Leaving SET IDENTITY_INSERT on would block the next write to a different
+    // table on that session, so a failed run must still close it.
+    const out = await executeDataMigrateOps(
+      'sqlite',
+      open(dbPath),
+      undefined,
+      [{ op: 'insert', key: 'id=bad', sql: `INSERT INTO missing_table (id) VALUES (9)` }],
+      {
+        useTransaction: false,
+        continueOnError: true,
+        sessionSql: {
+          before: `CREATE TABLE session_log (note TEXT)`,
+          after: `INSERT INTO session_log (note) VALUES ('after')`,
+        },
+      }
+    );
+
+    expect(out.failCount).toBe(1);
+    const log = await rows<{ note: string }>(`SELECT note FROM session_log`);
+    expect(log.map((r) => r.note)).toEqual(['after']);
+  });
+
+  it('aborts the migration when the session cannot be prepared', async () => {
+    // One clear error beats the same failure repeated once per row.
+    await expect(
+      executeDataMigrateOps(
+        'sqlite',
+        open(dbPath),
+        undefined,
+        [{ op: 'insert', key: 'id=3', sql: `INSERT INTO customers (id, name) VALUES (3, 'New')` }],
+        {
+          useTransaction: false,
+          continueOnError: false,
+          sessionSql: { before: `THIS IS NOT SQL`, after: `SELECT 1` },
+        }
+      )
+    ).rejects.toThrow(/Could not prepare the destination session/);
+
+    // The op must not have run.
+    expect(await rows(`SELECT id FROM customers WHERE id = 3`)).toEqual([]);
+  });
+});

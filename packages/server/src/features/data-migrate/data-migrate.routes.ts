@@ -17,6 +17,7 @@ import { CATEGORY_PERMISSION, DATAGRID_ACTION_PERMISSION } from '@foxschema/shar
 import { sqlStatementCategories, statementVerb } from '@foxschema/sql';
 import { isSingleSqlStatement } from '../../api/single-statement';
 import { executeDataMigrateOps, type DataMigrateExecOp } from '../../api/data-migrate-execute';
+import { identitySessionSql } from './identity-session';
 import type {
   DataMigrateOpResult,
   DataMigrateRunStatus,
@@ -40,6 +41,7 @@ export function createDataMigrateRoutes(deps: DataMigrateRouteDeps): Router {
         ops?: unknown;
         useTransaction?: unknown;
         continueOnError?: unknown;
+        identityInsertTable?: unknown;
       };
       const authed = req as AuthedRequest;
       if (!Array.isArray(body.ops) || body.ops.length === 0) {
@@ -117,6 +119,19 @@ export function createDataMigrateRoutes(deps: DataMigrateRouteDeps): Router {
         return;
       }
 
+      // Include identity on SQL Server / Azure SQL needs the session opened
+      // around the ops. See identity-session.ts for why it is derived here
+      // rather than sent by the client.
+      const session = identitySessionSql(
+        resolved.dialect,
+        typeof body.identityInsertTable === 'string' ? body.identityInsertTable : ''
+      );
+      if (!session.ok) {
+        sendError(res, 'invalid_input', session.error);
+        return;
+      }
+      const sessionSql = session.sessionSql;
+
       try {
         const out = await executeDataMigrateOps(
           resolved.dialect,
@@ -126,6 +141,7 @@ export function createDataMigrateRoutes(deps: DataMigrateRouteDeps): Router {
           {
             useTransaction: body.useTransaction !== false,
             continueOnError: Boolean(body.continueOnError),
+            sessionSql,
           }
         );
         res.json(out);
