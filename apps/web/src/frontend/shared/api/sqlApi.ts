@@ -1,4 +1,5 @@
 import { getApiBase, parseJsonResponse } from './apiBase';
+import { api } from './client';
 import type { ConnectionRef } from './schemaApi';
 import type { BrowserCodeCellKind, CodeCellLast, CodeCellVars } from '../lib/sql-splitter';
 
@@ -33,21 +34,15 @@ export async function executeSql(
    */
   opts?: { datagridAction?: 'insert' | 'update' | 'delete' }
 ): Promise<{ results: SqlStatementResult[] }> {
-  const res = await fetch(`${getApiBase()}/sql/execute`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify({
+  const data = await api.post<{ results?: SqlStatementResult[]; error?: string }>(`/sql/execute`, {
       ...ref,
       statements,
       maxRows,
       offset,
       params,
       ...(opts?.datagridAction ? { datagridAction: opts.datagridAction } : {}),
-    }),
-  });
-  const data = await parseJsonResponse<{ results?: SqlStatementResult[]; error?: string }>(res);
-  if (!data.results) throw new Error(data.error || `Query failed (${res.status})`);
+    });
+  if (!data.results) throw new Error(data.error || 'Query failed: no results returned.');
   return { results: data.results };
 }
 
@@ -143,14 +138,7 @@ export async function runCodeCellOnServer(
   payload: ServerCodeCellPayload
 ): Promise<SqlStatementResult> {
   const { ref, beam, ...rest } = payload;
-  const res = await fetch(`${getApiBase()}/sql/code-cell`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    // The ref is flattened onto the request body (same shape /sql/execute takes).
-    body: JSON.stringify({ ...ref, ...rest, ...(beam?.length ? { beam } : {}) }),
-  });
-  const data = await parseJsonResponse<unknown>(res);
+  const data = await api.post<unknown>(`/sql/code-cell`, { ...ref, ...rest, ...(beam?.length ? { beam } : {}) });
   const parsed = parseSqlStatementResult(data);
   if (!parsed.ok) {
     throw new Error(parsed.error);

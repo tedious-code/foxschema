@@ -1,4 +1,5 @@
 import { getApiBase, parseJsonResponse } from './apiBase';
+import { api } from './client';
 import type { CloudSecretProviderId } from '../lib/cloud-provider-settings';
 
 export type AppSecretSource = 'local' | CloudSecretProviderId;
@@ -52,8 +53,7 @@ export type CloudProviderCredentials =
   | AzureProviderCredentials;
 
 export async function listAppSecrets(): Promise<AppSecretSummary[]> {
-  const res = await fetch(`${getApiBase()}/app-secrets`, { credentials: 'include' });
-  const data = await parseJsonResponse<{ secrets: AppSecretSummary[] }>(res);
+  const data = await api.get<{ secrets: AppSecretSummary[] }>(`/app-secrets`);
   return data.secrets ?? [];
 }
 
@@ -63,13 +63,7 @@ export async function createAppSecret(input: {
   value?: string;
   cloudRef?: AppSecretCloudRef;
 }): Promise<AppSecretSummary> {
-  const res = await fetch(`${getApiBase()}/app-secrets`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify(input),
-  });
-  const data = await parseJsonResponse<{ secret: AppSecretSummary }>(res);
+  const data = await api.post<{ secret: AppSecretSummary }>(`/app-secrets`, input);
   return data.secret;
 }
 
@@ -82,22 +76,12 @@ export async function updateAppSecret(
     cloudRef?: AppSecretCloudRef;
   }
 ): Promise<AppSecretSummary> {
-  const res = await fetch(`${getApiBase()}/app-secrets/${encodeURIComponent(id)}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify(input),
-  });
-  const data = await parseJsonResponse<{ secret: AppSecretSummary }>(res);
+  const data = await api.put<{ secret: AppSecretSummary }>(`/app-secrets/${encodeURIComponent(id)}`, input);
   return data.secret;
 }
 
 export async function deleteAppSecret(id: string): Promise<void> {
-  const res = await fetch(`${getApiBase()}/app-secrets/${encodeURIComponent(id)}`, {
-    method: 'DELETE',
-    credentials: 'include',
-  });
-  await parseJsonResponse<{ ok: boolean }>(res);
+  await api.delete<{ ok: boolean }>(`/app-secrets/${encodeURIComponent(id)}`);
 }
 
 export async function resolveAppSecrets(names?: string[]): Promise<{
@@ -114,8 +98,7 @@ export async function resolveAppSecrets(names?: string[]): Promise<{
 }
 
 export async function listCloudProviders(): Promise<CloudProviderCredentialSummary[]> {
-  const res = await fetch(`${getApiBase()}/app-secrets/providers`, { credentials: 'include' });
-  const data = await parseJsonResponse<{ providers: CloudProviderCredentialSummary[] }>(res);
+  const data = await api.get<{ providers: CloudProviderCredentialSummary[] }>(`/app-secrets/providers`);
   return data.providers ?? [];
 }
 
@@ -124,13 +107,7 @@ export async function createCloudProviderCredential(input: {
   provider: CloudSecretProviderId;
   credentials: CloudProviderCredentials;
 }): Promise<CloudProviderCredentialSummary> {
-  const res = await fetch(`${getApiBase()}/app-secrets/providers`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify(input),
-  });
-  const data = await parseJsonResponse<{ provider: CloudProviderCredentialSummary }>(res);
+  const data = await api.post<{ provider: CloudProviderCredentialSummary }>(`/app-secrets/providers`, input);
   return data.provider;
 }
 
@@ -138,20 +115,10 @@ export async function updateCloudProviderCredential(
   id: string,
   input: { name?: string; credentials?: CloudProviderCredentials }
 ): Promise<CloudProviderCredentialSummary> {
-  const res = await fetch(`${getApiBase()}/app-secrets/providers/${encodeURIComponent(id)}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify(input),
-  });
-  const data = await parseJsonResponse<{ provider: CloudProviderCredentialSummary }>(res);
+  const data = await api.put<{ provider: CloudProviderCredentialSummary }>(`/app-secrets/providers/${encodeURIComponent(id)}`, input);
   return data.provider;
 }
 
 export async function deleteCloudProviderCredential(id: string): Promise<void> {
-  const res = await fetch(`${getApiBase()}/app-secrets/providers/${encodeURIComponent(id)}`, {
-    method: 'DELETE',
-    credentials: 'include',
-  });
-  await parseJsonResponse<{ ok: boolean }>(res);
+  await api.delete<{ ok: boolean }>(`/app-secrets/providers/${encodeURIComponent(id)}`);
 }
