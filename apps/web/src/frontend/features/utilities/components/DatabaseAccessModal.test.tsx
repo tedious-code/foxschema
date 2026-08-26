@@ -11,14 +11,10 @@ import { useAuthStore } from '@/app/store/authStore';
 import { useSyncStore } from '@/app/store/useSyncStore';
 
 const fetchDbAccess = vi.fn();
-const fetchSchemaList = vi.fn();
 const executeSql = vi.fn();
 
 vi.mock('@/shared/api/schemaApi', () => ({
   fetchDbAccess: (...args: unknown[]) => fetchDbAccess(...args),
-  // Feeds the schema suggestions. The panel must still work when it fails, so
-  // the tests below leave it resolving an empty list unless they say otherwise.
-  fetchSchemaList: (...args: unknown[]) => fetchSchemaList(...args),
 }));
 vi.mock('@/shared/api/sqlApi', () => ({
   executeSql: (...args: unknown[]) => executeSql(...args),
@@ -28,8 +24,6 @@ import { DatabaseAccessModal } from './DatabaseAccessModal';
 
 beforeEach(() => {
   fetchDbAccess.mockReset();
-  fetchSchemaList.mockReset();
-  fetchSchemaList.mockResolvedValue(['public', 'demo_a']);
   executeSql.mockReset();
   fetchDbAccess.mockResolvedValue({
     dialect: 'postgres',
@@ -205,61 +199,5 @@ describe('DatabaseAccessModal — role membership is not an object privilege', (
     fireEvent.change(kind, { target: { value: 'membership' } });
     expect(screen.queryByTestId('db-access-grant-privilege')).toBeNull();
     expect(screen.queryByTestId('db-access-grant-object-type')).toBeNull();
-  });
-});
-
-describe('DatabaseAccessModal — choosing a schema', () => {
-  it('suggests the schemas the connection has, and starts at its own', async () => {
-    render(<DatabaseAccessModal open onClose={() => undefined} />);
-    fireEvent.change(screen.getByTestId('db-access-connection'), { target: { value: 'c1' } });
-    await waitFor(() => expect(fetchSchemaList).toHaveBeenCalled());
-
-    const box = screen.getByTestId('db-access-schema') as HTMLInputElement;
-    expect(box.value).toBe('public');
-    await waitFor(() => {
-      const options = [...screen.getByTestId('db-access-schema-options').querySelectorAll('option')];
-      expect(options.map((o) => o.getAttribute('value'))).toEqual(['demo_a', 'public']);
-    });
-  });
-
-  it('reads the schema that was chosen, not the credential’s', async () => {
-    render(<DatabaseAccessModal open onClose={() => undefined} />);
-    fireEvent.change(screen.getByTestId('db-access-connection'), { target: { value: 'c1' } });
-    await waitFor(() => expect(fetchDbAccess).toHaveBeenCalled());
-
-    fireEvent.change(screen.getByTestId('db-access-schema'), { target: { value: 'demo_a' } });
-    fireEvent.click(screen.getByTestId('db-access-load'));
-
-    await waitFor(() => {
-      const last = fetchDbAccess.mock.calls.at(-1);
-      expect(last?.[1]).toMatchObject({ schema: 'demo_a' });
-    });
-  });
-
-  it('accepts a schema that is not on the list', async () => {
-    // The list can be stale, unreadable by this account, or name something the
-    // user is about to create.
-    render(<DatabaseAccessModal open onClose={() => undefined} />);
-    fireEvent.change(screen.getByTestId('db-access-connection'), { target: { value: 'c1' } });
-    await waitFor(() => expect(fetchDbAccess).toHaveBeenCalled());
-
-    fireEvent.change(screen.getByTestId('db-access-schema'), { target: { value: 'brand_new' } });
-    fireEvent.click(screen.getByTestId('db-access-load'));
-
-    await waitFor(() => {
-      expect(fetchDbAccess.mock.calls.at(-1)?.[1]).toMatchObject({ schema: 'brand_new' });
-    });
-  });
-
-  it('stays usable when the schema list cannot be read', async () => {
-    fetchSchemaList.mockRejectedValue(new Error('permission denied for pg_namespace'));
-    render(<DatabaseAccessModal open onClose={() => undefined} />);
-    fireEvent.change(screen.getByTestId('db-access-connection'), { target: { value: 'c1' } });
-
-    await waitFor(() => expect(fetchDbAccess).toHaveBeenCalled());
-    // Suggestions are a convenience; losing them must not surface as an error
-    // or block the panel.
-    expect(screen.queryByTestId('db-access-error')).toBeNull();
-    expect(screen.getByTestId('db-access-schema')).toBeTruthy();
   });
 });

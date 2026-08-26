@@ -329,17 +329,12 @@ export {
 export {
   PASSWORD_PLACEHOLDER,
   buildUserSql,
-  createUserOptions,
-  renderPasswordLiteral,
   userManagementSupport,
   type GeneratedUserSql,
   type PrincipalType,
   type UserAction,
   type UserAlteration,
   type UserManagementSupport,
-  type UserOptionDescriptor,
-  type UserOptionKey,
-  type UserOptions,
   type UserRequest,
 } from './modules/access/user-sql.js';
 export {
