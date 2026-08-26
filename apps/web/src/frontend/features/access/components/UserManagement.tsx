@@ -18,15 +18,19 @@
  * store, or history.
  */
 import React, { useMemo, useState } from 'react';
+import { PasswordInput } from '@/shared/components/PasswordInput';
 import { Copy, Check, AlertTriangle, ShieldAlert, Info, UserCog, KeyRound } from 'lucide-react';
 import {
   PASSWORD_PLACEHOLDER,
   buildUserSql,
+  createUserOptions,
   userManagementSupport,
   type PrincipalType,
   type UserAction,
   type UserAlteration,
   type UserRequest,
+  type UserOptions,
+  type UserOptionKey,
 } from '../lib/access';
 import { EmptyState, Field, RISK_STYLE, Segmented, inputCls } from './controls';
 import { useSyncStore } from '@/app/store/useSyncStore';
@@ -61,13 +65,30 @@ export const UserManagement: React.FC = () => {
   const [name, setName] = useState('');
   const [newName, setNewName] = useState('');
   const [alteration, setAlteration] = useState<UserAlteration>('password');
-  const [host, setHost] = useState('%');
   const [cascade, setCascade] = useState(false);
   const [copied, setCopied] = useState(false);
+  /**
+   * Kept in component state and nowhere else: not in a store, not in
+   * localStorage, and never sent to the server. It reaches the generated SQL
+   * and the clipboard, and that is all.
+   */
+  const [password, setPassword] = useState('');
+  const [options, setOptions] = useState<UserOptions>({});
 
   const support = useMemo(() => userManagementSupport(dialect), [dialect]);
-  const isMysqlFamily = ['mysql', 'mariadb', 'tidb'].includes(dialect.toLowerCase());
   const isOracle = dialect.toLowerCase() === 'oracle';
+
+  const optionFields = useMemo(
+    () => (dialect ? createUserOptions(dialect, principalType) : []),
+    [dialect, principalType]
+  );
+
+  // A password only belongs to creating an account or changing its password.
+  const wantsPassword =
+    principalType === 'user' && (action === 'create' || (action === 'alter' && alteration === 'password'));
+
+  const setOption = (key: UserOptionKey, value: string | number | boolean) =>
+    setOptions((prev: UserOptions) => ({ ...prev, [key]: value }));
 
   const request: UserRequest = useMemo(
     () => ({
@@ -76,10 +97,21 @@ export const UserManagement: React.FC = () => {
       name,
       newName,
       alteration,
-      host: isMysqlFamily ? host : undefined,
       cascade,
+      password: wantsPassword && password ? password : undefined,
+      options,
     }),
-    [action, principalType, name, newName, alteration, host, isMysqlFamily, cascade]
+    [
+      action,
+      principalType,
+      name,
+      newName,
+      alteration,
+      cascade,
+      wantsPassword,
+      password,
+      options,
+    ]
   );
 
   // Regenerated on every change, so the SQL is always what the form says.
@@ -178,19 +210,57 @@ export const UserManagement: React.FC = () => {
               />
             </Field>
 
-            {isMysqlFamily && principalType === 'user' && (
+            {wantsPassword && (
               <Field
-                label="Host"
-                hint="MySQL identifies an account by name and host together, so a different host is a different account."
+                label="Password"
+                hint={
+                  password
+                    ? 'Written into the SQL below in clear text. Fox Schema does not store it or send it anywhere.'
+                    : `Leave empty to get ${PASSWORD_PLACEHOLDER} to fill in by hand.`
+                }
               >
-                <input
-                  data-testid="user-host"
-                  value={host}
-                  onChange={(e) => setHost(e.target.value)}
-                  placeholder="%"
+                <PasswordInput
+                  data-testid="user-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder={PASSWORD_PLACEHOLDER}
+                  autoComplete="new-password"
                   className={inputCls}
                 />
               </Field>
+            )}
+
+            {action === 'create' && optionFields.length > 0 && (
+              <div className="flex flex-col gap-2 rounded-md border border-slate-800 bg-slate-950/40 p-2.5">
+                <p className="text-[11px] font-bold text-slate-400">
+                  {dialect} settings
+                </p>
+                {optionFields.map((field) => (
+                  <Field key={field.key} label={field.label} hint={field.hint}>
+                    {field.kind === 'boolean' ? (
+                      <label className="inline-flex items-center gap-2 text-xs text-slate-300">
+                        <input
+                          type="checkbox"
+                          data-testid={`user-option-${field.key}`}
+                          checked={options[field.key] === true}
+                          onChange={(e) => setOption(field.key, e.target.checked)}
+                          className="accent-amber-500"
+                        />
+                        Yes
+                      </label>
+                    ) : (
+                      <input
+                        data-testid={`user-option-${field.key}`}
+                        type={field.kind === 'number' ? 'number' : field.kind === 'date' ? 'date' : 'text'}
+                        value={String(options[field.key] ?? '')}
+                        onChange={(e) => setOption(field.key, e.target.value)}
+                        placeholder={field.placeholder}
+                        className={inputCls}
+                      />
+                    )}
+                  </Field>
+                ))}
+              </div>
             )}
 
             {action === 'alter' && (
