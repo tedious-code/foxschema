@@ -144,6 +144,19 @@ const OPTIONS: Record<string, UserOptionDescriptor[]> = {
 };
 
 /**
+ * Account-DDL family for this module.
+ *
+ * `accessFamily` keeps MariaDB distinct for GRANT catalogs (same as the Access
+ * Assistant), but CREATE/ALTER/DROP USER is MySQL syntax on both — treating
+ * MariaDB as its own family here fell through to the Postgres emitter and
+ * produced `CREATE ROLE … WITH LOGIN PASSWORD`, which MariaDB rejects.
+ */
+function accountFamily(dialect: string): string {
+  const family = accessFamily(dialect);
+  return family === 'mariadb' ? 'mysql' : family;
+}
+
+/**
  * The settings this engine accepts when creating this kind of principal.
  *
  * Empty when the engine offers none worth exposing — the caller should render
@@ -159,7 +172,7 @@ export function createUserOptions(
     // Redshift is Postgres-shaped but has no SUPERUSER or CREATEROLE keyword.
     return OPTIONS.postgres!.filter((o) => o.key === 'createDb' || o.key === 'connectionLimit' || o.key === 'validUntil');
   }
-  const all = OPTIONS[accessFamily(d)] ?? [];
+  const all = OPTIONS[accountFamily(d)] ?? [];
   if (principalType === 'role') {
     // A role holds privileges and does not connect, so the login-shaped
     // settings do not apply to it.
@@ -214,8 +227,9 @@ export interface GeneratedUserSql {
  * The rules differ by engine:
  *
  *  - Single-quoted literals double an embedded quote.
- *  - MySQL also treats a backslash as an escape character unless the server
- *    runs with NO_BACKSLASH_ESCAPES, so a backslash has to be doubled too.
+ *  - MySQL, MariaDB and ClickHouse also treat a backslash as an escape
+ *    character (MySQL unless NO_BACKSLASH_ESCAPES), so a backslash has to be
+ *    doubled too — otherwise `\t` becomes a tab and `\'` can end the literal.
  *  - Oracle takes the password as a quoted identifier, and a quoted identifier
  *    has no escape for a double quote at all — such a password is refused.
  *
@@ -232,7 +246,7 @@ export function renderPasswordLiteral(
     return { error: 'The password contains a control character or line break, which cannot be written into a statement.' };
   }
 
-  const family = accessFamily(dialect);
+  const family = accountFamily(dialect);
   if (family === 'oracle') {
     if (password.includes('"')) {
       return {
@@ -244,10 +258,12 @@ export function renderPasswordLiteral(
     return { sql: `"${password}"` };
   }
 
-  const escaped =
-    family === 'mysql'
-      ? password.replace(/\\/g, '\\\\').replace(/'/g, "''")
-      : password.replace(/'/g, "''");
+  // Engines whose string literals honour `\` as an escape (default MySQL /
+  // MariaDB / TiDB, and ClickHouse). Postgres and SQL Server do not.
+  const escapeBackslash = family === 'mysql' || family === 'clickhouse';
+  const escaped = escapeBackslash
+    ? password.replace(/\\/g, '\\\\').replace(/'/g, "''")
+    : password.replace(/'/g, "''");
   return { sql: `'${escaped}'` };
 }
 
@@ -333,7 +349,7 @@ const UNSUPPORTED: UserManagementSupport = {
 export function userManagementSupport(dialect: string): UserManagementSupport {
   const d = (dialect || '').toLowerCase();
   if (NO_ACCOUNTS.has(d)) return { ...UNSUPPORTED };
-  const family = accessFamily(d);
+  const family = accountFamily(d);
   // Redshift maps to the postgres family for GRANT, but its account DDL differs
   // enough (GROUP rather than ROLE) that it gets its own entry below.
   return { ...(SUPPORT[family] ?? SUPPORT.postgres!) };
@@ -341,7 +357,9 @@ export function userManagementSupport(dialect: string): UserManagementSupport {
 
 /** MySQL identifies an account by user and host together. */
 function mysqlAccount(name: string, host: string | undefined): string {
-  const quote = (v: string) => `'${v.replace(/'/g, "''")}'`;
+  // Same rules as {@link renderPasswordLiteral} for MySQL string literals:
+  // double backslash first, then quote, or `\'` ends the literal early.
+  const quote = (v: string) => `'${v.replace(/\\/g, '\\\\').replace(/'/g, "''")}'`;
   return `${quote(name)}@${quote(host?.trim() || '%')}`;
 }
 
@@ -371,7 +389,7 @@ export function buildUserSql(
     return { error: support.reason ?? 'This engine cannot create users in SQL.' };
   }
 
-  const family = accessFamily(dialect);
+  const family = accountFamily(dialect);
   const warnings: PermissionWarning[] = [];
   const statements: GeneratedStatement[] = [];
 

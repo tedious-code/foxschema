@@ -32,6 +32,14 @@ describe('renderPasswordLiteral', () => {
     expect(renderPasswordLiteral('a\\b', 'postgres')).toEqual({ sql: "'a\\b'" });
   });
 
+  it('doubles a backslash on MariaDB and ClickHouse the same way', () => {
+    // Both honour `\` in string literals; without doubling, `\t` becomes a tab
+    // and the account is created with a different password than the one typed.
+    expect(renderPasswordLiteral('a\\tb', 'mariadb')).toEqual({ sql: "'a\\\\tb'" });
+    expect(renderPasswordLiteral('a\\tb', 'tidb')).toEqual({ sql: "'a\\\\tb'" });
+    expect(renderPasswordLiteral('a\\tb', 'clickhouse')).toEqual({ sql: "'a\\\\tb'" });
+  });
+
   it('refuses a double quote on Oracle rather than escaping it', () => {
     // Oracle takes the password as a quoted identifier, and a quoted identifier
     // has no escape for a double quote.
@@ -66,7 +74,7 @@ describe('buildUserSql with a real password', () => {
       dialect
     );
 
-  const DIALECTS = ['postgres', 'mysql', 'sqlserver', 'oracle', 'clickhouse', 'redshift'];
+  const DIALECTS = ['postgres', 'mysql', 'mariadb', 'tidb', 'sqlserver', 'oracle', 'clickhouse', 'redshift'];
 
   it.each(DIALECTS)('%s writes the password instead of the placeholder', (dialect) => {
     const out = create(dialect, 'hunter2');
@@ -95,6 +103,12 @@ describe('buildUserSql with a real password', () => {
     }
     expect(literal.startsWith("'") && literal.endsWith("'")).toBe(true);
     const body = literal.slice(1, -1);
+    const family = dialect.toLowerCase();
+    const unescapesBackslash =
+      family === 'mysql' ||
+      family === 'mariadb' ||
+      family === 'tidb' ||
+      family === 'clickhouse';
     let out = '';
     for (let i = 0; i < body.length; i++) {
       const ch = body[i]!;
@@ -106,7 +120,7 @@ describe('buildUserSql with a real password', () => {
         i++;
         continue;
       }
-      if (ch === '\\' && dialect === 'mysql') {
+      if (ch === '\\' && unescapesBackslash) {
         out += body[i + 1] ?? '';
         i++;
         continue;
@@ -183,6 +197,9 @@ describe('createUserOptions', () => {
     const keys = (d: string) => createUserOptions(d).map((o) => o.key);
     expect(keys('postgres')).toContain('superuser');
     expect(keys('mysql')).toContain('host');
+    // MariaDB shares MySQL account DDL — including the host part of identity.
+    expect(keys('mariadb')).toContain('host');
+    expect(keys('tidb')).toContain('host');
     // Postgres has no host part; MySQL has no SUPERUSER keyword.
     expect(keys('postgres')).not.toContain('host');
     expect(keys('mysql')).not.toContain('superuser');
@@ -191,6 +208,36 @@ describe('createUserOptions', () => {
     // Redshift is Postgres-shaped but has neither SUPERUSER nor CREATEROLE.
     expect(keys('redshift')).not.toContain('superuser');
     expect(keys('redshift')).not.toContain('createRole');
+  });
+
+  it('emits MySQL CREATE USER syntax for MariaDB, not Postgres ROLE', () => {
+    // Regression: accessFamily keeps MariaDB distinct for GRANT, but account
+    // DDL is MySQL — without the remap this emitted CREATE ROLE … WITH LOGIN.
+    const out = buildUserSql(
+      { action: 'create', principalType: 'user', name: 'app_user', password: 'secret' },
+      'mariadb'
+    );
+    if ('error' in out) throw new Error(out.error);
+    const sql = out.statements.map((s) => s.sql).join('\n');
+    expect(sql).toContain("CREATE USER 'app_user'@'%' IDENTIFIED BY 'secret'");
+    expect(sql).not.toMatch(/CREATE ROLE/i);
+    expect(sql).not.toMatch(/WITH LOGIN/i);
+  });
+
+  it('escapes backslashes in the MySQL host part of an account', () => {
+    const out = buildUserSql(
+      {
+        action: 'create',
+        principalType: 'user',
+        name: 'app_user',
+        options: { host: "x\\'" },
+      },
+      'mysql'
+    );
+    if ('error' in out) throw new Error(out.error);
+    // Without doubling `\\`, MySQL would read `\'` as an early end of the host
+    // literal and the rest of the statement as SQL.
+    expect(out.statements[0]!.sql).toContain("'app_user'@'x\\\\'''");
   });
 
   it('drops the login-shaped settings for a role', () => {
