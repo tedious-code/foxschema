@@ -1,6 +1,6 @@
-import type { SqlDialect, ColumnSpec } from '../../modules/sql-dialect.interface.js';
+import type { SqlDialect, ColumnSpec } from '../../modules/dialect/sql-dialect.interface.js';
 import type { IndexInfo } from '../../interfaces/schema.interface.js';
-import { makeDialectTypeFns, plain, sized, decimalAs } from '../../modules/type-mapping.js';
+import { makeDialectTypeFns, plain, sized, decimalAs } from '../../modules/dialect/type-mapping.js';
 
 const types = makeDialectTypeFns({
   label: 'SQLite',

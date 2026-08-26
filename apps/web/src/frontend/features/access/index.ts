@@ -7,10 +7,11 @@
  *
  * Everything else under `features/access/` is internal, so the layout can
  * change without touching a consumer. `AccessView` is the only entry the app
- * shell needs; the inspector and builder are exported because the report and
- * future callers compose them, not because anything outside uses them today —
- * if that stays true they should come back out.
+ * shell needs; the inspector, builder and user management are exported because
+ * the report and future callers compose them, not because anything outside uses
+ * them today — if that stays true they should come back out.
  */
+export { UserManagement } from './components/UserManagement';
 export { AccessView } from './components/AccessView';
 export { PermissionInspector } from './components/PermissionInspector';
 export { PermissionBuilder } from './components/PermissionBuilder';

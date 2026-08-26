@@ -19,6 +19,7 @@ import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { ConnectionModal } from './ConnectionModal';
 import { CloudProviderCredentialsSection } from '@/app/settings/CloudProviderCredentialsSection';
 import { PROVIDER_SETTINGS } from '@/shared/lib/provider-settings';
+import { dialectLabel } from '@/shared/lib/dialectLabel';
 import { sessionPasswordMap, setSessionPassword } from '@/shared/lib/sessionPasswords';
 import type { SavedConnectionSummary } from '@/shared/api/authApi';
 import type { Dialect } from '@/shared/lib/provider-settings';
@@ -52,10 +53,6 @@ function formatDate(iso: string): string {
   } catch {
     return '';
   }
-}
-
-function dialectLabel(dialect: string): string {
-  return PROVIDER_SETTINGS[dialect.toLowerCase()]?.label ?? dialect.toUpperCase();
 }
 
 /** Manage reusable, encrypted credentials (DB + cloud providers). */

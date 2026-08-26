@@ -122,3 +122,82 @@ describe('DatabaseAccessModal', () => {
     expect(stmts[0]).toMatch(/GRANT SELECT ON TABLE "public"\."orders" TO "alice"/);
   });
 });
+
+describe('DatabaseAccessModal — role membership is not an object privilege', () => {
+  /** A principal that both holds a privilege and belongs to a role. */
+  function withMembership() {
+    fetchDbAccess.mockResolvedValue({
+      dialect: 'postgres',
+      schema: 'public',
+      mode: 'native',
+      support: { mode: 'native', query: true, grant: true, hint: 'PostgreSQL catalog' },
+      principals: [
+        { name: 'alice', kind: 'user', canLogin: true, memberOf: ['analysts'], members: [] },
+      ],
+      privileges: [
+        {
+          grantee: 'alice',
+          privilege: 'SELECT',
+          objectType: 'TABLE',
+          objectSchema: 'public',
+          objectName: 'orders',
+          grantable: false,
+          grantor: null,
+          state: null,
+        },
+        {
+          grantee: 'alice',
+          privilege: 'analysts',
+          objectType: 'ROLE',
+          objectSchema: null,
+          objectName: 'analysts',
+          grantable: false,
+          grantor: null,
+          state: null,
+        },
+      ],
+    });
+  }
+
+  it('lists the membership under Role memberships, not under privileges', async () => {
+    withMembership();
+    render(<DatabaseAccessModal open onClose={() => undefined} />);
+    fireEvent.change(screen.getByTestId('db-access-connection'), { target: { value: 'c1' } });
+    await waitFor(() => expect(fetchDbAccess).toHaveBeenCalled());
+    fireEvent.click(screen.getByTestId('db-access-principal-alice'));
+
+    const privileges = screen.getByTestId('db-access-privileges').textContent ?? '';
+    const memberships = screen.getByTestId('db-access-memberships').textContent ?? '';
+
+    // The object privilege stays where it belongs.
+    expect(privileges).toMatch(/SELECT/);
+    expect(privileges).toMatch(/public\.orders/);
+
+    // The membership does not appear in the privileges table, in any form.
+    expect(privileges).not.toMatch(/analysts/);
+    expect(privileges).not.toMatch(/\bROLE\b/);
+    expect(privileges).toMatch(/Object privileges \(1\)/);
+
+    // It appears in its own section instead.
+    expect(memberships).toMatch(/Role memberships \(1\)/);
+    expect(memberships).toMatch(/analysts/);
+  });
+
+  it('offers privilege and membership as separate things to grant', async () => {
+    withMembership();
+    render(<DatabaseAccessModal open onClose={() => undefined} />);
+    fireEvent.change(screen.getByTestId('db-access-connection'), { target: { value: 'c1' } });
+    await waitFor(() => expect(fetchDbAccess).toHaveBeenCalled());
+    fireEvent.click(screen.getByTestId('db-access-principal-alice'));
+
+    const kind = screen.getByTestId('db-access-grant-kind') as HTMLSelectElement;
+    expect([...kind.options].map((o) => o.value)).toEqual(['privilege', 'membership']);
+
+    // Choosing membership hides the privilege picker, which the builder ignored
+    // for role grants anyway.
+    expect(screen.queryByTestId('db-access-grant-privilege')).not.toBeNull();
+    fireEvent.change(kind, { target: { value: 'membership' } });
+    expect(screen.queryByTestId('db-access-grant-privilege')).toBeNull();
+    expect(screen.queryByTestId('db-access-grant-object-type')).toBeNull();
+  });
+});

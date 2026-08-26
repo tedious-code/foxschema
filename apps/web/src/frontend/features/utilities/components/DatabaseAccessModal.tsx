@@ -148,7 +148,12 @@ export const DatabaseAccessModal: React.FC<Props> = ({
   }, [principals, filter]);
 
   const selected = principals.find((p) => p.name === selectedName) ?? null;
-  const selectedPrivs = selected ? privilegesForPrincipal(privileges, selected.name) : [];
+  const allSelectedPrivs = selected ? privilegesForPrincipal(privileges, selected.name) : [];
+  // Belonging to a role and holding a privilege are different things, and the
+  // catalog returns both in one list. Splitting them here is what keeps the two
+  // sections below from reading as one.
+  const selectedPrivs = allSelectedPrivs.filter((p) => p.objectType !== 'ROLE');
+  const selectedMemberships = allSelectedPrivs.filter((p) => p.objectType === 'ROLE');
 
   const grantPreview = useMemo(() => {
     if (!dialect || !selected) return null;
@@ -384,7 +389,7 @@ export const DatabaseAccessModal: React.FC<Props> = ({
                             )}
                             {p.kind === 'user' && p.memberOf.length > 0 && (
                               <span className="block text-[10px] text-slate-500">
-                                in {p.memberOf.join(', ')}
+                                member of {p.memberOf.join(', ')}
                               </span>
                             )}
                           </button>
@@ -415,15 +420,18 @@ export const DatabaseAccessModal: React.FC<Props> = ({
                 )}
                 {selected.memberOf.length > 0 && (
                   <p className="text-[11px] text-slate-400 mt-1">
-                    Groups: {selected.memberOf.join(', ')}
+                    Member of: {selected.memberOf.join(', ')}
                   </p>
                 )}
               </div>
 
               <div data-testid="db-access-privileges">
                 <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500 mb-1">
-                  Privileges ({selectedPrivs.length})
+                  Object privileges ({selectedPrivs.length})
                 </div>
+                <p className="text-[11px] text-slate-500 mb-1.5">
+                  What this principal may do to tables, schemas and the database itself.
+                </p>
                 {selectedPrivs.length === 0 ? (
                   <p className="text-[11px] text-slate-500">No object privileges returned for this principal.</p>
                 ) : (
@@ -438,10 +446,8 @@ export const DatabaseAccessModal: React.FC<Props> = ({
                     <tbody>
                       {selectedPrivs.map((priv, i) => {
                         const on =
-                          priv.objectType === 'ROLE'
-                            ? `ROLE ${priv.objectName ?? priv.privilege}`
-                            : [priv.objectSchema, priv.objectName].filter(Boolean).join('.') ||
-                              priv.objectType;
+                          [priv.objectSchema, priv.objectName].filter(Boolean).join('.') ||
+                          priv.objectType;
                         return (
                           <tr key={`${priv.privilege}-${on}-${i}`} className="border-t border-slate-800">
                             <td className="py-1.5 text-slate-200">
@@ -490,6 +496,82 @@ export const DatabaseAccessModal: React.FC<Props> = ({
                 )}
               </div>
 
+              {selectedPrivs.length > 0 && (
+                <p className="text-[10px] text-slate-500">
+                  <span className="font-mono text-slate-400">*</span> may pass the privilege on to
+                  others (WITH GRANT OPTION). <span className="font-mono text-slate-400">DENY</span>{' '}
+                  overrides any grant of the same privilege.
+                </p>
+              )}
+
+              <div data-testid="db-access-memberships">
+                <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500 mb-1">
+                  Role memberships ({selectedMemberships.length})
+                </div>
+                <p className="text-[11px] text-slate-500 mb-1.5">
+                  Roles this principal belongs to. It holds every privilege granted to them, on top
+                  of the ones listed above.
+                </p>
+                {selectedMemberships.length === 0 ? (
+                  <p className="text-[11px] text-slate-500">Belongs to no roles.</p>
+                ) : (
+                  <table className="w-full text-[11px]">
+                    <thead>
+                      <tr className="text-slate-500 text-left">
+                        <th className="py-1 font-semibold">Role</th>
+                        <th className="py-1 font-semibold" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedMemberships.map((priv, i) => {
+                        const roleName = priv.objectName ?? priv.privilege;
+                        return (
+                          <tr key={`member-${roleName}-${i}`} className="border-t border-slate-800">
+                            <td className="py-1.5 text-slate-200 font-mono">{roleName}</td>
+                            <td className="py-1.5 text-right">
+                              <button
+                                type="button"
+                                data-testid={`db-access-remove-member-${i}`}
+                                disabled={!canGrant || running || !support?.grant}
+                                onClick={() => {
+                                  const built = buildGrantRevokeSql({
+                                    dialect,
+                                    action: 'revoke',
+                                    privilege: priv.privilege,
+                                    objectType: 'ROLE',
+                                    objectSchema: priv.objectSchema,
+                                    objectName: priv.objectName,
+                                    grantee: selected.name,
+                                    granteeKind:
+                                      selected.kind === 'group'
+                                        ? 'group'
+                                        : selected.kind === 'role'
+                                          ? 'role'
+                                          : 'user',
+                                  });
+                                  if ('error' in built) {
+                                    setError(built.error);
+                                    return;
+                                  }
+                                  setConfirm({
+                                    title: 'Remove from role',
+                                    sql: built.sql,
+                                    kind: 'revoke',
+                                  });
+                                }}
+                                className="text-[10px] font-bold uppercase tracking-wide text-rose-300 hover:text-rose-100 disabled:opacity-40"
+                              >
+                                Remove
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
               <div
                 data-testid="db-access-grant-form"
                 className="rounded-lg border border-slate-800 p-3 space-y-2"
@@ -519,36 +601,55 @@ export const DatabaseAccessModal: React.FC<Props> = ({
                     )}
                   </p>
                 )}
+                <label className="flex flex-col gap-1 text-[11px] text-slate-400">
+                  What are you granting?
+                  <select
+                    data-testid="db-access-grant-kind"
+                    value={grantObjectType === 'ROLE' ? 'membership' : 'privilege'}
+                    onChange={(e) =>
+                      setGrantObjectType(e.target.value === 'membership' ? 'ROLE' : 'TABLE')
+                    }
+                    className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-100"
+                  >
+                    <option value="privilege">A privilege on an object</option>
+                    <option value="membership">Membership of a role</option>
+                  </select>
+                </label>
                 <div className="grid grid-cols-2 gap-2">
-                  <label className="flex flex-col gap-1 text-[11px] text-slate-400">
-                    Privilege
-                    <select
-                      data-testid="db-access-grant-privilege"
-                      value={grantPrivilege}
-                      onChange={(e) => setGrantPrivilege(e.target.value)}
-                      className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-100"
-                    >
-                      {DB_OBJECT_PRIVILEGES.map((p) => (
-                        <option key={p} value={p}>
-                          {p}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="flex flex-col gap-1 text-[11px] text-slate-400">
-                    On
-                    <select
-                      data-testid="db-access-grant-object-type"
-                      value={grantObjectType}
-                      onChange={(e) => setGrantObjectType(e.target.value as DbPrivilegeObjectType)}
-                      className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-100"
-                    >
-                      <option value="TABLE">Table</option>
-                      <option value="SCHEMA">Schema</option>
-                      <option value="DATABASE">Database</option>
-                      <option value="ROLE">Role membership</option>
-                    </select>
-                  </label>
+                  {grantObjectType !== 'ROLE' && (
+                    <label className="flex flex-col gap-1 text-[11px] text-slate-400">
+                      Privilege
+                      <select
+                        data-testid="db-access-grant-privilege"
+                        value={grantPrivilege}
+                        onChange={(e) => setGrantPrivilege(e.target.value)}
+                        className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-100"
+                      >
+                        {DB_OBJECT_PRIVILEGES.map((p) => (
+                          <option key={p} value={p}>
+                            {p}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  {grantObjectType !== 'ROLE' && (
+                    <label className="flex flex-col gap-1 text-[11px] text-slate-400">
+                      On
+                      <select
+                        data-testid="db-access-grant-object-type"
+                        value={grantObjectType}
+                        onChange={(e) =>
+                          setGrantObjectType(e.target.value as DbPrivilegeObjectType)
+                        }
+                        className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-100"
+                      >
+                        <option value="TABLE">Table</option>
+                        <option value="SCHEMA">Schema</option>
+                        <option value="DATABASE">Database</option>
+                      </select>
+                    </label>
+                  )}
                   {grantObjectType !== 'ROLE' && grantObjectType !== 'DATABASE' && (
                     <label className="flex flex-col gap-1 text-[11px] text-slate-400">
                       Schema

@@ -521,6 +521,28 @@ export class SqlEditorPage {
     await modal.waitFor({ state: 'detached', timeout: 8_000 }).catch(() => undefined);
   }
 
+  async openDatabaseAccess(): Promise<void> {
+    await this.dismissOverlays();
+    await this.ensureSidebarSectionOpen('utilities');
+    await clickWhen(this.page, '[data-testid="utilities-database-access"]');
+    await waitFor(this.page, '[data-testid="db-access-modal"]', 15_000);
+  }
+
+  async closeDatabaseAccess(): Promise<void> {
+    const modal = this.page.locator('[data-testid="db-access-modal"]');
+    if (!(await modal.isVisible().catch(() => false))) return;
+    // The testid is on the backdrop, and the backdrop's own click closes it.
+    // Going for the header's Close button matches more than one element in this
+    // subtree, and a strict-mode error there leaves the modal open — which then
+    // covers the sidebar for every dialect queued behind this one.
+    await modal.click({ position: { x: 4, y: 4 } }).catch(() => undefined);
+    await modal.waitFor({ state: 'detached', timeout: 8_000 }).catch(() => undefined);
+    if (await modal.isVisible().catch(() => false)) {
+      await this.page.reload();
+      await this.page.waitForSelector('[data-testid="toolbar"]', { timeout: 30_000 });
+    }
+  }
+
   async closeIndexManagement(): Promise<void> {
     const modal = this.page.locator('[data-testid="index-management-modal"]');
     if (!(await modal.isVisible().catch(() => false))) return;

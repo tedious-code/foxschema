@@ -6,6 +6,7 @@
  *   - Index Management load
  *   - Clone Table load + SQL preview
  *   - Server Insights (system / sizes / pool / sessions)
+ *   - Database Access (principals, privileges, role memberships)
  *   - Query files modal open
  */
 import { describe, it, beforeAll, beforeEach, afterAll, afterEach, expect } from 'vitest';
@@ -35,6 +36,7 @@ const ALL_DIALECTS = [
 
 const UTILITY_BUTTONS = [
   'utilities-index-management',
+  'utilities-database-access',
   'utilities-clone-table',
   'utilities-query-files',
   'utilities-connection-pool',
@@ -42,6 +44,22 @@ const UTILITY_BUTTONS = [
   'utilities-system-info',
   'utilities-object-sizes',
 ] as const;
+
+/** Engines with a readable account catalog — sqlite and duckdb have none. */
+const SUPPORTS_DB_ACCESS: readonly string[] = [
+  'postgres',
+  'mysql',
+  'mariadb',
+  'sqlserver',
+  'oracle',
+  'db2',
+  'cockroachdb',
+  'yugabytedb',
+  'azuresql',
+  'clickhouse',
+  'redshift',
+  'tidb',
+];
 
 const configured = ALL_DIALECTS.filter((d) => hasConfig(d));
 
@@ -101,6 +119,7 @@ describe.skipIf(configured.length === 0)('SQL Editor · Utilities (all configure
   afterEach(async () => {
     await sql.closeCloneTable().catch(() => undefined);
     await sql.closeIndexManagement().catch(() => undefined);
+    await sql.closeDatabaseAccess().catch(() => undefined);
     await sql.closeServerInsights().catch(() => undefined);
     const fq = driver.locator('[data-testid="file-query-modal"]');
     if (await fq.isVisible().catch(() => false)) {
@@ -158,6 +177,74 @@ describe.skipIf(configured.length === 0)('SQL Editor · Utilities (all configure
         expect(body.toLowerCase()).not.toMatch(/credential not found|password required/);
         await saveScreenshot(driver, `utilities-index-${dialect}`);
         await sql.closeIndexManagement();
+      });
+
+      // Verifies the panel reaches each engine's account catalog and renders
+      // both sections. It does not prove the privilege/membership split: no
+      // seeded principal holds a role membership, so there is no row to
+      // misplace. DatabaseAccessModal.test.tsx covers that with fixed data.
+      it('Database Access loads principals from the engine catalog', async () => {
+        await sql.openDatabaseAccess();
+        await sql.selectUtilityConnection(cred(), 'db-access-connection');
+        await driver.locator('[data-testid="db-access-load"]').click();
+
+        // Wait for a real outcome: a principal row, or a refusal. The status
+        // element carries a per-dialect hint from the moment the modal opens,
+        // so its presence says nothing about whether the probe has run.
+        await driver.waitForFunction(
+          () => {
+            const principal = document.querySelector('[data-testid^="db-access-principal-"]');
+            const err = document.querySelector('[data-testid="db-access-error"]')?.textContent ?? '';
+            const text = document.querySelector('[data-testid="db-access-modal"]')?.textContent ?? '';
+            return (
+              principal !== null || err.trim().length > 0 || /not support|unsupported/i.test(text)
+            );
+          },
+          // waitForFunction's second parameter is the argument passed to the
+          // function; options are third. Passing options second leaves the
+          // default 30s timeout in force, which Db2's catalog probe exceeds.
+          undefined,
+          { timeout: 120_000 }
+        );
+
+        const modalText = await driver.locator('[data-testid="db-access-modal"]').innerText();
+        expect(modalText.toLowerCase()).not.toMatch(/credential not found|password required/);
+
+        const refused =
+          /does not support|unsupported/i.test(modalText) ||
+          ((await driver
+            .locator('[data-testid="db-access-error"]')
+            .textContent()
+            .catch(() => '')) ?? '').trim().length > 0;
+
+        // sqlite and duckdb have no accounts to read, and say so.
+        if (SUPPORTS_DB_ACCESS.includes(dialect)) {
+          expect(refused, `${dialect} should read principals: ${modalText.slice(0, 200)}`).toBe(
+            false
+          );
+        }
+        if (refused) {
+          await saveScreenshot(driver, `utilities-db-access-${dialect}`);
+          await sql.closeDatabaseAccess();
+          return;
+        }
+
+        const principal = driver.locator('[data-testid^="db-access-principal-"]').first();
+        await principal.waitFor({ state: 'visible', timeout: 30_000 });
+        await principal.click();
+
+        // Both sections must render for a selected principal — they are the
+        // split that keeps "belongs to a role" out of "may do this to a table".
+        await driver.waitForSelector('[data-testid="db-access-privileges"]', { timeout: 20_000 });
+        await driver.waitForSelector('[data-testid="db-access-memberships"]', { timeout: 20_000 });
+
+        const privText = await driver.locator('[data-testid="db-access-privileges"]').innerText();
+        // Costs nothing and would catch a membership leaking in on an engine
+        // whose catalog does return one.
+        expect(privText, `${dialect} privileges table`).not.toMatch(/\bROLE\s+\S/);
+
+        await saveScreenshot(driver, `utilities-db-access-${dialect}`);
+        await sql.closeDatabaseAccess();
       });
 
       it('Clone Table loads a customers table and shows SQL preview', async () => {

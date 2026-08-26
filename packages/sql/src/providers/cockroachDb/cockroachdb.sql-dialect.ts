@@ -1,4 +1,4 @@
-import type { SqlDialect } from '../../modules/sql-dialect.interface.js';
+import type { SqlDialect } from '../../modules/dialect/sql-dialect.interface.js';
 import { postgresSqlDialect } from '../postgres/postgres.sql-dialect.js';
 
 /**

@@ -34,6 +34,34 @@ sql  ←  shared  ←  server, web, cli
 enforce this. The frontend must never import `@foxschema/db` or
 `@foxschema/server`.
 
+## Dialect knowledge — `packages/sql/src`
+
+```
+interfaces/  The shared vocabulary: TableSchema, TableDiff, MigrationStep.
+providers/   One folder per dialect — its settings and its SqlDialect.
+cores/       Connection strings, and shaping catalog rows into TableSchema.
+modules/     One folder per domain, named to match the frontend feature
+             that consumes it.
+```
+
+| Folder | What it covers |
+|---|---|
+| `dialect` | The `SqlDialect` contract, the registry, type mapping, capability flags |
+| `sql-text` | Statement splitting and SQL templating |
+| `schema-diff` | Comparing two schemas, and browsing one |
+| `migrations` | Generating DDL, ordering drops, validating a plan |
+| `lokee-weave` | Content-addressed schema versioning and revert |
+| `sql-editor` | FoxScript parsing, code cells, SELECT aliasing, the SQL subset |
+| `access` | Permission intent, effective access, GRANT/REVOKE and account DDL |
+| `utilities` | DBA queries: server insights, index fragmentation |
+
+`dialect` and `sql-text` are the foundations: the other folders build on
+them, never the reverse.
+
+Code outside this package imports the `@foxschema/sql` barrel. Module paths
+are internal — `exports` in `package.json` maps only `.`, so a deep import
+does not resolve.
+
 ## Backend — `packages/server/src`
 
 ```
@@ -126,6 +154,8 @@ Imports may run `app → features → shared`, never `shared → features`.
 | New screen or panel | `apps/web/src/frontend/features/<domain>/` |
 | Reusable UI or helper | `apps/web/src/frontend/shared/` |
 | Calling an API endpoint | use `api` from `@/shared/api/client` — never `fetch` directly |
+| SQL for permissions or accounts | `packages/sql/src/modules/access/` |
+| A dialect capability the app must branch on | `packages/sql/src/modules/dialect/` |
 | Guard or cross-cutting HTTP concern | `packages/server/src/platform/` |
 
 ## Checks to run

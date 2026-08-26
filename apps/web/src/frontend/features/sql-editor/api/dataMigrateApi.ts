@@ -3,7 +3,7 @@
  * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
  * SPDX-License-Identifier: Apache-2.0
  */
-import { getApiBase, parseJsonResponse } from '@/shared/api/apiBase';
+import { api } from '@/shared/api/client';
 
 export type DataMigrateRunStatus =
   | 'RUNNING'
@@ -42,15 +42,6 @@ export interface DataMigrateRunDetail extends DataMigrateRunSummary {
   results: DataMigrateOpResult[];
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${getApiBase()}${path}`, {
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    ...init,
-  });
-  return parseJsonResponse<T>(res, { allowEmpty: true });
-}
-
 export async function apiStartDataMigrate(input: {
   dialect: string;
   sourceHost?: string;
@@ -65,10 +56,7 @@ export async function apiStartDataMigrate(input: {
   script: string;
   snapshotJson?: string;
 }): Promise<{ id: string; snapshotStored: boolean }> {
-  return request<{ id: string; snapshotStored: boolean }>('/data-migrations/start', {
-    method: 'POST',
-    body: JSON.stringify(input),
-  });
+  return api.post<{ id: string; snapshotStored: boolean }>('/data-migrations/start', input);
 }
 
 export async function apiFinishDataMigrate(
@@ -79,24 +67,21 @@ export async function apiFinishDataMigrate(
     error?: string;
   }
 ): Promise<void> {
-  await request(`/data-migrations/${id}/finish`, {
-    method: 'POST',
-    body: JSON.stringify(outcome),
-  });
+  await api.post(`/data-migrations/${id}/finish`, outcome, { allowEmpty: true });
 }
 
 export async function apiListDataMigrations(): Promise<DataMigrateRunSummary[]> {
-  const { runs } = await request<{ runs: DataMigrateRunSummary[] }>('/data-migrations');
+  const { runs } = await api.get<{ runs: DataMigrateRunSummary[] }>('/data-migrations');
   return runs;
 }
 
 export async function apiGetDataMigration(id: string): Promise<DataMigrateRunDetail> {
-  const { run } = await request<{ run: DataMigrateRunDetail }>(`/data-migrations/${id}`);
+  const { run } = await api.get<{ run: DataMigrateRunDetail }>(`/data-migrations/${id}`);
   return run;
 }
 
 export async function apiDeleteDataMigration(id: string): Promise<void> {
-  await request(`/data-migrations/${id}`, { method: 'DELETE' });
+  await api.delete(`/data-migrations/${id}`, undefined, { allowEmpty: true });
 }
 
 export interface DataMigrateExecOp {
@@ -120,15 +105,24 @@ export async function apiExecuteDataMigrate(
     schema?: string;
   },
   ops: DataMigrateExecOp[],
-  opts: { useTransaction: boolean; continueOnError: boolean }
+  opts: {
+    useTransaction: boolean;
+    continueOnError: boolean;
+    /**
+     * Table to allow explicit identity values on, for engines that gate it on
+     * the session (SQL Server, Azure SQL).
+     *
+     * Only the name travels: the server builds the SET IDENTITY_INSERT
+     * statements from its own capability table.
+     */
+    identityInsertTable?: string;
+  }
 ): Promise<DataMigrateExecOutcome> {
-  return request<DataMigrateExecOutcome>('/data-migrate/execute', {
-    method: 'POST',
-    body: JSON.stringify({
-      ...ref,
-      ops,
-      useTransaction: opts.useTransaction,
-      continueOnError: opts.continueOnError,
-    }),
+  return api.post<DataMigrateExecOutcome>('/data-migrate/execute', {
+    ...ref,
+    ops,
+    useTransaction: opts.useTransaction,
+    continueOnError: opts.continueOnError,
+    identityInsertTable: opts.identityInsertTable,
   });
 }

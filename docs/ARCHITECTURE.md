@@ -61,23 +61,36 @@ npm workspaces — not pnpm or Turborepo.
 
 ```
 packages/sql/           @foxschema/sql — dialect knowledge (pure, browser-safe)
-packages/db/            @foxschema/db  — Node runtime: drivers, pooling, execution
   src/interfaces/       TableSchema, TableDiff, ColumnDiff, MigrationStep, etc.
-  src/modules/          CompareModule, SqlGeneratorModule, ConnectionModule, MigrationModule
-  src/providers/        10 dialects — each has settings + adapter + provider + sql-dialect
-  src/cores/            ConnectionFactory, crypto, connection-string helpers
+  src/modules/          One folder per domain: dialect, sql-text, schema-diff,
+                        migrations, lokee-weave, sql-editor, access, utilities
+  src/providers/        14 SQL dialects, each with settings + sql-dialect
+                        (MongoDB and Redis carry settings only)
+  src/cores/            Connection strings, catalog rows → TableSchema
 
-apps/web/
-  src/backend/          Express API (routes, auth, migration history, metadata DB)
-    database/stores/    Metadata DB providers: sqlite (default), postgres, mysql
-  src/frontend/
-    lib/                Browser-safe copies: types.ts, sql-generator.ts, provider-settings.ts
-    store/              Zustand: useSyncStore.ts + sync-types.ts + sync-helpers.ts
-    components/         UI components (SchemaTreePanel, ObjectDetailPanel, TopToolbar, …)
-    components/object-detail/  MigrationProgressPanel, DeployConfirmDialog, DependencyWarningDialog
+packages/db/            @foxschema/db — Node runtime: drivers, pooling, execution
+  src/providers/        One adapter and provider per dialect
+  src/cores/            ConnectionFactory, pooling, circuit breaker
+
+packages/shared/        Contracts the frontend, server and CLI agree on:
+                        permission names, error codes, wire message shapes
+packages/server/        The backend: Fastify HTTP layer, feature modules,
+                        metadata store
+
+apps/web/src/frontend/
+  app/                  Application shell, settings screens, global stores
+  features/             One folder per business domain
+  shared/               API client, UI components, lib, utils
 
 apps/cli/               `foxschema` CLI — browser launcher (:3210), line commands, Ink TUI
+apps/e2e/               Playwright tests that drive the running application
 packaging/homebrew/     Scripts to refresh Formula/foxschema.rb (Homebrew, same repo)
+```
+
+`docs/CODE_MAP.md` says what each of those folders covers, and where a
+change belongs.
+
+```
 Formula/                Homebrew formula (tap this GitHub repo directly)
 ```
 
@@ -106,7 +119,7 @@ Each of the 10 dialects has three layers, split across `packages/sql/src/provide
 | `<d>.adapter.ts` | `DriverAdapter` | `adapter-registry.ts` |
 | `<d>.provider.ts` | `SchemaProvider` | `provider-registry.ts` |
 
-Plus `<d>.sql-dialect.ts` implementing `SqlDialect` — registered in `dialect-registry.ts`.
+Plus `<d>.sql-dialect.ts` implementing `SqlDialect` — registered in `modules/dialect/registry.ts`.
 
 The `SqlDialect` interface has optional hooks; the generator uses a generic fallback when a
 hook is absent. Adding dialect-specific behavior = implement the hook in that dialect's file
@@ -135,7 +148,7 @@ backend and streams results back via SSE.
 ## Adding a dialect (checklist)
 
 1. Create the dialect files in `packages/sql/src/providers/<name>/` and the driver files in `packages/db/src/providers/<name>/`
-2. Register in `provider-settings.ts`, `adapter-registry.ts`, `provider-registry.ts`, `dialect-registry.ts`
+2. Register in `provider-settings.ts`, `adapter-registry.ts`, `provider-registry.ts`, `modules/dialect/registry.ts`
 3. Also update `apps/web/src/frontend/lib/provider-settings.ts` (frontend copy)
 4. Add `parseType`/`renderType` round-trip tests in `type-mapping.test.ts`
 5. Verify each optional hook against real DDL — the generic fallbacks are often wrong for DROP INDEX/TRIGGER/FK
