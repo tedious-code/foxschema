@@ -28,8 +28,7 @@ import {
   type DbPrivilegeObjectType,
 } from '@foxschema/sql';
 import { PERMISSION_META } from '@foxschema/shared';
-import { fetchDbAccess, fetchSchemaList } from '@/shared/api/schemaApi';
-import { ComboInput } from '@/shared/components/ComboInput';
+import { fetchDbAccess } from '@/shared/api/schemaApi';
 import { executeSql } from '@/shared/api/sqlApi';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
@@ -94,56 +93,12 @@ export const DatabaseAccessModal: React.FC<Props> = ({
   );
   const dialect = conn?.dialect ?? '';
   const support = dialect ? dialectSupportsDbAccess(dialect) : null;
-  // MySQL and its relatives have no schema layer separate from the database, so
-  // the same box means a different thing and should say so.
-  const schemaLabel = ['mysql', 'mariadb', 'tidb', 'clickhouse'].includes(
-    (dialect ?? '').toLowerCase()
-  )
-    ? 'Database'
-    : 'Schema';
 
   useEffect(() => {
     if (!open || embedded) return;
     const saved = localStorage.getItem(LS_CONN) ?? '';
     if (saved && connections.some((c) => c.id === saved)) setConnectionId(saved);
   }, [open, embedded, connections]);
-
-  // The schema to read, which starts at the credential's own but does not have
-  // to stay there: one connection commonly reaches several.
-  const [schema, setSchema] = useState('');
-  const [schemaOptions, setSchemaOptions] = useState<string[]>([]);
-  const [schemaLoading, setSchemaLoading] = useState(false);
-
-  useEffect(() => {
-    setSchema(conn?.schema ?? '');
-  }, [connectionId, conn?.schema]);
-
-  // Suggestions only — a failure here leaves the box usable as free text, so it
-  // is deliberately not surfaced as an error.
-  useEffect(() => {
-    if (!open || !connectionId || needsPassword) {
-      setSchemaOptions([]);
-      return;
-    }
-    let cancelled = false;
-    setSchemaLoading(true);
-    void fetchSchemaList({
-      connectionId,
-      password: sessionPasswords[connectionId] || undefined,
-    } as Parameters<typeof fetchSchemaList>[0])
-      .then((list) => {
-        if (!cancelled) setSchemaOptions(list);
-      })
-      .catch(() => {
-        if (!cancelled) setSchemaOptions([]);
-      })
-      .finally(() => {
-        if (!cancelled) setSchemaLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, connectionId, needsPassword, sessionPasswords]);
 
   const load = useCallback(async () => {
     if (!connectionId || needsPassword) return;
@@ -153,7 +108,7 @@ export const DatabaseAccessModal: React.FC<Props> = ({
     try {
       const data = await fetchDbAccess(
         { connectionId, password: sessionPasswords[connectionId] || undefined },
-        { schema: schema.trim() || conn?.schema }
+        { schema: conn?.schema }
       );
       setPrincipals(data.principals ?? []);
       setPrivileges(data.privileges ?? []);
@@ -169,7 +124,7 @@ export const DatabaseAccessModal: React.FC<Props> = ({
     } finally {
       setLoading(false);
     }
-  }, [connectionId, needsPassword, sessionPasswords, conn?.schema, schema, selectedName]);
+  }, [connectionId, needsPassword, sessionPasswords, conn?.schema, selectedName]);
 
   useEffect(() => {
     if (!open || !connectionId || needsPassword) return;
@@ -349,22 +304,6 @@ export const DatabaseAccessModal: React.FC<Props> = ({
               </div>
             </label>
           )}
-          <label className="flex flex-col gap-1 text-[11px] font-bold text-slate-400">
-            {schemaLabel}
-            <div className="min-w-[11rem]">
-              <ComboInput
-                data-testid="db-access-schema"
-                aria-label={schemaLabel}
-                value={schema}
-                onChange={setSchema}
-                options={schemaOptions}
-                loading={schemaLoading}
-                disabled={!connectionId || needsPassword}
-                placeholder={conn?.schema || 'all'}
-                className="w-full bg-slate-950 border border-slate-700 rounded-md px-2.5 py-1.5 text-sm text-slate-100 outline-none focus:border-amber-500 disabled:opacity-50"
-              />
-            </div>
-          </label>
           <button
             type="button"
             data-testid="db-access-load"
@@ -714,13 +653,10 @@ export const DatabaseAccessModal: React.FC<Props> = ({
                   {grantObjectType !== 'ROLE' && grantObjectType !== 'DATABASE' && (
                     <label className="flex flex-col gap-1 text-[11px] text-slate-400">
                       Schema
-                      <ComboInput
+                      <input
                         data-testid="db-access-grant-schema"
-                        aria-label="Schema"
                         value={grantSchema}
-                        onChange={setGrantSchema}
-                        options={schemaOptions}
-                        loading={schemaLoading}
+                        onChange={(e) => setGrantSchema(e.target.value)}
                         placeholder={conn?.schema || 'schema'}
                         className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-100 font-mono"
                       />

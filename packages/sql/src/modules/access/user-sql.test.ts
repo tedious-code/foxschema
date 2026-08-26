@@ -74,6 +74,15 @@ describe('buildUserSql — create', () => {
     expect(statements(req(), 'mysql')[0]).toContain("@'%'");
   });
 
+  it('creates a MariaDB user with MySQL syntax, not Postgres ROLE', () => {
+    const sql = statements(req(), 'mariadb');
+    expect(sql[0]).toBe(
+      `CREATE USER 'report_user'@'%' IDENTIFIED BY '${PASSWORD_PLACEHOLDER}';`
+    );
+    expect(sql.join('\n')).not.toMatch(/CREATE ROLE/i);
+    expect(sql.join('\n')).not.toMatch(/WITH LOGIN/i);
+  });
+
   it('creates both a login and a user on SQL Server', () => {
     const sql = statements(req(), 'sqlserver');
     expect(sql).toEqual([
@@ -234,6 +243,12 @@ describe('buildUserSql — quoting', () => {
 
     const my = statements(req({ name: "o'brien" }), 'mysql')[0]!;
     expect(my).toContain("'o''brien'@'%'");
+  });
+
+  it('escapes backslashes in the MySQL host part of an account', () => {
+    const sql = statements(req({ name: 'app_user', host: "x\\'" }), 'mysql')[0]!;
+    // Without doubling `\`, MySQL would read `\'` as an early end of the host literal.
+    expect(sql).toContain("'app_user'@'x\\\\'''");
   });
 
   it('rejects an empty name', () => {
