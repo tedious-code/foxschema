@@ -21,13 +21,26 @@ vi.mock('@/app/store/useSyncStore', () => ({
 }));
 
 vi.mock('@/app/store/useSqlEditorStore', () => ({
-  useSqlEditorStore: (sel: (s: { sessionPasswords: Record<string, string> }) => unknown) =>
-    sel({ sessionPasswords: {} }),
+  useSqlEditorStore: (sel: (s: {
+    sessionPasswords: Record<string, string>;
+    ensureSchema: (id: string) => Promise<void>;
+    schemaCache: Record<string, { status: string; tables: [] }>;
+  }) => unknown) =>
+    sel({
+      sessionPasswords: {},
+      ensureSchema: vi.fn().mockResolvedValue(undefined),
+      schemaCache: {
+        c1: { status: 'ready', tables: [] },
+        c2: { status: 'ready', tables: [] },
+      },
+    }),
 }));
 
 const fetchDbAccess = vi.fn();
+const fetchSchemaList = vi.fn();
 vi.mock('@/shared/api/schemaApi', () => ({
   fetchDbAccess: (...args: unknown[]) => fetchDbAccess(...args),
+  fetchSchemaList: (...args: unknown[]) => fetchSchemaList(...args),
 }));
 
 describe('AccessView — User Management list + Builder handoff', () => {
@@ -36,6 +49,8 @@ describe('AccessView — User Management list + Builder handoff', () => {
       clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
     });
     fetchDbAccess.mockReset();
+    fetchSchemaList.mockReset();
+    fetchSchemaList.mockResolvedValue(['public']);
     fetchDbAccess.mockResolvedValue({
       dialect: 'postgres',
       schema: 'public',

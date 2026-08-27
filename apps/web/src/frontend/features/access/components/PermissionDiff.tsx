@@ -11,11 +11,13 @@ import {
   type AccessDesiredState,
   type AccessPermission,
   type AccessScope,
-  type DbPrincipal,
   type DbPrivilege,
   type PermissionRequest,
 } from '../lib/access';
 import { EmptyState, Field, Segmented, inputCls } from './controls';
+import { Autocomplete } from '@/shared/components/Autocomplete';
+import { ObjectPicker } from './ObjectPicker';
+import { useAccessCatalog } from '../lib/useAccessCatalog';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { fetchDbAccess } from '@/shared/api/schemaApi';
@@ -53,12 +55,21 @@ export const PermissionDiff: React.FC = () => {
   const [requests, setRequests] = useState<PermissionRequest[]>([emptyRequest()]);
 
   const [privileges, setPrivileges] = useState<DbPrivilege[]>([]);
-  const [principals, setPrincipals] = useState<DbPrincipal[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
+  const catalog = useAccessCatalog(connectionId, conn);
   const caps = useMemo(() => accessCapabilities(dialect), [dialect]);
+  const principalOptions = useMemo(
+    () =>
+      catalog.principalOptions.filter((o) => {
+        const p = catalog.principals.find((x) => x.name === o.value);
+        if (!p) return true;
+        return principalType === 'user' ? p.kind === 'user' : p.kind !== 'user';
+      }),
+    [catalog.principalOptions, catalog.principals, principalType]
+  );
 
   const desired: AccessDesiredState = useMemo(
     () => ({
@@ -105,7 +116,6 @@ export const PermissionDiff: React.FC = () => {
         { schema: conn?.schema || undefined }
       );
       setPrivileges(res.privileges ?? []);
-      setPrincipals(res.principals ?? []);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -171,19 +181,15 @@ export const PermissionDiff: React.FC = () => {
                   ]}
                   testId="diff-principal-type"
                 />
-                <input
+                <Autocomplete
                   data-testid="diff-principal-name"
+                  theme="slate"
                   value={principalName}
-                  onChange={(e) => setPrincipalName(e.target.value)}
-                  list="diff-principal-list"
+                  onChange={setPrincipalName}
+                  options={principalOptions}
                   placeholder="report_user"
                   className={`${inputCls} flex-1 font-mono`}
                 />
-                <datalist id="diff-principal-list">
-                  {principals.map((p) => (
-                    <option key={p.name} value={p.name} />
-                  ))}
-                </datalist>
               </div>
             </Field>
 
@@ -210,6 +216,7 @@ export const PermissionDiff: React.FC = () => {
                     req={req}
                     dialect={dialect}
                     caps={caps}
+                    catalog={catalog}
                     onChange={(patch) => updateRow(i, patch)}
                     onRemove={() => removeRow(i)}
                     canRemove={requests.length > 1}
@@ -324,12 +331,23 @@ const DesiredRow: React.FC<{
   req: PermissionRequest;
   dialect: string;
   caps: ReturnType<typeof accessCapabilities>;
+  catalog: ReturnType<typeof useAccessCatalog>;
   onChange: (patch: Partial<PermissionRequest>) => void;
   onRemove: () => void;
   canRemove: boolean;
-}> = ({ index, req, dialect, caps, onChange, onRemove, canRemove }) => {
+}> = ({ index, req, dialect, caps, catalog, onChange, onRemove, canRemove }) => {
   const scopeType = req.scope.type;
   const tableScope = req.scope.type === 'tables' ? req.scope : null;
+  const columnScope = req.scope.type === 'columns' ? req.scope : null;
+  const schemaName =
+    req.scope.type === 'schema'
+      ? req.scope.schema
+      : tableScope?.schema ?? columnScope?.schema ?? '';
+  const tableChoices = catalog.tablesInSchema(schemaName);
+  const columnChoices = columnScope
+    ? catalog.columnsInTable(columnScope.schema, columnScope.table)
+    : [];
+
   const offered = availablePermissions(dialect, scopeType);
 
   const setScopeType = (t: AccessScope['type']) => {
@@ -382,39 +400,90 @@ const DesiredRow: React.FC<{
       />
 
       {scopeType === 'schema' && (
-        <input
+        <Autocomplete
           data-testid={`diff-schema-${index}`}
+          theme="slate"
           value={req.scope.type === 'schema' ? req.scope.schema : ''}
-          onChange={(e) => onChange({ scope: { type: 'schema', schema: e.target.value } })}
+          onChange={(schema) => onChange({ scope: { type: 'schema', schema } })}
+          options={catalog.schemaOptions}
           placeholder="schema"
           className={`${inputCls} font-mono`}
         />
       )}
       {scopeType === 'tables' && tableScope && (
         <>
-          <input
+          <Autocomplete
+            theme="slate"
             value={tableScope.schema}
-            onChange={(e) =>
-              onChange({
-                scope: { type: 'tables', schema: e.target.value, tables: tableScope.tables },
-              })
+            onChange={(schema) =>
+              onChange({ scope: { type: 'tables', schema, tables: tableScope.tables } })
             }
+            options={catalog.schemaOptions}
             placeholder="schema"
             className={`${inputCls} font-mono`}
           />
-          <input
-            value={tableScope.tables.join(', ')}
-            onChange={(e) =>
+          <ObjectPicker
+            testId={`diff-tables-${index}`}
+            label="Tables"
+            items={tableChoices}
+            selected={tableScope.tables}
+            onChange={(tables) =>
+              onChange({ scope: { type: 'tables', schema: tableScope.schema, tables } })
+            }
+          />
+        </>
+      )}
+      {scopeType === 'columns' && columnScope && (
+        <>
+          <Autocomplete
+            theme="slate"
+            value={columnScope.schema}
+            onChange={(schema) =>
               onChange({
                 scope: {
-                  type: 'tables',
-                  schema: tableScope.schema,
-                  tables: e.target.value.split(/[\n,]/).map((t) => t.trim()).filter(Boolean),
+                  type: 'columns',
+                  schema,
+                  table: columnScope.table,
+                  columns: columnScope.columns,
                 },
               })
             }
-            placeholder="table1, table2"
+            options={catalog.schemaOptions}
+            placeholder="schema"
             className={`${inputCls} font-mono`}
+          />
+          <Autocomplete
+            theme="slate"
+            value={columnScope.table}
+            onChange={(table) =>
+              onChange({
+                scope: {
+                  type: 'columns',
+                  schema: columnScope.schema,
+                  table,
+                  columns: columnScope.columns,
+                },
+              })
+            }
+            options={tableChoices.map((t) => ({ value: t }))}
+            placeholder="table"
+            className={`${inputCls} font-mono`}
+          />
+          <ObjectPicker
+            testId={`diff-columns-${index}`}
+            label="Columns"
+            items={columnChoices}
+            selected={columnScope.columns}
+            onChange={(columns) =>
+              onChange({
+                scope: {
+                  type: 'columns',
+                  schema: columnScope.schema,
+                  table: columnScope.table,
+                  columns,
+                },
+              })
+            }
           />
         </>
       )}

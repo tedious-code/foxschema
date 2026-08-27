@@ -38,6 +38,12 @@ import {
   type UserRequest,
 } from '../lib/access';
 import { EmptyState, Field, RISK_STYLE, Segmented, inputCls } from './controls';
+import { Autocomplete } from '@/shared/components/Autocomplete';
+import {
+  generateSuggestedPassword,
+  sqlNeedsPassword,
+  sqlWithPasswordSubstitute,
+} from '../lib/password-suggest';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { fetchDbAccess } from '@/shared/api/schemaApi';
@@ -171,6 +177,7 @@ export const UserManagement: React.FC<{
   const [host, setHost] = useState('%');
   const [cascade, setCascade] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [copiedWithPassword, setCopiedWithPassword] = useState(false);
 
   const support = useMemo(() => userManagementSupport(dialect), [dialect]);
   const coach = useMemo(() => (dialect ? dialectCoach(dialect) : null), [dialect]);
@@ -217,6 +224,14 @@ export const UserManagement: React.FC<{
       );
     });
   }, [principals, filter, kindFilter]);
+
+  const nameOptions = useMemo(
+    () =>
+      principals
+        .filter((p) => (principalType === 'user' ? p.kind === 'user' : p.kind !== 'user'))
+        .map((p) => ({ value: p.name, hint: p.kind })),
+    [principals, principalType]
+  );
 
   const action: UserAction =
     mode === 'add' ? 'create' : mode === 'drop' ? 'drop' : mode === 'edit' ? 'alter' : 'create';
@@ -367,6 +382,16 @@ export const UserManagement: React.FC<{
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
   };
+
+  const copyWithGeneratedPassword = async () => {
+    if (!sqlText || !sqlNeedsPassword(sqlText)) return;
+    const password = generateSuggestedPassword();
+    await navigator.clipboard.writeText(sqlWithPasswordSubstitute(sqlText, password));
+    setCopiedWithPassword(true);
+    setTimeout(() => setCopiedWithPassword(false), 2500);
+  };
+
+  const showPasswordCopy = Boolean(sqlText && sqlNeedsPassword(sqlText));
 
   const goGrantAccess = () => {
     if (!grantDraft || !onGrantAccess) return;
@@ -692,14 +717,25 @@ export const UserManagement: React.FC<{
                         : undefined
                     }
                   >
-                    <input
-                      data-testid="user-name"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      disabled={mode === 'drop' || mode === 'edit'}
-                      placeholder={principalType === 'user' ? 'report_user' : 'reporting_reader'}
-                      className={inputCls}
-                    />
+                    {mode === 'add' ? (
+                      <Autocomplete
+                        data-testid="user-name"
+                        theme="slate"
+                        value={name}
+                        onChange={setName}
+                        options={nameOptions}
+                        placeholder={principalType === 'user' ? 'report_user' : 'reporting_reader'}
+                      />
+                    ) : (
+                      <input
+                        data-testid="user-name"
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        disabled={mode === 'drop' || mode === 'edit'}
+                        placeholder={principalType === 'user' ? 'report_user' : 'reporting_reader'}
+                        className={inputCls}
+                      />
+                    )}
                   </Field>
 
                   {isMysqlFamily && principalType === 'user' && (mode === 'add' || mode === 'drop' || mode === 'edit') && (
@@ -860,7 +896,23 @@ export const UserManagement: React.FC<{
                 {generated.risk}
               </span>
             )}
-            <div className="ml-auto flex items-center gap-2">
+            <div className="ml-auto flex items-center gap-2 flex-wrap justify-end">
+              {showPasswordCopy && (
+                <button
+                  type="button"
+                  data-testid="user-copy-with-password"
+                  onClick={() => void copyWithGeneratedPassword()}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-emerald-500/40 bg-emerald-500/10 text-[11px] font-bold text-emerald-100"
+                  title="Copies SQL with a one-time generated password. Fox Schema does not store it."
+                >
+                  {copiedWithPassword ? (
+                    <Check className="w-3.5 h-3.5" />
+                  ) : (
+                    <KeyRound className="w-3.5 h-3.5" />
+                  )}
+                  {copiedWithPassword ? 'Copied with password' : 'Copy with generated password'}
+                </button>
+              )}
               <button
                 type="button"
                 data-testid="user-copy"
