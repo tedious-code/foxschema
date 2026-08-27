@@ -322,11 +322,20 @@ function emitPostgres(ctx: EmitCtx): void {
   }
 
   // Reaching into a schema is a prerequisite the reader should not have to know
-  // about — without USAGE, a SELECT grant silently does nothing.
-  if (schema && permissions.some((p) => p !== 'connect')) {
+  // about — without USAGE, a SELECT grant silently does nothing. Only pair
+  // USAGE with GRANTs (and with schema-wide REVOKEs). Revoking SELECT on one
+  // table must not strip USAGE that other table grants still need.
+  if (
+    schema &&
+    permissions.some((p) => p !== 'connect') &&
+    (request.action === 'grant' ||
+      (request.action === 'revoke' && (scope.type === 'schema' || scope.type === 'database')))
+  ) {
     add(
       `${verb} USAGE ON SCHEMA ${ident(schema)} ${dir} ${grantee}${option};`,
-      `Lets ${request.principal.name} reach objects inside ${schema}. This alone does not allow reading any data.`,
+      request.action === 'grant'
+        ? `Lets ${request.principal.name} reach objects inside ${schema}. This alone does not allow reading any data.`
+        : `Removes schema reachability for ${request.principal.name} in ${schema}.`,
       'low'
     );
   }

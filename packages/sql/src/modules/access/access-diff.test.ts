@@ -119,4 +119,42 @@ describe('buildAccessReconciliationSql', () => {
       expect(sql.error).toMatch(/matches the catalog/i);
     }
   });
+
+  it('treats per-table catalog rows as covering a schema-wide desired grant', () => {
+    // Engines expand GRANT … ON ALL TABLES into table ACL rows. Without this,
+    // Diff marks the schema grant missing and every table SELECT extra, and
+    // reconciliation GRANT+REVOKE strips the access the user wanted to keep.
+    const desired: AccessDesiredState = {
+      principal: { type: 'user', name: 'alice' },
+      requests: [
+        {
+          principal: { type: 'user', name: 'alice' },
+          action: 'grant',
+          permissions: ['read'],
+          scope: { type: 'schema', schema: 'public' },
+        },
+      ],
+    };
+    const catalog: DbPrivilege[] = [
+      priv({
+        grantee: 'alice',
+        privilege: 'SELECT',
+        objectSchema: 'public',
+        objectName: 'orders',
+      }),
+      priv({
+        grantee: 'alice',
+        privilege: 'SELECT',
+        objectSchema: 'public',
+        objectName: 'items',
+      }),
+    ];
+    const diff = diffAccessDesired(desired, catalog);
+    expect(diff.summary.missing).toBe(0);
+    expect(diff.summary.extra).toBe(0);
+    expect(diff.summary.match).toBeGreaterThan(0);
+    const sql = buildAccessReconciliationSql(diff, 'postgres');
+    expect('error' in sql).toBe(true);
+    if ('error' in sql) expect(sql.error).toMatch(/matches the catalog/i);
+  });
 });

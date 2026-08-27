@@ -263,7 +263,13 @@ export const UserManagement: React.FC<{
   const grantDraft = useMemo((): AccessPrincipalDraft | null => {
     if (!onGrantAccess || !connectionId) return null;
     if (mode === 'add' && name.trim() && generated && !('error' in generated)) {
-      return { connectionId, principalName: name.trim(), principalType };
+      // MySQL-family accounts are name@host. Permission Builder / formatDbGrantee
+      // need the host or GRANT targets `` `user` `` instead of 'user'@'%'.
+      const principalName =
+        isMysqlFamily && principalType === 'user'
+          ? `${name.trim()}@${(host || '%').trim() || '%'}`
+          : name.trim();
+      return { connectionId, principalName, principalType };
     }
     if (selected) {
       return {
@@ -273,7 +279,17 @@ export const UserManagement: React.FC<{
       };
     }
     return null;
-  }, [onGrantAccess, connectionId, mode, name, generated, principalType, selected]);
+  }, [
+    onGrantAccess,
+    connectionId,
+    mode,
+    name,
+    host,
+    isMysqlFamily,
+    generated,
+    principalType,
+    selected,
+  ]);
 
   const readyForGrant = Boolean(grantDraft);
 

@@ -36,6 +36,34 @@ describe('PostgreSQL generation', () => {
     expect(sql.indexOf('USAGE')).toBeLessThan(sql.indexOf('ALL TABLES'));
   });
 
+  it('revoking SELECT on one table does not strip schema USAGE other grants need', () => {
+    const r = ok(
+      {
+        principal: user,
+        action: 'revoke',
+        permissions: ['read'],
+        scope: { type: 'tables', schema: 'reporting', tables: ['customers'] },
+      },
+      'postgres'
+    );
+    const sql = sqlOf(r);
+    expect(sql).toMatch(/REVOKE SELECT ON "reporting"\."customers" FROM "report_user";/);
+    expect(sql).not.toMatch(/REVOKE USAGE ON SCHEMA/i);
+  });
+
+  it('revoking schema-wide access still removes USAGE', () => {
+    const r = ok(
+      {
+        principal: user,
+        action: 'revoke',
+        permissions: ['read'],
+        scope: { type: 'schema', schema: 'reporting' },
+      },
+      'postgres'
+    );
+    expect(sqlOf(r)).toMatch(/REVOKE USAGE ON SCHEMA "reporting" FROM "report_user";/);
+  });
+
   it('future tables add ALTER DEFAULT PRIVILEGES, and say whose objects it covers', () => {
     const r = ok(
       {

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Copy, Check, AlertTriangle, RefreshCw, Plus, Trash2 } from 'lucide-react';
 import {
   accessCapabilities,
@@ -29,12 +29,31 @@ const STATUS_STYLE: Record<string, string> = {
   denied: 'text-violet-200 bg-violet-500/10 border-violet-500/30',
 };
 
-function emptyRequest(): PermissionRequest {
+function defaultScopeType(caps: ReturnType<typeof accessCapabilities>): AccessScope['type'] {
+  if (caps.schemaScope) return 'schema';
+  if (caps.databaseScope) return 'database';
+  if (caps.tableScope) return 'tables';
+  if (caps.columnScope) return 'columns';
+  if (caps.sequenceScope) return 'sequences';
+  return 'schema';
+}
+
+function emptyRequest(scopeType: AccessScope['type'] = 'schema'): PermissionRequest {
+  const scope: AccessScope =
+    scopeType === 'database'
+      ? { type: 'database', database: '' }
+      : scopeType === 'tables'
+        ? { type: 'tables', schema: '', tables: [] }
+        : scopeType === 'columns'
+          ? { type: 'columns', schema: '', table: '', columns: [] }
+          : scopeType === 'sequences'
+            ? { type: 'sequences', schema: '' }
+            : { type: 'schema', schema: '' };
   return {
     principal: { type: 'user', name: '' },
     action: 'grant',
     permissions: permissionsForPreset('read-only'),
-    scope: { type: 'schema', schema: '' },
+    scope,
   };
 }
 
@@ -61,6 +80,26 @@ export const PermissionDiff: React.FC = () => {
 
   const catalog = useAccessCatalog(connectionId, conn);
   const caps = useMemo(() => accessCapabilities(dialect), [dialect]);
+  // MySQL/MariaDB defaulted every Diff row to schema scope, which the emitter
+  // rejects — reconciliation SQL stayed empty until the reader changed scope.
+  useEffect(() => {
+    const prefer = defaultScopeType(caps);
+    setRequests((prev) => {
+      let changed = false;
+      const next = prev.map((r) => {
+        const allowed =
+          (r.scope.type === 'schema' && caps.schemaScope) ||
+          (r.scope.type === 'database' && caps.databaseScope) ||
+          (r.scope.type === 'tables' && caps.tableScope) ||
+          (r.scope.type === 'columns' && caps.columnScope) ||
+          (r.scope.type === 'sequences' && caps.sequenceScope);
+        if (allowed) return r;
+        changed = true;
+        return { ...r, ...emptyRequest(prefer), principal: r.principal, action: r.action, permissions: r.permissions };
+      });
+      return changed ? next : prev;
+    });
+  }, [caps]);
   const principalOptions = useMemo(
     () =>
       catalog.principalOptions.filter((o) => {
@@ -123,7 +162,7 @@ export const PermissionDiff: React.FC = () => {
     }
   };
 
-  const addRow = () => setRequests((prev) => [...prev, emptyRequest()]);
+  const addRow = () => setRequests((prev) => [...prev, emptyRequest(defaultScopeType(caps))]);
   const removeRow = (i: number) => setRequests((prev) => prev.filter((_, j) => j !== i));
   const updateRow = (i: number, patch: Partial<PermissionRequest>) =>
     setRequests((prev) => prev.map((r, j) => (j === i ? { ...r, ...patch } : r)));

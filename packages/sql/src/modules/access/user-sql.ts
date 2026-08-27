@@ -448,6 +448,10 @@ export function buildUserSql(
       switch (family) {
         case 'mysql': {
           const days = request.validUntil?.trim();
+          // Interval is unquoted SQL — only a non-negative integer is safe.
+          if (days && !/^\d+$/.test(days)) {
+            return 'Enter the expiry interval as a number of days (for example 90).';
+          }
           add(
             days
               ? `ALTER USER ${account} PASSWORD EXPIRE INTERVAL ${days} DAY;`
@@ -472,8 +476,11 @@ export function buildUserSql(
           return undefined;
         default: {
           const until = request.validUntil?.trim() || 'infinity';
+          // VALID UNTIL takes a string literal — quote-escape so a crafted
+          // date cannot close the literal and append another statement.
+          const untilLiteral = until.replace(/'/g, "''");
           add(
-            `ALTER ROLE ${q(name)} VALID UNTIL '${until}';`,
+            `ALTER ROLE ${q(name)} VALID UNTIL '${untilLiteral}';`,
             until === 'infinity'
               ? `Removes expiry for ${name}.`
               : `Refuses connections from ${name} after ${until}.`

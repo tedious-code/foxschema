@@ -327,11 +327,21 @@ export function formatDbGrantee(
   const fam = family(dialect);
   const raw = stripQuotes(name);
   if (fam === 'mysql' || fam === 'mariadb') {
+    // Same escaping as account DDL in user-sql: MySQL treats `\` as an escape
+    // inside string literals, so a name like `al\'ice` would otherwise close
+    // the quote early and turn the rest of the GRANT into free SQL. Double
+    // backslashes before doubling quotes.
+    const quote = (v: string) => `'${v.replace(/\\/g, '\\\\').replace(/'/g, "''")}'`;
     const at = raw.lastIndexOf('@');
     if (at > 0) {
-      const user = raw.slice(0, at).replace(/'/g, "''");
-      const host = raw.slice(at + 1).replace(/'/g, "''");
-      return `'${user}'@'${host}'`;
+      return `${quote(raw.slice(0, at))}@${quote(raw.slice(at + 1))}`;
+    }
+    // MySQL accounts are name@host. A bare name used to become `` `alice` ``,
+    // which is not a user account — CREATE USER / our catalog use 'alice'@'%',
+    // and GRANT TO `alice` either fails or hits a role of that name instead.
+    // Default the host for users (and for roles our DDL creates as name@'%').
+    if (kind === 'user' || kind === 'role') {
+      return `${quote(raw)}@'%'`;
     }
     return quoteSqlIdentifier(raw, dialect);
   }

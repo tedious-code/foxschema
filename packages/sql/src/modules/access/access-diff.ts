@@ -125,6 +125,22 @@ function requestKeys(req: PermissionRequest): string[] {
   return [];
 }
 
+/**
+ * Postgres (and MySQL) store `GRANT … ON ALL TABLES IN SCHEMA` as per-table
+ * ACL rows, not a SCHEMA catalog entry. A schema-scoped desired grant therefore
+ * covers every live TABLE privilege of the same kind in that schema — otherwise
+ * Diff marks the schema grant missing and every table row extra, and
+ * reconciliation GRANT+REVOKE wipes the access the user asked to keep.
+ */
+function schemaDesireCoversTable(req: PermissionRequest, priv: DbPrivilege): boolean {
+  if (req.action === 'revoke' || req.action === 'deny') return false;
+  if (req.scope.type !== 'schema') return false;
+  if ((priv.objectType || '').toUpperCase() !== 'TABLE') return false;
+  if (norm(priv.objectSchema ?? '') !== norm(req.scope.schema)) return false;
+  const want = new Set(privilegeNames(req.permissions));
+  return want.has((priv.privilege || '').trim().toUpperCase());
+}
+
 function principalPrivileges(
   privileges: readonly DbPrivilege[],
   principalName: string
@@ -164,6 +180,16 @@ export function diffAccessDesired(
           request: matched ? undefined : req,
           current: live,
         });
+      } else if (
+        req.scope.type === 'schema' &&
+        current.some((p) => schemaDesireCoversTable(req, p) && p.state !== 'deny')
+      ) {
+        // Catalog has the privilege as table ACLs — the schema intent is live.
+        entries.push({
+          status: 'match',
+          label: requestLabel(req),
+          request: undefined,
+        });
       } else {
         entries.push({
           status: req.action === 'deny' ? 'missing' : 'missing',
@@ -174,9 +200,14 @@ export function diffAccessDesired(
     }
   }
 
+  const coveringSchemaRequests = desired.requests.filter(
+    (r) => r.action === 'grant' && r.scope.type === 'schema'
+  );
+
   for (const [key, priv] of catalog) {
     if (expected.has(key)) continue;
     if (priv.state === 'deny') continue;
+    if (coveringSchemaRequests.some((req) => schemaDesireCoversTable(req, priv))) continue;
     const mapped = permissionsForPrivilege(priv.privilege);
     if (mapped.length === 0) continue;
     const obj = [priv.objectSchema, priv.objectName].filter(Boolean).join('.') || priv.objectType;

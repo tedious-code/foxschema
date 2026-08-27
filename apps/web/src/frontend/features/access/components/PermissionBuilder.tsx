@@ -67,6 +67,20 @@ export const PermissionBuilder: React.FC<{
   const [showRevoke, setShowRevoke] = useState(false);
 
   const caps = useMemo(() => accessCapabilities(dialect), [dialect]);
+  // MySQL/MariaDB/Oracle have no schema-level GRANT — defaulting to "schema"
+  // leaves the preview on a permanent error until the reader notices.
+  useEffect(() => {
+    const allowed: AccessScope['type'][] = [
+      ...(caps.databaseScope ? (['database'] as const) : []),
+      ...(caps.schemaScope ? (['schema'] as const) : []),
+      ...(caps.tableScope ? (['tables'] as const) : []),
+      ...(caps.columnScope ? (['columns'] as const) : []),
+      ...(caps.sequenceScope ? (['sequences'] as const) : []),
+    ];
+    if (allowed.length && !allowed.includes(scopeType)) {
+      setScopeType(allowed[0]!);
+    }
+  }, [caps, scopeType]);
   const catalog = useAccessCatalog(connectionId, conn);
   const principalOptions = useMemo(
     () =>
