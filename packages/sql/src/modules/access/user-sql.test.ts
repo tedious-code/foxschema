@@ -10,6 +10,7 @@ import {
   userManagementSupport,
   type UserRequest,
 } from './user-sql.js';
+import { resolveUserSql, USER_SQL_MAP } from './user-sql.registry.js';
 import { DIALECT_MAP } from '../dialect/registry.js';
 
 const req = (over: Partial<UserRequest> = {}): UserRequest => ({
@@ -50,6 +51,44 @@ describe('userManagementSupport', () => {
     expect(support.canCreateUser).toBe(false);
     expect(support.canCreateRole).toBe(true);
     expect(support.reason).toMatch(/operating system|directory/i);
+  });
+
+  it('treats an unknown dialect as unsupported (no Postgres fallback)', () => {
+    const support = userManagementSupport('not-a-real-engine');
+    expect(support.supported).toBe(false);
+    expect(support.reason).toBeTruthy();
+  });
+});
+
+describe('user-sql registry', () => {
+  it('registers every migration dialect id', () => {
+    for (const dialect of Object.keys(DIALECT_MAP)) {
+      expect(USER_SQL_MAP[dialect.toLowerCase()], dialect).toBeTruthy();
+      expect(resolveUserSql(dialect).support).toEqual(userManagementSupport(dialect));
+    }
+  });
+
+  it('aliases azuresql to sqlserver create shape', () => {
+    expect(statements(req(), 'azuresql')).toEqual(statements(req(), 'sqlserver'));
+  });
+
+  it('aliases mariadb and tidb to mysql create shape', () => {
+    expect(statements(req(), 'mariadb')).toEqual(statements(req(), 'mysql'));
+    expect(statements(req(), 'tidb')).toEqual(statements(req(), 'mysql'));
+  });
+
+  it('aliases cockroachdb and yugabytedb to postgres create shape', () => {
+    expect(statements(req(), 'cockroachdb')).toEqual(statements(req(), 'postgres'));
+    expect(statements(req(), 'yugabytedb')).toEqual(statements(req(), 'postgres'));
+  });
+
+  it('keeps redshift distinct from postgres ROLE', () => {
+    expect(statements(req({ principalType: 'role', name: 'analysts' }), 'redshift')).toEqual([
+      'CREATE GROUP "analysts";',
+    ]);
+    expect(statements(req({ principalType: 'role', name: 'analysts' }), 'postgres')).toEqual([
+      'CREATE ROLE "analysts";',
+    ]);
   });
 });
 
