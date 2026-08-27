@@ -337,7 +337,9 @@ export {
   type UserAlteration,
   type UserManagementSupport,
   type UserRequest,
+  type UserSqlDialect,
 } from './modules/access/user-sql.js';
+export { resolveUserSql, USER_SQL_MAP } from './modules/access/user-sql.registry.js';
 export {
   buildAccessSql,
   invertAccessRequest,

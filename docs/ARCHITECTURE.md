@@ -65,6 +65,7 @@ packages/sql/           @foxschema/sql — dialect knowledge (pure, browser-safe
   src/modules/          One folder per domain: dialect, sql-text, schema-diff,
                         migrations, lokee-weave, sql-editor, access, utilities
   src/providers/        14 SQL dialects, each with settings + sql-dialect
+                        (+ optional *.user-sql.ts for account DDL)
                         (MongoDB and Redis carry settings only)
   src/cores/            Connection strings, catalog rows → TableSchema
 
@@ -121,6 +122,13 @@ Each of the 10 dialects has three layers, split across `packages/sql/src/provide
 
 Plus `<d>.sql-dialect.ts` implementing `SqlDialect` — registered in `modules/dialect/registry.ts`.
 
+Account DDL (CREATE/ALTER/DROP USER|ROLE) is a sibling strategy, not on `SqlDialect`:
+`<d>.user-sql.ts` implementing `UserSqlDialect`, registered in
+`modules/access/user-sql.registry.ts`. Aliases re-export (e.g. Azure→SQL Server,
+TiDB→MySQL); Redshift has its own module (GROUP, not ROLE). This stays in
+`@foxschema/sql` so the browser Access Assistant can generate SQL — do not put
+account emitters in `@foxschema/db` (Node drivers only).
+
 The `SqlDialect` interface has optional hooks; the generator uses a generic fallback when a
 hook is absent. Adding dialect-specific behavior = implement the hook in that dialect's file
 only. Key hooks: `dropForeignKeyStatement`, `dropIndexStatement`, `dropTriggerStatement`,
@@ -149,6 +157,7 @@ backend and streams results back via SSE.
 
 1. Create the dialect files in `packages/sql/src/providers/<name>/` and the driver files in `packages/db/src/providers/<name>/`
 2. Register in `provider-settings.ts`, `adapter-registry.ts`, `provider-registry.ts`, `modules/dialect/registry.ts`
+   (and `modules/access/user-sql.registry.ts` when the engine has account DDL)
 3. Also update `apps/web/src/frontend/lib/provider-settings.ts` (frontend copy)
 4. Add `parseType`/`renderType` round-trip tests in `type-mapping.test.ts`
 5. Verify each optional hook against real DDL — the generic fallbacks are often wrong for DROP INDEX/TRIGGER/FK
