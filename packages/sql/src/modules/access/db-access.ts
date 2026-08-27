@@ -336,6 +336,13 @@ export function formatDbGrantee(
     if (at > 0) {
       return `${quote(raw.slice(0, at))}@${quote(raw.slice(at + 1))}`;
     }
+    // MySQL accounts are name@host. A bare name used to become `` `alice` ``,
+    // which is not a user account — CREATE USER / our catalog use 'alice'@'%',
+    // and GRANT TO `alice` either fails or hits a role of that name instead.
+    // Default the host for users (and for roles our DDL creates as name@'%').
+    if (kind === 'user' || kind === 'role') {
+      return `${quote(raw)}@'%'`;
+    }
     return quoteSqlIdentifier(raw, dialect);
   }
   const ident = quoteSqlIdentifier(raw, dialect);
