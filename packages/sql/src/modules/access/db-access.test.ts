@@ -180,6 +180,26 @@ describe('buildGrantRevokeSql', () => {
     ).toEqual({ sql: "GRANT ALL PRIVILEGES ON `shop`.`orders` TO 'alice'@'%';" });
   });
 
+  it('escapes backslashes in MySQL user@host so GRANT cannot break out of the literal', () => {
+    // Without doubling `\`, MySQL reads `\'` as an early end of the user literal
+    // and the trailing `ice'@'%'` becomes free SQL after TO.
+    const evil = "al\\'ice@%";
+    expect(formatDbGrantee('mysql', evil)).toBe("'al\\\\''ice'@'%'");
+    expect(formatDbGrantee('mariadb', evil)).toBe("'al\\\\''ice'@'%'");
+    const grant = buildGrantRevokeSql({
+      dialect: 'mysql',
+      action: 'grant',
+      privilege: 'SELECT',
+      objectType: 'TABLE',
+      objectSchema: 'shop',
+      objectName: 'orders',
+      grantee: evil,
+    });
+    expect(grant).toEqual({
+      sql: "GRANT SELECT ON `shop`.`orders` TO 'al\\\\''ice'@'%';",
+    });
+  });
+
   it('uses ALTER ROLE for SQL Server membership and OBJECT:: for tables', () => {
     expect(
       buildGrantRevokeSql({

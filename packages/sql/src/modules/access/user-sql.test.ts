@@ -215,10 +215,25 @@ describe('buildUserSql — alter', () => {
     ).toBe(`ALTER ROLE "report_user" VALID UNTIL '2027-01-01';`);
   });
 
+  it('expire on postgres escapes quotes in VALID UNTIL', () => {
+    const evil = "2027-01-01'; DROP ROLE admin; --";
+    expect(
+      statements(req({ action: 'alter', alteration: 'expire', validUntil: evil }), 'postgres')[0]
+    ).toBe(`ALTER ROLE "report_user" VALID UNTIL '2027-01-01''; DROP ROLE admin; --';`);
+  });
+
   it('expire on mysql uses PASSWORD EXPIRE INTERVAL', () => {
     expect(
       statements(req({ action: 'alter', alteration: 'expire', validUntil: '90' }), 'mysql')[0]
     ).toBe(`ALTER USER 'report_user'@'%' PASSWORD EXPIRE INTERVAL 90 DAY;`);
+  });
+
+  it('expire on mysql rejects a non-numeric interval', () => {
+    const out = buildUserSql(
+      req({ action: 'alter', alteration: 'expire', validUntil: "1; DROP USER 'x'@'%';--" }),
+      'mysql'
+    );
+    expect('error' in out).toBe(true);
   });
 });
 

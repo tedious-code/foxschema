@@ -327,11 +327,14 @@ export function formatDbGrantee(
   const fam = family(dialect);
   const raw = stripQuotes(name);
   if (fam === 'mysql' || fam === 'mariadb') {
+    // Same escaping as account DDL in user-sql: MySQL treats `\` as an escape
+    // inside string literals, so a name like `al\'ice` would otherwise close
+    // the quote early and turn the rest of the GRANT into free SQL. Double
+    // backslashes before doubling quotes.
+    const quote = (v: string) => `'${v.replace(/\\/g, '\\\\').replace(/'/g, "''")}'`;
     const at = raw.lastIndexOf('@');
     if (at > 0) {
-      const user = raw.slice(0, at).replace(/'/g, "''");
-      const host = raw.slice(at + 1).replace(/'/g, "''");
-      return `'${user}'@'${host}'`;
+      return `${quote(raw.slice(0, at))}@${quote(raw.slice(at + 1))}`;
     }
     return quoteSqlIdentifier(raw, dialect);
   }
