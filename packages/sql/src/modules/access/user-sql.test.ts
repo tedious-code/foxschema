@@ -205,6 +205,21 @@ describe('buildUserSql — alter', () => {
     const out = buildUserSql(req({ action: 'alter', alteration: 'rename' }), 'postgres');
     expect('error' in out).toBe(true);
   });
+
+  it('expire on postgres uses VALID UNTIL', () => {
+    expect(
+      statements(
+        req({ action: 'alter', alteration: 'expire', validUntil: '2027-01-01' }),
+        'postgres'
+      )[0]
+    ).toBe(`ALTER ROLE "report_user" VALID UNTIL '2027-01-01';`);
+  });
+
+  it('expire on mysql uses PASSWORD EXPIRE INTERVAL', () => {
+    expect(
+      statements(req({ action: 'alter', alteration: 'expire', validUntil: '90' }), 'mysql')[0]
+    ).toBe(`ALTER USER 'report_user'@'%' PASSWORD EXPIRE INTERVAL 90 DAY;`);
+  });
 });
 
 describe('buildUserSql — drop', () => {

@@ -116,10 +116,21 @@ function validate(request: PermissionRequest, dialect: string): string | null {
   }
   if (scope.type === 'tables') {
     if (!caps.tableScope) return `${dialect} cannot grant on individual tables.`;
-    // Without it every statement addresses `""."orders"` — an empty identifier
-    // that no engine resolves, and nothing in the SQL says why.
     if (!scope.schema.trim()) return 'Choose the schema these tables live in.';
     if (scope.tables.length === 0) return 'Select at least one table.';
+  }
+  if (scope.type === 'columns') {
+    if (!caps.columnScope) return `${dialect} cannot grant on individual columns.`;
+    if (!scope.schema.trim()) return 'Choose the schema this table lives in.';
+    if (!scope.table.trim()) return 'Enter the table name.';
+    if (scope.columns.length === 0) return 'Select at least one column.';
+  }
+  if (scope.type === 'sequences') {
+    if (!caps.sequenceScope) return `${dialect} cannot grant on sequences.`;
+    if (!scope.schema.trim()) return 'Choose the schema these sequences live in.';
+  }
+  if (request.action === 'deny' && !caps.denyStatements) {
+    return `${dialect} has no DENY statements — use revoke instead.`;
   }
   if (scope.type === 'schema' && !scope.schema.trim()) return 'Choose a schema.';
   if (scope.type === 'database' && !scope.database.trim()) return 'Choose a database.';
@@ -184,6 +195,13 @@ function warnFor(request: PermissionRequest, dialect: string): PermissionWarning
         'Revoking removes only what was granted directly. Access inherited through a role stays until that role changes.',
     });
   }
+  if (request.action === 'deny') {
+    warnings.push({
+      level: 'caution',
+      message:
+        'DENY overrides grants, including through roles. A direct DENY blocks access even when a role would grant it.',
+    });
+  }
   if (!KNOWN_FAMILIES.has(fam)) {
     warnings.push({
       level: 'caution',
@@ -213,8 +231,9 @@ export function buildAccessSql(
     request.principal.type === 'role' ? 'role' : 'user'
   );
   const ident = (n: string) => quoteSqlIdentifier(n, dialect);
-  const verb = request.action === 'grant' ? 'GRANT' : 'REVOKE';
-  const dir = request.action === 'grant' ? 'TO' : 'FROM';
+  const verb =
+    request.action === 'deny' ? 'DENY' : request.action === 'grant' ? 'GRANT' : 'REVOKE';
+  const dir = request.action === 'revoke' ? 'FROM' : 'TO';
   const option = request.action === 'grant' && request.withGrantOption ? ' WITH GRANT OPTION' : '';
 
   const statements: GeneratedStatement[] = [];
@@ -313,7 +332,15 @@ function emitPostgres(ctx: EmitCtx): void {
   }
 
   if (privs.length > 0) {
-    if (scope.type === 'tables') {
+    if (scope.type === 'columns') {
+      const colList = scope.columns.map((c) => ident(c)).join(', ');
+      add(
+        `${verb} ${privs.join(', ')} (${colList}) ON ${ident(schema)}.${ident(scope.table)} ${dir} ${grantee}${option};`,
+        `${describePrivs(privs)} on ${scope.columns.length} column(s) of ${schema}.${scope.table}.`,
+        highestRisk(permissions),
+        tablePerms
+      );
+    } else if (scope.type === 'tables') {
       for (const table of scope.tables) {
         add(
           `${verb} ${privs.join(', ')} ON ${ident(schema)}.${ident(table)} ${dir} ${grantee}${option};`,
@@ -349,6 +376,38 @@ function emitPostgres(ctx: EmitCtx): void {
       highestRisk(permissions),
       tablePerms
     );
+  }
+
+  if (permissions.some((p) => p === 'use-sequence' || (p === 'read' && scope.type === 'sequences'))) {
+    const seqPerms: string[] = [];
+    const seqCovers: AccessPermission[] = [];
+    if (permissions.includes('use-sequence')) {
+      seqPerms.push('USAGE');
+      seqCovers.push('use-sequence');
+    }
+    if (permissions.includes('read') && scope.type === 'sequences') {
+      seqPerms.push('SELECT');
+      seqCovers.push('read');
+    }
+    if (seqPerms.length > 0 && schema) {
+      if (scope.type === 'sequences' && scope.sequences?.length) {
+        for (const seq of scope.sequences) {
+          add(
+            `${verb} ${seqPerms.join(', ')} ON SEQUENCE ${ident(schema)}.${ident(seq)} ${dir} ${grantee}${option};`,
+            `Sequence access on ${schema}.${seq}.`,
+            'low',
+            seqCovers
+          );
+        }
+      } else {
+        add(
+          `${verb} ${seqPerms.join(', ')} ON ALL SEQUENCES IN SCHEMA ${ident(schema)} ${dir} ${grantee}${option};`,
+          `Sequence access on every sequence in ${schema}.`,
+          'low',
+          seqCovers
+        );
+      }
+    }
   }
 
   if (permissions.includes('create-object')) {
@@ -431,6 +490,17 @@ function emitMysql(ctx: EmitCtx): void {
   }
   if (privs.length === 0) return;
 
+  if (scope.type === 'columns') {
+    const colList = scope.columns.map((c) => ident(c)).join(', ');
+    add(
+      `${verb} ${privs.join(', ')} (${colList}) ON ${ident(scope.schema)}.${ident(scope.table)} ${dir} ${grantee}${option};`,
+      `${describePrivs(privs)} on ${scope.columns.length} column(s) of ${scope.schema}.${scope.table}.`,
+      highestRisk(permissions),
+      covers
+    );
+    return;
+  }
+
   if (scope.type === 'tables') {
     for (const table of scope.tables) {
       add(
@@ -488,6 +558,17 @@ function emitSqlServer(ctx: EmitCtx): void {
     );
   }
   if (privs.length === 0) return;
+
+  if (scope.type === 'columns') {
+    const colList = scope.columns.map((c) => ident(c)).join(', ');
+    add(
+      `${verb} ${privs.join(', ')} ON OBJECT::${ident(scope.schema)}.${ident(scope.table)} (${colList}) ${dir} ${grantee}${option};`,
+      `${describePrivs(privs)} on ${scope.columns.length} column(s) of ${scope.schema}.${scope.table}.`,
+      highestRisk(permissions),
+      covers
+    );
+    return;
+  }
 
   if (scope.type === 'tables') {
     for (const table of scope.tables) {
@@ -660,9 +741,11 @@ function describePrivs(privs: readonly string[]): string {
  * flipped and regenerated.
  */
 export function invertAccessRequest(request: PermissionRequest): PermissionRequest {
+  const action: PermissionRequest['action'] =
+    request.action === 'grant' ? 'revoke' : request.action === 'deny' ? 'revoke' : 'grant';
   return {
     ...request,
-    action: request.action === 'grant' ? 'revoke' : 'grant',
+    action,
     // Passing on privileges is not something you revoke *with*; dropping the
     // flag keeps WITH GRANT OPTION out of the REVOKE statements.
     withGrantOption: false,

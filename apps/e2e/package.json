@@ -29,6 +29,8 @@
     "test:sql-editor:column-picker:headed": "HEADLESS=false vitest run --config vitest.config.ts src/tests/sql-editor-column-picker.test.ts",
     "test:sql-editor:utilities:all": "vitest run --config vitest.config.ts src/tests/sql-editor-utilities-dialects.test.ts",
     "test:sql-editor:utilities:all:headed": "HEADLESS=false vitest run --config vitest.config.ts src/tests/sql-editor-utilities-dialects.test.ts",
+    "test:access:all": "vitest run --config vitest.config.ts src/tests/access-assistant-dialects.test.ts",
+    "test:access:all:headed": "HEADLESS=false vitest run --config vitest.config.ts src/tests/access-assistant-dialects.test.ts",
     "test:errors": "vitest run --config vitest.config.ts src/tests/auto-error-catch.test.ts",
     "test:errors:headed": "HEADLESS=false vitest run --config vitest.config.ts src/tests/auto-error-catch.test.ts",
     "test:postgres": "vitest run --config vitest.config.ts src/tests/dialects/postgres.test.ts",

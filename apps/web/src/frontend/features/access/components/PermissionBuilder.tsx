@@ -16,6 +16,7 @@ import {
 } from '../lib/access';
 import { EmptyState, Field, RISK_STYLE, Segmented, inputCls } from './controls';
 import { useSyncStore } from '@/app/store/useSyncStore';
+import type { AccessPrincipalDraft } from '../lib/access-draft';
 
 const PRESET_LABEL: Record<AccessPreset, string> = {
   'read-only': 'Read only',
@@ -33,19 +34,27 @@ const PRESET_LABEL: Record<AccessPreset, string> = {
  * their engine needs. FoxSchema never runs it — the panel is a generator and an
  * explanation, and the database stays the source of truth.
  */
-export const PermissionBuilder: React.FC = () => {
+export const PermissionBuilder: React.FC<{
+  /** Prefill from User Management when the reader continues to grant access. */
+  initialDraft?: AccessPrincipalDraft | null;
+}> = ({ initialDraft = null }) => {
   const connections = useSyncStore((s) => s.connections);
-  const [connectionId, setConnectionId] = useState('');
+  const [connectionId, setConnectionId] = useState(initialDraft?.connectionId ?? '');
   const conn = connections.find((c) => c.id === connectionId) || null;
   const dialect = conn?.dialect ?? '';
 
-  const [principalName, setPrincipalName] = useState('');
-  const [principalType, setPrincipalType] = useState<'user' | 'role'>('user');
-  const [action, setAction] = useState<'grant' | 'revoke'>('grant');
+  const [principalName, setPrincipalName] = useState(initialDraft?.principalName ?? '');
+  const [principalType, setPrincipalType] = useState<'user' | 'role'>(
+    initialDraft?.principalType ?? 'user'
+  );
+  const [action, setAction] = useState<'grant' | 'revoke' | 'deny'>('grant');
   const [scopeType, setScopeType] = useState<AccessScope['type']>('schema');
   const [schema, setSchema] = useState('');
   const [database, setDatabase] = useState('');
   const [tablesText, setTablesText] = useState('');
+  const [tableName, setTableName] = useState('');
+  const [columnsText, setColumnsText] = useState('');
+  const [sequencesText, setSequencesText] = useState('');
   const [permissions, setPermissions] = useState<AccessPermission[]>(
     permissionsForPreset('read-only')
   );
@@ -70,8 +79,24 @@ export const PermissionBuilder: React.FC = () => {
         tables: tablesText.split(/[\n,]/).map((t) => t.trim()).filter(Boolean),
       };
     }
+    if (scopeType === 'columns') {
+      return {
+        type: 'columns',
+        schema,
+        table: tableName,
+        columns: columnsText.split(/[\n,]/).map((c) => c.trim()).filter(Boolean),
+      };
+    }
+    if (scopeType === 'sequences') {
+      const seqs = sequencesText.split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
+      return {
+        type: 'sequences',
+        schema,
+        sequences: seqs.length > 0 ? seqs : undefined,
+      };
+    }
     return { type: 'schema', schema };
-  }, [scopeType, schema, database, tablesText, conn?.database]);
+  }, [scopeType, schema, database, tablesText, tableName, columnsText, sequencesText, conn?.database]);
 
   const request: PermissionRequest = useMemo(
     () => ({
@@ -108,6 +133,7 @@ export const PermissionBuilder: React.FC = () => {
   };
 
   const unsupported = dialect && !supportsAccessBuilder(dialect);
+  const fromUserManagement = Boolean(initialDraft?.principalName);
 
   return (
     <div className="flex-1 flex min-h-0" data-testid="permission-builder">
@@ -120,6 +146,17 @@ export const PermissionBuilder: React.FC = () => {
             applies it for you.
           </p>
         </div>
+
+        {fromUserManagement && (
+          <div
+            data-testid="access-draft-banner"
+            className="rounded-md border border-violet-500/35 bg-violet-500/10 px-3 py-2 text-[11px] text-violet-100"
+          >
+            Continuing from User Management for{' '}
+            <code className="font-mono text-violet-50">{initialDraft!.principalName}</code>. Pick a
+            scope and preset, then copy the GRANT SQL.
+          </div>
+        )}
 
         <Field label="Database">
           <select
@@ -149,10 +186,13 @@ export const PermissionBuilder: React.FC = () => {
             <Field label="Action">
               <Segmented
                 value={action}
-                onChange={(v) => setAction(v as 'grant' | 'revoke')}
+                onChange={(v) => setAction(v as 'grant' | 'revoke' | 'deny')}
                 options={[
                   { value: 'grant', label: 'Grant access' },
                   { value: 'revoke', label: 'Remove access' },
+                  ...(caps.denyStatements
+                    ? [{ value: 'deny', label: 'Deny (override)' }]
+                    : []),
                 ]}
                 testId="access-action"
               />
@@ -208,6 +248,8 @@ export const PermissionBuilder: React.FC = () => {
                   ...(caps.databaseScope ? [{ value: 'database', label: 'Database' }] : []),
                   ...(caps.schemaScope ? [{ value: 'schema', label: 'Schema' }] : []),
                   ...(caps.tableScope ? [{ value: 'tables', label: 'Tables' }] : []),
+                  ...(caps.columnScope ? [{ value: 'columns', label: 'Columns' }] : []),
+                  ...(caps.sequenceScope ? [{ value: 'sequences', label: 'Sequences' }] : []),
                 ]}
                 testId="access-scope"
               />
@@ -237,6 +279,35 @@ export const PermissionBuilder: React.FC = () => {
                     onChange={(e) => setTablesText(e.target.value)}
                     placeholder="orders, customers"
                     rows={3}
+                    className={`${inputCls} font-mono mt-2`}
+                  />
+                )}
+                {scopeType === 'columns' && (
+                  <>
+                    <input
+                      data-testid="access-table"
+                      value={tableName}
+                      onChange={(e) => setTableName(e.target.value)}
+                      placeholder="orders"
+                      className={`${inputCls} font-mono mt-2`}
+                    />
+                    <textarea
+                      data-testid="access-columns"
+                      value={columnsText}
+                      onChange={(e) => setColumnsText(e.target.value)}
+                      placeholder="customer_id, total"
+                      rows={3}
+                      className={`${inputCls} font-mono mt-2`}
+                    />
+                  </>
+                )}
+                {scopeType === 'sequences' && (
+                  <textarea
+                    data-testid="access-sequences"
+                    value={sequencesText}
+                    onChange={(e) => setSequencesText(e.target.value)}
+                    placeholder="Leave empty for all sequences in schema, or list names"
+                    rows={2}
                     className={`${inputCls} font-mono mt-2`}
                   />
                 )}

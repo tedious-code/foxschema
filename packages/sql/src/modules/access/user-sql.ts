@@ -43,7 +43,9 @@ export type UserAlteration =
   /** Refuse new connections without dropping anything. */
   | 'disable'
   /** Allow connections again. */
-  | 'enable';
+  | 'enable'
+  /** Force password change or set account expiry. */
+  | 'expire';
 
 export interface UserRequest {
   action: UserAction;
@@ -54,6 +56,11 @@ export interface UserRequest {
   newName?: string;
   /** For `alter`: which change. Ignored for create and drop. */
   alteration?: UserAlteration;
+  /**
+   * For `alter` + `expire`: ISO date (Postgres VALID UNTIL) or interval like
+   * `90` days for MySQL PASSWORD EXPIRE INTERVAL.
+   */
+  validUntil?: string;
   /**
    * MySQL-family host part, e.g. `%` or `localhost`. A MySQL account is
    * identified by user *and* host, so the wrong host is a different account.
@@ -84,6 +91,8 @@ export interface UserManagementSupport {
   /** True where an account may be disabled instead of dropped. */
   canDisable: boolean;
   canRename: boolean;
+  /** True where password or account expiry can be set in SQL. */
+  canExpire: boolean;
   /** Shown when something is unavailable, so the UI can say why. */
   reason?: string;
 }
@@ -95,6 +104,7 @@ const SUPPORT: Record<string, UserManagementSupport> = {
     canCreateRole: true,
     canDisable: true,
     canRename: true,
+    canExpire: true,
   },
   mysql: {
     supported: true,
@@ -102,6 +112,7 @@ const SUPPORT: Record<string, UserManagementSupport> = {
     canCreateRole: true,
     canDisable: true,
     canRename: true,
+    canExpire: true,
   },
   sqlserver: {
     supported: true,
@@ -109,6 +120,7 @@ const SUPPORT: Record<string, UserManagementSupport> = {
     canCreateRole: true,
     canDisable: true,
     canRename: true,
+    canExpire: true,
   },
   oracle: {
     supported: true,
@@ -116,6 +128,7 @@ const SUPPORT: Record<string, UserManagementSupport> = {
     canCreateRole: true,
     canDisable: true,
     canRename: false,
+    canExpire: true,
   },
   clickhouse: {
     supported: true,
@@ -123,6 +136,7 @@ const SUPPORT: Record<string, UserManagementSupport> = {
     canCreateRole: true,
     canDisable: false,
     canRename: true,
+    canExpire: false,
   },
   // Db2 authenticates against the operating system or an external directory.
   // There is no CREATE USER; an account is made outside the database and then
@@ -133,6 +147,7 @@ const SUPPORT: Record<string, UserManagementSupport> = {
     canCreateRole: true,
     canDisable: false,
     canRename: false,
+    canExpire: false,
     reason:
       'Db2 authenticates against the operating system or a directory service, so there is ' +
       'no CREATE USER. Create the account on the server, then grant it privileges here.',
@@ -145,6 +160,7 @@ const UNSUPPORTED: UserManagementSupport = {
   canCreateRole: false,
   canDisable: false,
   canRename: false,
+  canExpire: false,
   reason: 'This engine has no database accounts to manage.',
 };
 
@@ -423,7 +439,50 @@ export function buildUserSql(
       }
     }
 
-    // disable / enable
+    // disable / enable / expire
+    if (change === 'expire') {
+      if (!isUser) return 'A role has no expiry date.';
+      if (!support.canExpire) {
+        return `${dialect} cannot set account expiry in SQL.`;
+      }
+      switch (family) {
+        case 'mysql': {
+          const days = request.validUntil?.trim();
+          add(
+            days
+              ? `ALTER USER ${account} PASSWORD EXPIRE INTERVAL ${days} DAY;`
+              : `ALTER USER ${account} PASSWORD EXPIRE;`,
+            days
+              ? `Forces ${name} to change password within ${days} days.`
+              : `Forces ${name} to change password on next login.`
+          );
+          return undefined;
+        }
+        case 'sqlserver':
+          add(
+            `ALTER LOGIN ${q(name)} WITH CHECK_EXPIRATION ON;`,
+            `Requires ${name} to change password when it expires. Set expiration on the login separately. Run against master.`
+          );
+          return undefined;
+        case 'oracle':
+          add(
+            `ALTER USER ${q(name)} PASSWORD EXPIRE;`,
+            `Forces ${name} to change password on next login.`
+          );
+          return undefined;
+        default: {
+          const until = request.validUntil?.trim() || 'infinity';
+          add(
+            `ALTER ROLE ${q(name)} VALID UNTIL '${until}';`,
+            until === 'infinity'
+              ? `Removes expiry for ${name}.`
+              : `Refuses connections from ${name} after ${until}.`
+          );
+          return undefined;
+        }
+      }
+    }
+
     if (!support.canDisable) {
       return `${dialect} cannot disable an account. Drop it, or revoke its privileges instead.`;
     }
