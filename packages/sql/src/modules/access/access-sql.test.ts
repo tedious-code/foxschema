@@ -298,8 +298,103 @@ describe('invertAccessRequest', () => {
     const inv = invertAccessRequest(req);
     expect(inv.action).toBe('revoke');
     expect(inv.withGrantOption).toBe(false);
-    // Regenerated, not text-substituted: REVOKE has its own statement shapes.
     expect(sqlOf(ok(inv, 'postgres'))).toMatch(/REVOKE SELECT ON ALL TABLES/);
     expect(sqlOf(ok(inv, 'postgres'))).not.toMatch(/WITH GRANT OPTION/);
+  });
+
+  it('deny inverts to revoke for undo', () => {
+    const req: PermissionRequest = {
+      principal: user,
+      action: 'deny',
+      permissions: ['read'],
+      scope: { type: 'schema', schema: 'reporting' },
+    };
+    expect(invertAccessRequest(req).action).toBe('revoke');
+  });
+});
+
+describe('Phase C — columns, sequences, DENY', () => {
+  it('postgres column read uses parenthesized column list', () => {
+    const r = ok(
+      {
+        principal: user,
+        action: 'grant',
+        permissions: ['read'],
+        scope: { type: 'columns', schema: 'public', table: 'orders', columns: ['id', 'total'] },
+      },
+      'postgres'
+    );
+    expect(sqlOf(r)).toMatch(/GRANT SELECT \("id", "total"\) ON "public"\."orders"/);
+  });
+
+  it('postgres sequence usage on named sequences', () => {
+    const r = ok(
+      {
+        principal: user,
+        action: 'grant',
+        permissions: ['use-sequence'],
+        scope: { type: 'sequences', schema: 'public', sequences: ['orders_id_seq'] },
+      },
+      'postgres'
+    );
+    expect(sqlOf(r)).toMatch(/GRANT USAGE ON SEQUENCE "public"\."orders_id_seq"/);
+  });
+
+  it('mysql column grant', () => {
+    const r = ok(
+      {
+        principal: user,
+        action: 'grant',
+        permissions: ['read', 'update'],
+        scope: { type: 'columns', schema: 'sales', table: 'orders', columns: ['status'] },
+      },
+      'mysql'
+    );
+    expect(sqlOf(r)).toMatch(/GRANT SELECT, UPDATE \(`status`\) ON `sales`\.`orders`/);
+  });
+
+  it('sql server DENY uses DENY … TO', () => {
+    const r = ok(
+      {
+        principal: user,
+        action: 'deny',
+        permissions: ['delete'],
+        scope: { type: 'tables', schema: 'dbo', tables: ['Orders'] },
+      },
+      'sqlserver'
+    );
+    expect(sqlOf(r)).toMatch(/DENY DELETE ON OBJECT::\[dbo\]\.\[Orders\] TO \[report_user\]/);
+  });
+
+  it('sql server column deny', () => {
+    const r = ok(
+      {
+        principal: user,
+        action: 'deny',
+        permissions: ['read'],
+        scope: { type: 'columns', schema: 'dbo', table: 'Orders', columns: ['Salary'] },
+      },
+      'sqlserver'
+    );
+    expect(sqlOf(r)).toMatch(/DENY SELECT ON OBJECT::\[dbo\]\.\[Orders\] \(\[Salary\]\) TO/);
+  });
+
+  it('deny is refused on postgres', () => {
+    const r = buildAccessSql(
+      {
+        principal: user,
+        action: 'deny',
+        permissions: ['read'],
+        scope: { type: 'schema', schema: 'app' },
+      },
+      'postgres'
+    );
+    expect('error' in r && /no DENY/i.test(r.error)).toBe(true);
+  });
+
+  it('column scope is gated by capability', () => {
+    expect(accessCapabilities('postgres').columnScope).toBe(true);
+    expect(accessCapabilities('db2').columnScope).toBe(false);
+    expect(availablePermissions('postgres', 'columns')).toEqual(['read', 'insert', 'update']);
   });
 });

@@ -28,7 +28,8 @@ export type AccessPermission =
   | 'alter-object'
   | 'drop-object'
   | 'execute-function'
-  | 'execute-procedure';
+  | 'execute-procedure'
+  | 'use-sequence';
 
 export const ACCESS_PERMISSIONS: readonly AccessPermission[] = [
   'connect',
@@ -41,6 +42,7 @@ export const ACCESS_PERMISSIONS: readonly AccessPermission[] = [
   'drop-object',
   'execute-function',
   'execute-procedure',
+  'use-sequence',
 ];
 
 export interface AccessPrincipal {
@@ -51,11 +53,13 @@ export interface AccessPrincipal {
 export type AccessScope =
   | { type: 'database'; database: string }
   | { type: 'schema'; database?: string; schema: string }
-  | { type: 'tables'; database?: string; schema: string; tables: string[] };
+  | { type: 'tables'; database?: string; schema: string; tables: string[] }
+  | { type: 'columns'; database?: string; schema: string; table: string; columns: string[] }
+  | { type: 'sequences'; database?: string; schema: string; sequences?: string[] };
 
 export interface PermissionRequest {
   principal: AccessPrincipal;
-  action: 'grant' | 'revoke';
+  action: 'grant' | 'revoke' | 'deny';
   permissions: AccessPermission[];
   scope: AccessScope;
   /**
@@ -85,6 +89,7 @@ export const PERMISSION_RISK: Record<AccessPermission, PermissionRisk> = {
   delete: 'elevated',
   'execute-function': 'elevated',
   'execute-procedure': 'elevated',
+  'use-sequence': 'low',
   'create-object': 'administrative',
   'alter-object': 'administrative',
   'drop-object': 'critical',
@@ -131,6 +136,7 @@ export const PERMISSION_DESCRIPTORS: readonly PermissionDescriptor[] = (
     { permission: 'drop-object', label: 'Drop objects', privilegeHint: 'DROP', description: 'Allows permanently removing objects.' },
     { permission: 'execute-function', label: 'Execute functions', privilegeHint: 'EXECUTE', description: 'Allows running functions.' },
     { permission: 'execute-procedure', label: 'Execute procedures', privilegeHint: 'EXECUTE', description: 'Allows running stored procedures.' },
+    { permission: 'use-sequence', label: 'Use sequences', privilegeHint: 'USAGE/SELECT', description: 'Allows reading sequence values for inserts.' },
   ] as const
 ).map((d) => ({ ...d, risk: PERMISSION_RISK[d.permission] }));
 
@@ -196,6 +202,8 @@ export interface AccessCapabilities {
   databaseScope: boolean;
   schemaScope: boolean;
   tableScope: boolean;
+  columnScope: boolean;
+  sequenceScope: boolean;
   /** Grants that apply to objects created later (Postgres DEFAULT PRIVILEGES). */
   futureObjects: boolean;
   /** Separate CONNECT-style privilege, rather than connection being implicit. */
@@ -204,6 +212,8 @@ export interface AccessCapabilities {
   schemaWideExecute: boolean;
   /** WITH GRANT OPTION (or the engine's equivalent). */
   grantOption: boolean;
+  /** SQL Server DENY statements (explicit deny overrides grants). */
+  denyStatements: boolean;
 }
 
 const CAPABILITIES: Record<string, AccessCapabilities> = {
@@ -211,63 +221,73 @@ const CAPABILITIES: Record<string, AccessCapabilities> = {
     databaseScope: true,
     schemaScope: true,
     tableScope: true,
+    columnScope: true,
+    sequenceScope: true,
     futureObjects: true,
     connectPrivilege: true,
     schemaWideExecute: true,
     grantOption: true,
+    denyStatements: false,
   },
   mysql: {
     databaseScope: true,
-    // MySQL's "database" and "schema" are the same thing, so a separate schema
-    // scope would be a second control for one concept.
     schemaScope: false,
     tableScope: true,
+    columnScope: true,
+    sequenceScope: false,
     futureObjects: false,
-    // Reaching the server is governed by the account itself, not a privilege.
     connectPrivilege: false,
     schemaWideExecute: true,
     grantOption: true,
+    denyStatements: false,
   },
   mariadb: {
     databaseScope: true,
     schemaScope: false,
     tableScope: true,
+    columnScope: true,
+    sequenceScope: false,
     futureObjects: false,
     connectPrivilege: false,
     schemaWideExecute: true,
     grantOption: true,
+    denyStatements: false,
   },
   sqlserver: {
     databaseScope: true,
     schemaScope: true,
     tableScope: true,
-    // No DEFAULT PRIVILEGES equivalent: a schema-level grant already covers
-    // objects added later, which the generator explains rather than silently
-    // ignoring the toggle.
+    columnScope: true,
+    sequenceScope: false,
     futureObjects: false,
     connectPrivilege: true,
     schemaWideExecute: true,
     grantOption: true,
+    denyStatements: true,
   },
   db2: {
     databaseScope: true,
     schemaScope: true,
     tableScope: true,
+    columnScope: false,
+    sequenceScope: false,
     futureObjects: false,
     connectPrivilege: true,
     schemaWideExecute: false,
     grantOption: true,
+    denyStatements: false,
   },
   oracle: {
     databaseScope: true,
-    // Oracle schemas are users; granting "on a schema" is not a thing, so the
-    // builder offers table scope and system privileges instead.
     schemaScope: false,
     tableScope: true,
+    columnScope: true,
+    sequenceScope: false,
     futureObjects: false,
     connectPrivilege: true,
     schemaWideExecute: false,
     grantOption: true,
+    denyStatements: false,
   },
 };
 
@@ -286,10 +306,13 @@ const NO_ACCESS: AccessCapabilities = {
   databaseScope: false,
   schemaScope: false,
   tableScope: false,
+  columnScope: false,
+  sequenceScope: false,
   futureObjects: false,
   connectPrivilege: false,
   schemaWideExecute: false,
   grantOption: false,
+  denyStatements: false,
 };
 
 /**
@@ -306,7 +329,13 @@ export function accessCapabilities(dialect: string): AccessCapabilities {
 
 export function supportsAccessBuilder(dialect: string): boolean {
   const caps = accessCapabilities(dialect);
-  return caps.databaseScope || caps.schemaScope || caps.tableScope;
+  return (
+    caps.databaseScope ||
+    caps.schemaScope ||
+    caps.tableScope ||
+    caps.columnScope ||
+    caps.sequenceScope
+  );
 }
 
 /** Permissions this engine can express at this scope, in display order. */
@@ -315,19 +344,29 @@ export function availablePermissions(
   scopeType: AccessScope['type']
 ): AccessPermission[] {
   const caps = accessCapabilities(dialect);
+  if (scopeType === 'columns') {
+    return ['read', 'insert', 'update'];
+  }
+  if (scopeType === 'sequences') {
+    return ['use-sequence', 'read'];
+  }
   return ACCESS_PERMISSIONS.filter((p) => {
     if (p === 'connect') return caps.connectPrivilege && scopeType === 'database';
-    // Creating and dropping objects is a schema/database concern; offering it
-    // against a chosen table would be meaningless.
+    if (p === 'use-sequence') {
+      return scopeType === 'schema' && caps.sequenceScope;
+    }
     if (p === 'create-object' || p === 'alter-object' || p === 'drop-object') {
       return scopeType !== 'tables';
     }
-    // EXECUTE is offered only where the engine can grant it across a set of
-    // routines. Db2 and Oracle grant it one routine at a time, and offering it
-    // at database scope there produced a checkbox no statement could honour.
     if (p === 'execute-function' || p === 'execute-procedure') {
       return scopeType !== 'tables' && caps.schemaWideExecute;
     }
     return true;
   });
+}
+
+/** One desired grant/revoke/deny the reader wants for a principal. */
+export interface AccessDesiredState {
+  principal: AccessPrincipal;
+  requests: PermissionRequest[];
 }

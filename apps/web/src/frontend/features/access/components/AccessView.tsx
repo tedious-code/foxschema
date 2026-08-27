@@ -1,31 +1,42 @@
+/**
+ * Fox Schema (foxschema)
+ * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Database Access Assistant — accounts and permissions as SQL to review.
+ *
+ * Fox Schema builds and explains SQL; it does not create accounts, hold
+ * credentials, or apply access changes. The database stays the source of truth.
+ */
 import React, { useState } from 'react';
-import { ShieldCheck, SearchCheck, FileBarChart, UserCog } from 'lucide-react';
+import { ShieldCheck, SearchCheck, FileBarChart, UserCog, GitCompare } from 'lucide-react';
 import { PermissionBuilder } from './PermissionBuilder';
 import { PermissionInspector } from './PermissionInspector';
+import { PermissionDiff } from './PermissionDiff';
 import { AccessReport } from './AccessReport';
 import { UserManagement } from './UserManagement';
+import type { AccessPrincipalDraft } from '../lib/access-draft';
 
-export type AccessTab = 'users' | 'builder' | 'inspector' | 'report';
+export type AccessTab = 'users' | 'builder' | 'diff' | 'inspector' | 'report';
 
 // Ordered the way the work runs: make an account, give it access, check what it
 // ended up with, then review everything.
 const TABS: { id: AccessTab; label: string; icon: React.ElementType; ready: boolean }[] = [
   { id: 'users', label: 'User Management', icon: UserCog, ready: true },
   { id: 'builder', label: 'Permission Builder', icon: ShieldCheck, ready: true },
+  { id: 'diff', label: 'Permission Diff', icon: GitCompare, ready: true },
   { id: 'inspector', label: 'Permission Inspector', icon: SearchCheck, ready: true },
   { id: 'report', label: 'Access Report', icon: FileBarChart, ready: true },
 ];
 
-/**
- * Database Access Assistant.
- *
- * Fox Schema builds and explains SQL for accounts and permissions; it is
- * deliberately not an IAM system. It does not create accounts, hold
- * credentials, or apply access changes — the database remains the source of
- * truth, and every tab here ends at SQL you copy and run.
- */
 export const AccessView: React.FC = () => {
-  const [tab, setTab] = useState<AccessTab>('builder');
+  const [tab, setTab] = useState<AccessTab>('users');
+  const [builderDraft, setBuilderDraft] = useState<AccessPrincipalDraft | null>(null);
+
+  const openBuilderWith = (draft: AccessPrincipalDraft) => {
+    setBuilderDraft(draft);
+    setTab('builder');
+  };
 
   return (
     <div className="flex-1 flex flex-col min-h-0" data-testid="access-view">
@@ -53,10 +64,19 @@ export const AccessView: React.FC = () => {
         ))}
       </div>
 
-      {tab === 'users' && <UserManagement />}
-      {tab === 'builder' && <PermissionBuilder />}
+      {tab === 'users' && <UserManagement onGrantAccess={openBuilderWith} />}
+      {tab === 'builder' && (
+        <PermissionBuilder
+          key={
+            builderDraft
+              ? `${builderDraft.connectionId}:${builderDraft.principalType}:${builderDraft.principalName}`
+              : 'builder'
+          }
+          initialDraft={builderDraft}
+        />
+      )}
+      {tab === 'diff' && <PermissionDiff />}
       {tab === 'inspector' && <PermissionInspector />}
-
       {tab === 'report' && <AccessReport />}
     </div>
   );

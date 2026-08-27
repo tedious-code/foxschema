@@ -325,6 +325,7 @@ export {
   type PermissionDescriptor,
   type PermissionRequest,
   type PermissionRisk,
+  type AccessDesiredState,
 } from './modules/access/intent.js';
 export {
   PASSWORD_PLACEHOLDER,
@@ -360,3 +361,10 @@ export {
   type AccessReport,
   type PrincipalAccessRow,
 } from './modules/access/effective.js';
+export {
+  diffAccessDesired,
+  buildAccessReconciliationSql,
+  type AccessDiffEntry,
+  type AccessDiffResult,
+  type AccessDiffStatus,
+} from './modules/access/access-diff.js';

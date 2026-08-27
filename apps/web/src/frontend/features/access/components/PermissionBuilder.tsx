@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { Copy, Check, AlertTriangle, ShieldAlert, Info, RotateCcw } from 'lucide-react';
+import React, { useMemo, useState, useEffect } from 'react';
+import { Copy, Check, AlertTriangle, ShieldAlert, Info, RotateCcw, RefreshCw } from 'lucide-react';
 import {
   availablePermissions,
   accessCapabilities,
@@ -15,7 +15,11 @@ import {
   type PermissionRequest,
 } from '../lib/access';
 import { EmptyState, Field, RISK_STYLE, Segmented, inputCls } from './controls';
+import { Autocomplete } from '@/shared/components/Autocomplete';
+import { ObjectPicker } from './ObjectPicker';
+import { useAccessCatalog } from '../lib/useAccessCatalog';
 import { useSyncStore } from '@/app/store/useSyncStore';
+import type { AccessPrincipalDraft } from '../lib/access-draft';
 
 const PRESET_LABEL: Record<AccessPreset, string> = {
   'read-only': 'Read only',
@@ -33,19 +37,27 @@ const PRESET_LABEL: Record<AccessPreset, string> = {
  * their engine needs. FoxSchema never runs it — the panel is a generator and an
  * explanation, and the database stays the source of truth.
  */
-export const PermissionBuilder: React.FC = () => {
+export const PermissionBuilder: React.FC<{
+  /** Prefill from User Management when the reader continues to grant access. */
+  initialDraft?: AccessPrincipalDraft | null;
+}> = ({ initialDraft = null }) => {
   const connections = useSyncStore((s) => s.connections);
-  const [connectionId, setConnectionId] = useState('');
+  const [connectionId, setConnectionId] = useState(initialDraft?.connectionId ?? '');
   const conn = connections.find((c) => c.id === connectionId) || null;
   const dialect = conn?.dialect ?? '';
 
-  const [principalName, setPrincipalName] = useState('');
-  const [principalType, setPrincipalType] = useState<'user' | 'role'>('user');
-  const [action, setAction] = useState<'grant' | 'revoke'>('grant');
+  const [principalName, setPrincipalName] = useState(initialDraft?.principalName ?? '');
+  const [principalType, setPrincipalType] = useState<'user' | 'role'>(
+    initialDraft?.principalType ?? 'user'
+  );
+  const [action, setAction] = useState<'grant' | 'revoke' | 'deny'>('grant');
   const [scopeType, setScopeType] = useState<AccessScope['type']>('schema');
-  const [schema, setSchema] = useState('');
+  const [schema, setSchema] = useState(initialDraft ? conn?.schema ?? '' : '');
   const [database, setDatabase] = useState('');
-  const [tablesText, setTablesText] = useState('');
+  const [selectedTables, setSelectedTables] = useState<string[]>([]);
+  const [tableName, setTableName] = useState('');
+  const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
+  const [sequencesText, setSequencesText] = useState('');
   const [permissions, setPermissions] = useState<AccessPermission[]>(
     permissionsForPreset('read-only')
   );
@@ -55,11 +67,34 @@ export const PermissionBuilder: React.FC = () => {
   const [showRevoke, setShowRevoke] = useState(false);
 
   const caps = useMemo(() => accessCapabilities(dialect), [dialect]);
+  const catalog = useAccessCatalog(connectionId, conn);
+  const principalOptions = useMemo(
+    () =>
+      catalog.principalOptions.filter((o) => {
+        const p = catalog.principals.find((x) => x.name === o.value);
+        if (!p) return true;
+        return principalType === 'user' ? p.kind === 'user' : p.kind !== 'user';
+      }),
+    [catalog.principalOptions, catalog.principals, principalType]
+  );
+  const tableChoices = useMemo(
+    () => catalog.tablesInSchema(schema),
+    [catalog, schema]
+  );
+  const columnChoices = useMemo(
+    () => catalog.columnsInTable(schema, tableName),
+    [catalog, schema, tableName]
+  );
   const offered = useMemo(
     () => availablePermissions(dialect, scopeType),
     [dialect, scopeType]
   );
   const preset = presetForPermissions(permissions);
+
+  useEffect(() => {
+    if (conn?.schema && !schema) setSchema(conn.schema);
+    if (conn?.database && !database) setDatabase(conn.database);
+  }, [conn?.schema, conn?.database, schema, database]);
 
   const scope: AccessScope = useMemo(() => {
     if (scopeType === 'database') return { type: 'database', database: database || conn?.database || '' };
@@ -67,11 +102,27 @@ export const PermissionBuilder: React.FC = () => {
       return {
         type: 'tables',
         schema,
-        tables: tablesText.split(/[\n,]/).map((t) => t.trim()).filter(Boolean),
+        tables: selectedTables,
+      };
+    }
+    if (scopeType === 'columns') {
+      return {
+        type: 'columns',
+        schema,
+        table: tableName,
+        columns: selectedColumns,
+      };
+    }
+    if (scopeType === 'sequences') {
+      const seqs = sequencesText.split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
+      return {
+        type: 'sequences',
+        schema,
+        sequences: seqs.length > 0 ? seqs : undefined,
       };
     }
     return { type: 'schema', schema };
-  }, [scopeType, schema, database, tablesText, conn?.database]);
+  }, [scopeType, schema, database, selectedTables, tableName, selectedColumns, sequencesText, conn?.database]);
 
   const request: PermissionRequest = useMemo(
     () => ({
@@ -108,6 +159,7 @@ export const PermissionBuilder: React.FC = () => {
   };
 
   const unsupported = dialect && !supportsAccessBuilder(dialect);
+  const fromUserManagement = Boolean(initialDraft?.principalName);
 
   return (
     <div className="flex-1 flex min-h-0" data-testid="permission-builder">
@@ -120,6 +172,17 @@ export const PermissionBuilder: React.FC = () => {
             applies it for you.
           </p>
         </div>
+
+        {fromUserManagement && (
+          <div
+            data-testid="access-draft-banner"
+            className="rounded-md border border-violet-500/35 bg-violet-500/10 px-3 py-2 text-[11px] text-violet-100"
+          >
+            Continuing from User Management for{' '}
+            <code className="font-mono text-violet-50">{initialDraft!.principalName}</code>. Pick a
+            scope and preset, then copy the GRANT SQL.
+          </div>
+        )}
 
         <Field label="Database">
           <select
@@ -149,10 +212,13 @@ export const PermissionBuilder: React.FC = () => {
             <Field label="Action">
               <Segmented
                 value={action}
-                onChange={(v) => setAction(v as 'grant' | 'revoke')}
+                onChange={(v) => setAction(v as 'grant' | 'revoke' | 'deny')}
                 options={[
                   { value: 'grant', label: 'Grant access' },
                   { value: 'revoke', label: 'Remove access' },
+                  ...(caps.denyStatements
+                    ? [{ value: 'deny', label: 'Deny (override)' }]
+                    : []),
                 ]}
                 testId="access-action"
               />
@@ -169,14 +235,19 @@ export const PermissionBuilder: React.FC = () => {
                   ]}
                   testId="access-principal-type"
                 />
-                <input
+                <Autocomplete
                   data-testid="access-principal-name"
+                  theme="slate"
                   value={principalName}
-                  onChange={(e) => setPrincipalName(e.target.value)}
+                  onChange={setPrincipalName}
+                  options={principalOptions}
                   placeholder={principalType === 'user' ? 'report_user' : 'reporting_reader'}
                   className={`${inputCls} flex-1 font-mono`}
                 />
               </div>
+              {catalog.loadingPrincipals && (
+                <p className="mt-1 text-[10px] text-slate-500">Loading users and roles…</p>
+              )}
             </Field>
 
             <Field label="What should they be able to do?">
@@ -208,36 +279,98 @@ export const PermissionBuilder: React.FC = () => {
                   ...(caps.databaseScope ? [{ value: 'database', label: 'Database' }] : []),
                   ...(caps.schemaScope ? [{ value: 'schema', label: 'Schema' }] : []),
                   ...(caps.tableScope ? [{ value: 'tables', label: 'Tables' }] : []),
+                  ...(caps.columnScope ? [{ value: 'columns', label: 'Columns' }] : []),
+                  ...(caps.sequenceScope ? [{ value: 'sequences', label: 'Sequences' }] : []),
                 ]}
                 testId="access-scope"
               />
-              <div className="mt-2">
+              <div className="mt-2 flex flex-col gap-2">
+                {(scopeType === 'tables' || scopeType === 'columns') && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      data-testid="access-load-objects"
+                      disabled={!connectionId || catalog.loadingTables}
+                      onClick={() => void catalog.loadTables()}
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-slate-700 text-[10px] font-semibold text-slate-300 disabled:opacity-40"
+                    >
+                      <RefreshCw
+                        className={`w-3 h-3 ${catalog.loadingTables ? 'animate-spin' : ''}`}
+                      />
+                      {catalog.tablesReady ? 'Refresh tables' : 'Load tables'}
+                    </button>
+                    {!catalog.tablesReady && (
+                      <span className="text-[10px] text-slate-500">
+                        Pick tables/columns from the schema cache.
+                      </span>
+                    )}
+                  </div>
+                )}
                 {scopeType === 'database' && (
-                  <input
+                  <Autocomplete
                     data-testid="access-database"
-                    value={database}
-                    onChange={(e) => setDatabase(e.target.value)}
+                    theme="slate"
+                    value={database || conn?.database || ''}
+                    onChange={setDatabase}
+                    options={catalog.databaseOptions}
                     placeholder={conn?.database || 'database name'}
                     className={`${inputCls} font-mono`}
                   />
                 )}
                 {scopeType !== 'database' && (
-                  <input
+                  <Autocomplete
                     data-testid="access-schema"
+                    theme="slate"
                     value={schema}
-                    onChange={(e) => setSchema(e.target.value)}
+                    onChange={setSchema}
+                    options={catalog.schemaOptions}
                     placeholder={conn?.schema || 'schema name'}
                     className={`${inputCls} font-mono`}
                   />
                 )}
                 {scopeType === 'tables' && (
+                  <ObjectPicker
+                    testId="access-tables"
+                    label="Tables"
+                    items={tableChoices}
+                    selected={selectedTables}
+                    onChange={setSelectedTables}
+                    emptyHint="Choose a schema and load tables, or type a schema name first."
+                  />
+                )}
+                {scopeType === 'columns' && (
+                  <>
+                    <Autocomplete
+                      data-testid="access-table"
+                      theme="slate"
+                      value={tableName}
+                      onChange={setTableName}
+                      options={tableChoices.map((t) => ({ value: t }))}
+                      placeholder="orders"
+                      className={`${inputCls} font-mono`}
+                    />
+                    <ObjectPicker
+                      testId="access-columns"
+                      label="Columns"
+                      items={columnChoices}
+                      selected={selectedColumns}
+                      onChange={setSelectedColumns}
+                      emptyHint={
+                        tableName
+                          ? 'No columns in cache for this table.'
+                          : 'Pick a table first.'
+                      }
+                    />
+                  </>
+                )}
+                {scopeType === 'sequences' && (
                   <textarea
-                    data-testid="access-tables"
-                    value={tablesText}
-                    onChange={(e) => setTablesText(e.target.value)}
-                    placeholder="orders, customers"
-                    rows={3}
-                    className={`${inputCls} font-mono mt-2`}
+                    data-testid="access-sequences"
+                    value={sequencesText}
+                    onChange={(e) => setSequencesText(e.target.value)}
+                    placeholder="Leave empty for all sequences in schema, or list names"
+                    rows={2}
+                    className={`${inputCls} font-mono`}
                   />
                 )}
               </div>
