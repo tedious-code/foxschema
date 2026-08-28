@@ -120,10 +120,45 @@ describe('buildAccessReconciliationSql', () => {
     }
   });
 
-  it('treats per-table catalog rows as covering a schema-wide desired grant', () => {
-    // Engines expand GRANT … ON ALL TABLES into table ACL rows. Without this,
-    // Diff marks the schema grant missing and every table SELECT extra, and
-    // reconciliation GRANT+REVOKE strips the access the user wanted to keep.
+  it('does not treat a single table ACL as a completed schema-wide grant', () => {
+    // One table SELECT must not mark schema-wide read/write as matched —
+    // reconciliation would otherwise emit nothing while most tables stay locked.
+    const desired: AccessDesiredState = {
+      principal: { type: 'user', name: 'alice' },
+      requests: [
+        {
+          principal: { type: 'user', name: 'alice' },
+          action: 'grant',
+          permissions: ['read', 'insert', 'update', 'delete'],
+          scope: { type: 'schema', schema: 'public' },
+        },
+      ],
+    };
+    const catalog: DbPrivilege[] = [
+      priv({
+        grantee: 'alice',
+        privilege: 'SELECT',
+        objectSchema: 'public',
+        objectName: 'orders',
+      }),
+    ];
+    const diff = diffAccessDesired(desired, catalog);
+    expect(diff.summary.missing).toBeGreaterThan(0);
+    expect(diff.summary.match).toBe(0);
+    // Existing table ACLs covered by the schema desire are not "extra".
+    expect(diff.summary.extra).toBe(0);
+    const sql = buildAccessReconciliationSql(diff, 'postgres');
+    expect('error' in sql).toBe(false);
+    if (!('error' in sql)) {
+      expect(sql.statements.some((s) => /GRANT/i.test(s.sql))).toBe(true);
+      expect(sql.statements.every((s) => !/REVOKE/i.test(s.sql))).toBe(true);
+    }
+  });
+
+  it('suppresses per-table extras under a schema-wide desire without false match', () => {
+    // Engines expand GRANT … ON ALL TABLES into table ACL rows. Those rows
+    // must not become REVOKE targets, but sparse/complete table coverage still
+    // cannot prove the schema desire is done — keep it missing so GRANT runs.
     const desired: AccessDesiredState = {
       principal: { type: 'user', name: 'alice' },
       requests: [
@@ -150,11 +185,13 @@ describe('buildAccessReconciliationSql', () => {
       }),
     ];
     const diff = diffAccessDesired(desired, catalog);
-    expect(diff.summary.missing).toBe(0);
     expect(diff.summary.extra).toBe(0);
-    expect(diff.summary.match).toBeGreaterThan(0);
+    expect(diff.summary.missing).toBeGreaterThan(0);
     const sql = buildAccessReconciliationSql(diff, 'postgres');
-    expect('error' in sql).toBe(true);
-    if ('error' in sql) expect(sql.error).toMatch(/matches the catalog/i);
+    expect('error' in sql).toBe(false);
+    if (!('error' in sql)) {
+      expect(sql.statements.some((s) => /GRANT/i.test(s.sql))).toBe(true);
+      expect(sql.statements.every((s) => !/REVOKE/i.test(s.sql))).toBe(true);
+    }
   });
 });

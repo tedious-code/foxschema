@@ -127,10 +127,11 @@ function requestKeys(req: PermissionRequest): string[] {
 
 /**
  * Postgres (and MySQL) store `GRANT … ON ALL TABLES IN SCHEMA` as per-table
- * ACL rows, not a SCHEMA catalog entry. A schema-scoped desired grant therefore
- * covers every live TABLE privilege of the same kind in that schema — otherwise
- * Diff marks the schema grant missing and every table row extra, and
- * reconciliation GRANT+REVOKE wipes the access the user asked to keep.
+ * ACL rows, not a SCHEMA catalog entry. Those table rows must not be treated
+ * as "extra" when the desired state is schema-wide — otherwise reconciliation
+ * GRANT+REVOKE wipes the access the user asked to keep. (Schema desire itself
+ * stays "missing" without a SCHEMA catalog row; sparse table ACLs must not
+ * count as a completed schema grant.)
  */
 function schemaDesireCoversTable(req: PermissionRequest, priv: DbPrivilege): boolean {
   if (req.action === 'revoke' || req.action === 'deny') return false;
@@ -180,19 +181,15 @@ export function diffAccessDesired(
           request: matched ? undefined : req,
           current: live,
         });
-      } else if (
-        req.scope.type === 'schema' &&
-        current.some((p) => schemaDesireCoversTable(req, p) && p.state !== 'deny')
-      ) {
-        // Catalog has the privilege as table ACLs — the schema intent is live.
-        entries.push({
-          status: 'match',
-          label: requestLabel(req),
-          request: undefined,
-        });
       } else {
+        // Do not treat sparse table ACLs as a completed schema-wide grant.
+        // Engines expand GRANT … ON ALL TABLES into per-table rows, but a
+        // single table SELECT cannot prove every table (or every privilege)
+        // is covered — claiming "match" hid missing GRANTs. Keep the desire
+        // missing so reconciliation can emit the schema grant; extras from
+        // covered table rows are still suppressed below.
         entries.push({
-          status: req.action === 'deny' ? 'missing' : 'missing',
+          status: 'missing',
           label: requestLabel(req),
           request: req,
         });

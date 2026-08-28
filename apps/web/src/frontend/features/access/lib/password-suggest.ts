@@ -8,11 +8,24 @@ export function generateSuggestedPassword(length = 20): string {
   return Array.from(bytes, (b) => chars[b % chars.length]).join('');
 }
 
-/** Substitute placeholder for clipboard copy only; preview SQL stays unchanged. */
+/**
+ * Substitute placeholder for clipboard copy only; preview SQL stays unchanged.
+ *
+ * Only replace the placeholder inside quotes — the form account DDL emits —
+ * so a principal whose name literally contains `<password>` is not rewritten.
+ */
 export function sqlWithPasswordSubstitute(sql: string, password: string): string {
-  return sql.split(PASSWORD_PLACEHOLDER).join(password);
+  const single = `'${PASSWORD_PLACEHOLDER}'`;
+  const double = `"${PASSWORD_PLACEHOLDER}"`;
+  // Generated passwords never include quotes; still escape so a future charset
+  // change cannot break out of the string literal.
+  const singlePw = `'${password.replace(/'/g, "''")}'`;
+  const doublePw = `"${password.replace(/"/g, '""')}"`;
+  return sql.split(single).join(singlePw).split(double).join(doublePw);
 }
 
 export function sqlNeedsPassword(sql: string): boolean {
-  return sql.includes(PASSWORD_PLACEHOLDER);
+  return (
+    sql.includes(`'${PASSWORD_PLACEHOLDER}'`) || sql.includes(`"${PASSWORD_PLACEHOLDER}"`)
+  );
 }
