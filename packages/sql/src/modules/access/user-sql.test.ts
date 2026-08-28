@@ -200,6 +200,9 @@ describe('buildUserSql — alter', () => {
     expect(statements(req({ action: 'alter', alteration: 'password' }), 'postgres')[0]).toBe(
       `ALTER ROLE "report_user" WITH PASSWORD '${PASSWORD_PLACEHOLDER}';`
     );
+    expect(statements(req({ action: 'alter', alteration: 'password' }), 'redshift')[0]).toBe(
+      `ALTER USER "report_user" PASSWORD '${PASSWORD_PLACEHOLDER}';`
+    );
   });
 
   it('refuses a password on a role', () => {
@@ -220,8 +223,14 @@ describe('buildUserSql — alter', () => {
     expect(statements(req({ action: 'alter', alteration: 'disable' }), 'sqlserver')[0]).toBe(
       'ALTER LOGIN [report_user] DISABLE;'
     );
+    expect(statements(req({ action: 'alter', alteration: 'disable' }), 'redshift')[0]).toBe(
+      'ALTER USER "report_user" NOLOGIN;'
+    );
     expect(statements(req({ action: 'alter', alteration: 'enable' }), 'oracle')[0]).toBe(
       'ALTER USER "report_user" ACCOUNT UNLOCK;'
+    );
+    expect(statements(req({ action: 'alter', alteration: 'enable' }), 'redshift')[0]).toBe(
+      `ALTER USER "report_user" LOGIN PASSWORD '${PASSWORD_PLACEHOLDER}';`
     );
   });
 
@@ -232,12 +241,27 @@ describe('buildUserSql — alter', () => {
     expect(
       statements(req({ action: 'alter', alteration: 'rename', newName: 'rpt' }), 'postgres')[0]
     ).toBe('ALTER USER "report_user" RENAME TO "rpt";');
+    expect(
+      statements(req({ action: 'alter', alteration: 'rename', newName: 'rpt' }), 'redshift')[0]
+    ).toBe('ALTER USER "report_user" RENAME TO "rpt";');
 
     const oracle = buildUserSql(
       req({ action: 'alter', alteration: 'rename', newName: 'RPT' }),
       'oracle'
     );
     expect('error' in oracle).toBe(true);
+
+    const redshiftGroup = buildUserSql(
+      req({
+        action: 'alter',
+        alteration: 'rename',
+        newName: 'other',
+        principalType: 'role',
+        name: 'analysts',
+      }),
+      'redshift'
+    );
+    expect('error' in redshiftGroup).toBe(true);
   });
 
   it('needs the new name before it will rename', () => {
@@ -252,6 +276,17 @@ describe('buildUserSql — alter', () => {
         'postgres'
       )[0]
     ).toBe(`ALTER ROLE "report_user" VALID UNTIL '2027-01-01';`);
+  });
+
+  it('expire on redshift uses ALTER USER PASSWORD … VALID UNTIL', () => {
+    expect(
+      statements(
+        req({ action: 'alter', alteration: 'expire', validUntil: '2027-01-01' }),
+        'redshift'
+      )[0]
+    ).toBe(
+      `ALTER USER "report_user" PASSWORD '${PASSWORD_PLACEHOLDER}' VALID UNTIL '2027-01-01';`
+    );
   });
 
   it('expire on postgres escapes quotes in VALID UNTIL', () => {
@@ -277,11 +312,13 @@ describe('buildUserSql — alter', () => {
 });
 
 describe('buildUserSql — drop', () => {
-  it('drops both objects on SQL Server', () => {
+  it('drops the database user on SQL Server without guessing the login name', () => {
     expect(statements(req({ action: 'drop' }), 'sqlserver')).toEqual([
       'DROP USER [report_user];',
-      'DROP LOGIN [report_user];',
     ]);
+    const out = buildUserSql(req({ action: 'drop' }), 'sqlserver');
+    if ('error' in out) throw new Error(out.error);
+    expect(out.warnings.some((w) => /login/i.test(w.message))).toBe(true);
   });
 
   it('makes Oracle CASCADE an explicit choice', () => {

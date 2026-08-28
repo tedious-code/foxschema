@@ -3,7 +3,7 @@
  * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
  * SPDX-License-Identifier: Apache-2.0
  *
- * Redshift account DDL — GROUP instead of ROLE; CREATE USER … PASSWORD.
+ * Redshift account DDL — GROUP instead of ROLE; CREATE/ALTER USER … PASSWORD.
  */
 import {
   PASSWORD_PLACEHOLDER,
@@ -54,7 +54,6 @@ export const redshiftUserSql: UserSqlDialect = {
       return finish();
     }
 
-    // Alter paths historically followed the Postgres ROLE shape (family was postgres).
     const failed = buildAlter(request, dialect, name, isUser, support, add, q);
     if (failed) return { error: failed };
     return finish();
@@ -78,35 +77,39 @@ function buildAlter(
     if (!support.canRename) {
       return `${dialect} cannot rename an account. Create the new one and drop the old.`;
     }
-    const keyword = isUser ? 'USER' : 'ROLE';
+    if (!isUser) {
+      return 'Redshift cannot rename a group. Create the new group and drop the old one.';
+    }
     add(
-      `ALTER ${keyword} ${q(name)} RENAME TO ${q(next)};`,
+      `ALTER USER ${q(name)} RENAME TO ${q(next)};`,
       `Renames ${name} to ${next}. Privileges follow the account.`
     );
     return undefined;
   }
 
   if (change === 'password') {
-    if (!isUser) return 'A role has no password.';
+    if (!isUser) return 'A group has no password.';
+    // Redshift has no ALTER ROLE — password changes are ALTER USER … PASSWORD.
     add(
-      `ALTER ROLE ${q(name)} WITH PASSWORD '${PASSWORD_PLACEHOLDER}';`,
+      `ALTER USER ${q(name)} PASSWORD '${PASSWORD_PLACEHOLDER}';`,
       `Sets a new password for ${name}.`
     );
     return undefined;
   }
 
   if (change === 'expire') {
-    if (!isUser) return 'A role has no expiry date.';
+    if (!isUser) return 'A group has no expiry date.';
     if (!support.canExpire) {
       return `${dialect} cannot set account expiry in SQL.`;
     }
     const until = request.validUntil?.trim() || 'infinity';
     const untilLiteral = until.replace(/'/g, "''");
+    // VALID UNTIL is a PASSWORD option on Redshift — set both together.
     add(
-      `ALTER ROLE ${q(name)} VALID UNTIL '${untilLiteral}';`,
+      `ALTER USER ${q(name)} PASSWORD '${PASSWORD_PLACEHOLDER}' VALID UNTIL '${untilLiteral}';`,
       until === 'infinity'
-        ? `Removes expiry for ${name}.`
-        : `Refuses connections from ${name} after ${until}.`
+        ? `Sets a new password for ${name} with no expiry.`
+        : `Sets a new password for ${name} that stops working after ${until}.`
     );
     return undefined;
   }
@@ -114,12 +117,18 @@ function buildAlter(
   if (!support.canDisable) {
     return `${dialect} cannot disable an account. Drop it, or revoke its privileges instead.`;
   }
+  if (!isUser) return 'A group cannot be disabled; drop it or revoke its privileges instead.';
   const disabling = change === 'disable';
-  add(
-    `ALTER ROLE ${q(name)} ${disabling ? 'NOLOGIN' : 'LOGIN'};`,
-    disabling
-      ? `Refuses new connections from ${name}. Existing sessions continue until they end.`
-      : `Lets ${name} connect again.`
-  );
+  if (disabling) {
+    add(
+      `ALTER USER ${q(name)} NOLOGIN;`,
+      `Refuses new connections from ${name}.`
+    );
+  } else {
+    add(
+      `ALTER USER ${q(name)} LOGIN PASSWORD '${PASSWORD_PLACEHOLDER}';`,
+      `Lets ${name} connect again. Set a password when re-enabling login.`
+    );
+  }
   return undefined;
 }
