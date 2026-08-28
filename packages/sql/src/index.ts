@@ -347,6 +347,9 @@ export {
   type GeneratedPermissionSql,
   type GeneratedStatement,
   type PermissionWarning,
+  type AccessSqlDialect,
+  ACCESS_SQL_MAP,
+  resolveAccessSql,
 } from './modules/access/access-sql.js';
 export {
   permissionsForPrivilege,

@@ -7,7 +7,7 @@
  * {@link UserSqlDialect}; the facade in `user-sql.ts` dispatches to them.
  */
 import type { PermissionRisk } from './intent.js';
-import type { GeneratedStatement, PermissionWarning } from './access-sql.js';
+import type { GeneratedStatement, PermissionWarning } from './access-sql.types.js';
 
 /** What the caller is operating on. */
 export type PrincipalType = 'user' | 'role';

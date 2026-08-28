@@ -38,7 +38,7 @@ enforce this. The frontend must never import `@foxschema/db` or
 
 ```
 interfaces/  The shared vocabulary: TableSchema, TableDiff, MigrationStep.
-providers/   One folder per dialect — its settings and its SqlDialect.
+providers/   One folder per dialect — settings, SqlDialect, and Access SQL (`*.user-sql.ts`, `*.access-sql.ts`).
 cores/       Connection strings, and shaping catalog rows into TableSchema.
 modules/     One folder per domain, named to match the frontend feature
              that consumes it.
@@ -52,7 +52,7 @@ modules/     One folder per domain, named to match the frontend feature
 | `migrations` | Generating DDL, ordering drops, validating a plan |
 | `lokee-weave` | Content-addressed schema versioning and revert |
 | `sql-editor` | FoxScript parsing, code cells, SELECT aliasing, the SQL subset |
-| `access` | Permission intent, effective access, GRANT/REVOKE and account DDL |
+| `access` | Permission intent, effective access, GRANT/REVOKE and account DDL (facades; emitters live in `providers/<dialect>`) |
 | `utilities` | DBA queries: server insights, index fragmentation |
 
 `dialect` and `sql-text` are the foundations: the other folders build on
@@ -154,7 +154,7 @@ Imports may run `app → features → shared`, never `shared → features`.
 | New screen or panel | `apps/web/src/frontend/features/<domain>/` |
 | Reusable UI or helper | `apps/web/src/frontend/shared/` |
 | Calling an API endpoint | use `api` from `@/shared/api/client` — never `fetch` directly |
-| SQL for permissions or accounts | `packages/sql/src/modules/access/` (facade) + `packages/sql/src/providers/<dialect>/*.user-sql.ts` |
+| SQL for permissions or accounts | `packages/sql/src/modules/access/` (facade) + `packages/sql/src/providers/<dialect>/*.user-sql.ts` / `*.access-sql.ts` |
 | A dialect capability the app must branch on | `packages/sql/src/modules/dialect/` |
 | Guard or cross-cutting HTTP concern | `packages/server/src/platform/` |
 
