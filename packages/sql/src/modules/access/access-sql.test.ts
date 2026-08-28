@@ -426,3 +426,37 @@ describe('Phase C — columns, sequences, DENY', () => {
     expect(availablePermissions('postgres', 'columns')).toEqual(['read', 'insert', 'update']);
   });
 });
+
+describe('access-sql registry', () => {
+  it('aliases azuresql to sqlserver grant shape', () => {
+    const req: PermissionRequest = {
+      principal: user,
+      action: 'grant',
+      permissions: ['read'],
+      scope: { type: 'tables', schema: 'dbo', tables: ['Orders'] },
+    };
+    expect(sqlOf(ok(req, 'azuresql'))).toBe(sqlOf(ok(req, 'sqlserver')));
+  });
+
+  it('aliases mariadb and tidb to mysql grant shape', () => {
+    const req: PermissionRequest = {
+      principal: user,
+      action: 'grant',
+      permissions: ['read'],
+      scope: { type: 'tables', schema: 'sales', tables: ['orders'] },
+    };
+    expect(sqlOf(ok(req, 'mariadb'))).toBe(sqlOf(ok(req, 'mysql')));
+    expect(sqlOf(ok(req, 'tidb'))).toBe(sqlOf(ok(req, 'mysql')));
+  });
+
+  it('aliases cockroachdb and yugabytedb to postgres grant shape', () => {
+    const req: PermissionRequest = {
+      principal: user,
+      action: 'grant',
+      permissions: ['read'],
+      scope: { type: 'schema', schema: 'reporting' },
+    };
+    expect(sqlOf(ok(req, 'cockroachdb'))).toBe(sqlOf(ok(req, 'postgres')));
+    expect(sqlOf(ok(req, 'yugabytedb'))).toBe(sqlOf(ok(req, 'postgres')));
+  });
+});

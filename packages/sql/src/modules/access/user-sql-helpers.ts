@@ -6,7 +6,7 @@
  * Shared helpers for per-dialect account DDL (`*.user-sql.ts`).
  */
 import type { PermissionRisk } from './intent.js';
-import type { GeneratedStatement, PermissionWarning } from './access-sql.js';
+import type { GeneratedStatement, PermissionWarning } from './access-sql.types.js';
 import { quoteSqlIdentifier } from '../sql-text/sql-template.js';
 import {
   PASSWORD_PLACEHOLDER,

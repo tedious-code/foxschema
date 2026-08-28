@@ -125,9 +125,11 @@ Plus `<d>.sql-dialect.ts` implementing `SqlDialect` — registered in `modules/d
 Account DDL (CREATE/ALTER/DROP USER|ROLE) is a sibling strategy, not on `SqlDialect`:
 `<d>.user-sql.ts` implementing `UserSqlDialect`, registered in
 `modules/access/user-sql.registry.ts`. Aliases re-export (e.g. Azure→SQL Server,
-TiDB→MySQL); Redshift has its own module (GROUP, not ROLE). This stays in
+TiDB→MySQL); Redshift has its own module (GROUP, not ROLE). GRANT/REVOKE is the
+same pattern: `<d>.access-sql.ts` / `modules/access/access-sql.registry.ts`
+(Redshift reuses Postgres GRANT; account DDL stays separate). Both stay in
 `@foxschema/sql` so the browser Access Assistant can generate SQL — do not put
-account emitters in `@foxschema/db` (Node drivers only).
+these emitters in `@foxschema/db` (Node drivers only).
 
 The `SqlDialect` interface has optional hooks; the generator uses a generic fallback when a
 hook is absent. Adding dialect-specific behavior = implement the hook in that dialect's file
@@ -157,7 +159,7 @@ backend and streams results back via SSE.
 
 1. Create the dialect files in `packages/sql/src/providers/<name>/` and the driver files in `packages/db/src/providers/<name>/`
 2. Register in `provider-settings.ts`, `adapter-registry.ts`, `provider-registry.ts`, `modules/dialect/registry.ts`
-   (and `modules/access/user-sql.registry.ts` when the engine has account DDL)
+   (and `modules/access/user-sql.registry.ts` / `modules/access/access-sql.registry.ts` when the engine has account or GRANT SQL)
 3. Also update `apps/web/src/frontend/lib/provider-settings.ts` (frontend copy)
 4. Add `parseType`/`renderType` round-trip tests in `type-mapping.test.ts`
 5. Verify each optional hook against real DDL — the generic fallbacks are often wrong for DROP INDEX/TRIGGER/FK
