@@ -61,12 +61,16 @@ export const sqlServerUserSql: UserSqlDialect = {
     if (request.action === 'drop') {
       const risk: PermissionRisk = 'administrative';
       if (isUser) {
+        // Catalog lists database users only. Login names often differ
+        // (`CREATE USER app FOR LOGIN corp_app`), so auto-emitting
+        // `DROP LOGIN [app]` can delete an unrelated server login.
         add(`DROP USER ${q(name)};`, `Removes ${name} from this database.`, risk);
-        add(
-          `DROP LOGIN ${q(name)};`,
-          `Removes the server login ${name}. Run against master, and only if no other database uses it.`,
-          risk
-        );
+        warnings.push({
+          level: 'caution',
+          message:
+            `Only the database user is dropped. If a server login should go too, drop it ` +
+            `explicitly against master after confirming its name (it may differ from ${name}).`,
+        });
       } else {
         add(
           `DROP ROLE ${q(name)};`,
@@ -109,9 +113,12 @@ function buildAlter(
 
   if (change === 'password') {
     if (!isUser) return 'A role has no password.';
+    // Password lives on the LOGIN. We only know the database user name from
+    // the catalog — emit ALTER LOGIN only when the operator confirms the
+    // login shares this name (Fox Schema create does; many existing users do not).
     add(
       `ALTER LOGIN ${q(name)} WITH PASSWORD = '${PASSWORD_PLACEHOLDER}';`,
-      `Sets a new password for the login ${name}. Run against master.`
+      `Sets a new password for the login ${name}. Run against master only if that login name matches this database user.`
     );
     return undefined;
   }
@@ -123,7 +130,7 @@ function buildAlter(
     }
     add(
       `ALTER LOGIN ${q(name)} WITH CHECK_EXPIRATION ON;`,
-      `Requires ${name} to change password when it expires. Set expiration on the login separately. Run against master.`
+      `Requires login ${name} to change password when it expires. Run against master only if that login name matches this database user.`
     );
     return undefined;
   }
@@ -135,8 +142,8 @@ function buildAlter(
   add(
     `ALTER LOGIN ${q(name)} ${disabling ? 'DISABLE' : 'ENABLE'};`,
     disabling
-      ? `Refuses new connections from ${name}. Run against master.`
-      : `Lets ${name} connect again. Run against master.`
+      ? `Refuses new connections from login ${name}. Run against master only if that login name matches this database user.`
+      : `Lets login ${name} connect again. Run against master only if that login name matches this database user.`
   );
   return undefined;
 }
