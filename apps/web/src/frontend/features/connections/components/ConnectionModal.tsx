@@ -159,11 +159,13 @@ export const ConnectionModal: React.FC<Props> = ({
 
   const updateField = (key: keyof ConnectionOptions, value: any) => {
     setForm((prev) => ({ ...prev, [key]: value }));
+    setTestingState((s) => (s.status === 'failed' ? { status: 'idle' } : s));
   };
 
   const changeDialect = (d: Dialect) => {
     setSelDialect(d);
     setSchemaList([]); // schemas are provider-specific — clear stale list
+    setTestingState({ status: 'idle' });
     // refresh dialect-specific defaults
     setForm((prev) => ({
       ...prev,
