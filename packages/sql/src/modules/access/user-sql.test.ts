@@ -194,9 +194,13 @@ describe('buildUserSql — alter', () => {
     expect(statements(req({ action: 'alter', alteration: 'password' }), 'mysql')[0]).toBe(
       `ALTER USER 'report_user'@'%' IDENTIFIED BY '${PASSWORD_PLACEHOLDER}';`
     );
-    expect(statements(req({ action: 'alter', alteration: 'password' }), 'sqlserver')[0]).toBe(
-      `ALTER LOGIN [report_user] WITH PASSWORD = '${PASSWORD_PLACEHOLDER}';`
-    );
+    // SQL Server: do not emit runnable ALTER LOGIN with the database user name —
+    // LOGIN may differ (CREATE USER app FOR LOGIN corp_app).
+    const mssqlPw = buildUserSql(req({ action: 'alter', alteration: 'password' }), 'sqlserver');
+    if ('error' in mssqlPw) throw new Error(mssqlPw.error);
+    expect(mssqlPw.statements[0]!.sql).toMatch(/-- ALTER LOGIN <login_name> WITH PASSWORD/);
+    expect(mssqlPw.statements[0]!.sql).not.toMatch(/^ALTER LOGIN/m);
+    expect(mssqlPw.warnings.some((w) => /login/i.test(w.message))).toBe(true);
     expect(statements(req({ action: 'alter', alteration: 'password' }), 'postgres')[0]).toBe(
       `ALTER ROLE "report_user" WITH PASSWORD '${PASSWORD_PLACEHOLDER}';`
     );
@@ -220,9 +224,10 @@ describe('buildUserSql — alter', () => {
     expect(statements(req({ action: 'alter', alteration: 'disable' }), 'mysql')[0]).toBe(
       `ALTER USER 'report_user'@'%' ACCOUNT LOCK;`
     );
-    expect(statements(req({ action: 'alter', alteration: 'disable' }), 'sqlserver')[0]).toBe(
-      'ALTER LOGIN [report_user] DISABLE;'
-    );
+    const mssqlDisable = buildUserSql(req({ action: 'alter', alteration: 'disable' }), 'sqlserver');
+    if ('error' in mssqlDisable) throw new Error(mssqlDisable.error);
+    expect(mssqlDisable.statements[0]!.sql).toMatch(/-- ALTER LOGIN <login_name> DISABLE/);
+    expect(mssqlDisable.statements[0]!.sql).not.toMatch(/^ALTER LOGIN/m);
     expect(statements(req({ action: 'alter', alteration: 'disable' }), 'redshift')[0]).toBe(
       'ALTER USER "report_user" NOLOGIN;'
     );
@@ -232,6 +237,14 @@ describe('buildUserSql — alter', () => {
     expect(statements(req({ action: 'alter', alteration: 'enable' }), 'redshift')[0]).toBe(
       `ALTER USER "report_user" LOGIN PASSWORD '${PASSWORD_PLACEHOLDER}';`
     );
+  });
+
+  it('does not guess SQL Server LOGIN for expire either', () => {
+    const out = buildUserSql(req({ action: 'alter', alteration: 'expire' }), 'sqlserver');
+    if ('error' in out) throw new Error(out.error);
+    expect(out.statements[0]!.sql).toMatch(/-- ALTER LOGIN <login_name> WITH CHECK_EXPIRATION ON/);
+    expect(out.statements[0]!.sql).not.toMatch(/^ALTER LOGIN/m);
+    expect(out.warnings.some((w) => /login/i.test(w.message))).toBe(true);
   });
 
   it('renames, and refuses where the engine cannot', () => {
