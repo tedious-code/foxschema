@@ -5,6 +5,14 @@ monorepo delivered as a web app (`apps/web` = Express API + React/Vite UI), a CL
 (`apps/cli`), and the dialect engine (`packages/sql` + `packages/db`). See `README.md` and
 `CONTRIBUTING.md` for the product overview and the canonical dev/test/build commands.
 
+## Naming conventions
+
+`docs/CONVENTIONS.md` records the TypeScript naming rules — kebab-case in
+`packages/*`, camelCase in the `apps/web` frontend, PascalCase components, the
+`<subject>.<role>.ts` server suffixes, and the `<dialect>.<concern>.ts` provider
+layout. They are enforced by `packages/shared/src/naming.test.ts`, so a file
+that breaks one fails `npx vitest run`. Read it before adding files.
+
 ## Cursor Cloud specific instructions
 
 Standard commands live in `CONTRIBUTING.md` and `package.json` scripts (`npm run dev`,
