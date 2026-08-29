@@ -8,6 +8,7 @@
  * never asks for a real password (placeholders only).
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { PasswordInput } from '@/shared/components/PasswordInput';
 import {
   Copy,
   Check,
@@ -37,6 +38,9 @@ import {
   type UserAction,
   type UserAlteration,
   type UserRequest,
+  generateDb2OsPassword,
+  validateDb2OsPassword,
+  DB2_OS_PASSWORD_LENGTH,
 } from '../lib/access';
 import { EmptyState, Field, RISK_STYLE, Segmented, inputCls } from './controls';
 import { Autocomplete } from '@/shared/components/Autocomplete';
@@ -50,7 +54,7 @@ import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { fetchDbAccess } from '@/shared/api/schemaApi';
 import type { AccessPrincipalDraft } from '../lib/access-draft';
 
-type Mode = 'idle' | 'add' | 'edit' | 'drop';
+type Mode = 'idle' | 'add' | 'edit' | 'drop' | 'list';
 
 const ALTERATION_LABEL: Record<UserAlteration, string> = {
   password: 'Set password',
@@ -178,6 +182,14 @@ export const UserManagement: React.FC<{
   const [host, setHost] = useState('%');
   const [cascade, setCascade] = useState(false);
   const [osRole, setOsRole] = useState('');
+  /**
+   * The OS password for a Db2 account.
+   *
+   * Component state only — never stored, never sent to the server. It reaches
+   * the generated chpasswd command and the clipboard, and nowhere else.
+   */
+  const [osPassword, setOsPassword] = useState('');
+  const osPasswordError = osPassword ? validateDb2OsPassword(osPassword) : null;
   const [copied, setCopied] = useState(false);
   const [copiedWithPassword, setCopiedWithPassword] = useState(false);
 
@@ -258,13 +270,23 @@ export const UserManagement: React.FC<{
   );
 
   const generated = useMemo(() => {
-    if (mode === 'idle' || !dialect || !name.trim()) return null;
+    if (mode === 'idle' || !dialect) return null;
+    // Listing is about every account, so it does not need a name typed.
+    if (mode === 'list') {
+      return buildDb2OsUserInstructions({
+        name: '',
+        action: 'list',
+        database: conn?.database,
+      });
+    }
+    if (!name.trim()) return null;
     if (isDb2 && principalType === 'user') {
       if (mode === 'add') {
         return buildDb2OsUserInstructions({
           name,
           role: osRole,
           database: conn?.database,
+          password: osPassword || undefined,
         });
       }
       if (
@@ -275,11 +297,12 @@ export const UserManagement: React.FC<{
           name,
           database: conn?.database,
           action: alteration,
+          password: alteration === 'password' ? osPassword || undefined : undefined,
         });
       }
     }
     return buildUserSql(request, dialect);
-  }, [mode, dialect, name, request, isDb2, principalType, osRole, conn?.database, alteration]);
+  }, [mode, dialect, name, request, isDb2, principalType, osRole, conn?.database, alteration, osPassword]);
 
   const sqlText =
     generated && !('error' in generated)
@@ -361,6 +384,7 @@ export const UserManagement: React.FC<{
     setPrivileges([]);
     setSelectedName(null);
     setMode('idle');
+    setOsPassword('');
     setListError(null);
     setListHint(null);
     setListWarning(null);
@@ -383,6 +407,7 @@ export const UserManagement: React.FC<{
     setHost('%');
     setCascade(false);
     setOsRole('');
+    setOsPassword('');
     setAlteration('password');
   };
 
@@ -576,6 +601,21 @@ export const UserManagement: React.FC<{
                   {isDb2 ? 'Add user (OS)' : 'Add user'}
                 </button>
                 )}
+                {isDb2 && (
+                  <button
+                    type="button"
+                    data-testid="user-list-commands"
+                    onClick={() => {
+                      setMode('list');
+                      setSelectedName(null);
+                      setOsPassword('');
+                    }}
+                    title="Generate commands to list OS logins and Db2 authorization IDs"
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-600 bg-slate-800 text-[11px] font-bold text-slate-100 hover:bg-slate-700"
+                  >
+                    Check users
+                  </button>
+                )}
                 {support.canCreateRole && (
                 <button
                   type="button"
@@ -735,6 +775,7 @@ export const UserManagement: React.FC<{
                       data-testid="user-cancel-action"
                       onClick={() => {
                         setMode('idle');
+                        setOsPassword('');
                         setName('');
                       }}
                       className="text-[11px] text-slate-500 hover:text-slate-300"
@@ -789,6 +830,40 @@ export const UserManagement: React.FC<{
                       />
                     )}
                   </Field>
+
+                  {isDb2 &&
+                    principalType === 'user' &&
+                    (mode === 'add' || (mode === 'edit' && alteration === 'password')) && (
+                      <Field
+                        label="OS password"
+                        hint={
+                          osPasswordError ??
+                          (osPassword
+                            ? 'Written into the chpasswd command below in clear text. Fox Schema does not store it or send it anywhere.'
+                            : `Leave empty to get a <password> placeholder to fill in yourself. Generated passwords are ${DB2_OS_PASSWORD_LENGTH} characters and avoid anything the shell would treat as syntax.`)
+                        }
+                      >
+                        <div className="flex items-center gap-2">
+                          <PasswordInput
+                            data-testid="user-os-password"
+                            value={osPassword}
+                            onChange={(e) => setOsPassword(e.target.value)}
+                            placeholder="<password>"
+                            autoComplete="new-password"
+                            className={inputCls}
+                          />
+                          <button
+                            type="button"
+                            data-testid="user-os-password-generate"
+                            onClick={() => setOsPassword(generateDb2OsPassword())}
+                            title={`Generate a ${DB2_OS_PASSWORD_LENGTH}-character password valid for a Linux account`}
+                            className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-600 bg-slate-800 text-[11px] font-bold text-slate-100 hover:bg-slate-700"
+                          >
+                            Generate
+                          </button>
+                        </div>
+                      </Field>
+                    )}
 
                   {isDb2 && mode === 'add' && principalType === 'user' && (
                     <Field
