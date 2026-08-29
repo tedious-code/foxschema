@@ -63,7 +63,7 @@
     "test:duckdb:headed": "HEADLESS=false vitest run --config vitest.config.ts src/tests/dialects/duckdb.test.ts"
   },
   "devDependencies": {
-    "playwright": "^1.49.0",
-    "vitest": "^4.1.8"
+    "playwright": "1.61.1",
+    "vitest": "4.1.10"
   }
 }

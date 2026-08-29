@@ -29,9 +29,16 @@ jobs:
       # Generate lockfile on the fly so npm audit has a full dependency graph.
       # Consider committing package-lock.json for faster, deterministic CI.
       - name: Generate lockfile
-        run: npm install --package-lock-only --ignore-scripts
+        run: npm install --ignore-scripts
 
       # Hard block — Critical vulns in production dependencies.
+      # Verifies every package in the lockfile against the registry's own
+      # signatures. `npm audit` answers "is this version known to be
+      # vulnerable"; this answers "is this tarball the one the registry
+      # published", which is what catches a tampered or re-published package.
+      - name: Verify registry signatures
+        run: npm audit signatures
+
       - name: Fail on Critical vulnerabilities
         run: npm audit --audit-level=critical --omit=dev
 

@@ -57,7 +57,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - run: npm install --package-lock-only --ignore-scripts
+      - run: npm install --ignore-scripts
       - run: npm audit --audit-level=critical --omit=dev
 
   # ── Gate: Gitleaks ──────────────────────────────────────────────────────────
