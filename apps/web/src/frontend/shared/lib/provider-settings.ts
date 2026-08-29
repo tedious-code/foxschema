@@ -1,4 +1,27 @@
-import { buildConnectionString as coreBuildConnectionString } from '@foxschema/sql';
+import {
+  buildConnectionString as coreBuildConnectionString,
+  connectionNeedsSecret,
+  authMethodsForDialect,
+  dialectOffersAuthMethods,
+  normalizeAuthMethod,
+  resolveAuthMethod,
+  parseWindowsAccount,
+  assertWindowsAccount,
+  passwordFieldLabel,
+  type ConnectionAuthMethod,
+} from '@foxschema/sql';
+
+export {
+  connectionNeedsSecret,
+  authMethodsForDialect,
+  dialectOffersAuthMethods,
+  normalizeAuthMethod,
+  resolveAuthMethod,
+  parseWindowsAccount,
+  assertWindowsAccount,
+  passwordFieldLabel,
+  type ConnectionAuthMethod,
+};
 
 export type Dialect =
   | 'postgres'
@@ -30,6 +53,8 @@ export interface ConnectionOptions {
   pool?: { min?: number; max?: number; idleTimeoutMs?: number };
   ssl?: { enabled: boolean; rejectUnauthorized?: boolean; ca?: string; cert?: string; key?: string };
   timeout?: { connectMs?: number; queryMs?: number };
+  authMethod?: 'password' | 'windows' | 'ldap';
+  domain?: string;
   [key: string]: unknown;
 }
 
@@ -268,8 +293,8 @@ export function isFileDialect(dialect: string): boolean {
 }
 
 /** True when a connection of this dialect can meaningfully carry a password. */
-export function dialectUsesPassword(dialect: string): boolean {
-  return !isFileDialect(dialect);
+export function dialectUsesPassword(dialect: string, authMethod?: string | null): boolean {
+  return connectionNeedsSecret(dialect, authMethod);
 }
 
 export const DEFAULT_PORTS: Record<string, number> = Object.fromEntries(

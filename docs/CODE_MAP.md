@@ -93,7 +93,7 @@ database/    The metadata store and its migrations.
 | `auth` | Login, sessions, SSO |
 | `authorization` | Role permissions (RBAC) and the permission guard |
 | `compare` | Schema comparison |
-| `connections` | Saved database connections |
+| `connections` | Saved database connections (`authMethod` / `domain` on encrypted `ConnectionOptions`; NTLM is adapter-side) |
 | `data-migrate` | Moving data between databases |
 | `files` | File uploads and querying an uploaded file |
 | `history` | Schema history and revert (Lokee Weave) |
@@ -135,7 +135,7 @@ Imports may run `app → features → shared`, never `shared → features`.
 | `access` | Permission builder, inspector and report |
 | `admin` | User and role administration |
 | `auth` | Sign-in, SSO buttons, onboarding |
-| `connections` | Connection modal, credential manager, database settings |
+| `connections` | Connection modal (login method: password / Windows / LDAP), credential manager, database settings |
 | `lokee-weave` | Schema history graph and version compare |
 | `migrations` | Migration run history |
 | `object-detail` | Detail panel for a single schema object |

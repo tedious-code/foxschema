@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import { ConnectionOptions, DriverAdapter } from '@foxschema/sql';
 import { BoundedPoolCache, disposePoolEndOrClose } from '../../cores/pool-cache';
 import { guardPoolErrors } from '../../cores/pool-error-guard';
+import { buildMssqlPoolConfig } from '../sqlServer/sqlserver.config';
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -29,25 +30,7 @@ class AzureSqlAdapter implements DriverAdapter {
   }
 
   private buildConfig(options: ConnectionOptions): Record<string, unknown> {
-    return {
-      server: options.host || '',
-      port: options.port || 1433,
-      database: options.database || '',
-      user: options.username || '',
-      password: options.password || '',
-      options: {
-        // Azure SQL always requires encryption
-        encrypt: true,
-        trustServerCertificate: options.ssl?.rejectUnauthorized === false,
-        connectTimeout: options.timeout?.connectMs ?? 15000,
-        requestTimeout: options.timeout?.queryMs ?? 30000,
-      },
-      pool: {
-        max: options.pool?.max ?? 10,
-        min: options.pool?.min ?? 1,
-        idleTimeoutMillis: options.pool?.idleTimeoutMs ?? 30000,
-      },
-    };
+    return buildMssqlPoolConfig(options, { encryptDefault: true });
   }
 
   async acquire(connectionString: string, options: ConnectionOptions, _pooled: boolean): Promise<MssqlHandle> {

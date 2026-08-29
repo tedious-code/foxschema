@@ -7,6 +7,7 @@ import * as core from '@foxschema/db';
 vi.mock('@inquirer/prompts', () => ({
   input: vi.fn(),
   password: vi.fn().mockResolvedValue('s3cret'),
+  select: vi.fn(),
 }));
 
 /** Build a fake CliContext whose ConnectionStore methods are vi.fns. */
@@ -78,6 +79,32 @@ describe('CLI: connections command', () => {
       // password comes from the prompt, and is carried in the encrypted option only
       const createArg = ctx.connections.create.mock.calls[0][1];
       expect(createArg.option.password).toBe('s3cret');
+      expect(createArg.option.authMethod).toBeUndefined();
+    });
+
+    it('stores Windows NTLM fields for SQL Server without prompting for login method', async () => {
+      const ctx = fakeCtx();
+      vi.spyOn(store, 'getContext').mockResolvedValue(ctx as any);
+      vi.spyOn(core, 'buildConnectionString').mockReturnValue('Server=…');
+      vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      await addConnection({
+        name: 'ss',
+        dialect: 'sqlserver',
+        host: 'sql.example',
+        port: '1433',
+        database: 'app',
+        user: 'alice',
+        schema: 'dbo',
+        authMethod: 'windows',
+        domain: 'CONTOSO',
+      });
+
+      const createArg = ctx.connections.create.mock.calls[0][1];
+      expect(createArg.option.authMethod).toBe('windows');
+      expect(createArg.option.domain).toBe('CONTOSO');
+      expect(createArg.option.password).toBe('s3cret');
+      expect(createArg.option.username).toBe('alice');
     });
   });
 

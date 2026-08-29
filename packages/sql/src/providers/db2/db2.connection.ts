@@ -34,6 +34,9 @@ declare const URL: {
  * SERVER made modern LUW return SQL30082N reason 17. The Node adapter retries
  * the other type if the server refuses.
  *
+ * Directory / LDAP (`authMethod: 'ldap'`) is still UID/PWD — the plugin lives on
+ * the server. Do not emit KERBEROS / CLIENT / GSSPLUGIN here.
+ *
  * ibm_db's GSKit wants a filesystem path. PEM pasted into `ssl.ca` is written
  * to a temp file in the Node adapter — do not put the PEM in the CLI string.
  */

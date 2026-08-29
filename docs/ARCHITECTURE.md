@@ -67,7 +67,8 @@ packages/sql/           @foxschema/sql — dialect knowledge (pure, browser-safe
   src/providers/        14 SQL dialects, each with settings + sql-dialect
                         (+ optional *.user-sql.ts for account DDL)
                         (MongoDB and Redis carry settings only)
-  src/cores/            Connection strings, catalog rows → TableSchema
+  src/cores/            Connection strings, catalog rows → TableSchema,
+                        connection auth (password / Windows NTLM / Db2 LDAP)
 
 packages/db/            @foxschema/db — Node runtime: drivers, pooling, execution
   src/providers/        One adapter and provider per dialect
@@ -94,6 +95,21 @@ change belongs.
 ```
 Formula/                Homebrew formula (tap this GitHub repo directly)
 ```
+
+## Database connection auth
+
+Saved credentials keep `ConnectionOptions` (including optional `authMethod`
+and `domain`) inside `encrypted_config`. Methods:
+
+- `password` (default) — SQL / native username + password.
+- `windows` — SQL Server / Azure NTLM. The adapter builds tedious
+  `authentication.type = 'ntlm'` from domain + user + Windows password. Do
+  **not** emit `Authentication=Active Directory Integrated` (that is AAD).
+- `ldap` — Db2 directory user. Still UID/PWD; LDAP is server-side
+  (`Authentication=SERVER_ENCRYPT` with the existing SERVER retry).
+
+`SavedConnectionSummary` exposes `authMethod` / `domain` / `hasPassword` but
+never the secret. Windows integrated SSO (no password) is not implemented.
 
 **Frontend imports nothing from workspace packages** — it uses standalone copies in
 `apps/web/src/frontend/lib/`. Accepted duplication to avoid bundler complications.

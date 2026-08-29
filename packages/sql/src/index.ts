@@ -287,6 +287,19 @@ export type {
 } from './modules/sql-editor/code-cell-exec.js';
 
 export { buildConnectionString, withConnectionString, DEFAULT_PORTS } from './cores/connection-string.js';
+export {
+  normalizeAuthMethod,
+  resolveAuthMethod,
+  authMethodsForDialect,
+  dialectOffersAuthMethods,
+  connectionNeedsSecret,
+  parseWindowsAccount,
+  assertWindowsAccount,
+  passwordFieldLabel,
+  unsupportedAuthMethodMessage,
+  type ConnectionAuthMethod,
+  type AuthMethodChoice,
+} from './cores/connection-auth.js';
 export { PROVIDER_SETTINGS, getProviderSettings } from './providers/provider-settings.js';
 // Row-shaping helpers. The providers in @foxschema/db call these to turn raw
 // catalog rows into TableSchema; before the split they reached in by relative

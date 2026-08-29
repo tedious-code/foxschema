@@ -58,7 +58,7 @@ import {
   type SqlVariableKind,
   type VariableOverride,
 } from '@/shared/lib/sql-variables';
-import { dialectUsesPassword } from '@/shared/lib/provider-settings';
+import { connectionNeedsSecret } from '@/shared/lib/provider-settings';
 import { useSyncStore } from './useSyncStore';
 import type { SchemaCacheEntry } from '@/features/sql-editor/components/sqlEditorBridge';
 import { getCaretOffset, getSelectedSql } from '@/features/sql-editor/components/sqlEditorBridge';
@@ -87,7 +87,10 @@ export type { SqlVariable, SqlVariableKind, SqlVariableExport, VariableOverride 
 /** Dialects whose adapters are SELECT-only — writes fail with a friendly error. */
 const READONLY_DIALECTS = new Set(['sqlite', 'clickhouse']);
 
-type ExecutionTarget = Pick<SavedConnectionSummary, 'id' | 'name' | 'dialect' | 'hasPassword'>;
+type ExecutionTarget = Pick<
+  SavedConnectionSummary,
+  'id' | 'name' | 'dialect' | 'hasPassword' | 'authMethod'
+>;
 
 /** Synthetic run target when executing code cells with no Destination checked. */
 const LOCAL_CODE_RUN_TARGET: ExecutionTarget = {
@@ -656,7 +659,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         if (
           conn &&
           !conn.hasPassword &&
-          dialectUsesPassword(conn.dialect) &&
+          connectionNeedsSecret(conn.dialect, conn.authMethod) &&
           !sessionPasswordFor(id, sessionPasswords)
         ) {
           set({
@@ -854,7 +857,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         const { sessionPasswords } = get();
         if (
           !conn.hasPassword &&
-          dialectUsesPassword(conn.dialect) &&
+          connectionNeedsSecret(conn.dialect, conn.authMethod) &&
           !sessionPasswordFor(connectionId, sessionPasswords)
         ) {
           set({
@@ -999,7 +1002,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         const needingPassword = connections.find(
           (c) =>
             !c.hasPassword &&
-            dialectUsesPassword(c.dialect) &&
+            connectionNeedsSecret(c.dialect, c.authMethod) &&
             !sessionPasswordFor(c.id, sessionPasswords)
         );
         if (needingPassword) {

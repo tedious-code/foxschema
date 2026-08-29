@@ -77,6 +77,21 @@ describe('buildDb2ConnectionString', () => {
     expect(parseDb2SemicolonMap(cs).get('PWD')).toBe('p;a;s;s');
   });
 
+  it('ldap method still emits UID/PWD and SERVER_ENCRYPT (LDAP is server-side)', () => {
+    const cs = buildDb2ConnectionString({
+      host: 'db.example',
+      port: 50000,
+      database: 'SAMPLE',
+      username: 'alice',
+      password: 'dir-secret',
+      authMethod: 'ldap',
+    });
+    expect(cs).toContain('UID=alice');
+    expect(cs).toContain('PWD=dir-secret');
+    expect(cs).toContain('Authentication=SERVER_ENCRYPT');
+    expect(cs).not.toMatch(/KERBEROS|GSSPLUGIN|CLIENT/i);
+  });
+
   it('adds CurrentSchema when schema is provided', () => {
     const cs = buildDb2ConnectionString(
       { host: 'h', database: 'D', username: 'u', password: 'p', schema: 'myschema' },

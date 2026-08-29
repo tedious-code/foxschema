@@ -1,6 +1,15 @@
-import { input, password as passwordPrompt } from '@inquirer/prompts';
+import { input, password as passwordPrompt, select } from '@inquirer/prompts';
 import chalk from 'chalk';
-import { buildConnectionString, type ConnectionOptions } from '@foxschema/db';
+import {
+  authMethodsForDialect,
+  buildConnectionString,
+  dialectOffersAuthMethods,
+  parseWindowsAccount,
+  passwordFieldLabel,
+  resolveAuthMethod,
+  type ConnectionAuthMethod,
+  type ConnectionOptions,
+} from '@foxschema/db';
 import { getContext } from '../runtime/store';
 
 /** `connections list` — saved connections (never shows passwords). */
@@ -13,7 +22,8 @@ export async function listConnections(): Promise<void> {
   }
   for (const c of rows) {
     const loc = [c.host, c.database, c.schema].filter(Boolean).join(' / ');
-    console.log(`${chalk.bold(c.name || '(unnamed)')}  ${chalk.dim(`[${c.dialect}]`)}  ${loc}`);
+    const method = c.authMethod && c.authMethod !== 'password' ? `  ${chalk.dim(c.authMethod)}` : '';
+    console.log(`${chalk.bold(c.name || '(unnamed)')}  ${chalk.dim(`[${c.dialect}]`)}  ${loc}${method}`);
     console.log(`  ${chalk.dim(`id ${c.id}  ·  ${c.username ?? ''}`)}`);
   }
 }
@@ -27,16 +37,53 @@ export async function addConnection(opts: {
   database?: string;
   user?: string;
   schema?: string;
+  authMethod?: string;
+  domain?: string;
 }): Promise<void> {
   const ctx = await getContext();
   const name = opts.name || (await input({ message: 'Connection name:', validate: (v) => !!v.trim() || 'Required' }));
   const dialect = opts.dialect || (await input({ message: 'Dialect (db2/postgres/mysql):', default: 'db2' }));
+
+  let authMethod: ConnectionAuthMethod = resolveAuthMethod(dialect, opts.authMethod);
+  if (!opts.authMethod && dialectOffersAuthMethods(dialect)) {
+    authMethod = await select({
+      message: 'Login method:',
+      choices: authMethodsForDialect(dialect).map((m) => ({ name: m.label, value: m.value })),
+    });
+  }
+
+  let domain = opts.domain?.trim() || undefined;
+  if (authMethod === 'windows' && !domain) {
+    domain =
+      (
+        await input({
+          message: 'Domain (blank if username is DOMAIN\\user):',
+          default: '',
+        })
+      ).trim() || undefined;
+  }
+
   const host = opts.host || (await input({ message: 'Host:' }));
   const port = opts.port || (await input({ message: 'Port (blank for default):', default: '' }));
   const database = opts.database || (await input({ message: 'Database:' }));
   const username = opts.user || (await input({ message: 'Username:' }));
   const schema = opts.schema ?? (await input({ message: 'Schema (blank if none):', default: '' }));
-  const password = await passwordPrompt({ message: 'Password:', mask: true });
+
+  if (authMethod === 'windows') {
+    const account = parseWindowsAccount(username, domain);
+    if (!account.domain || !account.userName) {
+      console.error(
+        chalk.red(
+          'Windows login needs a domain and a user (CONTOSO\\alice, or Domain + User). UPN (user@domain) is not NTLM.'
+        )
+      );
+      process.exitCode = 1;
+      return;
+    }
+    domain = account.domain;
+  }
+
+  const password = await passwordPrompt({ message: `${passwordFieldLabel(authMethod)}:`, mask: true });
 
   const option: ConnectionOptions = {
     host: host || undefined,
@@ -45,6 +92,8 @@ export async function addConnection(opts: {
     username: username || undefined,
     password: password || undefined,
     schema: schema || undefined,
+    authMethod: authMethod === 'password' ? undefined : authMethod,
+    domain: authMethod === 'windows' ? domain : undefined,
   };
   option.connectionString = buildConnectionString(dialect, option);
 

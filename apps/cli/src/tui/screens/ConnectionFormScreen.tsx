@@ -3,7 +3,15 @@ import { Box, Text } from 'ink';
 import TextInput from 'ink-text-input';
 import SelectInput from 'ink-select-input';
 import Spinner from 'ink-spinner';
-import { buildConnectionString, type ConnectionOptions } from '@foxschema/db';
+import {
+  authMethodsForDialect,
+  buildConnectionString,
+  dialectOffersAuthMethods,
+  parseWindowsAccount,
+  passwordFieldLabel,
+  resolveAuthMethod,
+  type ConnectionOptions,
+} from '@foxschema/db';
 import { getContext } from '../../runtime/store';
 import { friendlyError } from '../../format/friendlyError';
 import { KeyHints } from '../components/KeyHints';
@@ -15,22 +23,41 @@ interface Props {
 }
 
 interface FieldStep {
-  key: 'name' | 'dialect' | 'host' | 'port' | 'database' | 'user' | 'schema';
+  key: 'name' | 'dialect' | 'authMethod' | 'domain' | 'host' | 'port' | 'database' | 'user' | 'schema';
   label: string;
   default?: string;
 }
 
-const FIELDS: FieldStep[] = [
-  { key: 'name', label: 'Connection name (for saving later)' },
-  { key: 'dialect', label: 'Dialect (postgres/mysql/mariadb/sqlserver/oracle/db2)', default: 'postgres' },
-  { key: 'host', label: 'Host' },
-  { key: 'port', label: 'Port (blank for default)' },
-  { key: 'database', label: 'Database' },
-  { key: 'user', label: 'Username' },
-  { key: 'schema', label: 'Schema (blank if none)' },
-];
-
 type Values = Partial<Record<FieldStep['key'], string>>;
+
+function fieldsFor(values: Values): FieldStep[] {
+  const dialect = (values.dialect || 'postgres').trim().toLowerCase();
+  const method = resolveAuthMethod(dialect, values.authMethod);
+  const fields: FieldStep[] = [
+    { key: 'name', label: 'Connection name (for saving later)' },
+    { key: 'dialect', label: 'Dialect (postgres/mysql/mariadb/sqlserver/oracle/db2)', default: 'postgres' },
+  ];
+  if (dialectOffersAuthMethods(dialect)) {
+    fields.push({
+      key: 'authMethod',
+      label: `Login method (${authMethodsForDialect(dialect)
+        .map((m) => m.value)
+        .join('/')})`,
+      default: 'password',
+    });
+  }
+  if (method === 'windows') {
+    fields.push({ key: 'domain', label: 'Domain (blank if username is DOMAIN\\user)' });
+  }
+  fields.push(
+    { key: 'host', label: 'Host' },
+    { key: 'port', label: 'Port (blank for default)' },
+    { key: 'database', label: 'Database' },
+    { key: 'user', label: 'Username' },
+    { key: 'schema', label: 'Schema (blank if none)' }
+  );
+  return fields;
+}
 
 /** Mirrors commands/connections.ts's addConnection field set, walked one field per screen since ink-text-input is single-line. */
 export function ConnectionFormScreen({ role, onSubmit }: Props): React.JSX.Element {
@@ -43,13 +70,24 @@ export function ConnectionFormScreen({ role, onSubmit }: Props): React.JSX.Eleme
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
 
-  const field = FIELDS[step];
+  const fields = fieldsFor(values);
+  const field = fields[step];
+  const loginMethod = resolveAuthMethod(values.dialect || 'postgres', values.authMethod);
 
   const finish = async (shouldSave: boolean) => {
     setBusy(true);
     setError(undefined);
     try {
       const dialect = values.dialect || 'postgres';
+      const authMethod = resolveAuthMethod(dialect, values.authMethod);
+      if (authMethod === 'windows') {
+        const account = parseWindowsAccount(values.user, values.domain);
+        if (!account.domain || !account.userName) {
+          throw new Error(
+            'Windows login needs a domain and a user (CONTOSO\\alice, or Domain + User). UPN (user@domain) is not NTLM.'
+          );
+        }
+      }
       const option: ConnectionOptions = {
         host: values.host || undefined,
         port: values.port ? Number(values.port) : undefined,
@@ -57,6 +95,8 @@ export function ConnectionFormScreen({ role, onSubmit }: Props): React.JSX.Eleme
         username: values.user || undefined,
         password: password || undefined,
         schema: values.schema || undefined,
+        authMethod: authMethod === 'password' ? undefined : authMethod,
+        domain: authMethod === 'windows' ? values.domain?.trim() || undefined : undefined,
       };
       option.connectionString = buildConnectionString(dialect, option);
 
@@ -110,11 +150,11 @@ export function ConnectionFormScreen({ role, onSubmit }: Props): React.JSX.Eleme
     return (
       <Box flexDirection="column" paddingX={1}>
         <Text bold>
-          New <Text color="cyan">{role}</Text> connection — Password
+          New <Text color="cyan">{role}</Text> connection — {passwordFieldLabel(loginMethod)}
         </Text>
         {error && <Text color="red">{error}</Text>}
         <Box marginTop={1}>
-          <Text>Password: </Text>
+          <Text>{passwordFieldLabel(loginMethod)}: </Text>
           <TextInput value={password} onChange={setPassword} onSubmit={() => setSaveStep(true)} mask="*" />
         </Box>
         <KeyHints hints={['enter continue', 'esc back']} />
@@ -134,10 +174,15 @@ export function ConnectionFormScreen({ role, onSubmit }: Props): React.JSX.Eleme
           value={current}
           onChange={setCurrent}
           onSubmit={(value) => {
-            const v = value.trim() || field.default || '';
-            setValues((prev) => ({ ...prev, [field.key]: v }));
+            let v = value.trim() || field.default || '';
+            if (field.key === 'authMethod') {
+              v = resolveAuthMethod(values.dialect || 'postgres', v);
+            }
+            const nextValues = { ...values, [field.key]: v };
+            setValues(nextValues);
             setCurrent('');
-            if (step + 1 < FIELDS.length) {
+            const nextFields = fieldsFor(nextValues);
+            if (step + 1 < nextFields.length) {
               setStep(step + 1);
             } else {
               setPasswordStep(true);

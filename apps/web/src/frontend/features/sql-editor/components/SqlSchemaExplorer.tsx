@@ -29,7 +29,7 @@ import { SQL_ICON_STROKE } from '@/shared/lib/iconStyle';
 import { TableBlueprintModal, type BlueprintMode } from './TableBlueprintModal';
 import { isScriptableObject, objectSourceScript } from './objectSourceScript';
 import { fetchDbaUtility } from '@/shared/api/schemaApi';
-import { dialectUsesPassword } from '@/shared/lib/provider-settings';
+import { connectionNeedsSecret } from '@/shared/lib/provider-settings';
 import {
   dialectSupportsDbaUtility,
   formatBytes,
@@ -226,7 +226,7 @@ export const SqlSchemaExplorer = forwardRef<SqlSchemaExplorerHandle>(function Sq
       return;
     }
     // File dialects carry no password; waiting for one never resolved.
-    if (!conn.hasPassword && dialectUsesPassword(conn.dialect) && !sessionPassword) return;
+    if (!conn.hasPassword && connectionNeedsSecret(conn.dialect, conn.authMethod) && !sessionPassword) return;
     let cancelled = false;
     void fetchDbaUtility(
       { connectionId: explorerId, password: sessionPassword },

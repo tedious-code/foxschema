@@ -33,7 +33,7 @@ import { executeSql } from '@/shared/api/sqlApi';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { useAuthStore } from '@/app/store/authStore';
-import { PROVIDER_SETTINGS, dialectUsesPassword } from '@/shared/lib/provider-settings';
+import { PROVIDER_SETTINGS, connectionNeedsSecret } from '@/shared/lib/provider-settings';
 
 interface Props {
   open: boolean;
@@ -89,7 +89,7 @@ export const DatabaseAccessModal: React.FC<Props> = ({
   const conn = connections.find((c) => c.id === connectionId);
   // File dialects carry no password; asking for one blocked the utility outright.
   const needsPassword = Boolean(
-    conn && !conn.hasPassword && dialectUsesPassword(conn.dialect) && !sessionPasswords[connectionId]
+    conn && !conn.hasPassword && connectionNeedsSecret(conn.dialect, conn.authMethod) && !sessionPasswords[connectionId]
   );
   const dialect = conn?.dialect ?? '';
   const support = dialect ? dialectSupportsDbAccess(dialect) : null;

@@ -148,6 +148,56 @@ describe('ConnectionStore', () => {
     expect(resolved?.option.connectionString).not.toContain('super-secret');
   });
 
+  it('round-trips Windows authMethod and domain without putting the password in the summary', async () => {
+    const created = await store.create(alice, {
+      name: 'ss',
+      dialect: 'sqlserver',
+      schema: 'dbo',
+      option: {
+        host: 'sql.example',
+        database: 'app',
+        username: 'alice',
+        password: 'super-secret',
+        authMethod: 'windows',
+        domain: 'CONTOSO',
+      },
+    });
+    expect(created.authMethod).toBe('windows');
+    expect(created.domain).toBe('CONTOSO');
+    expect(created.hasPassword).toBe(true);
+    expect(JSON.stringify(created)).not.toContain('super-secret');
+
+    const listed = (await store.list(alice)).find((c) => c.id === created.id);
+    expect(listed?.authMethod).toBe('windows');
+    expect(listed?.domain).toBe('CONTOSO');
+    expect(JSON.stringify(listed)).not.toContain('super-secret');
+
+    const resolved = await store.resolve(alice, created.id);
+    expect(resolved?.option.authMethod).toBe('windows');
+    expect(resolved?.option.domain).toBe('CONTOSO');
+    expect(resolved?.option.password).toBe('super-secret');
+  });
+
+  it('stores Db2 ldap as a directory method still carrying UID/PWD', async () => {
+    const created = await store.create(alice, {
+      name: 'ldap',
+      dialect: 'db2',
+      schema: 'APP',
+      option: {
+        host: 'db2.example',
+        database: 'FOXDB',
+        username: 'alice',
+        password: 'dir-secret',
+        authMethod: 'ldap',
+      },
+    });
+    expect(created.authMethod).toBe('ldap');
+    expect(created.domain).toBeUndefined();
+    const resolved = await store.resolve(alice, created.id);
+    expect(resolved?.option.authMethod).toBe('ldap');
+    expect(resolved?.option.password).toBe('dir-secret');
+  });
+
   it('still produces a correct, usable connectionString when the password IS kept', async () => {
     // Sanity check that discarding + rebuilding connectionString doesn't break the
     // normal case — the rebuilt string must still round-trip the kept password.

@@ -18,11 +18,10 @@ import { useSyncStore } from '@/app/store/useSyncStore';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { ConnectionModal } from './ConnectionModal';
 import { CloudProviderCredentialsSection } from '@/app/settings/CloudProviderCredentialsSection';
-import { PROVIDER_SETTINGS } from '@/shared/lib/provider-settings';
+import { PROVIDER_SETTINGS, type ConnectionOptions, type Dialect } from '@/shared/lib/provider-settings';
 import { dialectLabel } from '@/shared/lib/dialectLabel';
 import { sessionPasswordMap, setSessionPassword } from '@/shared/lib/sessionPasswords';
 import type { SavedConnectionSummary } from '@/shared/api/authApi';
-import type { Dialect } from '@/shared/lib/provider-settings';
 
 interface Props {
   open: boolean;
@@ -87,6 +86,8 @@ export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
             database: editing.database,
             username: editing.username,
             schema: editing.schema,
+            authMethod: editing.authMethod as ConnectionOptions['authMethod'],
+            domain: editing.domain,
           }
         : undefined,
     [
@@ -96,6 +97,8 @@ export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
       editing?.database,
       editing?.username,
       editing?.schema,
+      editing?.authMethod,
+      editing?.domain,
     ]
   );
 
@@ -369,7 +372,17 @@ export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
                         {c.username && (
                           <span className="flex items-center gap-1.5 text-[11px] text-slate-500">
                             <User className="w-3 h-3 text-slate-600" />
-                            <span className="font-mono">{c.username}</span>
+                            <span className="font-mono">
+                              {c.authMethod === 'windows' && c.domain && !c.username.includes('\\')
+                                ? `${c.domain}\\${c.username}`
+                                : c.username}
+                            </span>
+                            {c.authMethod === 'windows' && (
+                              <span className="text-slate-600">Windows</span>
+                            )}
+                            {c.authMethod === 'ldap' && (
+                              <span className="text-slate-600">LDAP</span>
+                            )}
                           </span>
                         )}
                         {c.createdAt && (

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { dialectUsesPassword } from '@/shared/lib/provider-settings';
+import { connectionNeedsSecret } from '@/shared/lib/provider-settings';
 
 /**
  * Whether a saved connection can be silently re-tested after a credential
@@ -14,8 +14,10 @@ import { dialectUsesPassword } from '@/shared/lib/provider-settings';
  *
  * Mirrors the expression at useSyncStore.ts:143.
  */
-const canRetest = (conn: { hasPassword: boolean; dialect: string }, sessionPassword?: string) =>
-  !!(conn.hasPassword || sessionPassword || !dialectUsesPassword(conn.dialect));
+const canRetest = (
+  conn: { hasPassword: boolean; dialect: string; authMethod?: string },
+  sessionPassword?: string
+) => !!(conn.hasPassword || sessionPassword || !connectionNeedsSecret(conn.dialect, conn.authMethod));
 
 describe('credential-reload retest gate', () => {
   it.each(['sqlite', 'duckdb'])(
@@ -31,6 +33,12 @@ describe('credential-reload retest gate', () => {
       expect(canRetest({ hasPassword: false, dialect })).toBe(false);
     }
   );
+
+  it('Windows NTLM and Db2 LDAP still require a secret before a silent retest', () => {
+    expect(canRetest({ hasPassword: false, dialect: 'sqlserver', authMethod: 'windows' })).toBe(false);
+    expect(canRetest({ hasPassword: false, dialect: 'db2', authMethod: 'ldap' })).toBe(false);
+    expect(canRetest({ hasPassword: true, dialect: 'sqlserver', authMethod: 'windows' })).toBe(true);
+  });
 
   it('a server dialect retests once its password is stored', () => {
     expect(canRetest({ hasPassword: true, dialect: 'postgres' })).toBe(true);
