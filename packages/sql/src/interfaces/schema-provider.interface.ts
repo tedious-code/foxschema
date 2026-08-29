@@ -23,6 +23,13 @@ export interface ConnectionOptions {
   pool?: { min?: number; max?: number; idleTimeoutMs?: number; };
   ssl?: { enabled: boolean; rejectUnauthorized?: boolean; ca?: string; cert?: string; key?: string; };
   timeout?: { connectMs?: number; queryMs?: number; };
+  /**
+   * How Fox authenticates to this engine. `password` (default) is SQL/native.
+   * `windows` is SQL Server/Azure NTLM. `ldap` is a Db2 directory user (still UID/PWD).
+   */
+  authMethod?: 'password' | 'windows' | 'ldap';
+  /** NTLM domain when authMethod is `windows`. Also accepted as `DOMAIN\\user` in username. */
+  domain?: string;
   [key: string]: any; 
 }
 

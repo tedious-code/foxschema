@@ -149,6 +149,10 @@ export interface SavedConnectionSummary {
   port?: number;
   database?: string;
   username?: string;
+  /** How Fox authenticates: password (default), windows (NTLM), ldap (Db2 directory). */
+  authMethod?: string;
+  /** NTLM domain when authMethod is windows. */
+  domain?: string;
   /** Whether a password is stored server-side (drives the "save password" checkbox on edit). */
   hasPassword?: boolean;
   createdAt: string;

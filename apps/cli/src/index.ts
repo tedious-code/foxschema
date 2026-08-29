@@ -111,6 +111,8 @@ connections
   .option('--database <database>')
   .option('--user <user>')
   .option('--schema <schema>')
+  .option('--auth-method <method>', 'password | windows (SQL Server) | ldap (Db2)')
+  .option('--domain <domain>', 'NTLM domain when --auth-method=windows')
   .action((opts) => addConnection(opts));
 connections
   .command('remove <nameOrId>')

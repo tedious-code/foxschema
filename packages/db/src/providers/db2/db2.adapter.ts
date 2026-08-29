@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module';
-import { ConnectionOptions, DriverAdapter } from '@foxschema/sql';
+import { ConnectionOptions, DriverAdapter, normalizeAuthMethod, unsupportedAuthMethodMessage } from '@foxschema/sql';
 import { assertSafeIdentifier } from '../../cores/sql-identifier';
 import { BoundedPoolCache, disposePoolEndOrClose } from '../../cores/pool-cache';
 import { setupDb2ClientEnv, hasDb2Clidriver } from './db2.env';
@@ -42,6 +42,9 @@ class Db2Adapter implements DriverAdapter {
   }
 
   async acquire(connectionString: string, options: ConnectionOptions, pooled: boolean): Promise<any> {
+    if (normalizeAuthMethod(options.authMethod) === 'windows') {
+      throw new Error(unsupportedAuthMethodMessage('db2', 'windows'));
+    }
     const ibmdb = this.load();
     const primary = resolveDb2SslConnectionString(connectionString, options);
     try {

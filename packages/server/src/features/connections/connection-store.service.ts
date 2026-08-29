@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { getStore } from '../../database/store';
 import { encryptSecret, decryptSecret } from '../../platform/crypto/crypto';
-import { ConnectionOptions, buildConnectionString } from '@foxschema/db';
+import { ConnectionOptions, buildConnectionString, resolveAuthMethod, assertWindowsAccount } from '@foxschema/db';
 
 export interface SavedConnectionInput {
   name?: string;
@@ -26,6 +26,10 @@ export interface SavedConnectionSummary {
   port?: number;
   database?: string;
   username?: string;
+  /** How Fox authenticates: password (default), windows (NTLM), ldap (Db2 directory). */
+  authMethod?: string;
+  /** NTLM domain when authMethod is windows (not a secret). */
+  domain?: string;
   /** Whether a password is stored (so the edit form can reflect the checkbox). */
   hasPassword: boolean;
   createdAt: string;
@@ -84,23 +88,38 @@ export class ConnectionStore {
     } else {
       resolved.password = undefined; // treat "" like missing so hasPassword stays accurate
     }
+    const authMethod = resolveAuthMethod(dialect, resolved.authMethod);
+    resolved.authMethod = authMethod === 'password' ? undefined : authMethod;
+    if (authMethod !== 'windows') resolved.domain = undefined;
+    else if (typeof resolved.domain === 'string') resolved.domain = resolved.domain.trim() || undefined;
+    if (authMethod === 'windows') assertWindowsAccount(resolved.username, resolved.domain);
     resolved.connectionString = buildConnectionString(dialect, resolved);
     return resolved;
   }
 
+  private publicFields(opt: ConnectionOptions): Pick<
+    SavedConnectionSummary,
+    'host' | 'port' | 'database' | 'username' | 'authMethod' | 'domain' | 'hasPassword'
+  > {
+    const stored = typeof opt.authMethod === 'string' ? opt.authMethod.trim().toLowerCase() : '';
+    return {
+      host: opt.host,
+      port: opt.port,
+      database: opt.database,
+      username: opt.username,
+      authMethod: stored === 'windows' || stored === 'ldap' ? stored : undefined,
+      domain: typeof opt.domain === 'string' && opt.domain.trim() ? opt.domain.trim() : undefined,
+      hasPassword: typeof opt.password === 'string' && opt.password.length > 0,
+    };
+  }
+
   private toSummary(row: ConnectionRow): SavedConnectionSummary {
-    let host: string | undefined;
-    let port: number | undefined;
-    let database: string | undefined;
-    let username: string | undefined;
-    let hasPassword = false;
+    let fields: ReturnType<ConnectionStore['publicFields']> = {
+      hasPassword: false,
+    };
     try {
       const opt = JSON.parse(decryptSecret(row.encrypted_config)) as ConnectionOptions;
-      host = opt.host;
-      port = opt.port;
-      database = opt.database;
-      username = opt.username;
-      hasPassword = typeof opt.password === 'string' && opt.password.length > 0;
+      fields = this.publicFields(opt);
     } catch {
       /* unreadable (key rotated?) — show metadata without connection fields */
     }
@@ -109,11 +128,7 @@ export class ConnectionStore {
       name: row.name ?? '',
       dialect: row.dialect,
       schema: row.schema ?? undefined,
-      host,
-      port,
-      database,
-      username,
-      hasPassword,
+      ...fields,
       createdAt: row.created_at,
     };
   }
@@ -141,11 +156,7 @@ export class ConnectionStore {
       name: input.name ?? '',
       dialect: input.dialect,
       schema: input.schema,
-      host: option.host,
-      port: option.port,
-      database: option.database,
-      username: option.username,
-      hasPassword: !!option.password,
+      ...this.publicFields(option),
       createdAt,
     };
   }

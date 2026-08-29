@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { buildBrowseResult } from '@/shared/lib/browse';
-import { dialectUsesPassword } from '@/shared/lib/provider-settings';
+import { connectionNeedsSecret } from '@/shared/lib/provider-settings';
 import {
   testConnection as apiTestConnection,
   fetchSchemaList,
@@ -148,7 +148,7 @@ export const useSyncStore = create<SyncState>()(
         const canRetest = !!(
           conn.hasPassword ||
           sessionPassword ||
-          !dialectUsesPassword(conn.dialect)
+          !connectionNeedsSecret(conn.dialect, conn.authMethod)
         );
         if (side === 'source') {
           patch.selectedSourceConnectionId = id;

@@ -9,6 +9,11 @@ import {
   getProviderSettings,
   isFileDialect as isFileDialectOf,
   PROVIDER_SETTINGS,
+  authMethodsForDialect,
+  resolveAuthMethod,
+  parseWindowsAccount,
+  passwordFieldLabel,
+  type ConnectionAuthMethod,
 } from '@/shared/lib/provider-settings';
 import type { DriverInfo } from '@/shared/lib/types';
 import { fetchSchemaList, checkDriver as apiCheckDriver, installDriver as apiInstallDriver } from "@/shared/api/schemaApi";
@@ -102,6 +107,8 @@ export const ConnectionModal: React.FC<Props> = ({
     initialOptions?.schema ?? '',
     initialOptions?.username ?? '',
     initialOptions?.password ?? '',
+    initialOptions?.authMethod ?? '',
+    initialOptions?.domain ?? '',
     initialOptions?.ssl?.enabled ? '1' : '0',
     initialOptions?.ssl?.ca ?? '',
     initialOptions?.pool?.min ?? '',
@@ -119,6 +126,8 @@ export const ConnectionModal: React.FC<Props> = ({
       schema: initialOptions?.schema || getProviderSettings(dialect).defaultSchema || '',
       username: initialOptions?.username || '',
       password: initialOptions?.password || '',
+      authMethod: resolveAuthMethod(dialect, initialOptions?.authMethod),
+      domain: initialOptions?.domain || '',
       ssl: {
         enabled: initialOptions?.ssl?.enabled || false,
         ca: initialOptions?.ssl?.ca || '',
@@ -150,16 +159,20 @@ export const ConnectionModal: React.FC<Props> = ({
 
   const updateField = (key: keyof ConnectionOptions, value: any) => {
     setForm((prev) => ({ ...prev, [key]: value }));
+    setTestingState((s) => (s.status === 'failed' ? { status: 'idle' } : s));
   };
 
   const changeDialect = (d: Dialect) => {
     setSelDialect(d);
     setSchemaList([]); // schemas are provider-specific — clear stale list
+    setTestingState({ status: 'idle' });
     // refresh dialect-specific defaults
     setForm((prev) => ({
       ...prev,
       port: defaultPorts[d],
       schema: getProviderSettings(d).defaultSchema || '',
+      authMethod: resolveAuthMethod(d, prev.authMethod),
+      domain: resolveAuthMethod(d, prev.authMethod) === 'windows' ? prev.domain : '',
       // Redshift (and Azure SQL) expect TLS; keep the checkbox in sync with
       // connection-string sslmode=require so local stand-ins can opt out.
       ssl: {
@@ -195,9 +208,25 @@ export const ConnectionModal: React.FC<Props> = ({
   // Connect with the entered params and pull the list of selectable schemas.
   // This doubles as the connection check (there is no separate Test button).
   const loadSchemas = async () => {
+    const authMethod = resolveAuthMethod(selDialect, form.authMethod);
+    if (authMethod === 'windows') {
+      const account = parseWindowsAccount(form.username, form.domain);
+      if (!account.domain || !account.userName) {
+        setTestingState({
+          status: 'failed',
+          error: 'Windows login needs a domain and a user (CONTOSO\\alice, or Domain + User).',
+        });
+        return;
+      }
+    }
     setTestingState({ status: 'testing' });
     try {
-      const option: ConnectionOptions = { ...form, connectionString: buildConnectionString(selDialect, form) };
+      const option: ConnectionOptions = {
+        ...form,
+        authMethod: authMethod === 'password' ? undefined : authMethod,
+        domain: authMethod === 'windows' ? (form.domain?.trim() || undefined) : undefined,
+        connectionString: buildConnectionString(selDialect, form),
+      };
       const list = await fetchSchemaList({ dialect: selDialect, option });
       setSchemaList(list);
       if (list.length && !list.includes(form.schema || '')) {
@@ -227,8 +256,22 @@ export const ConnectionModal: React.FC<Props> = ({
       return;
     }
 
+    const authMethod = resolveAuthMethod(selDialect, form.authMethod);
+    if (authMethod === 'windows') {
+      const account = parseWindowsAccount(form.username, form.domain);
+      if (!account.domain || !account.userName) {
+        setTestingState({
+          status: 'failed',
+          error: 'Windows login needs a domain and a user (CONTOSO\\alice, or Domain + User).',
+        });
+        return;
+      }
+    }
+
     const option: ConnectionOptions = {
       ...form,
+      authMethod: authMethod === 'password' ? undefined : authMethod,
+      domain: authMethod === 'windows' ? (form.domain?.trim() || undefined) : undefined,
       // Empty password on edit means “keep stored”; never send "" which looks unset.
       password: form.password?.trim() ? form.password : undefined,
       schemaRequired,
@@ -261,6 +304,8 @@ export const ConnectionModal: React.FC<Props> = ({
 
   const inputCls = 'mt-1 w-full bg-slate-950 border border-slate-850 focus:border-cyan-500 text-sm text-slate-200 rounded px-3 py-2 outline-none font-mono';
   const labelCls = 'text-[10px] uppercase font-bold text-slate-400 tracking-wider';
+  const loginMethod = resolveAuthMethod(selDialect, form.authMethod);
+  const authChoices = authMethodsForDialect(selDialect);
 
   return createPortal(
     <>
@@ -430,16 +475,81 @@ export const ConnectionModal: React.FC<Props> = ({
           )}
 
           {!isFileDialect && (
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className={labelCls}>Username</label>
-                <input data-testid="conn-username-input" placeholder="user" value={form.username} onChange={(e) => updateField('username', e.target.value)} className={inputCls} />
+            <>
+              {authChoices.length > 1 && (
+                <div>
+                  <label className={labelCls}>Login method</label>
+                  <select
+                    data-testid="conn-auth-method"
+                    value={loginMethod}
+                    onChange={(e) =>
+                      updateField('authMethod', e.target.value as ConnectionAuthMethod)
+                    }
+                    className={inputCls}
+                  >
+                    {authChoices.map((m) => (
+                      <option key={m.value} value={m.value}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {loginMethod === 'windows' && (
+                <div>
+                  <label className={labelCls}>Domain</label>
+                  <input
+                    data-testid="conn-domain-input"
+                    placeholder="CONTOSO"
+                    value={form.domain || ''}
+                    onChange={(e) => updateField('domain', e.target.value)}
+                    className={inputCls}
+                  />
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    Optional if Username is CONTOSO\alice. This is NTLM (Windows password), not
+                    SSO.
+                  </p>
+                </div>
+              )}
+
+              {loginMethod === 'ldap' && selDialect === 'db2' && (
+                <p
+                  data-testid="conn-ldap-hint"
+                  className="text-[11px] text-slate-400 leading-snug rounded-md border border-slate-800 bg-slate-950/50 px-3 py-2"
+                >
+                  Db2 has no CREATE USER. Directory / LDAP is checked on the server — Fox Schema
+                  still sends UID and the directory password (Authentication=SERVER_ENCRYPT).
+                </p>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={labelCls}>Username</label>
+                  <input
+                    data-testid="conn-username-input"
+                    placeholder={loginMethod === 'windows' ? 'CONTOSO\\alice' : 'user'}
+                    value={form.username}
+                    onChange={(e) => updateField('username', e.target.value)}
+                    className={inputCls}
+                  />
+                </div>
+                <div>
+                  <label className={labelCls}>{passwordFieldLabel(loginMethod)}</label>
+                  <PasswordInput
+                    data-testid="conn-password-input"
+                    placeholder={
+                      isCredential && initialHasPassword && !form.password
+                        ? '•••••••• (saved)'
+                        : '••••••••'
+                    }
+                    value={form.password}
+                    onChange={(e) => updateField('password', e.target.value)}
+                    className={inputCls}
+                  />
+                </div>
               </div>
-              <div>
-                <label className={labelCls}>Password</label>
-                <PasswordInput data-testid="conn-password-input" placeholder={isCredential && initialHasPassword && !form.password ? '•••••••• (saved)' : '••••••••'} value={form.password} onChange={(e) => updateField('password', e.target.value)} className={inputCls} />
-              </div>
-            </div>
+            </>
           )}
 
           {isCredential && !isFileDialect && (
