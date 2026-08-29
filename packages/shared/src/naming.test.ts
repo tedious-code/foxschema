@@ -135,6 +135,42 @@ describe('file naming', () => {
   });
 });
 
+/**
+ * Declarations are found by splitting each line into words rather than by
+ * matching a pattern.
+ *
+ * The regex this replaced put optional `\s+` groups next to each other, which
+ * `security/detect-unsafe-regex` rejects as a backtracking risk. Splitting is
+ * linear and reads more plainly than the pattern did.
+ */
+const words = (line: string): string[] => line.trim().split(/\s+/);
+
+const MODIFIERS = new Set(['export', 'const', 'declare', 'default']);
+
+function declaresEnum(file: string): boolean {
+  return fs
+    .readFileSync(file, 'utf8')
+    .split('\n')
+    .some((line) => {
+      const w = words(line);
+      const at = w.indexOf('enum');
+      // `enum Name`, optionally behind export / const / declare.
+      return at >= 0 && w.slice(0, at).every((t) => MODIFIERS.has(t)) && Boolean(w[at + 1]);
+    });
+}
+
+function declaresIPrefixedInterface(file: string): boolean {
+  return fs
+    .readFileSync(file, 'utf8')
+    .split('\n')
+    .some((line) => {
+      const w = words(line);
+      if (w[0] !== 'export' || w[1] !== 'interface') return false;
+      const name = w[2] ?? '';
+      return name.length > 1 && name[0] === 'I' && name[1] === name[1]?.toUpperCase();
+    });
+}
+
 describe('symbol naming', () => {
   const all = [
     ...PACKAGE_ROOTS.flatMap((r) => sourceFiles(path.join(REPO, r))),
@@ -143,16 +179,12 @@ describe('symbol naming', () => {
 
   it('declares no enum', () => {
     // A union of string literals needs no runtime object and narrows better.
-    const offenders = all
-      .filter((f) => /^\s*(export\s+)?(const\s+)?enum\s+\w/m.test(fs.readFileSync(f, 'utf8')))
-      .map(rel);
+    const offenders = all.filter(declaresEnum).map(rel);
     expect(offenders).toEqual([]);
   });
 
   it('does not prefix interfaces with I', () => {
-    const offenders = all
-      .filter((f) => /^\s*export\s+interface\s+I[A-Z]/m.test(fs.readFileSync(f, 'utf8')))
-      .map(rel);
+    const offenders = all.filter(declaresIPrefixedInterface).map(rel);
     expect(offenders).toEqual([]);
   });
 });
