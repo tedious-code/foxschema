@@ -392,14 +392,3 @@ export {
   type AccessDiffResult,
   type AccessDiffStatus,
 } from './modules/access/access-diff.js';
-
-// Command mode — the shell command that runs a statement through the engine's
-// own client, for users who prefer to run it themselves.
-export { buildCliCommand, renderCliCommand } from './modules/command-mode/build-command.js';
-export { cliFor, supportsCommandMode, CLI_MAP } from './modules/command-mode/cli.registry.js';
-export { shellQuote, heredoc } from './modules/command-mode/shell.js';
-export type {
-  CliTarget,
-  CliDialect,
-  GeneratedCommand,
-} from './modules/command-mode/cli.types.js';
