@@ -29,9 +29,16 @@ jobs:
       # Generate lockfile on the fly so npm audit has a full dependency graph.
       # Consider committing package-lock.json for faster, deterministic CI.
       - name: Generate lockfile
-        run: npm install --package-lock-only --ignore-scripts
+        run: npm ci --ignore-scripts
 
       # Hard block — Critical vulns in production dependencies.
+      # Verifies every package in the lockfile against the registry's own
+      # signatures. `npm audit` answers "is this version known to be
+      # vulnerable"; this answers "is this tarball the one the registry
+      # published", which is what catches a tampered or re-published package.
+      - name: Verify registry signatures
+        run: npm audit signatures
+
       - name: Fail on Critical vulnerabilities
         run: npm audit --audit-level=critical --omit=dev
 
@@ -66,7 +73,7 @@ jobs:
           node-version: 22
 
       - name: Install dependencies
-        run: npm install --ignore-scripts
+        run: npm ci --ignore-scripts
 
       # Errors (inject/eval/ReDoS) cause non-zero exit and block the PR.
       # Warnings (detect-non-literal-fs-filename) are informational — legitimate
@@ -89,7 +96,7 @@ jobs:
           node-version: 22
 
       - name: Install dependencies (ignore-scripts)
-        run: npm install --ignore-scripts
+        run: npm ci --ignore-scripts
 
       - name: Scan node_modules
         run: npm run scan:deps-security -- --report deps-backdoor-report.json
