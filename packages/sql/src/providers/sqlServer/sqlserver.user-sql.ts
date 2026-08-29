@@ -12,6 +12,7 @@ import {
 } from '../../modules/access/user-sql.types.js';
 import { createUserSqlEmitter } from '../../modules/access/user-sql-helpers.js';
 import type { PermissionRisk } from '../../modules/access/intent.js';
+import type { PermissionWarning } from '../../modules/access/access-sql.types.js';
 
 export const sqlServerUserSql: UserSqlDialect = {
   id: 'sqlserver',
@@ -81,7 +82,7 @@ export const sqlServerUserSql: UserSqlDialect = {
       return finish();
     }
 
-    const failed = buildAlter(request, dialect, name, isUser, support, add, q);
+    const failed = buildAlter(request, dialect, name, isUser, support, add, q, warnings);
     if (failed) return { error: failed };
     return finish();
   },
@@ -94,7 +95,8 @@ function buildAlter(
   isUser: boolean,
   support: UserSqlDialect['support'],
   add: (sql: string, explanation: string, risk?: PermissionRisk) => void,
-  q: (v: string) => string
+  q: (v: string) => string,
+  warnings: PermissionWarning[]
 ): string | undefined {
   const change = request.alteration ?? 'password';
 
@@ -111,15 +113,28 @@ function buildAlter(
     return undefined;
   }
 
+  // Password / expiry / disable live on the server LOGIN. The catalog only
+  // lists database users — LOGIN names often differ (`CREATE USER app FOR
+  // LOGIN corp_app`). Emitting `ALTER LOGIN [app]` can change or lock an
+  // unrelated server login. Same rule as drop: never guess LOGIN from USER.
+  const loginCaution = {
+    level: 'caution' as const,
+    message:
+      `Password, expiry and disable apply to the server LOGIN, which may differ from ` +
+      `database user ${name}. Confirm the login name (for example from sys.server_principals), ` +
+      `replace <login_name>, then run against master.`,
+  };
+
   if (change === 'password') {
     if (!isUser) return 'A role has no password.';
-    // Password lives on the LOGIN. We only know the database user name from
-    // the catalog — emit ALTER LOGIN only when the operator confirms the
-    // login shares this name (Fox Schema create does; many existing users do not).
     add(
-      `ALTER LOGIN ${q(name)} WITH PASSWORD = '${PASSWORD_PLACEHOLDER}';`,
-      `Sets a new password for the login ${name}. Run against master only if that login name matches this database user.`
+      `-- Password lives on the server LOGIN, which may not match database user ${q(name)}.\n` +
+        `-- Confirm the login name, then run against master:\n` +
+        `-- ALTER LOGIN <login_name> WITH PASSWORD = '${PASSWORD_PLACEHOLDER}';`,
+      `Template to set a new password once you confirm the LOGIN for ${name}.`,
+      'elevated'
     );
+    warnings.push(loginCaution);
     return undefined;
   }
 
@@ -129,9 +144,13 @@ function buildAlter(
       return `${dialect} cannot set account expiry in SQL.`;
     }
     add(
-      `ALTER LOGIN ${q(name)} WITH CHECK_EXPIRATION ON;`,
-      `Requires login ${name} to change password when it expires. Run against master only if that login name matches this database user.`
+      `-- Expiry is enforced on the server LOGIN, which may not match database user ${q(name)}.\n` +
+        `-- Confirm the login name, then run against master:\n` +
+        `-- ALTER LOGIN <login_name> WITH CHECK_EXPIRATION ON;`,
+      `Template to require password expiry once you confirm the LOGIN for ${name}.`,
+      'elevated'
     );
+    warnings.push(loginCaution);
     return undefined;
   }
 
@@ -140,10 +159,14 @@ function buildAlter(
   }
   const disabling = change === 'disable';
   add(
-    `ALTER LOGIN ${q(name)} ${disabling ? 'DISABLE' : 'ENABLE'};`,
+    `-- Enable/disable is a server LOGIN setting, which may not match database user ${q(name)}.\n` +
+      `-- Confirm the login name, then run against master:\n` +
+      `-- ALTER LOGIN <login_name> ${disabling ? 'DISABLE' : 'ENABLE'};`,
     disabling
-      ? `Refuses new connections from login ${name}. Run against master only if that login name matches this database user.`
-      : `Lets login ${name} connect again. Run against master only if that login name matches this database user.`
+      ? `Template to refuse new connections once you confirm the LOGIN for ${name}.`
+      : `Template to allow connections again once you confirm the LOGIN for ${name}.`,
+    'elevated'
   );
+  warnings.push(loginCaution);
   return undefined;
 }
