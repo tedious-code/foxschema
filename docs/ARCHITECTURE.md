@@ -125,7 +125,9 @@ Plus `<d>.sql-dialect.ts` implementing `SqlDialect` — registered in `modules/d
 Account DDL (CREATE/ALTER/DROP USER|ROLE) is a sibling strategy, not on `SqlDialect`:
 `<d>.user-sql.ts` implementing `UserSqlDialect`, registered in
 `modules/access/user-sql.registry.ts`. Aliases re-export (e.g. Azure→SQL Server,
-TiDB→MySQL); Redshift has its own module (GROUP, not ROLE). GRANT/REVOKE is the
+TiDB→MySQL); Redshift has its own module (GROUP, not ROLE). Db2 has no CREATE USER
+(`canCreateUser: false`); `buildDb2OsUserInstructions` emits copy-paste docker +
+GRANT CONNECT steps for the `foxschema-db2` container instead. GRANT/REVOKE is the
 same pattern: `<d>.access-sql.ts` / `modules/access/access-sql.registry.ts`
 (Redshift reuses Postgres GRANT; account DDL stays separate). Both stay in
 `@foxschema/sql` so the browser Access Assistant can generate SQL — do not put

@@ -154,7 +154,7 @@ Imports may run `app → features → shared`, never `shared → features`.
 | New screen or panel | `apps/web/src/frontend/features/<domain>/` |
 | Reusable UI or helper | `apps/web/src/frontend/shared/` |
 | Calling an API endpoint | use `api` from `@/shared/api/client` — never `fetch` directly |
-| SQL for permissions or accounts | `packages/sql/src/modules/access/` (facade) + `packages/sql/src/providers/<dialect>/*.user-sql.ts` / `*.access-sql.ts` |
+| SQL for permissions or accounts | `packages/sql/src/modules/access/` (facade) + `packages/sql/src/providers/<dialect>/*.user-sql.ts` / `*.access-sql.ts`. Db2 OS-user docker steps: `buildDb2OsUserInstructions`. |
 | A dialect capability the app must branch on | `packages/sql/src/modules/dialect/` |
 | Guard or cross-cutting HTTP concern | `packages/server/src/platform/` |
 

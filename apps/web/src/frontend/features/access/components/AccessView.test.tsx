@@ -133,22 +133,80 @@ describe('AccessView — User Management list + Builder handoff', () => {
     expect(screen.getByTestId('user-host')).toBeTruthy();
   });
 
-  it('hides Add user on Db2 and only offers Add role', async () => {
+  it('shows Add user (OS) on Db2 with docker CONNECT instructions', async () => {
     fetchDbAccess.mockResolvedValue({
       dialect: 'db2',
       schema: '',
       mode: 'native',
       support: { mode: 'native', query: true, grant: true, hint: '' },
-      principals: [],
+      principals: [
+        {
+          name: 'ANALYSTS',
+          kind: 'role',
+          canLogin: false,
+          memberOf: [],
+          members: [],
+        },
+      ],
       privileges: [],
     });
     render(<AccessView />);
     fireEvent.change(screen.getByTestId('user-connection'), { target: { value: 'c3' } });
     await waitFor(() => expect(fetchDbAccess).toHaveBeenCalled());
     expect(screen.getByTestId('user-dialect-coach').textContent).toMatch(/Db2/i);
-    expect(screen.queryByTestId('user-add-user')).toBeNull();
+    expect(screen.getByTestId('user-add-user').textContent).toMatch(/Add user \(OS\)/);
     expect(screen.getByTestId('user-add-role')).toBeTruthy();
-    expect(screen.getByTestId('user-create-blocked').textContent).toMatch(/operating system|directory/i);
+    expect(screen.queryByTestId('user-create-blocked')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('user-add-user'));
+    fireEvent.change(screen.getByTestId('user-name'), { target: { value: 'report_user' } });
+    fireEvent.change(screen.getByTestId('user-os-role'), { target: { value: 'analysts' } });
+
+    const sql = screen.getByTestId('user-sql').textContent ?? '';
+    expect(sql).toMatch(/docker exec/);
+    expect(sql).toMatch(/foxschema-db2/);
+    expect(sql).toMatch(/GRANT CONNECT ON DATABASE TO USER REPORT_USER/);
+    expect(sql).toMatch(/connect to SAMPLE/);
+    expect(sql).toMatch(/GRANT ROLE ANALYSTS TO USER REPORT_USER/);
+
+    const next = screen.getByTestId('user-grant-next') as HTMLButtonElement;
+    expect(next.disabled).toBe(false);
+    fireEvent.click(next);
+    expect((screen.getByTestId('access-principal-name') as HTMLInputElement).value).toBe('REPORT_USER');
+  });
+
+  it('previews OS password and disable steps when editing a Db2 user', async () => {
+    fetchDbAccess.mockResolvedValue({
+      dialect: 'db2',
+      schema: '',
+      mode: 'native',
+      support: { mode: 'native', query: true, grant: true, hint: '' },
+      principals: [
+        {
+          name: 'REPORT_USER',
+          kind: 'user',
+          canLogin: true,
+          memberOf: [],
+          members: [],
+        },
+      ],
+      privileges: [],
+    });
+    render(<AccessView />);
+    fireEvent.change(screen.getByTestId('user-connection'), { target: { value: 'c3' } });
+    await waitFor(() => expect(screen.getByTestId('user-row-REPORT_USER')).toBeTruthy());
+
+    fireEvent.click(screen.getByTestId('user-row-REPORT_USER'));
+    fireEvent.click(screen.getByTestId('user-edit-selected'));
+    expect(screen.getByTestId('user-sql').textContent).toMatch(/chpasswd/);
+
+    fireEvent.click(screen.getByTestId('user-alteration-disable'));
+    const disabled = screen.getByTestId('user-sql').textContent ?? '';
+    expect(disabled).toMatch(/passwd -l report_user/i);
+    expect(disabled).toMatch(/REVOKE CONNECT ON DATABASE FROM USER REPORT_USER/);
+
+    fireEvent.click(screen.getByTestId('user-alteration-enable'));
+    expect(screen.getByTestId('user-sql').textContent).toMatch(/passwd -u report_user/i);
   });
 
   it('hands off Grant access from a selected list row', async () => {

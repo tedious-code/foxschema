@@ -53,6 +53,16 @@ describe('buildDbAccessPrincipalQueries', () => {
     expect(q[0].sql).toMatch(/DBA_USERS/);
     expect(q[1].sql).toMatch(/ALL_USERS/);
   });
+
+  it('lists Db2 users from DBAUTH with a roles-only fallback', () => {
+    const q = buildDbAccessPrincipalQueries({ dialect: 'db2' });
+    expect(q).toHaveLength(2);
+    expect(q[0].sql).toMatch(/SYSCAT\.DBAUTH/);
+    expect(q[0].sql).toMatch(/CONNECTAUTH/);
+    expect(q[0].sql).toMatch(/kind/);
+    expect(q[1].sql).toMatch(/SYSCAT\.ROLES/);
+    expect(q[1].sql).not.toMatch(/SYSCAT\.DBAUTH/);
+  });
 });
 
 describe('buildDbAccessPrivilegeQueries', () => {
@@ -64,6 +74,11 @@ describe('buildDbAccessPrivilegeQueries', () => {
     const mysql = buildDbAccessPrivilegeQueries({ dialect: 'mysql' })[0].sql;
     expect(mysql).toMatch(/TABLE_PRIVILEGES/);
     expect(mysql).toMatch(/SCHEMA_PRIVILEGES/);
+
+    const db2 = buildDbAccessPrivilegeQueries({ dialect: 'db2' })[0].sql;
+    expect(db2).toMatch(/SYSCAT\.TABAUTH/);
+    expect(db2).toMatch(/CONNECTAUTH/);
+    expect(db2).toMatch(/SYSCAT\.ROLEAUTH/);
   });
 });
 

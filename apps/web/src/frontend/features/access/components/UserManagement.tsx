@@ -27,6 +27,7 @@ import {
 import {
   PASSWORD_PLACEHOLDER,
   buildUserSql,
+  buildDb2OsUserInstructions,
   userManagementSupport,
   dialectSupportsDbAccess,
   privilegesForPrincipal,
@@ -95,7 +96,7 @@ function dialectCoach(dialect: string): string | null {
     return 'Oracle needs CREATE SESSION to log in (included in Add user). Rename is not supported here; Drop can optionally CASCADE owned objects.';
   }
   if (d === 'db2') {
-    return 'Db2 authenticates outside SQL (OS / LDAP). Add role is available; grant privileges to an existing authorization ID in Permission Builder.';
+    return 'Db2 authenticates OS / LDAP logins — there is no CREATE USER. Add user (OS) creates the Linux account and GRANT CONNECT. Edit → Set password / Disable login / Enable login emit docker steps (chpasswd, passwd -l / -u). Grant access assigns table privileges.';
   }
   if (d === 'clickhouse') {
     return 'ClickHouse supports create / rename / drop here. Account lock (disable) is not available — drop or revoke privileges instead.';
@@ -176,6 +177,7 @@ export const UserManagement: React.FC<{
   const [validUntil, setValidUntil] = useState('');
   const [host, setHost] = useState('%');
   const [cascade, setCascade] = useState(false);
+  const [osRole, setOsRole] = useState('');
   const [copied, setCopied] = useState(false);
   const [copiedWithPassword, setCopiedWithPassword] = useState(false);
 
@@ -233,6 +235,11 @@ export const UserManagement: React.FC<{
     [principals, principalType]
   );
 
+  const roleOptions = useMemo(
+    () => principals.filter((p) => p.kind !== 'user').map((p) => ({ value: p.name, hint: 'role' })),
+    [principals]
+  );
+
   const action: UserAction =
     mode === 'add' ? 'create' : mode === 'drop' ? 'drop' : mode === 'edit' ? 'alter' : 'create';
 
@@ -252,8 +259,27 @@ export const UserManagement: React.FC<{
 
   const generated = useMemo(() => {
     if (mode === 'idle' || !dialect || !name.trim()) return null;
+    if (isDb2 && principalType === 'user') {
+      if (mode === 'add') {
+        return buildDb2OsUserInstructions({
+          name,
+          role: osRole,
+          database: conn?.database,
+        });
+      }
+      if (
+        mode === 'edit' &&
+        (alteration === 'password' || alteration === 'disable' || alteration === 'enable')
+      ) {
+        return buildDb2OsUserInstructions({
+          name,
+          database: conn?.database,
+          action: alteration,
+        });
+      }
+    }
     return buildUserSql(request, dialect);
-  }, [mode, dialect, name, request]);
+  }, [mode, dialect, name, request, isDb2, principalType, osRole, conn?.database, alteration]);
 
   const sqlText =
     generated && !('error' in generated)
@@ -268,7 +294,9 @@ export const UserManagement: React.FC<{
       const principalName =
         isMysqlFamily && principalType === 'user'
           ? `${name.trim()}@${(host || '%').trim() || '%'}`
-          : name.trim();
+          : isDb2 && principalType === 'user'
+            ? name.trim().toUpperCase()
+            : name.trim();
       return { connectionId, principalName, principalType };
     }
     if (selected) {
@@ -286,6 +314,7 @@ export const UserManagement: React.FC<{
     name,
     host,
     isMysqlFamily,
+    isDb2,
     generated,
     principalType,
     selected,
@@ -353,6 +382,7 @@ export const UserManagement: React.FC<{
     setNewName('');
     setHost('%');
     setCascade(false);
+    setOsRole('');
     setAlteration('password');
   };
 
@@ -530,16 +560,20 @@ export const UserManagement: React.FC<{
           {connectionId && support.supported && (
             <>
               <div className="shrink-0 flex flex-wrap items-center gap-2">
-                {support.canCreateUser && (
+                {(support.canCreateUser || isDb2) && (
                 <button
                   type="button"
                   data-testid="user-add-user"
                   onClick={() => startAdd('user')}
-                  title="Generate CREATE USER SQL"
+                  title={
+                    isDb2
+                      ? 'Generate OS-user + GRANT CONNECT steps for the foxschema-db2 container'
+                      : 'Generate CREATE USER SQL'
+                  }
                   className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-emerald-500/40 bg-emerald-500/10 text-[11px] font-bold text-emerald-100"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  Add user
+                  {isDb2 ? 'Add user (OS)' : 'Add user'}
                 </button>
                 )}
                 {support.canCreateRole && (
@@ -553,7 +587,7 @@ export const UserManagement: React.FC<{
                   Add role
                 </button>
                 )}
-                {!support.canCreateUser && support.reason && (
+                {!support.canCreateUser && !isDb2 && support.reason && (
                   <p data-testid="user-create-blocked" className="text-[11px] text-amber-200/90">
                     {support.reason}
                   </p>
@@ -649,7 +683,9 @@ export const UserManagement: React.FC<{
                           {listSupport && !listSupport.query
                             ? listSupport.hint || 'No user catalog on this engine.'
                             : listHint ||
-                              'No users or roles found. Use Add user / Add role to generate CREATE SQL.'}
+                              (isDb2
+                                ? 'No users with CONNECT (or roles) yet. Use Add user (OS), run the commands, then reload.'
+                                : 'No users or roles found. Use Add user / Add role to generate CREATE SQL.')}
                         </td>
                       </tr>
                     )}
@@ -714,7 +750,7 @@ export const UserManagement: React.FC<{
                         value={principalType}
                         onChange={(v) => setPrincipalType(v as PrincipalType)}
                         options={[
-                          ...(support.canCreateUser
+                          ...(support.canCreateUser || isDb2
                             ? [{ value: 'user', label: 'User (logs in)' }]
                             : []),
                           ...(support.canCreateRole
@@ -753,6 +789,22 @@ export const UserManagement: React.FC<{
                       />
                     )}
                   </Field>
+
+                  {isDb2 && mode === 'add' && principalType === 'user' && (
+                    <Field
+                      label="Assign role (optional)"
+                      hint="GRANT ROLE after CONNECT. Create the role first with Add role if it is not in the list."
+                    >
+                      <Autocomplete
+                        data-testid="user-os-role"
+                        theme="slate"
+                        value={osRole}
+                        onChange={setOsRole}
+                        options={roleOptions}
+                        placeholder="ANALYSTS"
+                      />
+                    </Field>
+                  )}
 
                   {isMysqlFamily && principalType === 'user' && (mode === 'add' || mode === 'drop' || mode === 'edit') && (
                     <Field
@@ -853,24 +905,42 @@ export const UserManagement: React.FC<{
                     </div>
                   )}
 
-                  {mode === 'add' && principalType === 'user' && support.canCreateUser && (
+                  {((mode === 'add' && principalType === 'user' && (support.canCreateUser || isDb2)) ||
+                    (isDb2 && mode === 'edit' && alteration === 'password')) && (
                     <div className="flex items-start gap-2 rounded-md border border-slate-700 bg-slate-950/50 px-3 py-2 text-[11px] text-slate-400">
                       <KeyRound className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                       <span>
-                        Password stays with you. SQL uses{' '}
+                        Password stays with you. Commands use{' '}
                         <code className="text-slate-300">{PASSWORD_PLACEHOLDER}</code> — replace it
-                        before you run the statement.
+                        before you run them.
                       </span>
                     </div>
                   )}
 
-                  {isDb2 && mode === 'add' && (
+                  {isDb2 && (mode === 'add' || mode === 'edit') && principalType === 'user' && (
                     <div
                       data-testid="user-db2-hint"
                       className="rounded-md border border-amber-500/35 bg-amber-950/25 px-3 py-2 text-[11px] text-amber-200"
                     >
-                      Db2 authenticates outside SQL (OS / LDAP). Prefer Add role, then grant
-                      privileges in Permission Builder to an existing authorization ID.
+                      {mode === 'add'
+                        ? 'Copy the docker commands into a terminal (replace <password>), then reload this list. Grant access next assigns table privileges to the uppercase authorization ID.'
+                        : alteration === 'password'
+                          ? 'Db2 stores no SQL password. chpasswd changes the Linux password used to connect.'
+                          : alteration === 'disable'
+                            ? 'Disable locks the Linux account (passwd -l) and REVOKE CONNECT. Table GRANTs stay until you revoke them.'
+                            : alteration === 'enable'
+                              ? 'Enable unlocks the Linux account and GRANT CONNECT again.'
+                              : 'CREATE ROLE is SQL. After the role exists, Add user (OS) can GRANT ROLE to the new login, or use Grant access.'}
+                    </div>
+                  )}
+
+                  {isDb2 && mode === 'add' && principalType === 'role' && (
+                    <div
+                      data-testid="user-db2-hint"
+                      className="rounded-md border border-amber-500/35 bg-amber-950/25 px-3 py-2 text-[11px] text-amber-200"
+                    >
+                      CREATE ROLE is SQL. After the role exists, Add user (OS) can GRANT ROLE to the
+                      new login, or use Grant access.
                     </div>
                   )}
 
@@ -1027,8 +1097,9 @@ export const UserManagement: React.FC<{
 
               <p className="flex items-center gap-1.5 text-[11px] text-slate-500">
                 <UserCog className="w-3.5 h-3.5" />
-                Preview only. Copy and run this SQL in your DBA tool or the SQL Editor — Fox Schema
-                does not create, change, or drop accounts for you.
+                {isDb2 && principalType === 'user' && (mode === 'add' || mode === 'edit')
+                  ? 'Preview only. Copy and run the docker commands in a terminal — Fox Schema does not create, lock, or change OS users for you.'
+                  : 'Preview only. Copy and run this SQL in your DBA tool or the SQL Editor — Fox Schema does not create, change, or drop accounts for you.'}
               </p>
             </>
           )}

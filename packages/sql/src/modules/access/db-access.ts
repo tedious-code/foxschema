@@ -195,7 +195,12 @@ export function buildDbAccessPrincipalQueries(opts: {
   if (fam === 'oracle') {
     return [{ sql: ORACLE_PRINCIPALS_DBA, params: [] }, { sql: ORACLE_PRINCIPALS_ALL, params: [] }];
   }
-  if (fam === 'db2') return [{ sql: DB2_PRINCIPALS, params: [] }];
+  if (fam === 'db2') {
+    return [
+      { sql: DB2_PRINCIPALS, params: [] },
+      { sql: DB2_PRINCIPALS_ROLES, params: [] },
+    ];
+  }
   if (fam === 'clickhouse') return [{ sql: CLICKHOUSE_PRINCIPALS, params: [] }];
   return [{ sql: GENERIC_PRINCIPALS, params: [] }];
 }
@@ -811,6 +816,53 @@ FROM ALL_TAB_PRIVS
 `.trim();
 
 const DB2_PRINCIPALS = `
+SELECT TRIM(U.GRANTEE) AS name,
+       'user' AS kind,
+       1 AS can_login,
+       COALESCE((
+         SELECT LISTAGG(TRIM(A.ROLENAME), ',') WITHIN GROUP (ORDER BY A.ROLENAME)
+         FROM SYSCAT.ROLEAUTH A
+         WHERE A.GRANTEETYPE = 'U'
+           AND TRIM(A.GRANTEE) = TRIM(U.GRANTEE)
+           AND A.ROLENAME NOT LIKE 'SYS%'
+       ), '') AS member_of,
+       '' AS members
+FROM (
+  SELECT DISTINCT GRANTEE
+  FROM SYSCAT.DBAUTH
+  WHERE GRANTEETYPE = 'U'
+    AND CONNECTAUTH IN ('Y', 'G')
+    AND TRIM(GRANTEE) NOT IN ('', 'PUBLIC')
+    AND TRIM(GRANTEE) NOT LIKE 'SYS%'
+  UNION
+  SELECT DISTINCT GRANTEE
+  FROM SYSCAT.ROLEAUTH
+  WHERE GRANTEETYPE = 'U'
+    AND TRIM(GRANTEE) NOT IN ('', 'PUBLIC')
+    AND TRIM(GRANTEE) NOT LIKE 'SYS%'
+  UNION
+  SELECT DISTINCT GRANTEE
+  FROM SYSCAT.TABAUTH
+  WHERE GRANTEETYPE = 'U'
+    AND TRIM(GRANTEE) NOT IN ('', 'PUBLIC')
+    AND TRIM(GRANTEE) NOT LIKE 'SYS%'
+) U
+UNION ALL
+SELECT R.ROLENAME AS name,
+       'role' AS kind,
+       0 AS can_login,
+       '' AS member_of,
+       COALESCE((
+         SELECT LISTAGG(TRIM(A.GRANTEE), ',') WITHIN GROUP (ORDER BY A.GRANTEE)
+         FROM SYSCAT.ROLEAUTH A
+         WHERE A.ROLENAME = R.ROLENAME
+       ), '') AS members
+FROM SYSCAT.ROLES R
+WHERE R.ROLENAME NOT LIKE 'SYS%'
+ORDER BY kind, name
+`.trim();
+
+const DB2_PRINCIPALS_ROLES = `
 SELECT R.ROLENAME AS name,
        'role' AS kind,
        0 AS can_login,
@@ -826,6 +878,12 @@ ORDER BY R.ROLENAME
 `.trim();
 
 const DB2_PRIVILEGES = `
+SELECT TRIM(GRANTEE) AS grantee, 'CONNECT' AS privilege, 'DATABASE' AS object_type,
+       NULL AS object_schema, NULL AS object_name,
+       CASE WHEN CONNECTAUTH = 'G' THEN 1 ELSE 0 END AS grantable, TRIM(GRANTOR) AS grantor
+FROM SYSCAT.DBAUTH
+WHERE CONNECTAUTH IN ('Y', 'G') AND GRANTEETYPE = 'U'
+UNION ALL
 SELECT TRIM(GRANTEE) AS grantee, 'SELECT' AS privilege, 'TABLE' AS object_type,
        TRIM(TABSCHEMA) AS object_schema, TRIM(TABNAME) AS object_name,
        CASE WHEN SELECTAUTH = 'G' THEN 1 ELSE 0 END AS grantable, TRIM(GRANTOR) AS grantor
