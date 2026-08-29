@@ -37,9 +37,15 @@ the lockfile and `package.json` disagree — but it cannot be used here yet.
 npm records a lockfile entry only for the platform binaries it actually
 resolved (npm/cli#4828). A lockfile generated on macOS therefore has
 `@tailwindcss/oxide-darwin-arm64` and no `@tailwindcss/oxide-linux-x64-gnu`,
-and `npm ci` on a Linux runner fails with "Cannot find native binding". The
-`optionalDependencies` for all twelve platforms are listed in the lockfile;
-only the resolved *entries* are missing.
+and a Linux runner then fails with "Cannot find native binding" — under
+`npm install` as well as `npm ci`, because npm trusts the lockfile and skips
+the binary it does not find listed. The `optionalDependencies` for all twelve
+platforms are listed; only the resolved *entries* were missing.
+
+The committed lockfile therefore carries an entry for **every** platform of
+every native package — 29 were added from the registry by hand, covering
+`@tailwindcss/oxide-*`, `@duckdb/node-bindings-*` and `@napi-rs/keyring-*`.
+Verified by installing and building inside `linux/amd64`.
 
 Generating the lockfile on Linux instead does not currently work either: a
 from-scratch resolve of this workspace fails inside npm with
