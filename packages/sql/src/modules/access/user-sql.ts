@@ -45,6 +45,9 @@ export {
 
 export {
   buildDb2OsUserInstructions,
+  generateDb2OsPassword,
+  validateDb2OsPassword,
+  DB2_OS_PASSWORD_LENGTH,
   DB2_DOCKER_CONTAINER,
   DB2_DOCKER_DATABASE,
 } from '../../providers/db2/db2.user-sql.js';

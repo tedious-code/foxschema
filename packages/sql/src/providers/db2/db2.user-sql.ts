@@ -88,6 +88,108 @@ export const DB2_DOCKER_CONTAINER = 'foxschema-db2';
 /** Default database created by that compose file. */
 export const DB2_DOCKER_DATABASE = 'foxdb';
 
+/**
+ * How long a generated Db2 OS password is.
+ *
+ * Db2 on Linux authenticates through the operating system, so the rules that
+ * actually apply are the OS's (PAM / shadow), not Db2's — Db2 LUW itself
+ * accepts far longer. Nine keeps it comfortably inside every Db2 platform
+ * limit, including the eight-character ceilings on older AIX and z/OS setups
+ * that this length deliberately clears.
+ */
+export const DB2_OS_PASSWORD_LENGTH = 9;
+
+/**
+ * Characters a generated password is built from.
+ *
+ * The password is pasted into
+ * `bash -lc 'echo "user:PASSWORD" | chpasswd'` and run as root, so anything
+ * that could end a quote, expand, or split a field is left out:
+ *
+ *   '  "  \  $  `   end the quoting or expand inside it
+ *   :             separates the fields chpasswd reads
+ *   !             history-expands if the line is pasted into an interactive shell
+ *   ~  #          expand or start a comment if the quotes are ever stripped
+ *   space, control breaks the line
+ *
+ * Look-alike characters (0/O, 1/l/I) are also out, because this password gets
+ * read off a screen and typed again.
+ */
+const PASSWORD_ALPHABET =
+  'ABCDEFGHJKLMNPQRSTUVWXYZ' + 'abcdefghijkmnopqrstuvwxyz' + '23456789' + '-_.+=@%^';
+
+/** The classes PAM's common complexity rules expect to see. */
+const CLASSES = [/[A-Z]/, /[a-z]/, /[0-9]/, /[-_.+=@%^]/];
+
+/**
+ * Anything that must never reach the shell command, whatever its length.
+ *
+ * Kept as a rejection list rather than an escape: the statement is run by hand
+ * with root privileges, so a password this cannot represent exactly is refused
+ * rather than quoted and hoped for.
+ */
+const UNSAFE_PASSWORD = /['"\\$`:!~#\s]|[\x00-\x1f\x7f]/;
+
+/**
+ * Reject a password that cannot be written into the chpasswd command safely.
+ *
+ * Returns an explanation, or null when the password is usable.
+ */
+export function validateDb2OsPassword(password: string): string | null {
+  if (password.length === 0) return 'Enter a password, or generate one.';
+  if (UNSAFE_PASSWORD.test(password)) {
+    return (
+      'That password contains a character the chpasswd command cannot carry: quotes, ' +
+      'backslash, $, backtick, colon, !, ~, #, or a space. Colon separates the fields ' +
+      'chpasswd reads, and the rest would end or expand the shell quoting.'
+    );
+  }
+  if (password.length < 8) return 'Use at least 8 characters.';
+  if (password.length > 255) return 'Db2 accepts at most 255 characters.';
+  return null;
+}
+
+/** A random index in [0, size), without the bias a plain modulo would add. */
+function unbiasedIndex(size: number, random: () => number): number {
+  // 256 is not a multiple of most alphabet sizes, so the tail of the byte
+  // range would favour the first few characters. Draw again instead.
+  const limit = Math.floor(256 / size) * size;
+  let byte = random();
+  while (byte >= limit) byte = random();
+  return byte % size;
+}
+
+/**
+ * A password that is valid for a Linux account and safe in the generated
+ * command.
+ *
+ * `randomByte` exists so a test can make the output deterministic; it defaults
+ * to the platform's cryptographic source.
+ */
+export function generateDb2OsPassword(
+  length: number = DB2_OS_PASSWORD_LENGTH,
+  randomByte?: () => number
+): string {
+  const draw =
+    randomByte ??
+    (() => {
+      const buf = new Uint8Array(1);
+      crypto.getRandomValues(buf);
+      return buf[0]!;
+    });
+
+  for (let attempt = 0; attempt < 100; attempt++) {
+    let out = '';
+    for (let i = 0; i < length; i++) {
+      out += PASSWORD_ALPHABET[unbiasedIndex(PASSWORD_ALPHABET.length, draw)];
+    }
+    // Redraw rather than patching a class in at a fixed position, which would
+    // make that position predictable.
+    if (CLASSES.every((re) => re.test(out))) return out;
+  }
+  throw new Error('Could not generate a password meeting every character class.');
+}
+
 const LINUX_ACCOUNT = /^[a-z_][a-z0-9_]{0,31}$/;
 const SAFE_DOCKER_NAME = /^[A-Za-z0-9._-]+$/;
 const SAFE_DB_NAME = /^[A-Za-z][A-Za-z0-9_]{0,127}$/;
@@ -107,7 +209,86 @@ function linuxAccountName(raw: string): string | { error: string } {
  * Copy-paste steps for an OS login in the Fox Schema Db2 container.
  * Fox Schema does not run these. Passwords stay a placeholder.
  */
-export type Db2OsUserAction = 'create' | 'password' | 'disable' | 'enable';
+export type Db2OsUserAction = 'create' | 'password' | 'disable' | 'enable' | 'list';
+
+/**
+ * Commands that answer "who exists, and who can connect?".
+ *
+ * Two lists, because they are different populations: the OS knows every login
+ * on the box, and Db2 knows only the authorization IDs someone has granted
+ * something to. An account can exist in one and not the other, which is the
+ * usual reason a new user cannot log in.
+ */
+function listInstructions(args: {
+  container?: string;
+  database?: string;
+}): GeneratedUserSql | { error: string } {
+  const container = (args.container || DB2_DOCKER_CONTAINER).trim() || DB2_DOCKER_CONTAINER;
+  const database = (args.database || DB2_DOCKER_DATABASE).trim() || DB2_DOCKER_DATABASE;
+  if (!SAFE_DOCKER_NAME.test(container)) {
+    return { error: 'Container name contains characters that cannot be copied into a docker exec command.' };
+  }
+  if (!SAFE_DB_NAME.test(database)) {
+    return { error: 'Database name must be a simple identifier (letters, digits, underscore).' };
+  }
+
+  return {
+    statements: [
+      {
+        // Ordinary logins start at UID 1000; below that is system accounts.
+        //
+        // Double quotes on the outside and single quotes around the awk
+        // program, with the field references escaped so the outer shell leaves
+        // them alone. Single quotes on both levels would close the outer string
+        // at the awk program and leave $3 to expand to nothing.
+        sql:
+          `docker exec -u 0 ${container} bash -lc ` +
+          `"getent passwd | awk -F: '\\$3 >= 1000 && \\$3 < 65534 {print \\$1, \\$3, \\$6}'"`,
+        explanation:
+          'Every ordinary OS login in the container, with its UID and home directory. These are the names Db2 can authenticate.',
+        risk: 'low',
+      },
+      {
+        // `passwd -S` one account at a time: the Db2 image's passwd does not
+        // accept -Sa or --all, so asking for every account in one call fails
+        // with "unknown option". Unfiltered on purpose — a locked or
+        // password-less account is what someone checking this list wants to see.
+        sql:
+          `docker exec -u 0 ${container} bash -lc ` +
+          `"getent passwd | awk -F: '\\$3 >= 1000 && \\$3 < 65534 {print \\$1}' | xargs -r -n1 passwd -S"`,
+        explanation:
+          'Password status per login. The second field is PS when a password is set, LK when the account is locked, NP when none is set — the last two cannot authenticate.',
+        risk: 'low',
+      },
+      {
+        sql:
+          `SELECT TRIM(GRANTEE) AS authid, CONNECTAUTH, DBADMAUTH\n` +
+          `FROM SYSCAT.DBAUTH\n` +
+          `WHERE GRANTEETYPE = 'U'\n` +
+          `ORDER BY 1;`,
+        explanation: `Authorization IDs Db2 has granted something on ${database}. Run in SQL Editor as db2inst1. An OS account missing here cannot connect yet.`,
+        risk: 'low',
+      },
+      {
+        sql:
+          `SELECT TRIM(GRANTEE) AS authid, TRIM(ROLENAME) AS role\n` +
+          `FROM SYSCAT.ROLEAUTH\n` +
+          `WHERE GRANTEETYPE = 'U'\n` +
+          `ORDER BY 1, 2;`,
+        explanation: 'Which roles each user holds.',
+        risk: 'low',
+      },
+    ],
+    warnings: [
+      {
+        level: 'info',
+        message:
+          'The OS list and the Db2 list are different populations. A login that exists in the OS but not in SYSCAT.DBAUTH has no CONNECT yet; an authid in Db2 with no OS account can never authenticate.',
+      },
+    ],
+    risk: 'low',
+  };
+}
 
 export function buildDb2OsUserInstructions(args: {
   name: string;
@@ -115,10 +296,28 @@ export function buildDb2OsUserInstructions(args: {
   container?: string;
   database?: string;
   action?: Db2OsUserAction;
+  /**
+   * Written into the chpasswd command instead of the placeholder.
+   *
+   * Refused when {@link validateDb2OsPassword} rejects it, rather than escaped:
+   * the caller runs this as root, so a password that cannot be represented
+   * exactly must not be guessed at.
+   */
+  password?: string;
 }): GeneratedUserSql | { error: string } {
   const action = args.action ?? 'create';
+  // The account name is not needed to list accounts.
+  if (action === 'list') return listInstructions(args);
   const linux = linuxAccountName(args.name);
   if (typeof linux !== 'string') return linux;
+
+  const secret = args.password ?? '';
+  if (secret) {
+    const bad = validateDb2OsPassword(secret);
+    if (bad) return { error: bad };
+  }
+  const pw = secret || PASSWORD_PLACEHOLDER;
+  const usingRealPassword = secret.length > 0;
   const authId = linux.toUpperCase();
   const container = (args.container || DB2_DOCKER_CONTAINER).trim() || DB2_DOCKER_CONTAINER;
   const database = (args.database || DB2_DOCKER_DATABASE).trim() || DB2_DOCKER_DATABASE;
@@ -135,7 +334,7 @@ export function buildDb2OsUserInstructions(args: {
         {
           sql:
             `docker exec -u 0 ${container} bash -lc ` +
-            `'echo "${linux}:${PASSWORD_PLACEHOLDER}" | chpasswd'`,
+            `'echo "${linux}:${pw}" | chpasswd'`,
           explanation: `Sets a new OS password for ${linux}. Db2 has no ALTER USER … PASSWORD — this is the password Fox Schema will send on connect.`,
           risk: 'elevated',
         },
@@ -248,7 +447,7 @@ export function buildDb2OsUserInstructions(args: {
     {
       sql:
         `docker exec -u 0 ${container} bash -lc ` +
-        `'echo "${linux}:${PASSWORD_PLACEHOLDER}" | chpasswd'`,
+        `'echo "${linux}:${pw}" | chpasswd'`,
       explanation: `Sets the OS password for ${linux}. Replace ${PASSWORD_PLACEHOLDER} before running.`,
       risk: 'elevated',
     },
@@ -301,7 +500,11 @@ export function buildDb2OsUserInstructions(args: {
       {
         level: 'danger',
         message:
-          `Replace ${PASSWORD_PLACEHOLDER} with a real OS password before running chpasswd. Fox Schema ` +
+          usingRealPassword
+          ? 'These commands contain the password in clear text and run as root. Fox Schema does not ' +
+            'store it or send it anywhere, but your clipboard and shell history will keep it — clear ' +
+            'them afterwards.'
+          : `Replace ${PASSWORD_PLACEHOLDER} with a real OS password before running chpasswd. Fox Schema ` +
           'never handles the password.',
       },
       {
