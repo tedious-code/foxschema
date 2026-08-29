@@ -12,6 +12,7 @@ export {
   availablePermissions,
   buildAccessSql,
   buildUserSql,
+  buildDb2OsUserInstructions,
   userManagementSupport,
   PASSWORD_PLACEHOLDER,
   describePermission,

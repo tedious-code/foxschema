@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import {
   PASSWORD_PLACEHOLDER,
   buildUserSql,
+  buildDb2OsUserInstructions,
   userManagementSupport,
   type UserRequest,
 } from './user-sql.js';
@@ -50,6 +51,7 @@ describe('userManagementSupport', () => {
     expect(support.supported).toBe(true);
     expect(support.canCreateUser).toBe(false);
     expect(support.canCreateRole).toBe(true);
+    expect(support.canDisable).toBe(true);
     expect(support.reason).toMatch(/operating system|directory/i);
   });
 
@@ -165,6 +167,77 @@ describe('buildUserSql — create', () => {
       const out = buildUserSql(req(), dialect);
       expect('error' in out, dialect).toBe(true);
     }
+  });
+});
+
+describe('buildDb2OsUserInstructions', () => {
+  it('emits docker useradd, chpasswd, GRANT CONNECT, and list queries', () => {
+    const out = buildDb2OsUserInstructions({ name: 'report_user' });
+    if ('error' in out) throw new Error(out.error);
+    const all = out.statements.map((s) => s.sql).join('\n');
+    expect(all).toMatch(/foxschema-db2/);
+    expect(all).toMatch(/useradd/);
+    expect(all).toContain(PASSWORD_PLACEHOLDER);
+    expect(all).toMatch(/GRANT CONNECT ON DATABASE TO USER REPORT_USER/);
+    expect(all).toMatch(/getent passwd report_user/);
+    expect(all).toMatch(/SYSCAT\.DBAUTH/);
+    expect(all).toMatch(/foxdb/);
+    expect(out.warnings.some((w) => w.level === 'danger' && w.message.includes(PASSWORD_PLACEHOLDER))).toBe(
+      true
+    );
+  });
+
+  it('emits chpasswd to update the OS password', () => {
+    const out = buildDb2OsUserInstructions({ name: 'report_user', action: 'password' });
+    if ('error' in out) throw new Error(out.error);
+    const all = out.statements.map((s) => s.sql).join('\n');
+    expect(all).toContain(`echo "report_user:${PASSWORD_PLACEHOLDER}" | chpasswd`);
+    expect(all).toMatch(/passwd -S report_user/);
+    expect(all).not.toMatch(/useradd/);
+  });
+
+  it('disables with passwd -l and REVOKE CONNECT, enable reverses it', () => {
+    const off = buildDb2OsUserInstructions({ name: 'report_user', action: 'disable' });
+    if ('error' in off) throw new Error(off.error);
+    const offSql = off.statements.map((s) => s.sql).join('\n');
+    expect(offSql).toMatch(/passwd -l report_user/);
+    expect(offSql).toMatch(/REVOKE CONNECT ON DATABASE FROM USER REPORT_USER/);
+
+    const on = buildDb2OsUserInstructions({ name: 'report_user', action: 'enable', database: 'SAMPLE' });
+    if ('error' in on) throw new Error(on.error);
+    const onSql = on.statements.map((s) => s.sql).join('\n');
+    expect(onSql).toMatch(/passwd -u report_user/);
+    expect(onSql).toMatch(/GRANT CONNECT ON DATABASE TO USER REPORT_USER/);
+    expect(onSql).toMatch(/connect to SAMPLE/);
+  });
+
+  it('buildUserSql alter password / disable on Db2 uses the OS instructions', () => {
+    const pw = buildUserSql(req({ action: 'alter', alteration: 'password' }), 'db2');
+    if ('error' in pw) throw new Error(pw.error);
+    expect(pw.statements.some((s) => s.sql.includes('chpasswd'))).toBe(true);
+
+    const off = buildUserSql(req({ action: 'alter', alteration: 'disable' }), 'db2');
+    if ('error' in off) throw new Error(off.error);
+    expect(off.statements.some((s) => /passwd -l/.test(s.sql))).toBe(true);
+  });
+
+  it('assigns an optional role and uses the connection database', () => {
+    const out = buildDb2OsUserInstructions({
+      name: 'report_user',
+      role: 'analysts',
+      database: 'SAMPLE',
+    });
+    if ('error' in out) throw new Error(out.error);
+    const all = out.statements.map((s) => s.sql).join('\n');
+    expect(all).toMatch(/connect to SAMPLE/);
+    expect(all).toMatch(/GRANT ROLE ANALYSTS TO USER REPORT_USER/);
+  });
+
+  it('rejects names that would break a docker exec line', () => {
+    expect('error' in buildDb2OsUserInstructions({ name: 'report user' })).toBe(true);
+    expect('error' in buildDb2OsUserInstructions({ name: '$(id)' })).toBe(true);
+    expect('error' in buildDb2OsUserInstructions({ name: 'a;rm' })).toBe(true);
+    expect('error' in buildDb2OsUserInstructions({ name: 'report-user' })).toBe(true);
   });
 });
 

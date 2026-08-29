@@ -43,6 +43,12 @@ export {
   type UserSqlDialect,
 } from './user-sql.types.js';
 
+export {
+  buildDb2OsUserInstructions,
+  DB2_DOCKER_CONTAINER,
+  DB2_DOCKER_DATABASE,
+} from '../../providers/db2/db2.user-sql.js';
+
 import type { GeneratedUserSql, UserManagementSupport, UserRequest } from './user-sql.types.js';
 import { resolveUserSql } from './user-sql.registry.js';
 
