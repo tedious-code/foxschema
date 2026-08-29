@@ -8,6 +8,7 @@
  * never asks for a real password (placeholders only).
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { CommandModeToggle } from '@/shared/components/CommandModeToggle';
 import {
   Copy,
   Check,
@@ -1068,6 +1069,23 @@ export const UserManagement: React.FC<{
                   </div>
                 ))}
               </div>
+
+              {/* The Db2 path already emits shell commands; a second one would
+                  be noise. Everything else is SQL, and this is how to run it. */}
+              {!isDb2 && conn && (
+                <CommandModeToggle
+                  data-testid="user-command-mode"
+                  sql={generated.statements.map((s) => s.sql).join('\n')}
+                  dialect={dialect}
+                  target={{
+                    host: conn.host,
+                    port: conn.port,
+                    database: conn.database,
+                    username: conn.username,
+                    schema: conn.schema,
+                  }}
+                />
+              )}
 
               {generated.warnings.length > 0 && (
                 <div className="flex flex-col gap-1.5" data-testid="user-warnings">
