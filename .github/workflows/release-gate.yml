@@ -29,7 +29,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - run: npm ci --ignore-scripts
+      - run: npm install --ignore-scripts
       - run: npx vitest run
 
   # ── Gate: ESLint security ───────────────────────────────────────────────────
@@ -43,7 +43,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - run: npm ci --ignore-scripts
+      - run: npm install --ignore-scripts
       - run: npx eslint .
 
   # ── Gate: npm audit ─────────────────────────────────────────────────────────
@@ -57,7 +57,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - run: npm ci --ignore-scripts
+      - run: npm install --ignore-scripts
       - run: npm audit --audit-level=critical --omit=dev
 
   # ── Gate: Gitleaks ──────────────────────────────────────────────────────────
@@ -90,7 +90,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - run: npm ci --ignore-scripts
+      - run: npm install --ignore-scripts
       - run: npm run scan:deps-security
 
   # ── Publish: create GitHub Release draft ────────────────────────────────────

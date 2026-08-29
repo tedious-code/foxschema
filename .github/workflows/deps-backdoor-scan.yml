@@ -5,7 +5,7 @@ name: Deps Backdoor Scan
 # lifecycle hooks never run during CI.
 #
 # Local:
-#   npm ci --ignore-scripts
+#   npm install --ignore-scripts
 #   npm run scan:deps-security
 
 on:
@@ -35,7 +35,7 @@ jobs:
 
       # Never run dependency lifecycle scripts in this job.
       - name: Install dependencies (ignore-scripts)
-        run: npm ci --ignore-scripts
+        run: npm install --ignore-scripts
 
       - name: Scan node_modules for backdoors / unexpected listeners
         run: |

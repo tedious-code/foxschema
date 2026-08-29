@@ -29,7 +29,7 @@ jobs:
       # Generate lockfile on the fly so npm audit has a full dependency graph.
       # Consider committing package-lock.json for faster, deterministic CI.
       - name: Generate lockfile
-        run: npm ci --ignore-scripts
+        run: npm install --ignore-scripts
 
       # Hard block — Critical vulns in production dependencies.
       # Verifies every package in the lockfile against the registry's own
@@ -73,7 +73,7 @@ jobs:
           node-version: 22
 
       - name: Install dependencies
-        run: npm ci --ignore-scripts
+        run: npm install --ignore-scripts
 
       # Errors (inject/eval/ReDoS) cause non-zero exit and block the PR.
       # Warnings (detect-non-literal-fs-filename) are informational — legitimate
@@ -96,7 +96,7 @@ jobs:
           node-version: 22
 
       - name: Install dependencies (ignore-scripts)
-        run: npm ci --ignore-scripts
+        run: npm install --ignore-scripts
 
       - name: Scan node_modules
         run: npm run scan:deps-security -- --report deps-backdoor-report.json

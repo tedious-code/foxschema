@@ -20,18 +20,42 @@ It was previously gitignored — inherited from a starter template rather than
 chosen. That gap also caused two unrelated CI breakages in one month, when a
 transitive release changed under a branch that had not been touched.
 
-### CI installs with `npm ci --ignore-scripts`
+### CI installs with `--ignore-scripts`
 
-- **`npm ci`** installs exactly the tree in the lockfile and fails if the
-  lockfile and `package.json` disagree. `npm install` would silently resolve
-  something else.
-- **`--ignore-scripts`** stops `preinstall` / `postinstall` hooks from running.
-  Those hooks are the usual payload location, and they execute before any test
-  or scan sees the code.
+`preinstall` / `postinstall` hooks never run in CI. Those hooks are the usual
+payload location, and they execute before any test or scan sees the code.
 
 This includes the publish and release workflows, which hold an npm token and
 are therefore the worst place to run code a dependency chose. `build-gate`
 builds the same artifacts with `--ignore-scripts`, so nothing needs them.
+
+### Why not `npm ci` yet
+
+`npm ci` would be stronger — it installs exactly the locked tree and fails when
+the lockfile and `package.json` disagree — but it cannot be used here yet.
+
+npm records a lockfile entry only for the platform binaries it actually
+resolved (npm/cli#4828). A lockfile generated on macOS therefore has
+`@tailwindcss/oxide-darwin-arm64` and no `@tailwindcss/oxide-linux-x64-gnu`,
+and `npm ci` on a Linux runner fails with "Cannot find native binding". The
+`optionalDependencies` for all twelve platforms are listed in the lockfile;
+only the resolved *entries* are missing.
+
+Generating the lockfile on Linux instead does not currently work either: a
+from-scratch resolve of this workspace fails inside npm with
+`Cannot read properties of null (reading 'edgesOut')` on both npm 10 and
+npm 12.
+
+The same asymmetry means the two platforms prune each other's entries: running
+`npm install` on macOS deletes the `@emnapi/*` entries a Linux install added,
+and vice versa. Expect small lockfile diffs from that until it is fixed; they
+are noise, not a dependency change, and are worth checking rather than
+committing blindly.
+
+The fix is to produce the lockfile on a Linux runner and commit that artifact,
+which needs a CI job rather than a local command. Until then CI uses
+`npm install --ignore-scripts`, which honours the committed lockfile where it
+can and fills in the platform binaries it needs.
 
 ### Every version is exact
 
@@ -55,8 +79,8 @@ local package, never to the registry.
 ## Upgrading a dependency
 
 1. `npm install <pkg>@<exact-version>` — `.npmrc` writes the exact version.
-2. Commit `package.json` **and** `package-lock.json` together. A lockfile that
-   disagrees with `package.json` fails `npm ci`, which is the point.
+2. Commit `package.json` **and** `package-lock.json` together, so the tree that
+   was reviewed is the one recorded.
 3. Read what changed. For a package you have not upgraded in a while, the
    release notes and the diff matter more than the version number.
 

@@ -38,7 +38,7 @@ jobs:
       # holds an npm publish token, so it is the worst place to run code a
       # dependency chose. build-gate builds the same artifacts this way.
       - name: Install workspace
-        run: npm ci --ignore-scripts
+        run: npm install --ignore-scripts
 
       - name: Build web UI + CLI
         run: |

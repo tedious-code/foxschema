@@ -30,7 +30,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - run: npm ci --ignore-scripts
+      - run: npm install --ignore-scripts
       # apps/web's tsconfig covers the frontend, the backend, and — through the
       # workspace path aliases — packages/sql, so this is the whole surface.
       - run: npm run typecheck
@@ -43,7 +43,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - run: npm ci --ignore-scripts
+      - run: npm install --ignore-scripts
       - run: npx vitest run
 
   frontend-build:
@@ -54,7 +54,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - run: npm ci --ignore-scripts
+      - run: npm install --ignore-scripts
       # Typecheck and tests both passed while `vite build` was broken for
       # months: a dependency's `exports` map changed and only the bundler's
       # resolver could see it. Nothing else in this workflow builds the
@@ -69,5 +69,5 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - run: npm ci --ignore-scripts
+      - run: npm install --ignore-scripts
       - run: npx eslint .
