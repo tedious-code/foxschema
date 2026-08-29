@@ -198,6 +198,23 @@ describe('ConnectionStore', () => {
     expect(resolved?.option.password).toBe('dir-secret');
   });
 
+  it('rejects Windows login without a domain when saving', async () => {
+    await expect(
+      store.create(alice, {
+        name: 'ss',
+        dialect: 'sqlserver',
+        schema: 'dbo',
+        option: {
+          host: 'sql.example',
+          database: 'app',
+          username: 'alice',
+          password: 'super-secret',
+          authMethod: 'windows',
+        },
+      })
+    ).rejects.toThrow(/domain/i);
+  });
+
   it('still produces a correct, usable connectionString when the password IS kept', async () => {
     // Sanity check that discarding + rebuilding connectionString doesn't break the
     // normal case — the rebuilt string must still round-trip the kept password.

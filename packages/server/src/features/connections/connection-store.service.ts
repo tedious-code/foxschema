@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { getStore } from '../../database/store';
 import { encryptSecret, decryptSecret } from '../../platform/crypto/crypto';
-import { ConnectionOptions, buildConnectionString, resolveAuthMethod } from '@foxschema/db';
+import { ConnectionOptions, buildConnectionString, resolveAuthMethod, assertWindowsAccount } from '@foxschema/db';
 
 export interface SavedConnectionInput {
   name?: string;
@@ -92,6 +92,7 @@ export class ConnectionStore {
     resolved.authMethod = authMethod === 'password' ? undefined : authMethod;
     if (authMethod !== 'windows') resolved.domain = undefined;
     else if (typeof resolved.domain === 'string') resolved.domain = resolved.domain.trim() || undefined;
+    if (authMethod === 'windows') assertWindowsAccount(resolved.username, resolved.domain);
     resolved.connectionString = buildConnectionString(dialect, resolved);
     return resolved;
   }
