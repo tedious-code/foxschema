@@ -6,7 +6,7 @@
  * The db2 CLP, which connects before it can run anything.
  */
 import type { CliDialect, CliTarget } from '../../modules/command-mode/cli.types.js';
-import { checkTarget, commandWithSql, shellQuote } from '../../modules/command-mode/cli-helpers.js';
+import { checkTarget, commandWithSql } from '../../modules/command-mode/cli-helpers.js';
 
 export const db2Cli: CliDialect = {
   id: 'db2',
