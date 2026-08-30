@@ -323,7 +323,9 @@ export const DatabaseAccessModal: React.FC<Props> = ({
           />
         </div>
         {support && !support.query && (
-          <p className="text-[11px] text-amber-200">{support.hint}</p>
+          <p data-testid="db-access-unsupported" className="text-[11px] text-amber-200">
+            {support.hint}
+          </p>
         )}
         {hint && support?.query && (
           <p className="text-[11px] text-slate-500">{hint}</p>

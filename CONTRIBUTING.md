@@ -73,6 +73,8 @@ cd apps/cli && npx tsx src/index.ts tui
 # E2E (one dialect, or all)
 npm -w @foxschema/e2e run test:postgres
 npm -w @foxschema/e2e run test:all
+# Access Assistant on local SQLite (no Docker)
+npm run test:e2e:access
 ```
 
 **E2E hard rule:** migrations mutate the target, so re-seed before every run — use
