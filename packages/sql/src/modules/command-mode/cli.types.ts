@@ -32,8 +32,18 @@ export interface CliTarget {
 }
 
 export interface GeneratedCommand {
-  /** The command to copy. */
+  /** The command to copy, invocation and statement together. */
   command: string;
+  /**
+   * The client and its flags, without the statement.
+   *
+   * Kept apart from {@link body} so the command can be re-wrapped — put inside
+   * `docker exec`, or written into a script — without taking a string apart
+   * again to find where the heredoc starts.
+   */
+  invocation: string;
+  /** The statement, exactly as it will reach the client on stdin. */
+  body: string;
   /** What it does, in a sentence. */
   explanation: string;
   /** The client binary this needs installed. */

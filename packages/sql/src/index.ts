@@ -398,6 +398,8 @@ export {
 export { buildCliCommand, renderCliCommand } from './modules/command-mode/build-command.js';
 export { cliFor, supportsCommandMode, CLI_MAP } from './modules/command-mode/cli.registry.js';
 export { shellQuote, heredoc } from './modules/command-mode/shell.js';
+export { formatCommand } from './modules/command-mode/format.js';
+export type { CommandFormat, FormatOptions, FormattedCommand } from './modules/command-mode/format.js';
 export type {
   CliTarget,
   CliDialect,
