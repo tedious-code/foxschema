@@ -8,7 +8,6 @@
  */
 import { PASSWORD_PLACEHOLDER, type GeneratedUserSql, type UserSqlDialect } from '../../modules/access/user-sql.types.js';
 import { createUserSqlEmitter } from '../../modules/access/user-sql-helpers.js';
-import type { PermissionRisk } from '../../modules/access/intent.js';
 import type { GeneratedStatement } from '../../modules/access/access-sql.types.js';
 
 const DB2_REASON =
@@ -43,12 +42,14 @@ export const db2UserSql: UserSqlDialect = {
     }
 
     if (request.action === 'drop') {
-      const risk: PermissionRisk = 'administrative';
-      const keyword = isUser ? 'USER' : 'ROLE';
+      // Db2 has no DROP USER: the account lives in the operating system, which
+      // is the same reason CREATE USER is refused above. Emitting it produced
+      // SQL0104N, a syntax error, rather than anything a DBA could run.
+      if (isUser) return buildDb2OsUserInstructions({ name, action: 'drop' });
       add(
-        `DROP ${keyword} ${q(name)};`,
+        `DROP ROLE ${q(name)};`,
         `Drops the ${noun} ${name}. Privileges granted to it are removed with it.`,
-        risk
+        'administrative'
       );
       return finish();
     }
@@ -266,7 +267,7 @@ function linuxAccountName(raw: string): string | { error: string } {
  * Copy-paste steps for an OS login in the Fox Schema Db2 container.
  * Fox Schema does not run these. Passwords stay a placeholder.
  */
-export type Db2OsUserAction = 'create' | 'password' | 'disable' | 'enable' | 'list';
+export type Db2OsUserAction = 'create' | 'drop' | 'password' | 'disable' | 'enable' | 'list';
 
 /**
  * Commands that answer "who exists, and who can connect?".
@@ -491,6 +492,48 @@ export function buildDb2OsUserInstructions(args: {
         },
       ],
       risk: 'elevated',
+    };
+  }
+
+  if (action === 'drop') {
+    return {
+      statements: [
+        {
+          sql:
+            `${P.instance}` +
+            `"db2 connect to ${database} && db2 'REVOKE CONNECT ON DATABASE FROM USER ${authId}'"`,
+          explanation: `Takes CONNECT on ${database} away from ${authId}. Run this before removing the OS login, while the name still resolves.`,
+          risk: 'administrative',
+        },
+        {
+          sql: `${P.root}userdel ${linux}`,
+          explanation: `Removes the OS login ${linux}. Db2 has no DROP USER — the account only exists in the operating system. Add -r to delete its home directory too.`,
+          risk: 'administrative',
+        },
+        {
+          sql: `${P.rootShell}'id ${linux} >/dev/null 2>&1 && echo STILL_PRESENT || echo REMOVED'`,
+          explanation: `REMOVED confirms the OS login is gone, so nothing can authenticate as ${authId} any more.`,
+          risk: 'low',
+        },
+        {
+          sql:
+            db2Query(
+              P.instance,
+              database,
+              `SELECT TRIM(GRANTEE) AS authid, CONNECTAUTH FROM SYSCAT.DBAUTH WHERE GRANTEETYPE = 'U' AND TRIM(GRANTEE) = '${authId}'`
+            ),
+          explanation: `No row means ${authId} holds no database authority. Table privileges granted to it are listed separately in SYSCAT.TABAUTH.`,
+          risk: 'low',
+        },
+      ],
+      warnings: [
+        {
+          level: 'caution',
+          message:
+            `Db2 keeps privileges by name, not by account: GRANTs to ${authId} survive removing the OS login and apply again to anyone later created with the same name. Revoke what it holds, and reassign anything it owns, before reusing the name.`,
+        },
+      ],
+      risk: 'administrative',
     };
   }
 

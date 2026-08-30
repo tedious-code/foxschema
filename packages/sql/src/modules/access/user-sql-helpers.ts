@@ -26,11 +26,26 @@ export const UNSUPPORTED_USER_SQL: UserManagementSupport = {
   reason: 'This engine has no database accounts to manage.',
 };
 
+/** MySQL-family string literals treat `\` as an escape — double it before quotes. */
+function mysqlQuote(value: string): string {
+  return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "''")}'`;
+}
+
 /** MySQL identifies an account by user and host together. */
 export function mysqlAccount(name: string, host: string | undefined): string {
-  // MySQL-family string literals treat `\` as an escape — double it before quotes.
-  const quote = (v: string) => `'${v.replace(/\\/g, '\\\\').replace(/'/g, "''")}'`;
-  return `${quote(name)}@${quote(host?.trim() || '%')}`;
+  return `${mysqlQuote(name)}@${mysqlQuote(host?.trim() || '%')}`;
+}
+
+/**
+ * How a *role* is named, which is not how a user is named on every engine.
+ *
+ * MariaDB roles have no host part and reject one outright: `CREATE ROLE
+ * 'r'@'%'` is ERROR 1064 there, while MySQL 8 and TiDB accept it and default
+ * the host to `%`. Sharing one MySQL-family emitter is right for users and
+ * wrong here, so the role reference is built separately.
+ */
+export function mysqlRoleRef(name: string, host: string | undefined, dialect: string): string {
+  return dialect.toLowerCase() === 'mariadb' ? mysqlQuote(name) : mysqlAccount(name, host);
 }
 
 export function ident(name: string, dialect: string): string {

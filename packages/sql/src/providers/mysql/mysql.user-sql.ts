@@ -13,6 +13,7 @@ import {
 import {
   createUserSqlEmitter,
   mysqlAccount,
+  mysqlRoleRef,
 } from '../../modules/access/user-sql-helpers.js';
 import type { PermissionRisk } from '../../modules/access/intent.js';
 
@@ -31,11 +32,13 @@ export const mysqlUserSql: UserSqlDialect = {
     const { name, isUser, noun, add, finish } = createUserSqlEmitter(request, dialect);
     const support = this.support;
     const account = mysqlAccount(name, request.host);
+    // A role is not host-qualified on MariaDB, and saying so is a syntax error.
+    const roleRef = mysqlRoleRef(name, request.host, dialect);
 
     if (request.action === 'create') {
       if (!isUser) {
         add(
-          `CREATE ROLE ${account};`,
+          `CREATE ROLE ${roleRef};`,
           `Creates the role ${name}. A role holds privileges; grant it to users afterwards.`
         );
       } else {
@@ -51,7 +54,7 @@ export const mysqlUserSql: UserSqlDialect = {
       const risk: PermissionRisk = 'administrative';
       const keyword = isUser ? 'USER' : 'ROLE';
       add(
-        `DROP ${keyword} ${account};`,
+        `DROP ${keyword} ${isUser ? account : roleRef};`,
         `Drops the ${noun} ${name}. Privileges granted to it are removed with it.`,
         risk
       );
@@ -80,6 +83,11 @@ function buildAlter(
     if (!next) return 'Enter the new name.';
     if (!support.canRename) {
       return `${dialect} cannot rename an account. Create the new one and drop the old.`;
+    }
+    if (!isUser && dialect.toLowerCase() === 'mariadb') {
+      // RENAME USER is the only rename MariaDB has, and it refuses a role
+      // (ERROR 1396). Emitting it would hand over a statement that cannot work.
+      return 'MariaDB cannot rename a role. Create the new role, grant it the same privileges, then drop the old one.';
     }
     add(
       `RENAME USER ${account} TO ${mysqlAccount(next, request.host)};`,
