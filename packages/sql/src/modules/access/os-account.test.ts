@@ -125,7 +125,28 @@ describe('account name', () => {
 describe('sqlite', () => {
   it('sets ownership of the file, which is the actual access control', () => {
     const sql = sqlOf('sqlite', { database: '/srv/data/demo.db' });
-    expect(sql).toContain('chown app_user /srv/data/demo.db');
+    // Quoted: the path is one shell word. `--` so a leading `-` is not a flag.
+    expect(sql).toContain("chown app_user -- '/srv/data/demo.db'");
+  });
+
+  it('quotes the path so spaces and metacharacters cannot become shell', () => {
+    // Unquoted, a space splits chown's operands and `$(id)` runs when pasted.
+    const evil = "/srv/app data/x$(id).db";
+    const sql = sqlOf('sqlite', { database: evil });
+    expect(sql).toContain("chown app_user -- '/srv/app data/x$(id).db'");
+    expect(sql).toContain("ls -l '/srv/app data/x$(id).db'");
+    // The raw path must not appear outside quotes.
+    expect(sql).not.toMatch(/chown app_user -- \/srv\/app data/);
+    expect(sql).not.toMatch(/ls -l \/srv\/app data/);
+  });
+
+  it('refuses a path with a line break rather than emitting a broken command', () => {
+    const out = osAccountSteps('sqlite', ctx({ database: '/tmp/x\ny.db' }));
+    // useradd still applies; only ownership is withheld.
+    expect(out.applicable).toBe(true);
+    expect(out.statements.some((s) => s.sql.includes('useradd'))).toBe(true);
+    expect(out.statements.some((s) => /line break/i.test(s.explanation))).toBe(true);
+    expect(out.statements.some((s) => s.sql.includes('chown'))).toBe(false);
   });
 
   it('mentions the directory, because the journal is written beside the file', () => {
