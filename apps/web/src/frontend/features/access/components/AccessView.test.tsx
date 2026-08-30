@@ -281,4 +281,57 @@ describe('AccessView — User Management list + Builder handoff', () => {
     expect(screen.getByTestId('user-action-form').textContent).toMatch(/Edit alice/i);
     expect(screen.getByTestId('user-sql').textContent).toMatch(/PASSWORD/);
   });
+
+  /**
+   * A slow catalog read must never repaint the list after the user has moved on.
+   *
+   * Found by the dialect E2E suite: the Db2 panel listed Oracle's accounts,
+   * because Oracle's read was still in flight when the connection changed and
+   * its response arrived afterwards. Every button on this screen — Drop, Edit,
+   * Grant access — acts on the selected row, so showing one database's accounts
+   * under another database's name is the worst failure this component has.
+   *
+   * Deterministic here, unlike in a browser: the first response is held open
+   * until after the second connection has been chosen.
+   */
+  it('ignores a slow read that lands after the connection changed', async () => {
+    const catalog = (dialect: string, principal: string) => ({
+      dialect,
+      schema: '',
+      mode: 'native',
+      support: { mode: 'native', query: true, grant: true, hint: '' },
+      principals: [{ name: principal, kind: 'user', canLogin: true, memberOf: [], members: [] }],
+      privileges: [],
+    });
+
+    fetchDbAccess.mockReset();
+    // c1 answers late, and with a principal that exists only on it. The delay
+    // is bounded so the response definitely lands during the test rather than
+    // being left pending, which would hang teardown instead of asserting.
+    fetchDbAccess.mockImplementation(async (ref: { connectionId: string }) => {
+      if (ref.connectionId === 'c1') {
+        await new Promise((r) => setTimeout(r, 150));
+        return catalog('postgres', 'only_on_postgres');
+      }
+      return catalog('mysql', 'only_on_mysql');
+    });
+
+    render(<AccessView />);
+    fireEvent.change(screen.getByTestId('user-connection'), { target: { value: 'c1' } });
+    await waitFor(() => expect(fetchDbAccess).toHaveBeenCalled());
+
+    // Move on while c1's read is still in flight.
+    fireEvent.change(screen.getByTestId('user-connection'), { target: { value: 'c2' } });
+    await waitFor(() => expect(screen.getByTestId('user-row-only_on_mysql')).toBeTruthy());
+
+    // Wait past c1's delay so its response has certainly arrived, then check
+    // that it was discarded rather than painted over the current connection.
+    await new Promise((r) => setTimeout(r, 400));
+
+    expect(
+      screen.queryByTestId('user-row-only_on_postgres'),
+      "the previous connection's accounts must not appear under the new one"
+    ).toBeNull();
+    expect(screen.getByTestId('user-row-only_on_mysql')).toBeTruthy();
+  });
 });

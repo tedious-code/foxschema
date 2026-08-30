@@ -74,9 +74,46 @@ describe('user-sql registry', () => {
     expect(statements(req(), 'azuresql')).toEqual(statements(req(), 'sqlserver'));
   });
 
-  it('aliases mariadb and tidb to mysql create shape', () => {
+  it('aliases mariadb and tidb to mysql create shape, for users', () => {
     expect(statements(req(), 'mariadb')).toEqual(statements(req(), 'mysql'));
     expect(statements(req(), 'tidb')).toEqual(statements(req(), 'mysql'));
+  });
+
+  it('does not alias mariadb to mysql for roles', () => {
+    // A MariaDB role has no host part and the server rejects one outright:
+    // `CREATE ROLE 'r'@'%'` is ERROR 1064 there, while MySQL 8 and TiDB accept
+    // it. Sharing the emitter is right for users and wrong here.
+    const role = req({ principalType: 'role', name: 'reporting' });
+    expect(statements(role, 'mariadb')).toEqual(['CREATE ROLE \'reporting\';']);
+    expect(statements(role, 'mysql')).toEqual(["CREATE ROLE 'reporting'@'%';"]);
+    expect(statements(role, 'tidb')).toEqual(["CREATE ROLE 'reporting'@'%';"]);
+  });
+
+  it('drops a mariadb role without a host part either', () => {
+    const role = req({ action: 'drop', principalType: 'role', name: 'reporting' });
+    expect(statements(role, 'mariadb')).toEqual(['DROP ROLE \'reporting\';']);
+    // The user path keeps its host, because there an account really is name@host.
+    expect(statements(req({ action: 'drop' }), 'mariadb')).toEqual([
+      "DROP USER 'report_user'@'%';",
+    ]);
+  });
+
+  it('refuses to rename a mariadb role rather than emitting RENAME USER', () => {
+    // RENAME USER is the only rename MariaDB has and it fails on a role with
+    // ERROR 1396, so the statement could never have worked.
+    const out = buildUserSql(
+      req({ action: 'alter', alteration: 'rename', principalType: 'role', name: 'r', newName: 'r2' }),
+      'mariadb'
+    );
+    expect('error' in out && out.error).toMatch(/cannot rename a role/i);
+    // MySQL can, so this stays available there.
+    expect(
+      'error' in
+        buildUserSql(
+          req({ action: 'alter', alteration: 'rename', principalType: 'role', name: 'r', newName: 'r2' }),
+          'mysql'
+        )
+    ).toBe(false);
   });
 
   it('aliases cockroachdb and yugabytedb to postgres create shape', () => {
@@ -407,6 +444,27 @@ describe('buildUserSql — alter', () => {
 });
 
 describe('buildUserSql — drop', () => {
+  it('never emits DROP USER on Db2, which has no such statement', () => {
+    // Db2 answered `DROP USER "x"` with SQL0104N — a syntax error, not a
+    // permissions problem. The account lives in the operating system, which is
+    // the same reason CREATE USER is refused, so removing one is OS steps.
+    const out = buildUserSql(req({ action: 'drop' }), 'db2');
+    if ('error' in out) throw new Error(out.error);
+    const sql = out.statements.map((s) => s.sql).join('\n');
+    expect(sql).not.toMatch(/\bDROP\s+USER\b/i);
+    expect(sql).toMatch(/userdel/);
+    // Revoke first, while the name still resolves; then remove the login.
+    expect(sql.indexOf('REVOKE CONNECT')).toBeLessThan(sql.indexOf('userdel'));
+    // Db2 keeps grants by name, so reusing the name inherits them.
+    expect(out.warnings.some((w) => /survive|reusing the name/i.test(w.message))).toBe(true);
+  });
+
+  it('still drops a Db2 role in SQL, because that statement does exist', () => {
+    expect(statements(req({ action: 'drop', principalType: 'role', name: 'auditors' }), 'db2')).toEqual([
+      'DROP ROLE "auditors";',
+    ]);
+  });
+
   it('drops the database user on SQL Server without guessing the login name', () => {
     expect(statements(req({ action: 'drop' }), 'sqlserver')).toEqual([
       'DROP USER [report_user];',

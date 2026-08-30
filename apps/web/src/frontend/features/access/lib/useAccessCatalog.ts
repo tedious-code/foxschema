@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { fetchDbAccess, fetchSchemaList } from '@/shared/api/schemaApi';
 import { findCachedTable, tableNameParts } from '@/shared/lib/tablePreview';
@@ -36,8 +36,22 @@ export function useAccessCatalog(connectionId: string, conn: Conn) {
   const [loadingTables, setLoadingTables] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
 
+  /**
+   * Which catalog read is the current one.
+   *
+   * A read takes as long as the engine takes, and Oracle's is slow. Pick a
+   * different connection while one is in flight and its response arrives
+   * afterwards and repaints the list, so the page offers one database's
+   * principals under another database's name. Everything downstream of this
+   * hook grants and revokes privileges by the name picked here, so a
+   * superseded response is discarded rather than shown.
+   */
+  const loadToken = useRef(0);
+
   const loadPrincipals = useCallback(async () => {
     if (!connectionId) return;
+    const token = ++loadToken.current;
+    const superseded = () => loadToken.current !== token;
     setLoadingPrincipals(true);
     setCatalogError(null);
     try {
@@ -45,12 +59,14 @@ export function useAccessCatalog(connectionId: string, conn: Conn) {
         { connectionId, password: sessionPasswords[connectionId] || undefined },
         { schema: conn?.schema || undefined }
       );
+      if (superseded()) return;
       setPrincipals(res.principals ?? []);
     } catch (e) {
+      if (superseded()) return;
       setCatalogError(e instanceof Error ? e.message : String(e));
       setPrincipals([]);
     } finally {
-      setLoadingPrincipals(false);
+      if (!superseded()) setLoadingPrincipals(false);
     }
   }, [connectionId, conn?.schema, sessionPasswords]);
 
@@ -86,9 +102,22 @@ export function useAccessCatalog(connectionId: string, conn: Conn) {
     }
   }, [connectionId, ensureSchema]);
 
+  /**
+   * Drop the previous connection's catalog the moment the connection changes.
+   *
+   * Keyed on `connectionId` alone, and deliberately separate from the loading
+   * effect below: the loaders are `useCallback`s whose identity changes with
+   * their inputs, so clearing inside that effect assigns a fresh `[]` on every
+   * render, which re-renders, which runs the effect again — an infinite loop.
+   */
+  useEffect(() => {
+    loadToken.current++;
+    setPrincipals([]);
+    setCatalogError(null);
+  }, [connectionId]);
+
   useEffect(() => {
     if (!connectionId) {
-      setPrincipals([]);
       setSchemas([]);
       return;
     }

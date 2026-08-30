@@ -59,8 +59,15 @@ export const Segmented: React.FC<{
   </div>
 );
 
-export const EmptyState: React.FC<{ title: string; body: string }> = ({ title, body }) => (
-  <div className="rounded-md border border-slate-800 bg-slate-900/40 px-4 py-6 text-center">
+export const EmptyState: React.FC<{ title: string; body: string; testId?: string }> = ({
+  title,
+  body,
+  testId,
+}) => (
+  <div
+    data-testid={testId}
+    className="rounded-md border border-slate-800 bg-slate-900/40 px-4 py-6 text-center"
+  >
     <p className="text-sm font-bold text-slate-300">{title}</p>
     <p className="mt-1 text-[11px] text-slate-500 max-w-md mx-auto">{body}</p>
   </div>

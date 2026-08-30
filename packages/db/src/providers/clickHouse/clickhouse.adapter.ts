@@ -4,6 +4,44 @@ import { credentialedCacheKey } from '../../cores/pool-cache';
 
 const nodeRequire = createRequire(import.meta.url);
 
+/**
+ * Statements that must not go through `client.query()`.
+ *
+ * `query()` appends `FORMAT JSONEachRow` to whatever it is given, because it
+ * exists to read a result set back. ClickHouse's parser tolerates that trailing
+ * clause on table DDL, which is why migrations work — but the access-management
+ * grammar (CREATE/DROP/ALTER USER|ROLE, GRANT, REVOKE) has a fixed tail and
+ * rejects it outright, so every Database Access statement came back as
+ * "Syntax error … FORMAT". `command()` sends the statement as written.
+ *
+ * This is a denylist rather than an allowlist of row-returning statements on
+ * purpose: anything unrecognised keeps today's `query()` path, so a statement
+ * that currently returns rows cannot start silently returning none.
+ */
+const NO_RESULT_SET =
+  /^(CREATE|DROP|ALTER|GRANT|REVOKE|RENAME|ATTACH|DETACH|TRUNCATE|INSERT|SET|USE|OPTIMIZE|KILL|SYSTEM|DELETE|UPDATE)\b/i;
+
+/** Leading comments and whitespace hide the verb — the editor sends both. */
+function leadingVerbOf(sql: string): string {
+  let rest = sql.trim();
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    if (rest.startsWith('--')) {
+      const nl = rest.indexOf('\n');
+      if (nl < 0) return '';
+      rest = rest.slice(nl + 1).trim();
+      continue;
+    }
+    if (rest.startsWith('/*')) {
+      const end = rest.indexOf('*/');
+      if (end < 0) return '';
+      rest = rest.slice(end + 2).trim();
+      continue;
+    }
+    return rest;
+  }
+}
+
 // ClickHouse uses HTTP — the "connection" is a stateless client instance.
 // Transactions are experimental in ClickHouse; begin/commit/rollback are no-ops here.
 class ClickHouseAdapter implements DriverAdapter {
@@ -66,6 +104,10 @@ class ClickHouseAdapter implements DriverAdapter {
         if (typeof val === 'number') return String(val);
         return `'${String(val).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
       });
+    }
+    if (NO_RESULT_SET.test(leadingVerbOf(finalSql))) {
+      await client.command({ query: finalSql });
+      return [] as T[];
     }
     const result = await client.query({ query: finalSql, format: 'JSONEachRow' });
     return result.json() as Promise<T[]>;

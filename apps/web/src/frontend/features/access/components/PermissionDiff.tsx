@@ -74,6 +74,13 @@ export const PermissionDiff: React.FC = () => {
   const [requests, setRequests] = useState<PermissionRequest[]>([emptyRequest()]);
 
   const [privileges, setPrivileges] = useState<DbPrivilege[]>([]);
+  /**
+   * The connection a catalog read has completed for.
+   *
+   * Kept as the id rather than a boolean so switching connection reverts the
+   * panel to "not loaded" instead of describing the previous database's read.
+   */
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -155,6 +162,7 @@ export const PermissionDiff: React.FC = () => {
         { schema: conn?.schema || undefined }
       );
       setPrivileges(res.privileges ?? []);
+      setLoadedFor(connectionId);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -243,7 +251,11 @@ export const PermissionDiff: React.FC = () => {
                 <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
                 Load catalog
               </button>
-              {loadError && <span className="text-[11px] text-rose-300">{loadError}</span>}
+              {loadError && (
+                <span data-testid="diff-load-error" className="text-[11px] text-rose-300">
+                  {loadError}
+                </span>
+              )}
             </div>
 
             <Field label="Desired access">
@@ -297,9 +309,19 @@ export const PermissionDiff: React.FC = () => {
               body="Enter a principal and define desired access."
             />
           ) : !diff ? (
+            // Two different situations used to read identically. A catalog that
+            // loaded and returned nothing left this saying "Load the catalog",
+            // so the button appeared to do nothing at all — which is what
+            // Oracle and TiDB do here, where the catalog read succeeds and
+            // comes back with no privilege rows.
             <EmptyState
-              title="Load the catalog"
-              body="Load the catalog to compare desired vs live privileges."
+              testId="diff-empty"
+              title={loadedFor === connectionId ? 'No privileges found' : 'Load the catalog'}
+              body={
+                loadedFor === connectionId
+                  ? 'The catalog loaded, but this database reported no privileges to compare against. Anything you ask for below will show as missing.'
+                  : 'Load the catalog to compare desired vs live privileges.'
+              }
             />
           ) : (
             <>

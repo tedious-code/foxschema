@@ -7,7 +7,7 @@
  * Drop SQL to review and run yourself. Fox Schema never applies the SQL and
  * never asks for a real password (placeholders only).
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CommandModeToggle } from '@/shared/components/CommandModeToggle';
 import { PasswordInput } from '@/shared/components/PasswordInput';
 import {
@@ -317,6 +317,17 @@ export const UserManagement: React.FC<{
           runMode: db2RunMode,
         });
       }
+      if (mode === 'drop') {
+        // Removing a Db2 account is an OS operation, like adding one. Routed
+        // here rather than through buildUserSql so it honours the run-mode
+        // toggle and this connection's database, as add and edit already do.
+        return buildDb2OsUserInstructions({
+          name,
+          database: conn?.database,
+          action: 'drop',
+          runMode: db2RunMode,
+        });
+      }
     }
     return buildUserSql(request, dialect);
   }, [mode, dialect, name, request, isDb2, principalType, osRole, conn?.database, alteration, osPassword, db2RunMode]);
@@ -371,6 +382,18 @@ export const UserManagement: React.FC<{
 
   const readyForGrant = Boolean(grantDraft);
 
+  /**
+   * Which catalog read is the current one.
+   *
+   * A read takes as long as the engine takes, and Oracle's is slow. Pick a
+   * different connection while one is in flight and its response used to arrive
+   * afterwards and repaint the list — so the panel showed one database's
+   * accounts under another database's name. On a screen whose buttons drop
+   * users and grant privileges, acting on the wrong list is the worst thing
+   * this component can do, so a superseded response is discarded.
+   */
+  const loadToken = useRef(0);
+
   const loadPrincipals = useCallback(async () => {
     if (!connectionId) return;
     if (listSupport && !listSupport.query) {
@@ -381,6 +404,8 @@ export const UserManagement: React.FC<{
       setListError(null);
       return;
     }
+    const token = ++loadToken.current;
+    const superseded = () => loadToken.current !== token;
     setLoading(true);
     setListError(null);
     try {
@@ -388,6 +413,7 @@ export const UserManagement: React.FC<{
         { connectionId, password: sessionPasswords[connectionId] || undefined },
         { schema: conn?.schema || undefined }
       );
+      if (superseded()) return;
       setPrincipals(res.principals ?? []);
       setPrivileges(res.privileges ?? []);
       setListHint(res.support?.hint || null);
@@ -397,15 +423,21 @@ export const UserManagement: React.FC<{
         if (mode !== 'add') setMode('idle');
       }
     } catch (e: unknown) {
+      if (superseded()) return;
       setPrincipals([]);
       setPrivileges([]);
       setListError(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoading(false);
+      // Only the newest read owns the spinner; an older one finishing must not
+      // report the current one as done.
+      if (!superseded()) setLoading(false);
     }
   }, [connectionId, listSupport, sessionPasswords, conn?.schema, selectedName, mode]);
 
   useEffect(() => {
+    // Leaving a connection invalidates any read still in flight for it, so the
+    // cleared list cannot be repainted by the connection just left.
+    loadToken.current++;
     setPrincipals([]);
     setPrivileges([]);
     setSelectedName(null);
