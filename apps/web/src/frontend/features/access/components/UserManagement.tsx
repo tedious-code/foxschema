@@ -45,6 +45,7 @@ import {
   type Db2RunMode,
   DB2_DOCKER_CONTAINER,
   DEFAULT_DB2_RUN_MODE,
+  osAccountSteps,
 } from '../lib/access';
 import { EmptyState, Field, RISK_STYLE, Segmented, inputCls } from './controls';
 import { Autocomplete } from '@/shared/components/Autocomplete';
@@ -194,9 +195,12 @@ export const UserManagement: React.FC<{
    */
   const [osPassword, setOsPassword] = useState('');
   /**
-   * Where the Db2 commands are meant to run. The compose file puts Db2 in a
-   * container, but a real installation is a server with a shell, where a
-   * `docker exec` prefix would simply fail.
+   * Where the OS-level commands are meant to run — Db2's whole procedure, and
+   * the OS-account steps other engines offer for socket authentication.
+   *
+   * The compose file puts these databases in containers, but a real
+   * installation is a server with a shell, where a `docker exec` prefix would
+   * simply fail.
    */
   const [db2RunMode, setDb2RunMode] = useState<Db2RunMode>(DEFAULT_DB2_RUN_MODE);
   const osPasswordError = osPassword ? validateDb2OsPassword(osPassword) : null;
@@ -316,6 +320,15 @@ export const UserManagement: React.FC<{
     }
     return buildUserSql(request, dialect);
   }, [mode, dialect, name, request, isDb2, principalType, osRole, conn?.database, alteration, osPassword, db2RunMode]);
+
+  const osAccount = useMemo(() => {
+    if (isDb2 || !dialect || !name.trim()) return null;
+    return osAccountSteps(dialect, {
+      name,
+      runMode: db2RunMode,
+      database: conn?.database,
+    });
+  }, [isDb2, dialect, name, db2RunMode, conn?.database]);
 
   const sqlText =
     generated && !('error' in generated)
@@ -1160,7 +1173,7 @@ export const UserManagement: React.FC<{
               {/* Db2's steps are already shell commands, and they are only
                   runnable as written if Db2 is in a container. This picks how
                   to reach root and the instance owner instead. */}
-              {isDb2 && (
+              {(isDb2 || osAccount?.applicable) && (
                 <label className="flex flex-wrap items-center gap-2 text-[11px] font-bold text-slate-400">
                   Where do these run?
                   <select
@@ -1178,6 +1191,29 @@ export const UserManagement: React.FC<{
                       : 'Plain OS commands to run on the database server itself. No Docker needed.'}
                   </span>
                 </label>
+              )}
+
+              {/* Whether an OS account does anything for this engine. Shown
+                  for Add user only: it pairs with creating one, and the answer
+                  is often "nothing", which is worth saying. */}
+              {!isDb2 && mode === 'add' && principalType === 'user' && osAccount && (
+                <div className="flex flex-col gap-1.5 rounded-md border border-slate-800 bg-slate-950/40 p-2.5">
+                  <p className="text-[11px] font-bold text-slate-400">
+                    Operating-system account
+                    {!osAccount.applicable && (
+                      <span className="ml-1.5 font-normal text-slate-500">not needed here</span>
+                    )}
+                  </p>
+                  <p className="text-[11px] text-slate-500">{osAccount.rationale}</p>
+                  {osAccount.statements.map((st, i) => (
+                    <div key={i} data-testid={`user-os-step-${i}`}>
+                      <pre className="whitespace-pre-wrap break-all text-[11px] font-mono text-slate-200">
+                        {st.sql}
+                      </pre>
+                      <p className="text-[11px] text-slate-500">{st.explanation}</p>
+                    </div>
+                  ))}
+                </div>
               )}
 
               {/* The Db2 path already emits shell commands; a second one would

@@ -407,3 +407,12 @@ export type {
   CliDialect,
   GeneratedCommand,
 } from './modules/command-mode/cli.types.js';
+
+// OS-account steps that pair with a database account, where the engine can
+// actually authenticate against the operating system.
+export { osAccountSteps } from './modules/access/os-account.registry.js';
+export type {
+  OsAccountContext,
+  OsAccountSteps,
+  OsRunMode,
+} from './modules/access/os-account.types.js';
