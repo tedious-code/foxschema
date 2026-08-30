@@ -44,6 +44,7 @@ import {
   DB2_OS_PASSWORD_LENGTH,
   type Db2RunMode,
   DB2_DOCKER_CONTAINER,
+  DEFAULT_DB2_RUN_MODE,
 } from '../lib/access';
 import { EmptyState, Field, RISK_STYLE, Segmented, inputCls } from './controls';
 import { Autocomplete } from '@/shared/components/Autocomplete';
@@ -197,7 +198,7 @@ export const UserManagement: React.FC<{
    * container, but a real installation is a server with a shell, where a
    * `docker exec` prefix would simply fail.
    */
-  const [db2RunMode, setDb2RunMode] = useState<Db2RunMode>('docker');
+  const [db2RunMode, setDb2RunMode] = useState<Db2RunMode>(DEFAULT_DB2_RUN_MODE);
   const osPasswordError = osPassword ? validateDb2OsPassword(osPassword) : null;
   const [copied, setCopied] = useState(false);
   const [copiedWithPassword, setCopiedWithPassword] = useState(false);
@@ -1168,13 +1169,13 @@ export const UserManagement: React.FC<{
                     onChange={(e) => setDb2RunMode(e.target.value as Db2RunMode)}
                     className="bg-slate-950 border border-slate-700 rounded px-2 py-0.5 text-[11px] font-normal text-slate-100"
                   >
+                    <option value="server">Db2 on a server — Ubuntu, Debian, RHEL (sudo)</option>
                     <option value="docker">Db2 in a container (docker exec)</option>
-                    <option value="server">Db2 on a server (sudo, no Docker)</option>
                   </select>
                   <span className="font-normal text-slate-500">
                     {db2RunMode === 'docker'
                       ? `Prefixes each step with docker exec against ${DB2_DOCKER_CONTAINER}.`
-                      : 'Plain OS commands to run on the database server itself.'}
+                      : 'Plain OS commands to run on the database server itself. No Docker needed.'}
                   </span>
                 </label>
               )}

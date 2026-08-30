@@ -199,6 +199,13 @@ export function generateDb2OsPassword(
  */
 export type Db2RunMode = 'docker' | 'server';
 
+/**
+ * Most Db2 installations are a server you have a shell on, not a container —
+ * Ubuntu and Debian included. The container form stays one selection away for
+ * the compose setup this repo ships.
+ */
+export const DEFAULT_DB2_RUN_MODE: Db2RunMode = 'server';
+
 interface Db2Prefixes {
   /** Root through a login shell, for anything with a pipe or its own quoting. */
   rootShell: string;
@@ -206,6 +213,21 @@ interface Db2Prefixes {
   root: string;
   /** The Db2 instance owner, through its profile — `db2` is not on root's PATH. */
   instance: string;
+}
+
+/**
+ * A Db2 catalog query as a command the reader can run in the same terminal.
+ *
+ * Quoting is the whole difficulty. Db2 string literals must use single quotes,
+ * so `WHERE GRANTEETYPE = 'U'` cannot sit inside a single-quoted shell
+ * argument. Outer double quotes for `su -c`, an escaped double quote for the
+ * db2 argument, and the SQL's own single quotes are then literal.
+ *
+ * The connect is silenced so the answer is the only thing printed.
+ */
+function db2Query(prefix: string, database: string, sql: string): string {
+  const oneLine = sql.replace(/\s+/g, ' ').trim().replace(/;$/, '');
+  return `${prefix}"db2 connect to ${database} > /dev/null && db2 \\"${oneLine}\\""`;
 }
 
 function prefixesFor(mode: Db2RunMode, container: string): Db2Prefixes {
@@ -267,7 +289,7 @@ function listInstructions(args: {
   if (!SAFE_DB_NAME.test(database)) {
     return { error: 'Database name must be a simple identifier (letters, digits, underscore).' };
   }
-  const P = prefixesFor(args.runMode ?? 'docker', container);
+  const P = prefixesFor(args.runMode ?? DEFAULT_DB2_RUN_MODE, container);
 
   return {
     statements: [
@@ -299,19 +321,21 @@ function listInstructions(args: {
       },
       {
         sql:
-          `SELECT TRIM(GRANTEE) AS authid, CONNECTAUTH, DBADMAUTH\n` +
-          `FROM SYSCAT.DBAUTH\n` +
-          `WHERE GRANTEETYPE = 'U'\n` +
-          `ORDER BY 1;`,
-        explanation: `Authorization IDs Db2 has granted something on ${database}. Run in SQL Editor as db2inst1. An OS account missing here cannot connect yet.`,
+          db2Query(
+            P.instance,
+            database,
+            `SELECT TRIM(GRANTEE) AS authid, CONNECTAUTH, DBADMAUTH FROM SYSCAT.DBAUTH WHERE GRANTEETYPE = 'U' ORDER BY 1`
+          ),
+        explanation: `Authorization IDs Db2 has granted something on ${database}. An OS account missing here cannot connect yet.`,
         risk: 'low',
       },
       {
         sql:
-          `SELECT TRIM(GRANTEE) AS authid, TRIM(ROLENAME) AS role\n` +
-          `FROM SYSCAT.ROLEAUTH\n` +
-          `WHERE GRANTEETYPE = 'U'\n` +
-          `ORDER BY 1, 2;`,
+          db2Query(
+            P.instance,
+            database,
+            `SELECT TRIM(GRANTEE) AS authid, TRIM(ROLENAME) AS role FROM SYSCAT.ROLEAUTH WHERE GRANTEETYPE = 'U' ORDER BY 1, 2`
+          ),
         explanation: 'Which roles each user holds.',
         risk: 'low',
       },
@@ -345,7 +369,7 @@ export function buildDb2OsUserInstructions(args: {
   password?: string;
 }): GeneratedUserSql | { error: string } {
   const action = args.action ?? 'create';
-  const runMode = args.runMode ?? 'docker';
+  const runMode = args.runMode ?? DEFAULT_DB2_RUN_MODE;
   // The account name is not needed to list accounts.
   if (action === 'list') return listInstructions(args);
   const linux = linuxAccountName(args.name);
@@ -419,9 +443,11 @@ export function buildDb2OsUserInstructions(args: {
         },
         {
           sql:
-            `SELECT TRIM(GRANTEE) AS authid, CONNECTAUTH\n` +
-            `FROM SYSCAT.DBAUTH\n` +
-            `WHERE GRANTEETYPE = 'U' AND TRIM(GRANTEE) = '${authId}';`,
+            db2Query(
+              P.instance,
+              database,
+              `SELECT TRIM(GRANTEE) AS authid, CONNECTAUTH FROM SYSCAT.DBAUTH WHERE GRANTEETYPE = 'U' AND TRIM(GRANTEE) = '${authId}'`
+            ),
           explanation: `CONNECTAUTH N (or no row) means ${authId} cannot connect to ${database}.`,
           risk: 'low',
         },
@@ -520,17 +546,21 @@ export function buildDb2OsUserInstructions(args: {
     },
     {
       sql:
-        `SELECT TRIM(GRANTEE) AS authid, CONNECTAUTH\n` +
-        `FROM SYSCAT.DBAUTH\n` +
-        `WHERE GRANTEETYPE = 'U' AND TRIM(GRANTEE) = '${authId}';`,
-      explanation: `Run in SQL Editor as db2inst1. CONNECTAUTH Y or G means ${authId} can log in.`,
+        db2Query(
+          P.instance,
+          database,
+          `SELECT TRIM(GRANTEE) AS authid, CONNECTAUTH FROM SYSCAT.DBAUTH WHERE GRANTEETYPE = 'U' AND TRIM(GRANTEE) = '${authId}'`
+        ),
+      explanation: `CONNECTAUTH Y or G means ${authId} can log in.`,
       risk: 'low',
     },
     {
       sql:
-        `SELECT TRIM(ROLENAME) AS role\n` +
-        `FROM SYSCAT.ROLEAUTH\n` +
-        `WHERE GRANTEETYPE = 'U' AND TRIM(GRANTEE) = '${authId}';`,
+        db2Query(
+          P.instance,
+          database,
+          `SELECT TRIM(ROLENAME) AS role FROM SYSCAT.ROLEAUTH WHERE GRANTEETYPE = 'U' AND TRIM(GRANTEE) = '${authId}'`
+        ),
       explanation: `Roles granted to ${authId}. Reload User Management after CONNECT so the user appears in the list.`,
       risk: 'low',
     }

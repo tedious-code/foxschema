@@ -171,11 +171,12 @@ describe('buildUserSql — create', () => {
 });
 
 describe('buildDb2OsUserInstructions', () => {
-  it('emits docker useradd, chpasswd, GRANT CONNECT, and list queries', () => {
+  it('emits useradd, chpasswd, GRANT CONNECT, and list queries', () => {
+    // Default is the server form; the container form is asserted below.
     const out = buildDb2OsUserInstructions({ name: 'report_user' });
     if ('error' in out) throw new Error(out.error);
     const all = out.statements.map((s) => s.sql).join('\n');
-    expect(all).toMatch(/foxschema-db2/);
+    expect(all).toMatch(/sudo /);
     expect(all).toMatch(/useradd/);
     expect(all).toContain(PASSWORD_PLACEHOLDER);
     expect(all).toMatch(/GRANT CONNECT ON DATABASE TO USER REPORT_USER/);
@@ -185,6 +186,14 @@ describe('buildDb2OsUserInstructions', () => {
     expect(out.warnings.some((w) => w.level === 'danger' && w.message.includes(PASSWORD_PLACEHOLDER))).toBe(
       true
     );
+  });
+
+  it('still emits the container form when asked for it', () => {
+    const out = buildDb2OsUserInstructions({ name: 'report_user', runMode: 'docker' });
+    if ('error' in out) throw new Error(out.error);
+    const all = out.statements.map((s) => s.sql).join('\n');
+    expect(all).toMatch(/docker exec/);
+    expect(all).toMatch(/foxschema-db2/);
   });
 
   it('emits chpasswd to update the OS password', () => {

@@ -133,7 +133,7 @@ describe('AccessView — User Management list + Builder handoff', () => {
     expect(screen.getByTestId('user-host')).toBeTruthy();
   });
 
-  it('shows Add user (OS) on Db2 with docker CONNECT instructions', async () => {
+  it('shows Add user (OS) on Db2 with server CONNECT instructions', async () => {
     fetchDbAccess.mockResolvedValue({
       dialect: 'db2',
       schema: '',
@@ -163,9 +163,18 @@ describe('AccessView — User Management list + Builder handoff', () => {
     fireEvent.change(screen.getByTestId('user-os-role'), { target: { value: 'analysts' } });
 
     const sql = screen.getByTestId('user-sql').textContent ?? '';
-    expect(sql).toMatch(/docker exec/);
-    expect(sql).toMatch(/foxschema-db2/);
+    // Server is the default now: most Db2 installations are a host you have a
+    // shell on, not the compose container.
+    expect(sql).toMatch(/sudo /);
+    expect(sql).not.toMatch(/docker/);
     expect(sql).toMatch(/GRANT CONNECT ON DATABASE TO USER REPORT_USER/);
+
+    // The container form is one selection away.
+    fireEvent.change(screen.getByTestId('user-db2-run-mode'), { target: { value: 'docker' } });
+    const dockerSql = screen.getByTestId('user-sql').textContent ?? '';
+    expect(dockerSql).toMatch(/docker exec/);
+    expect(dockerSql).toMatch(/foxschema-db2/);
+    fireEvent.change(screen.getByTestId('user-db2-run-mode'), { target: { value: 'server' } });
     expect(sql).toMatch(/connect to SAMPLE/);
     expect(sql).toMatch(/GRANT ROLE ANALYSTS TO USER REPORT_USER/);
 
