@@ -7,6 +7,7 @@
  */
 import type { GeneratedStatement } from './access-sql.types.js';
 import type { OsAccountContext, OsAccountSteps } from './os-account.types.js';
+import { shellQuote } from '../command-mode/shell.js';
 
 /** A Linux login name. Same rule the Db2 emitter has always applied. */
 const LINUX_ACCOUNT = /^[a-z_][a-z0-9_]{0,31}$/;
@@ -53,6 +54,24 @@ export function asUserPrefix(ctx: OsAccountContext, linux: string): string | { e
 /** The answer for an engine that never consults the operating system. */
 export function notApplicable(rationale: string): OsAccountSteps {
   return { applicable: false, rationale, statements: [] };
+}
+
+/**
+ * A database file path as one shell word, or an error when it cannot be.
+ *
+ * SQLite/DuckDB OS steps put this path into `chown` and `bash -lc` commands the
+ * reader runs with root. An unquoted path with spaces breaks the command; one
+ * with `$(…)` or backticks becomes command injection when pasted. Quote every
+ * path the same way command mode does, and refuse line breaks rather than
+ * trying to represent them.
+ */
+export function shellFilePath(path: string): string | { error: string } {
+  const file = path.trim();
+  if (!file) return { error: 'Choose the database file first — ownership is set per file.' };
+  if (/[\n\r\0]/.test(file)) {
+    return { error: 'The database file path contains a line break, so it cannot be put in a shell command.' };
+  }
+  return shellQuote(file);
 }
 
 /**
