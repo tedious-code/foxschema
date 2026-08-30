@@ -352,6 +352,7 @@ export {
   DB2_DOCKER_DATABASE,
   type GeneratedUserSql,
   type PrincipalType,
+  DEFAULT_DB2_RUN_MODE,
   type Db2RunMode,
   type UserAction,
   type UserAlteration,

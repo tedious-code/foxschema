@@ -267,9 +267,41 @@ describe('run mode', () => {
     expect(text).not.toContain('foxschema-db2');
   });
 
-  it('defaults to docker, which is what the compose file gives you', () => {
+  it('defaults to the server, where most Db2 installations are', () => {
+    // Ubuntu, Debian and RHEL hosts far outnumber the compose container this
+    // repo ships, and a docker prefix on a plain server simply fails.
     const out = buildDb2OsUserInstructions({ name: 'report_user', database: 'FOXDB' });
     if ('error' in out) throw new Error(out.error);
-    expect(out.statements.map((s) => s.sql).join('\n')).toContain('docker exec');
+    const sql = out.statements.map((s) => s.sql).join('\n');
+    expect(sql).not.toContain('docker');
+    expect(sql).toContain('sudo ');
+  });
+
+  it('makes the catalog checks runnable in the same terminal', () => {
+    // These used to be bare SELECTs to paste into the SQL Editor, which meant
+    // leaving the shell in the middle of the procedure.
+    const out = buildDb2OsUserInstructions({ name: 'report_user', database: 'FOXDB' });
+    if ('error' in out) throw new Error(out.error);
+    const sql = out.statements.map((s) => s.sql).join('\n');
+    expect(sql).toContain('db2 connect to FOXDB');
+    expect(sql).toContain('SYSCAT.DBAUTH');
+    // Every statement is a command; none is left as bare SQL.
+    for (const st of out.statements) {
+      expect(st.sql.startsWith('sudo ') || st.sql.startsWith('docker '), st.sql.slice(0, 40)).toBe(
+        true
+      );
+    }
+  });
+
+  it('quotes a catalog query so its own single quotes survive', () => {
+    // Db2 string literals must use single quotes, so `GRANTEETYPE = 'U'`
+    // cannot sit inside a single-quoted shell argument. Verified by running
+    // the emitted command against the Db2 container.
+    const out = buildDb2OsUserInstructions({ name: 'report_user', database: 'FOXDB' });
+    if ('error' in out) throw new Error(out.error);
+    const q = out.statements.find((st) => st.sql.includes('SYSCAT.DBAUTH'))!.sql;
+    expect(q).toContain('su - db2inst1 -c "');
+    expect(q).toContain('db2 \\"SELECT');
+    expect(q).toContain("GRANTEETYPE = 'U'");
   });
 });

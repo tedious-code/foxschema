@@ -45,6 +45,7 @@ export {
 
 export {
   buildDb2OsUserInstructions,
+  DEFAULT_DB2_RUN_MODE,
   type Db2RunMode,
   generateDb2OsPassword,
   validateDb2OsPassword,
