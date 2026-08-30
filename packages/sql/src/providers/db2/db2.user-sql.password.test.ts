@@ -215,3 +215,61 @@ describe('buildDb2OsUserInstructions list action', () => {
     expect('error' in out).toBe(true);
   });
 });
+
+describe('run mode', () => {
+  const build = (runMode: 'docker' | 'server', action: 'create' | 'list' = 'create') =>
+    buildDb2OsUserInstructions({
+      name: action === 'list' ? '' : 'report_user',
+      database: 'FOXDB',
+      action,
+      runMode,
+    });
+
+  const sqlText = (runMode: 'docker' | 'server', action: 'create' | 'list' = 'create') => {
+    const out = build(runMode, action);
+    if ('error' in out) throw new Error(out.error);
+    return out.statements.map((s) => s.sql).join('\n');
+  };
+
+  it('server mode mentions docker nowhere', () => {
+    // The whole point: on a real server there is no container to exec into,
+    // and a docker prefix would simply fail.
+    expect(sqlText('server')).not.toContain('docker');
+    expect(sqlText('server', 'list')).not.toContain('docker');
+  });
+
+  it('server mode reaches root and the instance owner through sudo', () => {
+    const sql = sqlText('server');
+    expect(sql).toContain('sudo bash -lc ');
+    expect(sql).toContain('sudo su - db2inst1 -c ');
+  });
+
+  it('docker mode is unchanged', () => {
+    const sql = sqlText('docker');
+    expect(sql).toContain('docker exec -u 0 foxschema-db2 bash -lc ');
+    expect(sql).toContain('docker exec foxschema-db2 su - db2inst1 -c ');
+    expect(sql).not.toContain('sudo ');
+  });
+
+  it('runs the same commands either way', () => {
+    // Only the way root is reached differs; the work must not.
+    for (const verb of ['useradd', 'chpasswd', 'GRANT CONNECT']) {
+      expect(sqlText('docker'), verb).toContain(verb);
+      expect(sqlText('server'), verb).toContain(verb);
+    }
+  });
+
+  it('does not claim the account is inside a container in server mode', () => {
+    const out = build('server');
+    if ('error' in out) throw new Error(out.error);
+    const text = out.statements.map((st) => st.explanation).join('\n');
+    expect(text).toContain('on the database server');
+    expect(text).not.toContain('foxschema-db2');
+  });
+
+  it('defaults to docker, which is what the compose file gives you', () => {
+    const out = buildDb2OsUserInstructions({ name: 'report_user', database: 'FOXDB' });
+    if ('error' in out) throw new Error(out.error);
+    expect(out.statements.map((s) => s.sql).join('\n')).toContain('docker exec');
+  });
+});

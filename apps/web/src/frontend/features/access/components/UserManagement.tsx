@@ -42,6 +42,8 @@ import {
   generateDb2OsPassword,
   validateDb2OsPassword,
   DB2_OS_PASSWORD_LENGTH,
+  type Db2RunMode,
+  DB2_DOCKER_CONTAINER,
 } from '../lib/access';
 import { EmptyState, Field, RISK_STYLE, Segmented, inputCls } from './controls';
 import { Autocomplete } from '@/shared/components/Autocomplete';
@@ -190,6 +192,12 @@ export const UserManagement: React.FC<{
    * the generated chpasswd command and the clipboard, and nowhere else.
    */
   const [osPassword, setOsPassword] = useState('');
+  /**
+   * Where the Db2 commands are meant to run. The compose file puts Db2 in a
+   * container, but a real installation is a server with a shell, where a
+   * `docker exec` prefix would simply fail.
+   */
+  const [db2RunMode, setDb2RunMode] = useState<Db2RunMode>('docker');
   const osPasswordError = osPassword ? validateDb2OsPassword(osPassword) : null;
   const [copied, setCopied] = useState(false);
   const [copiedWithPassword, setCopiedWithPassword] = useState(false);
@@ -278,6 +286,7 @@ export const UserManagement: React.FC<{
         name: '',
         action: 'list',
         database: conn?.database,
+        runMode: db2RunMode,
       });
     }
     if (!name.trim()) return null;
@@ -288,6 +297,7 @@ export const UserManagement: React.FC<{
           role: osRole,
           database: conn?.database,
           password: osPassword || undefined,
+          runMode: db2RunMode,
         });
       }
       if (
@@ -299,11 +309,12 @@ export const UserManagement: React.FC<{
           database: conn?.database,
           action: alteration,
           password: alteration === 'password' ? osPassword || undefined : undefined,
+          runMode: db2RunMode,
         });
       }
     }
     return buildUserSql(request, dialect);
-  }, [mode, dialect, name, request, isDb2, principalType, osRole, conn?.database, alteration, osPassword]);
+  }, [mode, dialect, name, request, isDb2, principalType, osRole, conn?.database, alteration, osPassword, db2RunMode]);
 
   const sqlText =
     generated && !('error' in generated)
@@ -1144,6 +1155,29 @@ export const UserManagement: React.FC<{
                   </div>
                 ))}
               </div>
+
+              {/* Db2's steps are already shell commands, and they are only
+                  runnable as written if Db2 is in a container. This picks how
+                  to reach root and the instance owner instead. */}
+              {isDb2 && (
+                <label className="flex flex-wrap items-center gap-2 text-[11px] font-bold text-slate-400">
+                  Where do these run?
+                  <select
+                    data-testid="user-db2-run-mode"
+                    value={db2RunMode}
+                    onChange={(e) => setDb2RunMode(e.target.value as Db2RunMode)}
+                    className="bg-slate-950 border border-slate-700 rounded px-2 py-0.5 text-[11px] font-normal text-slate-100"
+                  >
+                    <option value="docker">Db2 in a container (docker exec)</option>
+                    <option value="server">Db2 on a server (sudo, no Docker)</option>
+                  </select>
+                  <span className="font-normal text-slate-500">
+                    {db2RunMode === 'docker'
+                      ? `Prefixes each step with docker exec against ${DB2_DOCKER_CONTAINER}.`
+                      : 'Plain OS commands to run on the database server itself.'}
+                  </span>
+                </label>
+              )}
 
               {/* The Db2 path already emits shell commands; a second one would
                   be noise. Everything else is SQL, and this is how to run it. */}
