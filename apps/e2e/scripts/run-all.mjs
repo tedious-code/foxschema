@@ -100,6 +100,11 @@ const ALWAYS = [
     file: 'src/tests/schema-version-revert-edges.test.ts',
     label: 'Revert edges',
   },
+  {
+    key: 'access',
+    file: 'src/tests/access-assistant-sqlite.test.ts',
+    label: 'Access SQLite',
+  },
   ...(configured.length
     ? [
         {

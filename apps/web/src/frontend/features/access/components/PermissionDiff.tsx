@@ -204,7 +204,10 @@ export const PermissionDiff: React.FC = () => {
         </Field>
 
         {unsupported ? (
-          <div className="rounded-md border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-[11px] text-slate-400">
+          <div
+            data-testid="diff-unsupported"
+            className="rounded-md border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-[11px] text-slate-400"
+          >
             {conn?.dialect} has no GRANT model for diffing.
           </div>
         ) : (

@@ -36,6 +36,8 @@
     "test:e2e:errors": "npm -w @foxschema/e2e run test:errors",
     "test:e2e:utilities:all": "npm -w @foxschema/e2e run test:sql-editor:utilities:all",
     "test:e2e:utilities:all:headed": "npm -w @foxschema/e2e run test:sql-editor:utilities:all:headed",
+    "test:e2e:access": "npm -w @foxschema/e2e run test:access",
+    "test:e2e:access:headed": "npm -w @foxschema/e2e run test:access:headed",
     "test:e2e:access:all": "npm -w @foxschema/e2e run test:access:all",
     "test:e2e:access:all:headed": "npm -w @foxschema/e2e run test:access:all:headed",
     "test:e2e:code-cells": "npm -w @foxschema/e2e run test:sql-editor:code-cells",
