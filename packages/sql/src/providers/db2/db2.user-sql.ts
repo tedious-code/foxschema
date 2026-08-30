@@ -190,41 +190,6 @@ export function generateDb2OsPassword(
   throw new Error('Could not generate a password meeting every character class.');
 }
 
-/**
- * Where the commands are meant to run.
- *
- * The Fox Schema compose file puts Db2 in a container, but a real installation
- * is a server you have a shell on. The commands are the same; only how you
- * reach root and the instance owner differs, so that is all this switches.
- */
-export type Db2RunMode = 'docker' | 'server';
-
-interface Db2Prefixes {
-  /** Root through a login shell, for anything with a pipe or its own quoting. */
-  rootShell: string;
-  /** Root, invoking a binary directly. */
-  root: string;
-  /** The Db2 instance owner, through its profile — `db2` is not on root's PATH. */
-  instance: string;
-}
-
-function prefixesFor(mode: Db2RunMode, container: string): Db2Prefixes {
-  if (mode === 'server') {
-    // sudo rather than assuming the reader is already root: the same line then
-    // works whether or not they are.
-    return {
-      rootShell: 'sudo bash -lc ',
-      root: 'sudo ',
-      instance: 'sudo su - db2inst1 -c ',
-    };
-  }
-  return {
-    rootShell: `docker exec -u 0 ${container} bash -lc `,
-    root: `docker exec -u 0 ${container} `,
-    instance: `docker exec ${container} su - db2inst1 -c `,
-  };
-}
-
 const LINUX_ACCOUNT = /^[a-z_][a-z0-9_]{0,31}$/;
 const SAFE_DOCKER_NAME = /^[A-Za-z0-9._-]+$/;
 const SAFE_DB_NAME = /^[A-Za-z][A-Za-z0-9_]{0,127}$/;
@@ -257,7 +222,6 @@ export type Db2OsUserAction = 'create' | 'password' | 'disable' | 'enable' | 'li
 function listInstructions(args: {
   container?: string;
   database?: string;
-  runMode?: Db2RunMode;
 }): GeneratedUserSql | { error: string } {
   const container = (args.container || DB2_DOCKER_CONTAINER).trim() || DB2_DOCKER_CONTAINER;
   const database = (args.database || DB2_DOCKER_DATABASE).trim() || DB2_DOCKER_DATABASE;
@@ -267,7 +231,6 @@ function listInstructions(args: {
   if (!SAFE_DB_NAME.test(database)) {
     return { error: 'Database name must be a simple identifier (letters, digits, underscore).' };
   }
-  const P = prefixesFor(args.runMode ?? 'docker', container);
 
   return {
     statements: [
@@ -279,10 +242,10 @@ function listInstructions(args: {
         // them alone. Single quotes on both levels would close the outer string
         // at the awk program and leave $3 to expand to nothing.
         sql:
-          `${P.rootShell}` +
+          `docker exec -u 0 ${container} bash -lc ` +
           `"getent passwd | awk -F: '\\$3 >= 1000 && \\$3 < 65534 {print \\$1, \\$3, \\$6}'"`,
         explanation:
-          `Every ordinary OS login ${args.runMode === 'server' ? 'on the server' : 'in the container'}, with its UID and home directory. These are the names Db2 can authenticate.`,
+          'Every ordinary OS login in the container, with its UID and home directory. These are the names Db2 can authenticate.',
         risk: 'low',
       },
       {
@@ -291,7 +254,7 @@ function listInstructions(args: {
         // with "unknown option". Unfiltered on purpose — a locked or
         // password-less account is what someone checking this list wants to see.
         sql:
-          `${P.rootShell}` +
+          `docker exec -u 0 ${container} bash -lc ` +
           `"getent passwd | awk -F: '\\$3 >= 1000 && \\$3 < 65534 {print \\$1}' | xargs -r -n1 passwd -S"`,
         explanation:
           'Password status per login. The second field is PS when a password is set, LK when the account is locked, NP when none is set — the last two cannot authenticate.',
@@ -333,8 +296,6 @@ export function buildDb2OsUserInstructions(args: {
   container?: string;
   database?: string;
   action?: Db2OsUserAction;
-  /** Where the commands run: inside the container, or on the server itself. */
-  runMode?: Db2RunMode;
   /**
    * Written into the chpasswd command instead of the placeholder.
    *
@@ -345,7 +306,6 @@ export function buildDb2OsUserInstructions(args: {
   password?: string;
 }): GeneratedUserSql | { error: string } {
   const action = args.action ?? 'create';
-  const runMode = args.runMode ?? 'docker';
   // The account name is not needed to list accounts.
   if (action === 'list') return listInstructions(args);
   const linux = linuxAccountName(args.name);
@@ -367,21 +327,19 @@ export function buildDb2OsUserInstructions(args: {
   if (!SAFE_DB_NAME.test(database)) {
     return { error: 'Database name must be a simple identifier (letters, digits, underscore).' };
   }
-  const P = prefixesFor(runMode, container);
-  const where = runMode === 'server' ? 'on the database server' : `inside ${container}`;
 
   if (action === 'password') {
     return {
       statements: [
         {
           sql:
-            `${P.rootShell}` +
+            `docker exec -u 0 ${container} bash -lc ` +
             `'echo "${linux}:${pw}" | chpasswd'`,
           explanation: `Sets a new OS password for ${linux}. Db2 has no ALTER USER … PASSWORD — this is the password Fox Schema will send on connect.`,
           risk: 'elevated',
         },
         {
-          sql: `${P.root}passwd -S ${linux}`,
+          sql: `docker exec -u 0 ${container} passwd -S ${linux}`,
           explanation: `Shows lock/status. P = password set; L = locked (disabled).`,
           risk: 'low',
         },
@@ -401,19 +359,19 @@ export function buildDb2OsUserInstructions(args: {
     return {
       statements: [
         {
-          sql: `${P.root}passwd -l ${linux}`,
+          sql: `docker exec -u 0 ${container} passwd -l ${linux}`,
           explanation: `Locks the OS account ${linux}. Authentication fails until you unlock it (Edit → Enable).`,
           risk: 'administrative',
         },
         {
           sql:
-            `${P.instance}` +
+            `docker exec ${container} su - db2inst1 -c ` +
             `"db2 connect to ${database} && db2 'REVOKE CONNECT ON DATABASE FROM USER ${authId}'"`,
           explanation: `Also takes away CONNECT on ${database}. ${authId} cannot attach even if the OS lock is later skipped.`,
           risk: 'elevated',
         },
         {
-          sql: `${P.root}passwd -S ${linux}`,
+          sql: `docker exec -u 0 ${container} passwd -S ${linux}`,
           explanation: `Confirm LK / L in the status. Locked means disable worked.`,
           risk: 'low',
         },
@@ -441,19 +399,19 @@ export function buildDb2OsUserInstructions(args: {
     return {
       statements: [
         {
-          sql: `${P.root}passwd -u ${linux}`,
+          sql: `docker exec -u 0 ${container} passwd -u ${linux}`,
           explanation: `Unlocks the OS account ${linux} so the password works again.`,
           risk: 'elevated',
         },
         {
           sql:
-            `${P.instance}` +
+            `docker exec ${container} su - db2inst1 -c ` +
             `"db2 connect to ${database} && db2 'GRANT CONNECT ON DATABASE TO USER ${authId}'"`,
           explanation: `Restores CONNECT on ${database}. Table privileges from before disable are unchanged.`,
           risk: 'elevated',
         },
         {
-          sql: `${P.root}passwd -S ${linux}`,
+          sql: `docker exec -u 0 ${container} passwd -S ${linux}`,
           explanation: `Status should show P (password set), not L (locked).`,
           risk: 'low',
         },
@@ -481,21 +439,21 @@ export function buildDb2OsUserInstructions(args: {
   const statements: GeneratedStatement[] = [
     {
       sql:
-        `${P.rootShell}` +
+        `docker exec -u 0 ${container} bash -lc ` +
         `'id ${linux} >/dev/null 2>&1 || useradd -m -s /bin/bash ${linux}'`,
-      explanation: `Creates the OS login ${linux} ${where}. Db2 authenticates this name; there is no CREATE USER.`,
+      explanation: `Creates the OS login ${linux} inside ${container}. Db2 authenticates this name; there is no CREATE USER.`,
       risk: 'elevated',
     },
     {
       sql:
-        `${P.rootShell}` +
+        `docker exec -u 0 ${container} bash -lc ` +
         `'echo "${linux}:${pw}" | chpasswd'`,
       explanation: `Sets the OS password for ${linux}. Replace ${PASSWORD_PLACEHOLDER} before running.`,
       risk: 'elevated',
     },
     {
       sql:
-        `${P.instance}` +
+        `docker exec ${container} su - db2inst1 -c ` +
         `"db2 connect to ${database} && db2 'GRANT CONNECT ON DATABASE TO USER ${authId}'"`,
       explanation: `Lets ${authId} connect to ${database}. Until this runs, Fox Schema will not list the account.`,
       risk: 'elevated',
@@ -505,7 +463,7 @@ export function buildDb2OsUserInstructions(args: {
   if (roleAuth) {
     statements.push({
       sql:
-        `${P.instance}` +
+        `docker exec ${container} su - db2inst1 -c ` +
         `"db2 connect to ${database} && db2 'GRANT ROLE ${roleAuth} TO USER ${authId}'"`,
       explanation: `Assigns role ${roleAuth} to ${authId}. Create the role first with Add role if it does not exist.`,
       risk: 'elevated',
@@ -514,7 +472,7 @@ export function buildDb2OsUserInstructions(args: {
 
   statements.push(
     {
-      sql: `${P.root}getent passwd ${linux}`,
+      sql: `docker exec -u 0 ${container} getent passwd ${linux}`,
       explanation: `Lists the OS account. You should see ${linux} in the passwd line.`,
       risk: 'low',
     },
