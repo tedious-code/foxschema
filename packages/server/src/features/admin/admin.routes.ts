@@ -6,8 +6,9 @@
  * Admin APIs: list/assign users roles, activate/deactivate, set passwords,
  * configure role permission matrices.
  */
+import type { FastifyReply } from 'fastify';
+import type { AppRequest } from '../../platform/http/types';
 import { Router } from '../../platform/http/router';
-import type { HttpResponse } from '../../platform/http/types';
 import { RbacModule } from '../authorization/rbac.service';
 import { AuthModule } from '../auth/auth.service';
 import { APP_ROLES, PERMISSION_META, isAppRole } from '@foxschema/shared';
@@ -21,15 +22,15 @@ export function createAdminRoutes(rbac = new RbacModule(), auth = new AuthModule
   router.get(
     '/users',
     requirePermissions('admin.users'),
-    async (_req: AuthedRequest, res: HttpResponse) => {
-      res.json({ users: await rbac.listUsers() });
+    async (_req: AuthedRequest, res: FastifyReply) => {
+      res.send({ users: await rbac.listUsers() });
     }
   );
 
   router.put(
     '/users/:id/role',
     requirePermissions('admin.users'),
-    async (req: AuthedRequest, res: HttpResponse) => {
+    async (req: AuthedRequest, res: FastifyReply) => {
       const role = (req.body as { role?: unknown })?.role;
       if (!isAppRole(role)) {
         sendError(res, 'invalid_input', `role must be one of: ${APP_ROLES.join(', ')}`);
@@ -54,7 +55,7 @@ export function createAdminRoutes(rbac = new RbacModule(), auth = new AuthModule
       }
       try {
         await rbac.setUserRole(userId, role);
-        res.json({ ok: true, userId, role });
+        res.send({ ok: true, userId, role });
       } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : 'User not found';
         sendError(res, msg.includes('not found') ? 'not_found' : 'invalid_input', msg);
@@ -65,7 +66,7 @@ export function createAdminRoutes(rbac = new RbacModule(), auth = new AuthModule
   router.put(
     '/users/:id/active',
     requirePermissions('admin.users'),
-    async (req: AuthedRequest, res: HttpResponse) => {
+    async (req: AuthedRequest, res: FastifyReply) => {
       const userId = String(req.params.id ?? '');
       if (!userId) {
         sendError(res, 'invalid_input', 'User id is required.');
@@ -82,7 +83,7 @@ export function createAdminRoutes(rbac = new RbacModule(), auth = new AuthModule
       }
       try {
         await rbac.setUserActive(userId, active);
-        res.json({ ok: true, userId, active });
+        res.send({ ok: true, userId, active });
       } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : 'Update failed';
         sendError(res, msg.includes('not found') ? 'not_found' : 'invalid_input', msg);
@@ -93,7 +94,7 @@ export function createAdminRoutes(rbac = new RbacModule(), auth = new AuthModule
   router.put(
     '/users/:id/password',
     requirePermissions('admin.users'),
-    async (req: AuthedRequest, res: HttpResponse) => {
+    async (req: AuthedRequest, res: FastifyReply) => {
       const userId = String(req.params.id ?? '');
       if (!userId) {
         sendError(res, 'invalid_input', 'User id is required.');
@@ -106,7 +107,7 @@ export function createAdminRoutes(rbac = new RbacModule(), auth = new AuthModule
       }
       try {
         await auth.adminSetPassword(userId, password);
-        res.json({ ok: true, userId });
+        res.send({ ok: true, userId });
       } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : 'Update failed';
         sendError(res, msg.includes('not found') ? 'not_found' : 'invalid_input', msg);
@@ -117,8 +118,8 @@ export function createAdminRoutes(rbac = new RbacModule(), auth = new AuthModule
   router.get(
     '/role-permissions',
     requirePermissions('admin.roles'),
-    async (_req: AuthedRequest, res: HttpResponse) => {
-      res.json({
+    async (_req: AuthedRequest, res: FastifyReply) => {
+      res.send({
         matrix: await rbac.listRolePermissionMatrix(),
         catalog: PERMISSION_META,
       });
@@ -128,7 +129,7 @@ export function createAdminRoutes(rbac = new RbacModule(), auth = new AuthModule
   router.put(
     '/role-permissions/:role',
     requirePermissions('admin.roles'),
-    async (req: AuthedRequest, res: HttpResponse) => {
+    async (req: AuthedRequest, res: FastifyReply) => {
       const role = req.params.role;
       if (!isAppRole(role)) {
         sendError(res, 'invalid_input', `role must be one of: ${APP_ROLES.join(', ')}`);
@@ -141,7 +142,7 @@ export function createAdminRoutes(rbac = new RbacModule(), auth = new AuthModule
       }
       try {
         const next = await rbac.setRolePermissions(role, permissions);
-        res.json({ role, permissions: next });
+        res.send({ role, permissions: next });
       } catch (error: unknown) {
         sendError(res, 'invalid_input', error instanceof Error ? error.message : 'Update failed');
       }

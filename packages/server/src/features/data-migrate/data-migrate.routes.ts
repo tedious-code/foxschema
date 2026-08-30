@@ -5,8 +5,9 @@
  *
  * Data migration routes. Extracted verbatim from api/routes.ts.
  */
+import type { FastifyReply } from 'fastify';
+import type { AppRequest } from '../../platform/http/types';
 import { Router } from '../../platform/http/router';
-import type { HttpRequest, HttpResponse } from '../../platform/http/types';
 import { requirePermissions, denyUnless } from '../authorization/rbac.guard';
 import type { AuthedRequest } from '../auth/auth.routes';
 import type { ConnectionRef } from '../../platform/db/resolve';
@@ -36,7 +37,7 @@ export function createDataMigrateRoutes(deps: DataMigrateRouteDeps): Router {
     '/data-migrate/execute',
     requirePermissions('editor.dml'),
     sqlExecuteLimiter,
-    async (req: HttpRequest, res: HttpResponse) => {
+    async (req: AppRequest, res: FastifyReply) => {
       const body = req.body as ConnectionRef & {
         ops?: unknown;
         useTransaction?: unknown;
@@ -144,21 +145,21 @@ export function createDataMigrateRoutes(deps: DataMigrateRouteDeps): Router {
             sessionSql,
           }
         );
-        res.json(out);
+        res.send(out);
       } catch (error: unknown) {
         sendThrown(res, error, 'Data migrate failed');
       }
     }
   );
 
-  router.get('/data-migrations', requirePermissions('editor.dml'), async (req: HttpRequest, res: HttpResponse) => {
-    res.json({ runs: await deps.dataMigrateHistory.list((req as AuthedRequest).userId!) });
+  router.get('/data-migrations', requirePermissions('editor.dml'), async (req: AppRequest, res: FastifyReply) => {
+    res.send({ runs: await deps.dataMigrateHistory.list((req as AuthedRequest).userId!) });
   });
 
   router.post(
     '/data-migrations/start',
     requirePermissions('editor.dml'),
-    async (req: HttpRequest, res: HttpResponse) => {
+    async (req: AppRequest, res: FastifyReply) => {
       const body = req.body as {
         dialect?: string;
         sourceHost?: string;
@@ -197,14 +198,14 @@ export function createDataMigrateRoutes(deps: DataMigrateRouteDeps): Router {
         script: body.script,
         snapshotJson: body.snapshotJson,
       });
-      res.json(started);
+      res.send(started);
     }
   );
 
   router.post(
     '/data-migrations/:id/finish',
     requirePermissions('editor.dml'),
-    async (req: HttpRequest, res: HttpResponse) => {
+    async (req: AppRequest, res: FastifyReply) => {
       const body = req.body as {
         status?: DataMigrateRunStatus;
         results?: DataMigrateOpResult[];
@@ -228,14 +229,14 @@ export function createDataMigrateRoutes(deps: DataMigrateRouteDeps): Router {
         results: Array.isArray(body.results) ? body.results : [],
         error: body.error,
       });
-      res.json({ ok: true });
+      res.send({ ok: true });
     }
   );
 
   router.get(
     '/data-migrations/:id',
     requirePermissions('editor.dml'),
-    async (req: HttpRequest, res: HttpResponse) => {
+    async (req: AppRequest, res: FastifyReply) => {
       const run = await deps.dataMigrateHistory.get(
         (req as AuthedRequest).userId!,
         String(req.params.id)
@@ -244,14 +245,14 @@ export function createDataMigrateRoutes(deps: DataMigrateRouteDeps): Router {
         sendError(res, 'not_found', 'Data migrate run not found');
         return;
       }
-      res.json({ run });
+      res.send({ run });
     }
   );
 
   router.delete(
     '/data-migrations/:id',
     requirePermissions('editor.dml'),
-    async (req: HttpRequest, res: HttpResponse) => {
+    async (req: AppRequest, res: FastifyReply) => {
       const removed = await deps.dataMigrateHistory.remove(
         (req as AuthedRequest).userId!,
         String(req.params.id)
@@ -260,7 +261,7 @@ export function createDataMigrateRoutes(deps: DataMigrateRouteDeps): Router {
         sendError(res, 'not_found', 'Data migration run not found');
         return;
       }
-      res.json({ ok: true });
+      res.send({ ok: true });
     }
   );
 

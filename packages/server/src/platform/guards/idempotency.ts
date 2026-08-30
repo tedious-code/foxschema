@@ -1,4 +1,5 @@
-import type { HttpRequest, HttpResponse, NextFunction, Middleware } from '../../platform/http/types';
+import type { FastifyReply } from 'fastify';
+import type { AppRequest, Middleware, NextFunction } from '../../platform/http/types';
 import { createHash } from 'node:crypto';
 import { sendError } from '../../platform/http/respond';
 
@@ -27,6 +28,7 @@ import { sendError } from '../../platform/http/respond';
  * Per-process and in-memory, like the rest of this app's middleware: it makes a
  * single server's retries safe. It is not a distributed transaction log.
  */
+import { headerOf } from '../../platform/http/reply';
 
 export interface IdempotencyOptions {
   /** How long a completed response stays replayable. */
@@ -56,8 +58,8 @@ const DEFAULT_TTL_MS = 10 * 60_000;
 const DEFAULT_MAX_ENTRIES = 500;
 
 /** Body hash, so the same key with different content cannot silently replay. */
-function fingerprintOf(req: HttpRequest): string {
-  const material = JSON.stringify({ path: req.originalUrl ?? req.url, body: req.body ?? null });
+function fingerprintOf(req: AppRequest): string {
+  const material = JSON.stringify({ path: req.url, body: req.body ?? null });
   return createHash('sha256').update(material).digest('hex').slice(0, 32);
 }
 
@@ -79,8 +81,8 @@ export function idempotency(options: IdempotencyOptions = {}): Middleware {
     }
   };
 
-  return (req: HttpRequest, res: HttpResponse, next: NextFunction): void => {
-    const header = req.get('Idempotency-Key');
+  return (req: AppRequest, res: FastifyReply, next: NextFunction): void => {
+    const header = headerOf(req, 'Idempotency-Key');
     const key = typeof header === 'string' ? header.trim() : '';
     // Opt-in: without a key this behaves exactly as before.
     if (!key) return next();
@@ -103,15 +105,15 @@ export function idempotency(options: IdempotencyOptions = {}): Middleware {
         return;
       }
       if (existing.kind === 'done') {
-        res.setHeader('Idempotency-Replayed', 'true');
-        res.status(existing.status).json(existing.body);
+        res.header('Idempotency-Replayed', 'true');
+        res.status(existing.status).send(existing.body);
         return;
       }
       // Still running: wait for the original rather than sending the caller
       // away to retry — retrying is exactly what this exists to prevent.
       existing.waiters.push((done) => {
-        res.setHeader('Idempotency-Replayed', 'true');
-        res.status(done.status).json(done.body);
+        res.header('Idempotency-Replayed', 'true');
+        res.status(done.status).send(done.body);
       });
       return;
     }
@@ -121,7 +123,7 @@ export function idempotency(options: IdempotencyOptions = {}): Middleware {
 
     // Capture the response so it can be replayed, without changing how any
     // handler writes it.
-    const originalJson = res.json.bind(res);
+    const originalSend = res.send.bind(res);
     let settled = false;
 
     const settle = (status: number, body: unknown) => {
@@ -139,22 +141,22 @@ export function idempotency(options: IdempotencyOptions = {}): Middleware {
       inFlight.waiters.length = 0;
     };
 
-    res.json = ((body: unknown) => {
+    res.send = ((body: unknown) => {
       settle(res.statusCode, body);
-      return originalJson(body);
-    }) as typeof res.json;
+      return originalSend(body);
+    }) as typeof res.send;
 
-    // /migration/execute streams NDJSON via write/end and never calls json().
+    // /migration/execute streams NDJSON via write/end and never calls send().
     // Without settling on a completed stream, `close` frees the key and a
     // retry with the same Idempotency-Key re-applies the DDL.
-    res.on('finish', () => {
+    res.raw.on('finish', () => {
       settle(res.statusCode || 200, { ok: true, streamed: true });
     });
 
     // A handler that throws, or a socket that closes before finish, must not
     // leave the key wedged in-flight — the next attempt would hang behind a
     // request that is never going to answer.
-    res.on('close', () => {
+    res.raw.on('close', () => {
       if (settled) return;
       settled = true;
       entries.delete(key);

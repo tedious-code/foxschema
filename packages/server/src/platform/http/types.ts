@@ -3,82 +3,58 @@
  * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
  * SPDX-License-Identifier: Apache-2.0
  *
- * The request and response shapes route handlers are written against.
+ * The routing shapes, and the fields the auth guard puts on a request.
  *
- * This is a subset: only the members the handlers in this codebase actually
- * use. Keeping it small is intentional, so adding a member is a deliberate
- * choice rather than inheriting a whole framework's surface.
- *
- * Handlers depend on these types rather than on Fastify's, which keeps the
- * server framework replaceable without editing every handler.
+ * Handlers take Fastify's own `FastifyRequest` and `FastifyReply`. There used
+ * to be a request/response interface of our own here, with an adapter object
+ * translating Fastify to it — scaffolding from removing Express, which let ~80
+ * handlers keep their Express-shaped signatures instead of being rewritten in
+ * the same change. With Express gone it only cost: it re-implemented a subset
+ * of Fastify under different names, and anything it did not expose had to be
+ * punched through it — which is how streamed responses came to drop every
+ * header, security headers included.
  */
+import type { FastifyReply, FastifyRequest } from 'fastify';
+import type { AppRole, Permission } from '@foxschema/shared';
 
-/** Loosely-typed bag; handlers narrow it themselves, as they did with Express. */
-export type ParamsBag = Record<string, string | undefined>;
-export type QueryBag = Record<string, unknown>;
-
-export interface HttpRequest {
-  readonly method: string;
-  /** Path plus query string, as received. */
-  readonly url: string;
-  readonly headers: Record<string, string | string[] | undefined>;
-  readonly params: ParamsBag;
-  readonly query: QueryBag;
-  body: unknown;
-  /** Client address, honouring the trust-proxy setting. */
-  readonly ip: string;
-  /** Path without the query string. */
-  readonly path: string;
-  /** 'http' or 'https', honouring the trust-proxy setting. */
-  readonly protocol: string;
-  /** Case-insensitive single header lookup. */
-  get(name: string): string | undefined;
-  /** The URL as received, before any mounting rewrote it. */
-  readonly originalUrl?: string;
-  /** Set by the auth hook; absent for an unauthenticated caller. */
-  userId?: string;
-}
-
-export interface CookieOptions {
-  httpOnly?: boolean;
-  secure?: boolean;
-  sameSite?: 'lax' | 'strict' | 'none';
-  path?: string;
-  maxAge?: number;
-}
-
-export interface HttpResponse {
-  status(code: number): HttpResponse;
-  json(body: unknown): unknown;
-  send(body?: unknown): unknown;
-  setHeader(name: string, value: string): void;
-  removeHeader(name: string): void;
-  cookie(name: string, value: string, options?: CookieOptions): void;
-  clearCookie(name: string, options?: CookieOptions): void;
-  redirect(location: string): void;
-  /** Streaming: NDJSON progress on long migrations writes through these. */
-  write(chunk: string): boolean;
-  end(): void;
-  readonly headersSent: boolean;
-  /** Status set so far — the idempotency guard records it when replaying. */
-  readonly statusCode: number;
-  /**
-   * Socket lifecycle. `close` fires whether the response finished or the
-   * client vanished, which is what keeps an idempotency key from wedging
-   * in-flight when a handler throws.
-   */
-  on(event: 'close' | 'finish', listener: () => void): void;
-}
+/**
+ * Fastify's request, told how loosely these handlers read the inputs.
+ *
+ * Fastify types `params`, `query` and `body` as `unknown` until a route
+ * declares a schema for them. These handlers validate by hand and narrow at
+ * the use site, which is what this instantiation says — it is Fastify's own
+ * generic, not a type of ours standing in front of it.
+ */
+export type AppRequest = FastifyRequest<{
+  Params: Record<string, string | undefined>;
+  Querystring: Record<string, unknown>;
+  Body: unknown;
+}>;
 
 export type NextFunction = (error?: unknown) => void;
 
 /** A guard: answers the request itself, or calls `next()` to continue. */
 export type Middleware = (
-  req: HttpRequest,
-  res: HttpResponse,
+  req: AppRequest,
+  res: FastifyReply,
   next: NextFunction
 ) => void | Promise<void>;
 
-export type RouteHandler = (req: HttpRequest, res: HttpResponse) => void | Promise<void>;
+export type RouteHandler = (req: AppRequest, res: FastifyReply) => void | Promise<void>;
+
+/**
+ * A request the auth guard has run on.
+ *
+ * The fields are optional because an unauthenticated caller reaches the public
+ * routes with none of them set; the RBAC guard is what turns a missing `userId`
+ * into a 401. The name is the signal — it says a handler expects to be mounted
+ * behind `authGuard`. Declared here rather than beside the guard so the
+ * platform-level guards can read these fields without importing from a feature.
+ */
+export interface AuthedRequest extends AppRequest {
+  userId?: string;
+  appRole?: AppRole;
+  permissions?: Set<Permission>;
+}
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';

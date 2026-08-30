@@ -15,39 +15,8 @@
  */
 import { ERROR_STATUS, type ApiErrorBody, type ErrorCode, type FieldError } from '@foxschema/shared';
 import { toApiError } from '../contracts/actor';
+import type { FastifyReply } from 'fastify';
 import { redactCredentials } from './redact';
-
-/**
- * The only part of a response these helpers need.
- *
- * Structural on purpose: Express's `Response` satisfies it as-is, and a Fastify
- * reply is wrapped by `replyResponder` below. Without this, moving a route to
- * Fastify would mean editing all 123 error sites a second time — the helpers
- * exist so that call sites stop caring which server is running.
- */
-export interface JsonResponder {
-  status(code: number): JsonResponder;
-  json(body: unknown): unknown;
-}
-
-/** Minimal shape of a Fastify reply, without importing fastify here. */
-interface FastifyLikeReply {
-  status(code: number): FastifyLikeReply;
-  send(body: unknown): unknown;
-}
-
-/** Adapt a Fastify reply to the responder shape. */
-export function replyResponder(reply: FastifyLikeReply): JsonResponder {
-  return {
-    status(code: number) {
-      reply.status(code);
-      return this;
-    },
-    json(body: unknown) {
-      return reply.send(body);
-    },
-  };
-}
 
 /** Extra fields a specific failure carries beyond the standard envelope. */
 export interface ErrorDetails {
@@ -66,7 +35,7 @@ export interface ErrorDetails {
 
 /** Answer with the shared error contract. The status comes from the code. */
 export function sendError(
-  res: JsonResponder,
+  res: FastifyReply,
   code: ErrorCode,
   message: string,
   details: ErrorDetails = {}
@@ -82,7 +51,7 @@ export function sendError(
     ...(details.retryAfterSec !== undefined ? { retryAfterSec: details.retryAfterSec } : {}),
     ...(details.extra ?? {}),
   };
-  res.status(ERROR_STATUS[code]).json(body);
+  void res.status(ERROR_STATUS[code]).send(body);
 }
 
 /**
@@ -94,7 +63,7 @@ export function sendError(
  * flattened into something generic.
  */
 export function sendThrown(
-  res: JsonResponder,
+  res: FastifyReply,
   error: unknown,
   fallback: string,
   details: ErrorDetails = {}

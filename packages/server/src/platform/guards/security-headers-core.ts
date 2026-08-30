@@ -5,9 +5,9 @@
  *
  * Which response headers to set, with no framework in it.
  *
- * Shared by the Express and Fastify servers so a header cannot be tightened on
- * one and forgotten on the other — the failure mode that makes a staged
- * migration dangerous rather than merely slow.
+ * Applied by the server's `onRequest` hook, which is early enough to cover
+ * 404s, rate-limit rejections and error responses — the places per-route
+ * middleware tends to miss.
  */
 
 export interface SecurityHeaderOptions {

@@ -1,10 +1,11 @@
+import type { FastifyReply } from 'fastify';
+import type { AppRequest } from '../platform/http/types';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { HttpRequest, HttpResponse } from '../platform/http/types';
 import { rateLimit } from '../platform/guards/rate-limit';
 
-/** Minimal express doubles — the limiter only touches these. */
-function reqOf(over: Partial<HttpRequest> & { userId?: string } = {}) {
-  return { ip: '1.2.3.4', ...over } as HttpRequest;
+/** Minimal request/reply doubles — the limiter only touches these. */
+function reqOf(over: Partial<AppRequest> & { userId?: string } = {}) {
+  return { ip: '1.2.3.4', ...over } as AppRequest;
 }
 function resOf() {
   const headers: Record<string, string> = {};
@@ -12,14 +13,14 @@ function resOf() {
     headers,
     statusCode: 0,
     body: null as unknown,
-    setHeader: (k: string, v: string) => { headers[k] = v; },
+    header(k: string, v: string) { headers[k] = v; return res; },
     status(code: number) { res.statusCode = code; return res; },
-    json(payload: unknown) { res.body = payload; return res; },
+    send(payload: unknown) { res.body = payload; return res; },
   };
-  return res as unknown as HttpResponse & { headers: Record<string, string>; statusCode: number; body: unknown };
+  return res as unknown as FastifyReply & { headers: Record<string, string>; statusCode: number; body: unknown };
 }
 
-const run = (mw: ReturnType<typeof rateLimit>, req: HttpRequest) => {
+const run = (mw: ReturnType<typeof rateLimit>, req: AppRequest) => {
   const res = resOf();
   const next = vi.fn();
   mw(req, res, next);

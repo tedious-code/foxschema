@@ -1,4 +1,5 @@
-import type { HttpRequest, HttpResponse, NextFunction, Middleware } from '../../platform/http/types';
+import type { FastifyReply } from 'fastify';
+import type { AuthedRequest, Middleware, NextFunction } from '../../platform/http/types';
 import {
   RateLimitCore,
   RATE_LIMIT_MESSAGE,
@@ -15,26 +16,26 @@ export interface RateLimitOptions {
 }
 
 /**
- * Express adapter over the shared limiter.
+ * A per-route guard over the shared limiter.
  *
- * The sliding-window decision lives in `policy/rate-limit-core` so the Fastify
- * server enforces the identical policy during the staged migration.
+ * The sliding-window decision lives in `rate-limit-core`, which the server's
+ * global floodgate uses too, so both enforce one policy.
  */
 export function rateLimit(options: RateLimitOptions): Middleware {
   const { windowMs, max, name = 'default' } = options;
   const message = options.message ?? RATE_LIMIT_MESSAGE;
   const core = new RateLimitCore({ windowMs, max });
 
-  return (req: HttpRequest, res: HttpResponse, next: NextFunction): void => {
-    const userId = (req as { userId?: string }).userId;
-    const decision = core.consume(rateLimitKey(name, userId, req.ip));
+  return (req: AuthedRequest, res: FastifyReply, next: NextFunction): void => {
+    // Signed-in callers get their own bucket; anonymous ones share by IP.
+    const decision = core.consume(rateLimitKey(name, req.userId, req.ip));
 
-    res.setHeader('RateLimit-Limit', String(decision.limit));
-    res.setHeader('RateLimit-Remaining', String(decision.remaining));
+    res.header('RateLimit-Limit', String(decision.limit));
+    res.header('RateLimit-Remaining', String(decision.remaining));
 
     if (!decision.allowed) {
-      res.setHeader('Retry-After', String(decision.retryAfterSec));
-      res.setHeader('RateLimit-Reset', String(decision.retryAfterSec));
+      res.header('Retry-After', String(decision.retryAfterSec));
+      res.header('RateLimit-Reset', String(decision.retryAfterSec));
       sendError(res, 'rate_limited', message);
       return;
     }

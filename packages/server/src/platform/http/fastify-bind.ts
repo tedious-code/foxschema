@@ -9,145 +9,12 @@
  * guards as its `preHandler` chain. No guard runs globally, so a rate limiter
  * on an upload path adds nothing to other routes.
  *
- * Handlers receive an adapter over Fastify's reply that implements the
- * `HttpResponse` interface in `./types`. The adapter is what lets handlers stay
- * independent of the server framework.
+ * Handlers take Fastify's own request and reply — there is no adapter between
+ * them and the framework.
  */
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import type { CookieOptions, HttpRequest, HttpResponse, Middleware } from './types';
+import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { AppRequest, Middleware } from './types';
 import type { RouteDefinition } from './router';
-
-/**
- * Build a Set-Cookie header value.
- *
- * Written by hand to match `readCookie`, which also avoids a cookie library.
- * Session cookies are a security boundary, so every flag is set explicitly.
- *
- * Note that `maxAge` is given in milliseconds (as Express accepted) and is
- * converted to the seconds Set-Cookie requires.
- */
-export function serializeCookie(name: string, value: string, options: CookieOptions = {}): string {
-  const parts = [`${name}=${encodeURIComponent(value)}`];
-  parts.push(`Path=${options.path ?? '/'}`);
-  if (options.httpOnly) parts.push('HttpOnly');
-  if (options.secure) parts.push('Secure');
-  if (options.sameSite) {
-    parts.push(`SameSite=${options.sameSite[0]!.toUpperCase()}${options.sameSite.slice(1)}`);
-  }
-  // Express takes milliseconds; Set-Cookie is seconds.
-  if (options.maxAge !== undefined) parts.push(`Max-Age=${Math.floor(options.maxAge / 1000)}`);
-  return parts.join('; ');
-}
-
-/** Adapter presenting a Fastify reply as the `HttpResponse` handlers expect. */
-export function asHttpResponse(reply: FastifyReply): HttpResponse {
-  /**
-   * Streaming has to take the socket over deliberately.
-   *
-   * Writing straight to `reply.raw` skips Fastify's header flush, so anything
-   * set through `reply.header()` — the content type, cache control and the
-   * security headers — would never reach the client.
-   *
-   * `hijack()` hands ownership of the reply to this code, and `writeHead`
-   * flushes the headers Fastify has already collected before the first chunk.
-   */
-  let streaming = false;
-  const beginStream = () => {
-    if (streaming) return;
-    streaming = true;
-    const headers = reply.getHeaders();
-    reply.hijack();
-    reply.raw.writeHead(reply.statusCode, headers as Record<string, number | string | string[]>);
-  };
-
-  const res: HttpResponse = {
-    status(code: number) {
-      void reply.status(code);
-      return res;
-    },
-    json(body: unknown) {
-      return reply.send(body);
-    },
-    send(body?: unknown) {
-      return reply.send(body);
-    },
-    setHeader(name: string, value: string) {
-      void reply.header(name, value);
-    },
-    removeHeader(name: string) {
-      void reply.removeHeader(name);
-    },
-    cookie(name: string, value: string, options?: CookieOptions) {
-      appendCookie(reply, serializeCookie(name, value, options));
-    },
-    clearCookie(name: string, options?: CookieOptions) {
-      // Expiring in the past is how a cookie is deleted; Max-Age 0 alone is
-      // ignored by some browsers when a session cookie already exists.
-      appendCookie(
-        reply,
-        `${serializeCookie(name, '', options)}; Expires=Thu, 01 Jan 1970 00:00:00 GMT`
-      );
-    },
-    redirect(location: string) {
-      void reply.redirect(location, 302);
-    },
-    write(chunk: string) {
-      beginStream();
-      return reply.raw.write(chunk);
-    },
-    end() {
-      beginStream();
-      reply.raw.end();
-    },
-    get headersSent() {
-      return reply.sent || reply.raw.headersSent;
-    },
-    get statusCode() {
-      return reply.statusCode;
-    },
-    on(event: 'close' | 'finish', listener: () => void) {
-      reply.raw.on(event, listener);
-    },
-  };
-  return res;
-}
-
-/** Multiple Set-Cookie headers have to accumulate, not overwrite. */
-function appendCookie(reply: FastifyReply, cookie: string): void {
-  const existing = reply.getHeader('set-cookie');
-  const list = Array.isArray(existing) ? existing : existing ? [String(existing)] : [];
-  void reply.header('set-cookie', [...list, cookie]);
-}
-
-/** Adapter presenting a Fastify request as the `HttpRequest` handlers expect. */
-function asHttpRequest(request: FastifyRequest): HttpRequest {
-  // The same object handlers mutate (userId, and the RBAC fields attached by
-  // the auth guard), so decorating the Fastify request is what they observe.
-  const req = request as unknown as HttpRequest & {
-    path?: string;
-    get?: (name: string) => string | undefined;
-    originalUrl?: string;
-  };
-  if (req.get === undefined) {
-    // Header names arrive lower-cased on Fastify; callers pass 'Idempotency-Key'.
-    req.get = (name: string) => {
-      const value = request.headers[name.toLowerCase()];
-      return Array.isArray(value) ? value[0] : value;
-    };
-  }
-  if (req.originalUrl === undefined) {
-    Object.defineProperty(req, 'originalUrl', { get: () => request.url, configurable: true });
-  }
-  // Fastify exposes the full URL; handlers that switch on the path want it
-  // without the query string, which is what Express's `path` gave them.
-  if (req.path === undefined) {
-    Object.defineProperty(req, 'path', {
-      get: () => request.url.split('?')[0]!,
-      configurable: true,
-    });
-  }
-  return req;
-}
 
 /**
  * Run a route's guards in order, then its handler.
@@ -158,8 +25,8 @@ function asHttpRequest(request: FastifyRequest): HttpRequest {
  */
 async function runChain(
   middlewares: Middleware[],
-  req: HttpRequest,
-  res: HttpResponse
+  req: AppRequest,
+  res: FastifyReply
 ): Promise<boolean> {
   for (const mw of middlewares) {
     let proceed = false;
@@ -181,11 +48,9 @@ export function bindRoutes(app: FastifyInstance, routes: RouteDefinition[]): voi
       method: route.method,
       url: route.path,
       handler: async (request, reply) => {
-        const req = asHttpRequest(request);
-        const res = asHttpResponse(reply);
-        const proceed = await runChain(route.middlewares, req, res);
+        const proceed = await runChain(route.middlewares, request as AppRequest, reply);
         if (!proceed) return reply;
-        await route.handler(req, res);
+        await route.handler(request as AppRequest, reply);
         return reply;
       },
     });

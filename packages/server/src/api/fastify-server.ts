@@ -63,6 +63,7 @@ import {
 import { loggerConfig } from '../platform/logger/logger';
 
 import { securityHeadersFor } from '../platform/guards/security-headers-core';
+import { pathOf } from '../platform/http/reply';
 import { RateLimitCore, RATE_LIMIT_MESSAGE, rateLimitKey } from '../platform/guards/rate-limit-core';
 
 export interface FastifyServerOptions {
@@ -177,7 +178,7 @@ export async function createFastifyApp(
   // An onRequest hook covers 404s, rate-limit rejections and error responses,
   // which is exactly where Express middleware ordering tends to leave gaps.
   app.addHook('onRequest', async (req: FastifyRequest, reply: FastifyReply) => {
-    for (const [key, value] of Object.entries(securityHeadersFor(req.url.split('?')[0], { hsts }))) {
+    for (const [key, value] of Object.entries(securityHeadersFor(pathOf(req), { hsts }))) {
       reply.header(key, value);
     }
     reply.removeHeader('x-powered-by');

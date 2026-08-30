@@ -1,5 +1,6 @@
+import type { FastifyReply } from 'fastify';
+import type { AppRequest } from '../../platform/http/types';
 import { Router } from '../../platform/http/router';
-import type { HttpRequest, HttpResponse } from '../../platform/http/types';
 import { AuthModule } from '../auth/auth.service';
 import { newToken } from '../../platform/crypto/crypto';
 import { readCookie, setSessionCookie } from '../auth/auth.routes';
@@ -10,17 +11,18 @@ const STATE_COOKIE = 'sso_state';
 const STATE_PATH = '/api/auth/sso';
 
 /** SSO (OAuth2/OIDC) routes — mounted at /api/auth/sso. */
+import { setCookie, clearCookie } from '../../platform/http/reply';
 export function createSsoRoutes(auth: AuthModule): Router {
   const router = Router();
   const secure = process.env.NODE_ENV === 'production';
 
   // Which providers are configured (drives which buttons the login shows).
-  router.get('/providers', (_req: HttpRequest, res: HttpResponse) => {
-    res.json({ providers: configuredProviders().map((p) => ({ id: p.id, label: p.label })) });
+  router.get('/providers', (_req: AppRequest, res: FastifyReply) => {
+    res.send({ providers: configuredProviders().map((p) => ({ id: p.id, label: p.label })) });
   });
 
   // Begin the flow: set a CSRF state cookie and redirect to the provider.
-  router.get('/:provider/start', (req: HttpRequest, res: HttpResponse) => {
+  router.get('/:provider/start', (req: AppRequest, res: FastifyReply) => {
     const provider = getProvider(String(req.params.provider));
     if (!provider) {
       // Plain text here would be the one error in the API a client cannot
@@ -30,7 +32,7 @@ export function createSsoRoutes(auth: AuthModule): Router {
       return;
     }
     const state = newToken();
-    res.cookie(STATE_COOKIE, state, {
+    setCookie(res, STATE_COOKIE, state, {
       httpOnly: true,
       sameSite: 'lax',
       secure,
@@ -41,7 +43,7 @@ export function createSsoRoutes(auth: AuthModule): Router {
   });
 
   // Provider redirects back here with ?code&state.
-  router.get('/:provider/callback', async (req: HttpRequest, res: HttpResponse) => {
+  router.get('/:provider/callback', async (req: AppRequest, res: FastifyReply) => {
     try {
       const provider = getProvider(String(req.params.provider));
       if (!provider) throw new Error('Unknown SSO provider');
@@ -50,7 +52,7 @@ export function createSsoRoutes(auth: AuthModule): Router {
       const state = typeof req.query.state === 'string' ? req.query.state : '';
       const expected = readCookie(req, STATE_COOKIE);
       if (!code || !state || !expected || state !== expected) throw new Error('Invalid or expired SSO state');
-      res.clearCookie(STATE_COOKIE, { path: STATE_PATH });
+      clearCookie(res, STATE_COOKIE, { path: STATE_PATH });
 
       const email = await fetchVerifiedEmail(provider, code, redirectUri(req, provider.id));
       const { token } = await auth.loginWithEmail(email);

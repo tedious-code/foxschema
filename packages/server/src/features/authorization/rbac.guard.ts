@@ -5,7 +5,8 @@
  *
  * Permission guards for Express routes.
  */
-import type { HttpResponse, NextFunction } from '../../platform/http/types';
+import type { FastifyReply } from 'fastify';
+import type { AppRequest, NextFunction } from '../../platform/http/types';
 import { permissionSatisfied } from '@foxschema/shared';
 import type { Permission } from '@foxschema/shared';
 import type { AuthedRequest } from '../auth/auth.routes';
@@ -13,7 +14,7 @@ import { sendError } from '../../platform/http/respond';
 
 /** After a session is resolved, reject when any required permission is missing. */
 export function requirePermissions(...required: Permission[]) {
-  return (req: AuthedRequest, res: HttpResponse, next: NextFunction): void => {
+  return (req: AuthedRequest, res: FastifyReply, next: NextFunction): void => {
     if (denyUnless(req, res, ...required)) return;
     next();
   };
@@ -22,7 +23,7 @@ export function requirePermissions(...required: Permission[]) {
 /** Returns true when the response was already sent (denied). */
 export function denyUnless(
   req: AuthedRequest,
-  res: HttpResponse,
+  res: FastifyReply,
   ...required: Permission[]
 ): boolean {
   if (!req.userId) {

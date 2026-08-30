@@ -1,10 +1,11 @@
 /**
  * Flat-file import → temp SQLite workspace and/or saved credential (any dialect).
  */
+import type { FastifyReply } from 'fastify';
+import type { AppRequest } from '../../platform/http/types';
 import { createRequire } from 'node:module';
 import { existsSync } from 'node:fs';
 import { Router } from '../../platform/http/router';
-import type { HttpRequest, HttpResponse } from '../../platform/http/types';
 import type { AuthedRequest } from '../auth/auth.routes';
 import { denyUnless, requirePermissions } from '../authorization/rbac.guard';
 import { capacityMessage, importCapacity } from '../import-process/import-capacity';
@@ -198,11 +199,11 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
   router.get(
     '/imports',
     requirePermissions('editor.access'),
-    async (req: HttpRequest, res: HttpResponse) => {
+    async (req: AppRequest, res: FastifyReply) => {
       try {
         const userId = (req as AuthedRequest).userId!;
         const imports = await listFileImportConnections(connectionStore, userId);
-        res.json({ imports });
+        res.send({ imports });
       } catch (error: unknown) {
         sendThrown(res, error, 'List failed');
       }
@@ -214,9 +215,9 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
    * What this server can actually take, so the UI can warn before a long
    * upload rather than after. Measured from live heap, not a constant.
    */
-  router.get('/capacity', requirePermissions('editor.access'), (_req: HttpRequest, res: HttpResponse) => {
+  router.get('/capacity', requirePermissions('editor.access'), (_req: AppRequest, res: FastifyReply) => {
     const cap = importCapacity();
-    res.json({
+    res.send({
       maxBytes: uploadLimitBytes(),
       limitedBy: cap.limitedBy,
       heapLimitBytes: cap.heapLimitBytes,
@@ -232,7 +233,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
   router.post(
     '/detect-columns',
     requirePermissions('editor.access'),
-    (req: HttpRequest, res: HttpResponse) => {
+    (req: AppRequest, res: FastifyReply) => {
       const body = req.body as {
         sample?: unknown;
         mode?: unknown;
@@ -273,7 +274,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
                 minGap: Number(body.minGap) || 1,
                 headerLine,
               });
-        res.json({ columns, sampledLines: sampleLines.length });
+        res.send({ columns, sampledLines: sampleLines.length });
       } catch (error: unknown) {
         sendError(res, 'invalid_input', error instanceof Error ? error.message : 'Detection failed');
       }
@@ -291,7 +292,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
     '/import',
     importLimiter,
     requirePermissions('editor.access'),
-    async (req: HttpRequest, res: HttpResponse) => {
+    async (req: AppRequest, res: FastifyReply) => {
       try {
         const userId = (req as AuthedRequest).userId!;
         const parsed = parseImportBody(req.body as Record<string, unknown>);
@@ -300,7 +301,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
           return;
         }
         const result = await runImport(connectionStore, userId, parsed);
-        res.json(result);
+        res.send(result);
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : 'Import failed';
         sendError(res, 'invalid_input', message);
@@ -313,7 +314,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
     '/sessions',
     importLimiter,
     requirePermissions('editor.access'),
-    async (req: HttpRequest, res: HttpResponse) => {
+    async (req: AppRequest, res: FastifyReply) => {
       try {
         const userId = (req as AuthedRequest).userId!;
         const body = req.body as Record<string, unknown>;
@@ -344,7 +345,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
             : undefined,
           replaceTable: body.replaceTable === true,
         });
-        res.json({
+        res.send({
           ok: true,
           sessionId: session.id,
           maxBytes: MAX_UPLOAD_BYTES,
@@ -361,7 +362,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
     '/sessions/:id/chunk',
     importLimiter,
     requirePermissions('editor.access'),
-    async (req: HttpRequest, res: HttpResponse) => {
+    async (req: AppRequest, res: FastifyReply) => {
       try {
         const userId = (req as AuthedRequest).userId!;
         const id = String(req.params.id || '');
@@ -375,7 +376,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
             ? Buffer.from(body.data, 'base64')
             : Buffer.from(body.data, 'utf8');
         const session = appendUploadChunk(userId, id, buf);
-        res.json({ ok: true, bytes: session.bytes, maxBytes: MAX_UPLOAD_BYTES });
+        res.send({ ok: true, bytes: session.bytes, maxBytes: MAX_UPLOAD_BYTES });
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : 'Chunk failed';
         sendError(res, 'invalid_input', message);
@@ -388,7 +389,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
     '/sessions/:id/commit',
     importLimiter,
     requirePermissions('editor.access'),
-    async (req: HttpRequest, res: HttpResponse) => {
+    async (req: AppRequest, res: FastifyReply) => {
       try {
         const userId = (req as AuthedRequest).userId!;
         const id = String(req.params.id || '');
@@ -416,7 +417,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
           maxChars: MAX_UPLOAD_BYTES,
         });
         completeUploadSession(userId, id);
-        res.json(result);
+        res.send(result);
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : 'Commit failed';
         sendError(res, 'invalid_input', message);
@@ -428,10 +429,10 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
     '/sessions/:id',
     importLimiter,
     requirePermissions('editor.access'),
-    async (req: HttpRequest, res: HttpResponse) => {
+    async (req: AppRequest, res: FastifyReply) => {
       const userId = (req as AuthedRequest).userId!;
       const ok = abortUploadSession(userId, String(req.params.id || ''));
-      res.json({ ok });
+      res.send({ ok });
     }
   );
 
@@ -439,7 +440,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
     '/imports/:id',
     importLimiter,
     requirePermissions('editor.access'),
-    async (req: HttpRequest, res: HttpResponse) => {
+    async (req: AppRequest, res: FastifyReply) => {
       try {
         const userId = (req as AuthedRequest).userId!;
         const id = String(req.params.id || '');
@@ -461,7 +462,7 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
           return;
         }
         const removedFile = dbPath ? removeFileQueryDb(dbPath) : false;
-        res.json({ ok: true, removedConnectionIds: [id], removedFiles: removedFile ? 1 : 0 });
+        res.send({ ok: true, removedConnectionIds: [id], removedFiles: removedFile ? 1 : 0 });
       } catch (error: unknown) {
         sendThrown(res, error, 'Delete failed');
       }
@@ -472,11 +473,11 @@ export function createFileQueryRoutes(connectionStore: ConnectionStore): Router 
     '/imports',
     importLimiter,
     requirePermissions('editor.access'),
-    async (req: HttpRequest, res: HttpResponse) => {
+    async (req: AppRequest, res: FastifyReply) => {
       try {
         const userId = (req as AuthedRequest).userId!;
         const cleared = await clearPreviousFileImports(connectionStore, userId);
-        res.json({
+        res.send({
           ok: true,
           removedConnectionIds: cleared.removedConnectionIds,
           removedFiles: cleared.removedFiles,

@@ -5,8 +5,9 @@
  *
  * Schema browse routes. Extracted verbatim from api/routes.ts.
  */
+import type { FastifyReply } from 'fastify';
+import type { AppRequest } from '../../platform/http/types';
 import { Router } from '../../platform/http/router';
-import type { HttpRequest, HttpResponse } from '../../platform/http/types';
 import { requirePermissions } from '../authorization/rbac.guard';
 import type { AuthedRequest } from '../auth/auth.routes';
 import type { ConnectionRef } from '../../platform/db/resolve';
@@ -21,7 +22,7 @@ export interface SchemaRouteDeps {
 
 export function createSchemaRoutes(deps: SchemaRouteDeps): Router {
   const router = Router();
-  router.post('/schema/list', requirePermissions('schema.browse'), async (req: HttpRequest, res: HttpResponse) => {
+  router.post('/schema/list', requirePermissions('schema.browse'), async (req: AppRequest, res: FastifyReply) => {
     try {
       const { dialect, option } = await deps.resolveRef((req as AuthedRequest).userId, req.body as ConnectionRef);
       const provider = deps.connectionModule.getProvider(dialect);
@@ -29,13 +30,13 @@ export function createSchemaRoutes(deps: SchemaRouteDeps): Router {
         throw new Error(`Provider for dialect "${dialect}" does not support schema listing`);
       }
       const schemas = await provider.listSchemas(option);
-      res.json({ schemas });
+      res.send({ schemas });
     } catch (error: unknown) {
       sendThrown(res, error, 'Failed to list schemas');
     }
   });
 
-  router.post('/schema/load', requirePermissions('schema.browse'), async (req: HttpRequest, res: HttpResponse) => {
+  router.post('/schema/load', requirePermissions('schema.browse'), async (req: AppRequest, res: FastifyReply) => {
     const { scope, ...ref } = req.body as ConnectionRef & { scope: DbObjectType[] };
     try {
       const { dialect, option, schema } = await deps.resolveRef((req as AuthedRequest).userId, ref);
@@ -45,7 +46,7 @@ export function createSchemaRoutes(deps: SchemaRouteDeps): Router {
         return;
       }
       const { tables, warnings } = await deps.loadScopedTables(dialect, option, schema, scope);
-      res.json(warnings.length ? { tables, warnings } : { tables });
+      res.send(warnings.length ? { tables, warnings } : { tables });
     } catch (error: unknown) {
       sendThrown(res, error, 'Failed to load schema');
     }

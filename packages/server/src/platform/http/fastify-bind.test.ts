@@ -3,65 +3,19 @@
  * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
  * SPDX-License-Identifier: Apache-2.0
  *
- * Tests for cookie serialisation and streaming responses.
+ * Tests for streaming responses through a bound route.
  *
- * Cookies: session cookies are a security boundary. A missing `HttpOnly` makes
- * the cookie readable by page scripts, and a missing `SameSite` weakens CSRF
- * protection, so each flag is asserted. `maxAge` is given in milliseconds and
- * must be emitted as seconds.
- *
- * Streaming: headers set before the first write must still reach the client,
- * including the security headers added by the server's onRequest hook.
+ * Headers set before the first write must still reach the client, including
+ * the security headers added by the server's onRequest hook — writing to the
+ * raw socket bypasses Fastify's header flush, so this is the regression the
+ * stream helpers exist to prevent.
  */
 import { describe, it, expect, afterEach } from 'vitest';
-import Fastify, { type FastifyInstance } from 'fastify';
-import { serializeCookie, bindRoutes } from './fastify-bind';
+import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
+import { bindRoutes } from './fastify-bind';
 import { Router } from './router';
-import type { HttpRequest, HttpResponse } from './types';
-
-describe('serializeCookie', () => {
-  it('defaults to a root path', () => {
-    expect(serializeCookie('fox_session', 'abc')).toBe('fox_session=abc; Path=/');
-  });
-
-  it('carries the security flags it is given', () => {
-    const cookie = serializeCookie('fox_session', 'abc', {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'lax',
-      path: '/api',
-    });
-    expect(cookie).toContain('Path=/api');
-    expect(cookie).toContain('HttpOnly');
-    expect(cookie).toContain('Secure');
-    expect(cookie).toContain('SameSite=Lax');
-  });
-
-  it('omits flags that were not asked for', () => {
-    // Emitting HttpOnly unasked would break a cookie the frontend reads.
-    const cookie = serializeCookie('visible', 'v');
-    expect(cookie).not.toContain('HttpOnly');
-    expect(cookie).not.toContain('Secure');
-    expect(cookie).not.toContain('SameSite');
-  });
-
-  it('converts maxAge from milliseconds to seconds', () => {
-    // The SSO state cookie asks for 10 minutes the way Express expressed it.
-    expect(serializeCookie('sso_state', 's', { maxAge: 10 * 60 * 1000 })).toContain('Max-Age=600');
-  });
-
-  it('encodes a value that would otherwise break the header', () => {
-    // A raw ';' would end the cookie and turn the rest into forged attributes.
-    const cookie = serializeCookie('token', 'a;b c=d');
-    expect(cookie).toContain('token=a%3Bb%20c%3Dd');
-    expect(cookie.split(';')[0]).toBe('token=a%3Bb%20c%3Dd');
-  });
-
-  it('capitalises SameSite values the way browsers expect', () => {
-    expect(serializeCookie('c', 'v', { sameSite: 'strict' })).toContain('SameSite=Strict');
-    expect(serializeCookie('c', 'v', { sameSite: 'none' })).toContain('SameSite=None');
-  });
-});
+import { streamEnd, streamWrite } from './reply';
+import type { AppRequest } from './types';
 
 describe('streaming responses', () => {
   let app: FastifyInstance | undefined;
@@ -71,7 +25,7 @@ describe('streaming responses', () => {
   });
 
   /** Start a server whose one route streams, with headers set beforehand. */
-  async function streamingServer(handler: (req: HttpRequest, res: HttpResponse) => void) {
+  async function streamingServer(handler: (req: AppRequest, res: FastifyReply) => void) {
     const router = Router();
     router.get('/stream', handler);
     app = Fastify();
@@ -91,11 +45,11 @@ describe('streaming responses', () => {
     // drop everything set via reply.header(), including the security headers.
     // The response body would still parse, so this is checked explicitly.
     const url = await streamingServer((_req, res) => {
-      res.setHeader('Content-Type', 'application/x-ndjson');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.write(JSON.stringify({ type: 'start' }) + '\n');
-      res.write(JSON.stringify({ type: 'done' }) + '\n');
-      res.end();
+      res.header('Content-Type', 'application/x-ndjson');
+      res.header('Cache-Control', 'no-cache');
+      streamWrite(res, JSON.stringify({ type: 'start' }) + '\n');
+      streamWrite(res, JSON.stringify({ type: 'done' }) + '\n');
+      streamEnd(res);
     });
 
     const res = await fetch(url);
@@ -109,11 +63,11 @@ describe('streaming responses', () => {
 
   it('delivers every chunk in order', async () => {
     const url = await streamingServer((_req, res) => {
-      res.setHeader('Content-Type', 'application/x-ndjson');
+      res.header('Content-Type', 'application/x-ndjson');
       for (const type of ['snapshot', 'start', 'object', 'done']) {
-        res.write(JSON.stringify({ type }) + '\n');
+        streamWrite(res, JSON.stringify({ type }) + '\n');
       }
-      res.end();
+      streamEnd(res);
     });
 
     const lines = (await (await fetch(url)).text()).trim().split('\n');
@@ -123,9 +77,22 @@ describe('streaming responses', () => {
   it('honours a status set before streaming begins', async () => {
     const url = await streamingServer((_req, res) => {
       res.status(207);
-      res.write('partial\n');
-      res.end();
+      streamWrite(res, 'partial\n');
+      streamEnd(res);
     });
     expect((await fetch(url)).status).toBe(207);
+  });
+
+  it('ends cleanly when a handler ends without writing', async () => {
+    // streamEnd takes the socket over on its own, so an empty stream still
+    // flushes the headers rather than hanging until the client times out.
+    const url = await streamingServer((_req, res) => {
+      res.header('Content-Type', 'application/x-ndjson');
+      streamEnd(res);
+    });
+    const res = await fetch(url);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
   });
 });

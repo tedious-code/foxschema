@@ -9,8 +9,9 @@
  * this move cannot alter behaviour. Splitting them into handler/controller
  * layers is a separate step, deliberately not mixed with the extraction.
  */
+import type { FastifyReply } from 'fastify';
+import type { AppRequest } from '../../platform/http/types';
 import { Router } from '../../platform/http/router';
-import type { HttpRequest, HttpResponse } from '../../platform/http/types';
 import type { ConnectionModule } from '@foxschema/db';
 import { requirePermissions } from '../authorization/rbac.guard';
 import { rateLimit } from '../../platform/guards/rate-limit';
@@ -45,7 +46,7 @@ export function createAccessRoutes(deps: AccessRouteDeps): Router {
     '/schema/index-fragmentation',
     indexFragLimiter,
     requirePermissions('utility.access'),
-    async (req: HttpRequest, res: HttpResponse) => {
+    async (req: AppRequest, res: FastifyReply) => {
     const body = req.body as ConnectionRef & {
       table?: unknown;
       schema?: unknown;
@@ -73,10 +74,10 @@ export function createAccessRoutes(deps: AccessRouteDeps): Router {
       });
       if (!probed.ok) {
         const { status, ...rest } = probed.failure;
-        res.status(status).json(rest);
+        res.status(status).send(rest);
         return;
       }
-      res.json(probed.value);
+      res.send(probed.value);
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : 'Failed to load index fragmentation';
@@ -88,7 +89,7 @@ export function createAccessRoutes(deps: AccessRouteDeps): Router {
     '/schema/index-fragmentation-batch',
     indexFragBatchLimiter,
     requirePermissions('utility.access'),
-    async (req: HttpRequest, res: HttpResponse) => {
+    async (req: AppRequest, res: FastifyReply) => {
       const body = req.body as ConnectionRef & {
         tables?: unknown;
         schema?: unknown;
@@ -138,7 +139,7 @@ export function createAccessRoutes(deps: AccessRouteDeps): Router {
             warning: probed.value.warning,
           };
         });
-        res.json({
+        res.send({
           support,
           dialect: resolved.dialect,
           schema,
@@ -161,7 +162,7 @@ export function createAccessRoutes(deps: AccessRouteDeps): Router {
     '/schema/dba-utility',
     dbaUtilityLimiter,
     requirePermissions('utility.access'),
-    async (req: HttpRequest, res: HttpResponse) => {
+    async (req: AppRequest, res: FastifyReply) => {
     const body = req.body as ConnectionRef & {
       kind?: unknown;
       schema?: unknown;
@@ -185,10 +186,10 @@ export function createAccessRoutes(deps: AccessRouteDeps): Router {
       });
       if (!probed.ok) {
         const { status, ...rest } = probed.failure;
-        res.status(status).json(rest);
+        res.status(status).send(rest);
         return;
       }
-      res.json({ ...probed.value, dialect: resolved.dialect, schema });
+      res.send({ ...probed.value, dialect: resolved.dialect, schema });
     } catch (error: unknown) {
       sendThrown(res, error, 'Failed to run DBA utility');
     }
@@ -198,7 +199,7 @@ export function createAccessRoutes(deps: AccessRouteDeps): Router {
     '/schema/db-access',
     dbAccessLimiter,
     requirePermissions('utility.access'),
-    async (req: HttpRequest, res: HttpResponse) => {
+    async (req: AppRequest, res: FastifyReply) => {
       const body = req.body as ConnectionRef & { schema?: unknown };
       try {
         const resolved = await deps.resolveRef((req as AuthedRequest).userId, body);
@@ -211,10 +212,10 @@ export function createAccessRoutes(deps: AccessRouteDeps): Router {
         });
         if (!probed.ok) {
           const { status, ...rest } = probed.failure;
-          res.status(status).json(rest);
+          res.status(status).send(rest);
           return;
         }
-        res.json(probed.value);
+        res.send(probed.value);
       } catch (error: unknown) {
         sendThrown(res, error, 'Failed to load database users and privileges');
       }

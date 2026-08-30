@@ -1,30 +1,38 @@
+import type { FastifyReply } from 'fastify';
+import type { AppRequest } from '../platform/http/types';
 import { describe, it, expect, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
-import type { HttpRequest, HttpResponse } from '../platform/http/types';
 import { idempotency } from '../platform/guards/idempotency';
 
-function reqOf(key: string | undefined, body: unknown, url = '/sql/execute'): HttpRequest {
+function reqOf(key: string | undefined, body: unknown, url = '/sql/execute'): AppRequest {
   return {
-    originalUrl: url,
     url,
     body,
-    get: (h: string) => (h.toLowerCase() === 'idempotency-key' ? key : undefined),
-  } as unknown as HttpRequest;
+    headers: key === undefined ? {} : { 'idempotency-key': key },
+  } as unknown as AppRequest;
 }
 
+/**
+ * A reply stand-in.
+ *
+ * `raw` is the emitter, because the guard settles on the raw socket's `finish`
+ * and `close` — a streamed response never calls `send`, and that is the case
+ * that wedges a key if it is missed.
+ */
 function resOf() {
-  const emitter = new EventEmitter();
-  const res = Object.assign(emitter, {
+  const raw = new EventEmitter();
+  const res = {
+    raw,
     statusCode: 200,
     headers: {} as Record<string, string>,
     sent: undefined as unknown,
-    setHeader(k: string, v: string) { res.headers[k] = v; },
+    header(k: string, v: string) { res.headers[k] = v; return res; },
     status(code: number) { res.statusCode = code; return res; },
-    json(payload: unknown) { res.sent = payload; return res; },
-  });
-  return res as unknown as HttpResponse & {
+    send(payload: unknown) { res.sent = payload; return res; },
+  };
+  return res as unknown as FastifyReply & {
     statusCode: number; headers: Record<string, string>; sent: unknown;
-    emit(e: string): boolean;
+    raw: EventEmitter;
   };
 }
 
@@ -43,7 +51,7 @@ describe('idempotency', () => {
     const body = { statements: ['DROP TABLE t'] };
 
     const first = resOf();
-    const next1 = vi.fn(() => { first.status(200).json({ ok: true, ran: 1 }); });
+    const next1 = vi.fn(() => { first.status(200).send({ ok: true, ran: 1 }); });
     mw(reqOf('k1', body), first, next1);
     expect(next1).toHaveBeenCalledTimes(1);
 
@@ -59,7 +67,7 @@ describe('idempotency', () => {
   it('preserves the original status code on replay', () => {
     const mw = idempotency();
     const first = resOf();
-    mw(reqOf('k', { a: 1 }), first, () => { first.status(207).json({ partial: true }); });
+    mw(reqOf('k', { a: 1 }), first, () => { first.status(207).send({ partial: true }); });
     const second = resOf();
     mw(reqOf('k', { a: 1 }), second, vi.fn());
     expect(second.statusCode).toBe(207);
@@ -74,7 +82,7 @@ describe('idempotency', () => {
     const first = resOf();
     let finish!: () => void;
     mw(reqOf('k', body), first, () => {
-      finish = () => first.status(200).json({ ok: true });
+      finish = () => first.status(200).send({ ok: true });
     });
 
     const second = resOf();
@@ -95,7 +103,7 @@ describe('idempotency', () => {
     const mw = idempotency();
     const first = resOf();
     mw(reqOf('same-key', { statements: ['SELECT 1'] }), first, () => {
-      first.status(200).json({ ok: true });
+      first.status(200).send({ ok: true });
     });
 
     const second = resOf();
@@ -108,7 +116,7 @@ describe('idempotency', () => {
   it('treats the same key on a different route as a different request', () => {
     const mw = idempotency();
     const first = resOf();
-    mw(reqOf('k', { a: 1 }, '/sql/execute'), first, () => { first.status(200).json({ a: true }); });
+    mw(reqOf('k', { a: 1 }, '/sql/execute'), first, () => { first.status(200).send({ a: true }); });
     const second = resOf();
     mw(reqOf('k', { a: 1 }, '/migration/apply'), second, vi.fn());
     expect(second.statusCode).toBe(422);
@@ -119,7 +127,7 @@ describe('idempotency', () => {
     const mw = idempotency();
     const first = resOf();
     mw(reqOf('k', { a: 1 }), first, vi.fn());
-    first.emit('close');
+    first.raw.emit('close');
     await tick();
 
     const retry = resOf();
@@ -137,8 +145,8 @@ describe('idempotency', () => {
     const first = resOf();
     const next1 = vi.fn(() => {
       first.statusCode = 200;
-      first.emit('finish');
-      first.emit('close');
+      first.raw.emit('finish');
+      first.raw.emit('close');
     });
     mw(reqOf('mig', body, '/migration/execute'), first, next1);
     expect(next1).toHaveBeenCalledTimes(1);
@@ -161,7 +169,7 @@ describe('idempotency', () => {
     mw(reqOf('k', { a: 1 }), waiter, vi.fn());
     expect(waiter.sent).toBeUndefined();
 
-    first.emit('close');
+    first.raw.emit('close');
     await tick();
     // A waiter left hanging forever would be worse than an error.
     expect(waiter.statusCode).toBe(500);
@@ -172,7 +180,7 @@ describe('idempotency', () => {
     try {
       const mw = idempotency({ ttlMs: 1000 });
       const first = resOf();
-      mw(reqOf('k', { a: 1 }), first, () => { first.status(200).json({ ok: true }); });
+      mw(reqOf('k', { a: 1 }), first, () => { first.status(200).send({ ok: true }); });
 
       vi.advanceTimersByTime(1001);
       const later = resOf();

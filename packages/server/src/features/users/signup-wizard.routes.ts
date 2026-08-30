@@ -6,8 +6,9 @@
  * Public first-open email subscriber wizard (no login required).
  * Mounted before authGuard so it still appears when AUTH_REQUIRED=true.
  */
+import type { FastifyReply } from 'fastify';
+import type { AppRequest } from '../../platform/http/types';
 import { Router } from '../../platform/http/router';
-import type { HttpRequest, HttpResponse } from '../../platform/http/types';
 import { AppSettingsStore } from '../admin/app-settings.service';
 import { SignupModule } from './signup-wizard.service';
 import { rateLimit } from '../../platform/guards/rate-limit';
@@ -21,23 +22,23 @@ export function createSignupRoutes(
   // Cap per IP: legit use is one or two calls (submit / retry / skip).
   const signupLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10 });
 
-  router.get('/state', async (_req: HttpRequest, res: HttpResponse) => {
-    res.json(await signupModule.getState());
+  router.get('/state', async (_req: AppRequest, res: FastifyReply) => {
+    res.send(await signupModule.getState());
   });
 
-  router.post('/', signupLimiter, async (req: HttpRequest, res: HttpResponse) => {
+  router.post('/', signupLimiter, async (req: AppRequest, res: FastifyReply) => {
     const { email, source } = req.body as { email?: string; source?: string };
     if (!email) {
       sendError(res, 'invalid_input', 'Email is required.');
       return;
     }
     const src = source === 'cli' ? 'cli' : 'web';
-    res.json(await signupModule.submit(email, src));
+    res.send(await signupModule.submit(email, src));
   });
 
-  router.post('/skip', signupLimiter, async (_req: HttpRequest, res: HttpResponse) => {
+  router.post('/skip', signupLimiter, async (_req: AppRequest, res: FastifyReply) => {
     await signupModule.skip();
-    res.json({ ok: true });
+    res.send({ ok: true });
   });
 
   return router;
