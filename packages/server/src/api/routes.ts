@@ -1,5 +1,6 @@
+import type { FastifyReply } from 'fastify';
+import type { AppRequest } from '../platform/http/types';
 import { Router } from '../platform/http/router';
-import type { HttpRequest, HttpResponse } from '../platform/http/types';
 import {
   ConnectionModule,
   CompareModule,
@@ -73,7 +74,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   const compareService = makeCompareService({ resolver, compareModule });
 
   /** Express request → the transport-free ActorContext services are written against. */
-  const actorOf = (req: HttpRequest): ActorContext => {
+  const actorOf = (req: AppRequest): ActorContext => {
     const authed = req as AuthedRequest;
     return {
       userId: authed.userId,
@@ -138,13 +139,13 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   // already includes `version` for stale-process detection — do not re-add here.
 
   // In-app update check — compares the running version against npm (default).
-  router.get('/updates/check', async (_req: HttpRequest, res: HttpResponse) => {
-    res.json(await checkForUpdate());
+  router.get('/updates/check', async (_req: AppRequest, res: FastifyReply) => {
+    res.send(await checkForUpdate());
   });
 
   // One-click self-update for local npm CLI installs (`foxschema open`).
   // Runs `npm install -g foxschema@latest`, then relaunches the UI server.
-  router.post('/updates/apply', async (_req: HttpRequest, res: HttpResponse) => {
+  router.post('/updates/apply', async (_req: AppRequest, res: FastifyReply) => {
     if (!canSelfUpdate()) {
       sendError(
         res,
@@ -157,11 +158,11 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     }
     const result = await applyNpmGlobalUpdate();
     if (!result.ok) {
-      res.status(500).json(result);
+      res.status(500).send(result);
       return;
     }
     clearUpdateCache();
-    res.json(result);
+    res.send(result);
     // Respond first, then exit + relaunch so the client can start polling.
     scheduleUiRelaunch();
   });
@@ -172,7 +173,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   // Non-secret info about where the app's metadata DB lives and how the
   // credential-encryption key is bound — for the "Database & Security" settings
   // section. Never exposes the key itself.
-  router.get('/app-info', async (_req: HttpRequest, res: HttpResponse) => {
+  router.get('/app-info', async (_req: AppRequest, res: FastifyReply) => {
     const cfg = getMetadataDbConfig();
     const key = keySchemeInfo();
     // Persist a durable record of the active config (useful for later tooling).
@@ -184,7 +185,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     } catch {
       /* best-effort; never block the response */
     }
-    res.json({
+    res.send({
       version: resolveAppVersion(),
       features: { fileQuery: true },
       db: { engine: cfg.engine, location: cfg.engine === 'sqlite' ? cfg.path ?? '(default)' : cfg.url ?? '' },
@@ -196,7 +197,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   // Opens a throwaway connection (no migrations, no effect on the live store).
   // Restricted to the local/community edition — on multi-user web the metadata
   // DB is ops-managed, and a connection probe would be an SSRF vector.
-  router.post('/db/test', async (req: HttpRequest, res: HttpResponse) => {
+  router.post('/db/test', async (req: AppRequest, res: FastifyReply) => {
     // The restriction above was documented but never implemented. On a
     // multi-user deployment this handler dials any host:port the caller names
     // and reports, through the error text, whether something answered — an
@@ -219,9 +220,9 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     try {
       store = createMetadataStore({ engine: engine as DbEngine, url, path });
       await store.init();
-      res.json({ ok: true });
+      res.send({ ok: true });
     } catch (error: unknown) {
-      res.json({ ok: false, error: error instanceof Error ? error.message : 'Connection failed' });
+      res.send({ ok: false, error: error instanceof Error ? error.message : 'Connection failed' });
     } finally {
       try {
         await store?.close();
@@ -231,18 +232,18 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     }
   });
 
-  router.get('/driver/check', (req: HttpRequest, res: HttpResponse) => {
+  router.get('/driver/check', (req: AppRequest, res: FastifyReply) => {
     const dialect = String(req.query.dialect ?? '');
     try {
       const driver = connectionModule.checkDriver(dialect);
-      res.json(driver);
+      res.send(driver);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Invalid dialect';
       sendError(res, 'invalid_input', message);
     }
   });
 
-  router.post('/driver/install', async (req: HttpRequest, res: HttpResponse) => {
+  router.post('/driver/install', async (req: AppRequest, res: FastifyReply) => {
     const { dialect } = (req.body ?? {}) as { dialect?: unknown };
     // Without this, a missing dialect reached DriverDetector and came back as a
     // 500 — the caller's malformed request reported as a server fault.
@@ -299,7 +300,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
         return;
       }
 
-      res.json({
+      res.send({
         success: true,
         stdout: result.stdout,
         cwd: result.cwd,
@@ -310,11 +311,11 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     }
   });
 
-  router.post('/connection/test', async (req: HttpRequest, res: HttpResponse) => {
+  router.post('/connection/test', async (req: AppRequest, res: FastifyReply) => {
     try {
       const { dialect, option } = await resolveRef((req as AuthedRequest).userId, req.body as ConnectionRef);
       const { success, version } = await connectionModule.testConnection(dialect, option);
-      res.json({ success, version, error: success ? undefined : 'Connection test returned false' });
+      res.send({ success, version, error: success ? undefined : 'Connection test returned false' });
     } catch (error: unknown) {
       sendThrown(res, error, 'Connection failed', { extra: { success: false } });
     }
@@ -372,9 +373,9 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
    * What long-running work is in flight, for the UI's activity indicator.
    * Cheap and read-only — safe to poll.
    */
-  router.get('/activity', (_req: HttpRequest, res: HttpResponse) => {
+  router.get('/activity', (_req: AppRequest, res: FastifyReply) => {
     const running = targetLocks.active();
-    res.json({
+    res.send({
       count: running.length,
       tasks: running.map((t) => ({
         operation: t.operation,
@@ -413,10 +414,10 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
     '/files/browse',
     fileBrowseLimiter,
     requirePermissions('schema.browse'),
-    async (req: HttpRequest, res: HttpResponse) => {
+    async (req: AppRequest, res: FastifyReply) => {
       const requested = typeof req.query.path === 'string' ? req.query.path : undefined;
       try {
-        res.json(await browseDirectory(requested));
+        res.send(await browseDirectory(requested));
       } catch (error: unknown) {
         // The path is echoed back resolved, so the message names the directory
         // the server actually tried rather than the raw query string.

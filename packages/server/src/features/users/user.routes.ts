@@ -1,5 +1,6 @@
+import type { FastifyReply } from 'fastify';
+import type { AppRequest } from '../../platform/http/types';
 import { Router } from '../../platform/http/router';
-import type { HttpResponse } from '../../platform/http/types';
 import { UserModule, UserPreferences } from './user.service';
 import { AuthedRequest } from '../auth/auth.routes';
 
@@ -7,13 +8,13 @@ import { AuthedRequest } from '../auth/auth.routes';
 export function createUserRoutes(user: UserModule): Router {
   const router = Router();
 
-  router.get('/preferences', async (req: AuthedRequest, res: HttpResponse) => {
-    res.json({ preferences: await user.getPreferences(req.userId!) });
+  router.get('/preferences', async (req: AuthedRequest, res: FastifyReply) => {
+    res.send({ preferences: await user.getPreferences(req.userId!) });
   });
 
-  router.put('/preferences', async (req: AuthedRequest, res: HttpResponse) => {
+  router.put('/preferences', async (req: AuthedRequest, res: FastifyReply) => {
     const { role, primaryDatabase, primaryGoal, theme, onboardingCompleted } = req.body as Partial<UserPreferences>;
-    res.json({
+    res.send({
       preferences: await user.updatePreferences(req.userId!, {
         role,
         primaryDatabase,

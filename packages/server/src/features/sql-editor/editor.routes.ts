@@ -7,8 +7,9 @@
  *
  * Extracted verbatim from api/routes.ts; handler bodies are unchanged.
  */
+import type { FastifyReply } from 'fastify';
+import type { AppRequest } from '../../platform/http/types';
 import { Router } from '../../platform/http/router';
-import type { HttpRequest, HttpResponse } from '../../platform/http/types';
 import { denyUnless } from '../authorization/rbac.guard';
 import { rateLimit } from '../../platform/guards/rate-limit';
 import { idempotency } from '../../platform/guards/idempotency';
@@ -48,7 +49,7 @@ export function createEditorRoutes(deps: EditorRouteDeps): Router {
   // made Express call it with (req, res, next); it returned a handler and never
   // called next(), so the request hung with no error and no response.
   const writeIdempotency = idempotency();
-  router.post('/sql/execute', sqlExecuteLimiter, writeIdempotency, async (req: HttpRequest, res: HttpResponse) => {
+  router.post('/sql/execute', sqlExecuteLimiter, writeIdempotency, async (req: AppRequest, res: FastifyReply) => {
     const { statements, maxRows, offset, params, datagridAction, ...ref } = req.body as ConnectionRef & {
       statements?: unknown;
       maxRows?: unknown;
@@ -137,13 +138,13 @@ export function createEditorRoutes(deps: EditorRouteDeps): Router {
         clampOffset(offset),
         (params as unknown[][] | undefined) ?? []
       );
-      res.json({ results });
+      res.send({ results });
     } catch (error: unknown) {
       sendThrown(res, error, 'Query execution failed');
     }
   });
 
-  router.post('/sql/code-cell', codeCellLimiter, async (req: HttpRequest, res: HttpResponse) => {
+  router.post('/sql/code-cell', codeCellLimiter, async (req: AppRequest, res: FastifyReply) => {
     const body = req.body as CodeCellRequestBody &
       ConnectionRef & { allowWrites?: boolean; beam?: unknown };
     const authed = req as AuthedRequest;
@@ -209,7 +210,7 @@ export function createEditorRoutes(deps: EditorRouteDeps): Router {
         defaultBeamAlias,
         enforceBeamSqlOnCap,
       });
-      res.json(result);
+      res.send(result);
     } catch (error: unknown) {
       sendThrown(res, error, 'Code cell execution failed');
     }

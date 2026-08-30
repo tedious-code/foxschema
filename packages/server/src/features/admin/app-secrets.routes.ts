@@ -1,5 +1,6 @@
+import type { FastifyReply } from 'fastify';
+import type { AppRequest } from '../../platform/http/types';
 import { Router } from '../../platform/http/router';
-import type { HttpResponse } from '../../platform/http/types';
 import { AppSecretsStore, type AppSecretInput } from './app-secrets.service';
 import {
   CloudProviderCredentialsStore,
@@ -43,15 +44,15 @@ export function createAppSecretsRoutes(
 ): Router {
   const router = Router();
 
-  router.get('/', requirePermissions('secrets.view'), async (req: AuthedRequest, res: HttpResponse) => {
-    res.json({ secrets: await store.list(req.userId!) });
+  router.get('/', requirePermissions('secrets.view'), async (req: AuthedRequest, res: FastifyReply) => {
+    res.send({ secrets: await store.list(req.userId!) });
   });
 
-  router.get('/providers', requirePermissions('secrets.view'), async (req: AuthedRequest, res: HttpResponse) => {
-    res.json({ providers: await providers.list(req.userId!) });
+  router.get('/providers', requirePermissions('secrets.view'), async (req: AuthedRequest, res: FastifyReply) => {
+    res.send({ providers: await providers.list(req.userId!) });
   });
 
-  router.post('/providers', requirePermissions('secrets.create'), async (req: AuthedRequest, res: HttpResponse) => {
+  router.post('/providers', requirePermissions('secrets.create'), async (req: AuthedRequest, res: FastifyReply) => {
     const body = (req.body ?? {}) as {
       name?: unknown;
       provider?: unknown;
@@ -68,17 +69,17 @@ export function createAppSecretsRoutes(
       return;
     }
     try {
-      res.json({
+      res.send({
         provider: await providers.create(req.userId!, name, providerRaw, body.credentials),
       });
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Failed to save provider credentials';
       const status = /require|Invalid|must be|already exists|Unknown/i.test(msg) ? 400 : 500;
-      res.status(status).json({ error: msg });
+      res.status(status).send({ error: msg });
     }
   });
 
-  router.put('/providers/:id', requirePermissions('secrets.edit'), async (req: AuthedRequest, res: HttpResponse) => {
+  router.put('/providers/:id', requirePermissions('secrets.edit'), async (req: AuthedRequest, res: FastifyReply) => {
     const body = (req.body ?? {}) as {
       name?: unknown;
       credentials?: CloudProviderCredentials;
@@ -93,31 +94,31 @@ export function createAppSecretsRoutes(
         sendError(res, 'not_found', 'Cloud credential not found');
         return;
       }
-      res.json({ provider: updated });
+      res.send({ provider: updated });
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Failed to update provider credentials';
       const status = /require|Invalid|must be|already exists/i.test(msg) ? 400 : 500;
-      res.status(status).json({ error: msg });
+      res.status(status).send({ error: msg });
     }
   });
 
-  router.delete('/providers/:id', requirePermissions('secrets.delete'), async (req: AuthedRequest, res: HttpResponse) => {
+  router.delete('/providers/:id', requirePermissions('secrets.delete'), async (req: AuthedRequest, res: FastifyReply) => {
     const removed = await providers.remove(req.userId!, String(req.params.id));
     if (!removed) {
       sendError(res, 'not_found', 'Secret not found');
       return;
     }
-    res.json({ ok: true });
+    res.send({ ok: true });
   });
 
-  router.post('/', requirePermissions('secrets.create'), async (req: AuthedRequest, res: HttpResponse) => {
+  router.post('/', requirePermissions('secrets.create'), async (req: AuthedRequest, res: FastifyReply) => {
     const input = parseSecretBody(req.body);
     if (!input.name || !input.source) {
       sendError(res, 'invalid_input', 'name and source are required');
       return;
     }
     try {
-      res.json({
+      res.send({
         secret: await store.create(req.userId!, {
           name: input.name,
           source: input.source,
@@ -128,23 +129,23 @@ export function createAppSecretsRoutes(
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Failed to create secret';
       const status = /already exists|Invalid|require/i.test(msg) ? 400 : 500;
-      res.status(status).json({ error: msg });
+      res.status(status).send({ error: msg });
     }
   });
 
-  router.post('/resolve', requirePermissions('secrets.view'), async (req: AuthedRequest, res: HttpResponse) => {
+  router.post('/resolve', requirePermissions('secrets.view'), async (req: AuthedRequest, res: FastifyReply) => {
     const names = Array.isArray((req.body as { names?: unknown })?.names)
       ? ((req.body as { names: unknown[] }).names.filter((n) => typeof n === 'string') as string[])
       : undefined;
     try {
       const out = await store.resolve(req.userId!, names);
-      res.json(out);
+      res.send(out);
     } catch (error: unknown) {
       sendThrown(res, error, 'Failed to resolve secrets');
     }
   });
 
-  router.put('/:id', requirePermissions('secrets.edit'), async (req: AuthedRequest, res: HttpResponse) => {
+  router.put('/:id', requirePermissions('secrets.edit'), async (req: AuthedRequest, res: FastifyReply) => {
     const input = parseSecretBody(req.body);
     try {
       const updated = await store.update(req.userId!, String(req.params.id), input);
@@ -152,21 +153,21 @@ export function createAppSecretsRoutes(
         sendError(res, 'not_found', 'Secret not found');
         return;
       }
-      res.json({ secret: updated });
+      res.send({ secret: updated });
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Failed to update secret';
       const status = /already exists|Invalid|require/i.test(msg) ? 400 : 500;
-      res.status(status).json({ error: msg });
+      res.status(status).send({ error: msg });
     }
   });
 
-  router.delete('/:id', requirePermissions('secrets.delete'), async (req: AuthedRequest, res: HttpResponse) => {
+  router.delete('/:id', requirePermissions('secrets.delete'), async (req: AuthedRequest, res: FastifyReply) => {
     const removed = await store.remove(req.userId!, String(req.params.id));
     if (!removed) {
       sendError(res, 'not_found', 'Secret not found');
       return;
     }
-    res.json({ ok: true });
+    res.send({ ok: true });
   });
 
   return router;

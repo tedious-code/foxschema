@@ -1,4 +1,5 @@
-import type { HttpRequest } from '../../platform/http/types';
+import type { FastifyReply } from 'fastify';
+import type { AppRequest } from '../../platform/http/types';
 
 /**
  * Config-driven SSO (OAuth2 / OIDC). Providers activate only when their client
@@ -10,6 +11,7 @@ import type { HttpRequest } from '../../platform/http/types';
  *   GitHub     SSO_GITHUB_CLIENT_ID     SSO_GITHUB_CLIENT_SECRET
  *   Optional:  SSO_REDIRECT_BASE (e.g. https://app.example.com) — else derived from the request.
  */
+import { headerOf } from '../../platform/http/reply';
 
 export type SsoProviderId = 'google' | 'microsoft' | 'github';
 
@@ -82,8 +84,8 @@ export function getProvider(id: string): SsoProviderConfig | null {
   return configuredProviders().find((p) => p.id === id) ?? null;
 }
 
-export function redirectUri(req: HttpRequest, providerId: string): string {
-  const base = process.env.SSO_REDIRECT_BASE || `${req.protocol}://${req.get('host')}`;
+export function redirectUri(req: AppRequest, providerId: string): string {
+  const base = process.env.SSO_REDIRECT_BASE || `${req.protocol}://${headerOf(req, 'host') ?? ''}`;
   return `${base.replace(/\/$/, '')}/api/auth/sso/${providerId}/callback`;
 }
 

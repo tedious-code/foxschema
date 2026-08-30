@@ -7,8 +7,9 @@
  *
  * Extracted verbatim from api/routes.ts; handler bodies are unchanged.
  */
+import type { FastifyReply } from 'fastify';
+import type { AppRequest } from '../../platform/http/types';
 import { Router } from '../../platform/http/router';
-import type { HttpRequest, HttpResponse } from '../../platform/http/types';
 import { requirePermissions } from '../authorization/rbac.guard';
 import type { AuthedRequest } from '../auth/auth.routes';
 import { rateLimit } from '../../platform/guards/rate-limit';
@@ -30,7 +31,7 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
     '/lokee/capture',
     lokeeCaptureLimiter,
     requirePermissions('schema.browse'),
-    async (req: HttpRequest, res: HttpResponse) => {
+    async (req: AppRequest, res: FastifyReply) => {
       const body = req.body as ConnectionRef & { source?: string; migrationRunId?: string };
       try {
         const resolved = await deps.resolveRef((req as AuthedRequest).userId, body);
@@ -40,30 +41,30 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
           body.source === 'migrate' || body.source === 'revert' ? body.source : 'manual',
           { migrationRunId: body.migrationRunId }
         );
-        res.json(result);
+        res.send(result);
       } catch (error: unknown) {
         sendThrown(res, error, 'Failed to capture schema');
       }
     }
   );
 
-  router.get('/lokee/databases', async (req: HttpRequest, res: HttpResponse) => {
-    res.json({ databases: await deps.lokee.listDatabases((req as AuthedRequest).userId!) });
+  router.get('/lokee/databases', async (req: AppRequest, res: FastifyReply) => {
+    res.send({ databases: await deps.lokee.listDatabases((req as AuthedRequest).userId!) });
   });
 
-  router.get('/lokee/databases/:id/versions', async (req: HttpRequest, res: HttpResponse) => {
+  router.get('/lokee/databases/:id/versions', async (req: AppRequest, res: FastifyReply) => {
     const versions = await deps.lokee.listVersions(
       (req as AuthedRequest).userId!,
       String(req.params.id),
       Number(req.query.limit) || 100
     );
-    res.json({ versions });
+    res.send({ versions });
   });
 
-  router.get('/lokee/databases/:id/graph', async (req: HttpRequest, res: HttpResponse) => {
+  router.get('/lokee/databases/:id/graph', async (req: AppRequest, res: FastifyReply) => {
     // The store scopes every read to the caller, so an unknown or unowned id
     // returns an empty graph rather than another user's history.
-    res.json(
+    res.send(
       await deps.lokee.graph(
         (req as AuthedRequest).userId!,
         String(req.params.id),
@@ -75,7 +76,7 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
   router.get(
     '/lokee/databases/:id/revert/plan',
     requirePermissions('schema.browse'),
-    async (req: HttpRequest, res: HttpResponse) => {
+    async (req: AppRequest, res: FastifyReply) => {
       const toVersionId = String(req.query.toVersionId ?? '').trim();
       if (!toVersionId) {
         sendError(res, 'invalid_input', 'toVersionId is required');
@@ -105,7 +106,7 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
         return;
       }
       const { steps: _steps, ...published } = plan;
-      res.json(published);
+      res.send(published);
     }
   );
 
@@ -113,7 +114,7 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
     '/lokee/databases/:id/revert',
     lokeeCaptureLimiter,
     requirePermissions('schema.migrate'),
-    async (req: HttpRequest, res: HttpResponse) => {
+    async (req: AppRequest, res: FastifyReply) => {
       const body = req.body as ConnectionRef & {
         toVersionId?: string;
         confirmLossy?: boolean;
@@ -178,7 +179,7 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
         return;
       }
       if (preSnapshot.changed) {
-        res.status(409).json({
+        res.status(409).send({
           ok: false,
           code: 'schema_drifted',
           error:
@@ -206,11 +207,11 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
       }
       const { steps, ...published } = plan;
       if (plan.alreadyAtTarget || steps.length === 0) {
-        res.json({ ok: true, ...published, alreadyAtTarget: true });
+        res.send({ ok: true, ...published, alreadyAtTarget: true });
         return;
       }
       if (plan.reversal.risk === 'blocked') {
-        res.status(409).json({
+        res.status(409).send({
           ok: false,
           error: 'This revert is blocked — existing data cannot be converted.',
           code: 'blocked',
@@ -219,7 +220,7 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
         return;
       }
       if (plan.reversal.risk === 'lossy' && body.confirmLossy !== true) {
-        res.status(409).json({
+        res.status(409).send({
           ok: false,
           error: 'This revert destroys data. Confirm to continue.',
           code: 'confirm_lossy',
@@ -256,7 +257,7 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
             toVersionId: plan.toVersion.id,
           },
         });
-        res.json({ ok: true, capture, ...published });
+        res.send({ ok: true, capture, ...published });
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : 'capture failed';
         sendError(res, 'failed', `Schema reverted but capture failed: ${message}`, {
@@ -269,7 +270,7 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
   router.patch(
     '/lokee/databases/:id/versions/:versionId',
     requirePermissions('schema.browse'),
-    async (req: HttpRequest, res: HttpResponse) => {
+    async (req: AppRequest, res: FastifyReply) => {
       const body = req.body as { name?: string | null; description?: string | null };
       const updated = await deps.lokee.updateVersionMeta(
         (req as AuthedRequest).userId!,
@@ -284,11 +285,11 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
         sendError(res, 'not_found', 'Version not found');
         return;
       }
-      res.json({ version: updated });
+      res.send({ version: updated });
     }
   );
 
-  router.get('/lokee/databases/:id/inspect', async (req: HttpRequest, res: HttpResponse) => {
+  router.get('/lokee/databases/:id/inspect', async (req: AppRequest, res: FastifyReply) => {
     const versionId = String(req.query.versionId ?? '').trim();
     const objectKey = String(req.query.objectKey ?? '').trim();
     if (!versionId || !objectKey) {
@@ -305,10 +306,10 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
       sendError(res, 'not_found', 'Object not found');
       return;
     }
-    res.json(result);
+    res.send(result);
   });
 
-  router.get('/lokee/databases/:id/compare', async (req: HttpRequest, res: HttpResponse) => {
+  router.get('/lokee/databases/:id/compare', async (req: AppRequest, res: FastifyReply) => {
     const versionId = String(req.query.versionId ?? '').trim();
     if (!versionId) {
       sendError(res, 'invalid_input', 'versionId is required');
@@ -325,7 +326,7 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
       sendError(res, 'not_found', 'Version not found');
       return;
     }
-    res.json(result);
+    res.send(result);
   });
 
   return router;

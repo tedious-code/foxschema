@@ -9,8 +9,10 @@
  * databases, so the handler bodies are copied unchanged and only closure
  * references become explicit deps — a rewrite here does not belong in a move.
  */
+import { streamWrite, streamEnd } from '../../platform/http/reply';
+import type { FastifyReply } from 'fastify';
+import type { AppRequest } from '../../platform/http/types';
 import { Router } from '../../platform/http/router';
-import type { HttpRequest, HttpResponse } from '../../platform/http/types';
 import type { ConnectionOptions, MigrationStep } from '@foxschema/db';
 import { requirePermissions } from '../authorization/rbac.guard';
 import { idempotency } from '../../platform/guards/idempotency';
@@ -37,7 +39,7 @@ export function createMigrationRoutes(deps: MigrationRouteDeps): Router {
   const router = Router();
   // A factory, not the middleware — see the editor extraction.
   const writeIdempotency = idempotency();
-  router.post('/migration/execute', requirePermissions('schema.migrate'), writeIdempotency, async (req: HttpRequest, res: HttpResponse) => {
+  router.post('/migration/execute', requirePermissions('schema.migrate'), writeIdempotency, async (req: AppRequest, res: FastifyReply) => {
     const { steps, continueOnError, ...ref } = req.body as ConnectionRef & { steps: MigrationStep[]; continueOnError?: boolean };
     let dialect: string;
     let option: ConnectionOptions;
@@ -86,15 +88,15 @@ export function createMigrationRoutes(deps: MigrationRouteDeps): Router {
 
     // Stream NDJSON progress events as the migration runs, while capturing the
     // snapshot, per-object results, and final status for the history record.
-    res.setHeader('Content-Type', 'application/x-ndjson');
-    res.setHeader('Cache-Control', 'no-cache');
+    res.header('Content-Type', 'application/x-ndjson');
+    res.header('Cache-Control', 'no-cache');
     let snapshotDdl: string | undefined;
     const resultMap = new Map<string, MigrationObjectResult>();
     let finalStatus: MigrationRunStatus = 'FAILED';
     let finalError: string | undefined;
     let captureAfter = false;
     const send = (event: any) => {
-      res.write(JSON.stringify(event) + '\n');
+      streamWrite(res, JSON.stringify(event) + '\n');
       if (event?.type === 'snapshot') {
         snapshotDdl = event.ddl;
       } else if (event?.type === 'object') {
@@ -190,45 +192,45 @@ export function createMigrationRoutes(deps: MigrationRouteDeps): Router {
       }
     }
 
-    res.end();
+    streamEnd(res);
     } finally {
       lock.release();
     }
   });
 
-  router.get('/migrations', async (req: HttpRequest, res: HttpResponse) => {
-    res.json({ runs: await deps.migrationHistory.list((req as AuthedRequest).userId!) });
+  router.get('/migrations', async (req: AppRequest, res: FastifyReply) => {
+    res.send({ runs: await deps.migrationHistory.list((req as AuthedRequest).userId!) });
   });
 
-  router.post('/migrations/delete', async (req: HttpRequest, res: HttpResponse) => {
+  router.post('/migrations/delete', async (req: AppRequest, res: FastifyReply) => {
     const ids = Array.isArray((req.body as { ids?: unknown }).ids)
       ? ((req.body as { ids: unknown[] }).ids.filter((i) => typeof i === 'string') as string[])
       : [];
     const removed = await deps.migrationHistory.removeMany((req as AuthedRequest).userId!, ids);
-    res.json({ removed });
+    res.send({ removed });
   });
 
-  router.delete('/migrations', async (req: HttpRequest, res: HttpResponse) => {
+  router.delete('/migrations', async (req: AppRequest, res: FastifyReply) => {
     const removed = await deps.migrationHistory.clear((req as AuthedRequest).userId!);
-    res.json({ removed });
+    res.send({ removed });
   });
 
-  router.get('/migrations/:id', async (req: HttpRequest, res: HttpResponse) => {
+  router.get('/migrations/:id', async (req: AppRequest, res: FastifyReply) => {
     const run = await deps.migrationHistory.get((req as AuthedRequest).userId!, String(req.params.id));
     if (!run) {
       sendError(res, 'not_found', 'Migration run not found');
       return;
     }
-    res.json({ run });
+    res.send({ run });
   });
 
-  router.delete('/migrations/:id', async (req: HttpRequest, res: HttpResponse) => {
+  router.delete('/migrations/:id', async (req: AppRequest, res: FastifyReply) => {
     const removed = await deps.migrationHistory.remove((req as AuthedRequest).userId!, String(req.params.id));
     if (!removed) {
       sendError(res, 'not_found', 'Migration run not found');
       return;
     }
-    res.json({ ok: true });
+    res.send({ ok: true });
   });
 
   return router;

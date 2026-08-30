@@ -11,11 +11,12 @@
  */
 import { describe, it, expect } from 'vitest';
 import { Router, joinPath } from './router';
-import type { Middleware, HttpRequest, HttpResponse, NextFunction } from './types';
+import type { FastifyReply } from 'fastify';
+import type { AppRequest, Middleware, NextFunction } from './types';
 
 /** A guard identifiable by name in assertions; it always continues. */
 const guard = (name: string): Middleware => {
-  const fn = (_req: HttpRequest, _res: HttpResponse, next: NextFunction) => next();
+  const fn = (_req: AppRequest, _res: FastifyReply, next: NextFunction) => next();
   Object.defineProperty(fn, 'name', { value: name });
   return fn;
 };

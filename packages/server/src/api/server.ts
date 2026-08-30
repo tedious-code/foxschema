@@ -17,6 +17,8 @@
  *  - The session guard runs before the rate limiter so the limiter can count
  *    requests per user rather than per IP.
  */
+import type { FastifyReply } from 'fastify';
+import type { AppRequest, NextFunction } from '../platform/http/types';
 import { ConnectionModule, ConnectionFactory } from '@foxschema/db';
 import { AuthModule } from '../features/auth/auth.service';
 import { ConnectionStore } from '../features/connections/connection-store.service';
@@ -37,7 +39,6 @@ import { AppSecretsStore } from '../features/admin/app-secrets.service';
 import { resolveAppVersion } from '../internal/updates.service';
 import { asAppLogger, getLogger } from '../platform/logger/logger';
 import { Router, type RouteDefinition } from '../platform/http/router';
-import type { HttpRequest, HttpResponse, NextFunction } from '../platform/http/types';
 
 // Default to single-user (no login). Set LOCAL_SINGLE_USER=false to enable
 // multi-user auth. In multi-user mode AUTH_REQUIRED defaults to true (safe).
@@ -58,12 +59,12 @@ export function buildApiRoutes(): RouteDefinition[] {
 
   // Public liveness check. Includes the version so `foxschema open` can detect
   // a stale pre-upgrade process on this port.
-  root.get('/api/health', (_req: HttpRequest, res: HttpResponse) => {
-    res.json({ ok: true, version: resolveAppVersion() });
+  root.get('/api/health', (_req: AppRequest, res: FastifyReply) => {
+    res.send({ ok: true, version: resolveAppVersion() });
   });
 
-  root.get('/api/config', (_req: HttpRequest, res: HttpResponse) => {
-    res.json({ localSingleUser: LOCAL_SINGLE_USER });
+  root.get('/api/config', (_req: AppRequest, res: FastifyReply) => {
+    res.send({ localSingleUser: LOCAL_SINGLE_USER });
   });
 
   // Auth endpoints are public. SSO is mounted first so its sub-paths take
@@ -90,7 +91,7 @@ export function buildApiRoutes(): RouteDefinition[] {
     ? localUserGuard(auth)
     : AUTH_REQUIRED
       ? authGuard(auth)
-      : (_req: HttpRequest, _res: HttpResponse, next: NextFunction) => next();
+      : (_req: AppRequest, _res: FastifyReply, next: NextFunction) => next();
   // The guard runs first so the limiter can charge an authenticated user
   // rather than lumping everyone behind one shared IP bucket.
   root.use('/api', guard, defaultApiRateLimit(), createApiRoutes(connectionModule, connectionStore));

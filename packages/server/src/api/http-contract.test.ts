@@ -191,6 +191,17 @@ describe('HTTP contract', () => {
       expect(new Set(ROUTES.map((r) => `${r.method} ${r.path}`)).size).toBe(ROUTES.length);
     });
 
+    it('sets the security headers on a live response, and no framework banner', async () => {
+      // The policy itself is unit-tested; what is asserted here is that the
+      // onRequest hook is actually installed, on the server that ships.
+      const res = await fetch(`http://127.0.0.1:${port}/api/health`);
+      expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+      expect(res.headers.get('x-frame-options')).toBe('DENY');
+      expect(res.headers.get('cache-control')).toMatch(/no-store/);
+      // Version and stack are free reconnaissance.
+      expect(res.headers.get('x-powered-by')).toBeNull();
+    });
+
     it.each(ROUTES.map((r) => [`${r.method} ${r.path}`, r] as const))(
       '%s answers as specified',
       async (key, route) => {
