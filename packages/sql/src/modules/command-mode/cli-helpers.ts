@@ -46,10 +46,13 @@ export function commandWithSql(args: {
   note?: string;
 }): GeneratedCommand | { error: string } {
   const head = [args.client, ...args.flags].join(' ');
-  const built = heredoc(head, args.sql.trim());
+  const body = args.sql.trim();
+  const built = heredoc(head, body);
   if (typeof built !== 'string') return built;
   return {
     command: built,
+    invocation: head,
+    body,
     explanation: args.explanation,
     client: args.client,
     auth: args.auth,
