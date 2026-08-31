@@ -196,6 +196,3 @@ export function blueprintChildCounts(blueprint: ObjectBlueprint): {
     triggers: blueprint.triggers.length,
   };
 }
-
-/** @internal — documented so a stray import does not look unused. */
-export const BLUEPRINT_CHILD_TYPES = CHILD_TYPES;

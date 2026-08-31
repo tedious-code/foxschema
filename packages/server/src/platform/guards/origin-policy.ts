@@ -99,14 +99,6 @@ export function isAllowedOrigin(
   return false;
 }
 
-/** Express/Fastify `cors` origin callback. */
-export function corsOriginDelegate(options: OriginPolicyOptions = {}) {
-  return (origin: string | undefined, cb: (err: Error | null, ok?: boolean) => void): void => {
-    if (isAllowedOrigin(origin, options)) return cb(null, true);
-    cb(new Error('Origin not allowed'));
-  };
-}
-
 /**
  * Refuse a disallowed origin with a 403 that says so.
  *

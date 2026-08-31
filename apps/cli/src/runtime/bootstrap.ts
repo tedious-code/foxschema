@@ -4,17 +4,6 @@ import { readConfig, DEFAULT_DB_PATH } from './config';
 import { getDek } from './keyring';
 
 /**
- * True when the install is configured AND its encryption key is reachable
- * (keychain or the FOXSCHEMA_KEY env override for headless servers).
- */
-export function isReady(): boolean {
-  const c = readConfig();
-  if (!c.setupComplete) return false;
-  if (process.env.FOXSCHEMA_KEY) return true;
-  return !!getDek(c.email);
-}
-
-/**
  * Push the stored config + key into process.env so the shared backend modules
  * (getStore / crypto / connection-store) — which read everything from env — run
  * unchanged in the CLI and the server.

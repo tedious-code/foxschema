@@ -86,11 +86,6 @@ export function findVariableRefs(sql: string): VariableRef[] {
   return out;
 }
 
-/** True if SQL contains any `${{…}}` ref (including `.col`). */
-export function hasVariableRefs(sql: string): boolean {
-  return findVariableRefs(sql).length > 0;
-}
-
 /** Expand one cell value to a SQL literal fragment. */
 export function expandSqlLiteral(value: unknown): string {
   if (value === null || value === undefined) return 'NULL';

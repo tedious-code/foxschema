@@ -34,12 +34,6 @@ export interface PoolTask<TInput> {
   transfer?: readonly ArrayBuffer[];
 }
 
-export interface TaskEvents<TResult> {
-  progress: (percent: number, note?: string) => void;
-  done: (result: TResult) => void;
-  error: (error: Error) => void;
-}
-
 export class TaskHandle<TResult> extends EventEmitter {
   #cancel: (() => void) | null = null;
   readonly promise: Promise<TResult>;

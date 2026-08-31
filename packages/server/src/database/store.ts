@@ -35,12 +35,3 @@ export function getStore(): Promise<MetadataStore> {
   });
   return storePromise;
 }
-
-export async function closeStore(): Promise<void> {
-  const p = storePromise;
-  storePromise = null;
-  if (p) {
-    const store = await p.catch(() => null);
-    if (store) await store.close();
-  }
-}

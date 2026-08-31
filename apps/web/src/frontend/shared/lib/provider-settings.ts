@@ -292,11 +292,6 @@ export function isFileDialect(dialect: string): boolean {
   return dialect === 'sqlite' || dialect === 'duckdb';
 }
 
-/** True when a connection of this dialect can meaningfully carry a password. */
-export function dialectUsesPassword(dialect: string, authMethod?: string | null): boolean {
-  return connectionNeedsSecret(dialect, authMethod);
-}
-
 export const DEFAULT_PORTS: Record<string, number> = Object.fromEntries(
   Object.values(PROVIDER_SETTINGS).map((s) => [s.dialect, s.defaultPort])
 );

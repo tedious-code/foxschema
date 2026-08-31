@@ -104,9 +104,12 @@ describe('AdminAccessPanel', () => {
     expect(save).toBeTruthy();
     expect(save.disabled).toBe(true);
     expect(screen.getByTestId('admin-roles-hint').textContent).toMatch(/database tab/i);
-    expect(screen.getByText(/Grant privileges is the FoxSchema gate/i)).toBeTruthy();
 
     fireEvent.click(screen.getByTestId('admin-edit-role-owner'));
+    // Groups start collapsed, so the checkboxes are not in the DOM until the
+    // group is opened — the count in the header is what is visible up front.
+    expect(screen.queryByTestId('admin-perm-admin.users')).toBeNull();
+    fireEvent.click(screen.getByTestId('admin-perm-group-Admin'));
     const manageUsers = screen.getByTestId('admin-perm-admin.users') as HTMLInputElement;
     expect(manageUsers.checked).toBe(false);
     fireEvent.click(manageUsers);
@@ -129,11 +132,64 @@ describe('AdminAccessPanel', () => {
     await waitFor(() => expect(screen.getByTestId('admin-tab-roles')).toBeTruthy());
     fireEvent.click(screen.getByTestId('admin-tab-roles'));
     fireEvent.click(screen.getByTestId('admin-edit-role-admin'));
+    fireEvent.click(screen.getByTestId('admin-perm-group-Admin'));
 
     expect((screen.getByTestId('admin-perm-admin.users') as HTMLInputElement).disabled).toBe(true);
     expect((screen.getByTestId('admin-perm-admin.users') as HTMLInputElement).checked).toBe(true);
     expect((screen.getByTestId('admin-save-role-perms') as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByTestId('admin-roles-hint').textContent).toMatch(/cannot be reduced/i);
+  });
+
+  it('summarises each group while collapsed, and opens on demand', async () => {
+    render(<AdminAccessPanel open onClose={() => undefined} />);
+    await waitFor(() => expect(screen.getByTestId('admin-tab-roles')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('admin-tab-roles'));
+    fireEvent.click(screen.getByTestId('admin-edit-role-owner'));
+
+    // The count is why collapsing is acceptable: "what does this role have?" is
+    // answerable without opening anything.
+    const count = screen.getByTestId('admin-perm-count-Admin');
+    expect(count.textContent).toMatch(/^\d+ \/ \d+$/);
+
+    const header = screen.getByTestId('admin-perm-group-Admin');
+    expect(header.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(header);
+    expect(header.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByTestId('admin-perm-admin.users')).toBeTruthy();
+  });
+
+  it('keeps an unsaved edit when its group is collapsed again', async () => {
+    // The draft lives in component state, not in the DOM, so collapsing must
+    // not silently discard a change the user has already made.
+    render(<AdminAccessPanel open onClose={() => undefined} />);
+    await waitFor(() => expect(screen.getByTestId('admin-tab-roles')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('admin-tab-roles'));
+    fireEvent.click(screen.getByTestId('admin-edit-role-owner'));
+    fireEvent.click(screen.getByTestId('admin-perm-group-Admin'));
+
+    fireEvent.click(screen.getByTestId('admin-perm-admin.users'));
+    expect(screen.getByTestId('admin-unsaved').textContent).toMatch(/unsaved/i);
+
+    fireEvent.click(screen.getByTestId('admin-perm-group-Admin')); // collapse
+    expect(screen.queryByTestId('admin-perm-admin.users')).toBeNull();
+    expect(screen.getByTestId('admin-unsaved').textContent).toMatch(/unsaved/i);
+
+    fireEvent.click(screen.getByTestId('admin-perm-group-Admin')); // reopen
+    expect((screen.getByTestId('admin-perm-admin.users') as HTMLInputElement).checked).toBe(true);
+  });
+
+  it('expands and collapses every group at once', async () => {
+    render(<AdminAccessPanel open onClose={() => undefined} />);
+    await waitFor(() => expect(screen.getByTestId('admin-tab-roles')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('admin-tab-roles'));
+    fireEvent.click(screen.getByTestId('admin-edit-role-owner'));
+
+    fireEvent.click(screen.getByTestId('admin-perm-expand-all'));
+    expect(screen.getByTestId('admin-perm-admin.users')).toBeTruthy();
+    expect(screen.getByText(/Grant privileges is the FoxSchema gate/i)).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId('admin-perm-collapse-all'));
+    expect(screen.queryByTestId('admin-perm-admin.users')).toBeNull();
   });
 
   it('opens for a viewer without admin or utility grants and explains how to get access', async () => {

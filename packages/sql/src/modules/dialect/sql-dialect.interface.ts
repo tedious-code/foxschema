@@ -327,6 +327,3 @@ export interface SqlDialect {
    */
   alterSequenceRestart?(start: string): string;
 }
-
-/** Full schema column — a superset of ColumnSpec, so assignable to it. */
-export type FullColumn = TableSchema['columns'][number];

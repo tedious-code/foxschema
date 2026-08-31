@@ -114,14 +114,3 @@ export function isApiErrorBody(value: unknown): value is ApiErrorBody {
   const body = value as Record<string, unknown>;
   return typeof body.error === 'string' && typeof body.code === 'string';
 }
-
-/**
- * Whether retrying the identical request could plausibly succeed.
- *
- * Deliberately narrow. `invalid_input` and `forbidden` will never change on
- * their own, and a client that retries them just burns the rate limit; the
- * codes here are the ones that describe a moment rather than a mistake.
- */
-export function isRetryable(code: ErrorCode): boolean {
-  return code === 'conflict' || code === 'rate_limited' || code === 'unavailable' || code === 'timeout';
-}
