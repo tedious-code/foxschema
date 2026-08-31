@@ -23,6 +23,16 @@ import {
   type GridRange,
   type GridSelection,
 } from '@/features/sql-editor/utils/copyGrid';
+import {
+  EMPTY_VIEW,
+  applyGridView,
+  nextSort,
+  operatorNeedsValue,
+  viewIsActive,
+  describeGridView,
+  type FilterOperator,
+  type GridViewState,
+} from '@/features/sql-editor/utils/gridView';
 import { downloadCsv } from '@/features/sql-editor/utils/exportCsv';
 import { downloadJson } from '@/features/sql-editor/utils/exportJson';
 import {
@@ -215,6 +225,7 @@ function GridToolbar({
   onCopy,
   onChooseColumns,
   copyScope,
+  viewControls,
   emphasis,
   toolbarExtra,
 }: {
@@ -234,6 +245,8 @@ function GridToolbar({
   onChooseColumns?: () => void;
   /** `n of m` when a column subset is active, so the filter is never hidden. */
   copyScope?: { picked: number; total: number } | null;
+  /** Sort/filter toggle, scope note, and Apply — rendered by the grid. */
+  viewControls?: React.ReactNode;
   emphasis?: boolean;
   /** Row CRUD controls (query results / Data Peek). */
   toolbarExtra?: React.ReactNode;
@@ -367,6 +380,7 @@ function GridToolbar({
           )}
         </div>
       )}
+      {viewControls}
       {onExport && (
         <div className="relative shrink-0 flex items-center">
           <button
@@ -788,14 +802,14 @@ export const DataGrid: React.FC<{
     if (savePrompt.mode === 'scalar') {
       err = upsertVariable({ name: saveName, kind: 'scalar', value: savePrompt.value });
     } else if (savePrompt.mode === 'list') {
-      const values = columnToListValues(sourceRows, savePrompt.colIdx);
+      const values = columnToListValues(viewRows, savePrompt.colIdx);
       err = upsertVariable({ name: saveName, kind: 'list', values });
     } else {
       err = upsertVariable({
         name: saveName,
         kind: 'table',
         columns: [...sourceColumns],
-        rows: rowsForTableVariable(sourceRows),
+        rows: rowsForTableVariable(viewRows),
       });
     }
     if (err) {
@@ -804,6 +818,42 @@ export const DataGrid: React.FC<{
     }
     setSavePrompt(null);
     setMenu(null);
+  };
+
+  /**
+   * Sorting and filtering applied to the rows already loaded.
+   *
+   * Instant, and only ever about this page — which is why `onApplyView` exists
+   * beside it to push the same state into the query. The toolbar says which of
+   * the two the user is looking at, because a filter that silently searches one
+   * page while looking like it searched the table is a filter that lies.
+   */
+  const [view, setView] = useState<GridViewState>(EMPTY_VIEW);
+  const [showFilters, setShowFilters] = useState(false);
+  /** Matches GridToolbar's own type scale, which is local to that component. */
+  const toolbarChrome = emphasis ? 'text-xs font-bold' : 'text-[10px] font-semibold';
+
+  // A fresh result set is a different table; carrying a filter across would
+  // hide rows the user never filtered.
+  useEffect(() => {
+    setView(EMPTY_VIEW);
+  }, [result]);
+
+  const viewIndices = useMemo(() => applyGridView(sourceRows, view), [sourceRows, view]);
+  /** Identical to `sourceRows` when nothing is set, so the common path copies nothing. */
+  const viewRows = useMemo(
+    () => (viewIsActive(view) ? viewIndices.map((i) => sourceRows[i]!) : sourceRows),
+    [sourceRows, viewIndices, view]
+  );
+  const hiddenByFilter = sourceRows.length - viewRows.length;
+
+  const filterFor = (col: number) => view.filters.find((f) => f.column === col);
+  const setFilter = (col: number, operator: FilterOperator, value: string) => {
+    setView((prev) => {
+      const rest = prev.filters.filter((f) => f.column !== col);
+      const empty = operatorNeedsValue(operator) && value === '';
+      return { ...prev, filters: empty ? rest : [...rest, { column: col, operator, value }] };
+    });
   };
 
   if (!result.ok) {
@@ -833,7 +883,7 @@ export const DataGrid: React.FC<{
     syncColPx;
   const colCount = 1 + order.length + (rowSync ? 1 : 0);
 
-  const totalRows = sourceRows.length;
+  const totalRows = viewRows.length;
   const start = Math.max(0, Math.floor(scrollTop / rowH) - OVERSCAN);
   const visibleCount = Math.ceil(viewportH / rowH) + OVERSCAN * 2;
   const end = Math.min(totalRows, start + visibleCount);
@@ -841,7 +891,7 @@ export const DataGrid: React.FC<{
   const padBottom = Math.max(0, (totalRows - end) * rowH);
 
   /** Rows in the user's on-screen column order — what copy and export both use. */
-  const orderedRowsForOutput = () => sourceRows.map((row) => order.map((i) => row[i]));
+  const orderedRowsForOutput = () => viewRows.map((row) => order.map((i) => row[i]));
 
   const exportOrdered = () => {
     downloadCsv(exportName, orderedColumns, orderedRowsForOutput());
@@ -869,10 +919,10 @@ export const DataGrid: React.FC<{
    */
   const copyPayload = (ignoreSel = false): { columns: string[]; rows: unknown[][] } => {
     if (!ignoreSel && cellSel.length > 0)
-      return sliceGridSelection(sourceColumns, sourceRows, cellSel, order);
+      return sliceGridSelection(sourceColumns, viewRows, cellSel, order);
     return copyColumns === null
       ? { columns: orderedColumns, rows: orderedRowsForOutput() }
-      : pickColumns(sourceColumns, sourceRows, copyColumns);
+      : pickColumns(sourceColumns, viewRows, copyColumns);
   };
 
   const copyToClipboard = async (
@@ -880,7 +930,7 @@ export const DataGrid: React.FC<{
     opts?: { ignoreSel?: boolean; range?: GridRange }
   ) => {
     const { columns, rows } = opts?.range
-      ? sliceGridRange(sourceColumns, sourceRows, opts.range, order)
+      ? sliceGridRange(sourceColumns, viewRows, opts.range, order)
       : copyPayload(opts?.ignoreSel);
     if (columns.length === 0) {
       toast({
@@ -974,7 +1024,7 @@ export const DataGrid: React.FC<{
 
   /** Every cell of one column — what double-clicking its header selects. */
   const selectColumn = (visualIdx: number, additive = false) => {
-    const lastRow = Math.max(0, sourceRows.length - 1);
+    const lastRow = Math.max(0, viewRows.length - 1);
     const next: GridRange = { row0: 0, row1: lastRow, col0: visualIdx, col1: visualIdx };
     selAnchor.current = { row: 0, col: visualIdx };
     setCellSel((prev) => (additive ? [...prev, next] : [next]));
@@ -988,6 +1038,44 @@ export const DataGrid: React.FC<{
         onRefresh={onRefresh}
         onExport={sourceColumns.length > 0 ? exportOrdered : undefined}
         onExportJson={sourceColumns.length > 0 ? exportOrderedJson : undefined}
+        viewControls={
+          sourceColumns.length > 0 ? (
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                data-testid="sql-grid-filter-toggle"
+                title="Filter and sort the rows on this page"
+                onClick={() => setShowFilters((v) => !v)}
+                className={`${toolbarChrome} transition ${
+                  showFilters || viewIsActive(view) ? 'text-cyan-300' : 'text-slate-500 hover:text-cyan-400'
+                }`}
+              >
+                Filter
+              </button>
+              {viewIsActive(view) && (
+                <>
+                  {/* Says plainly that this is one page, not the table. */}
+                  <span
+                    data-testid="sql-grid-view-scope"
+                    className="text-[10px] font-semibold text-amber-300"
+                    title={describeGridView(sourceColumns, view)}
+                  >
+                    {hiddenByFilter > 0 ? `${hiddenByFilter} hidden · ` : ''}this page only
+                  </span>
+                  <button
+                    type="button"
+                    data-testid="sql-grid-clear-view"
+                    title="Clear sort and filters"
+                    onClick={() => setView(EMPTY_VIEW)}
+                    className={`${toolbarChrome} text-slate-500 hover:text-slate-300 transition`}
+                  >
+                    Clear
+                  </button>
+                </>
+              )}
+            </div>
+          ) : undefined
+        }
         onExportYaml={sourceColumns.length > 0 ? exportOrderedYaml : undefined}
         onExportText={sourceColumns.length > 0 ? exportOrderedText : undefined}
         onCopy={sourceColumns.length > 0 ? copyOrdered : undefined}
@@ -1149,6 +1237,29 @@ export const DataGrid: React.FC<{
                     >
                       <span className="inline-flex items-center gap-1 max-w-full pr-1">
                         <GripVertical className="w-3 h-3 text-cyan-500 shrink-0" strokeWidth={SQL_ICON_STROKE} aria-hidden />
+                        {/* Its own control rather than a click on the header:
+                            the header is draggable and double-click selects the
+                            column, so a bare click there is already spoken for. */}
+                        <button
+                          type="button"
+                          data-testid={`sql-col-sort-${colIdx}`}
+                          aria-label={`Sort by ${name}`}
+                          title={
+                            view.sort?.column === colIdx
+                              ? `Sorted ${view.sort.direction === 'asc' ? 'ascending' : 'descending'} — click to ${view.sort.direction === 'asc' ? 'reverse' : 'clear'}`
+                              : `Sort by ${name} (this page)`
+                          }
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setView((prev) => ({ ...prev, sort: nextSort(prev.sort, colIdx) }));
+                          }}
+                          className={`shrink-0 leading-none ${
+                            view.sort?.column === colIdx ? 'text-cyan-300' : 'text-slate-600 hover:text-slate-300'
+                          }`}
+                        >
+                          {view.sort?.column === colIdx && view.sort.direction === 'desc' ? '▼' : '▲'}
+                        </button>
                         <span className="min-w-0 flex flex-col leading-tight">
                           <span className="truncate text-[var(--fox-grid-ink)]">{name}</span>
                           <span
@@ -1199,6 +1310,53 @@ export const DataGrid: React.FC<{
                   </th>
                 ) : null}
               </tr>
+              {showFilters && (
+                <tr data-testid="sql-filter-row" className="bg-[var(--fox-grid-bg-header)]">
+                  <th className="sticky left-0 z-20 px-1 bg-[var(--fox-grid-bg-header)]" />
+                  {order.map((colIdx) => {
+                    const active = filterFor(colIdx);
+                    const op = active?.operator ?? 'contains';
+                    return (
+                      <th key={`f-${colIdx}`} className="px-1 py-1 font-normal align-top">
+                        <div className="flex items-center gap-1">
+                          <select
+                            data-testid={`sql-filter-op-${colIdx}`}
+                            aria-label={`Filter operator for ${sourceColumns[colIdx] ?? ''}`}
+                            value={op}
+                            onChange={(e) =>
+                              setFilter(colIdx, e.target.value as FilterOperator, active?.value ?? '')
+                            }
+                            className="bg-slate-950 border border-slate-700 rounded text-[10px] text-slate-200 max-w-[4.5rem]"
+                          >
+                            <option value="contains">has</option>
+                            <option value="equals">=</option>
+                            <option value="notEquals">≠</option>
+                            <option value="startsWith">starts</option>
+                            <option value="endsWith">ends</option>
+                            <option value="gt">&gt;</option>
+                            <option value="gte">≥</option>
+                            <option value="lt">&lt;</option>
+                            <option value="lte">≤</option>
+                            <option value="isNull">is null</option>
+                            <option value="isNotNull">not null</option>
+                          </select>
+                          {operatorNeedsValue(op) && (
+                            <input
+                              data-testid={`sql-filter-value-${colIdx}`}
+                              aria-label={`Filter ${sourceColumns[colIdx] ?? ''}`}
+                              value={active?.value ?? ''}
+                              onChange={(e) => setFilter(colIdx, op, e.target.value)}
+                              placeholder="filter…"
+                              className="min-w-0 flex-1 bg-slate-950 border border-slate-700 rounded px-1 text-[10px] text-slate-100 placeholder:text-slate-600"
+                            />
+                          )}
+                        </div>
+                      </th>
+                    );
+                  })}
+                  {rowSync ? <th className="sticky right-0 z-20 bg-sky-950/90" /> : null}
+                </tr>
+              )}
             </thead>
             <tbody className={`font-mono bg-[var(--fox-grid-bg)] ${emphasis ? 'font-semibold' : ''}`}>
               {padTop > 0 && (
@@ -1206,9 +1364,9 @@ export const DataGrid: React.FC<{
                   <td colSpan={colCount} className="p-0 border-0" />
                 </tr>
               )}
-              {sourceRows.slice(start, end).map((row, offset) => {
+              {viewRows.slice(start, end).map((row, offset) => {
                 const i = start + offset;
-                const size = pageSize && pageSize > 0 ? pageSize : sourceRows.length;
+                const size = pageSize && pageSize > 0 ? pageSize : viewRows.length;
                 const absRow = pageIndex * size + i + 1;
                 const stripe = i % 2 === 1;
                 const selected = selectedRowIndex === i;
@@ -1588,7 +1746,7 @@ export const DataGrid: React.FC<{
                       if (visual >= 0) {
                         const range = {
                           row0: 0,
-                          row1: Math.max(0, sourceRows.length - 1),
+                          row1: Math.max(0, viewRows.length - 1),
                           col0: visual,
                           col1: visual,
                         };
@@ -1610,7 +1768,7 @@ export const DataGrid: React.FC<{
                       if (visual >= 0) {
                         const range = {
                           row0: 0,
-                          row1: Math.max(0, sourceRows.length - 1),
+                          row1: Math.max(0, viewRows.length - 1),
                           col0: visual,
                           col1: visual,
                         };
