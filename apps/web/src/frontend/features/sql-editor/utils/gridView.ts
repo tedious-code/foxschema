@@ -127,7 +127,16 @@ export function cellMatches(value: unknown, filter: GridFilter): boolean {
   const b = Number(needle);
   const numeric =
     Number.isFinite(a) && Number.isFinite(b) && hay.trim() !== '' && needle.trim() !== '';
-  const cmp = numeric ? (a === b ? 0 : a < b ? -1 : 1) : hay.localeCompare(needle, undefined, { numeric: true });
+  // `sensitivity: 'base'` to match `compareCells` and the equality operators.
+  // Without it `gt`/`lt` are case-sensitive while `contains`/`equals` are not,
+  // so the same column filters one way and sorts another.
+  const cmp = numeric
+    ? a === b
+      ? 0
+      : a < b
+        ? -1
+        : 1
+    : hay.localeCompare(needle, undefined, { numeric: true, sensitivity: 'base' });
 
   switch (filter.operator) {
     case 'gt':

@@ -92,6 +92,15 @@ describe('cellMatches', () => {
     expect(cellMatches('banana', filter(0, 'gt', 'apple'))).toBe(true);
   });
 
+  it('folds case for ordering, like every other comparison here', () => {
+    // `contains` and `equals` lowercase, and the sort uses sensitivity 'base'.
+    // If `gt`/`lt` did not, the same column would filter one way and sort
+    // another: 'apple' > 'Banana' is true byte-wise and false to a reader.
+    expect(cellMatches('apple', filter(0, 'gt', 'Banana'))).toBe(false);
+    expect(cellMatches('Banana', filter(0, 'gt', 'apple'))).toBe(true);
+    expect(cellMatches('ADA', filter(0, 'lte', 'ada'))).toBe(true);
+  });
+
   it.each([
     ['startsWith', 'Ada', true],
     ['endsWith', 'lace', true],
