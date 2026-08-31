@@ -4,11 +4,6 @@
 
 let cached: string | null = null;
 
-/** Set the cached API base (rarely needed — prefer resolveApiBase). */
-export function setApiBase(base: string): void {
-  if (base) cached = base;
-}
-
 /** Resolve and cache the API base. Call once at app boot before any fetch. */
 export async function resolveApiBase(): Promise<string> {
   if (cached) return cached;

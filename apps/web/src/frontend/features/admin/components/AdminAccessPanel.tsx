@@ -151,6 +151,25 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
     return [...map.entries()];
   }, [catalog]);
 
+  /**
+   * Which permission groups are expanded.
+   *
+   * Collapsed by default: thirty checkboxes in seven groups is a wall, and the
+   * question being asked here is usually "what does this role have?", which the
+   * per-group counts answer without opening anything. Draft edits live in
+   * `draftByRole`, not in the DOM, so collapsing a group never discards them.
+   */
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
+
+  const toggleGroup = (group: string) => {
+    setOpenGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(group)) next.delete(group);
+      else next.add(group);
+      return next;
+    });
+  };
+
   const savedPerms = matrix?.[editRole] ?? [];
   const draftPerms = draftByRole[editRole] ?? savedPerms;
   const draft = useMemo(() => new Set(draftPerms), [draftPerms]);
@@ -549,18 +568,69 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
                   : `Check boxes for ${editRole}, then Save ${editRole} permissions. Grant privileges (SQL Editor) is what unlocks GRANT / REVOKE on the Database tab.`}
               </p>
 
-              {groups.map(([group, items]) => (
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] text-slate-500">
+                  {groups.length} groups · {catalog.length} permissions
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    data-testid="admin-perm-expand-all"
+                    onClick={() => setOpenGroups(new Set(groups.map(([g]) => g)))}
+                    className="px-2 py-0.5 rounded border border-slate-700 text-[11px] font-semibold text-slate-300 hover:bg-slate-800"
+                  >
+                    Expand all
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="admin-perm-collapse-all"
+                    onClick={() => setOpenGroups(new Set())}
+                    className="px-2 py-0.5 rounded border border-slate-700 text-[11px] font-semibold text-slate-300 hover:bg-slate-800"
+                  >
+                    Collapse all
+                  </button>
+                </div>
+              </div>
+
+              {groups.map(([group, items]) => {
+                const open = openGroups.has(group);
+                const granted = items.filter((m) => readOnlyRole || draft.has(m.id)).length;
+                return (
                 <div key={group} className="rounded-lg border border-slate-800 p-3 space-y-1.5">
-                  <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                    {group}
-                  </div>
-                  {group === 'SQL Editor' && !readOnlyRole && (
+                  <button
+                    type="button"
+                    data-testid={`admin-perm-group-${group}`}
+                    aria-expanded={open}
+                    onClick={() => toggleGroup(group)}
+                    className="w-full flex items-center gap-1.5 text-left"
+                  >
+                    {open ? (
+                      <ChevronDown className="w-3 h-3 shrink-0 text-slate-500" />
+                    ) : (
+                      <ChevronRight className="w-3 h-3 shrink-0 text-slate-500" />
+                    )}
+                    <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                      {group}
+                    </span>
+                    {/* The count is the point of collapsing: it answers "what
+                        does this role have?" without opening anything. */}
+                    <span
+                      data-testid={`admin-perm-count-${group}`}
+                      className={`ml-auto text-[10px] font-semibold ${
+                        granted === 0 ? 'text-slate-600' : 'text-emerald-300'
+                      }`}
+                    >
+                      {granted} / {items.length}
+                    </span>
+                  </button>
+                  {open && group === 'SQL Editor' && !readOnlyRole && (
                     <p className="text-[11px] text-slate-500 leading-snug">
                       Grant privileges is the FoxSchema gate for the Database tab’s GRANT / REVOKE.
                       Owner has it by default; editor does not.
                     </p>
                   )}
-                  {items.map((m) => {
+                  {open &&
+                    items.map((m) => {
                     const checked = readOnlyRole || draft.has(m.id);
                     return (
                       <label
@@ -585,7 +655,8 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
                     );
                   })}
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
 

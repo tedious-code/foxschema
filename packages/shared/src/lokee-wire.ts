@@ -39,13 +39,6 @@ import type {
 /** How a version came to exist. */
 export type CaptureSource = 'migrate' | 'manual' | 'scan' | 'revert';
 
-/**
- * The subset a client may ask for. `scan` is reachable only in-process (a
- * scheduled sweep), and the route coerces anything else to `manual`, so
- * deriving it keeps the two ends from drifting apart.
- */
-export type CaptureRequestSource = Exclude<CaptureSource, 'scan'>;
-
 export interface CaptureResult {
   databaseId: string;
   versionId: string;

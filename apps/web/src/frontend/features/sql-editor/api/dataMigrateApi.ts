@@ -80,10 +80,6 @@ export async function apiGetDataMigration(id: string): Promise<DataMigrateRunDet
   return run;
 }
 
-export async function apiDeleteDataMigration(id: string): Promise<void> {
-  await api.delete(`/data-migrations/${id}`, undefined, { allowEmpty: true });
-}
-
 export interface DataMigrateExecOp {
   op: 'insert' | 'update' | 'delete';
   key: string;

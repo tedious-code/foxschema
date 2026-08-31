@@ -64,7 +64,3 @@ export function isLikelyTriggerManagedColumn(name: string): boolean {
 export function detectTriggerManagedColumns(columns: string[]): string[] {
   return columns.filter((c) => isLikelyTriggerManagedColumn(c));
 }
-
-export function toIgnoreSet(names: string[]): Set<string> {
-  return new Set(names.map((n) => n.toLowerCase()));
-}

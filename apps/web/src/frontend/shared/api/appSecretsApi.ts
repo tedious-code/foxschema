@@ -67,19 +67,6 @@ export async function createAppSecret(input: {
   return data.secret;
 }
 
-export async function updateAppSecret(
-  id: string,
-  input: {
-    name?: string;
-    source?: AppSecretSource;
-    value?: string;
-    cloudRef?: AppSecretCloudRef;
-  }
-): Promise<AppSecretSummary> {
-  const data = await api.put<{ secret: AppSecretSummary }>(`/app-secrets/${encodeURIComponent(id)}`, input);
-  return data.secret;
-}
-
 export async function deleteAppSecret(id: string): Promise<void> {
   await api.delete<{ ok: boolean }>(`/app-secrets/${encodeURIComponent(id)}`);
 }

@@ -86,6 +86,3 @@ export async function startUiServer(opts: StartUiServerOptions = {}): Promise<St
 export function serverFlavour(): 'fastify' {
   return 'fastify';
 }
-
-/** Retained for callers that only need the SPA fallback path. */
-export const spaFallbackFile = (staticDir: string): string => join(staticDir, 'index.html');

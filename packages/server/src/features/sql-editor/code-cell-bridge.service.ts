@@ -35,8 +35,6 @@ export interface CellDoneMessage {
   result: unknown;
 }
 
-export type WorkerToParent = CellQueryRequest | CellDoneMessage;
-
 export function isCellQueryRequest(msg: unknown): msg is CellQueryRequest {
   if (
     typeof msg !== 'object' ||

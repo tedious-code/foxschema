@@ -23,11 +23,3 @@ export function getDek(email: string): string | null {
 export function setDek(email: string, dek: string): void {
   new Entry(SERVICE, email).setPassword(dek);
 }
-
-export function deleteDek(email: string): void {
-  try {
-    new Entry(SERVICE, email).deletePassword();
-  } catch {
-    /* nothing to delete */
-  }
-}

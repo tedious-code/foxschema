@@ -126,11 +126,6 @@ export function getLogger(options: LoggerOptions = {}): Logger {
   return rootLogger;
 }
 
-/** Test seam — lets a suite install a silent or capturing logger. */
-export function setLogger(logger: Logger | null): void {
-  rootLogger = logger;
-}
-
 /** Narrow the Pino logger to the shape the packages accept. */
 export function asAppLogger(logger: Logger): AppLogger {
   return logger as unknown as AppLogger;

@@ -22,7 +22,6 @@ import { api } from '@/shared/api/client';
 export type { CaptureResult, LokeeDatabase } from '@foxschema/shared';
 export type LokeeVersion = VersionSummary;
 export type LokeeHistoryEvent = ObjectHistoryEntry;
-export type LokeeStoredObject = StoredWeaveObject;
 export type LokeeInspectResult = ObjectInspectResult;
 export type LokeeRevertPlan = RevertPlanWire;
 
@@ -48,17 +47,6 @@ export async function captureSchema(
 export async function listLokeeDatabases(): Promise<LokeeDatabase[]> {
   const body = await api.get<{ databases: LokeeDatabase[] }>(`/lokee/databases`);
   return body.databases ?? [];
-}
-
-export async function listLokeeVersions(
-  databaseId: string,
-  limit = 100
-): Promise<LokeeVersion[]> {
-  const body = await api.get<{ versions: LokeeVersion[] }>(
-    `/lokee/databases/${encodeURIComponent(databaseId)}/versions`,
-    { query: { limit } }
-  );
-  return body.versions ?? [];
 }
 
 /** The DTO the version graph renders. `limit` is a count of versions. */

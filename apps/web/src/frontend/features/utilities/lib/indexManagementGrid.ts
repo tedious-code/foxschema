@@ -63,11 +63,6 @@ export function nextIndexMgmtSort(
   return { key: clicked, dir: 'asc' };
 }
 
-export interface SortableIndexGroup<R> {
-  tableName: string;
-  rows: R[];
-}
-
 /**
  * Sort table groups by a table-level value, and indexes inside each group by
  * an index-level value. Missing values sort last. Table name / index identity

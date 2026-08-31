@@ -100,8 +100,3 @@ export async function ensureFoxschemaSqlLanguage(
     return false;
   }
 }
-
-/** Test helper — reset registration state between unit tests. */
-export function __resetFoxschemaSqlLanguageForTests(): void {
-  foxschemaSqlLanguageReady = false;
-}
