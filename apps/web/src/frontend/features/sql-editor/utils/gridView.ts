@@ -117,9 +117,16 @@ export function cellMatches(value: unknown, filter: GridFilter): boolean {
 
   // Ordering comparisons: numeric when both sides are numbers, else textual,
   // so a date or a name column still answers `>` sensibly.
+  //
+  // Both sides must be non-blank before taking the numeric path. `Number('')`
+  // and `Number('   ')` are 0, so a blank cell would answer `> -1` as true and
+  // sort itself in among the numbers — the same trap `compareCells` guards
+  // against, and it has to be guarded in both or the filter and the sort
+  // disagree about what a blank is.
   const a = Number(hay);
   const b = Number(needle);
-  const numeric = Number.isFinite(a) && Number.isFinite(b) && needle.trim() !== '';
+  const numeric =
+    Number.isFinite(a) && Number.isFinite(b) && hay.trim() !== '' && needle.trim() !== '';
   const cmp = numeric ? (a === b ? 0 : a < b ? -1 : 1) : hay.localeCompare(needle, undefined, { numeric: true });
 
   switch (filter.operator) {

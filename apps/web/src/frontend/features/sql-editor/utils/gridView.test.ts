@@ -77,6 +77,17 @@ describe('cellMatches', () => {
     expect(cellMatches('9', filter(0, 'lt', '10'))).toBe(true); // string from driver
   });
 
+  it('does not treat a blank cell as the number zero', () => {
+    // Number('') is 0, so an unguarded numeric path answers `> -1` as true and
+    // files blanks among the numbers. compareCells already guards this; the
+    // filter has to agree with it or the same column sorts and filters
+    // inconsistently.
+    expect(cellMatches('', filter(0, 'gt', '-1'))).toBe(false);
+    expect(cellMatches('   ', filter(0, 'gt', '-1'))).toBe(false);
+    // And a blank still compares as text, which is where it belongs.
+    expect(cellMatches('', filter(0, 'lt', 'a'))).toBe(true);
+  });
+
   it('still answers an ordering question on text', () => {
     expect(cellMatches('banana', filter(0, 'gt', 'apple'))).toBe(true);
   });
