@@ -81,7 +81,7 @@
     "vitest": "4.1.11"
   },
   "overrides": {
-    "monaco-editor": "0.55.1",
+    "monaco-editor": "0.56.0",
     "nanoid": "3.3.18",
     "postcss": "8.5.26",
     "dompurify": "3.4.13",
