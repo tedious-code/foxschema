@@ -319,6 +319,13 @@ export type { FkRow } from './cores/schema-to-tables.js';
 
 export { autoAliasSelectColumns, type AliasedSelect } from './modules/sql-editor/select-alias.js';
 export {
+  canCreateAccountSomehow,
+  userCreateModes,
+  type UserCreateMode,
+  type UserCreateModeOption,
+  type UserCreateModes,
+} from './modules/access/user-create-mode.js';
+export {
   attributeResultColumns,
   collapsedColumnsFor,
   fromClauseEntries,
