@@ -7,34 +7,32 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { AccessView } from './AccessView';
 
-vi.mock('@/app/store/useSyncStore', () => ({
-  useSyncStore: (sel: (s: {
-    connections: Array<{ id: string; name: string; dialect: string; database?: string; schema?: string }>;
-  }) => unknown) =>
-    sel({
-      connections: [
-        { id: 'c1', name: 'Demo PG', dialect: 'postgres', database: 'app', schema: 'public' },
-        { id: 'c2', name: 'Demo MySQL', dialect: 'mysql', database: 'app' },
-        { id: 'c3', name: 'Demo Db2', dialect: 'db2', database: 'SAMPLE' },
-      ],
-    }),
-}));
+vi.mock('@/app/store/useSyncStore', () => {
+  const state = {
+    connections: [
+      { id: 'c1', name: 'Demo PG', dialect: 'postgres', database: 'app', schema: 'public' },
+      { id: 'c2', name: 'Demo MySQL', dialect: 'mysql', database: 'app' },
+      { id: 'c3', name: 'Demo Db2', dialect: 'db2', database: 'SAMPLE' },
+    ],
+  };
+  return {
+    useSyncStore: (sel: (s: typeof state) => unknown) => sel(state),
+  };
+});
 
-vi.mock('@/app/store/useSqlEditorStore', () => ({
-  useSqlEditorStore: (sel: (s: {
-    sessionPasswords: Record<string, string>;
-    ensureSchema: (id: string) => Promise<void>;
-    schemaCache: Record<string, { status: string; tables: [] }>;
-  }) => unknown) =>
-    sel({
-      sessionPasswords: {},
-      ensureSchema: vi.fn().mockResolvedValue(undefined),
-      schemaCache: {
-        c1: { status: 'ready', tables: [] },
-        c2: { status: 'ready', tables: [] },
-      },
-    }),
-}));
+vi.mock('@/app/store/useSqlEditorStore', () => {
+  const state = {
+    sessionPasswords: {} as Record<string, string>,
+    ensureSchema: vi.fn().mockResolvedValue(undefined),
+    schemaCache: {
+      c1: { status: 'ready', tables: [] as [] },
+      c2: { status: 'ready', tables: [] as [] },
+    },
+  };
+  return {
+    useSqlEditorStore: (sel: (s: typeof state) => unknown) => sel(state),
+  };
+});
 
 const fetchDbAccess = vi.fn();
 const fetchSchemaList = vi.fn();
@@ -333,5 +331,107 @@ describe('AccessView — User Management list + Builder handoff', () => {
       "the previous connection's accounts must not appear under the new one"
     ).toBeNull();
     expect(screen.getByTestId('user-row-only_on_mysql')).toBeTruthy();
+  });
+});
+
+describe('AccessView — Permission Diff stale catalog', () => {
+  beforeEach(() => {
+    Object.assign(navigator, {
+      clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
+    });
+    fetchDbAccess.mockReset();
+    fetchSchemaList.mockReset();
+    fetchSchemaList.mockResolvedValue(['public']);
+  });
+
+  // EXECUTE is outside the default read-only desire, so Diff labels it "extra"
+  // and the table name appears in the panel — that is how we tell catalogs apart.
+  const privilege = (grantee: string, objectName: string): Record<string, unknown> => ({
+    grantee,
+    privilege: 'EXECUTE',
+    objectType: 'TABLE',
+    objectSchema: 'public',
+    objectName,
+    grantable: false,
+    grantor: null,
+    state: 'grant',
+  });
+
+  const catalog = (dialect: string, principal: string, table: string) => ({
+    dialect,
+    schema: 'public',
+    mode: 'native',
+    support: { mode: 'native', query: true, grant: true, hint: '' },
+    principals: [{ name: principal, kind: 'user', canLogin: true, memberOf: [], members: [] }],
+    privileges: [privilege(principal, table)],
+  });
+
+  /**
+   * Switching connection must drop the previous catalog immediately.
+   *
+   * Diff builds reconciliation GRANT/REVOKE from `privileges`. Before this
+   * fix, switching connection left those rows in place, so the panel kept
+   * comparing against database A's grants while naming database B — and the
+   * Copy SQL button handed the reader statements shaped by the wrong catalog.
+   */
+  it('clears reconciliation when the connection changes before a new load', async () => {
+    fetchDbAccess.mockResolvedValue(catalog('postgres', 'alice', 'only_on_postgres'));
+
+    render(<AccessView />);
+    fireEvent.click(screen.getByTestId('access-tab-diff'));
+
+    fireEvent.change(screen.getByTestId('diff-connection'), { target: { value: 'c1' } });
+    fireEvent.change(screen.getByTestId('diff-principal-name'), { target: { value: 'alice' } });
+    fireEvent.click(screen.getByTestId('diff-load-catalog'));
+
+    await waitFor(() => expect(screen.getByTestId('diff-summary')).toBeTruthy());
+    expect(screen.getByTestId('permission-diff').textContent).toMatch(/only_on_postgres/);
+
+    fireEvent.change(screen.getByTestId('diff-connection'), { target: { value: 'c2' } });
+
+    await waitFor(() => expect(screen.getByTestId('diff-empty')).toBeTruthy());
+    expect(screen.getByTestId('diff-empty').textContent).toMatch(/Load the catalog/);
+    expect(screen.queryByTestId('diff-summary')).toBeNull();
+    expect(screen.getByTestId('permission-diff').textContent).not.toMatch(/only_on_postgres/);
+  });
+
+  /**
+   * A slow catalog read must not overwrite the current connection's diff.
+   *
+   * Same race User Management already guards: Oracle answers late, the reader
+   * has moved on, and Diff would otherwise emit reconciliation SQL from the
+   * superseded privileges under the new connection's dialect.
+   */
+  it('ignores a slow privilege catalog that lands after the connection changed', async () => {
+    fetchDbAccess.mockImplementation(async (ref: { connectionId: string }) => {
+      if (ref.connectionId === 'c1') {
+        await new Promise((r) => setTimeout(r, 150));
+        return catalog('postgres', 'alice', 'only_on_postgres');
+      }
+      return catalog('mysql', 'alice', 'only_on_mysql');
+    });
+
+    render(<AccessView />);
+    fireEvent.click(screen.getByTestId('access-tab-diff'));
+
+    fireEvent.change(screen.getByTestId('diff-connection'), { target: { value: 'c1' } });
+    fireEvent.change(screen.getByTestId('diff-principal-name'), { target: { value: 'alice' } });
+    fireEvent.click(screen.getByTestId('diff-load-catalog'));
+    await waitFor(() => expect(fetchDbAccess).toHaveBeenCalled());
+
+    fireEvent.change(screen.getByTestId('diff-connection'), { target: { value: 'c2' } });
+    // Principal is cleared with the panel state only for privileges; keep alice.
+    fireEvent.change(screen.getByTestId('diff-principal-name'), { target: { value: 'alice' } });
+    fireEvent.click(screen.getByTestId('diff-load-catalog'));
+    await waitFor(() => expect(screen.getByTestId('diff-summary')).toBeTruthy());
+    expect(screen.getByTestId('permission-diff').textContent).toMatch(/only_on_mysql/);
+
+    await new Promise((r) => setTimeout(r, 400));
+
+    expect(
+      screen.getByTestId('permission-diff').textContent,
+      "the previous connection's privileges must not drive reconciliation"
+    ).not.toMatch(/only_on_postgres/);
+    expect(screen.getByTestId('permission-diff').textContent).toMatch(/only_on_mysql/);
   });
 });
