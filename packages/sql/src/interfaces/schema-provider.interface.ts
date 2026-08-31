@@ -91,6 +91,14 @@ export interface ProviderConnectionSettings {
  * dialect (pooling, query execution, transactions). Adding a database platform
  * means implementing this in the provider folder — core/modules stay generic.
  */
+/** A result set with duplicate column names intact. */
+export interface PositionalRows {
+  /** Column names in result order — duplicates preserved, as the engine sent them. */
+  columns: string[];
+  /** One array per row, aligned to {@link columns} by index. */
+  rows: unknown[][];
+}
+
 export interface DriverAdapter {
   readonly dialect: string;
   /** npm package that supplies this driver (for install/availability checks). */
@@ -102,6 +110,25 @@ export interface DriverAdapter {
   release(connection: any): Promise<void>;
   /** Run a statement and return rows. */
   query<T = Record<string, unknown>>(connection: any, sql: string, params: readonly unknown[]): Promise<T[]>;
+
+  /**
+   * Run a statement and return rows *positionally*, keeping every column.
+   *
+   * {@link query} returns rows as objects keyed by column name, which is what
+   * every catalog query wants. It cannot represent a join whose tables share a
+   * column name: `SELECT *` over four tables that each have `id` yields one
+   * `id` key holding the last table's value, and the other three columns are
+   * gone before any caller sees them. Nothing errors, and the row that reaches
+   * the grid reads as one record while mixing values from different tables.
+   *
+   * Optional because not every driver can do it. A driver without it keeps the
+   * name-keyed path, so this adds a capability rather than changing a contract.
+   */
+  queryPositional?(
+    connection: any,
+    sql: string,
+    params: readonly unknown[]
+  ): Promise<PositionalRows>;
 
   /** Transaction lifecycle (used by migrations). */
   beginTransaction(connection: any): Promise<void>;

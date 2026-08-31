@@ -18,6 +18,7 @@ export type {
   SavedConnection,
   ProviderConnectionSettings,
   DriverAdapter,
+  PositionalRows,
 } from './interfaces/schema-provider.interface.js';
 export * from './interfaces/diff.types.interface.js';
 export type { MigrationEvent } from './interfaces/migration.types.js';
@@ -317,6 +318,19 @@ export {
 export type { FkRow } from './cores/schema-to-tables.js';
 
 export { autoAliasSelectColumns, type AliasedSelect } from './modules/sql-editor/select-alias.js';
+export {
+  attributeResultColumns,
+  collapsedColumnsFor,
+  fromClauseEntries,
+  rowKeyFor,
+  tablesInOrigins,
+  type AttributeOptions,
+  type CollapsedColumns,
+  type ColumnOrigin,
+  type FromEntry,
+  type OriginConfidence,
+  type RowKeyValue,
+} from './modules/sql-editor/column-origin.js';
 export {
   ACCESS_PERMISSIONS,
   ACCESS_PRESETS,

@@ -446,6 +446,20 @@ export const DataGrid: React.FC<{
    */
   linkColumns?: Map<number, string>;
   onLinkClick?: (colIdx: number, rowIdx: number) => void;
+  /**
+   * Source table per result column, for joined results — `index → table`.
+   *
+   * A join returns three columns called `id` and the header cannot tell them
+   * apart. Shown beside the type, so the row does not get taller.
+   */
+  columnSources?: Map<number, string>;
+  /**
+   * For a joined grid: the table this cell's row can be opened in, or
+   * undefined when it cannot (no primary key in the result, or a NULL key from
+   * an outer join that did not match).
+   */
+  openRowTarget?: (colIdx: number, rowIdx: number) => string | undefined;
+  onOpenRow?: (colIdx: number, rowIdx: number) => void;
   /** Highlight a selected result row (Data Peek / editable query results). */
   selectedRowIndex?: number | null;
   onSelectRow?: (rowIdx: number) => void;
@@ -485,6 +499,9 @@ export const DataGrid: React.FC<{
     onNextPage,
     linkColumns,
     onLinkClick,
+    columnSources,
+    openRowTarget,
+    onOpenRow,
     selectedRowIndex = null,
     onSelectRow,
     toolbarExtra,
@@ -504,7 +521,7 @@ export const DataGrid: React.FC<{
   );
   const [fittedCols, setFittedCols] = useState<Set<number>>(() => new Set());
   const [menu, setMenu] = useState<
-    | { kind: 'cell'; x: number; y: number; colIdx: number; value: unknown }
+    | { kind: 'cell'; x: number; y: number; colIdx: number; rowIdx: number; value: unknown }
     | { kind: 'column'; x: number; y: number; colIdx: number }
     | { kind: 'grid'; x: number; y: number }
     | null
@@ -973,7 +990,12 @@ export const DataGrid: React.FC<{
                       key={`${colIdx}-${name}`}
                       draggable
                       data-testid="sql-col-header"
-                      title={`${name} (${KIND_LABEL[kind]}) — drag to reorder; double-click to fit/reset width; right-click for list variable`}
+                      title={
+                        (columnSources?.get(colIdx)
+                          ? `${columnSources.get(colIdx)}.${name} (${KIND_LABEL[kind]})`
+                          : `${name} (${KIND_LABEL[kind]})`) +
+                        ' — drag to reorder; double-click to fit/reset width; right-click for list variable'
+                      }
                       onDoubleClick={(e) => {
                         e.preventDefault();
                         onHeaderDoubleClick(colIdx);
@@ -1030,8 +1052,19 @@ export const DataGrid: React.FC<{
                         <span className="min-w-0 flex flex-col leading-tight">
                           <span className="truncate text-[var(--fox-grid-ink)]">{name}</span>
                           <span
-                            className={`${emphasis ? 'text-[10px] font-bold' : 'text-[9px] font-semibold'} uppercase tracking-wider ${KIND_HEADER_CLASS[kind]}`}
+                            className={`${emphasis ? 'text-[10px] font-bold' : 'text-[9px] font-semibold'} uppercase tracking-wider truncate ${KIND_HEADER_CLASS[kind]}`}
                           >
+                            {columnSources?.get(colIdx) ? (
+                              <>
+                                <span
+                                  data-testid={`sql-col-source-${colIdx}`}
+                                  className="text-violet-300/90"
+                                >
+                                  {columnSources.get(colIdx)}
+                                </span>
+                                <span className="opacity-60"> · </span>
+                              </>
+                            ) : null}
                             {KIND_LABEL[kind]}
                           </span>
                         </span>
@@ -1164,6 +1197,7 @@ export const DataGrid: React.FC<{
                               x: e.clientX,
                               y: e.clientY,
                               colIdx,
+                              rowIdx: i,
                               value: cell,
                             });
                           }}
@@ -1393,6 +1427,19 @@ export const DataGrid: React.FC<{
         >
           {sourceColumns.length > 0 && (
             <>
+              {menu.kind === 'cell' && openRowTarget?.(menu.colIdx, menu.rowIdx) && (
+                <button
+                  type="button"
+                  data-testid="sql-grid-ctx-open-row"
+                  className="w-full text-left px-3 py-1.5 text-violet-200 hover:bg-slate-800"
+                  onClick={() => {
+                    onOpenRow?.(menu.colIdx, menu.rowIdx);
+                    setMenu(null);
+                  }}
+                >
+                  Open {openRowTarget(menu.colIdx, menu.rowIdx)} row
+                </button>
+              )}
               {menu.kind === 'cell' && (
                 <button
                   type="button"

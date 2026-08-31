@@ -87,7 +87,25 @@ describe.skipIf(configured.length === 0)('Access Assistant (all configured diale
     await driver.reload();
     await driver.waitForSelector('[data-testid="toolbar"]', { timeout: 30_000 });
 
-    for (const dialect of configured) {
+  
+  /**
+   * A run that reached no database proved nothing, so it must not report green.
+   *
+   * Every per-dialect test skips when its connection could not be made, which is
+   * right for one sick container — but when *all* of them skip, vitest still
+   * reports the file as passed. That is how a suite comes to certify engines it
+   * never touched: the API process had died, every connection failed, and forty
+   * skipped tests looked like success.
+   */
+  it('reached at least one database', () => {
+    expect(
+      credNameByDialect.size,
+      `no connection could be made to any of: ${configured.join(', ')}. ` +
+        `Reasons: ${[...unreachable.entries()].map(([d, why]) => `${d}: ${why}`).join(' | ') || 'none recorded'}`
+    ).toBeGreaterThan(0);
+  });
+
+  for (const dialect of configured) {
       const cfg = getSourceConfig(dialect)!;
       const name = `E2E Access ${dialect} ${runId}`;
       try {
@@ -292,7 +310,7 @@ describe.skipIf(configured.length === 0)('Access Assistant (all configured diale
           // A container that is down, or a catalog this account cannot read,
           // says so. Anything else is the diff itself being broken.
           expect(await failed.innerText(), `${dialect} failed to diff`).toMatch(
-            /not responding|ECONNREFUSED|timed? ?out|terminated|refused|too many requests|permission|privileg/i
+            /not responding|ECONNREFUSED|timed? ?out|terminated|refused|too many requests|permission|privileg|recovery mode|starting up|shutting down/i
           );
           return;
         }

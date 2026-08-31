@@ -124,29 +124,51 @@ describe.skipIf(configured.length === 0)('Database Access · User Management', (
     await sql.resetPersistedEditorState();
     await driver.reload();
     await driver.waitForSelector('[data-testid="toolbar"]', { timeout: 30_000 });
+  }, 120_000);
 
-    for (const dialect of configured) {
-      const cfg = getSourceConfig(dialect)!;
-      const name = `E2E DbAccess ${dialect} ${runId}`;
-      try {
-        await sql.addCredential(name, cfg);
-        credNameByDialect.set(dialect, name);
-      } catch (err) {
-        // An unreachable container is not a product failure; the per-dialect
-        // tests skip below rather than reporting a red suite. But a silent
-        // catch here is how a suite comes to pass without testing anything,
-        // so the reason is always printed.
-        unreachable.set(dialect, err instanceof Error ? err.message : String(err));
-        // eslint-disable-next-line no-console
-        console.warn(`[db-access] no connection for ${dialect}: ${unreachable.get(dialect)}`);
-        await driver.reload();
-        await driver.waitForSelector('[data-testid="toolbar"]', { timeout: 30_000 });
-      }
+  /**
+   * Save this dialect's connection, once, the first time its tests need it.
+   *
+   * Deliberately not a loop in the shared `beforeAll`. Creating all fourteen up
+   * front costs the sum of every unhealthy container's timeouts — Oracle alone
+   * spends 15s failing to connect, Db2 and CockroachDB 25s each — and when that
+   * total crossed the hook timeout the hook failed, which skips *every* test in
+   * the file. One sick container then hid the results for all thirteen other
+   * engines, which is the opposite of what this suite is for.
+   *
+   * Per dialect, a failure costs only that dialect's tests.
+   */
+  async function ensureConnection(dialect: string): Promise<string | null> {
+    if (credNameByDialect.has(dialect)) return credNameByDialect.get(dialect)!;
+    if (unreachable.has(dialect)) return null;
+
+    const cfg = getSourceConfig(dialect)!;
+    const name = `E2E DbAccess ${dialect} ${runId}`;
+    try {
+      await sql.addCredential(name, cfg);
+      credNameByDialect.set(dialect, name);
+      return name;
+    } catch (err) {
+      // An unreachable container is not a product failure. But a silent catch
+      // is how a suite comes to pass without testing anything, so the reason is
+      // always printed and the tests below skip rather than report green.
+      unreachable.set(dialect, err instanceof Error ? err.message : String(err));
+      // eslint-disable-next-line no-console
+      console.warn(`[db-access] no connection for ${dialect}: ${unreachable.get(dialect)}`);
+      await driver.reload().catch(() => undefined);
+      await driver
+        .waitForSelector('[data-testid="toolbar"]', { timeout: 30_000 })
+        .catch(() => undefined);
+      return null;
     }
+  }
 
+  /** Put the browser on the Access view, whatever it was showing before. */
+  async function openAccessView(): Promise<void> {
+    if ((await driver.locator('[data-testid="access-view"]').count()) > 0) return;
     await driver.locator('[data-testid="view-access-btn"]').click();
     await driver.waitForSelector('[data-testid="access-view"]', { timeout: 20_000 });
-  }, 600_000);
+  }
 
   afterAll(async () => {
     // Remove this run's saved connections. Without it every run left one per
@@ -241,18 +263,22 @@ describe.skipIf(configured.length === 0)('Database Access · User Management', (
     }
   }
 
+
   // ── Per dialect ───────────────────────────────────────────────────────────
 
   for (const dialect of configured) {
     describe(dialect, () => {
-      beforeEach((ctx) => {
-        if (!credNameByDialect.has(dialect)) {
+      beforeEach(async (ctx) => {
+        const name = await ensureConnection(dialect);
+        if (!name) {
           // Skipped, never passed: a test that cannot reach its database has
           // established nothing, and reporting it green is how this suite
           // would come to certify an engine it never touched.
           ctx.skip(`${dialect} unreachable: ${unreachable.get(dialect) ?? 'no connection'}`);
+          return;
         }
-      });
+        await openAccessView();
+      }, 120_000);
 
       it('lists the accounts the database actually has', async () => {
         await driver.locator('[data-testid="access-tab-users"]').click();
@@ -566,4 +592,21 @@ describe.skipIf(configured.length === 0)('Database Access · User Management', (
       }, 120_000);
     });
   }
+
+  /**
+   * A run that reached no database proved nothing, so it must not report green.
+   *
+   * Every per-dialect test skips when its connection could not be made, which is
+   * right for one sick container — but when *all* of them skip, vitest still
+   * reports the file as passed. That is how a suite comes to certify engines it
+   * never touched: the API process had died, every connection failed, and forty
+   * skipped tests looked like success.
+   */
+  it('reached at least one database', () => {
+    expect(
+      credNameByDialect.size,
+      `no connection could be made to any of: ${configured.join(', ')}. ` +
+        `Reasons: ${[...unreachable.entries()].map(([d, why]) => `${d}: ${why}`).join(' | ') || 'none recorded'}`
+    ).toBeGreaterThan(0);
+  });
 });

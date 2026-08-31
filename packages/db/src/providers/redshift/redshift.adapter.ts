@@ -2,7 +2,7 @@ import { createRequire } from 'node:module';
 import { ConnectionOptions, DriverAdapter } from '@foxschema/sql';
 import { assertSafeIdentifier } from '../../cores/sql-identifier';
 import { BoundedPoolCache, disposePoolEndOrClose } from '../../cores/pool-cache';
-import { guardPoolErrors } from '../../cores/pool-error-guard';
+import { guardClientErrors, guardPoolErrors } from '../../cores/pool-error-guard';
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -40,7 +40,9 @@ class RedshiftAdapter implements DriverAdapter {
       });
       return guardPoolErrors(pool, 'redshift');
     });
-    return pool.connect();
+    // The pool's guard covers idle connections; a checked-out client emits
+    // `'error'` on itself, and an unhandled one takes the process down.
+    return guardClientErrors(await pool.connect(), 'redshift');
   }
 
   async release(connection: any): Promise<void> {
@@ -50,6 +52,23 @@ class RedshiftAdapter implements DriverAdapter {
   async query<T = Record<string, unknown>>(connection: any, sql: string, params: readonly unknown[]): Promise<T[]> {
     const result = await connection.query(sql, params as unknown[]);
     return result.rows as T[];
+  }
+
+  /**
+   * `rowMode: 'array'` makes pg hand back arrays plus a field list, so a join
+   * with two `id` columns keeps both. The default object mode cannot: the row
+   * object has one `id` key and the earlier column is lost.
+   */
+  async queryPositional(connection: any, sql: string, params: readonly unknown[]) {
+    const result = await connection.query({
+      text: sql,
+      values: params as unknown[],
+      rowMode: 'array',
+    });
+    return {
+      columns: (result.fields ?? []).map((f: { name: string }) => f.name),
+      rows: (result.rows ?? []) as unknown[][],
+    };
   }
 
   async beginTransaction(connection: any): Promise<void> {

@@ -87,6 +87,29 @@ export function shapeRows(raw: unknown, maxRows: number): Omit<StatementResultOk
 }
 
 /**
+ * Shape positional driver rows for the grid.
+ *
+ * The counterpart to {@link shapeRows} for drivers that can return rows as
+ * arrays. Duplicate column names survive here, which is the whole point: a
+ * join selecting `id` from four tables keeps four `id` columns instead of one.
+ */
+export function shapePositional(
+  raw: { columns: string[]; rows: unknown[][] },
+  maxRows: number
+): Omit<StatementResultOk, 'ok' | 'durationMs'> {
+  const all = Array.isArray(raw.rows) ? raw.rows : [];
+  const truncated = all.length > maxRows;
+  const kept = truncated ? all.slice(0, maxRows) : all;
+  const columns = Array.isArray(raw.columns) ? raw.columns : [];
+  return {
+    columns,
+    rows: kept.map((r) => columns.map((_, i) => serializeCell(r?.[i]))),
+    rowCount: kept.length,
+    truncated,
+  };
+}
+
+/**
  * Run statements in order against one credential, isolating failures per statement.
  * Applies `schema` the same way migration does (connection option + adapter
  * setCurrentSchema) so unqualified names resolve — e.g. DB2 CURRENT SCHEMA
@@ -130,13 +153,20 @@ export async function runStatements(
         results.push({ ok: false, error: message, durationMs: Date.now() - started });
       };
       const pushUnwrappedOk = async () => {
-        const raw = await ConnectionFactory.executeOnConnection<Record<string, unknown>>(
-          dialect,
-          connection,
-          sql,
-          params
-        );
-        const shaped = shapeRows(raw, maxRows);
+        // Positional first: it is the only path that survives a join whose
+        // tables share a column name. Drivers without it keep the old one.
+        const positional = ConnectionFactory.executePositional(dialect, connection, sql, params);
+        const shaped = positional
+          ? shapePositional(await positional, maxRows)
+          : shapeRows(
+              await ConnectionFactory.executeOnConnection<Record<string, unknown>>(
+                dialect,
+                connection,
+                sql,
+                params
+              ),
+              maxRows
+            );
         results.push({
           ok: true,
           ...shaped,
@@ -162,13 +192,18 @@ export async function runStatements(
 
       const paged = wrapSqlForPage(sql, dialect, offset, maxRows);
       try {
-        const raw = await ConnectionFactory.executeOnConnection<Record<string, unknown>>(
-          dialect,
-          connection,
-          paged,
-          params
-        );
-        const shaped = shapeRows(raw, maxRows + 1);
+        const positional = ConnectionFactory.executePositional(dialect, connection, paged, params);
+        const shaped = positional
+          ? shapePositional(await positional, maxRows + 1)
+          : shapeRows(
+              await ConnectionFactory.executeOnConnection<Record<string, unknown>>(
+                dialect,
+                connection,
+                paged,
+                params
+              ),
+              maxRows + 1
+            );
         const page = trimPageProbe(shaped, maxRows);
         results.push({
           ok: true,

@@ -25,6 +25,7 @@ import { beamAliasesForCount, MAX_SERVERS } from '@foxschema/shared';
 import { buildSampleBookmarks } from '@/shared/lib/sqlEditorSamples';
 import {
   buildForeignKeyDrilldown,
+  buildRowLookup,
   buildTablePreview,
   composePeekSql,
 } from '@/shared/lib/tablePreview';
@@ -496,6 +497,19 @@ interface SqlEditorState {
     connectionId: string,
     fk: ForeignKeyInfo,
     values: unknown[]
+  ) => Promise<void>;
+  /**
+   * Open one row of one table, given its key — the way out of a joined result.
+   *
+   * A join cannot be edited: its rows are not rows of any single table, and a
+   * fanned-out parent appears many times over. Re-fetching the row from its own
+   * table gives a single-table grid, which the existing CRUD path can edit
+   * safely without the join ever becoming writable.
+   */
+  openDataPeekForRow: (
+    connectionId: string,
+    tableName: string,
+    keys: readonly { column: string; value: unknown }[]
   ) => Promise<void>;
   drillDataPeek: (
     fromEntryId: string,
@@ -1739,6 +1753,32 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           id: `peek-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           title: `${fk.referencedTable} · ${label}`,
           tableName: fk.referencedTable,
+          baseSql: built.sql,
+          baseParams: built.params,
+          whereClause: '',
+          orderByClause: '',
+          limit: DATA_PEEK_ROWS,
+          pageIndex: 0,
+          sql: composed.sql,
+          params: composed.params,
+          status: 'loading',
+        };
+        set({ dataPeek: { connectionId, dialect: conn.dialect, entries: [entry] } });
+        await get().runDataPeekEntry(entry.id);
+      },
+
+      openDataPeekForRow: async (connectionId, tableName, keys) => {
+        const conn = useSyncStore.getState().connections.find((c) => c.id === connectionId);
+        if (!conn) return;
+        const built = buildRowLookup(tableName, keys, conn.dialect);
+        if (!built) return;
+        const composed = composePeekSql(built.sql, built.params, {});
+        if ('error' in composed) return;
+        const label = keys.map((k) => `${k.column} = ${String(k.value)}`).join(', ');
+        const entry: DataPeekEntry = {
+          id: `peek-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          title: `${tableName} · ${label}`,
+          tableName,
           baseSql: built.sql,
           baseParams: built.params,
           whereClause: '',
