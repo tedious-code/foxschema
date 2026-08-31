@@ -1,4 +1,4 @@
-import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api';
+import type * as Monaco from 'monaco-editor/editor/editor.api';
 import { extractTableAliases } from '@/shared/lib/sql-splitter';
 import { isInFromTablePosition, suggestTableAlias } from '@/features/sql-editor/lib/selectClauseEdit';
 import { projectToVirtualDoc } from '@/features/sql-editor/lib/foxscriptVirtualDocs';

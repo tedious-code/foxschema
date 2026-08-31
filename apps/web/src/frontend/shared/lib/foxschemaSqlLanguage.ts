@@ -1,4 +1,4 @@
-import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api';
+import type * as Monaco from 'monaco-editor/editor/editor.api';
 
 /** Legacy id — kept for compatibility with existing completions / themes. */
 export const FOXSCHEMA_SQL_LANG = 'foxschema-sql';
@@ -81,11 +81,11 @@ export async function ensureFoxschemaSqlLanguage(
 
   try {
     await Promise.all([
-      import('monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution'),
-      import('monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'),
+      import('monaco-editor/languages/definitions/javascript/register'),
+      import('monaco-editor/languages/definitions/typescript/register'),
     ]);
     const { conf: sqlConf, language: sqlLanguage } = await import(
-      'monaco-editor/esm/vs/basic-languages/sql/sql'
+      'monaco-editor/languages/definitions/sql/sql'
     );
 
     registerLanguageId(monaco, FOXSCHEMA_SQL_LANG, ['FoxSchema SQL']);
