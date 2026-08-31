@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { RefreshCw, ArrowDown, ShieldX, Check, X, AlertTriangle, Info } from 'lucide-react';
 import { fetchDbAccess } from '@/shared/api/schemaApi';
 import { useSyncStore } from '@/app/store/useSyncStore';
@@ -34,11 +34,14 @@ export const PermissionInspector: React.FC = () => {
     privileges: DbPrivilege[];
     hint?: string;
   } | null>(null);
+  const loadToken = useRef(0);
 
   const conn = connections.find((c) => c.id === connectionId) || null;
 
   const load = async () => {
     if (!connectionId) return;
+    const token = ++loadToken.current;
+    const superseded = () => loadToken.current !== token;
     setLoading(true);
     setError(null);
     try {
@@ -46,6 +49,7 @@ export const PermissionInspector: React.FC = () => {
         { connectionId, password: sessionPasswords[connectionId] || undefined },
         { schema: schema || undefined }
       );
+      if (superseded()) return;
       setData({
         principals: res.principals ?? [],
         privileges: res.privileges ?? [],
@@ -53,10 +57,11 @@ export const PermissionInspector: React.FC = () => {
       });
       if (!principalName && res.principals?.length) setPrincipalName(res.principals[0].name);
     } catch (e: unknown) {
+      if (superseded()) return;
       setError(e instanceof Error ? e.message : String(e));
       setData(null);
     } finally {
-      setLoading(false);
+      if (!superseded()) setLoading(false);
     }
   };
 
@@ -87,9 +92,12 @@ export const PermissionInspector: React.FC = () => {
             data-testid="inspector-connection"
             value={connectionId}
             onChange={(e) => {
+              loadToken.current++;
               setConnectionId(e.target.value);
               setData(null);
               setPrincipalName('');
+              setError(null);
+              setLoading(false);
             }}
             className={inputCls}
           >

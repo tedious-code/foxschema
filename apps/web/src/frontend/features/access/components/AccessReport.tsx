@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { RefreshCw, AlertTriangle, Users, KeyRound, Search, UserCog } from 'lucide-react';
 import { fetchDbAccess } from '@/shared/api/schemaApi';
 import { useSyncStore } from '@/app/store/useSyncStore';
@@ -30,11 +30,14 @@ export const AccessReport: React.FC = () => {
   const [data, setData] = useState<{ principals: DbPrincipal[]; privileges: DbPrivilege[] } | null>(
     null
   );
+  const loadToken = useRef(0);
 
   const conn = connections.find((c) => c.id === connectionId) || null;
 
   const load = async () => {
     if (!connectionId) return;
+    const token = ++loadToken.current;
+    const superseded = () => loadToken.current !== token;
     setLoading(true);
     setError(null);
     try {
@@ -42,12 +45,14 @@ export const AccessReport: React.FC = () => {
         { connectionId, password: sessionPasswords[connectionId] || undefined },
         { schema: schema || undefined }
       );
+      if (superseded()) return;
       setData({ principals: res.principals ?? [], privileges: res.privileges ?? [] });
     } catch (e: unknown) {
+      if (superseded()) return;
       setError(e instanceof Error ? e.message : String(e));
       setData(null);
     } finally {
-      setLoading(false);
+      if (!superseded()) setLoading(false);
     }
   };
 
@@ -81,8 +86,11 @@ export const AccessReport: React.FC = () => {
             data-testid="report-connection"
             value={connectionId}
             onChange={(e) => {
+              loadToken.current++;
               setConnectionId(e.target.value);
               setData(null);
+              setError(null);
+              setLoading(false);
             }}
             className={inputCls}
           >

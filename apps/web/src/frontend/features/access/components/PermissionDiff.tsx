@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Copy, Check, AlertTriangle, RefreshCw, Plus, Trash2 } from 'lucide-react';
 import {
   accessCapabilities,
@@ -79,11 +79,21 @@ export const PermissionDiff: React.FC = () => {
    *
    * Kept as the id rather than a boolean so switching connection reverts the
    * panel to "not loaded" instead of describing the previous database's read.
+   * Diff and reconciliation SQL must only use privileges when this matches
+   * the selected connection — otherwise a stale catalog from another database
+   * generates GRANT/REVOKE the reader would paste against the wrong engine.
    */
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  /**
+   * Which catalog read is current. Same race User Management fixed: Oracle is
+   * slow, switching mid-read lets the old response land afterwards and drive
+   * reconciliation SQL from the wrong database's privileges.
+   */
+  const loadToken = useRef(0);
 
   const catalog = useAccessCatalog(connectionId, conn);
   const caps = useMemo(() => accessCapabilities(dialect), [dialect]);
@@ -107,6 +117,18 @@ export const PermissionDiff: React.FC = () => {
       return changed ? next : prev;
     });
   }, [caps]);
+
+  // Drop the previous connection's privileges the moment the selection changes.
+  // Without this, privileges.length > 0 keeps feeding diff/reconciliation from
+  // the old database while the UI already names the new one.
+  useEffect(() => {
+    loadToken.current++;
+    setPrivileges([]);
+    setLoadedFor(null);
+    setLoadError(null);
+    setLoading(false);
+  }, [connectionId]);
+
   const principalOptions = useMemo(
     () =>
       catalog.principalOptions.filter((o) => {
@@ -128,10 +150,12 @@ export const PermissionDiff: React.FC = () => {
     [principalType, principalName, requests]
   );
 
+  const catalogReady = loadedFor === connectionId && connectionId !== '';
+
   const diff = useMemo(() => {
-    if (!principalName.trim() || privileges.length === 0) return null;
+    if (!principalName.trim() || !catalogReady || privileges.length === 0) return null;
     return diffAccessDesired(desired, privileges);
-  }, [desired, privileges, principalName]);
+  }, [desired, privileges, principalName, catalogReady]);
 
   const reconciliation = useMemo(() => {
     if (!diff || !dialect) return null;
@@ -154,6 +178,8 @@ export const PermissionDiff: React.FC = () => {
 
   const loadCatalog = async () => {
     if (!connectionId || !conn) return;
+    const token = ++loadToken.current;
+    const superseded = () => loadToken.current !== token;
     setLoading(true);
     setLoadError(null);
     try {
@@ -161,12 +187,16 @@ export const PermissionDiff: React.FC = () => {
         { connectionId, password: sessionPasswords[connectionId] || undefined },
         { schema: conn?.schema || undefined }
       );
+      if (superseded()) return;
       setPrivileges(res.privileges ?? []);
       setLoadedFor(connectionId);
     } catch (e) {
+      if (superseded()) return;
       setLoadError(e instanceof Error ? e.message : String(e));
+      setPrivileges([]);
+      setLoadedFor(null);
     } finally {
-      setLoading(false);
+      if (!superseded()) setLoading(false);
     }
   };
 
@@ -319,9 +349,9 @@ export const PermissionDiff: React.FC = () => {
             // comes back with no privilege rows.
             <EmptyState
               testId="diff-empty"
-              title={loadedFor === connectionId ? 'No privileges found' : 'Load the catalog'}
+              title={catalogReady ? 'No privileges found' : 'Load the catalog'}
               body={
-                loadedFor === connectionId
+                catalogReady
                   ? 'The catalog loaded, but this database reported no privileges to compare against. Anything you ask for below will show as missing.'
                   : 'Load the catalog to compare desired vs live privileges.'
               }
