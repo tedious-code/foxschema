@@ -3,6 +3,7 @@ import { ConnectionOptions, DriverAdapter } from '@foxschema/sql';
 import { assertSafeIdentifier } from '../../cores/sql-identifier';
 import { BoundedPoolCache, disposePoolEndOrClose } from '../../cores/pool-cache';
 import { guardClientErrors, guardPoolErrors } from '../../cores/pool-error-guard';
+import { connectTimeoutMs } from '../../cores/timeouts';
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -34,7 +35,7 @@ class PostgresAdapter implements DriverAdapter {
         max: options.pool?.max ?? 10,
         min: options.pool?.min ?? 1,
         idleTimeoutMillis: options.pool?.idleTimeoutMs ?? 30000,
-        connectionTimeoutMillis: options.timeout?.connectMs ?? 10000,
+        connectionTimeoutMillis: connectTimeoutMs(options, 10_000),
         ssl: options.ssl?.enabled
           ? {
               rejectUnauthorized: options.ssl.rejectUnauthorized ?? false,

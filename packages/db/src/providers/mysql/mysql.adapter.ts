@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import { ConnectionOptions, DriverAdapter } from '@foxschema/sql';
 import { BoundedPoolCache, disposePoolEndOrClose } from '../../cores/pool-cache';
 import { guardPoolErrors } from '../../cores/pool-error-guard';
+import { connectTimeoutMs } from '../../cores/timeouts';
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -48,7 +49,7 @@ class MysqlAdapter implements DriverAdapter {
       const conn = await mysql.createConnection({
         uri: connectionString,
         ssl,
-        connectTimeout: options.timeout?.connectMs ?? 10000,
+        connectTimeout: connectTimeoutMs(options, 10_000),
         multipleStatements: false,
       });
       // Tag so release() knows to fully close it instead of returning to a pool.
@@ -62,7 +63,7 @@ class MysqlAdapter implements DriverAdapter {
           uri: connectionString,
           ssl,
           connectionLimit: options.pool?.max ?? 10,
-          connectTimeout: options.timeout?.connectMs ?? 10000,
+          connectTimeout: connectTimeoutMs(options, 10_000),
           waitForConnections: true,
           multipleStatements: false,
         }),

@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import { ConnectionOptions, DriverAdapter, parseSqlSubset, subsetValue } from '@foxschema/sql';
 import { credentialedCacheKey } from '../../cores/pool-cache';
+import { connectTimeoutMs } from '../../cores/timeouts';
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -56,7 +57,7 @@ class MongoDbAdapter implements DriverAdapter {
     let entry = this.clients.get(key);
     if (!entry) {
       const client = new MongoClient(connectionString, {
-        serverSelectionTimeoutMS: options.timeout?.connectMs ?? 10_000,
+        serverSelectionTimeoutMS: connectTimeoutMs(options, 10_000),
       });
       await client.connect();
       entry = { client, database };
