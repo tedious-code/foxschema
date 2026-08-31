@@ -5,6 +5,7 @@ import {
   credentialedCacheKey,
   disposePoolEndOrClose,
 } from '../../cores/pool-cache';
+import { connectTimeoutSeconds } from '../../cores/timeouts';
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -71,7 +72,7 @@ class OracleAdapter implements DriverAdapter {
         poolMax: options.pool?.max ?? 10,
         poolMin: options.pool?.min ?? 1,
         poolTimeout: Math.ceil((options.pool?.idleTimeoutMs ?? 60000) / 1000),
-        connectTimeout: Math.ceil((options.timeout?.connectMs ?? 15000) / 1000),
+        connectTimeout: connectTimeoutSeconds(options, 15_000),
       })
     );
     const conn = await pool.getConnection();

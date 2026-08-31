@@ -95,7 +95,16 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   router.use(createSchemaRoutes({ resolveRef, connectionModule, loadScopedTables }));
   router.use(createDataMigrateRoutes({ resolveRef, dataMigrateHistory }));
   router.use(createMigrationRoutes({ resolveRef, migrationModule, migrationHistory, connectionModule, sqlGenerator, captureLiveSchema, normalizeTableSchemas }));
-  router.use(createEditorRoutes({ resolveRef, MAX_STATEMENTS, MAX_STATEMENT_LENGTH, isRunnableStatement }));
+  router.use(
+    createEditorRoutes({
+      resolveRef,
+      MAX_STATEMENTS,
+      MAX_STATEMENT_LENGTH,
+      isRunnableStatement,
+      testConnection: (dialect, option) =>
+        connectionModule.testConnection(dialect, option as ConnectionOptions),
+    })
+  );
   router.use(createHistoryRoutes({ lokee: lokeeWeave, captureLiveSchema, resolveRef, migrationModule }));
 
   const LOKEE_FULL_SCOPE: DbObjectType[] = [

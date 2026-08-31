@@ -12,6 +12,7 @@ import {
   resolveAuthMethod,
   type ConnectionOptions,
 } from '@foxschema/sql';
+import { connectTimeoutMs, queryTimeoutMs } from '../../cores/timeouts';
 
 export function buildMssqlPoolConfig(
   options: ConnectionOptions,
@@ -28,8 +29,8 @@ export function buildMssqlPoolConfig(
     options: {
       encrypt: extras.encryptDefault ? true : (options.ssl?.enabled ?? false),
       trustServerCertificate: options.ssl?.rejectUnauthorized === false,
-      connectTimeout: options.timeout?.connectMs ?? 15000,
-      requestTimeout: options.timeout?.queryMs ?? 30000,
+      connectTimeout: connectTimeoutMs(options, 15_000),
+      requestTimeout: queryTimeoutMs(options, 30_000),
     },
     pool: {
       max: options.pool?.max ?? 10,

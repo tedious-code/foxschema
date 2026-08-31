@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import { ConnectionOptions, DriverAdapter } from '@foxschema/sql';
 import { credentialedCacheKey } from '../../cores/pool-cache';
+import { queryTimeoutMs } from '../../cores/timeouts';
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -83,7 +84,7 @@ class ClickHouseAdapter implements DriverAdapter {
       username,
       password,
       database,
-      request_timeout: options.timeout?.queryMs ?? 30000,
+      request_timeout: queryTimeoutMs(options, 30_000),
       compression: { response: true, request: false },
     });
     this.clients.set(clientKey, client);

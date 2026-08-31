@@ -39,6 +39,30 @@ export interface EditorRouteDeps {
   MAX_STATEMENTS: number;
   MAX_STATEMENT_LENGTH: number;
   isRunnableStatement: (s: unknown) => boolean;
+  /**
+   * Prove an endpoint is reachable before a Server Beam cell runs.
+   *
+   * Optional so a caller that has no probe simply keeps the old behaviour of
+   * finding out mid-cell.
+   */
+  testConnection?: (
+    dialect: string,
+    option: unknown
+  ) => Promise<{ success: boolean; version?: string }>;
+}
+
+/**
+ * `host:port/database` for an error message.
+ *
+ * Built field by field rather than from the connection string, which carries
+ * the password — this text reaches the browser and the toast.
+ */
+function describeEndpoint(resolved: { option?: Record<string, unknown> }): string {
+  const o = (resolved.option ?? {}) as Record<string, unknown>;
+  const host = typeof o.host === 'string' && o.host ? o.host : 'the configured host';
+  const port = typeof o.port === 'number' && o.port ? `:${o.port}` : '';
+  const db = typeof o.database === 'string' && o.database ? `/${o.database}` : '';
+  return `${host}${port}${db}`;
 }
 
 export function createEditorRoutes(deps: EditorRouteDeps): Router {
@@ -187,6 +211,35 @@ export function createEditorRoutes(deps: EditorRouteDeps): Router {
             connectionId: ep.connectionId,
             password: ep.password,
           });
+          // Reach every endpoint before running anything.
+          //
+          // A Beam cell is usually a copy: `sql.on('source')` reads and
+          // `sql.on('target')` writes. Discovering the target is unreachable
+          // only when the write is attempted means the read side has already
+          // run — and on a cell that also deletes or stages rows, half the work
+          // is done with no way to finish it. Failing here costs one round trip
+          // and leaves nothing half-applied.
+          if (deps.testConnection) {
+            let reachable = false;
+            let why = '';
+            try {
+              const probe = await deps.testConnection(resolved.dialect, resolved.option);
+              reachable = probe.success;
+              if (!reachable) why = 'the server refused the connection';
+            } catch (error: unknown) {
+              why = error instanceof Error ? error.message : String(error);
+            }
+            if (!reachable) {
+              sendError(
+                res,
+                'unavailable',
+                `Server Beam cannot reach sql.on('${ep.alias}') — ${resolved.dialect} ` +
+                  `at ${describeEndpoint(resolved)}. ${why || 'Connection failed.'} ` +
+                  'Nothing was run.'
+              );
+              return;
+            }
+          }
           byAlias.set(ep.alias, makeCellQueryRunner(resolved, policy));
           beamDialects[ep.alias] = resolved.dialect;
         }
