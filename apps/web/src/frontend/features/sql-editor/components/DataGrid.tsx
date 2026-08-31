@@ -12,9 +12,23 @@ import { CELL_DIFF_CLASS, type CellDiffKind } from '@/features/sql-editor/lib/re
 import { columnToListValues, rowsForTableVariable } from '@/shared/lib/sql-variables';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { toast } from '@/app/store/toastStore';
-import { pickColumns, sliceGridRange, toTsv, writeClipboard, type GridRange } from '@/features/sql-editor/utils/copyGrid';
+import {
+  pickColumns,
+  selectionCellCount,
+  selectionHasCell,
+  sliceGridRange,
+  sliceGridSelection,
+  toTsv,
+  writeClipboard,
+  type GridRange,
+  type GridSelection,
+} from '@/features/sql-editor/utils/copyGrid';
 import { downloadCsv } from '@/features/sql-editor/utils/exportCsv';
 import { downloadJson } from '@/features/sql-editor/utils/exportJson';
+import {
+  downloadFixedWidthText,
+  downloadYaml,
+} from '@/features/sql-editor/utils/exportText';
 import { SQL_ICON_STROKE } from '@/shared/lib/iconStyle';
 
 const CELL_MAX = 200;
@@ -196,6 +210,8 @@ function GridToolbar({
   onRefresh,
   onExport,
   onExportJson,
+  onExportYaml,
+  onExportText,
   onCopy,
   onChooseColumns,
   copyScope,
@@ -208,6 +224,10 @@ function GridToolbar({
   onExport?: () => void;
   /** Download the grid as an array of row objects. */
   onExportJson?: () => void;
+  /** Download as a YAML sequence of mappings. */
+  onExportYaml?: () => void;
+  /** Download as fixed-width text, which stays aligned when pasted. */
+  onExportText?: () => void;
   /** Copy the grid, the current cell selection, or headers only. */
   onCopy?: (mode: boolean | 'headers') => void;
   /** Open the column chooser. */
@@ -402,6 +422,32 @@ function GridToolbar({
               >
                 Export JSON
               </button>
+              {onExportYaml && (
+                <button
+                  type="button"
+                  data-testid="sql-grid-export-yaml"
+                  className="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800"
+                  onClick={() => {
+                    onExportYaml();
+                    setOpenMenu(null);
+                  }}
+                >
+                  Export YAML
+                </button>
+              )}
+              {onExportText && (
+                <button
+                  type="button"
+                  data-testid="sql-grid-export-text"
+                  className="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800"
+                  onClick={() => {
+                    onExportText();
+                    setOpenMenu(null);
+                  }}
+                >
+                  Export text (aligned)
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -533,7 +579,13 @@ export const DataGrid: React.FC<{
   const [copyColumns, setCopyColumns] = useState<number[] | null>(null);
   const [colPickerOpen, setColPickerOpen] = useState(false);
   /** Rectangular cell selection in display-column space. */
-  const [cellSel, setCellSel] = useState<GridRange | null>(null);
+  /**
+   * The selection, as a list of rectangles.
+   *
+   * A drag still makes one; Cmd/Ctrl-click adds another, so scattered cells
+   * can be picked. Empty means nothing is selected — the old `null`.
+   */
+  const [cellSel, setCellSel] = useState<GridSelection>([]);
   const selAnchor = useRef<{ row: number; col: number } | null>(null);
   const dragSelecting = useRef(false);
   // A column choice belongs to the result it was made against. Re-running with
@@ -543,7 +595,7 @@ export const DataGrid: React.FC<{
   useEffect(() => {
     setCopyColumns(null);
     setColPickerOpen(false);
-    setCellSel(null);
+    setCellSel([]);
     selAnchor.current = null;
   }, [columnSignature]);
 
@@ -799,6 +851,14 @@ export const DataGrid: React.FC<{
     downloadJson(exportName, orderedColumns, orderedRowsForOutput());
   };
 
+  const exportOrderedYaml = () => {
+    downloadYaml(exportName, orderedColumns, orderedRowsForOutput());
+  };
+
+  const exportOrderedText = () => {
+    downloadFixedWidthText(exportName, orderedColumns, orderedRowsForOutput());
+  };
+
   /**
    * What copy sends: the cell selection if one exists, otherwise the whole
    * grid in display order, or — once the user has picked columns — exactly
@@ -808,7 +868,8 @@ export const DataGrid: React.FC<{
    * dragging a column afterwards cannot silently change the selection.
    */
   const copyPayload = (ignoreSel = false): { columns: string[]; rows: unknown[][] } => {
-    if (!ignoreSel && cellSel) return sliceGridRange(sourceColumns, sourceRows, cellSel, order);
+    if (!ignoreSel && cellSel.length > 0)
+      return sliceGridSelection(sourceColumns, sourceRows, cellSel, order);
     return copyColumns === null
       ? { columns: orderedColumns, rows: orderedRowsForOutput() }
       : pickColumns(sourceColumns, sourceRows, copyColumns);
@@ -825,7 +886,10 @@ export const DataGrid: React.FC<{
       toast({
         tone: 'warning',
         title: 'Nothing to copy',
-        body: cellSel && !opts?.ignoreSel ? 'Select at least one cell.' : 'Pick at least one column in Choose columns.',
+        body:
+          cellSel.length > 0 && !opts?.ignoreSel
+            ? 'Select at least one cell.'
+            : 'Pick at least one column in Choose columns.',
       });
       return;
     }
@@ -842,10 +906,14 @@ export const DataGrid: React.FC<{
       return;
     }
     const n = headersOnly ? columns.length : rows.length;
-    const selForTitle = opts?.range ?? (!opts?.ignoreSel ? cellSel : null);
+    const selForTitle: GridSelection = opts?.range
+      ? [opts.range]
+      : !opts?.ignoreSel
+        ? cellSel
+        : [];
     const title = headersOnly
       ? `Copied ${n} header${n === 1 ? '' : 's'}`
-      : selForTitle && rangeCellCount(selForTitle) === 1
+      : selForTitle.length > 0 && selectionCellCount(selForTitle) === 1
         ? 'Copied cell'
         : `Copied ${n} row${n === 1 ? '' : 's'}`;
     toast({
@@ -873,17 +941,43 @@ export const DataGrid: React.FC<{
     toast({ tone: 'success', title: 'Copied cell', durationMs: 2_000 });
   };
 
-  const beginCellSel = (row: number, col: number, extend: boolean) => {
+  /**
+   * Start or extend a selection.
+   *
+   * `extend` (shift) grows the newest rectangle from the anchor. `additive`
+   * (Cmd/Ctrl) leaves the existing rectangles alone and starts another, which
+   * is what makes a scattered pick possible.
+   */
+  const beginCellSel = (row: number, col: number, extend: boolean, additive = false) => {
     const anchor = extend && selAnchor.current ? selAnchor.current : { row, col };
     if (!extend || !selAnchor.current) selAnchor.current = { row, col };
-    setCellSel({ row0: anchor.row, col0: anchor.col, row1: row, col1: col });
+    const next: GridRange = { row0: anchor.row, col0: anchor.col, row1: row, col1: col };
+    setCellSel((prev) => {
+      if (additive) return [...prev, next];
+      // Extending replaces the rectangle being dragged, not the earlier ones.
+      if (extend && prev.length > 0) return [...prev.slice(0, -1), next];
+      return [next];
+    });
   };
 
-  const selectRow = (row: number, extend: boolean) => {
+  const selectRow = (row: number, extend: boolean, additive = false) => {
     const lastCol = Math.max(0, order.length - 1);
     const anchorRow = extend && selAnchor.current ? selAnchor.current.row : row;
     if (!extend || !selAnchor.current) selAnchor.current = { row, col: 0 };
-    setCellSel({ row0: anchorRow, row1: row, col0: 0, col1: lastCol });
+    const next: GridRange = { row0: anchorRow, row1: row, col0: 0, col1: lastCol };
+    setCellSel((prev) => {
+      if (additive) return [...prev, next];
+      if (extend && prev.length > 0) return [...prev.slice(0, -1), next];
+      return [next];
+    });
+  };
+
+  /** Every cell of one column — what double-clicking its header selects. */
+  const selectColumn = (visualIdx: number, additive = false) => {
+    const lastRow = Math.max(0, sourceRows.length - 1);
+    const next: GridRange = { row0: 0, row1: lastRow, col0: visualIdx, col1: visualIdx };
+    selAnchor.current = { row: 0, col: visualIdx };
+    setCellSel((prev) => (additive ? [...prev, next] : [next]));
   };
 
   return (
@@ -894,6 +988,8 @@ export const DataGrid: React.FC<{
         onRefresh={onRefresh}
         onExport={sourceColumns.length > 0 ? exportOrdered : undefined}
         onExportJson={sourceColumns.length > 0 ? exportOrderedJson : undefined}
+        onExportYaml={sourceColumns.length > 0 ? exportOrderedYaml : undefined}
+        onExportText={sourceColumns.length > 0 ? exportOrderedText : undefined}
         onCopy={sourceColumns.length > 0 ? copyOrdered : undefined}
         onChooseColumns={sourceColumns.length > 0 ? () => setColPickerOpen(true) : undefined}
         copyScope={
@@ -912,8 +1008,8 @@ export const DataGrid: React.FC<{
         style={{ overflowX: 'auto', overflowY: 'auto' }}
         onScroll={onScroll}
         onKeyDown={(e) => {
-          if (e.key === 'Escape' && cellSel) {
-            setCellSel(null);
+          if (e.key === 'Escape' && cellSel.length > 0) {
+            setCellSel([]);
             selAnchor.current = null;
             e.preventDefault();
             return;
@@ -994,11 +1090,15 @@ export const DataGrid: React.FC<{
                         (columnSources?.get(colIdx)
                           ? `${columnSources.get(colIdx)}.${name} (${KIND_LABEL[kind]})`
                           : `${name} (${KIND_LABEL[kind]})`) +
-                        ' — drag to reorder; double-click to fit/reset width; right-click for list variable'
+                        ' — drag to reorder; double-click to select the column; ' +
+                        'double-click the edge to fit/reset width; right-click for list variable'
                       }
                       onDoubleClick={(e) => {
+                        // Selects the column. Fitting the width is still a
+                        // double-click, on the resize edge just right of here,
+                        // which had that handler already.
                         e.preventDefault();
-                        onHeaderDoubleClick(colIdx);
+                        selectColumn(visualIdx, e.metaKey || e.ctrlKey);
                       }}
                       onContextMenu={(e) => {
                         e.preventDefault();
@@ -1074,7 +1174,7 @@ export const DataGrid: React.FC<{
                         aria-orientation="vertical"
                         aria-label={`Resize column ${name}`}
                         data-testid="sql-col-resize"
-                        title="Drag to resize column"
+                        title="Drag to resize column; double-click to fit/reset width"
                         onMouseDown={(e) => startColResize(colIdx, e)}
                         onDoubleClick={(e) => {
                           e.preventDefault();
@@ -1142,7 +1242,7 @@ export const DataGrid: React.FC<{
                       onMouseDown={(e) => {
                         if (e.button !== 0) return;
                         dragSelecting.current = true;
-                        selectRow(i, e.shiftKey);
+                        selectRow(i, e.shiftKey, e.metaKey || e.ctrlKey);
                       }}
                       onMouseEnter={() => {
                         if (dragSelecting.current) selectRow(i, true);
@@ -1164,7 +1264,7 @@ export const DataGrid: React.FC<{
                       const kind = isNull ? 'null' : (colKinds[colIdx] ?? 'string');
                       const hl = cellHighlight?.(i, colIdx) ?? null;
                       const hlClass = hl ? CELL_DIFF_CLASS[hl] : '';
-                      const inSel = cellSel ? rangeHasCell(cellSel, i, visualIdx) : false;
+                      const inSel = selectionHasCell(cellSel, i, visualIdx);
                       const cellBg = hlClass || `${rowBg} group-hover:bg-[var(--fox-grid-bg-hover)]`;
                       return (
                         <td
@@ -1182,14 +1282,20 @@ export const DataGrid: React.FC<{
                             if (e.button !== 0) return;
                             if ((e.target as HTMLElement).closest('button, input, a')) return;
                             dragSelecting.current = true;
-                            beginCellSel(i, visualIdx, e.shiftKey);
+                            beginCellSel(i, visualIdx, e.shiftKey, e.metaKey || e.ctrlKey);
+                          }}
+                          onDoubleClick={(e) => {
+                            // The whole row, without hunting for its number cell.
+                            if ((e.target as HTMLElement).closest('button, input, a')) return;
+                            e.preventDefault();
+                            selectRow(i, false, e.metaKey || e.ctrlKey);
                           }}
                           onMouseEnter={() => {
                             if (dragSelecting.current) beginCellSel(i, visualIdx, true);
                           }}
                           onContextMenu={(e) => {
                             e.preventDefault();
-                            if (!cellSel || !rangeHasCell(cellSel, i, visualIdx)) {
+                            if (!selectionHasCell(cellSel, i, visualIdx)) {
                               beginCellSel(i, visualIdx, false);
                             }
                             setMenu({
@@ -1486,7 +1592,7 @@ export const DataGrid: React.FC<{
                           col0: visual,
                           col1: visual,
                         };
-                        setCellSel(range);
+                        setCellSel([range]);
                         selAnchor.current = { row: 0, col: visual };
                         void copyToClipboard(false, { range });
                       }
@@ -1508,7 +1614,7 @@ export const DataGrid: React.FC<{
                           col0: visual,
                           col1: visual,
                         };
-                        setCellSel(range);
+                        setCellSel([range]);
                         selAnchor.current = { row: 0, col: visual };
                         void copyToClipboard(true, { range });
                       }
@@ -1528,7 +1634,7 @@ export const DataGrid: React.FC<{
                   setMenu(null);
                 }}
               >
-                {cellSel && menu.kind !== 'grid' ? 'Copy selected values' : 'Copy values'}
+                {cellSel.length > 0 && menu.kind !== 'grid' ? 'Copy selected values' : 'Copy values'}
               </button>
               <button
                 type="button"
@@ -1539,7 +1645,7 @@ export const DataGrid: React.FC<{
                   setMenu(null);
                 }}
               >
-                {cellSel && menu.kind !== 'grid' ? 'Copy selected with headers' : 'Copy with headers'}
+                {cellSel.length > 0 && menu.kind !== 'grid' ? 'Copy selected with headers' : 'Copy with headers'}
               </button>
               <button
                 type="button"
@@ -1550,7 +1656,7 @@ export const DataGrid: React.FC<{
                   setMenu(null);
                 }}
               >
-                {cellSel && menu.kind !== 'grid' ? 'Copy selected headers' : 'Copy headers'}
+                {cellSel.length > 0 && menu.kind !== 'grid' ? 'Copy selected headers' : 'Copy headers'}
               </button>
               <button
                 type="button"

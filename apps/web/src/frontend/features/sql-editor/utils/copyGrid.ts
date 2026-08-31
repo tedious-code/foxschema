@@ -136,3 +136,85 @@ export async function writeClipboard(text: string): Promise<boolean> {
     return false;
   }
 }
+
+// ── Discontiguous selection ────────────────────────────────────────────────
+
+/**
+ * A selection is a list of rectangles, not one rectangle.
+ *
+ * Dragging still produces a single entry; Cmd/Ctrl-click adds another. Keeping
+ * the list ordered by when each was added means the most recent one is the
+ * anchor for a subsequent shift-extend, which is what every spreadsheet does.
+ */
+export type GridSelection = readonly GridRange[];
+
+function normalize(r: GridRange) {
+  return {
+    r0: Math.min(r.row0, r.row1),
+    r1: Math.max(r.row0, r.row1),
+    c0: Math.min(r.col0, r.col1),
+    c1: Math.max(r.col0, r.col1),
+  };
+}
+
+export function selectionHasCell(sel: GridSelection, row: number, col: number): boolean {
+  return sel.some((r) => {
+    const n = normalize(r);
+    return row >= n.r0 && row <= n.r1 && col >= n.c0 && col <= n.c1;
+  });
+}
+
+/** Distinct cells, so overlapping rectangles are not counted twice. */
+export function selectionCellCount(sel: GridSelection): number {
+  const seen = new Set<string>();
+  for (const r of sel) {
+    const n = normalize(r);
+    for (let row = n.r0; row <= n.r1; row++) {
+      for (let col = n.c0; col <= n.c1; col++) seen.add(`${row}:${col}`);
+    }
+  }
+  return seen.size;
+}
+
+/**
+ * Flatten a possibly discontiguous selection into a rectangle to copy.
+ *
+ * Excel simply refuses this ("that command cannot be used on multiple
+ * selections"), which is not helpful when someone has deliberately picked four
+ * scattered cells. Instead: keep every row and column the selection touches,
+ * and blank the cells inside that box which are not selected. The result
+ * pastes as a grid whose filled cells are exactly what was picked, and their
+ * relative positions survive.
+ */
+export function sliceGridSelection(
+  columns: readonly string[],
+  rows: readonly (readonly unknown[])[],
+  sel: GridSelection,
+  displayOrder: readonly number[] | null = null
+): { columns: string[]; rows: unknown[][] } {
+  const order = displayOrder ?? columns.map((_, i) => i);
+  if (sel.length === 0 || columns.length === 0 || rows.length === 0) {
+    return { columns: [], rows: [] };
+  }
+  if (sel.length === 1) return sliceGridRange(columns, rows, sel[0]!, order);
+
+  const rowSet = new Set<number>();
+  const colSet = new Set<number>();
+  for (const r of sel) {
+    const n = normalize(r);
+    for (let row = Math.max(0, n.r0); row <= Math.min(rows.length - 1, n.r1); row++) rowSet.add(row);
+    for (let col = Math.max(0, n.c0); col <= Math.min(order.length - 1, n.c1); col++) colSet.add(col);
+  }
+  const rowList = [...rowSet].sort((a, b) => a - b);
+  const colList = [...colSet].sort((a, b) => a - b);
+  const idxs = colList
+    .map((c) => order[c]!)
+    .filter((i) => Number.isInteger(i) && i >= 0 && i < columns.length);
+
+  return {
+    columns: colList.map((c) => columns[order[c]!] ?? '').filter((_, i) => idxs[i] !== undefined),
+    rows: rowList.map((row) =>
+      colList.map((col) => (selectionHasCell(sel, row, col) ? rows[row]?.[order[col]!] : null))
+    ),
+  };
+}
