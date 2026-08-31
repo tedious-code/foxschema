@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rmSync } from 'node:fs';
-import { clampMaxRows, shapeRows, runStatements } from './sql-execute.service';
+import { clampMaxRows, shapePositional, shapeRows, runStatements } from './sql-execute.service';
 import { ConnectionFactory } from '@foxschema/db';
 
 describe('clampMaxRows', () => {
@@ -225,5 +225,44 @@ describe('runStatements against a real SQLite file', () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+describe('shapePositional', () => {
+  it('keeps every column when a join repeats a name', () => {
+    // The defect this exists for: rows arrive keyed by column name, so a join
+    // over four tables that each have `id` returned one `id` holding the last
+    // table's value, and three columns vanished with no error. The row then
+    // read as a single record while mixing values from different tables.
+    const raw = {
+      columns: ['id', 'total', 'id', 'name'],
+      rows: [[701, '1048.50', 901, 'Ada Lovelace']],
+    };
+    const out = shapePositional(raw, 100);
+    expect(out.columns).toEqual(['id', 'total', 'id', 'name']);
+    expect(out.rows[0]).toEqual([701, '1048.50', 901, 'Ada Lovelace']);
+  });
+
+  it('names columns even when no rows came back', () => {
+    // The name-keyed path derives columns from the rows, so an empty result had
+    // no column names at all ("0 rows (column names unavailable)"). Field
+    // metadata does not depend on there being rows.
+    const out = shapePositional({ columns: ['id', 'name'], rows: [] }, 100);
+    expect(out.columns).toEqual(['id', 'name']);
+    expect(out.rowCount).toBe(0);
+    expect(out.truncated).toBe(false);
+  });
+
+  it('truncates at maxRows and says so', () => {
+    const rows = Array.from({ length: 5 }, (_, i) => [i]);
+    const out = shapePositional({ columns: ['n'], rows }, 3);
+    expect(out.rowCount).toBe(3);
+    expect(out.truncated).toBe(true);
+  });
+
+  it('survives a driver that returned nothing usable', () => {
+    const out = shapePositional({ columns: [], rows: [] }, 10);
+    expect(out.columns).toEqual([]);
+    expect(out.rows).toEqual([]);
   });
 });

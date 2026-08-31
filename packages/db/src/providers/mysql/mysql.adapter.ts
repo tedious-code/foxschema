@@ -86,6 +86,23 @@ class MysqlAdapter implements DriverAdapter {
     return rows as T[];
   }
 
+  /**
+   * `rowsAsArray` makes mysql2 return arrays plus field metadata, so a join
+   * that selects `id` from two tables keeps both columns instead of collapsing
+   * them onto one key of a row object.
+   */
+  async queryPositional(connection: any, sql: string, params: readonly unknown[]) {
+    const [rows, fields] = await connection.query({
+      sql,
+      values: params as unknown[],
+      rowsAsArray: true,
+    });
+    return {
+      columns: ((fields ?? []) as { name: string }[]).map((f) => f.name),
+      rows: (rows ?? []) as unknown[][],
+    };
+  }
+
   async beginTransaction(connection: any): Promise<void> {
     await connection.beginTransaction();
   }

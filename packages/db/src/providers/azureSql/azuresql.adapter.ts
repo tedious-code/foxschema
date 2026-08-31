@@ -56,6 +56,28 @@ class AzureSqlAdapter implements DriverAdapter {
     return result.recordset as T[];
   }
 
+  /**
+   * `arrayRowMode` makes mssql return arrays plus a column list, so a join
+   * selecting `id` from two tables keeps both rather than collapsing them onto
+   * one key of a row object.
+   */
+  async queryPositional(handle: MssqlHandle, sql: string, params: readonly unknown[]) {
+    const mssql = this.load();
+    const req = handle._type === 'tx'
+      ? new mssql.Request(handle.tx)
+      : new mssql.Request(handle.pool);
+    req.arrayRowMode = true;
+    params.forEach((value, i) => req.input(`p${i}`, value));
+
+    const result = await req.query(sql);
+    // `columns` is [[{name}, …]] — one entry per recordset.
+    const meta = (result.columns?.[0] ?? []) as { name: string }[];
+    return {
+      columns: meta.map((c) => c.name),
+      rows: (result.recordset ?? []) as unknown as unknown[][],
+    };
+  }
+
   async beginTransaction(handle: MssqlHandle): Promise<void> {
     const mssql = this.load();
     const tx = new mssql.Transaction((handle as any).pool);

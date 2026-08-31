@@ -1,5 +1,5 @@
 
-import { ConnectionOptions } from '@foxschema/sql';
+import { ConnectionOptions, PositionalRows } from '@foxschema/sql';
 import { getProviderSettings } from '@foxschema/sql';
 import { getAdapter, ADAPTERS } from '../providers/adapter-registry';
 import { circuitKey, dbCircuitBreaker } from './circuit-breaker';
@@ -147,5 +147,22 @@ export class ConnectionFactory {
     params: readonly unknown[] = []
   ): Promise<T[]> {
     return getAdapter(provider).query<T>(connection, sql, params);
+  }
+
+  /**
+   * Rows with every column intact, or null when this driver cannot do it.
+   *
+   * Null is a normal answer — Db2, Oracle, SQLite, DuckDB and ClickHouse keep
+   * the name-keyed path — so callers fall back rather than failing.
+   */
+  static executePositional(
+    provider: string,
+    connection: any,
+    sql: string,
+    params: readonly unknown[] = []
+  ): Promise<PositionalRows> | null {
+    const adapter = getAdapter(provider);
+    if (typeof adapter.queryPositional !== 'function') return null;
+    return adapter.queryPositional(connection, sql, params);
   }
 }

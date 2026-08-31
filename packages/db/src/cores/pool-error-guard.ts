@@ -25,3 +25,44 @@ export function guardPoolErrors<T>(pool: T, label: string): T {
   });
   return pool;
 }
+
+/**
+ * Clients already carrying our listener, so a re-checkout does not stack more.
+ *
+ * A pooled client is handed out, released and handed out again, many times over
+ * the life of the process. Attaching on every acquire would add a listener each
+ * time and Node would eventually warn about a leak — while the real leak would
+ * be ours.
+ */
+const guarded = new WeakSet<object>();
+
+/**
+ * Keep a *checked-out* client's `'error'` event from killing the process.
+ *
+ * {@link guardPoolErrors} covers connections sitting idle in the pool, which is
+ * where most drops surface. It does not cover the client a caller is holding:
+ * `pool.connect()` hands back a Client that emits `'error'` on its own when the
+ * connection dies mid-use, and with no listener on *that* object Node throws.
+ *
+ * This is not hypothetical. A Postgres container restarting during a test run
+ * killed the API process outright, and every request afterwards 502'd:
+ *
+ *     throw er; // Unhandled 'error' event
+ *     Error: Connection terminated unexpectedly   (pg/lib/client.js)
+ *     Emitted 'error' event on Client instance
+ *
+ * The in-flight query still rejects and the caller still sees its failure — the
+ * only thing this changes is that the process survives to report it.
+ */
+export function guardClientErrors<T>(client: T, label: string): T {
+  const emitter = client as unknown as {
+    on?: (event: string, cb: (err: Error) => void) => unknown;
+  };
+  if (!client || typeof emitter.on !== 'function') return client;
+  if (guarded.has(client as object)) return client;
+  guarded.add(client as object);
+  emitter.on('error', (err: Error) => {
+    console.error(`[${label}] client error (connection dropped):`, err?.message ?? err);
+  });
+  return client;
+}

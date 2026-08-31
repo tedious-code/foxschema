@@ -63,6 +63,35 @@ export function buildForeignKeyDrilldown(
   return { sql: text, params };
 }
 
+/**
+ * `SELECT * FROM <table> WHERE <key> = <value> …` for one known row.
+ *
+ * The way back from a joined grid to a row of one of its base tables. The
+ * result is a single-table SELECT, which is what makes it editable through the
+ * ordinary path — the join itself never becomes writable.
+ *
+ * Values are bound, never interpolated: they come from grid cells and may hold
+ * anything the row happens to contain.
+ */
+export function buildRowLookup(
+  tableName: string,
+  keys: readonly { column: string; value: unknown }[],
+  dialect: string
+): PreviewQuery | null {
+  if (keys.length === 0) return null;
+  const parts = tableNameParts(tableName);
+  if (parts.length === 0) return null;
+  if (keys.some((k) => k.value === null || k.value === undefined)) return null;
+
+  let query = sql`SELECT * FROM ${sql.id(...parts)} WHERE `;
+  keys.forEach((k, i) => {
+    const clause = i === 0 ? sql`` : sql` AND `;
+    query = sql`${query}${clause}${sql.id(k.column)} = ${k.value}`;
+  });
+  const { text, params } = renderSqlQuery(query, dialect);
+  return { sql: text, params };
+}
+
 export interface FkColumnLink {
   /** Index into the result's `columns` that carries the child value. */
   columnIndex: number;

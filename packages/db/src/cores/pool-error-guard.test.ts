@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
-import { guardPoolErrors } from './pool-error-guard';
+import { guardClientErrors, guardPoolErrors } from './pool-error-guard';
 
 /**
  * An unhandled 'error' event on a driver pool kills the process.
@@ -66,5 +66,42 @@ describe('guardPoolErrors', () => {
   it('returns the pool so it can wrap a factory inline', () => {
     const pool = new EventEmitter();
     expect(guardPoolErrors(pool, 'redshift')).toBe(pool);
+  });
+});
+
+/**
+ * The pool guard covers connections sitting idle. A client the caller is
+ * holding emits `'error'` on itself, and nothing was listening there — a
+ * Postgres restart mid-run killed the API process outright.
+ */
+describe('guardClientErrors', () => {
+  it('makes a checked-out client dropping survivable instead of fatal', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const client = guardClientErrors(new EventEmitter(), 'postgres');
+    expect(() =>
+      client.emit('error', new Error('Connection terminated unexpectedly'))
+    ).not.toThrow();
+    expect(spy).toHaveBeenCalledOnce();
+  });
+
+  it('an unguarded client really does throw, so the guard is doing the work', () => {
+    const bare = new EventEmitter();
+    expect(() => bare.emit('error', new Error('Connection terminated unexpectedly'))).toThrow(
+      /Connection terminated/
+    );
+  });
+
+  it('attaches once however often the same client is checked out', () => {
+    // A pooled client is handed out and released many times over. Adding a
+    // listener per acquire would be our own leak, and Node would warn about it.
+    const client = new EventEmitter();
+    for (let i = 0; i < 20; i++) guardClientErrors(client, 'postgres');
+    expect(client.listenerCount('error')).toBe(1);
+  });
+
+  it('leaves non-EventEmitter and missing clients alone', () => {
+    const plain = { release: () => undefined };
+    expect(guardClientErrors(plain, 'duckdb')).toBe(plain);
+    expect(guardClientErrors(null, 'duckdb')).toBeNull();
   });
 });

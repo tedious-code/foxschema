@@ -31,6 +31,12 @@ import { detectCodeCell } from '@/shared/lib/codeCellRunner';
 import { CODE_CELL_KIND_LABEL } from '@/shared/lib/sql-splitter';
 import { foreignKeyLinksFor, foreignKeyLinksForSql, singleTableForResultEdit } from '@/shared/lib/tablePreview';
 import {
+  attributeResultColumns,
+  collapsedColumnsFor,
+  rowKeyFor,
+  tablesInOrigins,
+} from '@foxschema/sql';
+import {
   cellDiffKey,
   compareResultGrids,
   type CellDiffKind,
@@ -208,6 +214,7 @@ const ResultGridPane: React.FC<{
 }) => {
   const schemaCache = useSqlEditorStore((s) => s.schemaCache);
   const openDataPeekFromFk = useSqlEditorStore((s) => s.openDataPeekFromFk);
+  const openDataPeekForRow = useSqlEditorStore((s) => s.openDataPeekForRow);
   const connectionSchema = useSyncStore(
     (s) => s.connections.find((c) => c.id === item.connectionId)?.schema
   );
@@ -231,6 +238,88 @@ const ResultGridPane: React.FC<{
     if (!item.statementSql) return [];
     return foreignKeyLinksForSql(item.statementSql, tables, item.result.columns);
   }, [item.result, item.statementSql, table, tables]);
+
+  /**
+   * Which table each column came from.
+   *
+   * Only worth computing for a result the grid cannot already attribute on its
+   * own: a single-table query has one answer for every column, and labelling
+   * all forty of them `orders` is noise. A join is the case where the reader
+   * genuinely cannot tell, so that is where the labels appear.
+   */
+  const origins = useMemo(() => {
+    if (!item.result.ok || !item.statementSql) return [];
+    if (editTarget.ok) return []; // single table — the header already implies it
+    return attributeResultColumns({
+      sql: item.statementSql,
+      resultColumns: item.result.columns,
+      tables: tables ?? [],
+    });
+  }, [item.result, item.statementSql, editTarget.ok, tables]);
+
+  /**
+   * Columns the join produced that never reached the grid.
+   *
+   * Rows arrive keyed by column name, so a join whose tables share one loses
+   * all but the last. The grid then shows a row that reads as a single record
+   * but mixes tables, with columns missing and nothing reported. Until the
+   * drivers return rows positionally, the least this can do is say so.
+   */
+  const collapsed = useMemo(() => {
+    if (!item.result.ok || !item.statementSql || editTarget.ok) return null;
+    return collapsedColumnsFor({
+      sql: item.statementSql,
+      resultColumns: item.result.columns,
+      tables: tables ?? [],
+    });
+  }, [item.result, item.statementSql, editTarget.ok, tables]);
+
+  const columnSources = useMemo(() => {
+    if (origins.length === 0) return undefined;
+    const map = new Map<number, string>();
+    for (const o of origins) if (o.table) map.set(o.index, o.table);
+    // Nothing was attributable — no labels rather than an empty column of dots.
+    return map.size > 0 ? map : undefined;
+  }, [origins]);
+
+  /**
+   * The table a cell's row can be opened in.
+   *
+   * Recomputed per call rather than cached per column, because it depends on
+   * the row: an outer join that did not match has a NULL key, and there is no
+   * row to open for that one even though the column is attributed.
+   */
+  const openRowTarget = useCallback(
+    (colIdx: number, rowIdx: number): string | undefined => {
+      if (!item.result.ok || origins.length === 0) return undefined;
+      const origin = origins.find((o) => o.index === colIdx);
+      if (!origin?.table) return undefined;
+      const schema = tables?.find((t) => t.name.toLowerCase() === origin.table!.toLowerCase());
+      const row = item.result.rows[rowIdx];
+      if (!schema || !row) return undefined;
+      return rowKeyFor(schema, origins, row) ? schema.name : undefined;
+    },
+    [item.result, origins, tables]
+  );
+
+  const onOpenRow = useCallback(
+    (colIdx: number, rowIdx: number) => {
+      if (!item.result.ok) return;
+      const origin = origins.find((o) => o.index === colIdx);
+      if (!origin?.table) return;
+      const schema = tables?.find((t) => t.name.toLowerCase() === origin.table!.toLowerCase());
+      const row = item.result.rows[rowIdx];
+      if (!schema || !row) return;
+      const keys = rowKeyFor(schema, origins, row);
+      if (!keys) return;
+      void openDataPeekForRow(
+        item.connectionId,
+        schema.name,
+        keys.map((k) => ({ column: k.column, value: k.value }))
+      );
+    },
+    [item.result, item.connectionId, origins, tables, openDataPeekForRow]
+  );
 
   const linkColumns = useMemo(() => {
     if (fkLinks.length === 0) return undefined;
@@ -295,16 +384,35 @@ const ResultGridPane: React.FC<{
     testId: (action) => `sql-result-${item.statementIndex}-${action}`,
   });
 
-  const readOnlyReason =
-    compareLocked && item.result.ok
-      ? 'Turn off Compare data to edit rows'
-      : !crud.showCrud && item.result.ok
-        ? (!editTarget.ok ? editTarget.reason : crud.editability.reason)
-        : undefined;
+  const readOnlyReason = useMemo(() => {
+    if (compareLocked && item.result.ok) return 'Turn off Compare data to edit rows';
+    if (crud.showCrud || !item.result.ok) return undefined;
+    const base = !editTarget.ok ? editTarget.reason : crud.editability.reason;
+    if (!base) return undefined;
+    // A join cannot be edited in place — the same base row can appear in many
+    // grid rows. Say where editing *is* possible rather than stopping at "no".
+    const sources = tablesInOrigins(origins);
+    if (sources.length === 0) return base;
+    return `${base} Right-click a cell to open its row in ${sources.join(', ')}, where it can be edited.`;
+  }, [compareLocked, item.result.ok, crud.showCrud, crud.editability.reason, editTarget, origins]);
 
   const toolbarExtra = (
     <>
       {crud.crudButtons}
+      {collapsed && (
+        <span
+          className="text-xs font-semibold text-amber-300 truncate max-w-[18rem]"
+          data-testid={`sql-result-${item.statementIndex}-collapsed`}
+          title={
+            `${collapsed.lost} column${collapsed.lost === 1 ? '' : 's'} did not reach this grid: ` +
+            `${collapsed.names.join(', ')} ${collapsed.names.length === 1 ? 'is' : 'are'} on more than one ` +
+            'of the joined tables, and rows arrive keyed by column name, so only the last survives. ' +
+            'Alias them in the SELECT list (o.id AS order_id) to see every column.'
+          }
+        >
+          {collapsed.lost} column{collapsed.lost === 1 ? '' : 's'} hidden
+        </span>
+      )}
       {readOnlyReason && (
         <span
           className="text-xs font-semibold text-slate-400 truncate max-w-[14rem]"
@@ -365,6 +473,9 @@ const ResultGridPane: React.FC<{
         }
         linkColumns={linkColumns}
         onLinkClick={linkColumns ? onLinkClick : undefined}
+        columnSources={columnSources}
+        openRowTarget={columnSources ? openRowTarget : undefined}
+        onOpenRow={columnSources ? onOpenRow : undefined}
         selectedRowIndex={crud.selectedRowIndex}
         onSelectRow={crud.onSelectRow}
         toolbarExtra={toolbarExtra}

@@ -52,8 +52,13 @@ const NOT_ABOUT_THE_SQL = [
   /already exists/i,
   /ORA-01920/, //  user name conflicts with another user or role
   /SQL0601N/, //  Db2: name already exists
-  // The container is down or still starting; not a statement problem.
+  // The container is down, restarting, or still starting; not a statement
+  // problem. Postgres answers "the database system is in recovery mode" while
+  // it comes back up, which reads like a real error and is not one.
   /is not responding/i,
+  /in recovery mode/i,
+  /starting up/i,
+  /shutting down/i,
   /connection terminated/i,
   /ECONNREFUSED/i,
   /timeout/i,
