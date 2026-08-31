@@ -226,7 +226,6 @@ export const UserManagement: React.FC<{
     setCreateMode(createModes.preferred);
   }, [createModes]);
   const activeMode = createModes.options.find((o) => o.mode === createMode);
-  const modeUsable = activeMode?.available ?? false;
   const coach = useMemo(() => (dialect ? dialectCoach(dialect) : null), [dialect]);
   const listSupport = useMemo(
     () => (dialect ? dialectSupportsDbAccess(dialect) : null),
