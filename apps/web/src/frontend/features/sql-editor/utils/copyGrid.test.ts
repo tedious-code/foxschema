@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { pickColumns, sliceGridRange, toTsv } from '@/features/sql-editor/utils/copyGrid';
+import {
+  pickColumns,
+  selectionCellCount,
+  selectionHasCell,
+  sliceGridRange,
+  sliceGridSelection,
+  toTsv,
+} from '@/features/sql-editor/utils/copyGrid';
 
 describe('toTsv — shape', () => {
   it('omits the header row when columns are not requested', () => {
@@ -209,5 +216,63 @@ describe('toTsv — value coercion', () => {
   it('pads nothing — a short row stays short', () => {
     // Ragged rows are the caller's concern; copy must not invent cells.
     expect(toTsv(['a', 'b'], [[1]])).toBe('a\tb\r\n1');
+  });
+});
+
+describe('discontiguous selection', () => {
+  const columns = ['id', 'name', 'city'];
+  const rows = [
+    [1, 'Ada', 'London'],
+    [2, 'Grace', 'New York'],
+    [3, 'Alan', 'Cambridge'],
+  ];
+  const cell = (row: number, col: number) => ({ row0: row, row1: row, col0: col, col1: col });
+
+  it('knows a cell is selected by any of the rectangles', () => {
+    const sel = [cell(0, 0), cell(2, 2)];
+    expect(selectionHasCell(sel, 0, 0)).toBe(true);
+    expect(selectionHasCell(sel, 2, 2)).toBe(true);
+    expect(selectionHasCell(sel, 1, 1)).toBe(false);
+  });
+
+  it('counts overlapping rectangles once', () => {
+    // Cmd-clicking a cell already inside a dragged range must not double it.
+    const sel = [{ row0: 0, row1: 1, col0: 0, col1: 1 }, cell(0, 0)];
+    expect(selectionCellCount(sel)).toBe(4);
+  });
+
+  it('copies a single rectangle exactly as before', () => {
+    const out = sliceGridSelection(columns, rows, [{ row0: 0, row1: 1, col0: 0, col1: 1 }]);
+    expect(out.columns).toEqual(['id', 'name']);
+    expect(out.rows).toEqual([[1, 'Ada'], [2, 'Grace']]);
+  });
+
+  it('keeps scattered cells in their relative positions, blanking the gaps', () => {
+    // Excel refuses to copy a multi-selection at all. Blanking the unselected
+    // cells inside the bounding box keeps the shape the user picked.
+    const out = sliceGridSelection(columns, rows, [cell(0, 0), cell(2, 2)]);
+    expect(out.columns).toEqual(['id', 'city']);
+    expect(out.rows).toEqual([
+      [1, null],
+      [null, 'Cambridge'],
+    ]);
+  });
+
+  it('drops the rows and columns nothing touched', () => {
+    // Row 1 and column `name` are not in the selection, so they do not appear.
+    const out = sliceGridSelection(columns, rows, [cell(0, 0), cell(2, 0)]);
+    expect(out.columns).toEqual(['id']);
+    expect(out.rows).toEqual([[1], [3]]);
+  });
+
+  it('answers empty for an empty selection', () => {
+    expect(sliceGridSelection(columns, rows, [])).toEqual({ columns: [], rows: [] });
+  });
+
+  it('honours the display order the user dragged columns into', () => {
+    // Columns reordered to city, id, name — position 0 is now `city`.
+    const out = sliceGridSelection(columns, rows, [cell(0, 0)], [2, 0, 1]);
+    expect(out.columns).toEqual(['city']);
+    expect(out.rows).toEqual([['London']]);
   });
 });
