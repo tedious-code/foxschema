@@ -27,6 +27,50 @@ export interface CellQueryPolicy {
 }
 
 /**
+ * Turn positional driver rows into the object shape cells already consume.
+ *
+ * Cells (and Server Beam copies) read `row.id`, `row.name`, … — one key per
+ * name. When a join selects `id` from two tables the driver can still hand
+ * both values back as arrays, but packing them into an object would keep only
+ * the last one. `/sql/execute` already prefers positional rows for that
+ * reason; the bridge used to stay on the name-keyed path, so a Beam cell that
+ * `SELECT *`'d a join and wrote the objects elsewhere silently persisted the
+ * wrong table's values.
+ *
+ * Fail closed when names collide: inventing `id_2` would still surprise a
+ * write that expected `id`, and blanking the duplicate would drop data. Alias
+ * in the SELECT list instead so every value reaches the cell under a unique key.
+ */
+export function objectRowsFromPositional(
+  columns: readonly string[],
+  rows: readonly (readonly unknown[])[]
+): Record<string, unknown>[] {
+  const seen = new Set<string>();
+  const dupes: string[] = [];
+  for (const name of columns) {
+    if (seen.has(name)) {
+      if (!dupes.includes(name)) dupes.push(name);
+    } else {
+      seen.add(name);
+    }
+  }
+  if (dupes.length > 0) {
+    throw new Error(
+      `sql\`…\` returned duplicate column names (${dupes.join(', ')}). ` +
+        `Alias them in the SELECT list (e.g. orders.id AS order_id) so every ` +
+        `value reaches the cell — object rows cannot keep two columns with the same name.`
+    );
+  }
+  return rows.map((row) => {
+    const obj: Record<string, unknown> = {};
+    for (let i = 0; i < columns.length; i++) {
+      obj[columns[i]!] = row[i];
+    }
+    return obj;
+  });
+}
+
+/**
  * Build the bridge runner for one resolved connection.
  *
  * Both checks matter and neither replaces the other: Safe mode is the user's
@@ -63,23 +107,54 @@ export function makeCellQueryRunner(
       }
     }
 
-    const rows = await ConnectionFactory.executeQuery<Record<string, unknown>>(
-      resolved.dialect,
-      resolved.option,
-      sql,
-      params
-    );
-    if (!Array.isArray(rows)) return [];
-    // Fail closed: silently returning a prefix lets a cell treat a partial
-    // SELECT as complete (e.g. DELETE … WHERE id IN (…ids…)) and corrupt data.
-    // Cap stays for structured-clone / memory; callers must LIMIT or chunk.
-    if (rows.length > MAX_CELL_QUERY_ROWS) {
-      throw new Error(
-        `sql\`…\` returned ${rows.length} rows; the bridge refuses more than ` +
-          `${MAX_CELL_QUERY_ROWS}. Add LIMIT / chunk the query so the cell sees a complete result.`
+    // Prefer positional when the driver offers it: that is the only path that
+    // can see a join's duplicate column names before they collapse into an
+    // object. Drivers without it (SQLite, Oracle, Db2, …) keep the name-keyed
+    // path — same residual as the SQL Editor grid on those engines.
+    const connection = await ConnectionFactory.create(resolved.dialect, resolved.option);
+    try {
+      const positional = ConnectionFactory.executePositional(
+        resolved.dialect,
+        connection,
+        sql,
+        params
       );
+      let rows: Record<string, unknown>[];
+      if (positional) {
+        const shaped = await positional;
+        const rawRows = Array.isArray(shaped.rows) ? shaped.rows : [];
+        if (rawRows.length > MAX_CELL_QUERY_ROWS) {
+          throw new Error(
+            `sql\`…\` returned ${rawRows.length} rows; the bridge refuses more than ` +
+              `${MAX_CELL_QUERY_ROWS}. Add LIMIT / chunk the query so the cell sees a complete result.`
+          );
+        }
+        rows = objectRowsFromPositional(
+          Array.isArray(shaped.columns) ? shaped.columns : [],
+          rawRows
+        );
+      } else {
+        const raw = await ConnectionFactory.executeOnConnection<Record<string, unknown>>(
+          resolved.dialect,
+          connection,
+          sql,
+          params
+        );
+        rows = Array.isArray(raw) ? raw : [];
+        // Fail closed: silently returning a prefix lets a cell treat a partial
+        // SELECT as complete (e.g. DELETE … WHERE id IN (…ids…)) and corrupt data.
+        // Cap stays for structured-clone / memory; callers must LIMIT or chunk.
+        if (rows.length > MAX_CELL_QUERY_ROWS) {
+          throw new Error(
+            `sql\`…\` returned ${rows.length} rows; the bridge refuses more than ` +
+              `${MAX_CELL_QUERY_ROWS}. Add LIMIT / chunk the query so the cell sees a complete result.`
+          );
+        }
+      }
+      return rows;
+    } finally {
+      await ConnectionFactory.close(resolved.dialect, connection);
     }
-    return rows;
   };
 }
 
