@@ -89,12 +89,25 @@ beforeEach(() => {
   loadVersionGraph.mockReset();
   captureSchema.mockReset();
   vi.mocked(toast).mockReset();
+  // The whole store, not just the selection.
+  //
+  // `captureRequest`, `refreshRequest` and `compareRequest` are monotonic
+  // counters that components watch to trigger an action. Leaving one
+  // incremented means the next test's component fires that effect on mount and
+  // renders a spinner, so a test asserting the empty state fails — but only
+  // when it happens to run after the test that bumped the counter, which is why
+  // this file failed intermittently in CI and never in isolation.
   useLokeeHistoryStore.setState({
     databaseId: null,
     originalVersionId: null,
     targetVersionId: null,
     databases: [],
     versions: [],
+    captureConnectionId: '',
+    capturing: false,
+    captureRequest: 0,
+    refreshRequest: 0,
+    compareRequest: 0,
   });
 });
 
@@ -134,8 +147,12 @@ describe('LokeeWeaveView', () => {
 
     render(<LokeeWeaveView />);
 
-    await waitFor(() => expect(screen.getByTestId('lokee-empty-capture')).toBeTruthy());
-    expect(screen.getByTestId('lokee-empty-credential')).toBeTruthy();
+    // Both come from the same settled state; waiting for only the first leaves
+    // the second racing the render that follows it.
+    await waitFor(() => {
+      expect(screen.getByTestId('lokee-empty-capture')).toBeTruthy();
+      expect(screen.getByTestId('lokee-empty-credential')).toBeTruthy();
+    });
     // Says what it does, in the words of the job — not "Capture schema".
     expect(screen.getByTestId('lokee-empty-capture').textContent).toContain('Take first snapshot');
   });
@@ -201,10 +218,17 @@ describe('LokeeWeaveView', () => {
 
     render(<LokeeWeaveView embedded />);
 
-    await waitFor(() => expect(screen.getByTestId('graph')).toBeTruthy());
+    // Wait on the store, not just on the graph: listing the databases and
+    // loading the version graph are two awaits, and the graph renders after the
+    // first. Asserting the store right after the graph appears therefore races
+    // the second, which is why this failed intermittently under CI load while
+    // passing every time in isolation.
+    await waitFor(() => {
+      expect(screen.getByTestId('graph')).toBeTruthy();
+      expect(useLokeeHistoryStore.getState().versions.map((v) => v.id)).toEqual(['v2', 'v1']);
+    });
     expect(screen.queryByTestId('lokee-database-select')).toBeNull();
     expect(useLokeeHistoryStore.getState().databaseId).toBe('db1');
-    expect(useLokeeHistoryStore.getState().versions.map((v) => v.id)).toEqual(['v2', 'v1']);
   });
 
   it('captures when the toolbar bar asks for it', async () => {

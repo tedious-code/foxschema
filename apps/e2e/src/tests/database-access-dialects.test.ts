@@ -544,9 +544,41 @@ describe.skipIf(configured.length === 0)('Database Access · User Management', (
         expect(options, `${dialect} offered Edit with no alterations`).toBeGreaterThan(0);
       }, 180_000);
 
+      it('states how this engine creates an account before anything is typed', async () => {
+        if (NO_ACCOUNTS.includes(dialect)) return;
+        await driver.locator('[data-testid="access-tab-users"]').click();
+        await selectConnection(dialect);
+        await driver.locator('[data-testid="user-add-user"]').click();
+
+        if (OS_ACCOUNTS.includes(dialect)) {
+          // Db2 has no CREATE USER, so there is one route and no choice to
+          // offer. Saying so beats a toggle whose other half never works.
+          const only = driver.locator('[data-testid="user-create-mode-only"]');
+          expect(await only.count(), `${dialect} should state its single route`).toBeGreaterThan(0);
+          expect((await only.innerText()).toLowerCase()).toContain('command');
+          return;
+        }
+
+        // Everywhere else both routes exist, and SQL is the one to start on.
+        const sql = driver.locator('[data-testid="user-create-mode-sql"]');
+        const cli = driver.locator('[data-testid="user-create-mode-cli"]');
+        expect(await sql.count(), `${dialect} should offer SQL`).toBeGreaterThan(0);
+        expect(await cli.count(), `${dialect} should offer the command line`).toBeGreaterThan(0);
+        // The SQL preview is what shows until the reader asks for the command.
+        await driver.locator('[data-testid="user-name"]').fill(account('u'));
+        await driver.waitForSelector('[data-testid="user-sql"] pre', { timeout: 20_000 });
+        expect(await driver.locator('[data-testid="user-command-mode"]').count()).toBe(0);
+      }, 120_000);
+
       it('offers the SQL as a command for the operating system', async () => {
         if (NO_ACCOUNTS.includes(dialect) || OS_ACCOUNTS.includes(dialect)) return;
         await startAdd(dialect, 'user', account('u'));
+
+        // The command lives behind the "Command line" mode now. It used to sit
+        // under the SQL unconditionally, which left it ambiguous which of the
+        // two the reader was meant to run — so this click is the feature, not
+        // an obstacle the test works around.
+        await driver.locator('[data-testid="user-create-mode-cli"]').click();
         await driver.waitForSelector('[data-testid="user-command-mode"]', { timeout: 20_000 });
 
         const command = driver.locator('[data-testid="user-command-mode-command"]');
