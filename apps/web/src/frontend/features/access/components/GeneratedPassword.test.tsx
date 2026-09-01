@@ -165,3 +165,22 @@ describe('the password is shown after it is copied', () => {
     expect(screen.getByTestId('user-generated-password').textContent).toMatch(/clipboard refused/i);
   });
 });
+
+describe('the hint matches what is actually on screen', () => {
+  it('points at the button instead of asking for a manual substitution', async () => {
+    // With "Copy with generated password" present, telling the reader to
+    // replace <password> by hand describes work the button already does — and
+    // invites them to think the button did not do it.
+    await addUserForm();
+    const hint = screen.getByTestId('user-password-hint').textContent ?? '';
+    expect(hint).toMatch(/copy with generated password/i);
+    expect(hint).not.toMatch(/replace it/i);
+  });
+
+  it('still says the password is never stored', async () => {
+    // The reassurance is the part that was true in every state; changing the
+    // instruction should not have dropped it.
+    await addUserForm();
+    expect(screen.getByTestId('user-password-hint').textContent).toMatch(/never stores it/i);
+  });
+});

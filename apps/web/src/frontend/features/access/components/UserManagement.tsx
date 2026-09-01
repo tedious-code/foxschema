@@ -591,6 +591,18 @@ export const UserManagement: React.FC<{
 
   const showPasswordCopy = Boolean(sqlText && sqlNeedsPassword(sqlText));
 
+  // The same sentence used to run under all three of these, telling everyone to
+  // substitute a password by hand. That is only true in the last case: with the
+  // copy button the substitution is done for you, and on Db2 a filled-in field
+  // is already in the commands. Being told to replace a password that is
+  // already set is how someone runs a CREATE USER with the literal text
+  // `<password>` as the credential.
+  const passwordHint = showPasswordCopy
+    ? 'Use “Copy with generated password” to fill one in — it is shown once so you can pass it on.'
+    : osPassword
+      ? 'The password above is already in the commands below; copy them as they are.'
+      : `Commands use ${PASSWORD_PLACEHOLDER} — replace it before you run them.`;
+
   const goGrantAccess = () => {
     if (!grantDraft || !onGrantAccess) return;
     onGrantAccess(grantDraft);
@@ -1136,12 +1148,16 @@ export const UserManagement: React.FC<{
 
                   {((mode === 'add' && principalType === 'user' && (support.canCreateUser || isDb2)) ||
                     (isDb2 && mode === 'edit' && alteration === 'password')) && (
-                    <div className="flex items-start gap-2 rounded-md border border-slate-700 bg-slate-950/50 px-3 py-2 text-[11px] text-slate-400">
+                    <div
+                      data-testid="user-password-hint"
+                      className="flex items-start gap-2 rounded-md border border-slate-700 bg-slate-950/50 px-3 py-2 text-[11px] text-slate-400"
+                    >
                       <KeyRound className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                       <span>
-                        Password stays with you. Commands use{' '}
-                        <code className="text-slate-300">{PASSWORD_PLACEHOLDER}</code> — replace it
-                        before you run them.
+                        {passwordHint}{' '}
+                        <span className="text-slate-500">
+                          Fox Schema never stores it or sends it anywhere.
+                        </span>
                       </span>
                     </div>
                   )}
