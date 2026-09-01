@@ -77,8 +77,28 @@ describe('cellMatches', () => {
     expect(cellMatches('9', filter(0, 'lt', '10'))).toBe(true); // string from driver
   });
 
+  it('does not treat a blank cell as the number zero', () => {
+    // Number('') is 0, so an unguarded numeric path answers `> -1` as true and
+    // files blanks among the numbers. compareCells already guards this; the
+    // filter has to agree with it or the same column sorts and filters
+    // inconsistently.
+    expect(cellMatches('', filter(0, 'gt', '-1'))).toBe(false);
+    expect(cellMatches('   ', filter(0, 'gt', '-1'))).toBe(false);
+    // And a blank still compares as text, which is where it belongs.
+    expect(cellMatches('', filter(0, 'lt', 'a'))).toBe(true);
+  });
+
   it('still answers an ordering question on text', () => {
     expect(cellMatches('banana', filter(0, 'gt', 'apple'))).toBe(true);
+  });
+
+  it('folds case for ordering, like every other comparison here', () => {
+    // `contains` and `equals` lowercase, and the sort uses sensitivity 'base'.
+    // If `gt`/`lt` did not, the same column would filter one way and sort
+    // another: 'apple' > 'Banana' is true byte-wise and false to a reader.
+    expect(cellMatches('apple', filter(0, 'gt', 'Banana'))).toBe(false);
+    expect(cellMatches('Banana', filter(0, 'gt', 'apple'))).toBe(true);
+    expect(cellMatches('ADA', filter(0, 'lte', 'ada'))).toBe(true);
   });
 
   it.each([

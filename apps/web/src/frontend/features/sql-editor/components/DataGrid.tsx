@@ -573,6 +573,63 @@ export const DataGrid: React.FC<{
   const rowH = emphasis ? ROW_H_EMPHASIS_PX : ROW_H_PX;
   const sourceColumns = result.ok ? result.columns : [];
   const sourceRows = result.ok ? result.rows : [];
+
+  /**
+   * Sorting and filtering applied to the rows already loaded.
+   *
+   * Instant, and only ever about this page — which is why `onApplyView` exists
+   * beside it to push the same state into the query. The toolbar says which of
+   * the two the user is looking at, because a filter that silently searches one
+   * page while looking like it searched the table is a filter that lies.
+   */
+  const [view, setView] = useState<GridViewState>(EMPTY_VIEW);
+  const [showFilters, setShowFilters] = useState(false);
+  /** Matches GridToolbar's own type scale, which is local to that component. */
+  const toolbarChrome = emphasis ? 'text-xs font-bold' : 'text-[10px] font-semibold';
+
+  // A fresh result set is a different table; carrying a filter across would
+  // hide rows the user never filtered.
+  useEffect(() => {
+    setView(EMPTY_VIEW);
+  }, [result]);
+
+  const viewIndices = useMemo(() => applyGridView(sourceRows, view), [sourceRows, view]);
+  /** Identical to `sourceRows` when nothing is set, so the common path copies nothing. */
+  const viewRows = useMemo(
+    () => (viewIsActive(view) ? viewIndices.map((i) => sourceRows[i]!) : sourceRows),
+    [sourceRows, viewIndices, view]
+  );
+  const hiddenByFilter = sourceRows.length - viewRows.length;
+
+  /**
+   * Translate between where a row sits on screen and where it sits in `result`.
+   *
+   * Everything the grid hands outward — select, edit, delete, FK drill, open in
+   * table, compare highlighting, migrate checkboxes, hover sync — is indexed by
+   * the caller against `result.rows`. Sorting or filtering changes only what is
+   * drawn, so passing the on-screen position outward would act on whichever
+   * record happened to land in that slot. That is the wrong row edited, the
+   * wrong row deleted, and the wrong parent opened.
+   *
+   * Both directions are identity while no view is active, which is the common
+   * case and costs nothing.
+   */
+  const toSourceRow = useCallback(
+    (viewIdx: number) => viewIndices[viewIdx] ?? viewIdx,
+    [viewIndices]
+  );
+  const viewPositionOf = useMemo(() => {
+    if (!viewIsActive(view)) return null;
+    const back = new Map<number, number>();
+    viewIndices.forEach((sourceIdx, viewIdx) => back.set(sourceIdx, viewIdx));
+    return back;
+  }, [viewIndices, view]);
+  const toViewRow = useCallback(
+    (sourceIdx: number | null | undefined) =>
+      sourceIdx == null ? null : (viewPositionOf ? (viewPositionOf.get(sourceIdx) ?? null) : sourceIdx),
+    [viewPositionOf]
+  );
+
   const [colOrder, setColOrder] = useState<number[]>(() => identityOrder(sourceColumns.length));
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
@@ -691,15 +748,18 @@ export const DataGrid: React.FC<{
   // Peer hover row — local state only (no parent re-render).
   useEffect(() => {
     if (!hoverSync || !scrollSyncId) return;
-    return hoverSync.register(scrollSyncId, setHoverRow);
-  }, [hoverSync, scrollSyncId]);
+    // Peers speak in source positions; this grid draws in view positions.
+    return hoverSync.register(scrollSyncId, (sourceIdx) => setHoverRow(toViewRow(sourceIdx)));
+  }, [hoverSync, scrollSyncId, toViewRow]);
 
   const publishHoverRow = useCallback(
     (rowIdx: number | null) => {
       setHoverRow(rowIdx);
-      if (hoverSync && scrollSyncId) hoverSync.broadcast(scrollSyncId, rowIdx);
+      if (hoverSync && scrollSyncId) {
+        hoverSync.broadcast(scrollSyncId, rowIdx == null ? null : toSourceRow(rowIdx));
+      }
     },
-    [hoverSync, scrollSyncId]
+    [hoverSync, scrollSyncId, toSourceRow]
   );
 
   const onScroll = useCallback(() => {
@@ -819,33 +879,6 @@ export const DataGrid: React.FC<{
     setSavePrompt(null);
     setMenu(null);
   };
-
-  /**
-   * Sorting and filtering applied to the rows already loaded.
-   *
-   * Instant, and only ever about this page — which is why `onApplyView` exists
-   * beside it to push the same state into the query. The toolbar says which of
-   * the two the user is looking at, because a filter that silently searches one
-   * page while looking like it searched the table is a filter that lies.
-   */
-  const [view, setView] = useState<GridViewState>(EMPTY_VIEW);
-  const [showFilters, setShowFilters] = useState(false);
-  /** Matches GridToolbar's own type scale, which is local to that component. */
-  const toolbarChrome = emphasis ? 'text-xs font-bold' : 'text-[10px] font-semibold';
-
-  // A fresh result set is a different table; carrying a filter across would
-  // hide rows the user never filtered.
-  useEffect(() => {
-    setView(EMPTY_VIEW);
-  }, [result]);
-
-  const viewIndices = useMemo(() => applyGridView(sourceRows, view), [sourceRows, view]);
-  /** Identical to `sourceRows` when nothing is set, so the common path copies nothing. */
-  const viewRows = useMemo(
-    () => (viewIsActive(view) ? viewIndices.map((i) => sourceRows[i]!) : sourceRows),
-    [sourceRows, viewIndices, view]
-  );
-  const hiddenByFilter = sourceRows.length - viewRows.length;
 
   const filterFor = (col: number) => view.filters.find((f) => f.column === col);
   const setFilter = (col: number, operator: FilterOperator, value: string) => {
@@ -1369,7 +1402,8 @@ export const DataGrid: React.FC<{
                 const size = pageSize && pageSize > 0 ? pageSize : viewRows.length;
                 const absRow = pageIndex * size + i + 1;
                 const stripe = i % 2 === 1;
-                const selected = selectedRowIndex === i;
+                // `selectedRowIndex` is a source position; compare in the same space.
+                const selected = toViewRow(selectedRowIndex) === i;
                 const rowHovered = hoverRow === i;
                 const rowBg = selected
                   ? 'bg-amber-500/15'
@@ -1386,7 +1420,7 @@ export const DataGrid: React.FC<{
                       onSelectRow ? 'cursor-pointer' : ''
                     } ${selected ? 'ring-1 ring-inset ring-amber-500/40' : ''}`}
                     style={{ height: rowH }}
-                    onClick={() => onSelectRow?.(i)}
+                    onClick={() => onSelectRow?.(toSourceRow(i))}
                     onMouseEnter={() => {
                       if (hoverRow !== i) publishHoverRow(i);
                     }}
@@ -1420,7 +1454,7 @@ export const DataGrid: React.FC<{
                       const w = colWidths[colIdx] ?? COL_DEFAULT_PX;
                       const { text, title, isNull } = cellDisplay(cell);
                       const kind = isNull ? 'null' : (colKinds[colIdx] ?? 'string');
-                      const hl = cellHighlight?.(i, colIdx) ?? null;
+                      const hl = cellHighlight?.(toSourceRow(i), colIdx) ?? null;
                       const hlClass = hl ? CELL_DIFF_CLASS[hl] : '';
                       const inSel = selectionHasCell(cellSel, i, visualIdx);
                       const cellBg = hlClass || `${rowBg} group-hover:bg-[var(--fox-grid-bg-hover)]`;
@@ -1461,7 +1495,7 @@ export const DataGrid: React.FC<{
                               x: e.clientX,
                               y: e.clientY,
                               colIdx,
-                              rowIdx: i,
+                              rowIdx: toSourceRow(i),
                               value: cell,
                             });
                           }}
@@ -1476,7 +1510,7 @@ export const DataGrid: React.FC<{
                               // read the NEXT row's value.
                               onClick={(e) => {
                                 e.stopPropagation();
-                                onLinkClick?.(colIdx, i);
+                                onLinkClick?.(colIdx, toSourceRow(i));
                               }}
                               // Rust ID color + solid underline — pale cyan was unreadable.
                               className="underline decoration-solid underline-offset-2 decoration-2 decoration-[var(--fox-grid-link)] text-[var(--fox-grid-link)] font-bold hover:brightness-110"
@@ -1495,7 +1529,7 @@ export const DataGrid: React.FC<{
                         style={{ width: SYNC_COL_PX, minWidth: SYNC_COL_PX }}
                       >
                         {(() => {
-                          const syncVal = rowSync.isChecked(i);
+                          const syncVal = rowSync.isChecked(toSourceRow(i));
                           if (syncVal === null) {
                             return (
                               <span
@@ -1513,7 +1547,7 @@ export const DataGrid: React.FC<{
                               checked={syncVal}
                               onChange={(e) => {
                                 e.stopPropagation();
-                                rowSync.onToggle(i, e.target.checked);
+                                rowSync.onToggle(toSourceRow(i), e.target.checked);
                               }}
                               onClick={(e) => e.stopPropagation()}
                               className="rounded border-sky-500/60 accent-sky-500"
