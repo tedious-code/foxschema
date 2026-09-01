@@ -25,6 +25,7 @@ import {
   Trash2,
   Pencil,
   Users,
+  X,
 } from 'lucide-react';
 import {
   PASSWORD_PLACEHOLDER,
@@ -208,6 +209,23 @@ export const UserManagement: React.FC<{
   const osPasswordError = osPassword ? validateDb2OsPassword(osPassword) : null;
   const [copied, setCopied] = useState(false);
   const [copiedWithPassword, setCopiedWithPassword] = useState(false);
+  /**
+   * The password just copied, shown once so it can be recorded.
+   *
+   * Fox Schema does not store passwords and the SQL preview keeps the
+   * `<password>` placeholder — that stays true. But copying SQL that contains a
+   * credential nobody has seen means the account is created and its password is
+   * only on the clipboard: there is no way to tell the new user what it is
+   * without pasting it somewhere first. Db2 already shows its password, for its
+   * own reasons; this makes the rest consistent without putting one in the
+   * preview.
+   *
+   * Held in component state only. It is cleared whenever the form changes and
+   * on dismiss, and never reaches the store, the history, or a log.
+   */
+  const [shownPassword, setShownPassword] = useState<string | null>(null);
+  /** The clipboard can refuse: no permission, or the document is not focused. */
+  const [clipboardRefused, setClipboardRefused] = useState(false);
 
   const support = useMemo(() => userManagementSupport(dialect), [dialect]);
   /**
@@ -523,17 +541,50 @@ export const UserManagement: React.FC<{
     else if (mode === 'edit') startEdit(p);
   };
 
+  /**
+   * Write to the clipboard, saying whether it worked.
+   *
+   * `writeText` rejects with NotAllowedError when the page lacks clipboard
+   * permission or is not focused. Both callers previously awaited it bare, so a
+   * refusal meant the button did nothing at all — no copy, no message, and (for
+   * the password path) no password either.
+   */
+  const writeClipboard = async (text: string): Promise<boolean> => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setClipboardRefused(false);
+      return true;
+    } catch {
+      setClipboardRefused(true);
+      return false;
+    }
+  };
+
   const copy = async () => {
     if (!sqlText) return;
-    await navigator.clipboard.writeText(sqlText);
+    if (!(await writeClipboard(sqlText))) return;
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
   };
 
+  // A shown password belongs to one specific statement. Any change to what is
+  // being generated makes it stale, and a stale password on screen is worse
+  // than none: it invites recording a credential the SQL no longer sets.
+  useEffect(() => {
+    setShownPassword(null);
+  }, [mode, principalType, name, connectionId, alteration]);
+
   const copyWithGeneratedPassword = async () => {
     if (!sqlText || !sqlNeedsPassword(sqlText)) return;
     const password = generateSuggestedPassword();
-    await navigator.clipboard.writeText(sqlWithPasswordSubstitute(sqlText, password));
+    const ok = await writeClipboard(sqlWithPasswordSubstitute(sqlText, password));
+    // Shown whether or not the clipboard accepted it, and until dismissed rather
+    // than on a timer. It is the only copy of a credential that is about to
+    // exist on a database: if the clipboard refused, this panel is the one place
+    // it can still be read, and a toast that fades after two seconds is not
+    // somewhere to read a 20-character password from either way.
+    setShownPassword(password);
+    if (!ok) return;
     setCopiedWithPassword(true);
     setTimeout(() => setCopiedWithPassword(false), 2500);
   };
@@ -1207,6 +1258,46 @@ export const UserManagement: React.FC<{
               )}
             </div>
           </div>
+
+          {shownPassword && (
+            <div
+              data-testid="user-generated-password"
+              className="flex items-start gap-2 rounded-md border border-emerald-500/40 bg-emerald-950/40 px-3 py-2"
+            >
+              <KeyRound className="mt-0.5 w-3.5 h-3.5 shrink-0 text-emerald-300" />
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-bold text-emerald-100">
+                  {clipboardRefused
+                    ? 'Clipboard refused — copy this password and the SQL by hand'
+                    : 'Password copied with the SQL — record it now'}
+                </p>
+                <code
+                  data-testid="user-generated-password-value"
+                  className="mt-1 block break-all rounded bg-slate-950/70 px-2 py-1 font-mono text-[12px] text-emerald-50 select-all"
+                >
+                  {shownPassword}
+                </code>
+                <p className="mt-1 text-[11px] text-emerald-200/80">
+                  {clipboardRefused
+                    ? 'The browser blocked the clipboard, so nothing was copied. Substitute this for '
+                    : 'It is on your clipboard inside the statement, and shown here once. Fox Schema does not store it, and the preview above still reads '}
+                  {'<password>'}
+                  {clipboardRefused
+                    ? ' in the statement above. Fox Schema does not store it — close this and it is gone.'
+                    : ' — close this and it is gone.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                data-testid="user-generated-password-dismiss"
+                onClick={() => setShownPassword(null)}
+                title="Hide the password"
+                className="shrink-0 rounded p-0.5 text-emerald-200/70 hover:text-emerald-100"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
 
           {mode === 'idle' && (
             <EmptyState
