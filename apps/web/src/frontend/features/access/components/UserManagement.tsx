@@ -31,6 +31,8 @@ import {
   buildUserSql,
   buildDb2OsUserInstructions,
   userManagementSupport,
+  userCreateModes,
+  type UserCreateMode,
   dialectSupportsDbAccess,
   privilegesForPrincipal,
   type DbPrincipal,
@@ -208,6 +210,22 @@ export const UserManagement: React.FC<{
   const [copiedWithPassword, setCopiedWithPassword] = useState(false);
 
   const support = useMemo(() => userManagementSupport(dialect), [dialect]);
+  /**
+   * SQL or command line, per what this engine can actually do.
+   *
+   * Db2 has no CREATE USER, so "Add user" there always meant shell commands —
+   * the form just did not say so until it had produced them. The choice is
+   * stated up front now, with the reason, and collapses to a single line when
+   * the engine offers only one route.
+   */
+  const createModes = useMemo(() => userCreateModes(dialect), [dialect]);
+  const [createMode, setCreateMode] = useState<UserCreateMode>(createModes.preferred);
+  // A different engine has different modes; keeping the old pick would leave
+  // the form on a route this dialect cannot take.
+  useEffect(() => {
+    setCreateMode(createModes.preferred);
+  }, [createModes]);
+  const activeMode = createModes.options.find((o) => o.mode === createMode);
   const coach = useMemo(() => (dialect ? dialectCoach(dialect) : null), [dialect]);
   const listSupport = useMemo(
     () => (dialect ? dialectSupportsDbAccess(dialect) : null),
@@ -842,6 +860,33 @@ export const UserManagement: React.FC<{
                     </button>
                   </div>
 
+                  {mode === 'add' && principalType === 'user' && (
+                    <Field
+                      label="How is this account created?"
+                      hint={activeMode?.reason}
+                    >
+                      {createModes.singleChoice ? (
+                        // One route means no choice; a toggle here would offer
+                        // a decision the engine has already made.
+                        <span
+                          data-testid="user-create-mode-only"
+                          className="text-[11px] font-bold text-slate-200"
+                        >
+                          {createModes.options.find((o) => o.available)?.label ?? 'Not available'}
+                        </span>
+                      ) : (
+                        <Segmented
+                          testId="user-create-mode"
+                          value={createMode}
+                          onChange={(v) => setCreateMode(v as UserCreateMode)}
+                          options={createModes.options
+                            .filter((o) => o.available)
+                            .map((o) => ({ value: o.mode, label: o.label }))}
+                        />
+                      )}
+                    </Field>
+                  )}
+
                   {mode === 'add' && (
                     <Field label="What are you adding?">
                       <Segmented
@@ -1190,6 +1235,7 @@ export const UserManagement: React.FC<{
             <>
               <div
                 data-testid="user-sql"
+                hidden={mode === 'add' && principalType === 'user' && createMode === 'cli' && !isDb2}
                 className="rounded-md border border-slate-800 bg-slate-950/70 divide-y divide-slate-800/70"
               >
                 {generated.statements.map((s, i) => (
@@ -1249,8 +1295,12 @@ export const UserManagement: React.FC<{
               )}
 
               {/* The Db2 path already emits shell commands; a second one would
-                  be noise. Everything else is SQL, and this is how to run it. */}
-              {!isDb2 && conn && (
+                  be noise. Everything else is SQL, and this is how to run it.
+                  While adding a user the mode toggle decides: showing the
+                  wrapped command under the SQL when the user asked for SQL is
+                  the ambiguity this toggle exists to remove. Outside Add there
+                  is no toggle, so it stays available as before. */}
+              {!isDb2 && conn && (mode !== 'add' || principalType !== 'user' || createMode === 'cli') && (
                 <CommandModeToggle
                   data-testid="user-command-mode"
                   sql={generated.statements.map((s) => s.sql).join('\n')}
