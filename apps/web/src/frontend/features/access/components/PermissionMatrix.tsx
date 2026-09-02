@@ -116,9 +116,27 @@ export const PermissionMatrix: React.FC<{
 }) => {
   const [rows, setRows] = useState<MatrixRow[]>(() => [newRow('table')]);
 
+  // Keyed on the principal's *fields*, never its object identity. The parent
+  // builds `principal` as a literal in its JSX, so a fresh object arrives on
+  // every render; keying on identity made this memo recompute each time, which
+  // fired the effect below, which set parent state, which re-rendered, which
+  // produced another fresh object. The panel died with "Maximum update depth
+  // exceeded" the moment it was opened.
+  //
+  // Depending on the fields makes the component safe however it is called,
+  // rather than making correctness the caller's job to remember.
+  const principalType = principal.type;
+  const principalName = principal.name;
   const requests = useMemo(
-    () => compileObjectGrid(rows, { dialect, principal, action, schema, withGrantOption }),
-    [rows, dialect, principal, action, schema, withGrantOption]
+    () =>
+      compileObjectGrid(rows, {
+        dialect,
+        principal: { type: principalType, name: principalName },
+        action,
+        schema,
+        withGrantOption,
+      }),
+    [rows, dialect, principalType, principalName, action, schema, withGrantOption]
   );
 
   // `onChange` is called from an effect rather than from the click handlers so

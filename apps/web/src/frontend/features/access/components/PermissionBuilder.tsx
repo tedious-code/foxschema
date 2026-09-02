@@ -74,6 +74,13 @@ export const PermissionBuilder: React.FC<{
   const [builderMode, setBuilderMode] = useState<'scope' | 'grid'>('scope');
   const [gridRequests, setGridRequests] = useState<PermissionRequest[]>([]);
   const [everyDatabase, setEveryDatabase] = useState(false);
+  // A stable identity for the grid's principal. The grid no longer depends on
+  // it, but handing a child a new object every render is a re-render it does
+  // not need.
+  const gridPrincipal = useMemo(
+    () => ({ type: principalType, name: principalName }),
+    [principalType, principalName]
+  );
 
   const caps = useMemo(() => accessCapabilities(dialect), [dialect]);
   // MySQL/MariaDB/Oracle have no schema-level GRANT — defaulting to "schema"
@@ -356,7 +363,7 @@ export const PermissionBuilder: React.FC<{
                 />
                 <PermissionMatrix
                   dialect={dialect}
-                  principal={{ type: principalType, name: principalName }}
+                  principal={gridPrincipal}
                   action={action}
                   schema={schema || conn?.schema || ''}
                   withGrantOption={withGrantOption}

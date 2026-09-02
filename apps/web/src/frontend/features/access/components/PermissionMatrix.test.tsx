@@ -177,3 +177,45 @@ describe('rows', () => {
     );
   });
 });
+
+describe('it does not spin when the caller passes a fresh principal each render', () => {
+  it('settles instead of looping', () => {
+    // The real parent builds `principal` as an object literal in its JSX, so a
+    // new identity arrives on every render. With the compile memo keyed on that
+    // identity, reporting the result set parent state, which re-rendered, which
+    // produced a new identity — "Maximum update depth exceeded", and the whole
+    // panel dead the moment it was opened.
+    //
+    // This harness is the parent: it stores what it is told and passes a fresh
+    // literal back down. If the loop returns, React throws here.
+    // A render budget, so a regression fails in a second instead of spinning
+    // until the suite times out.
+    let renders = 0;
+    const Parent: React.FC = () => {
+      renders += 1;
+      if (renders > 50) throw new Error(`render loop: ${renders} renders`);
+      const [requests, setRequests] = React.useState<PermissionRequest[]>([]);
+      return (
+        <>
+          <span data-testid="count">{requests.length}</span>
+          <PermissionMatrix
+            dialect="postgres"
+            principal={{ type: 'user', name: 'report_user' }}
+            action="grant"
+            schema="app"
+            tableChoices={['orders']}
+            onChange={setRequests}
+          />
+        </>
+      );
+    };
+
+    render(<Parent />);
+    const nameInput = screen.getAllByPlaceholderText('Table name')[0] as HTMLInputElement;
+    const rowId = nameInput.getAttribute('data-testid')!.replace('matrix-name-', '');
+    fireEvent.change(nameInput, { target: { value: 'orders' } });
+    fireEvent.click(screen.getByTestId(`matrix-cell-${rowId}-read`));
+
+    expect(screen.getByTestId('count').textContent).toBe('1');
+  });
+});
