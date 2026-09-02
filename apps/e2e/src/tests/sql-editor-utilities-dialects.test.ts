@@ -255,11 +255,11 @@ describe.skipIf(configured.length === 0)('SQL Editor · Utilities (all configure
           () => {
             const status = document.querySelector('[data-testid="clone-status"]')?.textContent ?? '';
             const err = document.querySelector('[data-testid="clone-error"]')?.textContent ?? '';
-            const sel = document.querySelector(
+            const input = document.querySelector(
               '[data-testid="clone-table-name"]'
-            ) as HTMLSelectElement | null;
-            const opts = sel ? [...sel.options].map((o) => o.value).filter(Boolean) : [];
-            return err.length > 0 || /loaded/i.test(status) || opts.length > 0;
+            ) as HTMLInputElement | null;
+            const ready = !!input && !/load tables first/i.test(input.placeholder);
+            return err.length > 0 || /loaded/i.test(status) || ready;
           },
           { timeout: 60_000 }
         );
@@ -267,16 +267,14 @@ describe.skipIf(configured.length === 0)('SQL Editor · Utilities (all configure
           (await driver.locator('[data-testid="clone-error"]').textContent().catch(() => '')) ?? '';
         expect(err.trim(), `clone load error (${dialect}): ${err}`).toBe('');
 
-        const tableValue = await driver.evaluate(() => {
-          const sel = document.querySelector(
-            '[data-testid="clone-table-name"]'
-          ) as HTMLSelectElement | null;
-          if (!sel) return '';
-          const hit = [...sel.options].find((o) => /customers/i.test(o.value || o.textContent || ''));
-          return hit?.value ?? '';
-        });
+        // The table picker is an Autocomplete: type to narrow, then pick the
+        // first row that names a customers table (dialects differ in casing).
+        await driver.locator('[data-testid="clone-table-name"]').fill('customers');
+        const hit = driver.locator('[role="option"][data-value*="customers" i]').first();
+        await hit.waitFor({ state: 'visible', timeout: 15_000 });
+        const tableValue = (await hit.getAttribute('data-value')) ?? '';
         expect(tableValue, `no customers table for ${dialect}`).not.toBe('');
-        await driver.locator('[data-testid="clone-table-name"]').selectOption(tableValue);
+        await hit.click();
 
         await driver.waitForSelector('[data-testid="clone-sql-preview"]', { timeout: 15_000 });
         const preview = (

@@ -585,16 +585,35 @@ export class SqlEditorPage {
     await select.selectOption(value);
   }
 
+  /**
+   * Open the Clone Table picker and wait for a table to be listed.
+   *
+   * The picker is an Autocomplete: options render only while the list is
+   * open, so this focuses the box, then narrows by typing so a large schema
+   * cannot push the row past the visible window.
+   */
   async waitForCloneTableOption(tableName: string, timeoutMs = 30_000): Promise<void> {
+    const input = this.page.locator('[data-testid="clone-table-name"]');
+    await input.waitFor({ state: 'visible', timeout: timeoutMs });
+    await input.fill(tableName);
+    await this.cloneTableOption(tableName).waitFor({ state: 'visible', timeout: timeoutMs });
+  }
+
+  /** Autocomplete rows carry data-value; match on it rather than on visible text plus hint. */
+  private cloneTableOption(tableName: string) {
+    return this.page.locator(`[role="option"][data-value="${tableName}"]`).first();
+  }
+
+  /** Pick a table in the Clone Table Autocomplete by exact name. */
+  async selectCloneTable(tableName: string): Promise<void> {
+    await this.waitForCloneTableOption(tableName);
+    await this.cloneTableOption(tableName).click();
     await this.page.waitForFunction(
-      (name) => {
-        const sel = document.querySelector(
-          '[data-testid="clone-table-name"]'
-        ) as HTMLSelectElement | null;
-        return !!sel && [...sel.options].some((o) => o.value === name);
-      },
+      (name) =>
+        (document.querySelector('[data-testid="clone-table-name"]') as HTMLInputElement | null)
+          ?.value === name,
       tableName,
-      { timeout: timeoutMs }
+      { timeout: 5_000 }
     );
   }
 
@@ -605,31 +624,18 @@ export class SqlEditorPage {
       () => {
         const status = document.querySelector('[data-testid="clone-status"]')?.textContent ?? '';
         const err = document.querySelector('[data-testid="clone-error"]')?.textContent ?? '';
-        const sel = document.querySelector(
+        const input = document.querySelector(
           '[data-testid="clone-table-name"]'
-        ) as HTMLSelectElement | null;
-        const opts = sel ? [...sel.options].map((o) => o.value).filter(Boolean) : [];
-        return err.length > 0 || /loaded/i.test(status) || opts.length > 0;
+        ) as HTMLInputElement | null;
+        // The picker is disabled-looking until the schema cache has tables.
+        const ready = !!input && !/load tables first/i.test(input.placeholder);
+        return err.length > 0 || /loaded/i.test(status) || ready;
       },
       { timeout: 45_000 }
     );
-    const debug = await this.page.evaluate(() => {
-      const status = document.querySelector('[data-testid="clone-status"]')?.textContent ?? '';
-      const err = document.querySelector('[data-testid="clone-error"]')?.textContent ?? '';
-      const sel = document.querySelector(
-        '[data-testid="clone-table-name"]'
-      ) as HTMLSelectElement | null;
-      const opts = sel
-        ? [...sel.options].map((o) => ({ value: o.value, label: o.textContent }))
-        : [];
-      return { status, err, opts };
-    });
-    if (debug.err.trim()) throw new Error(`Clone Table load failed: ${debug.err}`);
-    if (!debug.opts.some((o) => o.value === tableName)) {
-      throw new Error(
-        `Clone Table missing option "${tableName}". status=${debug.status} opts=${JSON.stringify(debug.opts)}`
-      );
-    }
-    await this.page.locator('[data-testid="clone-table-name"]').selectOption(tableName);
+    const err =
+      (await this.page.locator('[data-testid="clone-error"]').textContent().catch(() => '')) ?? '';
+    if (err.trim()) throw new Error(`Clone Table load failed: ${err}`);
+    await this.selectCloneTable(tableName);
   }
 }

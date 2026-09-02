@@ -18,6 +18,7 @@ import { PROVIDER_SETTINGS, connectionNeedsSecret } from '@/shared/lib/provider-
 import { insertAtCursor } from '@/features/sql-editor';
 import { WriteConfirmDialog } from '@/features/sql-editor';
 import { SQL_ICON_STROKE } from '@/shared/lib/iconStyle';
+import { Autocomplete, type AutocompleteOption } from '@/shared/components/Autocomplete';
 import {
   dialectFkConstraintSupport,
   dialectIndexSupport,
@@ -106,6 +107,17 @@ export const CloneTableModal: React.FC<Props> = ({
 
   const selected = tables.find((t) => t.name === tableName) || null;
   const existingNames = useMemo(() => tables.map((t) => t.name), [tables]);
+  const tableOptions = useMemo(
+    (): AutocompleteOption[] =>
+      tables.map((t) => {
+        const parts = [
+          t.indices?.length ? `${t.indices.length} idx` : '',
+          t.foreignKeys?.length ? `${t.foreignKeys.length} fk` : '',
+        ].filter(Boolean);
+        return { value: t.name, hint: parts.join(' · ') || undefined };
+      }),
+    [tables]
+  );
   const dialect = conn?.dialect || '';
   const indexSupport = dialectIndexSupport(dialect);
   const fkSupport = dialectFkConstraintSupport(dialect);
@@ -367,21 +379,16 @@ export const CloneTableModal: React.FC<Props> = ({
 
             <label className="block">
               <span className="text-[10px] font-bold uppercase text-slate-500">Table</span>
-              <select
-                data-testid="clone-table-name"
-                value={tableName}
-                onChange={(e) => setTableName(e.target.value)}
-                className="mt-0.5 w-full rounded-lg border border-slate-700 bg-slate-950/70 px-2.5 py-1.5 text-[13px] font-mono text-slate-100"
-              >
-                <option value="">Select a table…</option>
-                {tables.map((t) => (
-                  <option key={t.name} value={t.name}>
-                    {t.name}
-                    {t.indices?.length ? ` · ${t.indices.length} idx` : ''}
-                    {t.foreignKeys?.length ? ` · ${t.foreignKeys.length} fk` : ''}
-                  </option>
-                ))}
-              </select>
+              <div className="mt-0.5">
+                <Autocomplete
+                  data-testid="clone-table-name"
+                  value={tableName}
+                  onChange={setTableName}
+                  options={tableOptions}
+                  placeholder={tables.length ? 'Select or type a table…' : 'Load tables first'}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-950/70 px-2.5 py-1.5 text-[13px] font-mono text-slate-100 outline-none focus:border-amber-400/60 placeholder:text-slate-500"
+                />
+              </div>
             </label>
 
             <div className="rounded-xl border border-slate-700/80 bg-slate-950/40 p-3 space-y-3">
