@@ -235,6 +235,10 @@ export const UserManagement: React.FC<{
   const [passwordClipboard, setPasswordClipboard] = useState<
     'on-clipboard' | 'blocked' | 'preview-copied' | null
   >(null);
+  // A password the reader typed. Held in component state only: it is cleared on
+  // any change to the form, never written to the store, never sent to the
+  // server, and never entered in history.
+  const [sqlPassword, setSqlPassword] = useState('');
 
   const support = useMemo(() => userManagementSupport(dialect), [dialect]);
   /**
@@ -386,10 +390,25 @@ export const UserManagement: React.FC<{
     });
   }, [isDb2, dialect, name, db2RunMode, conn?.database]);
 
-  const sqlText =
+  /** What the generator produced, placeholder intact. */
+  const rawSqlText =
     generated && !('error' in generated)
       ? generated.statements.map((s) => s.sql).join('\n\n')
       : '';
+
+  /**
+   * Put a typed password into a statement for display and copying.
+   *
+   * Db2's OS password already appears in its commands, and splitting the
+   * behaviour by engine — typed here, hidden there — is how a reader ends up
+   * running `IDENTIFIED BY '<password>'` believing the field had been applied.
+   */
+  const applyPassword = useCallback(
+    (sql: string) => (sqlPassword ? sqlWithPasswordSubstitute(sql, sqlPassword, dialect) : sql),
+    [sqlPassword, dialect]
+  );
+
+  const sqlText = applyPassword(rawSqlText);
 
   const grantDraft = useMemo((): AccessPrincipalDraft | null => {
     if (!onGrantAccess || !connectionId) return null;
@@ -584,12 +603,22 @@ export const UserManagement: React.FC<{
   useEffect(() => {
     setShownPassword(null);
     setPasswordClipboard(null);
-  }, [sqlText]);
+    // Carrying a password across a change of statement would put it into DDL
+    // the reader never reviewed.
+    setSqlPassword('');
+    // Keyed on the *raw* statement, not the displayed one. `sqlText` now has
+    // the typed password substituted into it, so keying on that would mean
+    // every keystroke changed sqlText, which cleared the password, which
+    // changed sqlText back — the field wiping itself as it was typed.
+  }, [rawSqlText]);
 
   const copyWithGeneratedPassword = async () => {
-    if (!sqlText || !sqlNeedsPassword(sqlText)) return;
+    if (!rawSqlText || !sqlNeedsPassword(rawSqlText)) return;
+    // The generated password replaces anything typed. Leaving both would put
+    // one credential on the clipboard while the field showed another.
+    setSqlPassword('');
     const password = generateSuggestedPassword();
-    const ok = await writeClipboard(sqlWithPasswordSubstitute(sqlText, password));
+    const ok = await writeClipboard(sqlWithPasswordSubstitute(rawSqlText, password, dialect));
     // Shown whether or not the clipboard accepted it, and until dismissed rather
     // than on a timer. It is the only copy of a credential that is about to
     // exist on a database: if the clipboard refused, this panel is the one place
@@ -602,7 +631,7 @@ export const UserManagement: React.FC<{
     setTimeout(() => setCopiedWithPassword(false), 2500);
   };
 
-  const showPasswordCopy = Boolean(sqlText && sqlNeedsPassword(sqlText));
+  const showPasswordCopy = Boolean(rawSqlText && sqlNeedsPassword(rawSqlText));
 
   // The same sentence used to run under all three of these, telling everyone to
   // substitute a password by hand. That is only true in the last case: with the
@@ -613,15 +642,21 @@ export const UserManagement: React.FC<{
   //
   // A non-empty OS field is not enough: generation still returns nothing when
   // the name is empty, and an invalid password is an error, not commands.
+  //
+  // Read from the raw statement, not the displayed one: a typed password
+  // substituted into `sqlText` would make this read as "already in the
+  // commands" on engines that have no OS account at all.
   const passwordInCommands =
     Boolean(osPassword) &&
-    Boolean(sqlText) &&
+    Boolean(rawSqlText) &&
     generated != null &&
     !('error' in generated) &&
-    !sqlNeedsPassword(sqlText);
+    !sqlNeedsPassword(rawSqlText);
 
-  const passwordHint = showPasswordCopy
-    ? 'Use “Copy with generated password” to fill one in — it is shown once so you can pass it on.'
+  const passwordHint = sqlPassword
+    ? 'The password above is already in the statement on the right; copy it as it is.'
+    : showPasswordCopy
+    ? 'Type a password above, or use “Copy with generated password” to fill one in — it is shown once so you can pass it on.'
     : passwordInCommands
       ? 'The password above is already in the commands below; copy them as they are.'
       : `Commands use ${PASSWORD_PLACEHOLDER} — replace it before you run them.`;
@@ -1020,6 +1055,52 @@ export const UserManagement: React.FC<{
                     )}
                   </Field>
 
+                  {!isDb2 && showPasswordCopy && (
+                    <Field
+                      label="Password"
+                      hint={
+                        sqlPassword
+                          ? 'Written into the statement on the right. Fox Schema does not store it, send it anywhere, or keep it in history.'
+                          : 'Optional. Leave empty to keep the <password> placeholder and fill it in yourself.'
+                      }
+                    >
+                      <div className="flex items-center gap-2">
+                        <PasswordInput
+                          data-testid="user-sql-password"
+                          value={sqlPassword}
+                          onChange={(e) => {
+                            setSqlPassword(e.target.value);
+                            // The generated-password panel says the preview
+                            // still reads `<password>` and that only the
+                            // clipboard has the secret. Both stop being true
+                            // once a typed value is substituted, and the two
+                            // passwords would be different — so the panel goes
+                            // rather than stand there lying about which
+                            // credential the statement sets.
+                            setShownPassword(null);
+                            setPasswordClipboard(null);
+                          }}
+                          placeholder={PASSWORD_PLACEHOLDER}
+                          autoComplete="new-password"
+                          className={inputCls}
+                        />
+                        <button
+                          type="button"
+                          data-testid="user-sql-password-generate"
+                          onClick={() => {
+                            setSqlPassword(generateSuggestedPassword());
+                            setShownPassword(null);
+                            setPasswordClipboard(null);
+                          }}
+                          title="Generate a 20-character random password"
+                          className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-600 bg-slate-800 text-[11px] font-bold text-slate-100 hover:bg-slate-700"
+                        >
+                          Generate
+                        </button>
+                      </div>
+                    </Field>
+                  )}
+
                   {isDb2 &&
                     principalType === 'user' &&
                     (mode === 'add' || (mode === 'edit' && alteration === 'password')) && (
@@ -1380,7 +1461,7 @@ export const UserManagement: React.FC<{
                 {generated.statements.map((s, i) => (
                   <div key={i} className="p-3">
                     <pre className="text-[12px] font-mono text-slate-100 whitespace-pre-wrap break-words">
-                      {s.sql}
+                      {applyPassword(s.sql)}
                     </pre>
                     <p className="mt-1.5 text-[11px] text-slate-500">{s.explanation}</p>
                   </div>
@@ -1438,11 +1519,17 @@ export const UserManagement: React.FC<{
                   While adding a user the mode toggle decides: showing the
                   wrapped command under the SQL when the user asked for SQL is
                   the ambiguity this toggle exists to remove. Outside Add there
-                  is no toggle, so it stays available as before. */}
+                  is no toggle, so it stays available as before.
+
+                  It takes the password-substituted statements: in Command-line
+                  create mode the SQL preview is hidden, so this is the only
+                  statement on screen, and fed the raw text it read
+                  `<password>` while the field and hint both said the password
+                  had been applied. */}
               {!isDb2 && conn && (mode !== 'add' || principalType !== 'user' || createMode === 'cli') && (
                 <CommandModeToggle
                   data-testid="user-command-mode"
-                  sql={generated.statements.map((s) => s.sql).join('\n')}
+                  sql={generated.statements.map((s) => applyPassword(s.sql)).join('\n')}
                   dialect={dialect}
                   target={{
                     host: conn.host,
