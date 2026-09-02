@@ -64,6 +64,17 @@ describe('Autocomplete as a dropdown', () => {
     expect(rows()[0]).toContain('2 idx');
   });
 
+  it('renders two rows for options that share a value but differ in hint', () => {
+    // A user and a role can have the same name; the picker must show both.
+    const same = [
+      { value: 'analysts', hint: 'user' },
+      { value: 'analysts', hint: 'role' },
+    ];
+    render(<Autocomplete value="" onChange={() => undefined} options={same} data-testid="dup" />);
+    fireEvent.focus(screen.getByTestId('dup'));
+    expect(rows()).toEqual(['analystsuser', 'analystsrole']);
+  });
+
   it('does not say "No matches" for an unfiltered picked value with no options', () => {
     // A free-text field with no catalog yet must not nag on focus.
     const { container } = render(

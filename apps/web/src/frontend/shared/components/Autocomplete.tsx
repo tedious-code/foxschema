@@ -251,7 +251,9 @@ export const Autocomplete: React.FC<{
             const current = i === currentIndex;
             return (
               <li
-                key={o.value}
+                // Two options may share a value and differ only in hint — a
+                // user and a role with the same name — and both must render.
+                key={`${o.value}\u0000${o.label ?? ''}\u0000${o.hint ?? ''}`}
                 id={optionId(i)}
                 role="option"
                 aria-selected={active}

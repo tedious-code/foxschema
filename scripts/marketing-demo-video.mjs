@@ -68,7 +68,9 @@ async function connect(page, side, fields) {
   }
   await pause(1500); // show successful test banner
 
-  await page.selectOption('[data-testid="conn-schema-select"]', fields.schema);
+  // The schema box is an Autocomplete: type, then pick the row so the list is on camera.
+  await page.fill('[data-testid="conn-schema-input"]', fields.schema);
+  await page.click(`[role="option"][data-value="${fields.schema}"]`);
   await pause(1000);
   await page.click('[data-testid="conn-save-btn"]');
   await page.waitForSelector('[data-testid="conn-modal"]', { state: 'detached', timeout: 15_000 });
