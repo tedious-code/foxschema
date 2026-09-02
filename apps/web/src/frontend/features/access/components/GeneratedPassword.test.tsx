@@ -20,6 +20,7 @@ vi.mock('@/app/store/useSyncStore', () => {
     connections: [
       { id: 'c1', name: 'Demo PG', dialect: 'postgres', database: 'app', schema: 'public' },
       { id: 'c2', name: 'Demo MySQL', dialect: 'mysql', database: 'app' },
+      { id: 'c3', name: 'Demo Db2', dialect: 'db2', database: 'SAMPLE' },
     ],
   };
   return { useSyncStore: (sel: (s: typeof state) => unknown) => sel(state) };
@@ -29,7 +30,10 @@ vi.mock('@/app/store/useSqlEditorStore', () => {
   const state = {
     sessionPasswords: {} as Record<string, string>,
     ensureSchema: vi.fn().mockResolvedValue(undefined),
-    schemaCache: { c1: { status: 'ready', tables: [] as [] } },
+    schemaCache: {
+      c1: { status: 'ready', tables: [] as [] },
+      c2: { status: 'ready', tables: [] as [] },
+    },
   };
   return { useSqlEditorStore: (sel: (s: typeof state) => unknown) => sel(state) };
 });
@@ -66,9 +70,9 @@ beforeEach(() => {
 });
 
 /** Get as far as an Add-user form with SQL that needs a password. */
-async function addUserForm(name = 'report_user') {
+async function addUserForm(name = 'report_user', connectionId = 'c1') {
   render(<AccessView />);
-  fireEvent.change(screen.getByTestId('user-connection'), { target: { value: 'c1' } });
+  fireEvent.change(screen.getByTestId('user-connection'), { target: { value: connectionId } });
   await waitFor(() => expect(screen.getByTestId('user-add-user')).toBeTruthy());
   fireEvent.click(screen.getByTestId('user-add-user'));
   fireEvent.change(screen.getByTestId('user-name'), { target: { value: name } });
@@ -164,6 +168,70 @@ describe('the password is shown after it is copied', () => {
     expect(shown.length).toBeGreaterThan(8);
     expect(screen.getByTestId('user-generated-password').textContent).toMatch(/clipboard refused/i);
   });
+
+  it('goes away when the MySQL host changes', async () => {
+    // Host is part of the MySQL identity (name@host). Leaving the password up
+    // after a different host is chosen would show a credential for an account
+    // the preview no longer creates.
+    await addUserForm('report_user', 'c2');
+    fireEvent.click(screen.getByTestId('user-copy-with-password'));
+    await waitFor(() => expect(screen.getByTestId('user-generated-password')).toBeTruthy());
+
+    fireEvent.change(screen.getByTestId('user-host'), { target: { value: '10.0.0.1' } });
+    expect(screen.queryByTestId('user-generated-password')).toBeNull();
+  });
+
+  it('does not claim the generated password is on the clipboard after Copy SQL', async () => {
+    // Copy SQL writes the preview, which still reads <password>. Sharing
+    // clipboard-success state with the password button used to flip the panel
+    // to "Password copied with the SQL" even though that password was not
+    // what just landed.
+    await addUserForm();
+    fireEvent.click(screen.getByTestId('user-copy-with-password'));
+    await waitFor(() => expect(screen.getByTestId('user-generated-password')).toBeTruthy());
+    const shown = screen.getByTestId('user-generated-password-value').textContent ?? '';
+
+    fireEvent.click(screen.getByTestId('user-copy'));
+    await waitFor(() =>
+      expect(screen.getByTestId('user-generated-password').textContent).toMatch(
+        /SQL copied without this password/i
+      )
+    );
+    expect(screen.getByTestId('user-generated-password').textContent).not.toMatch(
+      /Password copied with the SQL/i
+    );
+    expect(written.at(-1)).toContain('<password>');
+    expect(written.at(-1)).not.toContain(shown);
+  });
+
+  it('does not recover a refused password-copy as success via Copy SQL', async () => {
+    let calls = 0;
+    Object.assign(navigator, {
+      clipboard: {
+        writeText: vi.fn(async (text: string) => {
+          calls += 1;
+          if (calls === 1) {
+            throw new Error('NotAllowedError: Write permission denied');
+          }
+          written.push(text);
+        }),
+      },
+    });
+    await addUserForm();
+    fireEvent.click(screen.getByTestId('user-copy-with-password'));
+    await waitFor(() => expect(screen.getByTestId('user-generated-password')).toBeTruthy());
+    expect(screen.getByTestId('user-generated-password').textContent).toMatch(/clipboard refused/i);
+
+    fireEvent.click(screen.getByTestId('user-copy'));
+    await waitFor(() =>
+      expect(screen.getByTestId('user-generated-password').textContent).toMatch(
+        /SQL copied without this password/i
+      )
+    );
+    expect(screen.getByTestId('user-generated-password').textContent).not.toMatch(
+      /Password copied with the SQL/i
+    );
+  });
 });
 
 describe('the hint matches what is actually on screen', () => {
@@ -182,5 +250,38 @@ describe('the hint matches what is actually on screen', () => {
     // instruction should not have dropped it.
     await addUserForm();
     expect(screen.getByTestId('user-password-hint').textContent).toMatch(/never stores it/i);
+  });
+
+  it('does not say a Db2 OS password is in the commands when generation failed', async () => {
+    // A typed password with no account name (or an invalid one) produces no
+    // commands. Telling the reader to copy them as they are would describe
+    // SQL that is not on screen.
+    render(<AccessView />);
+    fireEvent.change(screen.getByTestId('user-connection'), { target: { value: 'c3' } });
+    await waitFor(() => expect(screen.getByTestId('user-add-user')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('user-add-user'));
+    fireEvent.change(screen.getByTestId('user-os-password'), { target: { value: 'GoodPass1.' } });
+
+    const emptyName = screen.getByTestId('user-password-hint').textContent ?? '';
+    expect(emptyName).not.toMatch(/already in the commands/i);
+    expect(emptyName).toMatch(/replace it/i);
+
+    fireEvent.change(screen.getByTestId('user-name'), { target: { value: 'report_user' } });
+    fireEvent.change(screen.getByTestId('user-os-password'), { target: { value: 'ab' } });
+    const invalid = screen.getByTestId('user-password-hint').textContent ?? '';
+    expect(invalid).not.toMatch(/already in the commands/i);
+  });
+
+  it('says a valid Db2 OS password is already in the commands', async () => {
+    render(<AccessView />);
+    fireEvent.change(screen.getByTestId('user-connection'), { target: { value: 'c3' } });
+    await waitFor(() => expect(screen.getByTestId('user-add-user')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('user-add-user'));
+    fireEvent.change(screen.getByTestId('user-name'), { target: { value: 'report_user' } });
+    fireEvent.click(screen.getByTestId('user-os-password-generate'));
+
+    const hint = screen.getByTestId('user-password-hint').textContent ?? '';
+    expect(hint).toMatch(/already in the commands/i);
+    expect(hint).not.toMatch(/replace it/i);
   });
 });
