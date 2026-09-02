@@ -87,11 +87,10 @@ function bandOf(permission: AccessPermission): 'DML' | 'DDL' {
 }
 
 let rowSeq = 0;
-const newRow = (kind: GridObjectKind, schema?: string): MatrixRow => ({
+const newRow = (kind: GridObjectKind): MatrixRow => ({
   id: `row-${++rowSeq}`,
   kind,
   name: '',
-  schema,
   permissions: [],
 });
 
@@ -117,7 +116,11 @@ export const PermissionMatrix: React.FC<{
   const [rows, setRows] = useState<MatrixRow[]>(() => [newRow('table')]);
 
   const requests = useMemo(
-    () => compileObjectGrid(rows, { dialect, principal, action, schema, withGrantOption }),
+    () =>
+      compileObjectGrid(
+        rows.map((r) => ({ ...r, schema })),
+        { dialect, principal, action, schema, withGrantOption }
+      ),
     [rows, dialect, principal, action, schema, withGrantOption]
   );
 
@@ -243,7 +246,7 @@ export const PermissionMatrix: React.FC<{
                     <th className="text-left font-normal px-3 pb-1.5">
                       <button
                         type="button"
-                        onClick={() => setRows((p) => [...p, newRow(kind, schema)])}
+                        onClick={() => setRows((p) => [...p, newRow(kind)])}
                         data-testid={`matrix-add-${kind}`}
                         className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-200"
                       >
@@ -378,7 +381,7 @@ export const PermissionMatrix: React.FC<{
             <button
               key={k}
               type="button"
-              onClick={() => setRows((p) => [...p, newRow(k, schema)])}
+              onClick={() => setRows((p) => [...p, newRow(k)])}
               data-testid={`matrix-add-section-${k}`}
               className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-slate-700 text-[11px] text-slate-400 hover:text-slate-200"
             >

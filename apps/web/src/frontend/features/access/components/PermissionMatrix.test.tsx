@@ -102,7 +102,7 @@ describe('ticking cells compiles to requests', () => {
   });
 
   it('ticks a whole column from its heading', () => {
-    const { rowId, onChange, nameInput } = setup('postgres');
+    const { onChange, nameInput } = setup('postgres');
     fireEvent.change(nameInput, { target: { value: 'orders' } });
     fireEvent.click(screen.getByTestId('matrix-col-table-read'));
     expect(latest(onChange)[0]!.permissions).toEqual(['read']);
@@ -175,5 +175,36 @@ describe('rows', () => {
     expect(requests.map((r) => r.permissions.join())).toEqual(
       expect.arrayContaining(['read', 'insert'])
     );
+  });
+
+  it('recompiles extra rows onto the schema field, not the schema at add time', () => {
+    const onChange = vi.fn<(r: PermissionRequest[]) => void>();
+    const props = {
+      dialect: 'postgres',
+      principal,
+      action: 'grant' as const,
+      tableChoices: ['orders', 'customers'],
+      onChange,
+    };
+    const { rerender } = render(<PermissionMatrix {...props} schema="app" />);
+    const first = screen.getAllByPlaceholderText('Table name')[0] as HTMLInputElement;
+    const firstId = first.getAttribute('data-testid')!.replace('matrix-name-', '');
+    fireEvent.change(first, { target: { value: 'orders' } });
+    fireEvent.click(screen.getByTestId(`matrix-cell-${firstId}-read`));
+
+    fireEvent.click(screen.getByTestId('matrix-add-table'));
+    const second = screen.getAllByPlaceholderText('Table name')[1] as HTMLInputElement;
+    const secondId = second.getAttribute('data-testid')!.replace('matrix-name-', '');
+    fireEvent.change(second, { target: { value: 'customers' } });
+    fireEvent.click(screen.getByTestId(`matrix-cell-${secondId}-read`));
+
+    rerender(<PermissionMatrix {...props} schema="reporting" />);
+    const requests = latest(onChange);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]!.scope).toMatchObject({
+      type: 'tables',
+      schema: 'reporting',
+      tables: ['orders', 'customers'],
+    });
   });
 });

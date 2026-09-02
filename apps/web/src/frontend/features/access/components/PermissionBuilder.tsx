@@ -7,6 +7,8 @@ import {
   describePermission,
   invertAccessRequest,
   expandToInstance,
+  accessStatementPlace,
+  qualifyDatabaseSql,
   permissionsForPreset,
   presetForPermissions,
   supportsAccessBuilder,
@@ -196,10 +198,20 @@ export const PermissionBuilder: React.FC<{
     // a later statement depends on.
     const seenStatement = new Set<string>();
     return {
-      statements: ok.flatMap((r) => r.statements).filter((st) => {
-        if (seenStatement.has(st.sql)) return false;
-        seenStatement.add(st.sql);
-        return true;
+      statements: ok.flatMap((r, i) => {
+        const scope = requests[i]!.scope;
+        const place = accessStatementPlace(scope);
+        return r.statements
+          .map((st) => ({ ...st, sql: qualifyDatabaseSql(st.sql, scope) }))
+          .filter((st) => {
+            // Same SQL in the same schema is a repeated prerequisite (USAGE).
+            // Same SQL in two databases is two grants — collapsing them would
+            // leave "every database" covering only the one you are connected to.
+            const key = `${place}\0${st.sql}`;
+            if (seenStatement.has(key)) return false;
+            seenStatement.add(key);
+            return true;
+          });
       }),
       // Fanning a grant across ten databases repeats the same caution ten
       // times; the reader needs to read it once.

@@ -332,3 +332,24 @@ export function expandToInstance(
   if (names.length === 0) return [request];
   return names.map((database) => ({ ...request, scope: { type: 'database', database } }));
 }
+
+/** Group identical statements that apply to the same place, not across databases. */
+export function accessStatementPlace(scope: AccessScope): string {
+  if (scope.type === 'database') return `database:${scope.database}`;
+  if ('schema' in scope && scope.schema) return `schema:${scope.schema}`;
+  return '';
+}
+
+/**
+ * Database-scoped GRANT on Db2 and SQL Server does not name the database —
+ * you are already connected to it. Fanning the same SQL across databases
+ * then looks identical in the preview. A comment says which database to run
+ * it in, so a later unique-by-text pass cannot collapse them into one.
+ */
+export function qualifyDatabaseSql(sql: string, scope: AccessScope): string {
+  if (scope.type !== 'database') return sql;
+  const db = scope.database.trim();
+  if (!db) return sql;
+  if (sql.toLowerCase().includes(db.toLowerCase())) return sql;
+  return `-- run in ${db}\n${sql}`;
+}

@@ -25,6 +25,8 @@ export {
   cellSupport,
   compileObjectGrid,
   expandToInstance,
+  accessStatementPlace,
+  qualifyDatabaseSql,
   gridColumnsFor,
   prunedPermissions,
   highestRisk,

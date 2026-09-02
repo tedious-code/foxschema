@@ -366,6 +366,8 @@ export {
   cellSupport,
   compileObjectGrid,
   expandToInstance,
+  accessStatementPlace,
+  qualifyDatabaseSql,
   gridColumnsFor,
   prunedPermissions,
   type CellSupport,

@@ -18,6 +18,7 @@ import {
   cellSupport,
   compileObjectGrid,
   expandToInstance,
+  qualifyDatabaseSql,
   gridColumnsFor,
   prunedPermissions,
   type GridRow,
@@ -298,5 +299,41 @@ describe('instance scope', () => {
     // Better one statement the reader can edit than none at all.
     expect(expandToInstance(base, [])).toEqual([base]);
     expect(expandToInstance(base, ['  '])).toEqual([base]);
+  });
+
+  it('keeps one Db2 CONNECT per database after qualification', () => {
+    const reqs = expandToInstance(
+      { ...base, permissions: ['connect'] },
+      ['app', 'reporting']
+    );
+    const sqls = reqs.map((r) => {
+      const built = buildAccessSql(r, 'db2');
+      if ('error' in built) throw new Error(built.error);
+      return qualifyDatabaseSql(built.statements[0]!.sql, r.scope);
+    });
+    expect(sqls).toHaveLength(2);
+    expect(sqls[0]).not.toBe(sqls[1]);
+    expect(sqls.join('\n')).toMatch(/run in app/);
+    expect(sqls.join('\n')).toMatch(/run in reporting/);
+  });
+});
+
+describe('qualifyDatabaseSql', () => {
+  it('leaves SQL that already names the database', () => {
+    const sql = 'GRANT CONNECT ON DATABASE app TO report_user;';
+    expect(qualifyDatabaseSql(sql, { type: 'database', database: 'app' })).toBe(sql);
+  });
+
+  it('annotates SQL that does not name the database', () => {
+    // Db2 and SQL Server GRANT CONNECT against the current database.
+    const sql = 'GRANT CONNECT ON DATABASE TO USER REPORT_USER;';
+    expect(qualifyDatabaseSql(sql, { type: 'database', database: 'reporting' })).toBe(
+      `-- run in reporting\n${sql}`
+    );
+  });
+
+  it('does not annotate table or schema grants', () => {
+    const sql = 'GRANT SELECT ON app.orders TO report_user;';
+    expect(qualifyDatabaseSql(sql, { type: 'schema', schema: 'app' })).toBe(sql);
   });
 });
