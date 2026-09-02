@@ -18,7 +18,18 @@ import { AccessView } from './AccessView';
 vi.mock('@/app/store/useSyncStore', () => {
   const state = {
     connections: [
-      { id: 'c1', name: 'Demo PG', dialect: 'postgres', database: 'app', schema: 'public' },
+      // host/port are what let CommandModeToggle build a runnable command; it
+      // renders nothing without them, and the CLI-mode test needs it on screen.
+      {
+        id: 'c1',
+        name: 'Demo PG',
+        dialect: 'postgres',
+        database: 'app',
+        schema: 'public',
+        host: '127.0.0.1',
+        port: 5432,
+        username: 'foxuser',
+      },
       { id: 'c2', name: 'Demo MySQL', dialect: 'mysql', database: 'app' },
       { id: 'c3', name: 'Demo Db2', dialect: 'db2', database: 'SAMPLE' },
     ],
@@ -335,5 +346,64 @@ describe('the password field', () => {
     const value = (screen.getByTestId('user-sql-password') as HTMLInputElement).value;
     expect(value.length).toBeGreaterThan(8);
     await waitFor(() => expect(screen.getByTestId('user-sql').textContent).toContain(value));
+  });
+});
+
+describe('a typed password and a generated one never coexist', () => {
+  it('clears the generated-password panel as soon as one is typed', async () => {
+    // The panel states the preview still reads <password> and that only the
+    // clipboard holds the secret. Both stop being true once a typed value is
+    // substituted, and the two passwords differ.
+    await addUserForm();
+    fireEvent.click(screen.getByTestId('user-copy-with-password'));
+    await waitFor(() => expect(screen.getByTestId('user-generated-password')).toBeTruthy());
+
+    fireEvent.change(screen.getByTestId('user-sql-password'), {
+      target: { value: 'Typed1!pw' },
+    });
+    expect(screen.queryByTestId('user-generated-password')).toBeNull();
+  });
+
+  it('clears a typed password when a generated one is copied', async () => {
+    await addUserForm();
+    fireEvent.change(screen.getByTestId('user-sql-password'), {
+      target: { value: 'Typed1!pw' },
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('user-sql').textContent).toContain('Typed1!pw')
+    );
+
+    fireEvent.click(screen.getByTestId('user-copy-with-password'));
+    await waitFor(() => expect(screen.getByTestId('user-generated-password')).toBeTruthy());
+
+    // The field is empty again and the preview is back to the placeholder, so
+    // the shown password is the only credential in play.
+    expect((screen.getByTestId('user-sql-password') as HTMLInputElement).value).toBe('');
+    const shown = screen.getByTestId('user-generated-password-value').textContent ?? '';
+    const preview = screen.getByTestId('user-sql').textContent ?? '';
+    expect(preview).toContain('<password>');
+    expect(preview).not.toContain('Typed1!pw');
+    expect(preview).not.toContain(shown);
+  });
+});
+
+describe('the command-line statement carries the password too', () => {
+  it('substitutes into the CLI command, not just the SQL preview', async () => {
+    // In Command-line create mode the SQL preview is hidden, so the wrapped
+    // command is the only statement on screen. Fed the raw text it read
+    // `<password>` while the field and hint both said the password had been
+    // applied — the reader runs it and creates an account whose password is
+    // the literal string `<password>`.
+    await addUserForm();
+    fireEvent.change(screen.getByTestId('user-sql-password'), {
+      target: { value: 'Typed1!pw' },
+    });
+
+    // Command-line mode is where the SQL preview is hidden.
+    fireEvent.click(screen.getByTestId('user-create-mode-cli'));
+    await waitFor(() => expect(screen.getByTestId('user-command-mode')).toBeTruthy());
+    const cli = screen.getByTestId('user-command-mode').textContent ?? '';
+    expect(cli).toContain('Typed1!pw');
+    expect(cli).not.toContain('<password>');
   });
 });

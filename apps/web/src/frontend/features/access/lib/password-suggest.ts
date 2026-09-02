@@ -21,7 +21,11 @@ export function generateSuggestedPassword(length = 20): string {
  */
 function backslashIsEscape(dialect?: string): boolean {
   const d = (dialect || '').toLowerCase();
-  return d === 'mysql' || d === 'mariadb' || d === 'tidb';
+  // ClickHouse belongs here too: its CREATE USER quotes the password the same
+  // way and it interprets the same escapes. Verified against a live server — a
+  // typed `pa\tss1` written unescaped stores a tab, and authenticating with
+  // what was typed fails.
+  return d === 'mysql' || d === 'mariadb' || d === 'tidb' || d === 'clickhouse';
 }
 
 /**

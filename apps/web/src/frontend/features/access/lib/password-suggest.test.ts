@@ -55,6 +55,13 @@ describe('escaping a typed password', () => {
     expect(sqlOf("pa'ss")).toBe("CREATE USER x IDENTIFIED BY 'pa''ss';");
   });
 
+  it('doubles a backslash on ClickHouse too', () => {
+    // Verified against a live server: `CREATE USER … BY 'pa\tss1'` written
+    // unescaped stores a tab, and authenticating with what was typed fails
+    // with AUTHENTICATION_FAILED.
+    expect(sqlOf('pa\\ss', 'clickhouse')).toBe("CREATE USER x IDENTIFIED BY 'pa\\\\ss';");
+  });
+
   it('doubles a backslash on MySQL, where it is an escape character', () => {
     // MySQL reads `pa\ss` as `pa` + an escape: the account ends up with a
     // password nobody can reproduce, and it surfaces later as a login that
