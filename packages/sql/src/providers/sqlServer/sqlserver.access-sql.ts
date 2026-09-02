@@ -8,6 +8,7 @@
 import { highestRisk } from '../../modules/access/intent.js';
 import {
   describePrivs,
+  objectPrivileges,
   executePermissions,
   tablePermissions,
   tablePrivileges,
@@ -30,6 +31,12 @@ function emitSqlServer(ctx: EmitCtx): void {
   }
   // DROP is not a SQL Server permission — ALTER on the container carries it —
   // so `drop-object` stays uncovered and buildAccessSql says so.
+  if (scope.type === 'tables' || scope.type === 'routines' || scope.type === 'columns') {
+    const kind = scope.type === 'routines' ? 'procedure' : 'table';
+    const extra = objectPrivileges(permissions, ctx.dialect, kind);
+    for (const pv of extra.privs) if (!privs.includes(pv)) privs.push(pv);
+    covers.push(...extra.covers);
+  }
 
   if (permissions.includes('connect') && scope.type === 'database') {
     add(
@@ -48,6 +55,21 @@ function emitSqlServer(ctx: EmitCtx): void {
     );
   }
   if (privs.length === 0) return;
+
+  if (scope.type === 'routines') {
+    // Without this branch a routine request falls through to the database-wide
+    // `GRANT EXECUTE TO x`, which grants execute on every routine in the
+    // database rather than the ones ticked.
+    for (const routine of scope.routines) {
+      add(
+        `${verb} ${privs.join(', ')} ON OBJECT::${ident(scope.schema)}.${ident(routine.name)} ${dir} ${grantee}${option};`,
+        `${describePrivs(privs)} on ${routine.kind} ${scope.schema}.${routine.name}.`,
+        highestRisk(permissions),
+        covers
+      );
+    }
+    return;
+  }
 
   if (scope.type === 'columns') {
     const colList = scope.columns.map((c) => ident(c)).join(', ');

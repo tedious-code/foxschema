@@ -29,7 +29,13 @@ export type AccessPermission =
   | 'drop-object'
   | 'execute-function'
   | 'execute-procedure'
-  | 'use-sequence';
+  | 'use-sequence'
+  /** REFERENCES: may point a foreign key at this table. */
+  | 'reference'
+  /** Create and drop indexes on it. Not a PostgreSQL privilege — see object-grid. */
+  | 'index-object'
+  /** Create and drop triggers on it. */
+  | 'trigger-object';
 
 export const ACCESS_PERMISSIONS: readonly AccessPermission[] = [
   'connect',
@@ -43,6 +49,9 @@ export const ACCESS_PERMISSIONS: readonly AccessPermission[] = [
   'execute-function',
   'execute-procedure',
   'use-sequence',
+  'reference',
+  'index-object',
+  'trigger-object',
 ];
 
 export interface AccessPrincipal {
@@ -55,7 +64,14 @@ export type AccessScope =
   | { type: 'schema'; database?: string; schema: string }
   | { type: 'tables'; database?: string; schema: string; tables: string[] }
   | { type: 'columns'; database?: string; schema: string; table: string; columns: string[] }
-  | { type: 'sequences'; database?: string; schema: string; sequences?: string[] };
+  | { type: 'sequences'; database?: string; schema: string; sequences?: string[] }
+  | {
+      type: 'routines';
+      database?: string;
+      schema: string;
+      /** Kind is carried per routine: engines name PROCEDURE and FUNCTION apart. */
+      routines: { name: string; kind: 'procedure' | 'function' }[];
+    };
 
 export interface PermissionRequest {
   principal: AccessPrincipal;
@@ -90,6 +106,9 @@ export const PERMISSION_RISK: Record<AccessPermission, PermissionRisk> = {
   'execute-function': 'elevated',
   'execute-procedure': 'elevated',
   'use-sequence': 'low',
+  reference: 'low',
+  'index-object': 'administrative',
+  'trigger-object': 'administrative',
   'create-object': 'administrative',
   'alter-object': 'administrative',
   'drop-object': 'critical',
@@ -137,6 +156,9 @@ export const PERMISSION_DESCRIPTORS: readonly PermissionDescriptor[] = (
     { permission: 'execute-function', label: 'Execute functions', privilegeHint: 'EXECUTE', description: 'Allows running functions.' },
     { permission: 'execute-procedure', label: 'Execute procedures', privilegeHint: 'EXECUTE', description: 'Allows running stored procedures.' },
     { permission: 'use-sequence', label: 'Use sequences', privilegeHint: 'USAGE/SELECT', description: 'Allows reading sequence values for inserts.' },
+    { permission: 'reference', label: 'Reference', privilegeHint: 'REFERENCES', description: 'Allows pointing a foreign key at this table.' },
+    { permission: 'index-object', label: 'Index', privilegeHint: 'INDEX', description: 'Allows creating and dropping indexes on it.' },
+    { permission: 'trigger-object', label: 'Trigger', privilegeHint: 'TRIGGER', description: 'Allows creating and dropping triggers on it.' },
   ] as const
 ).map((d) => ({ ...d, risk: PERMISSION_RISK[d.permission] }));
 
@@ -350,7 +372,14 @@ export function availablePermissions(
   if (scopeType === 'sequences') {
     return ['use-sequence', 'read'];
   }
+  if (scopeType === 'routines') {
+    return ['execute-procedure', 'execute-function', 'alter-object', 'drop-object'];
+  }
   return ACCESS_PERMISSIONS.filter((p) => {
+    // REFERENCES/INDEX/TRIGGER are offered only by the object grid, which
+    // gates each one per dialect. Surfacing them here would put an INDEX
+    // checkbox in front of a PostgreSQL reader, who has no GRANT for it.
+    if (p === 'reference' || p === 'index-object' || p === 'trigger-object') return false;
     if (p === 'connect') return caps.connectPrivilege && scopeType === 'database';
     if (p === 'use-sequence') {
       return scopeType === 'schema' && caps.sequenceScope;

@@ -7,9 +7,11 @@
  * privileges take WITH GRANT OPTION. A schema is a user — no schema-wide
  * table grant.
  */
-import { highestRisk } from '../../modules/access/intent.js';
+import { highestRisk, type AccessPermission } from '../../modules/access/intent.js';
 import {
   describePrivs,
+  executePermissions,
+  objectPrivileges,
   qualifier,
   scopeSchema,
   tablePermissions,
@@ -41,6 +43,38 @@ function emitOracle(ctx: EmitCtx): void {
       'administrative',
       ['create-object']
     );
+  }
+  // Oracle names no PROCEDURE/FUNCTION keyword in GRANT: the object name alone
+  // identifies the routine. This runs before the empty-privilege return below,
+  // because an EXECUTE-only request has no table privileges at all and would
+  // otherwise emit nothing.
+  if (scope.type === 'routines') {
+    const routinePrivs: string[] = [];
+    const routineCovers: AccessPermission[] = [];
+    const execPerms = executePermissions(permissions);
+    if (execPerms.length > 0) {
+      routinePrivs.push('EXECUTE');
+      routineCovers.push(...execPerms);
+    }
+    const extra = objectPrivileges(permissions, ctx.dialect, 'procedure');
+    routinePrivs.push(...extra.privs);
+    routineCovers.push(...extra.covers);
+    if (routinePrivs.length === 0) return;
+    for (const routine of scope.routines) {
+      add(
+        `${verb} ${routinePrivs.join(', ')} ON ${ident(scope.schema)}.${ident(routine.name)} ${dir} ${grantee}${option};`,
+        `${describePrivs(routinePrivs)} on ${routine.kind} ${scope.schema}.${routine.name}.`,
+        highestRisk(permissions),
+        routineCovers
+      );
+    }
+    return;
+  }
+
+  if (scope.type === 'tables') {
+    const extra = objectPrivileges(permissions, ctx.dialect, 'table');
+    for (const pv of extra.privs) if (!privs.includes(pv)) privs.push(pv);
+    tablePerms.push(...extra.covers);
   }
   if (privs.length === 0) return;
 

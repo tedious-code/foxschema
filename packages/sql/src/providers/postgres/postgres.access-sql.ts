@@ -9,7 +9,9 @@ import { highestRisk, type AccessPermission } from '../../modules/access/intent.
 import {
   describePrivs,
   executePermissions,
+  objectPrivileges,
   ownershipPermissions,
+  routinesByKind,
   scopeSchema,
   tablePermissions,
   tablePrivileges,
@@ -22,6 +24,14 @@ function emitPostgres(ctx: EmitCtx): void {
   const privs = tablePrivileges(permissions);
   const tablePerms = tablePermissions(permissions);
   const schema = scopeSchema(scope);
+
+  // REFERENCES and TRIGGER are real PostgreSQL table privileges, and only
+  // meaningful on a named object — the grid is the only thing that offers them.
+  if (scope.type === 'tables' || scope.type === 'columns') {
+    const extra = objectPrivileges(permissions, ctx.dialect, 'table');
+    for (const pv of extra.privs) if (!privs.includes(pv)) privs.push(pv);
+    tablePerms.push(...extra.covers);
+  }
 
   if (permissions.includes('connect') && scope.type === 'database') {
     add(
@@ -149,7 +159,26 @@ function emitPostgres(ctx: EmitCtx): void {
   }
 
   const execPerms = executePermissions(permissions);
-  if (execPerms.length > 0) {
+  if (execPerms.length > 0 && scope.type === 'routines') {
+    // Named routines only. Falling through to ALL ROUTINES would grant EXECUTE
+    // on every routine in the schema — far more than the reader ticked, and a
+    // permissions tool that silently widens a grant is worse than one that
+    // refuses.
+    const { procedures, functions } = routinesByKind(scope);
+    for (const [keyword, names] of [
+      ['FUNCTION', functions],
+      ['PROCEDURE', procedures],
+    ] as const) {
+      for (const name of names) {
+        add(
+          `${verb} EXECUTE ON ${keyword} ${ident(schema)}.${ident(name)} ${dir} ${grantee}${option};`,
+          `Lets ${request.principal.name} run ${schema}.${name}. PostgreSQL identifies routines by argument types too; add them if the name is overloaded.`,
+          'elevated',
+          execPerms
+        );
+      }
+    }
+  } else if (execPerms.length > 0) {
     // At database scope PostgreSQL still needs a schema named; public is the
     // same assumption the table grant above makes, said out loud.
     const routineSchema = schema || 'public';

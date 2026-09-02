@@ -362,6 +362,18 @@ export {
   type AccessDesiredState,
 } from './modules/access/intent.js';
 export {
+  GRID_COLUMNS,
+  cellSupport,
+  compileObjectGrid,
+  expandToInstance,
+  gridColumnsFor,
+  prunedPermissions,
+  type CellSupport,
+  type CompileGridOptions,
+  type GridObjectKind,
+  type GridRow,
+} from './modules/access/object-grid.js';
+export {
   PASSWORD_PLACEHOLDER,
   buildUserSql,
   userManagementSupport,

@@ -9,6 +9,9 @@
 import { highestRisk } from '../../modules/access/intent.js';
 import {
   describePrivs,
+  executePermissions,
+  objectPrivileges,
+  routinesByKind,
   qualifier,
   scopeSchema,
   tablePermissions,
@@ -53,6 +56,34 @@ function emitDb2(ctx: EmitCtx): void {
         ['create-object']
       );
     }
+  }
+  // Ahead of the empty-privilege return: an EXECUTE-only routine request has no
+  // table privileges and would otherwise fall through to the "repeat per table"
+  // comment, which says nothing about routines.
+  if (scope.type === 'routines') {
+    const execPerms = executePermissions(permissions);
+    if (execPerms.length === 0) return;
+    const { procedures, functions } = routinesByKind(scope);
+    for (const [keyword, names] of [
+      ['PROCEDURE', procedures],
+      ['FUNCTION', functions],
+    ] as const) {
+      for (const name of names) {
+        add(
+          `${verb} EXECUTE ON ${keyword} ${ident(scope.schema)}.${ident(name)} ${dir} ${grantee}${option};`,
+          `Lets ${request.principal.name} run ${keyword.toLowerCase()} ${scope.schema}.${name}.`,
+          'elevated',
+          execPerms
+        );
+      }
+    }
+    return;
+  }
+
+  if (scope.type === 'tables') {
+    const extra = objectPrivileges(permissions, ctx.dialect, 'table');
+    for (const pv of extra.privs) if (!privs.includes(pv)) privs.push(pv);
+    tablePerms.push(...extra.covers);
   }
   if (privs.length === 0) return;
 
