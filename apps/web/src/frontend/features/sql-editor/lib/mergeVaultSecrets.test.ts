@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mergeVaultSecretsIntoVariables } from './mergeVaultSecrets';
-import type { SqlVariable } from './sql-variables';
+import type { SqlVariable } from '@/shared/lib/sql-variables';
 
 function scalar(name: string, value: unknown, secret = false): SqlVariable {
   return {

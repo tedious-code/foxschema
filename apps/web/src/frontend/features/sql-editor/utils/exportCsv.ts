@@ -1,7 +1,7 @@
 /**
  * Quote-escaped CSV join + Blob download for SQL Editor result grids.
  */
-import { neutralizeSpreadsheetFormula } from '@/shared/utils/spreadsheetSafety';
+import { neutralizeSpreadsheetFormula } from '@/features/sql-editor/utils/spreadsheetSafety';
 
 function escapeCell(value: unknown): string {
   if (value === null || value === undefined) return '';

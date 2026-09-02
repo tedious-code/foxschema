@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { splitSqlStatements, checkStatement, parseCodeCell } from './sql-splitter';
+import { splitSqlStatements, checkStatement, parseCodeCell } from '@/shared/lib/sql-splitter';
 import {
   SQL_EDITOR_SAMPLE_BOOKMARKS,
   buildSampleBookmarks,

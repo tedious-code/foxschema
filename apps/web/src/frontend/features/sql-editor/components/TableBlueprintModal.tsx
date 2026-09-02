@@ -26,7 +26,7 @@ import {
   type IndexFragmentationResponse,
 } from '@/shared/api/schemaApi';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
-import { insertAtCursor } from './sqlEditorBridge';
+import { insertAtCursor } from '../lib/sqlEditorBridge';
 import { WriteConfirmDialog } from './WriteConfirmDialog';
 import { SchemaAutocomplete } from './SchemaAutocomplete';
 import {
@@ -65,7 +65,7 @@ import {
   type BlueprintTriggerDraft,
   type FkReferentialAction,
   type IndexColumnOrder,
-} from './tableBlueprintSql';
+} from '../lib/tableBlueprintSql';
 import type { ForeignKeyInfo, IndexInfo, TriggerInfo } from '@/shared/lib/types';
 import { SQL_ICON_STROKE } from '@/shared/lib/iconStyle';
 import { TYPE_META } from './SchemaTreePanel';

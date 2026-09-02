@@ -7,7 +7,7 @@ import {
   FOXSCRIPT_LANG,
   MONACO_EDITOR_BASE_OPTIONS,
 } from '@/monaco-setup';
-import { ensureFoxschemaSqlLanguage } from '@/shared/lib/foxschemaSqlLanguage';
+import { ensureFoxschemaSqlLanguage } from '@/features/sql-editor/lib/foxschemaSqlLanguage';
 import {
   disposeFoxscriptVirtualDocs,
   ensureFoxscriptVirtualProviders,
@@ -23,14 +23,14 @@ import {
   parseFoxScript,
   type SplitStatement,
 } from '@/shared/lib/sql-splitter';
-import { ensureSqlCompletions } from './completion';
-import { applyFoxscriptMarkers, clearFoxscriptMarkers } from './foxscriptDiagnostics';
+import { ensureSqlCompletions } from '../lib/completion';
+import { applyFoxscriptMarkers, clearFoxscriptMarkers } from '../lib/foxscriptDiagnostics';
 import {
   setSqlCaretOffsetGetter,
   setSqlInsertHandler,
   setSqlSelectionGetter,
-} from './sqlEditorBridge';
-import { buildVariableHoverDecorations } from './variableHover';
+} from '../lib/sqlEditorBridge';
+import { buildVariableHoverDecorations } from '../lib/variableHover';
 import { isSelectOrFromKeyword } from '@/features/sql-editor/lib/selectClauseEdit';
 import {
   SelectColumnPicker,

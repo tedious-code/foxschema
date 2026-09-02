@@ -1,4 +1,4 @@
-import type { SqlVariable } from '../lib/sql-variables';
+import type { SqlVariable } from '@/shared/lib/sql-variables';
 import { newTabId } from '@/app/store/sqlEditorTabLogic';
 
 /**

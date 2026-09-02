@@ -9,12 +9,12 @@ import {
   runCodeCellOnServer,
   type BeamEndpointPayload,
   type SqlStatementResult,
-} from '../api/sqlApi';
-import type { ConnectionRef } from '../api/schemaApi';
+} from '@/shared/api/sqlApi';
+import type { ConnectionRef } from '@/shared/api/schemaApi';
 import { usesServerBeam } from '@foxschema/shared';
 export { usesServerBeam };
-import type { SetDirective, SqlVariable } from './sql-variables';
-import { parseSetDirectives } from './sql-variables';
+import type { SetDirective, SqlVariable } from '@/shared/lib/sql-variables';
+import { parseSetDirectives } from '@/shared/lib/sql-variables';
 import {
   parseCodeCell,
   stripFullLineSqlComments,
@@ -22,7 +22,7 @@ import {
   isNodeCodeCellKind,
   nodeCodeCellWireKind,
   type CodeCellKind,
-} from './sql-splitter';
+} from '@/shared/lib/sql-splitter';
 import {
   executeCodeCell,
   sanitizeVarsForCodeCell,

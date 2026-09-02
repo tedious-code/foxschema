@@ -9,7 +9,7 @@ import {
   type FoxScriptDiagnostic,
   type FoxScriptDocument,
 } from '@/shared/lib/sql-splitter';
-import { FOXSCRIPT_LANG, FOXSCHEMA_SQL_LANG } from '@/shared/lib/foxschemaSqlLanguage';
+import { FOXSCRIPT_LANG, FOXSCHEMA_SQL_LANG } from '@/features/sql-editor/lib/foxschemaSqlLanguage';
 
 const OWNER = 'foxscript';
 

@@ -9,8 +9,8 @@ import {
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { toast } from '@/app/store/toastStore';
 import { SQL_ICON_STROKE } from '@/shared/lib/iconStyle';
-import { scrubRemovedFileConnections, selectFileImportInEditor } from './fileQueryEditorHelpers';
-import { formatFileImportWhen, importCreatedAtMs } from './fileImportsTime';
+import { scrubRemovedFileConnections, selectFileImportInEditor } from '../lib/fileQueryEditorHelpers';
+import { formatFileImportWhen, importCreatedAtMs } from '../lib/fileImportsTime';
 
 type Props = {
   refreshKey?: number;

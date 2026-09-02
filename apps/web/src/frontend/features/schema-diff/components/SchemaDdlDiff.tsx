@@ -13,7 +13,7 @@
 import React from 'react';
 import { SqlGeneratorModule } from '@/shared/lib/sql-generator';
 import type { TableDiff } from '@/shared/lib/types';
-import { highlightMatch } from '@/shared/utils/highlight';
+import { highlightMatch } from '@/features/schema-diff/lib/highlight';
 
 const ddlGenerator = new SqlGeneratorModule();
 

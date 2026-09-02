@@ -34,7 +34,7 @@ import {
   Zap,
 } from 'lucide-react';
 import type { IndexDiff, TableDiff, DbObjectType } from '@/shared/lib/types';
-import { highlightMatch } from '@/shared/utils/highlight';
+import { highlightMatch } from '@/features/schema-diff/lib/highlight';
 
 export interface TypeMeta {
   icon: React.ReactElement;

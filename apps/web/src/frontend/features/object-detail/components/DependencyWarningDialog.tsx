@@ -1,7 +1,7 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { AlertCircle, FileText } from 'lucide-react';
-import type { DropDependency } from '@/shared/lib/dependency-scan';
+import type { DropDependency } from '@/features/object-detail/lib/dependency-scan';
 
 interface Props {
   deps: DropDependency[];

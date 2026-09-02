@@ -10,7 +10,7 @@
  * (see `exportCsv.ts`) — a file goes through the spreadsheet's CSV importer,
  * the clipboard does not.
  */
-import { neutralizeSpreadsheetFormula } from '@/shared/utils/spreadsheetSafety';
+import { neutralizeSpreadsheetFormula } from '@/features/sql-editor/utils/spreadsheetSafety';
 
 /**
  * Excel's clipboard dialect: a field is quoted only when it contains a tab, a

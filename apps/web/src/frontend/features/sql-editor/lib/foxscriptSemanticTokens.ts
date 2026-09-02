@@ -4,8 +4,8 @@
  */
 
 import type * as Monaco from 'monaco-editor/editor/editor.api';
-import type { SchemaCacheEntry } from '@/features/sql-editor/components/sqlEditorBridge';
-import { FOXSCRIPT_LANG, FOXSCHEMA_SQL_LANG } from '@/shared/lib/foxschemaSqlLanguage';
+import type { SchemaCacheEntry } from '@/features/sql-editor/lib/sqlEditorBridge';
+import { FOXSCRIPT_LANG, FOXSCHEMA_SQL_LANG } from '@/features/sql-editor/lib/foxschemaSqlLanguage';
 import { parseFoxScript } from '@/shared/lib/sql-splitter';
 
 const LEGEND_TYPES = ['type', 'property'] as const;

@@ -27,7 +27,7 @@ import { useSyncStore } from '@/app/store/useSyncStore';
 import type { ResultsLayout } from '@/app/store/sqlEditorTabLogic';
 import { DataGrid, PANE_DEFAULT_H_PX, PANE_DEFAULT_PX, PANE_MIN_H_PX, PANE_MIN_PX } from './DataGrid';
 import type { SqlStatementResult } from '@/shared/api/sqlApi';
-import { detectCodeCell } from '@/shared/lib/codeCellRunner';
+import { detectCodeCell } from '@/features/sql-editor/lib/codeCellRunner';
 import { CODE_CELL_KIND_LABEL } from '@/shared/lib/sql-splitter';
 import { foreignKeyLinksFor, foreignKeyLinksForSql, singleTableForResultEdit } from '@/shared/lib/tablePreview';
 import {
@@ -50,7 +50,7 @@ import {
 import { sideBySideSectionCount } from '@/features/sql-editor/lib/resultsSections';
 import { detectTriggerManagedColumns } from '@/features/sql-editor/lib/triggerManagedColumns';
 import { resolvePeekKeyColumns } from '@/features/sql-editor/lib/rowDml';
-import { buildSampleBookmarks } from '@/shared/lib/sqlEditorSamples';
+import { buildSampleBookmarks } from '@/features/sql-editor/lib/sqlEditorSamples';
 import { downloadMultiGridCsv } from '@/features/sql-editor/utils/exportCsv';
 import { DataMigrateBar } from './DataMigrateBar';
 import { usePeekGridCrud } from './usePeekGridCrud';

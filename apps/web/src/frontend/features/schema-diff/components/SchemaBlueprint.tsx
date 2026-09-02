@@ -23,7 +23,7 @@
 import React from 'react';
 import { ChevronDown, ChevronRight, KeyRound } from 'lucide-react';
 import type { ColumnDiff, TableDiff } from '@/shared/lib/types';
-import { highlightMatch } from '@/shared/utils/highlight';
+import { highlightMatch } from '@/features/schema-diff/lib/highlight';
 import { diffLines } from '@/shared/utils/lineDiff';
 
 /** `comfortable` is the full-width workspace; `compact` fits a modal pane. */

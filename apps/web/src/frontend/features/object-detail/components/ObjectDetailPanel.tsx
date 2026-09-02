@@ -3,7 +3,7 @@ import { useSyncStore } from '@/app/store/useSyncStore';
 import { useAuthStore } from '@/app/store/authStore';
 import { Play, RefreshCw, FileText, CheckCircle2, Copy, AlertTriangle } from 'lucide-react';
 import { SqlGeneratorModule } from '@/shared/lib/sql-generator';
-import { findDropDependencies } from '@/shared/lib/dependency-scan';
+import { findDropDependencies } from '@/features/object-detail/lib/dependency-scan';
 import { findMissingFkTargets, findNarrowingTypeChanges, extractReviewNotices, resolveDialect } from '@/shared/lib/migration-validation';
 import { buildIncludedDiffs, buildMapping } from '@/app/store/sync-helpers';
 import { formatSql } from '@/shared/utils/formatSql';

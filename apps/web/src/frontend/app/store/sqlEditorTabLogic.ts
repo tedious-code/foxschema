@@ -1,4 +1,4 @@
-import { detectCodeCell } from '@/shared/lib/codeCellRunner';
+import { detectCodeCell } from '@/features/sql-editor/lib/codeCellRunner';
 import { splitSqlStatements } from '@/shared/lib/sql-splitter';
 import { reattachSetComments } from '@/shared/lib/sql-variables';
 
