@@ -285,3 +285,55 @@ describe('the hint matches what is actually on screen', () => {
     expect(hint).not.toMatch(/replace it/i);
   });
 });
+
+describe('the password field', () => {
+  it('puts a typed password into the statement on screen', async () => {
+    // Db2's OS password already appears in its commands. Hiding a typed one
+    // here would leave the reader running IDENTIFIED BY '<password>' while
+    // believing the field had been applied.
+    await addUserForm();
+    fireEvent.change(screen.getByTestId('user-sql-password'), {
+      target: { value: 'Typed1!pw' },
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('user-sql').textContent).toContain('Typed1!pw')
+    );
+    expect(screen.getByTestId('user-sql').textContent).not.toContain('<password>');
+  });
+
+  it('keeps the field on screen once a password has been typed', async () => {
+    // The field is shown when the generated SQL still carries a placeholder.
+    // Reading that from the *substituted* text made the field delete itself on
+    // the first keystroke.
+    await addUserForm();
+    fireEvent.change(screen.getByTestId('user-sql-password'), {
+      target: { value: 'Typed1!pw' },
+    });
+    await waitFor(() => expect(screen.getByTestId('user-sql-password')).toBeTruthy());
+  });
+
+  it('clears the typed password when the account name changes', async () => {
+    await addUserForm();
+    fireEvent.change(screen.getByTestId('user-sql-password'), {
+      target: { value: 'Typed1!pw' },
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('user-sql').textContent).toContain('Typed1!pw')
+    );
+
+    fireEvent.change(screen.getByTestId('user-name'), { target: { value: 'someone_else' } });
+    await waitFor(() =>
+      expect(screen.getByTestId('user-sql').textContent).toContain('<password>')
+    );
+    expect((screen.getByTestId('user-sql-password') as HTMLInputElement).value).toBe('');
+  });
+
+  it('fills the field from Generate', async () => {
+    await addUserForm();
+    fireEvent.click(screen.getByTestId('user-sql-password-generate'));
+    const value = (screen.getByTestId('user-sql-password') as HTMLInputElement).value;
+    expect(value.length).toBeGreaterThan(8);
+    await waitFor(() => expect(screen.getByTestId('user-sql').textContent).toContain(value));
+  });
+});

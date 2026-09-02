@@ -9,18 +9,39 @@ export function generateSuggestedPassword(length = 20): string {
 }
 
 /**
- * Substitute placeholder for clipboard copy only; preview SQL stays unchanged.
+ * MySQL and MariaDB treat a backslash as an escape character inside a string
+ * literal; the SQL standard does not, and PostgreSQL, Oracle, SQL Server and
+ * Db2 follow the standard.
  *
- * Only replace the placeholder inside quotes — the form account DDL emits —
+ * This only started mattering once a password could be typed. Generated ones
+ * are drawn from a charset with no backslash in it, so doubling quotes was
+ * enough. A typed `pa\ssword` on MySQL becomes `pa` + an escape — the account
+ * is created with a password nobody can reproduce, and the failure appears
+ * later as a login that will not work.
+ */
+function backslashIsEscape(dialect?: string): boolean {
+  const d = (dialect || '').toLowerCase();
+  return d === 'mysql' || d === 'mariadb' || d === 'tidb';
+}
+
+/**
+ * Substitute the placeholder with a real password.
+ *
+ * Only replaces the placeholder inside quotes — the form account DDL emits —
  * so a principal whose name literally contains `<password>` is not rewritten.
  */
-export function sqlWithPasswordSubstitute(sql: string, password: string): string {
+export function sqlWithPasswordSubstitute(
+  sql: string,
+  password: string,
+  dialect?: string
+): string {
   const single = `'${PASSWORD_PLACEHOLDER}'`;
   const double = `"${PASSWORD_PLACEHOLDER}"`;
-  // Generated passwords never include quotes; still escape so a future charset
-  // change cannot break out of the string literal.
-  const singlePw = `'${password.replace(/'/g, "''")}'`;
-  const doublePw = `"${password.replace(/"/g, '""')}"`;
+  // Backslashes first: doubling them after the quotes would also double the
+  // backslashes this step introduces.
+  const escaped = backslashIsEscape(dialect) ? password.replace(/\\/g, '\\\\') : password;
+  const singlePw = `'${escaped.replace(/'/g, "''")}'`;
+  const doublePw = `"${escaped.replace(/"/g, '""')}"`;
   return sql.split(single).join(singlePw).split(double).join(doublePw);
 }
 
