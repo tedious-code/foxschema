@@ -17,167 +17,38 @@
  * - DB2: empty-leaf ratio from SYSCAT.INDEXES (estimate)
  * - Oracle: weak estimate from ALL_INDEXES stats (prefer custom ANALYZE)
  * - SQLite / DuckDB / ClickHouse / Redshift: catalog listing + optional estimates
+ *
+ * ## Per-dialect modules
+ *
+ * The SQL lives next to each engine's migration dialect as
+ * `providers/<name>/<name>.index-fragmentation.ts`, registered in
+ * `index-fragmentation.registry.ts`. This file splits table names, reshapes
+ * driver rows and checks custom SQL; it knows no catalog table by name.
  */
 
 import { isWriteStatement } from '../sql-text/sql-splitter.js';
-import { quoteSqlIdentifier } from '../sql-text/sql-template.js';
+import { resolveIndexFragmentation } from './index-fragmentation.registry.js';
+import {
+  CUSTOM_HINT,
+  quoteIndexTarget,
+  type IndexFragmentationQuery,
+  type IndexFragmentationRow,
+  type IndexFragmentationSeverity,
+  type IndexFragmentationSupport,
+  type IndexTarget,
+  type IndexUsageQuery,
+} from './index-fragmentation.types.js';
 
-export type IndexFragmentationMode = 'physical' | 'estimated' | 'unsupported';
-
-export interface IndexFragmentationSupport {
-  mode: IndexFragmentationMode;
-  /** Engine has a built-in SELECT we can try first. */
-  query: boolean;
-  /** We can suggest REBUILD / REORG / OPTIMIZE / REINDEX SQL. */
-  defrag: boolean;
-  hint: string;
-  /** Shape admins should return from custom SQL. */
-  customSqlHint: string;
-}
-
-export interface IndexFragmentationQuery {
-  sql: string;
-  params: unknown[];
-  mode: Exclude<IndexFragmentationMode, 'unsupported'>;
-  /**
-   * A second probe to try when the first fails because an optional server
-   * feature is missing — Postgres `pgstatindex` needs the `pgstattuple`
-   * extension, which most managed servers do not install by default.
-   *
-   * The fallback answers a strictly smaller question (no fragmentation
-   * percent), but index list, size, and usage are what the panel is mostly
-   * read for, and those need no extension. A dead panel is the worse answer.
-   */
-  fallback?: { sql: string; params: unknown[]; mode: Exclude<IndexFragmentationMode, 'unsupported'>; warning: string };
-}
-
-export interface IndexFragmentationRow {
-  indexName: string;
-  /** 0–100 when known; null when the engine could not compute a percent. */
-  fragmentationPercent: number | null;
-  pageCount?: number | null;
-  /**
-   * Last time the engine observed this index being used (ISO-8601), when the
-   * dialect exposes it. Null means unknown or never (see `scanCount`).
-   */
-  lastUsed?: string | null;
-  /**
-   * User seeks/scans/lookups (SQL Server) or `idx_scan` (Postgres family).
-   * Null when the dialect has no usage counter. `0` means never used.
-   */
-  scanCount?: number | null;
-}
-
-export type IndexFragmentationSeverity = 'ok' | 'warn' | 'critical' | 'unknown';
-
-const CUSTOM_HINT =
-  'Custom SQL must return columns index_name, fragmentation_percent (0–100), optional page_count, last_used, scan_count.';
-
-const SUPPORT: Record<string, IndexFragmentationSupport> = {
-  sqlserver: {
-    mode: 'physical',
-    query: true,
-    defrag: true,
-    hint: 'SQL Server: avg_fragmentation_in_percent from sys.dm_db_index_physical_stats (LIMITED); last used from dm_db_index_usage_stats.',
-    customSqlHint: CUSTOM_HINT,
-  },
-  azuresql: {
-    mode: 'physical',
-    query: true,
-    defrag: true,
-    hint: 'Azure SQL: avg_fragmentation_in_percent from sys.dm_db_index_physical_stats (LIMITED); last used from dm_db_index_usage_stats.',
-    customSqlHint: CUSTOM_HINT,
-  },
-  postgres: {
-    mode: 'physical',
-    query: true,
-    defrag: true,
-    hint: 'PostgreSQL: leaf_fragmentation via pgstatindex (pgstattuple extension). Last used from pg_stat_user_indexes.last_idx_scan on PG 16+; idx_scan on older servers.',
-    customSqlHint: CUSTOM_HINT,
-  },
-  cockroachdb: {
-    mode: 'estimated',
-    query: true,
-    // REINDEX is rejected as "unimplemented: this syntax", and the server's own
-    // hint explains why there is nothing to offer: "CockroachDB does not
-    // require reindexing." Emitting a statement that always errors is worse
-    // than saying so.
-    defrag: false,
-    hint: 'CockroachDB: index size and usage from the core catalogs (no pgstattuple). Storage is compacted automatically — CockroachDB does not require reindexing.',
-    customSqlHint: CUSTOM_HINT,
-  },
-  yugabytedb: {
-    mode: 'estimated',
-    query: true,
-    // REINDEX in any form answers "REINDEX not supported yet".
-    defrag: false,
-    hint: 'YugabyteDB: index size and usage from the core catalogs. Indexes are LSM-backed, so there is no leaf fragmentation to measure and REINDEX is not supported yet.',
-    customSqlHint: CUSTOM_HINT,
-  },
-  mysql: {
-    mode: 'estimated',
-    query: true,
-    defrag: true,
-    hint: 'MySQL: table-level DATA_FREE ratio (same estimate on each index). Scan count from performance_schema.table_io_waits_summary_by_index_usage (COUNT_READ since restart).',
-    customSqlHint: CUSTOM_HINT,
-  },
-  mariadb: {
-    mode: 'estimated',
-    query: true,
-    defrag: true,
-    hint: 'MariaDB: table-level DATA_FREE ratio (same estimate on each index). Usage from performance_schema, then information_schema.INDEX_STATISTICS (userstat).',
-    customSqlHint: CUSTOM_HINT,
-  },
-  tidb: {
-    mode: 'estimated',
-    query: true,
-    defrag: true,
-    hint: 'TiDB: table-level DATA_FREE-style estimate. Last used from INFORMATION_SCHEMA.TIDB_INDEX_USAGE (LAST_ACCESS_TIME, QUERY_TOTAL).',
-    customSqlHint: CUSTOM_HINT,
-  },
-  db2: {
-    mode: 'estimated',
-    query: true,
-    defrag: true,
-    hint: 'DB2: empty-leaf ratio from SYSCAT.INDEXES (estimate) plus LASTUSED. Use REORGCHK custom SQL for fuller guidance.',
-    customSqlHint: CUSTOM_HINT,
-  },
-  oracle: {
-    mode: 'estimated',
-    query: true,
-    defrag: true,
-    hint: 'Oracle: weak estimate from ALL_INDEXES. Last used from DBA_INDEX_USAGE (LAST_USED / TOTAL_ACCESS_COUNT); falls back to DBA_OBJECT_USAGE / V$OBJECT_USAGE.',
-    customSqlHint: CUSTOM_HINT,
-  },
-  sqlite: {
-    mode: 'estimated',
-    query: true,
-    defrag: true,
-    hint: 'SQLite: lists indexes (no native fragmentation % or last-used catalog). Use custom SQL / dbstat for page sizes; Defrag suggests REINDEX.',
-    customSqlHint: CUSTOM_HINT,
-  },
-  duckdb: {
-    mode: 'estimated',
-    query: true,
-    defrag: true,
-    hint: 'DuckDB: lists indexes from duckdb_indexes() (no native % or last-used catalog). Prefer custom SQL for ART / zone-map stats.',
-    customSqlHint: CUSTOM_HINT,
-  },
-  clickhouse: {
-    mode: 'estimated',
-    query: true,
-    defrag: true,
-    hint: 'ClickHouse: data-skipping indices from system.data_skipping_indices (no B-tree % or last-used catalog). OPTIMIZE TABLE for merges.',
-    customSqlHint: CUSTOM_HINT,
-  },
-  redshift: {
-    mode: 'estimated',
-    query: true,
-    defrag: true,
-    hint: 'Redshift: no secondary indexes — probe returns empty; use VACUUM / ANALYZE (custom SQL for unsorted %).',
-    customSqlHint: CUSTOM_HINT,
-  },
-};
+export type {
+  IndexFragmentationDialect,
+  IndexFragmentationMode,
+  IndexFragmentationQuery,
+  IndexFragmentationRow,
+  IndexFragmentationSeverity,
+  IndexFragmentationSupport,
+  IndexTarget,
+  IndexUsageQuery,
+} from './index-fragmentation.types.js';
 
 /** Unknown dialects still get a probe attempt via custom SQL templates. */
 const DEFAULT_UNSUPPORTED: IndexFragmentationSupport = {
@@ -192,7 +63,7 @@ const DEFAULT_UNSUPPORTED: IndexFragmentationSupport = {
 export function dialectSupportsIndexFragmentation(
   dialectName: string
 ): IndexFragmentationSupport {
-  return SUPPORT[dialectName.toLowerCase()] ?? DEFAULT_UNSUPPORTED;
+  return resolveIndexFragmentation(dialectName)?.support ?? DEFAULT_UNSUPPORTED;
 }
 
 /**
@@ -226,328 +97,23 @@ export function fragmentationSeverity(
   return 'critical';
 }
 
-function q(name: string, dialect: string): string {
-  return quoteSqlIdentifier(name, dialect);
+function targetOf(opts: { dialect: string; schema?: string; table: string }): IndexTarget {
+  const { schema, table } = splitSchemaTable(opts.table, opts.schema);
+  return { dialect: opts.dialect.toLowerCase(), schema, table };
 }
 
 /** Build the default fragmentation SELECT for a dialect, or an error if unsupported. */
-/**
- * Postgres-family index facts that need no extension: name, size in pages and
- * whether anything has ever scanned it. No fragmentation percent — that is the
- * one thing pgstatindex was for, and reporting a guess would be worse than
- * reporting nothing.
- *
- * Used both as the fallback when pgstattuple is absent and as the primary
- * probe for CockroachDB and YugabyteDB, which can never answer pgstatindex.
- */
-function pgNoExtensionFragmentationSql(): string {
-  return `
-SELECT
-  ci.relname AS index_name,
-  NULL::float8 AS fragmentation_percent,
-  ci.relpages::bigint AS page_count,
-  NULL::timestamptz AS last_used,
-  COALESCE(psi.idx_scan, 0)::bigint AS scan_count
-FROM pg_index ix
-JOIN pg_class ct ON ct.oid = ix.indrelid
-JOIN pg_namespace n ON n.oid = ct.relnamespace
-JOIN pg_class ci ON ci.oid = ix.indexrelid
-LEFT JOIN pg_stat_user_indexes psi ON psi.indexrelid = ci.oid
-WHERE n.nspname = $1
-  AND ct.relname = $2
-ORDER BY ci.relname
-`.trim();
-}
-
 export function buildIndexFragmentationQuery(opts: {
   dialect: string;
   schema?: string;
   table: string;
 }): IndexFragmentationQuery | { error: string } {
-  const dialect = opts.dialect.toLowerCase();
-  const support = dialectSupportsIndexFragmentation(dialect);
-  if (!support.query) {
-    return { error: support.hint };
-  }
-  const { schema, table } = splitSchemaTable(opts.table, opts.schema);
-  if (!table) return { error: 'Table name is required for index fragmentation.' };
-
-  if (dialect === 'sqlserver' || dialect === 'azuresql') {
-    const objectIdArg = schema ? `${schema}.${table}` : table;
-    return {
-      mode: 'physical',
-      params: [objectIdArg],
-      sql: `
-SELECT
-  i.name AS index_name,
-  CAST(ps.avg_fragmentation_in_percent AS float) AS fragmentation_percent,
-  CAST(ps.page_count AS bigint) AS page_count,
-  (
-    SELECT MAX(v)
-    FROM (VALUES
-      (us.last_user_seek),
-      (us.last_user_scan),
-      (us.last_user_lookup),
-      (us.last_user_update)
-    ) AS t(v)
-  ) AS last_used,
-  CAST(ISNULL(us.user_seeks, 0) + ISNULL(us.user_scans, 0) + ISNULL(us.user_lookups, 0) AS bigint) AS scan_count
-FROM sys.dm_db_index_physical_stats(DB_ID(), OBJECT_ID(@p0), NULL, NULL, 'LIMITED') AS ps
-INNER JOIN sys.indexes AS i
-  ON ps.object_id = i.object_id AND ps.index_id = i.index_id
-LEFT JOIN sys.dm_db_index_usage_stats AS us
-  ON us.database_id = DB_ID()
- AND us.object_id = i.object_id
- AND us.index_id = i.index_id
-WHERE i.name IS NOT NULL
-  AND ps.index_level = 0
-ORDER BY i.name
-`.trim(),
-    };
-  }
-
-  // CockroachDB and YugabyteDB can never answer pgstatindex: Cockroach has no
-  // pgstattuple at all ("unknown function"), and Yugabyte stores every index in
-  // LSM form, so the call dies with "is not a btree index" — a message that
-  // does not even name the function, so the missing-extension fallback would
-  // not catch it. Skip the doomed round trip and report what they can answer:
-  // index list, size and usage.
-  if (dialect === 'cockroachdb' || dialect === 'yugabytedb') {
-    const sch = schema || 'public';
-    return {
-      mode: 'estimated',
-      params: [sch, table],
-      sql: pgNoExtensionFragmentationSql(),
-    };
-  }
-
-  if (dialect === 'postgres') {
-    const sch = schema || 'public';
-    return {
-      mode: 'physical',
-      params: [sch, table],
-      sql: `
-SELECT
-  ci.relname AS index_name,
-  -- pgstatindex reports NaN for an index with no leaf pages yet; that is
-  -- "nothing measured", not a number, and "NaN%" in the grid reads as a bug.
-  -- Schema-qualified on purpose. The connection's search_path is the schema
-  -- being inspected, not public, so an unqualified call resolved for nobody
-  -- except users working in public. CREATE EXTENSION puts pgstattuple in
-  -- public by default; an install elsewhere still fails cleanly and takes the
-  -- no-extension fallback, which names the extension in its warning.
-  NULLIF((SELECT leaf_fragmentation FROM public.pgstatindex(ci.oid::regclass)), 'NaN'::float8) AS fragmentation_percent,
-  NULL::bigint AS page_count,
-  -- last_idx_scan exists only on PostgreSQL 16+; keep last_used NULL so older
-  -- servers (and Cockroach / Yugabyte) still run this probe. idx_scan is the usage signal.
-  NULL::timestamptz AS last_used,
-  COALESCE(psi.idx_scan, 0)::bigint AS scan_count
-FROM pg_index ix
-JOIN pg_class ct ON ct.oid = ix.indrelid
-JOIN pg_namespace n ON n.oid = ct.relnamespace
-JOIN pg_class ci ON ci.oid = ix.indexrelid
-LEFT JOIN pg_stat_user_indexes psi ON psi.indexrelid = ci.oid
-WHERE n.nspname = $1
-  AND ct.relname = $2
-ORDER BY ci.relname
-`.trim(),
-      // pgstatindex lives in the pgstattuple extension, which most servers do
-      // not install. Without it there is no fragmentation percent to report —
-      // but the index list, its size, and whether anything has ever used it
-      // need nothing but the core catalogs, and that is most of the panel.
-      fallback: {
-        mode: 'estimated',
-        params: [sch, table],
-        warning:
-          'Fragmentation needs the pgstattuple extension (CREATE EXTENSION pgstattuple). Showing index size and usage only.',
-        sql: pgNoExtensionFragmentationSql(),
-      },
-    };
-  }
-
-  if (dialect === 'mysql' || dialect === 'mariadb' || dialect === 'tidb') {
-    if (!schema) {
-      return { error: 'MySQL-family fragmentation probe needs a schema (database) name.' };
-    }
-    return {
-      mode: 'estimated',
-      params: [schema, table],
-      sql: `
-SELECT
-  s.INDEX_NAME AS index_name,
-  CASE
-    WHEN (IFNULL(t.DATA_LENGTH, 0) + IFNULL(t.INDEX_LENGTH, 0)) = 0 THEN NULL
-    ELSE ROUND(
-      100 * IFNULL(t.DATA_FREE, 0) / (IFNULL(t.DATA_LENGTH, 0) + IFNULL(t.INDEX_LENGTH, 0)),
-      2
-    )
-  END AS fragmentation_percent,
-  NULL AS page_count,
-  NULL AS last_used,
-  NULL AS scan_count
-FROM information_schema.STATISTICS s
-JOIN information_schema.TABLES t
-  ON t.TABLE_SCHEMA = s.TABLE_SCHEMA AND t.TABLE_NAME = s.TABLE_NAME
-WHERE s.TABLE_SCHEMA = ?
-  AND s.TABLE_NAME = ?
-GROUP BY s.INDEX_NAME, t.DATA_FREE, t.DATA_LENGTH, t.INDEX_LENGTH
-ORDER BY s.INDEX_NAME
-`.trim(),
-    };
-  }
-
-  if (dialect === 'db2') {
-    if (!schema) {
-      return { error: 'DB2 fragmentation probe needs a schema name.' };
-    }
-    return {
-      mode: 'estimated',
-      params: [schema.toUpperCase(), table.toUpperCase()],
-      sql: `
-SELECT
-  INDNAME AS index_name,
-  CASE
-    WHEN NLEAF IS NULL OR NLEAF = 0 THEN NULL
-    ELSE DECIMAL(100.0 * FLOAT(COALESCE(NUM_EMPTY_LEAFS, 0)) / FLOAT(NLEAF), 5, 2)
-  END AS fragmentation_percent,
-  NLEAF AS page_count,
-  CASE
-    WHEN LASTUSED IS NULL OR LASTUSED <= DATE('1971-01-01') THEN NULL
-    ELSE LASTUSED
-  END AS last_used,
-  CAST(NULL AS BIGINT) AS scan_count
-FROM SYSCAT.INDEXES
-WHERE TABSCHEMA = ?
-  AND TABNAME = ?
-ORDER BY INDNAME
-`.trim(),
-    };
-  }
-
-  if (dialect === 'oracle') {
-    if (!schema) {
-      return { error: 'Oracle fragmentation probe needs a schema (owner) name.' };
-    }
-    return {
-      mode: 'estimated',
-      params: [schema.toUpperCase(), table.toUpperCase()],
-      sql: `
-SELECT
-  INDEX_NAME AS index_name,
-  CASE
-    WHEN LEAF_BLOCKS IS NULL OR LEAF_BLOCKS = 0 OR NUM_ROWS IS NULL OR NUM_ROWS = 0 THEN NULL
-    ELSE ROUND(
-      GREATEST(0, LEAST(100, 100 * (1 - (DISTINCT_KEYS / NULLIF(NUM_ROWS, 0))))),
-      2
-    )
-  END AS fragmentation_percent,
-  LEAF_BLOCKS AS page_count,
-  CAST(NULL AS TIMESTAMP) AS last_used,
-  CAST(NULL AS NUMBER) AS scan_count
-FROM ALL_INDEXES
-WHERE OWNER = :1
-  AND TABLE_NAME = :2
-ORDER BY INDEX_NAME
-`.trim(),
-    };
-  }
-
-  if (dialect === 'sqlite') {
-    // SQLite has no native fragmentation %; list indexes so Refresh % works.
-    // Custom SQL / dbstat can add page_count when the VTAB is compiled in.
-    return {
-      mode: 'estimated',
-      params: [table],
-      sql: `
-SELECT
-  name AS index_name,
-  CAST(NULL AS REAL) AS fragmentation_percent,
-  CAST(NULL AS INTEGER) AS page_count,
-  CAST(NULL AS TEXT) AS last_used,
-  CAST(NULL AS INTEGER) AS scan_count
-FROM sqlite_master
-WHERE type = 'index'
-  AND tbl_name = ?
-  AND IFNULL(name, '') NOT LIKE 'sqlite_%'
-ORDER BY name
-`.trim(),
-    };
-  }
-
-  if (dialect === 'duckdb') {
-    return {
-      mode: 'estimated',
-      params: schema ? [table, schema] : [table],
-      sql: schema
-        ? `
-SELECT
-  index_name AS index_name,
-  CAST(NULL AS DOUBLE) AS fragmentation_percent,
-  CAST(NULL AS BIGINT) AS page_count,
-  CAST(NULL AS TIMESTAMP) AS last_used,
-  CAST(NULL AS BIGINT) AS scan_count
-FROM duckdb_indexes()
-WHERE table_name = ?
-  AND schema_name = ?
-ORDER BY index_name
-`.trim()
-        : `
-SELECT
-  index_name AS index_name,
-  CAST(NULL AS DOUBLE) AS fragmentation_percent,
-  CAST(NULL AS BIGINT) AS page_count,
-  CAST(NULL AS TIMESTAMP) AS last_used,
-  CAST(NULL AS BIGINT) AS scan_count
-FROM duckdb_indexes()
-WHERE table_name = ?
-ORDER BY index_name
-`.trim(),
-    };
-  }
-
-  if (dialect === 'clickhouse') {
-    const db = schema || 'default';
-    return {
-      mode: 'estimated',
-      params: [db, table],
-      sql: `
-SELECT
-  name AS index_name,
-  -- Nullable(...) is required: ClickHouse types are non-nullable by default
-  -- and rejects the cast outright ("Cannot convert NULL to a non-nullable
-  -- type"). These columns are genuinely unknown for skip indexes.
-  CAST(NULL AS Nullable(Float64)) AS fragmentation_percent,
-  CAST(NULL AS Nullable(UInt64)) AS page_count,
-  CAST(NULL AS Nullable(DateTime)) AS last_used,
-  CAST(NULL AS Nullable(UInt64)) AS scan_count
-FROM system.data_skipping_indices
--- Numbered placeholders, not positional ones: the ClickHouse adapter
--- substitutes $1/$2 itself, so a bare question mark would reach the server
--- unbound and fail to parse.
-WHERE database = $1
-  AND table = $2
-ORDER BY name
-`.trim(),
-    };
-  }
-
-  if (dialect === 'redshift') {
-    // Redshift has no secondary indexes; return an empty typed result set so
-    // Refresh % succeeds and the UI can show custom VACUUM / unsorted probes.
-    return {
-      mode: 'estimated',
-      params: [],
-      sql: `
-SELECT
-  CAST(NULL AS VARCHAR(128)) AS index_name,
-  CAST(NULL AS FLOAT) AS fragmentation_percent,
-  CAST(NULL AS BIGINT) AS page_count,
-  CAST(NULL AS TIMESTAMP) AS last_used,
-  CAST(NULL AS BIGINT) AS scan_count
-WHERE 1 = 0
-`.trim(),
-    };
-  }
+  const target = targetOf(opts);
+  const impl = resolveIndexFragmentation(target.dialect);
+  const support = impl?.support ?? DEFAULT_UNSUPPORTED;
+  if (!support.query) return { error: support.hint };
+  if (!target.table) return { error: 'Table name is required for index fragmentation.' };
+  if (impl) return impl.probe(target);
 
   // Generic fallback: empty typed result — custom SQL still available.
   return {
@@ -555,36 +121,6 @@ WHERE 1 = 0
     params: [],
     sql: `SELECT CAST(NULL AS VARCHAR(128)) AS index_name, CAST(NULL AS FLOAT) AS fragmentation_percent, CAST(NULL AS TIMESTAMP) AS last_used, CAST(NULL AS BIGINT) AS scan_count WHERE 1 = 0`,
   };
-}
-
-export type IndexUsageQuery = { sql: string; params: unknown[] };
-
-function mysqlFamilyIndexIoUsageSql(): string {
-  return `
-SELECT INDEX_NAME AS index_name,
-       CAST(NULL AS DATETIME) AS last_used,
-       COUNT_READ AS scan_count
-FROM performance_schema.table_io_waits_summary_by_index_usage
-WHERE OBJECT_SCHEMA = ?
-  AND OBJECT_NAME = ?
-  AND INDEX_NAME IS NOT NULL
-`.trim();
-}
-
-function postgresLastIdxScanSql(): string {
-  return `
-SELECT
-  ci.relname AS index_name,
-  psi.last_idx_scan AS last_used,
-  COALESCE(psi.idx_scan, 0)::bigint AS scan_count
-FROM pg_index ix
-JOIN pg_class ct ON ct.oid = ix.indrelid
-JOIN pg_namespace n ON n.oid = ct.relnamespace
-JOIN pg_class ci ON ci.oid = ix.indexrelid
-LEFT JOIN pg_stat_user_indexes psi ON psi.indexrelid = ci.oid
-WHERE n.nspname = $1
-  AND ct.relname = $2
-`.trim();
 }
 
 /**
@@ -600,113 +136,9 @@ export function buildIndexUsageQueries(opts: {
   schema?: string;
   table: string;
 }): IndexUsageQuery[] {
-  const dialect = opts.dialect.toLowerCase();
-  const { schema, table } = splitSchemaTable(opts.table, opts.schema);
-  if (!table) return [];
-
-  if (dialect === 'oracle') {
-    if (!schema) return [];
-    const owner = schema.toUpperCase();
-    const tbl = table.toUpperCase();
-    return [
-      {
-        params: [owner, tbl],
-        sql: `
-SELECT
-  i.INDEX_NAME AS index_name,
-  u.LAST_USED AS last_used,
-  COALESCE(u.TOTAL_ACCESS_COUNT, 0) AS scan_count
-FROM ALL_INDEXES i
-LEFT JOIN DBA_INDEX_USAGE u
-  ON u.OWNER = i.OWNER AND u.NAME = i.INDEX_NAME
-WHERE i.OWNER = :1
-  AND i.TABLE_NAME = :2
-`.trim(),
-      },
-      {
-        params: [owner, tbl],
-        sql: `
-SELECT
-  INDEX_NAME AS index_name,
-  CAST(NULL AS TIMESTAMP) AS last_used,
-  CASE WHEN USED = 'YES' THEN 1 ELSE 0 END AS scan_count
-FROM DBA_OBJECT_USAGE
-WHERE OWNER = :1
-  AND TABLE_NAME = :2
-`.trim(),
-      },
-      {
-        params: [tbl],
-        sql: `
-SELECT
-  INDEX_NAME AS index_name,
-  CAST(NULL AS TIMESTAMP) AS last_used,
-  CASE WHEN USED = 'YES' THEN 1 ELSE 0 END AS scan_count
-FROM V$OBJECT_USAGE
-WHERE TABLE_NAME = :1
-`.trim(),
-      },
-    ];
-  }
-
-  if (dialect === 'tidb') {
-    if (!schema) return [];
-    return [
-      {
-        params: [schema, table],
-        sql: `
-SELECT INDEX_NAME AS index_name,
-       LAST_ACCESS_TIME AS last_used,
-       QUERY_TOTAL AS scan_count
-FROM INFORMATION_SCHEMA.CLUSTER_TIDB_INDEX_USAGE
-WHERE TABLE_SCHEMA = ?
-  AND TABLE_NAME = ?
-`.trim(),
-      },
-      {
-        params: [schema, table],
-        sql: `
-SELECT INDEX_NAME AS index_name,
-       LAST_ACCESS_TIME AS last_used,
-       QUERY_TOTAL AS scan_count
-FROM INFORMATION_SCHEMA.TIDB_INDEX_USAGE
-WHERE TABLE_SCHEMA = ?
-  AND TABLE_NAME = ?
-`.trim(),
-      },
-      { params: [schema, table], sql: mysqlFamilyIndexIoUsageSql() },
-    ];
-  }
-
-  if (dialect === 'mysql') {
-    if (!schema) return [];
-    return [{ params: [schema, table], sql: mysqlFamilyIndexIoUsageSql() }];
-  }
-
-  if (dialect === 'mariadb') {
-    if (!schema) return [];
-    return [
-      { params: [schema, table], sql: mysqlFamilyIndexIoUsageSql() },
-      {
-        params: [schema, table],
-        sql: `
-SELECT INDEX_NAME AS index_name,
-       CAST(NULL AS DATETIME) AS last_used,
-       ROWS_READ AS scan_count
-FROM information_schema.INDEX_STATISTICS
-WHERE TABLE_SCHEMA = ?
-  AND TABLE_NAME = ?
-`.trim(),
-      },
-    ];
-  }
-
-  if (dialect === 'postgres' || dialect === 'cockroachdb' || dialect === 'yugabytedb') {
-    const sch = schema || 'public';
-    return [{ params: [sch, table], sql: postgresLastIdxScanSql() }];
-  }
-
-  return [];
+  const target = targetOf(opts);
+  if (!target.table) return [];
+  return resolveIndexFragmentation(target.dialect)?.usageQueries(target) ?? [];
 }
 
 /** Overlay usage-catalog rows onto fragmentation rows, matched by index name. */
@@ -851,27 +283,8 @@ export function normalizeIndexFragmentationRows(
  * button as the one they would have typed.
  */
 export function indexMaintenanceVerb(dialect: string): string {
-  switch ((dialect || '').toLowerCase()) {
-    case 'postgres':
-    case 'cockroachdb':
-    case 'yugabytedb':
-    case 'redshift':
-    case 'sqlite':
-      return 'Reindex';
-    case 'mysql':
-    case 'mariadb':
-    case 'tidb':
-      return 'Optimize';
-    case 'db2':
-      return 'Reorg';
-    case 'sqlserver':
-    case 'azuresql':
-    case 'oracle':
-      return 'Rebuild';
-    default:
-      // Nothing engine-specific to promise, so describe the intent instead.
-      return 'Rebuild';
-  }
+  // Nothing engine-specific to promise for unknown engines, so describe the intent.
+  return resolveIndexFragmentation(dialect)?.maintenanceVerb ?? 'Rebuild';
 }
 
 /**
@@ -885,88 +298,12 @@ export function buildIndexDefragSql(opts: {
   indexName: string;
   fragmentationPercent?: number | null;
 }): string[] {
-  const dialect = opts.dialect.toLowerCase();
-  const support = dialectSupportsIndexFragmentation(dialect);
-  if (!support.defrag) return [];
-  const { schema, table } = splitSchemaTable(opts.table, opts.schema);
-  if (!table || !opts.indexName.trim()) return [];
+  const target = targetOf(opts);
+  const impl = resolveIndexFragmentation(target.dialect);
+  if (!impl || !impl.support.defrag) return [];
   const idx = opts.indexName.trim();
-  const pct = opts.fragmentationPercent;
-  const qTable = schema ? `${q(schema, dialect)}.${q(table, dialect)}` : q(table, dialect);
-  const qIndex = q(idx, dialect);
-  const qIndexQualified = schema ? `${q(schema, dialect)}.${qIndex}` : qIndex;
-
-  if (dialect === 'sqlserver' || dialect === 'azuresql') {
-    if (pct != null && pct < 30) {
-      return [`ALTER INDEX ${qIndex} ON ${qTable} REORGANIZE;`];
-    }
-    return [`ALTER INDEX ${qIndex} ON ${qTable} REBUILD;`];
-  }
-
-  if (dialect === 'postgres' || dialect === 'cockroachdb' || dialect === 'yugabytedb') {
-    // CONCURRENTLY avoids long locks on Postgres; Cockroach may ignore/reject it.
-    if (dialect === 'postgres' || dialect === 'yugabytedb') {
-      return [`REINDEX INDEX CONCURRENTLY ${qIndexQualified};`];
-    }
-    return [`REINDEX INDEX ${qIndexQualified};`];
-  }
-
-  if (dialect === 'tidb') {
-    // TiDB answers OPTIMIZE TABLE with "OPTIMIZE TABLE is not supported" — it
-    // compacts storage itself and gives no way to ask. Refreshing the
-    // optimiser statistics is the real, supported maintenance here.
-    return [`ANALYZE TABLE ${qTable};`];
-  }
-
-  if (dialect === 'mysql' || dialect === 'mariadb') {
-    return [`OPTIMIZE TABLE ${qTable};`];
-  }
-
-  if (dialect === 'db2') {
-    // Two things make Db2 unlike every other dialect here, both verified
-    // against a live server:
-    //
-    // 1. It cannot reorganise a single index. `REORG INDEX <name>` returns
-    //    SQL0270N "Function not supported (Reason code 89)". Only the
-    //    table-level `REORG INDEXES ALL FOR TABLE` form exists, so selecting
-    //    one index necessarily reorganises every index on its table.
-    // 2. REORG is a command, not SQL. Sent over a driver connection it is
-    //    rejected by the statement parser (SQL0104N, "expected tokens may
-    //    include: JOIN"). It has to be handed to SYSPROC.ADMIN_CMD.
-    //
-    // The table name is embedded in a string literal, so any single quote in
-    // an identifier has to be doubled or it would end the literal early.
-    const literal = qTable.replace(/'/g, "''");
-    return [
-      `CALL SYSPROC.ADMIN_CMD('REORG INDEXES ALL FOR TABLE ${literal}');`,
-      `-- Db2 has no single-index REORG: this reorganises every index on ${table}.`,
-    ];
-  }
-
-  if (dialect === 'oracle') {
-    return [`ALTER INDEX ${qIndexQualified} REBUILD;`];
-  }
-
-  if (dialect === 'sqlite') {
-    return [`REINDEX ${qIndex};`, `-- Or whole DB: VACUUM;`];
-  }
-
-  if (dialect === 'duckdb') {
-    return [`CHECKPOINT;`];
-  }
-
-  if (dialect === 'clickhouse') {
-    return [`OPTIMIZE TABLE ${qTable} FINAL;`];
-  }
-
-  if (dialect === 'redshift') {
-    return [
-      `VACUUM ${qTable};`,
-      `ANALYZE ${qTable};`,
-    ];
-  }
-
-  return [];
+  if (!target.table || !idx) return [];
+  return impl.defragSql(target, idx, opts.fragmentationPercent);
 }
 
 /**
@@ -982,39 +319,13 @@ export function buildIndexDropSql(opts: {
   indexName: string;
   constraint?: boolean;
 }): string[] {
-  const dialect = opts.dialect.toLowerCase();
   if (opts.constraint) return [];
-  if (dialect === 'redshift') return [];
-  const { schema, table } = splitSchemaTable(opts.table, opts.schema);
-  if (!table || !opts.indexName.trim()) return [];
+  const target = targetOf(opts);
   const idx = opts.indexName.trim();
-  const qTable = schema ? `${q(schema, dialect)}.${q(table, dialect)}` : q(table, dialect);
-  const qIndex = q(idx, dialect);
-  const qIndexQualified = schema ? `${q(schema, dialect)}.${qIndex}` : qIndex;
-
-  if (dialect === 'sqlserver' || dialect === 'azuresql') {
-    return [`DROP INDEX ${qIndex} ON ${qTable};`];
-  }
-  if (dialect === 'mysql' || dialect === 'mariadb' || dialect === 'tidb') {
-    return [`DROP INDEX ${qIndex} ON ${qTable};`];
-  }
-  if (dialect === 'postgres' || dialect === 'cockroachdb' || dialect === 'yugabytedb') {
-    return [`DROP INDEX IF EXISTS ${qIndexQualified};`];
-  }
-  if (dialect === 'db2' || dialect === 'oracle') {
-    return [`DROP INDEX ${qIndexQualified};`];
-  }
-  if (dialect === 'sqlite') {
-    return [`DROP INDEX IF EXISTS ${qIndex};`];
-  }
-  if (dialect === 'duckdb') {
-    return [`DROP INDEX IF EXISTS ${qIndexQualified};`];
-  }
-  if (dialect === 'clickhouse') {
-    // Data-skipping indexes listed in Index Management, not traditional B-trees.
-    return [`ALTER TABLE ${qTable} DROP INDEX ${qIndex};`];
-  }
-  return [`DROP INDEX ${qIndexQualified};`];
+  if (!target.table || !idx) return [];
+  const impl = resolveIndexFragmentation(target.dialect);
+  if (impl) return impl.dropSql(target, idx);
+  return [`DROP INDEX ${quoteIndexTarget(target).indexQualified(idx)};`];
 }
 
 /** Example custom SELECT admins can paste when the default probe fails. */
@@ -1023,107 +334,9 @@ export function buildIndexFragmentationCustomTemplate(opts: {
   schema?: string;
   table: string;
 }): string {
-  const dialect = opts.dialect.toLowerCase();
-  const { schema, table } = splitSchemaTable(opts.table, opts.schema);
-  const sch = schema || 'schema';
-  const tbl = table || 'table';
-
-  if (dialect === 'sqlserver' || dialect === 'azuresql') {
-    return `-- Custom fragmentation probe (must return index_name, fragmentation_percent)
-SELECT i.name AS index_name,
-       CAST(ps.avg_fragmentation_in_percent AS float) AS fragmentation_percent,
-       CAST(ps.page_count AS bigint) AS page_count,
-       (SELECT MAX(v) FROM (VALUES (us.last_user_seek),(us.last_user_scan),(us.last_user_lookup),(us.last_user_update)) AS t(v)) AS last_used,
-       CAST(ISNULL(us.user_seeks,0)+ISNULL(us.user_scans,0)+ISNULL(us.user_lookups,0) AS bigint) AS scan_count
-FROM sys.dm_db_index_physical_stats(DB_ID(), OBJECT_ID(N'${sch}.${tbl}'), NULL, NULL, 'DETAILED') ps
-JOIN sys.indexes i ON ps.object_id = i.object_id AND ps.index_id = i.index_id
-LEFT JOIN sys.dm_db_index_usage_stats us
-  ON us.database_id = DB_ID() AND us.object_id = i.object_id AND us.index_id = i.index_id
-WHERE i.name IS NOT NULL AND ps.index_level = 0;`;
-  }
-
-  if (dialect === 'postgres' || dialect === 'cockroachdb' || dialect === 'yugabytedb') {
-    return `-- Requires: CREATE EXTENSION IF NOT EXISTS pgstattuple;
-SELECT ci.relname AS index_name,
-       (pgstatindex(ci.oid::regclass)).leaf_fragmentation AS fragmentation_percent,
-       psi.last_idx_scan AS last_used,
-       COALESCE(psi.idx_scan, 0)::bigint AS scan_count
-FROM pg_index ix
-JOIN pg_class ct ON ct.oid = ix.indrelid
-JOIN pg_namespace n ON n.oid = ct.relnamespace
-JOIN pg_class ci ON ci.oid = ix.indexrelid
-LEFT JOIN pg_stat_user_indexes psi ON psi.indexrelid = ci.oid
-WHERE n.nspname = '${sch}' AND ct.relname = '${tbl}';`;
-  }
-
-  if (dialect === 'tidb') {
-    return `SELECT INDEX_NAME AS index_name, NULL AS fragmentation_percent,
-       LAST_ACCESS_TIME AS last_used, QUERY_TOTAL AS scan_count
-FROM INFORMATION_SCHEMA.TIDB_INDEX_USAGE
-WHERE TABLE_SCHEMA = '${sch}' AND TABLE_NAME = '${tbl}';`;
-  }
-
-  if (dialect === 'mysql' || dialect === 'mariadb') {
-    return `SELECT INDEX_NAME AS index_name, NULL AS fragmentation_percent,
-       CAST(NULL AS DATETIME) AS last_used, COUNT_READ AS scan_count
-FROM performance_schema.table_io_waits_summary_by_index_usage
-WHERE OBJECT_SCHEMA = '${sch}' AND OBJECT_NAME = '${tbl}'
-  AND INDEX_NAME IS NOT NULL;`;
-  }
-
-  if (dialect === 'db2') {
-    return `SELECT INDNAME AS index_name,
-       DECIMAL(100.0 * FLOAT(COALESCE(NUM_EMPTY_LEAFS,0)) / NULLIF(FLOAT(NLEAF),0), 5, 2)
-         AS fragmentation_percent,
-       CASE WHEN LASTUSED IS NULL OR LASTUSED <= DATE('1971-01-01') THEN NULL ELSE LASTUSED END AS last_used
-FROM SYSCAT.INDEXES
-WHERE TABSCHEMA = '${sch.toUpperCase()}' AND TABNAME = '${tbl.toUpperCase()}';`;
-  }
-
-  if (dialect === 'oracle') {
-    return `-- Last used: DBA_INDEX_USAGE (12.2+). Fragmentation: ANALYZE INDEX … VALIDATE STRUCTURE.
-SELECT i.INDEX_NAME AS index_name,
-       CAST(NULL AS NUMBER) AS fragmentation_percent,
-       u.LAST_USED AS last_used,
-       COALESCE(u.TOTAL_ACCESS_COUNT, 0) AS scan_count
-FROM ALL_INDEXES i
-LEFT JOIN DBA_INDEX_USAGE u ON u.OWNER = i.OWNER AND u.NAME = i.INDEX_NAME
-WHERE i.OWNER = '${sch.toUpperCase()}' AND i.TABLE_NAME = '${tbl.toUpperCase()}';`;
-  }
-
-  if (dialect === 'sqlite') {
-    return `-- Optional: page sizes via dbstat (SQLITE_ENABLE_DBSTAT_VTAB)
-SELECT m.name AS index_name,
-       CAST(NULL AS REAL) AS fragmentation_percent,
-       (SELECT SUM(pgsize) FROM dbstat d WHERE d.name = m.name) AS page_count
-FROM sqlite_master m
-WHERE m.type = 'index' AND m.tbl_name = '${tbl}' AND m.name NOT LIKE 'sqlite_%';`;
-  }
-
-  if (dialect === 'duckdb') {
-    return `SELECT index_name AS index_name,
-       CAST(NULL AS DOUBLE) AS fragmentation_percent
-FROM duckdb_indexes()
-WHERE table_name = '${tbl}'${
-      schema ? ` AND schema_name = '${sch}'` : ''
-    };`;
-  }
-
-  if (dialect === 'clickhouse') {
-    return `SELECT name AS index_name,
-       CAST(NULL AS Float64) AS fragmentation_percent
-FROM system.data_skipping_indices
-WHERE database = '${sch}' AND table = '${tbl}';`;
-  }
-
-  if (dialect === 'redshift') {
-    return `-- Redshift has no secondary indexes; unsorted block % example:
-SELECT 'unsorted' AS index_name,
-       CAST(unsorted AS float) AS fragmentation_percent
-FROM svv_table_info
-WHERE schema = '${sch}' AND "table" = '${tbl}';`;
-  }
-
+  const target = targetOf(opts);
+  const impl = resolveIndexFragmentation(target.dialect);
+  if (impl) return impl.customTemplate(target);
   return `SELECT 'idx_name' AS index_name, 0 AS fragmentation_percent;`;
 }
 

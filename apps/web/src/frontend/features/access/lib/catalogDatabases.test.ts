@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, expect, it } from 'vitest';
-import { connectionDatabaseNames } from './catalog-databases';
+import { connectionDatabaseNames } from './catalogDatabases';
 
 describe('connectionDatabaseNames', () => {
   it('treats MySQL schemas as databases', () => {
