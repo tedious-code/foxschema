@@ -3,6 +3,7 @@ import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { fetchDbAccess, fetchSchemaList } from '@/shared/api/schemaApi';
 import { findCachedTable, tableNameParts } from '@/shared/lib/tablePreview';
 import type { DbPrincipal } from './access';
+import { connectionDatabaseNames } from './catalog-databases';
 
 type Conn = {
   id: string;
@@ -140,12 +141,15 @@ export function useAccessCatalog(connectionId: string, conn: Conn) {
     [schemas]
   );
 
-  const databaseOptions = useMemo(() => {
-    const dbs = new Set<string>();
-    if (conn?.database?.trim()) dbs.add(conn.database.trim());
-    for (const s of schemas) dbs.add(s);
-    return [...dbs].sort((a, b) => a.localeCompare(b)).map((v) => ({ value: v }));
-  }, [conn?.database, schemas]);
+  const databaseOptions = useMemo(
+    () =>
+      connectionDatabaseNames({
+        dialect: conn?.dialect,
+        database: conn?.database,
+        schemas,
+      }).map((v) => ({ value: v })),
+    [conn?.dialect, conn?.database, schemas]
+  );
 
   const allTables = useMemo(() => {
     const tables = cacheEntry?.tables ?? [];

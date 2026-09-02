@@ -6,6 +6,9 @@ import {
   buildAccessSql,
   describePermission,
   invertAccessRequest,
+  expandToInstance,
+  accessStatementPlace,
+  qualifyDatabaseSql,
   permissionsForPreset,
   presetForPermissions,
   supportsAccessBuilder,
@@ -17,6 +20,7 @@ import {
 import { EmptyState, Field, RISK_STYLE, Segmented, inputCls } from './controls';
 import { Autocomplete } from '@/shared/components/Autocomplete';
 import { ObjectPicker } from './ObjectPicker';
+import { PermissionMatrix } from './PermissionMatrix';
 import { useAccessCatalog } from '../lib/useAccessCatalog';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import type { AccessPrincipalDraft } from '../lib/access-draft';
@@ -65,6 +69,13 @@ export const PermissionBuilder: React.FC<{
   const [withGrantOption, setWithGrantOption] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showRevoke, setShowRevoke] = useState(false);
+  // The grid answers a different question from the flat form — "what may this
+  // principal do to each of these objects?" rather than "one permission set on
+  // one scope" — so it replaces the scope and permission controls rather than
+  // sitting alongside them and competing for the same preview.
+  const [builderMode, setBuilderMode] = useState<'scope' | 'grid'>('scope');
+  const [gridRequests, setGridRequests] = useState<PermissionRequest[]>([]);
+  const [everyDatabase, setEveryDatabase] = useState(false);
 
   const caps = useMemo(() => accessCapabilities(dialect), [dialect]);
   // MySQL/MariaDB/Oracle have no schema-level GRANT — defaulting to "schema"
@@ -150,12 +161,73 @@ export const PermissionBuilder: React.FC<{
     [principalType, principalName, action, permissions, scope, includeFuture, caps.futureObjects, withGrantOption]
   );
 
+  /**
+   * Every request the preview must cover.
+   *
+   * One in the flat case; one per object group in the grid; one per database
+   * when the grant is applied across the connection's server.
+   */
+  const requests: PermissionRequest[] = useMemo(() => {
+    if (builderMode === 'grid') return gridRequests;
+    if (everyDatabase && scopeType === 'database') {
+      return expandToInstance(request, catalog.databaseOptions.map((o) => o.value));
+    }
+    return [request];
+  }, [builderMode, gridRequests, everyDatabase, scopeType, request, catalog.databaseOptions]);
+
   // Regenerated on every change: no Submit button stands between the reader's
   // selection and seeing what it produces.
-  const generated = useMemo(
-    () => (dialect ? buildAccessSql(showRevoke ? invertAccessRequest(request) : request, dialect) : null),
-    [request, dialect, showRevoke]
-  );
+  const generated = useMemo(() => {
+    if (!dialect || requests.length === 0) return null;
+    const results = requests.map((r) =>
+      buildAccessSql(showRevoke ? invertAccessRequest(r) : r, dialect)
+    );
+    // One bad request makes the whole preview untrustworthy: showing the good
+    // statements beside a silently dropped one is how a reader runs a partial
+    // grant believing it was the whole thing.
+    const failed = results.find((r) => 'error' in r);
+    if (failed) return failed;
+
+    const ok = results as Exclude<(typeof results)[number], { error: string }>[];
+    const RISK = ['low', 'elevated', 'administrative', 'critical'] as const;
+    const seenWarning = new Set<string>();
+    // Each request emits its own prerequisites, so several object groups in the
+    // same schema each ask for `GRANT USAGE ON SCHEMA`. Running it twice is
+    // harmless and reading it twice looks like a bug — and a reader who trims
+    // what appears to be an accidental repeat could delete the only copy that
+    // a later statement depends on.
+    const seenStatement = new Set<string>();
+    return {
+      statements: ok.flatMap((r, i) => {
+        const scope = requests[i]!.scope;
+        const place = accessStatementPlace(scope);
+        return r.statements
+          .map((st) => ({ ...st, sql: qualifyDatabaseSql(st.sql, scope) }))
+          .filter((st) => {
+            // Same SQL in the same schema is a repeated prerequisite (USAGE).
+            // Same SQL in two databases is two grants — collapsing them would
+            // leave "every database" covering only the one you are connected to.
+            const key = `${place}\0${st.sql}`;
+            if (seenStatement.has(key)) return false;
+            seenStatement.add(key);
+            return true;
+          });
+      }),
+      // Fanning a grant across ten databases repeats the same caution ten
+      // times; the reader needs to read it once.
+      warnings: ok
+        .flatMap((r) => r.warnings)
+        .filter((w) => {
+          if (seenWarning.has(w.message)) return false;
+          seenWarning.add(w.message);
+          return true;
+        }),
+      risk: ok.reduce(
+        (worst, r) => (RISK.indexOf(r.risk) > RISK.indexOf(worst) ? r.risk : worst),
+        'low' as (typeof RISK)[number]
+      ),
+    };
+  }, [requests, dialect, showRevoke]);
 
   const sqlText =
     generated && !('error' in generated)
@@ -263,7 +335,49 @@ export const PermissionBuilder: React.FC<{
                 <p className="mt-1 text-[10px] text-slate-500">Loading users and roles…</p>
               )}
             </Field>
+            <Field
+              label="How do you want to say it?"
+              hint="One permission set on one scope, or a privilege per object."
+            >
+              <Segmented
+                value={builderMode}
+                onChange={(v) => setBuilderMode(v as 'scope' | 'grid')}
+                options={[
+                  { value: 'scope', label: 'By scope' },
+                  { value: 'grid', label: 'By object' },
+                ]}
+                testId="access-builder-mode"
+              />
+            </Field>
 
+            {builderMode === 'grid' ? (
+              <Field
+                label="Objects"
+                hint={`Schema ${schema || conn?.schema || '—'}. Struck-through columns are privileges ${
+                  conn?.dialect ?? 'this engine'
+                } cannot grant on one object.`}
+              >
+                <Autocomplete
+                  data-testid="access-grid-schema"
+                  theme="slate"
+                  value={schema}
+                  onChange={setSchema}
+                  options={catalog.schemaOptions}
+                  placeholder={conn?.schema || 'schema name'}
+                  className={`${inputCls} font-mono mb-3`}
+                />
+                <PermissionMatrix
+                  dialect={dialect}
+                  principal={{ type: principalType, name: principalName }}
+                  action={action}
+                  schema={schema || conn?.schema || ''}
+                  withGrantOption={withGrantOption}
+                  tableChoices={tableChoices}
+                  onChange={setGridRequests}
+                />
+              </Field>
+            ) : (
+              <>
             <Field label="What should they be able to do?">
               <div className="flex flex-wrap gap-1.5">
                 {(Object.keys(PRESET_LABEL) as AccessPreset[]).map((p) => (
@@ -284,6 +398,7 @@ export const PermissionBuilder: React.FC<{
                 ))}
               </div>
             </Field>
+
 
             <Field label="Where should this apply?">
               <Segmented
@@ -321,15 +436,35 @@ export const PermissionBuilder: React.FC<{
                   </div>
                 )}
                 {scopeType === 'database' && (
-                  <Autocomplete
-                    data-testid="access-database"
-                    theme="slate"
-                    value={database || conn?.database || ''}
-                    onChange={setDatabase}
-                    options={catalog.databaseOptions}
-                    placeholder={conn?.database || 'database name'}
-                    className={`${inputCls} font-mono`}
-                  />
+                  <>
+                    <Autocomplete
+                      data-testid="access-database"
+                      theme="slate"
+                      value={database || conn?.database || ''}
+                      onChange={setDatabase}
+                      options={catalog.databaseOptions}
+                      placeholder={conn?.database || 'database name'}
+                      className={`${inputCls} font-mono`}
+                      disabled={everyDatabase}
+                    />
+                    <label className="flex items-start gap-2 text-[11px] text-slate-300">
+                      <input
+                        type="checkbox"
+                        data-testid="access-every-database"
+                        checked={everyDatabase}
+                        onChange={(e) => setEveryDatabase(e.target.checked)}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        Every database on this connection
+                        <span className="block text-slate-500">
+                          {catalog.databaseOptions.length > 0
+                            ? `Repeats the grant for each of the ${catalog.databaseOptions.length} databases this connection can see. Privileges are still granted one database at a time — there is no single statement that covers a server.`
+                            : 'No databases loaded yet, so this will fall back to the one named above.'}
+                        </span>
+                      </span>
+                    </label>
+                  </>
                 )}
                 {scopeType !== 'database' && (
                   <Autocomplete
@@ -433,6 +568,8 @@ export const PermissionBuilder: React.FC<{
                 })}
               </div>
             </Field>
+            </>
+            )}
 
             {caps.grantOption && (
               <label className="flex items-center gap-2 text-[11px] text-slate-300">

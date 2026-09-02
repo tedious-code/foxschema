@@ -15,6 +15,7 @@ import {
   type AccessScope,
   type PermissionRequest,
 } from './intent.js';
+import { cellSupport, type GridObjectKind } from './object-grid.js';
 import type { PermissionWarning } from './access-sql.types.js';
 
 /** Privileges each intent maps to on table-shaped objects. */
@@ -35,6 +36,57 @@ export function tablePermissions(permissions: readonly AccessPermission[]): Acce
 
 export function executePermissions(permissions: readonly AccessPermission[]): AccessPermission[] {
   return permissions.filter((p) => p === 'execute-function' || p === 'execute-procedure');
+}
+
+/** Privilege names for the per-object columns the grid offers. */
+const OBJECT_PRIVILEGE: Partial<Record<AccessPermission, string>> = {
+  reference: 'REFERENCES',
+  'index-object': 'INDEX',
+  'trigger-object': 'TRIGGER',
+  'alter-object': 'ALTER',
+  'drop-object': 'DROP',
+};
+
+/**
+ * The per-object privileges this engine can actually grant on this kind.
+ *
+ * Support is read from the grid's capability table rather than restated here,
+ * so an emitter can never offer a privilege the grid greyed out — the two would
+ * drift, and the direction of the drift is SQL that fails on the reader's
+ * database after the UI told them it would work.
+ */
+export function objectPrivileges(
+  permissions: readonly AccessPermission[],
+  dialect: string,
+  kind: GridObjectKind
+): { privs: string[]; covers: AccessPermission[] } {
+  const privs: string[] = [];
+  const covers: AccessPermission[] = [];
+  for (const p of permissions) {
+    const name = OBJECT_PRIVILEGE[p];
+    if (!name) continue;
+    if (!cellSupport(dialect, kind, p).available) continue;
+    privs.push(name);
+    covers.push(p);
+  }
+  return { privs, covers };
+}
+
+/**
+ * Routine names split by kind, because engines name the two apart.
+ *
+ * MySQL and Db2 write `ON PROCEDURE x` and `ON FUNCTION y`; Oracle names
+ * neither. Grouping here keeps every emitter from repeating the partition.
+ */
+export function routinesByKind(scope: AccessScope): {
+  procedures: string[];
+  functions: string[];
+} {
+  if (scope.type !== 'routines') return { procedures: [], functions: [] };
+  return {
+    procedures: scope.routines.filter((r) => r.kind === 'procedure').map((r) => r.name),
+    functions: scope.routines.filter((r) => r.kind === 'function').map((r) => r.name),
+  };
 }
 
 export function ownershipPermissions(permissions: readonly AccessPermission[]): AccessPermission[] {
@@ -94,6 +146,11 @@ export function validateAccessRequest(request: PermissionRequest, dialect: strin
     if (!scope.schema.trim()) return 'Choose the schema this table lives in.';
     if (!scope.table.trim()) return 'Enter the table name.';
     if (scope.columns.length === 0) return 'Select at least one column.';
+  }
+  if (scope.type === 'routines') {
+    if (!caps.tableScope) return `${dialect} cannot grant on individual routines.`;
+    if (!scope.schema.trim()) return 'Choose the schema these routines live in.';
+    if (scope.routines.length === 0) return 'Select at least one procedure or function.';
   }
   if (scope.type === 'sequences') {
     if (!caps.sequenceScope) return `${dialect} cannot grant on sequences.`;

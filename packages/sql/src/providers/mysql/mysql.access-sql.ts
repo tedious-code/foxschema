@@ -9,6 +9,8 @@ import { highestRisk } from '../../modules/access/intent.js';
 import {
   describePrivs,
   executePermissions,
+  objectPrivileges,
+  routinesByKind,
   tablePermissions,
   tablePrivileges,
 } from '../../modules/access/access-sql-helpers.js';
@@ -36,6 +38,12 @@ function emitMysql(ctx: EmitCtx): void {
     privs.push('EXECUTE');
     covers.push(...execPerms);
   }
+  if (scope.type === 'tables' || scope.type === 'routines') {
+    const kind = scope.type === 'tables' ? 'table' : 'procedure';
+    const extra = objectPrivileges(permissions, ctx.dialect, kind);
+    for (const pv of extra.privs) if (!privs.includes(pv)) privs.push(pv);
+    covers.push(...extra.covers);
+  }
   if (privs.length === 0) return;
 
   if (scope.type === 'columns') {
@@ -46,6 +54,34 @@ function emitMysql(ctx: EmitCtx): void {
       highestRisk(permissions),
       covers
     );
+    return;
+  }
+
+  if (scope.type === 'routines') {
+    // `ON db.*` would grant EXECUTE across every routine in the database. Name
+    // each routine instead, and use ALTER ROUTINE — plain ALTER is the table
+    // privilege and is rejected on a routine.
+    const { procedures, functions } = routinesByKind(scope);
+    // DROP is a table privilege; MySQL rejects it on a routine. The grid
+    // already greys the cell, but an emitter that depends on the UI having
+    // pruned correctly is one refactor away from emitting invalid SQL.
+    const routinePrivs = privs
+      .filter((pv) => pv !== 'DROP')
+      .map((pv) => (pv === 'ALTER' ? 'ALTER ROUTINE' : pv));
+    if (routinePrivs.length === 0) return;
+    for (const [keyword, names] of [
+      ['PROCEDURE', procedures],
+      ['FUNCTION', functions],
+    ] as const) {
+      for (const name of names) {
+        add(
+          `${verb} ${routinePrivs.join(', ')} ON ${keyword} ${ident(scope.schema)}.${ident(name)} ${dir} ${grantee}${option};`,
+          `${describePrivs(routinePrivs)} on ${keyword.toLowerCase()} ${scope.schema}.${name}.`,
+          highestRisk(permissions),
+          covers
+        );
+      }
+    }
     return;
   }
 
