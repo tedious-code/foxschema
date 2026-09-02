@@ -46,13 +46,19 @@ export function useAccessCatalog(connectionId: string, conn: Conn) {
    * principals under another database's name. Everything downstream of this
    * hook grants and revokes privileges by the name picked here, so a
    * superseded response is discarded rather than shown.
+   *
+   * Principals and schemas each have their own token: a principals refresh
+   * must not discard an in-flight schema list (and vice versa). On MySQL the
+   * schema list *is* the database list for "every database" grants — painting
+   * the previous connection's names there fans GRANT onto the wrong databases.
    */
-  const loadToken = useRef(0);
+  const principalsToken = useRef(0);
+  const schemasToken = useRef(0);
 
   const loadPrincipals = useCallback(async () => {
     if (!connectionId) return;
-    const token = ++loadToken.current;
-    const superseded = () => loadToken.current !== token;
+    const token = ++principalsToken.current;
+    const superseded = () => principalsToken.current !== token;
     setLoadingPrincipals(true);
     setCatalogError(null);
     try {
@@ -73,6 +79,8 @@ export function useAccessCatalog(connectionId: string, conn: Conn) {
 
   const loadSchemas = useCallback(async () => {
     if (!connectionId) return;
+    const token = ++schemasToken.current;
+    const superseded = () => schemasToken.current !== token;
     setLoadingSchemas(true);
     try {
       const list = await fetchSchemaList({
@@ -80,16 +88,18 @@ export function useAccessCatalog(connectionId: string, conn: Conn) {
         password: sessionPasswords[connectionId] || undefined,
         schema: conn?.schema || undefined,
       });
+      if (superseded()) return;
       const merged = new Set<string>();
       if (conn?.database?.trim()) merged.add(conn.database.trim());
       if (conn?.schema?.trim()) merged.add(conn.schema.trim());
       for (const s of list) if (s.trim()) merged.add(s.trim());
       setSchemas([...merged].sort((a, b) => a.localeCompare(b)));
     } catch {
+      if (superseded()) return;
       const fallback = [conn?.schema, conn?.database].filter(Boolean) as string[];
       setSchemas([...new Set(fallback)]);
     } finally {
-      setLoadingSchemas(false);
+      if (!superseded()) setLoadingSchemas(false);
     }
   }, [connectionId, conn?.database, conn?.schema, sessionPasswords]);
 
@@ -110,10 +120,16 @@ export function useAccessCatalog(connectionId: string, conn: Conn) {
    * effect below: the loaders are `useCallback`s whose identity changes with
    * their inputs, so clearing inside that effect assigns a fresh `[]` on every
    * render, which re-renders, which runs the effect again — an infinite loop.
+   *
+   * Schemas must clear too: until the new list lands, leaving the old names
+   * under a MySQL connection makes "every database" expand grants across the
+   * previous engine's schema names.
    */
   useEffect(() => {
-    loadToken.current++;
+    principalsToken.current++;
+    schemasToken.current++;
     setPrincipals([]);
+    setSchemas([]);
     setCatalogError(null);
   }, [connectionId]);
 

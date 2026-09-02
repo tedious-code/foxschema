@@ -334,6 +334,77 @@ describe('AccessView — User Management list + Builder handoff', () => {
   });
 });
 
+describe('AccessView — Permission Builder schema catalog race', () => {
+  beforeEach(() => {
+    Object.assign(navigator, {
+      clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
+    });
+    fetchDbAccess.mockReset();
+    fetchSchemaList.mockReset();
+    fetchDbAccess.mockResolvedValue({
+      dialect: 'mysql',
+      schema: '',
+      mode: 'native',
+      support: { mode: 'native', query: true, grant: true, hint: '' },
+      principals: [],
+      privileges: [],
+    });
+  });
+
+  /**
+   * A slow schema list must not drive "every database" after a switch.
+   *
+   * Principals already discarded superseded responses; schemas did not. On
+   * MySQL the schema list *is* the database list, so a Postgres response that
+   * landed late turned `public` / `reporting` into GRANT targets — and when
+   * those names also exist on the MySQL server, the copied SQL grants on the
+   * wrong databases.
+   */
+  it('ignores a slow schema list that lands after the connection changed', async () => {
+    fetchSchemaList.mockImplementation(async (ref: { connectionId: string }) => {
+      if (ref.connectionId === 'c1') {
+        await new Promise((r) => setTimeout(r, 150));
+        return ['public', 'reporting'];
+      }
+      return ['shop', 'inventory'];
+    });
+
+    render(<AccessView />);
+    fireEvent.click(screen.getByTestId('access-tab-builder'));
+
+    fireEvent.change(screen.getByTestId('access-connection'), { target: { value: 'c1' } });
+    await waitFor(() => expect(fetchSchemaList).toHaveBeenCalled());
+
+    // Move on while Postgres schemas are still in flight.
+    fireEvent.change(screen.getByTestId('access-connection'), { target: { value: 'c2' } });
+    await waitFor(() =>
+      expect(fetchSchemaList.mock.calls.some((c) => c[0]?.connectionId === 'c2')).toBe(true)
+    );
+
+    fireEvent.change(screen.getByTestId('access-principal-name'), {
+      target: { value: 'report_user' },
+    });
+    fireEvent.click(screen.getByTestId('access-scope-database'));
+    fireEvent.click(screen.getByTestId('access-every-database'));
+
+    await waitFor(() => {
+      const sql = screen.getByTestId('access-sql').textContent ?? '';
+      expect(sql).toMatch(/shop/);
+      expect(sql).toMatch(/inventory/);
+    });
+
+    // Wait past the Postgres delay so its schemas have certainly arrived.
+    await new Promise((r) => setTimeout(r, 400));
+
+    const sql = screen.getByTestId('access-sql').textContent ?? '';
+    expect(sql, 'stale Postgres schema names must not become MySQL GRANT targets').not.toMatch(
+      /public|reporting/
+    );
+    expect(sql).toMatch(/shop/);
+    expect(sql).toMatch(/inventory/);
+  });
+});
+
 describe('AccessView — Permission Diff stale catalog', () => {
   beforeEach(() => {
     Object.assign(navigator, {
