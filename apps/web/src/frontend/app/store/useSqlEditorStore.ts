@@ -19,10 +19,10 @@ import {
   isWriteStatement,
   splitSqlStatements,
 } from '@/shared/lib/sql-splitter';
-import type { CodeCellLast } from '@/shared/lib/codeCellExec';
-import { detectCodeCell, runCodeCell, usesServerBeam } from '@/shared/lib/codeCellRunner';
+import type { CodeCellLast } from '@/features/sql-editor/lib/codeCellExec';
+import { detectCodeCell, runCodeCell, usesServerBeam } from '@/features/sql-editor/lib/codeCellRunner';
 import { beamAliasesForCount, MAX_SERVERS } from '@foxschema/shared';
-import { buildSampleBookmarks } from '@/shared/lib/sqlEditorSamples';
+import { buildSampleBookmarks } from '@/features/sql-editor/lib/sqlEditorSamples';
 import {
   buildForeignKeyDrilldown,
   buildRowLookup,
@@ -42,7 +42,7 @@ function sessionPasswordFor(
 ): string | undefined {
   return getSessionPassword(connectionId) || map[connectionId] || undefined;
 }
-import { mergeVaultSecretsIntoVariables } from '@/shared/lib/mergeVaultSecrets';
+import { mergeVaultSecretsIntoVariables } from '@/features/sql-editor/lib/mergeVaultSecrets';
 import {
   applySetDirectives,
   exportVariables,
@@ -61,8 +61,8 @@ import {
 } from '@/shared/lib/sql-variables';
 import { connectionNeedsSecret } from '@/shared/lib/provider-settings';
 import { useSyncStore } from './useSyncStore';
-import type { SchemaCacheEntry } from '@/features/sql-editor/components/sqlEditorBridge';
-import { getCaretOffset, getSelectedSql } from '@/features/sql-editor/components/sqlEditorBridge';
+import type { SchemaCacheEntry } from '@/features/sql-editor/lib/sqlEditorBridge';
+import { getCaretOffset, getSelectedSql } from '@/features/sql-editor/lib/sqlEditorBridge';
 import {
   addTab as addTabLogic,
   checkedAfterSqlChange,

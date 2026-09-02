@@ -7,7 +7,7 @@ import 'monaco-editor/languages/definitions/sql/register';
 import 'monaco-editor/languages/definitions/pgsql/register';
 import 'monaco-editor/languages/definitions/mysql/register';
 import editorWorker from 'monaco-editor/editor/editor.worker?worker';
-import { FOXSCHEMA_SQL_LANG, FOXSCRIPT_LANG } from '@/shared/lib/foxschemaSqlLanguage';
+import { FOXSCHEMA_SQL_LANG, FOXSCRIPT_LANG } from '@/features/sql-editor/lib/foxschemaSqlLanguage';
 
 // SQL highlighting runs on the main thread (basic-languages); only the core
 // editor worker is needed for edit operations, diffing, etc.

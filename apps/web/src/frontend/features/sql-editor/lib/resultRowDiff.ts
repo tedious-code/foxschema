@@ -8,7 +8,7 @@
  */
 
 import { resultValuesEqual } from './resultDataDiff';
-import { normalizeResultKey } from '@/shared/lib/resultValueKey';
+import { normalizeResultKey } from '@/features/sql-editor/lib/resultValueKey';
 import type { PeekKeyColumn } from './rowDml';
 
 export const DATA_MIGRATE_ROW_CAP = 500;

@@ -20,17 +20,17 @@ import {
   type CodeCellOk,
   type CodeCellErr,
   type CodeCellResult,
-} from './sql-splitter';
+} from '@/shared/lib/sql-splitter';
 import { loadCodeCellPackageModules } from './codeCellPackages';
 
-export { codeCellHasReturn, normalizeCodeCellReturn } from './sql-splitter';
+export { codeCellHasReturn, normalizeCodeCellReturn } from '@/shared/lib/sql-splitter';
 export type {
   CodeCellLast,
   CodeCellVars,
   CodeCellOk,
   CodeCellErr,
   CodeCellResult,
-} from './sql-splitter';
+} from '@/shared/lib/sql-splitter';
 
 type VarLike = {
   name: string;

@@ -3,7 +3,7 @@ import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { fetchDbAccess, fetchSchemaList } from '@/shared/api/schemaApi';
 import { findCachedTable, tableNameParts } from '@/shared/lib/tablePreview';
 import type { DbPrincipal } from './access';
-import { connectionDatabaseNames } from './catalog-databases';
+import { connectionDatabaseNames } from './catalogDatabases';
 
 type Conn = {
   id: string;

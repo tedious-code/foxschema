@@ -1,6 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { RefreshCw, ArrowDown, ShieldX, Check, X, AlertTriangle, Info } from 'lucide-react';
 import { fetchDbAccess } from '@/shared/api/schemaApi';
+import { Autocomplete } from '@/shared/components/Autocomplete';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import {
@@ -149,18 +150,15 @@ export const PermissionInspector: React.FC = () => {
       {data && (
         <label className="flex flex-col gap-1 max-w-md">
           <span className={labelCls}>User or role</span>
-          <select
+          <Autocomplete
             data-testid="inspector-principal"
+            theme="slate"
             value={principalName}
-            onChange={(e) => setPrincipalName(e.target.value)}
-            className={inputCls}
-          >
-            {data.principals.map((p) => (
-              <option key={`${p.kind}:${p.name}`} value={p.name}>
-                {p.name} · {p.kind}
-              </option>
-            ))}
-          </select>
+            onChange={setPrincipalName}
+            options={data.principals.map((p) => ({ value: p.name, hint: p.kind }))}
+            placeholder="Pick a user or role"
+            className={`${inputCls} font-mono`}
+          />
         </label>
       )}
 

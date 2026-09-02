@@ -59,13 +59,10 @@ export class ConnectionModal {
     }
   }
 
+  /** The schema box is an Autocomplete: typing sets it, and blur snaps to a listed name. */
   async selectSchema(schema: string): Promise<void> {
-    const selectCount = await this.page.locator('[data-testid="conn-schema-select"]').count();
-    if (selectCount > 0) {
-      await this.page.selectOption('[data-testid="conn-schema-select"]', schema);
-    } else {
-      await fillInput(this.page, '[data-testid="conn-schema-input"]', schema);
-    }
+    await fillInput(this.page, '[data-testid="conn-schema-input"]', schema);
+    await this.page.keyboard.press('Tab');
   }
 
   async save(): Promise<void> {

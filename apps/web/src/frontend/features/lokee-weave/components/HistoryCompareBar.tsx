@@ -16,7 +16,7 @@ import {
   lokeeDatabaseLabel,
   resolveHistoryCompare,
   sortVersionsNewestFirst,
-} from '@/shared/lib/historyCompare';
+} from '@/features/lokee-weave/lib/historyCompare';
 
 export function HistoryCompareBar(): React.ReactElement {
   const databases = useLokeeHistoryStore((s) => s.databases);

@@ -18,6 +18,7 @@ import {
 import type { DriverInfo } from '@/shared/lib/types';
 import { fetchSchemaList, checkDriver as apiCheckDriver, installDriver as apiInstallDriver } from "@/shared/api/schemaApi";
 import { PasswordInput } from '@/shared/components/PasswordInput';
+import { Autocomplete } from '@/shared/components/Autocomplete';
 import { DatabaseFilePicker } from './DatabaseFilePicker';
 
 
@@ -605,23 +606,24 @@ export const ConnectionModal: React.FC<Props> = ({
               Schema{schemaRequired ? <span className="text-rose-400 ml-1">*</span> : <span className="text-slate-600 ml-1">(optional)</span>}
             </label>
             <div className="flex gap-2 mt-1">
-              {schemaList.length > 0 ? (
-                <select data-testid="conn-schema-select" value={form.schema} onChange={(e) => updateField('schema', e.target.value)} className={`${inputCls} !mt-0 flex-1`}>
-                  {!schemaRequired && <option value="">— all schemas —</option>}
-                  {form.schema && !schemaList.includes(form.schema) && <option value={form.schema}>{form.schema}</option>}
-                    {[...new Set(schemaList)].map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                    ))}
-                </select>
-              ) : (
-                <input
+              <div className="flex-1 min-w-0">
+                <Autocomplete
                   data-testid="conn-schema-input"
-                  placeholder={schemaRequired ? 'Required — load or type schema name' : 'Optional — leave blank or type a schema name'}
-                  value={form.schema}
-                  onChange={(e) => updateField('schema', e.target.value)}
-                  className={`${inputCls} !mt-0 flex-1`}
+                  value={form.schema ?? ''}
+                  onChange={(v) => updateField('schema', v)}
+                  options={[...new Set(schemaList)].map((s) => ({ value: s }))}
+                  placeholder={
+                    schemaList.length > 0
+                      ? schemaRequired
+                        ? 'Required — pick or type a schema'
+                        : 'Leave blank for all schemas, or pick one'
+                      : schemaRequired
+                        ? 'Required — load or type schema name'
+                        : 'Optional — leave blank or type a schema name'
+                  }
+                  className={`${inputCls} !mt-0`}
                 />
-              )}
+              </div>
               <button
                 data-testid="conn-load-schema-btn"
                 onClick={loadSchemas}

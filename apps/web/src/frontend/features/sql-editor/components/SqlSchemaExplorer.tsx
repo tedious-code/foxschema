@@ -18,7 +18,7 @@ import {
   getCompletionContext,
   insertAtCursor,
   mutateSql,
-} from './sqlEditorBridge';
+} from '../lib/sqlEditorBridge';
 import {
   addTableWithAliasToFrom,
   existingShortAliasForTable,
@@ -27,7 +27,7 @@ import {
 import type { DbObjectType, TableSchema } from '@/shared/lib/types';
 import { SQL_ICON_STROKE } from '@/shared/lib/iconStyle';
 import { TableBlueprintModal, type BlueprintMode } from './TableBlueprintModal';
-import { isScriptableObject, objectSourceScript } from './objectSourceScript';
+import { isScriptableObject, objectSourceScript } from '../lib/objectSourceScript';
 import { fetchDbaUtility } from '@/shared/api/schemaApi';
 import { connectionNeedsSecret } from '@/shared/lib/provider-settings';
 import {

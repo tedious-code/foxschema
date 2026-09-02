@@ -57,10 +57,17 @@ One file per engine, named `<dialect>.<concern>.ts`, in that dialect's provider
 folder, registered in a registry under `modules/<domain>/`:
 
 ```
-providers/postgres/postgres.sql-dialect.ts   → modules/dialect/registry.ts
-providers/postgres/postgres.user-sql.ts      → modules/access/user-sql.registry.ts
-providers/postgres/postgres.access-sql.ts    → modules/access/access-sql.registry.ts
+providers/postgres/postgres.sql-dialect.ts         → modules/dialect/registry.ts
+providers/postgres/postgres.user-sql.ts            → modules/access/user-sql.registry.ts
+providers/postgres/postgres.access-sql.ts          → modules/access/access-sql.registry.ts
+providers/postgres/postgres.dba-utilities.ts       → modules/utilities/dba-utilities.registry.ts
+providers/postgres/postgres.index-fragmentation.ts → modules/utilities/index-fragmentation.registry.ts
 ```
+
+The module under `modules/<domain>/` is a facade: it resolves the dialect,
+validates input and reshapes driver rows, and knows no catalog table by
+name. Catalog SQL that is only right on one engine belongs in that engine's
+provider file, never in a `switch` on the dialect id inside the module.
 
 Aliases re-export rather than duplicate: Azure SQL → SQL Server, TiDB → MySQL,
 CockroachDB and YugabyteDB → Postgres, MariaDB → MySQL.

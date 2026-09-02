@@ -12,10 +12,10 @@
  */
 export { SchemaTreePanel, TYPE_META, TYPE_ORDER } from './components/SchemaTreePanel';
 export { WriteConfirmDialog } from './components/WriteConfirmDialog';
-export { scrubRemovedFileConnections } from './components/fileQueryEditorHelpers';
-export { getCaretOffset, getSelectedSql, insertAtCursor } from './components/sqlEditorBridge';
-export type { SchemaCacheEntry } from './components/sqlEditorBridge';
-export { dialectFkConstraintSupport, dialectIndexSupport, executableSqlStatements, findInboundForeignKeyTables, generateCloneTableSql } from './components/tableBlueprintSql';
+export { scrubRemovedFileConnections } from './lib/fileQueryEditorHelpers';
+export { getCaretOffset, getSelectedSql, insertAtCursor } from './lib/sqlEditorBridge';
+export type { SchemaCacheEntry } from './lib/sqlEditorBridge';
+export { dialectFkConstraintSupport, dialectIndexSupport, executableSqlStatements, findInboundForeignKeyTables, generateCloneTableSql } from './lib/tableBlueprintSql';
 export { SqlDiffEditor } from './components/SqlEditor';
 export { SqlEditor } from './components/SqlEditor';
 export { SqlEditorView } from './components/SqlEditorView';

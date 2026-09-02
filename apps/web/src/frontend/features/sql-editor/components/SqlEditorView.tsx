@@ -36,7 +36,7 @@ import {
   indicesToRun,
   resolveRunStatements,
 } from '@/app/store/sqlEditorTabLogic';
-import { getSelectedSql, setCompletionContextGetter, setSqlMutator } from './sqlEditorBridge';
+import { getSelectedSql, setCompletionContextGetter, setSqlMutator } from '../lib/sqlEditorBridge';
 import { ConnectionChecklist } from './ConnectionChecklist';
 import { EditorTabBar } from './EditorTabBar';
 import { ResultsPanel } from './ResultsPanel';

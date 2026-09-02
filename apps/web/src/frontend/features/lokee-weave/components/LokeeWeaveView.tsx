@@ -31,7 +31,7 @@ import {
   databaseLocation,
   resolveHistoryCompare,
   sortVersionsNewestFirst,
-} from '@/shared/lib/historyCompare';
+} from '@/features/lokee-weave/lib/historyCompare';
 import { SQL_ICON_STROKE } from '@/shared/lib/iconStyle';
 
 export interface LokeeWeaveViewProps {

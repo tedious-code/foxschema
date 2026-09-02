@@ -7,7 +7,7 @@
  * Used by SQL Editor side-by-side results to color differences.
  */
 
-import { normalizeResultValue } from '@/shared/lib/resultValueKey';
+import { normalizeResultValue } from '@/features/sql-editor/lib/resultValueKey';
 
 export type CellDiffKind = 'modified' | 'missing' | 'extra';
 

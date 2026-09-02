@@ -11,7 +11,7 @@ import type { LokeeDatabase } from '../api/lokeeApi';
 import {
   swapHistoryCompare,
   type HistoryVersionOption,
-} from '@/shared/lib/historyCompare';
+} from '@/features/lokee-weave/lib/historyCompare';
 
 interface LokeeHistoryState {
   databaseId: string | null;

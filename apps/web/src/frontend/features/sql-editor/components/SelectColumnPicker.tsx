@@ -16,7 +16,7 @@ import {
   setSelectListToStar,
   shortAliasesByTable,
 } from '@/features/sql-editor/lib/selectClauseEdit';
-import { getCompletionContext, mutateSql } from './sqlEditorBridge';
+import { getCompletionContext, mutateSql } from '../lib/sqlEditorBridge';
 import { SQL_ICON_STROKE } from '@/shared/lib/iconStyle';
 
 export type SelectColumnPickerAnchor = {

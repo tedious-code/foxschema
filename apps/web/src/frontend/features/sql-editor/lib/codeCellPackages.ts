@@ -13,7 +13,7 @@ import {
   prepareCodeCellImports as prepareImports,
   type CodeCellAllowedPackage,
   type CodeCellImportSpec,
-} from './sql-splitter';
+} from '@/shared/lib/sql-splitter';
 
 export { CODE_CELL_ALLOWED_PACKAGES, parseCodeCellImports };
 export type { CodeCellAllowedPackage, CodeCellImportSpec };

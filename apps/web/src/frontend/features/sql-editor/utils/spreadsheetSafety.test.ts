@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, expect, it } from 'vitest';
-import { neutralizeSpreadsheetFormula } from '@/shared/utils/spreadsheetSafety';
+import { neutralizeSpreadsheetFormula } from '@/features/sql-editor/utils/spreadsheetSafety';
 import { toCsv } from '@/features/sql-editor/utils/exportCsv';
 import { toTsv } from '@/features/sql-editor/utils/copyGrid';
 

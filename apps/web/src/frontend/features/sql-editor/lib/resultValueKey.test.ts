@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeResultKey, normalizeResultValue } from '@/shared/lib/resultValueKey';
+import { normalizeResultKey, normalizeResultValue } from '@/features/sql-editor/lib/resultValueKey';
 import { resultValuesEqual } from '@/features/sql-editor/lib/resultDataDiff';
 import { classifyRowsByKey } from '@/features/sql-editor/lib/resultRowDiff';
 
