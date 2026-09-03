@@ -268,10 +268,28 @@ export function missedPermissionWarning(
   const missed = request.permissions.filter((p) => !covered.has(p));
   if (missed.length === 0) return null;
   const labels = missed.map((p) => describePermission(p).label.toLowerCase());
+  const verb = request.action === 'grant' ? 'grants' : 'revokes';
+
+  // Advice the reader can act on beats a general statement of the limitation.
+  // Where the engine has per-object grants and the miss is a table privilege,
+  // narrowing the scope is the whole answer — and it is the case people
+  // actually hit, because "read only" on a database scope looks like it should
+  // work and produces a runnable CREATE SESSION plus a commented template.
+  const perObjectAvailable =
+    accessCapabilities(dialect).tableScope &&
+    (request.scope.type === 'database' || request.scope.type === 'schema');
+  const tableLevel = missed.every(
+    (p) => p === 'read' || p === 'insert' || p === 'update' || p === 'delete'
+  );
+  const remedy =
+    perObjectAvailable && tableLevel
+      ? `Switch the scope to Tables and pick the objects to ${
+          request.action === 'grant' ? 'grant' : 'revoke'
+        } on — ${dialect} has no schema-wide table grant.`
+      : `Handle ${missed.length === 1 ? 'that one' : 'those'} through object ownership or an engine-specific privilege.`;
+
   return {
     level: 'caution',
-    message: `${dialect} cannot express ${listWords(labels)} at this scope — nothing below ${
-      request.action === 'grant' ? 'grants' : 'revokes'
-    } it. Handle ${missed.length === 1 ? 'that one' : 'those'} through object ownership or an engine-specific privilege.`,
+    message: `${dialect} cannot express ${listWords(labels)} at this scope — nothing below ${verb} it. ${remedy}`,
   };
 }

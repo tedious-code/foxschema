@@ -207,8 +207,10 @@ function emitPostgres(ctx: EmitCtx): void {
       // the other way round.
       `-- PostgreSQL has no ALTER or DROP privilege: only an object's owner (or a\n-- member of its owning role) may alter or drop it. Consider:\n-- ${verb} <owning_role> ${dir} ${ident(request.principal.name)};`,
       'PostgreSQL controls altering and dropping through ownership, not grants. Add the principal to the owning role instead.',
-      'critical',
-      ownerPerms
+      'critical'
+      // No `covers` — the statement is a comment. Ownership is the answer, and
+      // the reader needs that as a warning, not only as prose under a line
+      // that does nothing when run.
     );
   }
 }

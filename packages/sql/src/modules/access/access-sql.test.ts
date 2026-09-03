@@ -460,3 +460,76 @@ describe('access-sql registry', () => {
     expect(sqlOf(ok(req, 'yugabytedb'))).toBe(sqlOf(ok(req, 'postgres')));
   });
 });
+
+describe('a commented-out template does not count as granting anything', () => {
+  // Reported from a live Oracle test: "read only" at database scope produced a
+  // runnable GRANT CREATE SESSION and a commented "repeat for each table"
+  // block, with no warning. Pasting it gave the account login and no read
+  // access at all. The template was passing itself off as covering SELECT,
+  // which silenced the warning built for exactly this case.
+  it('warns that Oracle read is not granted at database scope', () => {
+    const r = ok(
+      {
+        principal: user,
+        action: 'grant',
+        permissions: ['connect', 'read'],
+        scope: { type: 'database', database: 'FREEPDB1' },
+      },
+      'oracle'
+    );
+    const sql = sqlOf(r);
+    expect(sql).toMatch(/GRANT CREATE SESSION/);
+    // The only runnable line is the session grant; the rest is a comment.
+    const runnable = sql
+      .split('\n')
+      .filter((l) => l.trim() && !l.trim().startsWith('--'));
+    expect(runnable).toHaveLength(1);
+
+    const warned = r.warnings.map((w) => w.message).join(' ');
+    expect(warned).toMatch(/cannot express read data/i);
+    expect(warned).toMatch(/switch the scope to tables/i);
+  });
+
+  it('warns the same way on Db2', () => {
+    const r = ok(
+      {
+        principal: user,
+        action: 'grant',
+        permissions: ['read'],
+        scope: { type: 'schema', schema: 'DEMO_A' },
+      },
+      'db2'
+    );
+    expect(r.warnings.map((w) => w.message).join(' ')).toMatch(/cannot express read data/i);
+  });
+
+  it('warns that PostgreSQL alter and drop are ownership, not grants', () => {
+    const r = ok(
+      {
+        principal: user,
+        action: 'grant',
+        permissions: ['alter-object', 'drop-object'],
+        scope: { type: 'schema', schema: 'reporting' },
+      },
+      'postgres'
+    );
+    const warned = r.warnings.map((w) => w.message).join(' ');
+    expect(warned).toMatch(/cannot express/i);
+    // Not a table privilege, so the "pick tables" advice would be wrong here.
+    expect(warned).toMatch(/ownership/i);
+  });
+
+  it('still reports nothing when the grant really is expressible', () => {
+    const r = ok(
+      {
+        principal: user,
+        action: 'grant',
+        permissions: ['read'],
+        scope: { type: 'tables', schema: 'DEMO_A', tables: ['ORDERS'] },
+      },
+      'oracle'
+    );
+    expect(sqlOf(r)).toMatch(/GRANT SELECT ON "DEMO_A"\."ORDERS"/);
+    expect(r.warnings.map((w) => w.message).join(' ')).not.toMatch(/cannot express/i);
+  });
+});

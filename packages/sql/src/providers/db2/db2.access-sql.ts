@@ -103,8 +103,9 @@ function emitDb2(ctx: EmitCtx): void {
   add(
     `-- Db2 grants table privileges per object. Repeat for each table:\n-- ${verb} ${privs.join(', ')} ON TABLE ${qualifier(ident, schema)}.<table> ${dir} ${grantee};`,
     'Db2 has no schema-wide table grant. Select individual tables to generate runnable statements.',
-    highestRisk(permissions),
-    tablePerms
+    highestRisk(permissions)
+    // No `covers` — see the note in oracle.access-sql.ts. A commented-out
+    // template cannot grant anything, so it must not silence the warning.
   );
 }
 
