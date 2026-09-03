@@ -6,7 +6,24 @@
  * Db2 GRANT/REVOKE. Table privileges are per object; schema-wide table grants
  * are a comment, not a guess.
  */
-import { highestRisk } from '../../modules/access/intent.js';
+import { highestRisk, type AccessPermission } from '../../modules/access/intent.js';
+
+/**
+ * Db2's schema-wide privileges, in the order they read best in a statement.
+ *
+ * `…IN ON SCHEMA` covers every object of the matching kind in the schema, and
+ * unlike PostgreSQL's ALL TABLES it keeps covering objects created later.
+ */
+const SCHEMA_IN_PRIVILEGE: readonly (readonly [AccessPermission, string])[] = [
+  ['read', 'SELECTIN'],
+  ['insert', 'INSERTIN'],
+  ['update', 'UPDATEIN'],
+  ['delete', 'DELETEIN'],
+  ['execute-procedure', 'EXECUTEIN'],
+  ['execute-function', 'EXECUTEIN'],
+  ['alter-object', 'ALTERIN'],
+  ['drop-object', 'DROPIN'],
+];
 import {
   describePrivs,
   executePermissions,
@@ -85,6 +102,32 @@ function emitDb2(ctx: EmitCtx): void {
     for (const pv of extra.privs) if (!privs.includes(pv)) privs.push(pv);
     tablePerms.push(...extra.covers);
   }
+  // Db2 *does* have schema-wide grants: the `…IN ON SCHEMA` privileges, which
+  // apply to every object of the right kind in the schema, present and future.
+  // This file previously said they "exist only for a few verbs" and emitted a
+  // commented template instead. Verified against Db2 12.1: SELECTIN, INSERTIN,
+  // UPDATEIN, DELETEIN, EXECUTEIN, ALTERIN, CREATEIN and DROPIN all grant and
+  // all record in SYSCAT.SCHEMAAUTH.
+  if (scope.type === 'schema' && schema) {
+    const inPrivs: string[] = [];
+    const covers: AccessPermission[] = [];
+    for (const [permission, priv] of SCHEMA_IN_PRIVILEGE) {
+      if (permissions.includes(permission)) {
+        if (!inPrivs.includes(priv)) inPrivs.push(priv);
+        covers.push(permission);
+      }
+    }
+    if (inPrivs.length > 0) {
+      add(
+        `${verb} ${inPrivs.join(', ')} ON SCHEMA ${ident(schema)} ${dir} ${grantee}${option};`,
+        `${describePrivs(inPrivs)} on every object in ${schema}, including objects added later. Db2 11.1 and later.`,
+        highestRisk(permissions),
+        covers
+      );
+      return;
+    }
+  }
+
   if (privs.length === 0) return;
 
   if (scope.type === 'tables') {
@@ -98,11 +141,11 @@ function emitDb2(ctx: EmitCtx): void {
     }
     return;
   }
-  // Db2 has no "all tables in schema" grant — SELECTIN-style schema privileges
-  // exist only for a few verbs, so name the limitation instead of guessing.
+  // Database scope has no schema to name, so the per-object template is still
+  // the honest answer there.
   add(
-    `-- Db2 grants table privileges per object. Repeat for each table:\n-- ${verb} ${privs.join(', ')} ON TABLE ${qualifier(ident, schema)}.<table> ${dir} ${grantee};`,
-    'Db2 has no schema-wide table grant. Select individual tables to generate runnable statements.',
+    `-- Db2 grants these per object or per schema. Repeat for each table:\n-- ${verb} ${privs.join(', ')} ON TABLE ${qualifier(ident, schema)}.<table> ${dir} ${grantee};`,
+    'Choose a schema to use Db2’s schema-wide grants, or select individual tables.',
     highestRisk(permissions)
     // No `covers` — see the note in oracle.access-sql.ts. A commented-out
     // template cannot grant anything, so it must not silence the warning.

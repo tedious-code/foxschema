@@ -247,6 +247,16 @@ const PRIV_VERB: Record<string, string> = {
   CREATE: 'Create objects',
   ALTER: 'Alter objects',
   DROP: 'Drop objects',
+  // Db2's schema-wide forms, so the explanation reads in the same words as
+  // every other engine's rather than echoing the keyword back.
+  SELECTIN: 'Read',
+  INSERTIN: 'Insert',
+  UPDATEIN: 'Update',
+  DELETEIN: 'Delete',
+  EXECUTEIN: 'Run routines',
+  ALTERIN: 'Alter objects',
+  CREATEIN: 'Create objects',
+  DROPIN: 'Drop objects',
 };
 
 /** "a", "a and b", "a, b and c" — one place, so every message reads the same. */
