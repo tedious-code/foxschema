@@ -262,6 +262,60 @@ describe('a foreign key on another table', () => {
   });
 });
 
+describe('a self-referencing foreign key', () => {
+  // Local columns pin via columnsOf; referencedColumns are on the same table
+  // and were previously invisible — siblings skip self, so CODE looked free
+  // to exclude while ADD CONSTRAINT still named it.
+  const emp = table({
+    tableName: 'EMPLOYEES',
+    columnDiffs: [col('CODE', 'ADDED'), col('MANAGER_CODE', 'ADDED')],
+    foreignKeyDiffs: [
+      {
+        name: 'FK_MGR',
+        status: 'ADDED',
+        source: {
+          columns: ['manager_code'],
+          referencedTable: 'employees',
+          referencedColumns: ['code'],
+        },
+      },
+    ],
+  });
+
+  it('pins the referenced parent column on the same table', () => {
+    expect(columnExclusionBlock(emp, 'CODE')?.reason).toMatch(/FK_MGR/);
+    expect(columnExclusionBlock(emp, 'CODE')?.reason).toMatch(/Referenced/i);
+  });
+
+  it('still pins the local child column', () => {
+    expect(columnExclusionBlock(emp, 'MANAGER_CODE')?.reason).toMatch(/foreign key/i);
+  });
+
+  it('keeps a selected-out referenced column in the diff', () => {
+    const out = applySelectionToDiff(emp, { columnSelection: { CODE: false } });
+    expect(out.columnDiffs.map((c) => c.name)).toContain('CODE');
+  });
+
+  it('matches a schema-qualified self-reference, case-folded', () => {
+    const qualified = table({
+      tableName: 'EMPLOYEES',
+      columnDiffs: [col('CODE', 'ADDED')],
+      foreignKeyDiffs: [
+        {
+          name: 'FK_MGR',
+          status: 'ADDED',
+          source: {
+            columns: ['manager_code'],
+            referencedTable: 'Hr.Employees',
+            referencedColumns: ['Code'],
+          },
+        },
+      ],
+    });
+    expect(columnExclusionBlock(qualified, 'CODE')).not.toBeNull();
+  });
+});
+
 describe('applySelectionToDiff', () => {
   const modified = table({
     tableName: 'ORDERS',
