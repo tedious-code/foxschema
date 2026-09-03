@@ -5,6 +5,6 @@ export {
   applyTriggerSelection,
   blockedColumns,
   columnExclusionBlock,
-  columnExclusionConsequences,
+  supportsColumnSelection,
 } from '@foxschema/sql';
 export type { ExclusionBlock, ExclusionContext } from '@foxschema/sql';

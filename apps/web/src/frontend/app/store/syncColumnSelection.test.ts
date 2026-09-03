@@ -152,9 +152,10 @@ describe('trigger opt-outs reach the deploy script', () => {
   });
 });
 
-describe('the CREATE of a new table honours the opt-out', () => {
-  // Filtering columnDiffs alone does nothing here: the generator renders
-  // CREATE TABLE from sourceTable.columns.
+describe('a table being created takes no opt-out', () => {
+  // CREATE TABLE is rendered from sourceTable as one statement, so there is no
+  // per-column step to leave out. Honouring the diff side alone produced a
+  // table that still had the column while the checkbox said otherwise.
   const created = {
     tableName: 'ORDERS',
     status: 'ADDED',
@@ -172,12 +173,13 @@ describe('the CREATE of a new table honours the opt-out', () => {
     },
   } as unknown as TableDiff;
 
-  it('removes the column from sourceTable as well as the diffs', () => {
+  it('leaves both the diffs and the CREATE intact', () => {
     const [t] = buildIncludedDiffs(
       [created],
       selections({ columnSelection: { ORDERS: { NOTE: false } } })
     );
-    expect(t!.sourceTable!.columns.map((c) => c.name)).toEqual(['id']);
+    expect(t!.columnDiffs.map((c) => c.name)).toEqual(['ID', 'NOTE']);
+    expect(t!.sourceTable!.columns.map((c) => c.name)).toEqual(['id', 'note']);
   });
 });
 

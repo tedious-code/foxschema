@@ -25,7 +25,7 @@ import { ChevronDown, ChevronRight, KeyRound } from 'lucide-react';
 import type { ColumnDiff, TableDiff } from '@/shared/lib/types';
 import { highlightMatch } from '@/features/schema-diff/lib/highlight';
 import { diffLines } from '@/shared/utils/lineDiff';
-import { blockedColumns, columnExclusionConsequences } from '@/shared/lib/column-selection';
+import { blockedColumns, supportsColumnSelection } from '@/shared/lib/column-selection';
 
 /** `comfortable` is the full-width workspace; `compact` fits a modal pane. */
 export type BlueprintDensity = 'comfortable' | 'compact';
@@ -287,11 +287,18 @@ export function SchemaBlueprint({
       }),
     [diff, includedIndexKeys, siblingDiffs]
   );
-  const changedColumns = isRole ? [] : diff.columnDiffs.filter((c) => c.status !== 'UNCHANGED');
+  // Only an existing table migrates column by column. A create renders columns,
+  // indexes and triggers from `sourceTable` as one statement, and a view or
+  // routine from its stored definition — a checkbox on either could not be
+  // honoured, so it is not offered.
+  const perColumn = supportsColumnSelection(diff);
+  const changedColumns = isRole || !perColumn ? [] : diff.columnDiffs.filter((c) => c.status !== 'UNCHANGED');
   const allColumnsSelected =
     changedColumns.length > 0 &&
     changedColumns.every((c) => columnSelection?.[c.name] !== false);
-  const changedTriggers = (diff.triggerDiffs ?? []).filter((t) => t.status !== 'UNCHANGED');
+  const changedTriggers = perColumn
+    ? (diff.triggerDiffs ?? []).filter((t) => t.status !== 'UNCHANGED')
+    : [];
   const allTriggersSelected =
     changedTriggers.length > 0 &&
     changedTriggers.every((t) => triggerSelection?.[t.name] !== false);
@@ -576,6 +583,18 @@ export function SchemaBlueprint({
                   />
                   Deploy all members
                 </label>
+              ) : !isRole && !perColumn && onToggleColumn ? (
+                <span
+                  data-testid="blueprint-columns-whole-object"
+                  className="ml-auto normal-case text-[10px] font-normal text-slate-500"
+                  title={
+                    diff.status === 'ADDED'
+                      ? 'A new object is created by one statement built from the source, so there is no per-column step to leave out.'
+                      : 'This object is replaced from its stored definition, so there is no per-column step to leave out.'
+                  }
+                >
+                  {diff.status === 'ADDED' ? 'Created whole' : 'Replaced whole'}
+                </span>
               ) : !isRole && changedColumns.length > 0 && onSelectAllColumns ? (
                 <label
                   data-testid="blueprint-columns-all"
@@ -645,6 +664,7 @@ export function SchemaBlueprint({
                             />
                           )}
                           {!isRole &&
+                            perColumn &&
                             col.status !== 'UNCHANGED' &&
                             onToggleColumn &&
                             (() => {
@@ -652,11 +672,6 @@ export function SchemaBlueprint({
                               // script cannot leave it out, and a box that
                               // unticks without changing the SQL would be a lie.
                               const block = blocked.get(col.name.toUpperCase());
-                              // What else leaves with it. Dropping a column of
-                              // a created table takes any index or key that
-                              // names it, which the reader should know before
-                              // ticking rather than discover in the script.
-                              const alsoGoes = block ? [] : columnExclusionConsequences(diff, col.name);
                               return (
                                 <input
                                   type="checkbox"
@@ -664,13 +679,7 @@ export function SchemaBlueprint({
                                   checked={block ? true : columnSelection?.[col.name] !== false}
                                   disabled={!!block}
                                   onChange={() => onToggleColumn(col.name)}
-                                  title={
-                                    block
-                                      ? block.reason
-                                      : alsoGoes.length > 0
-                                        ? `Migrate this column. Leaving it out also drops ${alsoGoes.join(', ')}.`
-                                        : 'Migrate this column'
-                                  }
+                                  title={block ? block.reason : 'Migrate this column'}
                                   className={`w-3.5 h-3.5 accent-cyan-500 shrink-0 ${
                                     block ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
                                   }`}
@@ -994,7 +1003,7 @@ export function SchemaBlueprint({
                         >
                           <td className={`${cell} text-slate-200 font-semibold font-mono`}>
                             <span className="flex items-center gap-1.5">
-                              {trg.status !== 'UNCHANGED' && onToggleTriggerSelection && (
+                              {perColumn && trg.status !== 'UNCHANGED' && onToggleTriggerSelection && (
                                 <input
                                   type="checkbox"
                                   data-testid={`blueprint-trigger-check-${trg.name}`}

@@ -238,38 +238,33 @@ describe('cross-table pins reach the checkbox', () => {
   });
 });
 
-describe('a created table\'s composite index leaves its columns tickable', () => {
-  // The dead-end this replaced: each column pinned its partners while they were
-  // still selected, so every box in the group started disabled — and the reason
-  // told the reader to untick partners that were disabled too.
+describe('a created table offers no column checkboxes', () => {
+  // Every edge case this feature accumulated lived in trying to make one work
+  // where the migration emits a single statement for the whole object.
   const created = {
     ...tableDiff({
       tableName: 'ORDERS',
       status: 'ADDED',
       columnDiffs: [col('A', 'ADDED'), col('B', 'ADDED')],
-      triggerDiffs: [],
+      triggerDiffs: [{ name: 'TRG', status: 'ADDED' }],
     } as Partial<TableDiff>),
-    sourceTable: {
-      name: 'orders',
-      columns: [
-        { name: 'a', type: 'text', nullable: true },
-        { name: 'b', type: 'text', nullable: true },
-      ],
-      indices: [{ name: 'idx_pair', columns: ['a', 'b'], unique: false }],
-      foreignKeys: [],
-    },
-  } as unknown as TableDiff;
+  } as TableDiff;
 
-  it('enables both boxes', () => {
-    render(<SchemaBlueprint diff={created} onToggleColumn={() => undefined} />);
-    expect((screen.getByTestId('blueprint-column-check-A') as HTMLInputElement).disabled).toBe(false);
-    expect((screen.getByTestId('blueprint-column-check-B') as HTMLInputElement).disabled).toBe(false);
+  it('renders no boxes', () => {
+    render(<SchemaBlueprint diff={created} onToggleColumn={() => undefined} onToggleTriggerSelection={() => undefined} />);
+    expect(screen.queryByTestId('blueprint-column-check-A')).toBeNull();
+    expect(screen.queryByTestId('blueprint-trigger-check-TRG')).toBeNull();
   });
 
-  it('says what leaves with the column', () => {
+  it('says why the control is absent, rather than leaving a gap', () => {
     render(<SchemaBlueprint diff={created} onToggleColumn={() => undefined} />);
-    expect(screen.getByTestId('blueprint-column-check-A').getAttribute('title')).toMatch(
-      /also drops index idx_pair/i
-    );
+    const note = screen.getByTestId('blueprint-columns-whole-object');
+    expect(note.textContent).toMatch(/created whole/i);
+    expect(note.getAttribute('title')).toMatch(/one statement/i);
+  });
+
+  it('still offers them on a modified table', () => {
+    render(<SchemaBlueprint diff={tableDiff()} onToggleColumn={() => undefined} />);
+    expect(screen.getByTestId('blueprint-column-check-NOTE')).toBeTruthy();
   });
 });

@@ -26,6 +26,22 @@
  */
 import type { ColumnDiff, ForeignKeyDiff, IndexDiff, TableDiff } from '../../interfaces/diff.types.interface.js';
 
+/**
+ * Whether this object migrates column by column at all.
+ *
+ * Only an existing table does. A table being created renders its columns,
+ * indexes, keys and triggers from `sourceTable` as one CREATE; a view or
+ * routine is emitted from its stored definition as one body. In both cases
+ * there is no per-column statement to include or leave out, so a checkbox there
+ * could only ever be a lie — and every edge case this module accumulated lived
+ * in the attempt to make one work anyway.
+ *
+ * Roles are excluded too: their "columns" are members, with their own selection.
+ */
+export function supportsColumnSelection(diff: TableDiff): boolean {
+  return diff.objectType === 'TABLE' && diff.status !== 'ADDED';
+}
+
 /** Why a column cannot be left out, or null when it can. */
 export interface ExclusionBlock {
   reason: string;
@@ -156,32 +172,6 @@ export function columnExclusionBlock(
   return null;
 }
 
-/**
- * What else leaves the script if this column does.
- *
- * A created table renders its indexes and keys from `sourceTable`, and one that
- * names a column being left out cannot be written — so it goes too. That is a
- * real consequence and the reader should see it before ticking, but it is not a
- * reason to refuse: refusing was worse. Pinning each column of a composite
- * index while its partners were "staying" disabled every box in the group at
- * once, and the reason told the reader to untick partners that were themselves
- * disabled — an instruction that could not be carried out.
- *
- * Dropping the index is valid SQL and follows from what was asked. Silently
- * dropping it would not be, hence this.
- */
-export function columnExclusionConsequences(diff: TableDiff, columnName: string): string[] {
-  const k = key(columnName);
-  const names: string[] = [];
-  for (const idx of diff.sourceTable?.indices ?? []) {
-    if ((idx.columns ?? []).some((c) => key(c) === k)) names.push(`index ${idx.name}`);
-  }
-  for (const fk of diff.sourceTable?.foreignKeys ?? []) {
-    if ((fk.columns ?? []).some((c) => key(c) === k)) names.push(`foreign key ${fk.name}`);
-  }
-  return names;
-}
-
 /** Every column on this table that cannot be left out, keyed by compare key. */
 export function blockedColumns(
   diff: TableDiff,
@@ -208,7 +198,7 @@ export function applyColumnSelection(
   selection: Record<string, boolean> | undefined,
   ctx: ExclusionContext = {}
 ): ColumnDiff[] {
-  if (!selection) return diff.columnDiffs;
+  if (!selection || !supportsColumnSelection(diff)) return diff.columnDiffs;
   const blocked = blockedColumns(diff, ctx);
   return diff.columnDiffs.filter((c) => {
     if (selection[c.name] !== false) return true;
@@ -225,21 +215,20 @@ export function applyTriggerSelection(
   selection: Record<string, boolean> | undefined
 ): NonNullable<TableDiff['triggerDiffs']> {
   const triggers = diff.triggerDiffs ?? [];
-  if (!selection) return triggers;
+  // A created table emits its triggers from `sourceTable.triggers`, not from
+  // these diffs, so filtering here would change nothing while the checkbox
+  // claimed otherwise.
+  if (!selection || !supportsColumnSelection(diff)) return triggers;
   return triggers.filter((t) => selection[t.name] !== false || t.status === 'UNCHANGED');
 }
 
 /**
  * Apply both opt-outs to a whole table diff.
  *
- * `columnDiffs` alone is not enough. For a table being created the generator
- * renders CREATE TABLE from `sourceTable.columns`, never from the diffs, so
- * filtering only the diffs left the new table with every column and the
- * checkbox doing nothing at all — the worst shape for a control, because it
- * looks like it worked.
- *
- * Triggers need no such treatment: they are emitted from `triggerDiffs` on
- * every path, created tables included.
+ * Both are no-ops on an object that does not migrate column by column — see
+ * `supportsColumnSelection`. That check lives here as well as in the UI because
+ * a selection can outlive the compare that produced it: tick a column on a
+ * modified table, re-compare, and the same table can come back as a create.
  */
 export function applySelectionToDiff(
   diff: TableDiff,
@@ -248,37 +237,9 @@ export function applySelectionToDiff(
     triggerSelection?: Record<string, boolean>;
   } & ExclusionContext
 ): TableDiff {
-  const columnDiffs = applyColumnSelection(diff, opts.columnSelection, opts);
-  const triggerDiffs = applyTriggerSelection(diff, opts.triggerSelection);
-
-  const kept = new Set(columnDiffs.map((c) => key(c.name)));
-  const dropped = diff.columnDiffs.filter((c) => !kept.has(key(c.name)));
-
-  const next: TableDiff = { ...diff, columnDiffs, triggerDiffs };
-
-  if (dropped.length > 0 && next.sourceTable) {
-    // Match on the column's own identifier where compare captured it, falling
-    // back to the compare key. `name` on a ColumnDiff is the uppercased match
-    // key, not an identifier — the same trap the DDL generators hit.
-    const droppedKeys = new Set(dropped.map((c) => key(c.source?.name ?? c.name)));
-    const namesDropped = (cols: readonly string[] = []) => cols.some((c) => droppedKeys.has(key(c)));
-
-    // A created table renders its indexes and foreign keys from `sourceTable`,
-    // not from the diffs, so trimming the columns alone left CREATE INDEX
-    // naming a column the CREATE TABLE no longer had — failing after the table
-    // already exists.
-    //
-    // An index or key every one of whose columns is gone has nothing left to
-    // mean, so it goes too. A mixed one is a different matter: silently
-    // rewriting it to the surviving columns would change what the reader
-    // asked for, so `columnExclusionBlock` refuses the column instead and this
-    // never sees the case.
-    next.sourceTable = {
-      ...next.sourceTable,
-      columns: (next.sourceTable.columns ?? []).filter((c) => !droppedKeys.has(key(c.name))),
-      indices: (next.sourceTable.indices ?? []).filter((i) => !namesDropped(i.columns)),
-      foreignKeys: (next.sourceTable.foreignKeys ?? []).filter((f) => !namesDropped(f.columns)),
-    };
-  }
-  return next;
+  return {
+    ...diff,
+    columnDiffs: applyColumnSelection(diff, opts.columnSelection, opts),
+    triggerDiffs: applyTriggerSelection(diff, opts.triggerSelection),
+  };
 }
