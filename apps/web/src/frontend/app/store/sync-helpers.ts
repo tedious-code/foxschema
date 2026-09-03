@@ -67,8 +67,9 @@ export function buildIncludedDiffs(tables: TableDiff[], sel: DeploySelections): 
         .map(([k]) => k.toUpperCase())
     );
 
-  return tables
-    .filter((t) => selection[t.tableName] || hasIndexOptIn(t.tableName))
+  const inScript = tables.filter((t) => selection[t.tableName] || hasIndexOptIn(t.tableName));
+
+  return inScript
     .map((t) => {
       const idxSel = indexSelection[t.tableName] ?? {};
       const indexDiffs = t.indexDiffs.filter((i) => i.status === 'UNCHANGED' || idxSel[i.name] === true);
@@ -79,16 +80,18 @@ export function buildIncludedDiffs(tables: TableDiff[], sel: DeploySelections): 
           // Column and trigger opt-outs apply to real objects; a role's
           // "columns" are its members and have their own selection below.
           //
-          // `siblings` is every table in the compare, not just the selected
-          // ones: a foreign key on a child names columns on the parent, and the
-          // parent cannot see that from its own diff.
+          // `siblings` is the tables actually going into the script. A key on a
+          // child that is not being migrated emits nothing, so it must not pin
+          // a parent column the reader is free to leave out — but a child that
+          // *is* being migrated names parent columns the parent's own diff
+          // cannot see.
           return applySelectionToDiff(
             { ...t, indexDiffs },
             {
               columnSelection: columnSelection?.[t.tableName],
               triggerSelection: triggerSelection?.[t.tableName],
               includedIndexes: includedIndexKeys(t.tableName),
-              siblings: tables,
+              siblings: inScript,
             }
           );
         }
@@ -112,6 +115,42 @@ export function buildIncludedDiffs(tables: TableDiff[], sel: DeploySelections): 
         indexDiffs: optedIndexes,
       };
     });
+}
+
+/**
+ * Every table in the compare, with column and trigger opt-outs applied to the
+ * ones being migrated.
+ *
+ * The validators need the *whole* compare: `findMissingFkTargets` decides a
+ * parent is missing by not finding it, and `findDropDependencies` reports
+ * dependents that were never selected. Handing them only the included diffs
+ * made an added key look like it referenced a missing table whenever the parent
+ * was an existing object nobody had ticked.
+ *
+ * They also must not see columns the script no longer touches, or an unticked
+ * drop keeps warning — and can keep Execute disabled — about a statement that
+ * is not there. So: same list, trimmed contents.
+ */
+export function applySelectionsForScan(
+  tables: TableDiff[],
+  sel: DeploySelections
+): TableDiff[] {
+  const inScript = new Set(
+    buildIncludedDiffs(tables, sel).map((t) => t.tableName)
+  );
+  return tables.map((t) => {
+    if (t.objectType === 'ROLE' || !inScript.has(t.tableName)) return t;
+    return applySelectionToDiff(t, {
+      columnSelection: sel.columnSelection?.[t.tableName],
+      triggerSelection: sel.triggerSelection?.[t.tableName],
+      includedIndexes: new Set(
+        Object.entries(sel.indexSelection[t.tableName] ?? {})
+          .filter(([, v]) => v === true)
+          .map(([k]) => k.toUpperCase())
+      ),
+      siblings: tables.filter((x) => inScript.has(x.tableName)),
+    });
+  });
 }
 
 /** The SQL-generation mapping derived from the active source/target configs. */

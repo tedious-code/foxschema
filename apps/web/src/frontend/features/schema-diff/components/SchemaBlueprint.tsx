@@ -60,6 +60,13 @@ export interface SchemaBlueprintProps {
   columnSelection?: Record<string, boolean>;
   onToggleColumn?: (name: string) => void;
   onSelectAllColumns?: (checked: boolean) => void;
+  /**
+   * The other tables going into the script. A foreign key sits on the child and
+   * names columns on the parent, so without these a parent column looks free to
+   * untick while the store quietly keeps it — a checkbox showing an exclusion
+   * the script does not honour.
+   */
+  siblingDiffs?: readonly TableDiff[];
 
   /** Triggers: deploy selection. Opt-OUT; nothing else in the script needs them. */
   triggerSelection?: Record<string, boolean>;
@@ -215,6 +222,7 @@ export function SchemaBlueprint({
   columnSelection,
   onToggleColumn,
   onSelectAllColumns,
+  siblingDiffs,
   triggerSelection,
   onToggleTriggerSelection,
   onSelectAllTriggers,
@@ -272,8 +280,8 @@ export function SchemaBlueprint({
     [indexSelection]
   );
   const blocked = React.useMemo(
-    () => blockedColumns(diff, { includedIndexes: includedIndexKeys }),
-    [diff, includedIndexKeys]
+    () => blockedColumns(diff, { includedIndexes: includedIndexKeys, siblings: siblingDiffs }),
+    [diff, includedIndexKeys, siblingDiffs]
   );
   const changedColumns = isRole ? [] : diff.columnDiffs.filter((c) => c.status !== 'UNCHANGED');
   const allColumnsSelected =

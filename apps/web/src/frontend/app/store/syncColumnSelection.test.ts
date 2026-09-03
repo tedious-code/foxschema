@@ -11,7 +11,7 @@
  * no control, because the reader believes they excluded something.
  */
 import { describe, expect, it } from 'vitest';
-import { buildIncludedDiffs, type DeploySelections } from './sync-helpers';
+import { applySelectionsForScan, buildIncludedDiffs, type DeploySelections } from './sync-helpers';
 import type { TableDiff } from '@/shared/lib/types';
 
 const col = (
@@ -207,5 +207,77 @@ describe('a parent column a child key references', () => {
     );
     const kept = out.find((t) => t.tableName === 'CUSTOMERS');
     expect(kept!.columnDiffs.map((c) => c.name)).toContain('ID');
+  });
+});
+
+describe('an unselected child does not pin its parent', () => {
+  // A key on a table nobody is migrating emits nothing, so it must not force a
+  // parent column to stay.
+  const parent = orders({ tableName: 'CUSTOMERS', columnDiffs: [col('ID', 'ADDED')], triggerDiffs: [] });
+  const child = orders({
+    tableName: 'ORDERS',
+    columnDiffs: [],
+    triggerDiffs: [],
+    foreignKeyDiffs: [
+      {
+        name: 'FK_ORDERS_CUSTOMER',
+        status: 'ADDED',
+        source: { columns: ['customer_id'], referencedTable: 'customers', referencedColumns: ['id'] },
+      },
+    ],
+  } as Partial<TableDiff>);
+
+  it('drops the parent column when the child is not selected', () => {
+    const out = buildIncludedDiffs(
+      [parent, child],
+      selections({
+        selection: { CUSTOMERS: true },
+        columnSelection: { CUSTOMERS: { ID: false } },
+      })
+    );
+    const kept = out.find((t) => t.tableName === 'CUSTOMERS');
+    expect(kept!.columnDiffs.map((c) => c.name)).not.toContain('ID');
+  });
+
+  it('still pins it when the child is selected', () => {
+    const out = buildIncludedDiffs(
+      [parent, child],
+      selections({
+        selection: { CUSTOMERS: true, ORDERS: true },
+        columnSelection: { CUSTOMERS: { ID: false } },
+      })
+    );
+    const kept = out.find((t) => t.tableName === 'CUSTOMERS');
+    expect(kept!.columnDiffs.map((c) => c.name)).toContain('ID');
+  });
+});
+
+describe('the validator scan keeps every object', () => {
+  // findMissingFkTargets decides a parent is missing by not finding it, so
+  // handing it only the migrated objects made an added key look broken whenever
+  // its parent was an existing table nobody had ticked.
+  const unticked = orders({ tableName: 'CUSTOMERS', status: 'UNCHANGED', columnDiffs: [], triggerDiffs: [] });
+
+  it('includes objects that are not being migrated', () => {
+    const scan = applySelectionsForScan([orders(), unticked], selections());
+    expect(scan.map((t) => t.tableName).sort()).toEqual(['CUSTOMERS', 'ORDERS']);
+  });
+
+  it('still applies opt-outs to the ones that are', () => {
+    const scan = applySelectionsForScan(
+      [orders(), unticked],
+      selections({ columnSelection: { ORDERS: { NOTE: false } } })
+    );
+    const o = scan.find((t) => t.tableName === 'ORDERS');
+    expect(o!.columnDiffs.map((c) => c.name)).not.toContain('NOTE');
+  });
+
+  it('leaves an unselected object untouched', () => {
+    const scan = applySelectionsForScan(
+      [orders(), unticked],
+      selections({ columnSelection: { CUSTOMERS: { ID: false } } })
+    );
+    const c = scan.find((t) => t.tableName === 'CUSTOMERS');
+    expect(c).toEqual(unticked);
   });
 });

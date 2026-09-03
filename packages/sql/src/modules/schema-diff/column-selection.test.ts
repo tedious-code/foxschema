@@ -306,3 +306,59 @@ describe('applySelectionToDiff', () => {
     expect(out.triggerDiffs).toEqual([]);
   });
 });
+
+describe('a created table trims what CREATE emits', () => {
+  // The generator renders indexes and keys from sourceTable, not the diffs, so
+  // trimming columns alone left CREATE INDEX naming a column the CREATE TABLE
+  // no longer had — failing after the table already exists.
+  const created = {
+    ...table({
+      tableName: 'ORDERS',
+      status: 'ADDED',
+      columnDiffs: [col('KEEP', 'ADDED'), col('GONE', 'ADDED')],
+    }),
+    sourceTable: {
+      name: 'orders',
+      columns: [
+        { name: 'keep', type: 'text', nullable: true },
+        { name: 'gone', type: 'text', nullable: true },
+      ],
+      indices: [
+        { name: 'idx_gone', columns: ['gone'], unique: false },
+        { name: 'idx_keep', columns: ['keep'], unique: false },
+      ],
+      foreignKeys: [
+        { name: 'fk_gone', columns: ['gone'], referencedTable: 'x', referencedColumns: ['id'] },
+      ],
+    },
+  } as unknown as TableDiff;
+
+  it('drops an index whose every column is gone', () => {
+    const out = applySelectionToDiff(created, { columnSelection: { GONE: false } });
+    expect(out.sourceTable!.indices.map((i) => i.name)).toEqual(['idx_keep']);
+  });
+
+  it('drops a foreign key whose every column is gone', () => {
+    const out = applySelectionToDiff(created, { columnSelection: { GONE: false } });
+    expect(out.sourceTable!.foreignKeys).toEqual([]);
+  });
+
+  it('pins a column an index shares with a surviving one', () => {
+    // Trimming here would silently rewrite the index to (keep), which is not
+    // what the reader asked for. Refusing is the honest answer.
+    const shared = {
+      ...created,
+      sourceTable: {
+        ...created.sourceTable!,
+        indices: [{ name: 'idx_pair', columns: ['keep', 'gone'], unique: false }],
+      },
+    } as TableDiff;
+    const block = columnExclusionBlock(shared, 'GONE');
+    expect(block?.reason).toMatch(/idx_pair/);
+    expect(block?.reason).toMatch(/rewrite/i);
+
+    const out = applySelectionToDiff(shared, { columnSelection: { GONE: false } });
+    expect(out.sourceTable!.columns.map((c) => c.name)).toContain('gone');
+    expect(out.sourceTable!.indices).toHaveLength(1);
+  });
+});

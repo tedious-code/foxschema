@@ -201,3 +201,39 @@ describe('trigger checkboxes', () => {
     ).toBe(false);
   });
 });
+
+describe('cross-table pins reach the checkbox', () => {
+  // Without the sibling list the box looked free to untick while the store kept
+  // the column anyway — a control showing an exclusion the script ignores.
+  const parent = tableDiff({
+    tableName: 'CUSTOMERS',
+    columnDiffs: [col('ID', 'ADDED')],
+    triggerDiffs: [],
+  } as Partial<TableDiff>);
+  const child = tableDiff({
+    tableName: 'ORDERS',
+    columnDiffs: [],
+    triggerDiffs: [],
+    foreignKeyDiffs: [
+      {
+        name: 'FK_ORDERS_CUSTOMER',
+        status: 'ADDED',
+        source: { columns: ['customer_id'], referencedTable: 'customers', referencedColumns: ['id'] },
+      },
+    ],
+  } as Partial<TableDiff>);
+
+  it('disables the parent column when a sibling key references it', () => {
+    render(
+      <SchemaBlueprint diff={parent} siblingDiffs={[parent, child]} onToggleColumn={() => undefined} />
+    );
+    const box = screen.getByTestId('blueprint-column-check-ID') as HTMLInputElement;
+    expect(box.disabled).toBe(true);
+    expect(box.getAttribute('title')).toMatch(/ORDERS/);
+  });
+
+  it('leaves it free when no sibling references it', () => {
+    render(<SchemaBlueprint diff={parent} siblingDiffs={[parent]} onToggleColumn={() => undefined} />);
+    expect((screen.getByTestId('blueprint-column-check-ID') as HTMLInputElement).disabled).toBe(false);
+  });
+});

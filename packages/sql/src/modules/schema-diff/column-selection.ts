@@ -109,6 +109,30 @@ export function columnExclusionBlock(
     };
   }
 
+  // A created table's indexes and keys come from `sourceTable`, not from the
+  // diffs, and are not opt-in — they arrive with the table. One that names this
+  // column *and* a surviving one cannot be trimmed without rewriting what the
+  // reader asked for, so the column is pinned instead.
+  const survives = (name: string) => key(name) !== k;
+  for (const idx of diff.sourceTable?.indices ?? []) {
+    const cols = idx.columns ?? [];
+    if (!cols.some((c) => key(c) === k)) continue;
+    if (cols.some(survives)) {
+      return {
+        reason: `Indexed by ${idx.name} together with other columns. Dropping it would rewrite that index, so keep this column.`,
+      };
+    }
+  }
+  for (const fk of diff.sourceTable?.foreignKeys ?? []) {
+    const cols = fk.columns ?? [];
+    if (!cols.some((c) => key(c) === k)) continue;
+    if (cols.some(survives)) {
+      return {
+        reason: `Used by foreign key ${fk.name} together with other columns. Dropping it would rewrite that key, so keep this column.`,
+      };
+    }
+  }
+
   for (const idx of diff.indexDiffs ?? []) {
     if (!isEmitted(idx.status)) continue;
     // An index nobody ticked is not in the script, so it cannot be broken.
@@ -230,14 +254,28 @@ export function applySelectionToDiff(
 
   const next: TableDiff = { ...diff, columnDiffs, triggerDiffs };
 
-  if (dropped.length > 0 && next.sourceTable?.columns) {
+  if (dropped.length > 0 && next.sourceTable) {
     // Match on the column's own identifier where compare captured it, falling
     // back to the compare key. `name` on a ColumnDiff is the uppercased match
     // key, not an identifier — the same trap the DDL generators hit.
     const droppedKeys = new Set(dropped.map((c) => key(c.source?.name ?? c.name)));
+    const namesDropped = (cols: readonly string[] = []) => cols.some((c) => droppedKeys.has(key(c)));
+
+    // A created table renders its indexes and foreign keys from `sourceTable`,
+    // not from the diffs, so trimming the columns alone left CREATE INDEX
+    // naming a column the CREATE TABLE no longer had — failing after the table
+    // already exists.
+    //
+    // An index or key every one of whose columns is gone has nothing left to
+    // mean, so it goes too. A mixed one is a different matter: silently
+    // rewriting it to the surviving columns would change what the reader
+    // asked for, so `columnExclusionBlock` refuses the column instead and this
+    // never sees the case.
     next.sourceTable = {
       ...next.sourceTable,
-      columns: next.sourceTable.columns.filter((c) => !droppedKeys.has(key(c.name))),
+      columns: (next.sourceTable.columns ?? []).filter((c) => !droppedKeys.has(key(c.name))),
+      indices: (next.sourceTable.indices ?? []).filter((i) => !namesDropped(i.columns)),
+      foreignKeys: (next.sourceTable.foreignKeys ?? []).filter((f) => !namesDropped(f.columns)),
     };
   }
   return next;

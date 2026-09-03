@@ -5,7 +5,7 @@ import { Play, RefreshCw, FileText, CheckCircle2, Copy, AlertTriangle } from 'lu
 import { SqlGeneratorModule } from '@/shared/lib/sql-generator';
 import { findDropDependencies } from '@/features/object-detail/lib/dependency-scan';
 import { findMissingFkTargets, findNarrowingTypeChanges, extractReviewNotices, resolveDialect } from '@/shared/lib/migration-validation';
-import { buildIncludedDiffs, buildMapping } from '@/app/store/sync-helpers';
+import { buildIncludedDiffs, applySelectionsForScan, buildMapping } from '@/app/store/sync-helpers';
 import { formatSql } from '@/shared/utils/formatSql';
 import { SchemaBlueprint } from '@/features/schema-diff';
 import { DetailTabs, type DetailTab } from '@/features/schema-diff';
@@ -111,33 +111,40 @@ export const ObjectDetailPanel: React.FC = () => {
    * narrowing column left its warning standing — and could keep Execute
    * disabled over a statement the preview no longer contained.
    */
-  const scannedDiffs = useMemo(
-    () =>
-      compareResult
-        ? buildIncludedDiffs(compareResult.tables, {
-            selection: syncSelection,
-            memberSelection,
-            indexSelection,
-            columnSelection,
-            triggerSelection,
-          })
-        : [],
-    [compareResult, syncSelection, memberSelection, indexSelection, columnSelection, triggerSelection]
+  const selections = useMemo(
+    () => ({
+      selection: syncSelection,
+      memberSelection,
+      indexSelection,
+      columnSelection,
+      triggerSelection,
+    }),
+    [syncSelection, memberSelection, indexSelection, columnSelection, triggerSelection]
   );
   /**
-   * Every scanned object is included by construction, so the selection map the
-   * validators take is "all of them".
+   * The whole compare, with opt-outs applied to what is being migrated.
+   *
+   * Passing only the included diffs starved the validators of the objects they
+   * reason *about* rather than deploy — an added key whose parent was an
+   * existing unticked table read as a missing target, and drop warnings for
+   * unselected dependents vanished. The object selection still comes from
+   * `syncSelection`, unchanged.
    */
-  const scannedSelection = useMemo(
-    () => Object.fromEntries(scannedDiffs.map((t) => [t.tableName, true])),
-    [scannedDiffs]
+  const scannedDiffs = useMemo(
+    () => (compareResult ? applySelectionsForScan(compareResult.tables, selections) : []),
+    [compareResult, selections]
+  );
+  /** Only the objects actually going into the script, for the plan. */
+  const includedDiffs = useMemo(
+    () => (compareResult ? buildIncludedDiffs(compareResult.tables, selections) : []),
+    [compareResult, selections]
   );
 
   // Live dependency scan — recomputed on every selection/nonDestructive change, not just
   // on Execute click, so the button can stay disabled until conflicts are resolved.
   const liveDropDeps = useMemo(
-    () => (compareResult ? findDropDependencies(scannedDiffs, scannedSelection, { nonDestructive }) : []),
-    [compareResult, scannedDiffs, scannedSelection, nonDestructive]
+    () => (compareResult ? findDropDependencies(scannedDiffs, syncSelection, { nonDestructive }) : []),
+    [compareResult, scannedDiffs, syncSelection, nonDestructive]
   );
   const hasUnresolvedDropDeps = liveDropDeps.length > 0;
 
@@ -145,26 +152,26 @@ export const ObjectDetailPanel: React.FC = () => {
   // generator's own "-- review:" / "MANUAL REVIEW REQUIRED" notices surfaced up front
   // instead of only inside the scrolled SQL preview.
   const missingFkIssues = useMemo(
-    () => (compareResult ? findMissingFkTargets(scannedDiffs, scannedSelection) : []),
-    [compareResult, scannedDiffs, scannedSelection]
+    () => (compareResult ? findMissingFkTargets(scannedDiffs, syncSelection) : []),
+    [compareResult, scannedDiffs, syncSelection]
   );
   const narrowingIssues = useMemo(
     () =>
       compareResult
-        ? findNarrowingTypeChanges(scannedDiffs, scannedSelection, resolveDialect(targetConfig.dialect))
+        ? findNarrowingTypeChanges(scannedDiffs, syncSelection, resolveDialect(targetConfig.dialect))
         : [],
-    [compareResult, scannedDiffs, scannedSelection, targetConfig.dialect]
+    [compareResult, scannedDiffs, syncSelection, targetConfig.dialect]
   );
   const reviewIssues = useMemo(() => {
     if (!compareResult) return [];
     const steps = ddlGenerator.generateMigrationPlan(
-      scannedDiffs,
+      includedDiffs,
       targetConfig.dialect,
       buildMapping({ sourceConfig, targetConfig, nonDestructive, targetServerVersion }),
       compareResult.tables
     );
     return extractReviewNotices(steps);
-  }, [compareResult, scannedDiffs, sourceConfig, targetConfig, nonDestructive, targetServerVersion]);
+  }, [compareResult, includedDiffs, sourceConfig, targetConfig, nonDestructive, targetServerVersion]);
   const hasMissingFkTargets = missingFkIssues.length > 0;
   const hasNarrowingChanges = narrowingIssues.length > 0;
   const narrowingAcked = narrowingAckSql !== null && narrowingAckSql === generatedSql;
@@ -511,6 +518,7 @@ export const ObjectDetailPanel: React.FC = () => {
           indexSelection={indexSelection[selectedTable.tableName]}
           onToggleIndex={(name) => toggleIndexSelection(selectedTable.tableName, name)}
           onSelectAllIndexes={(checked) => setAllIndexSelection(selectedTable.tableName, checked)}
+          siblingDiffs={includedDiffs}
           columnSelection={columnSelection[selectedTable.tableName]}
           onToggleColumn={(name) => toggleColumnSelection(selectedTable.tableName, name)}
           onSelectAllColumns={(checked) => setAllColumnSelection(selectedTable.tableName, checked)}
