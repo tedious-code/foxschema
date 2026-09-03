@@ -195,13 +195,14 @@ describe('Db2 and Oracle', () => {
     expect(sqlOf(r)).toMatch(/GRANT SELECT ON TABLE "REPORTING"\."SALES" TO USER "REPORT_USER";/);
   });
 
-  it('Db2 refuses to invent a schema-wide table grant', () => {
+  it('Db2 grants schema-wide with its …IN privileges', () => {
+    // This used to assert a commented template. Db2 11.1+ has real schema
+    // grants; verified against 12.1, they record in SYSCAT.SCHEMAAUTH.
     const r = ok(
       { principal: user, action: 'grant', permissions: ['read'], scope: { type: 'schema', schema: 'REPORTING' } },
       'db2'
     );
-    expect(sqlOf(r)).toMatch(/^--/m);
-    expect(r.statements.some((s) => /no schema-wide table grant/i.test(s.explanation))).toBe(true);
+    expect(sqlOf(r)).toMatch(/GRANT SELECTIN ON SCHEMA "REPORTING" TO USER/);
   });
 
   it('Oracle calls connecting CREATE SESSION', () => {
@@ -458,5 +459,164 @@ describe('access-sql registry', () => {
     };
     expect(sqlOf(ok(req, 'cockroachdb'))).toBe(sqlOf(ok(req, 'postgres')));
     expect(sqlOf(ok(req, 'yugabytedb'))).toBe(sqlOf(ok(req, 'postgres')));
+  });
+});
+
+describe('a commented-out template does not count as granting anything', () => {
+  // Reported from a live Oracle test: "read only" at database scope produced a
+  // runnable GRANT CREATE SESSION and a commented "repeat for each table"
+  // block, with no warning. Pasting it gave the account login and no read
+  // access at all. The template was passing itself off as covering SELECT,
+  // which silenced the warning built for exactly this case.
+  it('warns that Oracle read is not granted at database scope', () => {
+    const r = ok(
+      {
+        principal: user,
+        action: 'grant',
+        permissions: ['connect', 'read'],
+        scope: { type: 'database', database: 'FREEPDB1' },
+      },
+      'oracle'
+    );
+    const sql = sqlOf(r);
+    expect(sql).toMatch(/GRANT CREATE SESSION/);
+    // The only runnable line is the session grant; the rest is a comment.
+    const runnable = sql
+      .split('\n')
+      .filter((l) => l.trim() && !l.trim().startsWith('--'));
+    expect(runnable).toHaveLength(1);
+
+    const warned = r.warnings.map((w) => w.message).join(' ');
+    expect(warned).toMatch(/cannot express read data/i);
+    expect(warned).toMatch(/switch the scope to tables/i);
+  });
+
+  it('warns the same way on Db2 at database scope', () => {
+    // Schema scope now emits a real SELECTIN grant, so the template — and the
+    // warning — only remain where there is no schema to name.
+    const r = ok(
+      {
+        principal: user,
+        action: 'grant',
+        permissions: ['read'],
+        scope: { type: 'database', database: 'FOXDB' },
+      },
+      'db2'
+    );
+    expect(r.warnings.map((w) => w.message).join(' ')).toMatch(/cannot express read data/i);
+  });
+
+  it('warns that PostgreSQL alter and drop are ownership, not grants', () => {
+    const r = ok(
+      {
+        principal: user,
+        action: 'grant',
+        permissions: ['alter-object', 'drop-object'],
+        scope: { type: 'schema', schema: 'reporting' },
+      },
+      'postgres'
+    );
+    const warned = r.warnings.map((w) => w.message).join(' ');
+    expect(warned).toMatch(/cannot express/i);
+    // Not a table privilege, so the "pick tables" advice would be wrong here.
+    expect(warned).toMatch(/ownership/i);
+  });
+
+  it('still reports nothing when the grant really is expressible', () => {
+    const r = ok(
+      {
+        principal: user,
+        action: 'grant',
+        permissions: ['read'],
+        scope: { type: 'tables', schema: 'DEMO_A', tables: ['ORDERS'] },
+      },
+      'oracle'
+    );
+    expect(sqlOf(r)).toMatch(/GRANT SELECT ON "DEMO_A"\."ORDERS"/);
+    expect(r.warnings.map((w) => w.message).join(' ')).not.toMatch(/cannot express/i);
+  });
+});
+
+describe('Db2 schema-wide grants', () => {
+  // The emitter used to say Db2 had none and emit a commented template.
+  // Verified against Db2 12.1: these grant and record in SYSCAT.SCHEMAAUTH.
+  it('grants the …IN privileges instead of a template', () => {
+    const r = ok(
+      {
+        principal: user,
+        action: 'grant',
+        permissions: ['read', 'insert', 'update', 'delete'],
+        scope: { type: 'schema', schema: 'DEMO_A' },
+      },
+      'db2'
+    );
+    expect(sqlOf(r)).toBe('GRANT SELECTIN, INSERTIN, UPDATEIN, DELETEIN ON SCHEMA "DEMO_A" TO USER "report_user";');
+    // Nothing is missed, so no caution about an unexpressible privilege.
+    expect(r.warnings.map((w) => w.message).join(' ')).not.toMatch(/cannot express/i);
+  });
+
+  it('maps execute to EXECUTEIN once, not twice', () => {
+    // Both routine permissions map to the same keyword.
+    const r = ok(
+      {
+        principal: user,
+        action: 'grant',
+        permissions: ['execute-function', 'execute-procedure'],
+        scope: { type: 'schema', schema: 'DEMO_A' },
+      },
+      'db2'
+    );
+    expect(sqlOf(r)).toMatch(/GRANT EXECUTEIN ON SCHEMA/);
+    expect(sqlOf(r)).not.toMatch(/EXECUTEIN, EXECUTEIN/);
+  });
+
+  it('revokes with the same keywords', () => {
+    const r = ok(
+      {
+        principal: user,
+        action: 'revoke',
+        permissions: ['read'],
+        scope: { type: 'schema', schema: 'DEMO_A' },
+      },
+      'db2'
+    );
+    expect(sqlOf(r)).toMatch(/REVOKE SELECTIN ON SCHEMA "DEMO_A" FROM USER/);
+  });
+
+  it('still explains itself at database scope, where there is no schema to name', () => {
+    const r = ok(
+      {
+        principal: user,
+        action: 'grant',
+        permissions: ['read'],
+        scope: { type: 'database', database: 'FOXDB' },
+      },
+      'db2'
+    );
+    const runnable = sqlOf(r).split('\n').filter((l) => l.trim() && !l.trim().startsWith('--'));
+    expect(runnable).toHaveLength(0);
+
+    const warned = r.warnings.map((w) => w.message).join(' ');
+    expect(warned).toMatch(/cannot express read data/i);
+    // The advice has to match the engine. Db2 does have schema-wide grants, so
+    // telling the reader it does not would contradict the statement the
+    // emitter produces one scope over.
+    expect(warned).toMatch(/choose a schema/i);
+    expect(warned).not.toMatch(/no schema-wide table grant/i);
+  });
+
+  it('tells Oracle readers the opposite, because Oracle really has none', () => {
+    const r = ok(
+      {
+        principal: user,
+        action: 'grant',
+        permissions: ['read'],
+        scope: { type: 'database', database: 'FREEPDB1' },
+      },
+      'oracle'
+    );
+    const warned = r.warnings.map((w) => w.message).join(' ');
+    expect(warned).toMatch(/no schema-wide table grant/i);
+    expect(warned).not.toMatch(/choose a schema/i);
   });
 });

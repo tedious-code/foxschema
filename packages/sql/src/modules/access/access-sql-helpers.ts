@@ -247,6 +247,16 @@ const PRIV_VERB: Record<string, string> = {
   CREATE: 'Create objects',
   ALTER: 'Alter objects',
   DROP: 'Drop objects',
+  // Db2's schema-wide forms, so the explanation reads in the same words as
+  // every other engine's rather than echoing the keyword back.
+  SELECTIN: 'Read',
+  INSERTIN: 'Insert',
+  UPDATEIN: 'Update',
+  DELETEIN: 'Delete',
+  EXECUTEIN: 'Run routines',
+  ALTERIN: 'Alter objects',
+  CREATEIN: 'Create objects',
+  DROPIN: 'Drop objects',
 };
 
 /** "a", "a and b", "a, b and c" — one place, so every message reads the same. */
@@ -268,10 +278,34 @@ export function missedPermissionWarning(
   const missed = request.permissions.filter((p) => !covered.has(p));
   if (missed.length === 0) return null;
   const labels = missed.map((p) => describePermission(p).label.toLowerCase());
+  const verb = request.action === 'grant' ? 'grants' : 'revokes';
+
+  // Advice the reader can act on beats a general statement of the limitation.
+  // Where the engine has per-object grants and the miss is a table privilege,
+  // narrowing the scope is the whole answer — and it is the case people
+  // actually hit, because "read only" on a database scope looks like it should
+  // work and produces a runnable CREATE SESSION plus a commented template.
+  const caps = accessCapabilities(dialect);
+  const perObjectAvailable =
+    caps.tableScope && (request.scope.type === 'database' || request.scope.type === 'schema');
+  const tableLevel = missed.every(
+    (p) => p === 'read' || p === 'insert' || p === 'update' || p === 'delete'
+  );
+  const act = request.action === 'grant' ? 'grant' : 'revoke';
+
+  // Two different situations, and telling them apart matters. Db2 and
+  // PostgreSQL do have schema-wide grants, so a miss at *database* scope means
+  // "name a schema", not "this engine cannot do it" — saying the latter
+  // contradicted the very statement the emitter had just produced. Oracle
+  // genuinely has none, and there the only way through is per object.
+  const remedy = !(perObjectAvailable && tableLevel)
+    ? `Handle ${missed.length === 1 ? 'that one' : 'those'} through object ownership or an engine-specific privilege.`
+    : caps.schemaScope && request.scope.type === 'database'
+      ? `Choose a schema — ${dialect} ${act}s these per schema — or switch the scope to Tables and pick the objects.`
+      : `Switch the scope to Tables and pick the objects to ${act} on — ${dialect} has no schema-wide table grant.`;
+
   return {
     level: 'caution',
-    message: `${dialect} cannot express ${listWords(labels)} at this scope — nothing below ${
-      request.action === 'grant' ? 'grants' : 'revokes'
-    } it. Handle ${missed.length === 1 ? 'that one' : 'those'} through object ownership or an engine-specific privilege.`,
+    message: `${dialect} cannot express ${listWords(labels)} at this scope — nothing below ${verb} it. ${remedy}`,
   };
 }

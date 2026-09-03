@@ -92,8 +92,11 @@ function emitOracle(ctx: EmitCtx): void {
   add(
     `-- Oracle grants object privileges per object. Repeat for each table:\n-- ${verb} ${privs.join(', ')} ON ${qualifier(ident, scopeSchema(scope))}.<table> ${dir} ${grantee};`,
     'Oracle has no schema-wide table grant; a schema is a user. Select individual tables to generate runnable statements.',
-    highestRisk(permissions),
-    tablePerms
+    highestRisk(permissions)
+    // No `covers`: this is a template, not a statement. Claiming it covered
+    // read/insert/update/delete told `missedPermissionWarning` the job was
+    // done, so the preview carried no warning at all — and a reader who
+    // pasted it granted CREATE SESSION and nothing else.
   );
 }
 
