@@ -285,18 +285,24 @@ export function missedPermissionWarning(
   // narrowing the scope is the whole answer — and it is the case people
   // actually hit, because "read only" on a database scope looks like it should
   // work and produces a runnable CREATE SESSION plus a commented template.
+  const caps = accessCapabilities(dialect);
   const perObjectAvailable =
-    accessCapabilities(dialect).tableScope &&
-    (request.scope.type === 'database' || request.scope.type === 'schema');
+    caps.tableScope && (request.scope.type === 'database' || request.scope.type === 'schema');
   const tableLevel = missed.every(
     (p) => p === 'read' || p === 'insert' || p === 'update' || p === 'delete'
   );
-  const remedy =
-    perObjectAvailable && tableLevel
-      ? `Switch the scope to Tables and pick the objects to ${
-          request.action === 'grant' ? 'grant' : 'revoke'
-        } on — ${dialect} has no schema-wide table grant.`
-      : `Handle ${missed.length === 1 ? 'that one' : 'those'} through object ownership or an engine-specific privilege.`;
+  const act = request.action === 'grant' ? 'grant' : 'revoke';
+
+  // Two different situations, and telling them apart matters. Db2 and
+  // PostgreSQL do have schema-wide grants, so a miss at *database* scope means
+  // "name a schema", not "this engine cannot do it" — saying the latter
+  // contradicted the very statement the emitter had just produced. Oracle
+  // genuinely has none, and there the only way through is per object.
+  const remedy = !(perObjectAvailable && tableLevel)
+    ? `Handle ${missed.length === 1 ? 'that one' : 'those'} through object ownership or an engine-specific privilege.`
+    : caps.schemaScope && request.scope.type === 'database'
+      ? `Choose a schema — ${dialect} ${act}s these per schema — or switch the scope to Tables and pick the objects.`
+      : `Switch the scope to Tables and pick the objects to ${act} on — ${dialect} has no schema-wide table grant.`;
 
   return {
     level: 'caution',

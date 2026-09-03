@@ -595,6 +595,28 @@ describe('Db2 schema-wide grants', () => {
     );
     const runnable = sqlOf(r).split('\n').filter((l) => l.trim() && !l.trim().startsWith('--'));
     expect(runnable).toHaveLength(0);
-    expect(r.warnings.map((w) => w.message).join(' ')).toMatch(/cannot express read data/i);
+
+    const warned = r.warnings.map((w) => w.message).join(' ');
+    expect(warned).toMatch(/cannot express read data/i);
+    // The advice has to match the engine. Db2 does have schema-wide grants, so
+    // telling the reader it does not would contradict the statement the
+    // emitter produces one scope over.
+    expect(warned).toMatch(/choose a schema/i);
+    expect(warned).not.toMatch(/no schema-wide table grant/i);
+  });
+
+  it('tells Oracle readers the opposite, because Oracle really has none', () => {
+    const r = ok(
+      {
+        principal: user,
+        action: 'grant',
+        permissions: ['read'],
+        scope: { type: 'database', database: 'FREEPDB1' },
+      },
+      'oracle'
+    );
+    const warned = r.warnings.map((w) => w.message).join(' ');
+    expect(warned).toMatch(/no schema-wide table grant/i);
+    expect(warned).not.toMatch(/choose a schema/i);
   });
 });
