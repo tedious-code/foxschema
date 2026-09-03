@@ -17,7 +17,7 @@ import {
   apiDeleteConnection,
 } from '@/shared/api/authApi';
 import type { ConnectionConfig, SyncState } from './sync-types';
-import { sqlGeneratorModule, buildRef, buildMapping, regenerateSql } from './sync-helpers';
+import { sqlGeneratorModule, buildRef, buildMapping, regenerateSql, buildIncludedDiffs } from './sync-helpers';
 import { toast } from './toastStore';
 import { useUiStore } from './uiStore';
 import {
@@ -88,6 +88,8 @@ export const useSyncStore = create<SyncState>()(
   typeFilter: [],
   memberSelection: {},
   indexSelection: {},
+  columnSelection: {},
+  triggerSelection: {},
   syncSelection: {},
 
   isMigrating: false,
@@ -291,7 +293,13 @@ export const useSyncStore = create<SyncState>()(
     const s = get();
     if (!s.compareResult) return;
     set({
-      generatedSql: regenerateSql(s, s.syncSelection, s.memberSelection, s.indexSelection),
+      generatedSql: regenerateSql(s, {
+        selection: s.syncSelection,
+        memberSelection: s.memberSelection,
+        indexSelection: s.indexSelection,
+        columnSelection: s.columnSelection,
+        triggerSelection: s.triggerSelection,
+      }),
       migrationExecuted: false,
     });
   },
@@ -316,7 +324,13 @@ export const useSyncStore = create<SyncState>()(
     const nextSelection = { ...s.syncSelection, [tableName]: !s.syncSelection[tableName] };
     set({
       syncSelection: nextSelection,
-      generatedSql: regenerateSql(s, nextSelection, s.memberSelection, s.indexSelection),
+      generatedSql: regenerateSql(s, {
+        selection: nextSelection,
+        memberSelection: s.memberSelection,
+        indexSelection: s.indexSelection,
+        columnSelection: s.columnSelection,
+        triggerSelection: s.triggerSelection,
+      }),
       migrationExecuted: false,
     });
   },
@@ -330,7 +344,13 @@ export const useSyncStore = create<SyncState>()(
     }
     set({
       syncSelection: nextSelection,
-      generatedSql: regenerateSql(s, nextSelection, s.memberSelection, s.indexSelection),
+      generatedSql: regenerateSql(s, {
+        selection: nextSelection,
+        memberSelection: s.memberSelection,
+        indexSelection: s.indexSelection,
+        columnSelection: s.columnSelection,
+        triggerSelection: s.triggerSelection,
+      }),
       migrationExecuted: false,
     });
   },
@@ -344,7 +364,13 @@ export const useSyncStore = create<SyncState>()(
     const nextMember = { ...s.memberSelection, [roleName]: roleSel };
     set({
       memberSelection: nextMember,
-      generatedSql: regenerateSql(s, s.syncSelection, nextMember, s.indexSelection),
+      generatedSql: regenerateSql(s, {
+        selection: s.syncSelection,
+        memberSelection: nextMember,
+        indexSelection: s.indexSelection,
+        columnSelection: s.columnSelection,
+        triggerSelection: s.triggerSelection,
+      }),
       migrationExecuted: false,
     });
   },
@@ -361,7 +387,99 @@ export const useSyncStore = create<SyncState>()(
     const nextMember = { ...s.memberSelection, [roleName]: roleSel };
     set({
       memberSelection: nextMember,
-      generatedSql: regenerateSql(s, s.syncSelection, nextMember, s.indexSelection),
+      generatedSql: regenerateSql(s, {
+        selection: s.syncSelection,
+        memberSelection: nextMember,
+        indexSelection: s.indexSelection,
+        columnSelection: s.columnSelection,
+        triggerSelection: s.triggerSelection,
+      }),
+      migrationExecuted: false,
+    });
+  },
+
+  toggleColumnSelection: (tableName, columnName) => {
+    const s = get();
+    if (!s.compareResult) return;
+    const tableSel = { ...(s.columnSelection[tableName] ?? {}) };
+    // Default included; toggle to false (excluded) and back — same polarity as
+    // role members, so a fresh compare migrates everything as it always did.
+    tableSel[columnName] = tableSel[columnName] === false ? true : false;
+    const nextColumn = { ...s.columnSelection, [tableName]: tableSel };
+    set({
+      columnSelection: nextColumn,
+      generatedSql: regenerateSql(s, {
+        selection: s.syncSelection,
+        memberSelection: s.memberSelection,
+        indexSelection: s.indexSelection,
+        columnSelection: nextColumn,
+        triggerSelection: s.triggerSelection,
+      }),
+      migrationExecuted: false,
+    });
+  },
+
+  setAllColumnSelection: (tableName, selected) => {
+    const s = get();
+    if (!s.compareResult) return;
+    const table = s.compareResult.tables.find((t) => t.tableName === tableName);
+    if (!table) return;
+    const tableSel: Record<string, boolean> = {};
+    for (const c of table.columnDiffs) {
+      if (c.status !== 'UNCHANGED') tableSel[c.name] = selected;
+    }
+    const nextColumn = { ...s.columnSelection, [tableName]: tableSel };
+    set({
+      columnSelection: nextColumn,
+      generatedSql: regenerateSql(s, {
+        selection: s.syncSelection,
+        memberSelection: s.memberSelection,
+        indexSelection: s.indexSelection,
+        columnSelection: nextColumn,
+        triggerSelection: s.triggerSelection,
+      }),
+      migrationExecuted: false,
+    });
+  },
+
+  toggleTriggerSelection: (tableName, triggerName) => {
+    const s = get();
+    if (!s.compareResult) return;
+    const tableSel = { ...(s.triggerSelection[tableName] ?? {}) };
+    tableSel[triggerName] = tableSel[triggerName] === false ? true : false;
+    const nextTrigger = { ...s.triggerSelection, [tableName]: tableSel };
+    set({
+      triggerSelection: nextTrigger,
+      generatedSql: regenerateSql(s, {
+        selection: s.syncSelection,
+        memberSelection: s.memberSelection,
+        indexSelection: s.indexSelection,
+        columnSelection: s.columnSelection,
+        triggerSelection: nextTrigger,
+      }),
+      migrationExecuted: false,
+    });
+  },
+
+  setAllTriggerSelection: (tableName, selected) => {
+    const s = get();
+    if (!s.compareResult) return;
+    const table = s.compareResult.tables.find((t) => t.tableName === tableName);
+    if (!table) return;
+    const tableSel: Record<string, boolean> = {};
+    for (const t of table.triggerDiffs ?? []) {
+      if (t.status !== 'UNCHANGED') tableSel[t.name] = selected;
+    }
+    const nextTrigger = { ...s.triggerSelection, [tableName]: tableSel };
+    set({
+      triggerSelection: nextTrigger,
+      generatedSql: regenerateSql(s, {
+        selection: s.syncSelection,
+        memberSelection: s.memberSelection,
+        indexSelection: s.indexSelection,
+        columnSelection: s.columnSelection,
+        triggerSelection: nextTrigger,
+      }),
       migrationExecuted: false,
     });
   },
@@ -375,7 +493,13 @@ export const useSyncStore = create<SyncState>()(
     const nextIndex = { ...s.indexSelection, [tableName]: tableSel };
     set({
       indexSelection: nextIndex,
-      generatedSql: regenerateSql(s, s.syncSelection, s.memberSelection, nextIndex),
+      generatedSql: regenerateSql(s, {
+        selection: s.syncSelection,
+        memberSelection: s.memberSelection,
+        indexSelection: nextIndex,
+        columnSelection: s.columnSelection,
+        triggerSelection: s.triggerSelection,
+      }),
       migrationExecuted: false,
     });
   },
@@ -392,7 +516,13 @@ export const useSyncStore = create<SyncState>()(
     const nextIndex = { ...s.indexSelection, [tableName]: tableSel };
     set({
       indexSelection: nextIndex,
-      generatedSql: regenerateSql(s, s.syncSelection, s.memberSelection, nextIndex),
+      generatedSql: regenerateSql(s, {
+        selection: s.syncSelection,
+        memberSelection: s.memberSelection,
+        indexSelection: nextIndex,
+        columnSelection: s.columnSelection,
+        triggerSelection: s.triggerSelection,
+      }),
       migrationExecuted: false,
     });
   },
@@ -523,7 +653,13 @@ export const useSyncStore = create<SyncState>()(
     const nextSelection = { ...s.syncSelection, [objectName]: false };
     set({
       syncSelection: nextSelection,
-      generatedSql: regenerateSql(s, nextSelection, s.memberSelection, s.indexSelection),
+      generatedSql: regenerateSql(s, {
+        selection: nextSelection,
+        memberSelection: s.memberSelection,
+        indexSelection: s.indexSelection,
+        columnSelection: s.columnSelection,
+        triggerSelection: s.triggerSelection,
+      }),
       migrationProgress: [],
       migrationError: null,
       migrationRolledBack: false,
@@ -534,10 +670,22 @@ export const useSyncStore = create<SyncState>()(
   },
 
   applyMigration: async () => {
-    const { compareResult, syncSelection, targetConfig, continueOnError } = get();
+    const s = get();
+    const { compareResult, targetConfig, continueOnError } = s;
     if (!compareResult) return;
 
-    const includedDiffs = compareResult.tables.filter((t) => syncSelection[t.tableName]);
+    // The same diffs the preview was built from. This used to filter the raw
+    // tables by object selection alone, so Execute ignored every finer opt-in
+    // and opt-out — role members and index opt-ins already, and now columns and
+    // triggers. A preview that does not match what runs is the one thing a
+    // migration tool must never do.
+    const includedDiffs = buildIncludedDiffs(compareResult.tables, {
+      selection: s.syncSelection,
+      memberSelection: s.memberSelection,
+      indexSelection: s.indexSelection,
+      columnSelection: s.columnSelection,
+      triggerSelection: s.triggerSelection,
+    });
     const plan = sqlGeneratorModule.generateMigrationPlan(
       includedDiffs,
       targetConfig.dialect,

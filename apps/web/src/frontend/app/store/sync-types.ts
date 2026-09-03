@@ -117,6 +117,22 @@ export interface SyncState {
   indexSelection: Record<string, Record<string, boolean>>;
   toggleIndexSelection: (tableName: string, indexName: string) => void;
   setAllIndexSelection: (tableName: string, selected: boolean) => void;
+  /**
+   * Per-column opt-OUT: columnSelection[table][column] === false leaves that
+   * column out of the migration. Same polarity as memberSelection — a fresh
+   * compare migrates every changed column, exactly as it did before this
+   * existed, and unticking is the deliberate act.
+   *
+   * A column the primary key, an included index or a foreign key names cannot
+   * be dropped whatever this says; see column-selection.ts.
+   */
+  columnSelection: Record<string, Record<string, boolean>>;
+  toggleColumnSelection: (tableName: string, columnName: string) => void;
+  setAllColumnSelection: (tableName: string, selected: boolean) => void;
+  /** Per-trigger opt-OUT. Triggers depend on nothing else in the script. */
+  triggerSelection: Record<string, Record<string, boolean>>;
+  toggleTriggerSelection: (tableName: string, triggerName: string) => void;
+  setAllTriggerSelection: (tableName: string, selected: boolean) => void;
 
   // --- Live migration execution -----------------------------------------
   isMigrating: boolean;

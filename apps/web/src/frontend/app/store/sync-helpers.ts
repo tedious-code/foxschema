@@ -3,6 +3,23 @@ import { withConnectionString } from '@/shared/lib/provider-settings';
 import type { SchemaCompareResult, TableDiff } from '@/shared/lib/types';
 import type { ConnectionRef } from '@/shared/api/schemaApi';
 import type { ConnectionConfig } from './sync-types';
+import { applySelectionToDiff } from '@/shared/lib/column-selection';
+
+/**
+ * Every deploy opt-in and opt-out, passed as one object.
+ *
+ * These were positional parameters. Six maps of the same type in a row is a
+ * silent-swap waiting to happen — the compiler cannot tell `memberSelection`
+ * from `indexSelection`, and getting them the wrong way round produces a script
+ * that looks plausible and deploys the wrong things.
+ */
+export interface DeploySelections {
+  selection: Record<string, boolean>;
+  memberSelection: Record<string, Record<string, boolean>>;
+  indexSelection: Record<string, Record<string, boolean>>;
+  columnSelection?: Record<string, Record<string, boolean>>;
+  triggerSelection?: Record<string, Record<string, boolean>>;
+}
 
 // Comparison runs server-side (/api/compare); SQL generation stays client-side
 // because it re-runs interactively as deploy checkboxes toggle, with no DB round-trip.
@@ -37,26 +54,53 @@ export function buildRef(cfg: ConnectionConfig): ConnectionRef {
  * included when the user opts into one or more of their index changes — the
  * generator only sees those indexes, promoted to MODIFIED for ALTER emission.
  */
-export function buildIncludedDiffs(
-  tables: TableDiff[],
-  selection: Record<string, boolean>,
-  memberSelection: Record<string, Record<string, boolean>>,
-  indexSelection: Record<string, Record<string, boolean>>
-): TableDiff[] {
+export function buildIncludedDiffs(tables: TableDiff[], sel: DeploySelections): TableDiff[] {
+  const { selection, memberSelection, indexSelection, columnSelection, triggerSelection } = sel;
   const hasIndexOptIn = (tableName: string) =>
     Object.values(indexSelection[tableName] ?? {}).some((v) => v === true);
 
-  return tables
-    .filter((t) => selection[t.tableName] || hasIndexOptIn(t.tableName))
+  /** The index keys actually going into the script, so column rules can see them. */
+  const includedIndexKeys = (tableName: string): Set<string> =>
+    new Set(
+      Object.entries(indexSelection[tableName] ?? {})
+        .filter(([, v]) => v === true)
+        .map(([k]) => k.toUpperCase())
+    );
+
+  const inScript = tables.filter((t) => selection[t.tableName] || hasIndexOptIn(t.tableName));
+
+  return inScript
     .map((t) => {
       const idxSel = indexSelection[t.tableName] ?? {};
       const indexDiffs = t.indexDiffs.filter((i) => i.status === 'UNCHANGED' || idxSel[i.name] === true);
       const objectSelected = !!selection[t.tableName];
 
       if (objectSelected) {
-        if (t.objectType !== 'ROLE') return { ...t, indexDiffs };
-        const sel = memberSelection[t.tableName] ?? {};
-        return { ...t, indexDiffs, columnDiffs: t.columnDiffs.filter((c) => sel[c.name] !== false) };
+        if (t.objectType !== 'ROLE') {
+          // Column and trigger opt-outs apply to real objects; a role's
+          // "columns" are its members and have their own selection below.
+          //
+          // `siblings` is the tables actually going into the script. A key on a
+          // child that is not being migrated emits nothing, so it must not pin
+          // a parent column the reader is free to leave out — but a child that
+          // *is* being migrated names parent columns the parent's own diff
+          // cannot see.
+          return applySelectionToDiff(
+            { ...t, indexDiffs },
+            {
+              columnSelection: columnSelection?.[t.tableName],
+              triggerSelection: triggerSelection?.[t.tableName],
+              includedIndexes: includedIndexKeys(t.tableName),
+              siblings: inScript,
+            }
+          );
+        }
+        const memberSel = memberSelection[t.tableName] ?? {};
+        return {
+          ...t,
+          indexDiffs,
+          columnDiffs: t.columnDiffs.filter((c) => memberSel[c.name] !== false),
+        };
       }
 
       // Index-only opt-in (rename-only UNCHANGED tables, or indexes checked without
@@ -71,6 +115,42 @@ export function buildIncludedDiffs(
         indexDiffs: optedIndexes,
       };
     });
+}
+
+/**
+ * Every table in the compare, with column and trigger opt-outs applied to the
+ * ones being migrated.
+ *
+ * The validators need the *whole* compare: `findMissingFkTargets` decides a
+ * parent is missing by not finding it, and `findDropDependencies` reports
+ * dependents that were never selected. Handing them only the included diffs
+ * made an added key look like it referenced a missing table whenever the parent
+ * was an existing object nobody had ticked.
+ *
+ * They also must not see columns the script no longer touches, or an unticked
+ * drop keeps warning — and can keep Execute disabled — about a statement that
+ * is not there. So: same list, trimmed contents.
+ */
+export function applySelectionsForScan(
+  tables: TableDiff[],
+  sel: DeploySelections
+): TableDiff[] {
+  const inScript = new Set(
+    buildIncludedDiffs(tables, sel).map((t) => t.tableName)
+  );
+  return tables.map((t) => {
+    if (t.objectType === 'ROLE' || !inScript.has(t.tableName)) return t;
+    return applySelectionToDiff(t, {
+      columnSelection: sel.columnSelection?.[t.tableName],
+      triggerSelection: sel.triggerSelection?.[t.tableName],
+      includedIndexes: new Set(
+        Object.entries(sel.indexSelection[t.tableName] ?? {})
+          .filter(([, v]) => v === true)
+          .map(([k]) => k.toUpperCase())
+      ),
+      siblings: tables.filter((x) => inScript.has(x.tableName)),
+    });
+  });
 }
 
 /** The SQL-generation mapping derived from the active source/target configs. */
@@ -97,12 +177,10 @@ export function regenerateSql(
     targetConfig: ConnectionConfig;
     nonDestructive: boolean;
   },
-  selection: Record<string, boolean>,
-  memberSelection: Record<string, Record<string, boolean>>,
-  indexSelection: Record<string, Record<string, boolean>>
+  sel: DeploySelections
 ): string {
   if (!s.compareResult) return '';
-  const includedDiffs = buildIncludedDiffs(s.compareResult.tables, selection, memberSelection, indexSelection);
+  const includedDiffs = buildIncludedDiffs(s.compareResult.tables, sel);
   return sqlGeneratorModule.generateMigrationSql(
     includedDiffs,
     s.targetConfig.dialect,

@@ -5,7 +5,7 @@ import { Play, RefreshCw, FileText, CheckCircle2, Copy, AlertTriangle } from 'lu
 import { SqlGeneratorModule } from '@/shared/lib/sql-generator';
 import { findDropDependencies } from '@/features/object-detail/lib/dependency-scan';
 import { findMissingFkTargets, findNarrowingTypeChanges, extractReviewNotices, resolveDialect } from '@/shared/lib/migration-validation';
-import { buildIncludedDiffs, buildMapping } from '@/app/store/sync-helpers';
+import { buildIncludedDiffs, applySelectionsForScan, buildMapping } from '@/app/store/sync-helpers';
 import { formatSql } from '@/shared/utils/formatSql';
 import { SchemaBlueprint } from '@/features/schema-diff';
 import { DetailTabs, type DetailTab } from '@/features/schema-diff';
@@ -67,6 +67,12 @@ export const ObjectDetailPanel: React.FC = () => {
     indexSelection,
     toggleIndexSelection,
     setAllIndexSelection,
+    columnSelection,
+    toggleColumnSelection,
+    setAllColumnSelection,
+    triggerSelection,
+    toggleTriggerSelection,
+    setAllTriggerSelection,
     targetServerVersion,
   } = useSyncStore();
 
@@ -98,11 +104,47 @@ export const ObjectDetailPanel: React.FC = () => {
   const [showReviewDialog, setShowReviewDialog] = useState(false);
   const [showReadinessDialog, setShowReadinessDialog] = useState(false);
 
+  /**
+   * The diffs the script is actually built from.
+   *
+   * The scans below used to read the raw compare, so unticking a dropped or
+   * narrowing column left its warning standing — and could keep Execute
+   * disabled over a statement the preview no longer contained.
+   */
+  const selections = useMemo(
+    () => ({
+      selection: syncSelection,
+      memberSelection,
+      indexSelection,
+      columnSelection,
+      triggerSelection,
+    }),
+    [syncSelection, memberSelection, indexSelection, columnSelection, triggerSelection]
+  );
+  /**
+   * The whole compare, with opt-outs applied to what is being migrated.
+   *
+   * Passing only the included diffs starved the validators of the objects they
+   * reason *about* rather than deploy — an added key whose parent was an
+   * existing unticked table read as a missing target, and drop warnings for
+   * unselected dependents vanished. The object selection still comes from
+   * `syncSelection`, unchanged.
+   */
+  const scannedDiffs = useMemo(
+    () => (compareResult ? applySelectionsForScan(compareResult.tables, selections) : []),
+    [compareResult, selections]
+  );
+  /** Only the objects actually going into the script, for the plan. */
+  const includedDiffs = useMemo(
+    () => (compareResult ? buildIncludedDiffs(compareResult.tables, selections) : []),
+    [compareResult, selections]
+  );
+
   // Live dependency scan — recomputed on every selection/nonDestructive change, not just
   // on Execute click, so the button can stay disabled until conflicts are resolved.
   const liveDropDeps = useMemo(
-    () => (compareResult ? findDropDependencies(compareResult.tables, syncSelection, { nonDestructive }) : []),
-    [compareResult, syncSelection, nonDestructive]
+    () => (compareResult ? findDropDependencies(scannedDiffs, syncSelection, { nonDestructive }) : []),
+    [compareResult, scannedDiffs, syncSelection, nonDestructive]
   );
   const hasUnresolvedDropDeps = liveDropDeps.length > 0;
 
@@ -110,16 +152,18 @@ export const ObjectDetailPanel: React.FC = () => {
   // generator's own "-- review:" / "MANUAL REVIEW REQUIRED" notices surfaced up front
   // instead of only inside the scrolled SQL preview.
   const missingFkIssues = useMemo(
-    () => (compareResult ? findMissingFkTargets(compareResult.tables, syncSelection) : []),
-    [compareResult, syncSelection]
+    () => (compareResult ? findMissingFkTargets(scannedDiffs, syncSelection) : []),
+    [compareResult, scannedDiffs, syncSelection]
   );
   const narrowingIssues = useMemo(
-    () => (compareResult ? findNarrowingTypeChanges(compareResult.tables, syncSelection, resolveDialect(targetConfig.dialect)) : []),
-    [compareResult, syncSelection, targetConfig.dialect]
+    () =>
+      compareResult
+        ? findNarrowingTypeChanges(scannedDiffs, syncSelection, resolveDialect(targetConfig.dialect))
+        : [],
+    [compareResult, scannedDiffs, syncSelection, targetConfig.dialect]
   );
   const reviewIssues = useMemo(() => {
     if (!compareResult) return [];
-    const includedDiffs = buildIncludedDiffs(compareResult.tables, syncSelection, memberSelection, indexSelection);
     const steps = ddlGenerator.generateMigrationPlan(
       includedDiffs,
       targetConfig.dialect,
@@ -127,7 +171,7 @@ export const ObjectDetailPanel: React.FC = () => {
       compareResult.tables
     );
     return extractReviewNotices(steps);
-  }, [compareResult, syncSelection, memberSelection, indexSelection, sourceConfig, targetConfig, nonDestructive, targetServerVersion]);
+  }, [compareResult, includedDiffs, sourceConfig, targetConfig, nonDestructive, targetServerVersion]);
   const hasMissingFkTargets = missingFkIssues.length > 0;
   const hasNarrowingChanges = narrowingIssues.length > 0;
   const narrowingAcked = narrowingAckSql !== null && narrowingAckSql === generatedSql;
@@ -474,6 +518,13 @@ export const ObjectDetailPanel: React.FC = () => {
           indexSelection={indexSelection[selectedTable.tableName]}
           onToggleIndex={(name) => toggleIndexSelection(selectedTable.tableName, name)}
           onSelectAllIndexes={(checked) => setAllIndexSelection(selectedTable.tableName, checked)}
+          siblingDiffs={includedDiffs}
+          columnSelection={columnSelection[selectedTable.tableName]}
+          onToggleColumn={(name) => toggleColumnSelection(selectedTable.tableName, name)}
+          onSelectAllColumns={(checked) => setAllColumnSelection(selectedTable.tableName, checked)}
+          triggerSelection={triggerSelection[selectedTable.tableName]}
+          onToggleTriggerSelection={(name) => toggleTriggerSelection(selectedTable.tableName, name)}
+          onSelectAllTriggers={(checked) => setAllTriggerSelection(selectedTable.tableName, checked)}
           expandedTriggers={expandedTriggers}
           onToggleTrigger={toggleTriggerDdl}
           triggerDdls={formattedTriggerDdls}

@@ -25,6 +25,7 @@ import { ChevronDown, ChevronRight, KeyRound } from 'lucide-react';
 import type { ColumnDiff, TableDiff } from '@/shared/lib/types';
 import { highlightMatch } from '@/features/schema-diff/lib/highlight';
 import { diffLines } from '@/shared/utils/lineDiff';
+import { blockedColumns, supportsColumnSelection } from '@/shared/lib/column-selection';
 
 /** `comfortable` is the full-width workspace; `compact` fits a modal pane. */
 export type BlueprintDensity = 'comfortable' | 'compact';
@@ -48,6 +49,29 @@ export interface SchemaBlueprintProps {
   indexSelection?: Record<string, boolean>;
   onToggleIndex?: (name: string) => void;
   onSelectAllIndexes?: (checked: boolean) => void;
+
+  /**
+   * Columns: deploy selection. Opt-OUT, like role members — a fresh compare
+   * migrates every changed column, and unticking is the deliberate act.
+   *
+   * `blockedColumns` marks the ones that cannot be dropped without producing a
+   * script that fails partway; those render disabled with the reason on hover.
+   */
+  columnSelection?: Record<string, boolean>;
+  onToggleColumn?: (name: string) => void;
+  onSelectAllColumns?: (checked: boolean) => void;
+  /**
+   * The other tables going into the script. A foreign key sits on the child and
+   * names columns on the parent, so without these a parent column looks free to
+   * untick while the store quietly keeps it — a checkbox showing an exclusion
+   * the script does not honour.
+   */
+  siblingDiffs?: readonly TableDiff[];
+
+  /** Triggers: deploy selection. Opt-OUT; nothing else in the script needs them. */
+  triggerSelection?: Record<string, boolean>;
+  onToggleTriggerSelection?: (name: string) => void;
+  onSelectAllTriggers?: (checked: boolean) => void;
 
   /** Trigger rows expand to a DDL diff when the owner supplies the formatted text. */
   expandedTriggers?: Record<string, boolean>;
@@ -195,6 +219,13 @@ export function SchemaBlueprint({
   onSelectAllMembers,
   indexSelection,
   onToggleIndex,
+  columnSelection,
+  onToggleColumn,
+  onSelectAllColumns,
+  siblingDiffs,
+  triggerSelection,
+  onToggleTriggerSelection,
+  onSelectAllTriggers,
   onSelectAllIndexes,
   expandedTriggers,
   onToggleTrigger,
@@ -235,6 +266,42 @@ export function SchemaBlueprint({
   // Selection is only offered when the owner wired a handler — history renders
   // the same tables read-only.
   const roleChangedMembers = isRole ? diff.columnDiffs.filter((c) => c.status !== 'UNCHANGED') : [];
+
+  // Which columns the migration refuses to drop, and why. Computed from the
+  // index opt-ins actually in play, so an index nobody ticked does not pin a
+  // column the reader is free to leave out.
+  const includedIndexKeys = React.useMemo(
+    () =>
+      new Set(
+        Object.entries(indexSelection ?? {})
+          .filter(([, v]) => v === true)
+          .map(([k]) => k.toUpperCase())
+      ),
+    [indexSelection]
+  );
+  const blocked = React.useMemo(
+    () =>
+      blockedColumns(diff, {
+        includedIndexes: includedIndexKeys,
+        siblings: siblingDiffs,
+      }),
+    [diff, includedIndexKeys, siblingDiffs]
+  );
+  // Only an existing table migrates column by column. A create renders columns,
+  // indexes and triggers from `sourceTable` as one statement, and a view or
+  // routine from its stored definition — a checkbox on either could not be
+  // honoured, so it is not offered.
+  const perColumn = supportsColumnSelection(diff);
+  const changedColumns = isRole || !perColumn ? [] : diff.columnDiffs.filter((c) => c.status !== 'UNCHANGED');
+  const allColumnsSelected =
+    changedColumns.length > 0 &&
+    changedColumns.every((c) => columnSelection?.[c.name] !== false);
+  const changedTriggers = perColumn
+    ? (diff.triggerDiffs ?? []).filter((t) => t.status !== 'UNCHANGED')
+    : [];
+  const allTriggersSelected =
+    changedTriggers.length > 0 &&
+    changedTriggers.every((t) => triggerSelection?.[t.name] !== false);
   const allMembersSelected =
     roleChangedMembers.length > 0 &&
     roleChangedMembers.every((m) => memberSelection?.[m.name] !== false);
@@ -516,6 +583,32 @@ export function SchemaBlueprint({
                   />
                   Deploy all members
                 </label>
+              ) : !isRole && !perColumn && onToggleColumn ? (
+                <span
+                  data-testid="blueprint-columns-whole-object"
+                  className="ml-auto normal-case text-[10px] font-normal text-slate-500"
+                  title={
+                    diff.status === 'ADDED'
+                      ? 'A new object is created by one statement built from the source, so there is no per-column step to leave out.'
+                      : 'This object is replaced from its stored definition, so there is no per-column step to leave out.'
+                  }
+                >
+                  {diff.status === 'ADDED' ? 'Created whole' : 'Replaced whole'}
+                </span>
+              ) : !isRole && changedColumns.length > 0 && onSelectAllColumns ? (
+                <label
+                  data-testid="blueprint-columns-all"
+                  className="ml-auto flex items-center gap-1.5 normal-case text-[10px] font-semibold text-slate-300 cursor-pointer"
+                  title="Include/exclude every changed column in the deploy script"
+                >
+                  <input
+                    type="checkbox"
+                    checked={allColumnsSelected}
+                    onChange={(e) => onSelectAllColumns(e.target.checked)}
+                    className="w-3.5 h-3.5 accent-cyan-500 cursor-pointer"
+                  />
+                  Migrate all columns
+                </label>
               ) : undefined
             }
           >
@@ -570,6 +663,29 @@ export function SchemaBlueprint({
                               className="w-3.5 h-3.5 accent-cyan-500 cursor-pointer shrink-0"
                             />
                           )}
+                          {!isRole &&
+                            perColumn &&
+                            col.status !== 'UNCHANGED' &&
+                            onToggleColumn &&
+                            (() => {
+                              // A blocked column stays ticked and disabled: the
+                              // script cannot leave it out, and a box that
+                              // unticks without changing the SQL would be a lie.
+                              const block = blocked.get(col.name.toUpperCase());
+                              return (
+                                <input
+                                  type="checkbox"
+                                  data-testid={`blueprint-column-check-${col.name}`}
+                                  checked={block ? true : columnSelection?.[col.name] !== false}
+                                  disabled={!!block}
+                                  onChange={() => onToggleColumn(col.name)}
+                                  title={block ? block.reason : 'Migrate this column'}
+                                  className={`w-3.5 h-3.5 accent-cyan-500 shrink-0 ${
+                                    block ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+                                  }`}
+                                />
+                              );
+                            })()}
                           {highlightMatch(col.name, query)}
                           {isPk && (
                             <KeyRound className="w-3.5 h-3.5 text-amber-400" aria-label="Primary key" />
@@ -812,7 +928,28 @@ export function SchemaBlueprint({
       {/* Triggers — always visible for tables */}
       {diff.objectType === 'TABLE' && (
         <div data-testid="blueprint-triggers">
-          <SectionHeading dot="bg-yellow-500">Table Triggers</SectionHeading>
+          <SectionHeading
+            dot="bg-yellow-500"
+            action={
+              changedTriggers.length > 0 && onSelectAllTriggers ? (
+                <label
+                  data-testid="blueprint-triggers-all"
+                  className="ml-auto flex items-center gap-1.5 normal-case text-[10px] font-semibold text-slate-300 cursor-pointer"
+                  title="Include/exclude every changed trigger in the deploy script"
+                >
+                  <input
+                    type="checkbox"
+                    checked={allTriggersSelected}
+                    onChange={(e) => onSelectAllTriggers(e.target.checked)}
+                    className="w-3.5 h-3.5 accent-yellow-500 cursor-pointer"
+                  />
+                  Migrate all triggers
+                </label>
+              ) : undefined
+            }
+          >
+            Table Triggers
+          </SectionHeading>
           <div className={shell}>
             <table className="w-full text-left border-collapse text-xs">
               <thead>
@@ -866,6 +1003,20 @@ export function SchemaBlueprint({
                         >
                           <td className={`${cell} text-slate-200 font-semibold font-mono`}>
                             <span className="flex items-center gap-1.5">
+                              {perColumn && trg.status !== 'UNCHANGED' && onToggleTriggerSelection && (
+                                <input
+                                  type="checkbox"
+                                  data-testid={`blueprint-trigger-check-${trg.name}`}
+                                  checked={triggerSelection?.[trg.name] !== false}
+                                  // The row itself toggles the DDL diff, so a
+                                  // bare click here would tick the box *and*
+                                  // expand the row.
+                                  onClick={(e) => e.stopPropagation()}
+                                  onChange={() => onToggleTriggerSelection(trg.name)}
+                                  title="Migrate this trigger"
+                                  className="w-3.5 h-3.5 accent-yellow-500 cursor-pointer shrink-0"
+                                />
+                              )}
                               {expandable &&
                                 (isExpanded ? (
                                   <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
