@@ -11,6 +11,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyColumnSelection,
+  applySelectionToDiff,
   applyTriggerSelection,
   blockedColumns,
   columnExclusionBlock,
@@ -112,10 +113,10 @@ describe('which columns may be left out', () => {
         { name: 'IDX', status: 'ADDED', source: { name: 'idx', columns: ['email'], unique: false } },
       ],
     });
-    expect(columnExclusionBlock(t, 'EMAIL', new Set(['OTHER']))).toBeNull();
-    expect(columnExclusionBlock(t, 'EMAIL', new Set(['IDX']))).not.toBeNull();
+    expect(columnExclusionBlock(t, 'EMAIL', { includedIndexes: new Set(['OTHER']) })).toBeNull();
+    expect(columnExclusionBlock(t, 'EMAIL', { includedIndexes: new Set(['IDX']) })).not.toBeNull();
     // An empty set is "opted into none", not "unknown": nothing blocks.
-    expect(columnExclusionBlock(t, 'EMAIL', new Set())).toBeNull();
+    expect(columnExclusionBlock(t, 'EMAIL', { includedIndexes: new Set() })).toBeNull();
     // Omitting it is "unknown", so every emitted index still counts.
     expect(columnExclusionBlock(t, 'EMAIL')).not.toBeNull();
   });
@@ -208,5 +209,100 @@ describe('applying a trigger selection', () => {
 
   it('copes with a table that has no triggers', () => {
     expect(applyTriggerSelection(table(), { X: false })).toEqual([]);
+  });
+});
+
+describe('a foreign key on another table', () => {
+  // The key sits on the child and names columns on the parent, so the parent's
+  // own diff says nothing about it. Dropping the parent column left the child's
+  // ADD CONSTRAINT naming a column the script never created — and that runs
+  // after the table already exists.
+  const parent = table({ tableName: 'CUSTOMERS', columnDiffs: [col('ID', 'ADDED')] });
+  const child = table({
+    tableName: 'ORDERS',
+    foreignKeyDiffs: [
+      {
+        name: 'FK_ORDERS_CUSTOMER',
+        status: 'ADDED',
+        source: { columns: ['customer_id'], referencedTable: 'customers', referencedColumns: ['id'] },
+      },
+    ],
+  } as Partial<TableDiff>);
+
+  it('pins the column it references', () => {
+    const block = columnExclusionBlock(parent, 'ID', { siblings: [parent, child] });
+    expect(block?.reason).toMatch(/ORDERS/);
+    expect(block?.reason).toMatch(/FK_ORDERS_CUSTOMER/);
+  });
+
+  it('does not pin when the caller gives no wider view', () => {
+    expect(columnExclusionBlock(parent, 'ID')).toBeNull();
+  });
+
+  it('ignores a key that is not part of the migration', () => {
+    const unchanged = {
+      ...child,
+      foreignKeyDiffs: [{ ...child.foreignKeyDiffs![0]!, status: 'UNCHANGED' as const }],
+    };
+    expect(columnExclusionBlock(parent, 'ID', { siblings: [parent, unchanged] })).toBeNull();
+  });
+
+  it('matches a schema-qualified reference, case-folded', () => {
+    const qualified = {
+      ...child,
+      foreignKeyDiffs: [
+        {
+          ...child.foreignKeyDiffs![0]!,
+          source: { columns: ['customer_id'], referencedTable: 'Sales.Customers', referencedColumns: ['Id'] },
+        },
+      ],
+    };
+    expect(columnExclusionBlock(parent, 'ID', { siblings: [parent, qualified] })).not.toBeNull();
+  });
+});
+
+describe('applySelectionToDiff', () => {
+  // The generator renders CREATE TABLE from sourceTable.columns, never from the
+  // diffs, so filtering only the diffs left a new table with every column and
+  // the checkbox doing nothing at all.
+  const created = {
+    ...table({
+      tableName: 'ORDERS',
+      status: 'ADDED',
+      columnDiffs: [col('ID', 'ADDED', { primaryKey: true }), col('NOTE', 'ADDED')],
+    }),
+    sourceTable: {
+      name: 'orders',
+      columns: [
+        { name: 'id', type: 'int', nullable: false },
+        { name: 'note', type: 'text', nullable: true },
+      ],
+    },
+  } as TableDiff;
+
+  it('drops the column from the CREATE, not just the diff list', () => {
+    const out = applySelectionToDiff(created, { columnSelection: { NOTE: false } });
+    expect(out.columnDiffs.map((c) => c.name)).toEqual(['ID']);
+    expect(out.sourceTable!.columns.map((c) => c.name)).toEqual(['id']);
+  });
+
+  it('leaves sourceTable alone when nothing was dropped', () => {
+    const out = applySelectionToDiff(created, {});
+    expect(out.sourceTable!.columns).toHaveLength(2);
+  });
+
+  it('keeps a blocked column in both places', () => {
+    const out = applySelectionToDiff(created, { columnSelection: { ID: false } });
+    expect(out.columnDiffs.map((c) => c.name)).toContain('ID');
+    expect(out.sourceTable!.columns.map((c) => c.name)).toContain('id');
+  });
+
+  it('applies the trigger opt-out too', () => {
+    const withTriggers = {
+      ...created,
+      triggerDiffs: [{ name: 'TRG', status: 'ADDED' as const }],
+    } as TableDiff;
+    const out = applySelectionToDiff(withTriggers, { triggerSelection: { TRG: false } });
+    expect(out.triggerDiffs).toEqual([]);
   });
 });

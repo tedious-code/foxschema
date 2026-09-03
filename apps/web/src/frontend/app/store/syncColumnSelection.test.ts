@@ -151,3 +151,61 @@ describe('trigger opt-outs reach the deploy script', () => {
     expect(c!.triggerDiffs!.map((x) => x.name)).toEqual(['TRG_A', 'TRG_B']);
   });
 });
+
+describe('the CREATE of a new table honours the opt-out', () => {
+  // Filtering columnDiffs alone does nothing here: the generator renders
+  // CREATE TABLE from sourceTable.columns.
+  const created = {
+    tableName: 'ORDERS',
+    status: 'ADDED',
+    objectType: 'TABLE',
+    columnDiffs: [col('ID', 'ADDED', { primaryKey: true }), col('NOTE', 'ADDED')],
+    indexDiffs: [],
+    foreignKeyDiffs: [],
+    triggerDiffs: [],
+    sourceTable: {
+      name: 'orders',
+      columns: [
+        { name: 'id', type: 'int', nullable: false },
+        { name: 'note', type: 'text', nullable: true },
+      ],
+    },
+  } as unknown as TableDiff;
+
+  it('removes the column from sourceTable as well as the diffs', () => {
+    const [t] = buildIncludedDiffs(
+      [created],
+      selections({ columnSelection: { ORDERS: { NOTE: false } } })
+    );
+    expect(t!.sourceTable!.columns.map((c) => c.name)).toEqual(['id']);
+  });
+});
+
+describe('a parent column a child key references', () => {
+  const parent = orders({ tableName: 'CUSTOMERS', columnDiffs: [col('ID', 'ADDED')], triggerDiffs: [] });
+  const child = orders({
+    tableName: 'ORDERS',
+    columnDiffs: [],
+    triggerDiffs: [],
+    foreignKeyDiffs: [
+      {
+        name: 'FK_ORDERS_CUSTOMER',
+        status: 'ADDED',
+        source: { columns: ['customer_id'], referencedTable: 'customers', referencedColumns: ['id'] },
+      },
+    ],
+  } as Partial<TableDiff>);
+
+  it('is kept even when unticked', () => {
+    // Otherwise the child's ADD CONSTRAINT names a column nothing created.
+    const out = buildIncludedDiffs(
+      [parent, child],
+      selections({
+        selection: { CUSTOMERS: true, ORDERS: true },
+        columnSelection: { CUSTOMERS: { ID: false } },
+      })
+    );
+    const kept = out.find((t) => t.tableName === 'CUSTOMERS');
+    expect(kept!.columnDiffs.map((c) => c.name)).toContain('ID');
+  });
+});

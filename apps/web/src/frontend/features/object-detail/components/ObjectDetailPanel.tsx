@@ -104,11 +104,40 @@ export const ObjectDetailPanel: React.FC = () => {
   const [showReviewDialog, setShowReviewDialog] = useState(false);
   const [showReadinessDialog, setShowReadinessDialog] = useState(false);
 
+  /**
+   * The diffs the script is actually built from.
+   *
+   * The scans below used to read the raw compare, so unticking a dropped or
+   * narrowing column left its warning standing — and could keep Execute
+   * disabled over a statement the preview no longer contained.
+   */
+  const scannedDiffs = useMemo(
+    () =>
+      compareResult
+        ? buildIncludedDiffs(compareResult.tables, {
+            selection: syncSelection,
+            memberSelection,
+            indexSelection,
+            columnSelection,
+            triggerSelection,
+          })
+        : [],
+    [compareResult, syncSelection, memberSelection, indexSelection, columnSelection, triggerSelection]
+  );
+  /**
+   * Every scanned object is included by construction, so the selection map the
+   * validators take is "all of them".
+   */
+  const scannedSelection = useMemo(
+    () => Object.fromEntries(scannedDiffs.map((t) => [t.tableName, true])),
+    [scannedDiffs]
+  );
+
   // Live dependency scan — recomputed on every selection/nonDestructive change, not just
   // on Execute click, so the button can stay disabled until conflicts are resolved.
   const liveDropDeps = useMemo(
-    () => (compareResult ? findDropDependencies(compareResult.tables, syncSelection, { nonDestructive }) : []),
-    [compareResult, syncSelection, nonDestructive]
+    () => (compareResult ? findDropDependencies(scannedDiffs, scannedSelection, { nonDestructive }) : []),
+    [compareResult, scannedDiffs, scannedSelection, nonDestructive]
   );
   const hasUnresolvedDropDeps = liveDropDeps.length > 0;
 
@@ -116,30 +145,26 @@ export const ObjectDetailPanel: React.FC = () => {
   // generator's own "-- review:" / "MANUAL REVIEW REQUIRED" notices surfaced up front
   // instead of only inside the scrolled SQL preview.
   const missingFkIssues = useMemo(
-    () => (compareResult ? findMissingFkTargets(compareResult.tables, syncSelection) : []),
-    [compareResult, syncSelection]
+    () => (compareResult ? findMissingFkTargets(scannedDiffs, scannedSelection) : []),
+    [compareResult, scannedDiffs, scannedSelection]
   );
   const narrowingIssues = useMemo(
-    () => (compareResult ? findNarrowingTypeChanges(compareResult.tables, syncSelection, resolveDialect(targetConfig.dialect)) : []),
-    [compareResult, syncSelection, targetConfig.dialect]
+    () =>
+      compareResult
+        ? findNarrowingTypeChanges(scannedDiffs, scannedSelection, resolveDialect(targetConfig.dialect))
+        : [],
+    [compareResult, scannedDiffs, scannedSelection, targetConfig.dialect]
   );
   const reviewIssues = useMemo(() => {
     if (!compareResult) return [];
-    const includedDiffs = buildIncludedDiffs(compareResult.tables, {
-      selection: syncSelection,
-      memberSelection,
-      indexSelection,
-      columnSelection,
-      triggerSelection,
-    });
     const steps = ddlGenerator.generateMigrationPlan(
-      includedDiffs,
+      scannedDiffs,
       targetConfig.dialect,
       buildMapping({ sourceConfig, targetConfig, nonDestructive, targetServerVersion }),
       compareResult.tables
     );
     return extractReviewNotices(steps);
-  }, [compareResult, syncSelection, memberSelection, indexSelection, columnSelection, triggerSelection, sourceConfig, targetConfig, nonDestructive, targetServerVersion]);
+  }, [compareResult, scannedDiffs, sourceConfig, targetConfig, nonDestructive, targetServerVersion]);
   const hasMissingFkTargets = missingFkIssues.length > 0;
   const hasNarrowingChanges = narrowingIssues.length > 0;
   const narrowingAcked = narrowingAckSql !== null && narrowingAckSql === generatedSql;

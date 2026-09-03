@@ -3,7 +3,7 @@ import { withConnectionString } from '@/shared/lib/provider-settings';
 import type { SchemaCompareResult, TableDiff } from '@/shared/lib/types';
 import type { ConnectionRef } from '@/shared/api/schemaApi';
 import type { ConnectionConfig } from './sync-types';
-import { applyColumnSelection, applyTriggerSelection } from '@/shared/lib/column-selection';
+import { applySelectionToDiff } from '@/shared/lib/column-selection';
 
 /**
  * Every deploy opt-in and opt-out, passed as one object.
@@ -78,16 +78,19 @@ export function buildIncludedDiffs(tables: TableDiff[], sel: DeploySelections): 
         if (t.objectType !== 'ROLE') {
           // Column and trigger opt-outs apply to real objects; a role's
           // "columns" are its members and have their own selection below.
-          const withIndexes = { ...t, indexDiffs };
-          return {
-            ...withIndexes,
-            columnDiffs: applyColumnSelection(
-              withIndexes,
-              columnSelection?.[t.tableName],
-              includedIndexKeys(t.tableName)
-            ),
-            triggerDiffs: applyTriggerSelection(withIndexes, triggerSelection?.[t.tableName]),
-          };
+          //
+          // `siblings` is every table in the compare, not just the selected
+          // ones: a foreign key on a child names columns on the parent, and the
+          // parent cannot see that from its own diff.
+          return applySelectionToDiff(
+            { ...t, indexDiffs },
+            {
+              columnSelection: columnSelection?.[t.tableName],
+              triggerSelection: triggerSelection?.[t.tableName],
+              includedIndexes: includedIndexKeys(t.tableName),
+              siblings: tables,
+            }
+          );
         }
         const memberSel = memberSelection[t.tableName] ?? {};
         return {

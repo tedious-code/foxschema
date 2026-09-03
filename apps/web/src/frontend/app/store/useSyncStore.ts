@@ -17,7 +17,7 @@ import {
   apiDeleteConnection,
 } from '@/shared/api/authApi';
 import type { ConnectionConfig, SyncState } from './sync-types';
-import { sqlGeneratorModule, buildRef, buildMapping, regenerateSql } from './sync-helpers';
+import { sqlGeneratorModule, buildRef, buildMapping, regenerateSql, buildIncludedDiffs } from './sync-helpers';
 import { toast } from './toastStore';
 import { useUiStore } from './uiStore';
 import {
@@ -670,10 +670,22 @@ export const useSyncStore = create<SyncState>()(
   },
 
   applyMigration: async () => {
-    const { compareResult, syncSelection, targetConfig, continueOnError } = get();
+    const s = get();
+    const { compareResult, targetConfig, continueOnError } = s;
     if (!compareResult) return;
 
-    const includedDiffs = compareResult.tables.filter((t) => syncSelection[t.tableName]);
+    // The same diffs the preview was built from. This used to filter the raw
+    // tables by object selection alone, so Execute ignored every finer opt-in
+    // and opt-out — role members and index opt-ins already, and now columns and
+    // triggers. A preview that does not match what runs is the one thing a
+    // migration tool must never do.
+    const includedDiffs = buildIncludedDiffs(compareResult.tables, {
+      selection: s.syncSelection,
+      memberSelection: s.memberSelection,
+      indexSelection: s.indexSelection,
+      columnSelection: s.columnSelection,
+      triggerSelection: s.triggerSelection,
+    });
     const plan = sqlGeneratorModule.generateMigrationPlan(
       includedDiffs,
       targetConfig.dialect,

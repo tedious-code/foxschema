@@ -43,6 +43,16 @@ function columnsOf(entry: { source?: { columns: string[] }; target?: { columns: 
   return [...(entry.source?.columns ?? []), ...(entry.target?.columns ?? [])];
 }
 
+/**
+ * A referenced-table name as it appears inside a foreign key, reduced to the
+ * compare key. Catalogs give it in native casing and sometimes schema-qualified
+ * (`sales.orders`), while `tableName` is the bare uppercased match key.
+ */
+function referencedKey(name: string): string {
+  const bare = name.split('.').pop() ?? name;
+  return key(bare);
+}
+
 /** Does this index/FK still take part in the migration? */
 function isEmitted(status: IndexDiff['status'] | ForeignKeyDiff['status']): boolean {
   return status !== 'UNCHANGED';
@@ -62,11 +72,27 @@ function isEmitted(status: IndexDiff['status'] | ForeignKeyDiff['status']): bool
  * anything. Treating empty as unknown left a column pinned by an index that was
  * not in the script.
  */
+export interface ExclusionContext {
+  /**
+   * Index compare-keys the reader opted into. Omitting this and passing an
+   * empty set mean different things — see the note above.
+   */
+  includedIndexes?: ReadonlySet<string>;
+  /**
+   * The other tables in the migration. A foreign key lives on the child table
+   * but names columns on the parent, so a parent's column can only be shown as
+   * pinned by looking at everyone else's keys. Omit when the caller has no
+   * wider view; cross-table pinning is then simply not applied.
+   */
+  siblings?: readonly TableDiff[];
+}
+
 export function columnExclusionBlock(
   diff: TableDiff,
   columnName: string,
-  includedIndexes?: ReadonlySet<string>
+  ctx: ExclusionContext = {}
 ): ExclusionBlock | null {
+  const { includedIndexes, siblings } = ctx;
   const col = diff.columnDiffs.find((c) => key(c.name) === key(columnName));
   if (!col) return null;
 
@@ -103,17 +129,41 @@ export function columnExclusionBlock(
     }
   }
 
+  // A foreign key sits on the child table and names columns on the parent, so
+  // the parent's own diff says nothing about it. Without this, dropping a
+  // parent column left the child's ADD CONSTRAINT naming a column the script
+  // never created — and that statement runs after the table is already there.
+  const thisTable = key(diff.tableName);
+  for (const other of siblings ?? []) {
+    if (key(other.tableName) === thisTable) continue;
+    for (const fk of other.foreignKeyDiffs ?? []) {
+      if (!isEmitted(fk.status)) continue;
+      const refs = [fk.source, fk.target].filter(Boolean) as {
+        referencedTable: string;
+        referencedColumns: string[];
+      }[];
+      for (const ref of refs) {
+        if (referencedKey(ref.referencedTable) !== thisTable) continue;
+        if ((ref.referencedColumns ?? []).some((c) => key(c) === k)) {
+          return {
+            reason: `Referenced by ${other.tableName}'s foreign key ${fk.name}. Leave that key out too, or keep this column.`,
+          };
+        }
+      }
+    }
+  }
+
   return null;
 }
 
 /** Every column on this table that cannot be left out, keyed by compare key. */
 export function blockedColumns(
   diff: TableDiff,
-  includedIndexes?: ReadonlySet<string>
+  ctx: ExclusionContext = {}
 ): Map<string, ExclusionBlock> {
   const out = new Map<string, ExclusionBlock>();
   for (const col of diff.columnDiffs) {
-    const block = columnExclusionBlock(diff, col.name, includedIndexes);
+    const block = columnExclusionBlock(diff, col.name, ctx);
     if (block) out.set(key(col.name), block);
   }
   return out;
@@ -130,10 +180,10 @@ export function blockedColumns(
 export function applyColumnSelection(
   diff: TableDiff,
   selection: Record<string, boolean> | undefined,
-  includedIndexes?: ReadonlySet<string>
+  ctx: ExclusionContext = {}
 ): ColumnDiff[] {
   if (!selection) return diff.columnDiffs;
-  const blocked = blockedColumns(diff, includedIndexes);
+  const blocked = blockedColumns(diff, ctx);
   return diff.columnDiffs.filter((c) => {
     if (selection[c.name] !== false) return true;
     // Unchanged columns carry no statement, so excluding one is meaningless;
@@ -151,4 +201,44 @@ export function applyTriggerSelection(
   const triggers = diff.triggerDiffs ?? [];
   if (!selection) return triggers;
   return triggers.filter((t) => selection[t.name] !== false || t.status === 'UNCHANGED');
+}
+
+/**
+ * Apply both opt-outs to a whole table diff.
+ *
+ * `columnDiffs` alone is not enough. For a table being created the generator
+ * renders CREATE TABLE from `sourceTable.columns`, never from the diffs, so
+ * filtering only the diffs left the new table with every column and the
+ * checkbox doing nothing at all — the worst shape for a control, because it
+ * looks like it worked.
+ *
+ * Triggers need no such treatment: they are emitted from `triggerDiffs` on
+ * every path, created tables included.
+ */
+export function applySelectionToDiff(
+  diff: TableDiff,
+  opts: {
+    columnSelection?: Record<string, boolean>;
+    triggerSelection?: Record<string, boolean>;
+  } & ExclusionContext
+): TableDiff {
+  const columnDiffs = applyColumnSelection(diff, opts.columnSelection, opts);
+  const triggerDiffs = applyTriggerSelection(diff, opts.triggerSelection);
+
+  const kept = new Set(columnDiffs.map((c) => key(c.name)));
+  const dropped = diff.columnDiffs.filter((c) => !kept.has(key(c.name)));
+
+  const next: TableDiff = { ...diff, columnDiffs, triggerDiffs };
+
+  if (dropped.length > 0 && next.sourceTable?.columns) {
+    // Match on the column's own identifier where compare captured it, falling
+    // back to the compare key. `name` on a ColumnDiff is the uppercased match
+    // key, not an identifier — the same trap the DDL generators hit.
+    const droppedKeys = new Set(dropped.map((c) => key(c.source?.name ?? c.name)));
+    next.sourceTable = {
+      ...next.sourceTable,
+      columns: next.sourceTable.columns.filter((c) => !droppedKeys.has(key(c.name))),
+    };
+  }
+  return next;
 }

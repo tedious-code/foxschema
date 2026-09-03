@@ -194,10 +194,12 @@ export type { ObjectTypeReadiness, ReadinessLevel } from './modules/dialect/cros
 export { buildBrowseResult } from './modules/schema-diff/browse.js';
 export {
   applyColumnSelection,
+  applySelectionToDiff,
   applyTriggerSelection,
   blockedColumns,
   columnExclusionBlock,
   type ExclusionBlock,
+  type ExclusionContext,
 } from './modules/schema-diff/column-selection.js';
 export {
   splitSqlStatements,
