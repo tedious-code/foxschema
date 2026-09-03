@@ -15,6 +15,7 @@ import {
   applyTriggerSelection,
   blockedColumns,
   columnExclusionBlock,
+  columnExclusionConsequences,
 } from './column-selection';
 import type { TableDiff } from '../../interfaces/diff.types.interface.js';
 
@@ -343,9 +344,9 @@ describe('a created table trims what CREATE emits', () => {
     expect(out.sourceTable!.foreignKeys).toEqual([]);
   });
 
-  it('pins a column an index shares with a surviving one', () => {
-    // Trimming here would silently rewrite the index to (keep), which is not
-    // what the reader asked for. Refusing is the honest answer.
+  it('drops an index it shares with a surviving column, rather than refusing', () => {
+    // Refusing was tried: it disabled every box in the group at once and told
+    // the reader to untick partners that were disabled too.
     const shared = {
       ...created,
       sourceTable: {
@@ -353,20 +354,26 @@ describe('a created table trims what CREATE emits', () => {
         indices: [{ name: 'idx_pair', columns: ['keep', 'gone'], unique: false }],
       },
     } as TableDiff;
-    const block = columnExclusionBlock(shared, 'GONE');
-    expect(block?.reason).toMatch(/idx_pair/);
-    expect(block?.reason).toMatch(/rewrite/i);
+    expect(columnExclusionBlock(shared, 'GONE')).toBeNull();
+    // Both the index and the key that name it go, and both are listed.
+    expect(columnExclusionConsequences(shared, 'GONE')).toEqual([
+      'index idx_pair',
+      'foreign key fk_gone',
+    ]);
 
     const out = applySelectionToDiff(shared, { columnSelection: { GONE: false } });
-    expect(out.sourceTable!.columns.map((c) => c.name)).toContain('gone');
-    expect(out.sourceTable!.indices).toHaveLength(1);
+    expect(out.sourceTable!.columns.map((c) => c.name)).toEqual(['keep']);
+    expect(out.sourceTable!.indices).toEqual([]);
+    expect(out.sourceTable!.foreignKeys).toEqual([]);
   });
 });
 
-describe('a composite index does not pin its own columns forever', () => {
-  // Each column pinned the other, so the pair could never be excluded together
-  // — even though the index is dropped whole once every column it names is
-  // gone. "Staying" has to mean "not itself excluded", not "not this one".
+describe('a created table drops what an excluded column carried', () => {
+  // Blocking these was tried and does not work: each column of a composite
+  // index pinned its partners while they were still selected, so every box in
+  // the group started disabled and the "untick those first" advice named boxes
+  // that were themselves disabled. Dropping the index is valid SQL, follows
+  // from what was asked, and is surfaced rather than silent.
   const created = {
     ...table({
       tableName: 'ORDERS',
@@ -381,30 +388,53 @@ describe('a composite index does not pin its own columns forever', () => {
         { name: 'c', type: 'text', nullable: true },
       ],
       indices: [{ name: 'idx_pair', columns: ['a', 'b'], unique: false }],
-      foreignKeys: [],
+      foreignKeys: [{ name: 'fk_c', columns: ['c'], referencedTable: 'x', referencedColumns: ['id'] }],
     },
   } as unknown as TableDiff;
 
-  it('pins one column while the other is staying', () => {
-    const block = columnExclusionBlock(created, 'A', { columnSelection: {} });
-    expect(block?.reason).toMatch(/idx_pair/);
-    // The message names what to untick first.
-    expect(block?.reason).toMatch(/\bb\b/);
+  it('leaves every column of a composite index tickable', () => {
+    // The dead-end this replaced: both A and B came back blocked with nothing
+    // excluded, so neither could ever be unticked.
+    expect(blockedColumns(created).size).toBe(0);
   });
 
-  it('frees it once the other is excluded too', () => {
-    expect(columnExclusionBlock(created, 'A', { columnSelection: { B: false } })).toBeNull();
+  it('names what would go with it', () => {
+    expect(columnExclusionConsequences(created, 'A')).toEqual(['index idx_pair']);
+    expect(columnExclusionConsequences(created, 'C')).toEqual(['foreign key fk_c']);
+    expect(columnExclusionConsequences(created, 'B')).toEqual(['index idx_pair']);
   });
 
-  it('lets both go together, taking the index with them', () => {
+  it('says nothing for a column nothing names', () => {
+    const plain = { ...created, sourceTable: { ...created.sourceTable!, indices: [], foreignKeys: [] } } as TableDiff;
+    expect(columnExclusionConsequences(plain, 'A')).toEqual([]);
+  });
+
+  it('drops the index when one of its columns goes', () => {
+    const out = applySelectionToDiff(created, { columnSelection: { A: false } });
+    expect(out.sourceTable!.columns.map((c) => c.name)).toEqual(['b', 'c']);
+    expect(out.sourceTable!.indices).toEqual([]);
+  });
+
+  it('drops it once, not twice, when both go', () => {
     const out = applySelectionToDiff(created, { columnSelection: { A: false, B: false } });
     expect(out.sourceTable!.columns.map((c) => c.name)).toEqual(['c']);
     expect(out.sourceTable!.indices).toEqual([]);
   });
 
-  it('still keeps the index when only one column goes', () => {
-    const out = applySelectionToDiff(created, { columnSelection: { A: false } });
+  it('keeps a key whose column is pinned by a hard rule', () => {
+    // A partner kept by the primary key really does stay, so an index naming
+    // only surviving columns must survive with it.
+    const pk = {
+      ...created,
+      columnDiffs: [col('A', 'ADDED', { primaryKey: true }), col('B', 'ADDED')],
+      sourceTable: {
+        ...created.sourceTable!,
+        indices: [{ name: 'idx_a', columns: ['a'], unique: false }],
+        foreignKeys: [],
+      },
+    } as TableDiff;
+    const out = applySelectionToDiff(pk, { columnSelection: { A: false } });
     expect(out.sourceTable!.columns.map((c) => c.name)).toContain('a');
-    expect(out.sourceTable!.indices).toHaveLength(1);
+    expect(out.sourceTable!.indices.map((i) => i.name)).toEqual(['idx_a']);
   });
 });

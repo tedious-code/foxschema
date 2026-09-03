@@ -198,6 +198,7 @@ export {
   applyTriggerSelection,
   blockedColumns,
   columnExclusionBlock,
+  columnExclusionConsequences,
   type ExclusionBlock,
   type ExclusionContext,
 } from './modules/schema-diff/column-selection.js';

@@ -237,3 +237,39 @@ describe('cross-table pins reach the checkbox', () => {
     expect((screen.getByTestId('blueprint-column-check-ID') as HTMLInputElement).disabled).toBe(false);
   });
 });
+
+describe('a created table\'s composite index leaves its columns tickable', () => {
+  // The dead-end this replaced: each column pinned its partners while they were
+  // still selected, so every box in the group started disabled — and the reason
+  // told the reader to untick partners that were disabled too.
+  const created = {
+    ...tableDiff({
+      tableName: 'ORDERS',
+      status: 'ADDED',
+      columnDiffs: [col('A', 'ADDED'), col('B', 'ADDED')],
+      triggerDiffs: [],
+    } as Partial<TableDiff>),
+    sourceTable: {
+      name: 'orders',
+      columns: [
+        { name: 'a', type: 'text', nullable: true },
+        { name: 'b', type: 'text', nullable: true },
+      ],
+      indices: [{ name: 'idx_pair', columns: ['a', 'b'], unique: false }],
+      foreignKeys: [],
+    },
+  } as unknown as TableDiff;
+
+  it('enables both boxes', () => {
+    render(<SchemaBlueprint diff={created} onToggleColumn={() => undefined} />);
+    expect((screen.getByTestId('blueprint-column-check-A') as HTMLInputElement).disabled).toBe(false);
+    expect((screen.getByTestId('blueprint-column-check-B') as HTMLInputElement).disabled).toBe(false);
+  });
+
+  it('says what leaves with the column', () => {
+    render(<SchemaBlueprint diff={created} onToggleColumn={() => undefined} />);
+    expect(screen.getByTestId('blueprint-column-check-A').getAttribute('title')).toMatch(
+      /also drops index idx_pair/i
+    );
+  });
+});

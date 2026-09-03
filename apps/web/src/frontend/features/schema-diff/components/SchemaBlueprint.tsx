@@ -25,7 +25,7 @@ import { ChevronDown, ChevronRight, KeyRound } from 'lucide-react';
 import type { ColumnDiff, TableDiff } from '@/shared/lib/types';
 import { highlightMatch } from '@/features/schema-diff/lib/highlight';
 import { diffLines } from '@/shared/utils/lineDiff';
-import { blockedColumns } from '@/shared/lib/column-selection';
+import { blockedColumns, columnExclusionConsequences } from '@/shared/lib/column-selection';
 
 /** `comfortable` is the full-width workspace; `compact` fits a modal pane. */
 export type BlueprintDensity = 'comfortable' | 'compact';
@@ -284,9 +284,8 @@ export function SchemaBlueprint({
       blockedColumns(diff, {
         includedIndexes: includedIndexKeys,
         siblings: siblingDiffs,
-        columnSelection,
       }),
-    [diff, includedIndexKeys, siblingDiffs, columnSelection]
+    [diff, includedIndexKeys, siblingDiffs]
   );
   const changedColumns = isRole ? [] : diff.columnDiffs.filter((c) => c.status !== 'UNCHANGED');
   const allColumnsSelected =
@@ -653,6 +652,11 @@ export function SchemaBlueprint({
                               // script cannot leave it out, and a box that
                               // unticks without changing the SQL would be a lie.
                               const block = blocked.get(col.name.toUpperCase());
+                              // What else leaves with it. Dropping a column of
+                              // a created table takes any index or key that
+                              // names it, which the reader should know before
+                              // ticking rather than discover in the script.
+                              const alsoGoes = block ? [] : columnExclusionConsequences(diff, col.name);
                               return (
                                 <input
                                   type="checkbox"
@@ -660,7 +664,13 @@ export function SchemaBlueprint({
                                   checked={block ? true : columnSelection?.[col.name] !== false}
                                   disabled={!!block}
                                   onChange={() => onToggleColumn(col.name)}
-                                  title={block ? block.reason : 'Migrate this column'}
+                                  title={
+                                    block
+                                      ? block.reason
+                                      : alsoGoes.length > 0
+                                        ? `Migrate this column. Leaving it out also drops ${alsoGoes.join(', ')}.`
+                                        : 'Migrate this column'
+                                  }
                                   className={`w-3.5 h-3.5 accent-cyan-500 shrink-0 ${
                                     block ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
                                   }`}
