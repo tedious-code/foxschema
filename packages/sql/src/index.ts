@@ -193,6 +193,13 @@ export { CROSS_DIALECT_READINESS } from './modules/dialect/cross-dialect-readine
 export type { ObjectTypeReadiness, ReadinessLevel } from './modules/dialect/cross-dialect-readiness.js';
 export { buildBrowseResult } from './modules/schema-diff/browse.js';
 export {
+  applyColumnSelection,
+  applyTriggerSelection,
+  blockedColumns,
+  columnExclusionBlock,
+  type ExclusionBlock,
+} from './modules/schema-diff/column-selection.js';
+export {
   splitSqlStatements,
   checkStatement,
   isWriteStatement,

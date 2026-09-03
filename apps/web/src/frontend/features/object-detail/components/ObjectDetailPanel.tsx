@@ -67,6 +67,12 @@ export const ObjectDetailPanel: React.FC = () => {
     indexSelection,
     toggleIndexSelection,
     setAllIndexSelection,
+    columnSelection,
+    toggleColumnSelection,
+    setAllColumnSelection,
+    triggerSelection,
+    toggleTriggerSelection,
+    setAllTriggerSelection,
     targetServerVersion,
   } = useSyncStore();
 
@@ -119,7 +125,13 @@ export const ObjectDetailPanel: React.FC = () => {
   );
   const reviewIssues = useMemo(() => {
     if (!compareResult) return [];
-    const includedDiffs = buildIncludedDiffs(compareResult.tables, syncSelection, memberSelection, indexSelection);
+    const includedDiffs = buildIncludedDiffs(compareResult.tables, {
+      selection: syncSelection,
+      memberSelection,
+      indexSelection,
+      columnSelection,
+      triggerSelection,
+    });
     const steps = ddlGenerator.generateMigrationPlan(
       includedDiffs,
       targetConfig.dialect,
@@ -127,7 +139,7 @@ export const ObjectDetailPanel: React.FC = () => {
       compareResult.tables
     );
     return extractReviewNotices(steps);
-  }, [compareResult, syncSelection, memberSelection, indexSelection, sourceConfig, targetConfig, nonDestructive, targetServerVersion]);
+  }, [compareResult, syncSelection, memberSelection, indexSelection, columnSelection, triggerSelection, sourceConfig, targetConfig, nonDestructive, targetServerVersion]);
   const hasMissingFkTargets = missingFkIssues.length > 0;
   const hasNarrowingChanges = narrowingIssues.length > 0;
   const narrowingAcked = narrowingAckSql !== null && narrowingAckSql === generatedSql;
@@ -474,6 +486,12 @@ export const ObjectDetailPanel: React.FC = () => {
           indexSelection={indexSelection[selectedTable.tableName]}
           onToggleIndex={(name) => toggleIndexSelection(selectedTable.tableName, name)}
           onSelectAllIndexes={(checked) => setAllIndexSelection(selectedTable.tableName, checked)}
+          columnSelection={columnSelection[selectedTable.tableName]}
+          onToggleColumn={(name) => toggleColumnSelection(selectedTable.tableName, name)}
+          onSelectAllColumns={(checked) => setAllColumnSelection(selectedTable.tableName, checked)}
+          triggerSelection={triggerSelection[selectedTable.tableName]}
+          onToggleTriggerSelection={(name) => toggleTriggerSelection(selectedTable.tableName, name)}
+          onSelectAllTriggers={(checked) => setAllTriggerSelection(selectedTable.tableName, checked)}
           expandedTriggers={expandedTriggers}
           onToggleTrigger={toggleTriggerDdl}
           triggerDdls={formattedTriggerDdls}
