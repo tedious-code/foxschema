@@ -28,7 +28,10 @@ function emitOracle(ctx: EmitCtx): void {
   // valid on object privileges and raises ORA-00990 here.
   const adminOption = option ? ' WITH ADMIN OPTION' : '';
 
-  if (permissions.includes('connect')) {
+  // CREATE SESSION is instance-wide. Only emit it when the request is actually
+  // about the database — a Tables-scoped leftover from read-only/schema
+  // presets must not unlock login as a side effect.
+  if (permissions.includes('connect') && scope.type === 'database') {
     add(
       `${verb} CREATE SESSION ${dir} ${grantee}${adminOption};`,
       `Lets ${request.principal.name} open a session. Oracle calls this CREATE SESSION rather than CONNECT.`,
@@ -36,7 +39,13 @@ function emitOracle(ctx: EmitCtx): void {
       ['connect']
     );
   }
-  if (permissions.includes('create-object')) {
+  // CREATE TABLE is a system privilege for the grantee's own schema — not a
+  // per-object grant. Emitting it on a Tables-scoped request (stale Manage
+  // schema preset) would widen far past the named tables.
+  if (
+    permissions.includes('create-object') &&
+    (scope.type === 'database' || scope.type === 'schema')
+  ) {
     add(
       `${verb} CREATE TABLE ${dir} ${grantee}${adminOption};`,
       `Lets ${request.principal.name} create tables in their own schema.`,

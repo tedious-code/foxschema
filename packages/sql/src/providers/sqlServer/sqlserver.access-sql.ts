@@ -25,7 +25,10 @@ function emitSqlServer(ctx: EmitCtx): void {
     privs.push('ALTER');
     covers.push('alter-object');
   }
-  if (execPerms.length > 0) {
+  // EXECUTE is for routines (or schema/database-wide). Putting it on a table
+  // OBJECT:: grant is not what a Tables-scoped request asked for, and it is
+  // how a leftover procedure-executor preset over-granted.
+  if (execPerms.length > 0 && scope.type !== 'tables' && scope.type !== 'columns') {
     privs.push('EXECUTE');
     covers.push(...execPerms);
   }
@@ -46,7 +49,12 @@ function emitSqlServer(ctx: EmitCtx): void {
       ['connect']
     );
   }
-  if (permissions.includes('create-object')) {
+  // CREATE TABLE is database-wide. A Tables-scoped request that still carries
+  // create-object must not pick it up from a stale Manage-schema preset.
+  if (
+    permissions.includes('create-object') &&
+    (scope.type === 'database' || scope.type === 'schema')
+  ) {
     add(
       `${verb} CREATE TABLE ${dir} ${grantee}${option};`,
       `Lets ${request.principal.name} create tables in this database.`,
