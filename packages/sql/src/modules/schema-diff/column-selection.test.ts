@@ -362,3 +362,49 @@ describe('a created table trims what CREATE emits', () => {
     expect(out.sourceTable!.indices).toHaveLength(1);
   });
 });
+
+describe('a composite index does not pin its own columns forever', () => {
+  // Each column pinned the other, so the pair could never be excluded together
+  // — even though the index is dropped whole once every column it names is
+  // gone. "Staying" has to mean "not itself excluded", not "not this one".
+  const created = {
+    ...table({
+      tableName: 'ORDERS',
+      status: 'ADDED',
+      columnDiffs: [col('A', 'ADDED'), col('B', 'ADDED'), col('C', 'ADDED')],
+    }),
+    sourceTable: {
+      name: 'orders',
+      columns: [
+        { name: 'a', type: 'text', nullable: true },
+        { name: 'b', type: 'text', nullable: true },
+        { name: 'c', type: 'text', nullable: true },
+      ],
+      indices: [{ name: 'idx_pair', columns: ['a', 'b'], unique: false }],
+      foreignKeys: [],
+    },
+  } as unknown as TableDiff;
+
+  it('pins one column while the other is staying', () => {
+    const block = columnExclusionBlock(created, 'A', { columnSelection: {} });
+    expect(block?.reason).toMatch(/idx_pair/);
+    // The message names what to untick first.
+    expect(block?.reason).toMatch(/\bb\b/);
+  });
+
+  it('frees it once the other is excluded too', () => {
+    expect(columnExclusionBlock(created, 'A', { columnSelection: { B: false } })).toBeNull();
+  });
+
+  it('lets both go together, taking the index with them', () => {
+    const out = applySelectionToDiff(created, { columnSelection: { A: false, B: false } });
+    expect(out.sourceTable!.columns.map((c) => c.name)).toEqual(['c']);
+    expect(out.sourceTable!.indices).toEqual([]);
+  });
+
+  it('still keeps the index when only one column goes', () => {
+    const out = applySelectionToDiff(created, { columnSelection: { A: false } });
+    expect(out.sourceTable!.columns.map((c) => c.name)).toContain('a');
+    expect(out.sourceTable!.indices).toHaveLength(1);
+  });
+});

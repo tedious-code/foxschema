@@ -53,6 +53,24 @@ function referencedKey(name: string): string {
   return key(bare);
 }
 
+/**
+ * The selection key for a column named the way an index or key names it.
+ *
+ * Selections are keyed by `ColumnDiff.name` — the uppercased compare key —
+ * while `sourceTable` lists identifiers in native casing. Returns null when the
+ * compare has no diff for that column, which means it is not something the
+ * reader can exclude anyway.
+ */
+function columnDiffNameFor(diff: TableDiff, nativeName: string): string | null {
+  const wanted = key(nativeName);
+  for (const c of diff.columnDiffs) {
+    if (key(c.name) === wanted) return c.name;
+    if (c.source?.name && key(c.source.name) === wanted) return c.name;
+    if (c.target?.name && key(c.target.name) === wanted) return c.name;
+  }
+  return null;
+}
+
 /** Does this index/FK still take part in the migration? */
 function isEmitted(status: IndexDiff['status'] | ForeignKeyDiff['status']): boolean {
   return status !== 'UNCHANGED';
@@ -85,6 +103,16 @@ export interface ExclusionContext {
    * wider view; cross-table pinning is then simply not applied.
    */
   siblings?: readonly TableDiff[];
+  /**
+   * What is already excluded on this table.
+   *
+   * Only the created-table rules need it, and only because they are the ones
+   * that trim. A composite index on (a, b) pins each of a and b *while the
+   * other is staying* — but once both are unticked the index has nothing left
+   * to name and is dropped whole, so neither should be pinned. Without this the
+   * two columns pinned each other and could never be excluded together.
+   */
+  columnSelection?: Record<string, boolean>;
 }
 
 export function columnExclusionBlock(
@@ -111,24 +139,35 @@ export function columnExclusionBlock(
 
   // A created table's indexes and keys come from `sourceTable`, not from the
   // diffs, and are not opt-in — they arrive with the table. One that names this
-  // column *and* a surviving one cannot be trimmed without rewriting what the
-  // reader asked for, so the column is pinned instead.
-  const survives = (name: string) => key(name) !== k;
+  // column *and* a column that is staying cannot be trimmed without rewriting
+  // what the reader asked for, so the column is pinned instead. When every
+  // column it names is going, the whole index goes with them and nothing needs
+  // pinning — which is why "staying" has to account for the rest of the
+  // selection rather than meaning merely "not this one".
+  const survives = (name: string) => {
+    if (key(name) === k) return false;
+    const diffName = columnDiffNameFor(diff, name);
+    return diffName === null || ctx.columnSelection?.[diffName] !== false;
+  };
+  const survivorsOf = (cols: readonly string[]) => cols.filter(survives);
+
   for (const idx of diff.sourceTable?.indices ?? []) {
     const cols = idx.columns ?? [];
     if (!cols.some((c) => key(c) === k)) continue;
-    if (cols.some(survives)) {
+    const staying = survivorsOf(cols);
+    if (staying.length > 0) {
       return {
-        reason: `Indexed by ${idx.name} together with other columns. Dropping it would rewrite that index, so keep this column.`,
+        reason: `Indexed by ${idx.name}, together with ${staying.join(', ')}. Dropping it would rewrite that index — leave those out too, or keep this column.`,
       };
     }
   }
   for (const fk of diff.sourceTable?.foreignKeys ?? []) {
     const cols = fk.columns ?? [];
     if (!cols.some((c) => key(c) === k)) continue;
-    if (cols.some(survives)) {
+    const staying = survivorsOf(cols);
+    if (staying.length > 0) {
       return {
-        reason: `Used by foreign key ${fk.name} together with other columns. Dropping it would rewrite that key, so keep this column.`,
+        reason: `Used by foreign key ${fk.name}, together with ${staying.join(', ')}. Dropping it would rewrite that key — leave those out too, or keep this column.`,
       };
     }
   }
@@ -207,7 +246,9 @@ export function applyColumnSelection(
   ctx: ExclusionContext = {}
 ): ColumnDiff[] {
   if (!selection) return diff.columnDiffs;
-  const blocked = blockedColumns(diff, ctx);
+  // The rules need to see the rest of the selection: whether a column is pinned
+  // depends on what else is going.
+  const blocked = blockedColumns(diff, { ...ctx, columnSelection: selection });
   return diff.columnDiffs.filter((c) => {
     if (selection[c.name] !== false) return true;
     // Unchanged columns carry no statement, so excluding one is meaningless;

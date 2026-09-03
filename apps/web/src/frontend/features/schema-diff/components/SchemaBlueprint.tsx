@@ -280,8 +280,13 @@ export function SchemaBlueprint({
     [indexSelection]
   );
   const blocked = React.useMemo(
-    () => blockedColumns(diff, { includedIndexes: includedIndexKeys, siblings: siblingDiffs }),
-    [diff, includedIndexKeys, siblingDiffs]
+    () =>
+      blockedColumns(diff, {
+        includedIndexes: includedIndexKeys,
+        siblings: siblingDiffs,
+        columnSelection,
+      }),
+    [diff, includedIndexKeys, siblingDiffs, columnSelection]
   );
   const changedColumns = isRole ? [] : diff.columnDiffs.filter((c) => c.status !== 'UNCHANGED');
   const allColumnsSelected =
