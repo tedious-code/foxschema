@@ -590,10 +590,16 @@ export function SchemaBlueprint({
                   title={
                     diff.status === 'ADDED'
                       ? 'A new object is created by one statement built from the source, so there is no per-column step to leave out.'
-                      : 'This object is replaced from its stored definition, so there is no per-column step to leave out.'
+                      : diff.status === 'REMOVED'
+                        ? 'A dropped object is removed by one DROP statement that names no columns, so there is no per-column step to leave out.'
+                        : 'This object is replaced from its stored definition, so there is no per-column step to leave out.'
                   }
                 >
-                  {diff.status === 'ADDED' ? 'Created whole' : 'Replaced whole'}
+                  {diff.status === 'ADDED'
+                    ? 'Created whole'
+                    : diff.status === 'REMOVED'
+                      ? 'Dropped whole'
+                      : 'Replaced whole'}
                 </span>
               ) : !isRole && changedColumns.length > 0 && onSelectAllColumns ? (
                 <label

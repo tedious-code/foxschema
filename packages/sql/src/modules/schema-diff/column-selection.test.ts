@@ -366,7 +366,28 @@ describe('objects that do not migrate column by column', () => {
     }
   });
 
-  it('says yes only for an existing table', () => {
+  it('says so for a table being dropped', () => {
+    // A DROP TABLE names no columns, so unticking one filtered the diffs while
+    // the plan dropped the table anyway. `!== ADDED` was the same mistake as
+    // the created case, in smaller print.
+    expect(supportsColumnSelection(table({ status: 'REMOVED' }))).toBe(false);
+  });
+
+  it('ignores opt-outs on a dropped table', () => {
+    const removed = table({
+      status: 'REMOVED',
+      columnDiffs: [col('A', 'REMOVED')],
+      triggerDiffs: [{ name: 'TRG', status: 'REMOVED' }],
+    } as Partial<TableDiff>);
+    const out = applySelectionToDiff(removed, {
+      columnSelection: { A: false },
+      triggerSelection: { TRG: false },
+    });
+    expect(out.columnDiffs).toHaveLength(1);
+    expect(out.triggerDiffs).toHaveLength(1);
+  });
+
+  it('says yes only for a table being altered', () => {
     expect(supportsColumnSelection(table({ status: 'MODIFIED' }))).toBe(true);
   });
 
