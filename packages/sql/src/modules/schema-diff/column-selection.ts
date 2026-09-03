@@ -141,6 +141,11 @@ export function columnExclusionBlock(
     }
   }
 
+  // Compare keys are uppercased bare names; FK catalogs may qualify the
+  // referenced table. Resolve once so both the local-key and sibling scans
+  // agree on what "this table" is.
+  const thisTable = key(diff.tableName);
+
   for (const fk of diff.foreignKeyDiffs ?? []) {
     if (!isEmitted(fk.status)) continue;
     if (columnsOf(fk).some((c) => key(c) === k)) {
@@ -148,13 +153,29 @@ export function columnExclusionBlock(
         reason: `Used by foreign key ${fk.name}. Leave the key out too, or keep this column.`,
       };
     }
+    // Self-referencing keys also name columns on this table via
+    // referencedColumns. `columnsOf` only sees the child-side list, and the
+    // sibling scan below skips this table, so without this a self-FK's parent
+    // columns look free to exclude while ADD CONSTRAINT still references them
+    // — after earlier ALTERs have already run.
+    const refs = [fk.source, fk.target].filter(Boolean) as {
+      referencedTable: string;
+      referencedColumns: string[];
+    }[];
+    for (const ref of refs) {
+      if (referencedKey(ref.referencedTable) !== thisTable) continue;
+      if ((ref.referencedColumns ?? []).some((c) => key(c) === k)) {
+        return {
+          reason: `Referenced by foreign key ${fk.name}. Leave the key out too, or keep this column.`,
+        };
+      }
+    }
   }
 
   // A foreign key sits on the child table and names columns on the parent, so
   // the parent's own diff says nothing about it. Without this, dropping a
   // parent column left the child's ADD CONSTRAINT naming a column the script
   // never created — and that statement runs after the table is already there.
-  const thisTable = key(diff.tableName);
   for (const other of siblings ?? []) {
     if (key(other.tableName) === thisTable) continue;
     for (const fk of other.foreignKeyDiffs ?? []) {
