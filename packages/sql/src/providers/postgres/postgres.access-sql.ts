@@ -140,8 +140,11 @@ function emitPostgres(ctx: EmitCtx): void {
     }
   }
 
+  // CREATE belongs on a schema or database, never on a named-table request.
+  // A tables-scoped request that still carries create-object (stale preset /
+  // scope switch) must not widen into GRANT CREATE ON SCHEMA.
   if (permissions.includes('create-object')) {
-    if (schema) {
+    if (scope.type === 'schema' && schema) {
       add(
         `${verb} CREATE ON SCHEMA ${ident(schema)} ${dir} ${grantee}${option};`,
         `Lets ${request.principal.name} create new objects inside ${schema}.`,
@@ -178,9 +181,14 @@ function emitPostgres(ctx: EmitCtx): void {
         );
       }
     }
-  } else if (execPerms.length > 0) {
-    // At database scope PostgreSQL still needs a schema named; public is the
-    // same assumption the table grant above makes, said out loud.
+  } else if (
+    execPerms.length > 0 &&
+    (scope.type === 'schema' || scope.type === 'database')
+  ) {
+    // Schema / database only. Tables and columns scopes that still carry
+    // execute-* (a preset clicked while "Tables" is selected, or a leftover
+    // after switching scope) must not fall through to ALL ROUTINES — that
+    // grants every routine in the schema while the UI is naming specific tables.
     const routineSchema = schema || 'public';
     add(
       `${verb} EXECUTE ON ALL ROUTINES IN SCHEMA ${ident(routineSchema)} ${dir} ${grantee}${option};`,

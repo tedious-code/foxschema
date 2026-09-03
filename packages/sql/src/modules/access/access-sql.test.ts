@@ -283,6 +283,127 @@ describe('presets and risk', () => {
   });
 });
 
+describe('a Tables-scoped request must not widen to schema- or database-wide grants', () => {
+  // Trigger: Permission Builder → scope Tables → click "Execute procedures" or
+  // "Manage schema", or switch to Tables after those presets. The flat UI hides
+  // execute/create checkboxes at Tables scope, but the request still carried
+  // them and emitters granted ALL ROUTINES / CREATE ON SCHEMA.
+
+  it('does not grant EXECUTE ON ALL ROUTINES for a PostgreSQL table list', () => {
+    const r = ok(
+      {
+        principal: user,
+        action: 'grant',
+        permissions: ['read', 'execute-function', 'execute-procedure'],
+        scope: { type: 'tables', schema: 'app', tables: ['orders'] },
+      },
+      'postgres'
+    );
+    const sql = sqlOf(r);
+    expect(sql).toMatch(/GRANT SELECT ON "app"\."orders"/);
+    expect(sql).not.toMatch(/ALL ROUTINES/i);
+    expect(r.warnings.map((w) => w.message).join(' ')).toMatch(/cannot express/i);
+  });
+
+  it('does not grant CREATE ON SCHEMA for a PostgreSQL table list', () => {
+    const r = ok(
+      {
+        principal: user,
+        action: 'grant',
+        permissions: permissionsForPreset('schema-developer'),
+        scope: { type: 'tables', schema: 'app', tables: ['orders'] },
+      },
+      'postgres'
+    );
+    const sql = sqlOf(r);
+    expect(sql).toMatch(/GRANT SELECT, INSERT, UPDATE, DELETE ON "app"\."orders"/);
+    expect(sql).not.toMatch(/GRANT CREATE ON SCHEMA/);
+  });
+
+  it('still grants schema-wide EXECUTE when the scope really is a schema', () => {
+    const r = ok(
+      {
+        principal: user,
+        action: 'grant',
+        permissions: permissionsForPreset('procedure-executor'),
+        scope: { type: 'schema', schema: 'app' },
+      },
+      'postgres'
+    );
+    expect(sqlOf(r)).toMatch(/EXECUTE ON ALL ROUTINES IN SCHEMA "app"/);
+  });
+
+  it('does not pack EXECUTE into a MySQL per-table grant', () => {
+    const r = ok(
+      {
+        principal: user,
+        action: 'grant',
+        permissions: ['read', 'execute-procedure', 'create-object'],
+        scope: { type: 'tables', schema: 'app', tables: ['orders'] },
+      },
+      'mysql'
+    );
+    const sql = sqlOf(r);
+    expect(sql).toBe("GRANT SELECT ON `app`.`orders` TO 'report_user'@'%';");
+  });
+
+  it('does not pack EXECUTE into a SQL Server per-table grant', () => {
+    const r = ok(
+      {
+        principal: user,
+        action: 'grant',
+        permissions: ['read', 'execute-procedure'],
+        scope: { type: 'tables', schema: 'dbo', tables: ['orders'] },
+      },
+      'sqlserver'
+    );
+    expect(sqlOf(r)).toBe('GRANT SELECT ON OBJECT::[dbo].[orders] TO [report_user];');
+  });
+
+  it('does not grant Oracle CREATE TABLE on a Tables-scoped request', () => {
+    const r = ok(
+      {
+        principal: user,
+        action: 'grant',
+        permissions: permissionsForPreset('schema-developer'),
+        scope: { type: 'tables', schema: 'DEMO', tables: ['ORDERS'] },
+      },
+      'oracle'
+    );
+    const sql = sqlOf(r);
+    expect(sql).toMatch(/GRANT SELECT, INSERT, UPDATE, DELETE, ALTER ON "DEMO"\."ORDERS"/);
+    expect(sql).not.toMatch(/GRANT CREATE TABLE/);
+  });
+
+  it('does not grant SQL Server CREATE TABLE on a Tables-scoped request', () => {
+    const r = ok(
+      {
+        principal: user,
+        action: 'grant',
+        permissions: permissionsForPreset('schema-developer'),
+        scope: { type: 'tables', schema: 'dbo', tables: ['orders'] },
+      },
+      'sqlserver'
+    );
+    const sql = sqlOf(r);
+    expect(sql).toMatch(/GRANT SELECT, INSERT, UPDATE, DELETE, ALTER ON OBJECT::\[dbo\]\.\[orders\]/);
+    expect(sql).not.toMatch(/GRANT CREATE TABLE/);
+  });
+
+  it('still allows ALTER on a MySQL table (object grid)', () => {
+    const r = ok(
+      {
+        principal: user,
+        action: 'grant',
+        permissions: ['read', 'alter-object'],
+        scope: { type: 'tables', schema: 'app', tables: ['orders'] },
+      },
+      'mysql'
+    );
+    expect(sqlOf(r)).toMatch(/GRANT SELECT, ALTER ON `app`\.`orders`/);
+  });
+});
+
 describe('identifier safety', () => {
   it.each([
     ['a name with spaces', 'my schema'],

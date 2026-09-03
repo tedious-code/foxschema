@@ -22,19 +22,26 @@ function emitMysql(ctx: EmitCtx): void {
   const privs = tablePrivileges(permissions);
   const covers = [...tablePermissions(permissions)];
   const execPerms = executePermissions(permissions);
-  if (permissions.includes('create-object')) {
+  // CREATE is a database privilege (`db.*`). Emitting it on a named table
+  // (stale schema-developer preset while Tables is selected) would grant more
+  // than the flat builder's offered checkboxes show.
+  if (permissions.includes('create-object') && (scope.type === 'database' || scope.type === 'schema')) {
     privs.push('CREATE');
     covers.push('create-object');
   }
-  if (permissions.includes('alter-object')) {
+  // ALTER / DROP on a named table are real MySQL privileges — the object grid
+  // offers them. Keep them for tables; at database/schema they mean db.*.
+  if (permissions.includes('alter-object') && scope.type !== 'columns') {
     privs.push('ALTER');
     covers.push('alter-object');
   }
-  if (permissions.includes('drop-object')) {
+  if (permissions.includes('drop-object') && scope.type !== 'columns' && scope.type !== 'routines') {
     privs.push('DROP');
     covers.push('drop-object');
   }
-  if (execPerms.length > 0) {
+  // EXECUTE belongs on routines or on db.*, never on a single table/column
+  // grant. Packing it into ON db.tbl silently widens a Tables-scoped request.
+  if (execPerms.length > 0 && scope.type !== 'tables' && scope.type !== 'columns') {
     privs.push('EXECUTE');
     covers.push(...execPerms);
   }

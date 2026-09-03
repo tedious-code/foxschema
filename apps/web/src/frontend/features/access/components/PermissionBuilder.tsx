@@ -123,6 +123,18 @@ export const PermissionBuilder: React.FC<{
   );
   const preset = presetForPermissions(permissions);
 
+  // Permissions the current scope does not offer must not stay in the request.
+  // Presets and a previous scope leave execute / create / alter ticked while
+  // the Tables checkboxes hide them — and the emitters would still honour the
+  // hidden ones (schema-wide EXECUTE, CREATE ON SCHEMA, …).
+  useEffect(() => {
+    if (!dialect || offered.length === 0) return;
+    setPermissions((prev) => {
+      const next = prev.filter((p) => offered.includes(p));
+      return next.length === prev.length && next.every((p, i) => p === prev[i]) ? prev : next;
+    });
+  }, [dialect, offered]);
+
   useEffect(() => {
     if (conn?.schema && !schema) setSchema(conn.schema);
     if (conn?.database && !database) setDatabase(conn.database);
@@ -392,7 +404,14 @@ export const PermissionBuilder: React.FC<{
                     key={p}
                     type="button"
                     data-testid={`access-preset-${p}`}
-                    onClick={() => p !== 'custom' && setPermissions(permissionsForPreset(p))}
+                    onClick={() => {
+                      if (p === 'custom') return;
+                      // Only keep what this scope can express — applying
+                      // "Execute procedures" while Tables is selected used to
+                      // leave execute-* in the request with no checkbox for it.
+                      const allowed = new Set(availablePermissions(dialect, scopeType));
+                      setPermissions(permissionsForPreset(p).filter((x) => allowed.has(x)));
+                    }}
                     disabled={p === 'custom'}
                     className={`px-2.5 py-1 rounded-md border text-[11px] font-semibold transition ${
                       preset === p
