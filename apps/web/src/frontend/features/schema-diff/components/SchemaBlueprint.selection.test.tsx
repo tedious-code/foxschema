@@ -268,3 +268,32 @@ describe('a created table offers no column checkboxes', () => {
     expect(screen.getByTestId('blueprint-column-check-NOTE')).toBeTruthy();
   });
 });
+
+describe('a dropped table offers no column checkboxes either', () => {
+  // DROP TABLE names no columns, so the control could not keep one.
+  const removed = tableDiff({
+    tableName: 'ORDERS',
+    status: 'REMOVED',
+    columnDiffs: [col('A', 'REMOVED')],
+    triggerDiffs: [{ name: 'TRG', status: 'REMOVED' }],
+  } as Partial<TableDiff>);
+
+  it('renders no boxes', () => {
+    render(
+      <SchemaBlueprint
+        diff={removed}
+        onToggleColumn={() => undefined}
+        onToggleTriggerSelection={() => undefined}
+      />
+    );
+    expect(screen.queryByTestId('blueprint-column-check-A')).toBeNull();
+    expect(screen.queryByTestId('blueprint-trigger-check-TRG')).toBeNull();
+  });
+
+  it('says the object goes whole, not that the control is missing', () => {
+    render(<SchemaBlueprint diff={removed} onToggleColumn={() => undefined} />);
+    const note = screen.getByTestId('blueprint-columns-whole-object');
+    expect(note.textContent).toMatch(/dropped whole/i);
+    expect(note.getAttribute('title')).toMatch(/names no columns/i);
+  });
+});

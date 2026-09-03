@@ -29,17 +29,22 @@ import type { ColumnDiff, ForeignKeyDiff, IndexDiff, TableDiff } from '../../int
 /**
  * Whether this object migrates column by column at all.
  *
- * Only an existing table does. A table being created renders its columns,
- * indexes, keys and triggers from `sourceTable` as one CREATE; a view or
- * routine is emitted from its stored definition as one body. In both cases
- * there is no per-column statement to include or leave out, so a checkbox there
- * could only ever be a lie — and every edge case this module accumulated lived
- * in the attempt to make one work anyway.
+ * Only a table being altered does. Everything else the generator emits as one
+ * statement for the whole object: a create renders its columns, indexes, keys
+ * and triggers from `sourceTable`; a drop is a DROP TABLE that names no
+ * columns; a view or routine comes from its stored definition as one body. In
+ * none of those is there a per-column statement to include or leave out, so a
+ * checkbox could only ever be a lie — and every edge case this module
+ * accumulated lived in the attempt to make one work anyway.
+ *
+ * Written as `=== 'MODIFIED'` rather than `!== 'ADDED'`, which was the same
+ * mistake in smaller print: it left a dropped table with checkboxes that
+ * filtered the diffs while the plan still emitted DROP TABLE.
  *
  * Roles are excluded too: their "columns" are members, with their own selection.
  */
 export function supportsColumnSelection(diff: TableDiff): boolean {
-  return diff.objectType === 'TABLE' && diff.status !== 'ADDED';
+  return diff.objectType === 'TABLE' && diff.status === 'MODIFIED';
 }
 
 /** Why a column cannot be left out, or null when it can. */
