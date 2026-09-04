@@ -43,6 +43,8 @@ export function commandWithSql(args: {
   explanation: string;
   auth: GeneratedCommand['auth'];
   envVar?: string;
+  dockerClient?: string;
+  dockerFlags?: string[];
   note?: string;
 }): GeneratedCommand | { error: string } {
   const head = [args.client, ...args.flags].join(' ');
@@ -57,6 +59,8 @@ export function commandWithSql(args: {
     client: args.client,
     auth: args.auth,
     ...(args.envVar ? { envVar: args.envVar } : {}),
+    ...(args.dockerClient ? { dockerClient: args.dockerClient } : {}),
+    ...(args.dockerFlags?.length ? { dockerFlags: args.dockerFlags } : {}),
     ...(args.note ? { note: args.note } : {}),
   };
 }

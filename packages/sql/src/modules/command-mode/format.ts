@@ -57,9 +57,22 @@ export function formatCommand(
           'Container name may hold letters, digits, dot, dash and underscore, and must start with a letter or digit.',
       };
     }
+    // `-e VAR` with no value forwards the variable from the caller's shell, so
+    // the password reaches the client without ever appearing in the command.
+    // Every client here reads its prompt from stdin or a tty, and the
+    // here-document takes stdin while `docker exec -i` allocates no tty — so
+    // prompting cannot work and this is how the password gets in.
+    const envForward = generated.envVar ? `-e ${generated.envVar} ` : '';
     // -i keeps stdin open. Without it the heredoc is discarded and the client
     // reads nothing, which looks like a command that ran and did nothing.
-    const wrapped = heredoc(`docker exec -i ${container} ${generated.invocation}`, generated.body);
+    // Inside the image the client may not be on PATH — the mssql images keep
+    // sqlcmd in /opt/mssql-tools18/bin, so the plain name fails with
+    // "executable file not found in $PATH".
+    let invocation = generated.dockerClient
+      ? generated.invocation.replace(generated.client, generated.dockerClient)
+      : generated.invocation;
+    if (generated.dockerFlags?.length) invocation += ` ${generated.dockerFlags.join(' ')}`;
+    const wrapped = heredoc(`docker exec -i ${envForward}${container} ${invocation}`, generated.body);
     if (typeof wrapped !== 'string') return wrapped;
     return { text: wrapped };
   }

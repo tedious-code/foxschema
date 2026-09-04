@@ -20,8 +20,12 @@ function table(partial: Partial<TableDiff> & Pick<TableDiff, 'tableName'>): Tabl
   };
 }
 
-describe('SchemaDiffTree expand/collapse indexes', () => {
-  it('hides index details until the table is expanded', () => {
+describe('SchemaDiffTree does not duplicate the blueprint', () => {
+  it('does not list indexes under the table name', () => {
+    // The tree used to nest them, expandable. It duplicated the blueprint —
+    // which lists the same indexes with the deploy checkboxes that actually do
+    // something — while pushing the object names off the screen. The count
+    // stays as a summary on the name line.
     const onSelect = vi.fn();
     render(
       <SchemaDiffTree
@@ -43,38 +47,16 @@ describe('SchemaDiffTree expand/collapse indexes', () => {
     );
 
     expect(screen.queryByTestId('diff-item-indexes-CUSTOMERS')).toBeNull();
-    expect(screen.getByTestId('diff-item').getAttribute('data-expanded')).toBe('false');
-
-    fireEvent.click(screen.getByTestId('diff-item-expand-CUSTOMERS'));
-
-    expect(screen.getByTestId('diff-item-indexes-CUSTOMERS')).toBeTruthy();
-    expect(screen.getByTestId('diff-item-index-CUSTOMERS-IDX_EMAIL').textContent).toContain(
-      'IDX_EMAIL'
-    );
-    expect(screen.getByTestId('diff-item-index-CUSTOMERS-IDX_EMAIL').textContent).toMatch(/unique/i);
-    expect(screen.getByTestId('diff-item-index-CUSTOMERS-IDX_EMAIL').textContent).toContain('EMAIL');
-    expect(screen.getByTestId('diff-item').getAttribute('data-expanded')).toBe('true');
-
-    fireEvent.click(screen.getByTestId('diff-item-expand-CUSTOMERS'));
-    expect(screen.queryByTestId('diff-item-indexes-CUSTOMERS')).toBeNull();
+    expect(screen.queryByTestId('diff-item-index-CUSTOMERS-IDX_EMAIL')).toBeNull();
+    expect(screen.queryByTestId('diff-item-expand-CUSTOMERS')).toBeNull();
+    expect(screen.getByTestId('diff-item').textContent).toContain('1 idx');
   });
 
-  it('expands the table when the row is clicked so indexes are visible', () => {
+  it('selects the table when the row is clicked, with nothing to expand', () => {
     const onSelect = vi.fn();
     render(
       <SchemaDiffTree
-        tables={[
-          table({
-            tableName: 'ORDERS',
-            indexDiffs: [
-              {
-                name: 'PK_ORDERS',
-                status: 'UNCHANGED',
-                source: { name: 'PK_ORDERS', columns: ['ID'], unique: true },
-              },
-            ],
-          }),
-        ]}
+        tables={[table({ tableName: 'CUSTOMERS' })]}
         onSelect={onSelect}
         showStatusBadge={false}
       />
@@ -82,6 +64,6 @@ describe('SchemaDiffTree expand/collapse indexes', () => {
 
     fireEvent.click(screen.getByTestId('diff-item'));
     expect(onSelect).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId('diff-item-indexes-ORDERS')).toBeTruthy();
+    expect(screen.queryByTestId('diff-item-indexes-CUSTOMERS')).toBeNull();
   });
 });

@@ -43,7 +43,9 @@ export function buildCliCommand(
 export function renderCliCommand(generated: GeneratedCommand): string {
   const lines: string[] = [];
   if (generated.auth === 'environment' && generated.envVar) {
-    lines.push(`# export ${generated.envVar}=…   # or let the client prompt`);
+    // Not "or let it prompt": the statement arrives on stdin through a
+    // here-document, so no client here can read a prompt.
+    lines.push(`# export ${generated.envVar}=…   # the client cannot prompt here`);
   }
   lines.push(generated.command);
   return lines.join('\n');

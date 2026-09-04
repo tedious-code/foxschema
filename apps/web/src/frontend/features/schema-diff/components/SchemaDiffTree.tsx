@@ -144,9 +144,16 @@ export interface SchemaDiffTreeProps {
   emptyMessage?: string;
 }
 
-function tableCanNestIndexes(table: TableDiff): boolean {
-  return table.objectType === 'TABLE' || table.objectType === 'MQT' || table.objectType === 'VIEW';
-}
+/**
+ * The tree used to nest each table's indexes underneath its name, expandable.
+ *
+ * It duplicated the blueprint, which lists the same indexes with the deploy
+ * checkboxes that actually do something — the tree copy was read-only. Two
+ * renderings of one thing is what `SchemaDiffTree` was extracted to stop, and
+ * the nested list pushed the object names the tree exists for off the screen.
+ *
+ * The `N idx` count stays on the name line: it is a summary, not a second copy.
+ */
 
 function indexDisplayName(idx: IndexDiff): string {
   return idx.source?.name || idx.target?.name || idx.name;
@@ -203,7 +210,6 @@ export function SchemaDiffTree({
             {group.items.map((table) => {
               const isSelected = selectedName === table.tableName;
               const matchedIn = matchLocationOf(table, query);
-              const nestIndexes = tableCanNestIndexes(table);
               const isOpen = !!expanded[table.tableName];
               const indexes = table.indexDiffs ?? [];
               return (
@@ -212,13 +218,9 @@ export function SchemaDiffTree({
                   data-testid="diff-item"
                   data-object={table.tableName}
                   data-status={table.status}
-                  data-expanded={nestIndexes ? (isOpen ? 'true' : 'false') : undefined}
-                  onClick={() => {
-                    onSelect?.(table);
-                    if (nestIndexes && !isOpen) toggleExpand(table.tableName);
-                  }}
+                  onClick={() => onSelect?.(table)}
                   className={`rounded-lg border transition ${
-                    onSelect || nestIndexes ? 'cursor-pointer' : ''
+                    onSelect ? 'cursor-pointer' : ''
                   } ${
                     isSelected
                       ? 'bg-slate-800/80 border-slate-700/80 shadow-md shadow-indigo-500/5'
@@ -227,25 +229,7 @@ export function SchemaDiffTree({
                 >
                   <div className="group flex items-center justify-between p-2.5">
                     <div className="flex items-center gap-2 min-w-0">
-                      {nestIndexes ? (
-                        <button
-                          type="button"
-                          data-testid={`diff-item-expand-${table.tableName}`}
-                          aria-label={isOpen ? `Collapse ${table.tableName}` : `Expand ${table.tableName}`}
-                          aria-expanded={isOpen}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleExpand(table.tableName);
-                          }}
-                          className="p-0.5 text-slate-400 hover:text-slate-100 shrink-0"
-                        >
-                          {isOpen ? (
-                            <ChevronDown className="w-4 h-4 text-sky-400" />
-                          ) : (
-                            <ChevronRight className="w-4 h-4 text-sky-400" />
-                          )}
-                        </button>
-                      ) : selection && table.status !== 'UNCHANGED' ? null : (
+                      {selection && table.status !== 'UNCHANGED' ? null : (
                         <span className="w-5 shrink-0" />
                       )}
                       {selection && table.status !== 'UNCHANGED' ? (
@@ -257,7 +241,7 @@ export function SchemaDiffTree({
                           title={selectionTitle}
                           className="w-4 h-4 accent-cyan-500 cursor-pointer shrink-0"
                         />
-                      ) : nestIndexes ? null : (
+                      ) : (
                         <span className="w-4 shrink-0" />
                       )}
                       <span className="shrink-0">{TYPE_META[table.objectType].icon}</span>
@@ -278,8 +262,11 @@ export function SchemaDiffTree({
                           </span>
                         )}
                       </div>
-                      {nestIndexes && (
-                        <span className="text-[10px] font-mono text-slate-500 shrink-0">
+                      {indexes.length > 0 && (
+                        <span
+                          className="text-[10px] font-mono text-slate-500 shrink-0"
+                          title="Index count. The indexes themselves, with their deploy checkboxes, are in the blueprint."
+                        >
                           {indexes.length} idx
                         </span>
                       )}
@@ -295,45 +282,6 @@ export function SchemaDiffTree({
                       </span>
                     )}
                   </div>
-                  {nestIndexes && isOpen && (
-                    <ul
-                      className="border-t border-slate-800/80 px-2.5 py-1.5 ml-6 mb-1.5 space-y-0.5"
-                      data-testid={`diff-item-indexes-${table.tableName}`}
-                    >
-                      <li className="text-[10px] font-bold uppercase tracking-wide text-indigo-400/90 pb-0.5">
-                        Indexes
-                      </li>
-                      {indexes.length === 0 ? (
-                        <li className="text-[11px] text-slate-600 italic">No indexes</li>
-                      ) : (
-                        indexes.map((idx) => {
-                          const info = indexInfo(idx);
-                          const label = indexDisplayName(idx);
-                          return (
-                            <li
-                              key={idx.name}
-                              className="text-[12px] font-mono text-slate-300 truncate"
-                              data-testid={`diff-item-index-${table.tableName}-${idx.name}`}
-                            >
-                              <span className="font-semibold">{highlightMatch(label, query)}</span>
-                              {info ? (
-                                <>
-                                  <span className="ml-1.5 text-[10px] font-bold uppercase font-sans text-indigo-300/80">
-                                    {info.unique ? 'unique' : 'non-unique'}
-                                  </span>
-                                  {info.columns.length > 0 ? (
-                                    <span className="text-slate-500 ml-1.5 font-sans text-[11px]">
-                                      ({info.columns.join(', ')})
-                                    </span>
-                                  ) : null}
-                                </>
-                              ) : null}
-                            </li>
-                          );
-                        })
-                      )}
-                    </ul>
-                  )}
                 </div>
               );
             })}

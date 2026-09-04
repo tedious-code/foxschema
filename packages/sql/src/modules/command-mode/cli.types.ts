@@ -51,10 +51,33 @@ export interface GeneratedCommand {
   /**
    * How the command gets a password, so the UI can say it before the user
    * runs something that appears to hang on a prompt.
+   *
+   * `inline` means the password sits in the command itself as a placeholder to
+   * replace. Only SQL*Plus needs that: it reads its prompt from stdin, which
+   * the here-document already occupies, so prompting cannot work there.
    */
-  auth: 'prompts' | 'environment' | 'none';
+  auth: 'prompts' | 'environment' | 'inline' | 'none';
   /** Set this first when `auth` is `environment`. */
   envVar?: string;
+  /**
+   * Where the client lives inside the engine's official container image, when
+   * it is not on PATH there.
+   *
+   * `docker exec … sqlcmd` fails with "executable file not found in $PATH" on
+   * the mssql images, which ship the tools in /opt/mssql-tools18/bin. Only the
+   * Docker form uses this; a host with the tools installed keeps the plain
+   * name.
+   */
+  dockerClient?: string;
+  /**
+   * Flags that only make sense when the target is a local container.
+   *
+   * sqlcmd 18 encrypts by default and refuses a self-signed certificate, which
+   * is what every dev container has — so the Docker form needs -C to connect at
+   * all. It is deliberately not added to the host forms, where the certificate
+   * may be a real one worth verifying.
+   */
+  dockerFlags?: string[];
   /** Anything surprising about this engine's client. */
   note?: string;
 }

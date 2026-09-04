@@ -21,16 +21,19 @@ export const mysqlCli: CliDialect = {
         '-h', shellQuote(String(target.host)),
         '-P', String(target.port ?? 3306),
         '-u', shellQuote(String(target.username)),
-        // -p with no value makes the client prompt. Attaching the password
-        // here would put it in `ps` output and shell history.
-        '-p',
+        // No -p at all. A bare -p prompts, and the prompt is read from *stdin*
+        // — which the here-document already occupies: verified against MySQL 8,
+        // the client swallowed the script's first line as the password and
+        // failed with "Access denied … (using password: YES)". Attaching the
+        // password instead would put it in `ps` and shell history, so MYSQL_PWD
+        // carries it and nothing secret goes on the command line.
         shellQuote(String(target.database)),
       ],
       sql,
-      explanation: `Runs the statement on ${target.database} as ${target.username}. The client prompts for the password.`,
-      auth: 'prompts',
+      explanation: `Runs the statement on ${target.database} as ${target.username}. Export MYSQL_PWD first — the client cannot prompt here.`,
+      auth: 'environment',
       envVar: 'MYSQL_PWD',
-      note: 'MySQL has no schema layer separate from the database, so the database name is the schema.',
+      note: 'The client cannot prompt here: its prompt reads stdin, which the here-document uses. MySQL has no schema layer separate from the database, so the database name is the schema.',
     });
   },
 };
