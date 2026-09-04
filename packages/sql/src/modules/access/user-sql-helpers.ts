@@ -8,6 +8,7 @@
 import type { PermissionRisk } from './intent.js';
 import type { GeneratedStatement, PermissionWarning } from './access-sql.types.js';
 import { quoteSqlIdentifier } from '../sql-text/sql-template.js';
+import { nonSqlAccountsReason } from './non-sql-engines.js';
 import {
   PASSWORD_PLACEHOLDER,
   type GeneratedUserSql,
@@ -31,21 +32,12 @@ export const UNSUPPORTED_USER_SQL: UserManagementSupport = {
  *
  * "This engine has no database accounts to manage" is true of SQLite and
  * DuckDB, where a file's owner is the access control. It is simply false of
- * Redis and MongoDB, which both have full account systems — verified against
- * Redis 7 and MongoDB 7: `ACL SETUSER` created a user whose key pattern and
- * command list were then enforced, and `db.createUser` with a `read` role
- * allowed a find and refused an insert. What is true is that neither is
- * reachable through SQL, which is all this module speaks.
- *
- * Telling a Redis user their database has no accounts misinforms them about
- * their own server; naming the command they actually want does not.
+ * Redis and MongoDB, which both have full account systems. The per-engine
+ * wording — and the evidence behind every command it names — lives in
+ * `non-sql-engines.ts`, beside the matching message for the permission
+ * builder, because the two said different things while describing the same
+ * two engines.
  */
-const NO_ACCOUNTS_REASON: Record<string, string> = {
-  redis:
-    'Fox Schema does not manage Redis accounts. Redis has them — ACL SETUSER, ACL LIST — but they are not reachable through SQL, so use redis-cli.',
-  mongodb:
-    'Fox Schema does not manage MongoDB accounts. MongoDB has them — db.createUser, db.grantRolesToUser — but they are not reachable through SQL, so use mongosh.',
-};
 
 /** MySQL-family string literals treat `\` as an escape — double it before quotes. */
 function mysqlQuote(value: string): string {
@@ -127,7 +119,7 @@ export function createUserSqlEmitter(request: UserRequest, dialect: string) {
 
 /** Stub for engines with no SQL-reachable accounts. */
 export function unsupportedUserSqlDialect(id: string): UserSqlDialect {
-  const reason = NO_ACCOUNTS_REASON[id] ?? UNSUPPORTED_USER_SQL.reason!;
+  const reason = nonSqlAccountsReason(id) ?? UNSUPPORTED_USER_SQL.reason!;
   return {
     id,
     support: { ...UNSUPPORTED_USER_SQL, reason },
