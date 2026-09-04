@@ -8,6 +8,7 @@
  */
 import type { CliTarget, GeneratedCommand } from './cli.types.js';
 import { cliFor } from './cli.registry.js';
+import { heredoc } from './shell.js';
 
 /**
  * The command that runs `sql` against `target` using `dialect`'s own client.
@@ -18,20 +19,39 @@ import { cliFor } from './cli.registry.js';
  * terminal and run.
  */
 /**
- * Where each engine's client lives inside its own official image.
+ * The client's real name for a dialect whose emitter is named after another.
+ *
+ * This is not a Docker concern, and treating it as one was a bug: MariaDB 11
+ * renamed the client to `mariadb` and ships no `mysql` at all — not even a
+ * symlink, verified against MariaDB 11.8. Someone with MariaDB installed and
+ * the raw command in their terminal gets `mysql: command not found`, which is
+ * the same failure the Docker form was already fixed for.
+ *
+ * YugabyteDB deliberately stays out of this table. Its image ships no psql, so
+ * the Docker form needs `ysqlsh` — but YugabyteDB speaks the PostgreSQL wire
+ * protocol, so a host with psql and no ysqlsh connects fine, and naming ysqlsh
+ * everywhere would break that reader instead. Where the client lives inside an
+ * image belongs below; what the client is called belongs here.
  *
  * Keyed by dialect, not by emitter: MariaDB and TiDB share the MySQL emitter,
  * and CockroachDB, YugabyteDB and Redshift share the PostgreSQL one, so putting
- * this on the emitter would apply one image's layout to another's.
+ * this on the emitter would apply one engine's naming to another's.
+ */
+const DIALECT_CLIENT: Record<string, string> = {
+  mariadb: 'mariadb',
+};
+
+/**
+ * Where each engine's client lives inside its own official image.
  *
- * Verified against the running images: MariaDB 11 renamed its client to
- * `mariadb` and ships no `mysql`; YugabyteDB ships `ysqlsh`, a psql fork that
- * takes the same flags; the mssql images keep sqlcmd in /opt/mssql-tools18/bin.
+ * Only for clients that are present but not on PATH there — the mssql images
+ * keep sqlcmd in /opt/mssql-tools18/bin — or absent under the expected name,
+ * as with YugabyteDB's `ysqlsh`. A client with a different *name* belongs in
+ * {@link DIALECT_CLIENT} instead, so every format gets it, not just this one.
  */
 const DOCKER_CLIENT: Record<string, string> = {
   sqlserver: '/opt/mssql-tools18/bin/sqlcmd',
   azuresql: '/opt/mssql-tools18/bin/sqlcmd',
-  mariadb: 'mariadb',
   yugabytedb: 'ysqlsh',
 };
 
@@ -75,12 +95,34 @@ export function buildCliCommand(
 
   // Attached here rather than in the emitter, because several dialects share
   // one emitter but run in different images.
+  const renamed = renameClient(built, DIALECT_CLIENT[key]);
+  if ('error' in renamed) return renamed;
   return {
-    ...built,
+    ...renamed,
     ...(DOCKER_CLIENT[key] ? { dockerClient: DOCKER_CLIENT[key] } : {}),
     ...(DOCKER_FLAGS[key] ? { dockerFlags: DOCKER_FLAGS[key] } : {}),
     ...(NO_DOCKER_CLIENT[key] ? { dockerUnsupported: NO_DOCKER_CLIENT[key] } : {}),
   };
+}
+
+/**
+ * The same command with the client renamed, for every format.
+ *
+ * The invocation is rewritten and the command rebuilt from it through
+ * {@link heredoc}, rather than replacing the name in the finished string: the
+ * statement is in there too, and a body mentioning `mysql` would otherwise be
+ * rewritten along with the client.
+ */
+function renameClient(
+  built: GeneratedCommand,
+  client: string | undefined
+): GeneratedCommand | { error: string } {
+  if (!client || client === built.client) return built;
+  // Only the leading word is the client; the flags follow it.
+  const invocation = `${client}${built.invocation.slice(built.client.length)}`;
+  const command = heredoc(invocation, built.body);
+  if (typeof command !== 'string') return command;
+  return { ...built, client, invocation, command };
 }
 
 /**
