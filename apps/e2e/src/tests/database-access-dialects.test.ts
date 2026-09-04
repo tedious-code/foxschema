@@ -610,7 +610,12 @@ describe.skipIf(configured.length === 0)('Database Access · User Management', (
         const docker = await command.innerText();
         // -i keeps stdin open; without it the heredoc is discarded and the
         // client reads nothing, which looks like a command that did nothing.
-        expect(docker).toContain(`docker exec -i foxschema-${dialect}`);
+        // Engines that auth via an environment variable also get `-e VAR` so
+        // docker forwards PGPASSWORD / MYSQL_PWD / … from the caller's shell
+        // (prompting cannot work: stdin is the heredoc and there is no tty).
+        expect(docker).toMatch(
+          new RegExp(`docker exec -i(?: -e [A-Z][A-Z0-9_]*)? foxschema-${dialect}\\b`)
+        );
         expect(docker).toContain("<<'FOXSQL'");
 
         // ── script: a file to read before running ───────────────────────────
