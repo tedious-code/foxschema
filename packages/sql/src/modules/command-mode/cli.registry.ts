@@ -6,12 +6,14 @@
  * Maps a dialect to the client that runs its SQL.
  *
  * Several engines share a client, and they alias here rather than duplicating
- * an emitter: Redshift, CockroachDB and YugabyteDB all speak to psql; MariaDB
- * and TiDB to the mysql client; Azure SQL to sqlcmd.
+ * an emitter: Redshift, CockroachDB and YugabyteDB all speak to psql; TiDB to
+ * the mysql client; Azure SQL to sqlcmd. MariaDB has its own emitter because
+ * recent images ship `mariadb` and no `mysql` symlink.
  */
 import type { CliDialect } from './cli.types.js';
 import { postgresCli } from '../../providers/postgres/postgres.cli.js';
 import { mysqlCli } from '../../providers/mysql/mysql.cli.js';
+import { mariaDbCli } from '../../providers/mariaDb/mariadb.cli.js';
 import { sqlServerCli } from '../../providers/sqlServer/sqlserver.cli.js';
 import { oracleCli } from '../../providers/oracle/oracle.cli.js';
 import { db2Cli } from '../../providers/db2/db2.cli.js';
@@ -25,7 +27,7 @@ export const CLI_MAP: Record<string, CliDialect> = {
   cockroachdb: postgresCli,
   yugabytedb: postgresCli,
   mysql: mysqlCli,
-  mariadb: mysqlCli,
+  mariadb: mariaDbCli,
   tidb: mysqlCli,
   sqlserver: sqlServerCli,
   azuresql: sqlServerCli,

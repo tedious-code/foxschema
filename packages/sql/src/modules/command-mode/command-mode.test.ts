@@ -211,10 +211,25 @@ describe('per-engine flags', () => {
   });
 
   it('clickhouse uses the native port, not the HTTP one', () => {
-    const cmd = commandOf(build('SELECT 1;', 'clickhouse', { ...target, port: undefined }));
-    expect(cmd).toContain('--port 9000');
-    expect(cmd).toContain('--ask-password');
-    expect(cmd).toContain('--multiquery');
+    const out = build('SELECT 1;', 'clickhouse', { ...target, port: undefined });
+    if ('error' in out) throw new Error(out.error);
+    expect(out.command).toContain('--port 9000');
+    expect(out.command).toContain('--multiquery');
+    // Same heredoc rule as mysql/psql: --ask-password cannot read a prompt,
+    // and official images already set CLICKHOUSE_PASSWORD which then conflicts.
+    expect(out.command).not.toContain('--ask-password');
+    expect(out.auth).toBe('environment');
+    expect(out.envVar).toBe('CLICKHOUSE_PASSWORD');
+  });
+
+  it('mariadb uses the mariadb binary, not mysql', () => {
+    // MariaDB 11 containers dropped the mysql symlink.
+    const out = build('SELECT 1;', 'mariadb', { ...target, port: 3306 });
+    if ('error' in out) throw new Error(out.error);
+    expect(out.command).toMatch(/^mariadb /);
+    expect(out.client).toBe('mariadb');
+    expect(out.auth).toBe('environment');
+    expect(out.envVar).toBe('MYSQL_PWD');
   });
 
   it('sqlite and duckdb take a file and need no login', () => {
@@ -229,9 +244,13 @@ describe('per-engine flags', () => {
   it('aliases the engines that share a client', () => {
     expect(cliFor('redshift')).toBe(CLI_MAP.postgres);
     expect(cliFor('cockroachdb')).toBe(CLI_MAP.postgres);
-    expect(cliFor('mariadb')).toBe(CLI_MAP.mysql);
     expect(cliFor('tidb')).toBe(CLI_MAP.mysql);
     expect(cliFor('azuresql')).toBe(CLI_MAP.sqlserver);
+  });
+
+  it('gives MariaDB its own emitter (binary name differs)', () => {
+    expect(cliFor('mariadb')).toBe(CLI_MAP.mariadb);
+    expect(cliFor('mariadb')).not.toBe(CLI_MAP.mysql);
   });
 });
 
