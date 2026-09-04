@@ -104,6 +104,16 @@ export const sqlServerSqlDialect: SqlDialect = {
 
   // Brackets are the T-SQL form and work regardless of QUOTED_IDENTIFIER, which
   // ANSI double quotes do not. A closing bracket inside the name is doubled.
+  /**
+   * SQL Server has no GRANT form for role membership at all — `GRANT role TO
+   * user` is a syntax error. Membership is an ALTER ROLE, and `sp_addrolemember`
+   * is deprecated.
+   */
+  roleMemberStatement(role, member, _memberType, action) {
+    const verb = action === 'grant' ? 'ADD' : 'DROP';
+    return `ALTER ROLE ${role} ${verb} MEMBER ${member};`;
+  },
+
   quoteIdentifier(name: string): string {
     return `[${name.replace(/]/g, ']]')}]`;
   },
