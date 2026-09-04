@@ -12,6 +12,7 @@ import {
 } from '../../modules/access/user-sql.types.js';
 import { createUserSqlEmitter } from '../../modules/access/user-sql-helpers.js';
 import type { PermissionRisk } from '../../modules/access/intent.js';
+import type { PermissionWarning } from '../../modules/access/access-sql.types.js';
 
 export const redshiftUserSql: UserSqlDialect = {
   id: 'redshift',
@@ -25,7 +26,7 @@ export const redshiftUserSql: UserSqlDialect = {
   },
 
   build(request, dialect) {
-    const { name, isUser, noun, add, q, finish } = createUserSqlEmitter(request, dialect);
+    const { name, isUser, noun, add, q, finish, warnings } = createUserSqlEmitter(request, dialect);
     const support = this.support;
 
     if (request.action === 'create') {
@@ -54,7 +55,7 @@ export const redshiftUserSql: UserSqlDialect = {
       return finish();
     }
 
-    const failed = buildAlter(request, dialect, name, isUser, support, add, q);
+    const failed = buildAlter(request, dialect, name, isUser, support, add, q, warnings);
     if (failed) return { error: failed };
     return finish();
   },
@@ -67,7 +68,8 @@ function buildAlter(
   isUser: boolean,
   support: UserSqlDialect['support'],
   add: (sql: string, explanation: string, risk?: PermissionRisk) => void,
-  q: (v: string) => string
+  q: (v: string) => string,
+  warnings: PermissionWarning[]
 ): string | undefined {
   const change = request.alteration ?? 'password';
 
@@ -82,8 +84,19 @@ function buildAlter(
     }
     add(
       `ALTER USER ${q(name)} RENAME TO ${q(next)};`,
-      `Renames ${name} to ${next}. Privileges follow the account.`
+      `Renames ${name} to ${next}. Privileges follow the account, but the password does not.`
     );
+    // Redshift encrypts a password with the user name as part of the input, so
+    // renaming leaves the account with no password at all and it cannot log in
+    // until one is set. Saying only "privileges follow the account" reads as
+    // "nothing else changed", which is how a rename turns into a lockout
+    // nobody expected. Documented under ALTER USER … RENAME TO.
+    warnings.push({
+      level: 'caution',
+      message:
+        `Redshift clears the password when an account is renamed, so ${next} cannot log in ` +
+        'until you set one. Follow this with a password change.',
+    });
     return undefined;
   }
 

@@ -273,6 +273,56 @@ describe('the Docker form matches the engine’s own image', () => {
     expect(textOf(docker('mysql'))).toContain(' mysql -h ');
   });
 
+  /**
+   * The rename is the client's, not the container's.
+   *
+   * Fixing only the Docker form left the other two saying `mysql`, which does
+   * not exist on a MariaDB install either — 11.8 ships `mariadb` and no
+   * symlink, verified in the image. Someone with MariaDB on their own machine
+   * got the same "command not found" the Docker form had already been fixed
+   * for, from a command that names the client in its own "Needs X on PATH"
+   * line.
+   *
+   * YugabyteDB stays the other way round on purpose: its *image* has no psql,
+   * but it speaks the PostgreSQL wire protocol, so psql on a host works and
+   * renaming it everywhere would break that reader instead.
+   */
+  it('names the MariaDB client in every format, not only Docker', () => {
+    const cmd = build('SELECT 1;', 'mariadb', t as never);
+    if ('error' in cmd) throw new Error(cmd.error);
+    expect(cmd.client).toBe('mariadb');
+    expect(cmd.invocation.startsWith('mariadb ')).toBe(true);
+    expect(cmd.command.startsWith('mariadb ')).toBe(true);
+
+    for (const format of ['raw', 'script'] as const) {
+      const out = formatCommand(cmd, { format });
+      if ('error' in out) throw new Error(out.error);
+      expect(out.text, format).toContain('mariadb -h ');
+      expect(out.text, format).not.toMatch(/(^|\s)mysql -h /);
+    }
+    // The script's "Needs X on PATH" line has to agree with the command below it.
+    const script = formatCommand(cmd, { format: 'script' });
+    if ('error' in script) throw new Error(script.error);
+    expect(script.text).toContain('Needs mariadb on PATH');
+  });
+
+  it('leaves the statement alone when it renames the client', () => {
+    // Rewriting the finished string would hit the SQL too: this body names the
+    // client, and a plain replace would have turned it into `mariadb`.
+    const cmd = build("SELECT 'mysql is a word' AS note;", 'mariadb', t as never);
+    if ('error' in cmd) throw new Error(cmd.error);
+    expect(cmd.command).toContain("'mysql is a word'");
+    expect(cmd.command.startsWith('mariadb ')).toBe(true);
+  });
+
+  it('renames nothing for a dialect whose client is already right', () => {
+    for (const dialect of ['mysql', 'tidb', 'postgres', 'redshift']) {
+      const cmd = build('SELECT 1;', dialect, t as never);
+      if ('error' in cmd) throw new Error(cmd.error);
+      expect(cmd.client, dialect).toBe(dialect === 'mysql' || dialect === 'tidb' ? 'mysql' : 'psql');
+    }
+  });
+
   it('uses ysqlsh for YugabyteDB, which ships no psql', () => {
     expect(textOf(docker('yugabytedb'))).toContain(' ysqlsh -h ');
     expect(textOf(docker('postgres'))).toContain(' psql -h ');

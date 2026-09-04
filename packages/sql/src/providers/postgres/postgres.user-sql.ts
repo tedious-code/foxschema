@@ -12,6 +12,7 @@ import {
 } from '../../modules/access/user-sql.types.js';
 import { createUserSqlEmitter } from '../../modules/access/user-sql-helpers.js';
 import type { PermissionRisk } from '../../modules/access/intent.js';
+import type { PermissionWarning } from '../../modules/access/access-sql.types.js';
 
 export const postgresUserSql: UserSqlDialect = {
   id: 'postgres',
@@ -98,7 +99,7 @@ export const postgresUserSql: UserSqlDialect = {
       return finish();
     }
 
-    const failed = buildAlter(request, dialect, name, isUser, support, add, q);
+    const failed = buildAlter(request, dialect, name, isUser, support, add, q, warnings);
     if (failed) return { error: failed };
     return finish();
   },
@@ -111,7 +112,8 @@ function buildAlter(
   isUser: boolean,
   support: UserSqlDialect['support'],
   add: (sql: string, explanation: string, risk?: PermissionRisk) => void,
-  q: (v: string) => string
+  q: (v: string) => string,
+  warnings: PermissionWarning[]
 ): string | undefined {
   const change = request.alteration ?? 'password';
 
@@ -126,6 +128,24 @@ function buildAlter(
       `ALTER ${keyword} ${q(name)} RENAME TO ${q(next)};`,
       `Renames ${name} to ${next}. Privileges follow the account.`
     );
+    // An MD5 hash is computed over the password *and* the role name, so renaming
+    // invalidates it and PostgreSQL discards it — `NOTICE: MD5 password cleared
+    // because of role rename`, after which the account cannot log in. SCRAM does
+    // not bind the name, so a scram-sha-256 account keeps its password across a
+    // rename. Both verified against PostgreSQL 16.
+    //
+    // Which one applies depends on the server's password_encryption at the time
+    // the password was set, which is not knowable from here — so this says what
+    // to check rather than asserting an outcome it cannot see.
+    if (isUser) {
+      warnings.push({
+        level: 'caution',
+        message:
+          `If ${name}'s password is an MD5 hash, PostgreSQL clears it on rename and ${next} ` +
+          'cannot log in until you set a new one. A scram-sha-256 password survives the rename. ' +
+          `Check which with: SELECT left(rolpassword, 4) FROM pg_authid WHERE rolname = '${name}';`,
+      });
+    }
     return undefined;
   }
 
