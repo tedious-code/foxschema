@@ -10,6 +10,7 @@ import { quoteSqlIdentifier } from '../sql-text/sql-template.js';
 import {
   accessCapabilities,
   accessFamily,
+  supportsAccessBuilder,
   describePermission,
   type AccessPermission,
   type AccessScope,
@@ -129,6 +130,15 @@ export function validateAccessRequest(request: PermissionRequest, dialect: strin
 
   if (!principal?.name?.trim()) return 'Choose a user or role first.';
   if (permissions.length === 0) return 'Choose at least one permission.';
+
+  // Engines with no GRANT model at all reach every check below with every
+  // capability false, so they fell through to whichever scope-specific message
+  // came first — Redis was told it "has no schema-level grants, select
+  // individual tables instead", advice it can act on even less than the thing
+  // it was refused, since Redis has no tables either. Say the real thing once.
+  if (!supportsAccessBuilder(dialect)) {
+    return `Fox Schema has no permission model for ${dialect}, so there is nothing to generate here.`;
+  }
 
   if (scope.type === 'database' && !caps.databaseScope) {
     return `${dialect} cannot grant at the database level.`;
