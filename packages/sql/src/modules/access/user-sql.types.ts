@@ -56,8 +56,13 @@ export interface GeneratedUserSql {
   risk: PermissionRisk;
 }
 
-/** Stands in for a real password, which this module never sees. */
-export const PASSWORD_PLACEHOLDER = '<password>';
+/**
+ * Stands in for a real password, which this module never sees.
+ *
+ * Defined in `sql-text` so `command-mode` can use it too without importing
+ * this domain — see the note there.
+ */
+export { PASSWORD_PLACEHOLDER } from '../sql-text/password-placeholder.js';
 
 export interface UserManagementSupport {
   /** False when the engine has no SQL-reachable accounts at all. */

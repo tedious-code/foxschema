@@ -39,10 +39,10 @@ export const postgresCli: CliDialect = {
       client: 'psql',
       flags,
       sql: body,
-      explanation: `Runs the statement on ${target.database} as ${target.username}. psql asks for the password unless PGPASSWORD or ~/.pgpass supplies it.`,
-      auth: 'prompts',
+      explanation: `Runs the statement on ${target.database} as ${target.username}. Export PGPASSWORD first — psql cannot prompt here.`,
+      auth: 'environment',
       envVar: 'PGPASSWORD',
-      note: 'ON_ERROR_STOP=1 makes psql stop at the first error rather than carry on through the rest of the script.',
+      note: 'psql reads its prompt from a terminal, and this command has none — the here-document takes stdin. Set PGPASSWORD (or ~/.pgpass) rather than passing a password on the command line. ON_ERROR_STOP=1 makes psql stop at the first error rather than carry on through the rest of the script.',
     });
   },
 };

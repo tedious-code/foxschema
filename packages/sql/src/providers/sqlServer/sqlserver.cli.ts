@@ -24,15 +24,25 @@ export const sqlServerCli: CliDialect = {
         '-S', shellQuote(server),
         '-U', shellQuote(String(target.username)),
         '-d', shellQuote(String(target.database)),
+        // No -P. sqlcmd prompts only when -P is absent, and reads that prompt
+        // from a terminal this command does not have — the here-document takes
+        // stdin and `docker exec -i` allocates no tty. SQLCMDPASSWORD supplies
+        // it without putting a secret on the command line.
         // Without -b sqlcmd returns 0 even when the batch failed, so a script
         // that half-applied still looks like success.
         '-b',
       ],
       sql,
-      explanation: `Runs the batch on ${target.database} as ${target.username}. sqlcmd prompts for the password when -P is not given.`,
-      auth: 'prompts',
+      explanation: `Runs the batch on ${target.database} as ${target.username}. Export SQLCMDPASSWORD first — sqlcmd cannot prompt here.`,
+      auth: 'environment',
       envVar: 'SQLCMDPASSWORD',
+      dockerClient: '/opt/mssql-tools18/bin/sqlcmd',
+      // A container's certificate is self-signed, and sqlcmd 18 refuses it
+      // outright: "SSL Provider: certificate verify failed". Verified against
+      // the mssql 2022 image — without -C the command cannot connect.
+      dockerFlags: ['-C'],
       note:
+        'In the official mssql images sqlcmd is not on PATH; it lives in /opt/mssql-tools18/bin (or /opt/mssql-tools/bin on older images). ' +
         '-b makes sqlcmd exit non-zero on error; without it a failed batch still reports success. ' +
         'Add GO between batches that must run separately. sqlcmd 18 and later encrypt by default and ' +
         'refuse a self-signed certificate — a development server may need -C (trust) or a proper certificate.',

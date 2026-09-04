@@ -32,7 +32,10 @@ describe('docker', () => {
     // Without -i, docker gives the client no stdin: it reads nothing and the
     // statement silently does not run.
     const text = textOf(formatCommand(built(), { format: 'docker', container: 'foxschema-postgres' }));
-    expect(text).toContain('docker exec -i foxschema-postgres psql');
+    // `-e PGPASSWORD` forwards the variable from the caller's shell; without a
+    // tty and with stdin taken by the here-document, that is the only way the
+    // password reaches psql.
+    expect(text).toContain('docker exec -i -e PGPASSWORD foxschema-postgres psql');
   });
 
   it('keeps the statement and the heredoc intact', () => {
@@ -91,8 +94,8 @@ describe('script', () => {
     expect(textOf(script())).toContain('Needs psql on PATH');
   });
 
-  it('says the password prompt is not a hang', () => {
-    expect(textOf(script())).toMatch(/prompt is not a hang/i);
+  it('says which variable to set, since no client here can prompt', () => {
+    expect(textOf(script())).toMatch(/PGPASSWORD/);
   });
 
   it('suggests a file name', () => {

@@ -7,6 +7,7 @@
  */
 import type { CliDialect, CliTarget } from '../../modules/command-mode/cli.types.js';
 import { checkTarget, commandWithSql } from '../../modules/command-mode/cli-helpers.js';
+import { PASSWORD_PLACEHOLDER } from '../../modules/sql-text/password-placeholder.js';
 
 export const db2Cli: CliDialect = {
   id: 'db2',
@@ -16,8 +17,11 @@ export const db2Cli: CliDialect = {
     if (bad) return { error: bad };
 
     // The CLP has no host flag: it connects to a catalogued database alias.
-    // CONNECT USING without a password makes it prompt.
-    const connect = `CONNECT TO ${target.database} USER ${target.username};`;
+    //
+    // CONNECT without USING makes the CLP prompt, and it reads that prompt from
+    // stdin — which the here-document already occupies. USING takes a
+    // placeholder to replace instead.
+    const connect = `CONNECT TO ${target.database} USER ${target.username} USING '${PASSWORD_PLACEHOLDER}';`;
     const body = `${connect}\n${sql.trim().replace(/;?\s*$/, ';')}\nCONNECT RESET;`;
 
     return commandWithSql({
@@ -25,9 +29,9 @@ export const db2Cli: CliDialect = {
       // -t ends statements on ';', -v echoes them, -s stops on the first error.
       flags: ['-tvs'],
       sql: body,
-      explanation: `Connects to ${target.database} as ${target.username} and runs the statement. The CLP prompts for the password.`,
-      auth: 'prompts',
-      note: `The db2 CLP talks to a catalogued alias, not a host and port. If ${target.database} is not catalogued locally, run this on the server, or catalog the node and database first.`,
+      explanation: `Connects to ${target.database} as ${target.username} and runs the statement. Replace ${PASSWORD_PLACEHOLDER} before running it.`,
+      auth: 'inline',
+      note: `The password is in the CONNECT statement, so it reaches shell history. The db2 CLP talks to a catalogued alias, not a host and port. If ${target.database} is not catalogued locally, run this on the server, or catalog the node and database first.`,
     });
   },
 };

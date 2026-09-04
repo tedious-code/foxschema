@@ -12,6 +12,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { buildCliCommand, renderCliCommand } from './build-command.js';
+import { PASSWORD_PLACEHOLDER } from '../sql-text/password-placeholder.js';
 import { CLI_MAP, cliFor, supportsCommandMode } from './cli.registry.js';
 import { heredoc, shellQuote } from './shell.js';
 import type { CliTarget } from './cli.types.js';
@@ -91,6 +92,15 @@ describe('buildCliCommand', () => {
     expect(out.client, dialect).toBeTruthy();
   });
 
+  /**
+   * SQL*Plus and the Db2 CLP have no password environment variable, and both
+   * read their prompt from stdin — which the here-document occupies. There is
+   * no third option for them: the password goes in the command or the command
+   * cannot authenticate. Everything else uses PGPASSWORD / MYSQL_PWD /
+   * SQLCMDPASSWORD and carries nothing secret.
+   */
+  const INLINE_PASSWORD_DIALECTS = new Set(['oracle', 'db2']);
+
   it.each(DIALECTS)('%s never puts a password on the command line', (dialect) => {
     const out = build('SELECT 1;', dialect, {
       ...target,
@@ -100,9 +110,18 @@ describe('buildCliCommand', () => {
     // Nothing that looks like a supplied secret. `-p` must be preceded by
     // whitespace so `--port` is not mistaken for it, and followed by a
     // non-space so a bare prompting `-p` still passes.
+    if (INLINE_PASSWORD_DIALECTS.has(dialect)) {
+      // Allowed to carry one, but only ever as the placeholder — never a value
+      // taken from the target. Whatever the reader substitutes is their choice;
+      // the tool must not put a real secret there itself.
+      expect(out.command, dialect).toContain(PASSWORD_PLACEHOLDER);
+      expect(out.auth, dialect).toBe('inline');
+      return;
+    }
     expect(out.command, dialect).not.toMatch(/\s-p[^\s-]/);
     expect(out.command, dialect).not.toMatch(/--password[= ]\S/);
     expect(out.command, dialect).not.toMatch(/-P\s+\S*(?:pass|secret)/i);
+    expect(out.command, dialect).not.toContain(PASSWORD_PLACEHOLDER);
     expect(['prompts', 'environment', 'none'], dialect).toContain(out.auth);
   });
 
@@ -155,10 +174,16 @@ describe('per-engine flags', () => {
     expect(cmd).toContain('SET search_path TO demo_a');
   });
 
-  it('mysql prompts with a bare -p', () => {
-    const cmd = commandOf(build('SELECT 1;', 'mysql', { ...target, port: 3306 }));
-    // A bare -p prompts; -pSECRET would be on the command line.
-    expect(cmd).toMatch(/ -p '?foxdb/);
+  it('mysql passes no password flag at all', () => {
+    // A bare -p prompts, and the prompt reads stdin — which the here-document
+    // uses, so the client swallowed the script's first line as the password.
+    // MYSQL_PWD carries it instead, and nothing secret is on the line.
+    const out = build('SELECT 1;', 'mysql', { ...target, port: 3306 });
+    if ('error' in out) throw new Error(out.error);
+    expect(out.command).not.toMatch(/\s-p/);
+    expect(out.command).toMatch(/-u 'foxuser' 'foxdb'/);
+    expect(out.auth).toBe('environment');
+    expect(out.envVar).toBe('MYSQL_PWD');
   });
 
   it('sqlcmd joins host and port into one -S value and sets -b', () => {
@@ -169,7 +194,9 @@ describe('per-engine flags', () => {
 
   it('sqlplus uses Easy Connect and stops on error', () => {
     const cmd = commandOf(build('SELECT 1', 'oracle', { ...target, port: 1521 }));
-    expect(cmd).toContain("sqlplus -S 'foxuser@//db.internal:1521/foxdb'");
+    // The password is in the connect string because SQL*Plus reads its prompt
+    // from stdin, which the here-document already uses.
+    expect(cmd).toContain(`sqlplus -S 'foxuser/${PASSWORD_PLACEHOLDER}@//db.internal:1521/foxdb'`);
     expect(cmd).toContain('WHENEVER SQLERROR EXIT SQL.SQLCODE');
     // SQL*Plus needs the terminator and an explicit exit.
     expect(cmd).toContain('SELECT 1;');
@@ -179,7 +206,7 @@ describe('per-engine flags', () => {
   it('db2 connects first and resets after', () => {
     const cmd = commandOf(build('SELECT 1', 'db2'));
     expect(cmd).toContain('db2 -tvs');
-    expect(cmd).toContain('CONNECT TO foxdb USER foxuser;');
+    expect(cmd).toContain(`CONNECT TO foxdb USER foxuser USING '${PASSWORD_PLACEHOLDER}';`);
     expect(cmd).toContain('CONNECT RESET;');
   });
 
@@ -209,8 +236,16 @@ describe('per-engine flags', () => {
 });
 
 describe('renderCliCommand', () => {
-  it('returns just the command when the client prompts', () => {
+  it('leads with the variable to export, for a client that cannot prompt', () => {
     const out = build('SELECT 1;', 'postgres');
+    if ('error' in out) throw new Error(out.error);
+    const rendered = renderCliCommand(out);
+    expect(rendered).toMatch(/^# export PGPASSWORD=/);
+    expect(rendered).toContain(out.command);
+  });
+
+  it('returns just the command where no password is involved', () => {
+    const out = build('SELECT 1;', 'sqlite', { ...target, file: '/tmp/x.db' });
     if ('error' in out) throw new Error(out.error);
     expect(renderCliCommand(out)).toBe(out.command);
   });
