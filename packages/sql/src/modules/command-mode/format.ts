@@ -7,7 +7,7 @@
  * against a container, or saved as a script.
  */
 import type { GeneratedCommand } from './cli.types.js';
-import { heredoc } from './shell.js';
+import { shellQuote, heredoc } from './shell.js';
 
 export type CommandFormat =
   /** The client invoked directly, for a client installed on this machine. */
@@ -57,6 +57,7 @@ export function formatCommand(
           'Container name may hold letters, digits, dot, dash and underscore, and must start with a letter or digit.',
       };
     }
+    if (generated.dockerUnsupported) return { error: generated.dockerUnsupported };
     // `-e VAR` with no value forwards the variable from the caller's shell, so
     // the password reaches the client without ever appearing in the command.
     // Every client here reads its prompt from stdin or a tty, and the
@@ -72,7 +73,13 @@ export function formatCommand(
       ? generated.invocation.replace(generated.client, generated.dockerClient)
       : generated.invocation;
     if (generated.dockerFlags?.length) invocation += ` ${generated.dockerFlags.join(' ')}`;
-    const wrapped = heredoc(`docker exec -i ${envForward}${container} ${invocation}`, generated.body);
+    // A client that needs its owner's profile runs through a login shell as
+    // that user; everything else is exec'd directly.
+    const asUser = generated.dockerUser ? `-u ${generated.dockerUser} ` : '';
+    const head = generated.dockerUser
+      ? `docker exec -i ${envForward}${asUser}${container} bash -lc ${shellQuote(invocation)}`
+      : `docker exec -i ${envForward}${container} ${invocation}`;
+    const wrapped = heredoc(head, generated.body);
     if (typeof wrapped !== 'string') return wrapped;
     return { text: wrapped };
   }

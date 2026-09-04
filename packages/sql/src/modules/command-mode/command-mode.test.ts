@@ -15,6 +15,7 @@ import { buildCliCommand, renderCliCommand } from './build-command.js';
 import { PASSWORD_PLACEHOLDER } from '../sql-text/password-placeholder.js';
 import { CLI_MAP, cliFor, supportsCommandMode } from './cli.registry.js';
 import { heredoc, shellQuote } from './shell.js';
+import { formatCommand } from './format.js';
 import type { CliTarget } from './cli.types.js';
 import { DIALECT_MAP } from '../dialect/registry.js';
 
@@ -213,7 +214,9 @@ describe('per-engine flags', () => {
   it('clickhouse uses the native port, not the HTTP one', () => {
     const cmd = commandOf(build('SELECT 1;', 'clickhouse', { ...target, port: undefined }));
     expect(cmd).toContain('--port 9000');
-    expect(cmd).toContain('--ask-password');
+    // No --ask-password: it prompts, and the prompt reads the stdin the
+    // here-document uses. CLICKHOUSE_PASSWORD carries the password instead.
+    expect(cmd).not.toContain('--ask-password');
     expect(cmd).toContain('--multiquery');
   });
 
@@ -248,5 +251,52 @@ describe('renderCliCommand', () => {
     const out = build('SELECT 1;', 'sqlite', { ...target, file: '/tmp/x.db' });
     if ('error' in out) throw new Error(out.error);
     expect(renderCliCommand(out)).toBe(out.command);
+  });
+});
+
+describe('the Docker form matches the engine’s own image', () => {
+  // Each of these was found by running the generated command against the real
+  // container and reading the failure, not from documentation.
+  const t = { host: 'db.internal', port: undefined, database: 'foxdb', username: 'foxuser' };
+  const docker = (dialect: string, target: Partial<typeof t> = {}) => {
+    const cmd = build('SELECT 1;', dialect, { ...t, ...target } as never);
+    if ('error' in cmd) throw new Error(cmd.error);
+    return formatCommand(cmd, { format: 'docker', container: 'c' });
+  };
+  const textOf = (r: ReturnType<typeof docker>) => ('error' in r ? `ERROR:${r.error}` : r.text);
+
+  it('uses the MariaDB client, which replaced mysql in the image', () => {
+    // MariaDB 11 renamed it; `mysql` is simply absent, so the command died
+    // with "executable file not found in $PATH".
+    expect(textOf(docker('mariadb'))).toContain(' mariadb -h ');
+    // The MySQL image still has mysql, and shares this emitter.
+    expect(textOf(docker('mysql'))).toContain(' mysql -h ');
+  });
+
+  it('uses ysqlsh for YugabyteDB, which ships no psql', () => {
+    expect(textOf(docker('yugabytedb'))).toContain(' ysqlsh -h ');
+    expect(textOf(docker('postgres'))).toContain(' psql -h ');
+  });
+
+  it('reaches sqlcmd by path and trusts the container certificate', () => {
+    const text = textOf(docker('sqlserver'));
+    expect(text).toContain('/opt/mssql-tools18/bin/sqlcmd');
+    // sqlcmd 18 refuses a self-signed certificate without -C.
+    expect(text).toContain(' -C ');
+  });
+
+  it('runs the Db2 CLP through its instance owner’s login shell', () => {
+    // Without the profile it fails with SQL10007N / -1390 even by absolute
+    // path, because DB2INSTANCE and the library path come from there.
+    const text = textOf(docker('db2', { username: 'db2inst1' }));
+    expect(text).toContain('-u db2inst1');
+    expect(text).toContain("bash -lc 'db2 -tvs'");
+  });
+
+  it('refuses, with a reason, where the image ships no usable client', () => {
+    // Better than a command that dies with "executable file not found", which
+    // does not say whether the tool or the image is at fault.
+    expect(textOf(docker('cockroachdb'))).toMatch(/^ERROR:.*cockroach sql/);
+    expect(textOf(docker('tidb'))).toMatch(/^ERROR:.*no SQL client/);
   });
 });

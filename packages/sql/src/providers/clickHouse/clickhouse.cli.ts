@@ -22,14 +22,18 @@ export const clickHouseCli: CliDialect = {
         '--port', String(target.port ?? 9000),
         '--user', shellQuote(String(target.username)),
         '--database', shellQuote(String(target.database)),
-        '--ask-password',
+        // No --ask-password. It prompts, and the prompt reads stdin — which
+        // the here-document already occupies, so the client would take the
+        // script's first line as the password. CLICKHOUSE_PASSWORD carries it
+        // instead and nothing secret goes on the command line.
         // Without this the client stops at the first statement in the stream.
         '--multiquery',
       ],
       sql,
-      explanation: `Runs the statement on ${target.database} as ${target.username}. --ask-password prompts rather than putting it on the command line.`,
-      auth: 'prompts',
-      note: '--port is the native protocol (9000), not the HTTP port (8123) Fox Schema itself connects on.',
+      explanation: `Runs the statement on ${target.database} as ${target.username}. Export CLICKHOUSE_PASSWORD first — the client cannot prompt here.`,
+      auth: 'environment',
+      envVar: 'CLICKHOUSE_PASSWORD',
+      note: 'The client cannot prompt here: its prompt reads stdin, which the here-document uses. --port is the native protocol (9000), not the HTTP port (8123) Fox Schema itself connects on.',
     });
   },
 };
