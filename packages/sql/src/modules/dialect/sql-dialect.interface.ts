@@ -158,6 +158,28 @@ export interface SqlDialect {
    */
   afterAddColumnStatements?(qualifiedTable: string, colName: string, col: ColumnSpec): string[];
 
+  /**
+   * How this engine adds or removes a member of a role.
+   *
+   * The fallback is the SQL standard — `GRANT role TO member;` — which is what
+   * PostgreSQL, MySQL, MariaDB, Oracle and the wire-compatible variants take.
+   * The generator previously emitted Db2's `GRANT ROLE role TO USER member;`
+   * for every engine, which is a syntax error everywhere else; verified against
+   * PostgreSQL 16 and MySQL 8.
+   *
+   * Override where the shape differs: Db2 names the object kind, and SQL Server
+   * has no GRANT form for membership at all (`ALTER ROLE … ADD MEMBER`).
+   *
+   * `memberType` is the member's own kind (USER, GROUP, ROLE) as the catalog
+   * reported it — only Db2 puts it in the statement.
+   */
+  roleMemberStatement?(
+    role: string,
+    member: string,
+    memberType: string,
+    action: 'grant' | 'revoke'
+  ): string;
+
   postColumnChangeStatements?(
     qualifiedTable: string,
     changed: { dropped: boolean; retyped: boolean }

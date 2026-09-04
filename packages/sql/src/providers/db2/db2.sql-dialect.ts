@@ -164,6 +164,18 @@ export const db2SqlDialect: SqlDialect = {
    * ADMIN_CMD is the callable form — plain `REORG TABLE` is a CLP command, not
    * SQL, and cannot be sent over a client connection.
    */
+  /**
+   * Db2 names the object kind in a membership statement, unlike the standard.
+   * This shape used to be the generator's fallback for every engine, which is
+   * why it is the only one that ever worked.
+   */
+  roleMemberStatement(role, member, memberType, action) {
+    const kind = (memberType || 'USER').toUpperCase();
+    return action === 'grant'
+      ? `GRANT ROLE ${role} TO ${kind} ${member};`
+      : `REVOKE ROLE ${role} FROM ${kind} ${member};`;
+  },
+
   postColumnChangeStatements(qualifiedTable: string): string[] {
     return [`CALL SYSPROC.ADMIN_CMD('REORG TABLE ${qualifiedTable.replace(/'/g, "''")}');`];
   },

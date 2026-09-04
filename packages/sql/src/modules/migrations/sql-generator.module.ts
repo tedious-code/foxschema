@@ -967,11 +967,21 @@ export class SqlGeneratorModule {
       }
     } else if (obj.objectType === 'ROLE') {
       const roleName = this.bareName(obj.tableName);
+      // `GRANT ROLE x TO USER y` is Db2's shape and a syntax error on
+      // PostgreSQL, MySQL, MariaDB and Oracle, which take the SQL standard
+      // `GRANT x TO y`. SQL Server has no GRANT form for membership at all.
+      // The hook picks; the fallback is the standard.
+      const membership = (member: string, memberType: string, action: 'grant' | 'revoke'): string =>
+        dialect.roleMemberStatement?.(roleName, member, memberType, action) ??
+        (action === 'grant'
+          ? `GRANT ${roleName} TO ${member};`
+          : `REVOKE ${roleName} FROM ${member};`);
+
       for (const m of obj.columnDiffs) {
         if (m.status === 'ADDED' && m.source) {
-          statements.push(`GRANT ROLE ${roleName} TO ${m.source.type} ${m.name};`);
+          statements.push(membership(m.name, m.source.type, 'grant'));
         } else if (m.status === 'REMOVED' && m.target) {
-          statements.push(`REVOKE ROLE ${roleName} FROM ${m.target.type} ${m.name};`);
+          statements.push(membership(m.name, m.target.type, 'revoke'));
         }
       }
     } else if (PROCEDURAL_TYPES.has(obj.objectType) && this.isCrossDialect(mapping)) {
