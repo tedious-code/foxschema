@@ -28,6 +28,11 @@ export const db2Cli: CliDialect = {
       client: 'db2',
       // -t ends statements on ';', -v echoes them, -s stops on the first error.
       flags: ['-tvs'],
+      // The CLP needs the instance owner's profile: without it, even the
+      // absolute path fails with SQL10007N / -1390 because DB2INSTANCE and the
+      // library path are unset. The connecting user is the instance owner on a
+      // stock image, so the Docker form runs a login shell as them.
+      dockerUser: String(target.username),
       sql: body,
       explanation: `Connects to ${target.database} as ${target.username} and runs the statement. Replace ${PASSWORD_PLACEHOLDER} before running it.`,
       auth: 'inline',
