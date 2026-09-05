@@ -1,9 +1,9 @@
 {
   "name": "@foxschema/cli",
-  "version": "0.2.200",
+  "version": "0.2.201",
   "private": true,
   "type": "module",
-  "description": "Fox Schema CLI \u2014 schema diff, migrations, and a rich SQL Editor (TypeScript / Node ESM)",
+  "description": "Fox Schema CLI — schema diff, migrations, and a rich SQL Editor (TypeScript / Node ESM)",
   "license": "Apache-2.0",
   "bin": {
     "foxschema": "dist/index.js",
