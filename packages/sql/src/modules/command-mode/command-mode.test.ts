@@ -293,12 +293,13 @@ describe('the Docker form matches the engine’s own image', () => {
   /**
    * The rename is the client's, not the container's.
    *
-   * Fixing only the Docker form left the other two saying `mysql`, which does
-   * not exist on a MariaDB install either — 11.8 ships `mariadb` and no
-   * symlink, verified in the image. Someone with MariaDB on their own machine
-   * got the same "command not found" the Docker form had already been fixed
+   * Fixing only the Docker form would leave the other two saying `mysql`,
+   * which does not exist on a MariaDB install either — 11.8 ships `mariadb`
+   * and no symlink, verified in the image. Someone with MariaDB on their own
+   * machine would get the same "command not found" the Docker form was fixed
    * for, from a command that names the client in its own "Needs X on PATH"
-   * line.
+   * line. The dedicated emitter in `providers/mariaDb/mariadb.cli.ts` is what
+   * makes every format agree; this pins that it does.
    *
    * YugabyteDB stays the other way round on purpose: its *image* has no psql,
    * but it speaks the PostgreSQL wire protocol, so psql on a host works and
@@ -323,16 +324,16 @@ describe('the Docker form matches the engine’s own image', () => {
     expect(script.text).toContain('Needs mariadb on PATH');
   });
 
-  it('leaves the statement alone when it renames the client', () => {
-    // Rewriting the finished string would hit the SQL too: this body names the
-    // client, and a plain replace would have turned it into `mariadb`.
+  it('leaves a statement that mentions the other client alone', () => {
+    // The emitter builds the command from the client and the body separately,
+    // so nothing rewrites the finished string — a body naming `mysql` survives.
     const cmd = build("SELECT 'mysql is a word' AS note;", 'mariadb', t as never);
     if ('error' in cmd) throw new Error(cmd.error);
     expect(cmd.command).toContain("'mysql is a word'");
     expect(cmd.command.startsWith('mariadb ')).toBe(true);
   });
 
-  it('renames nothing for a dialect whose client is already right', () => {
+  it('leaves every other dialect on its own client', () => {
     for (const dialect of ['mysql', 'tidb', 'postgres', 'redshift']) {
       const cmd = build('SELECT 1;', dialect, t as never);
       if ('error' in cmd) throw new Error(cmd.error);
