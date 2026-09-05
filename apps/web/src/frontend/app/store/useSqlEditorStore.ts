@@ -29,6 +29,7 @@ import {
   buildRowLookup,
   buildTablePreview,
   composePeekSql,
+  fkDrillTableName,
 } from '@/shared/lib/tablePreview';
 import {
   getSessionPassword,
@@ -376,9 +377,9 @@ export function moveDataPeekEntry(
 
 function dataPeekDrillKey(
   fromEntryId: string,
-  fk: { referencedTable: string; columns?: string[] }
+  fk: { referencedTable: string; referencedSchema?: string; columns?: string[] }
 ): string {
-  return `${fromEntryId}|${fk.referencedTable}|${(fk.columns ?? []).join(',')}`;
+  return `${fromEntryId}|${fkDrillTableName(fk)}|${(fk.columns ?? []).join(',')}`;
 }
 
 interface SqlEditorState {
@@ -1757,13 +1758,14 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         if (!built) return;
         const composed = composePeekSql(built.sql, built.params, {});
         if ('error' in composed) return;
+        const parentTable = fkDrillTableName(fk);
         const label = (fk.referencedColumns ?? [])
           .map((c, i) => `${c} = ${String(values[i])}`)
           .join(', ');
         const entry: DataPeekEntry = {
           id: `peek-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          title: `${fk.referencedTable} · ${label}`,
-          tableName: fk.referencedTable,
+          title: `${parentTable} · ${label}`,
+          tableName: parentTable,
           baseSql: built.sql,
           baseParams: built.params,
           whereClause: '',
@@ -1811,14 +1813,15 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         if (!built) return;
         const composed = composePeekSql(built.sql, built.params, {});
         if ('error' in composed) return;
+        const parentTable = fkDrillTableName(fk);
         const label = (fk.referencedColumns ?? [])
           .map((c, i) => `${c} = ${String(values[i])}`)
           .join(', ');
         const drillKey = dataPeekDrillKey(fromEntryId, fk);
         const entry: DataPeekEntry = {
           id: `peek-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          title: `${fk.referencedTable} · ${label}`,
-          tableName: fk.referencedTable,
+          title: `${parentTable} · ${label}`,
+          tableName: parentTable,
           baseSql: built.sql,
           baseParams: built.params,
           whereClause: '',

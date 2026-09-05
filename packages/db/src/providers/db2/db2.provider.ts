@@ -146,16 +146,20 @@ export class Db2Provider implements SchemaProvider {
         indices: table.indexes
           .filter((i) => i.uniqueRule !== 'P')
           .map((i) => ({ name: i.name, columns: i.columns, unique: i.uniqueRule !== 'D' })),
-        foreignKeys: table.foreignKeys.map((fk) => ({
-          name: fk.name,
-          columns: fk.columns,
-          referencedTable: fk.referencedTable,
-          referencedColumns: resolveFkReferencedColumns(
-            fk.columns,
-            fk.referencedColumns,
-            pkColumnsOf(dbSchema.tables[fk.referencedTable])
-          ),
-        })),
+        foreignKeys: table.foreignKeys.map((fk) => {
+          const schema = typeof fk.referencedSchema === 'string' ? fk.referencedSchema.trim() : '';
+          return {
+            name: fk.name,
+            columns: fk.columns,
+            referencedTable: fk.referencedTable,
+            ...(schema ? { referencedSchema: schema } : {}),
+            referencedColumns: resolveFkReferencedColumns(
+              fk.columns,
+              fk.referencedColumns,
+              pkColumnsOf(dbSchema.tables[fk.referencedTable])
+            ),
+          };
+        }),
       });
     }
 

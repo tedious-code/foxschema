@@ -16,7 +16,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom';
 import { GripVertical, Loader2, X } from 'lucide-react';
 import { useSqlEditorStore, type DataPeekEntry } from '@/app/store/useSqlEditorStore';
-import { foreignKeyLinksFor, peekBaseFilterLabel } from '@/shared/lib/tablePreview';
+import { foreignKeyLinksFor, fkDrillTableName, peekBaseFilterLabel } from '@/shared/lib/tablePreview';
 import { DataGrid } from './DataGrid';
 import { usePeekGridCrud } from './usePeekGridCrud';
 import { SQL_ICON_STROKE } from '@/shared/lib/iconStyle';
@@ -343,7 +343,7 @@ const PeekGrid: React.FC<{
 
   const linkColumns = useMemo(() => {
     const map = new Map<number, string>();
-    for (const l of links) map.set(l.columnIndex, l.fk.referencedTable);
+    for (const l of links) map.set(l.columnIndex, fkDrillTableName(l.fk));
     return map;
   }, [links]);
 
