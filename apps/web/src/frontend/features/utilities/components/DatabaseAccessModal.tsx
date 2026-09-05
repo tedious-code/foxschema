@@ -28,6 +28,7 @@ import {
   type DbPrivilegeObjectType,
 } from '@foxschema/sql';
 import { PERMISSION_META } from '@foxschema/shared';
+import { PasswordInput } from '@/shared/components/PasswordInput';
 import { fetchDbAccess } from '@/shared/api/schemaApi';
 import { executeSql } from '@/shared/api/sqlApi';
 import { useSyncStore } from '@/app/store/useSyncStore';
@@ -223,12 +224,13 @@ export const DatabaseAccessModal: React.FC<Props> = ({
           <div>
             <h2 className="text-sm font-bold text-slate-100 flex items-center gap-2">
               <Shield className="w-4 h-4 text-amber-400" />
-              Database Access
+              DB users & grants
             </h2>
             <p className="text-[11px] text-slate-500 mt-0.5">
-              Users and groups on the <span className="text-slate-300">connected database</span>, plus
-              GRANT / REVOKE. FoxSchema logins and app permissions stay on Access control → App users
-              / App roles.
+              Live users/roles on the <span className="text-slate-300">connected database</span>, and
+              GRANT / REVOKE against it. For SQL you can copy and run yourself, use the top-nav{' '}
+              <span className="text-slate-300">Access</span> assistant. Fox Schema app logins stay
+              under Access control → App users / App roles.
             </p>
           </div>
           {onClose && (
@@ -281,8 +283,7 @@ export const DatabaseAccessModal: React.FC<Props> = ({
                 Session password
               </span>
               <div className="flex gap-1">
-                <input
-                  type="password"
+                <PasswordInput
                   data-testid="db-access-password"
                   value={passwordDraft}
                   onChange={(e) => setPasswordDraft(e.target.value)}

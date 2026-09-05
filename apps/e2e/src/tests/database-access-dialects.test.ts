@@ -606,17 +606,29 @@ describe.skipIf(configured.length === 0)('Database Access · User Management', (
         ).toBeGreaterThan(0);
 
         await driver.locator('[data-testid="user-command-mode-container"]').fill(`foxschema-${dialect}`);
-        await driver.waitForSelector('[data-testid="user-command-mode-command"]', { timeout: 10_000 });
-        const docker = await command.innerText();
-        // -i keeps stdin open; without it the heredoc is discarded and the
-        // client reads nothing, which looks like a command that did nothing.
-        // Engines that auth via an environment variable also get `-e VAR` so
-        // docker forwards PGPASSWORD / MYSQL_PWD / … from the caller's shell
-        // (prompting cannot work: stdin is the heredoc and there is no tty).
-        expect(docker).toMatch(
-          new RegExp(`docker exec -i(?: -e [A-Z][A-Z0-9_]*)? foxschema-${dialect}\\b`)
-        );
-        expect(docker).toContain("<<'FOXSQL'");
+        // CockroachDB / TiDB images ship no usable SQL client for our emitters
+        // (documented in NO_DOCKER_CLIENT). After a container name is entered the
+        // format error must stay — not flip to a command that cannot run.
+        const noDockerClient = dialect === 'cockroachdb' || dialect === 'tidb';
+        if (noDockerClient) {
+          await expect
+            .poll(async () => formatError.innerText(), { timeout: 10_000 })
+            .toMatch(dialect === 'cockroachdb' ? /cockroach sql/i : /no SQL client/i);
+        } else {
+          await driver.waitForSelector('[data-testid="user-command-mode-command"]', {
+            timeout: 10_000,
+          });
+          const docker = await command.innerText();
+          // -i keeps stdin open; without it the heredoc is discarded and the
+          // client reads nothing, which looks like a command that did nothing.
+          // Engines that auth via an environment variable also get `-e VAR` so
+          // docker forwards PGPASSWORD / MYSQL_PWD / … from the caller's shell
+          // (prompting cannot work: stdin is the heredoc and there is no tty).
+          expect(docker).toMatch(
+            new RegExp(`docker exec -i(?: -e [A-Z][A-Z0-9_]*)? foxschema-${dialect}\\b`)
+          );
+          expect(docker).toContain("<<'FOXSQL'");
+        }
 
         // ── script: a file to read before running ───────────────────────────
         await format.selectOption('script');
