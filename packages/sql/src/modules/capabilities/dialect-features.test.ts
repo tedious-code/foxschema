@@ -73,11 +73,37 @@ describe('the answers are asked for, not copied', () => {
 });
 
 describe('the reasons this table owns', () => {
-  it('blames Fox Schema for ClickHouse access, not ClickHouse', () => {
-    // `GRANT SELECT ON default.* TO user` was accepted by a live server.
-    const reason = dialectFeatureReason('clickhouse', 'dbAccess')!;
-    expect(reason).toMatch(/Fox Schema/);
-    expect(reason).not.toMatch(/ClickHouse has no/i);
+  /**
+   * Who is at fault, per engine, for every engine that has no access builder.
+   *
+   * Deriving the flag and guessing one sentence for all of them regressed this
+   * once already: SQLite was told "Fox Schema has no permission builder yet",
+   * which implies one could be built. It cannot — SQLite has no grants at all.
+   * The previous test checked ClickHouse only, so the inversion slipped past.
+   *
+   * Written as a table that must cover every refusing engine, so adding one
+   * forces the question rather than inheriting whichever sentence came last.
+   */
+  const ACCESS_BLAME: Record<string, { names: RegExp; notThe: RegExp }> = {
+    // Fox Schema's gap: ClickHouse really does accept GRANT.
+    clickhouse: { names: /Fox Schema has no permission builder/i, notThe: /ClickHouse has no/i },
+    // The engine's own nature: a file's permissions are the access control.
+    sqlite: { names: /SQLite has no grants/i, notThe: /Fox Schema has no permission builder/i },
+    duckdb: { names: /DuckDB has no grants/i, notThe: /Fox Schema has no permission builder/i },
+    // Real permissions, reachable only outside SQL — so name the tool.
+    redis: { names: /redis-cli/, notThe: /has no grants/i },
+    mongodb: { names: /mongosh/, notThe: /has no grants/i },
+  };
+
+  it('blames the right party for every engine with no access builder', () => {
+    const refusing = knownDialects().filter((d) => !supportsDialectFeature(d, 'dbAccess'));
+    expect(refusing.sort()).toEqual(Object.keys(ACCESS_BLAME).sort());
+
+    for (const [dialect, { names, notThe }] of Object.entries(ACCESS_BLAME)) {
+      const reason = dialectFeatureReason(dialect, 'dbAccess')!;
+      expect(reason, dialect).toMatch(names);
+      expect(reason, dialect).not.toMatch(notThe);
+    }
   });
 
   it('names the engine properly, not by its connection id', () => {

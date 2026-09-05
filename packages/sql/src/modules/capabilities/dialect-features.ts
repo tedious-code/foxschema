@@ -94,10 +94,26 @@ function label(key: string): string {
  * which has carried a per-engine reason since long before this file.
  */
 const DECLARED: Record<string, Partial<Record<DialectFeature, string>>> = {
+  // Three different reasons an engine has no permission builder, and they must
+  // not be collapsed. Deriving the flag but guessing one sentence for all of
+  // them told SQLite users that Fox Schema was missing a feature, which implies
+  // one could be built — the same inversion this table exists to prevent, just
+  // pointing the other way.
   clickhouse: {
+    // ClickHouse really does have GRANT: `GRANT SELECT ON default.* TO user`
+    // was accepted by a live server. Fox Schema is the gap here.
+    dbAccess: 'Fox Schema has no permission builder for ClickHouse yet.',
     // The SQL Editor adapter is deliberately read-write for SQLite but not for
     // ClickHouse — see the acquire() comments in each adapter.
     rowEditing: 'The SQL Editor adapter rejects writes for ClickHouse.',
+  },
+  // These two have no grants at all; the file's permissions are the access
+  // control. Nothing to build, so the engine is the honest answer.
+  sqlite: {
+    dbAccess: 'SQLite has no grants — the file’s permissions are the access control.',
+  },
+  duckdb: {
+    dbAccess: 'DuckDB has no grants — the file’s permissions are the access control.',
   },
   redis: {
     schemaCompare: 'Redis has no schema to compare — keys are not tables.',
@@ -128,8 +144,12 @@ function buildFeatures(key: string): DialectFeatureSupport {
     // Exactly the engines with a SQL dialect — asked, not listed, so adding one
     // to DIALECT_MAP cannot leave this behind.
     schemaCompare: support(tryResolveDialect(key) !== undefined, () => say('schemaCompare')),
+    // Redis and MongoDB have permissions that are simply not SQL, and the
+    // access module already words that — including the tool to use. Everything
+    // else says so above, because who is at fault differs per engine and a
+    // guess gets it wrong for someone.
     dbAccess: support(supportsAccessBuilder(key), () =>
-      say('dbAccess', nonSqlPermissionsReason(key) ?? `Fox Schema has no permission builder for ${label(key)} yet.`)
+      say('dbAccess', nonSqlPermissionsReason(key))
     ),
     // This one already carries its own per-engine wording.
     userManagement: support(userManagementSupport(key).supported, () =>
