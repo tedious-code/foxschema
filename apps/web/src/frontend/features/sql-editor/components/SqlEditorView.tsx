@@ -211,11 +211,16 @@ export const SqlEditorView: React.FC = () => {
       const state = useSqlEditorStore.getState();
       const active = state.tabs.find((t) => t.id === state.activeTabId) ?? state.tabs[0]!;
       const destIds = state.activeConnectionIds();
+      const connections = useSyncStore.getState().connections;
       const schemas = destIds
         .map((id) => {
           const entry = state.schemaCache[id];
           if (entry?.status !== 'ready' || !entry.tables) return null;
-          return { connectionId: id, tables: entry.tables };
+          return {
+            connectionId: id,
+            tables: entry.tables,
+            schema: connections.find((c) => c.id === id)?.schema,
+          };
         })
         .filter((x): x is NonNullable<typeof x> => x != null);
       return { sql: active.sql, schemas, variables: state.variables };

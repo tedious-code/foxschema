@@ -49,6 +49,15 @@ export type SchemaTrieBundle = {
   revision: string;
   tables: TrieNode;
   columnsByTable: Map<string, TrieNode>; // lower table key → column trie
+  /**
+   * Lower schema name → trie of the table names in it.
+   *
+   * `demo_a.` used to complete to nothing: the dot handler treated everything
+   * before the dot as a table or alias and offered its columns, and a schema
+   * has none. The tables were already loaded — there was just no way to ask
+   * for them by schema.
+   */
+  tablesBySchema: Map<string, TrieNode>;
 };
 
 /**
@@ -58,6 +67,7 @@ export type SchemaTrieBundle = {
 export function schemaRevision(
   schemas: Array<{
     connectionId: string;
+    schema?: string;
     tables: Array<{
       name: string;
       objectType?: string;
@@ -74,7 +84,9 @@ export function schemaRevision(
         })
         .sort()
         .join(';');
-      return `${s.connectionId}:{${tables}}`;
+      // The schema name is part of the identity: switching a connection to
+      // another schema can return the same table names and must still rebuild.
+      return `${s.connectionId}@${s.schema ?? ''}:{${tables}}`;
     })
     .join('|');
 }
@@ -82,6 +94,7 @@ export function schemaRevision(
 export function buildSchemaTries(
   schemas: Array<{
     connectionId: string;
+    schema?: string;
     tables: Array<{
       name: string;
       objectType?: string;
@@ -91,13 +104,37 @@ export function buildSchemaTries(
 ): SchemaTrieBundle {
   const tables = createTrie();
   const columnsByTable = new Map<string, TrieNode>();
+  const tablesBySchema = new Map<string, TrieNode>();
+  const intoSchema = (schema: string | undefined, table: string) => {
+    const key = (schema ?? '').trim().toLowerCase();
+    if (!key) return;
+    let trie = tablesBySchema.get(key);
+    if (!trie) {
+      trie = createTrie();
+      tablesBySchema.set(key, trie);
+    }
+    trieInsert(trie, table);
+  };
   for (const src of schemas) {
+    // Register the schema before its tables, so a schema that loaded and holds
+    // nothing is still *known*. Without this an empty schema is indistinguish-
+    // able from one nobody has loaded, and the editor tells the reader to go
+    // load a schema they are already looking at.
+    const schemaKey = (src.schema ?? '').trim().toLowerCase();
+    if (schemaKey && !tablesBySchema.has(schemaKey)) tablesBySchema.set(schemaKey, createTrie());
     for (const t of src.tables) {
       const ot = t.objectType;
       if (ot && ot !== 'TABLE' && ot !== 'VIEW' && ot !== 'MQT') continue;
       trieInsert(tables, t.name);
       const lower = t.name.toLowerCase();
       const bare = lower.includes('.') ? lower.slice(lower.lastIndexOf('.') + 1) : lower;
+      // Two ways a table belongs to a schema: the connection loaded it from
+      // there (names come back bare), or the name itself is qualified. Both
+      // happen, depending on dialect and how the row was produced.
+      intoSchema(src.schema, t.name);
+      if (lower.includes('.')) {
+        intoSchema(t.name.slice(0, t.name.lastIndexOf('.')), t.name.slice(t.name.lastIndexOf('.') + 1));
+      }
       let colTrie = columnsByTable.get(lower);
       if (!colTrie) {
         colTrie = createTrie();
@@ -107,5 +144,5 @@ export function buildSchemaTries(
       for (const c of t.columns ?? []) trieInsert(colTrie, c.name);
     }
   }
-  return { revision: schemaRevision(schemas), tables, columnsByTable };
+  return { revision: schemaRevision(schemas), tables, columnsByTable, tablesBySchema };
 }
