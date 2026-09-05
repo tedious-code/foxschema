@@ -48,6 +48,19 @@ describe('tables are reachable by their schema', () => {
     expect(tablesBySchema.has('demo_a')).toBe(true);
   });
 
+  it('files a qualified name under its own schema, not the connection’s', () => {
+    // Doing both made `demo_a.` offer `sales.invoices`, and accepting it
+    // inserted `demo_a.sales.invoices` — a name for a table that is not there.
+    const { tablesBySchema } = buildSchemaTries([
+      source({
+        schema: 'demo_a',
+        tables: [{ name: 'sales.invoices', objectType: 'TABLE', columns: [] }],
+      }),
+    ]);
+    expect(trieCollect(tablesBySchema.get('sales')!, '')).toEqual(['invoices']);
+    expect(trieCollect(tablesBySchema.get('demo_a')!, '')).toEqual([]);
+  });
+
   it('also reads a schema off a qualified table name', () => {
     // Some dialects and some rows carry `schema.table` in the name itself.
     const { tablesBySchema } = buildSchemaTries([

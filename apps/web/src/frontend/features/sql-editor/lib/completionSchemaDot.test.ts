@@ -136,6 +136,15 @@ describe('an empty popup is replaced by a reason', () => {
     expect(out[0]!.insertText).toBe('');
   });
 
+  it('does not call a typo an empty schema', () => {
+    // `demo_a.zzz` reported "no tables in demo_a" — indistinguishable from a
+    // schema that really is empty, and wrong: demo_a has three.
+    const out = complete('SELECT * FROM demo_a.zzz');
+    expect(out).toHaveLength(1);
+    expect(out[0]!.label).toMatch(/nothing in demo_a starts with "zzz"/);
+    expect(out[0]!.detail).toMatch(/none match what you typed/i);
+  });
+
   it('says when a schema loaded but holds nothing', () => {
     context([{ connectionId: 'c1', schema: 'empty_schema', tables: [] }]);
     expect(complete('SELECT * FROM empty_schema.')[0]!.label).toMatch(/no tables in empty_schema/);

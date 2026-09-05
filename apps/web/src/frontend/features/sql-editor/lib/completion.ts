@@ -257,6 +257,10 @@ export function ensureSqlCompletions(monaco: typeof Monaco): void {
         // no columns, so it used to fall through to an empty popup even though
         // its tables were already loaded.
         const schemaTables = cols.length === 0 ? tries.tablesBySchema.get(ref) : undefined;
+        // Whether the schema holds anything at all, as opposed to anything
+        // matching what has been typed. `demo_a.zzz` used to report "no tables
+        // in demo_a" — a typo looking exactly like an empty schema.
+        const schemaHasAny = schemaTables ? trieCollect(schemaTables, '').length > 0 : false;
         if (schemaTables) {
           const names = trieCollect(schemaTables, partial);
           if (names.length > 0) {
@@ -289,10 +293,15 @@ export function ensureSqlCompletions(monaco: typeof Monaco): void {
                     : 'Table not in loaded schema',
               }
             : knownSchema
-              ? {
-                  label: `(no tables in ${dot[1]!})`,
-                  detail: 'The schema loaded, but has no tables or views',
-                }
+              ? schemaHasAny
+                ? {
+                    label: `(nothing in ${dot[1]!} starts with "${partial}")`,
+                    detail: 'The schema has tables — none match what you typed',
+                  }
+                : {
+                    label: `(no tables in ${dot[1]!})`,
+                    detail: 'The schema loaded, but has no tables or views',
+                  }
               : {
                   label: '(schema not loaded)',
                   detail:
