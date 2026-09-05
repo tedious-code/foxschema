@@ -106,6 +106,32 @@ export interface ExclusionContext {
    * wider view; cross-table pinning is then simply not applied.
    */
   siblings?: readonly TableDiff[];
+  /**
+   * Per-trigger opt-outs for this table (false = leave out). Triggers are
+   * opt-out, so an absent entry still emits the trigger and can pin a column.
+   */
+  triggerSelection?: Record<string, boolean>;
+}
+
+/**
+ * Does a trigger body name this column via NEW/OLD (or SQL Server inserted/
+ * deleted)? Bare word search is too noisy for short names like `id`; the row
+ * pseudo-tables are how MySQL, MariaDB, Oracle, SQLite and SQL Server actually
+ * reach columns inside a trigger.
+ */
+function triggerBodyReferencesColumn(definition: string, names: readonly string[]): boolean {
+  for (const raw of names) {
+    const name = raw.trim();
+    if (!name) continue;
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // :NEW.col / NEW.`col` / OLD."col" / inserted.[col] / deleted.col
+    const re = new RegExp(
+      `(?::)?\\b(?:NEW|OLD|inserted|deleted)\\s*\\.\\s*[\`"\\[]?${escaped}[\`"\\]]?`,
+      'i'
+    );
+    if (re.test(definition)) return true;
+  }
+  return false;
 }
 
 export function columnExclusionBlock(
@@ -113,7 +139,7 @@ export function columnExclusionBlock(
   columnName: string,
   ctx: ExclusionContext = {}
 ): ExclusionBlock | null {
-  const { includedIndexes, siblings } = ctx;
+  const { includedIndexes, siblings, triggerSelection } = ctx;
   const col = diff.columnDiffs.find((c) => key(c.name) === key(columnName));
   if (!col) return null;
 
@@ -195,6 +221,24 @@ export function columnExclusionBlock(
     }
   }
 
+  // An ADDED/MODIFIED trigger that stays in the script is CREATE'd with its
+  // body intact. Opting the column out while keeping that trigger produced
+  // CREATE TRIGGER … NEW.note with no ADD COLUMN note — after earlier ALTERs
+  // may already have run. Only NEW/OLD (and SQL Server inserted/deleted) count;
+  // a Postgres trigger that only calls a function leaves no column name here.
+  const colNames = [columnName, col.source?.name, col.target?.name].filter(
+    (n): n is string => typeof n === 'string' && n.length > 0
+  );
+  for (const trg of diff.triggerDiffs ?? []) {
+    if (trg.status !== 'ADDED' && trg.status !== 'MODIFIED') continue;
+    if (triggerSelection?.[trg.name] === false) continue;
+    const def = trg.source?.definition ?? '';
+    if (!def || !triggerBodyReferencesColumn(def, colNames)) continue;
+    return {
+      reason: `Referenced by trigger ${trg.source?.name ?? trg.name}. Leave the trigger out too, or keep this column.`,
+    };
+  }
+
   return null;
 }
 
@@ -235,7 +279,13 @@ export function applyColumnSelection(
   });
 }
 
-/** Apply a trigger opt-out. Triggers depend on nothing else in the script. */
+/**
+ * Apply a trigger opt-out.
+ *
+ * Triggers can still pin ADDED columns (see `columnExclusionBlock`): a body
+ * that names `NEW.col` makes the script invalid if that column is left out.
+ * The pin lives on the column side so unticking the trigger frees the column.
+ */
 export function applyTriggerSelection(
   diff: TableDiff,
   selection: Record<string, boolean> | undefined

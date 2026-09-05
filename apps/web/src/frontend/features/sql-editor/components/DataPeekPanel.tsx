@@ -329,11 +329,14 @@ const PeekGrid: React.FC<{
   const table = useMemo(() => {
     if (!tables) return undefined;
     const wanted = entry.tableName.toLowerCase();
-    const bare = wanted.replace(/^.*\./, '');
-    return (
-      tables.find((t) => t.name.toLowerCase() === wanted) ??
-      tables.find((t) => t.name.toLowerCase().replace(/^.*\./, '') === bare)
-    );
+    const exact = tables.find((t) => t.name.toLowerCase() === wanted);
+    if (exact) return exact;
+    // A cross-schema FK drill sets tableName to `inventory.products`. Falling
+    // back to a bare `products` in the connection schema would hand row-edit
+    // the wrong PK/columns while the SELECT correctly hit the parent — the
+    // same wrong-table class the qualify fix closes, just on the write side.
+    if (wanted.includes('.')) return undefined;
+    return tables.find((t) => t.name.toLowerCase().replace(/^.*\./, '') === wanted);
   }, [tables, entry.tableName]);
 
   const links = useMemo(
