@@ -8,6 +8,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { executeSql, type SqlStatementResult } from '@/shared/api/sqlApi';
+import { supportsDialectFeature } from '@/shared/lib/dialect-features';
 import type { SavedConnectionSummary } from '@/shared/api/authApi';
 import { resolveAppSecrets } from '@/shared/api/appSecretsApi';
 import { loadSchema } from '@/shared/api/schemaApi';
@@ -85,8 +86,18 @@ import {
 
 export type { SqlVariable, SqlVariableKind, SqlVariableExport, VariableOverride };
 
-/** Dialects whose adapters are SELECT-only — writes fail with a friendly error. */
-const READONLY_DIALECTS = new Set(['sqlite', 'clickhouse']);
+/**
+ * Dialects whose adapters are SELECT-only — writes fail with a friendly error.
+ *
+ * Was a local Set that named SQLite, which is wrong: `sqlLite.adapter.ts`
+ * opens the file read-write on purpose, because "the SQL editor runs user
+ * DDL/DML against SQLite too, and a read-only handle fails those". Warning
+ * that a SQLite target is read-only sent the reader looking for a problem that
+ * was not there. It also disagreed with the *other* read-only list one file
+ * over, which named ClickHouse alone.
+ */
+const isReadOnlyDialect = (dialect: string) =>
+  !supportsDialectFeature(dialect, 'rowEditing');
 
 type ExecutionTarget = Pick<
   SavedConnectionSummary,
@@ -1049,7 +1060,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
             multiTableStatements.length > 0);
         if (needsConfirm) {
           const readonlyTargets = connections
-            .filter((c) => READONLY_DIALECTS.has(c.dialect.toLowerCase()))
+            .filter((c) => isReadOnlyDialect(c.dialect))
             .map((c) => ({ name: c.name || c.dialect, dialect: c.dialect }));
           set({
             pendingWriteConfirm: {

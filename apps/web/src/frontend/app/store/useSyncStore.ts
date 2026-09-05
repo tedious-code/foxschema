@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { buildBrowseResult } from '@/shared/lib/browse';
 import { connectionNeedsSecret } from '@/shared/lib/provider-settings';
+import { schemaCompareBlocker } from '@/shared/lib/dialect-features';
 import {
   testConnection as apiTestConnection,
   fetchSchemaList,
@@ -609,6 +610,17 @@ export const useSyncStore = create<SyncState>()(
   },
 
   runSchemaComparison: async () => {
+    // The last line, not the only one. The button is disabled for an engine
+    // that cannot be compared, but a selection can outlive the check that
+    // produced it and this is the call that reaches the generator — where
+    // `resolveDialect` answers Db2 for a name it does not know, so an
+    // unguarded run emits Db2 DDL for an engine nobody is using. Same helper
+    // as the button, so the two cannot give different answers.
+    const blocked = schemaCompareBlocker(get().sourceConfig.dialect, get().targetConfig.dialect);
+    if (blocked) {
+      set({ errorMsg: blocked });
+      return;
+    }
     // The mirror of browseSchema: comparing leaves Browse behind, so the pane
     // and the state it renders can never disagree.
     useUiStore.getState().setSyncPane('compare');

@@ -11,7 +11,6 @@ import {
   qualifyDatabaseSql,
   permissionsForPreset,
   presetForPermissions,
-  supportsAccessBuilder,
   type AccessPermission,
   type AccessPreset,
   type AccessScope,
@@ -23,6 +22,7 @@ import { ObjectPicker } from './ObjectPicker';
 import { PermissionMatrix } from './PermissionMatrix';
 import { useAccessCatalog } from '../lib/useAccessCatalog';
 import { useSyncStore } from '@/app/store/useSyncStore';
+import { dialectFeatureReason } from '@/shared/lib/dialect-features';
 import type { AccessPrincipalDraft } from '../lib/access-draft';
 
 const PRESET_LABEL: Record<AccessPreset, string> = {
@@ -263,7 +263,18 @@ export const PermissionBuilder: React.FC<{
     setTimeout(() => setCopied(false), 1600);
   };
 
-  const unsupported = dialect && !supportsAccessBuilder(dialect);
+  /**
+   * Whether this engine's permissions can be built here, and why not.
+   *
+   * The boolean was right; the sentence under it was not. It read "<dialect>
+   * has no GRANT model", which is false of all three engines that reach it:
+   * ClickHouse accepts `GRANT SELECT ON default.* TO user` (checked against a
+   * live server), and Redis and MongoDB both enforce permissions — ACL key
+   * patterns and command lists, and roles — just not as SQL. What is missing
+   * is a Fox Schema builder, which is a different claim. The table says so
+   * per engine, and names the tool where there is one.
+   */
+  const accessBlockedBy = dialect ? dialectFeatureReason(dialect, 'dbAccess') : undefined;
   const fromUserManagement = Boolean(initialDraft?.principalName);
 
   return (
@@ -305,12 +316,12 @@ export const PermissionBuilder: React.FC<{
           </select>
         </Field>
 
-        {unsupported ? (
+        {accessBlockedBy ? (
           <div
             data-testid="access-unsupported"
             className="rounded-md border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-[11px] text-slate-400"
           >
-            {conn?.dialect} has no GRANT model, so there is nothing to build here.
+            {accessBlockedBy}
           </div>
         ) : (
           <>

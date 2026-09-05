@@ -35,3 +35,16 @@ export const DIALECT_MAP: Record<string, SqlDialect> = {
 export function resolveDialect(dialect: string): SqlDialect {
   return DIALECT_MAP[dialect.toUpperCase()] ?? db2SqlDialect;
 }
+
+/**
+ * The same lookup, without the fallback.
+ *
+ * `resolveDialect` answers Db2 for a name it does not know, which ~20 call
+ * sites depend on and which is not worth unpicking here. But a caller that
+ * wants to *ask* whether an engine is known had no way to, so "is there a SQL
+ * dialect for this?" was being hand-maintained as a list somewhere else and
+ * drifting from this map. Now it can be derived.
+ */
+export function tryResolveDialect(dialect: string): SqlDialect | undefined {
+  return DIALECT_MAP[(dialect || '').toUpperCase()];
+}
