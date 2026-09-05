@@ -15,6 +15,14 @@ export interface SchemaCacheEntry {
 export interface CompletionSchemaSource {
   connectionId: string;
   tables: TableSchema[];
+  /**
+   * The schema these tables came from.
+   *
+   * `/schema/load` takes one schema per connection, so the tables here are that
+   * schema's and their names are bare. Without the name, nothing downstream
+   * could tell that `demo_a.` refers to the very tables it already holds.
+   */
+  schema?: string;
 }
 
 export interface CompletionContext {

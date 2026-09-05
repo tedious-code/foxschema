@@ -249,22 +249,70 @@ export function ensureSqlCompletions(monaco: typeof Monaco): void {
           startColumn: position.column - partial.length,
           endColumn: position.column,
         };
-        if (cols.length === 0 && aliases[ref]) {
-          // Alias resolved but schema has no columns yet — surface why.
+        // `schema.` — the qualifier names a schema, not a table or an alias.
+        //
+        // Checked only once columns come back empty, so nothing that resolved
+        // as a table or alias changes behaviour: a name that is both keeps its
+        // columns, which is what someone writing `orders.` meant. A schema has
+        // no columns, so it used to fall through to an empty popup even though
+        // its tables were already loaded.
+        const schemaTables = cols.length === 0 ? tries.tablesBySchema.get(ref) : undefined;
+        if (schemaTables) {
+          const names = trieCollect(schemaTables, partial);
+          if (names.length > 0) {
+            return {
+              suggestions: names.map((name) => ({
+                label: name,
+                kind: monaco.languages.CompletionItemKind.Struct,
+                insertText: name,
+                detail: `table · ${dot[1]!}`,
+                sortText: `0_${name}`,
+                range: colRange,
+              })),
+            };
+          }
+        }
+
+        if (cols.length === 0) {
+          // `aliases` self-maps a bare table name in FROM, so `aliases[ref]`
+          // is truthy for `nowhere.` as well as for a real alias. Only a name
+          // that resolves to a *different* table is an alias, and only that
+          // case can honestly say the table is missing its columns.
+          const resolvedAlias = aliases[ref] && aliases[ref]!.toLowerCase() !== ref;
+          const knownSchema = tries.tablesBySchema.has(ref);
+          const note = resolvedAlias
+            ? {
+                label: `(no columns for ${tableName})`,
+                detail:
+                  schemas.length === 0
+                    ? 'Load a destination schema (check a server)'
+                    : 'Table not in loaded schema',
+              }
+            : knownSchema
+              ? {
+                  label: `(no tables in ${dot[1]!})`,
+                  detail: 'The schema loaded, but has no tables or views',
+                }
+              : {
+                  label: '(schema not loaded)',
+                  detail:
+                    schemas.length === 0
+                      ? 'Check a server in the sidebar to load its schema'
+                      : `No table or schema named ${dot[1]!} in what is loaded`,
+                };
           return {
             suggestions: [
               {
-                label: `(no columns for ${tableName})`,
+                label: note.label,
                 kind: monaco.languages.CompletionItemKind.Text,
                 insertText: '',
-                detail: schemas.length === 0
-                  ? 'Load a destination schema (check a server)'
-                  : 'Table not in loaded schema',
+                detail: note.detail,
                 range: colRange,
               },
             ],
           };
         }
+
         return {
           suggestions: cols.map((name) => ({
             label: name,
@@ -298,6 +346,34 @@ export function ensureSqlCompletions(monaco: typeof Monaco): void {
           detail: `alias → ${table}`,
           sortText: `0_${alias}`,
           range,
+        });
+      }
+
+      /**
+       * Schema names, so `demo_a.` is something you can find rather than
+       * something you have to already know.
+       *
+       * Accepting one inserts the dot and re-triggers the suggest widget, so
+       * the table list opens straight away — the whole point of the request.
+       * Sorted above tables: typing a schema name is the start of a longer
+       * path, and a table of the same name is still one keystroke away.
+       */
+      for (const schemaName of [...tries.tablesBySchema.keys()].sort()) {
+        if (prefix && !schemaName.startsWith(prefix)) continue;
+        if (seen.has(schemaName)) continue;
+        // A name that is both a schema and a table stays a table: that is what
+        // it means in a FROM clause, and the schema is still reachable by
+        // typing the dot.
+        if (tries.columnsByTable.has(schemaName)) continue;
+        seen.add(schemaName);
+        suggestions.push({
+          label: schemaName,
+          kind: monaco.languages.CompletionItemKind.Module,
+          insertText: `${schemaName}.`,
+          detail: 'schema',
+          sortText: `0a_${schemaName}`,
+          range,
+          command: { id: 'editor.action.triggerSuggest', title: 'Suggest tables' },
         });
       }
 
