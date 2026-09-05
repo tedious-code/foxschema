@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { useUiStore } from '@/app/store/uiStore';
@@ -11,7 +11,7 @@ import { MigrationHistory } from '@/features/migrations';
 import { TYPE_META, TYPE_ORDER } from '@/features/sql-editor';
 import type { DbObjectType } from '@/shared/lib/types';
 import { connectionNeedsSecret } from '@/shared/lib/provider-settings';
-import { dialectFeatures } from '@/shared/lib/dialect-features';
+import { schemaCompareBlocker } from '@/shared/lib/dialect-features';
 import { ConnectionModal } from '@/features/connections';
 import { PasswordInput } from '@/shared/components/PasswordInput';
 import { useAuthStore } from '@/app/store/authStore';
@@ -65,32 +65,20 @@ export const TopToolbar: React.FC = () => {
 
   /**
    * Whether the engines in play can be compared at all, as opposed to whether
-   * this user is allowed to.
-   *
-   * These are different refusals and the UI has only ever expressed the second.
-   * `resolveDialect` answers Db2 for a name it does not recognise, so comparing
-   * a Redis or MongoDB connection produced Db2 DDL with nothing to say it had.
+   * this user is allowed to — different refusals, and the UI only ever
+   * expressed the second. `resolveDialect` answers Db2 for a name it does not
+   * recognise, so comparing a Redis or MongoDB connection produced Db2 DDL
+   * with nothing to say it had.
    *
    * This gates the Compare button and nothing else. It first disabled the
-   * Schema Sync tab, which was the wrong control twice over: the tab is not on
-   * the path — `activeView` already defaults to `sync`, so nobody has to press
-   * it — and that tab also owns Browse, History and both connection pickers,
-   * none of which need a SQL dialect. Disabling it stranded the reader in
-   * another workspace with no way back and no way to change the connection
-   * that blocked them, across reload. Browse in particular works fine on
-   * Redis: it asks what is in one database, not how two schemas differ.
+   * Schema Sync tab, which was the wrong control twice over: `activeView`
+   * already defaults to `sync`, so nobody has to press it, and that tab also
+   * owns Browse, History and both connection pickers — none of which need a
+   * SQL dialect. Disabling it stranded the reader in another workspace with no
+   * way back and no way to change the connection that blocked them.
    */
-  const compareBlockedBy = useMemo(() => {
-    for (const [label, dialect] of [
-      ['Source', sourceConfig.dialect],
-      ['Target', targetConfig.dialect],
-    ] as const) {
-      if (!dialect) continue;
-      const support = dialectFeatures(dialect).schemaCompare;
-      if (!support.supported) return `${label}: ${support.reason}`;
-    }
-    return null;
-  }, [sourceConfig.dialect, targetConfig.dialect]);
+  const compareBlockedBy = schemaCompareBlocker(sourceConfig.dialect, targetConfig.dialect);
+
   const canEditorAccess = useAuthStore((s) => s.can('editor.access'));
 
   // A saved connection created without a stored password ("Save password" left
@@ -166,6 +154,30 @@ export const TopToolbar: React.FC = () => {
     (sourceConfig.option.host ?? '') === (targetConfig.option.host ?? '') &&
     (sourceConfig.option.database ?? '') === (targetConfig.option.database ?? '') &&
     sourceConfig.schema.trim().toUpperCase() === targetConfig.schema.trim().toUpperCase();
+
+  /**
+   * Everything that makes Compare unavailable except being mid-run.
+   *
+   * One expression because there were two: `disabled` and the className each
+   * repeated the list, and adding the engine check to only the first left a
+   * blocked button still painted as the live call to action.
+   *
+   * `isComparing` stays out deliberately — the button keeps its accent while
+   * the spinner runs, and only the `disabled` attribute adds it.
+   */
+  const compareUnavailable =
+    !canSchemaCompare ||
+    Boolean(compareBlockedBy) ||
+    !sourceConnected ||
+    !targetConnected ||
+    selectedObjectTypes.length === 0 ||
+    sameConfig;
+
+  const compareTitle =
+    (!canSchemaCompare && 'Your role cannot compare schemas') ||
+    compareBlockedBy ||
+    (sameConfig && 'Original Server and Target point to the same database and schema') ||
+    undefined;
 
   const typeCounts = (type: 'ALL' | DbObjectType) =>
     type === 'ALL'
@@ -601,32 +613,12 @@ export const TopToolbar: React.FC = () => {
           <button
             data-testid="compare-btn"
             onClick={runSchemaComparison}
-            disabled={
-              !canSchemaCompare ||
-              Boolean(compareBlockedBy) ||
-              isComparing ||
-              !sourceConnected ||
-              !targetConnected ||
-              selectedObjectTypes.length === 0 ||
-              sameConfig
-            }
-            title={
-              !canSchemaCompare
-                ? 'Your role cannot compare schemas'
-                : compareBlockedBy
-                  ? compareBlockedBy
-                  : sameConfig
-                    ? 'Original Server and Target point to the same database and schema'
-                    : undefined
-            }
+            disabled={compareUnavailable || isComparing}
+            title={compareTitle}
             className={`flex items-center gap-1.5 px-4 py-1.5 rounded-md text-sm font-bold transition shadow-lg ${
-              canSchemaCompare &&
-              sourceConnected &&
-              targetConnected &&
-              selectedObjectTypes.length > 0 &&
-              !sameConfig
-                ? 'accent-grad on-accent-fg shadow-indigo-500/10 cursor-pointer'
-                : 'bg-slate-850 text-slate-500 cursor-not-allowed border border-slate-800/50'
+              compareUnavailable
+                ? 'bg-slate-850 text-slate-500 cursor-not-allowed border border-slate-800/50'
+                : 'accent-grad on-accent-fg shadow-indigo-500/10 cursor-pointer'
             }`}
           >
             {isComparing ? (

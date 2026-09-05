@@ -7,13 +7,13 @@ import {
   buildAccessSql,
   diffAccessDesired,
   permissionsForPreset,
-  supportsAccessBuilder,
   type AccessDesiredState,
   type AccessPermission,
   type AccessScope,
   type DbPrivilege,
   type PermissionRequest,
 } from '../lib/access';
+import { dialectFeatureReason } from '@/shared/lib/dialect-features';
 import { EmptyState, Field, Segmented, inputCls } from './controls';
 import { Autocomplete } from '@/shared/components/Autocomplete';
 import { ObjectPicker } from './ObjectPicker';
@@ -212,7 +212,11 @@ export const PermissionDiff: React.FC = () => {
     setTimeout(() => setCopied(false), 1600);
   };
 
-  const unsupported = dialect && !supportsAccessBuilder(dialect);
+  // Was `supportsAccessBuilder` plus "<dialect> has no GRANT model for
+  // diffing" — the same claim its sibling PermissionBuilder just stopped
+  // making, because it is false of all three engines that reach it. Adjacent
+  // tabs of one screen were about to give ClickHouse two different answers.
+  const accessBlockedBy = dialect ? dialectFeatureReason(dialect, 'dbAccess') : undefined;
 
   return (
     <div className="flex-1 flex min-h-0" data-testid="permission-diff">
@@ -241,12 +245,12 @@ export const PermissionDiff: React.FC = () => {
           </select>
         </Field>
 
-        {unsupported ? (
+        {accessBlockedBy ? (
           <div
             data-testid="diff-unsupported"
             className="rounded-md border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-[11px] text-slate-400"
           >
-            {conn?.dialect} has no GRANT model for diffing.
+            {accessBlockedBy}
           </div>
         ) : (
           <>

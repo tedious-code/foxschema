@@ -38,7 +38,6 @@ export interface PeekEditability {
   identityColumns: Set<string>;
 }
 
-
 /**
  * Column types whose grid cells are display-only hex (`0x…`), not round-trippable
  * bind values. Clone/edit would INSERT/UPDATE the ASCII hex string (or a
@@ -144,13 +143,13 @@ export function assessPeekEditability(opts: {
 }): PeekEditability {
   const { dialect, table, resultColumns } = opts;
   // Was a local Set of dialect names here. It is the same question the other
-  // three screens ask, so it comes from the one table now — which also means an
+  // screens ask, so it comes from the one table now — which also means an
   // engine nobody has added is read-only rather than silently editable.
   const rowEditing = dialectFeatures(dialect).rowEditing;
   if (!rowEditing.supported) {
     return {
       editable: false,
-      reason: rowEditing.reason ?? 'Row editing is not available for this engine.',
+      reason: rowEditing.reason,
       keyColumns: [],
       editableColumns: [],
       identityColumns: new Set(),

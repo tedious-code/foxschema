@@ -22,7 +22,7 @@ import { ObjectPicker } from './ObjectPicker';
 import { PermissionMatrix } from './PermissionMatrix';
 import { useAccessCatalog } from '../lib/useAccessCatalog';
 import { useSyncStore } from '@/app/store/useSyncStore';
-import { dialectFeatures } from '@/shared/lib/dialect-features';
+import { dialectFeatureReason } from '@/shared/lib/dialect-features';
 import type { AccessPrincipalDraft } from '../lib/access-draft';
 
 const PRESET_LABEL: Record<AccessPreset, string> = {
@@ -274,8 +274,7 @@ export const PermissionBuilder: React.FC<{
    * is a Fox Schema builder, which is a different claim. The table says so
    * per engine, and names the tool where there is one.
    */
-  const accessSupport = dialect ? dialectFeatures(dialect).dbAccess : null;
-  const unsupported = accessSupport ? !accessSupport.supported : false;
+  const accessBlockedBy = dialect ? dialectFeatureReason(dialect, 'dbAccess') : undefined;
   const fromUserManagement = Boolean(initialDraft?.principalName);
 
   return (
@@ -317,12 +316,12 @@ export const PermissionBuilder: React.FC<{
           </select>
         </Field>
 
-        {unsupported ? (
+        {accessBlockedBy ? (
           <div
             data-testid="access-unsupported"
             className="rounded-md border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-[11px] text-slate-400"
           >
-            {accessSupport?.reason}
+            {accessBlockedBy}
           </div>
         ) : (
           <>

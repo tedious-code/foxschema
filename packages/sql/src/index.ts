@@ -267,19 +267,20 @@ export type {
 } from './modules/sql-editor/code-cell-types.js';
 export { isCodeCellLast, isCodeCellVars, CODE_CELL_KIND_LABEL } from './modules/sql-editor/code-cell-types.js';
 export type { SqlDialect, CanonicalType, CanonicalBase, RenderedType } from './modules/dialect/sql-dialect.interface.js';
-export { resolveDialect, DIALECT_MAP } from './modules/dialect/registry.js';
+export { resolveDialect, tryResolveDialect, DIALECT_MAP } from './modules/dialect/registry.js';
 export {
   dialectFeatures,
   supportsDialectFeature,
   dialectFeatureReason,
   knownDialects,
   DIALECT_FEATURES,
-} from './modules/dialect/dialect-features.js';
+  schemaCompareBlocker,
+} from './modules/capabilities/dialect-features.js';
 export type {
   DialectFeature,
   DialectFeatureSupport,
   FeatureSupport,
-} from './modules/dialect/dialect-features.js';
+} from './modules/capabilities/dialect-features.js';
 export {
   sqlTag,
   renderSqlQuery,

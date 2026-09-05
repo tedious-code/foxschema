@@ -6,7 +6,8 @@
  * point of the split.
  */
 import { CompareModule, type DbObjectType } from '@foxschema/db';
-import { requirePermission, type ActorContext } from '../../platform/contracts/actor';
+import { requirePermission, ServiceError, type ActorContext } from '../../platform/contracts/actor';
+import { schemaCompareBlocker } from '@foxschema/sql';
 import type { ConnectionRef, ConnectionResolver } from '../../platform/db/resolve';
 
 export interface CompareInput {
@@ -36,6 +37,15 @@ export function makeCompareService(deps: {
 
       const src = await deps.resolver.resolveRef(actor.userId, input.source);
       const tgt = await deps.resolver.resolveRef(actor.userId, input.target);
+
+      // Enforcement, not an affordance. The browser disables the Compare
+      // button and the store refuses the action, but this header's own promise
+      // — that a GraphQL resolver or the CLI calls this function directly —
+      // means both of those are bypassable. Without this check such a caller
+      // reaches `resolveDialect`, which answers Db2 for a name it does not
+      // know, and gets a migration script for an engine nobody is using.
+      const blocked = schemaCompareBlocker(src.dialect, tgt.dialect);
+      if (blocked) throw new ServiceError('invalid_input', blocked);
 
       // Load both schemas and diff server-side; only the result crosses the wire.
       const [srcLoad, tgtLoad] = await Promise.all([
