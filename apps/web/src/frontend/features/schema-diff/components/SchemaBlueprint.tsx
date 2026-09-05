@@ -284,8 +284,11 @@ export function SchemaBlueprint({
       blockedColumns(diff, {
         includedIndexes: includedIndexKeys,
         siblings: siblingDiffs,
+        // Same opt-outs the script uses: an unticked trigger must not pin a
+        // column the reader is free to leave out.
+        triggerSelection,
       }),
-    [diff, includedIndexKeys, siblingDiffs]
+    [diff, includedIndexKeys, siblingDiffs, triggerSelection]
   );
   // Only an existing table migrates column by column. A create renders columns,
   // indexes and triggers from `sourceTable` as one statement, and a view or

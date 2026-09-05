@@ -29,7 +29,12 @@ import { DataGrid, PANE_DEFAULT_H_PX, PANE_DEFAULT_PX, PANE_MIN_H_PX, PANE_MIN_P
 import type { SqlStatementResult } from '@/shared/api/sqlApi';
 import { detectCodeCell } from '@/features/sql-editor/lib/codeCellRunner';
 import { CODE_CELL_KIND_LABEL } from '@/shared/lib/sql-splitter';
-import { foreignKeyLinksFor, foreignKeyLinksForSql, singleTableForResultEdit } from '@/shared/lib/tablePreview';
+import {
+  foreignKeyLinksFor,
+  foreignKeyLinksForSql,
+  fkDrillTableName,
+  singleTableForResultEdit,
+} from '@/shared/lib/tablePreview';
 import {
   attributeResultColumns,
   collapsedColumnsFor,
@@ -324,7 +329,7 @@ const ResultGridPane: React.FC<{
   const linkColumns = useMemo(() => {
     if (fkLinks.length === 0) return undefined;
     const map = new Map<number, string>();
-    for (const l of fkLinks) map.set(l.columnIndex, l.fk.referencedTable);
+    for (const l of fkLinks) map.set(l.columnIndex, fkDrillTableName(l.fk));
     return map;
   }, [fkLinks]);
 
