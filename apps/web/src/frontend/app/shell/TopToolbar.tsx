@@ -68,11 +68,17 @@ export const TopToolbar: React.FC = () => {
    * this user is allowed to.
    *
    * These are different refusals and the UI has only ever expressed the second.
-   * `resolveDialect` answers Db2 for a name it does not recognise, so opening
-   * Schema Sync on a Redis or MongoDB connection produced Db2 DDL with nothing
-   * to say it had. Disabled rather than hidden: the feature exists, it just
-   * does not apply to what is selected, and a button that vanishes is harder
-   * to reason about than one that says why.
+   * `resolveDialect` answers Db2 for a name it does not recognise, so comparing
+   * a Redis or MongoDB connection produced Db2 DDL with nothing to say it had.
+   *
+   * This gates the Compare button and nothing else. It first disabled the
+   * Schema Sync tab, which was the wrong control twice over: the tab is not on
+   * the path — `activeView` already defaults to `sync`, so nobody has to press
+   * it — and that tab also owns Browse, History and both connection pickers,
+   * none of which need a SQL dialect. Disabling it stranded the reader in
+   * another workspace with no way back and no way to change the connection
+   * that blocked them, across reload. Browse in particular works fine on
+   * Redis: it asks what is in one database, not how two schemas differ.
    */
   const compareBlockedBy = useMemo(() => {
     for (const [label, dialect] of [
@@ -231,14 +237,10 @@ export const TopToolbar: React.FC = () => {
             <button
               data-testid="view-sync-btn"
               onClick={() => setActiveView('sync')}
-              disabled={Boolean(compareBlockedBy)}
-              title={compareBlockedBy ?? undefined}
-              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition ${
-                compareBlockedBy
-                  ? 'cursor-not-allowed text-slate-600'
-                  : activeView === 'sync'
-                    ? 'cursor-pointer bg-slate-800 text-slate-100'
-                    : 'cursor-pointer text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
+                activeView === 'sync'
+                  ? 'bg-slate-800 text-slate-100'
+                  : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
               }`}
             >
               <GitCompareArrows className="w-3.5 h-3.5" /> Schema Sync
@@ -601,6 +603,7 @@ export const TopToolbar: React.FC = () => {
             onClick={runSchemaComparison}
             disabled={
               !canSchemaCompare ||
+              Boolean(compareBlockedBy) ||
               isComparing ||
               !sourceConnected ||
               !targetConnected ||
@@ -610,9 +613,11 @@ export const TopToolbar: React.FC = () => {
             title={
               !canSchemaCompare
                 ? 'Your role cannot compare schemas'
-                : sameConfig
-                  ? 'Original Server and Target point to the same database and schema'
-                  : undefined
+                : compareBlockedBy
+                  ? compareBlockedBy
+                  : sameConfig
+                    ? 'Original Server and Target point to the same database and schema'
+                    : undefined
             }
             className={`flex items-center gap-1.5 px-4 py-1.5 rounded-md text-sm font-bold transition shadow-lg ${
               canSchemaCompare &&
