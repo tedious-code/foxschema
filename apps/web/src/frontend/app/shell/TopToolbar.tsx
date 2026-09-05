@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { useUiStore } from '@/app/store/uiStore';
@@ -11,6 +11,7 @@ import { MigrationHistory } from '@/features/migrations';
 import { TYPE_META, TYPE_ORDER } from '@/features/sql-editor';
 import type { DbObjectType } from '@/shared/lib/types';
 import { connectionNeedsSecret } from '@/shared/lib/provider-settings';
+import { dialectFeatures } from '@/shared/lib/dialect-features';
 import { ConnectionModal } from '@/features/connections';
 import { PasswordInput } from '@/shared/components/PasswordInput';
 import { useAuthStore } from '@/app/store/authStore';
@@ -61,6 +62,29 @@ export const TopToolbar: React.FC = () => {
   const { activeView, setActiveView, syncPane, setSyncPane, bumpLokeeEpoch } = useUiStore();
   const canSchemaBrowse = useAuthStore((s) => s.can('schema.browse'));
   const canSchemaCompare = useAuthStore((s) => s.can('schema.compare'));
+
+  /**
+   * Whether the engines in play can be compared at all, as opposed to whether
+   * this user is allowed to.
+   *
+   * These are different refusals and the UI has only ever expressed the second.
+   * `resolveDialect` answers Db2 for a name it does not recognise, so opening
+   * Schema Sync on a Redis or MongoDB connection produced Db2 DDL with nothing
+   * to say it had. Disabled rather than hidden: the feature exists, it just
+   * does not apply to what is selected, and a button that vanishes is harder
+   * to reason about than one that says why.
+   */
+  const compareBlockedBy = useMemo(() => {
+    for (const [label, dialect] of [
+      ['Source', sourceConfig.dialect],
+      ['Target', targetConfig.dialect],
+    ] as const) {
+      if (!dialect) continue;
+      const support = dialectFeatures(dialect).schemaCompare;
+      if (!support.supported) return `${label}: ${support.reason}`;
+    }
+    return null;
+  }, [sourceConfig.dialect, targetConfig.dialect]);
   const canEditorAccess = useAuthStore((s) => s.can('editor.access'));
 
   // A saved connection created without a stored password ("Save password" left
@@ -207,10 +231,14 @@ export const TopToolbar: React.FC = () => {
             <button
               data-testid="view-sync-btn"
               onClick={() => setActiveView('sync')}
-              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
-                activeView === 'sync'
-                  ? 'bg-slate-800 text-slate-100'
-                  : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+              disabled={Boolean(compareBlockedBy)}
+              title={compareBlockedBy ?? undefined}
+              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition ${
+                compareBlockedBy
+                  ? 'cursor-not-allowed text-slate-600'
+                  : activeView === 'sync'
+                    ? 'cursor-pointer bg-slate-800 text-slate-100'
+                    : 'cursor-pointer text-slate-400 hover:bg-slate-900 hover:text-slate-200'
               }`}
             >
               <GitCompareArrows className="w-3.5 h-3.5" /> Schema Sync

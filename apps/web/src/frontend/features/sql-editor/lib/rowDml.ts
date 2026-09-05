@@ -9,6 +9,7 @@
 
 import { sqlTag as sql, renderSqlQuery, identityInsertFor } from '@/shared/lib/sql-splitter';
 import { tableNameParts } from '@/shared/lib/tablePreview';
+import { dialectFeatures } from '@/shared/lib/dialect-features';
 import type { TableSchema } from '@/shared/lib/types';
 
 export type PeekWriteKind = 'update' | 'insert' | 'delete';
@@ -37,8 +38,6 @@ export interface PeekEditability {
   identityColumns: Set<string>;
 }
 
-/** Dialects that reject writes in the SQL Editor adapters. */
-const PEEK_READONLY_DIALECTS = new Set(['clickhouse']);
 
 /**
  * Column types whose grid cells are display-only hex (`0x…`), not round-trippable
@@ -144,10 +143,14 @@ export function assessPeekEditability(opts: {
   resultColumns: string[];
 }): PeekEditability {
   const { dialect, table, resultColumns } = opts;
-  if (PEEK_READONLY_DIALECTS.has(dialect.toLowerCase())) {
+  // Was a local Set of dialect names here. It is the same question the other
+  // three screens ask, so it comes from the one table now — which also means an
+  // engine nobody has added is read-only rather than silently editable.
+  const rowEditing = dialectFeatures(dialect).rowEditing;
+  if (!rowEditing.supported) {
     return {
       editable: false,
-      reason: 'This dialect is read-only — row editing is disabled.',
+      reason: rowEditing.reason ?? 'Row editing is not available for this engine.',
       keyColumns: [],
       editableColumns: [],
       identityColumns: new Set(),
