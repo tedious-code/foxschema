@@ -267,6 +267,40 @@ services:
   # DuckDB is file-based (like SQLite) — no server container. seed-all.sh writes
   # /tmp/foxschema-duckdb/demo_{a,b}.duckdb via scripts/seed/seed-duckdb.mjs.
 
+  # Redis and MongoDB are connection-only here: no SQL dialect, no GRANT model,
+  # no command-mode client. They still had no container at all, so nothing
+  # verified that the app can reach them or that it describes them correctly.
+  redis:
+    image: redis:7-alpine
+    container_name: foxschema-redis
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mongodb:
+    image: mongo:7
+    container_name: foxschema-mongodb
+    # Auth on deliberately. Without it every role is decorative — a `read` user
+    # can insert — so a permission test against it proves nothing.
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: foxroot
+      MONGO_INITDB_ROOT_PASSWORD: FoxPass123
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ['CMD-SHELL', 'mongosh --quiet --eval "db.adminCommand({ping:1})" || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
 volumes:
   pg_data:
   mysql_data:
@@ -278,3 +312,5 @@ volumes:
   yugabyte_data:
   clickhouse_data:
   redshift_data:
+  redis_data:
+  mongo_data:

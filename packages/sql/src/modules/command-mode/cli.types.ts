@@ -78,6 +78,23 @@ export interface GeneratedCommand {
    * may be a real one worth verifying.
    */
   dockerFlags?: string[];
+  /**
+   * Why the Docker form cannot work for this engine, when it cannot.
+   *
+   * Set for images that ship no client this emitter can drive. Refusing with a
+   * reason beats emitting a command that dies with "executable file not found
+   * in $PATH", which tells the reader nothing about whose fault it is.
+   */
+  dockerUnsupported?: string;
+  /**
+   * Run the client as this OS user inside the container, through a login shell.
+   *
+   * The Db2 CLP is not on PATH and does not work from its absolute path either:
+   * without the instance owner's profile it fails with SQL10007N / -1390,
+   * because DB2INSTANCE and the library path come from that profile. A login
+   * shell as the instance owner sets them.
+   */
+  dockerUser?: string;
   /** Anything surprising about this engine's client. */
   note?: string;
 }

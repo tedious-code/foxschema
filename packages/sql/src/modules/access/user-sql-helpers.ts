@@ -8,6 +8,7 @@
 import type { PermissionRisk } from './intent.js';
 import type { GeneratedStatement, PermissionWarning } from './access-sql.types.js';
 import { quoteSqlIdentifier } from '../sql-text/sql-template.js';
+import { nonSqlAccountsReason } from './non-sql-engines.js';
 import {
   PASSWORD_PLACEHOLDER,
   type GeneratedUserSql,
@@ -25,6 +26,18 @@ export const UNSUPPORTED_USER_SQL: UserManagementSupport = {
   canExpire: false,
   reason: 'This engine has no database accounts to manage.',
 };
+
+/**
+ * Why one engine's accounts are out of reach, in that engine's own terms.
+ *
+ * "This engine has no database accounts to manage" is true of SQLite and
+ * DuckDB, where a file's owner is the access control. It is simply false of
+ * Redis and MongoDB, which both have full account systems. The per-engine
+ * wording — and the evidence behind every command it names — lives in
+ * `non-sql-engines.ts`, beside the matching message for the permission
+ * builder, because the two said different things while describing the same
+ * two engines.
+ */
 
 /** MySQL-family string literals treat `\` as an escape — double it before quotes. */
 function mysqlQuote(value: string): string {
@@ -106,11 +119,12 @@ export function createUserSqlEmitter(request: UserRequest, dialect: string) {
 
 /** Stub for engines with no SQL-reachable accounts. */
 export function unsupportedUserSqlDialect(id: string): UserSqlDialect {
+  const reason = nonSqlAccountsReason(id) ?? UNSUPPORTED_USER_SQL.reason!;
   return {
     id,
-    support: UNSUPPORTED_USER_SQL,
+    support: { ...UNSUPPORTED_USER_SQL, reason },
     build() {
-      return { error: UNSUPPORTED_USER_SQL.reason! };
+      return { error: reason };
     },
   };
 }

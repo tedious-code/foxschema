@@ -36,11 +36,6 @@ export const sqlServerCli: CliDialect = {
       explanation: `Runs the batch on ${target.database} as ${target.username}. Export SQLCMDPASSWORD first — sqlcmd cannot prompt here.`,
       auth: 'environment',
       envVar: 'SQLCMDPASSWORD',
-      dockerClient: '/opt/mssql-tools18/bin/sqlcmd',
-      // A container's certificate is self-signed, and sqlcmd 18 refuses it
-      // outright: "SSL Provider: certificate verify failed". Verified against
-      // the mssql 2022 image — without -C the command cannot connect.
-      dockerFlags: ['-C'],
       note:
         'In the official mssql images sqlcmd is not on PATH; it lives in /opt/mssql-tools18/bin (or /opt/mssql-tools/bin on older images). ' +
         '-b makes sqlcmd exit non-zero on error; without it a failed batch still reports success. ' +

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { buildUserSql } from './user-sql';
 import {
   buildAccessSql,
   invertAccessRequest,
@@ -739,5 +740,104 @@ describe('Db2 schema-wide grants', () => {
     const warned = r.warnings.map((w) => w.message).join(' ');
     expect(warned).toMatch(/no schema-wide table grant/i);
     expect(warned).not.toMatch(/choose a schema/i);
+  });
+});
+
+describe('engines this tool does not speak for', () => {
+  // Verified against Redis 7 and MongoDB 7: both have working account systems.
+  // `ACL SETUSER` created a user whose key pattern and command list were then
+  // enforced (NOPERM on both a key outside ~fox:* and a command outside +get),
+  // and `db.createUser` with a `read` role allowed a find and refused an
+  // insert. Telling their users otherwise misinforms them about their own
+  // server.
+  it('does not claim Redis and MongoDB have no accounts', () => {
+    for (const dialect of ['redis', 'mongodb']) {
+      const out = buildUserSql(
+        { action: 'create', principalType: 'user', name: 'x' } as never,
+        dialect
+      );
+      if (!('error' in out)) throw new Error(`${dialect} should refuse`);
+      expect(out.error, dialect).not.toMatch(/has no database accounts/i);
+      expect(out.error, dialect).toMatch(/Fox Schema does not manage/i);
+      // Name the tool that does, so the refusal is actionable.
+      expect(out.error, dialect).toMatch(dialect === 'redis' ? /redis-cli/ : /mongosh/);
+    }
+  });
+
+  it('still says SQLite has none, because that is true', () => {
+    const out = buildUserSql(
+      { action: 'create', principalType: 'user', name: 'x' } as never,
+      'sqlite'
+    );
+    if (!('error' in out)) throw new Error('sqlite should refuse');
+    expect(out.error).toMatch(/no database accounts/i);
+  });
+
+  /**
+   * The permission screen is where a Redis or MongoDB reader most needs the
+   * pointer, because the permission system is the interesting half of both
+   * engines — and it was the one screen that did not give it.
+   *
+   * Every command named here was run against Redis 7.4 and MongoDB 7. Redis
+   * refused a key outside `~fox:*` with NOPERM and a command outside `+get`
+   * with NOPERM, so patterns and command lists really are the model. MongoDB's
+   * `read` role read a collection and was denied an insert; granting
+   * `readWrite` allowed the same insert.
+   */
+  const refusedGrant = (dialect: string) => {
+    const out = buildAccessSql(
+      {
+        principal: user,
+        action: 'grant',
+        permissions: ['read'],
+        scope: { type: 'schema', schema: 's' },
+      },
+      dialect
+    );
+    if (!('error' in out)) throw new Error(`${dialect} should refuse`);
+    return out.error;
+  };
+
+  it('refuses a grant without offering advice it cannot take', () => {
+    // Redis was told it "has no schema-level grants — select individual tables
+    // instead". It has no tables either, so that named an action even less
+    // available than the one refused.
+    for (const dialect of ['redis', 'mongodb']) {
+      expect(refusedGrant(dialect), dialect).not.toMatch(/individual tables/i);
+    }
+  });
+
+  it('names the tool on the permission screen too, not only the account one', () => {
+    for (const dialect of ['redis', 'mongodb']) {
+      const error = refusedGrant(dialect);
+      expect(error, dialect).toMatch(/Fox Schema does not build/i);
+      expect(error, dialect).toMatch(dialect === 'redis' ? /redis-cli/ : /mongosh/);
+      // Stopping at "Fox Schema has no permission model" left the reader with
+      // nothing on the screen they came to for exactly that.
+      expect(error, dialect).not.toMatch(/nothing to generate here/i);
+    }
+    expect(refusedGrant('redis')).toMatch(/ACL SETUSER/);
+    expect(refusedGrant('mongodb')).toMatch(/grantRolesToUser/);
+  });
+
+  it('promises nothing neither engine can do', () => {
+    // Neither can rename an account — `ACL SETUSER … RENAME` is a syntax error
+    // and MongoDB answers `no such command: 'renameUser'` — and MongoDB cannot
+    // disable one at all: revoking every role still leaves it able to
+    // authenticate. Both checked against the running servers.
+    for (const dialect of ['redis', 'mongodb']) {
+      expect(refusedGrant(dialect), dialect).not.toMatch(/rename/i);
+    }
+    expect(refusedGrant('mongodb')).not.toMatch(/disable/i);
+  });
+
+  it('keeps the plain wording where the engine really has neither', () => {
+    // SQLite and DuckDB have no accounts and no grants: the file's owner is
+    // the access control, so there is no tool to point at.
+    for (const dialect of ['sqlite', 'duckdb']) {
+      const error = refusedGrant(dialect);
+      expect(error, dialect).toMatch(/no permission model/i);
+      expect(error, dialect).not.toMatch(/redis-cli|mongosh/);
+    }
   });
 });

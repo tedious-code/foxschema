@@ -328,6 +328,66 @@ describe('buildUserSql — alter', () => {
     );
   });
 
+  /**
+   * A rename that silently invalidates the password.
+   *
+   * Verified against live servers, not read off a page: on PostgreSQL 16 an
+   * MD5-hashed password is discarded on rename — the server itself says
+   * `NOTICE: MD5 password cleared because of role rename` — and the renamed
+   * account then fails authentication, while a scram-sha-256 password survives
+   * the same rename and still logs in. Redshift documents the same clearing
+   * unconditionally, because it encrypts with the user name as part of the
+   * input.
+   *
+   * The statement is right in both cases. What was missing was any hint that
+   * the account is now locked out: the explanation said "privileges follow the
+   * account", which reads as "nothing else changed".
+   */
+  describe('rename says what it does to the password', () => {
+    it('warns unconditionally on Redshift, where it is always cleared', () => {
+      const out = buildUserSql(
+        req({ action: 'alter', alteration: 'rename', newName: 'analytics_user' }),
+        'redshift'
+      );
+      if ('error' in out) throw new Error(out.error);
+      expect(out.statements[0]!.sql).toBe(
+        'ALTER USER "report_user" RENAME TO "analytics_user";'
+      );
+      const warning = out.warnings.find((w) => /password/i.test(w.message));
+      expect(warning, 'a rename that locks the account out must say so').toBeTruthy();
+      expect(warning!.message).toMatch(/cannot log in/i);
+      expect(warning!.message).toMatch(/analytics_user/);
+    });
+
+    it('warns conditionally on PostgreSQL, where it depends on the hash', () => {
+      const out = buildUserSql(
+        req({ action: 'alter', alteration: 'rename', newName: 'analytics_user' }),
+        'postgres'
+      );
+      if ('error' in out) throw new Error(out.error);
+      const warning = out.warnings.find((w) => /password/i.test(w.message));
+      expect(warning).toBeTruthy();
+      // Naming both outcomes is the point: asserting one would be wrong half
+      // the time, since the server's password_encryption is not visible here.
+      expect(warning!.message).toMatch(/MD5/i);
+      expect(warning!.message).toMatch(/scram/i);
+    });
+
+    it('leaves a role alone, which has no password to clear', () => {
+      const out = buildUserSql(
+        req({
+          action: 'alter',
+          alteration: 'rename',
+          newName: 'analytics_role',
+          principalType: 'role',
+        }),
+        'postgres'
+      );
+      if ('error' in out) throw new Error(out.error);
+      expect(out.warnings.some((w) => /password is an MD5/i.test(w.message))).toBe(false);
+    });
+  });
+
   it('refuses a password on a role', () => {
     const out = buildUserSql(
       req({ action: 'alter', alteration: 'password', principalType: 'role' }),

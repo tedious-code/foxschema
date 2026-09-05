@@ -10,12 +10,14 @@ import { quoteSqlIdentifier } from '../sql-text/sql-template.js';
 import {
   accessCapabilities,
   accessFamily,
+  supportsAccessBuilder,
   describePermission,
   type AccessPermission,
   type AccessScope,
   type PermissionRequest,
 } from './intent.js';
 import { cellSupport, type GridObjectKind } from './object-grid.js';
+import { nonSqlPermissionsReason } from './non-sql-engines.js';
 import type { PermissionWarning } from './access-sql.types.js';
 
 /** Privileges each intent maps to on table-shaped objects. */
@@ -129,6 +131,24 @@ export function validateAccessRequest(request: PermissionRequest, dialect: strin
 
   if (!principal?.name?.trim()) return 'Choose a user or role first.';
   if (permissions.length === 0) return 'Choose at least one permission.';
+
+  // Engines with no GRANT model at all reach every check below with every
+  // capability false, so they fell through to whichever scope-specific message
+  // came first — Redis was told it "has no schema-level grants, select
+  // individual tables instead", advice it can act on even less than the thing
+  // it was refused, since Redis has no tables either. Say the real thing once.
+  //
+  // And where the engine does have a permission model that simply is not SQL,
+  // name it. Redis enforces key patterns and command lists, MongoDB enforces
+  // roles — both verified against live servers — so stopping at "Fox Schema
+  // has no permission model" leaves the reader with nothing, on the screen
+  // where they came looking for exactly that.
+  if (!supportsAccessBuilder(dialect)) {
+    return (
+      nonSqlPermissionsReason(dialect) ??
+      `Fox Schema has no permission model for ${dialect}, so there is nothing to generate here.`
+    );
+  }
 
   if (scope.type === 'database' && !caps.databaseScope) {
     return `${dialect} cannot grant at the database level.`;

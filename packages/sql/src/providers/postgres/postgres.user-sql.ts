@@ -12,6 +12,7 @@ import {
 } from '../../modules/access/user-sql.types.js';
 import { createUserSqlEmitter } from '../../modules/access/user-sql-helpers.js';
 import type { PermissionRisk } from '../../modules/access/intent.js';
+import type { PermissionWarning } from '../../modules/access/access-sql.types.js';
 
 export const postgresUserSql: UserSqlDialect = {
   id: 'postgres',
@@ -50,21 +51,55 @@ export const postgresUserSql: UserSqlDialect = {
     if (request.action === 'drop') {
       const risk: PermissionRisk = 'administrative';
       const keyword = isUser ? 'USER' : 'ROLE';
+      // Without these, the drop below fails outright — including after this
+      // tool's own read grant, which always emits GRANT USAGE ON SCHEMA.
+      // Verified against PostgreSQL 16: create a role, grant it USAGE, and
+      // DROP USER answers "cannot be dropped because some objects depend on
+      // it".
+      //
+      // REASSIGN comes first and is what makes this safe. DROP OWNED BY on its
+      // own *drops* the objects the role owns; reassigning them first leaves it
+      // holding only privileges, so the same statement then removes those and
+      // nothing else. Verified: a table owned by the role survives, transferred
+      // to the current user.
+      if (request.cascade) {
+        add(
+          `REASSIGN OWNED BY ${q(name)} TO CURRENT_USER;`,
+          `Transfers anything ${name} owns to the role running this, so the next statement removes only privileges.`,
+          'administrative'
+        );
+        add(
+          `DROP OWNED BY ${q(name)};`,
+          `Removes the privileges ${name} still holds in this database. Objects it owned are already reassigned.`,
+          'administrative'
+        );
+      }
       add(
         `DROP ${keyword} ${q(name)};`,
-        `Drops the ${noun} ${name}. Privileges granted to it are removed with it.`,
+        request.cascade
+          ? `Drops the ${noun} ${name}, now that nothing depends on it.`
+          : `Drops the ${noun} ${name}. This fails if it still owns objects or holds privileges.`,
         risk
       );
-      warnings.push({
-        level: 'caution',
-        message:
-          `Postgres refuses to drop ${name} while it owns objects or holds privileges. ` +
-          `Reassign or drop those first: REASSIGN OWNED BY ${q(name)} TO ..., then DROP OWNED BY ${q(name)}.`,
-      });
+      warnings.push(
+        request.cascade
+          ? {
+              level: 'caution',
+              message:
+                `REASSIGN OWNED BY transfers everything ${name} owns to whoever runs this, which changes ownership of real objects. ` +
+                `Both it and DROP OWNED BY act on the current database only — repeat them in each database ${name} has touched.`,
+            }
+          : {
+              level: 'caution',
+              message:
+                `Postgres refuses to drop ${name} while it owns objects or holds privileges — including the schema USAGE that a read grant gives it. ` +
+                `Tick "drop owned objects" to generate the REASSIGN OWNED BY and DROP OWNED BY that clear the way.`,
+            }
+      );
       return finish();
     }
 
-    const failed = buildAlter(request, dialect, name, isUser, support, add, q);
+    const failed = buildAlter(request, dialect, name, isUser, support, add, q, warnings);
     if (failed) return { error: failed };
     return finish();
   },
@@ -77,7 +112,8 @@ function buildAlter(
   isUser: boolean,
   support: UserSqlDialect['support'],
   add: (sql: string, explanation: string, risk?: PermissionRisk) => void,
-  q: (v: string) => string
+  q: (v: string) => string,
+  warnings: PermissionWarning[]
 ): string | undefined {
   const change = request.alteration ?? 'password';
 
@@ -92,6 +128,24 @@ function buildAlter(
       `ALTER ${keyword} ${q(name)} RENAME TO ${q(next)};`,
       `Renames ${name} to ${next}. Privileges follow the account.`
     );
+    // An MD5 hash is computed over the password *and* the role name, so renaming
+    // invalidates it and PostgreSQL discards it — `NOTICE: MD5 password cleared
+    // because of role rename`, after which the account cannot log in. SCRAM does
+    // not bind the name, so a scram-sha-256 account keeps its password across a
+    // rename. Both verified against PostgreSQL 16.
+    //
+    // Which one applies depends on the server's password_encryption at the time
+    // the password was set, which is not knowable from here — so this says what
+    // to check rather than asserting an outcome it cannot see.
+    if (isUser) {
+      warnings.push({
+        level: 'caution',
+        message:
+          `If ${name}'s password is an MD5 hash, PostgreSQL clears it on rename and ${next} ` +
+          'cannot log in until you set a new one. A scram-sha-256 password survives the rename. ' +
+          `Check which with: SELECT left(rolpassword, 4) FROM pg_authid WHERE rolname = '${name}';`,
+      });
+    }
     return undefined;
   }
 

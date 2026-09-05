@@ -1306,3 +1306,54 @@ describe('CREATE INDEX identifier', () => {
   });
 });
 
+
+describe('role membership speaks each engine’s own syntax', () => {
+  // The generator emitted Db2's `GRANT ROLE x TO USER y` for every dialect.
+  // Verified against PostgreSQL 16 and MySQL 8: that is a syntax error on both,
+  // so every role-membership migration produced an unrunnable script outside
+  // Db2. Each form below was then run against its own live server.
+  const roleDiff = (member: string): TableDiff =>
+    ({
+      tableName: 'foxrole',
+      objectType: 'ROLE',
+      status: 'MODIFIED',
+      columnDiffs: [
+        { name: member, status: 'ADDED', source: { name: member, type: 'USER' } },
+        { name: 'gone', status: 'REMOVED', target: { name: 'gone', type: 'USER' } },
+      ],
+      indexDiffs: [],
+      foreignKeyDiffs: [],
+      triggerDiffs: [],
+    }) as unknown as TableDiff;
+
+  const sqlFor = (dialect: string, member: string) =>
+    new SqlGeneratorModule().generateMigrationSql(
+      [roleDiff(member)],
+      dialect,
+      { sourceSchema: 's', sourceDialect: dialect, targetSchema: 's', nonDestructive: false } as never,
+      []
+    );
+
+  it('uses the SQL standard where the engine takes it', () => {
+    for (const d of ['postgres', 'mysql', 'mariadb', 'oracle']) {
+      const sql = sqlFor(d, 'foxmember');
+      expect(sql, d).toContain('GRANT foxrole TO foxmember;');
+      expect(sql, d).toContain('REVOKE foxrole FROM gone;');
+      // Db2's shape must not leak into the others.
+      expect(sql, d).not.toContain('GRANT ROLE');
+    }
+  });
+
+  it('uses ALTER ROLE on SQL Server, which has no GRANT form for membership', () => {
+    const sql = sqlFor('sqlserver', 'foxmember');
+    expect(sql).toContain('ALTER ROLE foxrole ADD MEMBER foxmember;');
+    expect(sql).toContain('ALTER ROLE foxrole DROP MEMBER gone;');
+    expect(sql).not.toMatch(/GRANT foxrole/);
+  });
+
+  it('keeps Db2’s own shape, which names the member kind', () => {
+    const sql = sqlFor('db2', 'FOXMEMBER');
+    expect(sql).toContain('GRANT ROLE foxrole TO USER FOXMEMBER;');
+    expect(sql).toContain('REVOKE ROLE foxrole FROM USER gone;');
+  });
+});

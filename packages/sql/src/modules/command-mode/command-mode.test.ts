@@ -15,6 +15,7 @@ import { buildCliCommand, renderCliCommand } from './build-command.js';
 import { PASSWORD_PLACEHOLDER } from '../sql-text/password-placeholder.js';
 import { CLI_MAP, cliFor, supportsCommandMode } from './cli.registry.js';
 import { heredoc, shellQuote } from './shell.js';
+import { formatCommand } from './format.js';
 import type { CliTarget } from './cli.types.js';
 import { DIALECT_MAP } from '../dialect/registry.js';
 
@@ -267,5 +268,103 @@ describe('renderCliCommand', () => {
     const out = build('SELECT 1;', 'sqlite', { ...target, file: '/tmp/x.db' });
     if ('error' in out) throw new Error(out.error);
     expect(renderCliCommand(out)).toBe(out.command);
+  });
+});
+
+describe('the Docker form matches the engine’s own image', () => {
+  // Each of these was found by running the generated command against the real
+  // container and reading the failure, not from documentation.
+  const t = { host: 'db.internal', port: undefined, database: 'foxdb', username: 'foxuser' };
+  const docker = (dialect: string, target: Partial<typeof t> = {}) => {
+    const cmd = build('SELECT 1;', dialect, { ...t, ...target } as never);
+    if ('error' in cmd) throw new Error(cmd.error);
+    return formatCommand(cmd, { format: 'docker', container: 'c' });
+  };
+  const textOf = (r: ReturnType<typeof docker>) => ('error' in r ? `ERROR:${r.error}` : r.text);
+
+  it('uses the MariaDB client, which replaced mysql in the image', () => {
+    // MariaDB 11 renamed it; `mysql` is simply absent, so the command died
+    // with "executable file not found in $PATH".
+    expect(textOf(docker('mariadb'))).toContain(' mariadb -h ');
+    // The MySQL image still has mysql, and shares this emitter.
+    expect(textOf(docker('mysql'))).toContain(' mysql -h ');
+  });
+
+  /**
+   * The rename is the client's, not the container's.
+   *
+   * Fixing only the Docker form would leave the other two saying `mysql`,
+   * which does not exist on a MariaDB install either — 11.8 ships `mariadb`
+   * and no symlink, verified in the image. Someone with MariaDB on their own
+   * machine would get the same "command not found" the Docker form was fixed
+   * for, from a command that names the client in its own "Needs X on PATH"
+   * line. The dedicated emitter in `providers/mariaDb/mariadb.cli.ts` is what
+   * makes every format agree; this pins that it does.
+   *
+   * YugabyteDB stays the other way round on purpose: its *image* has no psql,
+   * but it speaks the PostgreSQL wire protocol, so psql on a host works and
+   * renaming it everywhere would break that reader instead.
+   */
+  it('names the MariaDB client in every format, not only Docker', () => {
+    const cmd = build('SELECT 1;', 'mariadb', t as never);
+    if ('error' in cmd) throw new Error(cmd.error);
+    expect(cmd.client).toBe('mariadb');
+    expect(cmd.invocation.startsWith('mariadb ')).toBe(true);
+    expect(cmd.command.startsWith('mariadb ')).toBe(true);
+
+    for (const format of ['raw', 'script'] as const) {
+      const out = formatCommand(cmd, { format });
+      if ('error' in out) throw new Error(out.error);
+      expect(out.text, format).toContain('mariadb -h ');
+      expect(out.text, format).not.toMatch(/(^|\s)mysql -h /);
+    }
+    // The script's "Needs X on PATH" line has to agree with the command below it.
+    const script = formatCommand(cmd, { format: 'script' });
+    if ('error' in script) throw new Error(script.error);
+    expect(script.text).toContain('Needs mariadb on PATH');
+  });
+
+  it('leaves a statement that mentions the other client alone', () => {
+    // The emitter builds the command from the client and the body separately,
+    // so nothing rewrites the finished string — a body naming `mysql` survives.
+    const cmd = build("SELECT 'mysql is a word' AS note;", 'mariadb', t as never);
+    if ('error' in cmd) throw new Error(cmd.error);
+    expect(cmd.command).toContain("'mysql is a word'");
+    expect(cmd.command.startsWith('mariadb ')).toBe(true);
+  });
+
+  it('leaves every other dialect on its own client', () => {
+    for (const dialect of ['mysql', 'tidb', 'postgres', 'redshift']) {
+      const cmd = build('SELECT 1;', dialect, t as never);
+      if ('error' in cmd) throw new Error(cmd.error);
+      expect(cmd.client, dialect).toBe(dialect === 'mysql' || dialect === 'tidb' ? 'mysql' : 'psql');
+    }
+  });
+
+  it('uses ysqlsh for YugabyteDB, which ships no psql', () => {
+    expect(textOf(docker('yugabytedb'))).toContain(' ysqlsh -h ');
+    expect(textOf(docker('postgres'))).toContain(' psql -h ');
+  });
+
+  it('reaches sqlcmd by path and trusts the container certificate', () => {
+    const text = textOf(docker('sqlserver'));
+    expect(text).toContain('/opt/mssql-tools18/bin/sqlcmd');
+    // sqlcmd 18 refuses a self-signed certificate without -C.
+    expect(text).toContain(' -C ');
+  });
+
+  it('runs the Db2 CLP through its instance owner’s login shell', () => {
+    // Without the profile it fails with SQL10007N / -1390 even by absolute
+    // path, because DB2INSTANCE and the library path come from there.
+    const text = textOf(docker('db2', { username: 'db2inst1' }));
+    expect(text).toContain('-u db2inst1');
+    expect(text).toContain("bash -lc 'db2 -tvs'");
+  });
+
+  it('refuses, with a reason, where the image ships no usable client', () => {
+    // Better than a command that dies with "executable file not found", which
+    // does not say whether the tool or the image is at fault.
+    expect(textOf(docker('cockroachdb'))).toMatch(/^ERROR:.*cockroach sql/);
+    expect(textOf(docker('tidb'))).toMatch(/^ERROR:.*no SQL client/);
   });
 });

@@ -45,6 +45,7 @@ export function commandWithSql(args: {
   envVar?: string;
   dockerClient?: string;
   dockerFlags?: string[];
+  dockerUser?: string;
   note?: string;
 }): GeneratedCommand | { error: string } {
   const head = [args.client, ...args.flags].join(' ');
@@ -61,6 +62,7 @@ export function commandWithSql(args: {
     ...(args.envVar ? { envVar: args.envVar } : {}),
     ...(args.dockerClient ? { dockerClient: args.dockerClient } : {}),
     ...(args.dockerFlags?.length ? { dockerFlags: args.dockerFlags } : {}),
+    ...(args.dockerUser ? { dockerUser: args.dockerUser } : {}),
     ...(args.note ? { note: args.note } : {}),
   };
 }
