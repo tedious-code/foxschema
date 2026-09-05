@@ -25,8 +25,5 @@
     "@foxschema/sql": "*",
     "fastify": "5.12.1",
     "pino": "10.3.1"
-  },
-  "scripts": {
-    "lint": "eslint src"
   }
 }
