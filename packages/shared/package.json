@@ -20,8 +20,5 @@
   },
   "dependencies": {
     "@foxschema/sql": "*"
-  },
-  "scripts": {
-    "lint": "eslint src"
   }
 }

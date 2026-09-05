@@ -3,7 +3,7 @@
   "version": "0.2.199",
   "private": true,
   "type": "module",
-  "description": "Fox Schema CLI — schema diff, migrations, and a rich SQL Editor (TypeScript / Node ESM)",
+  "description": "Fox Schema CLI \u2014 schema diff, migrations, and a rich SQL Editor (TypeScript / Node ESM)",
   "license": "Apache-2.0",
   "bin": {
     "foxschema": "dist/index.js",
@@ -22,8 +22,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "node build.mjs",
     "build:binary": "node build-binary.mjs",
-    "prepare-publish": "node scripts/prepare-publish.mjs",
-    "lint": "eslint src"
+    "prepare-publish": "node scripts/prepare-publish.mjs"
   },
   "dependencies": {
     "@foxschema/db": "*",
