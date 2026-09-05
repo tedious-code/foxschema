@@ -129,11 +129,15 @@ export function buildSchemaTries(
       const lower = t.name.toLowerCase();
       const bare = lower.includes('.') ? lower.slice(lower.lastIndexOf('.') + 1) : lower;
       // Two ways a table belongs to a schema: the connection loaded it from
-      // there (names come back bare), or the name itself is qualified. Both
-      // happen, depending on dialect and how the row was produced.
-      intoSchema(src.schema, t.name);
-      if (lower.includes('.')) {
-        intoSchema(t.name.slice(0, t.name.lastIndexOf('.')), t.name.slice(t.name.lastIndexOf('.') + 1));
+      // there (names come back bare), or the name itself is qualified. They
+      // are alternatives, not both — indexing a qualified name under the
+      // connection's schema as well made `demo_a.` offer `sales.invoices`,
+      // and accepting it inserted `demo_a.sales.invoices`.
+      const dotAt = t.name.lastIndexOf('.');
+      if (dotAt > 0) {
+        intoSchema(t.name.slice(0, dotAt), t.name.slice(dotAt + 1));
+      } else {
+        intoSchema(src.schema, t.name);
       }
       let colTrie = columnsByTable.get(lower);
       if (!colTrie) {
