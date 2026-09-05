@@ -2,7 +2,7 @@ import { type TableDiff, type ColumnDiff } from '../../interfaces/index.js';
 import { type TableSchema, type DbObjectType } from '../../interfaces/index.js';
 import type { IndexInfo } from '../../interfaces/index.js';
 import type { SqlDialect, ColumnSpec } from '../dialect/sql-dialect.interface.js';
-import { resolveDialect } from '../dialect/registry.js';
+import { resolveDialect, tryResolveDialect } from '../dialect/registry.js';
 import { dialectSupportsFk, type FkFeatureSupport } from '../dialect/fk-support.js';
 
 export interface MigrationStep {
@@ -1137,6 +1137,27 @@ export class SqlGeneratorModule {
     };
   }
 
+  /**
+   * Why this engine cannot be migrated to, or null when it can.
+   *
+   * `resolveDialect` answers Db2 for a name it does not know, and both entry
+   * points below call it. Nothing errored: a Redis target produced a script
+   * headed `-- Dialect: REDIS` whose body was Db2 DDL — labelled correctly
+   * while being wrong, which is the worst version of this failure.
+   *
+   * The UI and the compare service already refuse earlier. This is the layer
+   * that cannot be bypassed by a stale selection or a caller nobody has
+   * written yet, because it sits on the two functions that actually produce
+   * statements.
+   */
+  private migrationRefusal(dialectStr: string): string | null {
+    if (tryResolveDialect(dialectStr)) return null;
+    return (
+      `Fox Schema has no SQL dialect for "${dialectStr || 'this engine'}", so it cannot ` +
+      'generate a migration for it. Nothing here is safe to run against that target.'
+    );
+  }
+
   generateMigrationPlan(
     diffs: TableDiff[],
     dialectStr: string,
@@ -1148,6 +1169,10 @@ export class SqlGeneratorModule {
      */
     contextDiffs?: TableDiff[]
   ): MigrationStep[] {
+    // An empty plan rather than a throw: this runs inside a render path, and a
+    // migration that does nothing is the safe failure. The preview below says
+    // why, in the place the reader is already looking.
+    if (this.migrationRefusal(dialectStr)) return [];
     const dialect = resolveDialect(dialectStr);
     this.quoteIdentifier = dialect.quoteIdentifier ?? ansiQuoteIdentifier;
     this.dialectName = dialectStr;
@@ -1228,6 +1253,17 @@ export class SqlGeneratorModule {
     mapping?: SchemaMapping,
     contextDiffs?: TableDiff[]
   ): string {
+    const refused = this.migrationRefusal(dialectStr);
+    if (refused) {
+      // Comments only. There is nothing to copy into a terminal and nothing
+      // for an execute path to split into statements.
+      return (
+        `-- =========================================================================\n` +
+        `-- Fox Generated Migration Script\n` +
+        `-- =========================================================================\n` +
+        `-- ${refused}\n`
+      );
+    }
     let sql = `-- =========================================================================\n`;
     sql += `-- Fox Generated Migration Script\n`;
     sql += `-- Dialect: ${dialectStr.toUpperCase()}\n`;
