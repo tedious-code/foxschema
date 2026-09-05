@@ -13,7 +13,7 @@ import {
   materializeDb2CaPem,
   resolveDb2SslConnectionString,
   shouldRetryDb2Authentication,
-} from './db2.ssl';
+} from './db2.ssl.js';
 
 describe('resolveDb2SslConnectionString', () => {
   it('leaves the string alone when there is no certificate', () => {

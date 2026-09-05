@@ -1,43 +1,43 @@
-import { ConnectionFactory } from "../../cores/connection-factory";
-import { ConnectionOptions, SchemaProvider } from '@foxschema/sql';
+import { ConnectionFactory } from "../../cores/connection-factory.js";
+import { type ConnectionOptions, type SchemaProvider } from '@foxschema/sql';
 
 import {
-  DbProcedure,
-  DbSchema,
-  DbSequence,
-  DbTrigger,
-  DbTable,
-  DbColumn,
-  DbPrimaryKey,
-  DbForeignKey,
-  DbUniqueConstraint,
-  DbIndex,
-  DbIndexColumn,
-  DbView,
-  DbUserType,
-  TableSchema,
-  RoutineParameter,
-  RoutineParameterMode,
-  DbRole,
+  type DbProcedure,
+  type DbSchema,
+  type DbSequence,
+  type DbTrigger,
+  type DbTable,
+  type DbColumn,
+  type DbPrimaryKey,
+  type DbForeignKey,
+  type DbUniqueConstraint,
+  type DbIndex,
+  type DbIndexColumn,
+  type DbView,
+  type DbUserType,
+  type TableSchema,
+  type RoutineParameter,
+  type RoutineParameterMode,
+  type DbRole,
 } from '@foxschema/sql';
 import {
-  Db2TableRaw,
-  Db2ColumnRaw,
-  Db2PrimaryKeyRaw,
-  Db2ForeignKeyRaw,
-  Db2UniqueConstraintRaw,
-  Db2IndexRaw,
-  Db2IndexColumnRaw,
-  Db2ViewRaw,
-  Db2TriggerRaw,
-  Db2ProcedureRaw,
-  Db2RoutineParmRaw,
-  Db2RoleRaw,
-  Db2RoleAuthRaw,
-  Db2SequenceRaw,
-  Db2UserTypeRaw,
-  Db2AttributeRaw
-} from "./db2.interface";
+  type Db2TableRaw,
+  type Db2ColumnRaw,
+  type Db2PrimaryKeyRaw,
+  type Db2ForeignKeyRaw,
+  type Db2UniqueConstraintRaw,
+  type Db2IndexRaw,
+  type Db2IndexColumnRaw,
+  type Db2ViewRaw,
+  type Db2TriggerRaw,
+  type Db2ProcedureRaw,
+  type Db2RoutineParmRaw,
+  type Db2RoleRaw,
+  type Db2RoleAuthRaw,
+  type Db2SequenceRaw,
+  type Db2UserTypeRaw,
+  type Db2AttributeRaw
+} from "./db2.interface.js";
 import { resolveFkReferencedColumns } from '@foxschema/sql';
 
 export class Db2Provider implements SchemaProvider {

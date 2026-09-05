@@ -1,7 +1,7 @@
 import { describe, expect, it, afterAll } from 'vitest';
 import { getProviderSettings, type ConnectionOptions } from '@foxschema/sql';
-import { redisAdapter } from './redis/redis.adapter';
-import { mongoDbAdapter } from './mongodb/mongodb.adapter';
+import { redisAdapter } from './redis/redis.adapter.js';
+import { mongoDbAdapter } from './mongodb/mongodb.adapter.js';
 
 /**
  * The settings are only useful if the string they build actually connects.

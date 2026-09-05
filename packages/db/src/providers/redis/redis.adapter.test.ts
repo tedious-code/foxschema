@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, expect, it } from 'vitest';
-import { redisRowMatchesPredicates } from './redis.adapter';
+import { redisRowMatchesPredicates } from './redis.adapter.js';
 
 describe('redisRowMatchesPredicates', () => {
   it('matches when every non-id predicate holds', () => {

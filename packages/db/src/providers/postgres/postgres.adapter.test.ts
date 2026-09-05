@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
-import { postgresAdapter } from './postgres.adapter';
-import { redshiftAdapter } from '../redshift/redshift.adapter';
+import { postgresAdapter } from './postgres.adapter.js';
+import { redshiftAdapter } from '../redshift/redshift.adapter.js';
 
 /**
  * A pool with no 'error' listener kills the whole process.

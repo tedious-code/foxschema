@@ -78,6 +78,10 @@ apps/cli/dist-bin/
 apps/cli/ui-dist/
 apps/cli/npm-pack/
 packages/sql/npm-pack/
+packages/db/npm-pack/
+
+# Turborepo task cache. Local only — remote caching is not configured.
+.turbo/
 
 # Homebrew formula docs (tracked)
 !packaging/homebrew/README.md

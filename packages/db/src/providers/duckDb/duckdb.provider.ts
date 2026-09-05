@@ -1,18 +1,18 @@
-import { ConnectionFactory } from '../../cores/connection-factory';
+import { ConnectionFactory } from '../../cores/connection-factory.js';
 import { dbSchemaToTableSchemas } from '@foxschema/sql';
 import {
-  SchemaProvider,
-  ConnectionOptions,
-  DbSchema,
-  DbTable,
-  DbColumn,
-  DbView,
-  DbSequence,
-  DbUserType,
-  DbForeignKey,
-  DbUniqueConstraint,
-  DbIndex,
-  TableSchema,
+  type SchemaProvider,
+  type ConnectionOptions,
+  type DbSchema,
+  type DbTable,
+  type DbColumn,
+  type DbView,
+  type DbSequence,
+  type DbUserType,
+  type DbForeignKey,
+  type DbUniqueConstraint,
+  type DbIndex,
+  type TableSchema,
 } from '@foxschema/sql';
 
 // DuckDB catalog result shapes (information_schema + duckdb_* table functions).

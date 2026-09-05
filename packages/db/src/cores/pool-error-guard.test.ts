@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
-import { guardClientErrors, guardPoolErrors } from './pool-error-guard';
+import { guardClientErrors, guardPoolErrors } from './pool-error-guard.js';
 
 /**
  * An unhandled 'error' event on a driver pool kills the process.

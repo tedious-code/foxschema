@@ -7,7 +7,7 @@
  * the literal. Both escapes matter, and only one of them used to be handled.
  */
 import { describe, expect, it } from 'vitest';
-import { normalizeDefault } from './mysql.provider';
+import { normalizeDefault } from './mysql.provider.js';
 
 describe('normalizeDefault (MySQL string literals)', () => {
   it('escapes a backslash, which MySQL would otherwise consume', () => {

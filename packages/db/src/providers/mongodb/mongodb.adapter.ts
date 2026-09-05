@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
-import { ConnectionOptions, DriverAdapter, parseSqlSubset, subsetValue } from '@foxschema/sql';
-import { credentialedCacheKey } from '../../cores/pool-cache';
-import { connectTimeoutMs } from '../../cores/timeouts';
+import { type ConnectionOptions, type DriverAdapter, parseSqlSubset, subsetValue } from '@foxschema/sql';
+import { credentialedCacheKey } from '../../cores/pool-cache.js';
+import { connectTimeoutMs } from '../../cores/timeouts.js';
 
 const nodeRequire = createRequire(import.meta.url);
 

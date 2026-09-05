@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module';
-import { ConnectionOptions, DriverAdapter } from '@foxschema/sql';
+import { type ConnectionOptions, type DriverAdapter } from '@foxschema/sql';
 
 const nodeRequire = createRequire(import.meta.url);
 

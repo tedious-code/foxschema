@@ -167,17 +167,44 @@ function unbiasedIndex(size: number, random: () => number): number {
  * `randomByte` exists so a test can make the output deterministic; it defaults
  * to the platform's cryptographic source.
  */
+/**
+ * One cryptographically random byte, from WebCrypto.
+ *
+ * Reached through `globalThis` rather than the bare `crypto` global because
+ * `tsconfig.build.json` declares `lib: ["es2022"]` and `types: []` on purpose —
+ * no DOM, no @types/node — so that a Node built-in or a browser-only API breaks
+ * the publish build loudly. That guard did its job: the bare global is in
+ * neither lib, and the publish build had been failing on it, which meant
+ * `npm run publish:sql` could not produce a tarball at all.
+ *
+ * An ambient `declare const crypto` would fix the build and then collide with
+ * DOM's own declaration everywhere the web app typechecks. This needs no
+ * ambient at all. `crypto.getRandomValues` is WebCrypto — standard in browsers
+ * and in Node since 19 — and reaching it as a global rather than importing
+ * `node:crypto` is what keeps `purity.test.ts` satisfied.
+ */
+function defaultRandomByte(): number {
+  const webCrypto = (
+    globalThis as {
+      crypto?: { getRandomValues?<T extends Uint8Array>(array: T): T };
+    }
+  ).crypto;
+  if (!webCrypto?.getRandomValues) {
+    throw new Error(
+      'No WebCrypto available: cannot generate a password from a cryptographic source. ' +
+        'Pass an explicit randomByte, or run on Node 19+ / a modern browser.'
+    );
+  }
+  const buf = new Uint8Array(1);
+  webCrypto.getRandomValues(buf);
+  return buf[0]!;
+}
+
 export function generateDb2OsPassword(
   length: number = DB2_OS_PASSWORD_LENGTH,
   randomByte?: () => number
 ): string {
-  const draw =
-    randomByte ??
-    (() => {
-      const buf = new Uint8Array(1);
-      crypto.getRandomValues(buf);
-      return buf[0]!;
-    });
+  const draw = randomByte ?? defaultRandomByte;
 
   for (let attempt = 0; attempt < 100; attempt++) {
     let out = '';

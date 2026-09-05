@@ -9,7 +9,7 @@
  * would look like a flaky database.
  */
 import { afterEach, describe, expect, it } from 'vitest';
-import { connectTimeoutMs, connectTimeoutSeconds, queryTimeoutMs } from './timeouts';
+import { connectTimeoutMs, connectTimeoutSeconds, queryTimeoutMs } from './timeouts.js';
 
 const ENV = ['FOX_CONNECT_TIMEOUT_MS', 'FOX_QUERY_TIMEOUT_MS'];
 afterEach(() => {

@@ -1,4 +1,4 @@
-import { MysqlProvider } from '../mysql/mysql.provider';
+import { MysqlProvider } from '../mysql/mysql.provider.js';
 
 /**
  * TiDB schema provider. TiDB speaks the MySQL wire protocol and exposes a

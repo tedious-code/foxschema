@@ -1,4 +1,4 @@
-import { PostgresProvider } from '../postgres/postgres.provider';
+import { PostgresProvider } from '../postgres/postgres.provider.js';
 
 /**
  * CockroachDB schema provider. CockroachDB is PostgreSQL wire- and

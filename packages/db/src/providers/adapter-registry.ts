@@ -1,16 +1,16 @@
-import { DriverAdapter } from '@foxschema/sql';
-import { db2Adapter } from './db2/db2.adapter';
-import { postgresAdapter } from './postgres/postgres.adapter';
-import { mysqlAdapter } from './mysql/mysql.adapter';
-import { sqlServerAdapter } from './sqlServer/sqlserver.adapter';
-import { oracleAdapter } from './oracle/oracle.adapter';
-import { sqliteAdapter } from './sqlLite/sqlLite.adapter';
-import { redshiftAdapter } from './redshift/redshift.adapter';
-import { clickHouseAdapter } from './clickHouse/clickhouse.adapter';
-import { azureSqlAdapter } from './azureSql/azuresql.adapter';
-import { duckDbAdapter } from './duckDb/duckdb.adapter';
-import { mongoDbAdapter } from './mongodb/mongodb.adapter';
-import { redisAdapter } from './redis/redis.adapter';
+import { type DriverAdapter } from '@foxschema/sql';
+import { db2Adapter } from './db2/db2.adapter.js';
+import { postgresAdapter } from './postgres/postgres.adapter.js';
+import { mysqlAdapter } from './mysql/mysql.adapter.js';
+import { sqlServerAdapter } from './sqlServer/sqlserver.adapter.js';
+import { oracleAdapter } from './oracle/oracle.adapter.js';
+import { sqliteAdapter } from './sqlLite/sqlLite.adapter.js';
+import { redshiftAdapter } from './redshift/redshift.adapter.js';
+import { clickHouseAdapter } from './clickHouse/clickhouse.adapter.js';
+import { azureSqlAdapter } from './azureSql/azuresql.adapter.js';
+import { duckDbAdapter } from './duckDb/duckdb.adapter.js';
+import { mongoDbAdapter } from './mongodb/mongodb.adapter.js';
+import { redisAdapter } from './redis/redis.adapter.js';
 
 // Register a dialect's native driver adapter here — one line per platform.
 // MariaDB shares the mysql2 adapter (same wire protocol & driver).

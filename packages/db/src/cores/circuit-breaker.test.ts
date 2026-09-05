@@ -4,7 +4,7 @@ import {
   CircuitOpenError,
   circuitKey,
   isAvailabilityFailure,
-} from './circuit-breaker';
+} from './circuit-breaker.js';
 
 /** Controllable clock so cooldowns are exact rather than slept through. */
 function at(start = 1_000_000) {

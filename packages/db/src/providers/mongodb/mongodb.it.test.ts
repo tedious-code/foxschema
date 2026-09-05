@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { mongoDbAdapter } from './mongodb.adapter';
+import { mongoDbAdapter } from './mongodb.adapter.js';
 
 /**
  * Runs against a real mongod. Skipped unless FOX_MONGO_URL is set:
