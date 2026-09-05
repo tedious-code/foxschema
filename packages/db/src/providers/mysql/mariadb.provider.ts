@@ -1,7 +1,7 @@
-import { MysqlProvider } from './mysql.provider';
-import { ConnectionFactory } from '../../cores/connection-factory';
+import { MysqlProvider } from './mysql.provider.js';
+import { ConnectionFactory } from '../../cores/connection-factory.js';
 import { groupRoleRows } from '@foxschema/sql';
-import { ConnectionOptions, DbRole, DbSequence } from '@foxschema/sql';
+import { type ConnectionOptions, type DbRole, type DbSequence } from '@foxschema/sql';
 
 interface MariaSequenceRaw {
   minimum_value: string;

@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import {
   dialectSupportsTransactionalDdlRollback,
   dialectSupportsTransactionalRollback,
-} from './dialect-transaction-support';
+} from './dialect-transaction-support.js';
 
 describe('dialectSupportsTransactionalRollback', () => {
   it('is false for adapters whose rollback is a documented no-op', () => {

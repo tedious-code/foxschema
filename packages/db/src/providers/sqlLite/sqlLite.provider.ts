@@ -1,16 +1,16 @@
-import { ConnectionFactory } from '../../cores/connection-factory';
+import { ConnectionFactory } from '../../cores/connection-factory.js';
 import { dbSchemaToTableSchemas, groupForeignKeyRows } from '@foxschema/sql';
 import {
-  SchemaProvider,
-  ConnectionOptions,
-  DbSchema,
-  DbTable,
-  DbColumn,
-  DbTrigger,
-  DbView,
-  DbForeignKey,
-  DbIndex,
-  TableSchema,
+  type SchemaProvider,
+  type ConnectionOptions,
+  type DbSchema,
+  type DbTable,
+  type DbColumn,
+  type DbTrigger,
+  type DbView,
+  type DbForeignKey,
+  type DbIndex,
+  type TableSchema,
 } from '@foxschema/sql';
 
 // sqlite_master / PRAGMA result shapes

@@ -18,7 +18,7 @@
  * none.
  */
 import { describe, expect, it } from 'vitest';
-import { clickHouseAdapter } from './clickhouse.adapter';
+import { clickHouseAdapter } from './clickhouse.adapter.js';
 
 /** Records which client method each statement was sent through. */
 function fakeClient() {

@@ -3,6 +3,7 @@
   "author": "Huy Phan <huyplb@gmail.com>",
   "private": true,
   "version": "0.2.198",
+  "packageManager": "npm@11.6.2",
   "type": "module",
   "license": "Apache-2.0",
   "workspaces": [
@@ -12,15 +13,15 @@
   "bugs": "https://github.com/tedious-code/foxschema/issues",
   "scripts": {
     "typecheck": "tsc --noEmit -p apps/web/tsconfig.json",
-    "lint": "eslint .",
+    "lint": "turbo lint",
     "lint:security": "eslint . --max-warnings 0",
     "audit:security": "npm audit --audit-level=critical --omit=dev",
     "scan:deps-security": "node scripts/security/scan-node-modules.mjs --fail-on high",
     "dev": "npm -w @foxschema/web run dev:all",
     "dev:auth": "npm -w @foxschema/web run dev:all:auth",
     "dev:api": "npm -w @foxschema/web run dev:api",
-    "build": "npm -w @foxschema/web run build",
-    "build:sql": "npm -w @foxschema/sql run build",
+    "build": "turbo build",
+    "build:sql": "turbo build --filter=@foxschema/sql",
     "version:sql": "npm version -w @foxschema/sql --no-git-tag-version",
     "publish:sql": "npm -w @foxschema/sql run build && node packages/sql/scripts/prepare-publish.mjs",
     "preview": "npm -w @foxschema/web run preview",
@@ -63,7 +64,11 @@
     "test:e2e:clickhouse": "npm -w @foxschema/e2e run test:clickhouse",
     "test:e2e:clickhouse:headed": "npm -w @foxschema/e2e run test:clickhouse:headed",
     "test:e2e:redshift": "npm -w @foxschema/e2e run test:redshift",
-    "test:e2e:redshift:headed": "npm -w @foxschema/e2e run test:redshift:headed"
+    "test:e2e:redshift:headed": "npm -w @foxschema/e2e run test:redshift:headed",
+    "build:app": "npm -w @foxschema/web run build",
+    "build:db": "turbo build --filter=@foxschema/db",
+    "lint:repo": "eslint .",
+    "publish:db": "turbo build --filter=@foxschema/db && node packages/db/scripts/prepare-publish.mjs"
   },
   "engines": {
     "node": ">=22.5"
@@ -76,6 +81,7 @@
     "ink": "7.1.1",
     "jsdom": "30.0.1",
     "react": "19.2.8",
+    "turbo": "2.10.12",
     "typescript": "6.0.3",
     "typescript-eslint": "8.68.0",
     "vitest": "4.1.11"

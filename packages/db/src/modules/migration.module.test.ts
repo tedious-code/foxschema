@@ -23,7 +23,7 @@ vi.mock('../cores/connection-factory', () => ({
   ConnectionFactory: { create: async () => ({}), close: async () => {} },
 }));
 
-import { MigrationModule } from './migration.module';
+import { MigrationModule } from './migration.module.js';
 import type { MigrationStep } from '@foxschema/sql';
 
 describe('MigrationModule.execute', () => {

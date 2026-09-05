@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mongoDbAdapter } from './mongodb.adapter';
+import { mongoDbAdapter } from './mongodb.adapter.js';
 
 describe('mongodb adapter handle isolation', () => {
   afterEach(async () => {

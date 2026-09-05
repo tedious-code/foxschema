@@ -1,9 +1,9 @@
 import { createRequire } from 'node:module';
-import { ConnectionOptions, DriverAdapter, normalizeAuthMethod, unsupportedAuthMethodMessage } from '@foxschema/sql';
-import { assertSafeIdentifier } from '../../cores/sql-identifier';
-import { BoundedPoolCache, disposePoolEndOrClose } from '../../cores/pool-cache';
-import { setupDb2ClientEnv, hasDb2Clidriver } from './db2.env';
-import { explainDb2ConnectError, resolveDb2SslConnectionString, shouldRetryDb2Authentication, alternateDb2Authentication } from './db2.ssl';
+import { type ConnectionOptions, type DriverAdapter, normalizeAuthMethod, unsupportedAuthMethodMessage } from '@foxschema/sql';
+import { assertSafeIdentifier } from '../../cores/sql-identifier.js';
+import { BoundedPoolCache, disposePoolEndOrClose } from '../../cores/pool-cache.js';
+import { setupDb2ClientEnv, hasDb2Clidriver } from './db2.env.js';
+import { explainDb2ConnectError, resolveDb2SslConnectionString, shouldRetryDb2Authentication, alternateDb2Authentication } from './db2.ssl.js';
 
 const nodeRequire = createRequire(import.meta.url);
 

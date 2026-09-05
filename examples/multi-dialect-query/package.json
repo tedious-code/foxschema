@@ -1,0 +1,17 @@
+{
+  "name": "foxschema-multi-dialect-example",
+  "private": true,
+  "type": "module",
+  "description": "Runnable example: one shape of code querying Postgres, MySQL and MariaDB through @foxschema/db",
+  "scripts": {
+    "start": "node query-many.mjs"
+  },
+  "dependencies": {
+    "@foxschema/db": "*"
+  },
+  "//": "Install only the drivers you talk to — they are optional peers of @foxschema/db.",
+  "devDependencies": {
+    "mysql2": "^3.24.2",
+    "pg": "^8.23.0"
+  }
+}

@@ -1,21 +1,21 @@
-import { ConnectionFactory } from '../../cores/connection-factory';
+import { ConnectionFactory } from '../../cores/connection-factory.js';
 import { dbSchemaToTableSchemas, groupForeignKeyRows } from '@foxschema/sql';
 import {
-  SchemaProvider,
-  ConnectionOptions,
-  DbSchema,
-  DbTable,
-  DbColumn,
-  DbProcedure,
-  DbPrimaryKey,
-  DbForeignKey,
-  DbIndex,
-  DbView,
-  DbUniqueConstraint,
-  DbIndexColumn,
-  TableSchema,
-  RoutineParameter,
-  RoutineParameterMode,
+  type SchemaProvider,
+  type ConnectionOptions,
+  type DbSchema,
+  type DbTable,
+  type DbColumn,
+  type DbProcedure,
+  type DbPrimaryKey,
+  type DbForeignKey,
+  type DbIndex,
+  type DbView,
+  type DbUniqueConstraint,
+  type DbIndexColumn,
+  type TableSchema,
+  type RoutineParameter,
+  type RoutineParameterMode,
 } from '@foxschema/sql';
 
 interface RsTableRaw { table_name: string; table_type: string; }

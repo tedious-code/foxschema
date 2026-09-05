@@ -1,7 +1,7 @@
-import { ConnectionFactory } from '../cores/connection-factory';
-import { getAdapter } from '../providers/adapter-registry';
-import { dialectSupportsTransactionalDdlRollback } from './dialect-transaction-support';
-import { ConnectionOptions, DriverAdapter } from '@foxschema/sql';
+import { ConnectionFactory } from '../cores/connection-factory.js';
+import { getAdapter } from '../providers/adapter-registry.js';
+import { dialectSupportsTransactionalDdlRollback } from './dialect-transaction-support.js';
+import { type ConnectionOptions, type DriverAdapter } from '@foxschema/sql';
 import type { MigrationEvent } from '@foxschema/sql';
 import type { MigrationStep } from '@foxschema/sql';
 

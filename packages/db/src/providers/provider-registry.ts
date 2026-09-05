@@ -1,18 +1,18 @@
-import { SchemaProvider } from '@foxschema/sql';
-import { Db2Provider } from './db2/db2.provider';
-import { PostgresProvider } from './postgres/postgres.provider';
-import { MysqlProvider } from './mysql/mysql.provider';
-import { MariadbProvider } from './mysql/mariadb.provider';
-import { SqlServerProvider } from './sqlServer/sqlserver.provider';
-import { OracleProvider } from './oracle/oracle.provider';
-import { SqliteProvider } from './sqlLite/sqlLite.provider';
-import { RedshiftProvider } from './redshift/redshift.provider';
-import { ClickHouseProvider } from './clickHouse/clickhouse.provider';
-import { AzureSqlProvider } from './azureSql/azuresql.provider';
-import { CockroachDbProvider } from './cockroachDb/cockroachdb.provider';
-import { YugabyteDbProvider } from './yugabyteDb/yugabytedb.provider';
-import { TiDbProvider } from './tiDb/tidb.provider';
-import { DuckDbProvider } from './duckDb/duckdb.provider';
+import { type SchemaProvider } from '@foxschema/sql';
+import { Db2Provider } from './db2/db2.provider.js';
+import { PostgresProvider } from './postgres/postgres.provider.js';
+import { MysqlProvider } from './mysql/mysql.provider.js';
+import { MariadbProvider } from './mysql/mariadb.provider.js';
+import { SqlServerProvider } from './sqlServer/sqlserver.provider.js';
+import { OracleProvider } from './oracle/oracle.provider.js';
+import { SqliteProvider } from './sqlLite/sqlLite.provider.js';
+import { RedshiftProvider } from './redshift/redshift.provider.js';
+import { ClickHouseProvider } from './clickHouse/clickhouse.provider.js';
+import { AzureSqlProvider } from './azureSql/azuresql.provider.js';
+import { CockroachDbProvider } from './cockroachDb/cockroachdb.provider.js';
+import { YugabyteDbProvider } from './yugabyteDb/yugabytedb.provider.js';
+import { TiDbProvider } from './tiDb/tidb.provider.js';
+import { DuckDbProvider } from './duckDb/duckdb.provider.js';
 
 // Register a dialect's schema provider (queries) here — one line per platform.
 export const PROVIDERS: Record<string, SchemaProvider> = {

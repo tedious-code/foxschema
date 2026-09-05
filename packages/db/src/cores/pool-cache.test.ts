@@ -3,7 +3,7 @@ import {
   BoundedPoolCache,
   credentialedCacheKey,
   nonSecretFingerprint,
-} from './pool-cache';
+} from './pool-cache.js';
 
 describe('nonSecretFingerprint / credentialedCacheKey', () => {
   it('fingerprints stably without echoing the secret', () => {

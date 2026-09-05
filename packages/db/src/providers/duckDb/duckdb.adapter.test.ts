@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, expect, it } from 'vitest';
-import { coerceDriverBigint } from './duckdb.adapter';
+import { coerceDriverBigint } from './duckdb.adapter.js';
 
 describe('coerceDriverBigint', () => {
   it('keeps safe integers as numbers', () => {

@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 import type { DriverInfo } from '@foxschema/sql';
-import { getAdapter, ADAPTERS } from '../providers/adapter-registry';
-import { hasDb2Clidriver, setupDb2ClientEnv } from '../providers/db2/db2.env';
+import { getAdapter, ADAPTERS } from '../providers/adapter-registry.js';
+import { hasDb2Clidriver, setupDb2ClientEnv } from '../providers/db2/db2.env.js';
 
 const nodeRequire = createRequire(import.meta.url);
 

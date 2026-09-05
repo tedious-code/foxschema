@@ -12,7 +12,7 @@ import {
   resolveAuthMethod,
   type ConnectionOptions,
 } from '@foxschema/sql';
-import { connectTimeoutMs, queryTimeoutMs } from '../../cores/timeouts';
+import { connectTimeoutMs, queryTimeoutMs } from '../../cores/timeouts.js';
 
 export function buildMssqlPoolConfig(
   options: ConnectionOptions,

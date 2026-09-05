@@ -1,9 +1,9 @@
 
-import { ConnectionOptions, PositionalRows } from '@foxschema/sql';
+import { type ConnectionOptions, type PositionalRows } from '@foxschema/sql';
 import { getProviderSettings } from '@foxschema/sql';
-import { getAdapter, ADAPTERS } from '../providers/adapter-registry';
-import { circuitKey, dbCircuitBreaker } from './circuit-breaker';
-import { noopLogger, safeTarget, type AppLogger } from './logger';
+import { getAdapter, ADAPTERS } from '../providers/adapter-registry.js';
+import { circuitKey, dbCircuitBreaker } from './circuit-breaker.js';
+import { noopLogger, safeTarget, type AppLogger } from './logger.js';
 
 /**
  * Generic connection orchestrator. All dialect-specific behaviour lives in the

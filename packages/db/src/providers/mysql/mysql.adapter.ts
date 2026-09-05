@@ -1,8 +1,8 @@
 import { createRequire } from 'node:module';
-import { ConnectionOptions, DriverAdapter } from '@foxschema/sql';
-import { BoundedPoolCache, disposePoolEndOrClose } from '../../cores/pool-cache';
-import { guardPoolErrors } from '../../cores/pool-error-guard';
-import { connectTimeoutMs } from '../../cores/timeouts';
+import { type ConnectionOptions, type DriverAdapter } from '@foxschema/sql';
+import { BoundedPoolCache, disposePoolEndOrClose } from '../../cores/pool-cache.js';
+import { guardPoolErrors } from '../../cores/pool-error-guard.js';
+import { connectTimeoutMs } from '../../cores/timeouts.js';
 
 const nodeRequire = createRequire(import.meta.url);
 

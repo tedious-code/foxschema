@@ -1,4 +1,4 @@
-import { PostgresProvider } from '../postgres/postgres.provider';
+import { PostgresProvider } from '../postgres/postgres.provider.js';
 
 /**
  * YugabyteDB schema provider. YugabyteDB's YSQL API reuses the actual PostgreSQL

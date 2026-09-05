@@ -1,6 +1,6 @@
-import { DriverDetector } from '../cores/driver-detector';
-import { getRegisteredProvider } from '../providers/provider-registry';
-import { ConnectionOptions, SchemaProvider } from '@foxschema/sql';
+import { DriverDetector } from '../cores/driver-detector.js';
+import { getRegisteredProvider } from '../providers/provider-registry.js';
+import { type ConnectionOptions, type SchemaProvider } from '@foxschema/sql';
 
 export class ConnectionModule {
   checkDriver(dialect: string) {

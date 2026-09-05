@@ -1,18 +1,18 @@
-import { ConnectionFactory } from '../../cores/connection-factory';
+import { ConnectionFactory } from '../../cores/connection-factory.js';
 import { dbSchemaToTableSchemas } from '@foxschema/sql';
 import {
-  SchemaProvider,
-  ConnectionOptions,
-  DbSchema,
-  DbTable,
-  DbColumn,
-  DbView,
-  DbForeignKey,
-  DbPrimaryKey,
-  DbUniqueConstraint,
-  DbIndex,
-  DbIndexColumn,
-  TableSchema,
+  type SchemaProvider,
+  type ConnectionOptions,
+  type DbSchema,
+  type DbTable,
+  type DbColumn,
+  type DbView,
+  type DbForeignKey,
+  type DbPrimaryKey,
+  type DbUniqueConstraint,
+  type DbIndex,
+  type DbIndexColumn,
+  type TableSchema,
 } from '@foxschema/sql';
 
 interface ChTableRaw { name: string; engine: string; }

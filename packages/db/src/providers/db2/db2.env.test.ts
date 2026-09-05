@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { stripIbmGskPath } from './db2.env';
+import { stripIbmGskPath } from './db2.env.js';
 
 describe('stripIbmGskPath', () => {
   it('removes IBM GSKit directories that conflict with bundled clidriver', () => {

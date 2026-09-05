@@ -14,29 +14,33 @@
 export * from '@foxschema/sql';
 
 // Runtime (Node-only)
-export { ConnectionModule } from './modules/connection.module';
-export { MigrationModule } from './modules/migration.module';
+export { ConnectionModule } from './modules/connection.module.js';
+export { MigrationModule } from './modules/migration.module.js';
 export {
   dialectSupportsTransactionalRollback,
   dialectSupportsTransactionalDdlRollback,
-} from './modules/dialect-transaction-support';
-export { ConnectionFactory } from './cores/connection-factory';
-export { DriverDetector } from './cores/driver-detector';
-export { assertSafeIdentifier } from './cores/sql-identifier';
+} from './modules/dialect-transaction-support.js';
+export { ConnectionFactory } from './cores/connection-factory.js';
+// The library front door: one handle that queries and closes itself. See
+// cores/open-database.ts for why this sits alongside the factory rather than
+// replacing it.
+export { openDatabase, queryOnce, type OpenDatabase } from './cores/open-database.js';
+export { DriverDetector } from './cores/driver-detector.js';
+export { assertSafeIdentifier } from './cores/sql-identifier.js';
 export {
   BoundedPoolCache,
   disposePoolEndOrClose,
   nonSecretFingerprint,
   credentialedCacheKey,
-} from './cores/pool-cache';
-export { setupDb2ClientEnv, hasDb2Clidriver } from './providers/db2/db2.env';
+} from './cores/pool-cache.js';
+export { setupDb2ClientEnv, hasDb2Clidriver } from './providers/db2/db2.env.js';
 
 // Provider/adapter registries
-export { getAdapter, ADAPTERS } from './providers/adapter-registry';
-export { getRegisteredProvider, PROVIDERS } from './providers/provider-registry';
+export { getAdapter, ADAPTERS } from './providers/adapter-registry.js';
+export { getRegisteredProvider, PROVIDERS } from './providers/provider-registry.js';
 export {
   noopLogger,
   safeTarget,
   type AppLogger,
   type DbLogFields,
-} from './cores/logger';
+} from './cores/logger.js';

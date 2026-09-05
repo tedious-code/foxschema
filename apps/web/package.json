@@ -17,7 +17,8 @@
     "preview": "vite preview",
     "serve": "tsx src/serve.ts",
     "start": "npm run serve",
-    "test": "vitest run"
+    "test": "vitest run",
+    "lint": "eslint src"
   },
   "dependencies": {
     "@clickhouse/client": "1.23.1",

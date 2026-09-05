@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
-import { ConnectionOptions, DriverAdapter } from '@foxschema/sql';
-import { credentialedCacheKey } from '../../cores/pool-cache';
-import { queryTimeoutMs } from '../../cores/timeouts';
+import { type ConnectionOptions, type DriverAdapter } from '@foxschema/sql';
+import { credentialedCacheKey } from '../../cores/pool-cache.js';
+import { queryTimeoutMs } from '../../cores/timeouts.js';
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -25,7 +25,7 @@ const NO_RESULT_SET =
 /** Leading comments and whitespace hide the verb — the editor sends both. */
 function leadingVerbOf(sql: string): string {
   let rest = sql.trim();
-  // eslint-disable-next-line no-constant-condition
+   
   while (true) {
     if (rest.startsWith('--')) {
       const nl = rest.indexOf('\n');

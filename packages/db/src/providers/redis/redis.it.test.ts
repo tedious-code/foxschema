@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { redisAdapter } from './redis.adapter';
+import { redisAdapter } from './redis.adapter.js';
 
 /**
  * Runs against a real Redis. Skipped unless FOX_REDIS_URL is set, so the normal
