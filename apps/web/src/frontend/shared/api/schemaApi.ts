@@ -401,25 +401,45 @@ export type DbAccessResponse = {
   error?: string;
 };
 
+/** How long a Database Access catalog stays reused across Access tabs. */
+export const DB_ACCESS_CACHE_TTL_MS = 60_000;
+
+/** Drop cached GRANT catalogs (call after executing GRANT/REVOKE). */
+export function invalidateDbAccessCache(connectionId?: string): void {
+  if (connectionId) {
+    invalidateCache(`db-access:id:${connectionId}`);
+    return;
+  }
+  invalidateCache('db-access:');
+}
+
 /** Utilities / Access control → database users, groups, and privileges. */
 export async function fetchDbAccess(
   ref: ConnectionRef,
   opts?: { schema?: string }
 ): Promise<DbAccessResponse> {
-  const res = await fetch(`${getApiBase()}/schema/db-access`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      ...ref,
-      schema: opts?.schema,
-    }),
-  });
-  const data = await parseJsonBody<DbAccessResponse & { error?: string }>(res);
-  if (!res.ok) {
-    throw new Error(data.error || `Database access failed (${res.status})`);
-  }
-  return data;
+  const schema = opts?.schema ?? ref.schema;
+  const key = `db-access:${cacheKeyForRef({ ...ref, schema })}`;
+  return idempotent(
+    key,
+    async () => {
+      const res = await fetch(`${getApiBase()}/schema/db-access`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...ref,
+          schema,
+        }),
+      });
+      const data = await parseJsonBody<DbAccessResponse & { error?: string }>(res);
+      if (!res.ok) {
+        throw new Error(data.error || `Database access failed (${res.status})`);
+      }
+      return data;
+    },
+    DB_ACCESS_CACHE_TTL_MS
+  );
 }
 
 export async function checkDriver(dialect: string): Promise<DriverInfo> {

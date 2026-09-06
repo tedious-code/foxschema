@@ -701,6 +701,45 @@ export class LokeeWeaveStore {
     return row.fingerprint === databaseIdentity(input, sha256) ? 'ok' : 'mismatch';
   }
 
+  private toVersionSummary(row: VersionRow, emails: ReadonlyMap<string, string>): VersionSummary {
+    return {
+      id: row.id,
+      number: row.version_number,
+      rootHash: row.root_hash,
+      createdAt: row.created_at,
+      lastObservedAt: row.last_observed_at,
+      observationCount: Number(row.observation_count) || 1,
+      source: row.source,
+      migrationRunId: row.migration_run_id ?? undefined,
+      authorUserId: row.author_user_id ?? undefined,
+      author: row.author_user_id
+        ? emails.get(row.author_user_id) ?? row.author_user_id
+        : undefined,
+      name: row.display_name?.trim() || undefined,
+      description: row.description?.trim() || undefined,
+      objectCount: Number(row.object_count) || 0,
+      changeCount: Number(row.change_count) || 0,
+      revertFromVersionId: row.revert_from_version_id ?? undefined,
+      revertToVersionId: row.revert_to_version_id ?? undefined,
+    };
+  }
+
+  private async emailsFor(
+    store: MetadataStore,
+    authorIds: readonly (string | null | undefined)[]
+  ): Promise<Map<string, string>> {
+    const emails = new Map<string, string>();
+    const ids = [...new Set(authorIds.filter((id): id is string => Boolean(id)))];
+    if (ids.length === 0) return emails;
+    const placeholders = ids.map(() => '?').join(', ');
+    const users = await store.all<{ id: string; email: string }>(
+      `SELECT id, email FROM users WHERE id IN (${placeholders})`,
+      ids
+    );
+    for (const u of users) emails.set(u.id, u.email);
+    return emails;
+  }
+
   async listVersions(userId: string, databaseId: string, limit = 100): Promise<VersionSummary[]> {
     const store = await this.store();
     if (!(await this.assertOwned(store, userId, databaseId))) return [];
@@ -709,38 +748,11 @@ export class LokeeWeaveStore {
         ORDER BY version_number DESC LIMIT ?`,
       [databaseId, Math.max(1, Math.min(500, limit))]
     );
-    const authorIds = [
-      ...new Set(rows.map((r) => r.author_user_id).filter((id): id is string => Boolean(id))),
-    ];
-    const emails = new Map<string, string>();
-    if (authorIds.length) {
-      const placeholders = authorIds.map(() => '?').join(', ');
-      const users = await store.all<{ id: string; email: string }>(
-        `SELECT id, email FROM users WHERE id IN (${placeholders})`,
-        authorIds
-      );
-      for (const u of users) emails.set(u.id, u.email);
-    }
-    return rows.map((r) => ({
-      id: r.id,
-      number: r.version_number,
-      rootHash: r.root_hash,
-      createdAt: r.created_at,
-      lastObservedAt: r.last_observed_at,
-      observationCount: Number(r.observation_count) || 1,
-      source: r.source,
-      migrationRunId: r.migration_run_id ?? undefined,
-      authorUserId: r.author_user_id ?? undefined,
-      author: r.author_user_id
-        ? emails.get(r.author_user_id) ?? r.author_user_id
-        : undefined,
-      name: r.display_name?.trim() || undefined,
-      description: r.description?.trim() || undefined,
-      objectCount: Number(r.object_count) || 0,
-      changeCount: Number(r.change_count) || 0,
-      revertFromVersionId: r.revert_from_version_id ?? undefined,
-      revertToVersionId: r.revert_to_version_id ?? undefined,
-    }));
+    const emails = await this.emailsFor(
+      store,
+      rows.map((r) => r.author_user_id)
+    );
+    return rows.map((r) => this.toVersionSummary(r, emails));
   }
 
   /**
@@ -773,8 +785,14 @@ export class LokeeWeaveStore {
       ]);
     }
 
-    const versions = await this.listVersions(userId, databaseId, 500);
-    return versions.find((v) => v.id === versionId) ?? null;
+    // One row, not a 500-version walk, just to return the record we updated.
+    const row = await store.get<VersionRow>(
+      `SELECT * FROM lokee_versions WHERE id = ? AND database_id = ?`,
+      [versionId, databaseId]
+    );
+    if (!row) return null;
+    const emails = await this.emailsFor(store, [row.author_user_id]);
+    return this.toVersionSummary(row, emails);
   }
 
   /** Delta rows for a set of versions, batched to stay under the bind limit. */
@@ -1105,7 +1123,9 @@ export class LokeeWeaveStore {
       blueprint,
       diff: compare.tables.find((t) => t.tableName === owner) ?? null,
       history: await this.objectHistory(userId, databaseId, objectKey),
-      growth: tableLike ? await this.containerGrowth(userId, databaseId, owner) : [],
+      growth: tableLike
+        ? await this.containerGrowth(userId, databaseId, owner, versions)
+        : [],
       columnMutations: tableLike ? await this.columnMutations(userId, databaseId, owner) : [],
       script,
       previousScript,
@@ -1374,12 +1394,16 @@ export class LokeeWeaveStore {
   private async containerGrowth(
     userId: string,
     databaseId: string,
-    owner: string
+    owner: string,
+    loadedVersions?: readonly VersionSummary[]
   ): Promise<ContainerGrowthPoint[]> {
     // The whole history, not a recent window: a roadmap that starts at v(N-20)
     // hides the moment a table was created, which is the point a reader looks
     // for first. Still bounded — listVersions caps at 500.
-    const versions = await this.listVersions(userId, databaseId, MAX_ROADMAP_VERSIONS);
+    const versions =
+      loadedVersions && loadedVersions.length > 0
+        ? [...loadedVersions]
+        : await this.listVersions(userId, databaseId, MAX_ROADMAP_VERSIONS);
     if (versions.length === 0) return [];
     const store = await this.store();
     const latest = await this.loadLatestIndex(store, databaseId);
