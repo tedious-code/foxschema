@@ -813,6 +813,73 @@ describe('SqlGeneratorModule.generateMigrationPlan', () => {
     expect(stmts).not.toMatch(/DROP VIEW/i);
   });
 
+  it('CockroachDB finds the dependency in the three-part name it actually reports', () => {
+    // Every other CockroachDB fixture here writes `demo_b.order_items`, and
+    // that is not what the engine returns. `information_schema.views` on
+    // CockroachDB v26.3.0 qualifies with the database as well:
+    //
+    //   SELECT ... FROM foxdb.demo_b.orders AS o
+    //     JOIN foxdb.demo_b.order_items AS oi ON oi.order_id = o.id
+    //
+    // viewReferencesTable allowed one optional qualifier, so it matched
+    // `demo_b.order_items` and missed `foxdb.demo_b.order_items`. The
+    // dependency went unseen, the view was never dropped around the ALTER, and
+    // the migration died at apply time on the live engine:
+    // "cannot alter type of column \"qty\" because view \"v_order_summary\"
+    // depends on it".
+    const crdbViewDef =
+      'SELECT o.id, oi.qty FROM foxdb.demo_b.orders AS o ' +
+      'JOIN foxdb.demo_b.order_items AS oi ON oi.order_id = o.id';
+    const modified: TableDiff = {
+      tableName: 'ORDER_ITEMS',
+      objectType: 'TABLE',
+      status: 'MODIFIED',
+      columnDiffs: [
+        { name: 'QTY', status: 'MODIFIED', source: { type: 'integer', nullable: false }, target: { type: 'smallint', nullable: false } },
+      ],
+      indexDiffs: [],
+      foreignKeyDiffs: [],
+      sourceTable: tableSchema({ name: 'order_items', columns: [{ name: 'qty', type: 'integer', nullable: false, primaryKey: false }] }),
+      targetTable: tableSchema({ name: 'order_items', columns: [{ name: 'qty', type: 'smallint', nullable: false, primaryKey: false }] }),
+    };
+    const dependentView: TableDiff = {
+      tableName: 'V_ORDER_SUMMARY',
+      objectType: 'VIEW',
+      status: 'MODIFIED',
+      definition: crdbViewDef,
+      columnDiffs: [],
+      indexDiffs: [],
+      foreignKeyDiffs: [],
+      sourceTable: tableSchema({
+        name: 'v_order_summary',
+        objectType: 'VIEW',
+        definition: crdbViewDef,
+        columns: [],
+      }),
+      targetTable: tableSchema({
+        name: 'v_order_summary',
+        objectType: 'VIEW',
+        definition: crdbViewDef,
+        columns: [],
+      }),
+    };
+    const plan = gen.generateMigrationPlan(
+      [modified, dependentView],
+      'cockroachdb',
+      { targetSchema: 'demo_b', nonDestructive: true },
+      [modified, dependentView]
+    );
+    const alterSql = plan
+      .filter((s) => s.action === 'ALTER')
+      .flatMap((s) => s.statements)
+      .join('\n');
+
+    expect(alterSql).toMatch(/ALTER COLUMN QTY TYPE/i);
+    // The view must come out of the way first, or the ALTER cannot run.
+    expect(alterSql, 'dependent view not dropped before the ALTER').toMatch(/DROP VIEW/i);
+    expect(alterSql.indexOf('DROP VIEW')).toBeLessThan(alterSql.search(/ALTER COLUMN QTY TYPE/i));
+  });
+
   it('CockroachDB does not temporary-DROP a destructively removed dependent', () => {
     const modified: TableDiff = {
       tableName: 'ORDER_ITEMS',

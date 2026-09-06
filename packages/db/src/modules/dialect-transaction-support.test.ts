@@ -41,6 +41,20 @@ describe('dialectSupportsTransactionalDdlRollback', () => {
     expect(dialectSupportsTransactionalDdlRollback('clickhouse')).toBe(false);
   });
 
+  it('is false for CockroachDB, which advertises transactional DDL but does not deliver it', () => {
+    // Measured, not assumed. Freshly seeded, demo_b.order_items.qty has
+    // DEFAULT 0. The 18-statement compare plan fails on its last statement
+    // ("cannot alter type of column qty because view v_order_summary depends
+    // on it"), the transaction is rolled back — and qty comes back with no
+    // default, left that way by the DROP DEFAULT the plan ran first.
+    //
+    // Being wrong here is not cosmetic: it is the difference between the UI
+    // saying "All changes were rolled back — the target is unchanged" and
+    // "Rollback could not be confirmed — verify the target manually".
+    expect(dialectSupportsTransactionalDdlRollback('cockroachdb')).toBe(false);
+    expect(dialectSupportsTransactionalDdlRollback('CockroachDB')).toBe(false);
+  });
+
   it('is true when schema DDL can participate in a transaction', () => {
     expect(dialectSupportsTransactionalDdlRollback('postgres')).toBe(true);
     expect(dialectSupportsTransactionalDdlRollback('sqlite')).toBe(true);

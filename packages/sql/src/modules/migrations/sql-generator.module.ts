@@ -620,8 +620,22 @@ export class SqlGeneratorModule {
     const bare = tableName.replace(/^.*\./, '').replace(/"/g, '');
     if (!bare) return false;
     const escaped = bare.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    // Optional schema qualifier, then the bare table (optionally quoted).
-    const relation = String.raw`(?:(?:"[^"]+"|[\w]+)\s*\.\s*)?"?${escaped}"?\b`;
+    // Up to two qualifiers, then the bare table (optionally quoted).
+    //
+    // Two, not one: CockroachDB reports view bodies qualified by the database
+    // as well as the schema —
+    //   `... JOIN foxdb.demo_b.order_items AS oi ...`
+    // — and with a single optional qualifier this matched `demo_b.order_items`
+    // but not `foxdb.demo_b.order_items`. The dependency went unseen, so the
+    // view was not dropped around the ALTER and the migration failed on the
+    // live engine with "cannot alter type of column ... because view ...
+    // depends on it". SQL Server can qualify the same way.
+    //
+    // Only the bare name is ever compared (see `bare` above), so widening this
+    // cannot miss a dependency — at worst it drops and recreates a view that
+    // referenced a same-named table elsewhere, which is the safe direction:
+    // an unnecessary recreate costs nothing, a missed one fails the migration.
+    const relation = String.raw`(?:(?:"[^"]+"|[\w]+)\s*\.\s*){0,2}"?${escaped}"?\b`;
     return new RegExp(
       String.raw`\b(?:from|join|update|into|table|using|references)\s+${relation}`,
       'i'
