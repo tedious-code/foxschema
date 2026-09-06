@@ -558,7 +558,22 @@ export const DataPeekPanel: React.FC = () => {
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-1.5 sm:p-3"
+      /*
+       * z-70 is pinned from both sides, so it is not free to change:
+       *
+       *   60  ResultsPanel fullscreen (`sql-result-modal-*`, `sql-result-cred-modal-*`)
+       *   70  this panel
+       *   95  PeekRowEditor, opened from inside this panel
+       *  100  .modal-overlay — WriteConfirmDialog, opened from this panel's CRUD
+       *
+       * It used to be 50, below the fullscreen results. Those results carry the
+       * foreign-key cells whose own footer says "click one to open Data Peek",
+       * so clicking one mounted this panel *behind* the overlay: nothing
+       * appeared to happen, and the panel was still open, swallowing the next
+       * click. All four layers here are body-level portals, so the numbers are
+       * compared directly rather than per-subtree.
+       */
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/70 p-1.5 sm:p-3"
       data-testid="data-peek"
       onClick={closeDataPeek}
     >

@@ -506,7 +506,21 @@ const ObjectNode: React.FC<{
 
   return (
     <div className="min-w-0">
-      <div className="flex items-center gap-0.5 min-w-0">
+      {/*
+       * The name is what the row is for, so it must never be the thing that
+       * yields. It used to be the only thing that could: the trailing actions
+       * are `shrink-0`, the name button was `flex-1 min-w-0`, so the whole
+       * deficit landed on it. At the 288px default that left the name 45px
+       * ("categories" needs 78, and rendered as "cate…"); at the 200px minimum
+       * the sidebar allows, it rendered at *zero* width — eleven tables listed
+       * and not one name on screen.
+       *
+       * So: a floor under the name, and `flex-wrap` to say what gives instead.
+       * When the actions no longer fit beside a readable name they drop to
+       * their own line rather than squeezing it. Nothing is hidden and no
+       * behaviour changes — only which element absorbs the shortfall.
+       */}
+      <div className="flex flex-wrap items-center gap-0.5 min-w-0">
         <button
           type="button"
           onClick={onToggle}
@@ -532,7 +546,7 @@ const ObjectNode: React.FC<{
                   : `Expand to show columns and indexes`
           }
           onClick={onNameClick}
-          className="flex-1 flex items-center gap-1.5 min-w-0 text-left text-[13px] font-semibold text-slate-200 hover:text-cyan-300 py-1"
+          className="flex-1 flex items-center gap-1.5 min-w-[7rem] text-left text-[13px] font-semibold text-slate-200 hover:text-cyan-300 py-1"
         >
           <span className="shrink-0">{meta.icon}</span>
           <span className="flex flex-col min-w-0 flex-1">
@@ -560,50 +574,53 @@ const ObjectNode: React.FC<{
             )}
           </span>
         </button>
-        {onOpenBlueprint && (
-          <button
-            type="button"
-            title={`Add ${table.name} to FROM with auto alias`}
-            data-testid={`sql-explorer-from-${table.name}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              insertObject();
-            }}
-            className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold text-cyan-200 bg-cyan-950/60 border border-cyan-600/50 hover:bg-cyan-900/70 transition whitespace-nowrap"
-          >
-            From
-          </button>
-        )}
-        {onOpenBlueprint && (
-          <button
-            type="button"
-            title="Open table blueprint — add/edit columns"
-            data-testid="sql-open-blueprint"
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenBlueprint();
-            }}
-            className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold text-violet-200 bg-violet-950/60 border border-violet-600/50 hover:bg-violet-900/70 transition whitespace-nowrap"
-          >
-            <Columns3 className="w-3 h-3" strokeWidth={SQL_ICON_STROKE} />
-            Edit table
-          </button>
-        )}
-        {opensSource && (
-          <button
-            type="button"
-            title="Open source script in the editor (view only)"
-            data-testid="sql-open-object-source-btn"
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenSource?.();
-            }}
-            className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold text-sky-200 bg-sky-950/60 border border-sky-600/50 hover:bg-sky-900/70 transition whitespace-nowrap"
-          >
-            <FileCode2 className="w-3 h-3" strokeWidth={SQL_ICON_STROKE} />
-            View source
-          </button>
-        )}
+        {/* One group, so the actions wrap as a unit instead of splitting apart. */}
+        <span className="shrink-0 flex items-center gap-0.5">
+          {onOpenBlueprint && (
+            <button
+              type="button"
+              title={`Add ${table.name} to FROM with auto alias`}
+              data-testid={`sql-explorer-from-${table.name}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                insertObject();
+              }}
+              className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold text-cyan-200 bg-cyan-950/60 border border-cyan-600/50 hover:bg-cyan-900/70 transition whitespace-nowrap"
+            >
+              From
+            </button>
+          )}
+          {onOpenBlueprint && (
+            <button
+              type="button"
+              title="Open table blueprint — add/edit columns"
+              data-testid="sql-open-blueprint"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenBlueprint();
+              }}
+              className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold text-violet-200 bg-violet-950/60 border border-violet-600/50 hover:bg-violet-900/70 transition whitespace-nowrap"
+            >
+              <Columns3 className="w-3 h-3" strokeWidth={SQL_ICON_STROKE} />
+              Edit table
+            </button>
+          )}
+          {opensSource && (
+            <button
+              type="button"
+              title="Open source script in the editor (view only)"
+              data-testid="sql-open-object-source-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenSource?.();
+              }}
+              className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold text-sky-200 bg-sky-950/60 border border-sky-600/50 hover:bg-sky-900/70 transition whitespace-nowrap"
+            >
+              <FileCode2 className="w-3 h-3" strokeWidth={SQL_ICON_STROKE} />
+              View source
+            </button>
+          )}
+        </span>
       </div>
       {open && isRoutine && params.length === 0 && (
         <p className="ml-6 text-[12px] text-slate-600 mb-1">No parameters</p>

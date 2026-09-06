@@ -21,6 +21,28 @@ import {
 } from './dba-utilities.js';
 
 describe('dialect-dba-utilities', () => {
+  /**
+   * Postgres reports `pg_class.reltuples` as -1 until a relation has been
+   * ANALYZEd. It is a sentinel for "never counted", and it used to reach the
+   * screen verbatim: a freshly created table read "-1 rows" in the schema
+   * explorer and in Index Management. `formatRowCount` already prints null as
+   * an em dash, so the sentinel belongs on the null side of the boundary.
+   */
+  it('reads a negative row count as unknown, not as a count', () => {
+    const [neverAnalyzed] = normalizeObjectSizeRows([
+      { schema_name: 'public', object_name: 'fresh', object_type: 'table', row_count: -1 },
+    ]);
+    expect(neverAnalyzed!.rowCount).toBeNull();
+    expect(formatRowCount(neverAnalyzed!.rowCount)).toBe('—');
+
+    // A real count, including a legitimately empty table, still comes through.
+    const [empty] = normalizeObjectSizeRows([
+      { schema_name: 'public', object_name: 'empty', object_type: 'table', row_count: 0 },
+    ]);
+    expect(empty!.rowCount).toBe(0);
+    expect(formatRowCount(empty!.rowCount)).toBe('0');
+  });
+
   it('reports support for major dialects and kinds', () => {
     expect(dialectSupportsDbaUtility('postgres', 'pool').query).toBe(true);
     expect(dialectSupportsDbaUtility('mysql', 'sessions').query).toBe(true);

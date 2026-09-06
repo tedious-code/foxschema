@@ -215,4 +215,54 @@ describe.skipIf(!ready)('SQL Editor · SQLite multi-credential', () => {
     const explorer = await driver.locator('[data-testid="sql-schema-explorer"]').innerText();
     expect(explorer).toMatch(/customers/i);
   });
+
+  /**
+   * The narrowest sidebar the product itself allows (SIDEBAR_MIN = 200 in
+   * SqlEditorView). It used to render every table name at *zero* width: the
+   * trailing From / Edit table buttons are `shrink-0`, so the name button —
+   * the only flexible item in the row — absorbed the entire shortfall. Eleven
+   * tables listed, not one name on screen, and at the 288px default the names
+   * were cut to about five characters.
+   *
+   * jsdom has no layout, so only a real browser can hold this line. Compare
+   * rendered width against scrollWidth: equal means the whole name is on
+   * screen, less means it is being clipped.
+   */
+  it('shows table names in full at the narrowest sidebar width', async () => {
+    await driver.evaluate(() => {
+      localStorage.setItem('foxschema-sql-sidebar-width', '200');
+    });
+    await driver.reload();
+    await driver.waitForSelector('[data-testid="toolbar"]', { timeout: 30_000 });
+    await sql.openView();
+    await sql.checkConnection(NAME_A);
+    await driver.waitForFunction(
+      () => {
+        const root = document.querySelector('[data-testid="sql-schema-explorer"]');
+        return !!root && /customers/i.test(root.textContent ?? '');
+      },
+      { timeout: 30_000 }
+    );
+
+    const clipped = await driver.evaluate(() => {
+      const root = document.querySelector('[data-testid="sql-schema-explorer"]');
+      if (!root) return [{ name: '(no explorer)', width: 0, needed: 1 }];
+      return Array.from(root.querySelectorAll('span.truncate.font-mono.font-bold'))
+        .map((el) => ({
+          name: el.textContent ?? '',
+          width: Math.round(el.getBoundingClientRect().width),
+          needed: (el as HTMLElement).scrollWidth,
+        }))
+        .filter((m) => m.width < m.needed);
+    });
+
+    expect(clipped).toEqual([]);
+
+    await driver.evaluate(() => {
+      localStorage.removeItem('foxschema-sql-sidebar-width');
+    });
+    await driver.reload();
+    await driver.waitForSelector('[data-testid="toolbar"]', { timeout: 30_000 });
+    await sql.openView();
+  });
 });
