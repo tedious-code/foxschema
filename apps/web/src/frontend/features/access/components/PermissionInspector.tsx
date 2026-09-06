@@ -23,7 +23,16 @@ const TABLE_PERMISSIONS: AccessPermission[] = ['read', 'insert', 'update', 'dele
  * this user have access?" — direct grant, a role, a role's role, or a DENY that
  * overrides all of them. That resolution is the feature.
  */
-export const PermissionInspector: React.FC = () => {
+export const PermissionInspector: React.FC<{
+  /**
+   * Drive the inspector from another panel's selections.
+   *
+   * Given these it hides its own pickers and reads for what that panel already
+   * knows — which is what lets the builder show, in one window, both what a
+   * principal has now and what the reader is about to grant it.
+   */
+  embedded?: { connectionId: string; principalName: string; schema?: string };
+}> = ({ embedded }) => {
   const connections = useSyncStore((s) => s.connections);
   const sessionPasswords = useSqlEditorStore((s) => s.sessionPasswords);
   const [connectionId, setConnectionId] = useState('');
@@ -39,6 +48,25 @@ export const PermissionInspector: React.FC = () => {
   const loadToken = useRef(0);
 
   const conn = connections.find((c) => c.id === connectionId) || null;
+
+  // Follow the host panel. Its connection and principal are the subject, so a
+  // change there re-reads rather than leaving a stale answer under a new name.
+  const embeddedConnection = embedded?.connectionId;
+  const embeddedPrincipal = embedded?.principalName;
+  const embeddedSchema = embedded?.schema;
+  React.useEffect(() => {
+    if (embeddedConnection === undefined) return;
+    loadToken.current++;
+    setConnectionId(embeddedConnection);
+    setSchema(embeddedSchema ?? '');
+    setData(null);
+    setError(null);
+    setLoading(false);
+  }, [embeddedConnection, embeddedSchema]);
+  React.useEffect(() => {
+    if (embeddedPrincipal === undefined) return;
+    setPrincipalName(embeddedPrincipal);
+  }, [embeddedPrincipal]);
 
   const load = async () => {
     if (!connectionId) return;
@@ -79,16 +107,18 @@ export const PermissionInspector: React.FC = () => {
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-y-auto p-5 gap-4" data-testid="permission-inspector">
-      <div>
-        <h2 className="text-sm font-bold text-slate-100">Permission Inspector</h2>
-        <p className="text-[11px] text-slate-500 mt-0.5">
-          The effective permissions for a user or role, including what they inherit — and where
-          each one comes from.
-        </p>
-      </div>
+      {!embedded && (
+        <div>
+          <h2 className="text-sm font-bold text-slate-100">Permission Inspector</h2>
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            The effective permissions for a user or role, including what they inherit — and where
+            each one comes from.
+          </p>
+        </div>
+      )}
 
       <div className="shrink-0 flex flex-wrap items-end gap-2">
-        <label className="flex flex-col gap-1 min-w-[16rem] flex-1">
+        <label className={`flex flex-col gap-1 min-w-[16rem] flex-1 ${embedded ? 'hidden' : ''}`}>
           <span className={labelCls}>Database</span>
           <select
             data-testid="inspector-connection"
@@ -111,7 +141,7 @@ export const PermissionInspector: React.FC = () => {
             ))}
           </select>
         </label>
-        <label className="flex flex-col gap-1 w-40">
+        <label className={`flex flex-col gap-1 w-40 ${embedded ? 'hidden' : ''}`}>
           <span className={labelCls}>Schema</span>
           <input
             data-testid="inspector-schema"

@@ -351,6 +351,24 @@ describe('AccessView — Permission Builder schema catalog race', () => {
     });
   });
 
+  it('keeps the form shut until a connection is chosen', () => {
+    // Everything below the picker is an answer about one database: which
+    // privileges the engine can express, which schemas exist, what the SQL
+    // reads like. The form used to render enabled and empty, so a reader could
+    // tick their way through it and reach a preview whose only content was
+    // that no connection had been picked.
+    render(<AccessView />);
+    fireEvent.click(screen.getByTestId('access-tab-builder'));
+
+    expect(screen.getByTestId('access-needs-connection')).toBeTruthy();
+    expect(screen.queryByTestId('access-principal-name')).toBeNull();
+
+    fireEvent.change(screen.getByTestId('access-connection'), { target: { value: 'c2' } });
+
+    expect(screen.queryByTestId('access-needs-connection')).toBeNull();
+    expect(screen.getByTestId('access-principal-name')).toBeTruthy();
+  });
+
   /**
    * A slow schema list must not drive "every database" after a switch.
    *
@@ -386,6 +404,11 @@ describe('AccessView — Permission Builder schema catalog race', () => {
     });
     fireEvent.click(screen.getByTestId('access-scope-database'));
     fireEvent.click(screen.getByTestId('access-every-database'));
+
+    // The SQL moved into a dialog so the object grid can have the width; open
+    // it before reading. What this test guards is unchanged — which schema
+    // names reach the GRANT.
+    fireEvent.click(screen.getByTestId('access-preview-sql'));
 
     await waitFor(() => {
       const sql = screen.getByTestId('access-sql').textContent ?? '';
