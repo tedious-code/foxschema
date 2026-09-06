@@ -87,7 +87,7 @@ export const SignupWizard: React.FC<{ onDone: () => void }> = ({ onDone }) => {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="your@email.com"
-                className="mt-1 w-full bg-slate-950 border border-slate-700 focus:border-cyan-500 rounded-lg px-3 py-2.5 text-sm outline-none"
+                className="mt-1 w-full bg-slate-950 border border-slate-700 accent-focus rounded-lg px-3 py-2.5 text-sm outline-none"
               />
             </label>
 

@@ -1308,7 +1308,7 @@ export const TableBlueprintModal: React.FC<Props> = ({
                   onChange={(e) => setCreateName(e.target.value)}
                   placeholder="new_table_name"
                   data-testid="blueprint-table-name"
-                  className="w-full bg-transparent border-b border-cyan-400/35 focus:border-cyan-300 outline-none text-slate-50 font-bold text-base font-mono py-0.5"
+                  className="w-full bg-transparent border-b border-cyan-400/35 accent-focus outline-none text-slate-50 font-bold text-base font-mono py-0.5"
                 />
               ) : (
                 <h2 className="text-slate-50 font-bold text-base font-mono truncate">
@@ -1654,7 +1654,7 @@ export const TableBlueprintModal: React.FC<Props> = ({
                         value={customFragSql}
                         onChange={(e) => setCustomFragSql(e.target.value)}
                         rows={6}
-                        className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 font-mono text-[11px] text-slate-200 outline-none focus:border-sky-600"
+                        className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 font-mono text-[11px] text-slate-200 outline-none accent-focus"
                         spellCheck={false}
                       />
                       <button
@@ -2473,7 +2473,7 @@ export const TableBlueprintModal: React.FC<Props> = ({
                           onChange={(e) =>
                             setTriggerForm({ ...triggerForm, name: e.target.value })
                           }
-                          className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[12px] font-mono text-slate-200 outline-none focus:border-amber-500"
+                          className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[12px] font-mono text-slate-200 outline-none accent-focus"
                         />
                       </label>
                       <label className="flex flex-col gap-0.5">
@@ -2542,7 +2542,7 @@ export const TableBlueprintModal: React.FC<Props> = ({
                         }
                         placeholder={triggerMeta.bodyPlaceholder}
                         rows={5}
-                        className="bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-[12px] font-mono text-slate-200 outline-none focus:border-amber-500 resize-y min-h-[6rem]"
+                        className="bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-[12px] font-mono text-slate-200 outline-none accent-focus resize-y min-h-[6rem]"
                       />
                     </label>
                     <div className="flex justify-end gap-1.5">
@@ -2745,7 +2745,7 @@ const ColumnForm: React.FC<{
             value={value.name}
             disabled={nameLocked}
             onChange={(e) => onChange({ ...value, name: e.target.value })}
-            className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[12px] font-mono text-slate-200 outline-none focus:border-cyan-600 disabled:opacity-60"
+            className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[12px] font-mono text-slate-200 outline-none accent-focus disabled:opacity-60"
           />
         </label>
         <label className="flex flex-col gap-0.5 min-w-0 sm:col-span-2">
@@ -2764,7 +2764,7 @@ const ColumnForm: React.FC<{
               setType(v);
             }}
             data-testid="blueprint-type-select"
-            className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[12px] font-mono text-slate-200 outline-none focus:border-cyan-600"
+            className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[12px] font-mono text-slate-200 outline-none accent-focus"
           >
             {groups.map(([group, opts]) => (
               <optgroup key={group} label={group}>
@@ -2784,7 +2784,7 @@ const ColumnForm: React.FC<{
               onChange={(e) => setType(e.target.value)}
               placeholder="custom type"
               data-testid="blueprint-type-custom"
-              className="mt-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[12px] font-mono text-slate-200 outline-none focus:border-cyan-600"
+              className="mt-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[12px] font-mono text-slate-200 outline-none accent-focus"
             />
           )}
         </label>
@@ -2822,7 +2822,7 @@ const ColumnForm: React.FC<{
                 })
               }
               placeholder="—"
-              className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[12px] font-mono text-slate-200 outline-none focus:border-cyan-600"
+              className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[12px] font-mono text-slate-200 outline-none accent-focus"
             />
           </label>
         )}
@@ -2842,7 +2842,7 @@ const ColumnForm: React.FC<{
               const n = e.target.value === '' ? undefined : Number(e.target.value);
               setType(applyTypeSize(value.type, { length: n }));
             }}
-            className="w-28 bg-slate-900 border border-amber-500/35 rounded px-2 py-1 text-[12px] font-mono text-amber-50 outline-none focus:border-amber-400"
+            className="w-28 bg-slate-900 border border-amber-500/35 rounded px-2 py-1 text-[12px] font-mono text-amber-50 outline-none accent-focus"
           />
           <span className="text-[11px] font-mono text-slate-500">{value.type}</span>
         </label>
@@ -2866,7 +2866,7 @@ const ColumnForm: React.FC<{
                   })
                 );
               }}
-              className="w-20 bg-slate-900 border border-cyan-500/35 rounded px-2 py-1 text-[12px] font-mono outline-none focus:border-cyan-400"
+              className="w-20 bg-slate-900 border border-cyan-500/35 rounded px-2 py-1 text-[12px] font-mono outline-none accent-focus"
             />
           </label>
           <label className="flex items-center gap-2">
@@ -2886,7 +2886,7 @@ const ColumnForm: React.FC<{
                   })
                 );
               }}
-              className="w-20 bg-slate-900 border border-cyan-500/35 rounded px-2 py-1 text-[12px] font-mono outline-none focus:border-cyan-400"
+              className="w-20 bg-slate-900 border border-cyan-500/35 rounded px-2 py-1 text-[12px] font-mono outline-none accent-focus"
             />
           </label>
           <span className="text-[11px] font-mono text-slate-500">{value.type}</span>

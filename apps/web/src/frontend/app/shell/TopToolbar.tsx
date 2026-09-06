@@ -369,7 +369,7 @@ export const TopToolbar: React.FC = () => {
                 value={selectedSourceConnectionId ?? ''}
                 onChange={(e) => e.target.value && selectSavedConnection('source', e.target.value)}
                 title="Saved connections"
-                className="shrink-0 w-36 max-w-[144px] text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-cyan-500 truncate"
+                className="shrink-0 w-36 max-w-[144px] text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none accent-focus truncate"
               >
                 <option value="">— Saved —</option>
                 {connections.map((c) => (
@@ -463,7 +463,7 @@ export const TopToolbar: React.FC = () => {
                 value={selectedTargetConnectionId ?? ''}
                 onChange={(e) => e.target.value && selectSavedConnection('target', e.target.value)}
                 title="Saved connections"
-                className="shrink-0 w-36 max-w-[144px] text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-purple-500 truncate"
+                className="shrink-0 w-36 max-w-[144px] text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none accent-focus truncate"
               >
                 <option value="">— Saved —</option>
                 {connections.map((c) => (
@@ -699,7 +699,7 @@ export const TopToolbar: React.FC = () => {
                 onChange={(e) => setPendingPasswordValue(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && confirmPendingPassword()}
                 placeholder="••••••••"
-                className="w-full bg-slate-950 border border-slate-850 focus:border-cyan-500 text-sm text-slate-200 rounded px-3 py-2 outline-none font-mono"
+                className="w-full bg-slate-950 border border-slate-850 accent-focus text-sm text-slate-200 rounded px-3 py-2 outline-none font-mono"
               />
               <div className="flex justify-end gap-2 pt-1">
                 <button

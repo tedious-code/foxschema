@@ -10,7 +10,10 @@ import React from 'react';
 import type { PermissionRisk } from '../lib/access';
 
 export const inputCls =
-  'w-full rounded-md border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-[12px] text-slate-100 outline-none focus:border-sky-500';
+  'w-full rounded-md border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-[12px] text-slate-100 outline-none accent-focus';
+
+/** The micro-label above a control. Exported because two panels had their own copy. */
+export const labelCls = 'text-[10px] font-bold uppercase tracking-wide text-slate-500';
 
 export const RISK_STYLE: Record<PermissionRisk, string> = {
   low: 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10',
@@ -25,7 +28,7 @@ export const Field: React.FC<{ label: string; hint?: string; children: React.Rea
   children,
 }) => (
   <div>
-    <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{label}</span>
+    <span className={labelCls}>{label}</span>
     {hint && <p className="mt-0.5 text-[11px] text-slate-500">{hint}</p>}
     <div className="mt-1">{children}</div>
   </div>

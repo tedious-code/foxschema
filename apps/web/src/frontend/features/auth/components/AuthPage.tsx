@@ -52,7 +52,7 @@ export const AuthPage: React.FC = () => {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="your@email.com"
-              className="bg-slate-950 border border-slate-800 focus:border-cyan-500 rounded-md px-3 py-2 text-sm outline-none"
+              className="bg-slate-950 border border-slate-800 accent-focus rounded-md px-3 py-2 text-sm outline-none"
             />
           </div>
 
@@ -64,7 +64,7 @@ export const AuthPage: React.FC = () => {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder={mode === 'register' ? 'At least 8 characters' : '••••••••'}
-              className="w-full bg-slate-950 border border-slate-800 focus:border-cyan-500 rounded-md px-3 py-2 text-sm outline-none"
+              className="w-full bg-slate-950 border border-slate-800 accent-focus rounded-md px-3 py-2 text-sm outline-none"
             />
           </div>
 

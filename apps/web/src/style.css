@@ -213,6 +213,25 @@
 /* Subtle hover for accent-grad buttons (replaces the old hover:* gradient). */
 .accent-grad:hover { filter: brightness(1.07); }
 
+/* Focus ring for text inputs, selects and textareas.
+ *
+ * The accent is user-tunable (Appearance settings), and this file already says
+ * why that matters: "so the chosen color flows through key surfaces without
+ * hardcoding a palette in every component". Focus states were the largest
+ * surface still ignoring it — 62 call sites across 28 files, spelling the same
+ * "this control has focus" idea eleven different ways: cyan-300/400/500/600,
+ * cyan-600/50, sky-500/600, amber-400, amber-400/60, amber-500, purple-500.
+ * Pick a non-cyan accent and every one of them stayed cyan.
+ *
+ * Not everything moved here. A colour that means something keeps its own:
+ * rose on an invalid field (PeekRowEditor), and the violet / emerald / purple
+ * controls whose resting border already carries that hue, where the focus
+ * colour is the component's identity rather than a generic state.
+ */
+.accent-focus:focus {
+  border-color: var(--accent);
+}
+
 /* Fixed, non-inverting near-black for text/icons that sit ON the bright accent
    gradient ? so it stays dark (readable) in both light and dark themes. */
 .on-accent-fg { color: #020617; }

@@ -732,7 +732,7 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
                 value={newPassword}
                 minLength={8}
                 onChange={(e) => setNewPassword(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                className="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-100 outline-none accent-focus"
               />
             </label>
             <label className="flex flex-col gap-1 text-xs">
@@ -742,7 +742,7 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
                 value={confirmPassword}
                 minLength={8}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                className="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-100 outline-none accent-focus"
               />
             </label>
             {passwordMsg && (

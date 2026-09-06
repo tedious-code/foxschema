@@ -216,7 +216,7 @@ export const CloudProviderCredentialsSection: React.FC = () => {
             placeholder="Name (e.g. Prod AWS)"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-100 outline-none focus:border-cyan-600"
+            className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-100 outline-none accent-focus"
           />
 
           {!editingId && (
@@ -230,7 +230,7 @@ export const CloudProviderCredentialsSection: React.FC = () => {
                   setFields({});
                 }
               }}
-              className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 outline-none focus:border-cyan-600"
+              className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 outline-none accent-focus"
             >
               {CLOUD_SECRET_PROVIDER_LIST.map((p) => (
                 <option key={p.id} value={p.id}>
@@ -257,7 +257,7 @@ export const CloudProviderCredentialsSection: React.FC = () => {
                 value={fields[f.key] ?? ''}
                 onChange={(e) => setFields((prev) => ({ ...prev, [f.key]: e.target.value }))}
                 rows={f.rows ?? 3}
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-[11px] font-mono text-slate-100 outline-none focus:border-cyan-600 resize-y"
+                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-[11px] font-mono text-slate-100 outline-none accent-focus resize-y"
               />
             ) : (
               <input
@@ -269,7 +269,7 @@ export const CloudProviderCredentialsSection: React.FC = () => {
                 }
                 value={fields[f.key] ?? ''}
                 onChange={(e) => setFields((prev) => ({ ...prev, [f.key]: e.target.value }))}
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-slate-100 outline-none focus:border-cyan-600"
+                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-slate-100 outline-none accent-focus"
               />
             )
           )}

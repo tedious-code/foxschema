@@ -64,7 +64,7 @@ export function BrowseBar(): React.ReactElement {
         disabled={connections.length === 0 || isBrowsing}
         onChange={(e) => onPick(e.target.value)}
         title="Read this database's objects"
-        className="min-w-0 flex-1 max-w-md text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-cyan-500 truncate disabled:opacity-50"
+        className="min-w-0 flex-1 max-w-md text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none accent-focus truncate disabled:opacity-50"
       >
         <option value="">{connections.length === 0 ? 'No saved connections' : 'Pick a database…'}</option>
         {connections.map((c) => (

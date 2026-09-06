@@ -11,6 +11,7 @@ import {
   type EffectiveAccess,
 } from '../lib/access';
 import type { DbPrincipal, DbPrivilege } from '@foxschema/sql';
+import { inputCls, labelCls } from './controls';
 
 /** The columns the effective-permission table reports on, in reading order. */
 const TABLE_PERMISSIONS: AccessPermission[] = ['read', 'insert', 'update', 'delete'];
@@ -320,9 +321,7 @@ function sourceLabel(o: { permissions: { sources: { kind: string; via: string }[
   return '—';
 }
 
-const labelCls = 'text-[10px] font-bold uppercase tracking-wide text-slate-500';
-const inputCls =
-  'w-full rounded-md border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-[12px] text-slate-100 outline-none focus:border-sky-500';
+
 const thCls = 'px-3 py-1.5 text-left font-bold uppercase tracking-wide';
 
 const Node: React.FC<{ label: string; sub: string }> = ({ label, sub }) => (

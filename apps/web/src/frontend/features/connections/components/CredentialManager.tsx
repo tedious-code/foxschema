@@ -214,7 +214,7 @@ export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="Search name, host, database, user…"
-                    className="w-full bg-slate-950 border border-slate-800 focus:border-cyan-600 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 outline-none"
+                    className="w-full bg-slate-950 border border-slate-800 accent-focus rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 outline-none"
                   />
                 </div>
                 <select
@@ -222,7 +222,7 @@ export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
                   value={dialectFilter}
                   onChange={(e) => setDialectFilter(e.target.value)}
                   title="Filter by provider"
-                  className="bg-slate-950 border border-slate-800 focus:border-cyan-600 rounded-lg px-2 py-1.5 text-xs text-slate-300 outline-none cursor-pointer"
+                  className="bg-slate-950 border border-slate-800 accent-focus rounded-lg px-2 py-1.5 text-xs text-slate-300 outline-none cursor-pointer"
                 >
                   <option value="all">All providers</option>
                   {availableDialects.map((d) => (
@@ -238,7 +238,7 @@ export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
                     value={sortBy}
                     onChange={(e) => setSortBy(e.target.value as 'recent' | 'name' | 'provider')}
                     title="Sort"
-                    className="bg-slate-950 border border-slate-800 focus:border-cyan-600 rounded-lg pl-7 pr-2 py-1.5 text-xs text-slate-300 outline-none cursor-pointer"
+                    className="bg-slate-950 border border-slate-800 accent-focus rounded-lg pl-7 pr-2 py-1.5 text-xs text-slate-300 outline-none cursor-pointer"
                   >
                     <option value="recent">Recent</option>
                     <option value="name">Name</option>

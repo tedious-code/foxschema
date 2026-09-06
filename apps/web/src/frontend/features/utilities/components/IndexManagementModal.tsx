@@ -787,7 +787,7 @@ export const IndexManagementModal: React.FC<Props> = ({
                   setPasswordDraft('');
                   setError(null);
                 }}
-                className="bg-slate-950 border border-slate-700 rounded-md px-2.5 py-1.5 text-sm text-slate-100 outline-none focus:border-amber-500"
+                className="bg-slate-950 border border-slate-700 rounded-md px-2.5 py-1.5 text-sm text-slate-100 outline-none accent-focus"
               >
                 <option value="">— Select credential —</option>
                 {connections.map((c) => (
@@ -812,7 +812,7 @@ export const IndexManagementModal: React.FC<Props> = ({
                     value={passwordDraft}
                     onChange={(e) => setPasswordDraft(e.target.value)}
                     placeholder="••••••••"
-                    className="bg-slate-950 border border-slate-700 rounded-md px-2.5 py-1.5 text-sm text-slate-100 outline-none focus:border-amber-500 font-mono w-36"
+                    className="bg-slate-950 border border-slate-700 rounded-md px-2.5 py-1.5 text-sm text-slate-100 outline-none accent-focus font-mono w-36"
                   />
                   <button
                     type="button"
@@ -879,7 +879,7 @@ export const IndexManagementModal: React.FC<Props> = ({
                 value={tableFilter}
                 onChange={(e) => setTableFilter(e.target.value)}
                 placeholder="e.g. ORDER"
-                className="bg-slate-950 border border-slate-700 rounded-md px-2.5 py-1.5 text-sm text-slate-100 outline-none focus:border-amber-500 font-mono"
+                className="bg-slate-950 border border-slate-700 rounded-md px-2.5 py-1.5 text-sm text-slate-100 outline-none accent-focus font-mono"
               />
             </label>
             <label className="flex flex-col gap-1 w-36">
@@ -895,7 +895,7 @@ export const IndexManagementModal: React.FC<Props> = ({
                 value={minFragPct}
                 onChange={(e) => setMinFragPct(e.target.value)}
                 placeholder="e.g. 10"
-                className="bg-slate-950 border border-slate-700 rounded-md px-2.5 py-1.5 text-sm text-slate-100 outline-none focus:border-amber-500 font-mono"
+                className="bg-slate-950 border border-slate-700 rounded-md px-2.5 py-1.5 text-sm text-slate-100 outline-none accent-focus font-mono"
               />
             </label>
             <button
