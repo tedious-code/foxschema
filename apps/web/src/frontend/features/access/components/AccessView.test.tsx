@@ -334,6 +334,70 @@ describe('AccessView — User Management list + Builder handoff', () => {
   });
 });
 
+describe('AccessView — letting a new account in', () => {
+  beforeEach(() => {
+    fetchDbAccess.mockReset();
+    fetchSchemaList.mockReset();
+    fetchDbAccess.mockResolvedValue({
+      dialect: 'postgres',
+      schema: '',
+      mode: 'native',
+      support: { mode: 'native', query: true, grant: true, hint: '' },
+      principals: [],
+      privileges: [],
+    });
+    fetchSchemaList.mockResolvedValue(['public', 'reporting']);
+  });
+
+  /**
+   * Creating an account and letting it in were two screens.
+   *
+   * CREATE USER here, then the permissions tab — re-picking the same
+   * connection and re-typing the same name to say "and it may reach this
+   * schema". An account that cannot reach a database is not a finished
+   * account, so the grants belong where the account is made.
+   */
+  it('grants the schemas picked while creating, in the same script', async () => {
+    render(<AccessView />);
+    fireEvent.change(screen.getByTestId('user-connection'), { target: { value: 'c1' } });
+    await waitFor(() => expect(fetchSchemaList).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByTestId('user-add-user'));
+    fireEvent.change(screen.getByTestId('user-name'), { target: { value: 'report_user' } });
+
+    // Before picking anything the script creates the account and stops there.
+    await waitFor(() => expect(screen.getByTestId('user-sql')).toBeTruthy());
+    expect(screen.getByTestId('user-sql').textContent ?? '').not.toMatch(/GRANT/i);
+
+    const schemaBox = await screen.findByTestId('user-grant-schemas-item-reporting');
+    fireEvent.click(schemaBox);
+
+    await waitFor(() => {
+      const sql = screen.getByTestId('user-sql').textContent ?? '';
+      expect(sql, 'the picked schema produced no GRANT').toMatch(/GRANT/i);
+      expect(sql).toMatch(/reporting/);
+      expect(sql).toMatch(/report_user/);
+    });
+    // Still one script: the account and its way in, in the order to paste them.
+    const text = screen.getByTestId('user-sql').textContent ?? '';
+    expect(text.indexOf('CREATE')).toBeLessThan(text.search(/GRANT/i));
+  });
+
+  it('offers no schema picker on an engine with no schema-level GRANT', async () => {
+    // MySQL, MariaDB, TiDB and Oracle have no schema-level GRANT — a MySQL
+    // database *is* the schema. Offering the control there would generate SQL
+    // the engine rejects.
+    render(<AccessView />);
+    fireEvent.change(screen.getByTestId('user-connection'), { target: { value: 'c2' } });
+    fireEvent.click(screen.getByTestId('user-add-user'));
+    fireEvent.change(screen.getByTestId('user-name'), { target: { value: 'report_user' } });
+
+    await waitFor(() => expect(screen.getByTestId('user-access-grants')).toBeTruthy());
+    expect(screen.queryByTestId('user-grant-schemas')).toBeNull();
+    expect(screen.getByTestId('user-grant-databases')).toBeTruthy();
+  });
+});
+
 describe('AccessView — Permission Builder schema catalog race', () => {
   beforeEach(() => {
     Object.assign(navigator, {
