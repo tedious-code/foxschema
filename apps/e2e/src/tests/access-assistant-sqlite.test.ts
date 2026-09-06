@@ -103,8 +103,10 @@ describe.skipIf(!ready)('Access Assistant · SQLite (cloud)', () => {
     await access.openTab('builder');
     await access.selectConnection('access-connection', NAME);
     await driver.waitForSelector('[data-testid="access-unsupported"]', { timeout: 10_000 });
+    // Copy names the engine's nature ("no grants" / file permissions) — not
+    // the old "no GRANT model" line, which sounded like a Fox Schema gap.
     expect(await driver.locator('[data-testid="access-unsupported"]').innerText()).toMatch(
-      /no GRANT model/i
+      /no grants/i
     );
     expect(await driver.locator('[data-testid="access-sql"]').count()).toBe(0);
     await saveScreenshot(driver, 'access-sqlite-builder');
@@ -116,7 +118,7 @@ describe.skipIf(!ready)('Access Assistant · SQLite (cloud)', () => {
     await access.selectConnection('diff-connection', NAME);
     await driver.waitForSelector('[data-testid="diff-unsupported"]', { timeout: 10_000 });
     expect(await driver.locator('[data-testid="diff-unsupported"]').innerText()).toMatch(
-      /no GRANT model/i
+      /no grants/i
     );
     expect(await driver.locator('[data-testid="diff-load-catalog"]').count()).toBe(0);
     await saveScreenshot(driver, 'access-sqlite-diff');

@@ -514,7 +514,7 @@ export const SqlEditorView: React.FC = () => {
                   className={UTIL_MENU_BTN}
                 >
                   <KeyRound className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
-                  Database Access
+                  DB users & grants
                 </button>
                 <button
                   type="button"

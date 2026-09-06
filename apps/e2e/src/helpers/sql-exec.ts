@@ -71,7 +71,7 @@ export function isEnvironmentFailure(message: string): boolean {
 
 /** Everything the product's own SQL runner needs to reach a database. */
 function optionOf(cfg: DbConfig): Record<string, unknown> {
-  return {
+  const option: Record<string, unknown> = {
     host: cfg.host,
     port: cfg.port || undefined,
     database: cfg.database,
@@ -79,6 +79,12 @@ function optionOf(cfg: DbConfig): Record<string, unknown> {
     password: cfg.password,
     schema: cfg.schema,
   };
+  // Azure SQL always encrypts. Local SQL Server stand-ins use a self-signed
+  // cert, so trust it the same way ConnectionModal does for azuresql.
+  if (cfg.dialect === 'azuresql') {
+    option.ssl = { enabled: true, rejectUnauthorized: false };
+  }
+  return option;
 }
 
 /**
