@@ -110,5 +110,18 @@ INSERT INTO child (id, parent_id) VALUES (1, 1), (2, 2);
       await ownsScreenCentre(driver, '[data-testid="data-peek"]'),
       'Data Peek mounted underneath the fullscreen results it was opened from'
     ).toBe(true);
+
+    // Escape belongs to the topmost overlay. Both listen on window, so until
+    // the results learned to yield, one Escape closed the peek the reader had
+    // just opened *and* the results behind it — leaving them somewhere they
+    // never asked to go.
+    await driver.keyboard.press('Escape');
+    await driver
+      .locator('[data-testid="data-peek"]')
+      .waitFor({ state: 'detached', timeout: 10_000 });
+    expect(
+      await driver.locator('[role="dialog"][aria-label*="fullscreen" i]').count(),
+      'Escape closed the fullscreen results as well as the peek'
+    ).toBeGreaterThan(0);
   }, 120_000);
 });
