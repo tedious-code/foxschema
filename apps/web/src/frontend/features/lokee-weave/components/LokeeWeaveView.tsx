@@ -14,10 +14,12 @@ import { Camera, GitBranch, Loader2, RefreshCw, TriangleAlert } from 'lucide-rea
 import { LokeeWeavePage } from './LokeeWeavePage';
 import { VersionCompareModal } from './VersionCompareModal';
 import { LokeeObjectInspector } from './LokeeObjectInspector';
+import { VersionTimeline } from './VersionTimeline';
 import type { SchemaObjectNodeData, VersionGraphDTO } from './graphTypes';
 import {
   captureSchema,
   listLokeeDatabases,
+  listLokeeVersions,
   loadVersionGraph,
   updateLokeeVersionMeta,
   type LokeeDatabase,
@@ -93,6 +95,8 @@ export function LokeeWeaveView({
 
   const [error, setError] = useState<string | null>(null);
   const [selectedObject, setSelectedObject] = useState<SchemaObjectNodeData | null>(null);
+  /** React Flow reconstructs object nodes — off until the reader asks. */
+  const [showGraph, setShowGraph] = useState(false);
   // Bumped to re-run the effect; a plain refetch() would race the in-flight one.
   const [reloadToken, setReloadToken] = useState(0);
   // Which pair the modal is showing. The two *sides* live in the history store,
@@ -214,9 +218,16 @@ export function LokeeWeaveView({
     setError(null);
     void (async () => {
       try {
-        const graph = await loadVersionGraph(activeId, versionLimit);
+        // Timeline is GET /versions — cheap. The graph DTO reconstructs object
+        // nodes and is loaded only when the Graph toggle is on.
+        const versions = await listLokeeVersions(activeId, 100);
         if (cancelled) return;
-        setDto(graph);
+        setDto({
+          ...EMPTY_DTO,
+          databaseId: activeId,
+          versions,
+          totalVersions: versions.length,
+        });
       } catch (err) {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : 'Failed to load schema history');
@@ -228,7 +239,25 @@ export function LokeeWeaveView({
     return () => {
       cancelled = true;
     };
-  }, [activeId, versionLimit, reloadToken, lokeeEpoch]);
+  }, [activeId, reloadToken, lokeeEpoch]);
+
+  useEffect(() => {
+    if (!showGraph || !activeId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const graph = await loadVersionGraph(activeId, versionLimit);
+        if (cancelled) return;
+        setDto(graph);
+      } catch (err) {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : 'Failed to load schema history');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [showGraph, activeId, versionLimit, reloadToken, lokeeEpoch]);
 
   const subtitle = useMemo(
     () => describe(databases.find((d) => d.id === activeId)),
@@ -476,23 +505,49 @@ export function LokeeWeaveView({
 
   return (
     <div className="flex flex-1 min-h-0 flex-col overflow-hidden" data-testid="lokee-weave-view">
-      {dto.truncatedObjects && (
+      {dto.truncatedObjects && showGraph && (
         <div className="border-b border-amber-500/30 bg-amber-500/10 px-6 py-1.5 text-[11px] text-amber-200">
           Showing the objects that changed in this window. This schema has more objects than the
           graph draws at once.
         </div>
       )}
+      <div className="flex shrink-0 items-center justify-end gap-2 border-b border-slate-800 px-4 py-1">
+        <button
+          type="button"
+          data-testid="lokee-graph-toggle"
+          aria-pressed={showGraph}
+          onClick={() => setShowGraph((on) => !on)}
+          className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-[11px] font-semibold transition ${
+            showGraph
+              ? 'bg-violet-700/80 text-violet-50'
+              : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+          }`}
+        >
+          <GitBranch className="h-3.5 w-3.5" strokeWidth={SQL_ICON_STROKE} />
+          Graph
+        </button>
+      </div>
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <LokeeWeavePage
-            dto={dto}
-            subtitle={subtitle}
-            embedded={embedded}
-            onSelectObject={handleSelectObject}
-            selectedObject={selectedObject}
-            onClearSelection={() => setSelectedObject(null)}
-            onSaveVersionMeta={saveVersionMeta}
-          />
+          {showGraph ? (
+            <LokeeWeavePage
+              dto={dto}
+              subtitle={subtitle}
+              embedded={embedded}
+              onSelectObject={handleSelectObject}
+              selectedObject={selectedObject}
+              onClearSelection={() => setSelectedObject(null)}
+              onSaveVersionMeta={saveVersionMeta}
+            />
+          ) : (
+            <VersionTimeline
+              versions={dto.versions}
+              totalVersions={dto.totalVersions || dto.versions.length}
+              selectedId={originalVersionId}
+              subtitle={subtitle}
+              onSelect={(id) => useLokeeHistoryStore.getState().setOriginalVersionId(id)}
+            />
+          )}
         </div>
         {comparePair && activeId && (
           <VersionCompareModal

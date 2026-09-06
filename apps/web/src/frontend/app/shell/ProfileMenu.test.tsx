@@ -49,7 +49,7 @@ describe('ProfileMenu', () => {
     expect(screen.getByTestId('admin-access-panel')).toBeTruthy();
   });
 
-  it('still offers Access control when the signed-in role is editor', () => {
+  it('hides Access control when the signed-in role cannot manage app users', () => {
     useAuthStore.setState({
       user: {
         id: 'u-editor',
@@ -62,8 +62,6 @@ describe('ProfileMenu', () => {
     });
     render(<ProfileMenu />);
     fireEvent.click(screen.getByText('editor@example.com'));
-    expect(screen.getByTestId('profile-access-control')).toBeTruthy();
-    fireEvent.click(screen.getByTestId('profile-access-control'));
-    expect(screen.getByTestId('admin-access-panel')).toBeTruthy();
+    expect(screen.queryByTestId('profile-access-control')).toBeNull();
   });
 });

@@ -66,6 +66,10 @@ export class LokeeHistoryPage {
   }
 
   async waitForGraph(timeoutMs = 30_000): Promise<void> {
+    const graphPage = this.page.locator('[data-testid="lokee-weave-page"]');
+    if (!(await graphPage.isVisible().catch(() => false))) {
+      await clickWhen(this.page, '[data-testid="lokee-graph-toggle"]');
+    }
     await waitFor(this.page, '[data-testid="lokee-weave-page"]', timeoutMs);
     await this.page.locator('[data-testid^="rf-version-"]').first().waitFor({ timeout: timeoutMs });
   }
