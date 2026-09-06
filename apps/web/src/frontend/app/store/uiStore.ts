@@ -175,17 +175,20 @@ function applyToDocument(themeMode: ThemeMode, tone: ToneId, fontSize: FontSize,
   return mode;
 }
 
-/** Top-level workspace views: schema sync (compare + history) vs the SQL Editor. */
-export type ActiveView = 'sync' | 'sqlEditor' | 'access';
-/** Compare tree vs Lokee schema-history graph, both inside Schema Sync. */
+/** Top-level workspace views. Snapshots (Lokee) is its own view, not a Sync pane. */
+export type ActiveView = 'sync' | 'sqlEditor' | 'access' | 'snapshots';
 /**
  * Browse is its own pane, not a mode hiding inside Compare. It answers a
  * different question — "what is in this one database?" rather than "how do
  * these two differ?" — and reaching it by pressing a button on one of Compare's
  * two connection cards left the app showing a comparison workspace with no
  * comparison in it.
+ *
+ * History used to live here as `syncPane === 'history'`. It is now `activeView
+ * === 'snapshots'`. `setSyncPane('history')` still routes there so callers and
+ * persisted state do not strand anyone on a removed pane.
  */
-export type SyncPane = 'compare' | 'browse' | 'history';
+export type SyncPane = 'compare' | 'browse';
 
 interface UiState {
   themeMode: ThemeMode;
@@ -202,7 +205,8 @@ interface UiState {
   lokeeEpoch: number;
 
   setActiveView: (view: ActiveView) => void;
-  setSyncPane: (pane: SyncPane) => void;
+  /** `'history'` is accepted as an alias for `activeView: 'snapshots'`. */
+  setSyncPane: (pane: SyncPane | 'history') => void;
   bumpLokeeEpoch: () => void;
   setThemeMode: (mode: ThemeMode) => void;
   setTone: (tone: ToneId) => void;
@@ -230,14 +234,17 @@ function syncToServer(s: Pick<UiState, 'themeMode' | 'tone' | 'fontSize' | 'acce
   }).catch(() => undefined);
 }
 
-function migrateUiPersist(persisted: unknown, _version: number): unknown {
+export function migrateUiPersist(persisted: unknown, _version: number): unknown {
   const state =
     persisted && typeof persisted === 'object' ? { ...(persisted as Record<string, unknown>) } : {};
-  if (state.activeView === 'lokeeWeave') {
-    state.activeView = 'sync';
-    state.syncPane = 'history';
+  if (state.activeView === 'lokeeWeave' || state.syncPane === 'history') {
+    state.activeView = 'snapshots';
+    state.syncPane = 'compare';
   }
-  if (!['history', 'compare', 'browse'].includes(state.syncPane as string)) {
+  if (!['sync', 'sqlEditor', 'access', 'snapshots'].includes(state.activeView as string)) {
+    state.activeView = 'sync';
+  }
+  if (!['compare', 'browse'].includes(state.syncPane as string)) {
     state.syncPane = 'compare';
   }
   if (typeof state.lokeeEpoch !== 'number') state.lokeeEpoch = 0;
@@ -265,7 +272,13 @@ export const useUiStore = create<UiState>()(
         lokeeEpoch: 0,
 
         setActiveView: (activeView) => set({ activeView }),
-        setSyncPane: (syncPane) => set({ syncPane, activeView: 'sync' }),
+        setSyncPane: (pane) => {
+          if (pane === 'history') {
+            set({ activeView: 'snapshots' });
+            return;
+          }
+          set({ syncPane: pane, activeView: 'sync' });
+        },
         bumpLokeeEpoch: () => set({ lokeeEpoch: get().lokeeEpoch + 1 }),
         setThemeMode: (themeMode) => update({ themeMode }),
         setTone: (tone) => update({ tone }),
@@ -297,7 +310,7 @@ export const useUiStore = create<UiState>()(
         },
       };
     },
-    { name: 'schema-sync-ui', version: 1, migrate: migrateUiPersist }
+    { name: 'schema-sync-ui', version: 2, migrate: migrateUiPersist }
   )
 );
 

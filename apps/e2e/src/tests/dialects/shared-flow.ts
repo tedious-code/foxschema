@@ -232,6 +232,10 @@ export function runDialectFlow(
   it.skipIf(skipMigration)('schema history pane records a Lokee snapshot after migrate', async () => {
     await clickWhen(driver, '[data-testid="sync-pane-history-btn"]');
     await driver.waitForSelector('[data-testid="lokee-weave-view"]', { timeout: 20_000 });
+    const graphToggle = driver.locator('[data-testid="lokee-graph-toggle"]');
+    if (await graphToggle.isVisible().catch(() => false)) {
+      await graphToggle.click();
+    }
     const graph = driver.locator('[data-testid="lokee-weave-page"]');
     const hasGraph = await graph
       .waitFor({ state: 'visible', timeout: 20_000 })
