@@ -49,9 +49,17 @@ import {
   DB2_DOCKER_CONTAINER,
   DEFAULT_DB2_RUN_MODE,
   osAccountSteps,
+  accessCapabilities,
+  buildAccessSql,
+  highestRisk,
+  type AccessPermission,
+  type AccessScope,
+  type PermissionRequest,
 } from '../lib/access';
 import { EmptyState, Field, RISK_STYLE, Segmented, inputCls } from './controls';
 import { Autocomplete } from '@/shared/components/Autocomplete';
+import { ObjectPicker } from './ObjectPicker';
+import { useAccessCatalog } from '../lib/useAccessCatalog';
 import {
   generateSuggestedPassword,
   sqlNeedsPassword,
@@ -168,6 +176,7 @@ export const UserManagement: React.FC<{
 
   const [connectionId, setConnectionId] = useState('');
   const conn = connections.find((c) => c.id === connectionId) || null;
+  const accessCatalog = useAccessCatalog(connectionId, conn);
   const dialect = conn?.dialect ?? '';
 
   const [principals, setPrincipals] = useState<DbPrincipal[]>([]);
@@ -206,6 +215,21 @@ export const UserManagement: React.FC<{
    * simply fail.
    */
   const [db2RunMode, setDb2RunMode] = useState<Db2RunMode>(DEFAULT_DB2_RUN_MODE);
+  /**
+   * The access a new account needs before it can do anything.
+   *
+   * Creating an account and letting it in are two different statements on every
+   * engine, and they used to be two different screens: CREATE USER here, then
+   * the permissions tab, re-picking the same connection and re-typing the same
+   * name to say "and it may connect to this database". An account that cannot
+   * reach a database is not a finished account, so the grants are offered where
+   * the account is made.
+   *
+   * Object-level privileges stay in the permissions grid. What belongs here is
+   * only what the account itself is scoped to: which databases, which schemas.
+   */
+  const [grantDatabases, setGrantDatabases] = useState<string[]>([]);
+  const [grantSchemas, setGrantSchemas] = useState<string[]>([]);
   const osPasswordError = osPassword ? validateDb2OsPassword(osPassword) : null;
   const [copied, setCopied] = useState(false);
   const [copiedWithPassword, setCopiedWithPassword] = useState(false);
@@ -380,6 +404,51 @@ export const UserManagement: React.FC<{
     }
     return buildUserSql(request, dialect);
   }, [mode, dialect, name, request, isDb2, principalType, osRole, conn?.database, alteration, osPassword, db2RunMode]);
+
+  const accessCaps = useMemo(() => accessCapabilities(dialect), [dialect]);
+
+  /**
+   * Grants that let the new account in, appended to the CREATE statements.
+   *
+   * Only offered while adding: editing an existing account's access is the
+   * permissions grid's job, and a checkbox here would silently re-grant on
+   * every save. Only the scopes the engine actually has — MySQL, MariaDB, TiDB
+   * and Oracle have no schema-level GRANT, so their list is databases alone.
+   */
+  const accessGrants = useMemo(() => {
+    if (mode !== 'add' || !dialect || !name.trim()) return null;
+    // Each scope takes the permission that means "may reach this" in its own
+    // vocabulary. `connect` is only defined for a database scope
+    // (availablePermissions gates it on exactly that), and this model has no
+    // bare-USAGE concept on purpose — `read` on a schema already implies
+    // whatever the engine needs to reach into it, Postgres USAGE included.
+    // Using `connect` for both produced a schema pick that generated nothing.
+    const scoped: { scope: AccessScope; permissions: AccessPermission[] }[] = [
+      ...grantDatabases.map((database) => ({
+        scope: { type: 'database', database } as AccessScope,
+        permissions: ['connect'] as AccessPermission[],
+      })),
+      ...grantSchemas.map((schemaName) => ({
+        scope: { type: 'schema', schema: schemaName } as AccessScope,
+        permissions: ['read'] as AccessPermission[],
+      })),
+    ];
+    if (scoped.length === 0) return null;
+    const generatedPerScope = scoped.map(({ scope, permissions }) => {
+      const request: PermissionRequest = {
+        principal: { type: principalType, name },
+        action: 'grant',
+        scope,
+        permissions,
+      };
+      return buildAccessSql(request, dialect);
+    });
+    return {
+      statements: generatedPerScope.flatMap((g) => ('error' in g ? [] : g.statements)),
+      warnings: generatedPerScope.flatMap((g) => ('error' in g ? [] : g.warnings)),
+      errors: generatedPerScope.flatMap((g) => ('error' in g ? [g.error] : [])),
+    };
+  }, [mode, dialect, name, principalType, grantDatabases, grantSchemas]);
 
   const osAccount = useMemo(() => {
     if (isDb2 || !dialect || !name.trim()) return null;
@@ -1199,6 +1268,44 @@ export const UserManagement: React.FC<{
                     </Field>
                   )}
 
+                  {/*
+                    * Let the account in, in the same step that creates it.
+                    * These were on the permissions tab, which meant re-picking
+                    * this connection and re-typing this name to answer "and
+                    * which database may it reach?" — a question CREATE USER
+                    * always raises. Object privileges stay in the grid; what
+                    * is here is the account's own reach.
+                    */}
+                  {mode === 'add' && (accessCaps.databaseScope || accessCaps.schemaScope) && (
+                    <Field
+                      label="Access"
+                      hint="What this new account may reach. Per-object privileges are set in Permissions."
+                    >
+                      <div data-testid="user-access-grants" className="flex flex-col gap-2">
+                        {accessCaps.databaseScope && (
+                          <ObjectPicker
+                            label="Databases it may connect to"
+                            testId="user-grant-databases"
+                            items={accessCatalog.databaseOptions.map((o) => o.value)}
+                            selected={grantDatabases}
+                            onChange={setGrantDatabases}
+                            emptyHint="No databases listed for this connection."
+                          />
+                        )}
+                        {accessCaps.schemaScope && (
+                          <ObjectPicker
+                            label="Schemas it may read"
+                            testId="user-grant-schemas"
+                            items={accessCatalog.schemas}
+                            selected={grantSchemas}
+                            onChange={setGrantSchemas}
+                            emptyHint="No schemas listed for this connection."
+                          />
+                        )}
+                      </div>
+                    </Field>
+                  )}
+
                   {mode === 'edit' && alteration === 'expire' && support.canExpire && (
                     <Field
                       label="Expiry"
@@ -1458,7 +1565,12 @@ export const UserManagement: React.FC<{
                 hidden={mode === 'add' && principalType === 'user' && createMode === 'cli' && !isDb2}
                 className="rounded-md border border-slate-800 bg-slate-950/70 divide-y divide-slate-800/70"
               >
-                {generated.statements.map((s, i) => (
+                {[
+                  ...generated.statements,
+                  // The grants that let the account in run after it exists —
+                  // the order the reader would paste them in.
+                  ...(accessGrants?.statements ?? []),
+                ].map((s, i) => (
                   <div key={i} className="p-3">
                     <pre className="text-[12px] font-mono text-slate-100 whitespace-pre-wrap break-words">
                       {applyPassword(s.sql)}
