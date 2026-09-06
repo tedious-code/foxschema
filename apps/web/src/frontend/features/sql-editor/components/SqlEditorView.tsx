@@ -836,7 +836,7 @@ export const SqlEditorView: React.FC = () => {
                 if (!Number.isFinite(n)) return;
                 setMaxRows(Math.min(5000, Math.max(1, Math.floor(n))));
               }}
-              className="w-14 bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-[11px] text-slate-200 font-mono outline-none focus:border-cyan-600"
+              className="w-14 bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-[11px] text-slate-200 font-mono outline-none accent-focus"
             />
           </label>
 
@@ -856,7 +856,7 @@ export const SqlEditorView: React.FC = () => {
                 if (!Number.isFinite(n)) return;
                 setMultiTableConfirmThreshold(n);
               }}
-              className="w-10 bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-[11px] text-slate-200 font-mono outline-none focus:border-cyan-600"
+              className="w-10 bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-[11px] text-slate-200 font-mono outline-none accent-focus"
             />
           </label>
 

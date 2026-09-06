@@ -249,7 +249,7 @@ export const SqlVariablesPanel: React.FC = () => {
                 setError(null);
               }
             }}
-            className="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-[13px] text-slate-100 outline-none focus:border-cyan-600/50"
+            className="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-[13px] text-slate-100 outline-none accent-focus"
           />
           <input
             data-testid="sql-variable-value-input"
@@ -264,7 +264,7 @@ export const SqlVariablesPanel: React.FC = () => {
                 setError(null);
               }
             }}
-            className="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-[13px] text-slate-100 outline-none focus:border-cyan-600/50"
+            className="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-[13px] text-slate-100 outline-none accent-focus"
           />
           <label className="flex items-center gap-1 text-[12px] text-slate-400">
             <input
@@ -465,7 +465,7 @@ export const SqlVariablesPanel: React.FC = () => {
                                   });
                                 }
                               }}
-                              className="flex-1 min-w-0 bg-slate-950 border border-slate-700 rounded px-1 py-0.5 text-[12px] font-mono text-slate-200 outline-none focus:border-cyan-600/50"
+                              className="flex-1 min-w-0 bg-slate-950 border border-slate-700 rounded px-1 py-0.5 text-[12px] font-mono text-slate-200 outline-none accent-focus"
                             />
                             {o && (
                               <button

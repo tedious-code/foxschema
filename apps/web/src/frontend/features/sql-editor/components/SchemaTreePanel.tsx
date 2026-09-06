@@ -232,7 +232,7 @@ export const SchemaTreePanel: React.FC = () => {
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Search objects, columns, indexes..."
-            className="w-full text-sm pl-8 pr-3 py-1.5 bg-slate-900 border border-slate-800 rounded-md focus:outline-none focus:border-cyan-500 text-slate-200"
+            className="w-full text-sm pl-8 pr-3 py-1.5 bg-slate-900 border border-slate-800 rounded-md focus:outline-none accent-focus text-slate-200"
           />
         </div>
       </div>

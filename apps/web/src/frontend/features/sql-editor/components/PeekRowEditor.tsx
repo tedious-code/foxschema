@@ -149,7 +149,7 @@ export const PeekRowEditor: React.FC<Props> = ({
                   className={`mt-0.5 w-full rounded-md border bg-slate-950 px-2.5 py-1.5 text-[13px] font-mono text-slate-100 outline-none disabled:opacity-50 disabled:text-slate-500 disabled:cursor-not-allowed ${
                     showError
                       ? 'border-rose-500/70 focus:border-rose-400'
-                      : 'border-slate-700 focus:border-amber-500'
+                      : 'border-slate-700 accent-focus'
                   }`}
                 />
                 {showError && (

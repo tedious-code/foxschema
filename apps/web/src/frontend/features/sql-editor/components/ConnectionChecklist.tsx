@@ -123,7 +123,7 @@ export const ConnectionChecklist: React.FC = () => {
                 value={pendingValue}
                 onChange={(e) => setPendingValue(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && confirmPending()}
-                className="bg-slate-950 border border-slate-800 focus:border-cyan-500 rounded-md px-3 py-2 text-xs outline-none"
+                className="bg-slate-950 border border-slate-800 accent-focus rounded-md px-3 py-2 text-xs outline-none"
                 placeholder="••••••••"
               />
               <div className="flex justify-end gap-2">

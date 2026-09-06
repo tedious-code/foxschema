@@ -263,7 +263,7 @@ export const DatabaseAccessModal: React.FC<Props> = ({
                 setPasswordDraft('');
                 setError(null);
               }}
-              className="bg-slate-950 border border-slate-700 rounded-md px-2.5 py-1.5 text-sm text-slate-100 outline-none focus:border-amber-500"
+              className="bg-slate-950 border border-slate-700 rounded-md px-2.5 py-1.5 text-sm text-slate-100 outline-none accent-focus"
             >
               <option value="">— Select credential —</option>
               {connections.map((c) => (
@@ -287,7 +287,7 @@ export const DatabaseAccessModal: React.FC<Props> = ({
                   value={passwordDraft}
                   onChange={(e) => setPasswordDraft(e.target.value)}
                   placeholder="••••••••"
-                  className="bg-slate-950 border border-slate-700 rounded-md px-2.5 py-1.5 text-sm text-slate-100 outline-none focus:border-amber-500 font-mono w-36"
+                  className="bg-slate-950 border border-slate-700 rounded-md px-2.5 py-1.5 text-sm text-slate-100 outline-none accent-focus font-mono w-36"
                 />
                 <button
                   type="button"
@@ -319,7 +319,7 @@ export const DatabaseAccessModal: React.FC<Props> = ({
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             placeholder="Filter users or groups"
-            className="bg-slate-950 border border-slate-700 rounded-md px-2.5 py-1.5 text-sm text-slate-100 outline-none focus:border-amber-500 min-w-[10rem]"
+            className="bg-slate-950 border border-slate-700 rounded-md px-2.5 py-1.5 text-sm text-slate-100 outline-none accent-focus min-w-[10rem]"
           />
         </div>
         {support && !support.query && (

@@ -61,7 +61,7 @@ export function HistoryCompareBar(): React.ReactElement {
             disabled={databases.length === 0}
             onChange={(e) => setDatabaseId(e.target.value || null)}
             title="History database"
-            className="min-w-0 flex-1 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-cyan-500 truncate disabled:opacity-50"
+            className="min-w-0 flex-1 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none accent-focus truncate disabled:opacity-50"
           >
             {databases.length === 0 && <option value="">No captures yet</option>}
             {databases.map((d) => (
@@ -76,7 +76,7 @@ export function HistoryCompareBar(): React.ReactElement {
             disabled={newestFirst.length === 0}
             onChange={(e) => setOriginalVersionId(e.target.value || null)}
             title="Baseline version (like Compare's Original Server)"
-            className="min-w-0 w-44 max-w-full text-xs bg-slate-900 border border-cyan-500/30 rounded px-2 py-1 text-cyan-100 focus:outline-none focus:border-cyan-500 truncate disabled:opacity-50"
+            className="min-w-0 w-44 max-w-full text-xs bg-slate-900 border border-cyan-500/30 rounded px-2 py-1 text-cyan-100 focus:outline-none accent-focus truncate disabled:opacity-50"
           >
             {newestFirst.length === 0 && <option value="">No versions</option>}
             {newestFirst.map((v) => (
@@ -193,7 +193,7 @@ export function HistoryCompareBar(): React.ReactElement {
             value={captureConnectionId}
             onChange={(e) => setCaptureConnectionId(e.target.value)}
             title="Live credential to snapshot into this history"
-            className="min-w-0 flex-1 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-cyan-500 truncate"
+            className="min-w-0 flex-1 text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none accent-focus truncate"
           >
             <option value="">Credential…</option>
             {connections.map((c) => (

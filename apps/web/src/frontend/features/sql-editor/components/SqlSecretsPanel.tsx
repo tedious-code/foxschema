@@ -269,7 +269,7 @@ export const SqlSecretsPanel = forwardRef<SqlSecretsPanelHandle>(function SqlSec
             placeholder="variable name (e.g. apiToken)"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-[12px] text-slate-100 outline-none focus:border-cyan-600/50"
+            className="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-[12px] text-slate-100 outline-none accent-focus"
           />
 
           {mode === 'manual' ? (
@@ -279,7 +279,7 @@ export const SqlSecretsPanel = forwardRef<SqlSecretsPanelHandle>(function SqlSec
               placeholder="secret value (won’t be shown again)"
               value={localValue}
               onChange={(e) => setLocalValue(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-[12px] font-mono text-slate-100 outline-none focus:border-cyan-600/50"
+              className="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-[12px] font-mono text-slate-100 outline-none accent-focus"
             />
           ) : (
             <>

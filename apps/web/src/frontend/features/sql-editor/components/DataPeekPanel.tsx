@@ -164,7 +164,7 @@ const PeekFilterBar: React.FC<{
             onChange={(e) => setWhere(e.target.value)}
             onKeyDown={onKeyDown}
             onBlur={() => apply()}
-            className="w-full min-w-0 rounded border border-slate-700 bg-slate-950 px-1.5 py-1.5 pr-7 text-sm font-mono font-semibold text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-cyan-600"
+            className="w-full min-w-0 rounded border border-slate-700 bg-slate-950 px-1.5 py-1.5 pr-7 text-sm font-mono font-semibold text-slate-100 placeholder:text-slate-600 focus:outline-none accent-focus"
           />
           {where.trim() !== '' && (
             <button
@@ -205,7 +205,7 @@ const PeekFilterBar: React.FC<{
           onChange={(e) => setOrderBy(e.target.value)}
           onKeyDown={onKeyDown}
           onBlur={() => apply()}
-          className="w-full min-w-0 rounded border border-slate-700 bg-slate-950 px-1.5 py-1.5 text-sm font-mono font-semibold text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-cyan-600"
+          className="w-full min-w-0 rounded border border-slate-700 bg-slate-950 px-1.5 py-1.5 text-sm font-mono font-semibold text-slate-100 placeholder:text-slate-600 focus:outline-none accent-focus"
         />
       </label>
       <label className="flex items-center gap-1 shrink-0">
@@ -222,7 +222,7 @@ const PeekFilterBar: React.FC<{
           onChange={(e) => setLimit(e.target.value)}
           onKeyDown={onKeyDown}
           onBlur={() => apply()}
-          className="w-16 rounded border border-slate-700 bg-slate-950 px-1.5 py-1.5 text-sm font-mono font-bold text-slate-100 focus:outline-none focus:border-cyan-600"
+          className="w-16 rounded border border-slate-700 bg-slate-950 px-1.5 py-1.5 text-sm font-mono font-bold text-slate-100 focus:outline-none accent-focus"
         />
       </label>
       <button

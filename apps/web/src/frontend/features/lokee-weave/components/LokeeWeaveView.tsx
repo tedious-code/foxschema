@@ -436,7 +436,7 @@ export function LokeeWeaveView({
               data-testid="lokee-empty-credential"
               value={captureConnectionId}
               onChange={(e) => setCaptureConnectionId(e.target.value)}
-              className="min-w-[200px] rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-slate-200 focus:border-cyan-500 focus:outline-none"
+              className="min-w-[200px] rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-slate-200 accent-focus focus:outline-none"
             >
               <option value="">Choose a database…</option>
               {connections.map((c) => (

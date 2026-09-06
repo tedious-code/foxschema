@@ -1948,7 +1948,7 @@ export const DataGrid: React.FC<{
                 if (e.key === 'Escape') setSavePrompt(null);
               }}
               placeholder="variable_name"
-              className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100 outline-none focus:border-cyan-600/50 mb-2"
+              className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100 outline-none accent-focus mb-2"
             />
             {saveError && (
               <p className="text-[10px] text-rose-400 mb-2" role="alert">

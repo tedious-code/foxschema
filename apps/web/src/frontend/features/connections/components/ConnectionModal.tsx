@@ -303,7 +303,7 @@ export const ConnectionModal: React.FC<Props> = ({
     }
   };
 
-  const inputCls = 'mt-1 w-full bg-slate-950 border border-slate-850 focus:border-cyan-500 text-sm text-slate-200 rounded px-3 py-2 outline-none font-mono';
+  const inputCls = 'mt-1 w-full bg-slate-950 border border-slate-850 accent-focus text-sm text-slate-200 rounded px-3 py-2 outline-none font-mono';
   const labelCls = 'text-[10px] uppercase font-bold text-slate-400 tracking-wider';
   const loginMethod = resolveAuthMethod(selDialect, form.authMethod);
   const authChoices = authMethodsForDialect(selDialect);

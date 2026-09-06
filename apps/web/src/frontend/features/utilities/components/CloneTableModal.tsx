@@ -386,7 +386,7 @@ export const CloneTableModal: React.FC<Props> = ({
                   onChange={setTableName}
                   options={tableOptions}
                   placeholder={tables.length ? 'Select or type a table…' : 'Load tables first'}
-                  className="w-full rounded-lg border border-slate-700 bg-slate-950/70 px-2.5 py-1.5 text-[13px] font-mono text-slate-100 outline-none focus:border-amber-400/60 placeholder:text-slate-500"
+                  className="w-full rounded-lg border border-slate-700 bg-slate-950/70 px-2.5 py-1.5 text-[13px] font-mono text-slate-100 outline-none accent-focus placeholder:text-slate-500"
                 />
               </div>
             </label>

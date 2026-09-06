@@ -28,7 +28,7 @@ export const autocompleteThemes = {
   /** Access Assistant, connections, admin panels. */
   slate: {
     input:
-      'w-full rounded-md border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-[12px] font-mono text-slate-100 outline-none focus:border-sky-500 disabled:opacity-50 placeholder:text-slate-500',
+      'w-full rounded-md border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-[12px] font-mono text-slate-100 outline-none accent-focus disabled:opacity-50 placeholder:text-slate-500',
     list: 'absolute z-50 left-0 right-0 mt-1 max-h-80 overflow-y-auto rounded-md border border-slate-500 bg-slate-900 shadow-2xl shadow-black/60 py-1',
     optionActive: 'bg-sky-500/25 text-sky-50',
     optionIdle: 'text-slate-200 hover:bg-slate-800',

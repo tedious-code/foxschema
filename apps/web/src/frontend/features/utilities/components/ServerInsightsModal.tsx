@@ -199,7 +199,7 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
               data-testid="server-insights-connection"
               value={connectionId}
               onChange={(e) => setConnectionId(e.target.value)}
-              className="bg-slate-950 border border-slate-700 rounded-md px-2.5 py-1.5 text-sm text-slate-100 outline-none focus:border-amber-500"
+              className="bg-slate-950 border border-slate-700 rounded-md px-2.5 py-1.5 text-sm text-slate-100 outline-none accent-focus"
             >
               {connections.length === 0 ? (
                 <option value="">No connections</option>
@@ -225,7 +225,7 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
                   value={passwordDraft}
                   onChange={(e) => setPasswordDraft(e.target.value)}
                   placeholder="••••••••"
-                  className="bg-slate-950 border border-slate-700 rounded-md px-2.5 py-1.5 text-sm text-slate-100 outline-none focus:border-amber-500 font-mono w-36"
+                  className="bg-slate-950 border border-slate-700 rounded-md px-2.5 py-1.5 text-sm text-slate-100 outline-none accent-focus font-mono w-36"
                 />
                 <button
                   type="button"

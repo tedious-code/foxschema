@@ -266,7 +266,7 @@ export const SqlSchemaExplorer = forwardRef<SqlSchemaExplorerHandle>(function Sq
             <select
               value={explorerId}
               onChange={(e) => selectExplorerId(e.target.value)}
-              className="flex-1 min-w-0 bg-slate-950/80 border border-slate-700 rounded-md px-2 py-1 text-[12px] font-semibold text-slate-200 outline-none focus:border-cyan-600"
+              className="flex-1 min-w-0 bg-slate-950/80 border border-slate-700 rounded-md px-2 py-1 text-[12px] font-semibold text-slate-200 outline-none accent-focus"
               aria-label="Schema connection"
               data-testid="sql-schema-connection"
               title="Schema for this connection — stays in sync with Destination servers"
