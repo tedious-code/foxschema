@@ -200,9 +200,23 @@ export function normalizeObjectSizeRows(rows: Record<string, unknown>[]): Object
       totalBytes: num(pick(row, 'total_bytes', 'totalBytes', 'size')),
       dataBytes: num(pick(row, 'data_bytes', 'dataBytes')),
       indexBytes: num(pick(row, 'index_bytes', 'indexBytes')),
-      rowCount: num(pick(row, 'row_count', 'rowCount', 'rows', 'card')),
+      rowCount: rowCountOrUnknown(pick(row, 'row_count', 'rowCount', 'rows', 'card')),
     };
   });
+}
+
+/**
+ * A row count the engine could not supply, normalised to null.
+ *
+ * Postgres reports `pg_class.reltuples` as **-1** for a relation that has never
+ * been ANALYZEd — a sentinel, not a count — so a freshly created table used to
+ * render as "-1 rows" in the schema explorer and Index Management. No engine
+ * has a meaningful negative cardinality, so any negative reads as unknown, and
+ * unknown is what `formatRowCount` already prints as an em dash.
+ */
+function rowCountOrUnknown(v: unknown): number | null {
+  const n = num(v);
+  return n == null || n < 0 ? null : n;
 }
 
 export function formatBytes(bytes: number | null | undefined): string {

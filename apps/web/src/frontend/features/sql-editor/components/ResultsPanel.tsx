@@ -1316,6 +1316,12 @@ const SideBySideStatementSection: React.FC<{
     if (!maximized) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        // Yield to Data Peek, which now stacks above this overlay and is
+        // opened from inside it by clicking a foreign-key cell. Both listen on
+        // window, so without this one Escape closes the peek the reader just
+        // opened *and* the results behind it. Mirrors how the peek itself
+        // yields to its own row editor and write confirm.
+        if (useSqlEditorStore.getState().dataPeek) return;
         e.preventDefault();
         setMaximized(false);
       }
@@ -1720,6 +1726,12 @@ const CredentialResultsSection: React.FC<{
     if (!maximized) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        // Yield to Data Peek, which now stacks above this overlay and is
+        // opened from inside it by clicking a foreign-key cell. Both listen on
+        // window, so without this one Escape closes the peek the reader just
+        // opened *and* the results behind it. Mirrors how the peek itself
+        // yields to its own row editor and write confirm.
+        if (useSqlEditorStore.getState().dataPeek) return;
         e.preventDefault();
         setMaximized(false);
       }

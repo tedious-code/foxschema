@@ -309,7 +309,13 @@ export const SqlSidebarSection: React.FC<{
       onDragOver={onDragOver}
       onDrop={onDrop}
     >
-      <div className="flex items-center gap-1 px-2 py-2.5 shrink-0 bg-slate-950">
+      {/*
+       * Same rule as the object rows in SqlSchemaExplorer: the title says which
+       * section this is, so it is not the thing that yields. Left as the only
+       * flexible item beside a `shrink-0` action, SCHEMA rendered as "S.." at
+       * the 200px minimum sidebar width. The action wraps below instead.
+       */}
+      <div className="flex flex-wrap items-center gap-1 px-2 py-2.5 shrink-0 bg-slate-950">
         {draggable && (
           <div
             draggable
@@ -328,7 +334,7 @@ export const SqlSidebarSection: React.FC<{
           data-testid={`sql-sidebar-toggle-${id}`}
           aria-expanded={open}
           onClick={onToggle}
-          className="flex-1 flex items-center gap-2 min-w-0 text-left text-[13px] font-bold uppercase tracking-wide text-slate-300 hover:text-slate-100 transition pl-0.5"
+          className="flex-1 flex items-center gap-2 min-w-[7rem] text-left text-[13px] font-bold uppercase tracking-wide text-slate-300 hover:text-slate-100 transition pl-0.5"
         >
           {open ? (
             <ChevronDown className="w-4 h-4 shrink-0 text-sky-500" strokeWidth={SQL_ICON_STROKE} />
