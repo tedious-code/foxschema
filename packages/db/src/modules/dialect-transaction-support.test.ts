@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   dialectSupportsTransactionalDdlRollback,
+  ROLLBACK_SUPPORT_TABLE,
   dialectSupportsTransactionalRollback,
 } from './dialect-transaction-support.js';
 
@@ -73,5 +74,33 @@ describe('dialectSupportsTransactionalDdlRollback', () => {
     expect(dialectSupportsTransactionalDdlRollback('sqlite')).toBe(true);
     expect(dialectSupportsTransactionalDdlRollback('sqlserver')).toBe(true);
     expect(dialectSupportsTransactionalDdlRollback('db2')).toBe(true);
+  });
+});
+
+describe('the table itself', () => {
+  it('never claims DDL rollback where DML rollback is impossible', () => {
+    // An adapter whose rollback does nothing cannot undo DDL either. The old
+    // shape enforced this with a guard inside the DDL function; the table has
+    // one row per dialect instead, so the invariant is checked here rather
+    // than re-derived on every call.
+    const impossible = Object.entries(ROLLBACK_SUPPORT_TABLE)
+      .filter(([, s]) => s.ddl && !s.dml)
+      .map(([dialect]) => dialect);
+    expect(impossible, 'a no-op rollback cannot undo DDL').toEqual([]);
+  });
+
+  it('lists only engines that lose something — the default is both', () => {
+    // A row saying { dml: true, ddl: true } is the default written out, and a
+    // reader scanning for "which engines are special" would have to check it
+    // to find out it is not.
+    const redundant = Object.entries(ROLLBACK_SUPPORT_TABLE)
+      .filter(([, s]) => s.dml && s.ddl)
+      .map(([dialect]) => dialect);
+    expect(redundant, 'this row is the default; remove it').toEqual([]);
+  });
+
+  it('answers both questions for an engine it has never heard of', () => {
+    expect(dialectSupportsTransactionalRollback('some-new-engine')).toBe(true);
+    expect(dialectSupportsTransactionalDdlRollback('some-new-engine')).toBe(true);
   });
 });
