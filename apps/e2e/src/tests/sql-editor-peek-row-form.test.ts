@@ -7,7 +7,11 @@
  * form checks values against.
  *
  * Requires the web app + API (`npm run dev`) and E2E_POSTGRES_SOURCE_* config.
- * Skips when Postgres is not configured so CI without it stays green.
+ * Skips when Postgres is not *reachable* so CI without it stays green — config
+ * alone is not enough, because `apps/e2e/.env` names every dialect whether or
+ * not its container happens to be up. Engines are routinely stopped one at a
+ * time to free memory for the one under test, and a suite that fails instead
+ * of skipping then reports a stopped container as a product defect.
  */
 import { describe, it, beforeAll, afterAll, expect } from 'vitest';
 import { execFileSync } from 'node:child_process';
@@ -23,7 +27,7 @@ const NAME = `E2E Peek Form ${RUN}`;
 const TABLE = `e2e_peek_form_${RUN}`;
 const SCHEMA = cfg?.schema ?? 'public';
 
-function psql(sql: string): string {
+function psql(sql: string, stderr: 'inherit' | 'pipe' = 'inherit'): string {
   if (!cfg) throw new Error('postgres not configured');
   return execFileSync(
     'docker',
@@ -43,11 +47,28 @@ function psql(sql: string): string {
       '-c',
       sql,
     ],
-    { encoding: 'utf8' }
+    { encoding: 'utf8', stdio: ['pipe', 'pipe', stderr] }
   );
 }
 
-describe.skipIf(!cfg)('SQL Editor · Data Peek row form', () => {
+/**
+ * Ask the container itself, the way the SQLite suites ask `which sqlite3`.
+ * One round trip, and it covers both a stopped container and a Postgres that
+ * is up but still recovering.
+ */
+function postgresReachable(): boolean {
+  if (!cfg) return false;
+  try {
+    // stderr captured, not forwarded: a stopped container is the expected
+    // answer here, and printing docker's complaint makes a skip read as a bug.
+    psql('SELECT 1', 'pipe');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+describe.skipIf(!postgresReachable())('SQL Editor · Data Peek row form', () => {
   let driver: Page;
   let app: AppPage;
   let sql: SqlEditorPage;

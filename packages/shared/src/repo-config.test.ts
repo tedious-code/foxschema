@@ -115,3 +115,71 @@ describe('the package manager is pinned', () => {
     expect(locks).toEqual(['package-lock.json']);
   });
 });
+
+describe('the e2e runner runs every e2e suite', () => {
+  /**
+   * Same failure as the lint gate above, one directory over.
+   *
+   * `node scripts/run-all.mjs` is the documented "run everything" for
+   * apps/e2e, and it ran 24 of 37 suites. The twelve it skipped were not
+   * marked skipped anywhere — they were simply absent from a hand-maintained
+   * list, so they had never run and nobody could tell. Among them was the
+   * entire Database Access dialect matrix, and `sql-editor-peek-row-form`,
+   * which had rotted to the point of failing outright.
+   *
+   * The runner is read as text rather than imported: it launches every browser
+   * test on import.
+   */
+  const e2e = path.join(repoRoot, 'apps', 'e2e');
+  const runner = fs.readFileSync(path.join(e2e, 'scripts', 'run-all.mjs'), 'utf8');
+
+  /** Every `*.test.ts` under apps/e2e/src/tests, as a repo-style path. */
+  function everySuite(): string[] {
+    const root = path.join(e2e, 'src', 'tests');
+    const walk = (dir: string): string[] =>
+      fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) return walk(full);
+        return entry.name.endsWith('.test.ts')
+          ? [path.relative(path.join(e2e), full).split(path.sep).join('/')]
+          : [];
+      });
+    return walk(root).sort();
+  }
+
+  it('finds the suites at all', () => {
+    // A walker that matched nothing would make the assertion below vacuous.
+    expect(everySuite().length).toBeGreaterThan(20);
+  });
+
+  it('either runs each suite or says why it does not', () => {
+    const unreached = everySuite().filter((suite) => !runner.includes(suite));
+    expect(unreached).toEqual([]);
+  });
+
+  it('names no suite that does not exist', () => {
+    // The other direction, and the one the walk above cannot see: it enumerates
+    // files on disk, so a runner entry pointing at nothing is invisible to it.
+    // That is not hypothetical — this PR listed sql-editor-peek-stacking.test.ts
+    // while the file itself was on another branch. Vitest exits non-zero on a
+    // filter that matches no file, so a phantom entry fails the whole suite.
+    const named = [...runner.matchAll(/src\/tests\/[A-Za-z0-9\-/.]+\.test\.ts/g)].map((m) => m[0]);
+    expect(named.length).toBeGreaterThan(20);
+    const missing = [...new Set(named)]
+      .filter((rel) => !fs.existsSync(path.join(e2e, rel)))
+      .sort();
+    expect(missing, 'run-all names a suite that is not in the repo').toEqual([]);
+  });
+
+  it('gives a reason for each suite it deliberately skips', () => {
+    // The skip list is what makes the check above honest: without a reason
+    // attached, "listed in the file" and "actually run" drift apart again.
+    const block = /const DELIBERATELY_SKIPPED = \{([\s\S]*?)\n\};/.exec(runner)?.[1] ?? '';
+    const entries = [...block.matchAll(/'([^']+\.test\.ts)':\s*\n?\s*'([^']*)'/g)];
+    expect(entries.length).toBeGreaterThan(0);
+    for (const [, file, reason] of entries) {
+      expect(fs.existsSync(path.join(e2e, file!)), `${file} does not exist`).toBe(true);
+      expect(reason!.length, `${file} has no reason`).toBeGreaterThan(20);
+    }
+  });
+});

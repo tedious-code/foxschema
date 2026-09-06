@@ -17,6 +17,18 @@ GRANT ALL PRIVILEGES ON demo_b.* TO 'foxuser'@'%';
 -- the probe fails with "SELECT command denied to user ... for table
 -- 'global_status'".
 GRANT PROCESS ON *.* TO 'foxuser'@'%';
+-- Database Access lists the accounts the server actually has, by reading
+-- mysql.user and mysql.role_edges. TiDB denies both to a plain app user
+-- ("SELECT command denied to user 'foxuser'@'%' for table 'user'"), and the
+-- denial is silent in the UI: the list simply never shows an account that was
+-- just created, so the e2e waits out its full 60s row timeout on every role
+-- test. CREATE USER is the matching write privilege — without it the create and
+-- drop paths are skipped as permission failures and never exercise their SQL.
+--
+-- Granting these to foxuser rather than connecting as root is deliberate: root
+-- here has an empty password, and the note above records what that costs.
+GRANT SELECT ON mysql.* TO 'foxuser'@'%';
+GRANT CREATE USER ON *.* TO 'foxuser'@'%';
 
 
 USE demo_a;
