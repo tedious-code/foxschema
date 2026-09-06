@@ -235,6 +235,8 @@ describe.skipIf(configured.length === 0)('Access Assistant (all configured diale
         await driver.locator('[data-testid="access-principal-name"]').fill('report_user');
         await fillScope(dialect);
 
+        // The SQL lives in a dialog now, so the grid can have the screen width.
+        await driver.locator('[data-testid="access-preview-sql"]').click();
         await driver.waitForFunction(
           () => {
             const pre = document.querySelector('[data-testid="access-sql"]');
@@ -348,6 +350,7 @@ describe.skipIf(configured.length === 0)('Access Assistant (all configured diale
           await driver.locator('[data-testid="access-action"]').getByText('Deny').click();
           await driver.locator('[data-testid="access-principal-name"]').fill('report_user');
           await driver.locator('[data-testid="access-schema"]').fill('dbo');
+          await driver.locator('[data-testid="access-preview-sql"]').click();
           await driver.waitForFunction(
             () =>
               (document.querySelector('[data-testid="access-sql"]')?.textContent ?? '').includes(

@@ -250,3 +250,141 @@ describe('it does not spin when the caller passes a fresh principal each render'
     expect(screen.getByTestId('count').textContent).toBe('1');
   });
 });
+
+describe('opening on the database catalog', () => {
+  const catalog = [
+    { schema: 'demo_a', name: 'orders', kind: 'table' as const },
+    { schema: 'demo_b', name: 'orders', kind: 'table' as const },
+    { schema: 'demo_a', name: 'v_sales', kind: 'view' as const },
+  ];
+
+  function withCatalog(objects: typeof catalog) {
+    const onChange = vi.fn<(r: PermissionRequest[]) => void>();
+    const view = render(
+      <PermissionMatrix
+        dialect="postgres"
+        principal={principal}
+        action="grant"
+        schema="app"
+        catalog={objects}
+        onChange={onChange}
+      />
+    );
+    return { onChange, view };
+  }
+
+  it('draws a row per catalog object instead of one blank row', () => {
+    withCatalog(catalog);
+    expect(screen.getAllByTestId(/^matrix-name-cat-/)).toHaveLength(3);
+  });
+
+  it('grants each row in the schema it came from', () => {
+    // The grid used to overwrite every row's schema with the single `schema`
+    // prop, so a catalog spanning the database compiled to grants naming
+    // objects in whichever schema the form happened to show — demo_a.orders
+    // and demo_b.orders are different tables.
+    const { onChange } = withCatalog(catalog);
+    const ids = screen
+      .getAllByTestId(/^matrix-name-cat-/)
+      .map((el) => el.getAttribute('data-testid')!.replace('matrix-name-', ''));
+    for (const id of ids) {
+      fireEvent.click(screen.getByTestId(`matrix-cell-${id}-read`));
+    }
+    const schemas = latest(onChange)
+      .map((r) => (r.scope as { schema?: string }).schema)
+      .sort();
+    expect(schemas).toEqual(['demo_a', 'demo_a', 'demo_b']);
+  });
+
+  it('names the schema on each row while the grid spans more than one', () => {
+    withCatalog(catalog);
+    const badges = screen.getAllByTestId(/^matrix-schema-/).map((el) => el.textContent);
+    expect(badges.sort()).toEqual(['demo_a', 'demo_a', 'demo_b']);
+  });
+
+  it('says nothing about schema when every row shares one', () => {
+    // On MySQL and Oracle there is no schema level at all; a badge repeating
+    // the same word on every row is noise.
+    withCatalog([{ schema: 'demo_a', name: 'orders', kind: 'table' as const }]);
+    expect(screen.queryAllByTestId(/^matrix-schema-/)).toHaveLength(0);
+  });
+
+  it('applies a preset to every row, in the form each kind can express', () => {
+    // The point of the grid is a whole database at once, and nobody ticks
+    // "read only" across four hundred objects by hand. Each row takes only the
+    // subset its own kind supports — "read and write" on a procedure means
+    // EXECUTE, not four checkboxes the compiler would discard.
+    const onChange = vi.fn<(r: PermissionRequest[]) => void>();
+    const view = render(
+      <PermissionMatrix
+        dialect="postgres"
+        principal={principal}
+        action="grant"
+        schema="app"
+        catalog={[
+          { schema: 'demo_a', name: 'orders', kind: 'table' as const },
+          { schema: 'demo_a', name: 'sp_ship', kind: 'procedure' as const },
+        ]}
+        applyPreset={null}
+        onChange={onChange}
+      />
+    );
+    expect(latest(onChange)).toHaveLength(0);
+
+    view.rerender(
+      <PermissionMatrix
+        dialect="postgres"
+        principal={principal}
+        action="grant"
+        schema="app"
+        catalog={[
+          { schema: 'demo_a', name: 'orders', kind: 'table' as const },
+          { schema: 'demo_a', name: 'sp_ship', kind: 'procedure' as const },
+        ]}
+        applyPreset={{ permissions: ['read', 'insert', 'execute-procedure'], nonce: 1 }}
+        onChange={onChange}
+      />
+    );
+
+    const granted = latest(onChange);
+    expect(granted.length).toBeGreaterThan(0);
+    const permissions = new Set(granted.flatMap((r) => r.permissions));
+    expect(permissions.has('read')).toBe(true);
+    expect(permissions.has('execute-procedure')).toBe(true);
+  });
+
+  it('keeps ticks made while the rest of the database was still loading', () => {
+    // The loader commits one schema at a time, so the catalog grows under the
+    // reader: they can tick demo_a's tables before demo_b has arrived. Each
+    // commit reseeds the rows, and a reseed that rebuilt them empty would take
+    // that work away seconds after they did it.
+    const { onChange, view } = withCatalog([
+      { schema: 'demo_a', name: 'orders', kind: 'table' as const },
+    ]);
+    const first = screen
+      .getAllByTestId(/^matrix-name-cat-/)[0]!
+      .getAttribute('data-testid')!
+      .replace('matrix-name-', '');
+    fireEvent.click(screen.getByTestId(`matrix-cell-${first}-read`));
+    expect(latest(onChange)).toHaveLength(1);
+
+    // demo_b lands: a different catalog, so the grid genuinely reseeds.
+    view.rerender(
+      <PermissionMatrix
+        dialect="postgres"
+        principal={principal}
+        action="grant"
+        schema="app"
+        catalog={[
+          { schema: 'demo_a', name: 'orders', kind: 'table' as const },
+          { schema: 'demo_b', name: 'orders', kind: 'table' as const },
+        ]}
+        onChange={onChange}
+      />
+    );
+    expect(screen.getAllByTestId(/^matrix-name-cat-/)).toHaveLength(2);
+    const stillGranted = latest(onChange);
+    expect(stillGranted, 'the tick was lost when the next schema arrived').toHaveLength(1);
+    expect((stillGranted[0]!.scope as { schema?: string }).schema).toBe('demo_a');
+  });
+});

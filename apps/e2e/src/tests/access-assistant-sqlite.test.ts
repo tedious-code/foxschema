@@ -108,7 +108,12 @@ describe.skipIf(!ready)('Access Assistant · SQLite (cloud)', () => {
     expect(await driver.locator('[data-testid="access-unsupported"]').innerText()).toMatch(
       /no grants/i
     );
-    expect(await driver.locator('[data-testid="access-sql"]').count()).toBe(0);
+    // Assert on the control that offers to build SQL, not on the SQL panel.
+    // The panel now lives in a dialog that is closed until asked for, so it is
+    // absent on every engine — this assertion would pass even if SQLite were
+    // wrongly treated as supported. The Preview SQL button is what the builder
+    // only renders when the engine can express grants at all.
+    expect(await driver.locator('[data-testid="access-preview-sql"]').count()).toBe(0);
     await saveScreenshot(driver, 'access-sqlite-builder');
   });
 
@@ -124,14 +129,17 @@ describe.skipIf(!ready)('Access Assistant · SQLite (cloud)', () => {
     await saveScreenshot(driver, 'access-sqlite-diff');
   });
 
-  it('Permission Inspector load fails closed on SQLite (no catalog)', async () => {
-    await access.openTab('inspector');
-    await access.selectConnection('inspector-connection', NAME);
-    await driver.locator('[data-testid="inspector-load"]').click();
-    await driver.waitForSelector('[data-testid="inspector-error"]', { timeout: 20_000 });
-    expect(await driver.locator('[data-testid="inspector-error"]').innerText()).toMatch(
-      /GRANT\/REVOKE catalog|file- or engine-level|does not support/i
-    );
+  it('offers no permission reader on SQLite at all', async () => {
+    // The inspector used to be its own tab, and this asserted it failed closed
+    // on an engine with no GRANT catalog. It now lives inside the permissions
+    // screen, driven by that screen's connection — and SQLite never gets that
+    // far, because the builder refuses the engine first. The guarantee is
+    // stronger than it was: rather than a reader that fails when used, there
+    // is no reader to use.
+    await access.openTab('builder');
+    await access.selectConnection('access-connection', NAME);
+    await driver.waitForSelector('[data-testid="access-unsupported"]', { timeout: 10_000 });
+    expect(await driver.locator('[data-testid="access-effective"]').count()).toBe(0);
     expect(await driver.locator('[data-testid="inspector-table"]').count()).toBe(0);
     await saveScreenshot(driver, 'access-sqlite-inspector');
   });

@@ -102,6 +102,23 @@ export const PermissionMatrix: React.FC<{
   withGrantOption?: boolean;
   /** Table names for the row autocomplete, already scoped to `schema`. */
   tableChoices?: readonly string[];
+  /**
+   * The database's grantable objects, to open the grid on.
+   *
+   * When present the grid starts as the catalog rather than one blank row, and
+   * rows carry the schema they came from. Rows stay editable either way — a
+   * reader can still rename one or add an object the catalog missed.
+   */
+  catalog?: readonly { schema: string; name: string; kind: GridObjectKind }[];
+  /**
+   * A group of privileges to tick across every row.
+   *
+   * Carries a nonce because the same preset applied twice is a real request —
+   * the reader may have edited rows in between and want them reset to it.
+   * Each row takes only the subset its own kind can express, so "Read and
+   * write" on a procedure row means EXECUTE rather than four dead ticks.
+   */
+  applyPreset?: { permissions: readonly AccessPermission[]; nonce: number } | null;
   /** Called whenever the ticks change, with the requests they compile to. */
   onChange?: (requests: PermissionRequest[]) => void;
 }> = ({
@@ -111,9 +128,48 @@ export const PermissionMatrix: React.FC<{
   schema,
   withGrantOption,
   tableChoices = [],
+  catalog,
+  applyPreset,
   onChange,
 }) => {
   const [rows, setRows] = useState<MatrixRow[]>(() => [newRow('table')]);
+
+  /**
+   * Open the grid on the catalog, and keep the reader's ticks across a reload.
+   *
+   * The loader commits one schema at a time, so the catalog grows under the
+   * reader and this reseeds on every commit. Ticks are carried across by
+   * schema+kind+name — a reseed builds new row ids for the same objects, so
+   * carrying them by id would drop work the reader did while the rest of the
+   * database was still arriving.
+   *
+   * Keyed on the catalog's *contents* rather than its array identity. That is
+   * an efficiency measure, not the thing protecting the ticks: without it a
+   * fresh array on every render reseeds needlessly, but the carry-over above
+   * would still preserve them.
+   */
+  const catalogKey = useMemo(
+    () => (catalog ?? []).map((o) => `${o.schema}.${o.kind}.${o.name}`).join('\u0000'),
+    [catalog]
+  );
+  React.useEffect(() => {
+    if (!catalogKey) return;
+    setRows((prev) => {
+      const ticked = new Map(
+        prev.map((r) => [`${r.schema ?? ''}.${r.kind}.${r.name}`, r.permissions])
+      );
+      return (catalog ?? []).map((o, i) => ({
+        id: `cat-${i}-${o.schema}.${o.kind}.${o.name}`,
+        kind: o.kind,
+        name: o.name,
+        schema: o.schema,
+        permissions: ticked.get(`${o.schema}.${o.kind}.${o.name}`) ?? [],
+      }));
+    });
+    // `catalog` is intentionally absent: `catalogKey` is its content digest,
+    // and depending on the array itself reseeds on every loader commit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catalogKey]);
 
   // Keyed on the principal's *fields*, never its object identity. The parent
   // builds `principal` as a literal in its JSX, so a fresh object arrives on
@@ -129,7 +185,11 @@ export const PermissionMatrix: React.FC<{
   const requests = useMemo(
     () =>
       compileObjectGrid(
-        rows.map((r) => ({ ...r, schema })),
+        // A row keeps the schema it was loaded from; `schema` is only the
+        // fallback for a row typed by hand. Overwriting it here forced every
+        // row to one schema, so a catalog spanning the database compiled to
+        // grants naming objects in the wrong one.
+        rows.map((r) => ({ ...r, schema: r.schema?.trim() || schema })),
         {
           dialect,
           principal: { type: principalType, name: principalName },
@@ -146,6 +206,24 @@ export const PermissionMatrix: React.FC<{
   React.useEffect(() => {
     onChange?.(requests);
   }, [requests, onChange]);
+
+  const presetNonce = applyPreset?.nonce;
+  const presetPermissions = applyPreset?.permissions;
+  React.useEffect(() => {
+    if (presetNonce === undefined || !presetPermissions) return;
+    setRows((prev) =>
+      prev.map((r) => {
+        const available = gridColumnsFor(dialect, r.kind)
+          .filter((c) => c.support.available)
+          .map((c) => c.permission);
+        return { ...r, permissions: available.filter((p) => presetPermissions.includes(p)) };
+      })
+    );
+    // Fires on the nonce alone: `presetPermissions` is a fresh array each
+    // render, and depending on it would re-apply the preset over every edit
+    // the reader made afterwards.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presetNonce]);
 
   const update = useCallback((id: string, patch: Partial<MatrixRow>) => {
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
@@ -204,6 +282,12 @@ export const PermissionMatrix: React.FC<{
       });
     },
     [dialect]
+  );
+
+  /** Whether the loaded rows span more than one schema. */
+  const multiSchema = useMemo(
+    () => new Set(rows.map((r) => r.schema ?? '')).size > 1,
+    [rows]
   );
 
   const kinds = useMemo(() => {
@@ -306,6 +390,23 @@ export const PermissionMatrix: React.FC<{
                   {kindRows.map((row) => (
                     <tr key={row.id} className="border-b border-slate-800/50 last:border-0">
                       <td className="px-3 py-1">
+                        {/*
+                          * With a whole database loaded, `orders` is ambiguous:
+                          * several schemas have one, and the row's schema is
+                          * what the GRANT will name. Shown only when the grid
+                          * actually spans more than one, so the single-schema
+                          * case (and every MySQL/Oracle connection, which has
+                          * no schema level at all) stays uncluttered.
+                          */}
+                        {multiSchema && (
+                          <span
+                            className="mr-1.5 rounded bg-slate-800 px-1 py-0.5 font-mono text-[10px] text-slate-400"
+                            data-testid={`matrix-schema-${row.id}`}
+                            title="Schema this object belongs to"
+                          >
+                            {row.schema || '—'}
+                          </span>
+                        )}
                         {kind === 'table' || kind === 'view' ? (
                           <Autocomplete
                             value={row.name}

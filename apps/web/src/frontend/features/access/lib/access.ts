@@ -41,6 +41,7 @@ export {
   type AccessPreset,
   type AccessPrincipal,
   type CellSupport,
+  type DbObjectType,
   type GridObjectKind,
   type GridRow,
   type AccessScope,

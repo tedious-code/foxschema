@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { Copy, Check, AlertTriangle, ShieldAlert, Info, RotateCcw, RefreshCw } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { AlertTriangle, Check, Copy, FileCode2, Info, RefreshCw, RotateCcw, ShieldAlert } from 'lucide-react';
 import {
   availablePermissions,
   accessCapabilities,
@@ -20,7 +21,9 @@ import { EmptyState, Field, RISK_STYLE, Segmented, inputCls } from './controls';
 import { Autocomplete } from '@/shared/components/Autocomplete';
 import { ObjectPicker } from './ObjectPicker';
 import { PermissionMatrix } from './PermissionMatrix';
+import { PermissionInspector } from './PermissionInspector';
 import { useAccessCatalog } from '../lib/useAccessCatalog';
+import { useAllSchemaObjects } from '../lib/useAllSchemaObjects';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { dialectFeatureReason } from '@/shared/lib/dialect-features';
 import type { AccessPrincipalDraft } from '../lib/access-draft';
@@ -68,6 +71,18 @@ export const PermissionBuilder: React.FC<{
   const [includeFuture, setIncludeFuture] = useState(false);
   const [withGrantOption, setWithGrantOption] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [sqlOpen, setSqlOpen] = useState(false);
+  // Escape closes, same as clicking the backdrop. Only 7 of the app's 26
+  // overlays did this; a dialog that traps the reader is worse than one more
+  // listener.
+  useEffect(() => {
+    if (!sqlOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSqlOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [sqlOpen]);
   const [showRevoke, setShowRevoke] = useState(false);
   // The grid answers a different question from the flat form — "what may this
   // principal do to each of these objects?" rather than "one permission set on
@@ -75,6 +90,12 @@ export const PermissionBuilder: React.FC<{
   // sitting alongside them and competing for the same preview.
   const [builderMode, setBuilderMode] = useState<'scope' | 'grid'>('scope');
   const [gridRequests, setGridRequests] = useState<PermissionRequest[]>([]);
+  // A preset applied to the grid. The nonce makes re-applying the same one a
+  // real request: the reader may have edited rows and want them reset to it.
+  const [gridPreset, setGridPreset] = useState<{
+    permissions: readonly AccessPermission[];
+    nonce: number;
+  } | null>(null);
   const [everyDatabase, setEveryDatabase] = useState(false);
   // A stable identity for the grid's principal. The grid no longer depends on
   // it, but handing a child a new object every render is a re-render it does
@@ -100,6 +121,10 @@ export const PermissionBuilder: React.FC<{
     }
   }, [caps, scopeType]);
   const catalog = useAccessCatalog(connectionId, conn);
+  // Every schema's objects, so the grid opens on the database rather than on a
+  // blank row. Only while the grid is showing — the flat form does not use it,
+  // and a catalog read costs a round trip per schema.
+  const objectCatalog = useAllSchemaObjects(connectionId, builderMode === 'grid');
   const principalOptions = useMemo(
     () =>
       catalog.principalOptions.filter((o) => {
@@ -280,7 +305,7 @@ export const PermissionBuilder: React.FC<{
   return (
     <div className="flex-1 flex min-h-0" data-testid="permission-builder">
       {/* ── Left: intent ─────────────────────────────────────────────── */}
-      <div className="w-[46%] min-w-[380px] overflow-y-auto border-r border-slate-800 p-5 flex flex-col gap-5">
+      <div className="flex-1 min-w-0 overflow-y-auto p-5 flex flex-col gap-5">
         <div>
           <h2 className="text-sm font-bold text-slate-100">Permission Builder</h2>
           <p className="text-[11px] text-slate-500 mt-0.5">
@@ -316,7 +341,22 @@ export const PermissionBuilder: React.FC<{
           </select>
         </Field>
 
-        {accessBlockedBy ? (
+        {/*
+          * Nothing below the picker means anything without a connection: the
+          * privileges an engine can express, the schemas, the objects and the
+          * SQL are all answers about one database. The form used to render
+          * enabled and empty, so a reader could tick their way through it and
+          * reach a preview that said only that no connection was chosen.
+          */}
+        {!connectionId ? (
+          <div
+            data-testid="access-needs-connection"
+            className="rounded-md border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-[11px] text-slate-400"
+          >
+            Choose a connection to begin. Which privileges exist, which schemas
+            there are, and what the SQL looks like all depend on the engine.
+          </div>
+        ) : accessBlockedBy ? (
           <div
             data-testid="access-unsupported"
             className="rounded-md border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-[11px] text-slate-400"
@@ -396,6 +436,83 @@ export const PermissionBuilder: React.FC<{
                   placeholder={conn?.schema || 'schema name'}
                   className={`${inputCls} font-mono mb-3`}
                 />
+                {/*
+                  * Say what the catalog is doing. A grid that is briefly empty
+                  * because forty schemas are still being read looks the same as
+                  * a database with nothing in it, and the reader cannot tell
+                  * which without being told.
+                  */}
+                {/*
+                  * The same presets the flat form offers, applied to every row
+                  * at once. With the whole database loaded, ticking "read
+                  * only" by hand across four hundred objects is not a thing a
+                  * reader will do — and the preset is the answer they already
+                  * have in mind.
+                  */}
+                <div className="mb-3 flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                    Apply to all
+                  </span>
+                  {(Object.keys(PRESET_LABEL) as AccessPreset[])
+                    .filter((p) => p !== 'custom')
+                    .map((p) => (
+                      <button
+                        key={p}
+                        type="button"
+                        data-testid={`access-grid-preset-${p}`}
+                        onClick={() =>
+                          setGridPreset((prev) => ({
+                            permissions: permissionsForPreset(p),
+                            nonce: (prev?.nonce ?? 0) + 1,
+                          }))
+                        }
+                        className="rounded-md border border-slate-700 px-2.5 py-1 text-[11px] font-semibold text-slate-400 transition hover:text-slate-200"
+                      >
+                        {PRESET_LABEL[p]}
+                      </button>
+                    ))}
+                  <button
+                    type="button"
+                    data-testid="access-grid-preset-clear"
+                    onClick={() =>
+                      setGridPreset((prev) => ({ permissions: [], nonce: (prev?.nonce ?? 0) + 1 }))
+                    }
+                    className="rounded-md border border-slate-700 px-2.5 py-1 text-[11px] font-semibold text-slate-500 transition hover:text-slate-300"
+                  >
+                    Clear
+                  </button>
+                </div>
+
+                {objectCatalog.loading && (
+                  <p
+                    className="mb-2 text-[11px] text-slate-500"
+                    data-testid="access-catalog-loading"
+                  >
+                    Reading every schema in this database…
+                  </p>
+                )}
+                {objectCatalog.error && (
+                  <p
+                    className="mb-2 text-[11px] text-rose-400"
+                    data-testid="access-catalog-error"
+                  >
+                    {objectCatalog.error}
+                  </p>
+                )}
+                {objectCatalog.groups.some((g) => g.status === 'error') && (
+                  <p
+                    className="mb-2 text-[11px] text-amber-300"
+                    data-testid="access-catalog-partial"
+                  >
+                    Could not read{' '}
+                    {objectCatalog.groups
+                      .filter((g) => g.status === 'error')
+                      .map((g) => g.schema || '(default)')
+                      .join(', ')}
+                    . Those objects are missing from the grid — usually a rights
+                    problem on the connecting account, not an empty schema.
+                  </p>
+                )}
                 <PermissionMatrix
                   dialect={dialect}
                   principal={gridPrincipal}
@@ -403,6 +520,8 @@ export const PermissionBuilder: React.FC<{
                   schema={schema || conn?.schema || ''}
                   withGrantOption={withGrantOption}
                   tableChoices={tableChoices}
+                  catalog={objectCatalog.objects}
+                  applyPreset={gridPreset}
                   onChange={setGridRequests}
                 />
               </Field>
@@ -621,10 +740,71 @@ export const PermissionBuilder: React.FC<{
             )}
           </>
         )}
+
+        {/*
+          * What the principal has now, in the same window as what is being
+          * granted. These were two tabs, which meant deciding what to grant
+          * without being able to see what was already there — and the second
+          * tab asked for the same connection and name again to answer it.
+          */}
+        {connectionId && !accessBlockedBy && principalName.trim() !== '' && (
+          <div
+            className="rounded-lg border border-slate-800"
+            data-testid="access-effective"
+          >
+            <div className="border-b border-slate-800 px-3 py-2">
+              <h3 className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                What {principalName} has now
+              </h3>
+            </div>
+            <PermissionInspector
+              embedded={{
+                connectionId,
+                principalName,
+                schema: schema || conn?.schema || '',
+              }}
+            />
+          </div>
+        )}
+
+        {connectionId && !accessBlockedBy && (
+          <button
+            type="button"
+            data-testid="access-preview-sql"
+            onClick={() => setSqlOpen(true)}
+            className="self-start inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-bold accent-grad on-accent-fg transition"
+          >
+            <FileCode2 className="h-3.5 w-3.5" />
+            Preview SQL
+            {generated && !('error' in generated) && (
+              <span className="ml-1 rounded bg-black/25 px-1.5 py-0.5 font-mono text-[10px]">
+                {generated.statements.length}
+              </span>
+            )}
+          </button>
+        )}
       </div>
 
-      {/* ── Right: SQL ───────────────────────────────────────────────── */}
-      <div className="flex-1 min-w-0 overflow-y-auto p-5 flex flex-col gap-4">
+      {/*
+        * The SQL is the answer, not the workspace. Kept beside the form it took
+        * a permanent half of the screen from the grid, which is the thing the
+        * reader is actually working in — and a grid of every object in the
+        * database needs the width. It opens on request instead.
+        */}
+      {sqlOpen &&
+        createPortal(
+          <div
+            className="modal-overlay"
+            data-testid="access-sql-modal"
+            onClick={() => setSqlOpen(false)}
+          >
+            <div
+              className="modal-panel flex max-h-[85vh] w-[min(92vw,900px)] flex-col overflow-y-auto rounded-xl border border-slate-700 bg-slate-900 p-5 shadow-2xl gap-4"
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Generated access SQL"
+            >
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-bold text-slate-100">SQL Preview</h2>
           {generated && !('error' in generated) && (
@@ -723,7 +903,10 @@ export const PermissionBuilder: React.FC<{
             </p>
           </>
         )}
-      </div>
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 };

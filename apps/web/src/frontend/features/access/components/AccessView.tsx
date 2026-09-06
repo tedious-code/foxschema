@@ -9,23 +9,22 @@
  * credentials, or apply access changes. The database stays the source of truth.
  */
 import React, { useState } from 'react';
-import { ShieldCheck, SearchCheck, FileBarChart, UserCog, GitCompare } from 'lucide-react';
+import { ShieldCheck, FileBarChart, UserCog, GitCompare } from 'lucide-react';
 import { PermissionBuilder } from './PermissionBuilder';
-import { PermissionInspector } from './PermissionInspector';
 import { PermissionDiff } from './PermissionDiff';
 import { AccessReport } from './AccessReport';
 import { UserManagement } from './UserManagement';
 import type { AccessPrincipalDraft } from '../lib/access-draft';
 
-export type AccessTab = 'users' | 'builder' | 'diff' | 'inspector' | 'report';
+export type AccessTab = 'users' | 'builder' | 'diff' | 'report';
 
-// Ordered the way the work runs: make an account, give it access, check what it
-// ended up with, then review everything.
+// Ordered the way the work runs: make an account, give it access, then review
+// everything. Granting and checking what a principal already has were two tabs
+// asking for the same connection and name; they are one screen now.
 const TABS: { id: AccessTab; label: string; icon: React.ElementType; ready: boolean }[] = [
   { id: 'users', label: 'User Management', icon: UserCog, ready: true },
-  { id: 'builder', label: 'Permission Builder', icon: ShieldCheck, ready: true },
+  { id: 'builder', label: 'Permissions', icon: ShieldCheck, ready: true },
   { id: 'diff', label: 'Permission Diff', icon: GitCompare, ready: true },
-  { id: 'inspector', label: 'Permission Inspector', icon: SearchCheck, ready: true },
   { id: 'report', label: 'Access Report', icon: FileBarChart, ready: true },
 ];
 
@@ -76,7 +75,6 @@ export const AccessView: React.FC = () => {
         />
       )}
       {tab === 'diff' && <PermissionDiff />}
-      {tab === 'inspector' && <PermissionInspector />}
       {tab === 'report' && <AccessReport />}
     </div>
   );

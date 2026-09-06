@@ -13,7 +13,7 @@ export class AccessPage {
     await waitFor(this.page, '[data-testid="access-view"]', 20_000);
   }
 
-  async openTab(tab: 'users' | 'builder' | 'diff' | 'inspector' | 'report'): Promise<void> {
+  async openTab(tab: 'users' | 'builder' | 'diff' | 'report'): Promise<void> {
     await clickWhen(this.page, `[data-testid="access-tab-${tab}"]`);
   }
 
