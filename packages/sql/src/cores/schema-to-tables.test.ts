@@ -66,10 +66,40 @@ describe('dbSchemaToTableSchemas foreign keys', () => {
       {
         name: 'fk_test2_test1',
         columns: ['test1_id2', 'test1_id1'],
+        referencedSchema: 'mcve',
         referencedTable: 'test1',
         referencedColumns: ['id2', 'id1'],
       },
     ]);
+  });
+
+  it('keeps a cross-schema parent schema on ForeignKeyInfo (FK drill needs it)', () => {
+    const child: DbTable = {
+      name: 'orders',
+      columns: {
+        product_id: { name: 'product_id', type: 'int', nullable: false },
+      },
+      primaryKey: [],
+      foreignKeys: [
+        {
+          name: 'fk_orders_products',
+          columns: ['product_id'],
+          referencedSchema: 'inventory',
+          referencedTable: 'products',
+          referencedColumns: ['id'],
+        },
+      ],
+      uniqueConstraints: [],
+      indexes: [],
+    };
+    const tables = dbSchemaToTableSchemas(emptySchema({ orders: child }));
+    expect(tables[0]?.foreignKeys[0]).toEqual({
+      name: 'fk_orders_products',
+      columns: ['product_id'],
+      referencedSchema: 'inventory',
+      referencedTable: 'products',
+      referencedColumns: ['id'],
+    });
   });
 
   it('falls back to parent PK when referencedColumns missing', () => {

@@ -176,9 +176,12 @@ export const ConnectionModal: React.FC<Props> = ({
       domain: resolveAuthMethod(d, prev.authMethod) === 'windows' ? prev.domain : '',
       // Redshift (and Azure SQL) expect TLS; keep the checkbox in sync with
       // connection-string sslmode=require so local stand-ins can opt out.
+      // Azure SQL also defaults TrustServerCertificate so a local SQL Server
+      // stand-in still connects (real Azure keeps Encrypt=True either way).
       ssl: {
         ...prev.ssl,
         enabled: d === 'redshift' || d === 'azuresql' ? true : !!prev.ssl?.enabled,
+        rejectUnauthorized: d === 'azuresql' ? false : prev.ssl?.rejectUnauthorized,
       },
     }));
   };

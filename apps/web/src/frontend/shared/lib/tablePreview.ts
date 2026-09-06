@@ -38,6 +38,19 @@ export function buildTablePreview(tableName: string, dialect: string): PreviewQu
 }
 
 /**
+ * Parent relation for an FK drill: prefer catalog schema so a cross-schema
+ * (or cross-database) FK does not resolve a bare name in the wrong place.
+ * Already-qualified `referencedTable` values are left alone.
+ */
+export function fkDrillTableName(fk: Pick<ForeignKeyInfo, 'referencedTable' | 'referencedSchema'>): string {
+  const table = (fk.referencedTable ?? '').trim();
+  if (!table) return '';
+  if (tableNameParts(table).length > 1) return table;
+  const schema = (fk.referencedSchema ?? '').trim();
+  return schema ? `${schema}.${table}` : table;
+}
+
+/**
  * `SELECT * FROM <parent> WHERE <refCol> = <value> …` for one FK.
  * Returns null when the FK has no usable parent columns (the catalog omitted
  * them and no parent PK was resolvable) — the caller should not offer a link.
@@ -51,7 +64,7 @@ export function buildForeignKeyDrilldown(
   if (refCols.length === 0 || refCols.length !== values.length) return null;
   if (values.some((v) => v === null || v === undefined)) return null;
 
-  const parts = tableNameParts(fk.referencedTable);
+  const parts = tableNameParts(fkDrillTableName(fk));
   if (parts.length === 0) return null;
 
   let query = sql`SELECT * FROM ${sql.id(...parts)} WHERE `;

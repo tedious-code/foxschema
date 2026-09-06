@@ -16,7 +16,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom';
 import { GripVertical, Loader2, X } from 'lucide-react';
 import { useSqlEditorStore, type DataPeekEntry } from '@/app/store/useSqlEditorStore';
-import { foreignKeyLinksFor, peekBaseFilterLabel } from '@/shared/lib/tablePreview';
+import { foreignKeyLinksFor, fkDrillTableName, peekBaseFilterLabel } from '@/shared/lib/tablePreview';
 import { DataGrid } from './DataGrid';
 import { usePeekGridCrud } from './usePeekGridCrud';
 import { SQL_ICON_STROKE } from '@/shared/lib/iconStyle';
@@ -329,11 +329,14 @@ const PeekGrid: React.FC<{
   const table = useMemo(() => {
     if (!tables) return undefined;
     const wanted = entry.tableName.toLowerCase();
-    const bare = wanted.replace(/^.*\./, '');
-    return (
-      tables.find((t) => t.name.toLowerCase() === wanted) ??
-      tables.find((t) => t.name.toLowerCase().replace(/^.*\./, '') === bare)
-    );
+    const exact = tables.find((t) => t.name.toLowerCase() === wanted);
+    if (exact) return exact;
+    // A cross-schema FK drill sets tableName to `inventory.products`. Falling
+    // back to a bare `products` in the connection schema would hand row-edit
+    // the wrong PK/columns while the SELECT correctly hit the parent — the
+    // same wrong-table class the qualify fix closes, just on the write side.
+    if (wanted.includes('.')) return undefined;
+    return tables.find((t) => t.name.toLowerCase().replace(/^.*\./, '') === wanted);
   }, [tables, entry.tableName]);
 
   const links = useMemo(
@@ -343,7 +346,7 @@ const PeekGrid: React.FC<{
 
   const linkColumns = useMemo(() => {
     const map = new Map<number, string>();
-    for (const l of links) map.set(l.columnIndex, l.fk.referencedTable);
+    for (const l of links) map.set(l.columnIndex, fkDrillTableName(l.fk));
     return map;
   }, [links]);
 

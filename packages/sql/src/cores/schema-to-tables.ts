@@ -119,15 +119,18 @@ export function normalizeForeignKeyInfo(
     name: string;
     columns?: string[];
     referencedTable: string;
+    referencedSchema?: string;
     referencedColumns?: string[];
   },
   parentPkColumns: string[] = []
 ): ForeignKeyInfo {
   const columns = Array.isArray(fk.columns) ? fk.columns : [];
+  const schema = typeof fk.referencedSchema === 'string' ? fk.referencedSchema.trim() : '';
   return {
     name: fk.name,
     columns,
     referencedTable: fk.referencedTable,
+    ...(schema ? { referencedSchema: schema } : {}),
     referencedColumns: resolveFkReferencedColumns(
       columns,
       fk.referencedColumns,
@@ -219,16 +222,23 @@ export function dbSchemaToTableSchemas(dbSchema: DbSchema): TableSchema[] {
       indices: table.indexes
         .filter((i) => i.uniqueRule !== 'P')
         .map((i) => ({ name: i.name, columns: i.columns, unique: i.uniqueRule !== 'D', constraint: i.constraint })),
-      foreignKeys: table.foreignKeys.map((fk) => ({
-        name: fk.name,
-        columns: fk.columns,
-        referencedTable: fk.referencedTable,
-        referencedColumns: resolveFkReferencedColumns(
-          fk.columns,
-          fk.referencedColumns,
-          pkColumnsOf(dbSchema.tables[fk.referencedTable])
-        ),
-      })),
+      foreignKeys: table.foreignKeys.map((fk) => {
+        const schema = typeof fk.referencedSchema === 'string' ? fk.referencedSchema.trim() : '';
+        return {
+          name: fk.name,
+          columns: fk.columns,
+          referencedTable: fk.referencedTable,
+          ...(schema ? { referencedSchema: schema } : {}),
+          referencedColumns: resolveFkReferencedColumns(
+            fk.columns,
+            fk.referencedColumns,
+            // Same-schema parents live in this map under a bare name; a
+            // cross-schema parent is absent here — catalog columns (when
+            // present) still win via resolveFkReferencedColumns.
+            pkColumnsOf(dbSchema.tables[fk.referencedTable])
+          ),
+        };
+      }),
     });
   }
 
