@@ -74,6 +74,13 @@ export interface ForeignKeyInfo {
   name: string;
   columns: string[];
   referencedTable: string;
+  /**
+   * Parent schema / owner / database when the catalog reports one.
+   * Cross-schema FKs must keep this — Data Peek / result FK drill build
+   * `SELECT … FROM schema.table`, and dropping it resolves a bare name in the
+   * connection schema (wrong table when the same name exists there).
+   */
+  referencedSchema?: string;
   /** Parent key columns in constraint order. Always present after normalizeTableSchemas. */
   referencedColumns: string[];
 }

@@ -202,6 +202,23 @@ const tidbSettings: ProviderSettings = {
   defaultPort: 4000,
 };
 
+/** Same TDS wire as SQL Server; TLS is on by default (see ConnectionModal). */
+const azuresqlSettings: ProviderSettings = {
+  ...sqlServerSettings,
+  dialect: 'azuresql',
+  label: 'Azure SQL',
+  defaultPort: 1433,
+  buildConnectionString(o) {
+    if (o.connectionString?.trim()) return o.connectionString.trim();
+    const host = o.host || 'localhost';
+    const port = o.port || this.defaultPort;
+    // Azure SQL always encrypts. Trust the cert when the form opts out of
+    // strict verification (local SQL Server stand-ins used in e2e).
+    const trust = o.ssl?.rejectUnauthorized === false ? 'TrustServerCertificate=True;' : '';
+    return `Server=${host},${port};Database=${o.database || ''};User Id=${o.username || ''};Password=${o.password || ''};Encrypt=True;${trust}`;
+  },
+};
+
 const clickhouseSettings: ProviderSettings = {
   dialect: 'clickhouse',
   label: 'ClickHouse',
@@ -270,6 +287,7 @@ export const PROVIDER_SETTINGS: Record<string, ProviderSettings> = {
   tidb: tidbSettings,
   db2: db2Settings,
   sqlserver: sqlServerSettings,
+  azuresql: azuresqlSettings,
   oracle: oracleSettings,
   sqlite: sqliteSettings,
   duckdb: duckdbSettings,
