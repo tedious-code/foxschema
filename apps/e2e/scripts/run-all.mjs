@@ -81,9 +81,32 @@ console.log(bar + '\n');
 // as the dialect compare suites below).
 const ALWAYS = [
   {
+    key: 'smoke',
+    file: 'src/tests/smoke.test.ts src/tests/auto-error-catch.test.ts',
+    label: 'Smoke',
+  },
+  {
     key: 'sql-editor',
-    file: 'src/tests/sql-editor-smoke.test.ts src/tests/sql-editor-sqlite.test.ts src/tests/sql-editor-blueprint.test.ts src/tests/sql-editor-copy-export.test.ts src/tests/sql-editor-running-state.test.ts src/tests/sql-editor-peek-stacking.test.ts',
+    file: [
+      'src/tests/sql-editor-smoke.test.ts',
+      'src/tests/sql-editor-sqlite.test.ts',
+      'src/tests/sql-editor-blueprint.test.ts',
+      'src/tests/sql-editor-copy-export.test.ts',
+      'src/tests/sql-editor-running-state.test.ts',
+      'src/tests/sql-editor-utilities.test.ts',
+      'src/tests/sql-editor-column-picker.test.ts',
+      'src/tests/sql-editor-code-cell-faker.test.ts',
+      'src/tests/sql-editor-result-edit.test.ts',
+      'src/tests/sql-editor-peek-row-form.test.ts',
+      'src/tests/sql-editor-peek-stacking.test.ts',
+      'src/tests/sql-editor-compare-multi-target.test.ts',
+    ].join(' '),
     label: 'SQL Editor',
+  },
+  {
+    key: 'schema-browse',
+    file: 'src/tests/schema-browse.test.ts',
+    label: 'Browse',
   },
   {
     key: 'schema-history',
@@ -112,9 +135,36 @@ const ALWAYS = [
           file: 'src/tests/sql-editor-utilities-dialects.test.ts',
           label: 'Utilities',
         },
+        {
+          key: 'db-access',
+          file: 'src/tests/database-access-dialects.test.ts',
+          label: 'DB Access',
+        },
+        {
+          key: 'access-dialects',
+          file: 'src/tests/access-assistant-dialects.test.ts',
+          label: 'Access all',
+        },
       ]
     : []),
 ];
+
+/**
+ * Suites this script deliberately does not run, and why.
+ *
+ * Anything under src/tests not named here or in a suite above is a suite that
+ * would silently never run — which is how the whole Database Access dialect
+ * matrix came to sit outside "run everything". `packages/shared`'s
+ * repo-config.test.ts fails when the two drift apart.
+ *
+ * Read textually by that test, never imported: this file runs the whole suite
+ * on import, so `await import('./run-all.mjs')` to read one constant launches
+ * every browser test instead.
+ */
+const DELIBERATELY_SKIPPED = {
+  'src/tests/compare-flow.test.ts':
+    'A convenience shortcut that runs the same shared flow as dialects/postgres.test.ts. Running both would do the work twice.',
+};
 
 for (const suite of ALWAYS) {
   const start = Date.now();
@@ -124,12 +174,17 @@ for (const suite of ALWAYS) {
   let output = '';
   // Utilities-across-dialects is ~35s × N dialects (Clone Table alone ~30s each),
   // so the wall-clock budget must grow with how many dialects are configured.
-  const suiteTimeoutMs =
-    suite.key === 'sql-editor-utilities'
-      ? Math.max(600_000, configured.length * 60_000)
-      : suite.key === 'schema-revert-edges'
-        ? 600_000
-        : 300_000;
+  // Suites that walk every configured dialect need a budget that grows with the
+  // matrix. `sql-editor-utilities` already did; `db-access` and
+  // `access-dialects` were added on the 300s default, which is the same 300s
+  // that access-assistant-dialects allows for its own beforeAll — so the runner
+  // could kill the process before a single test ran.
+  const DIALECT_MATRIX = new Set(['sql-editor-utilities', 'db-access', 'access-dialects']);
+  const suiteTimeoutMs = DIALECT_MATRIX.has(suite.key)
+    ? Math.max(600_000, configured.length * 60_000)
+    : suite.key === 'schema-revert-edges'
+      ? 600_000
+      : 300_000;
   try {
     output = execSync(`${HEADED}${VITEST} ${suite.file}`, {
       cwd: ROOT,
@@ -197,6 +252,10 @@ for (const r of results) {
 
 if (skipped.length) {
   console.log(`\n  (skipped — no env vars: ${skipped.map((d) => d.label).join(', ')})`);
+}
+
+for (const [file, why] of Object.entries(DELIBERATELY_SKIPPED)) {
+  console.log(`\n  (not run — ${file}: ${why})`);
 }
 
 console.log(`\n  ${passed.length} passed  /  ${failed.length} failed  /  ${skipped.length} skipped`);
