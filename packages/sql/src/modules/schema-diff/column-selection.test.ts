@@ -478,3 +478,85 @@ describe('objects that do not migrate column by column', () => {
     expect(out.triggerDiffs).toEqual([]);
   });
 });
+
+describe('a trigger body that names an ADDED column', () => {
+  // Same failure class as the self-FK pin: CREATE TRIGGER … NEW.note with no
+  // ADD COLUMN note, after earlier ALTERs may already have run.
+  const withBody = table({
+    columnDiffs: [col('NOTE', 'ADDED')],
+    triggerDiffs: [
+      {
+        name: 'TRG_NOTE',
+        status: 'ADDED',
+        source: {
+          name: 'trg_note',
+          timing: 'BEFORE',
+          event: 'INSERT',
+          definition: "SET NEW.note = 'x'",
+        },
+      },
+    ],
+  } as Partial<TableDiff>);
+
+  it('pins the column while the trigger stays in the script', () => {
+    expect(columnExclusionBlock(withBody, 'NOTE')?.reason).toMatch(/trg_note/i);
+    expect(columnExclusionBlock(withBody, 'NOTE')?.reason).toMatch(/Leave the trigger out/i);
+  });
+
+  it('keeps a selected-out column when the trigger remains', () => {
+    const out = applySelectionToDiff(withBody, { columnSelection: { NOTE: false } });
+    expect(out.columnDiffs.map((c) => c.name)).toContain('NOTE');
+    expect(out.triggerDiffs?.map((t) => t.name)).toContain('TRG_NOTE');
+  });
+
+  it('frees the column once the trigger is left out', () => {
+    expect(
+      columnExclusionBlock(withBody, 'NOTE', { triggerSelection: { TRG_NOTE: false } })
+    ).toBeNull();
+    const out = applySelectionToDiff(withBody, {
+      columnSelection: { NOTE: false },
+      triggerSelection: { TRG_NOTE: false },
+    });
+    expect(out.columnDiffs.map((c) => c.name)).not.toContain('NOTE');
+    expect(out.triggerDiffs).toEqual([]);
+  });
+
+  it('matches :NEW / inserted forms, not a bare word elsewhere', () => {
+    const oracle = table({
+      columnDiffs: [col('NOTE', 'ADDED')],
+      triggerDiffs: [
+        {
+          name: 'TRG',
+          status: 'ADDED',
+          source: { name: 'trg', definition: ':NEW.note := :NEW.note;' },
+        },
+      ],
+    } as Partial<TableDiff>);
+    expect(columnExclusionBlock(oracle, 'NOTE')).not.toBeNull();
+
+    const mssql = table({
+      columnDiffs: [col('NOTE', 'ADDED')],
+      triggerDiffs: [
+        {
+          name: 'TRG',
+          status: 'ADDED',
+          source: { name: 'trg', definition: 'UPDATE inserted SET note = inserted.note;' },
+        },
+      ],
+    } as Partial<TableDiff>);
+    expect(columnExclusionBlock(mssql, 'NOTE')).not.toBeNull();
+
+    const mentionOnly = table({
+      columnDiffs: [col('NOTE', 'ADDED')],
+      triggerDiffs: [
+        {
+          name: 'TRG',
+          status: 'ADDED',
+          // Comment text must not pin — only row pseudo-table references do.
+          source: { name: 'trg', definition: '/* touches note somehow */ SET NEW.id = 1;' },
+        },
+      ],
+    } as Partial<TableDiff>);
+    expect(columnExclusionBlock(mentionOnly, 'NOTE')).toBeNull();
+  });
+});
