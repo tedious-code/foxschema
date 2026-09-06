@@ -27,6 +27,19 @@ describe('dialectSupportsTransactionalRollback', () => {
   });
 });
 
+  it('still rolls back DML on CockroachDB — only its DDL auto-commits', () => {
+    // The DDL fix below must not leak into this answer. It did once: the edit
+    // that added the CockroachDB case landed in *both* switches, because they
+    // end in the same `default: return true`. Nothing caught it — the DDL
+    // helper short-circuits on this one, so its own test still saw false.
+    //
+    // Getting this wrong tells a data-migrate user their INSERT/UPDATE/DELETE
+    // rollback could not be confirmed when CockroachDB did in fact roll it
+    // back, which is the mirror image of the bug the DDL change fixes.
+    expect(dialectSupportsTransactionalRollback('cockroachdb')).toBe(true);
+    expect(dialectSupportsTransactionalRollback('CockroachDB')).toBe(true);
+  });
+
 describe('dialectSupportsTransactionalDdlRollback', () => {
   it('is false when DDL auto-commits (MySQL family + Oracle)', () => {
     expect(dialectSupportsTransactionalDdlRollback('mysql')).toBe(false);

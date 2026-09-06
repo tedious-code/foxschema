@@ -26,8 +26,6 @@ export function dialectSupportsTransactionalRollback(dialect: string): boolean {
     case 'mongodb':
     case 'clickhouse':
       return false;
-    case 'cockroachdb':
-      return false;
     default:
       return true;
   }
@@ -68,6 +66,8 @@ export function dialectSupportsTransactionalDdlRollback(dialect: string): boolea
     // modifyColumnStatements emits first. ROLLBACK returned without error and
     // the column stayed changed, under a banner reading "All changes were
     // rolled back — the target is unchanged".
+    case 'cockroachdb':
+      return false;
     default:
       return true;
   }
