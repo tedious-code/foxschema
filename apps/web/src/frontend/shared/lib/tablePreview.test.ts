@@ -3,6 +3,7 @@ import {
   tableNameParts,
   buildTablePreview,
   buildForeignKeyDrilldown,
+  fkDrillTableName,
   foreignKeyLinksFor,
   foreignKeyLinksForSql,
   composePeekSql,
@@ -50,6 +51,23 @@ describe('buildForeignKeyDrilldown', () => {
   it('binds the value instead of inlining it', () => {
     const q = buildForeignKeyDrilldown(fk, [7], 'postgres');
     expect(q).toEqual({ sql: 'SELECT * FROM "customers" WHERE "id" = $1', params: [7] });
+  });
+
+  it('qualifies a cross-schema parent so the drill cannot hit a same-named local table', () => {
+    const cross: ForeignKeyInfo = {
+      name: 'fk_orders_products',
+      columns: ['product_id'],
+      referencedSchema: 'inventory',
+      referencedTable: 'products',
+      referencedColumns: ['id'],
+    };
+    const q = buildForeignKeyDrilldown(cross, [42], 'postgres');
+    expect(q).toEqual({
+      sql: 'SELECT * FROM "inventory"."products" WHERE "id" = $1',
+      params: [42],
+    });
+    expect(fkDrillTableName(cross)).toBe('inventory.products');
+    expect(fkDrillTableName(fk)).toBe('customers');
   });
 
   it('binds a hostile string safely', () => {
