@@ -14,6 +14,15 @@ permissions:
 jobs:
   # ── npm audit ──────────────────────────────────────────────────────────────
   npm-audit:
+    # A version-bump commit changes four package.json version fields and
+    # nothing else, so there is nothing here for it to check. It used to carry
+    # `[skip ci]` for this, but that marker also suppresses the *tag* push that
+    # rides on the same commit, which silently disabled every release — see
+    # version-bump.yml. Skipping by message keeps the saving without that cost.
+    # Guarded on event_name so pull_request runs are never skipped.
+    if: >-
+      github.event_name != 'push'
+      || !startsWith(github.event.head_commit.message, 'chore: bump version')
     name: npm audit
     runs-on: ubuntu-latest
     steps:
@@ -68,6 +77,15 @@ jobs:
 
   # ── ESLint security rules ──────────────────────────────────────────────────
   eslint-security:
+    # A version-bump commit changes four package.json version fields and
+    # nothing else, so there is nothing here for it to check. It used to carry
+    # `[skip ci]` for this, but that marker also suppresses the *tag* push that
+    # rides on the same commit, which silently disabled every release — see
+    # version-bump.yml. Skipping by message keeps the saving without that cost.
+    # Guarded on event_name so pull_request runs are never skipped.
+    if: >-
+      github.event_name != 'push'
+      || !startsWith(github.event.head_commit.message, 'chore: bump version')
     name: ESLint security
     runs-on: ubuntu-latest
     steps:
@@ -99,6 +117,15 @@ jobs:
   # ── node_modules backdoor / unexpected port scan ───────────────────────────
   # Dedicated deep scan also lives in deps-backdoor-scan.yml (scheduled weekly).
   deps-backdoor-scan:
+    # A version-bump commit changes four package.json version fields and
+    # nothing else, so there is nothing here for it to check. It used to carry
+    # `[skip ci]` for this, but that marker also suppresses the *tag* push that
+    # rides on the same commit, which silently disabled every release — see
+    # version-bump.yml. Skipping by message keeps the saving without that cost.
+    # Guarded on event_name so pull_request runs are never skipped.
+    if: >-
+      github.event_name != 'push'
+      || !startsWith(github.event.head_commit.message, 'chore: bump version')
     name: Deps backdoor / port scan
     runs-on: ubuntu-latest
     steps:

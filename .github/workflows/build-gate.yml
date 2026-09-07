@@ -23,6 +23,15 @@ concurrency:
 
 jobs:
   typecheck:
+    # A version-bump commit changes four package.json version fields and
+    # nothing else, so there is nothing here for it to check. It used to carry
+    # `[skip ci]` for this, but that marker also suppresses the *tag* push that
+    # rides on the same commit, which silently disabled every release — see
+    # version-bump.yml. Skipping by message keeps the saving without that cost.
+    # Guarded on event_name so pull_request runs are never skipped.
+    if: >-
+      github.event_name != 'push'
+      || !startsWith(github.event.head_commit.message, 'chore: bump version')
     name: Typecheck
     runs-on: ubuntu-latest
     steps:
@@ -44,6 +53,15 @@ jobs:
       - run: npm run typecheck
 
   unit-tests:
+    # A version-bump commit changes four package.json version fields and
+    # nothing else, so there is nothing here for it to check. It used to carry
+    # `[skip ci]` for this, but that marker also suppresses the *tag* push that
+    # rides on the same commit, which silently disabled every release — see
+    # version-bump.yml. Skipping by message keeps the saving without that cost.
+    # Guarded on event_name so pull_request runs are never skipped.
+    if: >-
+      github.event_name != 'push'
+      || !startsWith(github.event.head_commit.message, 'chore: bump version')
     name: Unit tests
     runs-on: ubuntu-latest
     steps:
@@ -63,6 +81,15 @@ jobs:
       - run: npx vitest run
 
   frontend-build:
+    # A version-bump commit changes four package.json version fields and
+    # nothing else, so there is nothing here for it to check. It used to carry
+    # `[skip ci]` for this, but that marker also suppresses the *tag* push that
+    # rides on the same commit, which silently disabled every release — see
+    # version-bump.yml. Skipping by message keeps the saving without that cost.
+    # Guarded on event_name so pull_request runs are never skipped.
+    if: >-
+      github.event_name != 'push'
+      || !startsWith(github.event.head_commit.message, 'chore: bump version')
     name: Frontend build
     runs-on: ubuntu-latest
     steps:
@@ -86,6 +113,15 @@ jobs:
       - run: npm run build -w @foxschema/web
 
   lint:
+    # A version-bump commit changes four package.json version fields and
+    # nothing else, so there is nothing here for it to check. It used to carry
+    # `[skip ci]` for this, but that marker also suppresses the *tag* push that
+    # rides on the same commit, which silently disabled every release — see
+    # version-bump.yml. Skipping by message keeps the saving without that cost.
+    # Guarded on event_name so pull_request runs are never skipped.
+    if: >-
+      github.event_name != 'push'
+      || !startsWith(github.event.head_commit.message, 'chore: bump version')
     name: ESLint
     runs-on: ubuntu-latest
     steps:

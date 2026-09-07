@@ -83,5 +83,16 @@ jobs:
             packages/db/package.json \
             apps/web/package.json \
             apps/cli/package.json
-          git commit -m "chore: bump version to $V [skip ci]"
+          # No [skip ci]. GitHub honours that marker on *every* push event for
+          # the commit, tag pushes included — and the release tag lands on
+          # exactly this commit, so the marker silently disabled Release Gate,
+          # npm Publish and Web Release. v0.2.111 and v0.2.220 were both tagged
+          # and neither fired anything; the last tag that ran a release was
+          # v0.2.73, whose commit was an ordinary fix.
+          #
+          # The loop this marker looked like it was preventing is already
+          # prevented by the `if:` on this job, which refuses to bump a
+          # "chore: bump version" commit. The CI it saved is now saved by a
+          # matching guard on each push-triggered workflow.
+          git commit -m "chore: bump version to $V"
           git push
