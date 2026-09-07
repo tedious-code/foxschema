@@ -204,14 +204,28 @@ export const PermissionUxPrototype: React.FC = () => {
   }, [selectedKeys]);
 
   const formKind: ObjectKind | 'schema' | 'database' =
-    selectedObjects[0]?.kind ?? (editingId ? privs.find((p) => p.id === editingId)?.kind ?? 'table' : 'table');
+    selectedObjects[0]?.kind ??
+    (editingId ? (privs.find((p) => p.id === editingId)?.kind ?? 'table') : 'table');
 
-  const allowed = allowedPrivsFor(formKind);
+  // Union of what every selected (or edited) object can express, so a mixed
+  // table + procedure pick still offers EXECUTE alongside SELECT.
+  const allowed = useMemo(() => {
+    const kinds: (ObjectKind | 'schema' | 'database')[] =
+      selectedObjects.length > 0
+        ? selectedObjects.map((o) => o.kind)
+        : [formKind];
+    const dml = new Set<string>();
+    const ddl = new Set<string>();
+    for (const k of kinds) {
+      const a = allowedPrivsFor(k);
+      a.dml.forEach((p) => dml.add(p));
+      a.ddl.forEach((p) => ddl.add(p));
+    }
+    return { dml: [...dml], ddl: [...ddl] };
+  }, [selectedObjects, formKind]);
 
-  const previewSql = buildPreviewSql(
-    action,
-    principal,
-    selectedObjects.length
+  const previewTargets =
+    selectedObjects.length > 0
       ? selectedObjects
       : editingId
         ? (() => {
@@ -225,9 +239,19 @@ export const PermissionUxPrototype: React.FC = () => {
               },
             ];
           })()
-        : [],
-    [...dmlSel, ...ddlSel]
-  );
+        : [];
+
+  // Per-object preview: each target only gets privileges it can hold.
+  const previewSql = previewTargets
+    .map((o) => {
+      const allow = allowedPrivsFor(o.kind as ObjectKind | 'schema' | 'database');
+      const privList = [...dmlSel, ...ddlSel].filter(
+        (p) => allow.dml.includes(p) || allow.ddl.includes(p)
+      );
+      return buildPreviewSql(action, principal, [o], privList);
+    })
+    .filter((s) => !s.startsWith('--'))
+    .join('\n\n') || '-- Select a principal, objects, and privileges';
 
   const flash = (msg: string) => {
     setToast(msg);
@@ -271,8 +295,6 @@ export const PermissionUxPrototype: React.FC = () => {
   };
 
   const applyForm = () => {
-    const nextDml = dmlSel.filter((p) => allowed.dml.includes(p));
-    const nextDdl = ddlSel.filter((p) => allowed.ddl.includes(p));
     if (action === 'revoke' && editingId) {
       setPrivs((prev) => prev.filter((p) => p.id !== editingId));
       flash(`Revoked privileges from ${principal}`);
@@ -281,10 +303,12 @@ export const PermissionUxPrototype: React.FC = () => {
       return;
     }
     if (panel === 'edit' && editingId) {
+      const row = privs.find((p) => p.id === editingId);
+      const allow = allowedPrivsFor(row?.kind ?? 'table');
+      const nextDml = dmlSel.filter((p) => allow.dml.includes(p));
+      const nextDdl = ddlSel.filter((p) => allow.ddl.includes(p));
       setPrivs((prev) =>
-        prev.map((p) =>
-          p.id === editingId ? { ...p, dml: nextDml, ddl: nextDdl } : p
-        )
+        prev.map((p) => (p.id === editingId ? { ...p, dml: nextDml, ddl: nextDdl } : p))
       );
       flash(`Updated privileges for ${principal}`);
       setPanel('browse');
@@ -295,14 +319,17 @@ export const PermissionUxPrototype: React.FC = () => {
       flash('Pick at least one object from the catalog');
       return;
     }
-    const created: PrivilegeRow[] = selectedObjects.map((o, i) => ({
-      id: `new-${Date.now()}-${i}`,
-      kind: o.kind,
-      schema: o.schema,
-      name: o.name,
-      dml: nextDml,
-      ddl: nextDdl,
-    }));
+    const created: PrivilegeRow[] = selectedObjects.map((o, i) => {
+      const allow = allowedPrivsFor(o.kind);
+      return {
+        id: `new-${Date.now()}-${i}`,
+        kind: o.kind,
+        schema: o.schema,
+        name: o.name,
+        dml: dmlSel.filter((p) => allow.dml.includes(p)),
+        ddl: ddlSel.filter((p) => allow.ddl.includes(p)),
+      };
+    });
     setPrivs((prev) => [...prev, ...created]);
     flash(`Granted ${created.length} object privilege set(s) to ${principal}`);
     setPanel('browse');
@@ -534,9 +561,9 @@ export const PermissionUxPrototype: React.FC = () => {
 
               {panel === 'create' && (
                 <p className="text-[11px] text-slate-500">
-                  Select objects in the left catalog ({selectedKeys.length} selected). Privileges
-                  below apply to each selected object; EXECUTE is offered for procedures and
-                  functions.
+                  Select objects in the left catalog ({selectedKeys.length} selected). Each object
+                  only receives privileges it can hold (e.g. EXECUTE on procedures, SELECT on
+                  views) even when you tick a mixed set.
                 </p>
               )}
 
