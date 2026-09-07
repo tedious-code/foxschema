@@ -393,6 +393,24 @@ describe('AccessView — letting a new account in', () => {
     expect(screen.queryByTestId('user-grant-schemas')).toBeNull();
     expect(screen.getByTestId('user-grant-databases')).toBeTruthy();
   });
+
+  it('grants a MySQL database to the same name@host account it creates', async () => {
+    render(<AccessView />);
+    fireEvent.change(screen.getByTestId('user-connection'), { target: { value: 'c2' } });
+    fireEvent.click(screen.getByTestId('user-add-user'));
+    fireEvent.change(screen.getByTestId('user-name'), { target: { value: 'report_user' } });
+    fireEvent.change(screen.getByTestId('user-host'), { target: { value: 'localhost' } });
+
+    const databaseBox = await screen.findByTestId('user-grant-databases-item-app');
+    fireEvent.click(databaseBox);
+
+    await waitFor(() => {
+      const sql = screen.getByTestId('user-sql').textContent ?? '';
+      expect(sql).toMatch(/CREATE USER 'report_user'@'localhost'/);
+      expect(sql).toMatch(/GRANT .* TO 'report_user'@'localhost'/);
+      expect(sql).not.toMatch(/TO 'report_user'@'%'/);
+    });
+  });
 });
 
 describe('AccessView — Permission Diff stale catalog', () => {
