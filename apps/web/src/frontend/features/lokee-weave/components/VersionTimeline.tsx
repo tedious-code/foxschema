@@ -8,18 +8,21 @@
  */
 import React from 'react';
 import type { VersionGraphVersion } from '@foxschema/shared';
+import { DiffBriefingTicks } from '@/features/schema-diff';
+
+export type TimelineVersion = VersionGraphVersion & {
+  changeCount?: number;
+  added?: number;
+  modified?: number;
+  removed?: number;
+};
 
 export interface VersionTimelineProps {
-  versions: readonly (VersionGraphVersion & { changeCount?: number })[];
+  versions: readonly TimelineVersion[];
   totalVersions: number;
   selectedId?: string | null;
   subtitle?: string;
   onSelect?: (versionId: string) => void;
-}
-
-function barWidth(changeCount: number, max: number): string {
-  if (max <= 0 || changeCount <= 0) return '0%';
-  return `${Math.max(4, Math.round((changeCount / max) * 100))}%`;
 }
 
 export function VersionTimeline({
@@ -29,7 +32,6 @@ export function VersionTimeline({
   subtitle,
   onSelect,
 }: VersionTimelineProps): React.ReactElement {
-  const maxChanges = Math.max(0, ...versions.map((v) => v.changeCount ?? 0));
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-6 pt-2" data-testid="lokee-timeline">
       <header
@@ -46,6 +48,10 @@ export function VersionTimeline({
       <ol className="mt-2 min-h-0 flex-1 space-y-1 overflow-y-auto pb-4">
         {versions.map((version) => {
           const selected = version.id === selectedId;
+          const added = version.added ?? 0;
+          const modified = version.modified ?? 0;
+          const removed = version.removed ?? 0;
+          const changes = added + modified + removed || version.changeCount || 0;
           return (
             <li key={version.id}>
               <button
@@ -63,14 +69,9 @@ export function VersionTimeline({
                 </span>
                 <span className="min-w-0 flex-1 truncate text-[11px] text-slate-400">
                   {version.name || version.source}
-                  {(version.changeCount ?? 0) > 0 ? ` · ${version.changeCount} changes` : ''}
+                  {changes > 0 ? ` · ${changes} changes` : ''}
                 </span>
-                <span className="h-1.5 w-24 shrink-0 overflow-hidden rounded bg-slate-800">
-                  <span
-                    className="block h-full rounded bg-cyan-500/80"
-                    style={{ width: barWidth(version.changeCount ?? 0, maxChanges) }}
-                  />
-                </span>
+                <DiffBriefingTicks added={added} modified={modified} removed={removed} />
               </button>
             </li>
           );

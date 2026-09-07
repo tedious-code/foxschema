@@ -99,9 +99,11 @@ export function LokeeWeaveView({
   const [showGraph, setShowGraph] = useState(false);
   // Bumped to re-run the effect; a plain refetch() would race the in-flight one.
   const [reloadToken, setReloadToken] = useState(0);
-  // Which pair the modal is showing. The two *sides* live in the history store,
+  // Which pair the pane is showing. The two *sides* live in the history store,
   // because the picker that sets them is HistoryCompareBar up in the toolbar.
-  const [comparePair, setComparePair] = useState<{ original: string; target: string } | null>(null);
+  const [comparePair, setComparePair] = useState<{ original: string; target?: string } | null>(
+    null
+  );
   /** Newest captured version — the only Target a revert can legally run against. */
   const latestVersionId = useMemo(
     () => sortVersionsNewestFirst(dto?.versions ?? [])[0]?.id ?? null,
@@ -387,8 +389,11 @@ export function LokeeWeaveView({
   useEffect(() => {
     if (compareRequest === seenCompareRequest.current) return;
     seenCompareRequest.current = compareRequest;
-    if (compareVersionIds.length === 2) {
-      setComparePair({ original: compareVersionIds[0]!, target: compareVersionIds[1]! });
+    if (compareVersionIds.length >= 1) {
+      setComparePair({
+        original: compareVersionIds[0]!,
+        target: compareVersionIds[1],
+      });
     }
   }, [compareRequest, compareVersionIds]);
 
@@ -401,8 +406,10 @@ export function LokeeWeaveView({
    * stops this from looping.
    */
   useEffect(() => {
-    if (!comparePair || compareVersionIds.length !== 2) return;
-    const [original, target] = compareVersionIds as [string, string];
+    if (!comparePair) return;
+    if (compareVersionIds.length === 0) return;
+    const original = compareVersionIds[0]!;
+    const target = compareVersionIds[1];
     setComparePair((prev) =>
       prev && (prev.original !== original || prev.target !== target) ? { original, target } : prev
     );
@@ -545,7 +552,10 @@ export function LokeeWeaveView({
               totalVersions={dto.totalVersions || dto.versions.length}
               selectedId={originalVersionId}
               subtitle={subtitle}
-              onSelect={(id) => useLokeeHistoryStore.getState().setOriginalVersionId(id)}
+              onSelect={(id) => {
+                useLokeeHistoryStore.getState().setOriginalVersionId(id);
+                setComparePair({ original: id });
+              }}
             />
           )}
         </div>
@@ -554,6 +564,7 @@ export function LokeeWeaveView({
             databaseId={activeId}
             versionId={comparePair.original}
             againstVersionId={comparePair.target}
+            embedded
             // Reverting restores the live database, so it is only coherent
             // while Target is the newest version — the modal refuses otherwise.
             latestVersionId={latestVersionId ?? undefined}

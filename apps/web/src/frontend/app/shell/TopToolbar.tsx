@@ -21,7 +21,8 @@ import { getSessionPassword, setSessionPassword } from '@/shared/lib/sessionPass
 import { HistoryCompareBar } from '@/features/lokee-weave';
 import { BrowseBar } from '@/features/object-detail';
 import { ActivityIndicator } from './ActivityIndicator';
-import { diffBriefing } from '@/features/schema-diff/lib/diffBriefing';
+import { DiffBriefingChips } from '@/features/schema-diff';
+import { diffBriefing } from '@/features/schema-diff';
 
 const ProfileMenu = ProfileMenuNamed ?? ProfileMenuDefault;
 
@@ -541,15 +542,7 @@ export const TopToolbar: React.FC = () => {
           )}
 
           {compareResult && (
-            <div
-              data-testid="diff-briefing"
-              className="flex items-center gap-1.5 text-[11px] font-bold"
-              title="Object-level + / ~ / − from the last compare — no extra query."
-            >
-              <span className="text-emerald-400">+{briefing.added}</span>
-              <span className="text-amber-400">~{briefing.modified}</span>
-              <span className="text-rose-400">−{briefing.removed}</span>
-            </div>
+            <DiffBriefingChips briefing={briefing} />
           )}
 
           <button

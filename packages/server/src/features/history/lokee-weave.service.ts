@@ -719,9 +719,42 @@ export class LokeeWeaveStore {
       description: row.description?.trim() || undefined,
       objectCount: Number(row.object_count) || 0,
       changeCount: Number(row.change_count) || 0,
+      added: 0,
+      modified: 0,
+      removed: 0,
       revertFromVersionId: row.revert_from_version_id ?? undefined,
       revertToVersionId: row.revert_to_version_id ?? undefined,
     };
+  }
+
+  /**
+   * One grouped scan of `lokee_version_objects` for the listed versions — not
+   * one query per row. Feeds the timeline + / ~ / − ticks without opening a
+   * compare for every version.
+   */
+  private async changeBriefings(
+    store: MetadataStore,
+    versionIds: readonly string[]
+  ): Promise<Map<string, { added: number; modified: number; removed: number }>> {
+    const out = new Map<string, { added: number; modified: number; removed: number }>();
+    if (versionIds.length === 0) return out;
+    const placeholders = versionIds.map(() => '?').join(', ');
+    const rows = await store.all<{ version_id: string; operation: string; n: number }>(
+      `SELECT version_id, operation, COUNT(*) AS n
+         FROM lokee_version_objects
+        WHERE version_id IN (${placeholders})
+        GROUP BY version_id, operation`,
+      [...versionIds]
+    );
+    for (const row of rows) {
+      const cur = out.get(row.version_id) ?? { added: 0, modified: 0, removed: 0 };
+      const n = Number(row.n) || 0;
+      if (row.operation === 'ADD') cur.added = n;
+      else if (row.operation === 'MODIFY') cur.modified = n;
+      else if (row.operation === 'DELETE') cur.removed = n;
+      out.set(row.version_id, cur);
+    }
+    return out;
   }
 
   private async emailsFor(
@@ -752,7 +785,16 @@ export class LokeeWeaveStore {
       store,
       rows.map((r) => r.author_user_id)
     );
-    return rows.map((r) => this.toVersionSummary(r, emails));
+    const briefings = await this.changeBriefings(
+      store,
+      rows.map((r) => r.id)
+    );
+    return rows.map((r) => {
+      const summary = this.toVersionSummary(r, emails);
+      const briefing = briefings.get(r.id);
+      if (!briefing) return summary;
+      return { ...summary, ...briefing };
+    });
   }
 
   /**

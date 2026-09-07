@@ -79,7 +79,7 @@ describe('VersionCompareModal', () => {
       expect(screen.getByTestId('lokee-version-compare').getAttribute('data-state')).toBe('ready')
     );
     expect(screen.getByText('Version 4 → Version 5')).toBeTruthy();
-    expect(screen.getByTestId('lokee-cmp-summary').textContent).toContain('1 modified');
+    expect(screen.getByTestId('lokee-cmp-summary').textContent).toContain('~1');
 
     // The tree is the shared component; the detail pane defaults to the first
     // changed object so the two panes are never out of step.
@@ -117,6 +117,23 @@ describe('VersionCompareModal', () => {
     await waitFor(() => expect(screen.getByTestId('lokee-cmp-identical')).toBeTruthy());
     expect(screen.getByTestId('lokee-cmp-identical').textContent).toMatch(/first capture/i);
     expect(screen.getByText(/Version 1 · first capture/)).toBeTruthy();
+  });
+
+  it('docks as a pane when Snapshots asks for embedded compare', async () => {
+    compareLokeeVersions.mockResolvedValue({
+      from: VERSION(1),
+      to: VERSION(2),
+      compare: { summary: { added: 0, removed: 0, modified: 0, unchanged: 3 }, tables: [] },
+    });
+    render(
+      <VersionCompareModal databaseId="db1" versionId="v2" embedded onClose={() => undefined} />
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('lokee-version-compare').getAttribute('data-embedded')).toBe(
+        'true'
+      )
+    );
+    expect(screen.getByTestId('lokee-version-compare').getAttribute('aria-modal')).toBe('false');
   });
 
   // NOTE: an error-path test belongs here and is deliberately absent. The

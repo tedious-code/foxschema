@@ -81,6 +81,10 @@ export interface VersionSummary {
   description?: string;
   objectCount: number;
   changeCount: number;
+  /** Object-level ADD / MODIFY / DELETE in this version's delta (one grouped query). */
+  added?: number;
+  modified?: number;
+  removed?: number;
   /**
    * Set only on a version a revert produced: the head the database was at, and
    * the version that was restored. `source: 'revert'` says an undo happened;

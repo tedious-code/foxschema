@@ -31,6 +31,8 @@ import { SchemaBlueprint } from '@/features/schema-diff';
 import { buildMigrationReport, migrationReportFilename } from '@/features/lokee-weave/lib/migrationReport';
 import { SchemaDiffTree, orderTablesForDisplay } from '@/features/schema-diff';
 import { DetailTabs, type DetailTab } from '@/features/schema-diff';
+import { DiffBriefingChips } from '@/features/schema-diff';
+import { diffBriefing } from '@/features/schema-diff';
 import { buildTableDdlDiffLines, DdlDiffLines } from '@/features/schema-diff';
 import { GithubScriptDiff } from './GithubScriptDiff';
 import { versionDisplayName } from './graphTypes';
@@ -64,6 +66,11 @@ export interface VersionCompareModalProps {
   /** Put the Target side back on "Current database", so a revert is possible. */
   onRetargetToLatest?: () => void;
   onClose: () => void;
+  /**
+   * Dock in the Snapshots workspace (same tree as Sync) instead of a modal.
+   * Graph still uses the overlay internally.
+   */
+  embedded?: boolean;
 }
 
 
@@ -97,6 +104,7 @@ export function VersionCompareModal({
   latestVersionId,
   onRetargetToLatest,
   onClose,
+  embedded = false,
 }: VersionCompareModalProps): React.ReactElement {
   const [tab, setTab] = useState<ComparePaneTab>('DIFF');
   const [plan, setPlan] = useState<LokeeRevertPlan | null>(null);
@@ -404,15 +412,26 @@ export function VersionCompareModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-6"
+      className={
+        embedded
+          ? 'flex h-full min-h-0 w-[min(56%,720px)] shrink-0 flex-col border-l border-slate-800 bg-slate-950'
+          : 'fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-6'
+      }
       role="dialog"
-      aria-modal="true"
+      aria-modal={!embedded}
       aria-label="Compare versions"
       data-testid="lokee-version-compare"
+      data-embedded={embedded ? 'true' : 'false'}
       data-state={loading ? 'loading' : error ? 'error' : data ? 'ready' : 'empty'}
       onKeyDown={onKeyDown}
     >
-      <div className="flex max-h-full w-[1200px] max-w-[95vw] flex-col overflow-hidden rounded-lg border border-slate-800 bg-slate-950 shadow-xl">
+      <div
+        className={
+          embedded
+            ? 'flex min-h-0 flex-1 flex-col overflow-hidden'
+            : 'flex max-h-full w-[1200px] max-w-[95vw] flex-col overflow-hidden rounded-lg border border-slate-800 bg-slate-950 shadow-xl'
+        }
+      >
         <header className="flex items-center gap-2 border-b border-slate-800 px-3 py-2">
           <div className="min-w-0 flex-1">
             <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
@@ -455,20 +474,13 @@ export function VersionCompareModal({
             <>
               <div
                 data-testid="lokee-cmp-summary"
-                className="mb-2 flex flex-wrap gap-2 text-[11px]"
+                className="mb-2 flex flex-wrap items-center gap-2 text-[11px]"
               >
-                <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-emerald-300">
-                  {data.compare.summary.added} added
-                </span>
-                <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-200">
-                  {data.compare.summary.modified} modified
-                </span>
-                <span className="rounded bg-rose-500/15 px-1.5 py-0.5 text-rose-300">
-                  {data.compare.summary.removed} removed
-                </span>
-                <span className="rounded bg-slate-500/15 px-1.5 py-0.5 text-slate-400">
-                  {data.compare.summary.unchanged} unchanged
-                </span>
+                <DiffBriefingChips
+                  briefing={diffBriefing(data.compare.tables)}
+                  testId="lokee-cmp-briefing"
+                  showUnchanged
+                />
                 {/* Revert reads the Original side and moves the live database to
                     it; the Target picker only frames the diff. Saying so where
                     the sides are chosen beats a disabled button and a tooltip. */}

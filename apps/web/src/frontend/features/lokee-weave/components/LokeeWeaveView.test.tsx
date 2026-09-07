@@ -22,6 +22,19 @@ vi.mock('@/features/lokee-weave/api/lokeeApi', () => ({
   listLokeeVersions: (...args: unknown[]) => listLokeeVersions(...args),
   loadVersionGraph: (...args: unknown[]) => loadVersionGraph(...args),
   captureSchema: (...args: unknown[]) => captureSchema(...args),
+  compareLokeeVersions: () =>
+    Promise.resolve({
+      from: null,
+      to: { id: 'v2', number: 2, rootHash: 'bbb', createdAt: '2026-08-11T00:00:00.000Z' },
+      compare: { summary: { added: 0, removed: 0, modified: 0, unchanged: 0 }, tables: [] },
+    }),
+  planLokeeRevert: () =>
+    Promise.resolve({
+      statements: [],
+      alreadyAtTarget: true,
+      toVersion: { number: 1 },
+      reversal: { risk: 'safe', lossyCount: 0 },
+    }),
 }));
 
 vi.mock('@/app/store/useSyncStore', () => ({
@@ -128,6 +141,22 @@ describe('LokeeWeaveView', () => {
       'postgres · localhost/foxdb · public'
     );
     expect(screen.queryByTestId('lokee-weave-chrome')).toBeNull();
+  });
+
+  it('opens compare as a docked pane from the timeline, without the graph', async () => {
+    listLokeeDatabases.mockResolvedValue([DB]);
+    listLokeeVersions.mockResolvedValue(DTO.versions);
+
+    render(<LokeeWeaveView />);
+    await waitFor(() => expect(screen.getByTestId('lokee-timeline')).toBeTruthy());
+
+    await act(async () => {
+      screen.getByTestId('lokee-timeline-v-2').click();
+    });
+
+    await waitFor(() => expect(screen.getByTestId('lokee-version-compare')).toBeTruthy());
+    expect(screen.getByTestId('lokee-version-compare').getAttribute('data-embedded')).toBe('true');
+    expect(loadVersionGraph).not.toHaveBeenCalled();
   });
 
   it('loads the graph only after the Graph toggle is pressed', async () => {

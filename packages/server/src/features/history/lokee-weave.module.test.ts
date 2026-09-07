@@ -127,6 +127,21 @@ describe('capture', () => {
     expect(delta).toEqual([{ object_key: 'column:CUSTOMER.EMAIL', operation: 'MODIFY' }]);
   });
 
+  it('lists + / ~ / − briefing counts in one grouped query, not per version', async () => {
+    const { weave } = await freshStore();
+    const v1 = await weave.capture(USER, { ...IDENTITY, tables: [CUSTOMER], source: 'manual' });
+    const widened = table('customer', [
+      ['id', 'integer', false],
+      ['email', 'varchar(255)'],
+    ]);
+    const v2 = await weave.capture(USER, { ...IDENTITY, tables: [widened], source: 'migrate' });
+    const listed = await weave.listVersions(USER, v1.databaseId);
+    const first = listed.find((v) => v.id === v1.versionId);
+    const second = listed.find((v) => v.id === v2.versionId);
+    expect(first).toMatchObject({ added: 3, modified: 0, removed: 0 });
+    expect(second).toMatchObject({ added: 0, modified: 1, removed: 0 });
+  });
+
   it('stores one body per distinct hash, shared across versions', async () => {
     const { weave, meta } = await freshStore();
     await weave.capture(USER, { ...IDENTITY, tables: [CUSTOMER], source: 'manual' });
