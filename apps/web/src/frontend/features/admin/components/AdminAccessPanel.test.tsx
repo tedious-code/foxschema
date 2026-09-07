@@ -84,7 +84,7 @@ describe('AdminAccessPanel', () => {
     expect(screen.getByTestId('admin-access-layers').textContent).toMatch(/two layers/i);
     expect(screen.getByTestId('admin-tab-users').textContent).toMatch(/app users/i);
     expect(screen.getByTestId('admin-tab-roles').textContent).toMatch(/app roles/i);
-    expect(screen.getByTestId('admin-tab-database').textContent).toMatch(/database/i);
+    expect(screen.getByTestId('admin-tab-users-roles').textContent).toMatch(/users and roles/i);
     expect(screen.getByTestId('admin-single-user-hint').textContent).toMatch(/single-user/i);
     expect((screen.getByTestId(`admin-user-role-${localUser.id}`) as HTMLSelectElement).disabled).toBe(
       true
@@ -103,7 +103,7 @@ describe('AdminAccessPanel', () => {
     const save = screen.getByTestId('admin-save-role-perms') as HTMLButtonElement;
     expect(save).toBeTruthy();
     expect(save.disabled).toBe(true);
-    expect(screen.getByTestId('admin-roles-hint').textContent).toMatch(/database tab/i);
+    expect(screen.getByTestId('admin-roles-hint').textContent).toMatch(/access → permission/i);
 
     fireEvent.click(screen.getByTestId('admin-edit-role-owner'));
     // Groups start collapsed, so the checkboxes are not in the DOM until the
@@ -208,10 +208,10 @@ describe('AdminAccessPanel', () => {
     expect(screen.getByTestId('admin-access-denied').textContent).toMatch(/use utilities/i);
     expect(screen.queryByTestId('admin-tab-users')).toBeNull();
     expect(screen.queryByTestId('admin-tab-roles')).toBeNull();
-    expect(screen.queryByTestId('admin-tab-database')).toBeNull();
+    expect(screen.queryByTestId('admin-tab-users-roles')).toBeNull();
   });
 
-  it('shows the Database tab for an editor (live GRANT/REVOKE)', async () => {
+  it('shows Users and Roles (access report) for an editor with utilities', async () => {
     useAuthStore.setState({
       user: {
         id: 'u-editor',
@@ -223,11 +223,12 @@ describe('AdminAccessPanel', () => {
       localSingleUser: false,
     });
     render(<AdminAccessPanel open onClose={() => undefined} />);
-    await waitFor(() => expect(screen.getByTestId('admin-tab-database')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('admin-tab-users-roles')).toBeTruthy());
     expect(screen.queryByTestId('admin-tab-users')).toBeNull();
     expect(screen.queryByTestId('admin-tab-roles')).toBeNull();
-    expect(screen.getByTestId('db-access-embedded')).toBeTruthy();
-    expect(screen.getByTestId('db-access-connection')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('admin-tab-users-roles'));
+    expect(screen.getByTestId('admin-users-roles-panel')).toBeTruthy();
+    expect(screen.getByTestId('access-report')).toBeTruthy();
   });
 
   it('defaults to Roles when the user can configure roles but not users', async () => {

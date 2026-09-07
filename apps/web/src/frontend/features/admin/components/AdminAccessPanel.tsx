@@ -7,7 +7,7 @@
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, ChevronRight, KeyRound, Loader2, Shield, Users, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, KeyRound, Loader2, Shield, UserCog, Users, X } from 'lucide-react';
 import {
   apiAdminListUsers,
   apiAdminRolePermissions,
@@ -32,9 +32,9 @@ import {
 } from '@/shared/lib/permissions';
 import { useAuthStore } from '@/app/store/authStore';
 import { PasswordInput } from '@/shared/components/PasswordInput';
-import { DatabaseAccessModal } from '@/features/utilities/components/DatabaseAccessModal';
+import { AccessReport } from '@/features/access/components/AccessReport';
 
-type Tab = 'users' | 'roles' | 'database';
+type Tab = 'users' | 'roles' | 'users-roles';
 
 type AdminUserRow = {
   id: string;
@@ -54,7 +54,7 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
   const localSingleUser = useAuthStore((s) => s.localSingleUser);
   const canUsers = useAuthStore((s) => s.can('admin.users'));
   const canRoles = useAuthStore((s) => s.can('admin.roles'));
-  const canDatabase = useAuthStore((s) => s.can('utility.access'));
+  const canUsersRoles = useAuthStore((s) => s.can('utility.access'));
   const [tab, setTab] = useState<Tab>('users');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -103,17 +103,17 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
     if (!open) return;
     if (tab === 'users' && !canUsers) {
       if (canRoles) setTab('roles');
-      else if (canDatabase) setTab('database');
+      else if (canUsersRoles) setTab('users-roles');
     }
     if (tab === 'roles' && !canRoles) {
       if (canUsers) setTab('users');
-      else if (canDatabase) setTab('database');
+      else if (canUsersRoles) setTab('users-roles');
     }
-    if (tab === 'database' && !canDatabase) {
+    if (tab === 'users-roles' && !canUsersRoles) {
       if (canUsers) setTab('users');
       else if (canRoles) setTab('roles');
     }
-  }, [open, tab, canUsers, canRoles, canDatabase]);
+  }, [open, tab, canUsers, canRoles, canUsersRoles]);
 
   useEffect(() => {
     if (!open || !me?.id) return;
@@ -291,8 +291,8 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
           className="px-4 py-1.5 text-[11px] text-slate-500 border-b border-slate-800 shrink-0"
         >
           Two layers: <span className="text-slate-300">App users / App roles</span> control who may
-          use FoxSchema. <span className="text-slate-300">Database</span> inspects users, groups, and
-          GRANT / REVOKE on a connected server.
+          use FoxSchema. <span className="text-slate-300">Users and Roles</span> reports who can
+          access what on a connected database.
         </p>
 
         <div className="flex gap-1 px-4 pt-3 shrink-0">
@@ -321,16 +321,17 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
               App roles
             </button>
           )}
-          {canDatabase && (
+          {canUsersRoles && (
             <button
               type="button"
-              data-testid="admin-tab-database"
-              onClick={() => setTab('database')}
+              data-testid="admin-tab-users-roles"
+              onClick={() => setTab('users-roles')}
               className={`px-3 py-1.5 text-xs font-semibold rounded-md ${
-                tab === 'database' ? 'bg-slate-800 text-slate-100' : 'text-slate-400'
+                tab === 'users-roles' ? 'bg-slate-800 text-slate-100' : 'text-slate-400'
               }`}
             >
-              Database
+              <UserCog className="w-3.5 h-3.5 inline mr-1" />
+              Users and Roles
             </button>
           )}
         </div>
@@ -348,13 +349,13 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
             </div>
           )}
 
-          {!canUsers && !canRoles && !canDatabase && (
+          {!canUsers && !canRoles && !canUsersRoles && (
             <p
               data-testid="admin-access-denied"
               className="text-[11px] text-slate-400 leading-snug rounded-md border border-slate-800 bg-slate-950/50 px-3 py-2"
             >
-              Your role cannot manage FoxSchema users, configure roles, or inspect database
-              privileges. An admin must grant <span className="text-slate-200">Manage users</span>,{' '}
+              Your role cannot manage FoxSchema users, configure roles, or view the access report. An
+              admin must grant <span className="text-slate-200">Manage users</span>,{' '}
               <span className="text-slate-200">Configure roles</span>, or{' '}
               <span className="text-slate-200">Use utilities</span> in Access control.
             </p>
@@ -371,15 +372,15 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
                   — role and Active cannot be changed. Expand a user to see FoxSchema permissions
                   (from their app role). Open <span className="text-slate-200">App roles</span> to
                   edit what editor / owner / viewer may do, including{' '}
-                  <span className="text-slate-200">Grant privileges</span> for the Database tab
+                  <span className="text-slate-200">Grant privileges</span> for Access → Permission
                   (applied when you enable multi-user login).
                 </p>
               )}
               {!localSingleUser && (
                 <p className="text-[11px] text-slate-400 leading-snug">
                   FoxSchema logins grouped by app role. Expand a row to see that role’s permissions —
-                  they are not per-user overrides. Database users, groups, and GRANT / REVOKE live on
-                  the Database tab.
+                  they are not per-user overrides. Who can access what on the database is on Users
+                  and Roles; GRANT / REVOKE is under Access → Permission.
                 </p>
               )}
             <div data-testid="admin-user-groups" className="space-y-3">
@@ -523,8 +524,8 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
                                 )}
                                 <p className="text-[11px] text-slate-500">
                                   FoxSchema permissions come from the {group.label} app role. Change
-                                  them on App roles. Database GRANT / REVOKE is on the Database tab
-                                  and needs Grant privileges.
+                                  them on App roles. Database GRANT / REVOKE is under Access →
+                                  Permission (needs Grant privileges).
                                 </p>
                               </div>
                             )}
@@ -565,7 +566,7 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
               >
                 {readOnlyRole
                   ? 'Admin always has every FoxSchema permission, including database GRANT/REVOKE. This role cannot be reduced — pick editor, owner, or viewer to edit grants, then Save.'
-                  : `Check boxes for ${editRole}, then Save ${editRole} permissions. Grant privileges (SQL Editor) is what unlocks GRANT / REVOKE on the Database tab.`}
+                  : `Check boxes for ${editRole}, then Save ${editRole} permissions. Grant privileges (SQL Editor) unlocks GRANT / REVOKE under Access → Permission.`}
               </p>
 
               <div className="flex items-center justify-between gap-2">
@@ -625,7 +626,7 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
                   </button>
                   {open && group === 'SQL Editor' && !readOnlyRole && (
                     <p className="text-[11px] text-slate-500 leading-snug">
-                      Grant privileges is the FoxSchema gate for the Database tab’s GRANT / REVOKE.
+                      Grant privileges is the FoxSchema gate for Access → Permission GRANT / REVOKE.
                       Owner has it by default; editor does not.
                     </p>
                   )}
@@ -660,12 +661,13 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
             </div>
           )}
 
-          {tab === 'database' && canDatabase && (
-            <DatabaseAccessModal
-              open
-              embedded
-              onOpenAppRoles={canRoles ? () => setTab('roles') : undefined}
-            />
+          {tab === 'users-roles' && canUsersRoles && (
+            <div
+              data-testid="admin-users-roles-panel"
+              className="flex flex-col min-h-[24rem] -mx-4 -my-3"
+            >
+              <AccessReport embedded />
+            </div>
           )}
         </div>
 

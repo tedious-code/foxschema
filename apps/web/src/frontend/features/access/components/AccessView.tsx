@@ -3,79 +3,77 @@
  * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
  * SPDX-License-Identifier: Apache-2.0
  *
- * Database Access Assistant — accounts and permissions as SQL to review.
+ * Database Access Assistant — horizontal capsule menu (same pattern as
+ * Workspace / Schema Sync sub-nav).
  *
- * Fox Schema builds and explains SQL; it does not create accounts, hold
- * credentials, or apply access changes. The database stays the source of truth.
+ * Menu: User Management · Permission · Diff.
+ * Permission uses the live dialect-aware panel (same as Database Access).
+ * Access report (Users and Roles) lives under Access control.
  */
 import React, { useState } from 'react';
-import { ShieldCheck, FileBarChart, UserCog, GitCompare } from 'lucide-react';
-import { PermissionBuilder } from './PermissionBuilder';
+import { UserCog, GitCompare, ShieldCheck } from 'lucide-react';
 import { PermissionDiff } from './PermissionDiff';
-import { AccessReport } from './AccessReport';
 import { UserManagement } from './UserManagement';
-import type { AccessPrincipalDraft } from '../lib/access-draft';
+import { AccessPermissionPanel } from './AccessPermissionPanel';
 
-export type AccessTab = 'users' | 'builder' | 'diff' | 'report';
+export type AccessSection = 'users' | 'permission' | 'diff';
 
-// Ordered the way the work runs: make an account, give it access, then review
-// everything. Granting and checking what a principal already has were two tabs
-// asking for the same connection and name; they are one screen now.
-const TABS: { id: AccessTab; label: string; icon: React.ElementType; ready: boolean }[] = [
-  { id: 'users', label: 'User Management', icon: UserCog, ready: true },
-  { id: 'builder', label: 'Permissions', icon: ShieldCheck, ready: true },
-  { id: 'diff', label: 'Permission Diff', icon: GitCompare, ready: true },
-  { id: 'report', label: 'Access Report', icon: FileBarChart, ready: true },
+const SECTIONS: {
+  id: AccessSection;
+  label: string;
+  icon: React.ElementType;
+}[] = [
+  { id: 'users', label: 'User Management', icon: UserCog },
+  { id: 'permission', label: 'Permission', icon: ShieldCheck },
+  { id: 'diff', label: 'Diff', icon: GitCompare },
 ];
 
 export const AccessView: React.FC = () => {
-  const [tab, setTab] = useState<AccessTab>('users');
-  const [builderDraft, setBuilderDraft] = useState<AccessPrincipalDraft | null>(null);
+  // Default Users so AccessView tests that expect user-management on paint keep
+  // passing.
+  const [section, setSection] = useState<AccessSection>('users');
 
-  const openBuilderWith = (draft: AccessPrincipalDraft) => {
-    setBuilderDraft(draft);
-    setTab('builder');
+  const openPermission = () => {
+    setSection('permission');
   };
 
   return (
     <div className="flex-1 flex flex-col min-h-0" data-testid="access-view">
-      <div className="flex items-center gap-1 border-b border-slate-800 px-4 py-2 shrink-0">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            data-testid={`access-tab-${t.id}`}
-            onClick={() => setTab(t.id)}
-            className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition ${
-              tab === t.id
-                ? 'bg-slate-800 text-slate-100'
-                : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
-            }`}
-          >
-            <t.icon className="w-3.5 h-3.5" />
-            {t.label}
-            {!t.ready && (
-              <span className="ml-1 rounded bg-slate-800 px-1 py-0.5 text-[9px] font-bold uppercase text-slate-500">
-                Next
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
+      <nav
+        className="shrink-0 mx-3 mt-2 mb-0 flex flex-wrap items-center gap-1.5 rounded-md border border-slate-700 bg-slate-950/50 p-0.5"
+        aria-label="Access"
+        data-testid="access-menu"
+      >
+        <span className="px-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+          Access
+        </span>
+        {SECTIONS.map((s) => {
+          const active = section === s.id;
+          return (
+            <button
+              key={s.id}
+              type="button"
+              data-testid={`access-tab-${s.id}`}
+              aria-current={active ? 'page' : undefined}
+              onClick={() => setSection(s.id)}
+              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
+                active
+                  ? 'bg-slate-800 text-slate-100'
+                  : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+              }`}
+            >
+              <s.icon className="w-3.5 h-3.5 shrink-0" />
+              {s.label}
+            </button>
+          );
+        })}
+      </nav>
 
-      {tab === 'users' && <UserManagement onGrantAccess={openBuilderWith} />}
-      {tab === 'builder' && (
-        <PermissionBuilder
-          key={
-            builderDraft
-              ? `${builderDraft.connectionId}:${builderDraft.principalType}:${builderDraft.principalName}`
-              : 'builder'
-          }
-          initialDraft={builderDraft}
-        />
-      )}
-      {tab === 'diff' && <PermissionDiff />}
-      {tab === 'report' && <AccessReport />}
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+        {section === 'users' && <UserManagement onGrantAccess={(_draft) => openPermission()} />}
+        {section === 'permission' && <AccessPermissionPanel />}
+        {section === 'diff' && <PermissionDiff />}
+      </div>
     </div>
   );
 };

@@ -97,10 +97,8 @@ describe('AccessView — User Management list + Builder handoff', () => {
 
     fireEvent.click(next);
 
-    expect(screen.getByTestId('permission-builder')).toBeTruthy();
-    expect(screen.getByTestId('access-draft-banner').textContent).toMatch(/analyst/);
-    expect((screen.getByTestId('access-principal-name') as HTMLInputElement).value).toBe('analyst');
-    expect((screen.getByTestId('access-connection') as HTMLSelectElement).value).toBe('c1');
+    expect(screen.getByTestId('access-permission-panel')).toBeTruthy();
+    expect(screen.getByTestId('access-tab-permission').getAttribute('aria-current')).toBe('page');
   });
 
   it('previews DROP SQL when dropping a listed user', async () => {
@@ -179,7 +177,7 @@ describe('AccessView — User Management list + Builder handoff', () => {
     const next = screen.getByTestId('user-grant-next') as HTMLButtonElement;
     expect(next.disabled).toBe(false);
     fireEvent.click(next);
-    expect((screen.getByTestId('access-principal-name') as HTMLInputElement).value).toBe('REPORT_USER');
+    expect(screen.getByTestId('access-permission-panel')).toBeTruthy();
   });
 
   it('previews OS password and disable steps when editing a Db2 user', async () => {
@@ -224,9 +222,8 @@ describe('AccessView — User Management list + Builder handoff', () => {
     fireEvent.click(screen.getByTestId('user-row-alice'));
     fireEvent.click(screen.getByTestId('user-grant-selected'));
 
-    expect(screen.getByTestId('permission-builder')).toBeTruthy();
-    expect(screen.getByTestId('access-draft-banner').textContent).toMatch(/alice/);
-    expect((screen.getByTestId('access-principal-name') as HTMLInputElement).value).toBe('alice');
+    expect(screen.getByTestId('access-permission-panel')).toBeTruthy();
+    expect(screen.getByTestId('access-tab-permission').getAttribute('aria-current')).toBe('page');
   });
 
   it('warns on Drop when the account has privileges or role membership', async () => {
@@ -395,100 +392,6 @@ describe('AccessView — letting a new account in', () => {
     await waitFor(() => expect(screen.getByTestId('user-access-grants')).toBeTruthy());
     expect(screen.queryByTestId('user-grant-schemas')).toBeNull();
     expect(screen.getByTestId('user-grant-databases')).toBeTruthy();
-  });
-});
-
-describe('AccessView — Permission Builder schema catalog race', () => {
-  beforeEach(() => {
-    Object.assign(navigator, {
-      clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
-    });
-    fetchDbAccess.mockReset();
-    fetchSchemaList.mockReset();
-    fetchDbAccess.mockResolvedValue({
-      dialect: 'mysql',
-      schema: '',
-      mode: 'native',
-      support: { mode: 'native', query: true, grant: true, hint: '' },
-      principals: [],
-      privileges: [],
-    });
-  });
-
-  it('keeps the form shut until a connection is chosen', () => {
-    // Everything below the picker is an answer about one database: which
-    // privileges the engine can express, which schemas exist, what the SQL
-    // reads like. The form used to render enabled and empty, so a reader could
-    // tick their way through it and reach a preview whose only content was
-    // that no connection had been picked.
-    render(<AccessView />);
-    fireEvent.click(screen.getByTestId('access-tab-builder'));
-
-    expect(screen.getByTestId('access-needs-connection')).toBeTruthy();
-    expect(screen.queryByTestId('access-principal-name')).toBeNull();
-
-    fireEvent.change(screen.getByTestId('access-connection'), { target: { value: 'c2' } });
-
-    expect(screen.queryByTestId('access-needs-connection')).toBeNull();
-    expect(screen.getByTestId('access-principal-name')).toBeTruthy();
-  });
-
-  /**
-   * A slow schema list must not drive "every database" after a switch.
-   *
-   * Principals already discarded superseded responses; schemas did not. On
-   * MySQL the schema list *is* the database list, so a Postgres response that
-   * landed late turned `public` / `reporting` into GRANT targets — and when
-   * those names also exist on the MySQL server, the copied SQL grants on the
-   * wrong databases.
-   */
-  it('ignores a slow schema list that lands after the connection changed', async () => {
-    fetchSchemaList.mockImplementation(async (ref: { connectionId: string }) => {
-      if (ref.connectionId === 'c1') {
-        await new Promise((r) => setTimeout(r, 150));
-        return ['public', 'reporting'];
-      }
-      return ['shop', 'inventory'];
-    });
-
-    render(<AccessView />);
-    fireEvent.click(screen.getByTestId('access-tab-builder'));
-
-    fireEvent.change(screen.getByTestId('access-connection'), { target: { value: 'c1' } });
-    await waitFor(() => expect(fetchSchemaList).toHaveBeenCalled());
-
-    // Move on while Postgres schemas are still in flight.
-    fireEvent.change(screen.getByTestId('access-connection'), { target: { value: 'c2' } });
-    await waitFor(() =>
-      expect(fetchSchemaList.mock.calls.some((c) => c[0]?.connectionId === 'c2')).toBe(true)
-    );
-
-    fireEvent.change(screen.getByTestId('access-principal-name'), {
-      target: { value: 'report_user' },
-    });
-    fireEvent.click(screen.getByTestId('access-scope-database'));
-    fireEvent.click(screen.getByTestId('access-every-database'));
-
-    // The SQL moved into a dialog so the object grid can have the width; open
-    // it before reading. What this test guards is unchanged — which schema
-    // names reach the GRANT.
-    fireEvent.click(screen.getByTestId('access-preview-sql'));
-
-    await waitFor(() => {
-      const sql = screen.getByTestId('access-sql').textContent ?? '';
-      expect(sql).toMatch(/shop/);
-      expect(sql).toMatch(/inventory/);
-    });
-
-    // Wait past the Postgres delay so its schemas have certainly arrived.
-    await new Promise((r) => setTimeout(r, 400));
-
-    const sql = screen.getByTestId('access-sql').textContent ?? '';
-    expect(sql, 'stale Postgres schema names must not become MySQL GRANT targets').not.toMatch(
-      /public|reporting/
-    );
-    expect(sql).toMatch(/shop/);
-    expect(sql).toMatch(/inventory/);
   });
 });
 
