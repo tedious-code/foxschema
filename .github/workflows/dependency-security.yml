@@ -24,7 +24,9 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: 22
-          # No cache: npm — package-lock.json is gitignored in this project.
+          # package-lock.json is gitignored here; setup-node@v5 defaults
+          # package-manager-cache to true and fails outright without a lockfile.
+          package-manager-cache: false
 
       # Generate lockfile on the fly so npm audit has a full dependency graph.
       # Consider committing package-lock.json for faster, deterministic CI.
@@ -71,6 +73,9 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: 22
+          # package-lock.json is gitignored here; setup-node@v5 defaults
+          # package-manager-cache to true and fails outright without a lockfile.
+          package-manager-cache: false
 
       - name: Install dependencies
         run: npm install --ignore-scripts
@@ -94,6 +99,9 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: 22
+          # package-lock.json is gitignored here; setup-node@v5 defaults
+          # package-manager-cache to true and fails outright without a lockfile.
+          package-manager-cache: false
 
       - name: Install dependencies (ignore-scripts)
         run: npm install --ignore-scripts

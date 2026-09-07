@@ -30,6 +30,9 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+          # package-lock.json is gitignored here; setup-node@v5 defaults
+          # package-manager-cache to true and fails outright without a lockfile.
+          package-manager-cache: false
       - run: npm install --ignore-scripts
       # apps/web's tsconfig covers the frontend, the backend, and — through the
       # workspace path aliases — packages/sql, so this is the whole surface.
@@ -43,6 +46,9 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+          # package-lock.json is gitignored here; setup-node@v5 defaults
+          # package-manager-cache to true and fails outright without a lockfile.
+          package-manager-cache: false
       - run: npm install --ignore-scripts
       - run: npx vitest run
 
@@ -54,6 +60,9 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+          # package-lock.json is gitignored here; setup-node@v5 defaults
+          # package-manager-cache to true and fails outright without a lockfile.
+          package-manager-cache: false
       - run: npm install --ignore-scripts
       # Typecheck and tests both passed while `vite build` was broken for
       # months: a dependency's `exports` map changed and only the bundler's
@@ -69,5 +78,8 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+          # package-lock.json is gitignored here; setup-node@v5 defaults
+          # package-manager-cache to true and fails outright without a lockfile.
+          package-manager-cache: false
       - run: npm install --ignore-scripts
       - run: npx eslint .

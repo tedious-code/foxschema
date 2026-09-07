@@ -32,6 +32,9 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: 22
+          # package-lock.json is gitignored here; setup-node@v5 defaults
+          # package-manager-cache to true and fails outright without a lockfile.
+          package-manager-cache: false
 
       # Never run dependency lifecycle scripts in this job.
       - name: Install dependencies (ignore-scripts)
