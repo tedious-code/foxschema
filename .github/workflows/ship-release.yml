@@ -66,7 +66,11 @@ jobs:
           # package-lock.json is gitignored here; setup-node@v5 defaults
           # package-manager-cache to true and fails outright without a lockfile.
           package-manager-cache: false
-          registry-url: https://registry.npmjs.org
+          # No registry-url: it writes an .npmrc with
+          # `_authToken=${NODE_AUTH_TOKEN}` and exports the literal placeholder
+          # XXXXX-XXXXX-XXXXX-XXXXX. npm then sends that as a bearer token and
+          # never reaches for OIDC, so Trusted Publishing cannot engage.
+          # registry.npmjs.org is the default anyway.
 
       # npm 10 (what Node 22 ships) cannot resolve this workspace graph
       # without a lockfile — arborist dies in #loadPeerSet on vitest with
