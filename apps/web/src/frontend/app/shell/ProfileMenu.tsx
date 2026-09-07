@@ -14,6 +14,7 @@ const SettingsPanel = lazy(() =>
 
 export function ProfileMenu(): React.ReactElement | null {
   const { user, logout, localSingleUser } = useAuthStore();
+  const canAdminAccess = useAuthStore((s) => s.can('admin.users') || s.can('admin.roles'));
   const [open, setOpen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
@@ -112,6 +113,7 @@ export function ProfileMenu(): React.ReactElement | null {
             <Palette className="w-4 h-4" /> User Preference
           </button>
 
+          {canAdminAccess && (
           <button
             type="button"
             data-testid="profile-access-control"
@@ -124,6 +126,7 @@ export function ProfileMenu(): React.ReactElement | null {
           >
             <Shield className="w-4 h-4" /> Access control
           </button>
+          )}
 
           <a
             href="https://foxschema.com"

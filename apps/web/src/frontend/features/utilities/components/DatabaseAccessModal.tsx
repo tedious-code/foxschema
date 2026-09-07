@@ -29,7 +29,7 @@ import {
 } from '@foxschema/sql';
 import { PERMISSION_META } from '@foxschema/shared';
 import { PasswordInput } from '@/shared/components/PasswordInput';
-import { fetchDbAccess } from '@/shared/api/schemaApi';
+import { fetchDbAccess, invalidateDbAccessCache } from '@/shared/api/schemaApi';
 import { executeSql } from '@/shared/api/sqlApi';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
@@ -196,6 +196,7 @@ export const DatabaseAccessModal: React.FC<Props> = ({
         setError(failed.map((r) => ('error' in r ? r.error : 'failed')).join(' · '));
       } else {
         setStatus(kind === 'grant' ? 'Granted.' : 'Revoked.');
+        invalidateDbAccessCache(connectionId);
         await load();
       }
     } catch (err: unknown) {

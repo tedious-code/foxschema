@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { useUiStore } from '@/app/store/uiStore';
-import { ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, CheckCircle2, Zap, Settings, KeyRound, History, X, Layers, GitCompareArrows, Terminal, Camera, ShieldCheck } from 'lucide-react';
+import { ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, CheckCircle2, Zap, Settings, KeyRound, History, X, Layers, Camera } from 'lucide-react';
 import { Brand } from './Brand';
 // Support both default and named exports (avoids blank-page Vite/HMR mismatches).
 import ProfileMenuDefault, { ProfileMenu as ProfileMenuNamed } from './ProfileMenu';
@@ -21,6 +21,7 @@ import { getSessionPassword, setSessionPassword } from '@/shared/lib/sessionPass
 import { HistoryCompareBar } from '@/features/lokee-weave';
 import { BrowseBar } from '@/features/object-detail';
 import { ActivityIndicator } from './ActivityIndicator';
+import { diffBriefing } from '@/features/schema-diff/lib/diffBriefing';
 
 const ProfileMenu = ProfileMenuNamed ?? ProfileMenuDefault;
 
@@ -59,7 +60,7 @@ export const TopToolbar: React.FC = () => {
   const [showCredentials, setShowCredentials] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [capturingSnapshot, setCapturingSnapshot] = useState(false);
-  const { activeView, setActiveView, syncPane, setSyncPane, bumpLokeeEpoch } = useUiStore();
+  const { activeView, syncPane, setSyncPane, bumpLokeeEpoch } = useUiStore();
   const canSchemaBrowse = useAuthStore((s) => s.can('schema.browse'));
   const canSchemaCompare = useAuthStore((s) => s.can('schema.compare'));
 
@@ -78,8 +79,6 @@ export const TopToolbar: React.FC = () => {
    * way back and no way to change the connection that blocked them.
    */
   const compareBlockedBy = schemaCompareBlocker(sourceConfig.dialect, targetConfig.dialect);
-
-  const canEditorAccess = useAuthStore((s) => s.can('editor.access'));
 
   // A saved connection created without a stored password ("Save password" left
   // unticked) has no password to apply automatically — selecting it from either
@@ -184,6 +183,8 @@ export const TopToolbar: React.FC = () => {
       ? (compareResult?.tables.length ?? 0)
       : (compareResult?.tables.filter((t) => t.objectType === type).length ?? 0);
 
+  const briefing = diffBriefing(compareResult?.tables);
+
   const objectScopeOptions: { type: DbObjectType; label: string }[] = [
     { type: 'TABLE', label: 'Tables' },
     { type: 'MQT', label: 'MQTs' },
@@ -197,11 +198,10 @@ export const TopToolbar: React.FC = () => {
   ];
 
   return (
-    <header data-testid="toolbar" className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md px-4 py-2 flex flex-col gap-2">
-      {/* Brand + utilities. Workspace tabs sit on the next row so Lokee Weave
-          cannot wrap under the logo and disappear in a narrow Cursor preview. */}
+    <header data-testid="toolbar" className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md px-4 py-1.5 flex flex-col gap-2">
+      {/* One chrome row: brand is on the rail; this bar is actions only. */}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <Brand logoSize={34} textClassName="text-xl font-bold" />
+        <Brand logoSize={28} textClassName="text-lg font-bold" subtitle={false} />
 
         <div className="flex flex-wrap items-center gap-2">
           {/* Only renders while something is actually running. */}
@@ -218,7 +218,7 @@ export const TopToolbar: React.FC = () => {
             onClick={() => setShowHistory(true)}
             className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-slate-300 hover:text-slate-100 border border-slate-700 hover:border-slate-500 rounded-md transition cursor-pointer"
           >
-            <History className="w-3.5 h-3.5" /> History
+            <History className="w-3.5 h-3.5" /> Applies
           </button>
           {compareResult && activeView === 'sync' && syncPane === 'compare' && (
             <button
@@ -233,57 +233,6 @@ export const TopToolbar: React.FC = () => {
           </div>
         </div>
       </div>
-
-      {/* Full-width workspace switcher — hidden on History so the version
-          Original → Target bar can reuse Compare's mental model. */}
-      {(canSchemaBrowse || canSchemaCompare || canEditorAccess) &&
-        !(activeView === 'sync' && syncPane === 'history') && (
-        <div
-          data-testid="workspace-switcher"
-          className="flex flex-wrap items-center gap-1.5 rounded-md border border-slate-700 bg-slate-950/50 p-0.5"
-        >
-          <span className="px-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-            Workspace
-          </span>
-          {(canSchemaBrowse || canSchemaCompare) && (
-            <button
-              data-testid="view-sync-btn"
-              onClick={() => setActiveView('sync')}
-              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
-                activeView === 'sync'
-                  ? 'bg-slate-800 text-slate-100'
-                  : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
-              }`}
-            >
-              <GitCompareArrows className="w-3.5 h-3.5" /> Schema Sync
-            </button>
-          )}
-          <button
-            data-testid="view-access-btn"
-            onClick={() => setActiveView('access')}
-            className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
-              activeView === 'access'
-                ? 'bg-slate-800 text-slate-100'
-                : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
-            }`}
-          >
-            <ShieldCheck className="w-3.5 h-3.5" /> Access
-          </button>
-          {canEditorAccess && (
-            <button
-              data-testid="view-sql-editor-btn"
-              onClick={() => setActiveView('sqlEditor')}
-              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
-                activeView === 'sqlEditor'
-                  ? 'bg-slate-800 text-slate-100'
-                  : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
-              }`}
-            >
-              <Terminal className="w-3.5 h-3.5" /> SQL Editor
-            </button>
-          )}
-        </div>
-      )}
 
       {/* Sync-only controls — the SQL Editor view brings its own left panel. */}
       {activeView === 'sync' && (
@@ -323,19 +272,6 @@ export const TopToolbar: React.FC = () => {
           </button>
           <button
             type="button"
-            data-testid="sync-pane-history-btn"
-            onClick={() => setSyncPane('history')}
-            title="Every version of this schema, and what changed between them. Snapshots automatically when you migrate."
-            className={`rounded px-2.5 py-1 text-xs font-semibold transition ${
-              syncPane === 'history'
-                ? 'bg-violet-700/80 text-violet-50 ring-1 ring-violet-400/40'
-                : 'text-violet-300 hover:bg-violet-950/50 hover:text-violet-100'
-            }`}
-          >
-            History
-          </button>
-          <button
-            type="button"
             data-testid="lokee-snapshot-target-btn"
             disabled={!selectedTargetConnectionId || capturingSnapshot}
             onClick={() => void snapshotTarget()}
@@ -347,12 +283,6 @@ export const TopToolbar: React.FC = () => {
           </button>
         </div>
       )}
-      {/* Database Connection Control Grid.
-          Hidden in History: that pane compares two points in this database's
-          own recorded past, so a live Original/Target pair says nothing about
-          what is on screen — History gets the version bar in its place, which
-          is the same Original → Target gesture over stored versions. */}
-      {syncPane === 'history' && <HistoryCompareBar />}
       {syncPane === 'browse' && <BrowseBar />}
       {syncPane === 'compare' && (
       <div className="grid grid-cols-1 xl:grid-cols-11 gap-3 items-stretch">
@@ -610,6 +540,18 @@ export const TopToolbar: React.FC = () => {
             </span>
           )}
 
+          {compareResult && (
+            <div
+              data-testid="diff-briefing"
+              className="flex items-center gap-1.5 text-[11px] font-bold"
+              title="Object-level + / ~ / − from the last compare — no extra query."
+            >
+              <span className="text-emerald-400">+{briefing.added}</span>
+              <span className="text-amber-400">~{briefing.modified}</span>
+              <span className="text-rose-400">−{briefing.removed}</span>
+            </div>
+          )}
+
           <button
             data-testid="compare-btn"
             onClick={runSchemaComparison}
@@ -634,6 +576,27 @@ export const TopToolbar: React.FC = () => {
         </div>
       </div>
       )}
+        </>
+      )}
+
+      {activeView === 'snapshots' && (
+        <>
+          {canSchemaBrowse && (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                data-testid="lokee-snapshot-target-btn"
+                disabled={!selectedTargetConnectionId || capturingSnapshot}
+                onClick={() => void snapshotTarget()}
+                title="Take an initial snapshot of the Target schema. Later migrates snapshot automatically."
+                className="inline-flex items-center gap-1.5 rounded border border-cyan-500/40 bg-cyan-950/40 px-2.5 py-1 text-[11px] font-bold text-cyan-100 hover:bg-cyan-900/50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Camera className="h-3.5 w-3.5" />
+                {capturingSnapshot ? 'Snapshotting…' : 'Snapshot target'}
+              </button>
+            </div>
+          )}
+          <HistoryCompareBar />
         </>
       )}
 

@@ -16,14 +16,17 @@ export type SidebarSectionId =
   | 'schema';
 
 const DEFAULT_OPEN: Record<SidebarSectionId, boolean> = {
-  destinations: true,
-  bookmarks: true,
-  variables: true,
-  vault: true,
-  utilities: true,
-  files: true,
+  destinations: false,
+  bookmarks: false,
+  variables: false,
+  vault: false,
+  utilities: false,
+  files: false,
   schema: true,
 };
+
+/** One-time: close every section except Schema so first paint is one panel. */
+const EXCLUSIVE_OPEN_MIGRATION_KEY = 'foxschema-sql-sidebar-exclusive-v1';
 
 const DEFAULT_HEIGHTS: Record<SidebarSectionId, number> = {
   destinations: 140,
@@ -109,6 +112,25 @@ export function moveSidebarSection(
   return next;
 }
 
+/** Open one section; close the rest. Empty sidebar is allowed (toggle the open one off). */
+export function exclusiveSidebarOpen(
+  prev: Record<SidebarSectionId, boolean>,
+  id: SidebarSectionId
+): Record<SidebarSectionId, boolean> {
+  const opening = !prev[id];
+  const next: Record<SidebarSectionId, boolean> = {
+    destinations: false,
+    bookmarks: false,
+    variables: false,
+    vault: false,
+    utilities: false,
+    files: false,
+    schema: false,
+  };
+  if (opening) next[id] = true;
+  return next;
+}
+
 /** Persist SQL-editor sidebar section order. */
 export function useSidebarSectionOrder(): [
   SidebarSectionId[],
@@ -133,17 +155,20 @@ export function useSidebarSectionOrder(): [
 
 function loadOpen(): Record<SidebarSectionId, boolean> {
   try {
+    if (!localStorage.getItem(EXCLUSIVE_OPEN_MIGRATION_KEY)) {
+      localStorage.setItem(EXCLUSIVE_OPEN_MIGRATION_KEY, '1');
+      return { ...DEFAULT_OPEN };
+    }
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...DEFAULT_OPEN };
     const parsed = JSON.parse(raw) as Partial<Record<SidebarSectionId, boolean>>;
     return {
-      destinations: parsed.destinations ?? true,
-      bookmarks: parsed.bookmarks ?? true,
-      variables: parsed.variables ?? true,
-      // Prefer `vault`; accept legacy `secrets` key from older localStorage.
-      vault: parsed.vault ?? (parsed as { secrets?: boolean }).secrets ?? true,
-      utilities: parsed.utilities ?? true,
-      files: parsed.files ?? true,
+      destinations: parsed.destinations ?? false,
+      bookmarks: parsed.bookmarks ?? false,
+      variables: parsed.variables ?? false,
+      vault: parsed.vault ?? (parsed as { secrets?: boolean }).secrets ?? false,
+      utilities: parsed.utilities ?? false,
+      files: parsed.files ?? false,
       schema: parsed.schema ?? true,
     };
   } catch {
@@ -193,7 +218,7 @@ export function useSidebarSectionsOpen(): [
   }, [open]);
 
   const toggle = (id: SidebarSectionId) => {
-    setOpen((prev) => ({ ...prev, [id]: !prev[id] }));
+    setOpen((prev) => exclusiveSidebarOpen(prev, id));
   };
 
   return [open, toggle];

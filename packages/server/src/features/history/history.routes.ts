@@ -48,30 +48,42 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
     }
   );
 
-  router.get('/lokee/databases', async (req: AppRequest, res: FastifyReply) => {
-    res.send({ databases: await deps.lokee.listDatabases((req as AuthedRequest).userId!) });
-  });
+  router.get(
+    '/lokee/databases',
+    requirePermissions('schema.browse'),
+    async (req: AppRequest, res: FastifyReply) => {
+      res.send({ databases: await deps.lokee.listDatabases((req as AuthedRequest).userId!) });
+    }
+  );
 
-  router.get('/lokee/databases/:id/versions', async (req: AppRequest, res: FastifyReply) => {
-    const versions = await deps.lokee.listVersions(
-      (req as AuthedRequest).userId!,
-      String(req.params.id),
-      Number(req.query.limit) || 100
-    );
-    res.send({ versions });
-  });
-
-  router.get('/lokee/databases/:id/graph', async (req: AppRequest, res: FastifyReply) => {
-    // The store scopes every read to the caller, so an unknown or unowned id
-    // returns an empty graph rather than another user's history.
-    res.send(
-      await deps.lokee.graph(
+  router.get(
+    '/lokee/databases/:id/versions',
+    requirePermissions('schema.browse'),
+    async (req: AppRequest, res: FastifyReply) => {
+      const versions = await deps.lokee.listVersions(
         (req as AuthedRequest).userId!,
         String(req.params.id),
-        Number(req.query.limit) || 20
-      )
-    );
-  });
+        Number(req.query.limit) || 100
+      );
+      res.send({ versions });
+    }
+  );
+
+  router.get(
+    '/lokee/databases/:id/graph',
+    requirePermissions('schema.browse'),
+    async (req: AppRequest, res: FastifyReply) => {
+      // The store scopes every read to the caller, so an unknown or unowned id
+      // returns an empty graph rather than another user's history.
+      res.send(
+        await deps.lokee.graph(
+          (req as AuthedRequest).userId!,
+          String(req.params.id),
+          Number(req.query.limit) || 20
+        )
+      );
+    }
+  );
 
   router.get(
     '/lokee/databases/:id/revert/plan',
@@ -289,7 +301,10 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
     }
   );
 
-  router.get('/lokee/databases/:id/inspect', async (req: AppRequest, res: FastifyReply) => {
+  router.get(
+    '/lokee/databases/:id/inspect',
+    requirePermissions('schema.browse'),
+    async (req: AppRequest, res: FastifyReply) => {
     const versionId = String(req.query.versionId ?? '').trim();
     const objectKey = String(req.query.objectKey ?? '').trim();
     if (!versionId || !objectKey) {
@@ -309,7 +324,10 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
     res.send(result);
   });
 
-  router.get('/lokee/databases/:id/compare', async (req: AppRequest, res: FastifyReply) => {
+  router.get(
+    '/lokee/databases/:id/compare',
+    requirePermissions('schema.browse'),
+    async (req: AppRequest, res: FastifyReply) => {
     const versionId = String(req.query.versionId ?? '').trim();
     if (!versionId) {
       sendError(res, 'invalid_input', 'versionId is required');
