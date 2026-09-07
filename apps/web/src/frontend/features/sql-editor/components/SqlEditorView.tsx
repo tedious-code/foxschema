@@ -123,6 +123,7 @@ export const SqlEditorView: React.FC = () => {
   const resultsByTab = useSqlEditorStore((s) => s.resultsByTab);
   const runningTabId = useSqlEditorStore((s) => s.runningTabId);
   const pendingWriteConfirm = useSqlEditorStore((s) => s.pendingWriteConfirm);
+  const schemaCache = useSqlEditorStore((s) => s.schemaCache);
   const setSql = useSqlEditorStore((s) => s.setSql);
   const execute = useSqlEditorStore((s) => s.execute);
   const cancelWriteConfirm = useSqlEditorStore((s) => s.cancelWriteConfirm);
@@ -134,6 +135,7 @@ export const SqlEditorView: React.FC = () => {
   const setActiveTab = useSqlEditorStore((s) => s.setActiveTab);
   const renameTab = useSqlEditorStore((s) => s.renameTab);
   const moveTab = useSqlEditorStore((s) => s.moveTab);
+  const ensureSchema = useSqlEditorStore((s) => s.ensureSchema);
   const setMaxRows = useSqlEditorStore((s) => s.setMaxRows);
   const maxRows = useSqlEditorStore((s) => s.maxRows);
   const saveBookmark = useSqlEditorStore((s) => s.saveBookmark);
@@ -231,6 +233,15 @@ export const SqlEditorView: React.FC = () => {
     });
     return () => setSqlMutator(null);
   }, []);
+
+  // Warm schema cache for checked credentials (autocomplete).
+  useEffect(() => {
+    for (const id of liveSelectedIds) {
+      if (!schemaCache[id] || schemaCache[id]?.status === 'idle') {
+        void ensureSchema(id);
+      }
+    }
+  }, [liveSelectedIds.join(','), ensureSchema]);
 
   const startEditorResize = useCallback((e: React.MouseEvent) => {
     e.preventDefault();

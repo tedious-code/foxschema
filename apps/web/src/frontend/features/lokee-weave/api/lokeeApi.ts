@@ -49,17 +49,6 @@ export async function listLokeeDatabases(): Promise<LokeeDatabase[]> {
   return body.databases ?? [];
 }
 
-export async function listLokeeVersions(
-  databaseId: string,
-  limit = 100
-): Promise<LokeeVersion[]> {
-  const body = await api.get<{ versions: LokeeVersion[] }>(
-    `/lokee/databases/${encodeURIComponent(databaseId)}/versions`,
-    { query: { limit } }
-  );
-  return body.versions ?? [];
-}
-
 /** The DTO the version graph renders. `limit` is a count of versions. */
 export async function loadVersionGraph(
   databaseId: string,
