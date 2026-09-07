@@ -98,7 +98,7 @@ describe('AccessView — User Management list + Builder handoff', () => {
     fireEvent.click(next);
 
     expect(screen.getByTestId('access-permission-panel')).toBeTruthy();
-    expect(screen.getByTestId('access-tab-permission').getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByTestId('access-tab-permission').getAttribute('aria-current')).toBe('page');
   });
 
   it('previews DROP SQL when dropping a listed user', async () => {
@@ -223,7 +223,7 @@ describe('AccessView — User Management list + Builder handoff', () => {
     fireEvent.click(screen.getByTestId('user-grant-selected'));
 
     expect(screen.getByTestId('access-permission-panel')).toBeTruthy();
-    expect(screen.getByTestId('access-tab-permission').getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByTestId('access-tab-permission').getAttribute('aria-current')).toBe('page');
   });
 
   it('warns on Drop when the account has privileges or role membership', async () => {
