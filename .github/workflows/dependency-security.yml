@@ -20,9 +20,7 @@ jobs:
     # rides on the same commit, which silently disabled every release — see
     # version-bump.yml. Skipping by message keeps the saving without that cost.
     # Guarded on event_name so pull_request runs are never skipped.
-    if: >-
-      github.event_name != 'push'
-      || !startsWith(github.event.head_commit.message, 'chore: bump version')
+    if: "${{ github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'chore: bump version') }}"
     name: npm audit
     runs-on: ubuntu-latest
     steps:
@@ -83,9 +81,7 @@ jobs:
     # rides on the same commit, which silently disabled every release — see
     # version-bump.yml. Skipping by message keeps the saving without that cost.
     # Guarded on event_name so pull_request runs are never skipped.
-    if: >-
-      github.event_name != 'push'
-      || !startsWith(github.event.head_commit.message, 'chore: bump version')
+    if: "${{ github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'chore: bump version') }}"
     name: ESLint security
     runs-on: ubuntu-latest
     steps:
@@ -123,9 +119,7 @@ jobs:
     # rides on the same commit, which silently disabled every release — see
     # version-bump.yml. Skipping by message keeps the saving without that cost.
     # Guarded on event_name so pull_request runs are never skipped.
-    if: >-
-      github.event_name != 'push'
-      || !startsWith(github.event.head_commit.message, 'chore: bump version')
+    if: "${{ github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'chore: bump version') }}"
     name: Deps backdoor / port scan
     runs-on: ubuntu-latest
     steps:

@@ -28,9 +28,7 @@ jobs:
     # rides on the same commit, which silently disabled every release — see
     # version-bump.yml. Skipping by message keeps the saving without that cost.
     # Guarded on event_name so pull_request runs are never skipped.
-    if: >-
-      github.event_name != 'push'
-      || !startsWith(github.event.head_commit.message, 'chore: bump version')
+    if: "${{ github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'chore: bump version') }}"
     name: Scan node_modules (ports / backdoors)
     runs-on: ubuntu-latest
     steps:
