@@ -43,7 +43,7 @@ git push origin v0.2.0
 That starts:
 
 - **Web Release** → Docker Hub + GHCR (`latest` and `v0.2.0`)
-- **npm Publish** → needs repo secret `NPM_TOKEN`
+- **npm Publish** → no secret; authenticates by OIDC (npm Trusted Publishing)
 
 If a tag push does not start those workflows (some bot pushes are ignored),
 use **Ship Release** (`.github/workflows/ship-release.yml`):
@@ -69,11 +69,25 @@ gh workflow run npm-publish.yml --ref v0.2.0
 # or: gh release create v0.2.0 --generate-notes
 ```
 
+### npm auth — Trusted Publishing, no secret
+
+`npm publish` authenticates over OIDC: GitHub signs a token describing this
+repository and workflow, and npm exchanges it for publish rights. Nothing is
+stored, so nothing expires or leaks, and account 2FA does not block CI the way
+it blocks a granular token.
+
+Registered once on npmjs.com (package `foxschema` → Trusted Publisher →
+repository `tedious-code/foxschema`, workflow `npm-publish.yml`). The entry
+pins the workflow **filename** — renaming `npm-publish.yml` breaks publishing
+until the entry is updated. `ship-release.yml` publishes the same package and
+needs its own entry.
+
+Requires npm >= 11.5.1; the workflows install npm 11 before publishing.
+
 ### Secrets
 
 | Secret | Used by |
 |--------|---------|
-| `NPM_TOKEN` | npm publish (Automation token, publish rights on `foxschema`) |
 | `DOCKERHUB_USERNAME` | Docker Hub push (`5nickels`) |
 | `DOCKERHUB_TOKEN` | Docker Hub access token (read/write) |
 

@@ -3,8 +3,11 @@ name: npm Publish
 # Publishes the public `foxschema` CLI package (browser launcher + line commands).
 # Trigger: version tag `v*`, GitHub Release published, or workflow_dispatch.
 #
-# Secrets:
-#   NPM_TOKEN — Automation token with publish rights to the `foxschema` package
+# Auth: npm Trusted Publishing (OIDC). No token — the registry verifies the
+# workflow identity GitHub signs for this run, so there is nothing stored to
+# expire, leak, or rotate. Registered on npmjs.com against this repository and
+# this workflow file; renaming either one breaks publishing until the trusted
+# publisher entry is updated to match.
 
 on:
   push:
@@ -20,6 +23,8 @@ on:
 
 permissions:
   contents: read
+  # Lets GitHub mint the OIDC token npm exchanges for publish rights.
+  id-token: write
 
 jobs:
   publish:
@@ -57,8 +62,8 @@ jobs:
       - name: Prepare npm pack folder
         run: node apps/cli/scripts/prepare-publish.mjs
 
+      # npm picks up the OIDC credential on its own; there is no env to set.
+      # Needs npm >= 11.5.1, which the npm@11 install above satisfies.
       - name: Publish to npm
         working-directory: apps/cli/npm-pack
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public
