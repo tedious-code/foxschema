@@ -33,6 +33,11 @@ jobs:
           # package-lock.json is gitignored here; setup-node@v5 defaults
           # package-manager-cache to true and fails outright without a lockfile.
           package-manager-cache: false
+      # npm 10 (what Node 22 ships) cannot resolve this workspace graph
+      # without a lockfile — arborist dies in #loadPeerSet on vitest with
+      # "Cannot read properties of null (reading 'edgesOut')". npm 11 does
+      # it fine. Verified on a clean clone at Node 22.23.1.
+      - run: npm i -g npm@11
 
       # CodeQL needs installed dependencies to resolve imports properly.
       - name: Install dependencies
