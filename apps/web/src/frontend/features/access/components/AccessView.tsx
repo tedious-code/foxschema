@@ -6,24 +6,23 @@
  * Database Access Assistant — horizontal capsule menu (same pattern as
  * Workspace / Schema Sync sub-nav).
  *
- * Menu: Dashboard · User Management · Permission · Diff.
+ * Menu: User Management · Permission · Diff.
  * Permission uses the live dialect-aware panel (same as Database Access).
+ * Access report (Users and Roles) lives under Access control.
  */
 import React, { useState } from 'react';
-import { FileBarChart, UserCog, GitCompare, ShieldCheck } from 'lucide-react';
+import { UserCog, GitCompare, ShieldCheck } from 'lucide-react';
 import { PermissionDiff } from './PermissionDiff';
-import { AccessReport } from './AccessReport';
 import { UserManagement } from './UserManagement';
 import { AccessPermissionPanel } from './AccessPermissionPanel';
 
-export type AccessSection = 'dashboard' | 'users' | 'permission' | 'diff';
+export type AccessSection = 'users' | 'permission' | 'diff';
 
 const SECTIONS: {
   id: AccessSection;
   label: string;
   icon: React.ElementType;
 }[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: FileBarChart },
   { id: 'users', label: 'User Management', icon: UserCog },
   { id: 'permission', label: 'Permission', icon: ShieldCheck },
   { id: 'diff', label: 'Diff', icon: GitCompare },
@@ -71,7 +70,6 @@ export const AccessView: React.FC = () => {
       </nav>
 
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-        {section === 'dashboard' && <AccessReport />}
         {section === 'users' && <UserManagement onGrantAccess={(_draft) => openPermission()} />}
         {section === 'permission' && <AccessPermissionPanel />}
         {section === 'diff' && <PermissionDiff />}

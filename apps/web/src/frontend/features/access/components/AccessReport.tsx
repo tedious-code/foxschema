@@ -20,7 +20,7 @@ const RISK_STYLE: Record<string, string> = {
  * of its own, so the summary table and the detail view can never disagree about
  * who holds what.
  */
-export const AccessReport: React.FC = () => {
+export const AccessReport: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const connections = useSyncStore((s) => s.connections);
   const sessionPasswords = useSqlEditorStore((s) => s.sessionPasswords);
   const [connectionId, setConnectionId] = useState('');
@@ -72,9 +72,16 @@ export const AccessReport: React.FC = () => {
   }, [data, objectQuery, schema]);
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-y-auto p-5 gap-4" data-testid="access-report">
+    <div
+      className={`flex-1 flex flex-col min-h-0 overflow-y-auto gap-4 ${
+        embedded ? 'p-4' : 'p-5'
+      }`}
+      data-testid="access-report"
+    >
       <div className="shrink-0">
-        <h2 className="text-sm font-bold text-slate-100">Dashboard</h2>
+        <h2 className="text-sm font-bold text-slate-100">
+          {embedded ? 'Access report' : 'Users and Roles'}
+        </h2>
         <p className="text-[11px] text-slate-500 mt-0.5">
           A summary of who can access what. Read-only — Fox Schema changes nothing here.
         </p>
