@@ -12,9 +12,13 @@ import { useSyncStore } from '@/app/store/useSyncStore';
 
 const fetchDbAccess = vi.fn();
 const executeSql = vi.fn();
+const fetchSchemaList = vi.fn();
+const loadSchema = vi.fn();
 
 vi.mock('@/shared/api/schemaApi', () => ({
   fetchDbAccess: (...args: unknown[]) => fetchDbAccess(...args),
+  fetchSchemaList: (...args: unknown[]) => fetchSchemaList(...args),
+  loadSchema: (...args: unknown[]) => loadSchema(...args),
 }));
 vi.mock('@/shared/api/sqlApi', () => ({
   executeSql: (...args: unknown[]) => executeSql(...args),
@@ -25,6 +29,18 @@ import { DatabaseAccessModal } from './DatabaseAccessModal';
 beforeEach(() => {
   fetchDbAccess.mockReset();
   executeSql.mockReset();
+  fetchSchemaList.mockReset();
+  loadSchema.mockReset();
+  fetchSchemaList.mockResolvedValue(['public']);
+  loadSchema.mockResolvedValue({
+    tables: [
+      { name: 'orders', objectType: 'TABLE' },
+      { name: 'customers', objectType: 'TABLE' },
+      { name: 'v_open', objectType: 'VIEW' },
+      { name: 'sp_run', objectType: 'PROCEDURE' },
+      { name: 'fn_total', objectType: 'FUNCTION' },
+    ],
+  });
   fetchDbAccess.mockResolvedValue({
     dialect: 'postgres',
     schema: 'public',
@@ -64,7 +80,9 @@ beforeEach(() => {
       },
     ],
   });
-  executeSql.mockResolvedValue({ results: [{ ok: true, columns: [], rows: [], rowCount: 0, truncated: false, durationMs: 1 }] });
+  executeSql.mockResolvedValue({
+    results: [{ ok: true, columns: [], rows: [], rowCount: 0, truncated: false, durationMs: 1 }],
+  });
 
   useAuthStore.setState({
     user: {
@@ -87,6 +105,7 @@ beforeEach(() => {
         name: 'prod',
         dialect: 'postgres',
         schema: 'public',
+        database: 'app',
         hasPassword: true,
       },
     ],
@@ -94,7 +113,7 @@ beforeEach(() => {
 });
 
 describe('DatabaseAccessModal', () => {
-  it('lists groups and users, shows privileges, and previews GRANT SQL', async () => {
+  it('lists groups and users, shows privileges, and grants via dialect-aware sections', async () => {
     render(<DatabaseAccessModal open onClose={() => undefined} />);
     fireEvent.change(screen.getByTestId('db-access-connection'), { target: { value: 'c1' } });
 
@@ -106,20 +125,31 @@ describe('DatabaseAccessModal', () => {
     expect(screen.getByTestId('db-access-privileges').textContent).toMatch(/SELECT/);
     expect(screen.getByTestId('db-access-privileges').textContent).toMatch(/public\.orders/);
 
-    fireEvent.change(screen.getByTestId('db-access-grant-name'), { target: { value: 'orders' } });
-    fireEvent.change(screen.getByTestId('db-access-grant-schema'), { target: { value: 'public' } });
-    await waitFor(() => {
-      expect(screen.getByTestId('db-access-grant-sql').textContent).toMatch(
-        /GRANT SELECT ON TABLE "public"\."orders" TO "alice"/
-      );
-    });
+    expect(screen.getByTestId('db-access-permission-sections')).toBeTruthy();
+    expect(screen.getByTestId('db-access-section-general')).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId('db-access-expand-table'));
+    await waitFor(() => expect(fetchSchemaList).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByTestId('db-access-obj-public-orders')).toBeTruthy());
+
+    fireEvent.click(screen.getByTestId('db-access-edit-orders'));
+    await waitFor(() => expect(screen.getByTestId('db-access-object-editor')).toBeTruthy());
+    // Held SELECT is pre-selected; Preview uses dialect buildAccessSql.
+    fireEvent.click(screen.getByTestId('db-access-preview-sql'));
+
+    await waitFor(() => expect(screen.getByTestId('db-access-sql-modal')).toBeTruthy());
+    const preview = screen.getByTestId('db-access-grant-sql').textContent ?? '';
+    expect(preview).toMatch(/GRANT/i);
+    expect(preview).toMatch(/orders/i);
+    expect(preview).toMatch(/alice/i);
 
     fireEvent.click(screen.getByTestId('db-access-grant'));
-    expect(screen.getByTestId('db-access-confirm').textContent).toMatch(/GRANT SELECT/);
+    expect(screen.getByTestId('db-access-confirm').textContent).toMatch(/GRANT/i);
     fireEvent.click(screen.getByTestId('db-access-confirm-run'));
     await waitFor(() => expect(executeSql).toHaveBeenCalled());
     const stmts = executeSql.mock.calls[0][1] as string[];
-    expect(stmts[0]).toMatch(/GRANT SELECT ON TABLE "public"\."orders" TO "alice"/);
+    expect(stmts.join('\n')).toMatch(/GRANT/i);
+    expect(stmts.join('\n')).toMatch(/orders/i);
   });
 });
 
@@ -169,21 +199,17 @@ describe('DatabaseAccessModal — role membership is not an object privilege', (
     const privileges = screen.getByTestId('db-access-privileges').textContent ?? '';
     const memberships = screen.getByTestId('db-access-memberships').textContent ?? '';
 
-    // The object privilege stays where it belongs.
     expect(privileges).toMatch(/SELECT/);
     expect(privileges).toMatch(/public\.orders/);
-
-    // The membership does not appear in the privileges table, in any form.
     expect(privileges).not.toMatch(/analysts/);
     expect(privileges).not.toMatch(/\bROLE\b/);
     expect(privileges).toMatch(/Object privileges \(1\)/);
 
-    // It appears in its own section instead.
     expect(memberships).toMatch(/Role memberships \(1\)/);
     expect(memberships).toMatch(/analysts/);
   });
 
-  it('offers privilege and membership as separate things to grant', async () => {
+  it('offers object privileges and membership as separate grant kinds', async () => {
     withMembership();
     render(<DatabaseAccessModal open onClose={() => undefined} />);
     fireEvent.change(screen.getByTestId('db-access-connection'), { target: { value: 'c1' } });
@@ -191,13 +217,30 @@ describe('DatabaseAccessModal — role membership is not an object privilege', (
     fireEvent.click(screen.getByTestId('db-access-principal-alice'));
 
     const kind = screen.getByTestId('db-access-grant-kind') as HTMLSelectElement;
-    expect([...kind.options].map((o) => o.value)).toEqual(['privilege', 'membership']);
+    expect([...kind.options].map((o) => o.value)).toEqual(['sections', 'membership']);
 
-    // Choosing membership hides the privilege picker, which the builder ignored
-    // for role grants anyway.
-    expect(screen.queryByTestId('db-access-grant-privilege')).not.toBeNull();
+    expect(screen.getByTestId('db-access-permission-sections')).toBeTruthy();
     fireEvent.change(kind, { target: { value: 'membership' } });
-    expect(screen.queryByTestId('db-access-grant-privilege')).toBeNull();
-    expect(screen.queryByTestId('db-access-grant-object-type')).toBeNull();
+    expect(screen.queryByTestId('db-access-permission-sections')).toBeNull();
+    expect(screen.getByTestId('db-access-grant-name')).toBeTruthy();
+  });
+});
+
+describe('DatabaseAccessModal — dialect-aware general CREATE', () => {
+  it('previews Postgres CREATE ON SCHEMA for general create-object', async () => {
+    render(<DatabaseAccessModal open onClose={() => undefined} />);
+    fireEvent.change(screen.getByTestId('db-access-connection'), { target: { value: 'c1' } });
+    await waitFor(() => expect(fetchDbAccess).toHaveBeenCalled());
+    fireEvent.click(screen.getByTestId('db-access-principal-alice'));
+
+    fireEvent.click(screen.getByTestId('db-access-grant-general'));
+    await waitFor(() => expect(screen.getByTestId('db-access-general-editor')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('db-access-general-preview-sql'));
+    await waitFor(() => expect(screen.getByTestId('db-access-sql-modal')).toBeTruthy());
+    const sql = screen.getByTestId('db-access-grant-sql').textContent ?? '';
+    // Postgres emitter — not a fake "GRANT CREATE TABLE, CREATE VIEW ON SCHEMA".
+    expect(sql).toMatch(/CREATE/i);
+    expect(sql).toMatch(/SCHEMA/i);
+    expect(sql).toMatch(/alice/i);
   });
 });

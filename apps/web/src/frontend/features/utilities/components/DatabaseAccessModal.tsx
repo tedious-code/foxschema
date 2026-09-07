@@ -22,7 +22,6 @@ import {
   dialectSupportsDbAccess,
   groupDbPrincipals,
   privilegesForPrincipal,
-  DB_OBJECT_PRIVILEGES,
   type DbPrincipal,
   type DbPrivilege,
   type DbPrivilegeObjectType,
@@ -35,6 +34,7 @@ import { useSyncStore } from '@/app/store/useSyncStore';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { useAuthStore } from '@/app/store/authStore';
 import { PROVIDER_SETTINGS, connectionNeedsSecret } from '@/shared/lib/provider-settings';
+import { DbAccessPermissionSections } from './DbAccessPermissionSections';
 
 interface Props {
   open: boolean;
@@ -82,10 +82,12 @@ export const DatabaseAccessModal: React.FC<Props> = ({
   const [confirm, setConfirm] = useState<ConfirmAction | null>(null);
 
   const [grantPrivilege, setGrantPrivilege] = useState<string>('SELECT');
-  const [grantObjectType, setGrantObjectType] = useState<DbPrivilegeObjectType>('TABLE');
+  const [grantObjectType, setGrantObjectType] = useState<DbPrivilegeObjectType>('ROLE');
   const [grantSchema, setGrantSchema] = useState('');
   const [grantName, setGrantName] = useState('');
   const [grantWithOption, setGrantWithOption] = useState(false);
+  /** Object grants use the sectioned UX; this toggle is only for role membership. */
+  const [grantKind, setGrantKind] = useState<'sections' | 'membership'>('sections');
 
   const conn = connections.find((c) => c.id === connectionId);
   // File dialects carry no password; asking for one blocked the utility outright.
@@ -157,12 +159,12 @@ export const DatabaseAccessModal: React.FC<Props> = ({
   const selectedMemberships = allSelectedPrivs.filter((p) => p.objectType === 'ROLE');
 
   const grantPreview = useMemo(() => {
-    if (!dialect || !selected) return null;
+    if (!dialect || !selected || grantKind !== 'membership') return null;
     const built = buildGrantRevokeSql({
       dialect,
       action: 'grant',
-      privilege: grantObjectType === 'ROLE' ? grantName || grantPrivilege : grantPrivilege,
-      objectType: grantObjectType,
+      privilege: grantName || grantPrivilege,
+      objectType: 'ROLE',
       objectSchema: grantSchema || conn?.schema || null,
       objectName: grantName || null,
       grantee: selected.name,
@@ -173,8 +175,8 @@ export const DatabaseAccessModal: React.FC<Props> = ({
   }, [
     dialect,
     selected,
+    grantKind,
     grantPrivilege,
-    grantObjectType,
     grantSchema,
     grantName,
     grantWithOption,
@@ -187,9 +189,16 @@ export const DatabaseAccessModal: React.FC<Props> = ({
     setError(null);
     setStatus(null);
     try {
+      // Dialect emitters may return several statements (e.g. Postgres USAGE +
+      // ON ALL TABLES). Execute them as separate round-trips.
+      const statements = sql
+        .split(/;\s*(?:\n+|$)/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((s) => (s.endsWith(';') ? s : `${s};`));
       const { results } = await executeSql(
         { connectionId, password: sessionPasswords[connectionId] || undefined },
-        [sql]
+        statements.length ? statements : [sql]
       );
       const failed = results.filter((r) => !r.ok);
       if (failed.length) {
@@ -608,114 +617,92 @@ export const DatabaseAccessModal: React.FC<Props> = ({
                   What are you granting?
                   <select
                     data-testid="db-access-grant-kind"
-                    value={grantObjectType === 'ROLE' ? 'membership' : 'privilege'}
-                    onChange={(e) =>
-                      setGrantObjectType(e.target.value === 'membership' ? 'ROLE' : 'TABLE')
-                    }
+                    value={grantKind}
+                    onChange={(e) => {
+                      const v = e.target.value as 'sections' | 'membership';
+                      setGrantKind(v);
+                      setGrantObjectType(v === 'membership' ? 'ROLE' : 'TABLE');
+                    }}
                     className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-100"
                   >
-                    <option value="privilege">A privilege on an object</option>
+                    <option value="sections">Object / schema privileges</option>
                     <option value="membership">Membership of a role</option>
                   </select>
                 </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {grantObjectType !== 'ROLE' && (
+
+                {grantKind === 'sections' && selected && (
+                  <DbAccessPermissionSections
+                    dialect={dialect}
+                    connectionId={connectionId}
+                    database={conn?.database}
+                    defaultSchema={conn?.schema || grantSchema}
+                    principal={{
+                      type: selected.kind === 'user' ? 'user' : 'role',
+                      name: selected.name,
+                      kind: selected.kind,
+                    }}
+                    privileges={selectedPrivs}
+                    canGrant={canGrant}
+                    grantSupported={Boolean(support?.grant)}
+                    running={running}
+                    onConfirm={(req) => setConfirm(req)}
+                    onError={(msg) => setError(msg)}
+                  />
+                )}
+
+                {grantKind === 'membership' && (
+                  <>
                     <label className="flex flex-col gap-1 text-[11px] text-slate-400">
-                      Privilege
-                      <select
-                        data-testid="db-access-grant-privilege"
-                        value={grantPrivilege}
-                        onChange={(e) => setGrantPrivilege(e.target.value)}
-                        className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-100"
-                      >
-                        {DB_OBJECT_PRIVILEGES.map((p) => (
-                          <option key={p} value={p}>
-                            {p}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                  {grantObjectType !== 'ROLE' && (
-                    <label className="flex flex-col gap-1 text-[11px] text-slate-400">
-                      On
-                      <select
-                        data-testid="db-access-grant-object-type"
-                        value={grantObjectType}
-                        onChange={(e) =>
-                          setGrantObjectType(e.target.value as DbPrivilegeObjectType)
-                        }
-                        className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-100"
-                      >
-                        <option value="TABLE">Table</option>
-                        <option value="SCHEMA">Schema</option>
-                        <option value="DATABASE">Database</option>
-                      </select>
-                    </label>
-                  )}
-                  {grantObjectType !== 'ROLE' && grantObjectType !== 'DATABASE' && (
-                    <label className="flex flex-col gap-1 text-[11px] text-slate-400">
-                      Schema
+                      Role
                       <input
-                        data-testid="db-access-grant-schema"
-                        value={grantSchema}
-                        onChange={(e) => setGrantSchema(e.target.value)}
-                        placeholder={conn?.schema || 'schema'}
+                        data-testid="db-access-grant-name"
+                        value={grantName}
+                        onChange={(e) => setGrantName(e.target.value)}
+                        placeholder="role name"
                         className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-100 font-mono"
                       />
                     </label>
-                  )}
-                  <label className="flex flex-col gap-1 text-[11px] text-slate-400">
-                    {grantObjectType === 'ROLE' ? 'Role' : 'Name'}
-                    <input
-                      data-testid="db-access-grant-name"
-                      value={grantName}
-                      onChange={(e) => setGrantName(e.target.value)}
-                      placeholder={grantObjectType === 'ROLE' ? 'role name' : 'table'}
-                      className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-100 font-mono"
-                    />
-                  </label>
-                </div>
-                <label className="flex items-center gap-2 text-[11px] text-slate-400">
-                  <input
-                    type="checkbox"
-                    checked={grantWithOption}
-                    onChange={(e) => setGrantWithOption(e.target.checked)}
-                  />
-                  WITH GRANT OPTION
-                </label>
-                {grantPreview && 'sql' in grantPreview && (
-                  <pre
-                    data-testid="db-access-grant-sql"
-                    className="text-[11px] font-mono text-slate-300 bg-slate-950/70 border border-slate-800 rounded px-2 py-1.5 overflow-x-auto"
-                  >
-                    {grantPreview.sql}
-                  </pre>
+                    <label className="flex items-center gap-2 text-[11px] text-slate-400">
+                      <input
+                        type="checkbox"
+                        checked={grantWithOption}
+                        onChange={(e) => setGrantWithOption(e.target.checked)}
+                      />
+                      WITH GRANT OPTION / ADMIN OPTION
+                    </label>
+                    {grantPreview && 'sql' in grantPreview && (
+                      <pre
+                        data-testid="db-access-grant-sql"
+                        className="text-[11px] font-mono text-slate-300 bg-slate-950/70 border border-slate-800 rounded px-2 py-1.5 overflow-x-auto"
+                      >
+                        {grantPreview.sql}
+                      </pre>
+                    )}
+                    {grantPreview && 'error' in grantPreview && (
+                      <p className="text-[11px] text-slate-500">{grantPreview.error}</p>
+                    )}
+                    <button
+                      type="button"
+                      data-testid="db-access-grant"
+                      disabled={
+                        !canGrant ||
+                        running ||
+                        !grantPreview ||
+                        'error' in grantPreview ||
+                        !support?.grant ||
+                        !grantName.trim()
+                      }
+                      onClick={() => {
+                        if (!grantPreview || 'error' in grantPreview) return;
+                        setConfirm({ title: 'Grant privilege', sql: grantPreview.sql, kind: 'grant' });
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md border border-amber-500/40 bg-amber-500/15 text-amber-100 hover:bg-amber-500/25 disabled:opacity-40"
+                    >
+                      <KeyRound className="w-3 h-3" />
+                      Grant
+                    </button>
+                  </>
                 )}
-                {grantPreview && 'error' in grantPreview && (
-                  <p className="text-[11px] text-slate-500">{grantPreview.error}</p>
-                )}
-                <button
-                  type="button"
-                  data-testid="db-access-grant"
-                  disabled={
-                    !canGrant ||
-                    running ||
-                    !grantPreview ||
-                    'error' in grantPreview ||
-                    !support?.grant ||
-                    ((grantObjectType === 'TABLE' || grantObjectType === 'ROLE' || grantObjectType === 'SCHEMA') &&
-                      !grantName.trim())
-                  }
-                  onClick={() => {
-                    if (!grantPreview || 'error' in grantPreview) return;
-                    setConfirm({ title: 'Grant privilege', sql: grantPreview.sql, kind: 'grant' });
-                  }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md border border-amber-500/40 bg-amber-500/15 text-amber-100 hover:bg-amber-500/25 disabled:opacity-40"
-                >
-                  <KeyRound className="w-3 h-3" />
-                  Grant
-                </button>
               </div>
             </>
           )}
