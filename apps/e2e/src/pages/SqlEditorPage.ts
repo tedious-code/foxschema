@@ -430,6 +430,7 @@ export class SqlEditorPage {
       localStorage.removeItem('foxschema-sql-sidebar-section-heights');
       localStorage.removeItem('foxschema-sql-sidebar-order');
       localStorage.removeItem('foxschema-sql-sidebar-order-schema-top-v1');
+      localStorage.removeItem('foxschema-sql-sidebar-exclusive-v1');
       // Width and collapsed state too: a run that inherits a narrow sidebar
       // from an earlier one is testing a different layout than the next run,
       // which is how a real explorer layout bug surfaced here as an

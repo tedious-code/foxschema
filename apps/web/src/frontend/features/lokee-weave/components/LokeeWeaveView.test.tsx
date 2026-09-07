@@ -13,11 +13,13 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import type { VersionGraphDTO } from './graphTypes';
 
 const listLokeeDatabases = vi.fn();
+const listLokeeVersions = vi.fn();
 const loadVersionGraph = vi.fn();
 const captureSchema = vi.fn();
 
 vi.mock('@/features/lokee-weave/api/lokeeApi', () => ({
   listLokeeDatabases: (...args: unknown[]) => listLokeeDatabases(...args),
+  listLokeeVersions: (...args: unknown[]) => listLokeeVersions(...args),
   loadVersionGraph: (...args: unknown[]) => loadVersionGraph(...args),
   captureSchema: (...args: unknown[]) => captureSchema(...args),
 }));
@@ -86,6 +88,7 @@ const DTO: VersionGraphDTO = {
 
 beforeEach(() => {
   listLokeeDatabases.mockReset();
+  listLokeeVersions.mockReset();
   loadVersionGraph.mockReset();
   captureSchema.mockReset();
   vi.mocked(toast).mockReset();
@@ -112,38 +115,53 @@ beforeEach(() => {
 });
 
 describe('LokeeWeaveView', () => {
-  it('renders the graph once history arrives', async () => {
+  it('renders the timeline once history arrives, without fetching the graph', async () => {
     listLokeeDatabases.mockResolvedValue([DB]);
-    loadVersionGraph.mockResolvedValue({ ...DTO, truncatedObjects: false });
+    listLokeeVersions.mockResolvedValue(DTO.versions);
 
     render(<LokeeWeaveView />);
 
-    await waitFor(() => expect(screen.getByTestId('graph')).toBeTruthy());
-    // The subtitle must name the database, not the saved connection.
-    // ` · schema`, not `.schema`: on SQLite the dotted form rendered as
-    // `/tmp/app.db.main` and read like a file extension.
-    expect(screen.getByTestId('graph').textContent).toContain(
+    await waitFor(() => expect(screen.getByTestId('lokee-timeline')).toBeTruthy());
+    expect(screen.getByTestId('lokee-summary').textContent).toContain('2 versions');
+    expect(loadVersionGraph).not.toHaveBeenCalled();
+    expect(screen.getByTestId('lokee-summary').textContent).toContain(
       'postgres · localhost/foxdb · public'
     );
-    // The chrome row is gone — Refresh and Capture moved into HistoryCompareBar.
     expect(screen.queryByTestId('lokee-weave-chrome')).toBeNull();
+  });
+
+  it('loads the graph only after the Graph toggle is pressed', async () => {
+    listLokeeDatabases.mockResolvedValue([DB]);
+    listLokeeVersions.mockResolvedValue(DTO.versions);
+    loadVersionGraph.mockResolvedValue({ ...DTO, truncatedObjects: false });
+
+    render(<LokeeWeaveView />);
+    await waitFor(() => expect(screen.getByTestId('lokee-timeline')).toBeTruthy());
+
+    await act(async () => {
+      screen.getByTestId('lokee-graph-toggle').click();
+    });
+
+    await waitFor(() => expect(screen.getByTestId('graph')).toBeTruthy());
+    expect(loadVersionGraph).toHaveBeenCalledWith('db1', 20);
   });
 
   it('shows an empty state rather than an empty canvas', async () => {
     listLokeeDatabases.mockResolvedValue([DB]);
-    loadVersionGraph.mockResolvedValue({ ...DTO, versions: [], truncatedObjects: false });
+    listLokeeVersions.mockResolvedValue([]);
 
     render(<LokeeWeaveView />);
 
     await waitFor(() => expect(screen.getByText('No schema history yet')).toBeTruthy());
-    expect(screen.queryByTestId('graph')).toBeNull();
+    expect(screen.queryByTestId('lokee-timeline')).toBeNull();
+    expect(loadVersionGraph).not.toHaveBeenCalled();
   });
 
   it('puts the first snapshot within reach instead of describing where to find it', async () => {
     // The one screen where a newcomer has nothing to act on used to be the one
     // screen with no action on it — a paragraph pointing at a button elsewhere.
     listLokeeDatabases.mockResolvedValue([DB]);
-    loadVersionGraph.mockResolvedValue({ ...DTO, versions: [], truncatedObjects: false });
+    listLokeeVersions.mockResolvedValue([]);
 
     render(<LokeeWeaveView />);
 
@@ -161,7 +179,7 @@ describe('LokeeWeaveView', () => {
     // An empty state here would be a lie: it says "nothing happened" when the
     // truth is "we could not find out".
     listLokeeDatabases.mockResolvedValue([DB]);
-    loadVersionGraph.mockRejectedValue(new Error('connection refused'));
+    listLokeeVersions.mockRejectedValue(new Error('connection refused'));
 
     render(<LokeeWeaveView />);
 
@@ -172,22 +190,27 @@ describe('LokeeWeaveView', () => {
     expect(screen.queryByText('No schema history yet')).toBeNull();
   });
 
-  it('still shows the graph when the database list fails', async () => {
+  it('still shows the timeline when the database list fails', async () => {
     // The list only supplies a label; losing it must not hide the history.
     listLokeeDatabases.mockRejectedValue(new Error('nope'));
-    loadVersionGraph.mockResolvedValue({ ...DTO, truncatedObjects: false });
+    listLokeeVersions.mockResolvedValue(DTO.versions);
 
     render(<LokeeWeaveView databaseId="db1" />);
 
-    await waitFor(() => expect(screen.getByTestId('graph')).toBeTruthy());
-    expect(screen.getByTestId('graph').textContent).toContain('no-subtitle');
+    await waitFor(() => expect(screen.getByTestId('lokee-timeline')).toBeTruthy());
+    expect(screen.getByTestId('lokee-summary').textContent).toContain('2 versions');
   });
 
   it('warns when the graph is showing only part of the schema', async () => {
     listLokeeDatabases.mockResolvedValue([DB]);
+    listLokeeVersions.mockResolvedValue(DTO.versions);
     loadVersionGraph.mockResolvedValue({ ...DTO, truncatedObjects: true });
 
     render(<LokeeWeaveView />);
+    await waitFor(() => expect(screen.getByTestId('lokee-timeline')).toBeTruthy());
+    await act(async () => {
+      screen.getByTestId('lokee-graph-toggle').click();
+    });
 
     await waitFor(() => expect(screen.getByTestId('graph')).toBeTruthy());
     expect(screen.getByText(/more objects than the graph draws/i)).toBeTruthy();
@@ -204,27 +227,23 @@ describe('LokeeWeaveView', () => {
 
   it('prefers an explicit databaseId over the most recent one', async () => {
     listLokeeDatabases.mockResolvedValue([DB, { ...DB, id: 'db2' }]);
-    loadVersionGraph.mockResolvedValue({ ...DTO, truncatedObjects: false });
+    listLokeeVersions.mockResolvedValue(DTO.versions);
 
     render(<LokeeWeaveView databaseId="db2" />);
 
-    await waitFor(() => expect(loadVersionGraph).toHaveBeenCalled());
-    expect(loadVersionGraph).toHaveBeenCalledWith('db2', 20);
+    await waitFor(() => expect(listLokeeVersions).toHaveBeenCalled());
+    expect(listLokeeVersions).toHaveBeenCalledWith('db2', 100);
+    expect(loadVersionGraph).not.toHaveBeenCalled();
   });
 
   it('hides the in-graph database picker when embedded (toolbar owns Original → Target)', async () => {
     listLokeeDatabases.mockResolvedValue([DB]);
-    loadVersionGraph.mockResolvedValue({ ...DTO, truncatedObjects: false });
+    listLokeeVersions.mockResolvedValue(DTO.versions);
 
     render(<LokeeWeaveView embedded />);
 
-    // Wait on the store, not just on the graph: listing the databases and
-    // loading the version graph are two awaits, and the graph renders after the
-    // first. Asserting the store right after the graph appears therefore races
-    // the second, which is why this failed intermittently under CI load while
-    // passing every time in isolation.
     await waitFor(() => {
-      expect(screen.getByTestId('graph')).toBeTruthy();
+      expect(screen.getByTestId('lokee-timeline')).toBeTruthy();
       expect(useLokeeHistoryStore.getState().versions.map((v) => v.id)).toEqual(['v2', 'v1']);
     });
     expect(screen.queryByTestId('lokee-database-select')).toBeNull();
@@ -232,11 +251,8 @@ describe('LokeeWeaveView', () => {
   });
 
   it('captures when the toolbar bar asks for it', async () => {
-    // The credential picker and Capture button moved to HistoryCompareBar, which
-    // renders in TopToolbar. It asks by bumping the store counter, so that is
-    // the seam to test here rather than a button this component no longer owns.
     listLokeeDatabases.mockResolvedValueOnce([]).mockResolvedValue([DB]);
-    loadVersionGraph.mockResolvedValue({ ...DTO, truncatedObjects: false });
+    listLokeeVersions.mockResolvedValue(DTO.versions);
     captureSchema.mockResolvedValue({
       databaseId: 'db1',
       versionId: 'v1',
@@ -269,12 +285,13 @@ describe('LokeeWeaveView', () => {
     // A naive effect on the request counters would fire once per mount, so a
     // visit to History would silently snapshot the database.
     listLokeeDatabases.mockResolvedValue([DB]);
-    loadVersionGraph.mockResolvedValue({ ...DTO, truncatedObjects: false });
+    listLokeeVersions.mockResolvedValue(DTO.versions);
 
     render(<LokeeWeaveView />);
-    await waitFor(() => expect(screen.getByTestId('graph')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('lokee-timeline')).toBeTruthy());
 
     expect(captureSchema).not.toHaveBeenCalled();
-    expect(loadVersionGraph).toHaveBeenCalledTimes(1);
+    expect(listLokeeVersions).toHaveBeenCalledTimes(1);
+    expect(loadVersionGraph).not.toHaveBeenCalled();
   });
 });
