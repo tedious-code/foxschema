@@ -7,7 +7,7 @@ import { findDropDependencies } from '@/features/object-detail/lib/dependency-sc
 import { findMissingFkTargets, findNarrowingTypeChanges, extractReviewNotices, resolveDialect } from '@/shared/lib/migration-validation';
 import { buildIncludedDiffs, applySelectionsForScan, buildMapping } from '@/app/store/sync-helpers';
 import { formatSql } from '@/shared/utils/formatSql';
-import { SchemaBlueprint } from '@/features/schema-diff';
+import { SchemaBlueprint, DiffBriefingPanel } from '@/features/schema-diff';
 import { DetailTabs, type DetailTab } from '@/features/schema-diff';
 import {
   buildTableDdlDiffLines,
@@ -241,6 +241,9 @@ export const ObjectDetailPanel: React.FC = () => {
   }, [selectedTable, expandedTriggers, sourceConfig.dialect, targetConfig.dialect]);
 
   if (!selectedTable) {
+    if (compareResult && !browseMode) {
+      return <DiffBriefingPanel />;
+    }
     // In Browse the left pane filters one database's objects, so this side
     // should say *which* database that is. Comparing has two connections named
     // in the toolbar already; browsing has one, and it was nowhere on screen.

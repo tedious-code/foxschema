@@ -2,8 +2,7 @@ import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { useUiStore } from '@/app/store/uiStore';
-import { ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, CheckCircle2, Zap, Settings, KeyRound, History, X, Layers, Camera } from 'lucide-react';
-import { Brand } from './Brand';
+import { ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, Zap, Settings, KeyRound, History, X, Layers, Camera, Search } from 'lucide-react';
 // Support both default and named exports (avoids blank-page Vite/HMR mismatches).
 import ProfileMenuDefault, { ProfileMenu as ProfileMenuNamed } from './ProfileMenu';
 import { CredentialManager } from '@/features/connections';
@@ -23,15 +22,26 @@ import { BrowseBar } from '@/features/object-detail';
 import { ActivityIndicator } from './ActivityIndicator';
 import { DiffBriefingChips } from '@/features/schema-diff';
 import { diffBriefing } from '@/features/schema-diff';
+import { ConnectionChip } from './ConnectionChips';
+import { openCommandPalette } from './commandPalette';
 
 const ProfileMenu = ProfileMenuNamed ?? ProfileMenuDefault;
+
+function connectionSummary(config: {
+  schema: string;
+  option: { host?: string; database?: string };
+}): string | null {
+  if (!config.option.database) return null;
+  return `${config.option.host ?? 'localhost'} / ${config.option.database}${
+    config.schema ? ` / ${config.schema}` : ''
+  }`;
+}
 
 export const TopToolbar: React.FC = () => {
   const {
     sourceConfig,
     targetConfig,
-    setSourceConfig,
-    setTargetConfig,
+    setShowConnectionModal,
     isTestingSource,
     isTestingTarget,
     sourceConnected,
@@ -48,7 +58,6 @@ export const TopToolbar: React.FC = () => {
     toggleTypeFilter,
     clearTypeFilter,
     showConnectionModal,
-    setShowConnectionModal,
     addConnection,
     connections,
     selectedSourceConnectionId,
@@ -72,27 +81,16 @@ export const TopToolbar: React.FC = () => {
    * recognise, so comparing a Redis or MongoDB connection produced Db2 DDL
    * with nothing to say it had.
    *
-   * This gates the Compare button and nothing else. It first disabled the
-   * Schema Sync tab, which was the wrong control twice over: `activeView`
-   * already defaults to `sync`, so nobody has to press it, and that tab also
-   * owns Browse, History and both connection pickers — none of which need a
-   * SQL dialect. Disabling it stranded the reader in another workspace with no
-   * way back and no way to change the connection that blocked them.
+   * This gates the Compare button and nothing else.
    */
   const compareBlockedBy = schemaCompareBlocker(sourceConfig.dialect, targetConfig.dialect);
 
-  // A saved connection created without a stored password ("Save password" left
-  // unticked) has no password to apply automatically — selecting it from either
-  // dropdown must prompt for a session-only password instead of connecting with none.
   const [pendingPassword, setPendingPassword] = useState<{ side: 'source' | 'target'; id: string; name: string } | null>(null);
   const [pendingPasswordValue, setPendingPasswordValue] = useState('');
 
   const selectSavedConnection = (side: 'source' | 'target', id: string) => {
     const conn = connections.find((c) => c.id === id);
-    // A file dialect has no password to be missing. Prompting for one left the
-    // picker snapping back to "— Saved —" and no target selected at all.
     if (conn && !conn.hasPassword && connectionNeedsSecret(conn.dialect, conn.authMethod)) {
-      // Reuse a password already typed this session (SQL Editor or prior Sync pick).
       const cfg = side === 'source' ? sourceConfig : targetConfig;
       const existing =
         getSessionPassword(id) ||
@@ -147,24 +145,12 @@ export const TopToolbar: React.FC = () => {
     }
   };
 
-  // Same dialect + server + database + schema means you'd be comparing a schema
-  // with itself (everything UNCHANGED) — almost always a misconfiguration
   const sameConfig =
     sourceConfig.dialect === targetConfig.dialect &&
     (sourceConfig.option.host ?? '') === (targetConfig.option.host ?? '') &&
     (sourceConfig.option.database ?? '') === (targetConfig.option.database ?? '') &&
     sourceConfig.schema.trim().toUpperCase() === targetConfig.schema.trim().toUpperCase();
 
-  /**
-   * Everything that makes Compare unavailable except being mid-run.
-   *
-   * One expression because there were two: `disabled` and the className each
-   * repeated the list, and adding the engine check to only the first left a
-   * blocked button still painted as the live call to action.
-   *
-   * `isComparing` stays out deliberately — the button keeps its accent while
-   * the spinner runs, and only the `disabled` attribute adds it.
-   */
   const compareUnavailable =
     !canSchemaCompare ||
     Boolean(compareBlockedBy) ||
@@ -199,398 +185,240 @@ export const TopToolbar: React.FC = () => {
   ];
 
   return (
-    <header data-testid="toolbar" className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md px-4 py-1.5 flex flex-col gap-2">
-      {/* One chrome row: brand is on the rail; this bar is actions only. */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <Brand logoSize={28} textClassName="text-lg font-bold" subtitle={false} />
-
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Only renders while something is actually running. */}
-          <ActivityIndicator />
-          <button
-            data-testid="credentials-btn"
-            onClick={() => setShowCredentials(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-cyan-400 hover:text-cyan-300 border border-slate-700 hover:border-cyan-500/40 rounded-md transition cursor-pointer"
+    <header data-testid="toolbar" className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md px-3 py-1.5 flex flex-col gap-1.5">
+      <div className="flex min-h-11 flex-wrap items-center gap-2">
+        {activeView === 'sync' && canSchemaBrowse && (
+          <div
+            data-testid="sync-pane-switcher"
+            className="flex shrink-0 items-center gap-0.5 rounded-full border border-slate-800 bg-slate-950/60 p-0.5"
           >
-            <KeyRound className="w-3.5 h-3.5" /> Credentials
-          </button>
-          <button
-            data-testid="history-btn"
-            onClick={() => setShowHistory(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-slate-300 hover:text-slate-100 border border-slate-700 hover:border-slate-500 rounded-md transition cursor-pointer"
-          >
-            <History className="w-3.5 h-3.5" /> Applies
-          </button>
-          {compareResult && activeView === 'sync' && syncPane === 'compare' && (
             <button
-              onClick={resetSync}
-              className="px-2.5 py-1 text-xs font-semibold text-slate-400 hover:text-slate-200 border border-slate-700 hover:border-slate-600 rounded-md transition cursor-pointer"
+              type="button"
+              data-testid="sync-pane-compare-btn"
+              onClick={() => setSyncPane('compare')}
+              className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                syncPane === 'compare'
+                  ? 'bg-slate-800 text-slate-100'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
             >
-              Clear Comparison
+              Compare
             </button>
-          )}
-          <div className="pl-3 border-l border-slate-800">
-            <ProfileMenu />
+            <button
+              type="button"
+              data-testid="sync-pane-browse-btn"
+              onClick={() => setSyncPane('browse')}
+              title="Read one database's schema on its own — no comparison."
+              className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                syncPane === 'browse'
+                  ? 'bg-slate-800 text-slate-100'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Browse
+            </button>
           </div>
-        </div>
-      </div>
+        )}
 
-      {/* Sync-only controls — the SQL Editor view brings its own left panel. */}
-      {activeView === 'sync' && (
-        <>
-      {canSchemaBrowse && (
-        <div
-          data-testid="sync-pane-switcher"
-          className="flex flex-wrap items-center gap-2 rounded-md border border-slate-800 bg-slate-950/40 px-2 py-1"
-        >
-          <span className="px-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-            Schema
-          </span>
-          <button
-            type="button"
-            data-testid="sync-pane-compare-btn"
-            onClick={() => setSyncPane('compare')}
-            className={`rounded px-2.5 py-1 text-xs font-semibold transition ${
-              syncPane === 'compare'
-                ? 'bg-slate-800 text-slate-100'
-                : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
-            }`}
-          >
-            Compare
-          </button>
-          <button
-            type="button"
-            data-testid="sync-pane-browse-btn"
-            onClick={() => setSyncPane('browse')}
-            title="Read one database's schema on its own — no comparison."
-            className={`rounded px-2.5 py-1 text-xs font-semibold transition ${
-              syncPane === 'browse'
-                ? 'bg-slate-800 text-slate-100'
-                : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
-            }`}
-          >
-            Browse
-          </button>
+        {activeView === 'sync' && syncPane === 'compare' && (
+          <>
+            <ConnectionChip
+              side="source"
+              label="Original"
+              connections={connections}
+              selectedId={selectedSourceConnectionId}
+              summary={connectionSummary(sourceConfig)}
+              connected={sourceConnected}
+              connecting={isTestingSource}
+              onSelect={(id) => selectSavedConnection('source', id)}
+              onEdit={() => {
+                setActiveModalTarget('source');
+                setShowConnectionModal(true);
+              }}
+              onConnect={testSourceConnection}
+            />
+            <button
+              type="button"
+              onClick={swapSourceTarget}
+              title="Swap Original Server and Target (reverse migration direction)"
+              className="group flex shrink-0 flex-col items-center px-0.5"
+            >
+              <ArrowRight className="h-4 w-4 text-indigo-400 group-hover:hidden" />
+              <ArrowLeftRight className="hidden h-4 w-4 text-cyan-400 group-hover:block" />
+            </button>
+            <ConnectionChip
+              side="target"
+              label="Target"
+              connections={connections}
+              selectedId={selectedTargetConnectionId}
+              summary={connectionSummary(targetConfig)}
+              connected={targetConnected}
+              connecting={isTestingTarget}
+              onSelect={(id) => selectSavedConnection('target', id)}
+              onEdit={() => {
+                setActiveModalTarget('target');
+                setShowConnectionModal(true);
+              }}
+              onConnect={testTargetConnection}
+            />
+            {sameConfig && (
+              <span className="flex items-center gap-1 rounded-full border border-amber-500/20 bg-amber-950/30 px-2 py-0.5 text-[11px] font-medium text-amber-400">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" /> Same DB
+              </span>
+            )}
+            {compareResult && <DiffBriefingChips briefing={briefing} />}
+            <button
+              data-testid="compare-btn"
+              onClick={runSchemaComparison}
+              disabled={compareUnavailable || isComparing}
+              title={compareTitle}
+              className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold shadow-lg transition ${
+                compareUnavailable
+                  ? 'cursor-not-allowed border border-slate-800/50 bg-slate-850 text-slate-500'
+                  : 'accent-grad on-accent-fg cursor-pointer shadow-indigo-500/10'
+              }`}
+            >
+              {isComparing ? (
+                <>
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" /> Analyzing…
+                </>
+              ) : (
+                <>
+                  <Zap className="h-3.5 w-3.5 fill-current" /> Compare
+                </>
+              )}
+            </button>
+          </>
+        )}
+
+        {activeView === 'sync' && syncPane === 'browse' && (
+          <div className="min-w-0 flex-1">
+            <BrowseBar />
+          </div>
+        )}
+
+        {activeView === 'sync' && canSchemaBrowse && (
           <button
             type="button"
             data-testid="lokee-snapshot-target-btn"
             disabled={!selectedTargetConnectionId || capturingSnapshot}
             onClick={() => void snapshotTarget()}
             title="Take an initial snapshot of the Target schema. Later migrates snapshot automatically."
-            className="ml-auto inline-flex items-center gap-1.5 rounded border border-cyan-500/40 bg-cyan-950/40 px-2.5 py-1 text-[11px] font-bold text-cyan-100 hover:bg-cyan-900/50 disabled:cursor-not-allowed disabled:opacity-40"
+            className="inline-flex shrink-0 items-center gap-1 rounded-full border border-cyan-500/40 bg-cyan-950/40 px-2 py-1 text-[11px] font-bold text-cyan-100 hover:bg-cyan-900/50 disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Camera className="h-3.5 w-3.5" />
             {capturingSnapshot ? 'Snapshotting…' : 'Snapshot target'}
           </button>
-        </div>
-      )}
-      {syncPane === 'browse' && <BrowseBar />}
-      {syncPane === 'compare' && (
-      <div className="grid grid-cols-1 xl:grid-cols-11 gap-3 items-stretch">
-        {/* Source Configuration — left side is the Original Server (read / compare from). */}
-        <div className="xl:col-span-5 bg-slate-950/60 p-2 rounded-md border border-slate-800/80 flex flex-col gap-1.5">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-cyan-500/80">
-            Original Server
+        )}
+
+        {activeView === 'snapshots' && (
+          <div className="min-w-0 flex-1">
+            <HistoryCompareBar />
           </div>
-          {/* Label + Add/Edit Connection + status, all inline */}
-          <div className="flex items-center gap-2">
-            {connections.length > 0 && (
-              <select
-                data-testid="source-saved-select"
-                value={selectedSourceConnectionId ?? ''}
-                onChange={(e) => e.target.value && selectSavedConnection('source', e.target.value)}
-                title="Saved connections"
-                className="shrink-0 w-36 max-w-[144px] text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none accent-focus truncate"
-              >
-                <option value="">— Saved —</option>
-                {connections.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    [{c.dialect.toUpperCase()}] {c.name}
-                  </option>
-                ))}
-              </select>
-            )}
+        )}
 
-            <span className={`flex-1 min-w-0 text-xs font-bold truncate ${
-              sourceConfig.option.database
-                ? 'text-cyan-300 font-mono'
-                : 'text-cyan-200 bg-cyan-500/10 border border-cyan-500/30 rounded px-2 py-1'
-            }`}>
-              {sourceConfig.option.database
-                ? `${sourceConfig.option.host ?? 'localhost'} / ${sourceConfig.option.database}${sourceConfig.schema ? ` / ${sourceConfig.schema}` : ''}`
-                : 'Configure credentials via Params'}
-            </span>
-
-            <button
-              data-testid="source-config-btn"
-              onClick={() => {
-                setActiveModalTarget('source');
-                setShowConnectionModal(true);
-              }}
-              title="Add or edit this connection's credentials"
-              className="shrink-0 text-xs font-semibold bg-slate-800 border border-slate-700 hover:bg-slate-700 hover:border-cyan-500/40 text-cyan-400 rounded transition cursor-pointer flex items-center gap-1.5 px-2 py-1"
-            >
-              <Settings className="w-3.5 h-3.5" />
-              <span>{sourceConfig.option.database ? 'Edit' : 'Add'} Connection</span>
-            </button>
-
-            {isTestingSource ? (
-              <span className="text-xs text-cyan-400 flex items-center gap-1 font-medium shrink-0">
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Connecting...
-              </span>
-            ) : sourceConnected ? (
-              <button
-                data-testid="source-connected-btn"
-                onClick={testSourceConnection}
-                title="Reconnect and refresh schema list"
-                className="group text-xs text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-500/20 hover:border-emerald-400/50 hover:bg-emerald-950/70 flex items-center gap-1 font-medium shrink-0 cursor-pointer transition"
-              >
-                <CheckCircle2 className="w-3.5 h-3.5 group-hover:hidden" />
-                <RefreshCw className="w-3.5 h-3.5 hidden group-hover:block" />
-                <span className="group-hover:hidden">Connected</span>
-                <span className="hidden group-hover:inline">Refresh</span>
-              </button>
-            ) : (
-              <button
-                data-testid="source-connect-btn"
-                onClick={testSourceConnection}
-                title="Retry connection"
-                className="text-xs text-slate-400 hover:text-cyan-300 border border-slate-700 hover:border-cyan-500/40 bg-slate-900/60 hover:bg-slate-900 px-2 py-0.5 rounded-full flex items-center gap-1 font-medium shrink-0 cursor-pointer transition"
-              >
-                <RefreshCw className="w-3.5 h-3.5" /> Retry Connection
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Direction / Swap control — migration always flows Original Server → Target */}
-        <div className="flex xl:col-span-1 justify-center items-center">
+        <div className="ml-auto flex flex-wrap items-center gap-1.5">
+          <ActivityIndicator />
           <button
-            onClick={swapSourceTarget}
-            title="Swap Original Server and Target (reverse migration direction)"
-            className="group flex flex-col items-center gap-0.5 transition cursor-pointer"
+            type="button"
+            data-testid="command-palette-btn"
+            onClick={() => openCommandPalette()}
+            title="Command palette (⌘K)"
+            className="inline-flex items-center gap-1.5 rounded-full border border-slate-700 px-2.5 py-1 text-[11px] font-semibold text-slate-400 hover:border-slate-500 hover:text-slate-100"
           >
-            <span className="text-[9px] font-bold uppercase tracking-wider text-cyan-500/70 group-hover:text-cyan-400">
-              Original
-            </span>
-            <ArrowRight className="w-5 h-5 text-indigo-500/80 group-hover:hidden transition" />
-            <ArrowLeftRight className="w-5 h-5 text-cyan-400 hidden group-hover:block" />
-            <span className="text-[9px] font-bold uppercase tracking-wider text-purple-400/70 group-hover:text-cyan-400">
-              Target
-            </span>
+            <Search className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Search</span>
+            <kbd className="hidden rounded border border-slate-700 bg-slate-950 px-1 font-mono text-[9px] text-slate-500 sm:inline">
+              ⌘K
+            </kbd>
           </button>
-        </div>
-
-        {/* Target Configuration */}
-        <div className="xl:col-span-5 bg-slate-950/60 p-2 rounded-md border border-slate-800/80 flex flex-col gap-1.5">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-purple-400/80">
-            Target
-          </div>
-          {/* Label + Add/Edit Connection + status, all inline */}
-          <div className="flex items-center gap-2">
-            {connections.length > 0 && (
-              <select
-                data-testid="target-saved-select"
-                value={selectedTargetConnectionId ?? ''}
-                onChange={(e) => e.target.value && selectSavedConnection('target', e.target.value)}
-                title="Saved connections"
-                className="shrink-0 w-36 max-w-[144px] text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none accent-focus truncate"
-              >
-                <option value="">— Saved —</option>
-                {connections.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    [{c.dialect.toUpperCase()}] {c.name}
-                  </option>
-                ))}
-              </select>
-            )}
-
-            <span className={`flex-1 min-w-0 text-xs font-bold truncate ${
-              targetConfig.option.database
-                ? 'text-purple-300 font-mono'
-                : 'text-purple-200 bg-purple-500/10 border border-purple-500/30 rounded px-2 py-1'
-            }`}>
-              {targetConfig.option.database
-                ? `${targetConfig.option.host ?? 'localhost'} / ${targetConfig.option.database}${targetConfig.schema ? ` / ${targetConfig.schema}` : ''}`
-                : 'Configure credentials via Params'}
-            </span>
-
+          <button
+            data-testid="credentials-btn"
+            onClick={() => setShowCredentials(true)}
+            className="flex items-center gap-1.5 rounded-md border border-slate-700 px-2.5 py-1 text-xs font-semibold text-cyan-400 transition hover:border-cyan-500/40 hover:text-cyan-300"
+          >
+            <KeyRound className="h-3.5 w-3.5" /> Credentials
+          </button>
+          <button
+            data-testid="history-btn"
+            onClick={() => setShowHistory(true)}
+            className="flex items-center gap-1.5 rounded-md border border-slate-700 px-2.5 py-1 text-xs font-semibold text-slate-300 transition hover:border-slate-500 hover:text-slate-100"
+          >
+            <History className="h-3.5 w-3.5" /> Applies
+          </button>
+          {compareResult && activeView === 'sync' && syncPane === 'compare' && (
             <button
-              data-testid="target-config-btn"
-              onClick={() => {
-                setActiveModalTarget('target');
-                setShowConnectionModal(true);
-              }}
-              title="Add or edit this connection's credentials"
-              className="shrink-0 text-xs font-semibold bg-slate-800 border border-slate-700 hover:bg-slate-700 hover:border-purple-500/40 text-purple-400 rounded transition cursor-pointer flex items-center gap-1.5 px-2 py-1"
+              onClick={resetSync}
+              className="rounded-md border border-slate-700 px-2.5 py-1 text-xs font-semibold text-slate-400 transition hover:border-slate-600 hover:text-slate-200"
             >
-              <Settings className="w-3.5 h-3.5" />
-              <span>{targetConfig.option.database ? 'Edit' : 'Add'} Connection</span>
+              Clear
             </button>
-
-            {isTestingTarget ? (
-              <span className="text-xs text-purple-400 flex items-center gap-1 font-medium shrink-0">
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Connecting...
-              </span>
-            ) : targetConnected ? (
-              <button
-                data-testid="target-connected-btn"
-                onClick={testTargetConnection}
-                title="Reconnect and refresh schema list"
-                className="group text-xs text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-500/20 hover:border-emerald-400/50 hover:bg-emerald-950/70 flex items-center gap-1 font-medium shrink-0 cursor-pointer transition"
-              >
-                <CheckCircle2 className="w-3.5 h-3.5 group-hover:hidden" />
-                <RefreshCw className="w-3.5 h-3.5 hidden group-hover:block" />
-                <span className="group-hover:hidden">Connected</span>
-                <span className="hidden group-hover:inline">Refresh</span>
-              </button>
-            ) : (
-              <button
-                data-testid="target-connect-btn"
-                onClick={testTargetConnection}
-                title="Retry connection"
-                className="text-xs text-slate-400 hover:text-purple-300 border border-slate-700 hover:border-purple-500/40 bg-slate-900/60 hover:bg-slate-900 px-2 py-0.5 rounded-full flex items-center gap-1 font-medium shrink-0 cursor-pointer transition"
-              >
-                <RefreshCw className="w-3.5 h-3.5" /> Retry Connection
-              </button>
-            )}
+          )}
+          <div className="border-l border-slate-800 pl-2">
+            <ProfileMenu />
           </div>
         </div>
       </div>
-      )}
 
-      {syncPane === 'compare' && (
-      <div className="flex flex-col md:flex-row justify-between md:items-center bg-slate-950/40 border border-slate-800/60 rounded-md p-2 px-3 gap-2">
-        {/* Scope Config Controls — two always-separate rows: which object types
-            get compared (top), and which of the results are shown (bottom,
-            once a compare has run). Each is its own flex-wrap line so the
-            label always stays attached to its own pills. */}
-        <div className="flex flex-col gap-2">
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="text-xs font-semibold text-slate-400 flex items-center gap-1 uppercase tracking-wider border-r border-slate-800 pr-2">
-              <Settings className="w-3.5 h-3.5 text-cyan-400" /> Comparison Scope:
+      {activeView === 'sync' && syncPane === 'compare' && (
+        <div className="flex flex-col gap-1.5 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="flex items-center gap-1 pr-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              <Settings className="h-3 w-3 text-cyan-400" /> Scope
             </span>
-            <div className="flex items-center gap-1.5">
-              {objectScopeOptions.map((opt) => {
-                const active = selectedObjectTypes.includes(opt.type);
+            {objectScopeOptions.map((opt) => {
+              const active = selectedObjectTypes.includes(opt.type);
+              return (
+                <button
+                  key={opt.type}
+                  onClick={() => toggleObjectTypeFilter(opt.type)}
+                  className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold transition ${
+                    active
+                      ? 'border-cyan-500/30 bg-cyan-500/10 text-cyan-400'
+                      : 'border-slate-850 bg-slate-900/50 text-slate-500 hover:bg-slate-900 hover:text-slate-400'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+          {compareResult && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="flex items-center gap-1 pr-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                <Layers className="h-3 w-3 text-cyan-400" /> Viewing
+              </span>
+              <button
+                onClick={clearTypeFilter}
+                className={`whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-semibold transition ${
+                  typeFilter.length === 0
+                    ? 'border-slate-600 bg-slate-800 text-slate-100'
+                    : 'border-slate-850 bg-slate-900/50 text-slate-500 hover:text-slate-400'
+                }`}
+              >
+                All {typeCounts('ALL')}
+              </button>
+              {TYPE_ORDER.map((type) => {
+                const active = typeFilter.includes(type);
                 return (
                   <button
-                    key={opt.type}
-                    onClick={() => toggleObjectTypeFilter(opt.type)}
-                    className={`px-2 py-0.5 rounded text-xs font-semibold border transition cursor-pointer ${
+                    key={type}
+                    onClick={() => toggleTypeFilter(type)}
+                    className={`flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-semibold transition ${
                       active
-                        ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
-                        : 'bg-slate-900/50 text-slate-500 border-slate-850 hover:text-slate-450 hover:bg-slate-900'
+                        ? 'border-slate-600 bg-slate-800 text-slate-100'
+                        : 'border-slate-850 bg-slate-900/50 text-slate-500 hover:text-slate-400'
                     }`}
                   >
-                    {opt.label}
+                    <span className={TYPE_META[type].color}>{TYPE_META[type].icon}</span>
+                    {TYPE_META[type].group}
+                    <span className="text-slate-500">{typeCounts(type)}</span>
                   </button>
                 );
               })}
             </div>
-          </div>
-
-          {/* Results type filter — narrows the compare-results tree (SchemaTreePanel)
-              to one or more object types (multi-select, like Comparison Scope above).
-              Lives here rather than in that panel because this bar spans the full
-              page width; the panel's 280-640px resizable width kept clipping the
-              pill row (esp. with 9 types + counts). */}
-          {compareResult && (
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="text-xs font-semibold text-slate-400 flex items-center gap-1 uppercase tracking-wider border-r border-slate-800 pr-2">
-                <Layers className="w-3.5 h-3.5 text-cyan-400" /> Viewing:
-              </span>
-              <div className="flex items-center gap-1.5 overflow-x-auto">
-                <button
-                  onClick={clearTypeFilter}
-                  className={`px-2 py-0.5 rounded text-xs font-semibold border transition cursor-pointer whitespace-nowrap ${
-                    typeFilter.length === 0
-                      ? 'bg-slate-800 text-slate-100 border-slate-600'
-                      : 'bg-slate-900/50 text-slate-500 border-slate-850 hover:text-slate-450 hover:bg-slate-900'
-                  }`}
-                >
-                  All {typeCounts('ALL')}
-                </button>
-                {TYPE_ORDER.map((type) => {
-                  const active = typeFilter.includes(type);
-                  return (
-                    <button
-                      key={type}
-                      onClick={() => toggleTypeFilter(type)}
-                      className={`px-2 py-0.5 rounded text-xs font-semibold border transition cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
-                        active
-                          ? 'bg-slate-800 text-slate-100 border-slate-600'
-                          : 'bg-slate-900/50 text-slate-500 border-slate-850 hover:text-slate-450 hover:bg-slate-900'
-                      }`}
-                    >
-                      <span className={TYPE_META[type].color}>{TYPE_META[type].icon}</span>
-                      {TYPE_META[type].group}
-                      <span className="text-slate-500">{typeCounts(type)}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
           )}
         </div>
-
-        <div className="flex items-center gap-3">
-          {sameConfig && (
-            <span className="flex items-center gap-1.5 text-xs font-medium text-amber-400 bg-amber-950/30 border border-amber-500/20 px-2 py-1 rounded-md">
-              <AlertCircle className="w-4 h-4 shrink-0" /> Original Server and Target are the same
-            </span>
-          )}
-
-          {compareResult && (
-            <DiffBriefingChips briefing={briefing} />
-          )}
-
-          <button
-            data-testid="compare-btn"
-            onClick={runSchemaComparison}
-            disabled={compareUnavailable || isComparing}
-            title={compareTitle}
-            className={`flex items-center gap-1.5 px-4 py-1.5 rounded-md text-sm font-bold transition shadow-lg ${
-              compareUnavailable
-                ? 'bg-slate-850 text-slate-500 cursor-not-allowed border border-slate-800/50'
-                : 'accent-grad on-accent-fg shadow-indigo-500/10 cursor-pointer'
-            }`}
-          >
-            {isComparing ? (
-              <>
-                <RefreshCw className="w-4 h-4 animate-spin" /> Analyzing Schema...
-              </>
-            ) : (
-              <>
-                <Zap className="w-4 h-4 fill-current" /> Compare Schemas
-              </>
-            )}
-          </button>
-        </div>
-      </div>
-      )}
-        </>
-      )}
-
-      {activeView === 'snapshots' && (
-        <>
-          {canSchemaBrowse && (
-            <div className="flex justify-end">
-              <button
-                type="button"
-                data-testid="lokee-snapshot-target-btn"
-                disabled={!selectedTargetConnectionId || capturingSnapshot}
-                onClick={() => void snapshotTarget()}
-                title="Take an initial snapshot of the Target schema. Later migrates snapshot automatically."
-                className="inline-flex items-center gap-1.5 rounded border border-cyan-500/40 bg-cyan-950/40 px-2.5 py-1 text-[11px] font-bold text-cyan-100 hover:bg-cyan-900/50 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <Camera className="h-3.5 w-3.5" />
-                {capturingSnapshot ? 'Snapshotting…' : 'Snapshot target'}
-              </button>
-            </div>
-          )}
-          <HistoryCompareBar />
-        </>
       )}
 
       <ConnectionModal
@@ -608,12 +436,8 @@ export const TopToolbar: React.FC = () => {
           setActiveModalTarget(null);
         }}
         onSaveCredential={async (input) => {
-          // Same credential form as the Credentials manager: save it (encrypted,
-          // server-side) then bind it to this side by id.
           const side = activeModalTarget === 'target' ? 'target' : 'source';
           const saved = await addConnection(input);
-          // If the password wasn't persisted, keep it in-memory for this session so the
-          // just-bound connection can be used without re-entering it.
           const sessionPw = saved.hasPassword ? undefined : input.option.password;
           if (sessionPw) setSessionPassword(saved.id, sessionPw);
           applySavedConnection(side, saved.id, sessionPw);

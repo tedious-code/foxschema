@@ -163,9 +163,10 @@ export const SqlEditorView: React.FC = () => {
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(loadSidebarCollapsed);
   const splitRef = useRef<HTMLDivElement>(null);
-  const [sidebarOpen, toggleSidebar] = useSidebarSectionsOpen();
+  const [sidebarOpen, , selectSidebar] = useSidebarSectionsOpen();
   const [sectionHeights, setSectionHeight] = useSidebarSectionHeights();
   const [sectionOrder, moveSection] = useSidebarSectionOrder();
+  const prevDestCount = useRef(liveSelectedIds.length);
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
   const secretsPanelRef = useRef<SqlSecretsPanelHandle>(null);
@@ -202,6 +203,14 @@ export const SqlEditorView: React.FC = () => {
       /* ignore */
     }
   }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    const n = liveSelectedIds.length;
+    if (n >= 2 && prevDestCount.current < 2 && tab.layout !== 'sideBySide') {
+      setLayout('sideBySide');
+    }
+    prevDestCount.current = n;
+  }, [liveSelectedIds.length, setLayout, tab.layout]);
 
   // Completion provider reads active SQL + checked schemas + variables via this getter.
   useEffect(() => {
@@ -387,11 +396,12 @@ export const SqlEditorView: React.FC = () => {
           if (!canEditorDestinations) return null;
           return (
             <SqlSidebarSection
+              railPanel
               id="destinations"
               title="Destination servers"
               icon={<Database className="text-[#0284c7]" strokeWidth={SQL_ICON_STROKE} />}
               open={sidebarOpen.destinations}
-              onToggle={() => toggleSidebar('destinations')}
+              onToggle={() => selectSidebar('destinations')}
               height={sectionHeights.destinations}
               onResizeHeight={(h) => setSectionHeight('destinations', h)}
               {...drag}
@@ -403,11 +413,12 @@ export const SqlEditorView: React.FC = () => {
           if (!canEditorBookmarks) return null;
           return (
             <SqlSidebarSection
+              railPanel
               id="bookmarks"
               title="Bookmarks"
               icon={<Bookmark className="text-[#f59e0b]" strokeWidth={SQL_ICON_STROKE} />}
               open={sidebarOpen.bookmarks}
-              onToggle={() => toggleSidebar('bookmarks')}
+              onToggle={() => selectSidebar('bookmarks')}
               height={sectionHeights.bookmarks}
               onResizeHeight={(h) => setSectionHeight('bookmarks', h)}
               actions={
@@ -431,11 +442,12 @@ export const SqlEditorView: React.FC = () => {
           if (!canEditorVariables || !canVariablesRead) return null;
           return (
             <SqlSidebarSection
+              railPanel
               id="variables"
               title="Variables"
               icon={<Braces className="text-[#7c3aed]" strokeWidth={SQL_ICON_STROKE} />}
               open={sidebarOpen.variables}
-              onToggle={() => toggleSidebar('variables')}
+              onToggle={() => selectSidebar('variables')}
               height={sectionHeights.variables}
               onResizeHeight={(h) => setSectionHeight('variables', h)}
               {...drag}
@@ -447,11 +459,12 @@ export const SqlEditorView: React.FC = () => {
           if (!canEditorSecrets || !canSecretsView) return null;
           return (
             <SqlSidebarSection
+              railPanel
               id="vault"
               title="Secrets"
               icon={<KeyRound className="text-[#d97706]" strokeWidth={SQL_ICON_STROKE} />}
               open={sidebarOpen.vault}
-              onToggle={() => toggleSidebar('vault')}
+              onToggle={() => selectSidebar('vault')}
               height={sectionHeights.vault}
               onResizeHeight={(h) => setSectionHeight('vault', h)}
               actions={
@@ -479,11 +492,12 @@ export const SqlEditorView: React.FC = () => {
           if (!canEditorUtilities || !canUtilityAccess) return null;
           return (
             <SqlSidebarSection
+              railPanel
               id="utilities"
               title="Utilities"
               icon={<Wrench className="text-[#d97706]" strokeWidth={SQL_ICON_STROKE} />}
               open={sidebarOpen.utilities}
-              onToggle={() => toggleSidebar('utilities')}
+              onToggle={() => selectSidebar('utilities')}
               {...drag}
             >
               <div className="px-1 pb-2 flex flex-col gap-0.5">
@@ -566,11 +580,12 @@ export const SqlEditorView: React.FC = () => {
           if (!canEditorUtilities || !canUtilityAccess) return null;
           return (
             <SqlSidebarSection
+              railPanel
               id="files"
               title="Files"
               icon={<FileSpreadsheet className="text-[#f59e0b]" strokeWidth={SQL_ICON_STROKE} />}
               open={sidebarOpen.files}
-              onToggle={() => toggleSidebar('files')}
+              onToggle={() => selectSidebar('files')}
               height={sectionHeights.files}
               onResizeHeight={(h) => setSectionHeight('files', h)}
               {...drag}
@@ -585,11 +600,12 @@ export const SqlEditorView: React.FC = () => {
           if (!canEditorSchema) return null;
           return (
             <SqlSidebarSection
+              railPanel
               id="schema"
               title="Schema"
               icon={<Network className="text-[#059669]" strokeWidth={SQL_ICON_STROKE} />}
               open={sidebarOpen.schema}
-              onToggle={() => toggleSidebar('schema')}
+              onToggle={() => selectSidebar('schema')}
               grow
               height={sectionHeights.schema}
               onResizeHeight={(h) => setSectionHeight('schema', h)}
@@ -625,7 +641,7 @@ export const SqlEditorView: React.FC = () => {
       canUtilityAccess,
       canEditorSchema,
       sidebarOpen,
-      toggleSidebar,
+      selectSidebar,
       sectionHeights,
       setSectionHeight,
       tab.sql,
@@ -637,47 +653,135 @@ export const SqlEditorView: React.FC = () => {
     ]
   );
 
+  const railIcons: {
+    id: SidebarSectionId;
+    title: string;
+    visible: boolean;
+    icon: React.ReactNode;
+  }[] = [
+    {
+      id: 'schema',
+      title: 'Schema',
+      visible: canEditorSchema,
+      icon: <Network className="text-[#059669]" strokeWidth={SQL_ICON_STROKE} />,
+    },
+    {
+      id: 'destinations',
+      title: 'Destinations',
+      visible: canEditorDestinations,
+      icon: <Database className="text-[#0284c7]" strokeWidth={SQL_ICON_STROKE} />,
+    },
+    {
+      id: 'bookmarks',
+      title: 'Bookmarks',
+      visible: canEditorBookmarks,
+      icon: <Bookmark className="text-[#f59e0b]" strokeWidth={SQL_ICON_STROKE} />,
+    },
+    {
+      id: 'variables',
+      title: 'Variables',
+      visible: canEditorVariables && canVariablesRead,
+      icon: <Braces className="text-[#7c3aed]" strokeWidth={SQL_ICON_STROKE} />,
+    },
+    {
+      id: 'vault',
+      title: 'Secrets',
+      visible: canEditorSecrets && canSecretsView,
+      icon: <KeyRound className="text-[#d97706]" strokeWidth={SQL_ICON_STROKE} />,
+    },
+    {
+      id: 'utilities',
+      title: 'Utilities',
+      visible: canEditorUtilities && canUtilityAccess,
+      icon: <Wrench className="text-[#d97706]" strokeWidth={SQL_ICON_STROKE} />,
+    },
+    {
+      id: 'files',
+      title: 'Files',
+      visible: canEditorUtilities && canUtilityAccess,
+      icon: <FileSpreadsheet className="text-[#f59e0b]" strokeWidth={SQL_ICON_STROKE} />,
+    },
+  ];
+  const orderedRail = sectionOrder
+    .map((id) => railIcons.find((r) => r.id === id))
+    .filter((r): r is NonNullable<typeof r> => Boolean(r?.visible));
+  const openRailId = orderedRail.find((r) => sidebarOpen[r.id])?.id ?? orderedRail[0]?.id ?? null;
+
   return (
     <div className="flex-1 flex min-h-0 overflow-hidden" data-testid="sql-editor-view">
-      {sidebarCollapsed ? (
-        <aside
-          className="w-10 shrink-0 border-r border-slate-800 bg-slate-950 flex flex-col items-center py-2 gap-1"
-          data-testid="sql-sidebar-collapsed"
+      <aside
+        className="relative shrink-0 border-r border-slate-800 bg-slate-950 overflow-hidden flex min-h-0"
+        style={{ width: sidebarCollapsed ? 48 : 48 + sidebarWidth }}
+        data-testid={sidebarCollapsed ? 'sql-sidebar-collapsed' : 'sql-sidebar'}
+      >
+        <nav
+          className="flex w-12 shrink-0 flex-col items-center gap-0.5 border-r border-slate-800 py-1"
+          aria-label="SQL sections"
         >
-          <button
-            type="button"
-            data-testid="sql-sidebar-expand"
-            title="Show sidebar"
-            aria-label="Show sidebar"
-            onClick={() => setSidebarCollapsed(false)}
-            className="p-1.5 rounded text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition"
-          >
-            <PanelLeftOpen className="w-4 h-4 text-sky-500" strokeWidth={SQL_ICON_STROKE} />
-          </button>
-        </aside>
-      ) : (
-        <aside
-          className="relative shrink-0 border-r border-slate-800 bg-slate-950 overflow-hidden flex flex-col min-h-0"
-          style={{ width: sidebarWidth }}
-          data-testid="sql-sidebar"
-        >
-          <div className="flex items-center justify-end px-2 py-1 border-b border-slate-800 shrink-0 bg-slate-950">
+          {sidebarCollapsed ? (
+            <button
+              type="button"
+              data-testid="sql-sidebar-expand"
+              title="Show sidebar"
+              aria-label="Show sidebar"
+              onClick={() => setSidebarCollapsed(false)}
+              className="rounded p-1.5 text-slate-400 transition hover:bg-slate-800 hover:text-slate-100"
+            >
+              <PanelLeftOpen className="h-4 w-4 text-sky-500" strokeWidth={SQL_ICON_STROKE} />
+            </button>
+          ) : (
             <button
               type="button"
               data-testid="sql-sidebar-collapse"
               title="Hide sidebar"
               aria-label="Hide sidebar"
               onClick={() => setSidebarCollapsed(true)}
-              className="p-1 rounded text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition"
+              className="rounded p-1.5 text-slate-400 transition hover:bg-slate-800 hover:text-slate-100"
             >
-              <PanelLeftClose className="w-3.5 h-3.5 text-sky-500" strokeWidth={SQL_ICON_STROKE} />
+              <PanelLeftClose className="h-3.5 w-3.5 text-sky-500" strokeWidth={SQL_ICON_STROKE} />
             </button>
+          )}
+          {orderedRail.map((item) => {
+            const on = item.id === openRailId && !sidebarCollapsed;
+            return (
+              <div
+                key={item.id}
+                data-testid={!on ? `sql-sidebar-${item.id}` : undefined}
+                className="flex w-full justify-center"
+                {...sidebarDragProps(sectionOrder.indexOf(item.id))}
+              >
+                <button
+                  type="button"
+                  data-testid={`sql-sidebar-toggle-${item.id}`}
+                  title={item.title}
+                  aria-label={item.title}
+                  aria-expanded={on}
+                  onClick={() => {
+                    selectSidebar(item.id);
+                    setSidebarCollapsed(false);
+                  }}
+                  className={`flex h-10 w-10 items-center justify-center rounded-md transition ${
+                    on
+                      ? 'bg-slate-800 text-slate-100 ring-1 ring-slate-600'
+                      : 'text-slate-400 hover:bg-slate-800/70 hover:text-slate-100'
+                  }`}
+                >
+                  <span className="flex items-center [&_svg]:h-4 [&_svg]:w-4">{item.icon}</span>
+                </button>
+              </div>
+            );
+          })}
+        </nav>
+        {!sidebarCollapsed && (
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-slate-950">
+            {sectionOrder.map((id, index) =>
+              id === openRailId ? (
+                <React.Fragment key={id}>{renderSidebarSection(id, index)}</React.Fragment>
+              ) : null
+            )}
           </div>
-          <div className="flex-1 flex flex-col min-h-0 overflow-y-auto overflow-x-hidden bg-slate-950">
-            {sectionOrder.map((id, index) => (
-              <React.Fragment key={id}>{renderSidebarSection(id, index)}</React.Fragment>
-            ))}
-          </div>
+        )}
+        {!sidebarCollapsed && (
           <div
             role="separator"
             aria-orientation="vertical"
@@ -685,10 +789,10 @@ export const SqlEditorView: React.FC = () => {
             data-testid="sql-sidebar-resize"
             title="Drag to resize sidebar"
             onMouseDown={startSidebarResize}
-            className="absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-cyan-500/40 active:bg-cyan-500/60 transition-colors z-10"
+            className="absolute top-0 right-0 z-10 h-full w-1.5 cursor-col-resize hover:bg-cyan-500/40 active:bg-cyan-500/60"
           />
-        </aside>
-      )}
+        )}
+      </aside>
 
       <section className="flex-1 flex flex-col min-w-0 min-h-0">
         <EditorTabBar
@@ -702,6 +806,11 @@ export const SqlEditorView: React.FC = () => {
         />
 
         <div className="flex items-center gap-2 px-4 py-2 border-b border-slate-800 bg-slate-900/60 shrink-0">
+          {canEditorDestinations && (
+            <div className="min-w-0 max-w-[min(100%,28rem)] shrink">
+              <ConnectionChecklist variant="chips" />
+            </div>
+          )}
           <button
             data-testid="sql-run-btn"
             onClick={() => execute()}
@@ -718,7 +827,11 @@ export const SqlEditorView: React.FC = () => {
             ) : (
               <Play className="w-3.5 h-3.5 fill-current text-emerald-50" strokeWidth={SQL_ICON_STROKE} />
             )}
-            {hasSelection ? 'Run selection' : 'Run'}
+            {hasSelection
+              ? 'Run selection'
+              : liveSelectedIds.length > 0
+                ? `Run · ${liveSelectedIds.length}`
+                : 'Run'}
           </button>
           <button
             type="button"

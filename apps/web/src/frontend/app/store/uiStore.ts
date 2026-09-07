@@ -242,7 +242,10 @@ export function migrateUiPersist(persisted: unknown, _version: number): unknown 
     state.syncPane = 'compare';
   }
   if (!['sync', 'sqlEditor', 'access', 'snapshots', 'home'].includes(state.activeView as string)) {
-    state.activeView = 'sync';
+    state.activeView = 'home';
+  }
+  if (_version < 3 && state.activeView === 'sync') {
+    state.activeView = 'home';
   }
   if (!['compare', 'browse'].includes(state.syncPane as string)) {
     state.syncPane = 'compare';
@@ -267,7 +270,7 @@ export const useUiStore = create<UiState>()(
       return {
         ...DEFAULTS,
         resolvedMode: 'dark',
-        activeView: 'sync' as ActiveView,
+        activeView: 'home' as ActiveView,
         syncPane: 'compare' as SyncPane,
         lokeeEpoch: 0,
 
@@ -310,7 +313,7 @@ export const useUiStore = create<UiState>()(
         },
       };
     },
-    { name: 'schema-sync-ui', version: 2, migrate: migrateUiPersist }
+    { name: 'schema-sync-ui', version: 3, migrate: migrateUiPersist }
   )
 );
 

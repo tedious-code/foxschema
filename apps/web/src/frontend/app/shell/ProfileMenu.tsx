@@ -124,7 +124,7 @@ export function ProfileMenu(): React.ReactElement | null {
             }}
             className="w-full flex items-center gap-2 px-4 py-3 text-sm font-semibold text-slate-300 hover:text-slate-100 hover:bg-slate-800/60 transition cursor-pointer"
           >
-            <Shield className="w-4 h-4" /> Access control
+            <Shield className="w-4 h-4" /> App users & roles
           </button>
           )}
 

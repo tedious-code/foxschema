@@ -3,14 +3,17 @@
  * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
  * SPDX-License-Identifier: Apache-2.0
  *
- * Home: recents and saved connections from Zustand only — no schema introspect.
+ * Home: continue last work, recents, and saved connections from Zustand only —
+ * no schema introspect.
  */
 import React from 'react';
-import { Database, Terminal } from 'lucide-react';
+import { Camera, Database, GitCompareArrows, Search, Terminal } from 'lucide-react';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { useUiStore } from '@/app/store/uiStore';
 import { formatRelativeDay } from '@/features/sql-editor/lib/relativeTime';
+import { openCommandPalette } from './commandPalette';
+import { diffBriefing } from '@/features/schema-diff';
 
 function previewSql(sql: string): string {
   const line = sql.trim().split('\n')[0] ?? '';
@@ -21,6 +24,9 @@ export const HomeView: React.FC = () => {
   const recentQueries = useSqlEditorStore((s) => s.recentQueries);
   const openRecentQuery = useSqlEditorStore((s) => s.openRecentQuery);
   const connections = useSyncStore((s) => s.connections);
+  const compareResult = useSyncStore((s) => s.compareResult);
+  const sourceConfig = useSyncStore((s) => s.sourceConfig);
+  const targetConfig = useSyncStore((s) => s.targetConfig);
   const ensureConnectionSelected = useSqlEditorStore((s) => s.ensureConnectionSelected);
   const setActiveView = useUiStore((s) => s.setActiveView);
 
@@ -34,12 +40,84 @@ export const HomeView: React.FC = () => {
     setActiveView('sqlEditor');
   };
 
+  const briefing = diffBriefing(compareResult?.tables);
+  const lastQuery = recentQueries[0];
+
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-6" data-testid="home-view">
-      <h1 className="text-lg font-bold text-slate-100">Home</h1>
-      <p className="mt-0.5 text-[12px] text-slate-500">
-        Recents and connections already on this device. Opening one does not introspect a database.
-      </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-lg font-bold text-slate-100">Home</h1>
+          <p className="mt-0.5 text-[12px] text-slate-500">
+            Continue where you left off. Opening a recent or connection does not introspect a database.
+          </p>
+        </div>
+        <button
+          type="button"
+          data-testid="home-command-palette"
+          onClick={() => openCommandPalette()}
+          className="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-950 px-3 py-1.5 text-[12px] font-semibold text-slate-300 hover:border-slate-500 hover:text-slate-100"
+        >
+          <Search className="h-3.5 w-3.5" />
+          Search workspaces and recents
+          <kbd className="rounded border border-slate-700 bg-slate-900 px-1.5 font-mono text-[10px] text-slate-500">
+            ⌘K
+          </kbd>
+        </button>
+      </div>
+
+      <section className="mt-6 grid gap-2 sm:grid-cols-3" data-testid="home-continue">
+        <button
+          type="button"
+          data-testid="home-continue-sync"
+          disabled={!compareResult}
+          onClick={() => setActiveView('sync')}
+          className="rounded-lg border border-slate-800 bg-slate-900/40 p-3 text-left hover:border-slate-600 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+            <GitCompareArrows className="h-3.5 w-3.5" /> Last compare
+          </span>
+          <span className="mt-2 block text-[13px] font-semibold text-slate-100">
+            {compareResult
+              ? `+${briefing.added}  ~${briefing.modified}  −${briefing.removed}`
+              : 'No compare yet'}
+          </span>
+          <span className="mt-1 block truncate font-mono text-[11px] text-slate-500">
+            {compareResult
+              ? `${sourceConfig.option.database ?? 'Original'} → ${targetConfig.option.database ?? 'Target'}`
+              : 'Run Compare in Sync'}
+          </span>
+        </button>
+        <button
+          type="button"
+          data-testid="home-continue-sql"
+          disabled={!lastQuery}
+          onClick={() => lastQuery && openRecent(lastQuery.id)}
+          className="rounded-lg border border-slate-800 bg-slate-900/40 p-3 text-left hover:border-slate-600 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+            <Terminal className="h-3.5 w-3.5" /> Last query
+          </span>
+          <span className="mt-2 block truncate text-[13px] font-semibold text-slate-100">
+            {lastQuery?.title?.trim() || (lastQuery ? 'Query' : 'No query yet')}
+          </span>
+          <span className="mt-1 block truncate font-mono text-[11px] text-slate-500">
+            {lastQuery ? previewSql(lastQuery.sql) : 'Run SQL to see it here'}
+          </span>
+        </button>
+        <button
+          type="button"
+          data-testid="home-continue-snapshots"
+          onClick={() => setActiveView('snapshots')}
+          className="rounded-lg border border-slate-800 bg-slate-900/40 p-3 text-left hover:border-slate-600"
+        >
+          <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+            <Camera className="h-3.5 w-3.5" /> Snapshots
+          </span>
+          <span className="mt-2 block text-[13px] font-semibold text-slate-100">Schema history</span>
+          <span className="mt-1 block text-[11px] text-slate-500">Timeline, briefing, and compare pane</span>
+        </button>
+      </section>
 
       <section className="mt-6" data-testid="home-recents">
         <h2 className="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-2">

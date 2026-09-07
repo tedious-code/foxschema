@@ -28,6 +28,9 @@ vi.mock('@/app/store/useSyncStore', () => ({
   useSyncStore: (sel: (s: Record<string, unknown>) => unknown) =>
     sel({
       connections: [{ id: 'c1', name: 'Demo SQLite', dialect: 'sqlite' }],
+      compareResult: null,
+      sourceConfig: { option: {} },
+      targetConfig: { option: {} },
     }),
 }));
 
@@ -58,5 +61,11 @@ describe('HomeView', () => {
     expect(ensureConnectionSelected).toHaveBeenCalledWith('c1');
     expect(setActiveView).toHaveBeenCalledWith('sqlEditor');
     expect(ensureSchema).not.toHaveBeenCalled();
+  });
+
+  it('continues into Snapshots from the home cards', () => {
+    render(<HomeView />);
+    fireEvent.click(screen.getByTestId('home-continue-snapshots'));
+    expect(setActiveView).toHaveBeenCalledWith('snapshots');
   });
 });

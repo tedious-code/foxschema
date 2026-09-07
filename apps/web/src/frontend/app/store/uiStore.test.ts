@@ -34,15 +34,22 @@ describe('migrateUiPersist', () => {
   });
 
   it('leaves Compare and Browse on Schema Sync', () => {
-    const compare = migrateUiPersist({ activeView: 'sync', syncPane: 'compare' }, 2) as {
+    const compare = migrateUiPersist({ activeView: 'sync', syncPane: 'compare' }, 3) as {
       activeView: string;
       syncPane: string;
     };
     expect(compare).toMatchObject({ activeView: 'sync', syncPane: 'compare' });
-    const browse = migrateUiPersist({ activeView: 'sync', syncPane: 'browse' }, 2) as {
+    const browse = migrateUiPersist({ activeView: 'sync', syncPane: 'browse' }, 3) as {
       activeView: string;
       syncPane: string;
     };
     expect(browse).toMatchObject({ activeView: 'sync', syncPane: 'browse' });
+  });
+
+  it('opens Home on first paint when upgrading from the old Sync default', () => {
+    const next = migrateUiPersist({ activeView: 'sync', syncPane: 'compare' }, 2) as {
+      activeView: string;
+    };
+    expect(next.activeView).toBe('home');
   });
 });

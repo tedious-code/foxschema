@@ -8,6 +8,7 @@ import {
   moveSidebarSection,
   pinSchemaFirst,
   exclusiveSidebarOpen,
+  openOnlySidebarSection,
   type SidebarSectionId,
 } from './SqlSidebarSection';
 
@@ -69,5 +70,19 @@ describe('exclusiveSidebarOpen', () => {
 
   it('allows closing the only open section', () => {
     expect(exclusiveSidebarOpen({ ...closed, schema: true }, 'schema')).toEqual(closed);
+  });
+});
+
+describe('openOnlySidebarSection', () => {
+  it('opens the requested section even if it was already the only one open', () => {
+    expect(openOnlySidebarSection('schema')).toEqual({
+      destinations: false,
+      bookmarks: false,
+      variables: false,
+      vault: false,
+      utilities: false,
+      files: false,
+      schema: true,
+    });
   });
 });

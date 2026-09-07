@@ -12,6 +12,7 @@ import { useAuthStore } from '@/app/store/authStore';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { useUiStore, type ActiveView } from '@/app/store/uiStore';
+import { COMMAND_PALETTE_EVENT } from './commandPalette';
 
 interface PaletteItem {
   id: string;
@@ -125,8 +126,16 @@ export const CommandPalette: React.FC = () => {
         setQuery('');
       }
     };
+    const onOpen = () => {
+      setOpen(true);
+      setQuery('');
+    };
     window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
+    window.addEventListener(COMMAND_PALETTE_EVENT, onOpen);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener(COMMAND_PALETTE_EVENT, onOpen);
+    };
   }, []);
 
   useEffect(() => {

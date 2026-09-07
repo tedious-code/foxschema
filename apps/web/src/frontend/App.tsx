@@ -37,10 +37,10 @@ const Workspace: React.FC = () => {
 
   useEffect(() => {
     if (activeView === 'sqlEditor' && !canEditorAccess) {
-      setActiveView('sync');
+      setActiveView(canSchemaBrowse || canSchemaCompare ? 'sync' : 'home');
     }
     if (activeView === 'snapshots' && !canSchemaBrowse) {
-      setActiveView('sync');
+      setActiveView('home');
     }
     if (
       activeView === 'sync' &&

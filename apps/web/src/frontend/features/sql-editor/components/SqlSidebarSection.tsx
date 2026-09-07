@@ -131,6 +131,22 @@ export function exclusiveSidebarOpen(
   return next;
 }
 
+/** Activity-rail select: always open this section (never toggle closed). */
+export function openOnlySidebarSection(id: SidebarSectionId): Record<SidebarSectionId, boolean> {
+  return exclusiveSidebarOpen(
+    {
+      destinations: false,
+      bookmarks: false,
+      variables: false,
+      vault: false,
+      utilities: false,
+      files: false,
+      schema: false,
+    },
+    id
+  );
+}
+
 /** Persist SQL-editor sidebar section order. */
 export function useSidebarSectionOrder(): [
   SidebarSectionId[],
@@ -206,6 +222,7 @@ function loadHeights(): Record<SidebarSectionId, number> {
 export function useSidebarSectionsOpen(): [
   Record<SidebarSectionId, boolean>,
   (id: SidebarSectionId) => void,
+  (id: SidebarSectionId) => void,
 ] {
   const [open, setOpen] = useState(loadOpen);
 
@@ -221,7 +238,11 @@ export function useSidebarSectionsOpen(): [
     setOpen((prev) => exclusiveSidebarOpen(prev, id));
   };
 
-  return [open, toggle];
+  const select = (id: SidebarSectionId) => {
+    setOpen(openOnlySidebarSection(id));
+  };
+
+  return [open, toggle, select];
 }
 
 /** Persist per-section content heights (drag handles). */
@@ -265,6 +286,8 @@ export const SqlSidebarSection: React.FC<{
   actions?: React.ReactNode;
   /** When expanded and this is the flex-growing section. */
   grow?: boolean;
+  /** Icon-rail panel: fill the pane, skip accordion chrome. */
+  railPanel?: boolean;
   height?: number;
   onResizeHeight?: (h: number) => void;
   /** Optional drag handle for reordering sections. */
@@ -284,6 +307,7 @@ export const SqlSidebarSection: React.FC<{
   onToggle,
   actions,
   grow,
+  railPanel,
   height,
   onResizeHeight,
   draggable,
@@ -319,6 +343,42 @@ export const SqlSidebarSection: React.FC<{
     },
     [height, id, onResizeHeight]
   );
+
+  if (railPanel) {
+    return (
+      <div
+        data-testid={`sql-sidebar-${id}`}
+        className={`flex min-h-0 flex-1 flex-col bg-slate-950 ${isDragging ? 'opacity-50' : ''} ${
+          isDragOver ? 'ring-1 ring-inset ring-cyan-500/40' : ''
+        }`}
+        onDragOver={onDragOver}
+        onDrop={onDrop}
+      >
+        <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-slate-800 bg-slate-950 px-2 py-2">
+          {draggable && (
+            <div
+              draggable
+              data-testid={`sql-sidebar-drag-${id}`}
+              title="Drag to reorder section"
+              aria-label={`Reorder ${title}`}
+              onDragStart={onDragStart}
+              onDragEnd={onDragEnd}
+              className="shrink-0 cursor-grab p-0.5 text-slate-600 hover:text-slate-400 active:cursor-grabbing touch-none"
+            >
+              <GripVertical className="h-3.5 w-3.5" strokeWidth={SQL_ICON_STROKE} />
+            </div>
+          )}
+          <span className="min-w-0 flex-1 truncate text-[13px] font-bold uppercase tracking-wide text-slate-300">
+            {title}
+          </span>
+          {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-slate-900 px-3 pb-1 pt-1">
+          {children}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

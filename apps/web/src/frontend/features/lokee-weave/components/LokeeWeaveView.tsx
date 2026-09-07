@@ -15,6 +15,7 @@ import { LokeeWeavePage } from './LokeeWeavePage';
 import { VersionCompareModal } from './VersionCompareModal';
 import { LokeeObjectInspector } from './LokeeObjectInspector';
 import { VersionTimeline } from './VersionTimeline';
+import { VersionChangeChart, VersionBriefing } from './VersionChangeChart';
 import type { SchemaObjectNodeData, VersionGraphDTO } from './graphTypes';
 import {
   captureSchema,
@@ -547,16 +548,23 @@ export function LokeeWeaveView({
               onSaveVersionMeta={saveVersionMeta}
             />
           ) : (
-            <VersionTimeline
-              versions={dto.versions}
-              totalVersions={dto.totalVersions || dto.versions.length}
-              selectedId={originalVersionId}
-              subtitle={subtitle}
-              onSelect={(id) => {
-                useLokeeHistoryStore.getState().setOriginalVersionId(id);
-                setComparePair({ original: id });
-              }}
-            />
+            <>
+              <VersionChangeChart versions={dto.versions} />
+              <VersionBriefing
+                versions={dto.versions}
+                selectedId={originalVersionId}
+              />
+              <VersionTimeline
+                versions={dto.versions}
+                totalVersions={dto.totalVersions || dto.versions.length}
+                selectedId={originalVersionId}
+                subtitle={subtitle}
+                onSelect={(id) => {
+                  useLokeeHistoryStore.getState().setOriginalVersionId(id);
+                  setComparePair({ original: id });
+                }}
+              />
+            </>
           )}
         </div>
         {comparePair && activeId && (

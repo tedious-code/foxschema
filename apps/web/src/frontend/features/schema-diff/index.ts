@@ -16,4 +16,5 @@ export { SchemaBlueprint } from './components/SchemaBlueprint';
 export { DdlDiffLines, buildTableDdlDiffLines, stripSchemaQualifiers } from './components/SchemaDdlDiff';
 export { SchemaDiffTree, TYPE_META, TYPE_ORDER, orderTablesForDisplay } from './components/SchemaDiffTree';
 export { DiffBriefingChips, DiffBriefingTicks } from './components/DiffBriefingChips';
+export { DiffBriefingPanel } from './components/DiffBriefingPanel';
 export { diffBriefing, type DiffBriefing } from './lib/diffBriefing';

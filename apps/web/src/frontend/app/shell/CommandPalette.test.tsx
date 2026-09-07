@@ -74,4 +74,10 @@ describe('CommandPalette', () => {
     expect(setActiveView).toHaveBeenCalledWith('sqlEditor');
     expect(ensureSchema).not.toHaveBeenCalled();
   });
+
+  it('opens from the custom event the TopBar button fires', () => {
+    render(<CommandPalette />);
+    fireEvent(window, new Event('foxschema-command-palette'));
+    expect(screen.getByTestId('command-palette')).toBeTruthy();
+  });
 });
