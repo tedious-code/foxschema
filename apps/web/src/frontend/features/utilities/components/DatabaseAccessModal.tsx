@@ -6,7 +6,7 @@
  * Utilities / Access control → Database Access: users, roles/groups, and
  * GRANT / REVOKE on the connected database.
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ChevronDown,
@@ -80,6 +80,7 @@ export const DatabaseAccessModal: React.FC<Props> = ({
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set(['role', 'user']));
   const [confirm, setConfirm] = useState<ConfirmAction | null>(null);
+  const loadToken = useRef(0);
 
   const [grantPrivilege, setGrantPrivilege] = useState<string>('SELECT');
   const [grantObjectType, setGrantObjectType] = useState<DbPrivilegeObjectType>('ROLE');
@@ -105,6 +106,7 @@ export const DatabaseAccessModal: React.FC<Props> = ({
 
   const load = useCallback(async () => {
     if (!connectionId || needsPassword) return;
+    const mine = ++loadToken.current;
     setLoading(true);
     setError(null);
     setStatus(null);
@@ -113,6 +115,7 @@ export const DatabaseAccessModal: React.FC<Props> = ({
         { connectionId, password: sessionPasswords[connectionId] || undefined },
         { schema: conn?.schema }
       );
+      if (loadToken.current !== mine) return;
       setPrincipals(data.principals ?? []);
       setPrivileges(data.privileges ?? []);
       setWarning(data.warning ?? null);
@@ -121,11 +124,12 @@ export const DatabaseAccessModal: React.FC<Props> = ({
         setSelectedName(data.principals[0].name);
       }
     } catch (err: unknown) {
+      if (loadToken.current !== mine) return;
       setPrincipals([]);
       setPrivileges([]);
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setLoading(false);
+      if (loadToken.current === mine) setLoading(false);
     }
   }, [connectionId, needsPassword, sessionPasswords, conn?.schema, selectedName]);
 
@@ -258,6 +262,8 @@ export const DatabaseAccessModal: React.FC<Props> = ({
               value={connectionId}
               onChange={(e) => {
                 const id = e.target.value;
+                if (id === connectionId) return;
+                ++loadToken.current;
                 setConnectionId(id);
                 if (!embedded) localStorage.setItem(LS_CONN, id);
                 setPrincipals([]);

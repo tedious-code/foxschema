@@ -1,6 +1,6 @@
 {
   "name": "@foxschema/db",
-  "version": "0.2.213",
+  "version": "0.2.215",
   "description": "The FoxSchema Node runtime: database drivers, pooling, and migration execution. Re-exports @foxschema/sql for the dialect layer.",
   "type": "module",
   "license": "Apache-2.0",
@@ -20,7 +20,7 @@
     "ibm_db": "^4.0.1",
     "mongodb": ">=6",
     "mssql": "^12.7.0",
-    "mysql2": "^3.24.2",
+    "mysql2": "3.24.3",
     "oracledb": "^7.0.1",
     "pg": "^8.23.0",
     "redis": ">=4"

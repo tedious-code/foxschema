@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { AccessView } from './AccessView';
 
 vi.mock('@/app/store/useSyncStore', () => {
@@ -393,6 +393,24 @@ describe('AccessView — letting a new account in', () => {
     expect(screen.queryByTestId('user-grant-schemas')).toBeNull();
     expect(screen.getByTestId('user-grant-databases')).toBeTruthy();
   });
+
+  it('grants a MySQL database to the same name@host account it creates', async () => {
+    render(<AccessView />);
+    fireEvent.change(screen.getByTestId('user-connection'), { target: { value: 'c2' } });
+    fireEvent.click(screen.getByTestId('user-add-user'));
+    fireEvent.change(screen.getByTestId('user-name'), { target: { value: 'report_user' } });
+    fireEvent.change(screen.getByTestId('user-host'), { target: { value: 'localhost' } });
+
+    const databaseBox = await screen.findByTestId('user-grant-databases-item-app');
+    fireEvent.click(databaseBox);
+
+    await waitFor(() => {
+      const sql = screen.getByTestId('user-sql').textContent ?? '';
+      expect(sql).toMatch(/CREATE USER 'report_user'@'localhost'/);
+      expect(sql).toMatch(/GRANT .* TO 'report_user'@'localhost'/);
+      expect(sql).not.toMatch(/TO 'report_user'@'%'/);
+    });
+  });
 });
 
 describe('AccessView — Permission Diff stale catalog', () => {
@@ -494,5 +512,64 @@ describe('AccessView — Permission Diff stale catalog', () => {
       "the previous connection's privileges must not drive reconciliation"
     ).not.toMatch(/only_on_postgres/);
     expect(screen.getByTestId('permission-diff').textContent).toMatch(/only_on_mysql/);
+  });
+});
+
+describe('AccessView — Permission stale catalog', () => {
+  const catalog = (dialect: string, principal: string) => ({
+    dialect,
+    schema: dialect === 'postgres' ? 'public' : '',
+    mode: 'native',
+    support: { mode: 'native', query: true, grant: true, hint: '' },
+    principals: [
+      { name: principal, kind: 'user', canLogin: true, memberOf: [], members: [] },
+    ],
+    privileges: [],
+  });
+
+  beforeEach(() => {
+    fetchDbAccess.mockReset();
+    fetchSchemaList.mockReset();
+    fetchSchemaList.mockResolvedValue(['public']);
+  });
+
+  it('ignores a slow principal catalog after the connection changes', async () => {
+    let resolveFirst!: (value: ReturnType<typeof catalog>) => void;
+    const first = new Promise<ReturnType<typeof catalog>>((resolve) => {
+      resolveFirst = resolve;
+    });
+    fetchDbAccess.mockImplementation((ref: { connectionId: string }) =>
+      ref.connectionId === 'c1'
+        ? first
+        : Promise.resolve(catalog('mysql', 'only_on_mysql'))
+    );
+
+    render(<AccessView />);
+    fireEvent.click(screen.getByTestId('access-tab-permission'));
+
+    const connection = screen.getByTestId('access-permission-connection');
+    fireEvent.change(connection, { target: { value: 'c1' } });
+    await waitFor(() =>
+      expect(fetchDbAccess).toHaveBeenCalledWith(
+        expect.objectContaining({ connectionId: 'c1' }),
+        expect.anything()
+      )
+    );
+
+    fireEvent.change(connection, { target: { value: 'c2' } });
+    await waitFor(() =>
+      expect(screen.getByTestId('access-permission-principal').textContent).toMatch(
+        /only_on_mysql/
+      )
+    );
+
+    await act(async () => {
+      resolveFirst(catalog('postgres', 'only_on_postgres'));
+      await first;
+    });
+
+    const principals = screen.getByTestId('access-permission-principal').textContent ?? '';
+    expect(principals).toMatch(/only_on_mysql/);
+    expect(principals).not.toMatch(/only_on_postgres/);
   });
 });

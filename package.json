@@ -2,7 +2,7 @@
   "name": "foxschema",
   "author": "Huy Phan <huyplb@gmail.com>",
   "private": true,
-  "version": "0.2.213",
+  "version": "0.2.215",
   "packageManager": "npm@11.6.2",
   "type": "module",
   "license": "Apache-2.0",
@@ -83,7 +83,7 @@
     "react": "19.2.8",
     "turbo": "2.10.12",
     "typescript": "6.0.3",
-    "typescript-eslint": "8.68.0",
+    "typescript-eslint": "8.69.0",
     "vitest": "4.1.11"
   },
   "overrides": {

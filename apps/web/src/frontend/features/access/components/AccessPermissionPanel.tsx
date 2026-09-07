@@ -8,7 +8,7 @@
  * Uses the same dialect-aware sectioned UI as Database Access
  * (`DbAccessPermissionSections`) — not a mock prototype.
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Loader2, RefreshCw } from 'lucide-react';
 import {
@@ -42,6 +42,7 @@ export const AccessPermissionPanel: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<DbAccessConfirmRequest | null>(null);
+  const loadToken = useRef(0);
 
   const conn = connections.find((c) => c.id === connectionId) || null;
   const dialect = conn?.dialect ?? '';
@@ -62,6 +63,7 @@ export const AccessPermissionPanel: React.FC = () => {
 
   const load = useCallback(async () => {
     if (!connectionId) return;
+    const mine = ++loadToken.current;
     setLoading(true);
     setError(null);
     setStatus(null);
@@ -70,6 +72,7 @@ export const AccessPermissionPanel: React.FC = () => {
         { connectionId, password: sessionPasswords[connectionId] || undefined },
         { schema: conn?.schema }
       );
+      if (loadToken.current !== mine) return;
       setPrincipals(data.principals ?? []);
       setPrivileges(data.privileges ?? []);
       if (!principalName && data.principals?.[0]) {
@@ -82,11 +85,12 @@ export const AccessPermissionPanel: React.FC = () => {
         setPrincipalName(data.principals[0]?.name ?? '');
       }
     } catch (err: unknown) {
+      if (loadToken.current !== mine) return;
       setError(err instanceof Error ? err.message : String(err));
       setPrincipals([]);
       setPrivileges([]);
     } finally {
-      setLoading(false);
+      if (loadToken.current === mine) setLoading(false);
     }
   }, [connectionId, sessionPasswords, conn?.schema, principalName]);
 
@@ -142,7 +146,16 @@ export const AccessPermissionPanel: React.FC = () => {
           <select
             data-testid="access-permission-connection"
             value={connectionId}
-            onChange={(e) => setConnectionId(e.target.value)}
+            onChange={(e) => {
+              if (e.target.value === connectionId) return;
+              ++loadToken.current;
+              setConnectionId(e.target.value);
+              setPrincipals([]);
+              setPrivileges([]);
+              setPrincipalName('');
+              setError(null);
+              setStatus(null);
+            }}
             className={inputCls}
           >
             <option value="">Choose a saved connection…</option>

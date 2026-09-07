@@ -290,6 +290,12 @@ export const UserManagement: React.FC<{
   const isOracle = dialect.toLowerCase() === 'oracle';
   const isSqlServer = ['sqlserver', 'azuresql'].includes(dialect.toLowerCase());
   const isDb2 = dialect.toLowerCase() === 'db2';
+  const accessPrincipalName =
+    isMysqlFamily && principalType === 'user'
+      ? `${name.trim()}@${(host || '%').trim() || '%'}`
+      : isDb2 && principalType === 'user'
+        ? name.trim().toUpperCase()
+        : name.trim();
 
   const editOptions = useMemo(
     () => availableAlterations(support, principalType),
@@ -417,16 +423,17 @@ export const UserManagement: React.FC<{
    */
   const accessGrants = useMemo(() => {
     if (mode !== 'add' || !dialect || !name.trim()) return null;
-    // Each scope takes the permission that means "may reach this" in its own
-    // vocabulary. `connect` is only defined for a database scope
-    // (availablePermissions gates it on exactly that), and this model has no
-    // bare-USAGE concept on purpose — `read` on a schema already implies
-    // whatever the engine needs to reach into it, Postgres USAGE included.
-    // Using `connect` for both produced a schema pick that generated nothing.
+    // Engines with CONNECT grant that at database scope. MySQL-family engines
+    // have no CONNECT privilege: an account exists server-wide, and SELECT on
+    // db.* is the narrow grant that lets it use the database selected here.
+    // Schema `read` also includes whatever reachability the engine requires,
+    // such as PostgreSQL USAGE.
     const scoped: { scope: AccessScope; permissions: AccessPermission[] }[] = [
       ...grantDatabases.map((database) => ({
         scope: { type: 'database', database } as AccessScope,
-        permissions: ['connect'] as AccessPermission[],
+        permissions: [
+          accessCaps.connectPrivilege ? 'connect' : 'read',
+        ] as AccessPermission[],
       })),
       ...grantSchemas.map((schemaName) => ({
         scope: { type: 'schema', schema: schemaName } as AccessScope,
@@ -436,7 +443,7 @@ export const UserManagement: React.FC<{
     if (scoped.length === 0) return null;
     const generatedPerScope = scoped.map(({ scope, permissions }) => {
       const request: PermissionRequest = {
-        principal: { type: principalType, name },
+        principal: { type: principalType, name: accessPrincipalName },
         action: 'grant',
         scope,
         permissions,
@@ -448,7 +455,16 @@ export const UserManagement: React.FC<{
       warnings: generatedPerScope.flatMap((g) => ('error' in g ? [] : g.warnings)),
       errors: generatedPerScope.flatMap((g) => ('error' in g ? [g.error] : [])),
     };
-  }, [mode, dialect, name, principalType, grantDatabases, grantSchemas]);
+  }, [
+    mode,
+    dialect,
+    name,
+    principalType,
+    accessPrincipalName,
+    accessCaps.connectPrivilege,
+    grantDatabases,
+    grantSchemas,
+  ]);
 
   const osAccount = useMemo(() => {
     if (isDb2 || !dialect || !name.trim()) return null;
@@ -484,13 +500,7 @@ export const UserManagement: React.FC<{
     if (mode === 'add' && name.trim() && generated && !('error' in generated)) {
       // MySQL-family accounts are name@host. Permission Builder / formatDbGrantee
       // need the host or GRANT targets `` `user` `` instead of 'user'@'%'.
-      const principalName =
-        isMysqlFamily && principalType === 'user'
-          ? `${name.trim()}@${(host || '%').trim() || '%'}`
-          : isDb2 && principalType === 'user'
-            ? name.trim().toUpperCase()
-            : name.trim();
-      return { connectionId, principalName, principalType };
+      return { connectionId, principalName: accessPrincipalName, principalType };
     }
     if (selected) {
       return {
@@ -505,9 +515,7 @@ export const UserManagement: React.FC<{
     connectionId,
     mode,
     name,
-    host,
-    isMysqlFamily,
-    isDb2,
+    accessPrincipalName,
     generated,
     principalType,
     selected,
@@ -1001,6 +1009,11 @@ export const UserManagement: React.FC<{
                         <tr
                           key={`${p.kind}:${p.name}`}
                           data-testid={`user-row-${p.name}`}
+                          // The testid keys on name because a MySQL account is
+                          // `report_user@%`, so a test cannot read the kind out
+                          // of it. A list mixing users with roles is the normal
+                          // case on every engine that has both.
+                          data-kind={p.kind}
                           onClick={() => selectRow(p)}
                           onDoubleClick={() => startEdit(p)}
                           title="Click to select · Double-click to edit"

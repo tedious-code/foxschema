@@ -228,6 +228,18 @@ describe.skipIf(configured.length === 0)('Database Access · User Management', (
   const rowFor = (name: string) => `[data-testid^="user-row-${name}"]`;
 
   /**
+   * Any row that is a login account, never a role or group.
+   *
+   * These tests mean "an account" when they reach for a row, and the list they
+   * reach into holds every principal the engine has — a `newrole` left behind
+   * in a dev database sorts ahead of the users and gets picked by `.first()`.
+   * The suite then reports a product bug that is not one: `DROP ROLE "x";` is
+   * the right SQL for a role, and a role genuinely has no rename or password
+   * to alter, so both assertions fail against correct behaviour.
+   */
+  const anyUserRow = '[data-testid^="user-row-"][data-kind="user"]';
+
+  /**
    * Wait until the catalog read has finished.
    *
    * Refresh is disabled while loading, so its coming back enabled is the
@@ -388,10 +400,10 @@ describe.skipIf(configured.length === 0)('Database Access · User Management', (
           await selectConnection(dialect);
           await driver.locator('[data-testid="user-refresh"]').click();
           await driver
-            .waitForSelector('[data-testid^="user-row-"]', { timeout: 120_000 })
+            .waitForSelector(anyUserRow, { timeout: 120_000 })
             .catch(() => undefined);
           await catalogIdle();
-          const row = driver.locator('[data-testid^="user-row-"]').first();
+          const row = driver.locator(anyUserRow).first();
           if ((await row.count()) === 0) return;
           await row.click();
           await driver.locator('[data-testid="user-drop-selected"]').click();
@@ -515,10 +527,10 @@ describe.skipIf(configured.length === 0)('Database Access · User Management', (
         await selectConnection(dialect);
         await driver.locator('[data-testid="user-refresh"]').click();
         await driver
-          .waitForSelector('[data-testid^="user-row-"]', { timeout: 120_000 })
+          .waitForSelector(anyUserRow, { timeout: 120_000 })
           .catch(() => undefined);
         await catalogIdle();
-        const row = driver.locator('[data-testid^="user-row-"]').first();
+        const row = driver.locator(anyUserRow).first();
         if ((await row.count()) === 0) return;
         await row.click();
 

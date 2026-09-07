@@ -23,7 +23,7 @@
     "@foxschema/db": "*",
     "@foxschema/shared": "*",
     "@foxschema/sql": "*",
-    "fastify": "5.12.1",
+    "fastify": "5.12.3",
     "pino": "10.3.1"
   }
 }
