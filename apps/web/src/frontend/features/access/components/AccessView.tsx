@@ -3,36 +3,32 @@
  * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
  * SPDX-License-Identifier: Apache-2.0
  *
- * Database Access Assistant — accounts and permissions as SQL to review.
+ * Database Access Assistant — expand/collapse sections (no tab strip).
  *
- * Sections expand/collapse instead of a tab strip. Expanding a section shows
- * that panel; collapsing hides it. User Management stays the default open
- * section so existing handoff tests keep working.
+ * Menu: Dashboard · User Management · Permission · Diff.
+ * The classic Permission SQL builder is removed; grants live under Permission
+ * (and live execute under Database Access).
  */
 import React, { useState } from 'react';
-import { ChevronDown, ChevronRight, ShieldCheck, FileBarChart, UserCog, GitCompare, Sparkles } from 'lucide-react';
-import { PermissionBuilder } from './PermissionBuilder';
+import { ChevronDown, ChevronRight, FileBarChart, UserCog, GitCompare, ShieldCheck } from 'lucide-react';
 import { PermissionDiff } from './PermissionDiff';
 import { AccessReport } from './AccessReport';
 import { UserManagement } from './UserManagement';
 import { PermissionUxPrototype } from './PermissionUxPrototype';
-import type { AccessPrincipalDraft } from '../lib/access-draft';
 
-export type AccessSection = 'prototype' | 'users' | 'builder' | 'diff' | 'report';
+export type AccessSection = 'dashboard' | 'users' | 'permission' | 'diff';
 
 const SECTIONS: {
   id: AccessSection;
   label: string;
   icon: React.ElementType;
   hint: string;
-  badge?: string;
 }[] = [
   {
-    id: 'prototype',
-    label: 'Permissions',
-    icon: Sparkles,
-    hint: 'Create, edit, grant, and revoke — expand catalog to fetch objects',
-    badge: 'Proto',
+    id: 'dashboard',
+    label: 'Dashboard',
+    icon: FileBarChart,
+    hint: 'Who can reach what',
   },
   {
     id: 'users',
@@ -41,51 +37,34 @@ const SECTIONS: {
     hint: 'Create and drop database accounts',
   },
   {
-    id: 'builder',
-    label: 'Permission SQL builder',
+    id: 'permission',
+    label: 'Permission',
     icon: ShieldCheck,
-    hint: 'Classic scope / grid SQL generator',
+    hint: 'Grant and revoke — general CREATE plus tables, views, routines',
   },
   {
     id: 'diff',
-    label: 'Permission Diff',
+    label: 'Diff',
     icon: GitCompare,
     hint: 'Reconcile desired vs current grants',
-  },
-  {
-    id: 'report',
-    label: 'Access Report',
-    icon: FileBarChart,
-    hint: 'Who can reach what',
   },
 ];
 
 export const AccessView: React.FC = () => {
   // Default Users open so AccessView tests that expect user-management on paint
-  // keep passing. Permissions (proto) is one expand away.
+  // keep passing.
   const [open, setOpen] = useState<AccessSection | null>('users');
-  const [builderDraft, setBuilderDraft] = useState<AccessPrincipalDraft | null>(null);
 
   const toggle = (id: AccessSection) => {
     setOpen((cur) => (cur === id ? null : id));
   };
 
-  const openBuilderWith = (draft: AccessPrincipalDraft) => {
-    setBuilderDraft(draft);
-    setOpen('builder');
+  const openPermission = () => {
+    setOpen('permission');
   };
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-y-auto" data-testid="access-view">
-      <div className="shrink-0 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2">
-        <p className="text-[11px] text-amber-100/90 leading-relaxed">
-          <span className="font-bold text-amber-100">Access prototype:</span> sections expand and
-          collapse — no tab strip. Open <span className="font-semibold">Permissions</span> to
-          create/edit grants; expand an object kind to fetch the catalog; preview SQL in a modal
-          (copy always, execute when your FoxSchema role allows).
-        </p>
-      </div>
-
       <div className="flex-1 min-h-0 flex flex-col">
         {SECTIONS.map((s) => {
           const expanded = open === s.id;
@@ -112,31 +91,18 @@ export const AccessView: React.FC = () => {
                 )}
                 <s.icon className="w-3.5 h-3.5 shrink-0" />
                 <span className="text-xs font-semibold">{s.label}</span>
-                {s.badge && (
-                  <span className="rounded bg-amber-500/20 px-1 py-0.5 text-[9px] font-bold uppercase text-amber-200">
-                    {s.badge}
-                  </span>
-                )}
                 <span className="ml-auto hidden sm:inline text-[11px] font-normal text-slate-500 truncate max-w-[50%]">
                   {s.hint}
                 </span>
               </button>
               {expanded && (
                 <div className="flex-1 min-h-0 flex flex-col border-t border-slate-800/80">
-                  {s.id === 'prototype' && <PermissionUxPrototype />}
-                  {s.id === 'users' && <UserManagement onGrantAccess={openBuilderWith} />}
-                  {s.id === 'builder' && (
-                    <PermissionBuilder
-                      key={
-                        builderDraft
-                          ? `${builderDraft.connectionId}:${builderDraft.principalType}:${builderDraft.principalName}`
-                          : 'builder'
-                      }
-                      initialDraft={builderDraft}
-                    />
+                  {s.id === 'dashboard' && <AccessReport />}
+                  {s.id === 'users' && (
+                    <UserManagement onGrantAccess={(_draft) => openPermission()} />
                   )}
+                  {s.id === 'permission' && <PermissionUxPrototype />}
                   {s.id === 'diff' && <PermissionDiff />}
-                  {s.id === 'report' && <AccessReport />}
                 </div>
               )}
             </div>

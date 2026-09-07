@@ -74,7 +74,7 @@ export const AccessReport: React.FC = () => {
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-y-auto p-5 gap-4" data-testid="access-report">
       <div className="shrink-0">
-        <h2 className="text-sm font-bold text-slate-100">Access Report</h2>
+        <h2 className="text-sm font-bold text-slate-100">Dashboard</h2>
         <p className="text-[11px] text-slate-500 mt-0.5">
           A summary of who can access what. Read-only — Fox Schema changes nothing here.
         </p>
