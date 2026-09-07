@@ -29,12 +29,12 @@ import {
 import { PERMISSION_META } from '@foxschema/shared';
 import { PasswordInput } from '@/shared/components/PasswordInput';
 import { fetchDbAccess } from '@/shared/api/schemaApi';
-import { executeSql } from '@/shared/api/sqlApi';
+import { runAccessSql } from '@/shared/api/accessSql';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { useAuthStore } from '@/app/store/authStore';
 import { PROVIDER_SETTINGS, connectionNeedsSecret } from '@/shared/lib/provider-settings';
-import { DbAccessPermissionSections } from './DbAccessPermissionSections';
+import { DbAccessPermissionSections } from '@/features/access/components/DbAccessPermissionSections';
 
 interface Props {
   open: boolean;
@@ -189,20 +189,12 @@ export const DatabaseAccessModal: React.FC<Props> = ({
     setError(null);
     setStatus(null);
     try {
-      // Dialect emitters may return several statements (e.g. Postgres USAGE +
-      // ON ALL TABLES). Execute them as separate round-trips.
-      const statements = sql
-        .split(/;\s*(?:\n+|$)/)
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .map((s) => (s.endsWith(';') ? s : `${s};`));
-      const { results } = await executeSql(
+      const outcome = await runAccessSql(
         { connectionId, password: sessionPasswords[connectionId] || undefined },
-        statements.length ? statements : [sql]
+        sql
       );
-      const failed = results.filter((r) => !r.ok);
-      if (failed.length) {
-        setError(failed.map((r) => ('error' in r ? r.error : 'failed')).join(' · '));
+      if (!outcome.ok) {
+        setError(outcome.error);
       } else {
         setStatus(kind === 'grant' ? 'Granted.' : 'Revoked.');
         await load();

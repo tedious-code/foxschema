@@ -18,7 +18,7 @@ import {
   type DbPrivilege,
 } from '@foxschema/sql';
 import { fetchDbAccess } from '@/shared/api/schemaApi';
-import { executeSql } from '@/shared/api/sqlApi';
+import { runAccessSql } from '@/shared/api/accessSql';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { useAuthStore } from '@/app/store/authStore';
@@ -26,7 +26,7 @@ import { EmptyState, inputCls, labelCls } from './controls';
 import {
   DbAccessPermissionSections,
   type DbAccessConfirmRequest,
-} from '@/features/utilities/components/DbAccessPermissionSections';
+} from './DbAccessPermissionSections';
 
 export const AccessPermissionPanel: React.FC = () => {
   const connections = useSyncStore((s) => s.connections);
@@ -108,18 +108,12 @@ export const AccessPermissionPanel: React.FC = () => {
     setError(null);
     setStatus(null);
     try {
-      const statements = sql
-        .split(/;\s*(?:\n+|$)/)
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .map((s) => (s.endsWith(';') ? s : `${s};`));
-      const { results } = await executeSql(
+      const outcome = await runAccessSql(
         { connectionId, password: sessionPasswords[connectionId] || undefined },
-        statements.length ? statements : [sql]
+        sql
       );
-      const failed = results.filter((r) => !r.ok);
-      if (failed.length) {
-        setError(failed.map((r) => ('error' in r ? r.error : 'failed')).join(' · '));
+      if (!outcome.ok) {
+        setError(outcome.error);
       } else {
         setStatus(kind === 'grant' ? 'Granted.' : 'Revoked.');
         await load();
