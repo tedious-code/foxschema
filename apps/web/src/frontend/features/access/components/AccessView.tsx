@@ -6,15 +6,14 @@
  * Database Access Assistant — expand/collapse sections (no tab strip).
  *
  * Menu: Dashboard · User Management · Permission · Diff.
- * The classic Permission SQL builder is removed; grants live under Permission
- * (and live execute under Database Access).
+ * Permission uses the live dialect-aware panel (same as Database Access).
  */
 import React, { useState } from 'react';
 import { ChevronDown, ChevronRight, FileBarChart, UserCog, GitCompare, ShieldCheck } from 'lucide-react';
 import { PermissionDiff } from './PermissionDiff';
 import { AccessReport } from './AccessReport';
 import { UserManagement } from './UserManagement';
-import { PermissionUxPrototype } from './PermissionUxPrototype';
+import { AccessPermissionPanel } from './AccessPermissionPanel';
 
 export type AccessSection = 'dashboard' | 'users' | 'permission' | 'diff';
 
@@ -40,7 +39,7 @@ const SECTIONS: {
     id: 'permission',
     label: 'Permission',
     icon: ShieldCheck,
-    hint: 'Grant and revoke — general CREATE plus tables, views, routines',
+    hint: 'Grant and revoke — dialect-aware SQL',
   },
   {
     id: 'diff',
@@ -101,7 +100,7 @@ export const AccessView: React.FC = () => {
                   {s.id === 'users' && (
                     <UserManagement onGrantAccess={(_draft) => openPermission()} />
                   )}
-                  {s.id === 'permission' && <PermissionUxPrototype />}
+                  {s.id === 'permission' && <AccessPermissionPanel />}
                   {s.id === 'diff' && <PermissionDiff />}
                 </div>
               )}

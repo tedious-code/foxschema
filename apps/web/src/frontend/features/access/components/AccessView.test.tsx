@@ -97,7 +97,7 @@ describe('AccessView — User Management list + Builder handoff', () => {
 
     fireEvent.click(next);
 
-    expect(screen.getByTestId('permission-ux-prototype')).toBeTruthy();
+    expect(screen.getByTestId('access-permission-panel')).toBeTruthy();
     expect(screen.getByTestId('access-tab-permission').getAttribute('aria-expanded')).toBe('true');
   });
 
@@ -177,7 +177,7 @@ describe('AccessView — User Management list + Builder handoff', () => {
     const next = screen.getByTestId('user-grant-next') as HTMLButtonElement;
     expect(next.disabled).toBe(false);
     fireEvent.click(next);
-    expect(screen.getByTestId('permission-ux-prototype')).toBeTruthy();
+    expect(screen.getByTestId('access-permission-panel')).toBeTruthy();
   });
 
   it('previews OS password and disable steps when editing a Db2 user', async () => {
@@ -222,7 +222,7 @@ describe('AccessView — User Management list + Builder handoff', () => {
     fireEvent.click(screen.getByTestId('user-row-alice'));
     fireEvent.click(screen.getByTestId('user-grant-selected'));
 
-    expect(screen.getByTestId('permission-ux-prototype')).toBeTruthy();
+    expect(screen.getByTestId('access-permission-panel')).toBeTruthy();
     expect(screen.getByTestId('access-tab-permission').getAttribute('aria-expanded')).toBe('true');
   });
 
