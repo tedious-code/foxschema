@@ -5,7 +5,7 @@
  */
 import React from 'react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { DEFAULT_ROLE_PERMISSIONS } from '@foxschema/shared';
 import { useAuthStore } from '@/app/store/authStore';
 import { useSyncStore } from '@/app/store/useSyncStore';
@@ -150,6 +150,71 @@ describe('DatabaseAccessModal', () => {
     const stmts = executeSql.mock.calls[0][1] as string[];
     expect(stmts.join('\n')).toMatch(/GRANT/i);
     expect(stmts.join('\n')).toMatch(/orders/i);
+  });
+
+  it('ignores a slow catalog after the credential changes', async () => {
+    useSyncStore.setState({
+      connections: [
+        {
+          id: 'c1',
+          name: 'slow prod',
+          dialect: 'postgres',
+          schema: 'public',
+          database: 'app',
+          hasPassword: true,
+        },
+        {
+          id: 'c2',
+          name: 'current prod',
+          dialect: 'mysql',
+          database: 'app',
+          hasPassword: true,
+        },
+      ],
+    } as never);
+    const catalog = (dialect: string, principal: string) => ({
+      dialect,
+      schema: dialect === 'postgres' ? 'public' : '',
+      mode: 'native',
+      support: { mode: 'native', query: true, grant: true, hint: '' },
+      principals: [
+        { name: principal, kind: 'user', canLogin: true, memberOf: [], members: [] },
+      ],
+      privileges: [],
+    });
+    let resolveFirst!: (value: ReturnType<typeof catalog>) => void;
+    const first = new Promise<ReturnType<typeof catalog>>((resolve) => {
+      resolveFirst = resolve;
+    });
+    fetchDbAccess.mockImplementation((ref: { connectionId: string }) =>
+      ref.connectionId === 'c1'
+        ? first
+        : Promise.resolve(catalog('mysql', 'only_on_mysql'))
+    );
+
+    render(<DatabaseAccessModal open onClose={() => undefined} />);
+    const connection = screen.getByTestId('db-access-connection');
+    fireEvent.change(connection, { target: { value: 'c1' } });
+    await waitFor(() =>
+      expect(fetchDbAccess).toHaveBeenCalledWith(
+        expect.objectContaining({ connectionId: 'c1' }),
+        expect.anything()
+      )
+    );
+
+    fireEvent.change(connection, { target: { value: 'c2' } });
+    await waitFor(() =>
+      expect(screen.getByTestId('db-access-group-user').textContent).toMatch(/only_on_mysql/)
+    );
+
+    await act(async () => {
+      resolveFirst(catalog('postgres', 'only_on_postgres'));
+      await first;
+    });
+
+    const users = screen.getByTestId('db-access-group-user').textContent ?? '';
+    expect(users).toMatch(/only_on_mysql/);
+    expect(users).not.toMatch(/only_on_postgres/);
   });
 });
 
