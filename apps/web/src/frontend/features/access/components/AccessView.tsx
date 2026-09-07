@@ -32,7 +32,7 @@ const TABS: { id: AccessTab; label: string; icon: React.ElementType; ready: bool
 ];
 
 export const AccessView: React.FC = () => {
-  const [tab, setTab] = useState<AccessTab>('prototype');
+  const [tab, setTab] = useState<AccessTab>('users');
   const [builderDraft, setBuilderDraft] = useState<AccessPrincipalDraft | null>(null);
 
   const openBuilderWith = (draft: AccessPrincipalDraft) => {
