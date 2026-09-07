@@ -24,6 +24,8 @@ vi.mock('@/app/store/useSqlEditorStore', () => {
   const state = {
     sessionPasswords: {} as Record<string, string>,
     ensureSchema: vi.fn().mockResolvedValue(undefined),
+    setSql: vi.fn(),
+    ensureConnectionSelected: vi.fn(),
     schemaCache: {
       c1: { status: 'ready', tables: [] as [] },
       c2: { status: 'ready', tables: [] as [] },
@@ -99,6 +101,9 @@ describe('AccessView — User Management list + Builder handoff', () => {
 
     expect(screen.getByTestId('access-permission-panel')).toBeTruthy();
     expect(screen.getByTestId('access-tab-permission').getAttribute('aria-current')).toBe('page');
+    expect((screen.getByTestId('access-permission-connection') as HTMLSelectElement).value).toBe(
+      'c1'
+    );
   });
 
   it('previews DROP SQL when dropping a listed user', async () => {
@@ -224,6 +229,12 @@ describe('AccessView — User Management list + Builder handoff', () => {
 
     expect(screen.getByTestId('access-permission-panel')).toBeTruthy();
     expect(screen.getByTestId('access-tab-permission').getAttribute('aria-current')).toBe('page');
+    expect((screen.getByTestId('access-permission-connection') as HTMLSelectElement).value).toBe(
+      'c1'
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('access-permission-principal').textContent).toMatch(/alice/)
+    );
   });
 
   it('warns on Drop when the account has privileges or role membership', async () => {

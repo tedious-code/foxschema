@@ -30,8 +30,18 @@ export const PermissionInspector: React.FC<{
    * Given these it hides its own pickers and reads for what that panel already
    * knows — which is what lets the builder show, in one window, both what a
    * principal has now and what the reader is about to grant it.
+   *
+   * When `principals` and `privileges` are passed, the inspector uses that
+   * catalog and does not fetch again (Access Permission already loaded it).
    */
-  embedded?: { connectionId: string; principalName: string; schema?: string };
+  embedded?: {
+    connectionId: string;
+    principalName: string;
+    schema?: string;
+    principals?: DbPrincipal[];
+    privileges?: DbPrivilege[];
+    hint?: string;
+  };
 }> = ({ embedded }) => {
   const connections = useSyncStore((s) => s.connections);
   const sessionPasswords = useSqlEditorStore((s) => s.sessionPasswords);
@@ -54,19 +64,35 @@ export const PermissionInspector: React.FC<{
   const embeddedConnection = embedded?.connectionId;
   const embeddedPrincipal = embedded?.principalName;
   const embeddedSchema = embedded?.schema;
+  const catalogPrincipals = embedded?.principals;
+  const catalogPrivileges = embedded?.privileges;
+  const catalogHint = embedded?.hint;
+  const hasCatalog = catalogPrincipals != null && catalogPrivileges != null;
   React.useEffect(() => {
     if (embeddedConnection === undefined) return;
     loadToken.current++;
     setConnectionId(embeddedConnection);
     setSchema(embeddedSchema ?? '');
-    setData(null);
+    if (!hasCatalog) {
+      setData(null);
+    }
     setError(null);
     setLoading(false);
-  }, [embeddedConnection, embeddedSchema]);
+  }, [embeddedConnection, embeddedSchema, hasCatalog]);
   React.useEffect(() => {
     if (embeddedPrincipal === undefined) return;
     setPrincipalName(embeddedPrincipal);
   }, [embeddedPrincipal]);
+  React.useEffect(() => {
+    if (!hasCatalog) return;
+    setData({
+      principals: catalogPrincipals,
+      privileges: catalogPrivileges,
+      hint: catalogHint,
+    });
+    setError(null);
+    setLoading(false);
+  }, [hasCatalog, catalogPrincipals, catalogPrivileges, catalogHint]);
 
   const load = async () => {
     if (!connectionId) return;
@@ -106,7 +132,10 @@ export const PermissionInspector: React.FC<{
   }, [data, principalName, schema]);
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-y-auto p-5 gap-4" data-testid="permission-inspector">
+    <div
+      className={`flex-1 flex flex-col min-h-0 overflow-y-auto ${embedded ? 'p-0 gap-3' : 'p-5 gap-4'}`}
+      data-testid="permission-inspector"
+    >
       {!embedded && (
         <div>
           <h2 className="text-sm font-bold text-slate-100">Permission Inspector</h2>
@@ -117,51 +146,53 @@ export const PermissionInspector: React.FC<{
         </div>
       )}
 
-      <div className="shrink-0 flex flex-wrap items-end gap-2">
-        <label className={`flex flex-col gap-1 min-w-[16rem] flex-1 ${embedded ? 'hidden' : ''}`}>
-          <span className={labelCls}>Database</span>
-          <select
-            data-testid="inspector-connection"
-            value={connectionId}
-            onChange={(e) => {
-              loadToken.current++;
-              setConnectionId(e.target.value);
-              setData(null);
-              setPrincipalName('');
-              setError(null);
-              setLoading(false);
-            }}
-            className={inputCls}
+      {!hasCatalog && (
+        <div className="shrink-0 flex flex-wrap items-end gap-2">
+          <label className={`flex flex-col gap-1 min-w-[16rem] flex-1 ${embedded ? 'hidden' : ''}`}>
+            <span className={labelCls}>Database</span>
+            <select
+              data-testid="inspector-connection"
+              value={connectionId}
+              onChange={(e) => {
+                loadToken.current++;
+                setConnectionId(e.target.value);
+                setData(null);
+                setPrincipalName('');
+                setError(null);
+                setLoading(false);
+              }}
+              className={inputCls}
+            >
+              <option value="">Choose a saved connection…</option>
+              {connections.map((c) => (
+                <option key={c.id} value={c.id}>
+                  [{(c.dialect || '').toUpperCase()}] {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className={`flex flex-col gap-1 w-40 ${embedded ? 'hidden' : ''}`}>
+            <span className={labelCls}>Schema</span>
+            <input
+              data-testid="inspector-schema"
+              value={schema}
+              onChange={(e) => setSchema(e.target.value)}
+              placeholder={conn?.schema || 'all schemas'}
+              className={`${inputCls} font-mono`}
+            />
+          </label>
+          <button
+            type="button"
+            data-testid="inspector-load"
+            onClick={load}
+            disabled={!connectionId || loading}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-sky-500/40 bg-sky-500/15 text-xs font-bold text-sky-100 disabled:opacity-40"
           >
-            <option value="">Choose a saved connection…</option>
-            {connections.map((c) => (
-              <option key={c.id} value={c.id}>
-                [{(c.dialect || '').toUpperCase()}] {c.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className={`flex flex-col gap-1 w-40 ${embedded ? 'hidden' : ''}`}>
-          <span className={labelCls}>Schema</span>
-          <input
-            data-testid="inspector-schema"
-            value={schema}
-            onChange={(e) => setSchema(e.target.value)}
-            placeholder={conn?.schema || 'all schemas'}
-            className={`${inputCls} font-mono`}
-          />
-        </label>
-        <button
-          type="button"
-          data-testid="inspector-load"
-          onClick={load}
-          disabled={!connectionId || loading}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-sky-500/40 bg-sky-500/15 text-xs font-bold text-sky-100 disabled:opacity-40"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          {loading ? 'Reading…' : 'Read permissions'}
-        </button>
-      </div>
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            {loading ? 'Reading…' : 'Read permissions'}
+          </button>
+        </div>
+      )}
 
       {error && (
         <div
@@ -172,13 +203,13 @@ export const PermissionInspector: React.FC<{
         </div>
       )}
 
-      {!data && !error && (
+      {!data && !error && !hasCatalog && (
         <p className="text-[11px] text-slate-500">
           Choose a connection and read its permissions. Fox Schema only reads — it changes nothing.
         </p>
       )}
 
-      {data && (
+      {data && !hasCatalog && (
         <label className="flex flex-col gap-1 max-w-md">
           <span className={labelCls}>User or role</span>
           <Autocomplete

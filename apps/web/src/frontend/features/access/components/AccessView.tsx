@@ -15,6 +15,7 @@ import { UserCog, GitCompare, ShieldCheck } from 'lucide-react';
 import { PermissionDiff } from './PermissionDiff';
 import { UserManagement } from './UserManagement';
 import { AccessPermissionPanel } from './AccessPermissionPanel';
+import type { AccessPrincipalDraft } from '../lib/access-draft';
 
 export type AccessSection = 'users' | 'permission' | 'diff';
 
@@ -32,8 +33,10 @@ export const AccessView: React.FC = () => {
   // Default Users so AccessView tests that expect user-management on paint keep
   // passing.
   const [section, setSection] = useState<AccessSection>('users');
+  const [grantDraft, setGrantDraft] = useState<AccessPrincipalDraft | null>(null);
 
-  const openPermission = () => {
+  const openPermission = (draft?: AccessPrincipalDraft) => {
+    if (draft) setGrantDraft(draft);
     setSection('permission');
   };
 
@@ -70,8 +73,8 @@ export const AccessView: React.FC = () => {
       </nav>
 
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-        {section === 'users' && <UserManagement onGrantAccess={(_draft) => openPermission()} />}
-        {section === 'permission' && <AccessPermissionPanel />}
+        {section === 'users' && <UserManagement onGrantAccess={(draft) => openPermission(draft)} />}
+        {section === 'permission' && <AccessPermissionPanel initialDraft={grantDraft} />}
         {section === 'diff' && <PermissionDiff />}
       </div>
     </div>
