@@ -1001,6 +1001,11 @@ export const UserManagement: React.FC<{
                         <tr
                           key={`${p.kind}:${p.name}`}
                           data-testid={`user-row-${p.name}`}
+                          // The testid keys on name because a MySQL account is
+                          // `report_user@%`, so a test cannot read the kind out
+                          // of it. A list mixing users with roles is the normal
+                          // case on every engine that has both.
+                          data-kind={p.kind}
                           onClick={() => selectRow(p)}
                           onDoubleClick={() => startEdit(p)}
                           title="Click to select · Double-click to edit"
