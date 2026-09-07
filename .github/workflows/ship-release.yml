@@ -19,6 +19,8 @@ on:
 permissions:
   contents: read
   packages: write
+  # npm Trusted Publishing (OIDC) — see npm-publish.yml. No NPM_TOKEN.
+  id-token: write
 
 env:
   REGISTRY: ghcr.io
@@ -86,10 +88,9 @@ jobs:
       - name: Prepare npm pack folder
         run: node apps/cli/scripts/prepare-publish.mjs
 
+      # OIDC, no env — see the note in npm-publish.yml.
       - name: Publish to npm
         working-directory: apps/cli/npm-pack
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public
 
   docker:
