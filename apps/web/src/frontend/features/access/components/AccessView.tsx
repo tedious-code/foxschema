@@ -3,7 +3,8 @@
  * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
  * SPDX-License-Identifier: Apache-2.0
  *
- * Database Access Assistant — left menu + content panel.
+ * Database Access Assistant — horizontal capsule menu (same pattern as
+ * Workspace / Schema Sync sub-nav).
  *
  * Menu: Dashboard · User Management · Permission · Diff.
  * Permission uses the live dialect-aware panel (same as Database Access).
@@ -21,32 +22,11 @@ const SECTIONS: {
   id: AccessSection;
   label: string;
   icon: React.ElementType;
-  hint: string;
 }[] = [
-  {
-    id: 'dashboard',
-    label: 'Dashboard',
-    icon: FileBarChart,
-    hint: 'Who can reach what',
-  },
-  {
-    id: 'users',
-    label: 'User Management',
-    icon: UserCog,
-    hint: 'Create and drop database accounts',
-  },
-  {
-    id: 'permission',
-    label: 'Permission',
-    icon: ShieldCheck,
-    hint: 'Grant and revoke — dialect-aware SQL',
-  },
-  {
-    id: 'diff',
-    label: 'Diff',
-    icon: GitCompare,
-    hint: 'Reconcile desired vs current grants',
-  },
+  { id: 'dashboard', label: 'Dashboard', icon: FileBarChart },
+  { id: 'users', label: 'User Management', icon: UserCog },
+  { id: 'permission', label: 'Permission', icon: ShieldCheck },
+  { id: 'diff', label: 'Diff', icon: GitCompare },
 ];
 
 export const AccessView: React.FC = () => {
@@ -59,12 +39,15 @@ export const AccessView: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 flex min-h-0" data-testid="access-view">
+    <div className="flex-1 flex flex-col min-h-0" data-testid="access-view">
       <nav
-        className="w-52 shrink-0 border-r border-slate-800 bg-slate-950/40 flex flex-col py-2"
+        className="shrink-0 mx-3 mt-2 mb-0 flex flex-wrap items-center gap-1.5 rounded-md border border-slate-700 bg-slate-950/50 p-0.5"
         aria-label="Access"
         data-testid="access-menu"
       >
+        <span className="px-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+          Access
+        </span>
         {SECTIONS.map((s) => {
           const active = section === s.id;
           return (
@@ -73,22 +56,21 @@ export const AccessView: React.FC = () => {
               type="button"
               data-testid={`access-tab-${s.id}`}
               aria-current={active ? 'page' : undefined}
-              title={s.hint}
               onClick={() => setSection(s.id)}
-              className={`mx-2 mb-0.5 flex items-center gap-2 rounded-md px-2.5 py-2 text-left transition ${
+              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
                 active
                   ? 'bg-slate-800 text-slate-100'
-                  : 'text-slate-400 hover:bg-slate-900/80 hover:text-slate-200'
+                  : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
               }`}
             >
               <s.icon className="w-3.5 h-3.5 shrink-0" />
-              <span className="text-xs font-semibold truncate">{s.label}</span>
+              {s.label}
             </button>
           );
         })}
       </nav>
 
-      <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {section === 'dashboard' && <AccessReport />}
         {section === 'users' && <UserManagement onGrantAccess={(_draft) => openPermission()} />}
         {section === 'permission' && <AccessPermissionPanel />}
