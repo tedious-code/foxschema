@@ -14,6 +14,8 @@ import { apiGetPreferences } from '@/shared/api/authApi';
 import { ToastHost } from '@/app/shell/ToastHost';
 import { AlertCircle, AlertTriangle, Loader2, X } from 'lucide-react';
 import { BackendOfflineBanner } from '@/app/shell/BackendOfflineBanner';
+import { HomeView } from '@/app/shell/HomeView';
+import { CommandPalette } from '@/app/shell/CommandPalette';
 
 const AccessView = lazy(() =>
   import('@/features/access').then((m) => ({ default: m.AccessView }))
@@ -93,7 +95,9 @@ const Workspace: React.FC = () => {
       )}
 
       <main className="flex-1 flex min-h-0 overflow-hidden">
-        {activeView === 'access' ? (
+        {activeView === 'home' ? (
+          <HomeView />
+        ) : activeView === 'access' ? (
           <ErrorBoundary>
             <Suspense fallback={<LoadingScreen />}>
               <AccessView />
@@ -125,6 +129,7 @@ const Workspace: React.FC = () => {
         )}
       </main>
       <ToastHost />
+      <CommandPalette />
       </div>
     </div>
   );

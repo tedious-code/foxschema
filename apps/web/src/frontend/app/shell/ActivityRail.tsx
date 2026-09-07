@@ -72,9 +72,21 @@ export function ActivityRail(): React.ReactElement | null {
       aria-label="Workspace"
       className="flex w-14 shrink-0 flex-col items-center gap-1 border-r border-slate-800 bg-slate-900/90 py-2"
     >
-      <div className="mb-2 flex h-10 w-10 items-center justify-center">
+      <button
+        type="button"
+        data-testid="home-open-btn"
+        title="Home"
+        aria-label="Home"
+        aria-current={activeView === 'home' ? 'page' : undefined}
+        onClick={() => setActiveView('home')}
+        className={`mb-2 flex h-10 w-10 items-center justify-center rounded-md transition ${
+          activeView === 'home'
+            ? 'bg-slate-800 ring-1 ring-slate-600'
+            : 'hover:bg-slate-800/60'
+        }`}
+      >
         <FoxLogo size={28} />
-      </div>
+      </button>
       {visible.map((item) => {
         const on = activeView === item.view;
         return (

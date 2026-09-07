@@ -26,6 +26,13 @@ describe('migrateUiPersist', () => {
     expect(next.syncPane).toBe('compare');
   });
 
+  it('keeps Home as a persisted workspace', () => {
+    const next = migrateUiPersist({ activeView: 'home', syncPane: 'compare' }, 2) as {
+      activeView: string;
+    };
+    expect(next.activeView).toBe('home');
+  });
+
   it('leaves Compare and Browse on Schema Sync', () => {
     const compare = migrateUiPersist({ activeView: 'sync', syncPane: 'compare' }, 2) as {
       activeView: string;

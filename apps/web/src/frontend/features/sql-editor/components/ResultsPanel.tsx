@@ -21,11 +21,14 @@ import {
   Maximize2,
   X,
   Download,
+  BarChart2,
 } from 'lucide-react';
 import { useSqlEditorStore, type CredentialRun } from '@/app/store/useSqlEditorStore';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import type { ResultsLayout } from '@/app/store/sqlEditorTabLogic';
 import { DataGrid, PANE_DEFAULT_H_PX, PANE_DEFAULT_PX, PANE_MIN_H_PX, PANE_MIN_PX } from './DataGrid';
+import { ResultChart } from './ResultChart';
+import { chartableSeries } from '../lib/resultChart';
 import type { SqlStatementResult } from '@/shared/api/sqlApi';
 import { detectCodeCell } from '@/features/sql-editor/lib/codeCellRunner';
 import { CODE_CELL_KIND_LABEL } from '@/shared/lib/sql-splitter';
@@ -372,6 +375,8 @@ const ResultGridPane: React.FC<{
 
   const columns = item.result.ok ? item.result.columns : [];
   const rows = item.result.ok ? item.result.rows : [];
+  const chartSeries = item.result.ok ? chartableSeries(item.result.columns, item.result.rows) : null;
+  const [chartOn, setChartOn] = useState(false);
 
   const crud = usePeekGridCrud({
     connectionId: item.connectionId,
@@ -403,6 +408,22 @@ const ResultGridPane: React.FC<{
 
   const toolbarExtra = (
     <>
+      {chartSeries && (
+        <label
+          className="flex items-center gap-1.5 cursor-pointer select-none text-xs font-bold text-slate-300"
+          title="Draw a bar chart from the first label and number columns of this page"
+        >
+          <input
+            type="checkbox"
+            data-testid={`sql-result-chart-toggle-${item.statementIndex}`}
+            checked={chartOn}
+            onChange={(e) => setChartOn(e.target.checked)}
+            className="rounded border-slate-600 accent-sky-500"
+          />
+          <BarChart2 className="w-3.5 h-3.5 text-sky-400" strokeWidth={SQL_ICON_STROKE} />
+          Chart
+        </label>
+      )}
       {crud.crudButtons}
       {collapsed && (
         <span
@@ -442,6 +463,12 @@ const ResultGridPane: React.FC<{
   return (
     <div className="flex flex-col min-h-0 h-full">
       {crud.writeErrorBanner}
+      {chartOn && chartSeries && (
+        <ResultChart
+          series={chartSeries}
+          testId={`sql-result-chart-${item.statementIndex}`}
+        />
+      )}
       <DataGrid
         result={item.result}
         label={gridLabel}
