@@ -11,6 +11,13 @@
  */
 
 import { isPageableStatement } from '@foxschema/db';
+import {
+  isSafeSeekColumn,
+  parseTopLevelOrderBy,
+  placeholderStyleFor,
+  quoteSqlIdentifier,
+  renderPlaceholder,
+} from '@foxschema/sql';
 
 export { isPageableStatement };
 
@@ -144,6 +151,104 @@ export function wrapSqlForPage(
   }
   // Postgres, MySQL, MariaDB, SQLite, Cockroach, Yugabyte, TiDB, DuckDB, ClickHouse-ish
   return `SELECT * FROM (${inner}) AS ${PAGE_ALIAS} LIMIT ${fetchLimit} OFFSET ${offset}`;
+}
+
+export interface SqlSeek {
+  columns: string[];
+  values: unknown[];
+  descending?: boolean | boolean[];
+}
+
+export function parseSqlSeek(raw: unknown): { ok: true; value?: SqlSeek } | { ok: false; error: string } {
+  if (raw == null) return { ok: true, value: undefined };
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    return { ok: false, error: 'seek must be an object with columns and values' };
+  }
+  const o = raw as { columns?: unknown; values?: unknown; descending?: unknown };
+  if (!Array.isArray(o.columns) || !Array.isArray(o.values)) {
+    return { ok: false, error: 'seek.columns and seek.values must be arrays' };
+  }
+  if (o.columns.some((c) => typeof c !== 'string')) {
+    return { ok: false, error: 'seek.columns must be strings' };
+  }
+  let descending: boolean | boolean[] | undefined;
+  if (typeof o.descending === 'boolean') descending = o.descending;
+  else if (Array.isArray(o.descending) && o.descending.every((d) => typeof d === 'boolean')) {
+    descending = o.descending;
+  } else if (o.descending != null) {
+    return { ok: false, error: 'seek.descending must be a boolean or boolean[]' };
+  }
+  return {
+    ok: true,
+    value: { columns: o.columns as string[], values: o.values, descending },
+  };
+}
+
+function descAt(seek: SqlSeek, i: number): boolean {
+  if (Array.isArray(seek.descending)) return Boolean(seek.descending[i]);
+  return Boolean(seek.descending);
+}
+
+/** Last-Id / keyset wrap. OFFSET is not used; +1 probe row still applies. */
+export function wrapSqlForSeek(
+  sql: string,
+  dialect: string,
+  seek: SqlSeek,
+  limit: number,
+  existingParamCount: number
+): { sql: string; seekParams: unknown[] } | { error: string } {
+  if (!seek.columns.length || seek.columns.length !== seek.values.length) {
+    return { error: 'seek.columns and seek.values must be the same non-empty length' };
+  }
+  if (!seek.columns.every(isSafeSeekColumn)) {
+    return { error: 'seek.columns must be plain identifiers' };
+  }
+  const parsed = parseTopLevelOrderBy(sql);
+  if (!parsed) {
+    return { error: 'Last Id paging requires a top-level ORDER BY on columns' };
+  }
+  const orderCols = parsed.terms.map((t) => t.column.toLowerCase());
+  const seekCols = seek.columns.map((c) => c.toLowerCase());
+  if (seekCols.length > orderCols.length || seekCols.some((c, i) => c !== orderCols[i])) {
+    return { error: 'seek.columns must match the ORDER BY prefix' };
+  }
+  const d = dialect.toLowerCase();
+  const style = placeholderStyleFor(d);
+  const inner = sql.trim().replace(/;+\s*$/, '');
+  const fetchLimit = limit + 1;
+  const clauses: string[] = [];
+  const seekParams: unknown[] = [];
+  const nextPh = (): string => {
+    const idx = existingParamCount + seekParams.length;
+    if (TSQL_DIALECTS.has(d)) return `@p${idx}`;
+    return renderPlaceholder(style, idx + 1);
+  };
+  for (let i = 0; i < seek.columns.length; i++) {
+    const parts: string[] = [];
+    for (let j = 0; j < i; j++) {
+      parts.push(`${quoteSqlIdentifier(seek.columns[j]!, dialect)} = ${nextPh()}`);
+      seekParams.push(seek.values[j]);
+    }
+    const cmp = descAt(seek, i) ? '<' : '>';
+    parts.push(`${quoteSqlIdentifier(seek.columns[i]!, dialect)} ${cmp} ${nextPh()}`);
+    seekParams.push(seek.values[i]);
+    clauses.push(`(${parts.join(' AND ')})`);
+  }
+  const pred = clauses.join(' OR ');
+  const orderSql = parsed.terms
+    .map((t) => `${quoteSqlIdentifier(t.column, dialect)}${t.descending ? ' DESC' : ''}`)
+    .join(', ');
+  let wrapped: string;
+  if (TSQL_DIALECTS.has(d)) {
+    wrapped = `SELECT * FROM (${inner}) AS ${PAGE_ALIAS} WHERE ${pred} ORDER BY ${orderSql} OFFSET 0 ROWS FETCH NEXT ${fetchLimit} ROWS ONLY`;
+  } else if (d === 'oracle') {
+    wrapped = `SELECT * FROM (${inner}) ${PAGE_ALIAS} WHERE ${pred} ORDER BY ${orderSql} OFFSET 0 ROWS FETCH NEXT ${fetchLimit} ROWS ONLY`;
+  } else if (d === 'db2') {
+    wrapped = `SELECT * FROM (${inner}) AS ${PAGE_ALIAS} WHERE ${pred} ORDER BY ${orderSql} OFFSET 0 ROWS FETCH FIRST ${fetchLimit} ROWS ONLY`;
+  } else {
+    wrapped = `SELECT * FROM (${inner}) AS ${PAGE_ALIAS} WHERE ${pred} ORDER BY ${orderSql} LIMIT ${fetchLimit}`;
+  }
+  return { sql: wrapped, seekParams };
 }
 
 /** After shaping, drop the probe row and set truncated/hasNext. */

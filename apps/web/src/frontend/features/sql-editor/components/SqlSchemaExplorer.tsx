@@ -125,8 +125,8 @@ export const SqlSchemaExplorer = forwardRef<SqlSchemaExplorerHandle>(function Sq
     TABLE: true,
     VIEW: true,
     MQT: true,
-    PROCEDURE: true,
-    FUNCTION: true,
+    PROCEDURE: false,
+    FUNCTION: false,
   });
   const [blueprintTable, setBlueprintTable] = useState<TableSchema | null>(null);
   const [blueprintMode, setBlueprintMode] = useState<BlueprintMode>('edit');
@@ -292,7 +292,10 @@ export const SqlSchemaExplorer = forwardRef<SqlSchemaExplorerHandle>(function Sq
               type="button"
               title="Reload schema"
               disabled={!explorerId || entry?.status === 'loading'}
-              onClick={() => explorerId && void ensureSchema(explorerId, { force: true })}
+              onClick={() =>
+                explorerId &&
+                void ensureSchema(explorerId, { force: true, scope: entry?.scope })
+              }
               className="p-1.5 rounded text-slate-500 hover:text-slate-200 hover:bg-slate-800/70 disabled:opacity-40 transition"
             >
               {entry?.status === 'loading' ? (
@@ -337,16 +340,22 @@ export const SqlSchemaExplorer = forwardRef<SqlSchemaExplorerHandle>(function Sq
           <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-1.5 pr-0.5">
             {EXPLORER_GROUPS.map((g) => {
               const items = grouped.get(g.type) ?? [];
-              if (items.length === 0) return null;
-              const open = expandedGroup[g.type] !== false;
+              const isRoutine = g.type === 'PROCEDURE' || g.type === 'FUNCTION';
+              const routinesLoaded = (entry?.scope ?? []).includes('PROCEDURE');
+              if (items.length === 0 && !isRoutine) return null;
+              const open = expandedGroup[g.type] === true || (expandedGroup[g.type] !== false && !isRoutine);
               const meta = TYPE_META[g.type];
               return (
                 <div key={g.type} data-testid={`sql-schema-group-${g.type}`}>
                   <button
                     type="button"
-                    onClick={() =>
-                      setExpandedGroup((m) => ({ ...m, [g.type]: !open }))
-                    }
+                    onClick={() => {
+                      const next = !open;
+                      setExpandedGroup((m) => ({ ...m, [g.type]: next }));
+                      if (next && isRoutine && !routinesLoaded && explorerId) {
+                        void ensureSchema(explorerId, { scope: ['PROCEDURE', 'FUNCTION'] });
+                      }
+                    }}
                     className="w-full flex items-center gap-1.5 px-0.5 py-1 text-left sticky top-0 bg-slate-900 z-[1]"
                   >
                     {open ? (
@@ -358,7 +367,9 @@ export const SqlSchemaExplorer = forwardRef<SqlSchemaExplorerHandle>(function Sq
                     <span className={`text-[12px] font-bold uppercase tracking-wider ${meta.color}`}>
                       {g.title}
                     </span>
-                    <span className="text-[12px] font-mono text-slate-500">({items.length})</span>
+                    <span className="text-[12px] font-mono text-slate-500">
+                      ({isRoutine && !routinesLoaded ? '…' : items.length})
+                    </span>
                     <span className="flex-1 h-px bg-slate-800/80 ml-1" />
                   </button>
                   {open && (

@@ -390,6 +390,49 @@ export async function fetchDbaUtility(
   return data;
 }
 
+export type TableInsightResponse = {
+  table: string;
+  schema: string;
+  dialect?: string;
+  estimatedRows: number | null;
+  columns: Array<{ name: string; nDistinct: number | null; nullFrac: number | null }>;
+  mode: 'catalog' | 'unsupported';
+  support: { mode: string; query: boolean; hint: string };
+  warning?: string;
+  error?: string;
+};
+
+const TABLE_INSIGHT_TTL_MS = 60_000;
+
+export async function fetchTableInsight(
+  ref: ConnectionRef,
+  opts: { table: string; schema?: string }
+): Promise<TableInsightResponse> {
+  const schema = opts.schema ?? ref.schema;
+  const key = `table-insight:${cacheKeyForRef({ ...ref, schema })}:${opts.table}`;
+  return idempotent(
+    key,
+    async () => {
+      const res = await fetch(`${getApiBase()}/schema/table-insight`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...ref,
+          schema,
+          table: opts.table,
+        }),
+      });
+      const data = await parseJsonBody<TableInsightResponse>(res);
+      if (!res.ok) {
+        throw new Error(data.error || `Table insight failed (${res.status})`);
+      }
+      return data;
+    },
+    TABLE_INSIGHT_TTL_MS
+  );
+}
+
 export type DbAccessResponse = {
   dialect: string;
   schema: string;

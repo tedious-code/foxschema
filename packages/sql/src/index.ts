@@ -140,6 +140,29 @@ export type {
   IndexUsageQuery,
 } from './modules/utilities/index-fragmentation.js';
 export {
+  dialectSupportsTableInsight,
+  buildTableInsightQuery,
+  normalizeTableInsightRows,
+  parseSqliteStat1,
+  tableInsightDialectIds,
+} from './modules/utilities/table-insight.js';
+export type {
+  TableInsightMode,
+  TableInsightSupport,
+  TableInsightQuery,
+  TableInsightColumn,
+  TableInsightResult,
+  TableInsightTarget,
+} from './modules/utilities/table-insight.js';
+export {
+  parseTopLevelOrderBy,
+  findTopLevelOrderByIndex,
+  uniqueKeyCoversOrder,
+  uniqueKeysFromTable,
+  isSafeSeekColumn,
+} from './modules/sql-editor/sql-order-by.js';
+export type { OrderByTerm, ParsedOrderBy } from './modules/sql-editor/sql-order-by.js';
+export {
   dialectSupportsDbaUtility,
   buildDbaUtilityQuery,
   normalizeConnectionPoolRows,
