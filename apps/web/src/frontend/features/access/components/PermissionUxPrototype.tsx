@@ -5,10 +5,10 @@
  *
  * Permissions UX prototype — sectioned by object kind.
  *
- * Expand Tables / Views / Procedures / Functions to fetch that catalog slice.
- * Each row shows DML + DDL. Edit opens Grant / Revoke for that object (and
- * can add more of the same kind). Preview SQL modal: Copy always; Execute
- * when FoxSchema RBAC allows editor.grant.
+ * Top: General permissions (schema CREATE — table/view/proc/function/type/
+ * constraint/trigger/sequence/FK) with no CRUD detail. Below: expand Tables /
+ * Views / Procedures / Functions to fetch objects; each row shows DML + DDL.
+ * Edit opens Grant / Revoke → Preview SQL modal (Copy / Execute by RBAC).
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -25,6 +25,7 @@ import {
   Pencil,
   Play,
   Plus,
+  Shield,
   ShieldAlert,
   Table2,
   Trash2,
@@ -36,6 +37,42 @@ import { inputCls, labelCls } from './controls';
 
 type ObjectKind = 'table' | 'view' | 'procedure' | 'function';
 type ActionMode = 'grant' | 'revoke';
+
+/** Schema-level CREATE privileges — no per-object CRUD detail. */
+type GeneralPrivId =
+  | 'create-table'
+  | 'create-view'
+  | 'create-procedure'
+  | 'create-function'
+  | 'create-datatype'
+  | 'create-constraint'
+  | 'create-trigger'
+  | 'create-sequence'
+  | 'create-foreign-key';
+
+const GENERAL_PRIVILEGES: {
+  id: GeneralPrivId;
+  label: string;
+  sql: string;
+  hint: string;
+}[] = [
+  { id: 'create-table', label: 'Create table', sql: 'CREATE TABLE', hint: 'Create new tables in the schema' },
+  { id: 'create-view', label: 'Create view', sql: 'CREATE VIEW', hint: 'Create views' },
+  { id: 'create-procedure', label: 'Create procedure', sql: 'CREATE PROCEDURE', hint: 'Create stored procedures' },
+  { id: 'create-function', label: 'Create function', sql: 'CREATE FUNCTION', hint: 'Create functions' },
+  { id: 'create-datatype', label: 'Create datatype', sql: 'CREATE TYPE', hint: 'Create user-defined types' },
+  { id: 'create-constraint', label: 'Create constraint', sql: 'CREATE CONSTRAINT', hint: 'Add constraints on tables' },
+  { id: 'create-trigger', label: 'Create trigger', sql: 'CREATE TRIGGER', hint: 'Create triggers' },
+  { id: 'create-sequence', label: 'Create sequence', sql: 'CREATE SEQUENCE', hint: 'Create sequences' },
+  {
+    id: 'create-foreign-key',
+    label: 'Create foreign key',
+    sql: 'REFERENCES',
+    hint: 'Create foreign keys / reference other tables',
+  },
+];
+
+const MOCK_SCHEMAS = ['public', 'reporting'] as const;
 
 interface CatalogObject {
   kind: ObjectKind;
@@ -136,6 +173,22 @@ function buildSql(
     .join('\n\n');
 }
 
+function buildGeneralSql(
+  action: ActionMode,
+  principal: string,
+  schema: string,
+  privIds: GeneralPrivId[]
+): string {
+  if (!principal.trim() || !schema.trim() || privIds.length === 0) return '';
+  const verb = action === 'grant' ? 'GRANT' : 'REVOKE';
+  const direction = action === 'grant' ? 'TO' : 'FROM';
+  const list = privIds
+    .map((id) => GENERAL_PRIVILEGES.find((p) => p.id === id)?.sql)
+    .filter(Boolean)
+    .join(', ');
+  return `${verb} ${list}\n  ON SCHEMA ${schema}\n  ${direction} ${principal};`;
+}
+
 type EditorState = {
   kind: ObjectKind;
   /** Row being edited, or null when granting onto new objects of this kind. */
@@ -146,11 +199,24 @@ type EditorState = {
   ddl: string[];
 };
 
+type GeneralEditorState = {
+  action: ActionMode;
+  schema: string;
+  selected: GeneralPrivId[];
+};
+
 export const PermissionUxPrototype: React.FC = () => {
   const canExecute = useAuthStore((s) => s.can('editor.grant'));
 
   const [principal, setPrincipal] = useState<string>(PRINCIPALS[0]);
   const [grants, setGrants] = useState<ObjectPrivState[]>(INITIAL_GRANTS);
+  /** Schema → granted general CREATE privilege ids (no CRUD detail). */
+  const [generalBySchema, setGeneralBySchema] = useState<Record<string, GeneralPrivId[]>>({
+    public: ['create-table', 'create-sequence'],
+    reporting: ['create-view'],
+  });
+  const [generalOpen, setGeneralOpen] = useState(true);
+  const [generalEditor, setGeneralEditor] = useState<GeneralEditorState | null>(null);
 
   const [expanded, setExpanded] = useState<Partial<Record<ObjectKind, boolean>>>({ table: true });
   const [catalog, setCatalog] = useState<Partial<Record<ObjectKind, CatalogObject[]>>>({});
@@ -231,6 +297,7 @@ export const PermissionUxPrototype: React.FC = () => {
 
   const openEdit = (row: ObjectPrivState, action: ActionMode = 'grant') => {
     const allow = allowedPrivsFor(row.kind);
+    setGeneralEditor(null);
     setEditor({
       kind: row.kind,
       focus: row,
@@ -245,6 +312,7 @@ export const PermissionUxPrototype: React.FC = () => {
 
   const openGrantOnKind = (kind: ObjectKind) => {
     const allow = allowedPrivsFor(kind);
+    setGeneralEditor(null);
     setEditor({
       kind,
       focus: null,
@@ -268,9 +336,41 @@ export const PermissionUxPrototype: React.FC = () => {
   }, [editor]);
 
   const previewSql = useMemo(() => {
+    if (generalEditor) {
+      return buildGeneralSql(
+        generalEditor.action,
+        principal,
+        generalEditor.schema,
+        generalEditor.selected
+      );
+    }
     if (!editor) return '';
     return buildSql(editor.action, principal, editorObjects, editor.dml, editor.ddl);
-  }, [editor, principal, editorObjects]);
+  }, [editor, generalEditor, principal, editorObjects]);
+
+  const applyGeneralEditor = () => {
+    if (!generalEditor || generalEditor.selected.length === 0) {
+      flash('Select at least one general privilege');
+      return;
+    }
+    const schema = generalEditor.schema;
+    if (generalEditor.action === 'revoke') {
+      setGeneralBySchema((prev) => {
+        const cur = new Set(prev[schema] ?? []);
+        for (const id of generalEditor.selected) cur.delete(id);
+        return { ...prev, [schema]: [...cur] };
+      });
+      flash(`Revoked general privileges on ${schema}`);
+    } else {
+      setGeneralBySchema((prev) => {
+        const cur = new Set(prev[schema] ?? []);
+        for (const id of generalEditor.selected) cur.add(id);
+        return { ...prev, [schema]: [...cur] };
+      });
+      flash(`Granted general privileges on ${schema}`);
+    }
+    setGeneralEditor(null);
+  };
 
   const applyEditorToGrants = () => {
     if (!editor || editorObjects.length === 0) {
@@ -318,14 +418,32 @@ export const PermissionUxPrototype: React.FC = () => {
 
   const openPreview = () => {
     if (!previewSql) {
-      flash('Select objects and privileges first');
+      flash('Select privileges first');
       return;
     }
     setCopied(false);
+    const isRevoke = generalEditor
+      ? generalEditor.action === 'revoke'
+      : editor?.action === 'revoke';
     setSqlModal({
       sql: previewSql,
-      title: editor?.action === 'revoke' ? 'Preview REVOKE SQL' : 'Preview GRANT SQL',
-      apply: applyEditorToGrants,
+      title: isRevoke ? 'Preview REVOKE SQL' : 'Preview GRANT SQL',
+      apply: generalEditor ? applyGeneralEditor : applyEditorToGrants,
+    });
+  };
+
+  const openGeneralEdit = (schema: string, action: ActionMode = 'grant') => {
+    const held = generalBySchema[schema] ?? [];
+    setEditor(null);
+    setGeneralEditor({
+      action,
+      schema,
+      selected:
+        action === 'revoke'
+          ? [...held]
+          : held.length
+            ? [...held]
+            : ['create-table'],
     });
   };
 
@@ -390,13 +508,123 @@ export const PermissionUxPrototype: React.FC = () => {
           </select>
         </div>
         <p className="text-[11px] text-slate-500 max-w-xl leading-relaxed">
-          Expand a section to fetch objects. Each row shows <span className="text-slate-300">DML</span> and{' '}
-          <span className="text-slate-300">DDL</span>. Edit opens Grant / Revoke — same flow for tables,
-          views, procedures, and functions.
+          Top section: <span className="text-slate-300">general CREATE privileges</span> (no CRUD
+          detail). Below: expand Tables / Views / Procedures / Functions for object DML + DDL. Edit
+          opens Grant / Revoke → Preview SQL.
         </p>
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3" data-testid="proto-sections">
+        {/* General schema CREATE privileges — create new privilege without object CRUD detail */}
+        <section
+          className="rounded-lg border border-slate-800 overflow-hidden"
+          data-testid="proto-section-general"
+        >
+          <div className="flex items-center gap-2 bg-slate-900/70 px-3 py-2">
+            <button
+              type="button"
+              data-testid="proto-expand-general"
+              aria-expanded={generalOpen}
+              onClick={() => setGeneralOpen((v) => !v)}
+              className="flex flex-1 items-center gap-2 text-left text-xs font-bold text-slate-100 hover:text-white"
+            >
+              {generalOpen ? (
+                <ChevronDown className="w-4 h-4 text-slate-400" />
+              ) : (
+                <ChevronRight className="w-4 h-4 text-slate-500" />
+              )}
+              <Shield className="w-3.5 h-3.5 text-slate-400" />
+              General permissions
+              <span className="font-normal text-slate-500 normal-case tracking-normal">
+                (create table, view, procedure, …)
+              </span>
+            </button>
+            <button
+              type="button"
+              data-testid="proto-grant-general"
+              onClick={() => openGeneralEdit(MOCK_SCHEMAS[0], 'grant')}
+              className="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-100 hover:bg-amber-500/20"
+            >
+              <Plus className="w-3 h-3" />
+              New privilege
+            </button>
+          </div>
+
+          {generalOpen && (
+            <div className="border-t border-slate-800">
+              <p className="px-3 pt-2 text-[11px] text-slate-500">
+                Schema-level CREATE rights. No per-object CRUD — use the sections below for that.
+              </p>
+              <table className="w-full text-left text-[12px] mt-1">
+                <thead className="text-[10px] uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2 font-bold">Schema</th>
+                    <th className="px-3 py-2 font-bold">Create privileges</th>
+                    <th className="px-3 py-2 font-bold w-[150px]">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {MOCK_SCHEMAS.map((schema) => {
+                    const held = generalBySchema[schema] ?? [];
+                    return (
+                      <tr
+                        key={schema}
+                        data-testid={`proto-general-row-${schema}`}
+                        className="border-t border-slate-800/80 hover:bg-slate-900/40"
+                      >
+                        <td className="px-3 py-2 font-mono text-slate-200">{schema}</td>
+                        <td className="px-3 py-2">
+                          {held.length === 0 ? (
+                            <span className="text-slate-600">—</span>
+                          ) : (
+                            <div className="flex flex-wrap gap-1">
+                              {held.map((id) => {
+                                const meta = GENERAL_PRIVILEGES.find((p) => p.id === id);
+                                return (
+                                  <span
+                                    key={id}
+                                    title={meta?.hint}
+                                    className="rounded border border-violet-500/30 bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-violet-100"
+                                  >
+                                    {meta?.label ?? id}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-3 py-2">
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              data-testid={`proto-general-edit-${schema}`}
+                              onClick={() => openGeneralEdit(schema, 'grant')}
+                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-sky-300 hover:text-sky-100"
+                            >
+                              <Pencil className="w-3 h-3" />
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              data-testid={`proto-general-revoke-${schema}`}
+                              disabled={held.length === 0}
+                              onClick={() => openGeneralEdit(schema, 'revoke')}
+                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-300 hover:text-rose-100 disabled:opacity-30"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              Revoke
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
         {KIND_ORDER.map((kind) => {
           const meta = KIND_META[kind];
           const open = !!expanded[kind];
@@ -510,6 +738,147 @@ export const PermissionUxPrototype: React.FC = () => {
           );
         })}
       </div>
+
+      {generalEditor &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[330] flex items-center justify-center bg-black/70 p-4"
+            onClick={() => setGeneralEditor(null)}
+            data-testid="proto-general-editor-backdrop"
+          >
+            <div
+              className="w-full max-w-lg rounded-xl border border-slate-700 bg-slate-900 p-5 shadow-2xl max-h-[90vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+              data-testid="proto-general-editor"
+              role="dialog"
+              aria-modal="true"
+            >
+              <div className="flex items-start justify-between gap-2 mb-3">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-100">
+                    {generalEditor.action === 'revoke' ? 'Revoke' : 'Create'} general privilege
+                  </h3>
+                  <p className="text-[11px] text-slate-500 mt-0.5 font-mono">→ {principal}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setGeneralEditor(null)}
+                  className="text-slate-500 hover:text-slate-200"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="flex gap-2 mb-4">
+                <button
+                  type="button"
+                  data-testid="proto-general-action-grant"
+                  onClick={() => setGeneralEditor((p) => (p ? { ...p, action: 'grant' } : p))}
+                  className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold ${
+                    generalEditor.action === 'grant'
+                      ? 'border-amber-500/50 bg-amber-500/20 text-amber-50'
+                      : 'border-slate-700 text-slate-400'
+                  }`}
+                >
+                  Grant
+                </button>
+                <button
+                  type="button"
+                  data-testid="proto-general-action-revoke"
+                  onClick={() => setGeneralEditor((p) => (p ? { ...p, action: 'revoke' } : p))}
+                  className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold ${
+                    generalEditor.action === 'revoke'
+                      ? 'border-rose-500/50 bg-rose-500/20 text-rose-50'
+                      : 'border-slate-700 text-slate-400'
+                  }`}
+                >
+                  Revoke
+                </button>
+              </div>
+
+              <div className="mb-4">
+                <span className={labelCls}>Schema</span>
+                <select
+                  data-testid="proto-general-schema"
+                  className={`${inputCls} mt-1`}
+                  value={generalEditor.schema}
+                  onChange={(e) => {
+                    const schema = e.target.value;
+                    setGeneralEditor((p) =>
+                      p
+                        ? {
+                            ...p,
+                            schema,
+                            selected:
+                              p.action === 'revoke'
+                                ? [...(generalBySchema[schema] ?? [])]
+                                : p.selected,
+                          }
+                        : p
+                    );
+                  }}
+                >
+                  {MOCK_SCHEMAS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="mb-4">
+                <span className={labelCls}>Create privileges</span>
+                <p className="text-[11px] text-slate-500 mt-0.5 mb-2">
+                  No CRUD detail — these allow creating objects in the schema.
+                </p>
+                <div className="flex flex-wrap gap-2" data-testid="proto-general-privs">
+                  {GENERAL_PRIVILEGES.map((p) => {
+                    const on = generalEditor.selected.includes(p.id);
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        title={p.hint}
+                        data-testid={`proto-general-priv-${p.id}`}
+                        onClick={() =>
+                          setGeneralEditor((prev) => {
+                            if (!prev) return prev;
+                            const selected = prev.selected.includes(p.id)
+                              ? prev.selected.filter((x) => x !== p.id)
+                              : [...prev.selected, p.id];
+                            return { ...prev, selected };
+                          })
+                        }
+                        className={`rounded-md border px-2 py-1.5 text-[11px] font-semibold transition ${
+                          on
+                            ? 'border-violet-500/50 bg-violet-500/20 text-violet-50'
+                            : 'border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200'
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                data-testid="proto-general-preview-sql"
+                onClick={openPreview}
+                className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-bold ${
+                  generalEditor.action === 'revoke'
+                    ? 'border-rose-500/50 bg-rose-500/20 text-rose-50'
+                    : 'border-amber-500/40 bg-amber-500/15 text-amber-100'
+                }`}
+              >
+                <KeyRound className="w-3.5 h-3.5" />
+                Preview SQL
+              </button>
+            </div>
+          </div>,
+          document.body
+        )}
 
       {editor &&
         createPortal(
