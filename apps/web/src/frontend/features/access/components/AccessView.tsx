@@ -9,19 +9,22 @@
  * credentials, or apply access changes. The database stays the source of truth.
  */
 import React, { useState } from 'react';
-import { ShieldCheck, FileBarChart, UserCog, GitCompare } from 'lucide-react';
+import { ShieldCheck, FileBarChart, UserCog, GitCompare, Sparkles } from 'lucide-react';
 import { PermissionBuilder } from './PermissionBuilder';
 import { PermissionDiff } from './PermissionDiff';
 import { AccessReport } from './AccessReport';
 import { UserManagement } from './UserManagement';
+import { PermissionUxPrototype } from './PermissionUxPrototype';
 import type { AccessPrincipalDraft } from '../lib/access-draft';
 
-export type AccessTab = 'users' | 'builder' | 'diff' | 'report';
+export type AccessTab = 'prototype' | 'users' | 'builder' | 'diff' | 'report';
 
 // Ordered the way the work runs: make an account, give it access, then review
 // everything. Granting and checking what a principal already has were two tabs
 // asking for the same connection and name; they are one screen now.
+// The Prototype tab is temporary review UI for the next Permissions redesign.
 const TABS: { id: AccessTab; label: string; icon: React.ElementType; ready: boolean }[] = [
+  { id: 'prototype', label: 'Permissions UX', icon: Sparkles, ready: true },
   { id: 'users', label: 'User Management', icon: UserCog, ready: true },
   { id: 'builder', label: 'Permissions', icon: ShieldCheck, ready: true },
   { id: 'diff', label: 'Permission Diff', icon: GitCompare, ready: true },
@@ -29,7 +32,7 @@ const TABS: { id: AccessTab; label: string; icon: React.ElementType; ready: bool
 ];
 
 export const AccessView: React.FC = () => {
-  const [tab, setTab] = useState<AccessTab>('users');
+  const [tab, setTab] = useState<AccessTab>('prototype');
   const [builderDraft, setBuilderDraft] = useState<AccessPrincipalDraft | null>(null);
 
   const openBuilderWith = (draft: AccessPrincipalDraft) => {
@@ -54,6 +57,11 @@ export const AccessView: React.FC = () => {
           >
             <t.icon className="w-3.5 h-3.5" />
             {t.label}
+            {t.id === 'prototype' && (
+              <span className="ml-1 rounded bg-amber-500/20 px-1 py-0.5 text-[9px] font-bold uppercase text-amber-200">
+                Proto
+              </span>
+            )}
             {!t.ready && (
               <span className="ml-1 rounded bg-slate-800 px-1 py-0.5 text-[9px] font-bold uppercase text-slate-500">
                 Next
@@ -63,6 +71,7 @@ export const AccessView: React.FC = () => {
         ))}
       </div>
 
+      {tab === 'prototype' && <PermissionUxPrototype />}
       {tab === 'users' && <UserManagement onGrantAccess={openBuilderWith} />}
       {tab === 'builder' && (
         <PermissionBuilder
