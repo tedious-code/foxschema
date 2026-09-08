@@ -105,6 +105,76 @@ export function buildRowLookup(
   return { sql: text, params };
 }
 
+/**
+ * Child rows whose foreign key points at a parent row that is not there.
+ *
+ * Deliberately not part of the table-insight probe. That probe is catalog-only
+ * — `pg_stats`, `TABLE_ROWS`, a page count — and answers in constant time
+ * whatever the table's size. Counting orphans is a scan of the child against
+ * the parent, so it is offered as something the reader asks for, once, rather
+ * than something a 2.4M-row table pays for because a tab was opened.
+ *
+ * `NOT EXISTS`, not `NOT IN`: a single NULL in the parent's key column makes
+ * `NOT IN` return no rows at all, which would report a table with orphans as
+ * clean. The two forms are not interchangeable and this is the direction that
+ * gets the answer right.
+ *
+ * Rows with a NULL foreign key are excluded. A NULL FK is an absent
+ * relationship, not a broken one — counting it would call every optional
+ * reference an orphan.
+ *
+ * Returns null when the catalog gave no usable column pair, so the caller can
+ * leave the affordance off rather than offer a check that cannot run.
+ */
+function orphanQuery(
+  select: string,
+  childTable: string,
+  fk: ForeignKeyInfo,
+  dialect: string
+): PreviewQuery | null {
+  const childCols = fk.columns ?? [];
+  const refCols = fk.referencedColumns ?? [];
+  if (childCols.length === 0 || childCols.length !== refCols.length) return null;
+
+  const childParts = tableNameParts(childTable);
+  const parentParts = tableNameParts(fkDrillTableName(fk));
+  if (childParts.length === 0 || parentParts.length === 0) return null;
+
+  // Aliases keep the two sides apart when a table references itself.
+  let query = sql`SELECT ${sql.raw(select)} FROM ${sql.id(...childParts)} AS fox_c WHERE `;
+  childCols.forEach((col, i) => {
+    const joiner = i === 0 ? sql`` : sql` AND `;
+    query = sql`${query}${joiner}fox_c.${sql.id(col)} IS NOT NULL`;
+  });
+  query = sql`${query} AND NOT EXISTS (SELECT 1 FROM ${sql.id(...parentParts)} AS fox_p WHERE `;
+  refCols.forEach((refCol, i) => {
+    const joiner = i === 0 ? sql`` : sql` AND `;
+    query = sql`${query}${joiner}fox_p.${sql.id(refCol)} = fox_c.${sql.id(childCols[i]!)}`;
+  });
+  query = sql`${query})`;
+
+  const { text, params } = renderSqlQuery(query, dialect);
+  return { sql: text, params };
+}
+
+/** How many child rows point at a parent row that does not exist. */
+export function buildOrphanCount(
+  childTable: string,
+  fk: ForeignKeyInfo,
+  dialect: string
+): PreviewQuery | null {
+  return orphanQuery('COUNT(*) AS fox_orphans', childTable, fk, dialect);
+}
+
+/** The orphan rows themselves — what "Peek orphans" opens. */
+export function buildOrphanPeek(
+  childTable: string,
+  fk: ForeignKeyInfo,
+  dialect: string
+): PreviewQuery | null {
+  return orphanQuery('fox_c.*', childTable, fk, dialect);
+}
+
 export interface FkColumnLink {
   /** Index into the result's `columns` that carries the child value. */
   columnIndex: number;
