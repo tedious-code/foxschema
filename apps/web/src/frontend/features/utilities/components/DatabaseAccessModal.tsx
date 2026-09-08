@@ -41,6 +41,8 @@ interface Props {
   onClose?: () => void;
   /** Embed in Access control (no modal shell). */
   embedded?: boolean;
+  /** Workspace credential — hides this form's picker. */
+  lockedConnectionId?: string;
   /** Jump to Access control → App roles (Grant privileges). */
   onOpenAppRoles?: () => void;
 }
@@ -58,6 +60,7 @@ export const DatabaseAccessModal: React.FC<Props> = ({
   open,
   onClose,
   embedded = false,
+  lockedConnectionId,
   onOpenAppRoles,
 }) => {
   const connections = useSyncStore((s) => s.connections);
@@ -100,13 +103,17 @@ export const DatabaseAccessModal: React.FC<Props> = ({
 
   useEffect(() => {
     if (!open) return;
+    if (lockedConnectionId) {
+      setConnectionId(lockedConnectionId);
+      return;
+    }
     setConnectionId((cur) => {
       if (cur && connections.some((c) => c.id === cur)) return cur;
       const saved = localStorage.getItem(LS_CONN) ?? '';
       if (saved && connections.some((c) => c.id === saved)) return saved;
       return connections[0]?.id || '';
     });
-  }, [open, connections]);
+  }, [open, connections, lockedConnectionId]);
 
   const load = useCallback(async () => {
     if (!connectionId || needsPassword) return;
@@ -258,6 +265,7 @@ export const DatabaseAccessModal: React.FC<Props> = ({
 
       <div className="px-5 py-3 border-b border-slate-800 space-y-2.5 shrink-0 bg-slate-950/30">
         <div className="flex flex-wrap items-end gap-2">
+          {!lockedConnectionId && (
           <label className="flex flex-col gap-1 min-w-[14rem] flex-1">
             <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
               Credential
@@ -289,6 +297,7 @@ export const DatabaseAccessModal: React.FC<Props> = ({
               ))}
             </select>
           </label>
+          )}
           {needsPassword && (
             <label className="flex flex-col gap-1 min-w-[10rem]">
               <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">

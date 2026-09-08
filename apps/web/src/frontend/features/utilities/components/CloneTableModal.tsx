@@ -35,6 +35,8 @@ interface Props {
   initialTableName?: string | null;
   /** Dock in the Utilities workspace (no overlay). */
   embedded?: boolean;
+  /** Workspace credential — hides this form's picker. */
+  lockedConnectionId?: string;
 }
 
 const LS_CONN = 'foxschema-utilities-clone-table-connection';
@@ -46,6 +48,7 @@ export const CloneTableModal: React.FC<Props> = ({
   onClose,
   initialTableName = null,
   embedded = false,
+  lockedConnectionId,
 }) => {
   const connections = useSyncStore((s) => s.connections);
   const ensureSchema = useSqlEditorStore((s) => s.ensureSchema);
@@ -81,14 +84,23 @@ export const CloneTableModal: React.FC<Props> = ({
     wasOpen.current = true;
     const saved = localStorage.getItem(LS_CONN) || '';
     const fallback = connections[0]?.id || '';
-    const next = connections.some((c) => c.id === saved) ? saved : fallback;
+    const next = lockedConnectionId
+      ? lockedConnectionId
+      : connections.some((c) => c.id === saved)
+        ? saved
+        : fallback;
     setConnectionId(next);
     setTableName(initialTableName?.trim() || '');
     setError(null);
     setStatus(null);
     setConfirmApply(false);
     setPasswordDraft('');
-  }, [open, connections, initialTableName]);
+  }, [open, connections, initialTableName, lockedConnectionId]);
+
+  useEffect(() => {
+    if (!open || !lockedConnectionId) return;
+    setConnectionId((cur) => (cur === lockedConnectionId ? cur : lockedConnectionId));
+  }, [open, lockedConnectionId]);
 
   // If opened from Schema with a table name after mount, honor it once.
   useEffect(() => {
@@ -313,6 +325,7 @@ export const CloneTableModal: React.FC<Props> = ({
 
           <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 items-end">
+              {!lockedConnectionId && (
               <label className="block min-w-0">
                 <span className="text-[10px] font-bold uppercase text-slate-500">
                   Credential
@@ -339,6 +352,7 @@ export const CloneTableModal: React.FC<Props> = ({
                   )}
                 </select>
               </label>
+              )}
               <button
                 type="button"
                 data-testid="clone-table-load"

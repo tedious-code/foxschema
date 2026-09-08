@@ -577,9 +577,14 @@ export class SqlEditorPage {
     await modal.waitFor({ state: 'detached', timeout: 8_000 }).catch(() => undefined);
   }
 
-  /** Pick credential in Clone Table / Index Management by visible name substring. */
+  /** Pick credential in Clone Table / Index Management by visible name substring.
+   *  The Utilities workspace uses one chip (`utilities-connection`); tool-local
+   *  dropdowns are used when a modal still has its own picker. */
   async selectUtilityConnection(nameSubstring: string, selectTestId: string): Promise<void> {
-    const select = this.page.locator(`[data-testid="${selectTestId}"]`);
+    const workspace = this.page.locator('[data-testid="utilities-connection"]');
+    const select = (await workspace.isVisible().catch(() => false))
+      ? workspace
+      : this.page.locator(`[data-testid="${selectTestId}"]`);
     await select.waitFor({ state: 'visible', timeout: 10_000 });
     const value = await select.evaluate((el, want) => {
       const sel = el as HTMLSelectElement;

@@ -8,9 +8,25 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { UtilitiesView } from './UtilitiesView';
 
+vi.mock('@/app/store/useSyncStore', () => ({
+  useSyncStore: (sel: (s: { connections: { id: string; name: string; dialect: string }[] }) => unknown) =>
+    sel({
+      connections: [{ id: 'c1', name: 'Demo SQLite A', dialect: 'sqlite' }],
+    }),
+}));
 vi.mock('./IndexManagementModal', () => ({
-  IndexManagementModal: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="index-management-embed">indexes</div> : null,
+  IndexManagementModal: ({
+    open,
+    lockedConnectionId,
+  }: {
+    open: boolean;
+    lockedConnectionId?: string;
+  }) =>
+    open ? (
+      <div data-testid="index-management-embed" data-locked={lockedConnectionId ?? ''}>
+        indexes
+      </div>
+    ) : null,
 }));
 vi.mock('./CloneTableModal', () => ({
   CloneTableModal: ({ open }: { open: boolean }) =>
@@ -67,15 +83,18 @@ describe('UtilitiesView', () => {
       expect(nav.querySelector(`[data-testid="${id}"]`)).toBeTruthy();
     }
     expect(screen.getByTestId('index-management-modal')).toBeTruthy();
+    expect(screen.getByTestId('utilities-connection')).toBeTruthy();
+    expect(screen.getByTestId('index-management-embed').getAttribute('data-locked')).toBe('c1');
   });
 
-  it('docks Clone Table and Server Insights as panes', () => {
+  it('locks Clone Table and Insights to the workspace credential', () => {
     render(<UtilitiesView />);
     fireEvent.click(screen.getByTestId('utilities-clone-table'));
     expect(screen.getByTestId('clone-table-modal')).toBeTruthy();
     fireEvent.click(screen.getByTestId('utilities-system-info'));
     expect(screen.getByTestId('server-insights-modal')).toBeTruthy();
     expect(screen.getByTestId('server-insights-tab-system')).toBeTruthy();
+    expect(screen.getByTestId('utilities-connection')).toBeTruthy();
   });
 
   it('opens Query files without a SQL Editor visit', () => {

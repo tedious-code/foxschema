@@ -4,8 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Database utilities as their own workspace — not a SQL Editor sidebar menu.
- * Left list keeps the e2e `utilities-*` / `sql-sidebar-utilities` testids;
- * the selected tool docks as a pane (same bodies as the old modals).
+ *
+ * Connection-first: one credential chip at the top; tools dock as panes.
+ * Left list keeps the e2e `utilities-*` / `sql-sidebar-utilities` testids.
  */
 import React, { useEffect, useState } from 'react';
 import {
@@ -19,9 +20,11 @@ import {
   Users,
   Wrench,
 } from 'lucide-react';
+import { useSyncStore } from '@/app/store/useSyncStore';
 import { useUiStore } from '@/app/store/uiStore';
 import { FileImportsPanel } from '@/features/sql-editor/components/FileImportsPanel';
 import { SQL_ICON_STROKE } from '@/shared/lib/iconStyle';
+import { PROVIDER_SETTINGS } from '@/shared/lib/provider-settings';
 import { CloneTableModal } from './CloneTableModal';
 import { DatabaseAccessModal } from './DatabaseAccessModal';
 import { FileQueryModal } from './FileQueryModal';
@@ -39,6 +42,7 @@ export type UtilityTool =
   | 'sizes';
 
 const LS_TOOL = 'foxschema-utilities-tool';
+const LS_CONN = 'foxschema-utilities-connection';
 
 const TOOLS: {
   id: UtilityTool;
@@ -126,6 +130,16 @@ function loadTool(): UtilityTool {
   return 'indexes';
 }
 
+function loadConnectionId(connections: { id: string }[]): string {
+  try {
+    const saved = localStorage.getItem(LS_CONN) || '';
+    if (saved && connections.some((c) => c.id === saved)) return saved;
+  } catch {
+    /* ignore */
+  }
+  return connections[0]?.id || '';
+}
+
 function insightTab(tool: UtilityTool): ServerInsightsTab | null {
   if (tool === 'pool' || tool === 'sessions' || tool === 'system' || tool === 'sizes') {
     return tool;
@@ -135,10 +149,14 @@ function insightTab(tool: UtilityTool): ServerInsightsTab | null {
 
 export const UtilitiesView: React.FC = () => {
   const setActiveView = useUiStore((s) => s.setActiveView);
+  const connections = useSyncStore((s) => s.connections);
   const [tool, setTool] = useState<UtilityTool>(loadTool);
+  const [connectionId, setConnectionId] = useState('');
   const [fileImportsKey, setFileImportsKey] = useState(0);
   const active = TOOLS.find((t) => t.id === tool) ?? TOOLS[0]!;
   const insights = insightTab(tool);
+  const conn = connections.find((c) => c.id === connectionId);
+  const lockedId = connectionId || undefined;
 
   useEffect(() => {
     try {
@@ -147,6 +165,24 @@ export const UtilitiesView: React.FC = () => {
       /* ignore */
     }
   }, [tool]);
+
+  useEffect(() => {
+    setConnectionId((cur) => {
+      if (cur && connections.some((c) => c.id === cur)) return cur;
+      return loadConnectionId(connections);
+    });
+  }, [connections]);
+
+  const pickConnection = (id: string) => {
+    setConnectionId(id);
+    if (id) {
+      try {
+        localStorage.setItem(LS_CONN, id);
+      } catch {
+        /* ignore */
+      }
+    }
+  };
 
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden" data-testid="utilities-view">
@@ -197,9 +233,39 @@ export const UtilitiesView: React.FC = () => {
       </nav>
 
       <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-slate-950">
-        <header className="shrink-0 border-b border-slate-800 px-4 py-2.5">
-          <h1 className="text-[13px] font-bold text-slate-100">{active.label}</h1>
-          <p className="mt-0.5 text-[11px] text-slate-500">{active.blurb}</p>
+        <header className="flex shrink-0 flex-wrap items-end justify-between gap-3 border-b border-slate-800 px-4 py-2.5">
+          <div className="min-w-0">
+            <h1 className="text-[13px] font-bold text-slate-100">{active.label}</h1>
+            <p className="mt-0.5 text-[11px] text-slate-500">{active.blurb}</p>
+          </div>
+          <label className="flex min-w-[16rem] max-w-md flex-1 flex-col gap-1">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+              Credential
+            </span>
+            <select
+              data-testid="utilities-connection"
+              value={connectionId}
+              onChange={(e) => pickConnection(e.target.value)}
+              className="rounded-full border border-amber-500/30 bg-slate-950 px-3 py-1.5 text-[12px] text-slate-100 outline-none accent-focus"
+            >
+              {connections.length === 0 ? (
+                <option value="">Save a connection first</option>
+              ) : (
+                connections.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    [{(PROVIDER_SETTINGS[c.dialect.toLowerCase()]?.label ?? c.dialect).toUpperCase()}]{' '}
+                    {c.name}
+                    {c.schema ? ` · ${c.schema}` : ''}
+                  </option>
+                ))
+              )}
+            </select>
+            {conn?.database && (
+              <span className="truncate font-mono text-[10px] text-slate-500" title={conn.database}>
+                {conn.database}
+              </span>
+            )}
+          </label>
         </header>
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {tool === 'indexes' && (
@@ -207,17 +273,23 @@ export const UtilitiesView: React.FC = () => {
               className="flex min-h-0 flex-1 flex-col overflow-hidden"
               data-testid="index-management-modal"
             >
-              <IndexManagementModal open embedded />
+              <IndexManagementModal open embedded lockedConnectionId={lockedId} />
             </div>
           )}
           {tool === 'clone' && (
-            <CloneTableModal open embedded onClose={() => undefined} />
+            <CloneTableModal
+              open
+              embedded
+              lockedConnectionId={lockedId}
+              onClose={() => undefined}
+            />
           )}
           {insights && (
             <ServerInsightsModal
               open
               embedded
               initialTab={insights}
+              lockedConnectionId={lockedId}
               onClose={() => undefined}
             />
           )}
@@ -226,7 +298,7 @@ export const UtilitiesView: React.FC = () => {
               className="flex min-h-0 flex-1 flex-col overflow-hidden"
               data-testid="db-access-modal"
             >
-              <DatabaseAccessModal open embedded />
+              <DatabaseAccessModal open embedded lockedConnectionId={lockedId} />
             </div>
           )}
           {tool === 'files' && (

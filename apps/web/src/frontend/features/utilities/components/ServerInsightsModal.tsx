@@ -37,6 +37,8 @@ interface Props {
   onClose?: () => void;
   /** Dock in the Utilities workspace (no overlay). */
   embedded?: boolean;
+  /** Workspace credential — hides this form's picker. */
+  lockedConnectionId?: string;
 }
 
 const LS_CONN = 'foxschema-utilities-server-insights-connection';
@@ -78,6 +80,7 @@ export const ServerInsightsModal: React.FC<Props> = ({
   initialTab = 'pool',
   onClose,
   embedded = false,
+  lockedConnectionId,
 }) => {
   const connections = useSyncStore((s) => s.connections);
   const ensureConnectionSelected = useSqlEditorStore((s) => s.ensureConnectionSelected);
@@ -95,13 +98,17 @@ export const ServerInsightsModal: React.FC<Props> = ({
     if (!open) return;
     const saved = localStorage.getItem(LS_CONN) || '';
     const fallback = connections[0]?.id || '';
-    const next = connections.some((c) => c.id === saved) ? saved : fallback;
+    const next = lockedConnectionId
+      ? lockedConnectionId
+      : connections.some((c) => c.id === saved)
+        ? saved
+        : fallback;
     setConnectionId(next);
     setTab(initialTab);
     setError(null);
     setData(null);
     setPasswordDraft('');
-  }, [open, connections, initialTab]);
+  }, [open, connections, initialTab, lockedConnectionId]);
 
   const conn = connections.find((c) => c.id === connectionId) || null;
   // File dialects carry no password; asking for one blocked the utility outright.
@@ -197,6 +204,7 @@ export const ServerInsightsModal: React.FC<Props> = ({
         )}
 
         <div className="flex flex-wrap items-end gap-2 border-b border-slate-800 bg-slate-950/30 px-5 py-3 shrink-0">
+          {!lockedConnectionId && (
           <label className="flex min-w-[14rem] flex-1 flex-col gap-1">
             <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
               Credential
@@ -224,6 +232,7 @@ export const ServerInsightsModal: React.FC<Props> = ({
               )}
             </select>
           </label>
+          )}
           {needsPassword && (
             <label className="flex flex-col gap-1 min-w-[10rem]">
               <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
