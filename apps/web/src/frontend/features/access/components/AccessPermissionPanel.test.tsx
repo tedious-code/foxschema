@@ -146,7 +146,10 @@ describe('AccessPermissionPanel — one session', () => {
     expect(screen.getByTestId('access-permission-account-members').textContent).toMatch(/alice/);
 
     fireEvent.click(screen.getByTestId('access-permission-stage-grants'));
-    expect(screen.getByTestId('db-access-permission-sections')).toBeTruthy();
+    // findBy, not getBy: the stage loads its own schema objects, so a
+    // synchronous read passed or failed on microtask timing — which is what
+    // made this file flaky on CI while passing in isolation.
+    expect(await screen.findByTestId('access-grants-stage')).toBeTruthy();
 
     fireEvent.click(screen.getByTestId('access-permission-stage-effective'));
     await waitFor(() => expect(screen.getByTestId('permission-inspector')).toBeTruthy());
@@ -154,53 +157,68 @@ describe('AccessPermissionPanel — one session', () => {
     expect(fetchDbAccess).toHaveBeenCalledTimes(1);
   });
 
-  it('copies GRANT SQL instead of executing it', async () => {
+  /** Select a principal and land on the Grants stage with its catalog loaded. */
+  async function grantsStageFor(principal: string) {
     render(<AccessPermissionPanel />);
     fireEvent.change(screen.getByTestId('access-permission-connection'), {
       target: { value: 'c1' },
     });
-    await waitFor(() => expect(screen.getByTestId('access-permission-row-alice')).toBeTruthy());
-    fireEvent.click(screen.getByTestId('access-permission-row-alice'));
+    fireEvent.click(await screen.findByTestId(`access-permission-row-${principal}`));
+    fireEvent.click(screen.getByTestId('access-permission-stage-grants'));
+    await screen.findByTestId('access-grants-stage');
+  }
 
-    fireEvent.click(screen.getByTestId('db-access-expand-table'));
-    await waitFor(() => expect(screen.getByTestId('db-access-obj-public-orders')).toBeTruthy());
-    fireEvent.click(screen.getByTestId('db-access-edit-orders'));
-    await waitFor(() => expect(screen.getByTestId('db-access-object-editor')).toBeTruthy());
-    fireEvent.click(screen.getByTestId('db-access-preview-sql'));
-    await waitFor(() => expect(screen.getByTestId('db-access-sql-modal')).toBeTruthy());
-    expect(screen.getByTestId('db-access-grant').textContent).toMatch(/Use this SQL/);
-    fireEvent.click(screen.getByTestId('db-access-grant'));
+  it('copies GRANT SQL instead of executing it', async () => {
+    await grantsStageFor('alice');
 
-    await waitFor(() => expect(screen.getByTestId('access-permission-confirm')).toBeTruthy());
-    fireEvent.click(screen.getByTestId('access-permission-confirm-run'));
+    // Read-and-write, not read-only: alice already holds SELECT on
+    // public.orders, so the read-only preset matches the catalog and correctly
+    // generates nothing. The SQL only exists where the desired state differs.
+    fireEvent.click(await screen.findByTestId('access-grants-preset-read-write'));
+    const copy = (await screen.findByTestId('access-grants-copy')) as HTMLButtonElement;
+    // This project does not load jest-dom, so read the property directly.
+    await waitFor(() => expect(copy.disabled).toBe(false));
+    fireEvent.click(copy);
+
     await waitFor(() =>
       expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringMatching(/GRANT/i))
     );
+    // The guarantee the screen is built on: it writes SQL out, never runs it.
     expect(runAccessSql).not.toHaveBeenCalled();
-    expect(screen.getByTestId('access-permission-status').textContent).toMatch(/Copied/);
   });
 
   it('opens generated SQL in the SQL Editor without executing', async () => {
-    render(<AccessPermissionPanel />);
-    fireEvent.change(screen.getByTestId('access-permission-connection'), {
-      target: { value: 'c1' },
-    });
-    await waitFor(() => expect(screen.getByTestId('access-permission-row-alice')).toBeTruthy());
-    fireEvent.click(screen.getByTestId('access-permission-row-alice'));
+    await grantsStageFor('alice');
 
-    fireEvent.click(screen.getByTestId('db-access-expand-table'));
-    await waitFor(() => expect(screen.getByTestId('db-access-obj-public-orders')).toBeTruthy());
-    fireEvent.click(screen.getByTestId('db-access-edit-orders'));
-    await waitFor(() => expect(screen.getByTestId('db-access-object-editor')).toBeTruthy());
-    fireEvent.click(screen.getByTestId('db-access-preview-sql'));
-    await waitFor(() => expect(screen.getByTestId('db-access-sql-modal')).toBeTruthy());
-    fireEvent.click(screen.getByTestId('db-access-grant'));
-    await waitFor(() => expect(screen.getByTestId('access-permission-open-sql')).toBeTruthy());
-    fireEvent.click(screen.getByTestId('access-permission-open-sql'));
+    fireEvent.click(await screen.findByTestId('access-grants-preset-read-write'));
+    const open = (await screen.findByTestId('access-grants-open-sql')) as HTMLButtonElement;
+    await waitFor(() => expect(open.disabled).toBe(false));
+    fireEvent.click(open);
+
+    // Handing SQL to the editor goes through the panel's confirm step, so the
+    // reader sees what is about to land there.
+    fireEvent.click(await screen.findByTestId('access-permission-open-sql'));
 
     expect(setSql).toHaveBeenCalledWith(expect.stringMatching(/GRANT/i));
     expect(ensureConnectionSelected).toHaveBeenCalledWith('c1');
     expect(setActiveView).toHaveBeenCalledWith('sqlEditor');
+    expect(runAccessSql).not.toHaveBeenCalled();
+  });
+
+  it('offers nothing to copy when the desired matrix already matches', async () => {
+    // alice holds exactly SELECT on public.orders, which is what read-only
+    // asks for. Offering a GRANT here would hand over SQL that changes
+    // nothing, and running it would still be a write against production.
+    await grantsStageFor('alice');
+
+    fireEvent.click(await screen.findByTestId('access-grants-preset-read-only'));
+    await waitFor(() =>
+      expect(screen.getByTestId('access-grants-sql').textContent).toMatch(
+        /matches the live catalog/i
+      )
+    );
+    expect((screen.getByTestId('access-grants-copy') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId('access-grants-open-sql') as HTMLButtonElement).disabled).toBe(true);
     expect(runAccessSql).not.toHaveBeenCalled();
   });
 });
