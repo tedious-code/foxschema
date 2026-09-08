@@ -12,7 +12,7 @@ import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { useUiStore } from '@/app/store/uiStore';
 import { formatRelativeDay } from '@/features/sql-editor/lib/relativeTime';
-import { openCommandPalette } from './commandPalette';
+import { openCommandPalette } from './commandPaletteEvent';
 import { diffBriefing } from '@/features/schema-diff';
 
 function previewSql(sql: string): string {

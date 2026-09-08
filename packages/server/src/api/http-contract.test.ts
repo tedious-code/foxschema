@@ -186,9 +186,12 @@ describe('HTTP contract', () => {
 
     it('covers every route the API declares', () => {
       // Guards against the table silently falling behind the router files.
-      // 80 is the count at the time of writing; a new route must be added here
+      // 81 is the count at the time of writing; a new route must be added here
       // deliberately, which is the point.
-      expect(ROUTES.length).toBe(80);
+      //
+      // 80 -> 81: POST /api/schema/table-insight, behind dbaUtilityLimiter and
+      // requirePermissions('utility.access').
+      expect(ROUTES.length).toBe(81);
       expect(new Set(ROUTES.map((r) => `${r.method} ${r.path}`)).size).toBe(ROUTES.length);
     });
 

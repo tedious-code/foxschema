@@ -18,14 +18,66 @@ export interface ParsedOrderBy {
   terms: OrderByTerm[];
 }
 
-const IDENT = /^(?:(?:"([^"]+)"|`([^`]+)`|\[([^\]]+)\]|([A-Za-z_][\w$]*))(?:\.(?:"([^"]+)"|`([^`]+)`|\[([^\]]+)\]|([A-Za-z_][\w$]*)))?)$/;
+/**
+ * One identifier part: `"quoted"`, `` `backticked` ``, `[bracketed]`, or bare.
+ *
+ * Returns the unquoted text, or null if `part` is not a well-formed
+ * identifier. A quoted part is taken literally, so `"a.b"` is one name.
+ */
+function unquotePart(t: string): string | null {
+  // Deliberately not trimmed: the caller trims the whole term once, so a space
+  // surviving here sits *inside* the identifier — `db . orders`. The regex this
+  // replaced rejected that, and this is a lint fix, not a parser change.
+  if (t.length === 0) return null;
+  const pairs: Record<string, string> = { '"': '"', '`': '`', '[': ']' };
+  const close = pairs[t[0]!];
+  if (close) {
+    if (t.length < 3 || t[t.length - 1] !== close) return null;
+    const inner = t.slice(1, -1);
+    // A delimiter inside would mean the caller split in the wrong place.
+    return inner.length > 0 && !inner.includes(close) ? inner : null;
+  }
+  return /^[A-Za-z_][\w$]*$/.test(t) ? t : null;
+}
 
+/**
+ * The column an ORDER BY term names, with quoting removed.
+ *
+ * Split rather than matched with one regex: the qualified form is four
+ * delimiter styles crossed with an optional second part, and writing that as a
+ * single pattern nests a quantifier inside an optional group — which is what
+ * `security/detect-unsafe-regex` objects to, and it is right to. Scanning for
+ * the one separating dot is linear and says what it means.
+ *
+ * Returns the last part, so `db.orders` and `orders` both yield `orders`.
+ */
 function unquoteIdent(raw: string): string | null {
   const t = raw.trim();
-  const m = IDENT.exec(t);
-  if (!m) return null;
-  const col = m[5] ?? m[6] ?? m[7] ?? m[8] ?? m[1] ?? m[2] ?? m[3] ?? m[4];
-  return col || null;
+  if (t.length === 0) return null;
+
+  // Find the dot that separates qualifier from column, skipping any that sit
+  // inside a quoted part.
+  const pairs: Record<string, string> = { '"': '"', '`': '`', '[': ']' };
+  let split = -1;
+  for (let i = 0; i < t.length; i++) {
+    const close = pairs[t[i]!];
+    if (close) {
+      const end = t.indexOf(close, i + 1);
+      if (end === -1) return null; // unterminated
+      i = end;
+      continue;
+    }
+    if (t[i] === '.') {
+      if (split !== -1) return null; // more parts than this understands
+      split = i;
+    }
+  }
+
+  if (split === -1) return unquotePart(t);
+  // Both sides must be well formed; a bad qualifier means the whole term is.
+  const qualifier = unquotePart(t.slice(0, split));
+  const column = unquotePart(t.slice(split + 1));
+  return qualifier && column ? column : null;
 }
 
 /**

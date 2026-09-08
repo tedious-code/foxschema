@@ -12,7 +12,7 @@ import { useAuthStore } from '@/app/store/authStore';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { useUiStore, type ActiveView } from '@/app/store/uiStore';
-import { COMMAND_PALETTE_EVENT } from './commandPalette';
+import { COMMAND_PALETTE_EVENT } from './commandPaletteEvent';
 
 interface PaletteItem {
   id: string;

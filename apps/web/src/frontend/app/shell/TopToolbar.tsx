@@ -23,7 +23,7 @@ import { ActivityIndicator } from './ActivityIndicator';
 import { DiffBriefingChips } from '@/features/schema-diff';
 import { diffBriefing } from '@/features/schema-diff';
 import { ConnectionChip } from './ConnectionChips';
-import { openCommandPalette } from './commandPalette';
+import { openCommandPalette } from './commandPaletteEvent';
 
 const ProfileMenu = ProfileMenuNamed ?? ProfileMenuDefault;
 

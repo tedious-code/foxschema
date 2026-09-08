@@ -317,5 +317,4 @@ describe.skipIf(configured.length === 0)('SQL Editor · Utilities (all configure
     expect(await driver.locator('[data-testid="file-query-format"]').isVisible()).toBe(true);
     await saveScreenshot(driver, 'utilities-query-files');
   });
-  });
 });
