@@ -43,6 +43,10 @@ vi.mock('@/shared/api/schemaApi', () => ({
   fetchSchemaList: (...args: unknown[]) => fetchSchemaList(...args),
 }));
 
+beforeEach(() => {
+  localStorage.removeItem('foxschema-access-connection');
+});
+
 describe('AccessView — User Management list + Builder handoff', () => {
   beforeEach(() => {
     Object.assign(navigator, {
@@ -80,9 +84,10 @@ describe('AccessView — User Management list + Builder handoff', () => {
     render(<AccessView />);
 
     expect(screen.getByTestId('user-management')).toBeTruthy();
+    expect(screen.getByTestId('access-connection')).toBeTruthy();
     expect(screen.getByTestId('user-howto').textContent).toMatch(/How User Management works/);
 
-    fireEvent.change(screen.getByTestId('user-connection'), { target: { value: 'c1' } });
+    fireEvent.change(screen.getByTestId('access-connection'), { target: { value: 'c1' } });
 
     await waitFor(() => expect(fetchDbAccess).toHaveBeenCalled());
     await waitFor(() => expect(screen.getByTestId('user-row-alice')).toBeTruthy());
@@ -101,6 +106,17 @@ describe('AccessView — User Management list + Builder handoff', () => {
 
     expect(screen.getByTestId('access-permission-panel')).toBeTruthy();
     expect(screen.getByTestId('access-tab-permission').getAttribute('aria-current')).toBe('page');
+    expect((screen.getByTestId('access-permission-connection') as HTMLSelectElement).value).toBe(
+      'c1'
+    );
+  });
+
+  it('keeps one workspace credential across Users and Permission', async () => {
+    render(<AccessView />);
+    fireEvent.change(screen.getByTestId('access-connection'), { target: { value: 'c1' } });
+    await waitFor(() => expect(screen.getByTestId('user-row-alice')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('access-tab-permission'));
+    expect((screen.getByTestId('access-connection') as HTMLSelectElement).value).toBe('c1');
     expect((screen.getByTestId('access-permission-connection') as HTMLSelectElement).value).toBe(
       'c1'
     );

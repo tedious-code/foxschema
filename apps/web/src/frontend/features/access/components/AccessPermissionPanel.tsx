@@ -48,7 +48,9 @@ const KIND_GROUPS: { kind: DbPrincipal['kind']; label: string }[] = [
 
 export const AccessPermissionPanel: React.FC<{
   initialDraft?: AccessPrincipalDraft | null;
-}> = ({ initialDraft = null }) => {
+  lockedConnectionId?: string;
+  onConnectionChange?: (id: string) => void;
+}> = ({ initialDraft = null, lockedConnectionId, onConnectionChange }) => {
   const connections = useSyncStore((s) => s.connections);
   const sessionPasswords = useSqlEditorStore((s) => s.sessionPasswords);
   const setSql = useSqlEditorStore((s) => s.setSql);
@@ -56,7 +58,12 @@ export const AccessPermissionPanel: React.FC<{
   const setActiveView = useUiStore((s) => s.setActiveView);
   const canGrant = useAuthStore((s) => s.can('editor.grant'));
 
-  const [connectionId, setConnectionId] = useState(initialDraft?.connectionId ?? '');
+  const [localConnectionId, setLocalConnectionId] = useState(initialDraft?.connectionId ?? '');
+  const connectionId = lockedConnectionId ?? localConnectionId;
+  const pickConnection = (id: string) => {
+    onConnectionChange?.(id);
+    if (lockedConnectionId === undefined) setLocalConnectionId(id);
+  };
   const [principalName, setPrincipalName] = useState(initialDraft?.principalName ?? '');
   const [principals, setPrincipals] = useState<DbPrincipal[]>([]);
   const [privileges, setPrivileges] = useState<DbPrivilege[]>([]);
@@ -94,7 +101,7 @@ export const AccessPermissionPanel: React.FC<{
     if (!initialDraft) return;
     if (initialDraft.connectionId !== connectionId) {
       ++loadToken.current;
-      setConnectionId(initialDraft.connectionId);
+      pickConnection(initialDraft.connectionId);
       setPrincipals([]);
       setPrivileges([]);
       setHint(undefined);
@@ -199,7 +206,11 @@ export const AccessPermissionPanel: React.FC<{
         </div>
 
         <div className="flex flex-wrap items-end gap-2">
-          <label className="flex flex-col gap-1 min-w-[14rem] flex-1">
+          <label
+            className={`flex flex-col gap-1 min-w-[14rem] flex-1 ${
+              lockedConnectionId !== undefined ? 'sr-only' : ''
+            }`}
+          >
             <span className={labelCls}>Database</span>
             <select
               data-testid="access-permission-connection"
@@ -207,7 +218,7 @@ export const AccessPermissionPanel: React.FC<{
               onChange={(e) => {
                 if (e.target.value === connectionId) return;
                 ++loadToken.current;
-                setConnectionId(e.target.value);
+                pickConnection(e.target.value);
                 setPrincipals([]);
                 setPrivileges([]);
                 setHint(undefined);

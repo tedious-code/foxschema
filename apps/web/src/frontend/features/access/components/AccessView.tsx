@@ -7,17 +7,21 @@
  * Workspace / Schema Sync sub-nav).
  *
  * Menu: User Management · Permission · Diff.
+ * One workspace credential chip; panels inherit it instead of asking again.
  * Permission uses the live dialect-aware panel (same as Database Access).
  * Access report (Users and Roles) lives under Access control.
  */
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { UserCog, GitCompare, ShieldCheck } from 'lucide-react';
+import { useSyncStore } from '@/app/store/useSyncStore';
 import { PermissionDiff } from './PermissionDiff';
 import { UserManagement } from './UserManagement';
 import { AccessPermissionPanel } from './AccessPermissionPanel';
 import type { AccessPrincipalDraft } from '../lib/access-draft';
 
 export type AccessSection = 'users' | 'permission' | 'diff';
+
+const LS_CONN = 'foxschema-access-connection';
 
 const SECTIONS: {
   id: AccessSection;
@@ -29,14 +33,48 @@ const SECTIONS: {
   { id: 'diff', label: 'Diff', icon: GitCompare },
 ];
 
+function loadConnectionId(connections: { id: string }[]): string {
+  try {
+    const saved = localStorage.getItem(LS_CONN);
+    if (saved && connections.some((c) => c.id === saved)) return saved;
+  } catch {
+    /* ignore */
+  }
+  return '';
+}
+
 export const AccessView: React.FC = () => {
   // Default Users so AccessView tests that expect user-management on paint keep
   // passing.
+  const connections = useSyncStore((s) => s.connections);
   const [section, setSection] = useState<AccessSection>('users');
   const [grantDraft, setGrantDraft] = useState<AccessPrincipalDraft | null>(null);
+  const [connectionId, setConnectionId] = useState('');
+  const conn = connections.find((c) => c.id === connectionId);
+
+  useEffect(() => {
+    setConnectionId((cur) => {
+      if (cur && connections.some((c) => c.id === cur)) return cur;
+      return loadConnectionId(connections);
+    });
+  }, [connections]);
+
+  const pickConnection = (id: string) => {
+    setConnectionId(id);
+    if (id) {
+      try {
+        localStorage.setItem(LS_CONN, id);
+      } catch {
+        /* ignore */
+      }
+    }
+  };
 
   const openPermission = (draft?: AccessPrincipalDraft) => {
-    if (draft) setGrantDraft(draft);
+    if (draft) {
+      setGrantDraft(draft);
+      if (draft.connectionId) pickConnection(draft.connectionId);
+    }
     setSection('permission');
   };
 
@@ -70,12 +108,52 @@ export const AccessView: React.FC = () => {
             </button>
           );
         })}
+        <label className="ml-auto flex min-w-[14rem] max-w-sm flex-col gap-0.5 px-1 py-0.5">
+          <span className="text-[9px] font-bold uppercase tracking-wide text-slate-500">
+            Credential
+          </span>
+          <select
+            data-testid="access-connection"
+            value={connectionId}
+            onChange={(e) => pickConnection(e.target.value)}
+            className="rounded-full border border-cyan-500/30 bg-slate-950 px-3 py-1 text-[12px] text-slate-100 outline-none accent-focus"
+          >
+            <option value="">Choose a saved connection…</option>
+            {connections.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name} · {c.dialect}
+              </option>
+            ))}
+          </select>
+          {conn?.database && (
+            <span className="truncate font-mono text-[10px] text-slate-500" title={conn.database}>
+              {conn.database}
+            </span>
+          )}
+        </label>
       </nav>
 
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-        {section === 'users' && <UserManagement onGrantAccess={(draft) => openPermission(draft)} />}
-        {section === 'permission' && <AccessPermissionPanel initialDraft={grantDraft} />}
-        {section === 'diff' && <PermissionDiff />}
+        {section === 'users' && (
+          <UserManagement
+            lockedConnectionId={connectionId}
+            onConnectionChange={pickConnection}
+            onGrantAccess={(draft) => openPermission(draft)}
+          />
+        )}
+        {section === 'permission' && (
+          <AccessPermissionPanel
+            initialDraft={grantDraft}
+            lockedConnectionId={connectionId}
+            onConnectionChange={pickConnection}
+          />
+        )}
+        {section === 'diff' && (
+          <PermissionDiff
+            lockedConnectionId={connectionId}
+            onConnectionChange={pickConnection}
+          />
+        )}
       </div>
     </div>
   );
