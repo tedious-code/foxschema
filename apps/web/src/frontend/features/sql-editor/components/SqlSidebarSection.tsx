@@ -273,7 +273,9 @@ export function useSidebarSectionHeights(): [
 /**
  * Collapsible block for the SQL Editor left sidebar
  * (Schema first by default, then Destinations / Bookmarks / Variables /
- * Secrets / Utilities / Files — all sections are reorderable).
+ * Secrets — all sections are reorderable). Utilities and Files moved to the
+ * Utilities workspace; their ids stay in persisted order so old localStorage
+ * does not break.
  * Open sections are height-resizable via the bottom grip.
  */
 export const SqlSidebarSection: React.FC<{

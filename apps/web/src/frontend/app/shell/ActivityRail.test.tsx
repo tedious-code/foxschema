@@ -31,6 +31,7 @@ describe('ActivityRail', () => {
     expect(screen.getByTestId('workspace-switcher')).toBeTruthy();
     expect(screen.getByTestId('view-sync-btn')).toBeTruthy();
     expect(screen.getByTestId('view-sql-editor-btn')).toBeTruthy();
+    expect(screen.getByTestId('view-utilities-btn')).toBeTruthy();
     expect(screen.getByTestId('view-access-btn')).toBeTruthy();
     expect(screen.getByTestId('sync-pane-history-btn')).toBeTruthy();
     fireEvent.click(screen.getByTestId('home-open-btn'));

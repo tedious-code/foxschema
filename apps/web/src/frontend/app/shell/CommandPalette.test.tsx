@@ -80,4 +80,11 @@ describe('CommandPalette', () => {
     fireEvent(window, new Event('foxschema-command-palette'));
     expect(screen.getByTestId('command-palette')).toBeTruthy();
   });
+
+  it('jumps to the Utilities workspace', () => {
+    render(<CommandPalette />);
+    fireEvent.keyDown(window, { key: 'k', metaKey: true });
+    fireEvent.click(screen.getByTestId('command-palette-item-ws-utilities'));
+    expect(setActiveView).toHaveBeenCalledWith('utilities');
+  });
 });

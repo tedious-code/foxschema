@@ -17,13 +17,6 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
-  Copy,
-  Wrench,
-  Users,
-  Cpu,
-  HardDrive,
-  Activity,
-  FileSpreadsheet,
 } from 'lucide-react';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
@@ -55,12 +48,6 @@ import {
   type SidebarSectionId,
 } from './SqlSidebarSection';
 import { WriteConfirmDialog } from './WriteConfirmDialog';
-import { IndexManagementModal } from '@/features/utilities';
-import { CloneTableModal } from '@/features/utilities';
-import { FileQueryModal } from '@/features/utilities';
-import { ServerInsightsModal, type ServerInsightsTab } from '@/features/utilities';
-import { DatabaseAccessModal } from '@/features/utilities';
-import { FileImportsPanel } from './FileImportsPanel';
 import type { RevealRequest } from './SqlEditorPane';
 
 const SqlEditorPane = lazy(() => import('./SqlEditorPane'));
@@ -71,9 +58,6 @@ const EditorFallback: React.FC = () => (
   </div>
 );
 
-const UTIL_MENU_BTN =
-  'w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] font-semibold text-slate-100 hover:bg-slate-800 hover:text-slate-50 border border-transparent hover:border-amber-500/35';
-const UTIL_MENU_ICON = 'w-3.5 h-3.5 text-amber-400 shrink-0';
 const EDITOR_PCT_MIN = 15;
 const EDITOR_PCT_MAX = 70;
 const EDITOR_PCT_DEFAULT = 26;
@@ -111,8 +95,6 @@ export const SqlEditorView: React.FC = () => {
   const canEditorBookmarks = useAuthStore((s) => s.can('editor.sidebar.bookmarks'));
   const canEditorVariables = useAuthStore((s) => s.can('editor.sidebar.variables'));
   const canEditorSecrets = useAuthStore((s) => s.can('editor.sidebar.secrets'));
-  const canEditorUtilities = useAuthStore((s) => s.can('editor.sidebar.utilities'));
-  const canUtilityAccess = useAuthStore((s) => s.can('utility.access'));
   const canEditorSchema = useAuthStore((s) => s.can('editor.sidebar.schema'));
   const canSecretsView = useAuthStore((s) => s.can('secrets.view'));
   const canVariablesRead = useAuthStore((s) => s.can('editor.variables.read'));
@@ -172,12 +154,6 @@ export const SqlEditorView: React.FC = () => {
   const secretsPanelRef = useRef<SqlSecretsPanelHandle>(null);
   const schemaExplorerRef = useRef<SqlSchemaExplorerHandle>(null);
   const [secretsRefreshing, setSecretsRefreshing] = useState(false);
-  const [showIndexManagement, setShowIndexManagement] = useState(false);
-  const [showCloneTable, setShowCloneTable] = useState(false);
-  const [showFileQuery, setShowFileQuery] = useState(false);
-  const [showDatabaseAccess, setShowDatabaseAccess] = useState(false);
-  const [fileImportsKey, setFileImportsKey] = useState(0);
-  const [serverInsightsTab, setServerInsightsTab] = useState<ServerInsightsTab | null>(null);
 
   const onSecretsRefresh = useCallback(async () => {
     setSecretsRefreshing(true);
@@ -489,113 +465,8 @@ export const SqlEditorView: React.FC = () => {
             </SqlSidebarSection>
           );
         case 'utilities':
-          if (!canEditorUtilities || !canUtilityAccess) return null;
-          return (
-            <SqlSidebarSection
-              railPanel
-              id="utilities"
-              title="Utilities"
-              icon={<Wrench className="text-[#d97706]" strokeWidth={SQL_ICON_STROKE} />}
-              open={sidebarOpen.utilities}
-              onToggle={() => selectSidebar('utilities')}
-              {...drag}
-            >
-              <div className="px-1 pb-2 flex flex-col gap-0.5">
-                <button
-                  type="button"
-                  data-testid="utilities-index-management"
-                  onClick={() => setShowIndexManagement(true)}
-                  className={UTIL_MENU_BTN}
-                >
-                  <Database className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
-                  Index Management
-                </button>
-                <button
-                  type="button"
-                  data-testid="utilities-database-access"
-                  onClick={() => setShowDatabaseAccess(true)}
-                  className={UTIL_MENU_BTN}
-                >
-                  <KeyRound className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
-                  DB users & grants
-                </button>
-                <button
-                  type="button"
-                  data-testid="utilities-clone-table"
-                  onClick={() => setShowCloneTable(true)}
-                  className={UTIL_MENU_BTN}
-                >
-                  <Copy className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
-                  Clone Table
-                </button>
-                <button
-                  type="button"
-                  data-testid="utilities-query-files"
-                  onClick={() => setShowFileQuery(true)}
-                  className={UTIL_MENU_BTN}
-                >
-                  <FileSpreadsheet className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
-                  Query files
-                </button>
-                <button
-                  type="button"
-                  data-testid="utilities-connection-pool"
-                  onClick={() => setServerInsightsTab('pool')}
-                  className={UTIL_MENU_BTN}
-                >
-                  <Activity className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
-                  Connection Pool
-                </button>
-                <button
-                  type="button"
-                  data-testid="utilities-user-connections"
-                  onClick={() => setServerInsightsTab('sessions')}
-                  className={UTIL_MENU_BTN}
-                >
-                  <Users className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
-                  User Connections
-                </button>
-                <button
-                  type="button"
-                  data-testid="utilities-system-info"
-                  onClick={() => setServerInsightsTab('system')}
-                  className={UTIL_MENU_BTN}
-                >
-                  <Cpu className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
-                  System Info
-                </button>
-                <button
-                  type="button"
-                  data-testid="utilities-object-sizes"
-                  onClick={() => setServerInsightsTab('sizes')}
-                  className={UTIL_MENU_BTN}
-                >
-                  <HardDrive className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
-                  Table & Index Size
-                </button>
-              </div>
-            </SqlSidebarSection>
-          );
         case 'files':
-          if (!canEditorUtilities || !canUtilityAccess) return null;
-          return (
-            <SqlSidebarSection
-              railPanel
-              id="files"
-              title="Files"
-              icon={<FileSpreadsheet className="text-[#f59e0b]" strokeWidth={SQL_ICON_STROKE} />}
-              open={sidebarOpen.files}
-              onToggle={() => selectSidebar('files')}
-              height={sectionHeights.files}
-              onResizeHeight={(h) => setSectionHeight('files', h)}
-              {...drag}
-            >
-              <FileImportsPanel
-                refreshKey={fileImportsKey}
-                onImportClick={() => setShowFileQuery(true)}
-              />
-            </SqlSidebarSection>
-          );
+          return null;
         case 'schema':
           if (!canEditorSchema) return null;
           return (
@@ -637,8 +508,6 @@ export const SqlEditorView: React.FC = () => {
       canVariablesRead,
       canEditorSecrets,
       canSecretsView,
-      canEditorUtilities,
-      canUtilityAccess,
       canEditorSchema,
       sidebarOpen,
       selectSidebar,
@@ -648,7 +517,6 @@ export const SqlEditorView: React.FC = () => {
       saveBookmark,
       secretsRefreshing,
       onSecretsRefresh,
-      fileImportsKey,
       sidebarDragProps,
     ]
   );
@@ -688,18 +556,6 @@ export const SqlEditorView: React.FC = () => {
       title: 'Secrets',
       visible: canEditorSecrets && canSecretsView,
       icon: <KeyRound className="text-[#d97706]" strokeWidth={SQL_ICON_STROKE} />,
-    },
-    {
-      id: 'utilities',
-      title: 'Utilities',
-      visible: canEditorUtilities && canUtilityAccess,
-      icon: <Wrench className="text-[#d97706]" strokeWidth={SQL_ICON_STROKE} />,
-    },
-    {
-      id: 'files',
-      title: 'Files',
-      visible: canEditorUtilities && canUtilityAccess,
-      icon: <FileSpreadsheet className="text-[#f59e0b]" strokeWidth={SQL_ICON_STROKE} />,
     },
   ];
   const orderedRail = sectionOrder
@@ -1051,25 +907,6 @@ export const SqlEditorView: React.FC = () => {
       )}
       {/* Always mounted so FK clicks from results work even when Schema is collapsed. */}
       <DataPeekPanel />
-      <IndexManagementModal
-        open={showIndexManagement}
-        onClose={() => setShowIndexManagement(false)}
-      />
-      <DatabaseAccessModal
-        open={showDatabaseAccess}
-        onClose={() => setShowDatabaseAccess(false)}
-      />
-      <CloneTableModal open={showCloneTable} onClose={() => setShowCloneTable(false)} />
-      <FileQueryModal
-        open={showFileQuery}
-        onClose={() => setShowFileQuery(false)}
-        onImported={() => setFileImportsKey((k) => k + 1)}
-      />
-      <ServerInsightsModal
-        open={serverInsightsTab != null}
-        initialTab={serverInsightsTab ?? 'pool'}
-        onClose={() => setServerInsightsTab(null)}
-      />
     </div>
   );
 };

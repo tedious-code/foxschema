@@ -23,6 +23,9 @@ const AccessView = lazy(() =>
 const SqlEditorView = lazy(() =>
   import('@/features/sql-editor').then((m) => ({ default: m.SqlEditorView }))
 );
+const UtilitiesView = lazy(() =>
+  import('@/features/utilities').then((m) => ({ default: m.UtilitiesView }))
+);
 const LokeeWeaveView = lazy(() =>
   import('@/features/lokee-weave').then((m) => ({ default: m.LokeeWeaveView }))
 );
@@ -34,10 +37,14 @@ const Workspace: React.FC = () => {
   const canEditorAccess = useAuthStore((s) => s.can('editor.access'));
   const canSchemaBrowse = useAuthStore((s) => s.can('schema.browse'));
   const canSchemaCompare = useAuthStore((s) => s.can('schema.compare'));
+  const canUtilityAccess = useAuthStore((s) => s.can('utility.access'));
 
   useEffect(() => {
     if (activeView === 'sqlEditor' && !canEditorAccess) {
       setActiveView(canSchemaBrowse || canSchemaCompare ? 'sync' : 'home');
+    }
+    if (activeView === 'utilities' && !canUtilityAccess) {
+      setActiveView('home');
     }
     if (activeView === 'snapshots' && !canSchemaBrowse) {
       setActiveView('home');
@@ -55,6 +62,7 @@ const Workspace: React.FC = () => {
     canEditorAccess,
     canSchemaBrowse,
     canSchemaCompare,
+    canUtilityAccess,
     setActiveView,
   ]);
 
@@ -107,6 +115,12 @@ const Workspace: React.FC = () => {
           <ErrorBoundary>
             <Suspense fallback={<LoadingScreen />}>
               <SqlEditorView />
+            </Suspense>
+          </ErrorBoundary>
+        ) : activeView === 'utilities' && canUtilityAccess ? (
+          <ErrorBoundary>
+            <Suspense fallback={<LoadingScreen />}>
+              <UtilitiesView />
             </Suspense>
           </ErrorBoundary>
         ) : activeView === 'snapshots' && canSchemaBrowse ? (

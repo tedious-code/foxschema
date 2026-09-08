@@ -34,6 +34,7 @@ export const CommandPalette: React.FC = () => {
   const canSchemaBrowse = useAuthStore((s) => s.can('schema.browse'));
   const canSchemaCompare = useAuthStore((s) => s.can('schema.compare'));
   const canEditorAccess = useAuthStore((s) => s.can('editor.access'));
+  const canUtilityAccess = useAuthStore((s) => s.can('utility.access'));
 
   const go = (view: ActiveView) => {
     setActiveView(view);
@@ -53,6 +54,14 @@ export const CommandPalette: React.FC = () => {
         group: 'Workspace',
         label: 'SQL Editor',
         run: () => go('sqlEditor'),
+      });
+    }
+    if (canUtilityAccess) {
+      out.push({
+        id: 'ws-utilities',
+        group: 'Workspace',
+        label: 'Utilities',
+        run: () => go('utilities'),
       });
     }
     out.push({ id: 'ws-access', group: 'Workspace', label: 'Access', run: () => go('access') });
@@ -95,6 +104,7 @@ export const CommandPalette: React.FC = () => {
     canSchemaBrowse,
     canSchemaCompare,
     canEditorAccess,
+    canUtilityAccess,
     connections,
     recentQueries,
     ensureConnectionSelected,

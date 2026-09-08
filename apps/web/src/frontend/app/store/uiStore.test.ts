@@ -52,4 +52,11 @@ describe('migrateUiPersist', () => {
     };
     expect(next.activeView).toBe('home');
   });
+
+  it('keeps the Utilities workspace when already persisted', () => {
+    const next = migrateUiPersist({ activeView: 'utilities', syncPane: 'compare' }, 3) as {
+      activeView: string;
+    };
+    expect(next.activeView).toBe('utilities');
+  });
 });

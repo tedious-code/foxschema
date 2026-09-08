@@ -68,4 +68,10 @@ describe('HomeView', () => {
     fireEvent.click(screen.getByTestId('home-continue-snapshots'));
     expect(setActiveView).toHaveBeenCalledWith('snapshots');
   });
+
+  it('opens the Utilities workspace from Home', () => {
+    render(<HomeView />);
+    fireEvent.click(screen.getByTestId('home-continue-utilities'));
+    expect(setActiveView).toHaveBeenCalledWith('utilities');
+  });
 });

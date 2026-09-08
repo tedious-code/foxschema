@@ -121,13 +121,6 @@ describe.skipIf(configured.length === 0)('SQL Editor · Utilities (all configure
     await sql.closeIndexManagement().catch(() => undefined);
     await sql.closeDatabaseAccess().catch(() => undefined);
     await sql.closeServerInsights().catch(() => undefined);
-    const fq = driver.locator('[data-testid="file-query-modal"]');
-    if (await fq.isVisible().catch(() => false)) {
-      await fq.locator('button[aria-label="Close"]').click().catch(async () => {
-        await driver.keyboard.press('Escape');
-      });
-      await fq.waitFor({ state: 'detached', timeout: 5_000 }).catch(() => undefined);
-    }
     await sql.dismissOverlays().catch(() => undefined);
   });
 
@@ -135,7 +128,7 @@ describe.skipIf(configured.length === 0)('SQL Editor · Utilities (all configure
     if (driver) await quitDriver(driver);
   });
 
-  it('Utilities sidebar lists every utility entry', async () => {
+  it('Utilities workspace lists every utility entry', async () => {
     await sql.ensureSidebarSectionOpen('utilities');
     const section = driver.locator('[data-testid="sql-sidebar-utilities"]');
     for (const id of UTILITY_BUTTONS) {
@@ -317,15 +310,12 @@ describe.skipIf(configured.length === 0)('SQL Editor · Utilities (all configure
     });
   }
 
-  it('Query files utility opens the import modal', async () => {
+  it('Query files utility opens the import pane', async () => {
     await sql.ensureSidebarSectionOpen('utilities');
     await driver.locator('[data-testid="utilities-query-files"]').click();
     await driver.waitForSelector('[data-testid="file-query-modal"]', { timeout: 10_000 });
     expect(await driver.locator('[data-testid="file-query-format"]').isVisible()).toBe(true);
     await saveScreenshot(driver, 'utilities-query-files');
-    await driver.locator('[data-testid="file-query-modal"] button[aria-label="Close"]').click();
-    await driver
-      .locator('[data-testid="file-query-modal"]')
-      .waitFor({ state: 'detached', timeout: 8_000 });
+  });
   });
 });

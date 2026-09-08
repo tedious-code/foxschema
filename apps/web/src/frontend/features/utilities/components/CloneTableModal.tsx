@@ -13,6 +13,7 @@ import { Copy, Loader2, Play, X } from 'lucide-react';
 import { executeSql } from '@/shared/api/sqlApi';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
+import { useUiStore } from '@/app/store/uiStore';
 import type { TableSchema } from '@/shared/lib/types';
 import { PROVIDER_SETTINGS, connectionNeedsSecret } from '@/shared/lib/provider-settings';
 import { insertAtCursor } from '@/features/sql-editor';
@@ -32,6 +33,8 @@ interface Props {
   onClose: () => void;
   /** Pre-select this table when opened from Schema explorer. */
   initialTableName?: string | null;
+  /** Dock in the Utilities workspace (no overlay). */
+  embedded?: boolean;
 }
 
 const LS_CONN = 'foxschema-utilities-clone-table-connection';
@@ -42,6 +45,7 @@ export const CloneTableModal: React.FC<Props> = ({
   open,
   onClose,
   initialTableName = null,
+  embedded = false,
 }) => {
   const connections = useSyncStore((s) => s.connections);
   const ensureSchema = useSqlEditorStore((s) => s.ensureSchema);
@@ -50,6 +54,7 @@ export const CloneTableModal: React.FC<Props> = ({
   const sessionPasswords = useSqlEditorStore((s) => s.sessionPasswords);
   const schemaCache = useSqlEditorStore((s) => s.schemaCache);
   const safeMode = useSqlEditorStore((s) => s.safeMode);
+  const setActiveView = useUiStore((s) => s.setActiveView);
 
   const [connectionId, setConnectionId] = useState('');
   const [passwordDraft, setPasswordDraft] = useState('');
@@ -275,15 +280,13 @@ export const CloneTableModal: React.FC<Props> = ({
 
   if (!open) return null;
 
-  return createPortal(
-    <>
-      <div
-        data-testid="clone-table-modal"
-        className="modal-overlay modal-overlay-soft"
-        onClick={onClose}
-      >
+  const sheet = (
         <div
-          className="w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl overflow-hidden border border-amber-400/30 shadow-2xl bg-gradient-to-b from-slate-800 via-slate-800/95 to-slate-900"
+          className={
+            embedded
+              ? 'flex min-h-0 flex-1 flex-col overflow-hidden bg-slate-900'
+              : 'w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl overflow-hidden border border-amber-400/30 shadow-2xl bg-gradient-to-b from-slate-800 via-slate-800/95 to-slate-900'
+          }
           onClick={(e) => e.stopPropagation()}
         >
           <div className="px-5 py-3.5 border-b border-amber-400/20 bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-slate-800/20 flex items-center gap-2.5 shrink-0">
@@ -296,6 +299,7 @@ export const CloneTableModal: React.FC<Props> = ({
                 Archive huge table as name_N · recreate empty live table · keep apps working
               </p>
             </div>
+            {!embedded && (
             <button
               type="button"
               onClick={onClose}
@@ -304,6 +308,7 @@ export const CloneTableModal: React.FC<Props> = ({
             >
               <X className="w-4 h-4" strokeWidth={SQL_ICON_STROKE} />
             </button>
+            )}
           </div>
 
           <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
@@ -542,6 +547,7 @@ export const CloneTableModal: React.FC<Props> = ({
           </div>
 
           <div className="px-5 py-3 border-t border-slate-700/80 flex flex-wrap justify-end gap-2 shrink-0 bg-slate-900/80">
+            {!embedded && (
             <button
               type="button"
               onClick={onClose}
@@ -549,6 +555,7 @@ export const CloneTableModal: React.FC<Props> = ({
             >
               Close
             </button>
+            )}
             <button
               type="button"
               data-testid="clone-insert-sql"
@@ -557,6 +564,7 @@ export const CloneTableModal: React.FC<Props> = ({
                 if (!plan?.statements.length) return;
                 insertAtCursor(plan.statements.join('\n') + '\n');
                 setStatus('Clone SQL inserted into the editor');
+                setActiveView('sqlEditor');
               }}
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-600 px-3 py-1.5 text-[12px] font-bold text-slate-200 disabled:opacity-40"
             >
@@ -580,8 +588,9 @@ export const CloneTableModal: React.FC<Props> = ({
             </button>
           </div>
         </div>
-      </div>
-      {confirmApply && (
+  );
+
+  const confirm = confirmApply ? (
         <WriteConfirmDialog
           writeStatements={executable}
           credentialCount={1}
@@ -591,7 +600,32 @@ export const CloneTableModal: React.FC<Props> = ({
             void runClone();
           }}
         />
-      )}
+  ) : null;
+
+  if (embedded) {
+    return (
+      <>
+        <div
+          data-testid="clone-table-modal"
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+        >
+          {sheet}
+        </div>
+        {confirm}
+      </>
+    );
+  }
+
+  return createPortal(
+    <>
+      <div
+        data-testid="clone-table-modal"
+        className="modal-overlay modal-overlay-soft"
+        onClick={onClose}
+      >
+        {sheet}
+      </div>
+      {confirm}
     </>,
     document.body
   );

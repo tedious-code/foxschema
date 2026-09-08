@@ -99,10 +99,14 @@ export const DatabaseAccessModal: React.FC<Props> = ({
   const support = dialect ? dialectSupportsDbAccess(dialect) : null;
 
   useEffect(() => {
-    if (!open || embedded) return;
-    const saved = localStorage.getItem(LS_CONN) ?? '';
-    if (saved && connections.some((c) => c.id === saved)) setConnectionId(saved);
-  }, [open, embedded, connections]);
+    if (!open) return;
+    setConnectionId((cur) => {
+      if (cur && connections.some((c) => c.id === cur)) return cur;
+      const saved = localStorage.getItem(LS_CONN) ?? '';
+      if (saved && connections.some((c) => c.id === saved)) return saved;
+      return connections[0]?.id || '';
+    });
+  }, [open, connections]);
 
   const load = useCallback(async () => {
     if (!connectionId || needsPassword) return;
@@ -266,7 +270,7 @@ export const DatabaseAccessModal: React.FC<Props> = ({
                 if (id === connectionId) return;
                 ++loadToken.current;
                 setConnectionId(id);
-                if (!embedded) localStorage.setItem(LS_CONN, id);
+                localStorage.setItem(LS_CONN, id);
                 setPrincipals([]);
                 setPrivileges([]);
                 setSelectedName(null);
@@ -756,7 +760,7 @@ export const DatabaseAccessModal: React.FC<Props> = ({
 
   if (embedded) {
     return (
-      <div data-testid="db-access-embedded" className="flex flex-col min-h-[24rem] -mx-4 -mb-3">
+      <div data-testid="db-access-embedded" className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {content}
         {confirmPortal}
       </div>

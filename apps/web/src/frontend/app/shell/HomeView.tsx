@@ -7,7 +7,7 @@
  * no schema introspect.
  */
 import React from 'react';
-import { Camera, Database, GitCompareArrows, Search, Terminal } from 'lucide-react';
+import { Camera, Database, GitCompareArrows, Search, Terminal, Wrench } from 'lucide-react';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { useUiStore } from '@/app/store/uiStore';
@@ -66,7 +66,7 @@ export const HomeView: React.FC = () => {
         </button>
       </div>
 
-      <section className="mt-6 grid gap-2 sm:grid-cols-3" data-testid="home-continue">
+      <section className="mt-6 grid gap-2 sm:grid-cols-2 xl:grid-cols-4" data-testid="home-continue">
         <button
           type="button"
           data-testid="home-continue-sync"
@@ -116,6 +116,22 @@ export const HomeView: React.FC = () => {
           </span>
           <span className="mt-2 block text-[13px] font-semibold text-slate-100">Schema history</span>
           <span className="mt-1 block text-[11px] text-slate-500">Timeline, briefing, and compare pane</span>
+        </button>
+        <button
+          type="button"
+          data-testid="home-continue-utilities"
+          onClick={() => setActiveView('utilities')}
+          className="rounded-lg border border-slate-800 bg-slate-900/40 p-3 text-left hover:border-slate-600"
+        >
+          <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+            <Wrench className="h-3.5 w-3.5" /> Utilities
+          </span>
+          <span className="mt-2 block text-[13px] font-semibold text-slate-100">
+            Database tools
+          </span>
+          <span className="mt-1 block text-[11px] text-slate-500">
+            Indexes, clone table, insights, and query files
+          </span>
         </button>
       </section>
 

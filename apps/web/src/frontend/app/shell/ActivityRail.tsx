@@ -7,7 +7,7 @@
  * Workspace switcher that lived in the top toolbar.
  */
 import React from 'react';
-import { Camera, GitCompareArrows, ShieldCheck, Terminal } from 'lucide-react';
+import { Camera, GitCompareArrows, ShieldCheck, Terminal, Wrench } from 'lucide-react';
 import { useAuthStore } from '@/app/store/authStore';
 import { useUiStore, type ActiveView } from '@/app/store/uiStore';
 import { FoxLogo } from './FoxLogo';
@@ -17,7 +17,7 @@ const ITEMS: {
   testId: string;
   label: string;
   icon: React.ElementType;
-  permission: 'schema' | 'editor' | 'access' | 'snapshots';
+  permission: 'schema' | 'editor' | 'utilities' | 'access' | 'snapshots';
 }[] = [
   {
     view: 'sync',
@@ -32,6 +32,13 @@ const ITEMS: {
     label: 'SQL',
     icon: Terminal,
     permission: 'editor',
+  },
+  {
+    view: 'utilities',
+    testId: 'view-utilities-btn',
+    label: 'Utils',
+    icon: Wrench,
+    permission: 'utilities',
   },
   {
     view: 'access',
@@ -55,10 +62,12 @@ export function ActivityRail(): React.ReactElement | null {
   const canSchemaBrowse = useAuthStore((s) => s.can('schema.browse'));
   const canSchemaCompare = useAuthStore((s) => s.can('schema.compare'));
   const canEditorAccess = useAuthStore((s) => s.can('editor.access'));
+  const canUtilityAccess = useAuthStore((s) => s.can('utility.access'));
 
   const allowed = (permission: (typeof ITEMS)[number]['permission']): boolean => {
     if (permission === 'schema') return canSchemaBrowse || canSchemaCompare;
     if (permission === 'editor') return canEditorAccess;
+    if (permission === 'utilities') return canUtilityAccess;
     if (permission === 'snapshots') return canSchemaBrowse;
     return true;
   };

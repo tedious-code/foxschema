@@ -19,3 +19,4 @@ export { dialectFkConstraintSupport, dialectIndexSupport, executableSqlStatement
 export { SqlDiffEditor } from './components/SqlEditor';
 export { SqlEditor } from './components/SqlEditor';
 export { SqlEditorView } from './components/SqlEditorView';
+export { FileImportsPanel } from './components/FileImportsPanel';

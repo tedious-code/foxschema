@@ -34,7 +34,9 @@ export type ServerInsightsTab = DbaUtilityKind;
 interface Props {
   open: boolean;
   initialTab?: ServerInsightsTab;
-  onClose: () => void;
+  onClose?: () => void;
+  /** Dock in the Utilities workspace (no overlay). */
+  embedded?: boolean;
 }
 
 const LS_CONN = 'foxschema-utilities-server-insights-connection';
@@ -71,7 +73,12 @@ function formatPct(n: number | null | undefined): string {
 }
 
 /** Utilities modal: credential → tabbed DBA probes. */
-export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool', onClose }) => {
+export const ServerInsightsModal: React.FC<Props> = ({
+  open,
+  initialTab = 'pool',
+  onClose,
+  embedded = false,
+}) => {
   const connections = useSyncStore((s) => s.connections);
   const ensureConnectionSelected = useSqlEditorStore((s) => s.ensureConnectionSelected);
   const submitSessionPassword = useSqlEditorStore((s) => s.submitSessionPassword);
@@ -158,18 +165,16 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
 
   if (!open) return null;
 
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[90] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4"
-      data-testid="server-insights-modal"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
+  const panel = (
       <div
-        className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-2xl"
+        className={
+          embedded
+            ? 'flex min-h-0 flex-1 flex-col overflow-hidden bg-slate-900'
+            : 'flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-2xl'
+        }
         onMouseDown={(e) => e.stopPropagation()}
       >
+        {!embedded && (
         <div className="flex items-center justify-between border-b border-slate-800 bg-slate-950/50 px-5 py-3.5 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <Activity className="h-4 w-4 text-amber-400 shrink-0" />
@@ -189,6 +194,7 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
             <X className="h-4 w-4" />
           </button>
         </div>
+        )}
 
         <div className="flex flex-wrap items-end gap-2 border-b border-slate-800 bg-slate-950/30 px-5 py-3 shrink-0">
           <label className="flex min-w-[14rem] flex-1 flex-col gap-1">
@@ -198,7 +204,11 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
             <select
               data-testid="server-insights-connection"
               value={connectionId}
-              onChange={(e) => setConnectionId(e.target.value)}
+              onChange={(e) => {
+                const id = e.target.value;
+                setConnectionId(id);
+                if (id) localStorage.setItem(LS_CONN, id);
+              }}
               className="bg-slate-950 border border-slate-700 rounded-md px-2.5 py-1.5 text-sm text-slate-100 outline-none accent-focus"
             >
               {connections.length === 0 ? (
@@ -407,6 +417,28 @@ export const ServerInsightsModal: React.FC<Props> = ({ open, initialTab = 'pool'
           )}
         </div>
       </div>
+  );
+
+  if (embedded) {
+    return (
+      <div
+        data-testid="server-insights-modal"
+        className="flex min-h-0 flex-1 flex-col overflow-hidden"
+      >
+        {panel}
+      </div>
+    );
+  }
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[90] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4"
+      data-testid="server-insights-modal"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose?.();
+      }}
+    >
+      {panel}
     </div>,
     document.body
   );
