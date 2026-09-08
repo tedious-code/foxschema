@@ -1,21 +1,17 @@
-import React, { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { LogOut, Palette, ChevronDown, ArrowUpCircle, Globe, Shield } from 'lucide-react';
 import { useAuthStore } from '@/app/store/authStore';
+import { useUiStore } from '@/app/store/uiStore';
 import { checkForUpdates, type UpdateInfo } from '@/shared/api/updatesApi';
 import { maybeToastUpdateAvailable } from '@/app/shell/updateToast';
 import { AdminAccessPanel } from '@/features/admin';
 
-// Lazy so a SettingsPanel/HMR failure cannot empty this module's exports
-// (which surfaces as: ProfileMenu.tsx does not provide export named 'ProfileMenu').
-const SettingsPanel = lazy(() =>
-  import('@/app/settings/SettingsPanel').then((m) => ({ default: m.SettingsPanel }))
-);
-
 export function ProfileMenu(): React.ReactElement | null {
   const { user, logout, localSingleUser } = useAuthStore();
+  const setActiveView = useUiStore((s) => s.setActiveView);
+  const canAdminAccess = useAuthStore((s) => s.can('admin.users') || s.can('admin.roles'));
   const [open, setOpen] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
@@ -103,15 +99,17 @@ export function ProfileMenu(): React.ReactElement | null {
 
           <button
             type="button"
+            data-testid="profile-preferences"
             onClick={() => {
-              setShowSettings(true);
+              setActiveView('settings');
               setOpen(false);
             }}
             className="w-full flex items-center gap-2 px-4 py-3 text-sm font-semibold text-slate-300 hover:text-slate-100 hover:bg-slate-800/60 transition cursor-pointer"
           >
-            <Palette className="w-4 h-4" /> User Preference
+            <Palette className="w-4 h-4" /> Preferences
           </button>
 
+          {canAdminAccess && (
           <button
             type="button"
             data-testid="profile-access-control"
@@ -122,8 +120,9 @@ export function ProfileMenu(): React.ReactElement | null {
             }}
             className="w-full flex items-center gap-2 px-4 py-3 text-sm font-semibold text-slate-300 hover:text-slate-100 hover:bg-slate-800/60 transition cursor-pointer"
           >
-            <Shield className="w-4 h-4" /> Access control
+            <Shield className="w-4 h-4" /> App users & roles
           </button>
+          )}
 
           <a
             href="https://foxschema.com"
@@ -169,11 +168,6 @@ export function ProfileMenu(): React.ReactElement | null {
 
       {menu}
 
-      {showSettings && (
-        <Suspense fallback={null}>
-          <SettingsPanel open={showSettings} onClose={() => setShowSettings(false)} />
-        </Suspense>
-      )}
       <AdminAccessPanel open={showAdmin} onClose={() => setShowAdmin(false)} />
     </div>
   );

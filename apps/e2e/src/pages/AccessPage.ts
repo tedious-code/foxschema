@@ -17,9 +17,14 @@ export class AccessPage {
     await clickWhen(this.page, `[data-testid="access-tab-${tab}"]`);
   }
 
-  /** Pick a saved credential in any Access / Database Access <select> by visible name. */
+  /** Pick a saved credential in any Access / Database Access <select> by visible name.
+   *  The Access workspace uses one chip (`access-connection`); panel-local
+   *  dropdowns are used when a panel still has its own picker. */
   async selectConnection(selectTestId: string, nameSubstring: string): Promise<void> {
-    const select = this.page.locator(`[data-testid="${selectTestId}"]`);
+    const workspace = this.page.locator('[data-testid="access-connection"]');
+    const select = (await workspace.isVisible().catch(() => false))
+      ? workspace
+      : this.page.locator(`[data-testid="${selectTestId}"]`);
     await select.waitFor({ state: 'visible', timeout: 10_000 });
     const value = await select.evaluate((el, want) => {
       const sel = el as HTMLSelectElement;

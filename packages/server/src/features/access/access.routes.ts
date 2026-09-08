@@ -19,6 +19,7 @@ import type { AuthedRequest } from '../auth/auth.routes';
 import type { ConnectionRef } from '../../platform/db/resolve';
 import { probeTableFragmentation, mapPool } from './index-fragmentation.service';
 import { probeDbaUtility } from './dba-utilities.service';
+import { probeTableInsight } from '../schema/table-insight.service';
 import type { DbaUtilityKind } from '@foxschema/db';
 import { probeDbAccess } from './db-access.service';
 import {
@@ -194,6 +195,39 @@ export function createAccessRoutes(deps: AccessRouteDeps): Router {
       sendThrown(res, error, 'Failed to run DBA utility');
     }
   });
+
+  router.post(
+    '/schema/table-insight',
+    dbaUtilityLimiter,
+    requirePermissions('utility.access'),
+    async (req: AppRequest, res: FastifyReply) => {
+      const body = req.body as ConnectionRef & { schema?: unknown; table?: unknown };
+      const table = typeof body.table === 'string' ? body.table.trim() : '';
+      if (!table) {
+        sendError(res, 'invalid_input', 'table is required.');
+        return;
+      }
+      try {
+        const resolved = await deps.resolveRef((req as AuthedRequest).userId, body);
+        const schema =
+          (typeof body.schema === 'string' && body.schema.trim()) || resolved.schema || '';
+        const probed = await probeTableInsight({
+          dialect: resolved.dialect,
+          option: resolved.option,
+          schema,
+          table,
+        });
+        if (!probed.ok) {
+          const { status, ...rest } = probed.failure;
+          res.status(status).send(rest);
+          return;
+        }
+        res.send({ ...probed.value, dialect: resolved.dialect });
+      } catch (error: unknown) {
+        sendThrown(res, error, 'Failed to load table insight');
+      }
+    }
+  );
 
   router.post(
     '/schema/db-access',

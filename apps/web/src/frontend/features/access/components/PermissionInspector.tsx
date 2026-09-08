@@ -8,7 +8,9 @@ import {
   describePermission,
   resolveEffectiveAccess,
   type AccessPermission,
+  type AccessSource,
   type EffectiveAccess,
+  type EffectiveObject,
 } from '../lib/access';
 import type { DbPrincipal, DbPrivilege } from '@foxschema/sql';
 import { inputCls, labelCls } from './controls';
@@ -30,8 +32,18 @@ export const PermissionInspector: React.FC<{
    * Given these it hides its own pickers and reads for what that panel already
    * knows — which is what lets the builder show, in one window, both what a
    * principal has now and what the reader is about to grant it.
+   *
+   * When `principals` and `privileges` are passed, the inspector uses that
+   * catalog and does not fetch again (Access Permission already loaded it).
    */
-  embedded?: { connectionId: string; principalName: string; schema?: string };
+  embedded?: {
+    connectionId: string;
+    principalName: string;
+    schema?: string;
+    principals?: DbPrincipal[];
+    privileges?: DbPrivilege[];
+    hint?: string;
+  };
 }> = ({ embedded }) => {
   const connections = useSyncStore((s) => s.connections);
   const sessionPasswords = useSqlEditorStore((s) => s.sessionPasswords);
@@ -54,19 +66,35 @@ export const PermissionInspector: React.FC<{
   const embeddedConnection = embedded?.connectionId;
   const embeddedPrincipal = embedded?.principalName;
   const embeddedSchema = embedded?.schema;
+  const catalogPrincipals = embedded?.principals;
+  const catalogPrivileges = embedded?.privileges;
+  const catalogHint = embedded?.hint;
+  const hasCatalog = catalogPrincipals != null && catalogPrivileges != null;
   React.useEffect(() => {
     if (embeddedConnection === undefined) return;
     loadToken.current++;
     setConnectionId(embeddedConnection);
     setSchema(embeddedSchema ?? '');
-    setData(null);
+    if (!hasCatalog) {
+      setData(null);
+    }
     setError(null);
     setLoading(false);
-  }, [embeddedConnection, embeddedSchema]);
+  }, [embeddedConnection, embeddedSchema, hasCatalog]);
   React.useEffect(() => {
     if (embeddedPrincipal === undefined) return;
     setPrincipalName(embeddedPrincipal);
   }, [embeddedPrincipal]);
+  React.useEffect(() => {
+    if (!hasCatalog) return;
+    setData({
+      principals: catalogPrincipals,
+      privileges: catalogPrivileges,
+      hint: catalogHint,
+    });
+    setError(null);
+    setLoading(false);
+  }, [hasCatalog, catalogPrincipals, catalogPrivileges, catalogHint]);
 
   const load = async () => {
     if (!connectionId) return;
@@ -106,7 +134,10 @@ export const PermissionInspector: React.FC<{
   }, [data, principalName, schema]);
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-y-auto p-5 gap-4" data-testid="permission-inspector">
+    <div
+      className={`flex-1 flex flex-col min-h-0 overflow-y-auto ${embedded ? 'p-0 gap-3' : 'p-5 gap-4'}`}
+      data-testid="permission-inspector"
+    >
       {!embedded && (
         <div>
           <h2 className="text-sm font-bold text-slate-100">Permission Inspector</h2>
@@ -117,51 +148,53 @@ export const PermissionInspector: React.FC<{
         </div>
       )}
 
-      <div className="shrink-0 flex flex-wrap items-end gap-2">
-        <label className={`flex flex-col gap-1 min-w-[16rem] flex-1 ${embedded ? 'hidden' : ''}`}>
-          <span className={labelCls}>Database</span>
-          <select
-            data-testid="inspector-connection"
-            value={connectionId}
-            onChange={(e) => {
-              loadToken.current++;
-              setConnectionId(e.target.value);
-              setData(null);
-              setPrincipalName('');
-              setError(null);
-              setLoading(false);
-            }}
-            className={inputCls}
+      {!hasCatalog && (
+        <div className="shrink-0 flex flex-wrap items-end gap-2">
+          <label className={`flex flex-col gap-1 min-w-[16rem] flex-1 ${embedded ? 'hidden' : ''}`}>
+            <span className={labelCls}>Database</span>
+            <select
+              data-testid="inspector-connection"
+              value={connectionId}
+              onChange={(e) => {
+                loadToken.current++;
+                setConnectionId(e.target.value);
+                setData(null);
+                setPrincipalName('');
+                setError(null);
+                setLoading(false);
+              }}
+              className={inputCls}
+            >
+              <option value="">Choose a saved connection…</option>
+              {connections.map((c) => (
+                <option key={c.id} value={c.id}>
+                  [{(c.dialect || '').toUpperCase()}] {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className={`flex flex-col gap-1 w-40 ${embedded ? 'hidden' : ''}`}>
+            <span className={labelCls}>Schema</span>
+            <input
+              data-testid="inspector-schema"
+              value={schema}
+              onChange={(e) => setSchema(e.target.value)}
+              placeholder={conn?.schema || 'all schemas'}
+              className={`${inputCls} font-mono`}
+            />
+          </label>
+          <button
+            type="button"
+            data-testid="inspector-load"
+            onClick={load}
+            disabled={!connectionId || loading}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-sky-500/40 bg-sky-500/15 text-xs font-bold text-sky-100 disabled:opacity-40"
           >
-            <option value="">Choose a saved connection…</option>
-            {connections.map((c) => (
-              <option key={c.id} value={c.id}>
-                [{(c.dialect || '').toUpperCase()}] {c.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className={`flex flex-col gap-1 w-40 ${embedded ? 'hidden' : ''}`}>
-          <span className={labelCls}>Schema</span>
-          <input
-            data-testid="inspector-schema"
-            value={schema}
-            onChange={(e) => setSchema(e.target.value)}
-            placeholder={conn?.schema || 'all schemas'}
-            className={`${inputCls} font-mono`}
-          />
-        </label>
-        <button
-          type="button"
-          data-testid="inspector-load"
-          onClick={load}
-          disabled={!connectionId || loading}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-sky-500/40 bg-sky-500/15 text-xs font-bold text-sky-100 disabled:opacity-40"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          {loading ? 'Reading…' : 'Read permissions'}
-        </button>
-      </div>
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            {loading ? 'Reading…' : 'Read permissions'}
+          </button>
+        </div>
+      )}
 
       {error && (
         <div
@@ -172,13 +205,13 @@ export const PermissionInspector: React.FC<{
         </div>
       )}
 
-      {!data && !error && (
+      {!data && !error && !hasCatalog && (
         <p className="text-[11px] text-slate-500">
           Choose a connection and read its permissions. Fox Schema only reads — it changes nothing.
         </p>
       )}
 
-      {data && (
+      {data && !hasCatalog && (
         <label className="flex flex-col gap-1 max-w-md">
           <span className={labelCls}>User or role</span>
           <Autocomplete
@@ -265,28 +298,7 @@ export const PermissionInspector: React.FC<{
                   </thead>
                   <tbody>
                     {effective.objects.map((o, i) => (
-                      <tr key={i} className="border-t border-slate-800/70">
-                        <td className="px-3 py-1.5 text-slate-400 font-mono">{o.schema ?? '—'}</td>
-                        <td className="px-3 py-1.5 text-slate-200 font-mono">
-                          {o.name ?? o.objectType.toLowerCase()}
-                        </td>
-                        {TABLE_PERMISSIONS.map((p) => {
-                          const slot = o.permissions.find((e) => e.permission === p);
-                          const denied = slot?.sources.some((s) => s.kind === 'denied');
-                          return (
-                            <td key={p} className="px-3 py-1.5 text-center">
-                              {denied ? (
-                                <ShieldX className="w-3.5 h-3.5 text-rose-400 inline" />
-                              ) : slot?.granted ? (
-                                <Check className="w-3.5 h-3.5 text-emerald-400 inline" />
-                              ) : (
-                                <X className="w-3.5 h-3.5 text-slate-700 inline" />
-                              )}
-                            </td>
-                          );
-                        })}
-                        <td className="px-3 py-1.5 text-slate-500">{sourceLabel(o)}</td>
-                      </tr>
+                      <EffectiveObjectRow key={i} object={o} />
                     ))}
                   </tbody>
                 </table>
@@ -335,22 +347,112 @@ export const PermissionInspector: React.FC<{
 };
 
 /** The nearest explanation for a row — a reader wants one line, not every route. */
-function sourceLabel(o: { permissions: { sources: { kind: string; via: string }[] }[] }): string {
+function sourceLabel(o: { permissions: { sources: AccessSource[] }[] }): string {
   for (const p of o.permissions) {
     const denied = p.sources.find((s) => s.kind === 'denied');
-    if (denied) return `denied for ${denied.via}`;
+    if (denied) return `DENY · ${denied.via}`;
   }
   for (const p of o.permissions) {
     const direct = p.sources.find((s) => s.kind === 'direct');
-    if (direct) return 'direct grant';
+    if (direct) return 'ALLOW · direct';
   }
   for (const p of o.permissions) {
     const role = p.sources.find((s) => s.kind === 'role');
-    if (role) return `role ${role.via}`;
+    if (role) return `ALLOW · role ${role.via}`;
   }
   return '—';
 }
 
+function whyLines(sources: AccessSource[]): string[] {
+  if (sources.length === 0) return ['No grant for this privilege.'];
+  return sources.map((s) => {
+    if (s.kind === 'denied') {
+      return `DENY on ${s.via} (${s.privilege}) overrides grants.`;
+    }
+    if (s.kind === 'direct') {
+      return `ALLOW direct${s.grantable ? ' · grantable' : ''} · ${s.privilege}`;
+    }
+    const path =
+      s.chain.length > 0 ? s.chain.join(' → ') : s.via;
+    return `ALLOW via ${path} · ${s.privilege}${s.grantable ? ' · grantable' : ''}`;
+  });
+}
+
+const EffectiveObjectRow: React.FC<{ object: EffectiveObject }> = ({ object: o }) => {
+  const [open, setOpen] = useState(false);
+  const primarySources = o.permissions.flatMap((p) => p.sources);
+  const hasWhy = primarySources.length > 0;
+  return (
+    <>
+      <tr className="border-t border-slate-800/70">
+        <td className="px-3 py-1.5 text-slate-400 font-mono">{o.schema ?? '—'}</td>
+        <td className="px-3 py-1.5 text-slate-200 font-mono">
+          {o.name ?? o.objectType.toLowerCase()}
+        </td>
+        {TABLE_PERMISSIONS.map((p) => {
+          const slot = o.permissions.find((e) => e.permission === p);
+          const denied = slot?.sources.some((s) => s.kind === 'denied');
+          return (
+            <td key={p} className="px-3 py-1.5 text-center">
+              {denied ? (
+                <span
+                  className="inline-flex items-center gap-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-300"
+                  title="DENY"
+                >
+                  <ShieldX className="w-3.5 h-3.5" /> DENY
+                </span>
+              ) : slot?.granted ? (
+                <span
+                  className="inline-flex items-center gap-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-300"
+                  title="ALLOW"
+                >
+                  <Check className="w-3.5 h-3.5" /> ALLOW
+                </span>
+              ) : (
+                <span className="text-[10px] font-semibold text-slate-600">—</span>
+              )}
+            </td>
+          );
+        })}
+        <td className="px-3 py-1.5 text-slate-500">
+          <div className="flex items-center gap-1.5">
+            <span>{sourceLabel(o)}</span>
+            {hasWhy && (
+              <button
+                type="button"
+                data-testid="inspector-why-toggle"
+                onClick={() => setOpen((v) => !v)}
+                className="text-[10px] font-bold uppercase tracking-wide text-sky-400 hover:text-sky-300"
+              >
+                {open ? 'Hide why' : 'Why'}
+              </button>
+            )}
+          </div>
+        </td>
+      </tr>
+      {open && (
+        <tr className="border-t border-slate-800/40 bg-slate-950/50" data-testid="inspector-why-stack">
+          <td colSpan={2 + TABLE_PERMISSIONS.length + 1} className="px-3 py-2">
+            <ul className="space-y-1">
+              {TABLE_PERMISSIONS.map((p) => {
+                const slot = o.permissions.find((e) => e.permission === p);
+                if (!slot || (!slot.granted && slot.sources.length === 0)) return null;
+                return (
+                  <li key={p} className="text-[11px] text-slate-400">
+                    <span className="font-semibold text-slate-300">
+                      {describePermission(p).label}:
+                    </span>{' '}
+                    {whyLines(slot.sources).join(' · ')}
+                  </li>
+                );
+              })}
+            </ul>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+};
 
 const thCls = 'px-3 py-1.5 text-left font-bold uppercase tracking-wide';
 

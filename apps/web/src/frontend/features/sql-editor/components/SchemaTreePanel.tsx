@@ -94,17 +94,14 @@ export const SchemaTreePanel: React.FC = () => {
         return filterStatus === 'ALL' || table.status === filterStatus;
       });
 
-  // When search/filters hide the current selection (e.g. Browse + "PRODUCT" with
-  // no hits), drop or retarget selection so the detail panel doesn't show a
-  // stale object next to "No matching schema objects".
+  // After Compare, leave selection empty so Diff Briefing is the landing view.
+  // Only clear a selection that filters have hidden — do not pick the first row.
   useEffect(() => {
     if (!compareResult) return;
-    const stillVisible =
-      !!selectedTable && filteredTables.some((t) => t.tableName === selectedTable.tableName);
+    if (!selectedTable) return;
+    const stillVisible = filteredTables.some((t) => t.tableName === selectedTable.tableName);
     if (stillVisible) return;
-    const next = filteredTables[0] ?? null;
-    if ((selectedTable?.tableName ?? null) === (next?.tableName ?? null)) return;
-    setSelectedTable(next);
+    setSelectedTable(null);
   }, [compareResult, filteredTables, selectedTable, setSelectedTable]);
 
   if (!compareResult) {
@@ -118,12 +115,12 @@ export const SchemaTreePanel: React.FC = () => {
       >
         <Layers className="w-10 h-10 mb-3 text-slate-700 animate-bounce" />
         <p className="text-sm font-semibold text-slate-400">
-          {browsing ? 'Nothing loaded' : 'No Comparison Active'}
+          {browsing ? 'Nothing loaded' : 'No comparison yet'}
         </p>
         <p className="text-xs text-slate-600 text-center max-w-[220px] mt-1">
           {browsing
             ? 'Pick a connection above and click "Browse" to read its objects.'
-            : 'Connect and click "Compare Schemas" to view the difference tree.'}
+            : 'Pick Original and Target in the chips, then Compare. The briefing opens here.'}
         </p>
       </div>
     );
@@ -179,7 +176,7 @@ export const SchemaTreePanel: React.FC = () => {
     >
       {/* Overview Stats Dashboard */}
       <div className="p-4 border-b border-slate-800/80 bg-slate-950/40">
-        <div className="flex justify-between items-center mb-3">
+        <div className="flex justify-between items-center mb-3 gap-2">
           <h2 className="text-sm font-bold text-slate-300 uppercase tracking-wider">
             {browseMode ? (
               <>Browsing <span className="text-cyan-400 normal-case">{browseSchemaName}</span></>
@@ -187,9 +184,21 @@ export const SchemaTreePanel: React.FC = () => {
               'Compare Results'
             )}
           </h2>
+          <div className="flex items-center gap-2">
+          {!browseMode && selectedTable && (
+            <button
+              type="button"
+              data-testid="diff-briefing-open"
+              onClick={() => setSelectedTable(null)}
+              className="text-[10px] font-bold uppercase tracking-wide text-cyan-400 hover:text-cyan-300"
+            >
+              Briefing
+            </button>
+          )}
           <span className="text-sm text-slate-200 font-mono font-bold">
             {compareResult.tables.length} objects
           </span>
+          </div>
         </div>
 
         {/* Stat cards double as the filter: All/Added/Removed/Modified are a

@@ -80,9 +80,21 @@ beforeEach(() => {
   });
 });
 
+/**
+ * Render Access and land on User Management.
+ *
+ * Access opens on Permission now, so these tests have to walk to the tab they
+ * are about. They used to rely on Users being the default — which is what the
+ * old `useState('users')` comment in AccessView was propping up.
+ */
+function renderOnUsersTab() {
+  render(<AccessView />);
+  fireEvent.click(screen.getByTestId('access-tab-users'));
+}
+
 /** Get as far as an Add-user form with SQL that needs a password. */
 async function addUserForm(name = 'report_user', connectionId = 'c1') {
-  render(<AccessView />);
+  renderOnUsersTab();
   fireEvent.change(screen.getByTestId('user-connection'), { target: { value: connectionId } });
   await waitFor(() => expect(screen.getByTestId('user-add-user')).toBeTruthy());
   fireEvent.click(screen.getByTestId('user-add-user'));
@@ -267,7 +279,7 @@ describe('the hint matches what is actually on screen', () => {
     // A typed password with no account name (or an invalid one) produces no
     // commands. Telling the reader to copy them as they are would describe
     // SQL that is not on screen.
-    render(<AccessView />);
+    renderOnUsersTab();
     fireEvent.change(screen.getByTestId('user-connection'), { target: { value: 'c3' } });
     await waitFor(() => expect(screen.getByTestId('user-add-user')).toBeTruthy());
     fireEvent.click(screen.getByTestId('user-add-user'));
@@ -284,7 +296,7 @@ describe('the hint matches what is actually on screen', () => {
   });
 
   it('says a valid Db2 OS password is already in the commands', async () => {
-    render(<AccessView />);
+    renderOnUsersTab();
     fireEvent.change(screen.getByTestId('user-connection'), { target: { value: 'c3' } });
     await waitFor(() => expect(screen.getByTestId('user-add-user')).toBeTruthy());
     fireEvent.click(screen.getByTestId('user-add-user'));

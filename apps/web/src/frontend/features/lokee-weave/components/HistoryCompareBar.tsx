@@ -46,8 +46,8 @@ export function HistoryCompareBar(): React.ReactElement {
     Boolean(resolved.original && resolved.target && resolved.original.id === resolved.target.id);
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-12 gap-2 items-stretch" data-testid="lokee-history-compare-bar">
-      <div className="xl:col-span-4 bg-slate-950/60 p-2 rounded-md border border-slate-800/80 flex flex-col gap-1.5">
+    <div className="flex min-w-0 flex-wrap items-stretch gap-1.5" data-testid="lokee-history-compare-bar">
+      <div className="flex min-w-[16rem] flex-1 flex-col gap-1 rounded-full border border-slate-800/80 bg-slate-950/60 px-2 py-1">
         <div className="flex items-baseline justify-between gap-2">
           <div className="text-[10px] font-bold uppercase tracking-wider text-cyan-500/80">
             Original
@@ -114,7 +114,7 @@ export function HistoryCompareBar(): React.ReactElement {
         </button>
       </div>
 
-      <div className="xl:col-span-4 bg-slate-950/60 p-2 rounded-md border border-slate-800/80 flex flex-col gap-1.5">
+      <div className="flex min-w-[16rem] flex-1 flex-col gap-1 rounded-full border border-slate-800/80 bg-slate-950/60 px-2 py-1">
         <div className="flex items-baseline justify-between gap-2">
           <div className="text-[10px] font-bold uppercase tracking-wider text-purple-400/80">
             Target
@@ -171,7 +171,7 @@ export function HistoryCompareBar(): React.ReactElement {
       {/* Capture lives on this row too. It used to sit on a second bar with its
           own credential picker, which read as a *third* connection control next
           to the two above it — three pickers for two ideas. */}
-      <div className="xl:col-span-3 bg-slate-950/60 p-2 rounded-md border border-slate-800/80 flex flex-col gap-1.5">
+      <div className="flex min-w-[14rem] flex-1 flex-col gap-1 rounded-full border border-slate-800/80 bg-slate-950/60 px-2 py-1">
         <div className="flex items-baseline justify-between gap-2">
           <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
             Capture

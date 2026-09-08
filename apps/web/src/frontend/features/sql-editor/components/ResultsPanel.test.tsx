@@ -11,7 +11,7 @@
  * query and a MutationObserver to catch a window of tens of milliseconds;
  * here it is a direct assertion.
  */
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { ResultsPanel } from './ResultsPanel';
 import type { CredentialRun } from '@/app/store/useSqlEditorStore';
@@ -92,5 +92,41 @@ describe('ResultsPanel — a dispatched run must look like something is happenin
     const panel = screen.getByTestId('sql-results-side-by-side');
     expect(panel.textContent).toContain('SELECT 1');
     expect(screen.getAllByTestId('sql-results-running').length).toBeGreaterThan(0);
+  });
+});
+
+describe('ResultsPanel — opt-in SVG chart', () => {
+  it('draws bars only after Chart is checked on a label + number grid', () => {
+    const run: CredentialRun = {
+      connectionId: 'c1',
+      name: 'Primary',
+      dialect: 'postgres',
+      status: 'done',
+      results: [
+        {
+          ok: true,
+          columns: ['region', 'n'],
+          rows: [
+            ['east', 12],
+            ['west', 7],
+          ],
+          rowCount: 2,
+          truncated: false,
+          durationMs: 1,
+        },
+      ],
+    };
+    render(
+      <ResultsPanel
+        runs={[run]}
+        statements={['SELECT region, count(*) AS n FROM t GROUP BY 1']}
+        layout="sideBySide"
+      />
+    );
+    expect(screen.queryByTestId('sql-result-chart-0')).toBeNull();
+    fireEvent.click(screen.getByTestId('sql-result-chart-toggle-0'));
+    expect(screen.getByTestId('sql-result-chart-0')).toBeTruthy();
+    expect(screen.getByTestId('sql-result-chart-0-bar-0')).toBeTruthy();
+    expect(screen.getByTestId('sql-result-chart-0-bar-1')).toBeTruthy();
   });
 });

@@ -3,14 +3,23 @@
  * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
  * SPDX-License-Identifier: Apache-2.0
  *
- * Access → Permission: live grant/revoke against a saved connection.
+ * Access → Permission: one session on the cached GRANT catalog.
  *
- * Uses the same dialect-aware sectioned UI as Database Access
- * (`DbAccessPermissionSections`) — not a mock prototype.
+ * Principal tree + Account | Grants | Effective. Access workspace is
+ * generate-only — confirm copies SQL or opens the SQL Editor; it never
+ * executes GRANT/REVOKE (Database Access still does).
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Loader2, RefreshCw } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  FileCode2,
+  Loader2,
+  Plus,
+  RefreshCw,
+} from 'lucide-react';
 import {
   dialectSupportsDbAccess,
   privilegesForPrincipal,
@@ -18,30 +27,59 @@ import {
   type DbPrivilege,
 } from '@foxschema/sql';
 import { fetchDbAccess } from '@/shared/api/schemaApi';
-import { runAccessSql } from '@/shared/api/accessSql';
 import { useSyncStore } from '@/app/store/useSyncStore';
+import { AccessGrantsStage } from './AccessGrantsStage';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
+import { useUiStore } from '@/app/store/uiStore';
 import { useAuthStore } from '@/app/store/authStore';
-import { EmptyState, inputCls, labelCls } from './controls';
-import {
-  DbAccessPermissionSections,
-  type DbAccessConfirmRequest,
-} from './DbAccessPermissionSections';
+import { EmptyState, Segmented, inputCls, labelCls } from './controls';
+import { type DbAccessConfirmRequest } from './DbAccessPermissionSections';
+import { PermissionInspector } from './PermissionInspector';
+import type { AccessPrincipalDraft } from '../lib/access-draft';
 
-export const AccessPermissionPanel: React.FC = () => {
+type PermissionStage = 'account' | 'grants' | 'effective';
+type KindFilter = 'all' | 'user' | 'role';
+
+const KIND_GROUPS: { kind: DbPrincipal['kind']; label: string }[] = [
+  { kind: 'user', label: 'Users' },
+  { kind: 'role', label: 'Roles' },
+  { kind: 'group', label: 'Groups' },
+];
+
+export const AccessPermissionPanel: React.FC<{
+  initialDraft?: AccessPrincipalDraft | null;
+  lockedConnectionId?: string;
+  onConnectionChange?: (id: string) => void;
+  onAddUser?: () => void;
+}> = ({ initialDraft = null, lockedConnectionId, onConnectionChange, onAddUser }) => {
   const connections = useSyncStore((s) => s.connections);
   const sessionPasswords = useSqlEditorStore((s) => s.sessionPasswords);
+  const setSql = useSqlEditorStore((s) => s.setSql);
+  const ensureConnectionSelected = useSqlEditorStore((s) => s.ensureConnectionSelected);
+  const setActiveView = useUiStore((s) => s.setActiveView);
   const canGrant = useAuthStore((s) => s.can('editor.grant'));
 
-  const [connectionId, setConnectionId] = useState('');
-  const [principalName, setPrincipalName] = useState('');
+  const [localConnectionId, setLocalConnectionId] = useState(initialDraft?.connectionId ?? '');
+  const connectionId = lockedConnectionId ?? localConnectionId;
+  const pickConnection = (id: string) => {
+    onConnectionChange?.(id);
+    if (lockedConnectionId === undefined) setLocalConnectionId(id);
+  };
+  const [principalName, setPrincipalName] = useState(initialDraft?.principalName ?? '');
   const [principals, setPrincipals] = useState<DbPrincipal[]>([]);
   const [privileges, setPrivileges] = useState<DbPrivilege[]>([]);
+  const [hint, setHint] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(false);
-  const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<DbAccessConfirmRequest | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [stage, setStage] = useState<PermissionStage>('grants');
+  const [filter, setFilter] = useState('');
+  const [kindFilter, setKindFilter] = useState<KindFilter>('all');
+  const [expandedKinds, setExpandedKinds] = useState<Set<DbPrincipal['kind']>>(
+    () => new Set(['user', 'role', 'group'])
+  );
   const loadToken = useRef(0);
 
   const conn = connections.find((c) => c.id === connectionId) || null;
@@ -61,7 +99,23 @@ export const AccessPermissionPanel: React.FC = () => {
     [privileges, selected]
   );
 
-  const load = useCallback(async () => {
+  useEffect(() => {
+    if (!initialDraft) return;
+    if (initialDraft.connectionId !== connectionId) {
+      ++loadToken.current;
+      pickConnection(initialDraft.connectionId);
+      setPrincipals([]);
+      setPrivileges([]);
+      setHint(undefined);
+      setError(null);
+      setStatus(null);
+    }
+    setPrincipalName(initialDraft.principalName);
+    // Draft identity is the handoff payload, not every parent render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- apply when User Management hands off
+  }, [initialDraft?.connectionId, initialDraft?.principalName]);
+
+  const load = useCallback(async (opts?: { force?: boolean }) => {
     if (!connectionId) return;
     const mine = ++loadToken.current;
     setLoading(true);
@@ -70,34 +124,33 @@ export const AccessPermissionPanel: React.FC = () => {
     try {
       const data = await fetchDbAccess(
         { connectionId, password: sessionPasswords[connectionId] || undefined },
-        { schema: conn?.schema }
+        { schema: conn?.schema, force: opts?.force === true }
       );
       if (loadToken.current !== mine) return;
-      setPrincipals(data.principals ?? []);
+      const next = data.principals ?? [];
+      setPrincipals(next);
       setPrivileges(data.privileges ?? []);
-      if (!principalName && data.principals?.[0]) {
-        setPrincipalName(data.principals[0].name);
-      } else if (
-        principalName &&
-        data.principals &&
-        !data.principals.some((p) => p.name === principalName)
-      ) {
-        setPrincipalName(data.principals[0]?.name ?? '');
-      }
+      setHint(data.support?.hint);
+      setPrincipalName((current) => {
+        if (current && next.some((p) => p.name === current)) return current;
+        return next[0]?.name ?? '';
+      });
     } catch (err: unknown) {
       if (loadToken.current !== mine) return;
       setError(err instanceof Error ? err.message : String(err));
       setPrincipals([]);
       setPrivileges([]);
+      setHint(undefined);
     } finally {
       if (loadToken.current === mine) setLoading(false);
     }
-  }, [connectionId, sessionPasswords, conn?.schema, principalName]);
+  }, [connectionId, sessionPasswords, conn?.schema]);
 
   useEffect(() => {
     if (!connectionId) {
       setPrincipals([]);
       setPrivileges([]);
+      setHint(undefined);
       setPrincipalName('');
       return;
     }
@@ -106,42 +159,67 @@ export const AccessPermissionPanel: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: connection-driven reload
   }, [connectionId]);
 
-  const runSql = async (sql: string, kind: 'grant' | 'revoke') => {
-    if (!connectionId || !canGrant) return;
-    setRunning(true);
-    setError(null);
-    setStatus(null);
+  const copyConfirmSql = async () => {
+    if (!confirm) return;
     try {
-      const outcome = await runAccessSql(
-        { connectionId, password: sessionPasswords[connectionId] || undefined },
-        sql
-      );
-      if (!outcome.ok) {
-        setError(outcome.error);
-      } else {
-        setStatus(kind === 'grant' ? 'Granted.' : 'Revoked.');
-        await load();
-      }
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setRunning(false);
-      setConfirm(null);
+      await navigator.clipboard.writeText(confirm.sql);
+      setCopied(true);
+      setStatus('Copied to clipboard.');
+    } catch {
+      setError('Could not copy — select the SQL manually');
     }
   };
 
-  return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-y-auto p-4 gap-3" data-testid="access-permission-panel">
-      <div>
-        <h2 className="text-sm font-bold text-slate-100">Permission</h2>
-        <p className="text-[11px] text-slate-500 mt-0.5">
-          Grant and revoke with dialect-correct SQL. Same sectioned UI as Database Access —
-          General CREATE plus tables, views, procedures, and functions.
-        </p>
-      </div>
+  const openInSqlEditor = () => {
+    if (!confirm || !connectionId) return;
+    setSql?.(confirm.sql);
+    ensureConnectionSelected?.(connectionId);
+    setActiveView('sqlEditor');
+    setStatus('Opened in SQL Editor.');
+    setConfirm(null);
+  };
 
-      <div className="flex flex-wrap items-end gap-2">
-        <label className="flex flex-col gap-1 min-w-[14rem] flex-1">
+  const userCount = useMemo(
+    () => principals.filter((p) => p.kind === 'user').length,
+    [principals]
+  );
+  const roleCount = useMemo(
+    () => principals.filter((p) => p.kind === 'role' || p.kind === 'group').length,
+    [principals]
+  );
+
+  const grouped = useMemo(() => {
+    const needle = filter.trim().toLowerCase();
+    return KIND_GROUPS.map((group) => ({
+      ...group,
+      principals: principals.filter((p) => {
+        if (p.kind !== group.kind) return false;
+        if (kindFilter === 'user' && p.kind !== 'user') return false;
+        if (kindFilter === 'role' && p.kind === 'user') return false;
+        if (!needle) return true;
+        return (
+          p.name.toLowerCase().includes(needle) ||
+          p.memberOf.some((m) => m.toLowerCase().includes(needle)) ||
+          p.members.some((m) => m.toLowerCase().includes(needle))
+        );
+      }),
+      allOfKind: principals.filter((p) => {
+        if (p.kind !== group.kind) return false;
+        if (kindFilter === 'user' && p.kind !== 'user') return false;
+        if (kindFilter === 'role' && p.kind === 'user') return false;
+        return true;
+      }),
+    })).filter((g) => g.allOfKind.length > 0);
+  }, [principals, filter, kindFilter]);
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden" data-testid="access-permission-panel">
+      <div className="shrink-0 px-4 pt-3 pb-2 flex flex-wrap items-center gap-2">
+        <label
+          className={`flex flex-col gap-1 min-w-[14rem] flex-1 ${
+            lockedConnectionId !== undefined ? 'sr-only' : ''
+          }`}
+        >
           <span className={labelCls}>Database</span>
           <select
             data-testid="access-permission-connection"
@@ -149,9 +227,10 @@ export const AccessPermissionPanel: React.FC = () => {
             onChange={(e) => {
               if (e.target.value === connectionId) return;
               ++loadToken.current;
-              setConnectionId(e.target.value);
+              pickConnection(e.target.value);
               setPrincipals([]);
               setPrivileges([]);
+              setHint(undefined);
               setPrincipalName('');
               setError(null);
               setStatus(null);
@@ -170,76 +249,256 @@ export const AccessPermissionPanel: React.FC = () => {
           type="button"
           data-testid="access-permission-reload"
           disabled={!connectionId || loading}
-          onClick={() => void load()}
+          onClick={() => void load({ force: true })}
           className="inline-flex items-center gap-1.5 rounded-md border border-slate-600 bg-slate-800 px-3 py-1.5 text-xs font-bold text-slate-100 hover:bg-slate-700 disabled:opacity-40"
         >
           {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
           Reload
         </button>
+        {hint && (
+          <p className="text-[11px] text-slate-500 w-full" data-testid="access-permission-hint">
+            {hint}
+          </p>
+        )}
       </div>
 
       {!connectionId && (
-        <EmptyState
-          title="Choose a connection"
-          body="Pick a saved database to load principals and grant privileges."
-          testId="access-permission-needs-connection"
-        />
+        <div className="px-4">
+          <EmptyState
+            title="Choose a connection"
+            body="Pick a saved database to load principals and grant privileges."
+            testId="access-permission-needs-connection"
+          />
+        </div>
       )}
 
       {connectionId && error && (
-        <p className="text-[11px] text-rose-300" data-testid="access-permission-error">
+        <p className="px-4 text-[11px] text-rose-300" data-testid="access-permission-error">
           {error}
         </p>
       )}
       {connectionId && status && (
-        <p className="text-[11px] text-emerald-300" data-testid="access-permission-status">
+        <p className="px-4 text-[11px] text-emerald-300" data-testid="access-permission-status">
           {status}
         </p>
       )}
 
-      {connectionId && !error && (
-        <>
-          <label className="flex flex-col gap-1 max-w-sm">
-            <span className={labelCls}>Principal</span>
-            <select
-              data-testid="access-permission-principal"
-              value={principalName}
-              onChange={(e) => setPrincipalName(e.target.value)}
-              disabled={loading || principals.length === 0}
-              className={inputCls}
-            >
-              {principals.length === 0 ? (
-                <option value="">{loading ? 'Loading…' : 'No principals found'}</option>
-              ) : (
-                principals.map((p) => (
-                  <option key={p.name} value={p.name}>
-                    {p.name} · {p.kind}
-                  </option>
-                ))
+      {connectionId && (
+        <div className="flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden">
+          <aside
+            className="md:w-72 shrink-0 border-t md:border-t-0 md:border-r border-slate-800 flex flex-col min-h-0 bg-slate-950/40"
+            data-testid="access-principals-sidebar"
+          >
+            <div className="px-3 py-2.5 border-b border-slate-800 shrink-0">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Principals
+              </p>
+              <input
+                data-testid="access-permission-filter"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                placeholder="Filter users & roles"
+                className={`${inputCls} mt-2`}
+              />
+              <div className="mt-2 flex gap-1">
+                {(
+                  [
+                    { id: 'all', label: 'All' },
+                    { id: 'user', label: 'Users' },
+                    { id: 'role', label: 'Roles' },
+                  ] as const
+                ).map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    data-testid={`access-principals-filter-${opt.id}`}
+                    aria-pressed={kindFilter === opt.id}
+                    onClick={() => setKindFilter(opt.id)}
+                    className={`rounded px-2 py-0.5 text-[11px] font-semibold transition ${
+                      kindFilter === opt.id
+                        ? 'bg-sky-500/20 text-sky-100 ring-1 ring-sky-500/40'
+                        : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto" data-testid="access-permission-principal">
+              {loading && principals.length === 0 && (
+                <p className="px-3 py-2 text-[11px] text-slate-500">Loading…</p>
               )}
-            </select>
-          </label>
+              {!loading && principals.length === 0 && (
+                <p className="px-3 py-2 text-[11px] text-slate-500">
+                  {error ? 'No principals for this connection.' : 'No principals found'}
+                </p>
+              )}
+              {grouped.map((group) => {
+                const open = expandedKinds.has(group.kind);
+                const Chevron = open ? ChevronDown : ChevronRight;
+                return (
+                  <section key={group.kind} data-testid={`access-permission-group-${group.kind}`}>
+                    <button
+                      type="button"
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-left bg-slate-950/50"
+                      onClick={() =>
+                        setExpandedKinds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(group.kind)) next.delete(group.kind);
+                          else next.add(group.kind);
+                          return next;
+                        })
+                      }
+                    >
+                      <Chevron className="w-3.5 h-3.5 text-slate-500" />
+                      <span className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                        {group.label}
+                      </span>
+                      <span className="text-[10px] text-slate-600">{group.allOfKind.length}</span>
+                    </button>
+                    {group.allOfKind.map((p) => {
+                      const visible = open && group.principals.some((x) => x.name === p.name);
+                      return (
+                        <button
+                          key={p.name}
+                          type="button"
+                          hidden={!visible}
+                          data-testid={`access-permission-row-${p.name}`}
+                          onClick={() => setPrincipalName(p.name)}
+                          className={`w-full text-left px-4 py-1.5 text-xs flex items-center gap-2 ${
+                            principalName === p.name
+                              ? 'bg-sky-500/15 text-sky-50 ring-1 ring-inset ring-sky-500/30'
+                              : 'text-slate-200 hover:bg-slate-800/60'
+                          }`}
+                        >
+                          <span className="font-mono truncate">{p.name}</span>
+                          <span className="ml-auto shrink-0 rounded border border-slate-700 px-1 py-px text-[9px] font-bold uppercase text-slate-500">
+                            {p.kind}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </section>
+                );
+              })}
+            </div>
+            <div className="shrink-0 border-t border-slate-800 px-3 py-2 flex items-center gap-2">
+              {onAddUser && (
+                <button
+                  type="button"
+                  data-testid="access-principals-add-user"
+                  onClick={onAddUser}
+                  className="inline-flex items-center gap-1 rounded-md border border-cyan-500/40 px-2 py-1 text-[11px] font-bold text-cyan-200 hover:bg-cyan-500/10"
+                >
+                  <Plus className="w-3 h-3" /> Add user
+                </button>
+              )}
+              <span
+                className="ml-auto text-[10px] text-slate-500"
+                data-testid="access-principals-counts"
+              >
+                {userCount} users · {roleCount} roles
+              </span>
+            </div>
+          </aside>
 
-          {selected && (
-            <DbAccessPermissionSections
-              dialect={dialect}
-              connectionId={connectionId}
-              database={conn?.database}
-              defaultSchema={conn?.schema}
-              principal={{
-                type: selected.kind === 'user' ? 'user' : 'role',
-                name: selected.name,
-                kind: selected.kind,
-              }}
-              privileges={selectedPrivs}
-              canGrant={canGrant}
-              grantSupported={Boolean(support?.grant)}
-              running={running}
-              onConfirm={(req) => setConfirm(req)}
-              onError={(msg) => setError(msg)}
-            />
-          )}
-        </>
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            {selected && (
+              <header className="shrink-0 px-4 pt-3 pb-1 border-b border-slate-800/80">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2
+                    className="text-base font-bold font-mono text-slate-50"
+                    data-testid="access-permission-selected-name"
+                  >
+                    {selected.name}
+                  </h2>
+                  <span className="rounded border border-slate-600 px-1.5 py-0.5 text-[10px] font-bold uppercase text-slate-400">
+                    {selected.kind}
+                  </span>
+                  {selected.canLogin === true && (
+                    <span className="text-[11px] font-semibold text-emerald-300">● can login</span>
+                  )}
+                  {selected.canLogin === false && (
+                    <span className="text-[11px] font-semibold text-slate-500">● no login</span>
+                  )}
+                </div>
+                <div className="mt-2">
+                  <Segmented
+                    testId="access-permission-stage"
+                    value={stage}
+                    onChange={(v) => setStage(v as PermissionStage)}
+                    options={[
+                      { value: 'account', label: 'Account' },
+                      { value: 'grants', label: 'Grants' },
+                      { value: 'effective', label: 'Effective' },
+                    ]}
+                  />
+                </div>
+              </header>
+            )}
+            {!selected && (
+              <div className="shrink-0 px-4 py-2">
+                <Segmented
+                  testId="access-permission-stage"
+                  value={stage}
+                  onChange={(v) => setStage(v as PermissionStage)}
+                  options={[
+                    { value: 'account', label: 'Account' },
+                    { value: 'grants', label: 'Grants' },
+                    { value: 'effective', label: 'Effective' },
+                  ]}
+                />
+              </div>
+            )}
+            <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 pt-3">
+              {error && !selected && (
+                <EmptyState
+                  title="Catalog unavailable"
+                  body={error}
+                  testId="access-permission-unsupported"
+                />
+              )}
+              {!error && !selected && (
+                <p className="text-[11px] text-slate-500">
+                  {loading ? 'Loading principals…' : 'Select a user or role.'}
+                </p>
+              )}
+              {selected && stage === 'account' && (
+                <AccountStage principal={selected} onManageUsers={onAddUser} />
+              )}
+              {selected && stage === 'grants' && (
+                <AccessGrantsStage
+                  dialect={dialect}
+                  connectionId={connectionId}
+                  database={conn?.database}
+                  defaultSchema={conn?.schema}
+                  principal={selected}
+                  privileges={selectedPrivs}
+                  canGrant={canGrant}
+                  grantSupported={Boolean(support?.grant)}
+                  onConfirm={(req) => {
+                    setCopied(false);
+                    setConfirm(req);
+                  }}
+                  onError={(msg) => setError(msg)}
+                />
+              )}
+              {selected && stage === 'effective' && (
+                <PermissionInspector
+                  embedded={{
+                    connectionId,
+                    principalName: selected.name,
+                    schema: conn?.schema,
+                    principals,
+                    privileges,
+                    hint,
+                  }}
+                />
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {confirm &&
@@ -254,10 +513,13 @@ export const AccessPermissionPanel: React.FC = () => {
               data-testid="access-permission-confirm"
             >
               <h3 className="text-sm font-bold text-slate-100 mb-2">{confirm.title}</h3>
+              <p className="text-[11px] text-slate-500 mb-2">
+                Access does not execute this SQL. Copy it, or open it in the SQL Editor.
+              </p>
               <pre className="text-[11px] font-mono text-slate-300 bg-slate-950 border border-slate-800 rounded px-2 py-2 mb-4 overflow-x-auto whitespace-pre-wrap">
                 {confirm.sql}
               </pre>
-              <div className="flex justify-end gap-2">
+              <div className="flex flex-wrap justify-end gap-2">
                 <button
                   type="button"
                   className="px-3 py-1.5 text-xs font-semibold text-slate-400 hover:text-slate-200"
@@ -267,23 +529,113 @@ export const AccessPermissionPanel: React.FC = () => {
                 </button>
                 <button
                   type="button"
+                  data-testid="access-permission-open-sql"
+                  onClick={openInSqlEditor}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md border border-sky-500/40 bg-sky-500/15 text-sky-100"
+                >
+                  <FileCode2 className="w-3.5 h-3.5" />
+                  Open in SQL Editor
+                </button>
+                <button
+                  type="button"
                   data-testid="access-permission-confirm-run"
-                  disabled={running || !canGrant}
-                  onClick={() => void runSql(confirm.sql, confirm.kind)}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md border disabled:opacity-40 ${
+                  onClick={() => void copyConfirmSql()}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md border ${
                     confirm.kind === 'revoke'
                       ? 'border-rose-500/50 bg-rose-500/20 text-rose-50'
                       : 'border-amber-500/40 bg-amber-500/15 text-amber-100'
                   }`}
                 >
-                  {running ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-                  {confirm.kind === 'revoke' ? 'Execute revoke' : 'Execute grant'}
+                  <Copy className="w-3.5 h-3.5" />
+                  {copied ? 'Copied' : 'Copy SQL'}
                 </button>
               </div>
             </div>
           </div>,
           document.body
         )}
+    </div>
+  );
+};
+
+const AccountStage: React.FC<{
+  principal: DbPrincipal;
+  onManageUsers?: () => void;
+}> = ({ principal, onManageUsers }) => {
+  const login =
+    principal.canLogin === true
+      ? 'Can log in'
+      : principal.canLogin === false
+        ? 'Cannot log in'
+        : 'Login unknown';
+  return (
+    <div className="space-y-3" data-testid="access-permission-account">
+      <p className="text-[11px] text-slate-500">
+        Account details from the GRANT catalog. Add, rename, or drop accounts under User
+        Management — Access generates SQL only.
+      </p>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[12px]">
+        <dt className="text-slate-500">Name</dt>
+        <dd className="font-mono text-slate-100" data-testid="access-permission-account-name">
+          {principal.name}
+        </dd>
+        <dt className="text-slate-500">Kind</dt>
+        <dd className="text-slate-200 capitalize" data-testid="access-permission-account-kind">
+          {principal.kind}
+        </dd>
+        <dt className="text-slate-500">Login</dt>
+        <dd className="text-slate-200" data-testid="access-permission-account-login">
+          {login}
+        </dd>
+      </dl>
+      {onManageUsers && (
+        <button
+          type="button"
+          data-testid="access-permission-open-user-management"
+          onClick={onManageUsers}
+          className="inline-flex items-center gap-1.5 rounded-md border border-slate-600 px-2.5 py-1.5 text-[11px] font-bold text-slate-200 hover:bg-slate-800"
+        >
+          Open User Management
+        </button>
+      )}
+      <div>
+        <h3 className="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-1">
+          Member of
+        </h3>
+        {principal.memberOf.length === 0 ? (
+          <p className="text-[11px] text-slate-500">Not a member of any role.</p>
+        ) : (
+          <ul className="flex flex-wrap gap-1" data-testid="access-permission-account-memberof">
+            {principal.memberOf.map((name) => (
+              <li
+                key={name}
+                className="rounded border border-slate-700 bg-slate-900 px-2 py-0.5 font-mono text-[11px] text-slate-200"
+              >
+                {name}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <div>
+        <h3 className="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-1">
+          Members
+        </h3>
+        {principal.members.length === 0 ? (
+          <p className="text-[11px] text-slate-500">No members.</p>
+        ) : (
+          <ul className="flex flex-wrap gap-1" data-testid="access-permission-account-members">
+            {principal.members.map((name) => (
+              <li
+                key={name}
+                className="rounded border border-slate-700 bg-slate-900 px-2 py-0.5 font-mono text-[11px] text-slate-200"
+              >
+                {name}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   );
 };

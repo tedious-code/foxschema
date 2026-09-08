@@ -16,3 +16,4 @@ export { FileQueryModal } from './components/FileQueryModal';
 export { IndexManagementModal } from './components/IndexManagementModal';
 export { ServerInsightsModal } from './components/ServerInsightsModal';
 export type { ServerInsightsTab } from './components/ServerInsightsModal';
+export { UtilitiesView } from './components/UtilitiesView';

@@ -55,7 +55,7 @@ export function useAccessCatalog(connectionId: string, conn: Conn) {
   const principalsToken = useRef(0);
   const schemasToken = useRef(0);
 
-  const loadPrincipals = useCallback(async () => {
+  const loadPrincipals = useCallback(async (opts?: { force?: boolean }) => {
     if (!connectionId) return;
     const token = ++principalsToken.current;
     const superseded = () => principalsToken.current !== token;
@@ -64,7 +64,7 @@ export function useAccessCatalog(connectionId: string, conn: Conn) {
     try {
       const res = await fetchDbAccess(
         { connectionId, password: sessionPasswords[connectionId] || undefined },
-        { schema: conn?.schema || undefined }
+        { schema: conn?.schema || undefined, force: opts?.force === true }
       );
       if (superseded()) return;
       setPrincipals(res.principals ?? []);

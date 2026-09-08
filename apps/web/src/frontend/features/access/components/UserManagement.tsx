@@ -170,11 +170,18 @@ function dropSafetyNotes(p: DbPrincipal, privileges: readonly DbPrivilege[]): st
 
 export const UserManagement: React.FC<{
   onGrantAccess?: (draft: AccessPrincipalDraft) => void;
-}> = ({ onGrantAccess }) => {
+  lockedConnectionId?: string;
+  onConnectionChange?: (id: string) => void;
+}> = ({ onGrantAccess, lockedConnectionId, onConnectionChange }) => {
   const connections = useSyncStore((s) => s.connections);
   const sessionPasswords = useSqlEditorStore((s) => s.sessionPasswords);
 
-  const [connectionId, setConnectionId] = useState('');
+  const [localConnectionId, setLocalConnectionId] = useState('');
+  const connectionId = lockedConnectionId ?? localConnectionId;
+  const pickConnection = (id: string) => {
+    onConnectionChange?.(id);
+    if (lockedConnectionId === undefined) setLocalConnectionId(id);
+  };
   const conn = connections.find((c) => c.id === connectionId) || null;
   const accessCatalog = useAccessCatalog(connectionId, conn);
   const dialect = conn?.dialect ?? '';
@@ -535,7 +542,7 @@ export const UserManagement: React.FC<{
    */
   const loadToken = useRef(0);
 
-  const loadPrincipals = useCallback(async () => {
+  const loadPrincipals = useCallback(async (opts?: { force?: boolean }) => {
     if (!connectionId) return;
     if (listSupport && !listSupport.query) {
       setPrincipals([]);
@@ -552,7 +559,7 @@ export const UserManagement: React.FC<{
     try {
       const res = await fetchDbAccess(
         { connectionId, password: sessionPasswords[connectionId] || undefined },
-        { schema: conn?.schema || undefined }
+        { schema: conn?.schema || undefined, force: opts?.force === true }
       );
       if (superseded()) return;
       setPrincipals(res.principals ?? []);
@@ -785,12 +792,13 @@ export const UserManagement: React.FC<{
         {/* ── Left: connection + list + action form ─────────────────── */}
         <div className="w-[52%] min-w-[400px] border-r border-slate-800 p-4 flex flex-col gap-3 min-h-0 overflow-hidden">
           <div className="shrink-0 flex flex-col gap-3">
+          <div className={lockedConnectionId !== undefined ? 'sr-only' : undefined}>
           <Field label="Database connection">
             <div className="flex gap-2">
               <select
                 data-testid="user-connection"
                 value={connectionId}
-                onChange={(e) => setConnectionId(e.target.value)}
+                onChange={(e) => pickConnection(e.target.value)}
                 className={`${inputCls} flex-1`}
               >
                 <option value="">Select a connection…</option>
@@ -800,10 +808,28 @@ export const UserManagement: React.FC<{
                   </option>
                 ))}
               </select>
+              {lockedConnectionId === undefined && (
               <button
                 type="button"
                 data-testid="user-refresh"
-                onClick={() => void loadPrincipals()}
+                onClick={() => void loadPrincipals({ force: true })}
+                disabled={!connectionId || loading || listSupport?.query === false}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-slate-700 text-[11px] font-semibold text-slate-200 disabled:opacity-40"
+                title="Reload users and roles from the database"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                {loading ? 'Loading…' : 'Refresh'}
+              </button>
+              )}
+            </div>
+          </Field>
+          </div>
+          {lockedConnectionId !== undefined && (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                data-testid="user-refresh"
+                onClick={() => void loadPrincipals({ force: true })}
                 disabled={!connectionId || loading || listSupport?.query === false}
                 className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-slate-700 text-[11px] font-semibold text-slate-200 disabled:opacity-40"
                 title="Reload users and roles from the database"
@@ -812,7 +838,7 @@ export const UserManagement: React.FC<{
                 {loading ? 'Loading…' : 'Refresh'}
               </button>
             </div>
-          </Field>
+          )}
 
           {!connectionId && (
             <EmptyState

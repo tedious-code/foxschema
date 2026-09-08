@@ -202,6 +202,11 @@ interface Props {
   canGrant: boolean;
   grantSupported: boolean;
   running?: boolean;
+  /**
+   * Access workspace is generate-only: preview still builds GRANT/REVOKE SQL,
+   * but the parent copies it or opens the SQL Editor instead of executing.
+   */
+  generateOnly?: boolean;
   onConfirm: (req: DbAccessConfirmRequest) => void;
   onError?: (message: string) => void;
 }
@@ -220,6 +225,7 @@ export const DbAccessPermissionSections: React.FC<Props> = ({
   canGrant,
   grantSupported,
   running = false,
+  generateOnly = false,
   onConfirm,
   onError,
 }) => {
@@ -858,7 +864,7 @@ export const DbAccessPermissionSections: React.FC<Props> = ({
                 <button
                   type="button"
                   data-testid="db-access-grant"
-                  disabled={!canGrant || running || !grantSupported}
+                  disabled={(!generateOnly && !canGrant) || running || !grantSupported}
                   onClick={submitSqlModal}
                   className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-bold disabled:opacity-40 ${
                     sqlModal.kind === 'revoke'
@@ -867,7 +873,13 @@ export const DbAccessPermissionSections: React.FC<Props> = ({
                   }`}
                 >
                   <KeyRound className="w-3.5 h-3.5" />
-                  {canGrant ? (sqlModal.kind === 'revoke' ? 'Execute revoke' : 'Execute grant') : 'Cannot execute'}
+                  {generateOnly
+                    ? 'Use this SQL'
+                    : canGrant
+                      ? sqlModal.kind === 'revoke'
+                        ? 'Execute revoke'
+                        : 'Execute grant'
+                      : 'Cannot execute'}
                 </button>
               </div>
             </div>

@@ -8,6 +8,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { executeSql, type SqlStatementResult } from '@/shared/api/sqlApi';
+import { seekFromLastRow, tableForOrderBy } from '@/features/sql-editor/lib/resultSeek';
 import { supportsDialectFeature } from '@/shared/lib/dialect-features';
 import type { SavedConnectionSummary } from '@/shared/api/authApi';
 import { resolveAppSecrets } from '@/shared/api/appSecretsApi';
@@ -36,7 +37,7 @@ import {
   sessionPasswordMap,
   setSessionPassword,
 } from '@/shared/lib/sessionPasswords';
-import type { ForeignKeyInfo } from '@/shared/lib/types';
+import type { DbObjectType, ForeignKeyInfo } from '@/shared/lib/types';
 
 function sessionPasswordFor(
   connectionId: string,
@@ -201,6 +202,10 @@ const MAX_PAGES_PER_STATEMENT = 5;
 const SCHEMA_CACHE_TTL_MS = 15 * 60 * 1000;
 /** Max connections kept in schemaCache (LRU by loadedAt). */
 const SCHEMA_CACHE_MAX = 8;
+/** SQL Editor explorer first paint — routines load when those groups open. */
+export const SCHEMA_WARM_SCOPE = ['TABLE', 'VIEW', 'MQT'] as const;
+export const SCHEMA_ROUTINE_SCOPE = ['PROCEDURE', 'FUNCTION'] as const;
+const schemaLoadInflight = new Map<string, Promise<void>>();
 /** Cap persisted tab/bookmark SQL to avoid QuotaExceededError. */
 export const MAX_PERSISTED_SQL_CHARS = 256 * 1024;
 /** Cap persisted bookmark count. */
@@ -296,8 +301,10 @@ export interface DataPeekEntry {
   orderByClause: string;
   /** Rows/page for this peek panel (sent as execute page size). */
   limit: number;
-  /** 0-based page for server OFFSET paging. */
+  /** 0-based page for server OFFSET / Last Id paging. */
   pageIndex: number;
+  /** Page index the current `result` was loaded for (Last Id Next). */
+  resultPageIndex?: number;
   /** Composed SQL actually executed. */
   sql: string;
   params: unknown[];
@@ -459,7 +466,10 @@ interface SqlEditorState {
   submitSessionPassword: (password: string) => void;
   cancelPasswordPrompt: () => void;
   setMaxRows: (n: number) => void;
-  ensureSchema: (connectionId: string, opts?: { force?: boolean }) => Promise<void>;
+  ensureSchema: (
+    connectionId: string,
+    opts?: { force?: boolean; scope?: readonly string[] }
+  ) => Promise<void>;
   /**
    * Re-run SQL.
    * - `connectionIds` — refresh only those credentials (keeps other panes).
@@ -841,30 +851,24 @@ export const useSqlEditorStore = create<SqlEditorState>()(
 
       clearRecentQueries: () => set({ recentQueries: [] }),
 
-      ensureSchema: async (connectionId, { force = false } = {}) => {
-        const SQL_EDITOR_SCOPE = ['TABLE', 'VIEW', 'MQT', 'PROCEDURE', 'FUNCTION'] as const;
+      ensureSchema: async (connectionId, { force = false, scope } = {}) => {
+        const wanted = [...(scope && scope.length ? scope : SCHEMA_WARM_SCOPE)];
+        const inflightKey = `${connectionId}:${wanted.join(',')}`;
+        const running = schemaLoadInflight.get(inflightKey);
+        if (running) return running;
+
+        const work = (async () => {
         const prunedStart = pruneSchemaCache(get().schemaCache);
         if (Object.keys(prunedStart).length !== Object.keys(get().schemaCache).length) {
           set({ schemaCache: prunedStart });
         }
         const existing = get().schemaCache[connectionId];
-        const scopeKey = SQL_EDITOR_SCOPE.join(',');
-        const scopeOk = existing?.scope?.join(',') === scopeKey;
+        const have = new Set(existing?.scope ?? []);
+        const scopeOk = wanted.every((t) => have.has(t));
         const fresh =
           existing?.status === 'ready' &&
           typeof existing.loadedAt === 'number' &&
           Date.now() - existing.loadedAt < SCHEMA_CACHE_TTL_MS;
-        /**
-         * Only a finished load short-circuits. Returning early on `loading`
-         * looked like de-duplication but was not: `loadSchema` already joins
-         * concurrent identical calls through `idempotent()`, so one request is
-         * made either way. What the early return actually did was break the
-         * promise — a caller that awaited this got control back while the fetch
-         * was still in flight, read a cache entry with no tables and no error
-         * yet, and reported an empty result. Index Management said
-         * "Loaded 0 index(es)" for a database it could not reach, because the
-         * ECONNREFUSED landed after it had already drawn its answer.
-         */
         if (!force && scopeOk && existing?.status === 'ready' && fresh) {
           return;
         }
@@ -909,23 +913,26 @@ export const useSqlEditorStore = create<SqlEditorState>()(
             [connectionId]: {
               status: 'loading',
               tables: existing?.tables,
-              scope: [...SQL_EDITOR_SCOPE],
+              scope: existing?.scope ?? wanted,
             },
           }),
         });
 
         try {
-          const { tables } = await loadSchema(
+          const { tables: loaded } = await loadSchema(
             { connectionId, password: sessionPasswordFor(connectionId, sessionPasswords) },
-            [...SQL_EDITOR_SCOPE]
+            wanted as DbObjectType[]
           );
+          const incoming = new Set(wanted);
+          const kept = (existing?.tables ?? []).filter((t) => !incoming.has(t.objectType));
+          const mergedScope = [...new Set([...(existing?.scope ?? []), ...wanted])];
           set({
             schemaCache: pruneSchemaCache({
               ...get().schemaCache,
               [connectionId]: {
                 status: 'ready',
-                tables,
-                scope: [...SQL_EDITOR_SCOPE],
+                tables: [...kept, ...loaded],
+                scope: mergedScope,
                 loadedAt: Date.now(),
               },
             }),
@@ -937,10 +944,18 @@ export const useSqlEditorStore = create<SqlEditorState>()(
               [connectionId]: {
                 status: 'error',
                 error: error instanceof Error ? error.message : String(error),
-                scope: [...SQL_EDITOR_SCOPE],
+                scope: existing?.scope ?? wanted,
               },
             }),
           });
+        }
+        })();
+
+        schemaLoadInflight.set(inflightKey, work);
+        try {
+          await work;
+        } finally {
+          if (schemaLoadInflight.get(inflightKey) === work) schemaLoadInflight.delete(inflightKey);
         }
       },
 
@@ -1607,12 +1622,25 @@ export const useSqlEditorStore = create<SqlEditorState>()(
 
         setMeta({ loading: true });
         try {
-          const offset = pageIndex * pageSize;
+          const prevCached = current.pageCache?.[pageCacheKey(connectionId, statementIndex, pageIndex - 1)];
+          const tables = get().schemaCache[connectionId]?.tables;
+          const seek =
+            pageIndex > 0 && prevCached && prevCached.ok && prevCached.rows.length
+              ? seekFromLastRow({
+                  sql: sql!,
+                  table: tableForOrderBy(sql!, tables),
+                  resultColumns: prevCached.columns,
+                  lastRow: prevCached.rows[prevCached.rows.length - 1]!,
+                })
+              : null;
+          const offset = seek ? 0 : pageIndex * pageSize;
           const { results } = await executeSql(
             { connectionId, password: sessionPasswordFor(connectionId, sessionPasswords) },
             [sql!],
             pageSize,
-            offset
+            offset,
+            undefined,
+            seek ? { seek } : undefined
           );
           const one = results[0] ?? {
             ok: false as const,
@@ -2017,7 +2045,17 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         const params = entry.params;
         const pageSize = Math.min(5000, Math.max(1, entry.limit || DATA_PEEK_ROWS));
         const pageIndex = Math.max(0, entry.pageIndex || 0);
-        const offset = pageIndex * pageSize;
+        const resultPage = entry.resultPageIndex ?? (entry.result ? 0 : -1);
+        const seek =
+          pageIndex === resultPage + 1 && entry.result?.ok && entry.result.rows.length
+            ? seekFromLastRow({
+                sql,
+                table: tableForOrderBy(sql, get().schemaCache[peek.connectionId]?.tables),
+                resultColumns: entry.result.columns,
+                lastRow: entry.result.rows[entry.result.rows.length - 1]!,
+              })
+            : null;
+        const offset = seek ? 0 : pageIndex * pageSize;
         // Mark this generation before awaiting so concurrent runs can detect staleness.
         set({
           dataPeek: {
@@ -2048,7 +2086,8 @@ export const useSqlEditorStore = create<SqlEditorState>()(
             [sql],
             pageSize,
             offset,
-            [params]
+            [params],
+            seek ? { seek } : undefined
           );
           const result = results[0];
           if (!result) {
@@ -2057,7 +2096,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           }
           patchIfCurrent(
             result.ok
-              ? { status: 'ready', result }
+              ? { status: 'ready', result, resultPageIndex: pageIndex }
               : { status: 'error', error: result.error, result }
           );
         } catch (error: unknown) {

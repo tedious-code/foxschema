@@ -4,6 +4,7 @@ import {
   isPageableStatement,
   trimPageProbe,
   wrapSqlForPage,
+  wrapSqlForSeek,
 } from './sql-page-wrap.service';
 
 describe('sql-page-wrap', () => {
@@ -91,5 +92,51 @@ describe('sql-page-wrap', () => {
     expect(
       isPageableStatement('WITH u AS (UPDATE t SET a = 1 RETURNING *) SELECT * FROM u')
     ).toBe(false);
+  });
+});
+
+describe('wrapSqlForSeek', () => {
+  it('uses a keyset predicate instead of OFFSET', () => {
+    const out = wrapSqlForSeek(
+      'SELECT * FROM t ORDER BY id',
+      'postgres',
+      { columns: ['id'], values: [10] },
+      20,
+      0
+    );
+    expect(out).toHaveProperty('sql');
+    if ('sql' in out) {
+      expect(out.sql).toContain('WHERE ("id" > $1)');
+      expect(out.sql).toContain('LIMIT 21');
+      expect(out.sql).not.toMatch(/OFFSET/i);
+      expect(out.seekParams).toEqual([10]);
+    }
+  });
+
+  it('expands a composite key without tuple syntax', () => {
+    const out = wrapSqlForSeek(
+      'SELECT * FROM t ORDER BY org_id, id',
+      'sqlite',
+      { columns: ['org_id', 'id'], values: [1, 9] },
+      5,
+      0
+    );
+    expect(out).toHaveProperty('sql');
+    if ('sql' in out) {
+      expect(out.sql).toContain('("org_id" > ?)');
+      expect(out.sql).toContain('("org_id" = ? AND "id" > ?)');
+      expect(out.seekParams).toEqual([1, 1, 9]);
+    }
+  });
+
+  it('rejects seek columns that do not match ORDER BY', () => {
+    const out = wrapSqlForSeek(
+      'SELECT * FROM t ORDER BY id',
+      'postgres',
+      { columns: ['name'], values: ['x'] },
+      10,
+      0
+    );
+    expect(out).toEqual({ error: 'seek.columns must match the ORDER BY prefix' });
   });
 });

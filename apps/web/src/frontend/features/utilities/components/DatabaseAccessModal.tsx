@@ -28,7 +28,7 @@ import {
 } from '@foxschema/sql';
 import { PERMISSION_META } from '@foxschema/shared';
 import { PasswordInput } from '@/shared/components/PasswordInput';
-import { fetchDbAccess } from '@/shared/api/schemaApi';
+import { fetchDbAccess, invalidateDbAccessCache } from '@/shared/api/schemaApi';
 import { runAccessSql } from '@/shared/api/accessSql';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
@@ -41,6 +41,8 @@ interface Props {
   onClose?: () => void;
   /** Embed in Access control (no modal shell). */
   embedded?: boolean;
+  /** Workspace credential — hides this form's picker. */
+  lockedConnectionId?: string;
   /** Jump to Access control → App roles (Grant privileges). */
   onOpenAppRoles?: () => void;
 }
@@ -58,6 +60,7 @@ export const DatabaseAccessModal: React.FC<Props> = ({
   open,
   onClose,
   embedded = false,
+  lockedConnectionId,
   onOpenAppRoles,
 }) => {
   const connections = useSyncStore((s) => s.connections);
@@ -99,12 +102,20 @@ export const DatabaseAccessModal: React.FC<Props> = ({
   const support = dialect ? dialectSupportsDbAccess(dialect) : null;
 
   useEffect(() => {
-    if (!open || embedded) return;
-    const saved = localStorage.getItem(LS_CONN) ?? '';
-    if (saved && connections.some((c) => c.id === saved)) setConnectionId(saved);
-  }, [open, embedded, connections]);
+    if (!open) return;
+    if (lockedConnectionId) {
+      setConnectionId(lockedConnectionId);
+      return;
+    }
+    setConnectionId((cur) => {
+      if (cur && connections.some((c) => c.id === cur)) return cur;
+      const saved = localStorage.getItem(LS_CONN) ?? '';
+      if (saved && connections.some((c) => c.id === saved)) return saved;
+      return connections[0]?.id || '';
+    });
+  }, [open, connections, lockedConnectionId]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { force?: boolean }) => {
     if (!connectionId || needsPassword) return;
     const mine = ++loadToken.current;
     setLoading(true);
@@ -113,7 +124,7 @@ export const DatabaseAccessModal: React.FC<Props> = ({
     try {
       const data = await fetchDbAccess(
         { connectionId, password: sessionPasswords[connectionId] || undefined },
-        { schema: conn?.schema }
+        { schema: conn?.schema, force: opts?.force === true }
       );
       if (loadToken.current !== mine) return;
       setPrincipals(data.principals ?? []);
@@ -201,6 +212,7 @@ export const DatabaseAccessModal: React.FC<Props> = ({
         setError(outcome.error);
       } else {
         setStatus(kind === 'grant' ? 'Granted.' : 'Revoked.');
+        invalidateDbAccessCache(connectionId);
         await load();
       }
     } catch (err: unknown) {
@@ -253,6 +265,7 @@ export const DatabaseAccessModal: React.FC<Props> = ({
 
       <div className="px-5 py-3 border-b border-slate-800 space-y-2.5 shrink-0 bg-slate-950/30">
         <div className="flex flex-wrap items-end gap-2">
+          {!lockedConnectionId && (
           <label className="flex flex-col gap-1 min-w-[14rem] flex-1">
             <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
               Credential
@@ -265,7 +278,7 @@ export const DatabaseAccessModal: React.FC<Props> = ({
                 if (id === connectionId) return;
                 ++loadToken.current;
                 setConnectionId(id);
-                if (!embedded) localStorage.setItem(LS_CONN, id);
+                localStorage.setItem(LS_CONN, id);
                 setPrincipals([]);
                 setPrivileges([]);
                 setSelectedName(null);
@@ -284,6 +297,7 @@ export const DatabaseAccessModal: React.FC<Props> = ({
               ))}
             </select>
           </label>
+          )}
           {needsPassword && (
             <label className="flex flex-col gap-1 min-w-[10rem]">
               <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
@@ -316,7 +330,7 @@ export const DatabaseAccessModal: React.FC<Props> = ({
             type="button"
             data-testid="db-access-load"
             disabled={!connectionId || loading || needsPassword}
-            onClick={() => void load()}
+            onClick={() => void load({ force: true })}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md border border-slate-600 bg-slate-800 text-slate-100 hover:bg-slate-700 disabled:opacity-50"
           >
             {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
@@ -755,7 +769,7 @@ export const DatabaseAccessModal: React.FC<Props> = ({
 
   if (embedded) {
     return (
-      <div data-testid="db-access-embedded" className="flex flex-col min-h-[24rem] -mx-4 -mb-3">
+      <div data-testid="db-access-embedded" className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {content}
         {confirmPortal}
       </div>

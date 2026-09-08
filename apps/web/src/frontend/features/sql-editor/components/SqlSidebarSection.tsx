@@ -16,14 +16,17 @@ export type SidebarSectionId =
   | 'schema';
 
 const DEFAULT_OPEN: Record<SidebarSectionId, boolean> = {
-  destinations: true,
-  bookmarks: true,
-  variables: true,
-  vault: true,
-  utilities: true,
-  files: true,
+  destinations: false,
+  bookmarks: false,
+  variables: false,
+  vault: false,
+  utilities: false,
+  files: false,
   schema: true,
 };
+
+/** One-time: close every section except Schema so first paint is one panel. */
+const EXCLUSIVE_OPEN_MIGRATION_KEY = 'foxschema-sql-sidebar-exclusive-v1';
 
 const DEFAULT_HEIGHTS: Record<SidebarSectionId, number> = {
   destinations: 140,
@@ -109,6 +112,41 @@ export function moveSidebarSection(
   return next;
 }
 
+/** Open one section; close the rest. Empty sidebar is allowed (toggle the open one off). */
+export function exclusiveSidebarOpen(
+  prev: Record<SidebarSectionId, boolean>,
+  id: SidebarSectionId
+): Record<SidebarSectionId, boolean> {
+  const opening = !prev[id];
+  const next: Record<SidebarSectionId, boolean> = {
+    destinations: false,
+    bookmarks: false,
+    variables: false,
+    vault: false,
+    utilities: false,
+    files: false,
+    schema: false,
+  };
+  if (opening) next[id] = true;
+  return next;
+}
+
+/** Activity-rail select: always open this section (never toggle closed). */
+export function openOnlySidebarSection(id: SidebarSectionId): Record<SidebarSectionId, boolean> {
+  return exclusiveSidebarOpen(
+    {
+      destinations: false,
+      bookmarks: false,
+      variables: false,
+      vault: false,
+      utilities: false,
+      files: false,
+      schema: false,
+    },
+    id
+  );
+}
+
 /** Persist SQL-editor sidebar section order. */
 export function useSidebarSectionOrder(): [
   SidebarSectionId[],
@@ -133,17 +171,20 @@ export function useSidebarSectionOrder(): [
 
 function loadOpen(): Record<SidebarSectionId, boolean> {
   try {
+    if (!localStorage.getItem(EXCLUSIVE_OPEN_MIGRATION_KEY)) {
+      localStorage.setItem(EXCLUSIVE_OPEN_MIGRATION_KEY, '1');
+      return { ...DEFAULT_OPEN };
+    }
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...DEFAULT_OPEN };
     const parsed = JSON.parse(raw) as Partial<Record<SidebarSectionId, boolean>>;
     return {
-      destinations: parsed.destinations ?? true,
-      bookmarks: parsed.bookmarks ?? true,
-      variables: parsed.variables ?? true,
-      // Prefer `vault`; accept legacy `secrets` key from older localStorage.
-      vault: parsed.vault ?? (parsed as { secrets?: boolean }).secrets ?? true,
-      utilities: parsed.utilities ?? true,
-      files: parsed.files ?? true,
+      destinations: parsed.destinations ?? false,
+      bookmarks: parsed.bookmarks ?? false,
+      variables: parsed.variables ?? false,
+      vault: parsed.vault ?? (parsed as { secrets?: boolean }).secrets ?? false,
+      utilities: parsed.utilities ?? false,
+      files: parsed.files ?? false,
       schema: parsed.schema ?? true,
     };
   } catch {
@@ -181,6 +222,7 @@ function loadHeights(): Record<SidebarSectionId, number> {
 export function useSidebarSectionsOpen(): [
   Record<SidebarSectionId, boolean>,
   (id: SidebarSectionId) => void,
+  (id: SidebarSectionId) => void,
 ] {
   const [open, setOpen] = useState(loadOpen);
 
@@ -193,10 +235,14 @@ export function useSidebarSectionsOpen(): [
   }, [open]);
 
   const toggle = (id: SidebarSectionId) => {
-    setOpen((prev) => ({ ...prev, [id]: !prev[id] }));
+    setOpen((prev) => exclusiveSidebarOpen(prev, id));
   };
 
-  return [open, toggle];
+  const select = (id: SidebarSectionId) => {
+    setOpen(openOnlySidebarSection(id));
+  };
+
+  return [open, toggle, select];
 }
 
 /** Persist per-section content heights (drag handles). */
@@ -227,7 +273,9 @@ export function useSidebarSectionHeights(): [
 /**
  * Collapsible block for the SQL Editor left sidebar
  * (Schema first by default, then Destinations / Bookmarks / Variables /
- * Secrets / Utilities / Files — all sections are reorderable).
+ * Secrets — all sections are reorderable). Utilities and Files moved to the
+ * Utilities workspace; their ids stay in persisted order so old localStorage
+ * does not break.
  * Open sections are height-resizable via the bottom grip.
  */
 export const SqlSidebarSection: React.FC<{
@@ -240,6 +288,8 @@ export const SqlSidebarSection: React.FC<{
   actions?: React.ReactNode;
   /** When expanded and this is the flex-growing section. */
   grow?: boolean;
+  /** Icon-rail panel: fill the pane, skip accordion chrome. */
+  railPanel?: boolean;
   height?: number;
   onResizeHeight?: (h: number) => void;
   /** Optional drag handle for reordering sections. */
@@ -259,6 +309,7 @@ export const SqlSidebarSection: React.FC<{
   onToggle,
   actions,
   grow,
+  railPanel,
   height,
   onResizeHeight,
   draggable,
@@ -294,6 +345,42 @@ export const SqlSidebarSection: React.FC<{
     },
     [height, id, onResizeHeight]
   );
+
+  if (railPanel) {
+    return (
+      <div
+        data-testid={`sql-sidebar-${id}`}
+        className={`flex min-h-0 flex-1 flex-col bg-slate-950 ${isDragging ? 'opacity-50' : ''} ${
+          isDragOver ? 'ring-1 ring-inset ring-cyan-500/40' : ''
+        }`}
+        onDragOver={onDragOver}
+        onDrop={onDrop}
+      >
+        <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-slate-800 bg-slate-950 px-2 py-2">
+          {draggable && (
+            <div
+              draggable
+              data-testid={`sql-sidebar-drag-${id}`}
+              title="Drag to reorder section"
+              aria-label={`Reorder ${title}`}
+              onDragStart={onDragStart}
+              onDragEnd={onDragEnd}
+              className="shrink-0 cursor-grab p-0.5 text-slate-600 hover:text-slate-400 active:cursor-grabbing touch-none"
+            >
+              <GripVertical className="h-3.5 w-3.5" strokeWidth={SQL_ICON_STROKE} />
+            </div>
+          )}
+          <span className="min-w-0 flex-1 truncate text-[13px] font-bold uppercase tracking-wide text-slate-300">
+            {title}
+          </span>
+          {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-slate-900 px-3 pb-1 pt-1">
+          {children}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

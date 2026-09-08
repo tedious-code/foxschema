@@ -1,5 +1,6 @@
 import React, { Suspense, lazy, useEffect } from 'react';
 import { TopToolbar } from '@/app/shell/TopToolbar';
+import { ActivityRail } from '@/app/shell/ActivityRail';
 import { SchemaTreePanel } from '@/features/sql-editor';
 import { ObjectDetailPanel } from '@/features/object-detail';
 import { ErrorBoundary } from '@/app/shell/ErrorBoundary';
@@ -13,6 +14,8 @@ import { apiGetPreferences } from '@/shared/api/authApi';
 import { ToastHost } from '@/app/shell/ToastHost';
 import { AlertCircle, AlertTriangle, Loader2, X } from 'lucide-react';
 import { BackendOfflineBanner } from '@/app/shell/BackendOfflineBanner';
+import { HomeView } from '@/app/shell/HomeView';
+import { CommandPalette } from '@/app/shell/CommandPalette';
 
 const AccessView = lazy(() =>
   import('@/features/access').then((m) => ({ default: m.AccessView }))
@@ -20,22 +23,34 @@ const AccessView = lazy(() =>
 const SqlEditorView = lazy(() =>
   import('@/features/sql-editor').then((m) => ({ default: m.SqlEditorView }))
 );
+const UtilitiesView = lazy(() =>
+  import('@/features/utilities').then((m) => ({ default: m.UtilitiesView }))
+);
 const LokeeWeaveView = lazy(() =>
   import('@/features/lokee-weave').then((m) => ({ default: m.LokeeWeaveView }))
+);
+const SettingsPanel = lazy(() =>
+  import('@/app/settings/SettingsPanel').then((m) => ({ default: m.SettingsPanel }))
 );
 
 const Workspace: React.FC = () => {
   const { errorMsg, warnings, dismissWarnings } = useSyncStore();
   const activeView = useUiStore((s) => s.activeView);
-  const syncPane = useUiStore((s) => s.syncPane);
   const setActiveView = useUiStore((s) => s.setActiveView);
   const canEditorAccess = useAuthStore((s) => s.can('editor.access'));
   const canSchemaBrowse = useAuthStore((s) => s.can('schema.browse'));
   const canSchemaCompare = useAuthStore((s) => s.can('schema.compare'));
+  const canUtilityAccess = useAuthStore((s) => s.can('utility.access'));
 
   useEffect(() => {
     if (activeView === 'sqlEditor' && !canEditorAccess) {
-      setActiveView('sync');
+      setActiveView(canSchemaBrowse || canSchemaCompare ? 'sync' : 'home');
+    }
+    if (activeView === 'utilities' && !canUtilityAccess) {
+      setActiveView('home');
+    }
+    if (activeView === 'snapshots' && !canSchemaBrowse) {
+      setActiveView('home');
     }
     if (
       activeView === 'sync' &&
@@ -50,11 +65,14 @@ const Workspace: React.FC = () => {
     canEditorAccess,
     canSchemaBrowse,
     canSchemaCompare,
+    canUtilityAccess,
     setActiveView,
   ]);
 
   return (
-    <div className="h-screen flex flex-col bg-slate-950 text-slate-100 antialiased overflow-hidden">
+    <div className="h-screen flex bg-slate-950 text-slate-100 antialiased overflow-hidden">
+      <ActivityRail />
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <TopToolbar />
 
       {/* Above every other banner: when the backend is gone, nothing else on
@@ -88,7 +106,15 @@ const Workspace: React.FC = () => {
       )}
 
       <main className="flex-1 flex min-h-0 overflow-hidden">
-        {activeView === 'access' ? (
+        {activeView === 'home' ? (
+          <HomeView />
+        ) : activeView === 'settings' ? (
+          <ErrorBoundary>
+            <Suspense fallback={<LoadingScreen />}>
+              <SettingsPanel embedded />
+            </Suspense>
+          </ErrorBoundary>
+        ) : activeView === 'access' ? (
           <ErrorBoundary>
             <Suspense fallback={<LoadingScreen />}>
               <AccessView />
@@ -100,7 +126,13 @@ const Workspace: React.FC = () => {
               <SqlEditorView />
             </Suspense>
           </ErrorBoundary>
-        ) : syncPane === 'history' && canSchemaBrowse ? (
+        ) : activeView === 'utilities' && canUtilityAccess ? (
+          <ErrorBoundary>
+            <Suspense fallback={<LoadingScreen />}>
+              <UtilitiesView />
+            </Suspense>
+          </ErrorBoundary>
+        ) : activeView === 'snapshots' && canSchemaBrowse ? (
           <ErrorBoundary>
             <Suspense fallback={<LoadingScreen />}>
               <div className="flex flex-1 min-h-0 overflow-hidden">
@@ -120,6 +152,8 @@ const Workspace: React.FC = () => {
         )}
       </main>
       <ToastHost />
+      <CommandPalette />
+      </div>
     </div>
   );
 };

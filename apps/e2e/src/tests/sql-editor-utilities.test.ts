@@ -62,7 +62,7 @@ INSERT INTO orders (id, customer_id, note) VALUES
 
 const ready = hasSqlite3();
 
-describe.skipIf(!ready)('SQL Editor · Utilities + Clone Table (SQLite)', () => {
+describe.skipIf(!ready)('Utilities workspace + Clone Table (SQLite)', () => {
   let driver: Page;
   let app: AppPage;
   let sql: SqlEditorPage;
@@ -107,7 +107,7 @@ describe.skipIf(!ready)('SQL Editor · Utilities + Clone Table (SQLite)', () => 
     rmSync(DIR, { recursive: true, force: true });
   });
 
-  it('sidebar Utilities lists Index Management and Clone Table', async () => {
+  it('Utilities workspace lists Index Management and Clone Table', async () => {
     await sql.ensureSidebarSectionOpen('utilities');
     const utilities = driver.locator('[data-testid="sql-sidebar-utilities"]');
     expect(await utilities.locator('[data-testid="utilities-index-management"]').isVisible()).toBe(

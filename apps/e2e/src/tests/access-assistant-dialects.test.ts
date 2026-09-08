@@ -132,23 +132,17 @@ describe.skipIf(configured.length === 0)('Access Assistant (all configured diale
   });
 
   /**
-   * The exact option label for a dialect's saved connection.
-   *
-   * The two panels spell it differently: User Management renders
-   * `name · dialect`, while Permission Builder and Permission Diff render
-   * `[DIALECT] name`. Playwright matches `selectOption({ label })` as a literal
-   * string, so one format cannot serve both — and this used to pass a RegExp,
-   * which the types reject and which matches nothing at runtime, so the
-   * selection silently never happened at all.
+   * Access uses one workspace chip (`name · dialect`) for Users, Permission, and Diff.
    */
   const usersLabel = (dialect: string) => `${credNameByDialect.get(dialect)!} · ${dialect}`;
-  const builderLabel = (dialect: string) =>
-    `[${dialect.toUpperCase()}] ${credNameByDialect.get(dialect)!}`;
 
   async function selectConnection(dialect: string) {
-    await driver
-      .locator('[data-testid="user-connection"]')
-      .selectOption({ label: usersLabel(dialect) });
+    const label = usersLabel(dialect);
+    const chip = driver.locator('[data-testid="access-connection"]');
+    const select = (await chip.isVisible().catch(() => false))
+      ? chip
+      : driver.locator('[data-testid="user-connection"]');
+    await select.selectOption({ label });
   }
 
   /**
@@ -231,7 +225,7 @@ describe.skipIf(configured.length === 0)('Access Assistant (all configured diale
         await driver.waitForSelector('[data-testid="permission-builder"]', { timeout: 15_000 });
         await driver
           .locator('[data-testid="access-connection"]')
-          .selectOption({ label: builderLabel(dialect) });
+          .selectOption({ label: usersLabel(dialect) });
         await driver.locator('[data-testid="access-principal-name"]').fill('report_user');
         await fillScope(dialect);
 
@@ -256,10 +250,9 @@ describe.skipIf(configured.length === 0)('Access Assistant (all configured diale
 
         await driver.locator('[data-testid="access-tab-diff"]').click();
         await driver.waitForSelector('[data-testid="permission-diff"]', { timeout: 15_000 });
-        const name = credNameByDialect.get(dialect)!;
         await driver
-          .locator('[data-testid="diff-connection"]')
-          .selectOption({ label: builderLabel(dialect) });
+          .locator('[data-testid="access-connection"]')
+          .selectOption({ label: usersLabel(dialect) });
         await driver.locator('[data-testid="diff-principal-name"]').fill('report_user');
 
         // The desired-state row offers only the scopes the engine can grant on,
@@ -346,7 +339,7 @@ describe.skipIf(configured.length === 0)('Access Assistant (all configured diale
           await driver.waitForSelector('[data-testid="permission-builder"]', { timeout: 15_000 });
           await driver
             .locator('[data-testid="access-connection"]')
-            .selectOption({ label: builderLabel(dialect) });
+            .selectOption({ label: usersLabel(dialect) });
           await driver.locator('[data-testid="access-action"]').getByText('Deny').click();
           await driver.locator('[data-testid="access-principal-name"]').fill('report_user');
           await driver.locator('[data-testid="access-schema"]').fill('dbo');

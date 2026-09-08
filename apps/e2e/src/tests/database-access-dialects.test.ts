@@ -188,7 +188,11 @@ describe.skipIf(configured.length === 0)('Database Access · User Management', (
    */
   async function selectConnection(dialect: string) {
     const label = `${credNameByDialect.get(dialect)!} · ${dialect}`;
-    await driver.locator('[data-testid="user-connection"]').selectOption({ label });
+    const chip = driver.locator('[data-testid="access-connection"]');
+    const select = (await chip.isVisible().catch(() => false))
+      ? chip
+      : driver.locator('[data-testid="user-connection"]');
+    await select.selectOption({ label });
   }
 
   /**

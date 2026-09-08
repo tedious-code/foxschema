@@ -15,13 +15,19 @@ import { formatFileImportWhen, importCreatedAtMs } from '../lib/fileImportsTime'
 type Props = {
   refreshKey?: number;
   onImportClick: () => void;
+  /** After picking a table, jump to the SQL Editor (Utilities workspace). */
+  onUseInEditor?: () => void;
 };
 
 /**
  * Sidebar manager for reusable Query-files imports (temp SQLite credentials).
  * Click a table to check that file DB and load a sample SELECT.
  */
-export const FileImportsPanel: React.FC<Props> = ({ refreshKey = 0, onImportClick }) => {
+export const FileImportsPanel: React.FC<Props> = ({
+  refreshKey = 0,
+  onImportClick,
+  onUseInEditor,
+}) => {
   const loadConnections = useSyncStore((s) => s.loadConnections);
   const [imports, setImports] = useState<FileImportListItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -228,6 +234,7 @@ export const FileImportsPanel: React.FC<Props> = ({ refreshKey = 0, onImportClic
                                 title: 'Ready to query',
                                 body: `"${imp.name}" checked — run the sample SELECT.`,
                               });
+                              onUseInEditor?.();
                             }}
                           >
                             {tableName}

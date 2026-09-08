@@ -24,7 +24,7 @@ import {
 import { sqlStatementCategories, statementVerb } from '@foxschema/sql';
 import { isSingleSqlStatement } from '../../api/single-statement';
 import { permissionSatisfied } from '@foxschema/shared';
-import { clampOffset } from './sql-page-wrap.service';
+import { clampOffset, parseSqlSeek } from './sql-page-wrap.service';
 import { makeBeamCellQueryRunner, makeCellQueryRunner } from './code-cell-query.service';
 import type { CellQueryRunner } from './code-cell-execute.service';
 import { parseBeamEndpoints } from '@foxschema/shared';
@@ -74,11 +74,12 @@ export function createEditorRoutes(deps: EditorRouteDeps): Router {
   // called next(), so the request hung with no error and no response.
   const writeIdempotency = idempotency();
   router.post('/sql/execute', sqlExecuteLimiter, writeIdempotency, async (req: AppRequest, res: FastifyReply) => {
-    const { statements, maxRows, offset, params, datagridAction, ...ref } = req.body as ConnectionRef & {
+    const { statements, maxRows, offset, params, datagridAction, seek, ...ref } = req.body as ConnectionRef & {
       statements?: unknown;
       maxRows?: unknown;
       offset?: unknown;
       params?: unknown;
+      seek?: unknown;
       /** Data Peek / query-result grid CRUD — requires editor.datagrid.*. */
       datagridAction?: unknown;
     };
@@ -150,6 +151,11 @@ export function createEditorRoutes(deps: EditorRouteDeps): Router {
       sendError(res, 'invalid_input', error instanceof Error ? error.message : 'Invalid connection');
       return;
     }
+    const parsedSeek = parseSqlSeek(seek);
+    if (!parsedSeek.ok) {
+      sendError(res, 'invalid_input', parsedSeek.error);
+      return;
+    }
     try {
       // Apply the saved connection's schema (CURRENT SCHEMA / search_path) so
       // unqualified names like ORDERS resolve to DEMO.ORDERS, not USER.ORDERS.
@@ -160,7 +166,8 @@ export function createEditorRoutes(deps: EditorRouteDeps): Router {
         clampMaxRows(maxRows),
         resolved.schema,
         clampOffset(offset),
-        (params as unknown[][] | undefined) ?? []
+        (params as unknown[][] | undefined) ?? [],
+        parsedSeek.value
       );
       res.send({ results });
     } catch (error: unknown) {

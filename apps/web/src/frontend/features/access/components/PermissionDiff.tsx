@@ -61,11 +61,19 @@ function emptyRequest(scopeType: AccessScope['type'] = 'schema'): PermissionRequ
  * Phase D — compare desired grants against the live catalog and generate
  * reconciliation SQL. Generate-only; Fox Schema never applies changes.
  */
-export const PermissionDiff: React.FC = () => {
+export const PermissionDiff: React.FC<{
+  lockedConnectionId?: string;
+  onConnectionChange?: (id: string) => void;
+}> = ({ lockedConnectionId, onConnectionChange }) => {
   const connections = useSyncStore((s) => s.connections);
   const sessionPasswords = useSqlEditorStore((s) => s.sessionPasswords);
 
-  const [connectionId, setConnectionId] = useState('');
+  const [localConnectionId, setLocalConnectionId] = useState('');
+  const connectionId = lockedConnectionId ?? localConnectionId;
+  const pickConnection = (id: string) => {
+    onConnectionChange?.(id);
+    if (lockedConnectionId === undefined) setLocalConnectionId(id);
+  };
   const conn = connections.find((c) => c.id === connectionId) || null;
   const dialect = conn?.dialect ?? '';
 
@@ -185,7 +193,7 @@ export const PermissionDiff: React.FC = () => {
     try {
       const res = await fetchDbAccess(
         { connectionId, password: sessionPasswords[connectionId] || undefined },
-        { schema: conn?.schema || undefined }
+        { schema: conn?.schema || undefined, force: true }
       );
       if (superseded()) return;
       setPrivileges(res.privileges ?? []);
@@ -229,11 +237,12 @@ export const PermissionDiff: React.FC = () => {
           </p>
         </div>
 
+        <div className={lockedConnectionId !== undefined ? 'sr-only' : undefined}>
         <Field label="Database">
           <select
             data-testid="diff-connection"
             value={connectionId}
-            onChange={(e) => setConnectionId(e.target.value)}
+            onChange={(e) => pickConnection(e.target.value)}
             className={inputCls}
           >
             <option value="">Choose a saved connection…</option>
@@ -242,8 +251,9 @@ export const PermissionDiff: React.FC = () => {
                 [{(c.dialect || '').toUpperCase()}] {c.name}
               </option>
             ))}
-          </select>
-        </Field>
+            </select>
+          </Field>
+        </div>
 
         {accessBlockedBy ? (
           <div

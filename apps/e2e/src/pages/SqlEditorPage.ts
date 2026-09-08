@@ -46,6 +46,13 @@ export class SqlEditorPage {
     await this.dismissOverlays();
   }
 
+  /** Open the Database utilities workspace (not the SQL Editor sidebar). */
+  async openUtilitiesView(): Promise<void> {
+    await this.dismissOverlays();
+    await clickWhen(this.page, '[data-testid="view-utilities-btn"]');
+    await waitFor(this.page, '[data-testid="utilities-view"]', 10_000);
+  }
+
   async isEditorVisible(): Promise<boolean> {
     return this.page.locator('[data-testid="sql-editor-view"]').isVisible();
   }
@@ -430,6 +437,7 @@ export class SqlEditorPage {
       localStorage.removeItem('foxschema-sql-sidebar-section-heights');
       localStorage.removeItem('foxschema-sql-sidebar-order');
       localStorage.removeItem('foxschema-sql-sidebar-order-schema-top-v1');
+      localStorage.removeItem('foxschema-sql-sidebar-exclusive-v1');
       // Width and collapsed state too: a run that inherits a narrow sidebar
       // from an earlier one is testing a different layout than the next run,
       // which is how a real explorer layout bug surfaced here as an
@@ -439,30 +447,17 @@ export class SqlEditorPage {
     });
   }
 
-  /** Ensure a sidebar section is expanded (Destinations / Utilities / Schema / …). */
+  /** Ensure a sidebar section is expanded (Destinations / Schema / …).
+   *  `utilities` / `files` open the Utilities workspace. */
   async ensureSidebarSectionOpen(id: string): Promise<void> {
     await this.dismissOverlays();
+    if (id === 'utilities' || id === 'files') {
+      await this.openUtilitiesView();
+      return;
+    }
     const section = this.page.locator(`[data-testid="sql-sidebar-${id}"]`);
     await section.waitFor({ state: 'visible', timeout: 10_000 });
     const toggle = this.page.locator(`[data-testid="sql-sidebar-toggle-${id}"]`);
-    // Content for utilities is the Index Management button.
-    const openProbe =
-      id === 'utilities'
-        ? section.locator('[data-testid="utilities-index-management"]')
-        : section.locator(`[data-testid="sql-sidebar-${id}"] >> visible=true`);
-    if (id === 'utilities') {
-      if (await section.locator('[data-testid="utilities-index-management"]').isVisible().catch(() => false)) {
-        return;
-      }
-      await toggle.click();
-      await section.locator('[data-testid="utilities-index-management"]').waitFor({
-        state: 'visible',
-        timeout: 5_000,
-      });
-      return;
-    }
-    void openProbe;
-    // Generic: if toggle says collapsed, click once.
     const aria = await toggle.getAttribute('aria-expanded').catch(() => null);
     if (aria === 'false') await toggle.click();
   }
@@ -496,7 +491,7 @@ export class SqlEditorPage {
   }
 
   async openIndexManagement(): Promise<void> {
-    await this.ensureSidebarSectionOpen('utilities');
+    await this.openUtilitiesView();
     await clickWhen(this.page, '[data-testid="utilities-index-management"]');
     await waitFor(this.page, '[data-testid="index-management-modal"]', 15_000);
   }
@@ -504,7 +499,7 @@ export class SqlEditorPage {
   async openServerInsights(
     tab: 'pool' | 'sessions' | 'system' | 'sizes' = 'system'
   ): Promise<void> {
-    await this.ensureSidebarSectionOpen('utilities');
+    await this.openUtilitiesView();
     const testId =
       tab === 'pool'
         ? 'utilities-connection-pool'
@@ -521,7 +516,9 @@ export class SqlEditorPage {
   async closeServerInsights(): Promise<void> {
     const modal = this.page.locator('[data-testid="server-insights-modal"]');
     if (!(await modal.isVisible().catch(() => false))) return;
-    await modal.locator('button[aria-label="Close"]').click().catch(async () => {
+    const closeBtn = modal.locator('button[aria-label="Close"]');
+    if (!(await closeBtn.isVisible().catch(() => false))) return;
+    await closeBtn.click().catch(async () => {
       await this.page.keyboard.press('Escape');
     });
     await modal.waitFor({ state: 'detached', timeout: 8_000 }).catch(() => undefined);
@@ -529,7 +526,7 @@ export class SqlEditorPage {
 
   async openDatabaseAccess(): Promise<void> {
     await this.dismissOverlays();
-    await this.ensureSidebarSectionOpen('utilities');
+    await this.openUtilitiesView();
     await clickWhen(this.page, '[data-testid="utilities-database-access"]');
     await waitFor(this.page, '[data-testid="db-access-modal"]', 15_000);
   }
@@ -537,22 +534,26 @@ export class SqlEditorPage {
   async closeDatabaseAccess(): Promise<void> {
     const modal = this.page.locator('[data-testid="db-access-modal"]');
     if (!(await modal.isVisible().catch(() => false))) return;
-    // The testid is on the backdrop, and the backdrop's own click closes it.
-    // Going for the header's Close button matches more than one element in this
-    // subtree, and a strict-mode error there leaves the modal open — which then
-    // covers the sidebar for every dialect queued behind this one.
-    await modal.click({ position: { x: 4, y: 4 } }).catch(() => undefined);
-    await modal.waitFor({ state: 'detached', timeout: 8_000 }).catch(() => undefined);
-    if (await modal.isVisible().catch(() => false)) {
-      await this.page.reload();
-      await this.page.waitForSelector('[data-testid="toolbar"]', { timeout: 30_000 });
+    const closeBtn = modal.locator('button[aria-label="Close"]');
+    if (await closeBtn.isVisible().catch(() => false)) {
+      await closeBtn.click().catch(() => undefined);
+      await modal.waitFor({ state: 'detached', timeout: 8_000 }).catch(() => undefined);
+      return;
+    }
+    // Overlay (legacy): backdrop click. Workspace pane: leave it docked.
+    const box = await modal.boundingBox().catch(() => null);
+    if (box && box.x <= 8 && box.y <= 8) {
+      await modal.click({ position: { x: 4, y: 4 } }).catch(() => undefined);
+      await modal.waitFor({ state: 'detached', timeout: 8_000 }).catch(() => undefined);
     }
   }
 
   async closeIndexManagement(): Promise<void> {
     const modal = this.page.locator('[data-testid="index-management-modal"]');
     if (!(await modal.isVisible().catch(() => false))) return;
-    await modal.locator('button[aria-label="Close"]').click().catch(async () => {
+    const closeBtn = modal.locator('button[aria-label="Close"]');
+    if (!(await closeBtn.isVisible().catch(() => false))) return;
+    await closeBtn.click().catch(async () => {
       await modal.click({ position: { x: 4, y: 4 } });
     });
     await modal.waitFor({ state: 'detached', timeout: 8_000 }).catch(() => undefined);
@@ -560,7 +561,7 @@ export class SqlEditorPage {
 
   async openCloneTable(): Promise<void> {
     await this.dismissOverlays();
-    await this.ensureSidebarSectionOpen('utilities');
+    await this.openUtilitiesView();
     await clickWhen(this.page, '[data-testid="utilities-clone-table"]');
     await waitFor(this.page, '[data-testid="clone-table-modal"]', 15_000);
   }
@@ -568,15 +569,22 @@ export class SqlEditorPage {
   async closeCloneTable(): Promise<void> {
     const modal = this.page.locator('[data-testid="clone-table-modal"]');
     if (!(await modal.isVisible().catch(() => false))) return;
-    await modal.locator('button[aria-label="Close"]').click().catch(async () => {
+    const closeBtn = modal.locator('button[aria-label="Close"]');
+    if (!(await closeBtn.isVisible().catch(() => false))) return;
+    await closeBtn.click().catch(async () => {
       await modal.getByRole('button', { name: /^close$/i }).click();
     });
     await modal.waitFor({ state: 'detached', timeout: 8_000 }).catch(() => undefined);
   }
 
-  /** Pick credential in Clone Table / Index Management by visible name substring. */
+  /** Pick credential in Clone Table / Index Management by visible name substring.
+   *  The Utilities workspace uses one chip (`utilities-connection`); tool-local
+   *  dropdowns are used when a modal still has its own picker. */
   async selectUtilityConnection(nameSubstring: string, selectTestId: string): Promise<void> {
-    const select = this.page.locator(`[data-testid="${selectTestId}"]`);
+    const workspace = this.page.locator('[data-testid="utilities-connection"]');
+    const select = (await workspace.isVisible().catch(() => false))
+      ? workspace
+      : this.page.locator(`[data-testid="${selectTestId}"]`);
     await select.waitFor({ state: 'visible', timeout: 10_000 });
     const value = await select.evaluate((el, want) => {
       const sel = el as HTMLSelectElement;

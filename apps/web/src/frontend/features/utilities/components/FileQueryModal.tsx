@@ -24,6 +24,8 @@ interface Props {
   onClose: () => void;
   /** Fired after a successful import so the Files sidebar can refresh. */
   onImported?: () => void;
+  /** Dock in the Utilities workspace (no overlay). */
+  embedded?: boolean;
 }
 
 const EMPTY_OFFSETS: TextOffsetColumn[] = [
@@ -37,7 +39,12 @@ function isFilesConnectionName(name: string | undefined): boolean {
   return !!name && /^Files:\s+/i.test(name.trim());
 }
 
-export const FileQueryModal: React.FC<Props> = ({ open, onClose, onImported }) => {
+export const FileQueryModal: React.FC<Props> = ({
+  open,
+  onClose,
+  onImported,
+  embedded = false,
+}) => {
   const loadConnections = useSyncStore((s) => s.loadConnections);
   const connections = useSyncStore((s) => s.connections);
   const setSql = useSqlEditorStore((s) => s.setSql);
@@ -191,7 +198,7 @@ export const FileQueryModal: React.FC<Props> = ({ open, onClose, onImported }) =
         body: `"${label}" is checked — run the sample SELECT.${modeNote}`,
       });
       onImported?.();
-      onClose();
+      if (!embedded) onClose();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Import failed');
     } finally {
@@ -226,15 +233,15 @@ export const FileQueryModal: React.FC<Props> = ({ open, onClose, onImported }) =
 
   if (!open) return null;
 
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[280] flex items-center justify-center bg-slate-950/70 backdrop-blur-[2px] p-4"
-      data-testid="file-query-modal"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div className="w-full max-w-xl rounded-xl border border-slate-700 bg-slate-900 shadow-2xl overflow-hidden">
+  const form = (
+      <div
+        className={
+          embedded
+            ? 'flex min-h-0 flex-1 flex-col overflow-hidden bg-slate-900'
+            : 'w-full max-w-xl rounded-xl border border-slate-700 bg-slate-900 shadow-2xl overflow-hidden'
+        }
+      >
+        {!embedded && (
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800">
           <div className="flex items-center gap-2 text-slate-100 font-semibold">
             <FileSpreadsheet className="w-4 h-4 text-amber-400" strokeWidth={SQL_ICON_STROKE} />
@@ -249,8 +256,13 @@ export const FileQueryModal: React.FC<Props> = ({ open, onClose, onImported }) =
             <X className="w-4 h-4" />
           </button>
         </div>
+        )}
 
-        <div className="px-4 py-3 space-y-3 text-xs text-slate-300 max-h-[70vh] overflow-y-auto">
+        <div
+          className={`px-4 py-3 space-y-3 text-xs text-slate-300 overflow-y-auto ${
+            embedded ? 'min-h-0 flex-1' : 'max-h-[70vh]'
+          }`}
+        >
           <p className="text-slate-400 leading-relaxed">
             Import CSV, JSON, or fixed-width text. Default lands in a temporary SQLite
             workspace (multiple files can share one DB). Or bulk-load into a saved
@@ -568,6 +580,7 @@ export const FileQueryModal: React.FC<Props> = ({ open, onClose, onImported }) =
             Clear file imports
           </button>
           <div className="flex gap-2">
+            {!embedded && (
             <button
               type="button"
               onClick={onClose}
@@ -575,6 +588,7 @@ export const FileQueryModal: React.FC<Props> = ({ open, onClose, onImported }) =
             >
               Cancel
             </button>
+            )}
             <button
               type="button"
               data-testid="file-query-import"
@@ -588,6 +602,28 @@ export const FileQueryModal: React.FC<Props> = ({ open, onClose, onImported }) =
           </div>
         </div>
       </div>
+  );
+
+  if (embedded) {
+    return (
+      <div
+        data-testid="file-query-modal"
+        className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+      >
+        {form}
+      </div>
+    );
+  }
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[280] flex items-center justify-center bg-slate-950/70 backdrop-blur-[2px] p-4"
+      data-testid="file-query-modal"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      {form}
     </div>,
     document.body
   );

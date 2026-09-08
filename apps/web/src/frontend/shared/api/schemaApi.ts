@@ -117,10 +117,16 @@ function idempotent<T>(key: string, run: () => Promise<T>, ttlMs = 0): Promise<T
 
   const promise = run()
     .then((value) => {
-      cacheSet(key, value, ttlMs);
+      // Skip cache if invalidateCache dropped this entry mid-flight (or a force
+      // refresh replaced it) — otherwise a stale GRANT catalog can land for 60s.
+      if (inflight.get(key) === promise) {
+        cacheSet(key, value, ttlMs);
+      }
       return value;
     })
-    .finally(() => inflight.delete(key));
+    .finally(() => {
+      if (inflight.get(key) === promise) inflight.delete(key);
+    });
 
   inflight.set(key, promise);
   return promise;
@@ -130,10 +136,14 @@ function idempotent<T>(key: string, run: () => Promise<T>, ttlMs = 0): Promise<T
 export function invalidateCache(prefix?: string): void {
   if (!prefix) {
     cache.clear();
+    inflight.clear();
     return;
   }
-  for (const key of cache.keys()) {
+  for (const key of [...cache.keys()]) {
     if (key.startsWith(prefix)) cache.delete(key);
+  }
+  for (const key of [...inflight.keys()]) {
+    if (key.startsWith(prefix)) inflight.delete(key);
   }
 }
 
@@ -390,6 +400,49 @@ export async function fetchDbaUtility(
   return data;
 }
 
+export type TableInsightResponse = {
+  table: string;
+  schema: string;
+  dialect?: string;
+  estimatedRows: number | null;
+  columns: Array<{ name: string; nDistinct: number | null; nullFrac: number | null }>;
+  mode: 'catalog' | 'unsupported';
+  support: { mode: string; query: boolean; hint: string };
+  warning?: string;
+  error?: string;
+};
+
+const TABLE_INSIGHT_TTL_MS = 60_000;
+
+export async function fetchTableInsight(
+  ref: ConnectionRef,
+  opts: { table: string; schema?: string }
+): Promise<TableInsightResponse> {
+  const schema = opts.schema ?? ref.schema;
+  const key = `table-insight:${cacheKeyForRef({ ...ref, schema })}:${opts.table}`;
+  return idempotent(
+    key,
+    async () => {
+      const res = await fetch(`${getApiBase()}/schema/table-insight`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...ref,
+          schema,
+          table: opts.table,
+        }),
+      });
+      const data = await parseJsonBody<TableInsightResponse>(res);
+      if (!res.ok) {
+        throw new Error(data.error || `Table insight failed (${res.status})`);
+      }
+      return data;
+    },
+    TABLE_INSIGHT_TTL_MS
+  );
+}
+
 export type DbAccessResponse = {
   dialect: string;
   schema: string;
@@ -401,25 +454,51 @@ export type DbAccessResponse = {
   error?: string;
 };
 
+/** How long a Database Access catalog stays reused across Access tabs. */
+export const DB_ACCESS_CACHE_TTL_MS = 60_000;
+
+/** Drop cached GRANT catalogs (call after executing GRANT/REVOKE). */
+export function invalidateDbAccessCache(connectionId?: string): void {
+  if (connectionId) {
+    invalidateCache(`db-access:id:${connectionId}`);
+    return;
+  }
+  invalidateCache('db-access:');
+}
+
 /** Utilities / Access control → database users, groups, and privileges. */
 export async function fetchDbAccess(
   ref: ConnectionRef,
-  opts?: { schema?: string }
+  opts?: { schema?: string; force?: boolean }
 ): Promise<DbAccessResponse> {
-  const res = await fetch(`${getApiBase()}/schema/db-access`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      ...ref,
-      schema: opts?.schema,
-    }),
-  });
-  const data = await parseJsonBody<DbAccessResponse & { error?: string }>(res);
-  if (!res.ok) {
-    throw new Error(data.error || `Database access failed (${res.status})`);
+  const schema = opts?.schema ?? ref.schema;
+  const key = `db-access:${cacheKeyForRef({ ...ref, schema })}`;
+  // Explicit Refresh must re-read — the 60s TTL is for tab sharing, not for
+  // buttons whose title says "Reload … from the database".
+  if (opts?.force) {
+    cache.delete(key);
+    inflight.delete(key);
   }
-  return data;
+  return idempotent(
+    key,
+    async () => {
+      const res = await fetch(`${getApiBase()}/schema/db-access`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...ref,
+          schema,
+        }),
+      });
+      const data = await parseJsonBody<DbAccessResponse & { error?: string }>(res);
+      if (!res.ok) {
+        throw new Error(data.error || `Database access failed (${res.status})`);
+      }
+      return data;
+    },
+    DB_ACCESS_CACHE_TTL_MS
+  );
 }
 
 export async function checkDriver(dialect: string): Promise<DriverInfo> {

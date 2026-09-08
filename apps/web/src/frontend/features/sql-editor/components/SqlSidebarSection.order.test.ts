@@ -7,6 +7,8 @@ import { describe, expect, it } from 'vitest';
 import {
   moveSidebarSection,
   pinSchemaFirst,
+  exclusiveSidebarOpen,
+  openOnlySidebarSection,
   type SidebarSectionId,
 } from './SqlSidebarSection';
 
@@ -45,5 +47,42 @@ describe('SQL Editor sidebar order', () => {
       'destinations',
       'utilities',
     ]);
+  });
+});
+
+describe('exclusiveSidebarOpen', () => {
+  const closed = {
+    destinations: false,
+    bookmarks: false,
+    variables: false,
+    vault: false,
+    utilities: false,
+    files: false,
+    schema: false,
+  };
+
+  it('opens one section and closes the others', () => {
+    expect(exclusiveSidebarOpen({ ...closed, schema: true }, 'utilities')).toEqual({
+      ...closed,
+      utilities: true,
+    });
+  });
+
+  it('allows closing the only open section', () => {
+    expect(exclusiveSidebarOpen({ ...closed, schema: true }, 'schema')).toEqual(closed);
+  });
+});
+
+describe('openOnlySidebarSection', () => {
+  it('opens the requested section even if it was already the only one open', () => {
+    expect(openOnlySidebarSection('schema')).toEqual({
+      destinations: false,
+      bookmarks: false,
+      variables: false,
+      vault: false,
+      utilities: false,
+      files: false,
+      schema: true,
+    });
   });
 });

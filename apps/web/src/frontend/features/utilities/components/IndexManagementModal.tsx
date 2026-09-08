@@ -769,7 +769,7 @@ export const IndexManagementModal: React.FC<Props> = ({
 
         <div className="px-5 py-3 border-b border-slate-800 space-y-2.5 shrink-0 bg-slate-950/30">
           <div className="flex flex-wrap items-end gap-2">
-            {!embedded && (
+            {!lockedConnectionId && (
             <label className="flex flex-col gap-1 min-w-[14rem] flex-1">
               <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
                 Credential

@@ -19,8 +19,10 @@ import { useSqlEditorStore, type DataPeekEntry } from '@/app/store/useSqlEditorS
 import { foreignKeyLinksFor, fkDrillTableName, peekBaseFilterLabel } from '@/shared/lib/tablePreview';
 import { DataGrid } from './DataGrid';
 import { usePeekGridCrud } from './usePeekGridCrud';
+import { PeekInsight } from './PeekInsight';
 import { SQL_ICON_STROKE } from '@/shared/lib/iconStyle';
 import type { TableSchema } from '@/shared/lib/types';
+import { useSyncStore } from '@/app/store/useSyncStore';
 
 const DEFAULT_HEIGHT_ROOT = 360;
 /** FK drill panels stack full-width; main body scrolls when many are open. */
@@ -325,6 +327,13 @@ const PeekGrid: React.FC<{
   const pageDataPeekEntry = useSqlEditorStore((s) => s.pageDataPeekEntry);
   const runDataPeekEntry = useSqlEditorStore((s) => s.runDataPeekEntry);
   const clearDataPeekBaseFilter = useSqlEditorStore((s) => s.clearDataPeekBaseFilter);
+  const connectionSchema = useSyncStore(
+    (s) => s.connections.find((c) => c.id === connectionId)?.schema
+  );
+  const [tab, setTab] = useState<'rows' | 'insight'>('rows');
+  useEffect(() => {
+    setTab('rows');
+  }, [entry.id]);
 
   const table = useMemo(() => {
     if (!tables) return undefined;
@@ -460,25 +469,59 @@ const PeekGrid: React.FC<{
         )}
       </div>
 
+      <div
+        className="mb-1 shrink-0 inline-flex rounded-md border border-slate-700 overflow-hidden"
+        data-testid={`data-peek-tabs-${entry.id}`}
+      >
+        <button
+          type="button"
+          data-testid={`data-peek-tab-rows-${entry.id}`}
+          onClick={() => setTab('rows')}
+          className={`px-2.5 py-0.5 text-[11px] font-semibold ${
+            tab === 'rows' ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          Rows
+        </button>
+        <button
+          type="button"
+          data-testid={`data-peek-tab-insight-${entry.id}`}
+          onClick={() => setTab('insight')}
+          className={`px-2.5 py-0.5 text-[11px] font-semibold ${
+            tab === 'insight' ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          Insight
+        </button>
+      </div>
+
       {/* Keep filters editable while a page reloads so clearing WHERE can apply. */}
-      <PeekFilterBar entry={entry} />
+      {tab === 'rows' && <PeekFilterBar entry={entry} />}
 
       {crud.writeErrorBanner}
 
-      {entry.status === 'loading' && !entry.result && (
+      {tab === 'insight' && (
+        <PeekInsight
+          connectionId={connectionId}
+          tableName={entry.tableName}
+          schema={connectionSchema}
+        />
+      )}
+
+      {tab === 'rows' && entry.status === 'loading' && !entry.result && (
         <div className="flex items-center gap-2 px-1 py-4 text-sm font-semibold text-slate-300">
           <Loader2 className="w-3.5 h-3.5 animate-spin" strokeWidth={SQL_ICON_STROKE} />
           Loading {entry.title}…
         </div>
       )}
 
-      {(entry.status === 'error' || (entry.status !== 'loading' && !entry.result)) && (
+      {tab === 'rows' && (entry.status === 'error' || (entry.status !== 'loading' && !entry.result)) && (
         <div className="mx-0.5 my-1 rounded border border-rose-500/40 bg-rose-950/30 px-3 py-2 text-sm font-semibold text-rose-300">
           {entry.error ?? 'Preview failed'}
         </div>
       )}
 
-      {entry.result?.ok && (
+      {tab === 'rows' && entry.result?.ok && (
         <div className="flex-1 min-h-0 flex flex-col">
           <DataGrid
             result={entry.result}

@@ -1,6 +1,6 @@
 import { ConnectionFactory, getAdapter, type ConnectionOptions } from '@foxschema/db';
 import { autoAliasSelectColumns } from '@foxschema/sql';
-import { isPageableStatement, trimPageProbe, wrapSqlForPage } from './sql-page-wrap.service';
+import { isPageableStatement, trimPageProbe, wrapSqlForPage, wrapSqlForSeek, type SqlSeek } from './sql-page-wrap.service';
 
 /**
  * Helpers behind POST /api/sql/execute (SQL Editor). One request = one
@@ -123,7 +123,8 @@ export async function runStatements(
   schema?: string,
   offset = 0,
   /** Bind parameters per statement, aligned by index. Missing = no params. */
-  paramsList: readonly (readonly unknown[])[] = []
+  paramsList: readonly (readonly unknown[])[] = [],
+  seek?: SqlSeek
 ): Promise<StatementResult[]> {
   const schemaName = (schema ?? option.schema)?.trim() || '';
   const optionWithSchema: ConnectionOptions = schemaName
@@ -148,7 +149,7 @@ export async function runStatements(
       const sql = autoAliasSelectColumns(original).sql;
       // Placeholders survive the paging wrap (it only nests the SQL in a
       // subquery), so the same positional params apply on either path.
-      const params = paramsList[index] ?? [];
+      const params = [...(paramsList[index] ?? [])];
       const pushErr = (message: string) => {
         results.push({ ok: false, error: message, durationMs: Date.now() - started });
       };
@@ -190,7 +191,19 @@ export async function runStatements(
         continue;
       }
 
-      const paged = wrapSqlForPage(sql, dialect, offset, maxRows);
+      let paged = wrapSqlForPage(sql, dialect, offset, maxRows);
+      if (seek && offset === 0) {
+        const keyed = wrapSqlForSeek(sql, dialect, seek, maxRows, params.length);
+        if ('error' in keyed) {
+          pushErr(keyed.error);
+          continue;
+        }
+        paged = keyed.sql;
+        params.push(...keyed.seekParams);
+      } else if (seek && offset > 0) {
+        pushErr('Last Id paging cannot skip to an unvisited page; walk Next or use OFFSET when ORDER BY is not unique');
+        continue;
+      }
       try {
         const positional = ConnectionFactory.executePositional(dialect, connection, paged, params);
         const shaped = positional

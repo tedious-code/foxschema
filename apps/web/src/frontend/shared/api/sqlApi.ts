@@ -32,7 +32,10 @@ export async function executeSql(
    * When set, the write came from Data Peek / query-result grid CRUD and the
    * matching `editor.datagrid.*` permission is required in addition to DML.
    */
-  opts?: { datagridAction?: 'insert' | 'update' | 'delete' }
+  opts?: {
+    datagridAction?: 'insert' | 'update' | 'delete';
+    seek?: { columns: string[]; values: unknown[]; descending?: boolean | boolean[] };
+  }
 ): Promise<{ results: SqlStatementResult[] }> {
   const data = await api.post<{ results?: SqlStatementResult[]; error?: string }>(`/sql/execute`, {
       ...ref,
@@ -41,6 +44,7 @@ export async function executeSql(
       offset,
       params,
       ...(opts?.datagridAction ? { datagridAction: opts.datagridAction } : {}),
+      ...(opts?.seek ? { seek: opts.seek } : {}),
     });
   if (!data.results) throw new Error(data.error || 'Query failed: no results returned.');
   return { results: data.results };

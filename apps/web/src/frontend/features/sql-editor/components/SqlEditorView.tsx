@@ -17,13 +17,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
-  Copy,
-  Wrench,
-  Users,
-  Cpu,
-  HardDrive,
-  Activity,
-  FileSpreadsheet,
+  History,
 } from 'lucide-react';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
@@ -55,12 +49,7 @@ import {
   type SidebarSectionId,
 } from './SqlSidebarSection';
 import { WriteConfirmDialog } from './WriteConfirmDialog';
-import { IndexManagementModal } from '@/features/utilities';
-import { CloneTableModal } from '@/features/utilities';
-import { FileQueryModal } from '@/features/utilities';
-import { ServerInsightsModal, type ServerInsightsTab } from '@/features/utilities';
-import { DatabaseAccessModal } from '@/features/utilities';
-import { FileImportsPanel } from './FileImportsPanel';
+import { SqlRunsDrawer } from './SqlRunsDrawer';
 import type { RevealRequest } from './SqlEditorPane';
 
 const SqlEditorPane = lazy(() => import('./SqlEditorPane'));
@@ -71,9 +60,6 @@ const EditorFallback: React.FC = () => (
   </div>
 );
 
-const UTIL_MENU_BTN =
-  'w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] font-semibold text-slate-100 hover:bg-slate-800 hover:text-slate-50 border border-transparent hover:border-amber-500/35';
-const UTIL_MENU_ICON = 'w-3.5 h-3.5 text-amber-400 shrink-0';
 const EDITOR_PCT_MIN = 15;
 const EDITOR_PCT_MAX = 70;
 const EDITOR_PCT_DEFAULT = 26;
@@ -111,8 +97,6 @@ export const SqlEditorView: React.FC = () => {
   const canEditorBookmarks = useAuthStore((s) => s.can('editor.sidebar.bookmarks'));
   const canEditorVariables = useAuthStore((s) => s.can('editor.sidebar.variables'));
   const canEditorSecrets = useAuthStore((s) => s.can('editor.sidebar.secrets'));
-  const canEditorUtilities = useAuthStore((s) => s.can('editor.sidebar.utilities'));
-  const canUtilityAccess = useAuthStore((s) => s.can('utility.access'));
   const canEditorSchema = useAuthStore((s) => s.can('editor.sidebar.schema'));
   const canSecretsView = useAuthStore((s) => s.can('secrets.view'));
   const canVariablesRead = useAuthStore((s) => s.can('editor.variables.read'));
@@ -123,7 +107,6 @@ export const SqlEditorView: React.FC = () => {
   const resultsByTab = useSqlEditorStore((s) => s.resultsByTab);
   const runningTabId = useSqlEditorStore((s) => s.runningTabId);
   const pendingWriteConfirm = useSqlEditorStore((s) => s.pendingWriteConfirm);
-  const schemaCache = useSqlEditorStore((s) => s.schemaCache);
   const setSql = useSqlEditorStore((s) => s.setSql);
   const execute = useSqlEditorStore((s) => s.execute);
   const cancelWriteConfirm = useSqlEditorStore((s) => s.cancelWriteConfirm);
@@ -135,7 +118,6 @@ export const SqlEditorView: React.FC = () => {
   const setActiveTab = useSqlEditorStore((s) => s.setActiveTab);
   const renameTab = useSqlEditorStore((s) => s.renameTab);
   const moveTab = useSqlEditorStore((s) => s.moveTab);
-  const ensureSchema = useSqlEditorStore((s) => s.ensureSchema);
   const setMaxRows = useSqlEditorStore((s) => s.setMaxRows);
   const maxRows = useSqlEditorStore((s) => s.maxRows);
   const saveBookmark = useSqlEditorStore((s) => s.saveBookmark);
@@ -165,20 +147,16 @@ export const SqlEditorView: React.FC = () => {
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(loadSidebarCollapsed);
   const splitRef = useRef<HTMLDivElement>(null);
-  const [sidebarOpen, toggleSidebar] = useSidebarSectionsOpen();
+  const [sidebarOpen, , selectSidebar] = useSidebarSectionsOpen();
   const [sectionHeights, setSectionHeight] = useSidebarSectionHeights();
   const [sectionOrder, moveSection] = useSidebarSectionOrder();
+  const prevDestCount = useRef(liveSelectedIds.length);
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
   const secretsPanelRef = useRef<SqlSecretsPanelHandle>(null);
   const schemaExplorerRef = useRef<SqlSchemaExplorerHandle>(null);
   const [secretsRefreshing, setSecretsRefreshing] = useState(false);
-  const [showIndexManagement, setShowIndexManagement] = useState(false);
-  const [showCloneTable, setShowCloneTable] = useState(false);
-  const [showFileQuery, setShowFileQuery] = useState(false);
-  const [showDatabaseAccess, setShowDatabaseAccess] = useState(false);
-  const [fileImportsKey, setFileImportsKey] = useState(0);
-  const [serverInsightsTab, setServerInsightsTab] = useState<ServerInsightsTab | null>(null);
+  const [runsOpen, setRunsOpen] = useState(false);
 
   const onSecretsRefresh = useCallback(async () => {
     setSecretsRefreshing(true);
@@ -205,7 +183,16 @@ export const SqlEditorView: React.FC = () => {
     }
   }, [sidebarCollapsed]);
 
+  useEffect(() => {
+    const n = liveSelectedIds.length;
+    if (n >= 2 && prevDestCount.current < 2 && tab.layout !== 'sideBySide') {
+      setLayout('sideBySide');
+    }
+    prevDestCount.current = n;
+  }, [liveSelectedIds.length, setLayout, tab.layout]);
+
   // Completion provider reads active SQL + checked schemas + variables via this getter.
+  // Cold destinations warm lazily on first completion — not N+1 on every mount.
   useEffect(() => {
     setCompletionContextGetter(() => {
       const state = useSqlEditorStore.getState();
@@ -215,7 +202,10 @@ export const SqlEditorView: React.FC = () => {
       const schemas = destIds
         .map((id) => {
           const entry = state.schemaCache[id];
-          if (entry?.status !== 'ready' || !entry.tables) return null;
+          if (entry?.status !== 'ready' || !entry.tables) {
+            if (entry?.status !== 'loading') void state.ensureSchema(id);
+            return null;
+          }
           return {
             connectionId: id,
             tables: entry.tables,
@@ -233,15 +223,6 @@ export const SqlEditorView: React.FC = () => {
     });
     return () => setSqlMutator(null);
   }, []);
-
-  // Warm schema cache for checked credentials (autocomplete).
-  useEffect(() => {
-    for (const id of liveSelectedIds) {
-      if (!schemaCache[id] || schemaCache[id]?.status === 'idle') {
-        void ensureSchema(id);
-      }
-    }
-  }, [liveSelectedIds.join(','), ensureSchema]);
 
   const startEditorResize = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -398,11 +379,12 @@ export const SqlEditorView: React.FC = () => {
           if (!canEditorDestinations) return null;
           return (
             <SqlSidebarSection
+              railPanel
               id="destinations"
               title="Destination servers"
               icon={<Database className="text-[#0284c7]" strokeWidth={SQL_ICON_STROKE} />}
               open={sidebarOpen.destinations}
-              onToggle={() => toggleSidebar('destinations')}
+              onToggle={() => selectSidebar('destinations')}
               height={sectionHeights.destinations}
               onResizeHeight={(h) => setSectionHeight('destinations', h)}
               {...drag}
@@ -414,11 +396,12 @@ export const SqlEditorView: React.FC = () => {
           if (!canEditorBookmarks) return null;
           return (
             <SqlSidebarSection
+              railPanel
               id="bookmarks"
               title="Bookmarks"
               icon={<Bookmark className="text-[#f59e0b]" strokeWidth={SQL_ICON_STROKE} />}
               open={sidebarOpen.bookmarks}
-              onToggle={() => toggleSidebar('bookmarks')}
+              onToggle={() => selectSidebar('bookmarks')}
               height={sectionHeights.bookmarks}
               onResizeHeight={(h) => setSectionHeight('bookmarks', h)}
               actions={
@@ -442,11 +425,12 @@ export const SqlEditorView: React.FC = () => {
           if (!canEditorVariables || !canVariablesRead) return null;
           return (
             <SqlSidebarSection
+              railPanel
               id="variables"
               title="Variables"
               icon={<Braces className="text-[#7c3aed]" strokeWidth={SQL_ICON_STROKE} />}
               open={sidebarOpen.variables}
-              onToggle={() => toggleSidebar('variables')}
+              onToggle={() => selectSidebar('variables')}
               height={sectionHeights.variables}
               onResizeHeight={(h) => setSectionHeight('variables', h)}
               {...drag}
@@ -458,11 +442,12 @@ export const SqlEditorView: React.FC = () => {
           if (!canEditorSecrets || !canSecretsView) return null;
           return (
             <SqlSidebarSection
+              railPanel
               id="vault"
               title="Secrets"
               icon={<KeyRound className="text-[#d97706]" strokeWidth={SQL_ICON_STROKE} />}
               open={sidebarOpen.vault}
-              onToggle={() => toggleSidebar('vault')}
+              onToggle={() => selectSidebar('vault')}
               height={sectionHeights.vault}
               onResizeHeight={(h) => setSectionHeight('vault', h)}
               actions={
@@ -487,120 +472,18 @@ export const SqlEditorView: React.FC = () => {
             </SqlSidebarSection>
           );
         case 'utilities':
-          if (!canEditorUtilities || !canUtilityAccess) return null;
-          return (
-            <SqlSidebarSection
-              id="utilities"
-              title="Utilities"
-              icon={<Wrench className="text-[#d97706]" strokeWidth={SQL_ICON_STROKE} />}
-              open={sidebarOpen.utilities}
-              onToggle={() => toggleSidebar('utilities')}
-              {...drag}
-            >
-              <div className="px-1 pb-2 flex flex-col gap-0.5">
-                <button
-                  type="button"
-                  data-testid="utilities-index-management"
-                  onClick={() => setShowIndexManagement(true)}
-                  className={UTIL_MENU_BTN}
-                >
-                  <Database className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
-                  Index Management
-                </button>
-                <button
-                  type="button"
-                  data-testid="utilities-database-access"
-                  onClick={() => setShowDatabaseAccess(true)}
-                  className={UTIL_MENU_BTN}
-                >
-                  <KeyRound className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
-                  DB users & grants
-                </button>
-                <button
-                  type="button"
-                  data-testid="utilities-clone-table"
-                  onClick={() => setShowCloneTable(true)}
-                  className={UTIL_MENU_BTN}
-                >
-                  <Copy className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
-                  Clone Table
-                </button>
-                <button
-                  type="button"
-                  data-testid="utilities-query-files"
-                  onClick={() => setShowFileQuery(true)}
-                  className={UTIL_MENU_BTN}
-                >
-                  <FileSpreadsheet className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
-                  Query files
-                </button>
-                <button
-                  type="button"
-                  data-testid="utilities-connection-pool"
-                  onClick={() => setServerInsightsTab('pool')}
-                  className={UTIL_MENU_BTN}
-                >
-                  <Activity className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
-                  Connection Pool
-                </button>
-                <button
-                  type="button"
-                  data-testid="utilities-user-connections"
-                  onClick={() => setServerInsightsTab('sessions')}
-                  className={UTIL_MENU_BTN}
-                >
-                  <Users className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
-                  User Connections
-                </button>
-                <button
-                  type="button"
-                  data-testid="utilities-system-info"
-                  onClick={() => setServerInsightsTab('system')}
-                  className={UTIL_MENU_BTN}
-                >
-                  <Cpu className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
-                  System Info
-                </button>
-                <button
-                  type="button"
-                  data-testid="utilities-object-sizes"
-                  onClick={() => setServerInsightsTab('sizes')}
-                  className={UTIL_MENU_BTN}
-                >
-                  <HardDrive className={UTIL_MENU_ICON} strokeWidth={SQL_ICON_STROKE} />
-                  Table & Index Size
-                </button>
-              </div>
-            </SqlSidebarSection>
-          );
         case 'files':
-          if (!canEditorUtilities || !canUtilityAccess) return null;
-          return (
-            <SqlSidebarSection
-              id="files"
-              title="Files"
-              icon={<FileSpreadsheet className="text-[#f59e0b]" strokeWidth={SQL_ICON_STROKE} />}
-              open={sidebarOpen.files}
-              onToggle={() => toggleSidebar('files')}
-              height={sectionHeights.files}
-              onResizeHeight={(h) => setSectionHeight('files', h)}
-              {...drag}
-            >
-              <FileImportsPanel
-                refreshKey={fileImportsKey}
-                onImportClick={() => setShowFileQuery(true)}
-              />
-            </SqlSidebarSection>
-          );
+          return null;
         case 'schema':
           if (!canEditorSchema) return null;
           return (
             <SqlSidebarSection
+              railPanel
               id="schema"
               title="Schema"
               icon={<Network className="text-[#059669]" strokeWidth={SQL_ICON_STROKE} />}
               open={sidebarOpen.schema}
-              onToggle={() => toggleSidebar('schema')}
+              onToggle={() => selectSidebar('schema')}
               grow
               height={sectionHeights.schema}
               onResizeHeight={(h) => setSectionHeight('schema', h)}
@@ -632,63 +515,136 @@ export const SqlEditorView: React.FC = () => {
       canVariablesRead,
       canEditorSecrets,
       canSecretsView,
-      canEditorUtilities,
-      canUtilityAccess,
       canEditorSchema,
       sidebarOpen,
-      toggleSidebar,
+      selectSidebar,
       sectionHeights,
       setSectionHeight,
       tab.sql,
       saveBookmark,
       secretsRefreshing,
       onSecretsRefresh,
-      fileImportsKey,
       sidebarDragProps,
     ]
   );
 
+  const railIcons: {
+    id: SidebarSectionId;
+    title: string;
+    visible: boolean;
+    icon: React.ReactNode;
+  }[] = [
+    {
+      id: 'schema',
+      title: 'Schema',
+      visible: canEditorSchema,
+      icon: <Network className="text-[#059669]" strokeWidth={SQL_ICON_STROKE} />,
+    },
+    {
+      id: 'destinations',
+      title: 'Destinations',
+      visible: canEditorDestinations,
+      icon: <Database className="text-[#0284c7]" strokeWidth={SQL_ICON_STROKE} />,
+    },
+    {
+      id: 'bookmarks',
+      title: 'Bookmarks',
+      visible: canEditorBookmarks,
+      icon: <Bookmark className="text-[#f59e0b]" strokeWidth={SQL_ICON_STROKE} />,
+    },
+    {
+      id: 'variables',
+      title: 'Variables',
+      visible: canEditorVariables && canVariablesRead,
+      icon: <Braces className="text-[#7c3aed]" strokeWidth={SQL_ICON_STROKE} />,
+    },
+    {
+      id: 'vault',
+      title: 'Secrets',
+      visible: canEditorSecrets && canSecretsView,
+      icon: <KeyRound className="text-[#d97706]" strokeWidth={SQL_ICON_STROKE} />,
+    },
+  ];
+  const orderedRail = sectionOrder
+    .map((id) => railIcons.find((r) => r.id === id))
+    .filter((r): r is NonNullable<typeof r> => Boolean(r?.visible));
+  const openRailId = orderedRail.find((r) => sidebarOpen[r.id])?.id ?? orderedRail[0]?.id ?? null;
+
   return (
     <div className="flex-1 flex min-h-0 overflow-hidden" data-testid="sql-editor-view">
-      {sidebarCollapsed ? (
-        <aside
-          className="w-10 shrink-0 border-r border-slate-800 bg-slate-950 flex flex-col items-center py-2 gap-1"
-          data-testid="sql-sidebar-collapsed"
+      <aside
+        className="relative shrink-0 border-r border-slate-800 bg-slate-950 overflow-hidden flex min-h-0"
+        style={{ width: sidebarCollapsed ? 48 : 48 + sidebarWidth }}
+        data-testid={sidebarCollapsed ? 'sql-sidebar-collapsed' : 'sql-sidebar'}
+      >
+        <nav
+          className="flex w-12 shrink-0 flex-col items-center gap-0.5 border-r border-slate-800 py-1"
+          aria-label="SQL sections"
         >
-          <button
-            type="button"
-            data-testid="sql-sidebar-expand"
-            title="Show sidebar"
-            aria-label="Show sidebar"
-            onClick={() => setSidebarCollapsed(false)}
-            className="p-1.5 rounded text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition"
-          >
-            <PanelLeftOpen className="w-4 h-4 text-sky-500" strokeWidth={SQL_ICON_STROKE} />
-          </button>
-        </aside>
-      ) : (
-        <aside
-          className="relative shrink-0 border-r border-slate-800 bg-slate-950 overflow-hidden flex flex-col min-h-0"
-          style={{ width: sidebarWidth }}
-          data-testid="sql-sidebar"
-        >
-          <div className="flex items-center justify-end px-2 py-1 border-b border-slate-800 shrink-0 bg-slate-950">
+          {sidebarCollapsed ? (
+            <button
+              type="button"
+              data-testid="sql-sidebar-expand"
+              title="Show sidebar"
+              aria-label="Show sidebar"
+              onClick={() => setSidebarCollapsed(false)}
+              className="rounded p-1.5 text-slate-400 transition hover:bg-slate-800 hover:text-slate-100"
+            >
+              <PanelLeftOpen className="h-4 w-4 text-sky-500" strokeWidth={SQL_ICON_STROKE} />
+            </button>
+          ) : (
             <button
               type="button"
               data-testid="sql-sidebar-collapse"
               title="Hide sidebar"
               aria-label="Hide sidebar"
               onClick={() => setSidebarCollapsed(true)}
-              className="p-1 rounded text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition"
+              className="rounded p-1.5 text-slate-400 transition hover:bg-slate-800 hover:text-slate-100"
             >
-              <PanelLeftClose className="w-3.5 h-3.5 text-sky-500" strokeWidth={SQL_ICON_STROKE} />
+              <PanelLeftClose className="h-3.5 w-3.5 text-sky-500" strokeWidth={SQL_ICON_STROKE} />
             </button>
+          )}
+          {orderedRail.map((item) => {
+            const on = item.id === openRailId && !sidebarCollapsed;
+            return (
+              <div
+                key={item.id}
+                data-testid={!on ? `sql-sidebar-${item.id}` : undefined}
+                className="flex w-full justify-center"
+                {...sidebarDragProps(sectionOrder.indexOf(item.id))}
+              >
+                <button
+                  type="button"
+                  data-testid={`sql-sidebar-toggle-${item.id}`}
+                  title={item.title}
+                  aria-label={item.title}
+                  aria-expanded={on}
+                  onClick={() => {
+                    selectSidebar(item.id);
+                    setSidebarCollapsed(false);
+                  }}
+                  className={`flex h-10 w-10 items-center justify-center rounded-md transition ${
+                    on
+                      ? 'bg-slate-800 text-slate-100 ring-1 ring-slate-600'
+                      : 'text-slate-400 hover:bg-slate-800/70 hover:text-slate-100'
+                  }`}
+                >
+                  <span className="flex items-center [&_svg]:h-4 [&_svg]:w-4">{item.icon}</span>
+                </button>
+              </div>
+            );
+          })}
+        </nav>
+        {!sidebarCollapsed && (
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-slate-950">
+            {sectionOrder.map((id, index) =>
+              id === openRailId ? (
+                <React.Fragment key={id}>{renderSidebarSection(id, index)}</React.Fragment>
+              ) : null
+            )}
           </div>
-          <div className="flex-1 flex flex-col min-h-0 overflow-y-auto overflow-x-hidden bg-slate-950">
-            {sectionOrder.map((id, index) => (
-              <React.Fragment key={id}>{renderSidebarSection(id, index)}</React.Fragment>
-            ))}
-          </div>
+        )}
+        {!sidebarCollapsed && (
           <div
             role="separator"
             aria-orientation="vertical"
@@ -696,10 +652,10 @@ export const SqlEditorView: React.FC = () => {
             data-testid="sql-sidebar-resize"
             title="Drag to resize sidebar"
             onMouseDown={startSidebarResize}
-            className="absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-cyan-500/40 active:bg-cyan-500/60 transition-colors z-10"
+            className="absolute top-0 right-0 z-10 h-full w-1.5 cursor-col-resize hover:bg-cyan-500/40 active:bg-cyan-500/60"
           />
-        </aside>
-      )}
+        )}
+      </aside>
 
       <section className="flex-1 flex flex-col min-w-0 min-h-0">
         <EditorTabBar
@@ -713,6 +669,11 @@ export const SqlEditorView: React.FC = () => {
         />
 
         <div className="flex items-center gap-2 px-4 py-2 border-b border-slate-800 bg-slate-900/60 shrink-0">
+          {canEditorDestinations && (
+            <div className="min-w-0 max-w-[min(100%,28rem)] shrink">
+              <ConnectionChecklist variant="chips" />
+            </div>
+          )}
           <button
             data-testid="sql-run-btn"
             onClick={() => execute()}
@@ -729,7 +690,11 @@ export const SqlEditorView: React.FC = () => {
             ) : (
               <Play className="w-3.5 h-3.5 fill-current text-emerald-50" strokeWidth={SQL_ICON_STROKE} />
             )}
-            {hasSelection ? 'Run selection' : 'Run'}
+            {hasSelection
+              ? 'Run selection'
+              : liveSelectedIds.length > 0
+                ? `Run · ${liveSelectedIds.length}`
+                : 'Run'}
           </button>
           <button
             type="button"
@@ -774,6 +739,20 @@ export const SqlEditorView: React.FC = () => {
             className="flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 transition disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <BookmarkPlus className="w-3.5 h-3.5 text-amber-400" strokeWidth={SQL_ICON_STROKE} /> Bookmark
+          </button>
+          <button
+            type="button"
+            data-testid="sql-runs-drawer-btn"
+            aria-pressed={runsOpen}
+            onClick={() => setRunsOpen((v) => !v)}
+            title="Recent runs"
+            className={`flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] font-semibold transition ${
+              runsOpen
+                ? 'bg-slate-800 text-cyan-300'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+            }`}
+          >
+            <History className="w-3.5 h-3.5 text-cyan-400" strokeWidth={SQL_ICON_STROKE} /> Runs
           </button>
 
           <div className="flex items-center rounded border border-slate-800 overflow-hidden ml-1">
@@ -929,6 +908,7 @@ export const SqlEditorView: React.FC = () => {
           </div>
         </div>
       </section>
+      <SqlRunsDrawer open={runsOpen} onClose={() => setRunsOpen(false)} />
 
       {pendingWriteConfirm && pendingWriteConfirm.tabId === tab.id && (
         <WriteConfirmDialog
@@ -949,25 +929,6 @@ export const SqlEditorView: React.FC = () => {
       )}
       {/* Always mounted so FK clicks from results work even when Schema is collapsed. */}
       <DataPeekPanel />
-      <IndexManagementModal
-        open={showIndexManagement}
-        onClose={() => setShowIndexManagement(false)}
-      />
-      <DatabaseAccessModal
-        open={showDatabaseAccess}
-        onClose={() => setShowDatabaseAccess(false)}
-      />
-      <CloneTableModal open={showCloneTable} onClose={() => setShowCloneTable(false)} />
-      <FileQueryModal
-        open={showFileQuery}
-        onClose={() => setShowFileQuery(false)}
-        onImported={() => setFileImportsKey((k) => k + 1)}
-      />
-      <ServerInsightsModal
-        open={serverInsightsTab != null}
-        initialTab={serverInsightsTab ?? 'pool'}
-        onClose={() => setServerInsightsTab(null)}
-      />
     </div>
   );
 };
