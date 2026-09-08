@@ -3,13 +3,11 @@
  * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
  * SPDX-License-Identifier: Apache-2.0
  *
- * Database Access Assistant — horizontal capsule menu (same pattern as
- * Workspace / Schema Sync sub-nav).
+ * Database Access — one workspace credential, principals-first.
  *
- * Menu: User Management · Permission · Diff.
- * One workspace credential chip; panels inherit it instead of asking again.
- * Permission uses the live dialect-aware panel (same as Database Access).
- * Access report (Users and Roles) lives under Access control.
+ * Landing chrome matches the Access proposal: PRINCIPALS sidebar +
+ * Account | Grants | Effective. User Management and Diff stay as secondary
+ * tabs (e2e testids preserved).
  */
 import React, { useEffect, useState } from 'react';
 import { UserCog, GitCompare, ShieldCheck } from 'lucide-react';
@@ -28,8 +26,8 @@ const SECTIONS: {
   label: string;
   icon: React.ElementType;
 }[] = [
+  { id: 'permission', label: 'Principals', icon: ShieldCheck },
   { id: 'users', label: 'User Management', icon: UserCog },
-  { id: 'permission', label: 'Permission', icon: ShieldCheck },
   { id: 'diff', label: 'Diff', icon: GitCompare },
 ];
 
@@ -44,10 +42,9 @@ function loadConnectionId(connections: { id: string }[]): string {
 }
 
 export const AccessView: React.FC = () => {
-  // Default Users so AccessView tests that expect user-management on paint keep
-  // passing.
   const connections = useSyncStore((s) => s.connections);
-  const [section, setSection] = useState<AccessSection>('users');
+  // Principals (Permission panel) is first paint — matches the Access mockups.
+  const [section, setSection] = useState<AccessSection>('permission');
   const [grantDraft, setGrantDraft] = useState<AccessPrincipalDraft | null>(null);
   const [connectionId, setConnectionId] = useState('');
   const conn = connections.find((c) => c.id === connectionId);
@@ -128,24 +125,26 @@ export const AccessView: React.FC = () => {
           {conn?.database && (
             <span className="truncate font-mono text-[10px] text-slate-500" title={conn.database}>
               {conn.database}
+              {conn.schema ? ` · ${conn.schema}` : ''}
             </span>
           )}
         </label>
       </nav>
 
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-        {section === 'users' && (
-          <UserManagement
-            lockedConnectionId={connectionId}
-            onConnectionChange={pickConnection}
-            onGrantAccess={(draft) => openPermission(draft)}
-          />
-        )}
         {section === 'permission' && (
           <AccessPermissionPanel
             initialDraft={grantDraft}
             lockedConnectionId={connectionId}
             onConnectionChange={pickConnection}
+            onAddUser={() => setSection('users')}
+          />
+        )}
+        {section === 'users' && (
+          <UserManagement
+            lockedConnectionId={connectionId}
+            onConnectionChange={pickConnection}
+            onGrantAccess={(draft) => openPermission(draft)}
           />
         )}
         {section === 'diff' && (

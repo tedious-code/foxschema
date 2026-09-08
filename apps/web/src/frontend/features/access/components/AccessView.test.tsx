@@ -80,11 +80,15 @@ describe('AccessView — User Management list + Builder handoff', () => {
     });
   });
 
-  it('shows howto, loads user list, and hands off Add user to Permission Builder', async () => {
+  it('lands on Principals and hands off Add user from User Management', async () => {
     render(<AccessView />);
 
-    expect(screen.getByTestId('user-management')).toBeTruthy();
+    expect(screen.getByTestId('access-permission-panel')).toBeTruthy();
+    expect(screen.getByTestId('access-tab-permission').getAttribute('aria-current')).toBe('page');
     expect(screen.getByTestId('access-connection')).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId('access-tab-users'));
+    expect(screen.getByTestId('user-management')).toBeTruthy();
     expect(screen.getByTestId('user-howto').textContent).toMatch(/How User Management works/);
 
     fireEvent.change(screen.getByTestId('access-connection'), { target: { value: 'c1' } });
@@ -114,17 +118,21 @@ describe('AccessView — User Management list + Builder handoff', () => {
   it('keeps one workspace credential across Users and Permission', async () => {
     render(<AccessView />);
     fireEvent.change(screen.getByTestId('access-connection'), { target: { value: 'c1' } });
-    await waitFor(() => expect(screen.getByTestId('user-row-alice')).toBeTruthy());
-    fireEvent.click(screen.getByTestId('access-tab-permission'));
+    await waitFor(() => expect(screen.getByTestId('access-principals-sidebar')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('access-permission-row-alice')).toBeTruthy());
     expect((screen.getByTestId('access-connection') as HTMLSelectElement).value).toBe('c1');
     expect((screen.getByTestId('access-permission-connection') as HTMLSelectElement).value).toBe(
       'c1'
     );
+    fireEvent.click(screen.getByTestId('access-tab-users'));
+    await waitFor(() => expect(screen.getByTestId('user-row-alice')).toBeTruthy());
+    expect((screen.getByTestId('access-connection') as HTMLSelectElement).value).toBe('c1');
   });
 
   it('previews DROP SQL when dropping a listed user', async () => {
     render(<AccessView />);
-    fireEvent.change(screen.getByTestId('user-connection'), { target: { value: 'c1' } });
+    fireEvent.click(screen.getByTestId('access-tab-users'));
+    fireEvent.change(screen.getByTestId('access-connection'), { target: { value: 'c1' } });
     await waitFor(() => expect(screen.getByTestId('user-row-alice')).toBeTruthy());
 
     fireEvent.click(screen.getByTestId('user-row-alice'));
@@ -143,7 +151,8 @@ describe('AccessView — User Management list + Builder handoff', () => {
       privileges: [],
     });
     render(<AccessView />);
-    fireEvent.change(screen.getByTestId('user-connection'), { target: { value: 'c2' } });
+    fireEvent.click(screen.getByTestId('access-tab-users'));
+    fireEvent.change(screen.getByTestId('access-connection'), { target: { value: 'c2' } });
     await waitFor(() => expect(fetchDbAccess).toHaveBeenCalled());
     expect(screen.getByTestId('user-dialect-coach').textContent).toMatch(/name@host/i);
     fireEvent.click(screen.getByTestId('user-add-user'));
@@ -168,7 +177,8 @@ describe('AccessView — User Management list + Builder handoff', () => {
       privileges: [],
     });
     render(<AccessView />);
-    fireEvent.change(screen.getByTestId('user-connection'), { target: { value: 'c3' } });
+    fireEvent.click(screen.getByTestId('access-tab-users'));
+    fireEvent.change(screen.getByTestId('access-connection'), { target: { value: 'c3' } });
     await waitFor(() => expect(fetchDbAccess).toHaveBeenCalled());
     expect(screen.getByTestId('user-dialect-coach').textContent).toMatch(/Db2/i);
     expect(screen.getByTestId('user-add-user').textContent).toMatch(/Add user \(OS\)/);
@@ -219,7 +229,8 @@ describe('AccessView — User Management list + Builder handoff', () => {
       privileges: [],
     });
     render(<AccessView />);
-    fireEvent.change(screen.getByTestId('user-connection'), { target: { value: 'c3' } });
+    fireEvent.click(screen.getByTestId('access-tab-users'));
+    fireEvent.change(screen.getByTestId('access-connection'), { target: { value: 'c3' } });
     await waitFor(() => expect(screen.getByTestId('user-row-REPORT_USER')).toBeTruthy());
 
     fireEvent.click(screen.getByTestId('user-row-REPORT_USER'));
@@ -237,7 +248,8 @@ describe('AccessView — User Management list + Builder handoff', () => {
 
   it('hands off Grant access from a selected list row', async () => {
     render(<AccessView />);
-    fireEvent.change(screen.getByTestId('user-connection'), { target: { value: 'c1' } });
+    fireEvent.click(screen.getByTestId('access-tab-users'));
+    fireEvent.change(screen.getByTestId('access-connection'), { target: { value: 'c1' } });
     await waitFor(() => expect(screen.getByTestId('user-row-alice')).toBeTruthy());
 
     fireEvent.click(screen.getByTestId('user-row-alice'));
@@ -282,7 +294,8 @@ describe('AccessView — User Management list + Builder handoff', () => {
       ],
     });
     render(<AccessView />);
-    fireEvent.change(screen.getByTestId('user-connection'), { target: { value: 'c1' } });
+    fireEvent.click(screen.getByTestId('access-tab-users'));
+    fireEvent.change(screen.getByTestId('access-connection'), { target: { value: 'c1' } });
     await waitFor(() => expect(screen.getByTestId('user-row-alice')).toBeTruthy());
 
     fireEvent.click(screen.getByTestId('user-row-alice'));
@@ -296,7 +309,8 @@ describe('AccessView — User Management list + Builder handoff', () => {
 
   it('opens Edit on double-click', async () => {
     render(<AccessView />);
-    fireEvent.change(screen.getByTestId('user-connection'), { target: { value: 'c1' } });
+    fireEvent.click(screen.getByTestId('access-tab-users'));
+    fireEvent.change(screen.getByTestId('access-connection'), { target: { value: 'c1' } });
     await waitFor(() => expect(screen.getByTestId('user-row-alice')).toBeTruthy());
 
     fireEvent.doubleClick(screen.getByTestId('user-row-alice'));
@@ -339,11 +353,12 @@ describe('AccessView — User Management list + Builder handoff', () => {
     });
 
     render(<AccessView />);
-    fireEvent.change(screen.getByTestId('user-connection'), { target: { value: 'c1' } });
+    fireEvent.click(screen.getByTestId('access-tab-users'));
+    fireEvent.change(screen.getByTestId('access-connection'), { target: { value: 'c1' } });
     await waitFor(() => expect(fetchDbAccess).toHaveBeenCalled());
 
     // Move on while c1's read is still in flight.
-    fireEvent.change(screen.getByTestId('user-connection'), { target: { value: 'c2' } });
+    fireEvent.change(screen.getByTestId('access-connection'), { target: { value: 'c2' } });
     await waitFor(() => expect(screen.getByTestId('user-row-only_on_mysql')).toBeTruthy());
 
     // Wait past c1's delay so its response has certainly arrived, then check
@@ -383,7 +398,8 @@ describe('AccessView — letting a new account in', () => {
    */
   it('grants the schemas picked while creating, in the same script', async () => {
     render(<AccessView />);
-    fireEvent.change(screen.getByTestId('user-connection'), { target: { value: 'c1' } });
+    fireEvent.click(screen.getByTestId('access-tab-users'));
+    fireEvent.change(screen.getByTestId('access-connection'), { target: { value: 'c1' } });
     await waitFor(() => expect(fetchSchemaList).toHaveBeenCalled());
 
     fireEvent.click(screen.getByTestId('user-add-user'));
@@ -412,7 +428,8 @@ describe('AccessView — letting a new account in', () => {
     // database *is* the schema. Offering the control there would generate SQL
     // the engine rejects.
     render(<AccessView />);
-    fireEvent.change(screen.getByTestId('user-connection'), { target: { value: 'c2' } });
+    fireEvent.click(screen.getByTestId('access-tab-users'));
+    fireEvent.change(screen.getByTestId('access-connection'), { target: { value: 'c2' } });
     fireEvent.click(screen.getByTestId('user-add-user'));
     fireEvent.change(screen.getByTestId('user-name'), { target: { value: 'report_user' } });
 
@@ -423,7 +440,8 @@ describe('AccessView — letting a new account in', () => {
 
   it('grants a MySQL database to the same name@host account it creates', async () => {
     render(<AccessView />);
-    fireEvent.change(screen.getByTestId('user-connection'), { target: { value: 'c2' } });
+    fireEvent.click(screen.getByTestId('access-tab-users'));
+    fireEvent.change(screen.getByTestId('access-connection'), { target: { value: 'c2' } });
     fireEvent.click(screen.getByTestId('user-add-user'));
     fireEvent.change(screen.getByTestId('user-name'), { target: { value: 'report_user' } });
     fireEvent.change(screen.getByTestId('user-host'), { target: { value: 'localhost' } });
@@ -486,14 +504,14 @@ describe('AccessView — Permission Diff stale catalog', () => {
     render(<AccessView />);
     fireEvent.click(screen.getByTestId('access-tab-diff'));
 
-    fireEvent.change(screen.getByTestId('diff-connection'), { target: { value: 'c1' } });
+    fireEvent.change(screen.getByTestId('access-connection'), { target: { value: 'c1' } });
     fireEvent.change(screen.getByTestId('diff-principal-name'), { target: { value: 'alice' } });
     fireEvent.click(screen.getByTestId('diff-load-catalog'));
 
     await waitFor(() => expect(screen.getByTestId('diff-summary')).toBeTruthy());
     expect(screen.getByTestId('permission-diff').textContent).toMatch(/only_on_postgres/);
 
-    fireEvent.change(screen.getByTestId('diff-connection'), { target: { value: 'c2' } });
+    fireEvent.change(screen.getByTestId('access-connection'), { target: { value: 'c2' } });
 
     await waitFor(() => expect(screen.getByTestId('diff-empty')).toBeTruthy());
     expect(screen.getByTestId('diff-empty').textContent).toMatch(/Load the catalog/);
@@ -520,12 +538,12 @@ describe('AccessView — Permission Diff stale catalog', () => {
     render(<AccessView />);
     fireEvent.click(screen.getByTestId('access-tab-diff'));
 
-    fireEvent.change(screen.getByTestId('diff-connection'), { target: { value: 'c1' } });
+    fireEvent.change(screen.getByTestId('access-connection'), { target: { value: 'c1' } });
     fireEvent.change(screen.getByTestId('diff-principal-name'), { target: { value: 'alice' } });
     fireEvent.click(screen.getByTestId('diff-load-catalog'));
     await waitFor(() => expect(fetchDbAccess).toHaveBeenCalled());
 
-    fireEvent.change(screen.getByTestId('diff-connection'), { target: { value: 'c2' } });
+    fireEvent.change(screen.getByTestId('access-connection'), { target: { value: 'c2' } });
     // Principal is cleared with the panel state only for privileges; keep alice.
     fireEvent.change(screen.getByTestId('diff-principal-name'), { target: { value: 'alice' } });
     fireEvent.click(screen.getByTestId('diff-load-catalog'));
@@ -572,9 +590,7 @@ describe('AccessView — Permission stale catalog', () => {
     );
 
     render(<AccessView />);
-    fireEvent.click(screen.getByTestId('access-tab-permission'));
-
-    const connection = screen.getByTestId('access-permission-connection');
+    const connection = screen.getByTestId('access-connection');
     fireEvent.change(connection, { target: { value: 'c1' } });
     await waitFor(() =>
       expect(fetchDbAccess).toHaveBeenCalledWith(

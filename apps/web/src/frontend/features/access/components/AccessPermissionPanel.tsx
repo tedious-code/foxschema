@@ -17,6 +17,7 @@ import {
   Copy,
   FileCode2,
   Loader2,
+  Plus,
   RefreshCw,
 } from 'lucide-react';
 import {
@@ -39,6 +40,7 @@ import { PermissionInspector } from './PermissionInspector';
 import type { AccessPrincipalDraft } from '../lib/access-draft';
 
 type PermissionStage = 'account' | 'grants' | 'effective';
+type KindFilter = 'all' | 'user' | 'role';
 
 const KIND_GROUPS: { kind: DbPrincipal['kind']; label: string }[] = [
   { kind: 'user', label: 'Users' },
@@ -50,7 +52,8 @@ export const AccessPermissionPanel: React.FC<{
   initialDraft?: AccessPrincipalDraft | null;
   lockedConnectionId?: string;
   onConnectionChange?: (id: string) => void;
-}> = ({ initialDraft = null, lockedConnectionId, onConnectionChange }) => {
+  onAddUser?: () => void;
+}> = ({ initialDraft = null, lockedConnectionId, onConnectionChange, onAddUser }) => {
   const connections = useSyncStore((s) => s.connections);
   const sessionPasswords = useSqlEditorStore((s) => s.sessionPasswords);
   const setSql = useSqlEditorStore((s) => s.setSql);
@@ -75,6 +78,7 @@ export const AccessPermissionPanel: React.FC<{
   const [copied, setCopied] = useState(false);
   const [stage, setStage] = useState<PermissionStage>('grants');
   const [filter, setFilter] = useState('');
+  const [kindFilter, setKindFilter] = useState<KindFilter>('all');
   const [expandedKinds, setExpandedKinds] = useState<Set<DbPrincipal['kind']>>(
     () => new Set(['user', 'role', 'group'])
   );
@@ -177,12 +181,23 @@ export const AccessPermissionPanel: React.FC<{
     setConfirm(null);
   };
 
+  const userCount = useMemo(
+    () => principals.filter((p) => p.kind === 'user').length,
+    [principals]
+  );
+  const roleCount = useMemo(
+    () => principals.filter((p) => p.kind === 'role' || p.kind === 'group').length,
+    [principals]
+  );
+
   const grouped = useMemo(() => {
     const needle = filter.trim().toLowerCase();
     return KIND_GROUPS.map((group) => ({
       ...group,
       principals: principals.filter((p) => {
         if (p.kind !== group.kind) return false;
+        if (kindFilter === 'user' && p.kind !== 'user') return false;
+        if (kindFilter === 'role' && p.kind === 'user') return false;
         if (!needle) return true;
         return (
           p.name.toLowerCase().includes(needle) ||
@@ -190,63 +205,63 @@ export const AccessPermissionPanel: React.FC<{
           p.members.some((m) => m.toLowerCase().includes(needle))
         );
       }),
-      allOfKind: principals.filter((p) => p.kind === group.kind),
+      allOfKind: principals.filter((p) => {
+        if (p.kind !== group.kind) return false;
+        if (kindFilter === 'user' && p.kind !== 'user') return false;
+        if (kindFilter === 'role' && p.kind === 'user') return false;
+        return true;
+      }),
     })).filter((g) => g.allOfKind.length > 0);
-  }, [principals, filter]);
+  }, [principals, filter, kindFilter]);
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden" data-testid="access-permission-panel">
-      <div className="shrink-0 p-4 pb-2 space-y-3">
-        <div>
-          <h2 className="text-sm font-bold text-slate-100">Permission</h2>
-          <p className="text-[11px] text-slate-500 mt-0.5">
-            One catalog, three stages. Access generates GRANT/REVOKE SQL — copy it or open the
-            SQL Editor. Execution stays in Database Access.
+      <div className="shrink-0 px-4 pt-3 pb-2 flex flex-wrap items-center gap-2">
+        <label
+          className={`flex flex-col gap-1 min-w-[14rem] flex-1 ${
+            lockedConnectionId !== undefined ? 'sr-only' : ''
+          }`}
+        >
+          <span className={labelCls}>Database</span>
+          <select
+            data-testid="access-permission-connection"
+            value={connectionId}
+            onChange={(e) => {
+              if (e.target.value === connectionId) return;
+              ++loadToken.current;
+              pickConnection(e.target.value);
+              setPrincipals([]);
+              setPrivileges([]);
+              setHint(undefined);
+              setPrincipalName('');
+              setError(null);
+              setStatus(null);
+            }}
+            className={inputCls}
+          >
+            <option value="">Choose a saved connection…</option>
+            {connections.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name} · {c.dialect}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          data-testid="access-permission-reload"
+          disabled={!connectionId || loading}
+          onClick={() => void load()}
+          className="inline-flex items-center gap-1.5 rounded-md border border-slate-600 bg-slate-800 px-3 py-1.5 text-xs font-bold text-slate-100 hover:bg-slate-700 disabled:opacity-40"
+        >
+          {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+          Reload
+        </button>
+        {hint && (
+          <p className="text-[11px] text-slate-500 w-full" data-testid="access-permission-hint">
+            {hint}
           </p>
-        </div>
-
-        <div className="flex flex-wrap items-end gap-2">
-          <label
-            className={`flex flex-col gap-1 min-w-[14rem] flex-1 ${
-              lockedConnectionId !== undefined ? 'sr-only' : ''
-            }`}
-          >
-            <span className={labelCls}>Database</span>
-            <select
-              data-testid="access-permission-connection"
-              value={connectionId}
-              onChange={(e) => {
-                if (e.target.value === connectionId) return;
-                ++loadToken.current;
-                pickConnection(e.target.value);
-                setPrincipals([]);
-                setPrivileges([]);
-                setHint(undefined);
-                setPrincipalName('');
-                setError(null);
-                setStatus(null);
-              }}
-              className={inputCls}
-            >
-              <option value="">Choose a saved connection…</option>
-              {connections.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} · {c.dialect}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            type="button"
-            data-testid="access-permission-reload"
-            disabled={!connectionId || loading}
-            onClick={() => void load()}
-            className="inline-flex items-center gap-1.5 rounded-md border border-slate-600 bg-slate-800 px-3 py-1.5 text-xs font-bold text-slate-100 hover:bg-slate-700 disabled:opacity-40"
-          >
-            {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-            Reload
-          </button>
-        </div>
+        )}
       </div>
 
       {!connectionId && (
@@ -272,15 +287,45 @@ export const AccessPermissionPanel: React.FC<{
 
       {connectionId && !error && (
         <div className="flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden">
-          <aside className="md:w-64 shrink-0 border-t md:border-t-0 md:border-r border-slate-800 flex flex-col min-h-0">
-            <div className="p-2 shrink-0">
+          <aside
+            className="md:w-72 shrink-0 border-t md:border-t-0 md:border-r border-slate-800 flex flex-col min-h-0 bg-slate-950/40"
+            data-testid="access-principals-sidebar"
+          >
+            <div className="px-3 py-2.5 border-b border-slate-800 shrink-0">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Principals
+              </p>
               <input
                 data-testid="access-permission-filter"
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
-                placeholder="Filter principals"
-                className={inputCls}
+                placeholder="Filter users & roles"
+                className={`${inputCls} mt-2`}
               />
+              <div className="mt-2 flex gap-1">
+                {(
+                  [
+                    { id: 'all', label: 'All' },
+                    { id: 'user', label: 'Users' },
+                    { id: 'role', label: 'Roles' },
+                  ] as const
+                ).map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    data-testid={`access-principals-filter-${opt.id}`}
+                    aria-pressed={kindFilter === opt.id}
+                    onClick={() => setKindFilter(opt.id)}
+                    className={`rounded px-2 py-0.5 text-[11px] font-semibold transition ${
+                      kindFilter === opt.id
+                        ? 'bg-sky-500/20 text-sky-100 ring-1 ring-sky-500/40'
+                        : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
             <div className="flex-1 overflow-y-auto" data-testid="access-permission-principal">
               {loading && principals.length === 0 && (
@@ -313,52 +358,107 @@ export const AccessPermissionPanel: React.FC<{
                       <span className="text-[10px] text-slate-600">{group.allOfKind.length}</span>
                     </button>
                     {group.allOfKind.map((p) => {
-                        const visible = open && group.principals.some((x) => x.name === p.name);
-                        return (
-                          <button
-                            key={p.name}
-                            type="button"
-                            hidden={!visible}
-                            data-testid={`access-permission-row-${p.name}`}
-                            onClick={() => setPrincipalName(p.name)}
-                            className={`w-full text-left px-4 py-1.5 text-xs ${
-                              principalName === p.name
-                                ? 'bg-amber-500/15 text-amber-100'
-                                : 'text-slate-200 hover:bg-slate-800/60'
-                            }`}
-                          >
-                            <span className="font-mono">{p.name}</span>
-                            <span className="ml-1.5 text-[10px] uppercase text-slate-500">{p.kind}</span>
-                          </button>
-                        );
-                      })}
+                      const visible = open && group.principals.some((x) => x.name === p.name);
+                      return (
+                        <button
+                          key={p.name}
+                          type="button"
+                          hidden={!visible}
+                          data-testid={`access-permission-row-${p.name}`}
+                          onClick={() => setPrincipalName(p.name)}
+                          className={`w-full text-left px-4 py-1.5 text-xs flex items-center gap-2 ${
+                            principalName === p.name
+                              ? 'bg-sky-500/15 text-sky-50 ring-1 ring-inset ring-sky-500/30'
+                              : 'text-slate-200 hover:bg-slate-800/60'
+                          }`}
+                        >
+                          <span className="font-mono truncate">{p.name}</span>
+                          <span className="ml-auto shrink-0 rounded border border-slate-700 px-1 py-px text-[9px] font-bold uppercase text-slate-500">
+                            {p.kind}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </section>
                 );
               })}
             </div>
+            <div className="shrink-0 border-t border-slate-800 px-3 py-2 flex items-center gap-2">
+              {onAddUser && (
+                <button
+                  type="button"
+                  data-testid="access-principals-add-user"
+                  onClick={onAddUser}
+                  className="inline-flex items-center gap-1 rounded-md border border-cyan-500/40 px-2 py-1 text-[11px] font-bold text-cyan-200 hover:bg-cyan-500/10"
+                >
+                  <Plus className="w-3 h-3" /> Add user
+                </button>
+              )}
+              <span
+                className="ml-auto text-[10px] text-slate-500"
+                data-testid="access-principals-counts"
+              >
+                {userCount} users · {roleCount} roles
+              </span>
+            </div>
           </aside>
 
           <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-            <div className="shrink-0 px-4 py-2">
-              <Segmented
-                testId="access-permission-stage"
-                value={stage}
-                onChange={(v) => setStage(v as PermissionStage)}
-                options={[
-                  { value: 'account', label: 'Account' },
-                  { value: 'grants', label: 'Grants' },
-                  { value: 'effective', label: 'Effective' },
-                ]}
-              />
-            </div>
-            <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
+            {selected && (
+              <header className="shrink-0 px-4 pt-3 pb-1 border-b border-slate-800/80">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2
+                    className="text-base font-bold font-mono text-slate-50"
+                    data-testid="access-permission-selected-name"
+                  >
+                    {selected.name}
+                  </h2>
+                  <span className="rounded border border-slate-600 px-1.5 py-0.5 text-[10px] font-bold uppercase text-slate-400">
+                    {selected.kind}
+                  </span>
+                  {selected.canLogin === true && (
+                    <span className="text-[11px] font-semibold text-emerald-300">● can login</span>
+                  )}
+                  {selected.canLogin === false && (
+                    <span className="text-[11px] font-semibold text-slate-500">● no login</span>
+                  )}
+                </div>
+                <div className="mt-2">
+                  <Segmented
+                    testId="access-permission-stage"
+                    value={stage}
+                    onChange={(v) => setStage(v as PermissionStage)}
+                    options={[
+                      { value: 'account', label: 'Account' },
+                      { value: 'grants', label: 'Grants' },
+                      { value: 'effective', label: 'Effective' },
+                    ]}
+                  />
+                </div>
+              </header>
+            )}
+            {!selected && (
+              <div className="shrink-0 px-4 py-2">
+                <Segmented
+                  testId="access-permission-stage"
+                  value={stage}
+                  onChange={(v) => setStage(v as PermissionStage)}
+                  options={[
+                    { value: 'account', label: 'Account' },
+                    { value: 'grants', label: 'Grants' },
+                    { value: 'effective', label: 'Effective' },
+                  ]}
+                />
+              </div>
+            )}
+            <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 pt-3">
               {!selected && (
                 <p className="text-[11px] text-slate-500">
                   {loading ? 'Loading principals…' : 'Select a user or role.'}
                 </p>
               )}
               {selected && stage === 'account' && (
-                <AccountStage principal={selected} />
+                <AccountStage principal={selected} onManageUsers={onAddUser} />
               )}
               {selected && stage === 'grants' && (
                 <DbAccessPermissionSections
@@ -456,7 +556,10 @@ export const AccessPermissionPanel: React.FC<{
   );
 };
 
-const AccountStage: React.FC<{ principal: DbPrincipal }> = ({ principal }) => {
+const AccountStage: React.FC<{
+  principal: DbPrincipal;
+  onManageUsers?: () => void;
+}> = ({ principal, onManageUsers }) => {
   const login =
     principal.canLogin === true
       ? 'Can log in'
@@ -465,6 +568,10 @@ const AccountStage: React.FC<{ principal: DbPrincipal }> = ({ principal }) => {
         : 'Login unknown';
   return (
     <div className="space-y-3" data-testid="access-permission-account">
+      <p className="text-[11px] text-slate-500">
+        Account details from the GRANT catalog. Add, rename, or drop accounts under User
+        Management — Access generates SQL only.
+      </p>
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[12px]">
         <dt className="text-slate-500">Name</dt>
         <dd className="font-mono text-slate-100" data-testid="access-permission-account-name">
@@ -479,6 +586,16 @@ const AccountStage: React.FC<{ principal: DbPrincipal }> = ({ principal }) => {
           {login}
         </dd>
       </dl>
+      {onManageUsers && (
+        <button
+          type="button"
+          data-testid="access-permission-open-user-management"
+          onClick={onManageUsers}
+          className="inline-flex items-center gap-1.5 rounded-md border border-slate-600 px-2.5 py-1.5 text-[11px] font-bold text-slate-200 hover:bg-slate-800"
+        >
+          Open User Management
+        </button>
+      )}
       <div>
         <h3 className="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-1">
           Member of
