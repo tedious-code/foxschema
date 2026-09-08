@@ -193,7 +193,7 @@ export const PermissionDiff: React.FC<{
     try {
       const res = await fetchDbAccess(
         { connectionId, password: sessionPasswords[connectionId] || undefined },
-        { schema: conn?.schema || undefined }
+        { schema: conn?.schema || undefined, force: true }
       );
       if (superseded()) return;
       setPrivileges(res.privileges ?? []);

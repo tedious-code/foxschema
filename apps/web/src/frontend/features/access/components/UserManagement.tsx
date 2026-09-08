@@ -542,7 +542,7 @@ export const UserManagement: React.FC<{
    */
   const loadToken = useRef(0);
 
-  const loadPrincipals = useCallback(async () => {
+  const loadPrincipals = useCallback(async (opts?: { force?: boolean }) => {
     if (!connectionId) return;
     if (listSupport && !listSupport.query) {
       setPrincipals([]);
@@ -559,7 +559,7 @@ export const UserManagement: React.FC<{
     try {
       const res = await fetchDbAccess(
         { connectionId, password: sessionPasswords[connectionId] || undefined },
-        { schema: conn?.schema || undefined }
+        { schema: conn?.schema || undefined, force: opts?.force === true }
       );
       if (superseded()) return;
       setPrincipals(res.principals ?? []);
@@ -812,7 +812,7 @@ export const UserManagement: React.FC<{
               <button
                 type="button"
                 data-testid="user-refresh"
-                onClick={() => void loadPrincipals()}
+                onClick={() => void loadPrincipals({ force: true })}
                 disabled={!connectionId || loading || listSupport?.query === false}
                 className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-slate-700 text-[11px] font-semibold text-slate-200 disabled:opacity-40"
                 title="Reload users and roles from the database"
@@ -829,7 +829,7 @@ export const UserManagement: React.FC<{
               <button
                 type="button"
                 data-testid="user-refresh"
-                onClick={() => void loadPrincipals()}
+                onClick={() => void loadPrincipals({ force: true })}
                 disabled={!connectionId || loading || listSupport?.query === false}
                 className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-slate-700 text-[11px] font-semibold text-slate-200 disabled:opacity-40"
                 title="Reload users and roles from the database"

@@ -93,6 +93,7 @@ export const DataMigrateBar: React.FC<Props> = ({
   const sessionPasswords = useSqlEditorStore((s) => s.sessionPasswords);
   const safeMode = useSqlEditorStore((s) => s.safeMode);
   const schemaCache = useSqlEditorStore((s) => s.schemaCache);
+  const ensureSchema = useSqlEditorStore((s) => s.ensureSchema);
   const connections = useSyncStore((s) => s.connections);
   const destConn = connections.find((c) => c.id === dest.connectionId);
   const sourceConn = connections.find((c) => c.id === source.connectionId);
@@ -103,6 +104,14 @@ export const DataMigrateBar: React.FC<Props> = ({
   const crossDialect = source.dialect.toLowerCase() !== dest.dialect.toLowerCase();
   const destSchema = destConn?.schema;
   const tables = schemaCache[dest.connectionId]?.tables;
+
+  // Data migrate needs the destination table list; warm it lazily when the bar mounts.
+  useEffect(() => {
+    if (!dest.connectionId) return;
+    const entry = useSqlEditorStore.getState().schemaCache[dest.connectionId];
+    if (entry?.status === 'ready' || entry?.status === 'loading') return;
+    void ensureSchema(dest.connectionId);
+  }, [dest.connectionId, ensureSchema]);
 
   const editTarget = useMemo(() => {
     if (!source.statementSql) return { ok: false as const, reason: 'No statement SQL' };

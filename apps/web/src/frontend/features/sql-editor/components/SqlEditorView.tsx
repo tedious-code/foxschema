@@ -192,6 +192,7 @@ export const SqlEditorView: React.FC = () => {
   }, [liveSelectedIds.length, setLayout, tab.layout]);
 
   // Completion provider reads active SQL + checked schemas + variables via this getter.
+  // Cold destinations warm lazily on first completion — not N+1 on every mount.
   useEffect(() => {
     setCompletionContextGetter(() => {
       const state = useSqlEditorStore.getState();
@@ -201,7 +202,10 @@ export const SqlEditorView: React.FC = () => {
       const schemas = destIds
         .map((id) => {
           const entry = state.schemaCache[id];
-          if (entry?.status !== 'ready' || !entry.tables) return null;
+          if (entry?.status !== 'ready' || !entry.tables) {
+            if (entry?.status !== 'loading') void state.ensureSchema(id);
+            return null;
+          }
           return {
             connectionId: id,
             tables: entry.tables,

@@ -115,7 +115,7 @@ export const DatabaseAccessModal: React.FC<Props> = ({
     });
   }, [open, connections, lockedConnectionId]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { force?: boolean }) => {
     if (!connectionId || needsPassword) return;
     const mine = ++loadToken.current;
     setLoading(true);
@@ -124,7 +124,7 @@ export const DatabaseAccessModal: React.FC<Props> = ({
     try {
       const data = await fetchDbAccess(
         { connectionId, password: sessionPasswords[connectionId] || undefined },
-        { schema: conn?.schema }
+        { schema: conn?.schema, force: opts?.force === true }
       );
       if (loadToken.current !== mine) return;
       setPrincipals(data.principals ?? []);
@@ -330,7 +330,7 @@ export const DatabaseAccessModal: React.FC<Props> = ({
             type="button"
             data-testid="db-access-load"
             disabled={!connectionId || loading || needsPassword}
-            onClick={() => void load()}
+            onClick={() => void load({ force: true })}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md border border-slate-600 bg-slate-800 text-slate-100 hover:bg-slate-700 disabled:opacity-50"
           >
             {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
