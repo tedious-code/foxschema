@@ -17,6 +17,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
+  History,
 } from 'lucide-react';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
@@ -48,6 +49,7 @@ import {
   type SidebarSectionId,
 } from './SqlSidebarSection';
 import { WriteConfirmDialog } from './WriteConfirmDialog';
+import { SqlRunsDrawer } from './SqlRunsDrawer';
 import type { RevealRequest } from './SqlEditorPane';
 
 const SqlEditorPane = lazy(() => import('./SqlEditorPane'));
@@ -154,6 +156,7 @@ export const SqlEditorView: React.FC = () => {
   const secretsPanelRef = useRef<SqlSecretsPanelHandle>(null);
   const schemaExplorerRef = useRef<SqlSchemaExplorerHandle>(null);
   const [secretsRefreshing, setSecretsRefreshing] = useState(false);
+  const [runsOpen, setRunsOpen] = useState(false);
 
   const onSecretsRefresh = useCallback(async () => {
     setSecretsRefreshing(true);
@@ -733,6 +736,20 @@ export const SqlEditorView: React.FC = () => {
           >
             <BookmarkPlus className="w-3.5 h-3.5 text-amber-400" strokeWidth={SQL_ICON_STROKE} /> Bookmark
           </button>
+          <button
+            type="button"
+            data-testid="sql-runs-drawer-btn"
+            aria-pressed={runsOpen}
+            onClick={() => setRunsOpen((v) => !v)}
+            title="Recent runs"
+            className={`flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] font-semibold transition ${
+              runsOpen
+                ? 'bg-slate-800 text-cyan-300'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+            }`}
+          >
+            <History className="w-3.5 h-3.5 text-cyan-400" strokeWidth={SQL_ICON_STROKE} /> Runs
+          </button>
 
           <div className="flex items-center rounded border border-slate-800 overflow-hidden ml-1">
             <button
@@ -887,6 +904,7 @@ export const SqlEditorView: React.FC = () => {
           </div>
         </div>
       </section>
+      <SqlRunsDrawer open={runsOpen} onClose={() => setRunsOpen(false)} />
 
       {pendingWriteConfirm && pendingWriteConfirm.tabId === tab.id && (
         <WriteConfirmDialog
