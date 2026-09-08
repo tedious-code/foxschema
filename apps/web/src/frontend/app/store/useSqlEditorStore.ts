@@ -932,18 +932,27 @@ export const useSqlEditorStore = create<SqlEditorState>()(
             wanted as DbObjectType[]
           );
           const incoming = new Set(wanted);
-          const kept = (existing?.tables ?? []).filter((t) => !incoming.has(t.objectType));
-          const mergedScope = [...new Set([...(existing?.scope ?? []), ...wanted])];
-          set({
-            schemaCache: pruneSchemaCache({
-              ...get().schemaCache,
-              [connectionId]: {
-                status: 'ready',
-                tables: [...kept, ...loaded],
-                scope: mergedScope,
-                loadedAt: Date.now(),
-              },
-            }),
+          // Merge against the cache at completion time. Different scope loads
+          // intentionally use different in-flight keys and can overlap; using
+          // the snapshot from before either request awaited lets the slower
+          // response erase objects written by the faster one.
+          set((state) => {
+            const current = state.schemaCache[connectionId];
+            const kept = (current?.tables ?? []).filter(
+              (table) => !incoming.has(table.objectType)
+            );
+            const mergedScope = [...new Set([...(current?.scope ?? []), ...wanted])];
+            return {
+              schemaCache: pruneSchemaCache({
+                ...state.schemaCache,
+                [connectionId]: {
+                  status: 'ready',
+                  tables: [...kept, ...loaded],
+                  scope: mergedScope,
+                  loadedAt: Date.now(),
+                },
+              }),
+            };
           });
         } catch (error: unknown) {
           set({
