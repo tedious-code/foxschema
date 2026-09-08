@@ -11,6 +11,7 @@ import { Loader2 } from 'lucide-react';
 import { fetchTableInsight, type TableInsightResponse } from '@/shared/api/schemaApi';
 import { tableNameParts } from '@/shared/lib/tablePreview';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
+import { StatCard } from '@/shared/components/surfaces';
 
 function tableRef(tableName: string, fallbackSchema?: string): { table: string; schema?: string } {
   const parts = tableNameParts(tableName);
@@ -98,48 +99,34 @@ export const PeekInsight: React.FC<{
             className="grid grid-cols-3 gap-2 mb-3"
             data-testid="data-peek-insight-cards"
           >
-            <div
-              className="rounded-lg border border-slate-800 bg-slate-950/50 px-2.5 py-2"
-              data-testid="data-peek-insight-card-rows"
-            >
-              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Rows</p>
-              <p className="mt-1 font-mono text-sm font-semibold text-slate-100">
-                {data.estimatedRows == null ? '—' : data.estimatedRows.toLocaleString()}
-              </p>
-              <p className="mt-0.5 text-[10px] text-slate-500">Estimated from catalog</p>
-            </div>
-            <div
-              className="rounded-lg border border-slate-800 bg-slate-950/50 px-2.5 py-2"
-              data-testid="data-peek-insight-card-nulls"
-            >
-              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                Null-heavy
-              </p>
-              <p className="mt-1 font-mono text-sm font-semibold text-amber-200">
-                {cards.nullHeavy.length === 0
+            <StatCard
+              testId="data-peek-insight-card-rows"
+              label="Rows"
+              value={data.estimatedRows == null ? '—' : data.estimatedRows.toLocaleString()}
+              hint="Estimated from catalog"
+            />
+            <StatCard
+              testId="data-peek-insight-card-nulls"
+              label="Null-heavy"
+              tone="warning"
+              value={
+                cards.nullHeavy.length === 0
                   ? 'None ≥20%'
-                  : cards.nullHeavy.map((c) => c.name).join(', ')}
-              </p>
-              <p className="mt-0.5 text-[10px] text-slate-500">
-                Avg null {pct(cards.avgNull)}
-              </p>
-            </div>
-            <div
-              className="rounded-lg border border-slate-800 bg-slate-950/50 px-2.5 py-2"
-              data-testid="data-peek-insight-card-distinct"
-            >
-              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                High distinct
-              </p>
-              <p className="mt-1 font-mono text-sm font-semibold text-sky-200">
-                {cards.distinctHeavy.length === 0
+                  : cards.nullHeavy.map((c) => c.name).join(', ')
+              }
+              hint={`Avg null ${pct(cards.avgNull)}`}
+            />
+            <StatCard
+              testId="data-peek-insight-card-distinct"
+              label="High distinct"
+              tone="info"
+              value={
+                cards.distinctHeavy.length === 0
                   ? '—'
-                  : cards.distinctHeavy
-                      .map((c) => `${c.name} (${c.nDistinct})`)
-                      .join(', ')}
-              </p>
-              <p className="mt-0.5 text-[10px] text-slate-500">Top nDistinct columns</p>
-            </div>
+                  : cards.distinctHeavy.map((c) => `${c.name} (${c.nDistinct})`).join(', ')
+              }
+              hint="Top nDistinct columns"
+            />
           </div>
 
           <p className="mb-2 text-[12px] text-slate-300" data-testid="data-peek-insight-rows">

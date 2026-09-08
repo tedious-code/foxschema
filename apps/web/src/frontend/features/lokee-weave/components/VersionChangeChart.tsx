@@ -8,6 +8,7 @@
  */
 import React from 'react';
 import type { TimelineVersion } from './VersionTimeline';
+import { StatCard } from '@/shared/components/surfaces';
 
 const CHART_H = 180;
 const BAR_W = 18;
@@ -108,16 +109,32 @@ export function VersionBriefing({
   const removed = selected.removed ?? 0;
   return (
     <div
-      className="flex shrink-0 flex-wrap items-center gap-3 border-b border-slate-800 px-6 py-2"
+      className="shrink-0 border-b border-slate-800 px-6 py-3"
       data-testid="lokee-version-briefing"
     >
-      <span className="text-[12px] font-bold text-slate-100">v{selected.number}</span>
-      <span className="truncate text-[11px] text-slate-400">
-        {selected.name || selected.source || 'Snapshot'}
-      </span>
-      <span className="font-bold text-emerald-400">+{added}</span>
-      <span className="font-bold text-amber-400">~{modified}</span>
-      <span className="font-bold text-rose-400">−{removed}</span>
+      <div className="mb-2 flex flex-wrap items-baseline gap-2">
+        <span className="text-[13px] font-bold text-slate-100">v{selected.number}</span>
+        <span className="truncate text-[11px] text-slate-400">
+          {selected.name || selected.source || 'Snapshot'}
+        </span>
+      </div>
+      {/* Counts as cards, not a run-on of coloured numbers: the sign alone
+          ("+3 ~2 −0") makes the reader supply the nouns. */}
+      <div className="grid grid-cols-3 gap-2">
+        <StatCard testId="lokee-briefing-added" label="Added" tone="positive" value={`+${added}`} />
+        <StatCard
+          testId="lokee-briefing-modified"
+          label="Modified"
+          tone="warning"
+          value={`~${modified}`}
+        />
+        <StatCard
+          testId="lokee-briefing-removed"
+          label="Removed"
+          tone="danger"
+          value={`−${removed}`}
+        />
+      </div>
     </div>
   );
 }
