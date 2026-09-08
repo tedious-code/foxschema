@@ -26,6 +26,23 @@ function pct(frac: number | null | undefined): string {
   return `${Math.round(frac * 1000) / 10}%`;
 }
 
+
+/** Bytes as a person reads them. Binary units, since that is what catalogs report. */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KB', 'MB', 'GB', 'TB', 'PB'];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  // One decimal below 10 so 1.2 GB does not collapse to 1 GB, none above it
+  // where the extra digit is noise against the rounding already in the number.
+  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
+}
+
 export const PeekInsight: React.FC<{
   connectionId: string;
   tableName: string;
@@ -104,6 +121,12 @@ export const PeekInsight: React.FC<{
               label="Rows"
               value={data.estimatedRows == null ? '—' : data.estimatedRows.toLocaleString()}
               hint="Estimated from catalog"
+            />
+            <StatCard
+              testId="data-peek-insight-card-size"
+              label="Size"
+              value={data.sizeBytes == null ? '—' : formatBytes(data.sizeBytes)}
+              hint={data.sizeBytes == null ? 'Not reported by this engine' : 'Table + indexes'}
             />
             <StatCard
               testId="data-peek-insight-card-nulls"

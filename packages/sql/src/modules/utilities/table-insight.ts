@@ -79,11 +79,12 @@ export function parseSqliteStat1(stat: unknown): { estimatedRows: number | null;
 export function normalizeTableInsightRows(
   dialect: string,
   raw: unknown
-): { estimatedRows: number | null; columns: TableInsightColumn[] } {
+): { estimatedRows: number | null; sizeBytes: number | null; columns: TableInsightColumn[] } {
   const rows: Record<string, unknown>[] = Array.isArray(raw) ? raw : [];
   const d = dialect.toLowerCase();
   const columns: TableInsightColumn[] = [];
   let estimatedRows: number | null = null;
+  let sizeBytes: number | null = null;
   const seen = new Set<string>();
   for (const row of rows) {
     if (estimatedRows == null) {
@@ -93,6 +94,7 @@ export function normalizeTableInsightRows(
         estimatedRows = num(row.estimated_rows ?? row.TABLE_ROWS ?? row.num_rows);
       }
     }
+    if (sizeBytes == null) sizeBytes = num(row.size_bytes ?? row.SIZE_BYTES);
     const name = str(row.column_name ?? row.idx);
     if (!name || seen.has(name.toLowerCase())) continue;
     seen.add(name.toLowerCase());
@@ -107,5 +109,5 @@ export function normalizeTableInsightRows(
       });
     }
   }
-  return { estimatedRows, columns };
+  return { estimatedRows, sizeBytes, columns };
 }

@@ -405,6 +405,8 @@ export type TableInsightResponse = {
   schema: string;
   dialect?: string;
   estimatedRows: number | null;
+  /** Table + indexes as the catalog reports it; null where the engine has no dependable figure. */
+  sizeBytes: number | null;
   columns: Array<{ name: string; nDistinct: number | null; nullFrac: number | null }>;
   mode: 'catalog' | 'unsupported';
   support: { mode: string; query: boolean; hint: string };
