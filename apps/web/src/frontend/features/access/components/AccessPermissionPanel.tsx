@@ -285,7 +285,7 @@ export const AccessPermissionPanel: React.FC<{
         </p>
       )}
 
-      {connectionId && !error && (
+      {connectionId && (
         <div className="flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden">
           <aside
             className="md:w-72 shrink-0 border-t md:border-t-0 md:border-r border-slate-800 flex flex-col min-h-0 bg-slate-950/40"
@@ -332,7 +332,9 @@ export const AccessPermissionPanel: React.FC<{
                 <p className="px-3 py-2 text-[11px] text-slate-500">Loading…</p>
               )}
               {!loading && principals.length === 0 && (
-                <p className="px-3 py-2 text-[11px] text-slate-500">No principals found</p>
+                <p className="px-3 py-2 text-[11px] text-slate-500">
+                  {error ? 'No principals for this connection.' : 'No principals found'}
+                </p>
               )}
               {grouped.map((group) => {
                 const open = expandedKinds.has(group.kind);
@@ -452,7 +454,14 @@ export const AccessPermissionPanel: React.FC<{
               </div>
             )}
             <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 pt-3">
-              {!selected && (
+              {error && !selected && (
+                <EmptyState
+                  title="Catalog unavailable"
+                  body={error}
+                  testId="access-permission-unsupported"
+                />
+              )}
+              {!error && !selected && (
                 <p className="text-[11px] text-slate-500">
                   {loading ? 'Loading principals…' : 'Select a user or role.'}
                 </p>
