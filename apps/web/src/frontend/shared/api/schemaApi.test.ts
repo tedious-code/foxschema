@@ -139,4 +139,38 @@ describe('fetchDbAccess session cache', () => {
     await fetchDbAccess({ connectionId: 'c1' }, { schema: 'public' });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it('force:true bypasses the TTL so Refresh re-reads', async () => {
+    const fetchMock = vi.fn(async () =>
+      okAccess({ principals: [{ name: 'carol' }], privileges: [] })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    await fetchDbAccess({ connectionId: 'c1' }, { schema: 'public' });
+    await fetchDbAccess({ connectionId: 'c1' }, { schema: 'public', force: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('invalidate mid-flight does not cache the stale response', async () => {
+    let resolveFetch!: (v: Response) => void;
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const pending = fetchDbAccess({ connectionId: 'c1' }, { schema: 'public' });
+    invalidateDbAccessCache('c1');
+    resolveFetch!(
+      okAccess({ principals: [{ name: 'stale' }], privileges: [] })
+    );
+    await pending;
+    const fetchMock2 = vi.fn(async () =>
+      okAccess({ principals: [{ name: 'fresh' }], privileges: [] })
+    );
+    vi.stubGlobal('fetch', fetchMock2);
+    const next = await fetchDbAccess({ connectionId: 'c1' }, { schema: 'public' });
+    expect(fetchMock2).toHaveBeenCalledTimes(1);
+    expect(next.principals?.[0]?.name).toBe('fresh');
+  });
 });

@@ -115,7 +115,7 @@ export const AccessPermissionPanel: React.FC<{
     // eslint-disable-next-line react-hooks/exhaustive-deps -- apply when User Management hands off
   }, [initialDraft?.connectionId, initialDraft?.principalName]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { force?: boolean }) => {
     if (!connectionId) return;
     const mine = ++loadToken.current;
     setLoading(true);
@@ -124,7 +124,7 @@ export const AccessPermissionPanel: React.FC<{
     try {
       const data = await fetchDbAccess(
         { connectionId, password: sessionPasswords[connectionId] || undefined },
-        { schema: conn?.schema }
+        { schema: conn?.schema, force: opts?.force === true }
       );
       if (loadToken.current !== mine) return;
       const next = data.principals ?? [];
@@ -249,7 +249,7 @@ export const AccessPermissionPanel: React.FC<{
           type="button"
           data-testid="access-permission-reload"
           disabled={!connectionId || loading}
-          onClick={() => void load()}
+          onClick={() => void load({ force: true })}
           className="inline-flex items-center gap-1.5 rounded-md border border-slate-600 bg-slate-800 px-3 py-1.5 text-xs font-bold text-slate-100 hover:bg-slate-700 disabled:opacity-40"
         >
           {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}

@@ -305,47 +305,49 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
     '/lokee/databases/:id/inspect',
     requirePermissions('schema.browse'),
     async (req: AppRequest, res: FastifyReply) => {
-    const versionId = String(req.query.versionId ?? '').trim();
-    const objectKey = String(req.query.objectKey ?? '').trim();
-    if (!versionId || !objectKey) {
-      sendError(res, 'invalid_input', 'versionId and objectKey are required');
-      return;
+      const versionId = String(req.query.versionId ?? '').trim();
+      const objectKey = String(req.query.objectKey ?? '').trim();
+      if (!versionId || !objectKey) {
+        sendError(res, 'invalid_input', 'versionId and objectKey are required');
+        return;
+      }
+      const result = await deps.lokee.inspectObject(
+        (req as AuthedRequest).userId!,
+        String(req.params.id),
+        versionId,
+        objectKey
+      );
+      if (!result) {
+        sendError(res, 'not_found', 'Object not found');
+        return;
+      }
+      res.send(result);
     }
-    const result = await deps.lokee.inspectObject(
-      (req as AuthedRequest).userId!,
-      String(req.params.id),
-      versionId,
-      objectKey
-    );
-    if (!result) {
-      sendError(res, 'not_found', 'Object not found');
-      return;
-    }
-    res.send(result);
-  });
+  );
 
   router.get(
     '/lokee/databases/:id/compare',
     requirePermissions('schema.browse'),
     async (req: AppRequest, res: FastifyReply) => {
-    const versionId = String(req.query.versionId ?? '').trim();
-    if (!versionId) {
-      sendError(res, 'invalid_input', 'versionId is required');
-      return;
+      const versionId = String(req.query.versionId ?? '').trim();
+      if (!versionId) {
+        sendError(res, 'invalid_input', 'versionId is required');
+        return;
+      }
+      const against = String(req.query.againstVersionId ?? '').trim();
+      const result = await deps.lokee.diffVersions(
+        (req as AuthedRequest).userId!,
+        String(req.params.id),
+        versionId,
+        against || undefined
+      );
+      if (!result) {
+        sendError(res, 'not_found', 'Version not found');
+        return;
+      }
+      res.send(result);
     }
-    const against = String(req.query.againstVersionId ?? '').trim();
-    const result = await deps.lokee.diffVersions(
-      (req as AuthedRequest).userId!,
-      String(req.params.id),
-      versionId,
-      against || undefined
-    );
-    if (!result) {
-      sendError(res, 'not_found', 'Version not found');
-      return;
-    }
-    res.send(result);
-  });
+  );
 
   return router;
 }

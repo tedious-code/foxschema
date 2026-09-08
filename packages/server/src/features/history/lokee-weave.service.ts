@@ -1434,18 +1434,15 @@ export class LokeeWeaveStore {
   }
 
   private async containerGrowth(
-    userId: string,
+    _userId: string,
     databaseId: string,
     owner: string,
-    loadedVersions?: readonly VersionSummary[]
+    loadedVersions: readonly VersionSummary[]
   ): Promise<ContainerGrowthPoint[]> {
     // The whole history, not a recent window: a roadmap that starts at v(N-20)
     // hides the moment a table was created, which is the point a reader looks
     // for first. Still bounded — listVersions caps at 500.
-    const versions =
-      loadedVersions && loadedVersions.length > 0
-        ? [...loadedVersions]
-        : await this.listVersions(userId, databaseId, MAX_ROADMAP_VERSIONS);
+    const versions = [...loadedVersions];
     if (versions.length === 0) return [];
     const store = await this.store();
     const latest = await this.loadLatestIndex(store, databaseId);

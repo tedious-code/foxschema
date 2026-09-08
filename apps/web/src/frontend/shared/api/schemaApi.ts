@@ -117,10 +117,16 @@ function idempotent<T>(key: string, run: () => Promise<T>, ttlMs = 0): Promise<T
 
   const promise = run()
     .then((value) => {
-      cacheSet(key, value, ttlMs);
+      // Skip cache if invalidateCache dropped this entry mid-flight (or a force
+      // refresh replaced it) — otherwise a stale GRANT catalog can land for 60s.
+      if (inflight.get(key) === promise) {
+        cacheSet(key, value, ttlMs);
+      }
       return value;
     })
-    .finally(() => inflight.delete(key));
+    .finally(() => {
+      if (inflight.get(key) === promise) inflight.delete(key);
+    });
 
   inflight.set(key, promise);
   return promise;
@@ -130,10 +136,14 @@ function idempotent<T>(key: string, run: () => Promise<T>, ttlMs = 0): Promise<T
 export function invalidateCache(prefix?: string): void {
   if (!prefix) {
     cache.clear();
+    inflight.clear();
     return;
   }
-  for (const key of cache.keys()) {
+  for (const key of [...cache.keys()]) {
     if (key.startsWith(prefix)) cache.delete(key);
+  }
+  for (const key of [...inflight.keys()]) {
+    if (key.startsWith(prefix)) inflight.delete(key);
   }
 }
 
@@ -459,10 +469,16 @@ export function invalidateDbAccessCache(connectionId?: string): void {
 /** Utilities / Access control → database users, groups, and privileges. */
 export async function fetchDbAccess(
   ref: ConnectionRef,
-  opts?: { schema?: string }
+  opts?: { schema?: string; force?: boolean }
 ): Promise<DbAccessResponse> {
   const schema = opts?.schema ?? ref.schema;
   const key = `db-access:${cacheKeyForRef({ ...ref, schema })}`;
+  // Explicit Refresh must re-read — the 60s TTL is for tab sharing, not for
+  // buttons whose title says "Reload … from the database".
+  if (opts?.force) {
+    cache.delete(key);
+    inflight.delete(key);
+  }
   return idempotent(
     key,
     async () => {
