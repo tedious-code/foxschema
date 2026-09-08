@@ -176,7 +176,14 @@ function applyToDocument(themeMode: ThemeMode, tone: ToneId, fontSize: FontSize,
 }
 
 /** Top-level workspace views. Snapshots (Lokee) is its own view, not a Sync pane. */
-export type ActiveView = 'sync' | 'sqlEditor' | 'access' | 'snapshots' | 'home' | 'utilities';
+export type ActiveView =
+  | 'sync'
+  | 'sqlEditor'
+  | 'access'
+  | 'snapshots'
+  | 'home'
+  | 'utilities'
+  | 'settings';
 /**
  * Browse is its own pane, not a mode hiding inside Compare. It answers a
  * different question — "what is in this one database?" rather than "how do
@@ -242,7 +249,7 @@ export function migrateUiPersist(persisted: unknown, _version: number): unknown 
     state.syncPane = 'compare';
   }
   if (
-    !['sync', 'sqlEditor', 'access', 'snapshots', 'home', 'utilities'].includes(
+    !['sync', 'sqlEditor', 'access', 'snapshots', 'home', 'utilities', 'settings'].includes(
       state.activeView as string
     )
   ) {

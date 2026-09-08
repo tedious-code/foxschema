@@ -29,6 +29,9 @@ const UtilitiesView = lazy(() =>
 const LokeeWeaveView = lazy(() =>
   import('@/features/lokee-weave').then((m) => ({ default: m.LokeeWeaveView }))
 );
+const SettingsPanel = lazy(() =>
+  import('@/app/settings/SettingsPanel').then((m) => ({ default: m.SettingsPanel }))
+);
 
 const Workspace: React.FC = () => {
   const { errorMsg, warnings, dismissWarnings } = useSyncStore();
@@ -105,6 +108,12 @@ const Workspace: React.FC = () => {
       <main className="flex-1 flex min-h-0 overflow-hidden">
         {activeView === 'home' ? (
           <HomeView />
+        ) : activeView === 'settings' ? (
+          <ErrorBoundary>
+            <Suspense fallback={<LoadingScreen />}>
+              <SettingsPanel embedded />
+            </Suspense>
+          </ErrorBoundary>
         ) : activeView === 'access' ? (
           <ErrorBoundary>
             <Suspense fallback={<LoadingScreen />}>

@@ -73,6 +73,12 @@ export const CommandPalette: React.FC = () => {
         run: () => go('snapshots'),
       });
     }
+    out.push({
+      id: 'ws-settings',
+      group: 'Workspace',
+      label: 'Preferences',
+      run: () => go('settings'),
+    });
     for (const c of connections) {
       out.push({
         id: `conn-${c.id}`,

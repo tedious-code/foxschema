@@ -7,7 +7,7 @@
  * Workspace switcher that lived in the top toolbar.
  */
 import React from 'react';
-import { Camera, GitCompareArrows, ShieldCheck, Terminal, Wrench } from 'lucide-react';
+import { Camera, GitCompareArrows, Settings, ShieldCheck, Terminal, Wrench } from 'lucide-react';
 import { useAuthStore } from '@/app/store/authStore';
 import { useUiStore, type ActiveView } from '@/app/store/uiStore';
 import { FoxLogo } from './FoxLogo';
@@ -73,7 +73,6 @@ export function ActivityRail(): React.ReactElement | null {
   };
 
   const visible = ITEMS.filter((item) => allowed(item.permission));
-  if (visible.length === 0) return null;
 
   return (
     <nav
@@ -116,6 +115,23 @@ export function ActivityRail(): React.ReactElement | null {
           </button>
         );
       })}
+      <div className="mt-auto" />
+      <button
+        type="button"
+        data-testid="view-settings-btn"
+        title="Preferences"
+        aria-label="Preferences"
+        aria-current={activeView === 'settings' ? 'page' : undefined}
+        onClick={() => setActiveView('settings')}
+        className={`flex w-12 flex-col items-center gap-0.5 rounded-md px-1 py-1.5 text-[9px] font-bold uppercase tracking-wide transition ${
+          activeView === 'settings'
+            ? 'bg-slate-800 text-slate-100'
+            : 'text-slate-500 hover:bg-slate-800/60 hover:text-slate-200'
+        }`}
+      >
+        <Settings className="h-4 w-4" />
+        Prefs
+      </button>
     </nav>
   );
 }

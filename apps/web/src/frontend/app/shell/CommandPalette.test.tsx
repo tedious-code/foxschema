@@ -87,4 +87,11 @@ describe('CommandPalette', () => {
     fireEvent.click(screen.getByTestId('command-palette-item-ws-utilities'));
     expect(setActiveView).toHaveBeenCalledWith('utilities');
   });
+
+  it('jumps to Preferences', () => {
+    render(<CommandPalette />);
+    fireEvent.keyDown(window, { key: 'k', metaKey: true });
+    fireEvent.click(screen.getByTestId('command-palette-item-ws-settings'));
+    expect(setActiveView).toHaveBeenCalledWith('settings');
+  });
 });

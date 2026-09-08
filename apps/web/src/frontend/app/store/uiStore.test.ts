@@ -59,4 +59,11 @@ describe('migrateUiPersist', () => {
     };
     expect(next.activeView).toBe('utilities');
   });
+
+  it('keeps Preferences as a persisted workspace', () => {
+    const next = migrateUiPersist({ activeView: 'settings', syncPane: 'compare' }, 3) as {
+      activeView: string;
+    };
+    expect(next.activeView).toBe('settings');
+  });
 });

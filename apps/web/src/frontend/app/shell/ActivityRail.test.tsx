@@ -36,5 +36,7 @@ describe('ActivityRail', () => {
     expect(screen.getByTestId('sync-pane-history-btn')).toBeTruthy();
     fireEvent.click(screen.getByTestId('home-open-btn'));
     expect(useUiStore.getState().activeView).toBe('home');
+    fireEvent.click(screen.getByTestId('view-settings-btn'));
+    expect(useUiStore.getState().activeView).toBe('settings');
   });
 });
