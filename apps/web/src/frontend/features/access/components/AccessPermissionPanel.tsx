@@ -28,14 +28,12 @@ import {
 } from '@foxschema/sql';
 import { fetchDbAccess } from '@/shared/api/schemaApi';
 import { useSyncStore } from '@/app/store/useSyncStore';
+import { AccessGrantsStage } from './AccessGrantsStage';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { useUiStore } from '@/app/store/uiStore';
 import { useAuthStore } from '@/app/store/authStore';
 import { EmptyState, Segmented, inputCls, labelCls } from './controls';
-import {
-  DbAccessPermissionSections,
-  type DbAccessConfirmRequest,
-} from './DbAccessPermissionSections';
+import { type DbAccessConfirmRequest } from './DbAccessPermissionSections';
 import { PermissionInspector } from './PermissionInspector';
 import type { AccessPrincipalDraft } from '../lib/access-draft';
 
@@ -470,20 +468,15 @@ export const AccessPermissionPanel: React.FC<{
                 <AccountStage principal={selected} onManageUsers={onAddUser} />
               )}
               {selected && stage === 'grants' && (
-                <DbAccessPermissionSections
+                <AccessGrantsStage
                   dialect={dialect}
                   connectionId={connectionId}
                   database={conn?.database}
                   defaultSchema={conn?.schema}
-                  principal={{
-                    type: selected.kind === 'user' ? 'user' : 'role',
-                    name: selected.name,
-                    kind: selected.kind,
-                  }}
+                  principal={selected}
                   privileges={selectedPrivs}
                   canGrant={canGrant}
                   grantSupported={Boolean(support?.grant)}
-                  generateOnly
                   onConfirm={(req) => {
                     setCopied(false);
                     setConfirm(req);

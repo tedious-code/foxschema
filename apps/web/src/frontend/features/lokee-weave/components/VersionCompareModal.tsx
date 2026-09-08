@@ -552,6 +552,7 @@ export function VersionCompareModal({
                         onSelect={setTab}
                         testIdPrefix="lokee-cmp"
                         size="compact"
+                        labels={{ SQL: 'Revert SQL' }}
                       />
                       <div className="flex shrink-0 items-center gap-2">
                         {/* A dead Execute button with the reason hidden in a

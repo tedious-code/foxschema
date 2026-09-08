@@ -8,7 +8,9 @@ import {
   describePermission,
   resolveEffectiveAccess,
   type AccessPermission,
+  type AccessSource,
   type EffectiveAccess,
+  type EffectiveObject,
 } from '../lib/access';
 import type { DbPrincipal, DbPrivilege } from '@foxschema/sql';
 import { inputCls, labelCls } from './controls';
@@ -296,28 +298,7 @@ export const PermissionInspector: React.FC<{
                   </thead>
                   <tbody>
                     {effective.objects.map((o, i) => (
-                      <tr key={i} className="border-t border-slate-800/70">
-                        <td className="px-3 py-1.5 text-slate-400 font-mono">{o.schema ?? '—'}</td>
-                        <td className="px-3 py-1.5 text-slate-200 font-mono">
-                          {o.name ?? o.objectType.toLowerCase()}
-                        </td>
-                        {TABLE_PERMISSIONS.map((p) => {
-                          const slot = o.permissions.find((e) => e.permission === p);
-                          const denied = slot?.sources.some((s) => s.kind === 'denied');
-                          return (
-                            <td key={p} className="px-3 py-1.5 text-center">
-                              {denied ? (
-                                <ShieldX className="w-3.5 h-3.5 text-rose-400 inline" />
-                              ) : slot?.granted ? (
-                                <Check className="w-3.5 h-3.5 text-emerald-400 inline" />
-                              ) : (
-                                <X className="w-3.5 h-3.5 text-slate-700 inline" />
-                              )}
-                            </td>
-                          );
-                        })}
-                        <td className="px-3 py-1.5 text-slate-500">{sourceLabel(o)}</td>
-                      </tr>
+                      <EffectiveObjectRow key={i} object={o} />
                     ))}
                   </tbody>
                 </table>
@@ -366,22 +347,112 @@ export const PermissionInspector: React.FC<{
 };
 
 /** The nearest explanation for a row — a reader wants one line, not every route. */
-function sourceLabel(o: { permissions: { sources: { kind: string; via: string }[] }[] }): string {
+function sourceLabel(o: { permissions: { sources: AccessSource[] }[] }): string {
   for (const p of o.permissions) {
     const denied = p.sources.find((s) => s.kind === 'denied');
-    if (denied) return `denied for ${denied.via}`;
+    if (denied) return `DENY · ${denied.via}`;
   }
   for (const p of o.permissions) {
     const direct = p.sources.find((s) => s.kind === 'direct');
-    if (direct) return 'direct grant';
+    if (direct) return 'ALLOW · direct';
   }
   for (const p of o.permissions) {
     const role = p.sources.find((s) => s.kind === 'role');
-    if (role) return `role ${role.via}`;
+    if (role) return `ALLOW · role ${role.via}`;
   }
   return '—';
 }
 
+function whyLines(sources: AccessSource[]): string[] {
+  if (sources.length === 0) return ['No grant for this privilege.'];
+  return sources.map((s) => {
+    if (s.kind === 'denied') {
+      return `DENY on ${s.via} (${s.privilege}) overrides grants.`;
+    }
+    if (s.kind === 'direct') {
+      return `ALLOW direct${s.grantable ? ' · grantable' : ''} · ${s.privilege}`;
+    }
+    const path =
+      s.chain.length > 0 ? s.chain.join(' → ') : s.via;
+    return `ALLOW via ${path} · ${s.privilege}${s.grantable ? ' · grantable' : ''}`;
+  });
+}
+
+const EffectiveObjectRow: React.FC<{ object: EffectiveObject }> = ({ object: o }) => {
+  const [open, setOpen] = useState(false);
+  const primarySources = o.permissions.flatMap((p) => p.sources);
+  const hasWhy = primarySources.length > 0;
+  return (
+    <>
+      <tr className="border-t border-slate-800/70">
+        <td className="px-3 py-1.5 text-slate-400 font-mono">{o.schema ?? '—'}</td>
+        <td className="px-3 py-1.5 text-slate-200 font-mono">
+          {o.name ?? o.objectType.toLowerCase()}
+        </td>
+        {TABLE_PERMISSIONS.map((p) => {
+          const slot = o.permissions.find((e) => e.permission === p);
+          const denied = slot?.sources.some((s) => s.kind === 'denied');
+          return (
+            <td key={p} className="px-3 py-1.5 text-center">
+              {denied ? (
+                <span
+                  className="inline-flex items-center gap-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-300"
+                  title="DENY"
+                >
+                  <ShieldX className="w-3.5 h-3.5" /> DENY
+                </span>
+              ) : slot?.granted ? (
+                <span
+                  className="inline-flex items-center gap-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-300"
+                  title="ALLOW"
+                >
+                  <Check className="w-3.5 h-3.5" /> ALLOW
+                </span>
+              ) : (
+                <span className="text-[10px] font-semibold text-slate-600">—</span>
+              )}
+            </td>
+          );
+        })}
+        <td className="px-3 py-1.5 text-slate-500">
+          <div className="flex items-center gap-1.5">
+            <span>{sourceLabel(o)}</span>
+            {hasWhy && (
+              <button
+                type="button"
+                data-testid="inspector-why-toggle"
+                onClick={() => setOpen((v) => !v)}
+                className="text-[10px] font-bold uppercase tracking-wide text-sky-400 hover:text-sky-300"
+              >
+                {open ? 'Hide why' : 'Why'}
+              </button>
+            )}
+          </div>
+        </td>
+      </tr>
+      {open && (
+        <tr className="border-t border-slate-800/40 bg-slate-950/50" data-testid="inspector-why-stack">
+          <td colSpan={2 + TABLE_PERMISSIONS.length + 1} className="px-3 py-2">
+            <ul className="space-y-1">
+              {TABLE_PERMISSIONS.map((p) => {
+                const slot = o.permissions.find((e) => e.permission === p);
+                if (!slot || (!slot.granted && slot.sources.length === 0)) return null;
+                return (
+                  <li key={p} className="text-[11px] text-slate-400">
+                    <span className="font-semibold text-slate-300">
+                      {describePermission(p).label}:
+                    </span>{' '}
+                    {whyLines(slot.sources).join(' · ')}
+                  </li>
+                );
+              })}
+            </ul>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+};
 
 const thCls = 'px-3 py-1.5 text-left font-bold uppercase tracking-wide';
 

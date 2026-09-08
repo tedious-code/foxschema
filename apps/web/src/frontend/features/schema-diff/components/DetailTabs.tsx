@@ -31,6 +31,8 @@ export interface DetailTabsProps {
   testIdPrefix?: string;
   /** `compact` trims the padding for a modal pane. */
   size?: 'default' | 'compact';
+  /** Override default tab labels (e.g. Snapshots: Migration SQL → Revert SQL). */
+  labels?: Partial<Record<DetailTab, string>>;
 }
 
 const ALL_TABS: readonly DetailTab[] = ['DIFF', 'DDL_DIFF', 'SQL'];
@@ -41,12 +43,14 @@ export function DetailTabs({
   tabs = ALL_TABS,
   testIdPrefix,
   size = 'default',
+  labels,
 }: DetailTabsProps): React.ReactElement {
   const pad = size === 'compact' ? 'px-2 py-1' : 'px-3 py-1.5';
   return (
     <div className="flex gap-1.5">
       {tabs.map((id) => {
-        const { label, icon } = DETAIL_TABS[id];
+        const { label: defaultLabel, icon } = DETAIL_TABS[id];
+        const label = labels?.[id] ?? defaultLabel;
         return (
           <button
             key={id}
