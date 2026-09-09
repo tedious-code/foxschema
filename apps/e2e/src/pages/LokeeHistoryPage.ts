@@ -36,6 +36,10 @@ export class LokeeHistoryPage {
   }
 
   async snapshotTarget(): Promise<void> {
+    // The button lives on the Sync workspace's compare pane. A second snapshot
+    // is usually taken after looking at the first one, from Snapshots, where
+    // the button is not on screen at all.
+    await this.openComparePane();
     const btn = this.page.locator('[data-testid="lokee-snapshot-target-btn"]');
     await btn.waitFor({ state: 'visible', timeout: 15_000 });
     await this.page.waitForFunction(
@@ -46,8 +50,20 @@ export class LokeeHistoryPage {
       { timeout: 15_000 }
     );
     await btn.click();
+    // Wait for the outcome, not for the button to come back.
+    //
+    // Capture bumps the Lokee epoch, and the toolbar's compare controls — the
+    // snapshot button among them — are gone from the DOM by the time it
+    // settles. Waiting for that button to re-enable waited on something that
+    // had left, and the run reported a 30s timeout for a snapshot the toast
+    // said had already succeeded: "Snapshot v1 · 10 object change(s)".
+    //
+    // Either ending is fine: the toast if it is still up, or the button back
+    // and idle if the toolbar kept it.
     await this.page.waitForFunction(
       () => {
+        const toast = document.querySelector('[data-testid="app-toast"]');
+        if (/snapshot\s+v\d+/i.test(toast?.textContent ?? '')) return true;
         const el = document.querySelector('[data-testid="lokee-snapshot-target-btn"]');
         return (
           el instanceof HTMLButtonElement &&
