@@ -12,7 +12,9 @@ import {
   type MigrationRunStatus,
 } from '../api/migrationApi';
 
-const SqlEditor = lazy(() => import('@/features/sql-editor').then((m) => ({ default: m.SqlEditor })));
+const SqlEditor = lazy(() =>
+  import('@/features/sql-editor/components/SqlEditor').then((m) => ({ default: m.SqlEditor }))
+);
 
 interface Props {
   open: boolean;

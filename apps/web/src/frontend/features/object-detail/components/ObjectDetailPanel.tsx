@@ -20,8 +20,12 @@ import { DependencyWarningDialog } from '@/features/object-detail/components/Dep
 import { ValidationWarningsDialog } from '@/features/object-detail/components/ValidationWarningsDialog';
 import { CrossDialectReadinessDialog } from '@/features/object-detail/components/CrossDialectReadinessDialog';
 // Monaco is heavy — load it only when a SQL surface is actually shown
-const SqlEditor = lazy(() => import('@/features/sql-editor').then((m) => ({ default: m.SqlEditor })));
-const SqlDiffEditor = lazy(() => import('@/features/sql-editor').then((m) => ({ default: m.SqlDiffEditor })));
+const SqlEditor = lazy(() =>
+  import('@/features/sql-editor/components/SqlEditor').then((m) => ({ default: m.SqlEditor }))
+);
+const SqlDiffEditor = lazy(() =>
+  import('@/features/sql-editor/components/SqlEditor').then((m) => ({ default: m.SqlDiffEditor }))
+);
 
 const EditorFallback: React.FC = () => (
   <div className="flex-1 flex items-center justify-center text-slate-500 text-xs gap-2">
