@@ -73,6 +73,11 @@ seed_oracle() {
   step docker exec -i foxschema-oracle \
     sqlplus -S "system/FoxPass123@//localhost:1521/FREEPDB1" \
     < "$INIT/oracle/02_seed.sql" || return 1
+  # The V_$ grants need SYSDBA — `system` cannot grant on SYS views (ORA-01031),
+  # and sqlplus walks past that silently, which is how they went missing.
+  step docker exec -i foxschema-oracle \
+    sqlplus -S "/ as sysdba" \
+    < "$INIT/oracle/03_vviews_sysdba.sql" || return 1
   echo "  ✓ done"
 }
 
