@@ -27,6 +27,7 @@ import {
   type DbAccessConfirmRequest,
 } from './DbAccessPermissionSections';
 import type { DbPrincipal } from '@foxschema/sql';
+import { sectionLabelCls } from '@/shared/components/surfaces';
 
 const PRESET_LABEL: Record<Exclude<AccessPreset, 'custom'>, string> = {
   'read-only': 'Read only',
@@ -184,7 +185,7 @@ export const AccessGrantsStage: React.FC<{
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-1.5" data-testid="access-grants-presets">
-            <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+            <span className={sectionLabelCls}>
               Presets
             </span>
             {(Object.keys(PRESET_LABEL) as Exclude<AccessPreset, 'custom'>[]).map((p) => (

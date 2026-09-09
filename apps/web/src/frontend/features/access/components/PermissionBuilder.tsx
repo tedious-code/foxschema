@@ -27,6 +27,7 @@ import { useAllSchemaObjects } from '../lib/useAllSchemaObjects';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { dialectFeatureReason } from '@/shared/lib/dialect-features';
 import type { AccessPrincipalDraft } from '../lib/access-draft';
+import { sectionLabelCls } from '@/shared/components/surfaces';
 
 const PRESET_LABEL: Record<AccessPreset, string> = {
   'read-only': 'Read only',
@@ -450,7 +451,7 @@ export const PermissionBuilder: React.FC<{
                   * have in mind.
                   */}
                 <div className="mb-3 flex flex-wrap items-center gap-1.5">
-                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                  <span className={sectionLabelCls}>
                     Apply to all
                   </span>
                   {(Object.keys(PRESET_LABEL) as AccessPreset[])

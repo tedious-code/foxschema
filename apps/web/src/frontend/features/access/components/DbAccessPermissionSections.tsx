@@ -44,6 +44,7 @@ import {
   type PermissionRequest,
 } from '@/features/access/lib/access';
 import { useAllSchemaObjects } from '@/features/access/lib/useAllSchemaObjects';
+import { sectionLabelCls } from '@/shared/components/surfaces';
 
 type ActionMode = 'grant' | 'revoke';
 
@@ -435,7 +436,7 @@ export const DbAccessPermissionSections: React.FC<Props> = ({
   return (
     <div className="space-y-2" data-testid="db-access-permission-sections">
       <div className="flex items-center justify-between gap-2">
-        <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+        <div className={sectionLabelCls}>
           Permissions
         </div>
         <span className="text-[10px] text-slate-500 truncate">

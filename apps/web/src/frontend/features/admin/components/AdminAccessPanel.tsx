@@ -33,6 +33,7 @@ import {
 import { useAuthStore } from '@/app/store/authStore';
 import { PasswordInput } from '@/shared/components/PasswordInput';
 import { AccessReport } from '@/features/access/components/AccessReport';
+import { sectionLabelCls } from '@/shared/components/surfaces';
 
 type Tab = 'users' | 'roles' | 'users-roles';
 
@@ -610,7 +611,7 @@ export const AdminAccessPanel: React.FC<{ open: boolean; onClose: () => void }> 
                     ) : (
                       <ChevronRight className="w-3 h-3 shrink-0 text-slate-500" />
                     )}
-                    <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                    <span className={sectionLabelCls}>
                       {group}
                     </span>
                     {/* The count is the point of collapsing: it answers "what
