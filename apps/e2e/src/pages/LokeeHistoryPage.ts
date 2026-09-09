@@ -23,6 +23,15 @@ export class LokeeHistoryPage {
   }
 
   async openComparePane(): Promise<void> {
+    // Snapshots is its own workspace now, and the toolbar's pane switcher only
+    // exists while `activeView === 'sync'`. Coming back from Snapshots means
+    // selecting Sync first — reaching straight for the Compare pill waited 15s
+    // for a control that is not on that screen, which is what failed this test
+    // on every dialect at once.
+    const rail = this.page.locator('[data-testid="view-sync-btn"]');
+    if (await rail.isVisible().catch(() => false)) {
+      await clickWhen(this.page, '[data-testid="view-sync-btn"]');
+    }
     await clickWhen(this.page, '[data-testid="sync-pane-compare-btn"]');
   }
 

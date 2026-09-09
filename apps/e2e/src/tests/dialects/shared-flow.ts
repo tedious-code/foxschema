@@ -263,6 +263,8 @@ export function runDialectFlow(
         }
       }
     }
-    await clickWhen(driver, '[data-testid="sync-pane-compare-btn"]');
+    // Back to Compare through the page object: the pane switcher only exists
+    // while the Sync workspace is active, and this test ends on Snapshots.
+    await new LokeeHistoryPage(driver).openComparePane();
   });
 }
