@@ -10,6 +10,7 @@ import React, { useState } from 'react';
 import { Loader2, AlertCircle, Mail, Sparkles } from 'lucide-react';
 import { submitSignup, skipSignup } from '../api/signupApi';
 import { Brand } from '@/app/shell/Brand';
+import { sectionLabelCls } from '@/shared/components/surfaces';
 
 /**
  * One-time, skippable first-run prompt: collect a subscriber email when the
@@ -76,7 +77,7 @@ export const SignupWizard: React.FC<{ onDone: () => void }> = ({ onDone }) => {
 
           <div className="px-6 py-5 flex flex-col gap-3.5">
             <label className="block">
-              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+              <span className={sectionLabelCls}>
                 Email
               </span>
               <input

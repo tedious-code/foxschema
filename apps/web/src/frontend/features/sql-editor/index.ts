@@ -16,7 +16,13 @@ export { scrubRemovedFileConnections } from './lib/fileQueryEditorHelpers';
 export { getCaretOffset, getSelectedSql, insertAtCursor } from './lib/sqlEditorBridge';
 export type { SchemaCacheEntry } from './lib/sqlEditorBridge';
 export { dialectFkConstraintSupport, dialectIndexSupport, executableSqlStatements, findInboundForeignKeyTables, generateCloneTableSql } from './lib/tableBlueprintSql';
-export { SqlDiffEditor } from './components/SqlEditor';
-export { SqlEditor } from './components/SqlEditor';
-export { SqlEditorView } from './components/SqlEditorView';
-export { FileImportsPanel } from './components/FileImportsPanel';
+// The editor views are deliberately NOT re-exported here.
+//
+// A barrel is one module: re-exporting them made every consumer of any symbol
+// above pull Monaco (2.6 MB) into the eager graph, which is what turned the
+// `lazy()` calls in App.tsx and elsewhere into decoration. Rolldown had been
+// saying so all along — INEFFECTIVE_DYNAMIC_IMPORT.
+//
+// Every consumer of these loads them through `lazy(() => import(...))`, so
+// importing the component module directly costs them nothing and keeps the
+// editor out of first paint.

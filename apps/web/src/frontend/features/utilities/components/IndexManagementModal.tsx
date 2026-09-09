@@ -62,6 +62,7 @@ import {
   type IndexMgmtSort,
   type IndexMgmtSortKey,
 } from '@/features/utilities/lib/indexManagementGrid';
+import { sectionLabelCls } from '@/shared/components/surfaces';
 
 interface Props {
   open: boolean;
@@ -771,7 +772,7 @@ export const IndexManagementModal: React.FC<Props> = ({
           <div className="flex flex-wrap items-end gap-2">
             {!lockedConnectionId && (
             <label className="flex flex-col gap-1 min-w-[14rem] flex-1">
-              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+              <span className={sectionLabelCls}>
                 Credential
               </span>
               <select
@@ -802,7 +803,7 @@ export const IndexManagementModal: React.FC<Props> = ({
             )}
             {needsPassword && (
               <label className="flex flex-col gap-1 min-w-[10rem]">
-                <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                <span className={sectionLabelCls}>
                   Session password
                 </span>
                 <div className="flex gap-1">
@@ -871,7 +872,7 @@ export const IndexManagementModal: React.FC<Props> = ({
               className="flex flex-col gap-1 min-w-[12rem] flex-1"
               data-testid={embedded ? 'server-insights-size-filter' : undefined}
             >
-              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+              <span className={sectionLabelCls}>
                 Filter table / index
               </span>
               <input
@@ -883,7 +884,7 @@ export const IndexManagementModal: React.FC<Props> = ({
               />
             </label>
             <label className="flex flex-col gap-1 w-36">
-              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+              <span className={sectionLabelCls}>
                 Min frag %
               </span>
               <input

@@ -30,6 +30,7 @@ import { DatabaseAccessModal } from './DatabaseAccessModal';
 import { FileQueryModal } from './FileQueryModal';
 import { IndexManagementModal } from './IndexManagementModal';
 import { ServerInsightsModal, type ServerInsightsTab } from './ServerInsightsModal';
+import { sectionLabelCls } from '@/shared/components/surfaces';
 
 export type UtilityTool =
   | 'indexes'
@@ -239,7 +240,7 @@ export const UtilitiesView: React.FC = () => {
             <p className="mt-0.5 text-[11px] text-slate-500">{active.blurb}</p>
           </div>
           <label className="flex min-w-[16rem] max-w-md flex-1 flex-col gap-1">
-            <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+            <span className={sectionLabelCls}>
               Credential
             </span>
             <select

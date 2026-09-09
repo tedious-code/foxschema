@@ -68,7 +68,12 @@ export function ConnectionChip({
   return (
     <div
       data-testid={`connection-chip-${side}`}
-      className={`flex min-w-0 max-w-xl flex-1 items-center gap-1.5 rounded-full border px-2 py-1 ${tone.ring}`}
+      // A width floor, not min-w-0. The toolbar is flex-wrap, so a chip that
+      // cannot fit its label, picker and buttons should push itself onto the
+      // next row rather than collapse to 95px and paint its controls across its
+      // neighbours — which is what put the edit button under the "Same DB" pill
+      // and made it unclickable.
+      className={`flex min-w-[15rem] max-w-xl flex-1 items-center gap-1.5 rounded-full border px-2 py-1 ${tone.ring}`}
     >
       <span className={`shrink-0 text-[10px] font-bold uppercase tracking-wider ${tone.label}`}>
         {label}
@@ -79,7 +84,14 @@ export function ConnectionChip({
           value={selectedId ?? ''}
           onChange={(e) => e.target.value && onSelect(e.target.value)}
           title="Saved connections"
-          className="min-w-0 max-w-[11rem] shrink-0 truncate rounded-full border border-slate-700/60 bg-slate-950 px-2 py-0.5 text-[11px] text-slate-200 accent-focus focus:outline-none"
+          // No shrink-0: the chip itself is `min-w-0 flex-1`, so a crowded toolbar
+        // collapses its box while its children keep their intrinsic width. The
+        // label and the buttons genuinely cannot shrink, so with this select
+        // refusing too, ~210px of content sat in a 95px box and spilled across
+        // the toolbar — far enough that the "Same DB" pill covered the edit
+        // button and swallowed the click. This select already truncates, so it
+        // is the one that can give ground.
+        className="min-w-0 max-w-[11rem] truncate rounded-full border border-slate-700/60 bg-slate-950 px-2 py-0.5 text-[11px] text-slate-200 accent-focus focus:outline-none"
         >
           <option value="">— Saved —</option>
           {connections.map((c) => (

@@ -28,6 +28,7 @@ import { useSyncStore } from '@/app/store/useSyncStore';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { PROVIDER_SETTINGS, connectionNeedsSecret } from '@/shared/lib/provider-settings';
 import { IndexManagementModal } from './IndexManagementModal';
+import { sectionLabelCls } from '@/shared/components/surfaces';
 
 export type ServerInsightsTab = DbaUtilityKind;
 
@@ -206,7 +207,7 @@ export const ServerInsightsModal: React.FC<Props> = ({
         <div className="flex flex-wrap items-end gap-2 border-b border-slate-800 bg-slate-950/30 px-5 py-3 shrink-0">
           {!lockedConnectionId && (
           <label className="flex min-w-[14rem] flex-1 flex-col gap-1">
-            <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+            <span className={sectionLabelCls}>
               Credential
             </span>
             <select
@@ -235,7 +236,7 @@ export const ServerInsightsModal: React.FC<Props> = ({
           )}
           {needsPassword && (
             <label className="flex flex-col gap-1 min-w-[10rem]">
-              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+              <span className={sectionLabelCls}>
                 Session password
               </span>
               <div className="flex gap-1">

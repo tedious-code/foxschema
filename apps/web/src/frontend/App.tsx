@@ -1,7 +1,10 @@
 import React, { Suspense, lazy, useEffect } from 'react';
 import { TopToolbar } from '@/app/shell/TopToolbar';
 import { ActivityRail } from '@/app/shell/ActivityRail';
-import { SchemaTreePanel } from '@/features/sql-editor';
+// Deep import, not the feature barrel: the barrel re-exports the editor,
+// which pulls Monaco (2.6 MB) into the eager graph and makes the lazy() below
+// decorative. Rolldown said so — INEFFECTIVE_DYNAMIC_IMPORT.
+import { SchemaTreePanel } from '@/features/sql-editor/components/SchemaTreePanel';
 import { ObjectDetailPanel } from '@/features/object-detail';
 import { ErrorBoundary } from '@/app/shell/ErrorBoundary';
 import { LoadingScreen } from '@/app/shell/LoadingScreen';
@@ -21,7 +24,9 @@ const AccessView = lazy(() =>
   import('@/features/access').then((m) => ({ default: m.AccessView }))
 );
 const SqlEditorView = lazy(() =>
-  import('@/features/sql-editor').then((m) => ({ default: m.SqlEditorView }))
+  import('@/features/sql-editor/components/SqlEditorView').then((m) => ({
+    default: m.SqlEditorView,
+  }))
 );
 const UtilitiesView = lazy(() =>
   import('@/features/utilities').then((m) => ({ default: m.UtilitiesView }))

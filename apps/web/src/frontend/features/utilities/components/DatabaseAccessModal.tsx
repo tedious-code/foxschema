@@ -35,6 +35,7 @@ import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { useAuthStore } from '@/app/store/authStore';
 import { PROVIDER_SETTINGS, connectionNeedsSecret } from '@/shared/lib/provider-settings';
 import { DbAccessPermissionSections } from '@/features/access/components/DbAccessPermissionSections';
+import { sectionLabelCls } from '@/shared/components/surfaces';
 
 interface Props {
   open: boolean;
@@ -267,7 +268,7 @@ export const DatabaseAccessModal: React.FC<Props> = ({
         <div className="flex flex-wrap items-end gap-2">
           {!lockedConnectionId && (
           <label className="flex flex-col gap-1 min-w-[14rem] flex-1">
-            <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+            <span className={sectionLabelCls}>
               Credential
             </span>
             <select
@@ -300,7 +301,7 @@ export const DatabaseAccessModal: React.FC<Props> = ({
           )}
           {needsPassword && (
             <label className="flex flex-col gap-1 min-w-[10rem]">
-              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+              <span className={sectionLabelCls}>
                 Session password
               </span>
               <div className="flex gap-1">
@@ -600,7 +601,7 @@ export const DatabaseAccessModal: React.FC<Props> = ({
                 data-testid="db-access-grant-form"
                 className="rounded-lg border border-slate-800 p-3 space-y-2"
               >
-                <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                <div className={sectionLabelCls}>
                   Grant
                 </div>
                 {!canGrant && (

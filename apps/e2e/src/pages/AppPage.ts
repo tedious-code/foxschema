@@ -36,9 +36,36 @@ export class AppPage {
     await waitFor(this.page, '[data-testid="toolbar"]', 20_000);
   }
 
+  /**
+   * Put the Sync workspace on screen.
+   *
+   * The app lands on Home now, not Sync, so the compare controls are not
+   * mounted when a spec starts. Reaching straight for them failed as a 15s
+   * `page.click` timeout on every dialect at once — which reads like the app is
+   * broken rather than like the test is on the wrong screen.
+   *
+   * Idempotent: already on Sync, the rail button is a no-op.
+   */
+  async gotoSync(): Promise<void> {
+    const rail = this.page.locator('[data-testid="view-sync-btn"]');
+    if (await rail.isVisible().catch(() => false)) {
+      await clickWhen(this.page, '[data-testid="view-sync-btn"]');
+    }
+    // Two conditions, not one. TopToolbar gates the connection chips on
+    // `activeView === 'sync' && syncPane === 'compare'`, and Sync can open on
+    // the Snapshots pane — so selecting the workspace alone leaves the compare
+    // controls unmounted and every click on them times out.
+    const compare = this.page.locator('[data-testid="sync-pane-compare-btn"]');
+    if (await compare.isVisible().catch(() => false)) {
+      await clickWhen(this.page, '[data-testid="sync-pane-compare-btn"]');
+    }
+    await waitFor(this.page, '[data-testid="source-config-btn"]', 15_000);
+  }
+
   // ── Source side ─────────────────────────────────────────────────────────
 
   async openSourceModal(): Promise<void> {
+    await this.gotoSync();
     await clickWhen(this.page, '[data-testid="source-config-btn"]');
     await waitFor(this.page, '[data-testid="conn-modal"]');
   }
@@ -54,6 +81,7 @@ export class AppPage {
   // ── Target side ─────────────────────────────────────────────────────────
 
   async openTargetModal(): Promise<void> {
+    await this.gotoSync();
     await clickWhen(this.page, '[data-testid="target-config-btn"]');
     await waitFor(this.page, '[data-testid="conn-modal"]');
   }
