@@ -176,6 +176,7 @@ export {
   lookupTableSizeGroup,
   lookupIndexSizeRow,
 } from './modules/utilities/dba-utilities.js';
+export { dbaPrivilegeRemedy } from './modules/utilities/dba-utility-remedy.js';
 export type {
   DbaProbeMode,
   DbaUtilityKind,
