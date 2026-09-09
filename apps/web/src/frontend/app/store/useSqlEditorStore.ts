@@ -129,6 +129,8 @@ export interface RecentQuery {
   sql: string;
   /** Tab title at run time (optional label). */
   title: string;
+  /** Exact destinations used by this run; reopening must not follow today's selection. */
+  selectedConnectionIds: string[];
   ranAt: number;
 }
 
@@ -836,17 +838,23 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         }),
 
       openRecentQuery: (id) => {
-        const { recentQueries, tabs, shareDestinations, sharedConnectionIds } = get();
+        const { recentQueries, tabs, shareDestinations } = get();
         const entry = recentQueries.find((r) => r.id === id);
         if (!entry) return;
+        const selectedConnectionIds = [...entry.selectedConnectionIds];
         const tab = createTab({
           title: entry.title?.trim() || 'Recent query',
           sql: entry.sql,
-          selectedConnectionIds: shareDestinations
-            ? [...sharedConnectionIds]
-            : (tabs.find((t) => t.id === get().activeTabId)?.selectedConnectionIds ?? []),
+          selectedConnectionIds,
         });
-        set({ tabs: [...tabs, tab], activeTabId: tab.id });
+        set({
+          tabs: [...tabs, tab],
+          activeTabId: tab.id,
+          // Shared mode drives execution from this global list, so restore it
+          // as well as the tab-local copy. Otherwise the reopened SQL silently
+          // follows whichever database happens to be selected now.
+          ...(shareDestinations ? { sharedConnectionIds: selectedConnectionIds } : {}),
+        });
       },
 
       clearRecentQueries: () => set({ recentQueries: [] }),
@@ -924,18 +932,27 @@ export const useSqlEditorStore = create<SqlEditorState>()(
             wanted as DbObjectType[]
           );
           const incoming = new Set(wanted);
-          const kept = (existing?.tables ?? []).filter((t) => !incoming.has(t.objectType));
-          const mergedScope = [...new Set([...(existing?.scope ?? []), ...wanted])];
-          set({
-            schemaCache: pruneSchemaCache({
-              ...get().schemaCache,
-              [connectionId]: {
-                status: 'ready',
-                tables: [...kept, ...loaded],
-                scope: mergedScope,
-                loadedAt: Date.now(),
-              },
-            }),
+          // Merge against the cache at completion time. Different scope loads
+          // intentionally use different in-flight keys and can overlap; using
+          // the snapshot from before either request awaited lets the slower
+          // response erase objects written by the faster one.
+          set((state) => {
+            const current = state.schemaCache[connectionId];
+            const kept = (current?.tables ?? []).filter(
+              (table) => !incoming.has(table.objectType)
+            );
+            const mergedScope = [...new Set([...(current?.scope ?? []), ...wanted])];
+            return {
+              schemaCache: pruneSchemaCache({
+                ...state.schemaCache,
+                [connectionId]: {
+                  status: 'ready',
+                  tables: [...kept, ...loaded],
+                  scope: mergedScope,
+                  loadedAt: Date.now(),
+                },
+              }),
+            };
           });
         } catch (error: unknown) {
           set({
@@ -1521,6 +1538,9 @@ export const useSqlEditorStore = create<SqlEditorState>()(
               id: newTabId(),
               sql: truncatePersistedSql(sqlSnippet),
               title: tab.title || 'Query',
+              selectedConnectionIds: connections
+                .map((connection) => connection.id)
+                .filter((id) => id !== LOCAL_CODE_RUN_TARGET.id),
               ranAt: Date.now(),
             };
             recentQueries = [
@@ -2281,7 +2301,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
     }),
     {
       name: 'foxschema-sql-editor',
-      version: 7,
+      version: 8,
       // Persist tabs + destinations mode + bookmarks + recent + variables. Never passwords/results.
       // Secret variable payloads are stripped (session-only values).
       partialize: (state) => {
@@ -2386,6 +2406,23 @@ export const useSqlEditorStore = create<SqlEditorState>()(
                 : 3,
           };
         }
+        // v8: recent runs remember the exact database destinations they used.
+        // Old entries fail closed with none selected instead of inheriting the
+        // current destination and risking a write to the wrong database.
+        if (fromVersion < 8) {
+          const recent = Array.isArray(p.recentQueries)
+            ? (p.recentQueries as Array<Record<string, unknown>>)
+            : [];
+          return {
+            ...p,
+            recentQueries: recent.map((entry) => ({
+              ...entry,
+              selectedConnectionIds: Array.isArray(entry.selectedConnectionIds)
+                ? entry.selectedConnectionIds.filter((id) => typeof id === 'string')
+                : [],
+            })),
+          };
+        }
         return p;
       },
       // Always rehydrate checkedStatements (not persisted) and drop malformed tabs.
@@ -2462,6 +2499,9 @@ export const useSqlEditorStore = create<SqlEditorState>()(
                 id: r.id,
                 sql: truncatePersistedSql(r.sql),
                 title: typeof r.title === 'string' ? r.title : 'Query',
+                selectedConnectionIds: Array.isArray(r.selectedConnectionIds)
+                  ? r.selectedConnectionIds.filter((id) => typeof id === 'string')
+                  : [],
                 ranAt: r.ranAt,
               }))
               .sort((a, b) => b.ranAt - a.ranAt)

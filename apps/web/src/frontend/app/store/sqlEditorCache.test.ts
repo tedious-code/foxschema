@@ -4,6 +4,7 @@ import {
   truncatePersistedSql,
   pruneSchemaCache,
   MAX_PERSISTED_SQL_CHARS,
+  useSqlEditorStore,
 } from './useSqlEditorStore';
 import type { SqlStatementResult } from '@/shared/api/sqlApi';
 
@@ -51,5 +52,32 @@ describe('pruneSchemaCache', () => {
     );
     expect(pruned.old).toBeUndefined();
     expect(pruned.fresh).toBeDefined();
+  });
+});
+
+describe('recent query destinations', () => {
+  it('restores the destinations used by the run instead of the current shared selection', () => {
+    const current = useSqlEditorStore.getState().tabs[0]!;
+    useSqlEditorStore.setState({
+      tabs: [{ ...current, id: 'current', selectedConnectionIds: ['staging'] }],
+      activeTabId: 'current',
+      shareDestinations: true,
+      sharedConnectionIds: ['staging'],
+      recentQueries: [
+        {
+          id: 'recent-prod',
+          sql: 'UPDATE orders SET status = 1 WHERE id = 42',
+          title: 'Production update',
+          selectedConnectionIds: ['production'],
+          ranAt: 1,
+        },
+      ],
+    });
+
+    useSqlEditorStore.getState().openRecentQuery('recent-prod');
+
+    const state = useSqlEditorStore.getState();
+    expect(state.sharedConnectionIds).toEqual(['production']);
+    expect(state.activeTab().selectedConnectionIds).toEqual(['production']);
   });
 });

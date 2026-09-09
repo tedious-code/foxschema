@@ -13,6 +13,11 @@ import {
   uniqueKeysFromTable,
 } from '@foxschema/sql';
 import type { TableSchema } from '@/shared/lib/types';
+import {
+  fromClauseIsMultiTable,
+  sqlHasSetOperation,
+  tableNamesFromSql,
+} from '@/shared/lib/tablePreview';
 
 export type ResultSeek = {
   columns: string[];
@@ -25,8 +30,30 @@ export function tableForOrderBy(
   tables: readonly TableSchema[] | undefined
 ): TableSchema | undefined {
   if (!tables?.length) return undefined;
-  const names = sql.toLowerCase();
-  return tables.find((t) => names.includes(t.name.toLowerCase()));
+  // A unique key is only unique in the result while one source row can produce
+  // at most one output row. JOIN/APPLY/comma-FROM and set operations can repeat
+  // a primary key, so keyset paging would skip the remaining rows for that key.
+  if (
+    fromClauseIsMultiTable(sql) ||
+    sqlHasSetOperation(sql) ||
+    /\b(?:CROSS|OUTER)\s+APPLY\b/i.test(sql)
+  ) {
+    return undefined;
+  }
+  // Match parsed FROM references, not substrings. With tables `order` and
+  // `order_items`, searching the SQL text returned whichever cache entry came
+  // first and could borrow the wrong table's uniqueness metadata.
+  const names = tableNamesFromSql(sql);
+  if (names.length !== 1) return undefined;
+  const wanted = names[0]!.toLowerCase();
+  if (wanted.includes('.')) {
+    return tables.find((table) => table.name.toLowerCase() === wanted);
+  }
+  const matched = tables.filter((table) => {
+    const name = table.name.toLowerCase();
+    return (name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : name) === wanted;
+  });
+  return matched.length === 1 ? matched[0] : undefined;
 }
 
 export function seekFromLastRow(opts: {
