@@ -28,6 +28,7 @@ import { buildSampleBookmarks } from '@/features/sql-editor/lib/sqlEditorSamples
 import {
   buildForeignKeyDrilldown,
   buildOrphanPeek,
+  fkKey,
   buildRowLookup,
   buildTablePreview,
   composePeekSql,
@@ -1849,7 +1850,7 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         if ('error' in composed) return;
         const entry: DataPeekEntry = {
           id: `peek-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          title: `${childTable} · orphans via ${fk.name || (fk.columns ?? []).join(', ')}`,
+          title: `${childTable} · orphans via ${fkKey(fk)}`,
           tableName: childTable,
           baseSql: built.sql,
           baseParams: built.params,

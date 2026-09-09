@@ -67,16 +67,3 @@ describe('StatCard', () => {
     expect(screen.getByTestId('zero').textContent).toContain('0');
   });
 });
-
-describe('Panel', () => {
-  it('can drop its padding for callers that own their own spacing', () => {
-    const { rerender } = render(<Panel testId="p">x</Panel>);
-    expect(screen.getByTestId('p').className).toContain('px-2.5');
-    rerender(
-      <Panel testId="p" padded={false}>
-        x
-      </Panel>
-    );
-    expect(screen.getByTestId('p').className).not.toContain('px-2.5');
-  });
-});

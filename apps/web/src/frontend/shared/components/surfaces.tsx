@@ -34,15 +34,11 @@ export const SectionLabel: React.FC<{
 
 export const Panel: React.FC<{
   children: React.ReactNode;
-  /** Extra classes; padding is included by default so callers rarely need it. */
+  /** Extra classes. Padding is part of the treatment, not a choice. */
   className?: string;
-  padded?: boolean;
   testId?: string;
-}> = ({ children, className, padded = true, testId }) => (
-  <div
-    className={[panelCls, padded ? 'px-2.5 py-2' : '', className].filter(Boolean).join(' ')}
-    data-testid={testId}
-  >
+}> = ({ children, className, testId }) => (
+  <div className={[panelCls, 'px-2.5 py-2', className].filter(Boolean).join(' ')} data-testid={testId}>
     {children}
   </div>
 );
