@@ -73,7 +73,17 @@ export function ConnectionChip({
       // next row rather than collapse to 95px and paint its controls across its
       // neighbours — which is what put the edit button under the "Same DB" pill
       // and made it unclickable.
-      className={`flex min-w-[15rem] max-w-xl flex-1 items-center gap-1.5 rounded-full border px-2 py-1 ${tone.ring}`}
+      //
+      // flex-initial, not flex-1: with flex-1 each chip grew to soak up free
+      // space, and two of them pushed the rest of the toolbar onto a second
+      // line — 87px of chrome for a row that fits in 36. A chip needs a floor
+      // and a ceiling, not everything going spare.
+      //
+      // The ceiling sits close to the floor on purpose. The summary inside
+      // truncates, and a connection string is worth less toolbar height than
+      // the rest of the toolbar is worth: two chips at 22rem consumed 704px of
+      // a 1190px row on a 1280 screen and wrapped everything else.
+      className={`flex min-w-[15rem] max-w-[17rem] flex-initial items-center gap-1.5 rounded-full border px-2 py-1 ${tone.ring}`}
     >
       <span className={`shrink-0 text-[10px] font-bold uppercase tracking-wider ${tone.label}`}>
         {label}

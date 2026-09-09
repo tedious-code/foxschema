@@ -344,9 +344,29 @@ const PeekGrid: React.FC<{
     // back to a bare `products` in the connection schema would hand row-edit
     // the wrong PK/columns while the SELECT correctly hit the parent — the
     // same wrong-table class the qualify fix closes, just on the write side.
-    if (wanted.includes('.')) return undefined;
+    // A qualified name still has to find its table, or the panel loses its
+    // foreign keys: an FK drill sets tableName to `demo_a.customers` while the
+    // catalog caches it bare as `customers`, so giving up here meant the second
+    // peek in a chain showed no reference keys at all.
+    //
+    // The qualifier is checked rather than dropped. Matching a bare cache entry
+    // for `inventory.products` while connected to `public` would hand row-edit
+    // the wrong table's PK — the case the previous `return undefined` was
+    // guarding, and the reason this compares instead of stripping.
+    const dot = wanted.lastIndexOf('.');
+    if (dot > 0) {
+      const qualifier = wanted.slice(0, dot);
+      const bare = wanted.slice(dot + 1);
+      // Only enforced when the connection records a schema. On engines that do
+      // not, demanding a match would reject every qualified name and lose the
+      // keys for everyone — worse than the wrong-table risk it guards, which
+      // needs two schemas holding the same table name to arise at all.
+      const known = (connectionSchema ?? '').trim().toLowerCase();
+      if (known && qualifier !== known) return undefined;
+      return tables.find((t) => t.name.toLowerCase().replace(/^.*\./, '') === bare);
+    }
     return tables.find((t) => t.name.toLowerCase().replace(/^.*\./, '') === wanted);
-  }, [tables, entry.tableName]);
+  }, [tables, entry.tableName, connectionSchema]);
 
   const links = useMemo(
     () => (entry.result?.ok ? foreignKeyLinksFor(table, entry.result.columns) : []),
