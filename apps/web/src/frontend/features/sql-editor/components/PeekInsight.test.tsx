@@ -13,8 +13,20 @@ vi.mock('@/shared/api/schemaApi', () => ({
 }));
 
 vi.mock('@/app/store/useSqlEditorStore', () => ({
-  useSqlEditorStore: (sel: (s: { sessionPasswords: Record<string, string> }) => unknown) =>
-    sel({ sessionPasswords: {} }),
+  // Mirrors the real store's shape, including the empty schemaCache it always
+  // starts with — the component reads foreign keys from there.
+  useSqlEditorStore: (
+    sel: (s: {
+      sessionPasswords: Record<string, string>;
+      schemaCache: Record<string, { tables?: unknown[] }>;
+      openDataPeekOrphans: () => Promise<void>;
+    }) => unknown
+  ) =>
+    sel({
+      sessionPasswords: {},
+      schemaCache: {},
+      openDataPeekOrphans: async () => undefined,
+    }),
 }));
 
 describe('PeekInsight', () => {

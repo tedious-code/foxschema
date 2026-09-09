@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import {
   dialectSupportsDbAccess,
+  userManagementSupport,
   privilegesForPrincipal,
   type DbPrincipal,
   type DbPrivilege,
@@ -35,6 +36,12 @@ import { useAuthStore } from '@/app/store/authStore';
 import { EmptyState, Segmented, inputCls, labelCls } from './controls';
 import { type DbAccessConfirmRequest } from './DbAccessPermissionSections';
 import { PermissionInspector } from './PermissionInspector';
+import { SectionLabel } from '@/shared/components/surfaces';
+import {
+  ALTERATION_LABEL,
+  availableAlterations,
+  dropSafetyNotes,
+} from '../lib/accountAlterations';
 import type { AccessPrincipalDraft } from '../lib/access-draft';
 
 type PermissionStage = 'account' | 'grants' | 'effective';
@@ -465,7 +472,12 @@ export const AccessPermissionPanel: React.FC<{
                 </p>
               )}
               {selected && stage === 'account' && (
-                <AccountStage principal={selected} onManageUsers={onAddUser} />
+                <AccountStage
+                  principal={selected}
+                  privileges={privileges}
+                  dialect={dialect}
+                  onManageUsers={onAddUser}
+                />
               )}
               {selected && stage === 'grants' && (
                 <AccessGrantsStage
@@ -560,8 +572,16 @@ export const AccessPermissionPanel: React.FC<{
 
 const AccountStage: React.FC<{
   principal: DbPrincipal;
+  /** The catalog's privileges, so a drop can be described before it is run. */
+  privileges?: readonly DbPrivilege[];
+  dialect?: string;
   onManageUsers?: () => void;
-}> = ({ principal, onManageUsers }) => {
+}> = ({ principal, privileges = [], dialect, onManageUsers }) => {
+  const support = dialect ? userManagementSupport(dialect) : null;
+  const alterations = support
+    ? availableAlterations(support, principal.kind === 'user' ? 'user' : 'role')
+    : [];
+  const dropNotes = dropSafetyNotes(principal, privileges);
   const login =
     principal.canLogin === true
       ? 'Can log in'
@@ -588,6 +608,46 @@ const AccountStage: React.FC<{
           {login}
         </dd>
       </dl>
+      {/* What this engine can change about this principal. Naming them here
+          means the reader learns what is possible without opening the form and
+          finding out by absence. */}
+      <div data-testid="access-permission-account-alterations">
+        <SectionLabel className="mb-1">Alteration</SectionLabel>
+        {alterations.length === 0 ? (
+          <p className="text-[11px] text-slate-500">
+            {support
+              ? 'This engine has no edit actions for this kind of account.'
+              : 'Choose a connection to see what this engine can change.'}
+          </p>
+        ) : (
+          <ul className="flex flex-wrap gap-1.5">
+            {alterations.map((a) => (
+              <li
+                key={a}
+                data-testid={`access-permission-alteration-${a}`}
+                className="rounded-md border border-slate-700 px-2 py-0.5 text-[11px] font-semibold text-slate-300"
+              >
+                {ALTERATION_LABEL[a]}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {dropNotes.length > 0 && (
+        <div
+          className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-2.5 py-2"
+          data-testid="access-permission-drop-safety"
+        >
+          <SectionLabel className="mb-1">Drop safety notes</SectionLabel>
+          <ul className="space-y-1 text-[11px] text-amber-100/90">
+            {dropNotes.map((n) => (
+              <li key={n}>{n}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {onManageUsers && (
         <button
           type="button"
