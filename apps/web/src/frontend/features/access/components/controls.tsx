@@ -8,12 +8,18 @@
  */
 import React from 'react';
 import type { PermissionRisk } from '../lib/access';
+import { sectionLabelCls } from '@/shared/components/surfaces';
 
 export const inputCls =
   'w-full rounded-md border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-[12px] text-slate-100 outline-none accent-focus';
 
 /** The micro-label above a control. Exported because two panels had their own copy. */
-export const labelCls = 'text-[10px] font-bold uppercase tracking-wide text-slate-500';
+/**
+ * Re-exported rather than respelled: this string is the same micro-label the
+ * rest of the app uses, and it drifted into eight variants precisely because
+ * each feature kept its own copy.
+ */
+export const labelCls = sectionLabelCls;
 
 export const RISK_STYLE: Record<PermissionRisk, string> = {
   low: 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10',
