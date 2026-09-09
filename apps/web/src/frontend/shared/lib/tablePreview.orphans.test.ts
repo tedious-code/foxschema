@@ -79,6 +79,17 @@ describe('buildOrphanCount', () => {
     expect(q.sql).toContain('"reference"."customers"');
   });
 
+  it('aliases tables without AS, which Oracle rejects', () => {
+    // Verified against Oracle 23: `FROM demo_a.orders AS fox_c` is ORA-03048,
+    // "SQL reserved word 'AS' is not syntactically valid". A bare correlation
+    // name is accepted by every engine here, so there is no dialect branch.
+    for (const dialect of ['oracle', 'postgres', 'mysql', 'sqlserver', 'db2']) {
+      const q = buildOrphanCount('demo_a.orders', fk(), dialect)!;
+      expect(q.sql, dialect).not.toMatch(/\bAS\s+fox_[cp]\b/);
+      expect(q.sql, dialect).toMatch(/fox_c\b/);
+    }
+  });
+
   it('offers nothing when the catalog gave no usable column pair', () => {
     expect(buildOrphanCount('public.orders', fk({ columns: [] }), 'postgres')).toBeNull();
     expect(

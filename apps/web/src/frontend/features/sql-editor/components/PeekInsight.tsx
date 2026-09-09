@@ -9,9 +9,18 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { fetchTableInsight, type TableInsightResponse } from '@/shared/api/schemaApi';
-import { tableNameParts, buildOrphanCount, fkDrillTableName } from '@/shared/lib/tablePreview';
+import type { PreviewQuery } from '@/shared/lib/tablePreview';
+import {
+  buildOrphanCount,
+  fkDrillTableName,
+  fkKey,
+  findCachedTable,
+  tableNameParts,
+} from '@/shared/lib/tablePreview';
+import { formatBytes, formatRowCount } from '@foxschema/sql';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
-import { StatCard } from '@/shared/components/surfaces';
+import { useSyncStore } from '@/app/store/useSyncStore';
+import { Panel, StatCard } from '@/shared/components/surfaces';
 import { executeSql } from '@/shared/api/sqlApi';
 
 function tableRef(tableName: string, fallbackSchema?: string): { table: string; schema?: string } {
@@ -27,29 +36,15 @@ function pct(frac: number | null | undefined): string {
   return `${Math.round(frac * 1000) / 10}%`;
 }
 
-
-/** Bytes as a person reads them. Binary units, since that is what catalogs report. */
-export function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return '—';
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ['KB', 'MB', 'GB', 'TB', 'PB'];
-  let value = bytes / 1024;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  // One decimal below 10 so 1.2 GB does not collapse to 1 GB, none above it
-  // where the extra digit is noise against the rounding already in the number.
-  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
-}
-
 export const PeekInsight: React.FC<{
   connectionId: string;
   tableName: string;
   schema?: string;
 }> = ({ connectionId, tableName, schema }) => {
-  const sessionPasswords = useSqlEditorStore((s) => s.sessionPasswords);
+  // Narrow selectors: the whole `password` map and the whole
+  // `schemaCache` object get replaced on activity for *other* connections, and
+  // depending on them re-ran the catalog probe and re-walked every table.
+  const password = useSqlEditorStore((s) => s.sessionPasswords[connectionId]);
   const [data, setData] = useState<TableInsightResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -57,26 +52,29 @@ export const PeekInsight: React.FC<{
   const [checkingOrphans, setCheckingOrphans] = useState(false);
   const [orphanError, setOrphanError] = useState<string | null>(null);
   const openDataPeekOrphans = useSqlEditorStore((st) => st.openDataPeekOrphans);
-  const schemaCache = useSqlEditorStore((st) => st.schemaCache);
+  const cachedTables = useSqlEditorStore((st) => st.schemaCache[connectionId]?.tables);
+  // From the connection, the same source openDataPeekOrphans uses. Reading it
+  // off the insight response instead let the count and the drill-down be built
+  // for different dialects — the response's `dialect` is optional, so a missing
+  // one silently fell back to default quoting.
+  const dialect = useSyncStore((st) => st.connections.find((c) => c.id === connectionId)?.dialect ?? '');
 
   /** Foreign keys declared on this table, from the catalog already in hand. */
+  /** Foreign keys declared on this table, from the catalog already in hand. */
   const foreignKeys = useMemo(() => {
-    const ref = tableRef(tableName, schema);
-    const tables = schemaCache[connectionId]?.tables ?? [];
-    const match = tables.find((t) => {
-      const parts = tableNameParts(t.name);
-      return (parts[parts.length - 1] ?? t.name).toLowerCase() === ref.table.toLowerCase();
-    });
+    // findCachedTable, not a local match: it tries the fully-qualified name
+    // before falling back to the bare one, so `public.orders` cannot silently
+    // resolve to `other_schema.orders`.
+    const match = findCachedTable(cachedTables, tableName);
     return (match?.foreignKeys ?? []).filter(
       (fk) => (fk.columns ?? []).length > 0 && (fk.referencedColumns ?? []).length > 0
     );
-  }, [schemaCache, connectionId, tableName, schema]);
+  }, [cachedTables, tableName]);
 
   /** Total across every FK, or null while nobody has asked. */
-  const orphanTotal = useMemo(
-    () => (orphanCounts ? Object.values(orphanCounts).reduce((a, b) => a + b, 0) : null),
-    [orphanCounts]
-  );
+  const orphanTotal = orphanCounts
+    ? Object.values(orphanCounts).reduce((a, b) => a + b, 0)
+    : null;
 
   // The insight above is catalog-only and constant time. This is a scan of the
   // child against each parent, so it runs when asked and not before.
@@ -85,27 +83,37 @@ export const PeekInsight: React.FC<{
     setCheckingOrphans(true);
     setOrphanError(null);
     try {
-      const dialect = data?.dialect ?? '';
+      // One request carrying every statement, not one request per key.
+      // /sql/execute opens a connection, runs the statements on it, and closes
+      // it (sql-execute.service.ts), so N calls meant N connect/auth handshakes
+      // paid serially. Batching also isolates failures per statement, where the
+      // old loop threw away counts already paid for as soon as one key failed.
+      const built = foreignKeys
+        .map((fk) => ({ fk, q: buildOrphanCount(tableName, fk, dialect) }))
+        .filter((x): x is { fk: (typeof foreignKeys)[number]; q: PreviewQuery } => x.q != null);
+      if (built.length === 0) return;
+      const { results } = await executeSql(
+        { connectionId, password: password || undefined },
+        built.map((b) => b.q.sql),
+        undefined,
+        undefined,
+        built.map((b) => b.q.params)
+      );
       const counts: Record<string, number> = {};
-      for (const fk of foreignKeys) {
-        const built = buildOrphanCount(tableName, fk, dialect);
-        if (!built) continue;
-        const { results } = await executeSql(
-          { connectionId, password: sessionPasswords[connectionId] || undefined },
-          [built.sql],
-          undefined,
-          undefined,
-          [built.params]
-        );
-        const first = results[0];
-        if (!first || !first.ok) {
-          setOrphanError(first && 'error' in first ? String(first.error) : 'Orphan check failed.');
+      const failures: string[] = [];
+      built.forEach((b, i) => {
+        const r = results[i];
+        if (!r || !r.ok) {
+          failures.push(r && 'error' in r ? String(r.error) : 'failed');
           return;
         }
-        counts[fk.name || (fk.columns ?? []).join(',')] = Number(first.rows?.[0]?.[0] ?? 0);
-      }
-      setOrphanCounts(counts);
+        counts[fkKey(b.fk)] = Number(r.rows?.[0]?.[0] ?? 0);
+      });
+      // Keep whatever succeeded; a broken key should not hide the others.
+      setOrphanCounts(Object.keys(counts).length > 0 ? counts : null);
+      setOrphanError(failures.length > 0 ? failures.join(' · ') : null);
     } catch (e) {
+      setOrphanCounts(null);
       setOrphanError(e instanceof Error ? e.message : String(e));
     } finally {
       setCheckingOrphans(false);
@@ -118,7 +126,7 @@ export const PeekInsight: React.FC<{
     setLoading(true);
     setError(null);
     void fetchTableInsight(
-      { connectionId, password: sessionPasswords[connectionId] || undefined },
+      { connectionId, password: password || undefined },
       { table: ref.table, schema: ref.schema }
     )
       .then((res) => {
@@ -136,7 +144,7 @@ export const PeekInsight: React.FC<{
     return () => {
       cancelled = true;
     };
-  }, [connectionId, tableName, schema, sessionPasswords]);
+  }, [connectionId, tableName, schema, password]);
 
   const cards = useMemo(() => {
     if (!data) return null;
@@ -178,13 +186,13 @@ export const PeekInsight: React.FC<{
             <StatCard
               testId="data-peek-insight-card-rows"
               label="Rows"
-              value={data.estimatedRows == null ? '—' : data.estimatedRows.toLocaleString()}
+              value={formatRowCount(data.estimatedRows)}
               hint="Estimated from catalog"
             />
             <StatCard
               testId="data-peek-insight-card-size"
               label="Size"
-              value={data.sizeBytes == null ? '—' : formatBytes(data.sizeBytes)}
+              value={formatBytes(data.sizeBytes)}
               hint={data.sizeBytes == null ? 'Not reported by this engine' : 'Table + indexes'}
             />
             <StatCard
@@ -213,7 +221,7 @@ export const PeekInsight: React.FC<{
               testId="data-peek-insight-card-orphans"
               label="Orphan FKs"
               tone={orphanTotal ? 'danger' : 'default'}
-              value={orphanTotal == null ? '—' : orphanTotal.toLocaleString()}
+              value={formatRowCount(orphanTotal)}
               hint={
                 foreignKeys.length === 0
                   ? 'No foreign keys'
@@ -235,10 +243,10 @@ export const PeekInsight: React.FC<{
                     ? `${Math.round((1 - count / rows) * 10000) / 100}% matched`
                     : null;
                 return (
-                  <div
+                  <Panel
                     key={key}
-                    className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/50 px-2.5 py-2"
-                    data-testid={`data-peek-insight-fk-${key}`}
+                    className="flex flex-wrap items-center gap-2"
+                    testId={`data-peek-insight-fk-${key}`}
                   >
                     <span className="font-mono text-[11px] text-slate-300">
                       {(fk.columns ?? []).join(', ')} → {fkDrillTableName(fk)}
@@ -252,7 +260,7 @@ export const PeekInsight: React.FC<{
                             count > 0 ? 'text-rose-300' : 'text-emerald-300'
                           }`}
                         >
-                          {count === 0 ? 'no orphans' : `${count.toLocaleString()} orphans`}
+                          {count === 0 ? 'no orphans' : `${formatRowCount(count)} orphans`}
                         </span>
                         {matched && <span className="text-[10px] text-slate-500">{matched}</span>}
                       </>
@@ -267,7 +275,7 @@ export const PeekInsight: React.FC<{
                         Peek orphans
                       </button>
                     )}
-                  </div>
+                  </Panel>
                 );
               })}
               <div className="flex items-center gap-2">
@@ -295,7 +303,7 @@ export const PeekInsight: React.FC<{
           <p className="mb-2 text-[12px] text-slate-300" data-testid="data-peek-insight-rows">
             Estimated rows:{' '}
             <span className="font-mono font-semibold text-slate-100">
-              {data.estimatedRows == null ? '—' : data.estimatedRows.toLocaleString()}
+              {formatRowCount(data.estimatedRows)}
             </span>
             {data.support?.hint ? (
               <span className="block text-[11px] text-slate-500 mt-0.5">{data.support.hint}</span>

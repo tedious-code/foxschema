@@ -573,15 +573,25 @@ export const AccessPermissionPanel: React.FC<{
 const AccountStage: React.FC<{
   principal: DbPrincipal;
   /** The catalog's privileges, so a drop can be described before it is run. */
-  privileges?: readonly DbPrivilege[];
-  dialect?: string;
+  privileges: readonly DbPrivilege[];
+  dialect: string;
   onManageUsers?: () => void;
-}> = ({ principal, privileges = [], dialect, onManageUsers }) => {
-  const support = dialect ? userManagementSupport(dialect) : null;
-  const alterations = support
-    ? availableAlterations(support, principal.kind === 'user' ? 'user' : 'role')
-    : [];
-  const dropNotes = dropSafetyNotes(principal, privileges);
+}> = ({ principal, privileges, dialect, onManageUsers }) => {
+  // Both memoised: this is an unmemoised child of a panel that owns the
+  // principal filter, so every keystroke re-ran dropSafetyNotes, which walks
+  // the whole privileges array.
+  const alterations = useMemo(
+    () =>
+      availableAlterations(
+        userManagementSupport(dialect),
+        principal.kind === 'user' ? 'user' : 'role'
+      ),
+    [dialect, principal.kind]
+  );
+  const dropNotes = useMemo(
+    () => dropSafetyNotes(principal, privileges),
+    [principal, privileges]
+  );
   const login =
     principal.canLogin === true
       ? 'Can log in'
@@ -615,9 +625,7 @@ const AccountStage: React.FC<{
         <SectionLabel className="mb-1">Alteration</SectionLabel>
         {alterations.length === 0 ? (
           <p className="text-[11px] text-slate-500">
-            {support
-              ? 'This engine has no edit actions for this kind of account.'
-              : 'Choose a connection to see what this engine can change.'}
+            This engine has no edit actions for this kind of account.
           </p>
         ) : (
           <ul className="flex flex-wrap gap-1.5">
@@ -659,9 +667,9 @@ const AccountStage: React.FC<{
         </button>
       )}
       <div>
-        <h3 className="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-1">
+        <SectionLabel className="mb-1">
           Member of
-        </h3>
+        </SectionLabel>
         {principal.memberOf.length === 0 ? (
           <p className="text-[11px] text-slate-500">Not a member of any role.</p>
         ) : (
@@ -678,9 +686,9 @@ const AccountStage: React.FC<{
         )}
       </div>
       <div>
-        <h3 className="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-1">
+        <SectionLabel className="mb-1">
           Members
-        </h3>
+        </SectionLabel>
         {principal.members.length === 0 ? (
           <p className="text-[11px] text-slate-500">No members.</p>
         ) : (

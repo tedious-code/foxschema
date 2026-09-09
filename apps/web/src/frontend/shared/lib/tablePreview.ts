@@ -106,6 +106,18 @@ export function buildRowLookup(
 }
 
 /**
+ * How a foreign key is named, both as a map key and on screen.
+ *
+ * Spelled in three places before this — twice in Peek Insight and once in the
+ * store — and the store's copy joined with `', '` where the others used `','`.
+ * The two Peek copies had to stay byte-identical or the count written under one
+ * key was never found under the other, showing "not checked" for every key.
+ */
+export function fkKey(fk: Pick<ForeignKeyInfo, 'name' | 'columns'>): string {
+  return fk.name || (fk.columns ?? []).join(',');
+}
+
+/**
  * Child rows whose foreign key points at a parent row that is not there.
  *
  * Deliberately not part of the table-insight probe. That probe is catalog-only
@@ -127,7 +139,7 @@ export function buildRowLookup(
  * leave the affordance off rather than offer a check that cannot run.
  */
 function orphanQuery(
-  select: string,
+  shape: 'count' | 'rows',
   childTable: string,
   fk: ForeignKeyInfo,
   dialect: string
@@ -141,12 +153,16 @@ function orphanQuery(
   if (childParts.length === 0 || parentParts.length === 0) return null;
 
   // Aliases keep the two sides apart when a table references itself.
-  let query = sql`SELECT ${sql.raw(select)} FROM ${sql.id(...childParts)} AS fox_c WHERE `;
+  // No `AS` before a table alias: Oracle rejects it (ORA-00933), while a bare
+  // correlation name is valid on every engine this ships against. One spelling
+  // beats a dialect branch for a difference this small.
+  const select = shape === 'count' ? sql`COUNT(*) AS fox_orphans` : sql`fox_c.*`;
+  let query = sql`SELECT ${select} FROM ${sql.id(...childParts)} fox_c WHERE `;
   childCols.forEach((col, i) => {
     const joiner = i === 0 ? sql`` : sql` AND `;
     query = sql`${query}${joiner}fox_c.${sql.id(col)} IS NOT NULL`;
   });
-  query = sql`${query} AND NOT EXISTS (SELECT 1 FROM ${sql.id(...parentParts)} AS fox_p WHERE `;
+  query = sql`${query} AND NOT EXISTS (SELECT 1 FROM ${sql.id(...parentParts)} fox_p WHERE `;
   refCols.forEach((refCol, i) => {
     const joiner = i === 0 ? sql`` : sql` AND `;
     query = sql`${query}${joiner}fox_p.${sql.id(refCol)} = fox_c.${sql.id(childCols[i]!)}`;
@@ -163,7 +179,7 @@ export function buildOrphanCount(
   fk: ForeignKeyInfo,
   dialect: string
 ): PreviewQuery | null {
-  return orphanQuery('COUNT(*) AS fox_orphans', childTable, fk, dialect);
+  return orphanQuery('count', childTable, fk, dialect);
 }
 
 /** The orphan rows themselves — what "Peek orphans" opens. */
@@ -172,7 +188,7 @@ export function buildOrphanPeek(
   fk: ForeignKeyInfo,
   dialect: string
 ): PreviewQuery | null {
-  return orphanQuery('fox_c.*', childTable, fk, dialect);
+  return orphanQuery('rows', childTable, fk, dialect);
 }
 
 export interface FkColumnLink {

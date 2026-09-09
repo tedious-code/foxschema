@@ -23,13 +23,28 @@ SELECT
   c.name AS column_name,
   NULL AS n_distinct,
   NULL AS null_frac,
-  SUM(p.row_count) OVER () AS estimated_rows,
-  -- SQL Server pages are always 8 KB, so page count converts to bytes exactly.
-  (SUM(p.used_page_count) OVER () * 8192) AS size_bytes
+  sz.estimated_rows,
+  sz.size_bytes
 FROM sys.tables t
 INNER JOIN sys.schemas s ON s.schema_id = t.schema_id
-INNER JOIN sys.dm_db_partition_stats p
-  ON p.object_id = t.object_id AND p.index_id IN (0, 1)
+-- Table-level totals, computed once per table.
+--
+-- These used to be SUM(...) OVER () beside the LEFT JOIN to sys.columns, which
+-- fans the result out to one row per column: the window then summed the fanned
+-- set and every scalar came back multiplied by the column count. A 20-column
+-- table reported 20x its rows and 20x its size. CROSS APPLY keeps the
+-- aggregate on its own row set, where the column join cannot reach it.
+CROSS APPLY (
+  SELECT
+    -- Rows live only in the heap or clustered index; counting every index
+    -- would multiply by the number of indexes instead.
+    SUM(CASE WHEN p.index_id IN (0, 1) THEN p.row_count ELSE 0 END) AS estimated_rows,
+    -- Size is table *and* indexes, so every partition counts. Pages are always
+    -- 8 KB on SQL Server, so the conversion is exact rather than an estimate.
+    SUM(p.used_page_count) * 8192 AS size_bytes
+  FROM sys.dm_db_partition_stats p
+  WHERE p.object_id = t.object_id
+) sz
 LEFT JOIN sys.columns c ON c.object_id = t.object_id
 WHERE s.name = @p0 AND t.name = @p1
 `.trim();
