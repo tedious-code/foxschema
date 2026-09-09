@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { KeyRound } from 'lucide-react';
+import { ChevronDown, KeyRound } from 'lucide-react';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { effectiveConnectionIds } from '@/app/store/sqlEditorTabLogic';
@@ -13,6 +13,9 @@ import { SQL_ICON_STROKE } from '@/shared/lib/iconStyle';
 export const ConnectionChecklist: React.FC<{ variant?: 'list' | 'chips' }> = ({
   variant = 'list',
 }) => {
+  /** Open state and filter text for the destinations dropdown (chips variant). */
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [filter, setFilter] = useState('');
   const connections = useSyncStore((s) => s.connections);
   const connectionsLoaded = useSyncStore((s) => s.connectionsLoaded);
   const tabs = useSqlEditorStore((s) => s.tabs);
@@ -97,6 +100,24 @@ export const ConnectionChecklist: React.FC<{ variant?: 'list' | 'chips' }> = ({
       ) : null;
 
   if (variant === 'chips') {
+    const query = filter.trim().toLowerCase();
+    // Matches what the row shows plus what the tooltip shows, so a search for
+    // a host or database finds the row the reader is looking at.
+    const shown = query
+      ? connections.filter((c) =>
+          [c.name, c.dialect, c.host, c.database, c.schema]
+            .filter(Boolean)
+            .some((v) => String(v).toLowerCase().includes(query))
+        )
+      : connections;
+    const chosen = connections.filter((c) => selectedConnectionIds.includes(c.id));
+    const summary =
+      chosen.length === 0
+        ? 'No destinations'
+        : chosen.length === 1
+          ? chosen[0]!.name || '(unnamed)'
+          : `${chosen.length} destinations`;
+
     return (
       <div className="flex min-w-0 items-center gap-1" data-testid="sql-destination-chips">
         <button
@@ -116,32 +137,94 @@ export const ConnectionChecklist: React.FC<{ variant?: 'list' | 'chips' }> = ({
         >
           Shared
         </button>
+
         {!connectionsLoaded ? (
           <span className="text-[11px] text-slate-500">Loading…</span>
         ) : connections.length === 0 ? (
           <span className="truncate text-[11px] text-slate-500">No saved connections</span>
         ) : (
-          <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
-            {connections.map((c) => {
-              const on = selectedConnectionIds.includes(c.id);
-              return (
-                <button
-                  key={c.id}
-                  type="button"
-                  data-testid={`sql-dest-chip-${c.name || c.id}`}
-                  title={[c.host, c.database, c.schema].filter(Boolean).join(' / ') || c.name}
-                  onClick={() => toggleConnection(c.id)}
-                  className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
-                    on
-                      ? 'border-cyan-500/40 bg-cyan-950/50 text-cyan-100'
-                      : 'border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200'
-                  }`}
+          <div className="relative min-w-0">
+            {/* A dropdown, not a scrolling strip: with a dozen saved servers the
+                strip pushed most of them off-screen behind a scrollbar, so the
+                reader could not see what was selected without dragging. */}
+            <button
+              type="button"
+              data-testid="sql-destinations-trigger"
+              aria-haspopup="listbox"
+              aria-expanded={pickerOpen}
+              onClick={() => setPickerOpen((o) => !o)}
+              title={chosen.map((c) => c.name || c.id).join(', ') || 'Choose destinations'}
+              className={`flex min-w-0 max-w-[16rem] items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+                chosen.length > 0
+                  ? 'border-cyan-500/40 bg-cyan-950/50 text-cyan-100'
+                  : 'border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200'
+              }`}
+            >
+              <span className="truncate">{summary}</span>
+              <ChevronDown className="h-3 w-3 shrink-0" strokeWidth={SQL_ICON_STROKE} />
+            </button>
+
+            {pickerOpen && (
+              <>
+                {/* Click-away sits behind the panel, so a click outside closes
+                    without the panel having to guess at document listeners. */}
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setPickerOpen(false)}
+                  data-testid="sql-destinations-backdrop"
+                />
+                <div
+                  className="absolute left-0 top-full z-50 mt-1 w-72 rounded-lg border border-slate-700 bg-slate-900 p-1.5 shadow-2xl"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      e.stopPropagation();
+                      setPickerOpen(false);
+                    }
+                  }}
                 >
-                  <span className="font-mono text-[9px] uppercase text-slate-500">{c.dialect}</span>{' '}
-                  {c.name || '(unnamed)'}
-                </button>
-              );
-            })}
+                  <input
+                    autoFocus
+                    type="text"
+                    value={filter}
+                    onChange={(e) => setFilter(e.target.value)}
+                    placeholder="Filter by name, dialect, host…"
+                    data-testid="sql-destinations-filter"
+                    className="mb-1 w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-100 accent-focus focus:outline-none"
+                  />
+                  <div className="max-h-64 overflow-y-auto">
+                    {shown.length === 0 ? (
+                      <p className="px-1.5 py-2 text-[11px] text-slate-500">
+                        Nothing matches “{filter}”.
+                      </p>
+                    ) : (
+                      shown.map((c) => (
+                        <label
+                          key={c.id}
+                          data-testid={`sql-dest-option-${c.name || c.id}`}
+                          className="flex cursor-pointer select-none items-center gap-2 rounded px-1.5 py-1 text-[12px] font-semibold text-slate-300 hover:bg-slate-800/60 hover:text-slate-100"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedConnectionIds.includes(c.id)}
+                            onChange={() => toggleConnection(c.id)}
+                            className="h-3.5 w-3.5 shrink-0 cursor-pointer accent-cyan-600"
+                          />
+                          <span className="shrink-0 font-mono text-[10px] font-bold uppercase text-slate-500">
+                            {c.dialect}
+                          </span>
+                          <span
+                            className="truncate"
+                            title={[c.host, c.database, c.schema].filter(Boolean).join(' / ')}
+                          >
+                            {c.name || '(unnamed)'}
+                          </span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         )}
         {pendingModal}
