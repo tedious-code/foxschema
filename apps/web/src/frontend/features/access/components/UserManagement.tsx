@@ -68,17 +68,15 @@ import {
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { fetchDbAccess } from '@/shared/api/schemaApi';
+import {
+  ALTERATION_LABEL,
+  availableAlterations,
+  dropSafetyNotes,
+} from '../lib/accountAlterations';
 import type { AccessPrincipalDraft } from '../lib/access-draft';
 
 type Mode = 'idle' | 'add' | 'edit' | 'drop' | 'list';
 
-const ALTERATION_LABEL: Record<UserAlteration, string> = {
-  password: 'Set password',
-  rename: 'Rename',
-  disable: 'Disable login',
-  enable: 'Enable login',
-  expire: 'Expire password / account',
-};
 
 function parseMysqlAccount(raw: string): { name: string; host?: string } {
   const s = raw.trim().replace(/^'|'$/g, '');
@@ -122,50 +120,6 @@ function dialectCoach(dialect: string): string | null {
     return 'ClickHouse supports create / rename / drop here. Account lock (disable) is not available — drop or revoke privileges instead.';
   }
   return 'Review the user and role list, choose Add / Edit / Drop, then copy the SQL preview. Fox Schema never applies it for you.';
-}
-
-function availableAlterations(
-  support: ReturnType<typeof userManagementSupport>,
-  principalType: PrincipalType
-): UserAlteration[] {
-  const opts: UserAlteration[] = [];
-  if (principalType === 'user') opts.push('password');
-  if (support.canRename) opts.push('rename');
-  if (support.canDisable && principalType === 'user') {
-    opts.push('disable', 'enable');
-  }
-  if (support.canExpire && principalType === 'user') {
-    opts.push('expire');
-  }
-  return opts;
-}
-
-function dropSafetyNotes(p: DbPrincipal, privileges: readonly DbPrivilege[]): string[] {
-  const notes: string[] = [];
-  const grants = privilegesForPrincipal(privileges, p.name);
-  if (grants.length > 0) {
-    const sample = grants
-      .slice(0, 4)
-      .map((g) => {
-        const obj = [g.objectSchema, g.objectName].filter(Boolean).join('.') || g.objectType;
-        return `${g.privilege} on ${obj}`;
-      })
-      .join('; ');
-    notes.push(
-      `This account has ${grants.length} recorded privilege${grants.length === 1 ? '' : 's'}` +
-        (sample ? ` (e.g. ${sample}${grants.length > 4 ? '; …' : ''})` : '') +
-        '. Dropping it removes those grants with the account.'
-    );
-  }
-  if (p.memberOf.length > 0) {
-    notes.push(`Member of: ${p.memberOf.join(', ')}. Role membership is removed with the account.`);
-  }
-  if (p.members.length > 0) {
-    notes.push(
-      `This role has ${p.members.length} member${p.members.length === 1 ? '' : 's'} (${p.members.slice(0, 5).join(', ')}${p.members.length > 5 ? ', …' : ''}). Dropping it does not drop those members.`
-    );
-  }
-  return notes;
 }
 
 export const UserManagement: React.FC<{

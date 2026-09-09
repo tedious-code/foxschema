@@ -23,7 +23,11 @@ SELECT
   s.COLUMN_NAME AS column_name,
   s.CARDINALITY AS n_distinct,
   NULL AS null_frac,
-  t.TABLE_ROWS AS estimated_rows
+  t.TABLE_ROWS AS estimated_rows,
+  -- What the engine itself reports for the table: data plus indexes. InnoDB
+  -- rounds to extent boundaries, so this is the engine's own answer rather
+  -- than a byte-exact one, and it is the number every MySQL tool shows.
+  (t.DATA_LENGTH + t.INDEX_LENGTH) AS size_bytes
 FROM information_schema.TABLES t
 LEFT JOIN information_schema.STATISTICS s
   ON s.TABLE_SCHEMA = t.TABLE_SCHEMA AND s.TABLE_NAME = t.TABLE_NAME

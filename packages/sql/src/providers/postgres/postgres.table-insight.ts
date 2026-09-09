@@ -18,12 +18,21 @@ const SUPPORT: TableInsightSupport = {
   hint: 'PostgreSQL: pg_stats.n_distinct and pg_class.reltuples (ANALYZE).',
 };
 
-const SQL = `
+/**
+ * `pg_total_relation_size` is table plus indexes plus TOAST, in bytes, and it
+ * is exact rather than estimated. Redshift does not have it — its stand-in in
+ * this repo is a real Postgres, so a test would happily pass while production
+ * failed — which is why the expression is a parameter and not baked in here.
+ */
+const SIZE_EXPR = 'pg_total_relation_size(c.oid)';
+
+const sqlFor = (sizeExpr: string) => `
 SELECT
   s.attname AS column_name,
   s.n_distinct AS n_distinct,
   s.null_frac AS null_frac,
-  c.reltuples::bigint AS estimated_rows
+  c.reltuples::bigint AS estimated_rows,
+  ${sizeExpr} AS size_bytes
 FROM pg_stats s
 JOIN pg_namespace n ON n.nspname = s.schemaname
 JOIN pg_class c ON c.relnamespace = n.oid AND c.relname = s.tablename
@@ -32,14 +41,20 @@ WHERE s.schemaname = $1
 ORDER BY s.attname
 `.trim();
 
-export function makePostgresTableInsight(id: string, hint = SUPPORT.hint): TableInsightDialect {
+export function makePostgresTableInsight(
+  id: string,
+  hint = SUPPORT.hint,
+  /** Pass 'NULL' for an engine without pg_total_relation_size. */
+  sizeExpr: string = SIZE_EXPR
+): TableInsightDialect {
+  const sql = sqlFor(sizeExpr);
   return {
     id,
     support: { ...SUPPORT, hint },
     probe(target: TableInsightTarget): TableInsightQuery {
       return {
         mode: 'catalog',
-        sql: SQL,
+        sql,
         params: [target.schema || 'public', target.table],
       };
     },

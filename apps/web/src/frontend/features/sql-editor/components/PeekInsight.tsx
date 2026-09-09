@@ -9,9 +9,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { fetchTableInsight, type TableInsightResponse } from '@/shared/api/schemaApi';
-import { tableNameParts } from '@/shared/lib/tablePreview';
+import { tableNameParts, buildOrphanCount, fkDrillTableName } from '@/shared/lib/tablePreview';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { StatCard } from '@/shared/components/surfaces';
+import { executeSql } from '@/shared/api/sqlApi';
 
 function tableRef(tableName: string, fallbackSchema?: string): { table: string; schema?: string } {
   const parts = tableNameParts(tableName);
@@ -26,6 +27,23 @@ function pct(frac: number | null | undefined): string {
   return `${Math.round(frac * 1000) / 10}%`;
 }
 
+
+/** Bytes as a person reads them. Binary units, since that is what catalogs report. */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KB', 'MB', 'GB', 'TB', 'PB'];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  // One decimal below 10 so 1.2 GB does not collapse to 1 GB, none above it
+  // where the extra digit is noise against the rounding already in the number.
+  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
+}
+
 export const PeekInsight: React.FC<{
   connectionId: string;
   tableName: string;
@@ -35,6 +53,64 @@ export const PeekInsight: React.FC<{
   const [data, setData] = useState<TableInsightResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [orphanCounts, setOrphanCounts] = useState<Record<string, number> | null>(null);
+  const [checkingOrphans, setCheckingOrphans] = useState(false);
+  const [orphanError, setOrphanError] = useState<string | null>(null);
+  const openDataPeekOrphans = useSqlEditorStore((st) => st.openDataPeekOrphans);
+  const schemaCache = useSqlEditorStore((st) => st.schemaCache);
+
+  /** Foreign keys declared on this table, from the catalog already in hand. */
+  const foreignKeys = useMemo(() => {
+    const ref = tableRef(tableName, schema);
+    const tables = schemaCache[connectionId]?.tables ?? [];
+    const match = tables.find((t) => {
+      const parts = tableNameParts(t.name);
+      return (parts[parts.length - 1] ?? t.name).toLowerCase() === ref.table.toLowerCase();
+    });
+    return (match?.foreignKeys ?? []).filter(
+      (fk) => (fk.columns ?? []).length > 0 && (fk.referencedColumns ?? []).length > 0
+    );
+  }, [schemaCache, connectionId, tableName, schema]);
+
+  /** Total across every FK, or null while nobody has asked. */
+  const orphanTotal = useMemo(
+    () => (orphanCounts ? Object.values(orphanCounts).reduce((a, b) => a + b, 0) : null),
+    [orphanCounts]
+  );
+
+  // The insight above is catalog-only and constant time. This is a scan of the
+  // child against each parent, so it runs when asked and not before.
+  const checkOrphans = async () => {
+    if (foreignKeys.length === 0 || checkingOrphans) return;
+    setCheckingOrphans(true);
+    setOrphanError(null);
+    try {
+      const dialect = data?.dialect ?? '';
+      const counts: Record<string, number> = {};
+      for (const fk of foreignKeys) {
+        const built = buildOrphanCount(tableName, fk, dialect);
+        if (!built) continue;
+        const { results } = await executeSql(
+          { connectionId, password: sessionPasswords[connectionId] || undefined },
+          [built.sql],
+          undefined,
+          undefined,
+          [built.params]
+        );
+        const first = results[0];
+        if (!first || !first.ok) {
+          setOrphanError(first && 'error' in first ? String(first.error) : 'Orphan check failed.');
+          return;
+        }
+        counts[fk.name || (fk.columns ?? []).join(',')] = Number(first.rows?.[0]?.[0] ?? 0);
+      }
+      setOrphanCounts(counts);
+    } catch (e) {
+      setOrphanError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCheckingOrphans(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -96,7 +172,7 @@ export const PeekInsight: React.FC<{
       {data && cards && (
         <>
           <div
-            className="grid grid-cols-3 gap-2 mb-3"
+            className="grid grid-cols-4 gap-2 mb-3"
             data-testid="data-peek-insight-cards"
           >
             <StatCard
@@ -104,6 +180,12 @@ export const PeekInsight: React.FC<{
               label="Rows"
               value={data.estimatedRows == null ? '—' : data.estimatedRows.toLocaleString()}
               hint="Estimated from catalog"
+            />
+            <StatCard
+              testId="data-peek-insight-card-size"
+              label="Size"
+              value={data.sizeBytes == null ? '—' : formatBytes(data.sizeBytes)}
+              hint={data.sizeBytes == null ? 'Not reported by this engine' : 'Table + indexes'}
             />
             <StatCard
               testId="data-peek-insight-card-nulls"
@@ -127,7 +209,88 @@ export const PeekInsight: React.FC<{
               }
               hint="Top nDistinct columns"
             />
+            <StatCard
+              testId="data-peek-insight-card-orphans"
+              label="Orphan FKs"
+              tone={orphanTotal ? 'danger' : 'default'}
+              value={orphanTotal == null ? '—' : orphanTotal.toLocaleString()}
+              hint={
+                foreignKeys.length === 0
+                  ? 'No foreign keys'
+                  : orphanTotal == null
+                    ? `${foreignKeys.length} FK — not checked`
+                    : `across ${foreignKeys.length} FK`
+              }
+            />
           </div>
+
+          {foreignKeys.length > 0 && (
+            <div className="mb-3 space-y-1" data-testid="data-peek-insight-fks">
+              {foreignKeys.map((fk) => {
+                const key = fk.name || (fk.columns ?? []).join(',');
+                const count = orphanCounts?.[key];
+                const rows = data?.estimatedRows ?? null;
+                const matched =
+                  count != null && rows != null && rows > 0
+                    ? `${Math.round((1 - count / rows) * 10000) / 100}% matched`
+                    : null;
+                return (
+                  <div
+                    key={key}
+                    className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/50 px-2.5 py-2"
+                    data-testid={`data-peek-insight-fk-${key}`}
+                  >
+                    <span className="font-mono text-[11px] text-slate-300">
+                      {(fk.columns ?? []).join(', ')} → {fkDrillTableName(fk)}
+                    </span>
+                    {count == null ? (
+                      <span className="text-[10px] text-slate-500">not checked</span>
+                    ) : (
+                      <>
+                        <span
+                          className={`text-[11px] font-semibold ${
+                            count > 0 ? 'text-rose-300' : 'text-emerald-300'
+                          }`}
+                        >
+                          {count === 0 ? 'no orphans' : `${count.toLocaleString()} orphans`}
+                        </span>
+                        {matched && <span className="text-[10px] text-slate-500">{matched}</span>}
+                      </>
+                    )}
+                    {count != null && count > 0 && (
+                      <button
+                        type="button"
+                        data-testid={`data-peek-insight-peek-orphans-${key}`}
+                        onClick={() => void openDataPeekOrphans(connectionId, tableName, fk)}
+                        className="ml-auto rounded-md border border-sky-500/40 bg-sky-500/15 px-2 py-0.5 text-[10px] font-bold text-sky-100"
+                      >
+                        Peek orphans
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  data-testid="data-peek-insight-check-orphans"
+                  disabled={checkingOrphans}
+                  onClick={() => void checkOrphans()}
+                  className="rounded-md border border-slate-600 px-2 py-0.5 text-[10px] font-bold text-slate-200 disabled:opacity-40"
+                >
+                  {checkingOrphans ? 'Checking…' : orphanCounts ? 'Re-check orphans' : 'Check orphans'}
+                </button>
+                {/* Said plainly: everything above this line came from the
+                    catalog and cost nothing; this one reads the table. */}
+                <span className="text-[10px] text-slate-500">Scans the table — not a catalog read</span>
+              </div>
+              {orphanError && (
+                <p className="text-[10px] text-rose-300" data-testid="data-peek-insight-orphan-error">
+                  {orphanError}
+                </p>
+              )}
+            </div>
+          )}
 
           <p className="mb-2 text-[12px] text-slate-300" data-testid="data-peek-insight-rows">
             Estimated rows:{' '}

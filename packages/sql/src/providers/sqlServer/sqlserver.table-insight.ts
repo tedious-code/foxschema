@@ -23,7 +23,9 @@ SELECT
   c.name AS column_name,
   NULL AS n_distinct,
   NULL AS null_frac,
-  SUM(p.row_count) OVER () AS estimated_rows
+  SUM(p.row_count) OVER () AS estimated_rows,
+  -- SQL Server pages are always 8 KB, so page count converts to bytes exactly.
+  (SUM(p.used_page_count) OVER () * 8192) AS size_bytes
 FROM sys.tables t
 INNER JOIN sys.schemas s ON s.schema_id = t.schema_id
 INNER JOIN sys.dm_db_partition_stats p

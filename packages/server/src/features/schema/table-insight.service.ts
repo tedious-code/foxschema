@@ -57,6 +57,7 @@ export async function probeTableInsight(opts: {
         table: opts.table,
         schema: opts.schema ?? '',
         estimatedRows: norm.estimatedRows,
+        sizeBytes: norm.sizeBytes,
         columns: norm.columns,
         mode: 'catalog',
         support,

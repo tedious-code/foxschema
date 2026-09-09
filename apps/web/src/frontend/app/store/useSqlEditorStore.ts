@@ -27,6 +27,7 @@ import { beamAliasesForCount, MAX_SERVERS } from '@foxschema/shared';
 import { buildSampleBookmarks } from '@/features/sql-editor/lib/sqlEditorSamples';
 import {
   buildForeignKeyDrilldown,
+  buildOrphanPeek,
   buildRowLookup,
   buildTablePreview,
   composePeekSql,
@@ -521,6 +522,17 @@ interface SqlEditorState {
     connectionId: string,
     fk: ForeignKeyInfo,
     values: unknown[]
+  ) => Promise<void>;
+  /**
+   * Open the child rows whose foreign key points at a parent row that is gone.
+   *
+   * A scan, unlike the rest of Peek's catalog reads, so it is reached only by
+   * asking for it from the Insight tab.
+   */
+  openDataPeekOrphans: (
+    connectionId: string,
+    childTable: string,
+    fk: ForeignKeyInfo
   ) => Promise<void>;
   /**
    * Open one row of one table, given its key — the way out of a joined result.
@@ -1814,6 +1826,31 @@ export const useSqlEditorStore = create<SqlEditorState>()(
           id: `peek-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           title: `${parentTable} · ${label}`,
           tableName: parentTable,
+          baseSql: built.sql,
+          baseParams: built.params,
+          whereClause: '',
+          orderByClause: '',
+          limit: DATA_PEEK_ROWS,
+          pageIndex: 0,
+          sql: composed.sql,
+          params: composed.params,
+          status: 'loading',
+        };
+        set({ dataPeek: { connectionId, dialect: conn.dialect, entries: [entry] } });
+        await get().runDataPeekEntry(entry.id);
+      },
+
+      openDataPeekOrphans: async (connectionId, childTable, fk) => {
+        const conn = useSyncStore.getState().connections.find((c) => c.id === connectionId);
+        if (!conn) return;
+        const built = buildOrphanPeek(childTable, fk, conn.dialect);
+        if (!built) return;
+        const composed = composePeekSql(built.sql, built.params, {});
+        if ('error' in composed) return;
+        const entry: DataPeekEntry = {
+          id: `peek-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          title: `${childTable} · orphans via ${fk.name || (fk.columns ?? []).join(', ')}`,
+          tableName: childTable,
           baseSql: built.sql,
           baseParams: built.params,
           whereClause: '',

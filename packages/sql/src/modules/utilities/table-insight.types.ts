@@ -31,6 +31,16 @@ export interface TableInsightResult {
   table: string;
   schema: string;
   estimatedRows: number | null;
+  /**
+   * Bytes the table occupies, table plus indexes, as the catalog reports it.
+   *
+   * Null where the engine has no dependable answer rather than a guessed one:
+   * Oracle and Db2 expose only a page count whose page size varies per
+   * tablespace, and SQLite/DuckDB carry no size in their stat tables at all. A
+   * plausible wrong number is worse here than a dash, because a size is the
+   * kind of figure people act on.
+   */
+  sizeBytes: number | null;
   columns: TableInsightColumn[];
   mode: TableInsightMode;
   support: TableInsightSupport;
