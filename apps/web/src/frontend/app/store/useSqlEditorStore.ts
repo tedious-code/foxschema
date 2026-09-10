@@ -27,6 +27,7 @@ import { beamAliasesForCount, MAX_SERVERS } from '@foxschema/shared';
 import { buildSampleBookmarks } from '@/features/sql-editor/lib/sqlEditorSamples';
 import {
   buildForeignKeyDrilldown,
+  buildInboundDrilldown,
   buildOrphanPeek,
   fkKey,
   buildRowLookup,
@@ -34,6 +35,7 @@ import {
   composePeekSql,
   fkDrillTableName,
 } from '@/shared/lib/tablePreview';
+import type { InboundForeignKey } from '@/shared/lib/tablePreview';
 import {
   getSessionPassword,
   sessionPasswordMap,
@@ -551,6 +553,12 @@ interface SqlEditorState {
   drillDataPeek: (
     fromEntryId: string,
     fk: ForeignKeyInfo,
+    values: unknown[]
+  ) => Promise<void>;
+  /** The other direction: rows that reference the row you are looking at. */
+  drillDataPeekInbound: (
+    fromEntryId: string,
+    child: InboundForeignKey,
     values: unknown[]
   ) => Promise<void>;
   closeDataPeek: () => void;
@@ -1922,6 +1930,45 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         };
         // Same FK column → replace that panel (and its children). Other FK
         // columns from the same parent stay open as sibling peeks.
+        let entries = peek.entries;
+        const existing = entries.find((e) => e.drillKey === drillKey);
+        if (existing) {
+          entries = removeDataPeekSubtree(entries, existing.id);
+        }
+        set({ dataPeek: { ...peek, entries: [...entries, entry] } });
+        await get().runDataPeekEntry(entry.id);
+      },
+
+      drillDataPeekInbound: async (fromEntryId, child, values) => {
+        const peek = get().dataPeek;
+        if (!peek) return;
+        const built = buildInboundDrilldown(child, values, peek.dialect);
+        if (!built) return;
+        const composed = composePeekSql(built.sql, built.params, {});
+        if ('error' in composed) return;
+        const label = (child.fk.columns ?? [])
+          .map((c, i) => `${c} = ${String(values[i])}`)
+          .join(', ');
+        // `<` marks the inbound direction in the key, so drilling a child that
+        // happens to share the parent's FK shape replaces the right panel
+        // instead of collapsing the two into one.
+        const drillKey = `${fromEntryId}|<|${child.table}|${(child.fk.columns ?? []).join(',')}`;
+        const entry: DataPeekEntry = {
+          id: `peek-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          title: `${child.table} · ${label}`,
+          tableName: child.table,
+          baseSql: built.sql,
+          baseParams: built.params,
+          whereClause: '',
+          orderByClause: '',
+          limit: DATA_PEEK_ROWS,
+          pageIndex: 0,
+          sql: composed.sql,
+          params: composed.params,
+          status: 'loading',
+          parentId: fromEntryId,
+          drillKey,
+        };
         let entries = peek.entries;
         const existing = entries.find((e) => e.drillKey === drillKey);
         if (existing) {
