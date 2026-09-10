@@ -199,7 +199,10 @@ export function createAccessRoutes(deps: AccessRouteDeps): Router {
   router.post(
     '/schema/table-insight',
     dbaUtilityLimiter,
-    requirePermissions('utility.access'),
+    // This powers Data Peek's Insight tab in the SQL Editor. Requiring
+    // utility.access locked the whole tab out for the built-in viewer role,
+    // even though viewers can open Data Peek and run its read-only queries.
+    requirePermissions('editor.run'),
     async (req: AppRequest, res: FastifyReply) => {
       const body = req.body as ConnectionRef & { schema?: unknown; table?: unknown };
       const table = typeof body.table === 'string' ? body.table.trim() : '';
