@@ -363,6 +363,10 @@ export class SqlEditorPage {
   async openTableBlueprint(tableName: string): Promise<void> {
     await this.dismissOverlays();
     await this.closeBlueprint().catch(() => undefined);
+    // The schema tree lives in the SQL Editor workspace. A caller coming from
+    // Utilities (Clone Table, Index Management) is on a screen that has no
+    // sidebar at all, so go back before looking for the tree.
+    await this.openView();
     await this.ensureSidebarSectionOpen('schema');
     const explorer = this.page.locator('[data-testid="sql-schema-explorer"]');
     await explorer.waitFor({ state: 'visible', timeout: 15_000 });
