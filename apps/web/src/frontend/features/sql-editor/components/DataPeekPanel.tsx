@@ -397,14 +397,14 @@ const PeekGrid: React.FC<{
     if (!entry.result?.ok) return [];
     const cols = entry.result.columns;
     const indexOf = (n: string) => cols.findIndex((c) => c.toLowerCase() === n.toLowerCase());
-    return inboundForeignKeysFor(tables, entry.tableName)
+    return inboundForeignKeysFor(tables, entry.tableName, connectionSchema)
       .map((child) => {
         const valueIndexes = (child.fk.referencedColumns ?? []).map(indexOf);
         if (valueIndexes.length === 0 || valueIndexes.some((i) => i < 0)) return null;
         return { child, valueIndexes };
       })
       .filter((x): x is { child: InboundForeignKey; valueIndexes: number[] } => x !== null);
-  }, [tables, entry.tableName, entry.result]);
+  }, [tables, entry.tableName, entry.result, connectionSchema]);
 
   const onLinkClick = useCallback(
     (colIdx: number, rowIdx: number) => {

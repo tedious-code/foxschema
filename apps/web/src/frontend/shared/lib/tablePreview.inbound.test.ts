@@ -58,6 +58,32 @@ describe('inboundForeignKeysFor', () => {
     ]);
   });
 
+  it('does not treat an explicitly different referenced schema as the target', () => {
+    const crossSchema = [
+      table('public.orders', [
+        fk({
+          name: 'fk_orders_inventory_product',
+          referencedTable: 'products',
+          referencedSchema: 'inventory',
+          columns: ['product_id'],
+          referencedColumns: ['id'],
+        }),
+      ]),
+      table('public.products', []),
+    ];
+
+    const hits = inboundForeignKeysFor(crossSchema, 'public.products');
+    const unsafeQuery = hits[0] ? buildInboundDrilldown(hits[0], [42], 'postgres') : undefined;
+    expect({
+      matches: hits.map((h) => h.table),
+      sql: unsafeQuery?.sql,
+    }).toEqual({
+      matches: [],
+      sql: undefined,
+    });
+    expect(inboundForeignKeysFor(crossSchema, 'products', 'public')).toEqual([]);
+  });
+
   it('keeps a self-referencing key', () => {
     const emp = [table('employees', [fk({ name: 'fk_mgr', columns: ['manager_id'], referencedTable: 'employees' })])];
     // manager_id → employees.id is a real relation the reader can drill.

@@ -246,7 +246,8 @@ export interface InboundForeignKey {
  */
 export function inboundForeignKeysFor(
   tables: TableSchema[] | undefined,
-  targetTable: string
+  targetTable: string,
+  targetSchema?: string
 ): InboundForeignKey[] {
   if (!tables?.length || !targetTable.trim()) return [];
   const bareOf = (n: string) => {
@@ -255,6 +256,11 @@ export function inboundForeignKeysFor(
   };
   const wantedBare = bareOf(targetTable);
   const wantedQual = targetTable.trim().toLowerCase();
+  const wantedParts = tableNameParts(targetTable);
+  const wantedSchema =
+    (wantedParts.length > 1 ? wantedParts[wantedParts.length - 2] : targetSchema)
+      ?.trim()
+      .toLowerCase() ?? '';
 
   const found: InboundForeignKey[] = [];
   for (const t of tables) {
@@ -264,6 +270,12 @@ export function inboundForeignKeysFor(
       const ref = (fk.referencedTable ?? '').trim().toLowerCase();
       if (!ref) continue;
       if (ref !== wantedQual && bareOf(ref) !== wantedBare) continue;
+      const refParts = tableNameParts(ref);
+      const refSchema =
+        (refParts.length > 1 ? refParts[refParts.length - 2] : fk.referencedSchema)
+          ?.trim()
+          .toLowerCase() ?? '';
+      if (wantedSchema && refSchema && wantedSchema !== refSchema) continue;
       if ((fk.columns ?? []).length === 0) continue;
       found.push({ table: t.name, fk });
     }
