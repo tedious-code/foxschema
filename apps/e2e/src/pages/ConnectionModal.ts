@@ -74,6 +74,22 @@ export class ConnectionModal {
     });
   }
 
+  /** Close a stuck overlay so later steps are not blocked by pointer interception. */
+  async dismissIfOpen(): Promise<void> {
+    const modal = this.page.locator('[data-testid="conn-modal"]');
+    if (!(await modal.isVisible().catch(() => false))) return;
+    await this.page.keyboard.press('Escape').catch(() => undefined);
+    if (await modal.isVisible().catch(() => false)) {
+      const close = this.page.locator(
+        '[data-testid="conn-modal"] [data-testid="conn-cancel-btn"], [data-testid="conn-modal"] button[aria-label="Close"], [data-testid="conn-modal"] button.p-1'
+      ).first();
+      if (await close.isVisible().catch(() => false)) {
+        await close.click({ force: true }).catch(() => undefined);
+      }
+    }
+    await modal.waitFor({ state: 'detached', timeout: 5_000 }).catch(() => undefined);
+  }
+
   async checkSavePassword(): Promise<void> {
     const box = this.page.locator('[data-testid="conn-save-password"]');
     if ((await box.count()) > 0 && !(await box.isChecked())) {

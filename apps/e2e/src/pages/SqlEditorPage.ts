@@ -36,6 +36,17 @@ export class SqlEditorPage {
     }
   }
 
+  /**
+   * Monaco is lazy-loaded with the SQL Editor pane (kept off first paint).
+   * Callers that type into the buffer must wait for the chunk, not only the shell.
+   */
+  async waitForMonaco(timeoutMs = 60_000): Promise<void> {
+    await this.page.waitForSelector('.monaco-editor textarea, .monaco-editor', {
+      timeout: timeoutMs,
+      state: 'visible',
+    });
+  }
+
   async openView(): Promise<void> {
     await clickWhen(this.page, '[data-testid="view-sql-editor-btn"]');
     await waitFor(this.page, '[data-testid="sql-editor-view"]');
@@ -44,6 +55,7 @@ export class SqlEditorPage {
     // submit via checkConnection / submitSessionPassword instead.
     await this.page.waitForTimeout(400);
     await this.dismissOverlays();
+    await this.waitForMonaco();
   }
 
   /** Open the Database utilities workspace (not the SQL Editor sidebar). */
@@ -120,6 +132,12 @@ export class SqlEditorPage {
 
   async setSql(sql: string): Promise<void> {
     await this.dismissOverlays();
+    // Ensure we are on the SQL Editor shell and Monaco has finished lazy load.
+    if (!(await this.isEditorVisible().catch(() => false))) {
+      await this.openView();
+    } else {
+      await this.waitForMonaco();
+    }
     // Monaco uses a hidden textarea; focus then replace via select-all + type.
     const editor = this.page.locator('.monaco-editor').first();
     await editor.click();

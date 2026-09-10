@@ -55,7 +55,10 @@ import type { RevealRequest } from './SqlEditorPane';
 const SqlEditorPane = lazy(() => import('./SqlEditorPane'));
 
 const EditorFallback: React.FC = () => (
-  <div className="flex-1 flex items-center justify-center text-slate-600">
+  <div
+    className="flex-1 flex items-center justify-center text-slate-600"
+    data-testid="sql-editor-loading"
+  >
     <Loader2 className="w-5 h-5 animate-spin text-cyan-400" strokeWidth={SQL_ICON_STROKE} />
   </div>
 );
