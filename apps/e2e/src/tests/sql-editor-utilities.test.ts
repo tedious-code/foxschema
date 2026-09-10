@@ -85,6 +85,9 @@ describe.skipIf(!ready)('Utilities workspace + Clone Table (SQLite)', () => {
     await sql.addSqliteCredential(NAME, DB);
     await sql.openView();
     await sql.checkConnection(NAME);
+    // Sidebar sections are an exclusive accordion: ticking a destination
+    // closed Schema, and a closed section renders no explorer to read.
+    await sql.ensureSidebarSectionOpen('schema');
     await driver.waitForFunction(
       () => {
         const root = document.querySelector('[data-testid="sql-schema-explorer"]');
