@@ -109,6 +109,50 @@ describe('Data Peek · Referenced by', () => {
     expect(screen.queryByTestId('data-peek-refby-products-fk_prod_cat')).toBeNull();
   });
 
+  it('does not offer a same-named parent from another schema for a bare cache name', () => {
+    setPeek(
+      {
+        ...baseEntry,
+        title: 'products',
+        tableName: 'products',
+        baseSql: 'SELECT * FROM products',
+        sql: 'SELECT * FROM products',
+      },
+      {
+        c1: {
+          status: 'ready',
+          tables: [
+            {
+              name: 'products',
+              objectType: 'TABLE',
+              columns: [],
+              indices: [],
+              foreignKeys: [],
+            },
+            {
+              name: 'orders',
+              objectType: 'TABLE',
+              columns: [],
+              indices: [],
+              foreignKeys: [
+                {
+                  name: 'fk_orders_inventory_product',
+                  columns: ['product_id'],
+                  referencedTable: 'products',
+                  referencedSchema: 'inventory',
+                  referencedColumns: ['id'],
+                },
+              ],
+            },
+          ],
+        },
+      }
+    );
+
+    render(<DataPeekPanel />);
+    expect(screen.queryByTestId('data-peek-refby-orders-fk_orders_inventory_product')).toBeNull();
+  });
+
   it('stays disabled until a row is selected', () => {
     render(<DataPeekPanel />);
     const btn = screen.getByTestId(
