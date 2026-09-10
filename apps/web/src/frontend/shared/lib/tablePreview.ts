@@ -225,6 +225,88 @@ export function foreignKeyLinksFor(
   return links;
 }
 
+/** One foreign key pointing *at* a table, and the child table that holds it. */
+export interface InboundForeignKey {
+  /** The child table whose rows reference the parent. */
+  table: string;
+  fk: ForeignKeyInfo;
+}
+
+/**
+ * Foreign keys pointing at `targetTable`, with the child table that owns each.
+ *
+ * The mirror of {@link foreignKeyLinksFor}: that answers "which parent does this
+ * row point at", this answers "who points at this row". `findInboundForeignKeyTables`
+ * in the blueprint lib returns names only, which is enough to warn before a
+ * rename but not enough to build a query — a drill needs the FK's columns.
+ *
+ * Matching is case-insensitive and tolerates a bare name on either side, the
+ * same way {@link findCachedTable} does: catalogs disagree about whether they
+ * qualify `referencedTable`, and Oracle and Db2 fold names to upper case.
+ */
+export function inboundForeignKeysFor(
+  tables: TableSchema[] | undefined,
+  targetTable: string
+): InboundForeignKey[] {
+  if (!tables?.length || !targetTable.trim()) return [];
+  const bareOf = (n: string) => {
+    const l = n.trim().toLowerCase();
+    return l.includes('.') ? l.slice(l.lastIndexOf('.') + 1) : l;
+  };
+  const wantedBare = bareOf(targetTable);
+  const wantedQual = targetTable.trim().toLowerCase();
+
+  const found: InboundForeignKey[] = [];
+  for (const t of tables) {
+    // A self-referencing FK is a real relation (manager_id → employees), so it
+    // is kept; only the table's own identity is used to label it.
+    for (const fk of t.foreignKeys ?? []) {
+      const ref = (fk.referencedTable ?? '').trim().toLowerCase();
+      if (!ref) continue;
+      if (ref !== wantedQual && bareOf(ref) !== wantedBare) continue;
+      if ((fk.columns ?? []).length === 0) continue;
+      found.push({ table: t.name, fk });
+    }
+  }
+  return found.sort(
+    (a, b) => a.table.localeCompare(b.table) || fkKey(a.fk).localeCompare(fkKey(b.fk))
+  );
+}
+
+/**
+ * `SELECT * FROM <child> WHERE <childCol> = <parentValue> …` — the rows that
+ * reference one parent row.
+ *
+ * `values` are the parent's values for `fk.referencedColumns`, in that order,
+ * and the WHERE is built on the child's own `fk.columns`. Getting those two
+ * backwards would silently query the wrong side, so the lengths of both lists
+ * are checked against `values` rather than assumed equal.
+ */
+export function buildInboundDrilldown(
+  child: InboundForeignKey,
+  values: unknown[],
+  dialect: string
+): PreviewQuery | null {
+  const childCols = child.fk.columns ?? [];
+  const refCols = child.fk.referencedColumns ?? [];
+  if (childCols.length === 0 || childCols.length !== values.length) return null;
+  // A catalog that omitted the parent side still names the child columns, but
+  // then there is no way to know which parent value belongs to which of them.
+  if (refCols.length !== childCols.length) return null;
+  if (values.some((v) => v === null || v === undefined)) return null;
+
+  const parts = tableNameParts(child.table);
+  if (parts.length === 0) return null;
+
+  let query = sql`SELECT * FROM ${sql.id(...parts)} WHERE `;
+  childCols.forEach((col, i) => {
+    const clause = i === 0 ? sql`` : sql` AND `;
+    query = sql`${query}${clause}${sql.id(col)} = ${values[i]}`;
+  });
+  const { text, params } = renderSqlQuery(query, dialect);
+  return { sql: text, params };
+}
+
 /** Resolve a table name (qualified or bare) against the schema cache. */
 export function findCachedTable(
   tables: TableSchema[] | undefined,

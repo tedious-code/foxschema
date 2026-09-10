@@ -86,21 +86,31 @@ export function runDialectFlow(
   // ── 2. Connect ──────────────────────────────────────────────────────────
 
   it('connects source', async () => {
-    await app.openSourceModal();
-    await modal.connect(getSource());
-    await app.waitForSourceConnected(30_000);
-    expect(await app.isSourceConnected()).toBe(true);
+    try {
+      await app.openSourceModal();
+      await modal.connect(getSource());
+      await app.waitForSourceConnected(30_000);
+      expect(await app.isSourceConnected()).toBe(true);
+    } catch (err) {
+      await modal.dismissIfOpen();
+      throw err;
+    }
   });
 
   it('connects target', async () => {
-    await app.openTargetModal();
-    await modal.connect(getTarget());
-    await app.waitForTargetConnected(30_000);
-    expect(await app.isTargetConnected()).toBe(true);
-    // Saving target reloads credentials — wait until source is connected again
-    // (session password / hasPassword retest) before Compare is enabled.
-    await app.waitForSourceConnected(30_000);
-    expect(await app.isSourceConnected()).toBe(true);
+    try {
+      await app.openTargetModal();
+      await modal.connect(getTarget());
+      await app.waitForTargetConnected(30_000);
+      expect(await app.isTargetConnected()).toBe(true);
+      // Saving target reloads credentials — wait until source is connected again
+      // (session password / hasPassword retest) before Compare is enabled.
+      await app.waitForSourceConnected(30_000);
+      expect(await app.isSourceConnected()).toBe(true);
+    } catch (err) {
+      await modal.dismissIfOpen();
+      throw err;
+    }
   });
 
   // ── 3. Compare ──────────────────────────────────────────────────────────
@@ -263,6 +273,8 @@ export function runDialectFlow(
         }
       }
     }
-    await clickWhen(driver, '[data-testid="sync-pane-compare-btn"]');
+    // Back to Compare through the page object: the pane switcher only exists
+    // while the Sync workspace is active, and this test ends on Snapshots.
+    await new LokeeHistoryPage(driver).openComparePane();
   });
 }

@@ -55,7 +55,10 @@ import type { RevealRequest } from './SqlEditorPane';
 const SqlEditorPane = lazy(() => import('./SqlEditorPane'));
 
 const EditorFallback: React.FC = () => (
-  <div className="flex-1 flex items-center justify-center text-slate-600">
+  <div
+    className="flex-1 flex items-center justify-center text-slate-600"
+    data-testid="sql-editor-loading"
+  >
     <Loader2 className="w-5 h-5 animate-spin text-cyan-400" strokeWidth={SQL_ICON_STROKE} />
   </div>
 );
@@ -670,7 +673,7 @@ export const SqlEditorView: React.FC = () => {
 
         <div className="flex items-center gap-2 px-4 py-2 border-b border-slate-800 bg-slate-900/60 shrink-0">
           {canEditorDestinations && (
-            <div className="min-w-0 max-w-[min(100%,28rem)] shrink">
+            <div className="min-w-[9rem] max-w-[min(100%,28rem)] shrink">
               <ConnectionChecklist variant="chips" />
             </div>
           )}
@@ -755,7 +758,10 @@ export const SqlEditorView: React.FC = () => {
             <History className="w-3.5 h-3.5 text-cyan-400" strokeWidth={SQL_ICON_STROKE} /> Runs
           </button>
 
-          <div className="flex items-center rounded border border-slate-800 overflow-hidden ml-1">
+          {/* `shrink-0`: a segmented control has no slack to give. Letting it
+              shrink clips its second button behind `overflow-hidden`, which
+              leaves the button hit-testable but not clickable. */}
+          <div className="flex shrink-0 items-center rounded border border-slate-800 overflow-hidden ml-1">
             <button
               type="button"
               title="By credential — statements stacked vertically"

@@ -36,6 +36,17 @@ export class SqlEditorPage {
     }
   }
 
+  /**
+   * Monaco is lazy-loaded with the SQL Editor pane (kept off first paint).
+   * Callers that type into the buffer must wait for the chunk, not only the shell.
+   */
+  async waitForMonaco(timeoutMs = 60_000): Promise<void> {
+    await this.page.waitForSelector('.monaco-editor textarea, .monaco-editor', {
+      timeout: timeoutMs,
+      state: 'visible',
+    });
+  }
+
   async openView(): Promise<void> {
     await clickWhen(this.page, '[data-testid="view-sql-editor-btn"]');
     await waitFor(this.page, '[data-testid="sql-editor-view"]');
@@ -44,6 +55,7 @@ export class SqlEditorPage {
     // submit via checkConnection / submitSessionPassword instead.
     await this.page.waitForTimeout(400);
     await this.dismissOverlays();
+    await this.waitForMonaco();
   }
 
   /** Open the Database utilities workspace (not the SQL Editor sidebar). */
@@ -108,6 +120,10 @@ export class SqlEditorPage {
   }
 
   async checkConnection(name: string): Promise<void> {
+    // The v3 sidebar ships every section collapsed, and a collapsed section
+    // renders no content at all — so the checkbox is absent, not merely
+    // scrolled out of view. Open Destinations before looking for it.
+    await this.ensureSidebarSectionOpen('destinations');
     const sel = `[data-testid="sql-conn-check-${name}"]`;
     await waitFor(this.page, sel, 15_000);
     const box = this.page.locator(sel);
@@ -116,6 +132,12 @@ export class SqlEditorPage {
 
   async setSql(sql: string): Promise<void> {
     await this.dismissOverlays();
+    // Ensure we are on the SQL Editor shell and Monaco has finished lazy load.
+    if (!(await this.isEditorVisible().catch(() => false))) {
+      await this.openView();
+    } else {
+      await this.waitForMonaco();
+    }
     // Monaco uses a hidden textarea; focus then replace via select-all + type.
     const editor = this.page.locator('.monaco-editor').first();
     await editor.click();
@@ -359,6 +381,11 @@ export class SqlEditorPage {
   async openTableBlueprint(tableName: string): Promise<void> {
     await this.dismissOverlays();
     await this.closeBlueprint().catch(() => undefined);
+    // The schema tree lives in the SQL Editor workspace. A caller coming from
+    // Utilities (Clone Table, Index Management) is on a screen that has no
+    // sidebar at all, so go back before looking for the tree.
+    await this.openView();
+    await this.ensureSidebarSectionOpen('schema');
     const explorer = this.page.locator('[data-testid="sql-schema-explorer"]');
     await explorer.waitFor({ state: 'visible', timeout: 15_000 });
     // Expand TABLES group only when the table name is not already visible
@@ -455,8 +482,16 @@ export class SqlEditorPage {
       await this.openUtilitiesView();
       return;
     }
+    // Not every caller is on a screen that has the SQL Editor sidebar — the
+    // Utilities workspace has none — so a missing section means "nothing to
+    // expand", not a failure. Throwing here would turn callers that merely
+    // want the section open *if it exists* into hard errors.
     const section = this.page.locator(`[data-testid="sql-sidebar-${id}"]`);
-    await section.waitFor({ state: 'visible', timeout: 10_000 });
+    const present = await section
+      .waitFor({ state: 'visible', timeout: 10_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (!present) return;
     const toggle = this.page.locator(`[data-testid="sql-sidebar-toggle-${id}"]`);
     const aria = await toggle.getAttribute('aria-expanded').catch(() => null);
     if (aria === 'false') await toggle.click();
@@ -465,6 +500,9 @@ export class SqlEditorPage {
   /** Open Data Peek for a table from the Schema tree (modifier-click the row). */
   async openDataPeek(tableName: string): Promise<void> {
     await this.dismissOverlays();
+    // The v3 sidebar collapses every section, and a collapsed section renders
+    // no explorer at all — open Schema before reaching into its tree.
+    await this.ensureSidebarSectionOpen('schema');
     const explorer = this.page.locator('[data-testid="sql-schema-explorer"]');
     await explorer.waitFor({ state: 'visible', timeout: 15_000 });
     await this.page.waitForFunction(

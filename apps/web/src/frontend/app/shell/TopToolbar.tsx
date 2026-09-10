@@ -185,8 +185,8 @@ export const TopToolbar: React.FC = () => {
   ];
 
   return (
-    <header data-testid="toolbar" className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md px-3 py-1.5 flex flex-col gap-1.5">
-      <div className="flex min-h-11 flex-wrap items-center gap-2">
+    <header data-testid="toolbar" className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md px-3 py-1 flex flex-col gap-1">
+      <div className="flex min-h-9 flex-wrap items-center gap-1.5">
         {activeView === 'sync' && canSchemaBrowse && (
           <div
             data-testid="sync-pane-switcher"
