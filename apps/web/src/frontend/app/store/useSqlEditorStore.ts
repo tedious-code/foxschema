@@ -69,7 +69,11 @@ import {
 import { connectionNeedsSecret } from '@/shared/lib/provider-settings';
 import { useSyncStore } from './useSyncStore';
 import type { SchemaCacheEntry } from '@/features/sql-editor/lib/sqlEditorBridge';
-import { getCaretOffset, getSelectedSql } from '@/features/sql-editor/lib/sqlEditorBridge';
+import {
+  getCaretOffset,
+  getSelectedSql,
+  setSqlInsertFallback,
+} from '@/features/sql-editor/lib/sqlEditorBridge';
 import {
   addTab as addTabLogic,
   checkedAfterSqlChange,
@@ -2616,3 +2620,18 @@ export const useSqlEditorStore = create<SqlEditorState>()(
     }
   )
 );
+
+/**
+ * Catch SQL inserted while no editor pane is mounted.
+ *
+ * Clone Table and the table blueprint both live in the Utilities workspace,
+ * where SqlEditorPane is unmounted and its insert handler is null. Without
+ * this the text was dropped while the modal said it had been inserted.
+ * Appending to the active tab puts it where the reader is sent next.
+ */
+setSqlInsertFallback((text) => {
+  const { tabs, activeTabId, setSql } = useSqlEditorStore.getState();
+  const active = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
+  const existing = active?.sql ?? '';
+  setSql(existing.trim() ? `${existing.replace(/\s*$/, '')}\n${text}` : text);
+});
