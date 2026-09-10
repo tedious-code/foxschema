@@ -16,7 +16,14 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom';
 import { GripVertical, Loader2, X } from 'lucide-react';
 import { useSqlEditorStore, type DataPeekEntry } from '@/app/store/useSqlEditorStore';
-import { foreignKeyLinksFor, fkDrillTableName, peekBaseFilterLabel } from '@/shared/lib/tablePreview';
+import {
+  foreignKeyLinksFor,
+  fkDrillTableName,
+  fkKey,
+  inboundForeignKeysFor,
+  peekBaseFilterLabel,
+} from '@/shared/lib/tablePreview';
+import type { InboundForeignKey } from '@/shared/lib/tablePreview';
 import { DataGrid } from './DataGrid';
 import { usePeekGridCrud } from './usePeekGridCrud';
 import { PeekInsight } from './PeekInsight';
@@ -324,6 +331,7 @@ const PeekGrid: React.FC<{
   onOverlayOpenChange,
 }) => {
   const drillDataPeek = useSqlEditorStore((s) => s.drillDataPeek);
+  const drillDataPeekInbound = useSqlEditorStore((s) => s.drillDataPeekInbound);
   const pageDataPeekEntry = useSqlEditorStore((s) => s.pageDataPeekEntry);
   const runDataPeekEntry = useSqlEditorStore((s) => s.runDataPeekEntry);
   const clearDataPeekBaseFilter = useSqlEditorStore((s) => s.clearDataPeekBaseFilter);
@@ -379,6 +387,25 @@ const PeekGrid: React.FC<{
     return map;
   }, [links]);
 
+  /**
+   * The other direction of the relation: children that point at this table,
+   * paired with the result columns holding the parent values they match on.
+   * An FK whose parent columns are not all in the grid is dropped — a partial
+   * key would build a WHERE that matches the wrong child rows.
+   */
+  const inboundLinks = useMemo(() => {
+    if (!entry.result?.ok) return [];
+    const cols = entry.result.columns;
+    const indexOf = (n: string) => cols.findIndex((c) => c.toLowerCase() === n.toLowerCase());
+    return inboundForeignKeysFor(tables, entry.tableName)
+      .map((child) => {
+        const valueIndexes = (child.fk.referencedColumns ?? []).map(indexOf);
+        if (valueIndexes.length === 0 || valueIndexes.some((i) => i < 0)) return null;
+        return { child, valueIndexes };
+      })
+      .filter((x): x is { child: InboundForeignKey; valueIndexes: number[] } => x !== null);
+  }, [tables, entry.tableName, entry.result]);
+
   const onLinkClick = useCallback(
     (colIdx: number, rowIdx: number) => {
       const link = links.find((l) => l.columnIndex === colIdx);
@@ -410,6 +437,22 @@ const PeekGrid: React.FC<{
     onAfterWrite: afterWrite,
     testId: (action) => `data-peek-${action}-${entry.id}`,
   });
+
+  // Declared after `crud` because it reads the selected row from it; still
+  // above every early return, so hook order stays fixed.
+  const onInboundClick = useCallback(
+    (child: InboundForeignKey, valueIndexes: number[]) => {
+      if (!entry.result?.ok) return;
+      const row = entry.result.rows[crud.selectedRowIndex ?? -1];
+      if (!row) return;
+      void drillDataPeekInbound(
+        entry.id,
+        child,
+        valueIndexes.map((i) => row[i])
+      );
+    },
+    [entry, crud.selectedRowIndex, drillDataPeekInbound]
+  );
 
   useEffect(() => {
     onOverlayOpenChange?.(crud.overlayOpen);
@@ -559,6 +602,42 @@ const PeekGrid: React.FC<{
             onSelectRow={crud.onSelectRow}
             emphasis
           />
+          {inboundLinks.length > 0 && (
+            <div
+              className="mt-1 px-1 shrink-0 flex flex-wrap items-center gap-1"
+              data-testid={`data-peek-referenced-by-${entry.id}`}
+            >
+              <span className="text-xs font-semibold text-slate-400">Referenced by</span>
+              {inboundLinks.map(({ child, valueIndexes }) => {
+                const ready = crud.selectedRowIndex != null;
+                return (
+                  <button
+                    key={`${child.table}|${fkKey(child.fk)}`}
+                    type="button"
+                    disabled={!ready}
+                    data-testid={`data-peek-refby-${child.table}-${fkKey(child.fk)}`}
+                    title={
+                      ready
+                        ? `Rows of ${child.table} whose ${(child.fk.columns ?? []).join(', ')} match this row`
+                        : 'Select a row first'
+                    }
+                    onClick={() => onInboundClick(child, valueIndexes)}
+                    className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+                      ready
+                        ? 'border-slate-700 text-slate-300 hover:border-slate-500 hover:text-slate-100'
+                        : 'border-slate-800 text-slate-600 cursor-not-allowed'
+                    }`}
+                  >
+                    {child.table}
+                    <span className="ml-1 font-mono text-[10px] text-slate-500">
+                      {(child.fk.columns ?? []).join(', ')}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           {showFkHint && linkColumns.size > 0 && (
             <p className="mt-1 px-1 shrink-0 text-xs font-semibold text-slate-400">
               Underlined rust-colored cells are foreign keys — click several to open more panels.
