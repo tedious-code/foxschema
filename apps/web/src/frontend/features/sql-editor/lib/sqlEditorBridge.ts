@@ -53,8 +53,31 @@ export function setSqlInsertHandler(fn: InsertHandler | null): void {
   insertHandler = fn;
 }
 
-export function insertAtCursor(text: string): void {
-  insertHandler?.(text);
+let fallbackInsert: InsertHandler | null = null;
+
+/**
+ * Where inserted SQL goes when no editor pane is mounted.
+ *
+ * Wired once from the store. The bridge must not import the store — the
+ * dependency runs the other way — so the store hands its writer in here.
+ */
+export function setSqlInsertFallback(fn: InsertHandler | null): void {
+  fallbackInsert = fn;
+}
+
+/**
+ * Put text into the editor, and say whether anywhere took it.
+ *
+ * The pane clears its handler on unmount, so every caller reachable from
+ * another workspace — Clone Table and the table blueprint both live in
+ * Utilities — used to drop its SQL on the floor while the modal reported
+ * "inserted into the editor". Falling back to the active tab's buffer means
+ * the text survives the trip and is there when the view switches.
+ */
+export function insertAtCursor(text: string): boolean {
+  const target = insertHandler ?? fallbackInsert;
+  target?.(text);
+  return target !== null;
 }
 
 type SqlMutator = (fn: (sql: string) => string) => void;
