@@ -143,7 +143,7 @@ export const ConnectionChecklist: React.FC<{ variant?: 'list' | 'chips' }> = ({
         ) : connections.length === 0 ? (
           <span className="truncate text-[11px] text-slate-500">No saved connections</span>
         ) : (
-          <div className="relative min-w-0">
+          <div className="relative min-w-0 flex-1">
             {/* A dropdown, not a scrolling strip: with a dozen saved servers the
                 strip pushed most of them off-screen behind a scrollbar, so the
                 reader could not see what was selected without dragging. */}
@@ -154,7 +154,10 @@ export const ConnectionChecklist: React.FC<{ variant?: 'list' | 'chips' }> = ({
               aria-expanded={pickerOpen}
               onClick={() => setPickerOpen((o) => !o)}
               title={chosen.map((c) => c.name || c.id).join(', ') || 'Choose destinations'}
-              className={`flex min-w-0 max-w-[16rem] items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+              /* `w-full`, not `max-w`: this wrapper is a block, so a button
+                 sized by its own content overflows it and lands on top of the
+                 Run button next door, swallowing its clicks. */
+              className={`flex w-full min-w-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
                 chosen.length > 0
                   ? 'border-cyan-500/40 bg-cyan-950/50 text-cyan-100'
                   : 'border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200'

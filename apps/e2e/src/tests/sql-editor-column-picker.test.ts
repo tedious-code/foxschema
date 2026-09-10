@@ -80,6 +80,9 @@ describe.skipIf(!ready)('SQL Editor · SELECT column picker', () => {
     await sql.addSqliteCredential(NAME, DB);
     await sql.openView();
     await sql.checkConnection(NAME);
+    // Sidebar sections are an exclusive accordion: ticking a destination
+    // closed Schema, and a closed section renders no explorer to read.
+    await sql.ensureSidebarSectionOpen('schema');
 
     // The picker builds its list from the loaded schema cache.
     await driver.waitForFunction(
