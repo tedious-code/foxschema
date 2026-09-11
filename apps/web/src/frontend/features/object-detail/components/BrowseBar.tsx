@@ -15,6 +15,7 @@
  */
 import React from 'react';
 import { Loader2, Search } from 'lucide-react';
+import { dialectLabel } from '@/shared/lib/dialectLabel';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { getSessionPassword } from '@/shared/lib/sessionPasswords';
 
@@ -45,7 +46,7 @@ export function BrowseBar(): React.ReactElement {
   };
 
   const label = sourceConfig.option.database
-    ? `${sourceConfig.dialect.toUpperCase()} · ${[sourceConfig.option.host, sourceConfig.option.database]
+    ? `${dialectLabel(sourceConfig.dialect)} · ${[sourceConfig.option.host, sourceConfig.option.database]
         .filter(Boolean)
         .join('/')}${sourceConfig.schema ? `.${sourceConfig.schema}` : ''}`
     : null;
@@ -69,7 +70,7 @@ export function BrowseBar(): React.ReactElement {
         <option value="">{connections.length === 0 ? 'No saved connections' : 'Pick a database…'}</option>
         {connections.map((c) => (
           <option key={c.id} value={c.id}>
-            [{c.dialect.toUpperCase()}] {c.name}
+            {c.name} · {dialectLabel(c.dialect)}
           </option>
         ))}
       </select>

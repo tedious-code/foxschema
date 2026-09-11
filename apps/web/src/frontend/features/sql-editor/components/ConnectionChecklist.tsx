@@ -5,6 +5,7 @@ import { useSyncStore } from '@/app/store/useSyncStore';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { effectiveConnectionIds } from '@/app/store/sqlEditorTabLogic';
 import { SQL_ICON_STROKE } from '@/shared/lib/iconStyle';
+import { dialectLabel } from '@/shared/lib/dialectLabel';
 
 /**
  * Destination-server checklist. When "Same servers for all queries" is on,
@@ -111,12 +112,13 @@ export const ConnectionChecklist: React.FC<{ variant?: 'list' | 'chips' }> = ({
         )
       : connections;
     const chosen = connections.filter((c) => selectedConnectionIds.includes(c.id));
+    const groupNo = new Map(chosen.map((c, i) => [c.id, i + 1]));
     const summary =
       chosen.length === 0
         ? 'No destinations'
         : chosen.length === 1
-          ? chosen[0]!.name || '(unnamed)'
-          : `${chosen.length} destinations`;
+          ? `#1 ${chosen[0]!.name || '(unnamed)'}`
+          : `${chosen.length} destinations · #1–#${chosen.length}`;
 
     return (
       <div className="flex min-w-0 items-center gap-1" data-testid="sql-destination-chips">
@@ -200,7 +202,9 @@ export const ConnectionChecklist: React.FC<{ variant?: 'list' | 'chips' }> = ({
                         Nothing matches “{filter}”.
                       </p>
                     ) : (
-                      shown.map((c) => (
+                      shown.map((c) => {
+                        const n = groupNo.get(c.id);
+                        return (
                         <label
                           key={c.id}
                           data-testid={`sql-dest-option-${c.name || c.id}`}
@@ -212,8 +216,16 @@ export const ConnectionChecklist: React.FC<{ variant?: 'list' | 'chips' }> = ({
                             onChange={() => toggleConnection(c.id)}
                             className="h-3.5 w-3.5 shrink-0 cursor-pointer accent-cyan-600"
                           />
-                          <span className="shrink-0 font-mono text-[10px] font-bold uppercase text-slate-500">
-                            {c.dialect}
+                          <span
+                            data-testid={n ? `sql-dest-group-${n}` : undefined}
+                            className={`w-5 shrink-0 text-center font-mono text-[10px] font-bold ${
+                              n ? 'text-cyan-300' : 'text-slate-600'
+                            }`}
+                          >
+                            {n ? `#${n}` : '·'}
+                          </span>
+                          <span className="shrink-0 rounded border border-slate-700/70 bg-slate-950/70 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-400">
+                            {dialectLabel(c.dialect)}
                           </span>
                           <span
                             className="truncate"
@@ -222,7 +234,8 @@ export const ConnectionChecklist: React.FC<{ variant?: 'list' | 'chips' }> = ({
                             {c.name || '(unnamed)'}
                           </span>
                         </label>
-                      ))
+                        );
+                      })
                     )}
                   </div>
                 </div>
@@ -262,11 +275,14 @@ export const ConnectionChecklist: React.FC<{ variant?: 'list' | 'chips' }> = ({
         <p className="text-[13px] font-medium text-slate-500">Loading connections…</p>
       ) : connections.length === 0 ? (
         <p className="text-[13px] font-medium text-slate-500">
-          No saved connections yet — add one via the Credentials button in the toolbar.
+          No saved connections yet — add one via Credentials in the side menu.
         </p>
       ) : (
         <div className="flex flex-col gap-0.5 overflow-y-auto min-h-0 flex-1 pr-0.5">
-          {connections.map((c) => (
+          {connections.map((c) => {
+            const n = selectedConnectionIds.indexOf(c.id);
+            const group = n >= 0 ? n + 1 : null;
+            return (
             <label
               key={c.id}
               className="flex items-center gap-2 text-[13px] font-semibold text-slate-300 cursor-pointer select-none hover:text-slate-100 hover:bg-slate-800/60 rounded px-0.5 py-0.5 shrink-0"
@@ -274,12 +290,19 @@ export const ConnectionChecklist: React.FC<{ variant?: 'list' | 'chips' }> = ({
               <input
                 type="checkbox"
                 data-testid={`sql-conn-check-${c.name || c.id}`}
-                checked={selectedConnectionIds.includes(c.id)}
+                checked={group !== null}
                 onChange={() => toggleConnection(c.id)}
                 className="w-3.5 h-3.5 accent-cyan-600 cursor-pointer shrink-0"
               />
-              <span className="font-mono text-[11px] font-bold text-slate-500 uppercase shrink-0">
-                [{c.dialect}]
+              <span
+                className={`w-5 shrink-0 text-center font-mono text-[10px] font-bold ${
+                  group ? 'text-cyan-300' : 'text-slate-600'
+                }`}
+              >
+                {group ? `#${group}` : '·'}
+              </span>
+              <span className="shrink-0 rounded border border-slate-700/70 bg-slate-950/70 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-400">
+                {dialectLabel(c.dialect)}
               </span>
               <span
                 className="truncate"
@@ -288,7 +311,8 @@ export const ConnectionChecklist: React.FC<{ variant?: 'list' | 'chips' }> = ({
                 {c.name || '(unnamed)'}
               </span>
             </label>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

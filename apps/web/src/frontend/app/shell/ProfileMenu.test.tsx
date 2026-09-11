@@ -44,7 +44,7 @@ beforeEach(() => {
 describe('ProfileMenu', () => {
   it('opens Access control from the avatar menu for the local admin', () => {
     render(<ProfileMenu />);
-    fireEvent.click(screen.getByText('local@foxschema.app'));
+    fireEvent.click(screen.getByTestId('profile-menu-trigger'));
     fireEvent.click(screen.getByTestId('profile-access-control'));
     expect(screen.getByTestId('admin-access-panel')).toBeTruthy();
   });
@@ -61,7 +61,7 @@ describe('ProfileMenu', () => {
       localSingleUser: false,
     });
     render(<ProfileMenu />);
-    fireEvent.click(screen.getByText('editor@example.com'));
+    fireEvent.click(screen.getByTestId('profile-menu-trigger'));
     expect(screen.queryByTestId('profile-access-control')).toBeNull();
   });
 });

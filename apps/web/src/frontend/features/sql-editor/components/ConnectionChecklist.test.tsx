@@ -57,7 +57,14 @@ describe('destination picker (chips variant)', () => {
   it('says what is selected without being opened', () => {
     // The old strip made you scroll to find out. The trigger answers it.
     render(<ConnectionChecklist variant="chips" />);
+    expect(screen.getByTestId('sql-destinations-trigger').textContent).toContain('#1');
     expect(screen.getByTestId('sql-destinations-trigger').textContent).toContain('prod-pg');
+  });
+
+  it('numbers destinations in the open menu', () => {
+    render(<ConnectionChecklist variant="chips" />);
+    open();
+    expect(screen.getByTestId('sql-dest-group-1').textContent).toBe('#1');
   });
 
   it('counts rather than lists once more than one is chosen', () => {

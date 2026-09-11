@@ -153,17 +153,18 @@ export function ProfileMenu(): React.ReactElement | null {
       <button
         ref={buttonRef}
         type="button"
+        data-testid="profile-menu-trigger"
+        title={user.email}
+        aria-label={`Account menu for ${user.email}`}
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 pl-2 pr-2 py-1.5 rounded-md border border-slate-700 hover:border-slate-600 hover:bg-slate-800/60 transition cursor-pointer"
+        className="flex cursor-pointer items-center justify-center rounded-md border border-slate-700 p-1 transition hover:border-slate-600 hover:bg-slate-800/60"
       >
-        <span className="relative w-6 h-6 rounded-full accent-grad on-accent-fg text-xs font-bold flex items-center justify-center uppercase">
+        <span className="relative flex h-7 w-7 items-center justify-center rounded-full accent-grad text-xs font-bold uppercase on-accent-fg">
           {user.email.charAt(0)}
           {updateAvailable && (
-            <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-amber-400 ring-2 ring-slate-900" />
+            <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-amber-400 ring-2 ring-slate-900" />
           )}
         </span>
-        <span className="text-sm text-slate-300 max-w-[160px] truncate hidden sm:block">{user.email}</span>
-        <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
       </button>
 
       {menu}
