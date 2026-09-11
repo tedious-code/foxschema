@@ -107,7 +107,10 @@ export function VersionCompareModal({
   embedded = false,
 }: VersionCompareModalProps): React.ReactElement {
   const [tab, setTab] = useState<ComparePaneTab>('DIFF');
-  const [plan, setPlan] = useState<LokeeRevertPlan | null>(null);
+  const [planned, setPlanned] = useState<{
+    identity: string;
+    value: LokeeRevertPlan;
+  } | null>(null);
   const [planning, setPlanning] = useState(false);
   const [planError, setPlanError] = useState<string | null>(null);
   const [confirmLossy, setConfirmLossy] = useState(false);
@@ -115,6 +118,29 @@ export function VersionCompareModal({
   const [data, setData] = useState<VersionCompare | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [selectedName, setSelectedName] = useState<string | null>(null);
+  // Which objects the user has ticked to revert. Empty means "none selected",
+  // which the backend deliberately treats as a no-op rather than "everything".
+  const [selection, setSelection] = useState<Record<string, boolean>>({});
+  const comparisonIdentity = JSON.stringify([databaseId, versionId, againstVersionId]);
+  const [renderedComparisonIdentity, setRenderedComparisonIdentity] =
+    useState(comparisonIdentity);
+
+  // Prop changes must invalidate executable state before this render can expose
+  // controls for the new comparison. Effects run too late: a stale approved
+  // plan would otherwise remain clickable until the replacement plan settles.
+  if (renderedComparisonIdentity !== comparisonIdentity) {
+    setRenderedComparisonIdentity(comparisonIdentity);
+    setPlanned(null);
+    setPlanning(false);
+    setPlanError(null);
+    setConfirmLossy(false);
+    setSelection({});
+    setSelectedName(null);
+    setData(null);
+    setError(null);
+    setLoading(true);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -144,10 +170,6 @@ export function VersionCompareModal({
     [onClose]
   );
 
-  const [selectedName, setSelectedName] = useState<string | null>(null);
-  // Which objects the user has ticked to revert. Empty means "none selected",
-  // which the backend deliberately treats as a no-op rather than "everything".
-  const [selection, setSelection] = useState<Record<string, boolean>>({});
   const toggleSelection = useCallback((name: string) => {
     setSelection((s) => ({ ...s, [name]: !s[name] }));
   }, []);
@@ -182,30 +204,36 @@ export function VersionCompareModal({
     });
   }, [selection, changed]);
 
+  const planIdentity = JSON.stringify([comparisonIdentity, selectedKeys]);
+  const plan = planned?.identity === planIdentity ? planned.value : null;
+
   // "Make Target match Original" is exactly a revert of Target to Original.
   // Planned whenever the dialog has data — the run button lives in the toolbar
   // now, so it must know the statement count on every tab.
-  const loadPlan = useCallback(async () => {
+  useEffect(() => {
+    if (!data) return;
+    let cancelled = false;
     setPlanning(true);
     setPlanError(null);
-    try {
-      setPlan(
-        await planLokeeRevert(
+    setPlanned(null);
+    void (async () => {
+      try {
+        const value = await planLokeeRevert(
           databaseId,
           versionId,
           selectedKeys.length > 0 ? selectedKeys : undefined
-        )
-      );
-    } catch (err) {
-      setPlanError(err instanceof Error ? err.message : 'Failed to plan');
-    } finally {
-      setPlanning(false);
-    }
-  }, [databaseId, versionId, selectedKeys]);
-
-  useEffect(() => {
-    if (data) void loadPlan();
-  }, [data, loadPlan]);
+        );
+        if (!cancelled) setPlanned({ identity: planIdentity, value });
+      } catch (err) {
+        if (!cancelled) setPlanError(err instanceof Error ? err.message : 'Failed to plan');
+      } finally {
+        if (!cancelled) setPlanning(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [data, databaseId, versionId, selectedKeys, planIdentity]);
 
   /**
    * Why Execute cannot run yet — the empty string means it can.
