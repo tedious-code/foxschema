@@ -13,9 +13,7 @@ import { useUiStore, type ActiveView } from '@/app/store/uiStore';
 import { CredentialManager } from '@/features/connections';
 import { MigrationHistory } from '@/features/migrations';
 import { FoxLogo } from './FoxLogo';
-import ProfileMenuDefault, { ProfileMenu as ProfileMenuNamed } from './ProfileMenu';
-
-const ProfileMenu = ProfileMenuNamed ?? ProfileMenuDefault;
+import { ProfileMenu } from './ProfileMenu';
 
 const ITEMS: {
   view: ActiveView;
