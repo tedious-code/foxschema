@@ -8,7 +8,6 @@
  * Extracted verbatim from api/routes.ts; handler bodies are unchanged.
  */
 import type { FastifyReply } from 'fastify';
-import { appendFileSync } from 'node:fs';
 import type { AppRequest } from '../../platform/http/types';
 import { Router } from '../../platform/http/router';
 import { requirePermissions } from '../authorization/rbac.guard';
@@ -106,9 +105,6 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
               .concat(req.query.objectKeys as string | string[])
               .map((k) => String(k).trim())
               .filter(Boolean);
-      // #region agent log
-      appendFileSync('/opt/cursor/logs/debug.log', `${JSON.stringify({ hypothesisId: 'A,B', location: 'history.routes.ts:revert-plan-entry', message: 'Revert plan requested', data: { databaseId: String(req.params.id), toVersionId, objectKeyCount: objectKeys?.length ?? null }, timestamp: Date.now() })}\n`);
-      // #endregion
       const plan = await deps.lokee.planRevert(
         (req as AuthedRequest).userId!,
         String(req.params.id),
@@ -121,9 +117,6 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
         sendError(res, 'not_found', 'Version not found');
         return;
       }
-      // #region agent log
-      appendFileSync('/opt/cursor/logs/debug.log', `${JSON.stringify({ hypothesisId: 'B', location: 'history.routes.ts:revert-plan-exit', message: 'Revert plan completed', data: { requestedVersionId: toVersionId, plannedVersionId: plan.toVersion?.id, risk: plan.reversal?.risk, statementCount: plan.statements?.length }, timestamp: Date.now() })}\n`);
-      // #endregion
       const { steps: _steps, ...published } = plan;
       res.send(published);
     }
@@ -145,9 +138,6 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
         sendError(res, 'invalid_input', 'toVersionId is required');
         return;
       }
-      // #region agent log
-      appendFileSync('/opt/cursor/logs/debug.log', `${JSON.stringify({ hypothesisId: 'A,D', location: 'history.routes.ts:revert-entry', message: 'Execute revert submitted', data: { databaseId: String(req.params.id), toVersionId, confirmLossy: body.confirmLossy === true, objectKeyCount: Array.isArray(body.objectKeys) ? body.objectKeys.length : null }, timestamp: Date.now() })}\n`);
-      // #endregion
       let dialect: string;
       let option: ConnectionOptions;
       let schema: string;
@@ -227,9 +217,6 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
         sendError(res, 'not_found', 'Version not found');
         return;
       }
-      // #region agent log
-      appendFileSync('/opt/cursor/logs/debug.log', `${JSON.stringify({ hypothesisId: 'D', location: 'history.routes.ts:revert-replan', message: 'Server replanned submitted revert', data: { requestedVersionId: toVersionId, plannedVersionId: plan.toVersion?.id, risk: plan.reversal?.risk, confirmLossyAccepted: body.confirmLossy === true, statementCount: plan.steps?.length }, timestamp: Date.now() })}\n`);
-      // #endregion
       const { steps, ...published } = plan;
       if (plan.alreadyAtTarget || steps.length === 0) {
         res.send({ ok: true, ...published, alreadyAtTarget: true });
@@ -348,9 +335,6 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
         return;
       }
       const against = String(req.query.againstVersionId ?? '').trim();
-      // #region agent log
-      appendFileSync('/opt/cursor/logs/debug.log', `${JSON.stringify({ hypothesisId: 'A,C', location: 'history.routes.ts:compare-entry', message: 'Version compare requested', data: { databaseId: String(req.params.id), versionId, againstVersionId: against || null }, timestamp: Date.now() })}\n`);
-      // #endregion
       const result = await deps.lokee.diffVersions(
         (req as AuthedRequest).userId!,
         String(req.params.id),
@@ -361,9 +345,6 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
         sendError(res, 'not_found', 'Version not found');
         return;
       }
-      // #region agent log
-      appendFileSync('/opt/cursor/logs/debug.log', `${JSON.stringify({ hypothesisId: 'C', location: 'history.routes.ts:compare-exit', message: 'Version compare completed', data: { requestedVersionId: versionId, resultVersionId: result.to?.id, againstVersionId: against || null }, timestamp: Date.now() })}\n`);
-      // #endregion
       res.send(result);
     }
   );
