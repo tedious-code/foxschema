@@ -2,11 +2,7 @@ import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { useUiStore } from '@/app/store/uiStore';
-import { ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, Zap, Settings, KeyRound, History, X, Layers, Camera, Search } from 'lucide-react';
-// Support both default and named exports (avoids blank-page Vite/HMR mismatches).
-import ProfileMenuDefault, { ProfileMenu as ProfileMenuNamed } from './ProfileMenu';
-import { CredentialManager } from '@/features/connections';
-import { MigrationHistory } from '@/features/migrations';
+import { ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, Zap, Settings, KeyRound, X, Layers, Camera, Search } from 'lucide-react';
 import { TYPE_META, TYPE_ORDER } from '@/features/sql-editor/components/SchemaTreePanel';
 import type { DbObjectType } from '@/shared/lib/types';
 import { connectionNeedsSecret } from '@/shared/lib/provider-settings';
@@ -24,8 +20,6 @@ import { DiffBriefingChips } from '@/features/schema-diff';
 import { diffBriefing } from '@/features/schema-diff';
 import { ConnectionChip } from './ConnectionChips';
 import { openCommandPalette } from './commandPaletteEvent';
-
-const ProfileMenu = ProfileMenuNamed ?? ProfileMenuDefault;
 
 function connectionSummary(config: {
   schema: string;
@@ -67,8 +61,6 @@ export const TopToolbar: React.FC = () => {
   } = useSyncStore();
 
   const [activeModalTarget, setActiveModalTarget] = useState<'source' | 'target' | null>(null);
-  const [showCredentials, setShowCredentials] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
   const [capturingSnapshot, setCapturingSnapshot] = useState(false);
   const { activeView, syncPane, setSyncPane, bumpLokeeEpoch } = useUiStore();
   const canSchemaBrowse = useAuthStore((s) => s.can('schema.browse'));
@@ -221,7 +213,7 @@ export const TopToolbar: React.FC = () => {
         )}
 
         {activeView === 'sync' && syncPane === 'compare' && (
-          <>
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
             <ConnectionChip
               side="source"
               label="Original"
@@ -288,7 +280,7 @@ export const TopToolbar: React.FC = () => {
                 </>
               )}
             </button>
-          </>
+          </div>
         )}
 
         {activeView === 'sync' && syncPane === 'browse' && (
@@ -317,7 +309,7 @@ export const TopToolbar: React.FC = () => {
           </div>
         )}
 
-        <div className="ml-auto flex flex-wrap items-center gap-1.5">
+        <div className="ml-auto flex shrink-0 flex-wrap items-center gap-1.5">
           <ActivityIndicator />
           <button
             type="button"
@@ -332,20 +324,6 @@ export const TopToolbar: React.FC = () => {
               ⌘K
             </kbd>
           </button>
-          <button
-            data-testid="credentials-btn"
-            onClick={() => setShowCredentials(true)}
-            className="flex items-center gap-1.5 rounded-md border border-slate-700 px-2.5 py-1 text-xs font-semibold text-cyan-400 transition hover:border-cyan-500/40 hover:text-cyan-300"
-          >
-            <KeyRound className="h-3.5 w-3.5" /> Credentials
-          </button>
-          <button
-            data-testid="history-btn"
-            onClick={() => setShowHistory(true)}
-            className="flex items-center gap-1.5 rounded-md border border-slate-700 px-2.5 py-1 text-xs font-semibold text-slate-300 transition hover:border-slate-500 hover:text-slate-100"
-          >
-            <History className="h-3.5 w-3.5" /> Applies
-          </button>
           {compareResult && activeView === 'sync' && syncPane === 'compare' && (
             <button
               onClick={resetSync}
@@ -354,9 +332,6 @@ export const TopToolbar: React.FC = () => {
               Clear
             </button>
           )}
-          <div className="border-l border-slate-800 pl-2">
-            <ProfileMenu />
-          </div>
         </div>
       </div>
 
@@ -443,10 +418,6 @@ export const TopToolbar: React.FC = () => {
           applySavedConnection(side, saved.id, sessionPw);
         }}
       />
-
-      <CredentialManager open={showCredentials} onClose={() => setShowCredentials(false)} />
-
-      <MigrationHistory open={showHistory} onClose={() => setShowHistory(false)} />
 
       {pendingPassword && createPortal(
         <div

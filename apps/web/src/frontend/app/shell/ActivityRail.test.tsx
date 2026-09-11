@@ -34,6 +34,9 @@ describe('ActivityRail', () => {
     expect(screen.getByTestId('view-utilities-btn')).toBeTruthy();
     expect(screen.getByTestId('view-access-btn')).toBeTruthy();
     expect(screen.getByTestId('sync-pane-history-btn')).toBeTruthy();
+    expect(screen.getByTestId('credentials-btn')).toBeTruthy();
+    expect(screen.getByTestId('history-btn')).toBeTruthy();
+    expect(screen.getByTestId('profile-menu-trigger')).toBeTruthy();
     fireEvent.click(screen.getByTestId('home-open-btn'));
     expect(useUiStore.getState().activeView).toBe('home');
     fireEvent.click(screen.getByTestId('view-settings-btn'));

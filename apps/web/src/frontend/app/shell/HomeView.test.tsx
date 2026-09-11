@@ -69,6 +69,11 @@ describe('HomeView', () => {
     expect(setActiveView).toHaveBeenCalledWith('snapshots');
   });
 
+  it('shows the total number of saved connections', () => {
+    render(<HomeView />);
+    expect(screen.getByTestId('home-connections-count').textContent).toBe('1');
+  });
+
   it('opens the Utilities workspace from Home', () => {
     render(<HomeView />);
     fireEvent.click(screen.getByTestId('home-continue-utilities'));

@@ -9,6 +9,7 @@
  */
 import React from 'react';
 import { CheckCircle2, RefreshCw, Settings } from 'lucide-react';
+import { dialectLabel } from '@/shared/lib/dialectLabel';
 
 export interface ConnectionChipOption {
   id: string;
@@ -83,7 +84,7 @@ export function ConnectionChip({
       // truncates, and a connection string is worth less toolbar height than
       // the rest of the toolbar is worth: two chips at 22rem consumed 704px of
       // a 1190px row on a 1280 screen and wrapped everything else.
-      className={`flex min-w-[15rem] max-w-[17rem] flex-initial items-center gap-1.5 rounded-full border px-2 py-1 ${tone.ring}`}
+      className={`flex min-w-[12.5rem] max-w-[16rem] flex-1 items-center gap-1.5 rounded-full border px-2 py-1 ${tone.ring}`}
     >
       <span className={`shrink-0 text-[10px] font-bold uppercase tracking-wider ${tone.label}`}>
         {label}
@@ -101,18 +102,18 @@ export function ConnectionChip({
         // the toolbar — far enough that the "Same DB" pill covered the edit
         // button and swallowed the click. This select already truncates, so it
         // is the one that can give ground.
-        className="min-w-0 max-w-[11rem] truncate rounded-full border border-slate-700/60 bg-slate-950 px-2 py-0.5 text-[11px] text-slate-200 accent-focus focus:outline-none"
+        className="min-w-0 max-w-[12rem] flex-1 truncate rounded-full border border-slate-700/60 bg-slate-950 px-2 py-0.5 text-[11px] text-slate-200 accent-focus focus:outline-none"
         >
           <option value="">— Saved —</option>
           {connections.map((c) => (
             <option key={c.id} value={c.id}>
-              [{c.dialect.toUpperCase()}] {c.name}
+              {c.name} · {dialectLabel(c.dialect)}
             </option>
           ))}
         </select>
       )}
       <span
-        className={`min-w-0 flex-1 truncate font-mono text-[11px] font-bold ${
+        className={`hidden min-w-0 max-w-[7rem] truncate font-mono text-[10px] font-medium xl:inline ${
           summary ? tone.summary : tone.empty
         }`}
         title={summary ?? undefined}
