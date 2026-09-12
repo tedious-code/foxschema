@@ -199,7 +199,7 @@ export function parseTopLevelOrderBy(sql: string): ParsedOrderBy | null {
 
 export function uniqueKeysFromTable(table: {
   primaryKey?: PrimaryKeyInfo;
-  columns: readonly { name: string; primaryKey?: boolean }[];
+  columns: readonly { name: string; primaryKey?: boolean; nullable?: boolean }[];
   indices: readonly IndexInfo[];
 }): string[][] {
   const keys: string[][] = [];
@@ -207,8 +207,19 @@ export function uniqueKeysFromTable(table: {
     table.primaryKey?.columns?.filter(Boolean) ??
     table.columns.filter((c) => c.primaryKey).map((c) => c.name);
   if (pk.length > 0) keys.push(pk);
+  const columns = new Map(table.columns.map((column) => [column.name.toLowerCase(), column]));
   for (const idx of table.indices) {
-    if (!idx.unique || !idx.columns?.length) continue;
+    // A partial unique index is unique only inside its predicate, while a
+    // nullable unique index can admit repeated NULLs. Neither proves that an
+    // unfiltered result is globally unique enough for keyset paging.
+    if (
+      !idx.unique ||
+      !idx.columns?.length ||
+      Boolean(idx.filter?.trim()) ||
+      !idx.columns.every((name) => columns.get(name.toLowerCase())?.nullable === false)
+    ) {
+      continue;
+    }
     keys.push(idx.columns);
   }
   return keys;
