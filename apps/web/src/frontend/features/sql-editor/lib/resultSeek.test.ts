@@ -54,6 +54,33 @@ describe('seekFromLastRow', () => {
     ).toBeNull();
   });
 
+  it('does not seek on a partial unique index', () => {
+    const table: TableSchema = {
+      ...TABLE,
+      primaryKey: undefined,
+      columns: [
+        { name: 'EMAIL', type: 'varchar', nullable: false, primaryKey: false },
+        { name: 'DELETED_AT', type: 'timestamp', nullable: true, primaryKey: false },
+      ],
+      indices: [
+        {
+          name: 'U_ACTIVE_EMAIL',
+          unique: true,
+          columns: ['EMAIL'],
+          filter: 'DELETED_AT IS NULL',
+        },
+      ],
+    };
+    expect(
+      seekFromLastRow({
+        sql: 'SELECT EMAIL, DELETED_AT FROM ORDERS ORDER BY EMAIL',
+        table,
+        resultColumns: ['EMAIL', 'DELETED_AT'],
+        lastRow: ['a@example.com', null],
+      })
+    ).toBeNull();
+  });
+
   it('does not use one side of a join to claim the result order is unique', () => {
     expect(
       tableForOrderBy(
