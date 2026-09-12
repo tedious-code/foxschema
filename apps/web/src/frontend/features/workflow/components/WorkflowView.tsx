@@ -3,8 +3,9 @@
  * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
  * SPDX-License-Identifier: Apache-2.0
  *
- * Workflow workspace mockup — designer, runs, engine control, variables.
- * Visual only; no FoxWorkflow API yet.
+ * Workflow workspace mockup aligned with FoxFlow
+ * (Workflow → Pipeline → Pipe, api/scheduler/worker).
+ * Visual only — no execution API yet.
  */
 import React, { useMemo, useState } from 'react';
 import {
@@ -17,17 +18,22 @@ import {
   Workflow,
 } from 'lucide-react';
 import {
+  MOCK_CREDENTIALS,
   MOCK_EDGES,
+  MOCK_ENVIRONMENT,
   MOCK_PALETTE,
+  MOCK_PIPELINE_NAME,
+  MOCK_PIPES,
   MOCK_RUNS,
-  MOCK_STEPS,
   MOCK_VARIABLES,
   MOCK_WORKFLOW_NAME,
   MOCK_WORKFLOW_VERSION,
+  inspectorConfig,
+  pipeFamily,
   type EngineState,
   type MockEngineConfig,
-  type MockStep,
-  type StepKind,
+  type MockPipe,
+  type PipeTypeId,
   type WorkflowPane,
 } from '../lib/mockWorkflow';
 
@@ -42,17 +48,13 @@ const PANES: {
   { id: 'variables', label: 'Variables', icon: Braces },
 ];
 
-const KIND_TONE: Record<StepKind, string> = {
+const FAMILY_TONE: Record<string, string> = {
   trigger: 'border-violet-500/40 bg-violet-950/40 text-violet-200',
-  sql: 'border-cyan-500/40 bg-cyan-950/40 text-cyan-100',
-  js: 'border-amber-500/40 bg-amber-950/40 text-amber-100',
-  python: 'border-yellow-500/40 bg-yellow-950/35 text-yellow-100',
-  http: 'border-sky-500/40 bg-sky-950/40 text-sky-100',
-  notify: 'border-rose-500/40 bg-rose-950/40 text-rose-100',
-  split: 'border-fuchsia-500/40 bg-fuchsia-950/40 text-fuchsia-100',
-  gather: 'border-emerald-500/40 bg-emerald-950/40 text-emerald-100',
-  call: 'border-indigo-500/40 bg-indigo-950/40 text-indigo-100',
-  vars: 'border-slate-500/40 bg-slate-900 text-slate-200',
+  source: 'border-cyan-500/40 bg-cyan-950/40 text-cyan-100',
+  transform: 'border-amber-500/40 bg-amber-950/40 text-amber-100',
+  sink: 'border-rose-500/40 bg-rose-950/40 text-rose-100',
+  control: 'border-fuchsia-500/40 bg-fuchsia-950/40 text-fuchsia-100',
+  pipe: 'border-slate-500/40 bg-slate-900 text-slate-200',
 };
 
 const STATUS_TONE: Record<string, string> = {
@@ -68,8 +70,12 @@ function formatDuration(ms: number | null): string {
   return `${(ms / 1000).toFixed(1)} s`;
 }
 
-function stepById(id: string): MockStep | undefined {
-  return MOCK_STEPS.find((s) => s.id === id);
+function pipeById(id: string): MockPipe | undefined {
+  return MOCK_PIPES.find((p) => p.id === id);
+}
+
+function toneFor(type: PipeTypeId): string {
+  return FAMILY_TONE[pipeFamily(type)] ?? FAMILY_TONE.pipe;
 }
 
 function DesignerPane({
@@ -79,27 +85,27 @@ function DesignerPane({
   selectedId: string;
   onSelect: (id: string) => void;
 }): React.ReactElement {
-  const selected = stepById(selectedId) ?? MOCK_STEPS[0];
+  const selected = pipeById(selectedId) ?? MOCK_PIPES[0]!;
   const outgoing = MOCK_EDGES.filter((e) => e.from === selected.id);
   const incoming = MOCK_EDGES.filter((e) => e.to === selected.id);
 
   return (
     <div className="flex min-h-0 flex-1" data-testid="workflow-designer">
-      <aside className="flex w-48 shrink-0 flex-col border-r border-slate-800 bg-slate-950/80">
+      <aside className="flex w-52 shrink-0 flex-col border-r border-slate-800 bg-slate-950/80">
         <div className="border-b border-slate-800 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-          Steps
+          Pipes
         </div>
-        <ul className="flex-1 overflow-y-auto p-2 space-y-1">
+        <ul className="flex-1 space-y-1 overflow-y-auto p-2">
           {MOCK_PALETTE.map((item) => (
-            <li key={item.kind}>
+            <li key={item.type}>
               <button
                 type="button"
-                data-testid={`workflow-palette-${item.kind}`}
-                className={`flex w-full flex-col items-start rounded-md border px-2 py-1.5 text-left transition hover:bg-slate-900 ${KIND_TONE[item.kind]}`}
+                data-testid={`workflow-palette-${item.type.replace(/\./g, '-')}`}
+                className={`flex w-full flex-col items-start rounded-md border px-2 py-1.5 text-left transition hover:bg-slate-900 ${toneFor(item.type)}`}
                 title="Mockup — drag/drop not wired"
               >
                 <span className="text-[11px] font-semibold">{item.label}</span>
-                <span className="text-[10px] opacity-70">{item.hint}</span>
+                <span className="font-mono text-[9px] opacity-70">{item.hint}</span>
               </button>
             </li>
           ))}
@@ -113,8 +119,11 @@ function DesignerPane({
           <span className="rounded border border-slate-600 px-1.5 py-0.5 font-mono text-[10px] text-slate-400">
             {MOCK_WORKFLOW_VERSION}
           </span>
+          <span className="rounded border border-slate-600 px-1.5 py-0.5 font-mono text-[10px] text-slate-400">
+            pipeline:{MOCK_PIPELINE_NAME}
+          </span>
           <span className="rounded border border-amber-500/30 bg-amber-950/40 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-200">
-            Mockup
+            Mockup · FoxFlow
           </span>
           <button
             type="button"
@@ -126,13 +135,10 @@ function DesignerPane({
           </button>
         </div>
 
-        <svg
-          className="pointer-events-none absolute inset-0 h-full w-full"
-          aria-hidden
-        >
+        <svg className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden>
           {MOCK_EDGES.map((edge) => {
-            const a = stepById(edge.from);
-            const b = stepById(edge.to);
+            const a = pipeById(edge.from);
+            const b = pipeById(edge.to);
             if (!a || !b) return null;
             const x1 = a.x + 4;
             const y1 = a.y + 4;
@@ -141,7 +147,7 @@ function DesignerPane({
             const mx = (x1 + x2) / 2;
             const my = (y1 + y2) / 2;
             return (
-              <g key={`${edge.from}-${edge.to}`}>
+              <g key={`${edge.from}-${edge.to}-${edge.label ?? ''}`}>
                 <line
                   x1={`${x1}%`}
                   y1={`${y1}%`}
@@ -179,28 +185,28 @@ function DesignerPane({
           </defs>
         </svg>
 
-        {MOCK_STEPS.map((step) => {
-          const on = step.id === selected.id;
+        {MOCK_PIPES.map((pipe) => {
+          const on = pipe.id === selected.id;
           return (
             <button
-              key={step.id}
+              key={pipe.id}
               type="button"
-              data-testid={`workflow-node-${step.id}`}
-              onClick={() => onSelect(step.id)}
-              style={{ left: `${step.x}%`, top: `${step.y}%` }}
-              className={`absolute z-[1] w-[9.5rem] -translate-y-1/2 rounded-md border px-2 py-1.5 text-left shadow-sm transition ${
-                KIND_TONE[step.kind]
-              } ${on ? 'ring-2 ring-cyan-400/70' : 'hover:brightness-110'}`}
+              data-testid={`workflow-node-${pipe.id}`}
+              onClick={() => onSelect(pipe.id)}
+              style={{ left: `${pipe.x}%`, top: `${pipe.y}%` }}
+              className={`absolute z-[1] w-[10rem] -translate-y-1/2 rounded-md border px-2 py-1.5 text-left shadow-sm transition ${toneFor(
+                pipe.type
+              )} ${on ? 'ring-2 ring-cyan-400/70' : 'hover:brightness-110'}`}
             >
-              <div className="truncate text-[11px] font-semibold">{step.label}</div>
-              <div className="truncate text-[10px] opacity-75">{step.detail}</div>
+              <div className="truncate text-[11px] font-semibold">{pipe.label}</div>
+              <div className="truncate font-mono text-[9px] opacity-75">{pipe.type}</div>
             </button>
           );
         })}
       </div>
 
       <aside
-        className="flex w-64 shrink-0 flex-col border-l border-slate-800 bg-slate-950/90"
+        className="flex w-72 shrink-0 flex-col border-l border-slate-800 bg-slate-950/90"
         data-testid="workflow-inspector"
       >
         <div className="border-b border-slate-800 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
@@ -209,9 +215,9 @@ function DesignerPane({
         <div className="space-y-3 overflow-y-auto p-3 text-xs">
           <div>
             <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
-              Kind
+              Pipe type
             </div>
-            <div className="mt-0.5 font-semibold text-slate-100">{selected.kind}</div>
+            <div className="mt-0.5 font-mono font-semibold text-slate-100">{selected.type}</div>
           </div>
           <div>
             <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
@@ -224,15 +230,7 @@ function DesignerPane({
               Config
             </div>
             <pre className="mt-1 overflow-x-auto rounded border border-slate-800 bg-slate-900/80 p-2 font-mono text-[10px] text-slate-300">
-              {selected.kind === 'split'
-                ? `mode: exclusive\ncases:\n  - when: amount > 1000 → score\n  - when: region == EU → vat\n  - else → standard`
-                : selected.kind === 'gather'
-                  ? `waitFor: started\njoin: all\nfrom: activated branches`
-                  : selected.kind === 'notify'
-                    ? `channel: email\nto: \${{ global.ops_email }}\nbody: summary template`
-                    : selected.kind === 'call'
-                      ? `uses: ship-order@v3\nwith:\n  orderId: \${{ vars.orderId }}\nsecrets: inherit`
-                      : selected.detail}
+              {inspectorConfig(selected)}
             </pre>
           </div>
           <div>
@@ -244,7 +242,7 @@ function DesignerPane({
                 <li>—</li>
               ) : (
                 incoming.map((e) => (
-                  <li key={`${e.from}-${e.to}`}>{stepById(e.from)?.label ?? e.from}</li>
+                  <li key={`${e.from}-${e.to}`}>{pipeById(e.from)?.label ?? e.from}</li>
                 ))
               )}
             </ul>
@@ -258,11 +256,9 @@ function DesignerPane({
                 <li>—</li>
               ) : (
                 outgoing.map((e) => (
-                  <li key={`${e.from}-${e.to}`}>
-                    {stepById(e.to)?.label ?? e.to}
-                    {e.label ? (
-                      <span className="text-slate-500"> · {e.label}</span>
-                    ) : null}
+                  <li key={`${e.from}-${e.to}-${e.label ?? ''}`}>
+                    {pipeById(e.to)?.label ?? e.to}
+                    {e.label ? <span className="text-slate-500"> · {e.label}</span> : null}
                   </li>
                 ))
               )}
@@ -278,7 +274,7 @@ function RunsPane(): React.ReactElement {
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="workflow-runs">
       <div className="border-b border-slate-800 px-4 py-2 text-[11px] text-slate-400">
-        Recent runs across workflows (mock data)
+        FoxFlow run records (mock) — triggers: manual · cron · webhook · http · parent
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
         <table className="w-full text-left text-xs">
@@ -339,11 +335,14 @@ function EnginePane({
       <section className="rounded-md border border-slate-800 bg-slate-950/60 p-4">
         <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-100">
           <Settings2 className="h-4 w-4 text-slate-400" />
-          FoxWorkflow control
+          FoxFlow control plane
           <span className="rounded border border-amber-500/30 bg-amber-950/40 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-200">
             Mockup
           </span>
         </div>
+        <p className="mb-3 text-[11px] text-slate-400">
+          FoxSchema designs &amp; administers; FoxFlow api / scheduler / worker execute.
+        </p>
         <div className="flex flex-wrap gap-2" role="group" aria-label="Engine state">
           {(
             [
@@ -372,7 +371,7 @@ function EnginePane({
         </div>
         <label className="mt-4 flex max-w-xl flex-col gap-1">
           <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
-            Engine endpoint
+            API endpoint
           </span>
           <input
             data-testid="workflow-engine-endpoint"
@@ -381,29 +380,82 @@ function EnginePane({
             className="rounded border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-100 outline-none accent-focus"
           />
         </label>
-        <label className="mt-3 flex max-w-xs flex-col gap-1">
-          <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
-            Max parallel steps
-          </span>
-          <input
-            type="number"
-            min={1}
-            max={64}
-            data-testid="workflow-engine-max-parallel"
-            value={config.maxParallel}
-            onChange={(e) =>
-              onChange({
-                ...config,
-                maxParallel: Math.max(1, Number(e.target.value) || 1),
-              })
-            }
-            className="rounded border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-100 outline-none accent-focus"
-          />
-        </label>
+        <div className="mt-3 flex flex-wrap gap-4">
+          <label className="flex max-w-xs flex-col gap-1">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+              Max parallel pipes
+            </span>
+            <input
+              type="number"
+              min={1}
+              max={64}
+              data-testid="workflow-engine-max-parallel"
+              value={config.maxParallel}
+              onChange={(e) =>
+                onChange({
+                  ...config,
+                  maxParallel: Math.max(1, Number(e.target.value) || 1),
+                })
+              }
+              className="rounded border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-100 outline-none accent-focus"
+            />
+          </label>
+          <label className="flex max-w-xs flex-col gap-1">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+              onOverlap
+            </span>
+            <select
+              data-testid="workflow-engine-overlap"
+              value={config.overlap}
+              onChange={(e) =>
+                onChange({
+                  ...config,
+                  overlap: e.target.value as MockEngineConfig['overlap'],
+                })
+              }
+              className="rounded border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-100 outline-none accent-focus"
+            >
+              <option value="skip">skip</option>
+              <option value="queue">queue</option>
+              <option value="parallel">parallel</option>
+            </select>
+          </label>
+        </div>
       </section>
 
       <section className="rounded-md border border-slate-800 bg-slate-950/60 p-4">
-        <div className="mb-3 text-sm font-semibold text-slate-100">Log sinks</div>
+        <div className="mb-3 text-sm font-semibold text-slate-100">Processes</div>
+        <ul className="grid gap-2 sm:grid-cols-3">
+          {config.processes.map((proc) => (
+            <li
+              key={proc.id}
+              data-testid={`workflow-process-${proc.id}`}
+              className="rounded border border-slate-800 bg-slate-900/50 px-3 py-2"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-slate-100">{proc.label}</span>
+                <span
+                  className={`rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase ${
+                    proc.status === 'up'
+                      ? 'border-emerald-500/30 bg-emerald-950/40 text-emerald-300'
+                      : 'border-rose-500/30 bg-rose-950/40 text-rose-300'
+                  }`}
+                >
+                  {proc.status}
+                </span>
+              </div>
+              <div className="mt-1 text-[11px] text-slate-400">{proc.detail}</div>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="rounded-md border border-slate-800 bg-slate-950/60 p-4">
+        <div className="mb-1 text-sm font-semibold text-slate-100">Run event sinks</div>
+        <p className="mb-3 text-[11px] text-slate-500">
+          FoxFlow persists run events in SQLite by default; FoxSchema can also mirror to
+          files / a dialect DB.
+        </p>
         <ul className="space-y-2">
           {config.sinks.map((sink, idx) => (
             <li
@@ -422,8 +474,8 @@ function EnginePane({
                     onChange({ ...config, sinks });
                   }}
                 />
-                {sink.kind === 'db'
-                  ? 'Database'
+                {sink.kind === 'events'
+                  ? 'Event store (DB)'
                   : sink.kind === 'json'
                     ? 'JSON files'
                     : 'Text files'}
@@ -447,18 +499,32 @@ function EnginePane({
 }
 
 function VariablesPane(): React.ReactElement {
-  const scopes = useMemo(
-    () => ['global', 'workflow', 'run'] as const,
-    []
-  );
+  const scopes = useMemo(() => ['global', 'workflow', 'run'] as const, []);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="workflow-variables">
       <div className="border-b border-slate-800 px-4 py-2 text-[11px] text-slate-400">
-        Global · workflow · run scopes (mock). Secrets never render plaintext in real
-        runs.
+        Environment <span className="font-mono text-slate-300">{MOCK_ENVIRONMENT}</span>
+        {' · '}
+        FoxFlow scopes global / workflow; run = frozen admission snapshot. Secrets live in
+        credentials, not variable values.
       </div>
       <div className="min-h-0 flex-1 overflow-auto p-4">
+        <div className="mb-4 rounded-md border border-slate-800 bg-slate-950/60 p-3">
+          <div className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+            Credentials
+          </div>
+          <ul className="flex flex-wrap gap-2">
+            {MOCK_CREDENTIALS.map((c) => (
+              <li
+                key={c.id}
+                className="rounded border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-[11px] text-slate-300"
+              >
+                {c.kind}:{c.name}
+              </li>
+            ))}
+          </ul>
+        </div>
         <div className="grid gap-4 lg:grid-cols-3">
           {scopes.map((scope) => (
             <section
@@ -478,6 +544,9 @@ function VariablesPane(): React.ReactElement {
                     </div>
                   </li>
                 ))}
+                {MOCK_VARIABLES.filter((v) => v.scope === scope).length === 0 ? (
+                  <li className="px-3 py-2 text-[11px] text-slate-500">No rows</li>
+                ) : null}
               </ul>
             </section>
           ))}
@@ -489,15 +558,21 @@ function VariablesPane(): React.ReactElement {
 
 export const WorkflowView: React.FC = () => {
   const [pane, setPane] = useState<WorkflowPane>('designer');
-  const [selectedId, setSelectedId] = useState(MOCK_STEPS[0]?.id ?? 't1');
+  const [selectedId, setSelectedId] = useState(MOCK_PIPES[0]?.id ?? 't1');
   const [engine, setEngine] = useState<MockEngineConfig>({
     state: 'enabled',
-    endpoint: 'https://foxworkflow.local:8787',
+    endpoint: 'http://127.0.0.1:3080',
     maxParallel: 8,
+    overlap: 'skip',
+    processes: [
+      { id: 'api', label: 'API', status: 'up', detail: 'control plane :3080' },
+      { id: 'scheduler', label: 'Scheduler', status: 'up', detail: 'cron admission' },
+      { id: 'worker', label: 'Worker', status: 'up', detail: 'pipeline executor' },
+    ],
     sinks: [
-      { kind: 'db', enabled: true, target: 'foxworkflow.runs (postgres)' },
-      { kind: 'json', enabled: true, target: '/var/log/foxworkflow/runs/*.json' },
-      { kind: 'text', enabled: false, target: '/var/log/foxworkflow/app.log' },
+      { kind: 'events', enabled: true, target: 'foxflow.sqlite · event_store' },
+      { kind: 'json', enabled: false, target: '/var/log/foxflow/runs/*.json' },
+      { kind: 'text', enabled: false, target: '/var/log/foxflow/app.log' },
     ],
   });
 
@@ -532,7 +607,7 @@ export const WorkflowView: React.FC = () => {
           );
         })}
         <span className="ml-auto px-2 text-[10px] text-slate-500">
-          Control plane UI · execution stays on FoxWorkflow
+          Control plane · FoxFlow executes
         </span>
       </nav>
 
