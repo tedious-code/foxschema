@@ -1,0 +1,99 @@
+name: E2E Cloud (SQLite)
+
+# Playwright e2e that do not need Docker dialect containers — the same
+# suite Cursor Cloud can run. Fills the gap that build-gate leaves (e2e is
+# not in the PR gate because most dialects need live databases).
+#
+# Schedule: daily 06:00 UTC. Also runnable via workflow_dispatch.
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-cloud-sqlite
+  cancel-in-progress: true
+
+jobs:
+  e2e-sqlite-cloud:
+    name: Smoke · SQLite · Access · Schema history · SQL Editor
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Install npm 11
+        run: npm i -g npm@11
+
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Install sqlite3 CLI
+        run: sudo apt-get update && sudo apt-get install -y sqlite3
+
+      - name: Seed SQLite demos
+        run: bash scripts/seed/seed-all.sh sqlite
+
+      - name: Write apps/e2e/.env (SQLite)
+        run: |
+          cat > apps/e2e/.env <<'EOF'
+          E2E_BASE_URL=http://127.0.0.1:5173
+          E2E_SQLITE_SOURCE_HOST=localhost
+          E2E_SQLITE_SOURCE_DB=/tmp/foxschema-sqlite/demo_a.db
+          E2E_SQLITE_SOURCE_USER=sqlite
+          E2E_SQLITE_SOURCE_PASS=
+          E2E_SQLITE_TARGET_HOST=localhost
+          E2E_SQLITE_TARGET_DB=/tmp/foxschema-sqlite/demo_b.db
+          E2E_SQLITE_TARGET_USER=sqlite
+          E2E_SQLITE_TARGET_PASS=
+          EOF
+
+      - name: Start app (API + Vite)
+        run: |
+          npm run dev > /tmp/foxschema-dev.log 2>&1 &
+          echo $! > /tmp/foxschema-dev.pid
+          for i in $(seq 1 90); do
+            if curl -sf http://127.0.0.1:3210/api/health >/dev/null \
+              && curl -sf -o /dev/null http://127.0.0.1:5173/; then
+              echo "app ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "--- dev log ---"
+          tail -n 200 /tmp/foxschema-dev.log || true
+          exit 1
+
+      - name: Run cloud e2e suite
+        run: npm run test:e2e:cloud
+
+      - name: Upload e2e screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-cloud-screenshots
+          path: apps/e2e/screenshots/
+          if-no-files-found: ignore
+
+      - name: Upload dev log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-cloud-dev-log
+          path: /tmp/foxschema-dev.log
+          if-no-files-found: ignore
