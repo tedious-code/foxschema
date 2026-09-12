@@ -42,6 +42,18 @@ describe('seekFromLastRow', () => {
     ).toBeNull();
   });
 
+  it('does not borrow PK uniqueness for a computed column aliased to the PK name', () => {
+    const sql = 'SELECT ID % 2 AS ID, NAME FROM ORDERS ORDER BY ID';
+    expect(
+      seekFromLastRow({
+        sql,
+        table: tableForOrderBy(sql, [TABLE]),
+        resultColumns: ['ID', 'NAME'],
+        lastRow: [1, 'Ada'],
+      })
+    ).toBeNull();
+  });
+
   it('does not use one side of a join to claim the result order is unique', () => {
     expect(
       tableForOrderBy(
