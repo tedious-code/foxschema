@@ -672,6 +672,8 @@ export class SqlEditorPage {
   async loadCloneTables(connectionName: string, tableName: string): Promise<void> {
     await this.selectUtilityConnection(connectionName, 'clone-table-connection');
     await this.page.locator('[data-testid="clone-table-load"]').click();
+    // Second arg must be the pageFunction argument; options are the third arg.
+    // Passing `{ timeout }` alone is treated as the arg and the default 30s applies.
     await this.page.waitForFunction(
       () => {
         const status = document.querySelector('[data-testid="clone-status"]')?.textContent ?? '';
@@ -683,6 +685,7 @@ export class SqlEditorPage {
         const ready = !!input && !/load tables first/i.test(input.placeholder);
         return err.length > 0 || /loaded/i.test(status) || ready;
       },
+      undefined,
       { timeout: 45_000 }
     );
     const err =

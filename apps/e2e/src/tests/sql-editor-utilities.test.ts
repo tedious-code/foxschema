@@ -204,50 +204,66 @@ describe.skipIf(!ready)('Utilities workspace + Clone Table (SQLite)', () => {
     await sql.closeBlueprint();
   });
 
-  it('Apply clone renames orders → orders_1 and recreates empty orders', async () => {
-    await sql.openCloneTable();
-    await sql.loadCloneTables(NAME, LIVE_TABLE);
-    await driver.waitForSelector('[data-testid="clone-sql-preview"]', { timeout: 10_000 });
-    await expect
-      .poll(async () => driver.locator('[data-testid="clone-apply"]').isEnabled(), {
-        timeout: 5_000,
-      })
-      .toBe(true);
+  it(
+    'Apply clone renames orders → orders_1 and recreates empty orders',
+    async () => {
+      await sql.openCloneTable();
+      await sql.loadCloneTables(NAME, LIVE_TABLE);
+      await driver.waitForSelector('[data-testid="clone-sql-preview"]', { timeout: 10_000 });
+      await expect
+        .poll(async () => driver.locator('[data-testid="clone-apply"]').isEnabled(), {
+          timeout: 5_000,
+        })
+        .toBe(true);
 
-    await driver.locator('[data-testid="clone-apply"]').click();
-    await sql.confirmWriteIfShown();
+      await driver.locator('[data-testid="clone-apply"]').click();
+      // Safe-mode opens WriteConfirmDialog before DDL runs.
+      await sql.confirmWriteIfShown();
 
-    await driver.waitForFunction(
-      () => {
-        const status = document.querySelector('[data-testid="clone-status"]');
-        const err = document.querySelector('[data-testid="clone-error"]');
-        const s = status?.textContent ?? '';
-        const e = err?.textContent ?? '';
-        return /cloned/i.test(s) || e.length > 0;
-      },
-      { timeout: 45_000 }
-    );
+      // Playwright treats a lone `{ timeout }` object as the pageFunction arg, not
+      // options — pass `undefined` then options so this cannot hang until Vitest's
+      // 120s testTimeout (the daily cloud flake).
+      await expect
+        .poll(
+          async () => {
+            const status =
+              (await driver.locator('[data-testid="clone-status"]').textContent().catch(() => '')) ??
+              '';
+            const err =
+              (await driver.locator('[data-testid="clone-error"]').textContent().catch(() => '')) ??
+              '';
+            if (err.trim()) return `error:${err}`;
+            if (/cloned/i.test(status)) return `ok:${status}`;
+            return null;
+          },
+          { timeout: 60_000, interval: 250 }
+        )
+        .toMatch(/^ok:/);
 
-    const err =
-      (await driver.locator('[data-testid="clone-error"]').textContent().catch(() => '')) ?? '';
-    const status =
-      (await driver.locator('[data-testid="clone-status"]').textContent().catch(() => '')) ?? '';
-    expect(err, `clone error: ${err}`).toBe('');
-    expect(status.toLowerCase()).toMatch(/cloned/);
-    expect(status.toLowerCase()).toMatch(/orders_1/);
+      const status =
+        (await driver.locator('[data-testid="clone-status"]').textContent().catch(() => '')) ?? '';
+      expect(status.toLowerCase()).toMatch(/cloned/);
+      expect(status.toLowerCase()).toMatch(/orders_1/);
 
-    await saveSeoScreenshot(driver, 'sql-editor-clone-table-applied');
-    await sql.closeCloneTable();
+      await saveSeoScreenshot(driver, 'sql-editor-clone-table-applied');
+      await sql.closeCloneTable();
 
-    // Best-effort schema refresh check (clone already verified via status).
-    await driver
-      .locator('[data-testid="sql-schema-explorer"] button[title="Reload schema"]')
-      .click()
-      .catch(() => undefined);
-    await driver.waitForTimeout(1500);
-    const explorerText = await driver.locator('[data-testid="sql-schema-explorer"]').innerText();
-    expect(explorerText).toMatch(/orders_1/i);
-  });
+      // Best-effort schema refresh check (clone already verified via status).
+      await sql.openView();
+      await sql.ensureSidebarSectionOpen('schema');
+      await driver
+        .locator('[data-testid="sql-schema-explorer"] button[title="Reload schema"]')
+        .click()
+        .catch(() => undefined);
+      await expect
+        .poll(
+          async () => driver.locator('[data-testid="sql-schema-explorer"]').innerText(),
+          { timeout: 15_000 }
+        )
+        .toMatch(/orders_1/i);
+    },
+    180_000
+  );
 
   it('Server Insights opens system info and table sizes on SQLite', async () => {
     await sql.openServerInsights('system');
