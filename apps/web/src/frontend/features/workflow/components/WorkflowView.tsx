@@ -25,6 +25,7 @@ import {
   MOCK_PIPELINE_NAME,
   MOCK_PIPES,
   MOCK_RUNS,
+  MOCK_TRIGGERS,
   MOCK_VARIABLES,
   MOCK_WORKFLOW_NAME,
   MOCK_WORKFLOW_VERSION,
@@ -125,6 +126,9 @@ function DesignerPane({
           <span className="rounded border border-amber-500/30 bg-amber-950/40 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-200">
             Mockup · FoxFlow
           </span>
+          <span className="text-[10px] text-slate-500">
+            Workflow → Pipeline → Pipe
+          </span>
           <button
             type="button"
             data-testid="workflow-run-now"
@@ -133,6 +137,28 @@ function DesignerPane({
             <Play className="h-3 w-3" />
             Run now
           </button>
+        </div>
+
+        <div
+          className="absolute left-3 top-12 z-10 flex max-w-[calc(100%-16rem)] flex-wrap items-center gap-1.5 rounded-md border border-slate-700/80 bg-slate-950/85 px-2 py-1"
+          data-testid="workflow-triggers"
+        >
+          <span className="pr-1 text-[9px] font-bold uppercase tracking-wide text-slate-500">
+            triggers
+          </span>
+          {MOCK_TRIGGERS.map((trg) => (
+            <span
+              key={trg.id}
+              title={trg.detail}
+              className={`rounded border px-1.5 py-0.5 font-mono text-[10px] ${
+                trg.enabled
+                  ? 'border-violet-500/40 bg-violet-950/40 text-violet-200'
+                  : 'border-slate-700 bg-slate-900 text-slate-500 line-through'
+              }`}
+            >
+              {trg.kind}
+            </span>
+          ))}
         </div>
 
         <svg className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden>
@@ -406,11 +432,11 @@ function EnginePane({
             </span>
             <select
               data-testid="workflow-engine-overlap"
-              value={config.overlap}
+              value={config.onOverlap}
               onChange={(e) =>
                 onChange({
                   ...config,
-                  overlap: e.target.value as MockEngineConfig['overlap'],
+                  onOverlap: e.target.value as MockEngineConfig['onOverlap'],
                 })
               }
               className="rounded border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-100 outline-none accent-focus"
@@ -563,7 +589,7 @@ export const WorkflowView: React.FC = () => {
     state: 'enabled',
     endpoint: 'http://127.0.0.1:3080',
     maxParallel: 8,
-    overlap: 'skip',
+    onOverlap: 'skip',
     processes: [
       { id: 'api', label: 'API', status: 'up', detail: 'control plane :3080' },
       { id: 'scheduler', label: 'Scheduler', status: 'up', detail: 'cron admission' },

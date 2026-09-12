@@ -51,7 +51,16 @@ export interface MockEdge {
   label?: string;
 }
 
+/** FoxFlow `triggerSchema` kinds (live on the workflow, not only as canvas pipes). */
 export type TriggerKind = 'manual' | 'cron' | 'webhook' | 'http' | 'parent';
+
+export interface MockTrigger {
+  id: string;
+  kind: TriggerKind;
+  enabled: boolean;
+  /** Cron expression / path / note for the mock inspector. */
+  detail: string;
+}
 
 export interface MockRun {
   id: string;
@@ -61,6 +70,40 @@ export interface MockRun {
   startedAt: string;
   durationMs: number | null;
 }
+
+/** Authoritative FoxFlow built-in pipe type ids (from packages/pipes). */
+export const FOXFLOW_PIPE_TYPES = [
+  'source.triggerPayload',
+  'source.trigger.manual',
+  'source.trigger.cron',
+  'source.trigger.webhook',
+  'source.trigger.http',
+  'source.trigger.parent',
+  'source.api.http',
+  'source.api.http.multi',
+  'source.db.postgres',
+  'source.db.mysql',
+  'source.file.csv',
+  'source.file.json',
+  'source.file.text',
+  'transform.map',
+  'transform.condition',
+  'transform.split',
+  'transform.merge',
+  'transform.script',
+  'transform.verify',
+  'transform.http',
+  'transform.ai.generate',
+  'logic.loop',
+  'workflow.sub',
+  'human.gate',
+  'sink.postgres',
+  'sink.mysql',
+  'sink.http',
+  'sink.email',
+  'sink.file.delimited',
+  'sink.response',
+] as const;
 
 export interface MockVariable {
   /** FoxFlow: global | workflow; run = frozen admission snapshot. */
@@ -80,6 +123,40 @@ export const MOCK_WORKFLOW_NAME = 'gather-orders-and-notify';
 export const MOCK_WORKFLOW_VERSION = 'v3';
 export const MOCK_PIPELINE_NAME = 'main';
 export const MOCK_ENVIRONMENT = 'local';
+
+/** FoxFlow `workflow.triggers[]` — admission bindings on the workflow document. */
+export const MOCK_TRIGGERS: MockTrigger[] = [
+  {
+    id: 'trg_manual',
+    kind: 'manual',
+    enabled: true,
+    detail: 'POST /workflows/:id/run',
+  },
+  {
+    id: 'trg_cron',
+    kind: 'cron',
+    enabled: true,
+    detail: '0 */6 * * * · America/Chicago · catchUp: none',
+  },
+  {
+    id: 'trg_webhook',
+    kind: 'webhook',
+    enabled: true,
+    detail: 'HMAC · credential: ingress-hmac',
+  },
+  {
+    id: 'trg_http',
+    kind: 'http',
+    enabled: false,
+    detail: 'authenticated ingress (disabled)',
+  },
+  {
+    id: 'trg_parent',
+    kind: 'parent',
+    enabled: true,
+    detail: 'callable via workflow.sub',
+  },
+];
 
 export const MOCK_PIPES: MockPipe[] = [
   {
@@ -285,6 +362,7 @@ export const MOCK_CREDENTIALS: MockCredential[] = [
 ];
 
 export type EngineState = 'enabled' | 'draining' | 'disabled';
+/** FoxFlow `overlapPolicySchema` / `workflow.onOverlap`. */
 export type OverlapPolicy = 'skip' | 'queue' | 'parallel';
 export type LogSinkKind = 'events' | 'json' | 'text';
 
@@ -299,7 +377,8 @@ export interface MockEngineConfig {
   state: EngineState;
   endpoint: string;
   maxParallel: number;
-  overlap: OverlapPolicy;
+  /** Maps to FoxFlow `workflow.onOverlap`. */
+  onOverlap: OverlapPolicy;
   processes: MockEngineProcess[];
   sinks: { kind: LogSinkKind; enabled: boolean; target: string }[];
 }
