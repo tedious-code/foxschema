@@ -33,7 +33,10 @@ describe('ActivityRail', () => {
     expect(screen.getByTestId('view-sql-editor-btn')).toBeTruthy();
     expect(screen.getByTestId('view-utilities-btn')).toBeTruthy();
     expect(screen.getByTestId('view-access-btn')).toBeTruthy();
+    expect(screen.getByTestId('view-workflow-btn')).toBeTruthy();
     expect(screen.getByTestId('sync-pane-history-btn')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('view-workflow-btn'));
+    expect(useUiStore.getState().activeView).toBe('workflow');
     fireEvent.click(screen.getByTestId('home-open-btn'));
     expect(useUiStore.getState().activeView).toBe('home');
     fireEvent.click(screen.getByTestId('view-settings-btn'));

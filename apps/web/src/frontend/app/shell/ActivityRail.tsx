@@ -7,7 +7,15 @@
  * Workspace switcher that lived in the top toolbar.
  */
 import React from 'react';
-import { Camera, GitCompareArrows, Settings, ShieldCheck, Terminal, Wrench } from 'lucide-react';
+import {
+  Camera,
+  GitCompareArrows,
+  Settings,
+  ShieldCheck,
+  Terminal,
+  Workflow,
+  Wrench,
+} from 'lucide-react';
 import { useAuthStore } from '@/app/store/authStore';
 import { useUiStore, type ActiveView } from '@/app/store/uiStore';
 import { FoxLogo } from './FoxLogo';
@@ -17,7 +25,7 @@ const ITEMS: {
   testId: string;
   label: string;
   icon: React.ElementType;
-  permission: 'schema' | 'editor' | 'utilities' | 'access' | 'snapshots';
+  permission: 'schema' | 'editor' | 'utilities' | 'access' | 'workflow' | 'snapshots';
 }[] = [
   {
     view: 'sync',
@@ -46,6 +54,13 @@ const ITEMS: {
     label: 'Access',
     icon: ShieldCheck,
     permission: 'access',
+  },
+  {
+    view: 'workflow',
+    testId: 'view-workflow-btn',
+    label: 'Flow',
+    icon: Workflow,
+    permission: 'workflow',
   },
   {
     view: 'snapshots',

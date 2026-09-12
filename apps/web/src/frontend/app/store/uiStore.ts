@@ -180,6 +180,7 @@ export type ActiveView =
   | 'sync'
   | 'sqlEditor'
   | 'access'
+  | 'workflow'
   | 'snapshots'
   | 'home'
   | 'utilities'
@@ -249,9 +250,16 @@ export function migrateUiPersist(persisted: unknown, _version: number): unknown 
     state.syncPane = 'compare';
   }
   if (
-    !['sync', 'sqlEditor', 'access', 'snapshots', 'home', 'utilities', 'settings'].includes(
-      state.activeView as string
-    )
+    ![
+      'sync',
+      'sqlEditor',
+      'access',
+      'workflow',
+      'snapshots',
+      'home',
+      'utilities',
+      'settings',
+    ].includes(state.activeView as string)
   ) {
     state.activeView = 'home';
   }

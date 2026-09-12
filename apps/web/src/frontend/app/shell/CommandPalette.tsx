@@ -65,6 +65,12 @@ export const CommandPalette: React.FC = () => {
       });
     }
     out.push({ id: 'ws-access', group: 'Workspace', label: 'Access', run: () => go('access') });
+    out.push({
+      id: 'ws-workflow',
+      group: 'Workspace',
+      label: 'Workflow',
+      run: () => go('workflow'),
+    });
     if (canSchemaBrowse) {
       out.push({
         id: 'ws-snapshots',
