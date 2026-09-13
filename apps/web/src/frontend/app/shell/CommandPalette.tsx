@@ -35,6 +35,8 @@ export const CommandPalette: React.FC = () => {
   const canSchemaCompare = useAuthStore((s) => s.can('schema.compare'));
   const canEditorAccess = useAuthStore((s) => s.can('editor.access'));
   const canUtilityAccess = useAuthStore((s) => s.can('utility.access'));
+  const canAccess = useAuthStore((s) => s.can('access.access'));
+  const canWorkflow = useAuthStore((s) => s.can('workflow.access'));
 
   const go = (view: ActiveView) => {
     setActiveView(view);
@@ -46,7 +48,7 @@ export const CommandPalette: React.FC = () => {
       { id: 'ws-home', group: 'Workspace', label: 'Home', run: () => go('home') },
     ];
     if (canSchemaBrowse || canSchemaCompare) {
-      out.push({ id: 'ws-sync', group: 'Workspace', label: 'Sync', run: () => go('sync') });
+      out.push({ id: 'ws-sync', group: 'Workspace', label: 'Compare', run: () => go('sync') });
     }
     if (canEditorAccess) {
       out.push({
@@ -64,13 +66,17 @@ export const CommandPalette: React.FC = () => {
         run: () => go('utilities'),
       });
     }
-    out.push({ id: 'ws-access', group: 'Workspace', label: 'Access', run: () => go('access') });
-    out.push({
-      id: 'ws-workflow',
-      group: 'Workspace',
-      label: 'Workflow',
-      run: () => go('workflow'),
-    });
+    if (canAccess) {
+      out.push({ id: 'ws-access', group: 'Workspace', label: 'Access', run: () => go('access') });
+    }
+    if (canWorkflow) {
+      out.push({
+        id: 'ws-workflow',
+        group: 'Workspace',
+        label: 'Workflow',
+        run: () => go('workflow'),
+      });
+    }
     if (canSchemaBrowse) {
       out.push({
         id: 'ws-snapshots',
@@ -117,6 +123,8 @@ export const CommandPalette: React.FC = () => {
     canSchemaCompare,
     canEditorAccess,
     canUtilityAccess,
+    canAccess,
+    canWorkflow,
     connections,
     recentQueries,
     ensureConnectionSelected,
