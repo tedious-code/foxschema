@@ -203,6 +203,9 @@ describe.skipIf(!ready)('SQL Editor · SQLite multi-credential', () => {
   });
 
   it('schema explorer lists customers after load', async () => {
+    // Sidebar sections are an exclusive accordion: checking a destination in
+    // the previous tests closed Schema, and a closed section renders nothing.
+    await sql.ensureSidebarSectionOpen('schema');
     expect(await sql.schemaExplorerVisible()).toBe(true);
     // Wait for load / ready tree to include our seeded table.
     await driver.waitForFunction(
@@ -236,6 +239,9 @@ describe.skipIf(!ready)('SQL Editor · SQLite multi-credential', () => {
     await driver.waitForSelector('[data-testid="toolbar"]', { timeout: 30_000 });
     await sql.openView();
     await sql.checkConnection(NAME_A);
+    // checkConnection opens Destinations, which closes Schema — reopen it so
+    // the explorer this test measures is actually rendered.
+    await sql.ensureSidebarSectionOpen('schema');
     await driver.waitForFunction(
       () => {
         const root = document.querySelector('[data-testid="sql-schema-explorer"]');

@@ -27,6 +27,7 @@ import { beamAliasesForCount, MAX_SERVERS } from '@foxschema/shared';
 import { buildSampleBookmarks } from '@/features/sql-editor/lib/sqlEditorSamples';
 import {
   buildForeignKeyDrilldown,
+  buildInboundDrilldown,
   buildOrphanPeek,
   fkKey,
   buildRowLookup,
@@ -34,6 +35,7 @@ import {
   composePeekSql,
   fkDrillTableName,
 } from '@/shared/lib/tablePreview';
+import type { InboundForeignKey } from '@/shared/lib/tablePreview';
 import {
   getSessionPassword,
   sessionPasswordMap,
@@ -67,7 +69,11 @@ import {
 import { connectionNeedsSecret } from '@/shared/lib/provider-settings';
 import { useSyncStore } from './useSyncStore';
 import type { SchemaCacheEntry } from '@/features/sql-editor/lib/sqlEditorBridge';
-import { getCaretOffset, getSelectedSql } from '@/features/sql-editor/lib/sqlEditorBridge';
+import {
+  getCaretOffset,
+  getSelectedSql,
+  setSqlInsertFallback,
+} from '@/features/sql-editor/lib/sqlEditorBridge';
 import {
   addTab as addTabLogic,
   checkedAfterSqlChange,
@@ -551,6 +557,12 @@ interface SqlEditorState {
   drillDataPeek: (
     fromEntryId: string,
     fk: ForeignKeyInfo,
+    values: unknown[]
+  ) => Promise<void>;
+  /** The other direction: rows that reference the row you are looking at. */
+  drillDataPeekInbound: (
+    fromEntryId: string,
+    child: InboundForeignKey,
     values: unknown[]
   ) => Promise<void>;
   closeDataPeek: () => void;
@@ -1931,6 +1943,45 @@ export const useSqlEditorStore = create<SqlEditorState>()(
         await get().runDataPeekEntry(entry.id);
       },
 
+      drillDataPeekInbound: async (fromEntryId, child, values) => {
+        const peek = get().dataPeek;
+        if (!peek) return;
+        const built = buildInboundDrilldown(child, values, peek.dialect);
+        if (!built) return;
+        const composed = composePeekSql(built.sql, built.params, {});
+        if ('error' in composed) return;
+        const label = (child.fk.columns ?? [])
+          .map((c, i) => `${c} = ${String(values[i])}`)
+          .join(', ');
+        // `<` marks the inbound direction in the key, so drilling a child that
+        // happens to share the parent's FK shape replaces the right panel
+        // instead of collapsing the two into one.
+        const drillKey = `${fromEntryId}|<|${child.table}|${(child.fk.columns ?? []).join(',')}`;
+        const entry: DataPeekEntry = {
+          id: `peek-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          title: `${child.table} · ${label}`,
+          tableName: child.table,
+          baseSql: built.sql,
+          baseParams: built.params,
+          whereClause: '',
+          orderByClause: '',
+          limit: DATA_PEEK_ROWS,
+          pageIndex: 0,
+          sql: composed.sql,
+          params: composed.params,
+          status: 'loading',
+          parentId: fromEntryId,
+          drillKey,
+        };
+        let entries = peek.entries;
+        const existing = entries.find((e) => e.drillKey === drillKey);
+        if (existing) {
+          entries = removeDataPeekSubtree(entries, existing.id);
+        }
+        set({ dataPeek: { ...peek, entries: [...entries, entry] } });
+        await get().runDataPeekEntry(entry.id);
+      },
+
       updateDataPeekFilters: async (entryId, patch) => {
         const peek = get().dataPeek;
         if (!peek) return;
@@ -2569,3 +2620,18 @@ export const useSqlEditorStore = create<SqlEditorState>()(
     }
   )
 );
+
+/**
+ * Catch SQL inserted while no editor pane is mounted.
+ *
+ * Clone Table and the table blueprint both live in the Utilities workspace,
+ * where SqlEditorPane is unmounted and its insert handler is null. Without
+ * this the text was dropped while the modal said it had been inserted.
+ * Appending to the active tab puts it where the reader is sent next.
+ */
+setSqlInsertFallback((text) => {
+  const { tabs, activeTabId, setSql } = useSqlEditorStore.getState();
+  const active = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
+  const existing = active?.sql ?? '';
+  setSql(existing.trim() ? `${existing.replace(/\s*$/, '')}\n${text}` : text);
+});

@@ -4,6 +4,10 @@ import { clickWhen, waitFor } from '../helpers/driver.js';
 /**
  * Database Access Assistant (toolbar → Access) plus the SQL Editor
  * Utilities → Database Access modal.
+ *
+ * Access nav tabs today: Principals (`permission`), User Management (`users`),
+ * Diff (`diff`). Older builder / inspector / report tabs were folded into
+ * Principals.
  */
 export class AccessPage {
   constructor(private page: Page) {}
@@ -13,7 +17,7 @@ export class AccessPage {
     await waitFor(this.page, '[data-testid="access-view"]', 20_000);
   }
 
-  async openTab(tab: 'users' | 'builder' | 'diff' | 'report'): Promise<void> {
+  async openTab(tab: 'permission' | 'users' | 'diff'): Promise<void> {
     await clickWhen(this.page, `[data-testid="access-tab-${tab}"]`);
   }
 

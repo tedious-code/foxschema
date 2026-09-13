@@ -55,7 +55,10 @@ import type { RevealRequest } from './SqlEditorPane';
 const SqlEditorPane = lazy(() => import('./SqlEditorPane'));
 
 const EditorFallback: React.FC = () => (
-  <div className="flex-1 flex items-center justify-center text-slate-600">
+  <div
+    className="flex-1 flex items-center justify-center text-slate-600"
+    data-testid="sql-editor-loading"
+  >
     <Loader2 className="w-5 h-5 animate-spin text-cyan-400" strokeWidth={SQL_ICON_STROKE} />
   </div>
 );
@@ -668,9 +671,16 @@ export const SqlEditorView: React.FC = () => {
           onMove={moveTab}
         />
 
-        <div className="flex items-center gap-2 px-4 py-2 border-b border-slate-800 bg-slate-900/60 shrink-0">
+        {/* Every control below is `whitespace-nowrap shrink-0`. Without both,
+            a narrow window squeezed the flex items until their labels wrapped
+            *inside* the buttons — "Run · 3" over two lines, "Format SQL+JS"
+            over two, "Safe mode" over two.
+            One row that scrolls, not a wrapping row: letting it wrap keeps the
+            labels intact but grows the toolbar to three stacked rows (87px) even
+            at 1440, and toolbar height is the thing that was already too big. */}
+        <div className="flex items-center gap-2 overflow-x-auto px-4 py-2 border-b border-slate-800 bg-slate-900/60 shrink-0">
           {canEditorDestinations && (
-            <div className="min-w-0 max-w-[min(100%,28rem)] shrink">
+            <div className="min-w-[9rem] max-w-[min(100%,28rem)] shrink">
               <ConnectionChecklist variant="chips" />
             </div>
           )}
@@ -679,9 +689,13 @@ export const SqlEditorView: React.FC = () => {
             onClick={() => execute()}
             disabled={!canRun}
             title={runTitle}
-            className={`flex items-center gap-1.5 px-4 py-1.5 rounded text-xs font-bold transition shadow ${
+            /* Hover was missing entirely: the primary action of the workspace
+               gave no feedback under the cursor. `brightness`, not a colour
+               swap — the enabled state is the themed accent gradient, and a
+               filter lifts it without re-stating any `--color-*` var. */
+            className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap px-4 py-1.5 rounded text-xs font-bold transition shadow ${
               canRun
-                ? 'accent-grad on-accent-fg cursor-pointer'
+                ? 'accent-grad on-accent-fg cursor-pointer hover:brightness-110 hover:shadow-lg active:brightness-95'
                 : 'bg-slate-800 text-slate-500 border border-slate-700/50 cursor-not-allowed'
             }`}
           >
@@ -702,7 +716,7 @@ export const SqlEditorView: React.FC = () => {
             onClick={() => execute()}
             disabled={!canRun || !results}
             title={results ? 'Refresh results (re-run on all checked servers)' : 'Run a query first'}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 transition disabled:opacity-40 disabled:cursor-not-allowed"
+            className="flex shrink-0 items-center gap-1 whitespace-nowrap px-2.5 py-1.5 rounded text-[11px] font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 transition disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <RefreshCw
               className={`w-3.5 h-3.5 text-cyan-400 ${running ? 'animate-spin' : ''}`}
@@ -716,7 +730,7 @@ export const SqlEditorView: React.FC = () => {
             onClick={onFormat}
             disabled={!tab.sql.trim()}
             title="Pretty-print SQL (sql-formatter) and JS/TS/Node cells (Prettier)"
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 transition disabled:opacity-40 disabled:cursor-not-allowed"
+            className="flex shrink-0 items-center gap-1 whitespace-nowrap px-2.5 py-1.5 rounded text-[11px] font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 transition disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <AlignLeft className="w-3.5 h-3.5 text-teal-400" strokeWidth={SQL_ICON_STROKE} /> Format
             SQL+JS
@@ -736,7 +750,7 @@ export const SqlEditorView: React.FC = () => {
             onClick={() => saveBookmark()}
             disabled={!tab.sql.trim()}
             title="Bookmark this query (uses the tab title)"
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 transition disabled:opacity-40 disabled:cursor-not-allowed"
+            className="flex shrink-0 items-center gap-1 whitespace-nowrap px-2.5 py-1.5 rounded text-[11px] font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 transition disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <BookmarkPlus className="w-3.5 h-3.5 text-amber-400" strokeWidth={SQL_ICON_STROKE} /> Bookmark
           </button>
@@ -746,7 +760,7 @@ export const SqlEditorView: React.FC = () => {
             aria-pressed={runsOpen}
             onClick={() => setRunsOpen((v) => !v)}
             title="Recent runs"
-            className={`flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] font-semibold transition ${
+            className={`flex shrink-0 items-center gap-1 whitespace-nowrap px-2.5 py-1.5 rounded text-[11px] font-semibold transition ${
               runsOpen
                 ? 'bg-slate-800 text-cyan-300'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
@@ -755,13 +769,16 @@ export const SqlEditorView: React.FC = () => {
             <History className="w-3.5 h-3.5 text-cyan-400" strokeWidth={SQL_ICON_STROKE} /> Runs
           </button>
 
-          <div className="flex items-center rounded border border-slate-800 overflow-hidden ml-1">
+          {/* `shrink-0`: a segmented control has no slack to give. Letting it
+              shrink clips its second button behind `overflow-hidden`, which
+              leaves the button hit-testable but not clickable. */}
+          <div className="flex shrink-0 items-center rounded border border-slate-800 overflow-hidden ml-1">
             <button
               type="button"
               title="By credential — statements stacked vertically"
               data-testid="sql-layout-by-credential"
               onClick={() => setLayout('byCredential')}
-              className={`flex items-center gap-1 px-2 py-1 text-[10px] font-bold transition ${
+              className={`flex items-center gap-1 whitespace-nowrap px-2 py-1 text-[10px] font-bold transition ${
                 tab.layout === 'byCredential'
                   ? 'bg-slate-800 text-cyan-400'
                   : 'text-slate-500 hover:text-slate-300'
@@ -774,7 +791,7 @@ export const SqlEditorView: React.FC = () => {
               title="Side by side (per statement) — compare cell values across servers"
               data-testid="sql-layout-side-by-side"
               onClick={() => setLayout('sideBySide')}
-              className={`flex items-center gap-1 px-2 py-1 text-[10px] font-bold transition border-l border-slate-800 ${
+              className={`flex items-center gap-1 whitespace-nowrap px-2 py-1 text-[10px] font-bold transition border-l border-slate-800 ${
                 tab.layout === 'sideBySide'
                   ? 'bg-slate-800 text-cyan-400'
                   : 'text-slate-500 hover:text-slate-300'
@@ -785,7 +802,7 @@ export const SqlEditorView: React.FC = () => {
           </div>
 
           <label
-            className="flex items-center gap-1.5 text-[10px] font-semibold ml-1 cursor-pointer select-none"
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded px-1 py-0.5 text-[10px] font-semibold ml-1 cursor-pointer select-none transition hover:bg-slate-800/60"
             title="When on, UPDATE / DELETE / MERGE (and other writes) require confirmation before Run"
           >
             <input
@@ -802,7 +819,7 @@ export const SqlEditorView: React.FC = () => {
             <span className={safeMode ? 'text-rose-300' : 'text-slate-500'}>Safe mode</span>
           </label>
 
-          <label className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-500 ml-1" title="Rows fetched per page (Next/Prev use this size)">
+          <label className="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-[10px] font-semibold text-slate-500 ml-1" title="Rows fetched per page (Next/Prev use this size)">
             Rows/page
             <input
               data-testid="sql-max-rows"
@@ -820,7 +837,7 @@ export const SqlEditorView: React.FC = () => {
           </label>
 
           <label
-            className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-500 ml-1"
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-[10px] font-semibold text-slate-500 ml-1"
             title="When Safe mode is on, confirm writes that reference this many tables in one statement (0 = off). SELECT / JOIN reads skip this check. Suggests wrapping related writes in a transaction."
           >
             Tables≥
@@ -839,7 +856,7 @@ export const SqlEditorView: React.FC = () => {
             />
           </label>
 
-          <span className="text-[11px] text-slate-500 ml-1">
+          <span className="shrink-0 whitespace-nowrap text-[11px] text-slate-500 ml-1">
             {runCount} statement{runCount === 1 ? '' : 's'} · {liveSelectedIds.length} server
             {liveSelectedIds.length === 1 ? '' : 's'}
           </span>
@@ -847,7 +864,7 @@ export const SqlEditorView: React.FC = () => {
           {results && results.runs.length > 0 && (
             <button
               onClick={clearResults}
-              className="flex items-center gap-1 text-[11px] font-semibold text-slate-500 hover:text-slate-300 transition"
+              className="flex shrink-0 items-center gap-1 whitespace-nowrap text-[11px] font-semibold text-slate-500 hover:text-slate-300 transition"
             >
               <Eraser className="w-3 h-3 text-orange-400" strokeWidth={SQL_ICON_STROKE} /> Clear results
             </button>
