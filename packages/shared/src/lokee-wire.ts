@@ -37,7 +37,13 @@ import type {
 } from '@foxschema/sql';
 
 /** How a version came to exist. */
-export type CaptureSource = 'migrate' | 'manual' | 'scan' | 'revert';
+/**
+ * `force-migrate` is a version applied to a database other than the one the
+ * history was captured from. It is kept apart from `migrate` so reading a
+ * history can tell "this schema was deployed here from somewhere else" from an
+ * ordinary migration of this database's own plan.
+ */
+export type CaptureSource = 'migrate' | 'manual' | 'scan' | 'revert' | 'force-migrate';
 
 export interface CaptureResult {
   databaseId: string;
@@ -73,6 +79,13 @@ export interface VersionSummary {
   observationCount: number;
   source: CaptureSource;
   migrationRunId?: string;
+  /**
+   * Set on a `force-migrate` version: the history, and the version inside it,
+   * whose shape was applied here. Answers "where did this schema come from?"
+   * when reading the receiving database's history back.
+   */
+  appliedFromDatabaseId?: string;
+  appliedFromVersionId?: string;
   authorUserId?: string;
   /** Resolved email (or id) for filters / attribution. */
   author?: string;
@@ -213,6 +226,45 @@ export interface RevertPlanWire {
   reversal: ReversalPlan;
   statements: string[];
 }
+
+/**
+ * Plan for applying a stored version to a database that is *not* the one the
+ * history was captured from.
+ *
+ * There is no `fromVersion` here, unlike {@link RevertPlanWire}: the side being
+ * changed is a live database that may have no history of its own, so it is
+ * described by where it points rather than by a version it never had.
+ */
+export interface ForceMigratePlanWire {
+  /** The stored version whose shape is being applied. */
+  version: VersionSummary;
+  /** The database being written to, as the reader would recognise it. */
+  target: {
+    dialect: string;
+    host?: string;
+    database?: string;
+    schema?: string;
+  };
+  /** True when the target already holds this shape — nothing to apply. */
+  alreadyMatches: boolean;
+  reversal: ReversalPlan;
+  statements: string[];
+}
+
+/**
+ * Why a force-migrate was refused.
+ *
+ * `confirm_force` is its own code rather than folded into `confirm_lossy`:
+ * writing a version onto a database it was never captured from is worth
+ * acknowledging even when the plan destroys nothing, and a reader who ticks
+ * "I accept data loss" has not thereby agreed to target a different database.
+ */
+export type ForceMigrateErrorCode =
+  | 'blocked'
+  | 'confirm_lossy'
+  | 'confirm_force'
+  | 'not_found'
+  | 'failed';
 
 /**
  * Why a revert was refused. Named once; three call sites narrow on it.

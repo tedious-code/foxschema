@@ -45,6 +45,7 @@ import {
   roundTrips,
   shapeKey,
   splitBody,
+  stableStringify,
   weave,
   type CanonicalObject,
   type DatabaseIdentityInput,
@@ -62,6 +63,7 @@ import type {
   CaptureSource,
   ColumnMutation,
   ContainerGrowthPoint,
+  ForceMigratePlanWire,
   LokeeDatabase,
   ObjectHistoryEntry,
   ObjectInspectResult,
@@ -113,6 +115,22 @@ export interface CaptureInput extends DatabaseIdentityInput {
    * the only thing you want when reading one back — which version was restored.
    */
   revert?: { fromVersionId: string; toVersionId: string };
+  /**
+   * For `source: 'force-migrate'`: the history, and the version inside it, whose
+   * shape was applied to this database. The receiving database has its own
+   * history, so without this its new version records only that the schema
+   * changed — not that the shape was taken from somewhere else, which is the
+   * one fact worth keeping about a force-migrate.
+   */
+  appliedFrom?: { databaseId: string; versionId: string };
+}
+
+/**
+ * Backend-only sibling of {@link ForceMigratePlanWire}: `steps` stays on the
+ * server, exactly as it does for a revert.
+ */
+export interface ForceMigratePlanResult extends ForceMigratePlanWire {
+  steps: MigrationStep[];
 }
 
 /**
@@ -140,6 +158,8 @@ interface VersionRow {
   description?: string | null;
   revert_from_version_id?: string | null;
   revert_to_version_id?: string | null;
+  applied_from_database_id?: string | null;
+  applied_from_version_id?: string | null;
 }
 
 interface DeltaRow {
@@ -595,8 +615,9 @@ export class LokeeWeaveStore {
         `INSERT INTO lokee_versions
            (id, database_id, version_number, root_hash, parent_version_id, migration_run_id,
             author_user_id, source, object_count, change_count, observation_count,
-            created_at, last_observed_at, revert_from_version_id, revert_to_version_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
+            created_at, last_observed_at, revert_from_version_id, revert_to_version_id,
+            applied_from_database_id, applied_from_version_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
         [
           versionId,
           databaseId,
@@ -612,6 +633,8 @@ export class LokeeWeaveStore {
           now,
           input.revert?.fromVersionId ?? null,
           input.revert?.toVersionId ?? null,
+          input.appliedFrom?.databaseId ?? null,
+          input.appliedFrom?.versionId ?? null,
         ]
       );
       await this.writeDelta(store, versionId, capture.changes);
@@ -724,6 +747,8 @@ export class LokeeWeaveStore {
       removed: 0,
       revertFromVersionId: row.revert_from_version_id ?? undefined,
       revertToVersionId: row.revert_to_version_id ?? undefined,
+      appliedFromDatabaseId: row.applied_from_database_id ?? undefined,
+      appliedFromVersionId: row.applied_from_version_id ?? undefined,
     };
   }
 
@@ -1326,6 +1351,119 @@ export class LokeeWeaveStore {
       fromVersion,
       toVersion,
       alreadyAtTarget: false,
+      reversal: planReversal(entries),
+      steps: migration.steps,
+      statements: migration.statements,
+    };
+  }
+
+  /**
+   * Plan applying a stored version to a database that is *not* the one this
+   * history was captured from.
+   *
+   * The same shape of work as {@link planRevert} — diff two states, then hand
+   * the result to the SQL generator the live migrate flow already uses. What
+   * differs is where the "current" side comes from: a live connection that may
+   * have no history of its own, so it is canonicalised straight from the
+   * provider's tables rather than reconstructed from deltas. That is also why
+   * this takes `tables` instead of reading them itself — the route already
+   * resolved the connection, and the service stays free of connection plumbing.
+   *
+   * Source and target dialects are kept apart rather than collapsed: "any
+   * database" includes one of another engine, and the generator only translates
+   * types when it can see both sides. Collapsing them would emit one engine's
+   * types onto another and fail at execute time.
+   *
+   * Returns null when the caller does not own the history, or the version is
+   * gone — the route turns that into a 404 rather than guessing.
+   */
+  async planForceMigrate(
+    userId: string,
+    sourceDatabaseId: string,
+    versionId: string,
+    target: {
+      dialect: string;
+      host?: string;
+      database?: string;
+      schema?: string;
+      tables: TableSchema[];
+    }
+  ): Promise<ForceMigratePlanResult | null> {
+    const store = await this.store();
+    if (!(await this.assertOwned(store, userId, sourceDatabaseId))) return null;
+
+    // One row, not a 500-version walk. `listVersions` would fetch 500 rows, an
+    // IN-query for their authors, and a GROUP BY over every delta row they own
+    // — to populate added/modified/removed counters for 499 versions that are
+    // then discarded. It also put a horizon on the feature: a version older
+    // than the most recent 500 was simply unfindable.
+    const versionRow = await store.get<VersionRow>(
+      'SELECT * FROM lokee_versions WHERE id = ? AND database_id = ?',
+      [versionId, sourceDatabaseId]
+    );
+    if (!versionRow) return null;
+    const version = this.toVersionSummary(
+      versionRow,
+      await this.emailsFor(store, [versionRow.author_user_id])
+    );
+
+    const sourceDb = await store.get<{ dialect: string; schema: string | null }>(
+      'SELECT dialect, "schema" FROM lokee_databases WHERE id = ? AND user_id = ?',
+      [sourceDatabaseId, userId]
+    );
+    const sourceDialect = sourceDb?.dialect ?? target.dialect;
+    const sourceSchema = sourceDb?.schema ?? undefined;
+
+    const desired = canonicalList(await this.objectsAtVersion(userId, sourceDatabaseId, versionId));
+    const current = canonicalizeSchema(target.tables);
+
+    // The stored version is the reference side and the live database is what
+    // moves to match it — the same orientation revert uses, so both flows read
+    // the same way in the diff pane.
+    const compare = await new CompareModule().compare(
+      hydrateTableSchemas(desired),
+      hydrateTableSchemas(current),
+      { source: sourceDialect, target: target.dialect },
+      sourceSchema || target.schema
+        ? { source: sourceSchema ?? '', target: target.schema ?? '' }
+        : undefined
+    );
+
+    const desiredByKey = new Map(desired.map((o) => [o.key, o] as const));
+    const currentByKey = new Map(current.map((o) => [o.key, o] as const));
+    const entries: Array<{ key: string; current?: CanonicalObject; target?: CanonicalObject }> = [];
+    for (const key of new Set([...currentByKey.keys(), ...desiredByKey.keys()])) {
+      const cur = currentByKey.get(key);
+      const tgt = desiredByKey.get(key);
+      // Unchanged objects carry no risk and must not be counted.
+      //
+      // `stableStringify`, not `JSON.stringify`. The two sides are built by
+      // different producers — the stored side is reassembled from deltas by
+      // `mergeBody`, the live side comes straight from `canonicalizeObject` —
+      // and plain stringify preserves insertion order rather than sorting. Key
+      // sorting happens on the way to the content hash, not on the object
+      // itself, so identical content written under a different field order
+      // would compare unequal here and show phantom risk on the confirm screen.
+      if (cur && tgt && stableStringify(cur.body) === stableStringify(tgt.body)) continue;
+      entries.push({ key, current: cur, target: tgt });
+    }
+
+    const migration = migrationFromCompare(compare, target.dialect, {
+      sourceSchema,
+      targetSchema: target.schema,
+      sourceDialect,
+      targetDialect: target.dialect,
+    });
+
+    return {
+      version,
+      target: {
+        dialect: target.dialect,
+        host: target.host,
+        database: target.database,
+        schema: target.schema,
+      },
+      alreadyMatches: migration.steps.length === 0,
       reversal: planReversal(entries),
       steps: migration.steps,
       statements: migration.statements,

@@ -10,9 +10,10 @@
  * testable with a fixture and has no idea a network exists.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Camera, GitBranch, Loader2, RefreshCw, TriangleAlert } from 'lucide-react';
+import { Camera, GitBranch, Loader2, RefreshCw, TriangleAlert, Upload } from 'lucide-react';
 import { LokeeWeavePage } from './LokeeWeavePage';
 import { VersionCompareModal } from './VersionCompareModal';
+import { ForceMigrateModal } from './ForceMigrateModal';
 import { LokeeObjectInspector } from './LokeeObjectInspector';
 import { VersionTimeline } from './VersionTimeline';
 import { VersionChangeChart, VersionBriefing } from './VersionChangeChart';
@@ -28,6 +29,7 @@ import {
 import { getSessionPassword } from '@/shared/lib/sessionPasswords';
 import { toast } from '@/app/store/toastStore';
 import { useSyncStore } from '@/app/store/useSyncStore';
+import { useAuthStore } from '@/app/store/authStore';
 import { useUiStore } from '@/app/store/uiStore';
 import { useLokeeHistoryStore } from '@/features/lokee-weave/store/lokeeHistoryStore';
 import {
@@ -98,6 +100,13 @@ export function LokeeWeaveView({
   const [selectedObject, setSelectedObject] = useState<SchemaObjectNodeData | null>(null);
   /** React Flow reconstructs object nodes — off until the reader asks. */
   const [showGraph, setShowGraph] = useState(false);
+  /**
+   * Force-migrate is withheld from owner by default, so the action is hidden
+   * rather than shown-and-refused: an affordance that always 403s teaches the
+   * reader nothing about why it is refused.
+   */
+  const canForceMigrate = useAuthStore((s) => s.can('schema.migrate.force'));
+  const [forceMigrateOpen, setForceMigrateOpen] = useState(false);
   // Bumped to re-run the effect; a plain refetch() would race the in-flight one.
   const [reloadToken, setReloadToken] = useState(0);
   // Which pair the pane is showing. The two *sides* live in the history store,
@@ -534,6 +543,18 @@ export function LokeeWeaveView({
           <GitBranch className="h-3.5 w-3.5" strokeWidth={SQL_ICON_STROKE} />
           Graph
         </button>
+        {canForceMigrate && activeId && (
+          <button
+            type="button"
+            data-testid="lokee-force-migrate-btn"
+            onClick={() => setForceMigrateOpen(true)}
+            title="Apply a stored version to a database it was not captured from"
+            className="inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-[11px] font-semibold text-amber-200/90 transition hover:bg-amber-900/30 hover:text-amber-100"
+          >
+            <Upload className="h-3.5 w-3.5" strokeWidth={SQL_ICON_STROKE} />
+            Force migrate…
+          </button>
+        )}
       </div>
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
@@ -580,6 +601,13 @@ export function LokeeWeaveView({
             captureConnectionId={captureConnectionId || undefined}
             onReverted={refresh}
             onClose={() => setComparePair(null)}
+          />
+        )}
+        {forceMigrateOpen && activeId && (
+          <ForceMigrateModal
+            databaseId={activeId}
+            onApplied={refresh}
+            onClose={() => setForceMigrateOpen(false)}
           />
         )}
         {selectedObject && activeId && (

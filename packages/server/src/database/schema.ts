@@ -391,6 +391,32 @@ const MIGRATIONS: Migration[] = [
       ];
     },
   },
+  {
+    id: 16,
+    name: 'lokee_version_force_migrate_provenance',
+    statements: (d) => {
+      const t = types(d);
+      return [
+        // Where a force-migrated schema came from.
+        //
+        // A force-migrate applies a version captured against one database to a
+        // different one. The receiving database gets its own capture, and
+        // without these it would record only that its schema changed — losing
+        // the one fact worth keeping: which history, and which version of it,
+        // this shape was taken from.
+        //
+        // Deliberately two columns rather than reusing `revert_*`: a revert
+        // moves a database within its own history, and collapsing the two would
+        // make "reverted to v7" and "given v7 from another database"
+        // indistinguishable when reading a version back.
+        //
+        // Nullable: every version captured before this, and every capture that
+        // is not a force-migrate, legitimately has neither.
+        `ALTER TABLE lokee_versions ADD COLUMN applied_from_database_id ${t.id}`,
+        `ALTER TABLE lokee_versions ADD COLUMN applied_from_version_id ${t.id}`,
+      ];
+    },
+  },
 ];
 
 const SIGNUP_WIZARD_SHOWN_KEY = 'signup.wizard_shown';

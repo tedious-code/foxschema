@@ -9,7 +9,6 @@ import {
   DriverDetector,
   normalizeTableSchemas,
   type ConnectionOptions,
-  type DbObjectType,
 } from '@foxschema/db';
 import { ConnectionStore } from '../features/connections/connection-store.service';
 import { MigrationHistoryStore } from '../features/migration/migration-history.service';
@@ -37,6 +36,7 @@ import { makeCompareService } from '../features/compare/compare.service';
 import { createCompareRoutes } from '../features/compare/compare.routes';
 import { createAccessRoutes } from '../features/access/access.routes';
 import { createHistoryRoutes } from '../features/history/history.routes';
+import { LOKEE_FULL_SCOPE } from '../features/history/lokee-scope';
 import { createEditorRoutes } from '../features/sql-editor/editor.routes';
 import { createMigrationRoutes } from '../features/migration/migration.routes';
 import { createSchemaRoutes } from '../features/schema/schema.routes';
@@ -105,24 +105,25 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
         connectionModule.testConnection(dialect, option as ConnectionOptions),
     })
   );
-  router.use(createHistoryRoutes({ lokee: lokeeWeave, captureLiveSchema, resolveRef, migrationModule }));
-
-  const LOKEE_FULL_SCOPE: DbObjectType[] = [
-    'TABLE',
-    'MQT',
-    'VIEW',
-    'FUNCTION',
-    'PROCEDURE',
-    'TRIGGER',
-    'SEQUENCE',
-    'TYPE',
-  ];
+  router.use(
+    createHistoryRoutes({
+      lokee: lokeeWeave,
+      captureLiveSchema,
+      resolveRef,
+      migrationModule,
+      loadScopedTables,
+    })
+  );
 
   async function captureLiveSchema(
     userId: string,
     resolved: { dialect: string; option: ConnectionOptions; schema: string },
-    source: 'manual' | 'migrate' | 'revert',
-    extra?: { migrationRunId?: string; revert?: { fromVersionId: string; toVersionId: string } }
+    source: 'manual' | 'migrate' | 'revert' | 'force-migrate',
+    extra?: {
+      migrationRunId?: string;
+      revert?: { fromVersionId: string; toVersionId: string };
+      appliedFrom?: { databaseId: string; versionId: string };
+    }
   ) {
     const { tables } = await loadScopedTables(
       resolved.dialect,
@@ -140,6 +141,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
       source,
       migrationRunId: extra?.migrationRunId,
       revert: extra?.revert,
+      appliedFrom: extra?.appliedFrom,
     });
   }
 

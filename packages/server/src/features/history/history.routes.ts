@@ -13,6 +13,8 @@ import { Router } from '../../platform/http/router';
 import { requirePermissions } from '../authorization/rbac.guard';
 import type { AuthedRequest } from '../auth/auth.routes';
 import { rateLimit } from '../../platform/guards/rate-limit';
+import { targetKey, targetLocks } from '../../platform/guards/target-lock';
+import { LOKEE_FULL_SCOPE } from './lokee-scope';
 import type { ConnectionRef } from '../../platform/db/resolve';
 import type { ConnectionOptions, MigrationModule } from '@foxschema/db';
 import { sendError, sendThrown } from '../../platform/http/respond';
@@ -22,11 +24,53 @@ export interface HistoryRouteDeps {
   captureLiveSchema: (...args: any[]) => Promise<any>;
   resolveRef: (...args: any[]) => Promise<any>;
   migrationModule: MigrationModule;
+  /**
+   * Reads a live schema through the provider for a dialect. Force-migrate needs
+   * the *target's* current tables to diff a stored version against, and unlike
+   * revert it cannot get them from this history — the target may have none.
+   */
+  loadScopedTables: (...args: any[]) => Promise<any>;
 }
 
 export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
   const router = Router();
   const lokeeCaptureLimiter = rateLimit({ windowMs: 60 * 1000, max: 20 });
+
+  /**
+   * The opening both force-migrate routes share: a version id, and a resolved
+   * credential for the target.
+   *
+   * It sends the refusal itself and returns null, so each caller is one
+   * `if (!target) return;`. Only the preamble is shared — what follows
+   * legitimately differs, because the execute route takes the target lock
+   * before it reads any schema.
+   */
+  async function resolveForceTarget(
+    req: AppRequest,
+    res: FastifyReply
+  ): Promise<{
+    versionId: string;
+    dialect: string;
+    option: ConnectionOptions;
+    schema: string;
+  } | null> {
+    const body = req.body as ConnectionRef & { versionId?: string };
+    const versionId = String(body.versionId ?? '').trim();
+    if (!versionId) {
+      sendError(res, 'invalid_input', 'versionId is required');
+      return null;
+    }
+    try {
+      const { dialect, option, schema } = await deps.resolveRef(
+        (req as AuthedRequest).userId,
+        body
+      );
+      return { versionId, dialect, option, schema };
+    } catch (error: unknown) {
+      sendError(res, 'invalid_input', error instanceof Error ? error.message : 'Invalid connection');
+      return null;
+    }
+  }
   router.post(
     '/lokee/capture',
     lokeeCaptureLimiter,
@@ -275,6 +319,192 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
         sendError(res, 'failed', `Schema reverted but capture failed: ${message}`, {
           extra: published,
         });
+      }
+    }
+  );
+
+  /**
+   * Plan applying a stored version to another database.
+   *
+   * POST, unlike the revert plan's GET: this one resolves a credential for the
+   * *target*, including a session password when the connection was saved
+   * without one, and a password has no business in a query string.
+   */
+  router.post(
+    '/lokee/databases/:id/force-migrate/plan',
+    // Throttled like capture and revert: this is the most expensive endpoint in
+    // the feature — full live introspection of an arbitrary target plus a
+    // whole-schema compare — and it was the only one left unmetered.
+    lokeeCaptureLimiter,
+    requirePermissions('schema.migrate.force'),
+    async (req: AppRequest, res: FastifyReply) => {
+      const target = await resolveForceTarget(req, res);
+      if (!target) return;
+      const { versionId, dialect, option, schema } = target;
+      try {
+        const { tables } = await deps.loadScopedTables(
+          dialect,
+          option,
+          schema ?? '',
+          LOKEE_FULL_SCOPE
+        );
+        const plan = await deps.lokee.planForceMigrate(
+          (req as AuthedRequest).userId!,
+          String(req.params.id),
+          versionId,
+          { dialect, host: option.host, database: option.database, schema, tables }
+        );
+        if (!plan) {
+          sendError(res, 'not_found', 'Version not found');
+          return;
+        }
+        const { steps: _steps, ...published } = plan;
+        res.send(published);
+      } catch (error: unknown) {
+        sendThrown(res, error, 'Failed to plan the force migrate');
+      }
+    }
+  );
+
+  /**
+   * Apply a stored version to a database that is not the one it came from.
+   *
+   * This route deliberately does **not** run the identity check the revert
+   * route does. Reverting through a connection that points somewhere else is
+   * always a mistake; doing it on purpose is this feature. What replaces that
+   * guard is everything below: its own permission (`schema.migrate.force`,
+   * withheld from owner by default), an explicit `confirmForce` that a lossy
+   * acknowledgement cannot stand in for, the same one-writer target lock the
+   * migrate route takes, and provenance written into the receiving database's
+   * own history so the schema can be traced back to where it came from.
+   */
+  router.post(
+    '/lokee/databases/:id/force-migrate',
+    lokeeCaptureLimiter,
+    requirePermissions('schema.migrate.force'),
+    async (req: AppRequest, res: FastifyReply) => {
+      const body = req.body as { confirmForce?: boolean; confirmLossy?: boolean };
+      const target = await resolveForceTarget(req, res);
+      if (!target) return;
+      const { versionId, dialect, option, schema } = target;
+
+      const userId = (req as AuthedRequest).userId!;
+      const sourceDatabaseId = String(req.params.id);
+
+      // Same lock the migrate route takes, and for the same reason: two writers
+      // planning against a schema the other is about to change apply steps
+      // derived from a shape that no longer exists.
+      const lock = targetLocks.acquire(
+        targetKey({ dialect, host: option.host, database: option.database, schema }),
+        { userId, operation: 'migrate' }
+      );
+      if (!lock.ok) {
+        sendError(res, 'conflict', lock.message, { extra: { heldBy: lock.heldBy.operation } });
+        return;
+      }
+
+      try {
+        const { tables } = await deps.loadScopedTables(
+          dialect,
+          option,
+          schema ?? '',
+          LOKEE_FULL_SCOPE
+        );
+        const plan = await deps.lokee.planForceMigrate(userId, sourceDatabaseId, versionId, {
+          dialect,
+          host: option.host,
+          database: option.database,
+          schema,
+          tables,
+        });
+        if (!plan) {
+          sendError(res, 'not_found', 'Version not found');
+          return;
+        }
+        const { steps, ...published } = plan;
+        // `alreadyMatches` *is* `steps.length === 0` (see planForceMigrate), so
+        // testing both said the same thing twice — and re-asserting the flag on
+        // the way out implied it might have been false.
+        if (plan.alreadyMatches) {
+          res.send({ ok: true, ...published });
+          return;
+        }
+        if (plan.reversal.risk === 'blocked') {
+          res.status(409).send({
+            ok: false,
+            code: 'blocked',
+            error: 'This cannot be applied — existing data cannot be converted.',
+            ...published,
+          });
+          return;
+        }
+        if (plan.reversal.risk === 'lossy' && body.confirmLossy !== true) {
+          res.status(409).send({
+            ok: false,
+            code: 'confirm_lossy',
+            error: 'Applying this version destroys data on the target. Confirm to continue.',
+            ...published,
+          });
+          return;
+        }
+        // Checked last, and never satisfied by `confirmLossy`: agreeing to lose
+        // data is not the same as agreeing to write this schema onto a database
+        // it was never captured from, and a plan that destroys nothing still
+        // needs that second answer.
+        if (body.confirmForce !== true) {
+          res.status(409).send({
+            ok: false,
+            code: 'confirm_force',
+            error:
+              `This applies v${plan.version.number} to ${option.database ?? 'the selected database'}` +
+              ', which is not the database this history was captured from. Confirm to continue.',
+            ...published,
+          });
+          return;
+        }
+
+        let failed = true;
+        let executeError = 'Force migrate failed';
+        try {
+          await deps.migrationModule.execute(dialect, option, schema, steps, (event) => {
+            if (event.type === 'done') {
+              failed = !event.success;
+              if (event.error) executeError = event.error;
+            }
+          });
+        } catch (error: unknown) {
+          failed = true;
+          executeError = error instanceof Error ? error.message : 'Force migrate failed';
+        }
+        if (failed) {
+          sendError(res, 'failed', executeError, { extra: published });
+          return;
+        }
+
+        try {
+          // The receiving database keeps its own history — a different identity
+          // means a different `lokee_databases` row — so without this the new
+          // version would record only that the schema changed, losing the one
+          // fact worth keeping: which history, and which version, it came from.
+          const capture = await deps.captureLiveSchema(
+            userId,
+            { dialect, option, schema },
+            'force-migrate',
+            { appliedFrom: { databaseId: sourceDatabaseId, versionId: plan.version.id } }
+          );
+          res.send({ ok: true, capture, ...published });
+        } catch (error: unknown) {
+          const message = error instanceof Error ? error.message : 'capture failed';
+          sendError(res, 'failed', `Schema applied but capture failed: ${message}`, {
+            extra: published,
+          });
+        }
+      } catch (error: unknown) {
+        sendThrown(res, error, 'Force migrate failed');
+      } finally {
+        // finally, not a trailing call: a throw anywhere above would otherwise
+        // leave the target locked until the stale timeout.
+        lock.release();
       }
     }
   );
