@@ -194,6 +194,25 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
 
       const userId = (req as AuthedRequest).userId!;
       const databaseId = String(req.params.id);
+
+      // One writer at a time, the same lock `/migration/execute` and
+      // force-migrate take. Revert was the one route that applied DDL to a live
+      // target without it: it plans reverse DDL from the newest captured
+      // version, so a migration landing in between leaves this plan derived
+      // from a shape that no longer exists. The pre-snapshot drift check below
+      // catches drift that was already there when the request arrived — it
+      // cannot catch a concurrent writer, because that one moves the schema
+      // *after* the snapshot has been taken.
+      const lock = targetLocks.acquire(
+        targetKey({ dialect, host: option.host, database: option.database, schema }),
+        { userId, operation: 'migrate' }
+      );
+      if (!lock.ok) {
+        sendError(res, 'conflict', lock.message, { extra: { heldBy: lock.heldBy.operation } });
+        return;
+      }
+
+      try {
       // History is keyed by database identity; the execute connection must be
       // that same database or we would apply reverse DDL to the wrong target.
       const identityMatch = await deps.lokee.matchDatabaseIdentity(userId, databaseId, {
@@ -319,6 +338,14 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
         sendError(res, 'failed', `Schema reverted but capture failed: ${message}`, {
           extra: published,
         });
+      }
+      } finally {
+        // finally, not a trailing call: this handler has eight early returns
+        // between here and the acquire — two identity refusals, a snapshot
+        // failure, a drift 409, an unknown version, already-at-target, blocked,
+        // and unconfirmed-lossy — and any one of them leaving without releasing
+        // would hold the database for the 30-minute stale timeout.
+        lock.release();
       }
     }
   );
