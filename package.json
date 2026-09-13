@@ -8,6 +8,8 @@
   "license": "Apache-2.0",
   "workspaces": [
     "packages/*",
+    "packages/enterprise/*",
+    "packages/features/*",
     "apps/*"
   ],
   "bugs": "https://github.com/tedious-code/foxschema/issues",
@@ -20,6 +22,7 @@
     "dev": "npm -w @foxschema/web run dev:all",
     "dev:auth": "npm -w @foxschema/web run dev:all:auth",
     "dev:api": "npm -w @foxschema/web run dev:api",
+    "dev:foxworkflow": "npm -w @foxschema/foxworkflow run dev",
     "build": "turbo build",
     "build:sql": "turbo build --filter=@foxschema/sql",
     "version:sql": "npm version -w @foxschema/sql --no-git-tag-version",

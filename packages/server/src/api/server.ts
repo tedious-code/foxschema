@@ -34,6 +34,7 @@ import { createUserRoutes } from '../features/users/user.routes';
 import { createAdminRoutes } from '../features/admin/admin.routes';
 import { createSignupRoutes } from '../features/users/signup-wizard.routes';
 import { createFileQueryRoutes } from '../features/files/files.routes';
+import { createWorkflowRoutes } from '../features/workflow/workflow.routes';
 import { DEFAULT_API_PORT } from '../defaultApiPort';
 import { AppSecretsStore } from '../features/admin/app-secrets.service';
 import { resolveAppVersion } from '../internal/updates.service';
@@ -84,6 +85,8 @@ export function buildApiRoutes(): RouteDefinition[] {
   root.use('/api/app-secrets', userGuard, createAppSecretsRoutes(new AppSecretsStore()));
   root.use('/api/user', userGuard, createUserRoutes(new UserModule()));
   root.use('/api/admin', userGuard, createAdminRoutes());
+  // FoxWorkflow control plane (settings + engine health proxy).
+  root.use('/api/workflow', userGuard, createWorkflowRoutes());
   // CSV / JSON / fixed-width text → temp SQLite credential for SQL Editor.
   root.use('/api/files', userGuard, createFileQueryRoutes(connectionStore));
 

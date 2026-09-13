@@ -12,6 +12,8 @@
 import React, { useEffect, useState } from 'react';
 import { UserCog, GitCompare, ShieldCheck } from 'lucide-react';
 import { useSyncStore } from '@/app/store/useSyncStore';
+import { useAuthStore } from '@/app/store/authStore';
+import type { Permission } from '@foxschema/shared';
 import { PermissionDiff } from './PermissionDiff';
 import { UserManagement } from './UserManagement';
 import { AccessPermissionPanel } from './AccessPermissionPanel';
@@ -25,10 +27,11 @@ const SECTIONS: {
   id: AccessSection;
   label: string;
   icon: React.ElementType;
+  permission: Permission;
 }[] = [
-  { id: 'permission', label: 'Principals', icon: ShieldCheck },
-  { id: 'users', label: 'User Management', icon: UserCog },
-  { id: 'diff', label: 'Diff', icon: GitCompare },
+  { id: 'permission', label: 'Permissions', icon: ShieldCheck, permission: 'access.builder' },
+  { id: 'users', label: 'Users', icon: UserCog, permission: 'access.users' },
+  { id: 'diff', label: 'Diff', icon: GitCompare, permission: 'access.diff' },
 ];
 
 function loadConnectionId(connections: { id: string }[]): string {
@@ -43,6 +46,8 @@ function loadConnectionId(connections: { id: string }[]): string {
 
 export const AccessView: React.FC = () => {
   const connections = useSyncStore((s) => s.connections);
+  const can = useAuthStore((s) => s.can);
+  const visibleSections = SECTIONS.filter((s) => can(s.permission));
   // Principals (Permission panel) is first paint — matches the Access mockups.
   const [section, setSection] = useState<AccessSection>('permission');
   const [grantDraft, setGrantDraft] = useState<AccessPrincipalDraft | null>(null);
@@ -85,7 +90,7 @@ export const AccessView: React.FC = () => {
         <span className="px-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
           Access
         </span>
-        {SECTIONS.map((s) => {
+        {visibleSections.map((s) => {
           const active = section === s.id;
           return (
             <button

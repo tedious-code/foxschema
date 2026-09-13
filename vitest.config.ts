@@ -9,6 +9,18 @@ const aliases = [
   { find: '@foxschema/db', replacement: pkg('./packages/db/src/index.ts') },
   { find: '@foxschema/shared', replacement: pkg('./packages/shared/src/index.ts') },
   { find: '@foxschema/server', replacement: pkg('./packages/server/src/index.ts') },
+  {
+    find: '@foxschema/workflow-contract',
+    replacement: pkg('./packages/workflow-contract/src/index.ts'),
+  },
+  {
+    find: '@foxschema/rbac-contract',
+    replacement: pkg('./packages/rbac-contract/src/index.ts'),
+  },
+  {
+    find: '@foxschema/plugin-sdk',
+    replacement: pkg('./packages/plugin-sdk/src/index.ts'),
+  },
 ];
 
 // Root test runner for the whole workspace. CLI Ink TUI screens are isolated in
@@ -26,6 +38,7 @@ export default defineConfig({
           include: [
             'packages/**/*.test.ts',
             'apps/web/**/*.test.ts',
+            'apps/foxworkflow/**/*.test.ts',
             'apps/cli/src/**/*.test.ts',
             'scripts/security/**/*.test.mjs',
           ],

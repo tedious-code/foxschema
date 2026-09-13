@@ -56,6 +56,20 @@ export const PERMISSIONS = [
   'secrets.create',
   'secrets.edit',
   'secrets.delete',
+  // Access (database accounts / grants UI)
+  'access.access',
+  'access.users',
+  'access.builder',
+  'access.diff',
+  'access.inspector',
+  'access.report',
+  // Compare history (Lokee / snapshots)
+  'compare.history',
+  // Workflow control plane (FoxWorkflow)
+  'workflow.access',
+  'workflow.design',
+  'workflow.run',
+  'workflow.admin',
   // Administration
   'admin.users',
   'admin.roles',
@@ -104,6 +118,17 @@ export const PERMISSION_META: PermissionMeta[] = [
   { id: 'secrets.create', group: 'Secrets', label: 'Add secrets', description: 'Create vault entries and cloud provider credentials.' },
   { id: 'secrets.edit', group: 'Secrets', label: 'Edit secrets', description: 'Update existing secrets and provider credentials.' },
   { id: 'secrets.delete', group: 'Secrets', label: 'Delete secrets', description: 'Remove secrets and provider credentials.' },
+  { id: 'access.access', group: 'Access', label: 'Open Access', description: 'Switch to the Access workspace.' },
+  { id: 'access.users', group: 'Access', label: 'Users', description: 'Manage database accounts (User Management).' },
+  { id: 'access.builder', group: 'Access', label: 'Permission builder', description: 'Build GRANT / REVOKE intents for principals.' },
+  { id: 'access.diff', group: 'Access', label: 'Permission diff', description: 'Compare effective privileges between principals or environments.' },
+  { id: 'access.inspector', group: 'Access', label: 'Inspector', description: 'Inspect effective privileges for a principal.' },
+  { id: 'access.report', group: 'Access', label: 'Access report', description: 'Generate access reports.' },
+  { id: 'compare.history', group: 'Schema Sync', label: 'History', description: 'Open schema history / snapshots (Lokee).' },
+  { id: 'workflow.access', group: 'Workflow', label: 'Open Workflow', description: 'Switch to the Workflow workspace.' },
+  { id: 'workflow.design', group: 'Workflow', label: 'Design workflows', description: 'Edit workflow graphs in the Designer.' },
+  { id: 'workflow.run', group: 'Workflow', label: 'Run workflows', description: 'Start workflow runs when the engine is enabled.' },
+  { id: 'workflow.admin', group: 'Workflow', label: 'Workflow admin', description: 'Control panel: engine on/off, URL, and log sinks.' },
   { id: 'admin.users', group: 'Admin', label: 'Manage users', description: 'List FoxSchema logins, assign app roles, and activate or deactivate accounts. Not the same as database users on a connected server.' },
   { id: 'admin.roles', group: 'Admin', label: 'Configure roles', description: 'Edit which FoxSchema permissions each app role receives, including Grant privileges for database GRANT/REVOKE.' },
 ];
@@ -113,6 +138,7 @@ const ALL = [...PERMISSIONS];
 const VIEWER: Permission[] = [
   'schema.browse',
   'schema.compare',
+  'compare.history',
   'editor.access',
   'editor.run',
   'editor.variables.read',
@@ -120,6 +146,10 @@ const VIEWER: Permission[] = [
   'editor.sidebar.bookmarks',
   'editor.sidebar.variables',
   'editor.sidebar.schema',
+  'access.access',
+  'access.inspector',
+  'access.report',
+  'workflow.access',
 ];
 
 const EDITOR: Permission[] = [
@@ -142,6 +172,11 @@ const EDITOR: Permission[] = [
   'secrets.view',
   'secrets.create',
   'secrets.edit',
+  'access.users',
+  'access.builder',
+  'access.diff',
+  'workflow.design',
+  'workflow.run',
 ];
 
 /** Everything an editor has, plus privilege changes and migration deploys. */
@@ -150,6 +185,7 @@ const OWNER: Permission[] = [
   'schema.migrate',
   'editor.grant',
   'secrets.delete',
+  'workflow.admin',
 ];
 
 const ADMIN: Permission[] = ALL;
@@ -208,5 +244,7 @@ export function permissionSatisfied(granted: Iterable<Permission>, needed: Permi
   const set = granted instanceof Set ? granted : new Set(granted);
   if (set.has(needed)) return true;
   if (needed === 'editor.dml' || needed === 'editor.ddl') return set.has('editor.write');
+  // Legacy editor.grant covers Access builder/diff until roles are re-saved.
+  if (needed === 'access.builder' || needed === 'access.diff') return set.has('editor.grant');
   return false;
 }

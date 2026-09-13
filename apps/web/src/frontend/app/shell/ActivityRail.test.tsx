@@ -30,6 +30,7 @@ describe('ActivityRail', () => {
     render(<ActivityRail />);
     expect(screen.getByTestId('workspace-switcher')).toBeTruthy();
     expect(screen.getByTestId('view-sync-btn')).toBeTruthy();
+    expect(screen.getByTestId('view-sync-btn').getAttribute('title')).toBe('Compare');
     expect(screen.getByTestId('view-sql-editor-btn')).toBeTruthy();
     expect(screen.getByTestId('view-utilities-btn')).toBeTruthy();
     expect(screen.getByTestId('view-access-btn')).toBeTruthy();

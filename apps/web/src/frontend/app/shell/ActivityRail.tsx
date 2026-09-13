@@ -3,10 +3,12 @@
  * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
  * SPDX-License-Identifier: Apache-2.0
  *
- * Left activity rail: one workspace at a time. Credentials, Applies, and the
- * account menu live here so the Compare toolbar keeps horizontal room.
+ * Left activity rail: one workspace at a time. Top-level labels and RBAC come
+ * from COMMUNITY_NAV in `@foxschema/shared` so the shell and permission catalog
+ * stay aligned. Credentials, Applies, and the account menu live here so the
+ * Compare toolbar keeps horizontal room.
  */
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Camera,
   GitCompareArrows,
@@ -18,6 +20,7 @@ import {
   Workflow,
   Wrench,
 } from 'lucide-react';
+import { COMMUNITY_NAV, filterNav, type Permission } from '@foxschema/shared';
 import { useAuthStore } from '@/app/store/authStore';
 import { useUiStore, type ActiveView } from '@/app/store/uiStore';
 import { CredentialManager } from '@/features/connections';
@@ -25,76 +28,81 @@ import { MigrationHistory } from '@/features/migrations';
 import { FoxLogo } from './FoxLogo';
 import { ProfileMenu } from './ProfileMenu';
 
-const ITEMS: {
-  view: ActiveView;
-  testId: string;
-  label: string;
-  icon: React.ElementType;
-  permission: 'schema' | 'editor' | 'utilities' | 'access' | 'workflow' | 'snapshots';
-}[] = [
-  {
-    view: 'sync',
-    testId: 'view-sync-btn',
-    label: 'Sync',
-    icon: GitCompareArrows,
-    permission: 'schema',
-  },
-  {
-    view: 'sqlEditor',
-    testId: 'view-sql-editor-btn',
-    label: 'SQL',
-    icon: Terminal,
-    permission: 'editor',
-  },
-  {
-    view: 'utilities',
-    testId: 'view-utilities-btn',
-    label: 'Utils',
-    icon: Wrench,
-    permission: 'utilities',
-  },
-  {
-    view: 'access',
-    testId: 'view-access-btn',
-    label: 'Access',
-    icon: ShieldCheck,
-    permission: 'access',
-  },
-  {
-    view: 'workflow',
-    testId: 'view-workflow-btn',
-    label: 'Flow',
-    icon: Workflow,
-    permission: 'workflow',
-  },
-  {
-    view: 'snapshots',
-    testId: 'sync-pane-history-btn',
-    label: 'Snapshots',
-    icon: Camera,
-    permission: 'snapshots',
-  },
-];
+/** Maps COMMUNITY_NAV top-level ids onto shell ActiveView values. */
+const NAV_TO_VIEW: Record<string, ActiveView> = {
+  compare: 'sync',
+  editor: 'sqlEditor',
+  access: 'access',
+  workflow: 'workflow',
+};
+
+const NAV_ICONS: Record<string, React.ElementType> = {
+  compare: GitCompareArrows,
+  editor: Terminal,
+  access: ShieldCheck,
+  workflow: Workflow,
+};
+
+const NAV_TEST_IDS: Record<string, string> = {
+  compare: 'view-sync-btn',
+  editor: 'view-sql-editor-btn',
+  access: 'view-access-btn',
+  workflow: 'view-workflow-btn',
+};
+
+/** Rail order: Compare · Editor · Utils · Access · Workflow · Snapshots. */
+const RAIL_ORDER = ['compare', 'editor', 'utilities', 'access', 'workflow', 'snapshots'] as const;
 
 export function ActivityRail(): React.ReactElement | null {
   const activeView = useUiStore((s) => s.activeView);
   const setActiveView = useUiStore((s) => s.setActiveView);
-  const canSchemaBrowse = useAuthStore((s) => s.can('schema.browse'));
-  const canSchemaCompare = useAuthStore((s) => s.can('schema.compare'));
-  const canEditorAccess = useAuthStore((s) => s.can('editor.access'));
-  const canUtilityAccess = useAuthStore((s) => s.can('utility.access'));
+  const can = useAuthStore((s) => s.can);
   const [showCredentials, setShowCredentials] = useState(false);
   const [showApplies, setShowApplies] = useState(false);
 
-  const allowed = (permission: (typeof ITEMS)[number]['permission']): boolean => {
-    if (permission === 'schema') return canSchemaBrowse || canSchemaCompare;
-    if (permission === 'editor') return canEditorAccess;
-    if (permission === 'utilities') return canUtilityAccess;
-    if (permission === 'snapshots') return canSchemaBrowse;
-    return true;
-  };
+  const visible = useMemo(() => {
+    const allowed = (permission: Permission) => can(permission);
+    const nav = filterNav(COMMUNITY_NAV, allowed, { workflow: true });
+    const byId = new Map(nav.map((item) => [item.id, item]));
 
-  const visible = ITEMS.filter((item) => allowed(item.permission));
+    const items: {
+      view: ActiveView;
+      testId: string;
+      label: string;
+      icon: React.ElementType;
+    }[] = [];
+
+    for (const id of RAIL_ORDER) {
+      if (id === 'utilities') {
+        if (!can('utility.access')) continue;
+        items.push({
+          view: 'utilities',
+          testId: 'view-utilities-btn',
+          label: 'Utils',
+          icon: Wrench,
+        });
+        continue;
+      }
+      if (id === 'snapshots') {
+        if (!can('compare.history') && !can('schema.browse')) continue;
+        items.push({
+          view: 'snapshots',
+          testId: 'sync-pane-history-btn',
+          label: 'Snapshots',
+          icon: Camera,
+        });
+        continue;
+      }
+      const navItem = byId.get(id);
+      if (!navItem) continue;
+      const view = NAV_TO_VIEW[id];
+      const icon = NAV_ICONS[id];
+      const testId = NAV_TEST_IDS[id];
+      if (!view || !icon || !testId) continue;
+      items.push({ view, testId, label: navItem.label, icon });
+    }
+    return items;
+  }, [can]);
 
   return (
     <>

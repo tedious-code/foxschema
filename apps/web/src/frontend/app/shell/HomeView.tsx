@@ -86,7 +86,7 @@ export const HomeView: React.FC = () => {
           <span className="mt-1 block truncate font-mono text-[11px] text-slate-500">
             {compareResult
               ? `${sourceConfig.option.database ?? 'Original'} → ${targetConfig.option.database ?? 'Target'}`
-              : 'Run Compare in Sync'}
+              : 'Run Compare'}
           </span>
         </button>
         <button
@@ -184,7 +184,7 @@ export const HomeView: React.FC = () => {
           </span>
         </h2>
         {connections.length === 0 ? (
-          <p className="text-[12px] text-slate-500">Save a connection from Schema Sync to see it here.</p>
+          <p className="text-[12px] text-slate-500">Save a connection from Compare to see it here.</p>
         ) : (
           <ul className="flex flex-wrap gap-2">
             {connections.map((c) => (

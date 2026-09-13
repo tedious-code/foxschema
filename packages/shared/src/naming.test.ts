@@ -62,7 +62,15 @@ const isMultiWordCamel = (name: string) => /^[a-z][a-z0-9]*[A-Z]/.test(name);
 const isKebab = (name: string) => name.includes('-');
 const isPascal = (name: string) => /^[A-Z]/.test(name);
 
-const PACKAGE_ROOTS = ['packages/sql/src', 'packages/db/src', 'packages/server/src', 'packages/shared/src'];
+const PACKAGE_ROOTS = [
+  'packages/sql/src',
+  'packages/db/src',
+  'packages/server/src',
+  'packages/shared/src',
+  'packages/workflow-contract/src',
+  'packages/rbac-contract/src',
+  'packages/plugin-sdk/src',
+];
 const FRONTEND_ROOT = 'apps/web/src/frontend';
 
 describe('file naming', () => {
