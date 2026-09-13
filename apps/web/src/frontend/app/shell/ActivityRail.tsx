@@ -7,7 +7,17 @@
  * account menu live here so the Compare toolbar keeps horizontal room.
  */
 import React, { useState } from 'react';
-import { Camera, GitCompareArrows, History, KeyRound, Settings, ShieldCheck, Terminal, Wrench } from 'lucide-react';
+import {
+  Camera,
+  GitCompareArrows,
+  History,
+  KeyRound,
+  Settings,
+  ShieldCheck,
+  Terminal,
+  Workflow,
+  Wrench,
+} from 'lucide-react';
 import { useAuthStore } from '@/app/store/authStore';
 import { useUiStore, type ActiveView } from '@/app/store/uiStore';
 import { CredentialManager } from '@/features/connections';
@@ -20,7 +30,7 @@ const ITEMS: {
   testId: string;
   label: string;
   icon: React.ElementType;
-  permission: 'schema' | 'editor' | 'utilities' | 'access' | 'snapshots';
+  permission: 'schema' | 'editor' | 'utilities' | 'access' | 'workflow' | 'snapshots';
 }[] = [
   {
     view: 'sync',
@@ -49,6 +59,13 @@ const ITEMS: {
     label: 'Access',
     icon: ShieldCheck,
     permission: 'access',
+  },
+  {
+    view: 'workflow',
+    testId: 'view-workflow-btn',
+    label: 'Flow',
+    icon: Workflow,
+    permission: 'workflow',
   },
   {
     view: 'snapshots',

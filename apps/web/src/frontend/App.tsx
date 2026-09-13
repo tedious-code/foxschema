@@ -37,6 +37,9 @@ const LokeeWeaveView = lazy(() =>
 const SettingsPanel = lazy(() =>
   import('@/app/settings/SettingsPanel').then((m) => ({ default: m.SettingsPanel }))
 );
+const WorkflowView = lazy(() =>
+  import('@/features/workflow').then((m) => ({ default: m.WorkflowView }))
+);
 
 const Workspace: React.FC = () => {
   const { errorMsg, warnings, dismissWarnings } = useSyncStore();
@@ -123,6 +126,12 @@ const Workspace: React.FC = () => {
           <ErrorBoundary>
             <Suspense fallback={<LoadingScreen />}>
               <AccessView />
+            </Suspense>
+          </ErrorBoundary>
+        ) : activeView === 'workflow' ? (
+          <ErrorBoundary>
+            <Suspense fallback={<LoadingScreen />}>
+              <WorkflowView />
             </Suspense>
           </ErrorBoundary>
         ) : activeView === 'sqlEditor' ? (
