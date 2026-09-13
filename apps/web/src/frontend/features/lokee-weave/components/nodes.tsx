@@ -94,6 +94,23 @@ export const VersionNode = memo(({ data: d, selected }: NodeProps<LokeeVersionNo
           ↩ reverted to v{d.revertedToNumber}
         </div>
       )}
+      {/* A force-migrated version reads as an ordinary capture otherwise, and
+          the one thing worth knowing is that its shape came from a different
+          database entirely — not from anything in this history. */}
+      {d.appliedFrom && (
+        <div
+          data-testid={`rf-version-applied-from-${d.versionId}`}
+          className="mt-1 pl-6 text-[10px] font-semibold text-amber-300"
+          title={
+            `This schema was applied from v${d.appliedFrom.number}` +
+            (d.appliedFrom.database ? ` of ${d.appliedFrom.database}` : '') +
+            ' — a different database from the one this history belongs to'
+          }
+        >
+          ⇥ from v{d.appliedFrom.number}
+          {d.appliedFrom.database ? ` of ${d.appliedFrom.database}` : ''}
+        </div>
+      )}
       {d.changeCount > 0 && (
         <div className="mt-1 pl-6 text-[10px] font-semibold text-amber-300">
           {d.changeCount} changed

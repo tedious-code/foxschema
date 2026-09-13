@@ -78,6 +78,8 @@ export type VersionNodeData = {
   changeCount: number;
   /** Version this one restored, when a revert produced it. */
   revertedToNumber?: number;
+  /** Version and database this schema was applied from, when force-migrated. */
+  appliedFrom?: { number: number; database?: string };
 };
 
 /** Prefer a custom label; otherwise "Version N". */

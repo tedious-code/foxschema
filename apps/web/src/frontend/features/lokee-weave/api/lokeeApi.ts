@@ -12,7 +12,7 @@
 import type { StoredWeaveObject } from '@foxschema/sql';
 import type { ConnectionRef } from '@/shared/api/schemaApi';
 import type { VersionGraphDTO } from '@/features/lokee-weave/components/graphTypes';
-import type { CaptureResult, LokeeDatabase, LokeeRevertErrorCode, ObjectHistoryEntry, ObjectInspectResult, RevertPlanWire, VersionCompare, VersionSummary } from '@foxschema/shared';
+import type { CaptureResult, ForceMigrateErrorCode, ForceMigratePlanWire, LokeeDatabase, LokeeRevertErrorCode, ObjectHistoryEntry, ObjectInspectResult, RevertPlanWire, VersionCompare, VersionSummary } from '@foxschema/shared';
 import { getApiBase, parseJsonBody, parseJsonResponse } from '@/shared/api/apiBase';
 import { api } from '@/shared/api/client';
 
@@ -168,6 +168,97 @@ export async function executeLokeeRevert(
     data.error || res.statusText || 'Revert failed',
     code,
     data.fromVersion ? data : undefined
+  );
+}
+
+export type LokeeForceMigratePlan = ForceMigratePlanWire;
+
+export class LokeeForceMigrateError extends Error {
+  readonly code: ForceMigrateErrorCode;
+  readonly plan?: LokeeForceMigratePlan;
+  constructor(message: string, code: ForceMigrateErrorCode, plan?: LokeeForceMigratePlan) {
+    super(message);
+    this.name = 'LokeeForceMigrateError';
+    this.code = code;
+    this.plan = plan;
+  }
+}
+
+/**
+ * Preview applying a stored version to a database it did not come from.
+ *
+ * POST, unlike the revert plan's GET: the target credential — and a session
+ * password when the connection was saved without one — travels in the body,
+ * never in a query string.
+ */
+export async function planLokeeForceMigrate(
+  databaseId: string,
+  body: { versionId: string; connectionId: string; password?: string }
+): Promise<LokeeForceMigratePlan> {
+  const res = await fetch(
+    `${getApiBase()}/lokee/databases/${encodeURIComponent(databaseId)}/force-migrate/plan`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(body),
+    }
+  );
+  return parseJsonResponse<LokeeForceMigratePlan>(res);
+}
+
+export interface LokeeForceMigrateResult extends LokeeForceMigratePlan {
+  ok: true;
+  capture?: CaptureResult;
+}
+
+/**
+ * Apply the version, then capture the receiving database's new shape.
+ *
+ * `confirmForce` is deliberately separate from `confirmLossy`: accepting data
+ * loss is not the same as accepting that this schema lands on a database it was
+ * never captured from, and a plan that destroys nothing still needs the second
+ * answer. The server refuses until each one that applies has been given.
+ */
+export async function executeLokeeForceMigrate(
+  databaseId: string,
+  body: {
+    versionId: string;
+    connectionId: string;
+    password?: string;
+    confirmForce?: boolean;
+    confirmLossy?: boolean;
+  }
+): Promise<LokeeForceMigrateResult> {
+  const res = await fetch(
+    `${getApiBase()}/lokee/databases/${encodeURIComponent(databaseId)}/force-migrate`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(body),
+    }
+  );
+  const data = await parseJsonBody<
+    LokeeForceMigratePlan & {
+      ok?: boolean;
+      error?: string;
+      code?: string;
+      capture?: CaptureResult;
+    }
+  >(res);
+  if (res.ok) return { ...data, ok: true as const };
+  const code: ForceMigrateErrorCode =
+    data.code === 'blocked' ||
+    data.code === 'confirm_lossy' ||
+    data.code === 'confirm_force' ||
+    data.code === 'not_found'
+      ? data.code
+      : 'failed';
+  throw new LokeeForceMigrateError(
+    data.error || res.statusText || 'Force migrate failed',
+    code,
+    data.version ? data : undefined
   );
 }
 

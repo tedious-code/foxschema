@@ -25,6 +25,7 @@ export const PERMISSIONS = [
   'schema.browse',
   'schema.compare',
   'schema.migrate',
+  'schema.migrate.force',
   // SQL Editor
   'editor.access',
   'editor.run',
@@ -77,6 +78,7 @@ export const PERMISSION_META: PermissionMeta[] = [
   { id: 'schema.browse', group: 'Schema Sync', label: 'Browse schema', description: 'Load and inspect schema trees.' },
   { id: 'schema.compare', group: 'Schema Sync', label: 'Compare schemas', description: 'Run source vs target compare.' },
   { id: 'schema.migrate', group: 'Schema Sync', label: 'Execute migrations', description: 'Deploy generated migration SQL.' },
+  { id: 'schema.migrate.force', group: 'Schema Sync', label: 'Force-migrate a version to any database', description: 'Apply a stored schema version to a database that is not the one the history was captured from. Deliberately skips the identity check that keeps reverts on their own database, so it can rewrite an unrelated schema — separate from Execute migrations, and not granted to owner by default.' },
   { id: 'editor.access', group: 'SQL Editor', label: 'Open SQL Editor', description: 'Switch to the SQL Editor workspace.' },
   { id: 'editor.run', group: 'SQL Editor', label: 'Run queries', description: 'Execute SELECT / read statements.' },
   { id: 'editor.write', group: 'SQL Editor', label: 'Run writes (legacy)', description: 'Umbrella kept for grants made before the DML/DDL split; implies both.' },
