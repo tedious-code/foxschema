@@ -181,6 +181,14 @@ export interface VersionGraphVersion {
   source?: CaptureSource;
   /** Version number this revert restored, when this version is one. */
   revertedToNumber?: number;
+  /**
+   * Where a force-migrated schema came from, resolved for display.
+   *
+   * Not a bare id like the stored column: the source lives in a *different*
+   * history, so the reader needs the version number and a name for the database
+   * it came from — neither of which is derivable from this graph's own nodes.
+   */
+  appliedFrom?: { number: number; database?: string };
 }
 
 export interface VersionGraphObject {

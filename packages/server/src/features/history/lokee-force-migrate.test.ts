@@ -208,3 +208,59 @@ describe('force-migrate provenance', () => {
     expect(head?.appliedFromVersionId).toBeUndefined();
   });
 });
+
+describe('force-migrate provenance on the graph', () => {
+  it('resolves the source version number and database for display', async () => {
+    const { weave } = await freshStore();
+    const seeded = await seedSource(weave);
+
+    const applied = await weave.capture(USER, {
+      ...TARGET,
+      tables: [CUSTOMER],
+      source: 'force-migrate',
+      appliedFrom: { databaseId: seeded.databaseId, versionId: seeded.versionId },
+    });
+
+    const dto = await weave.graph(USER, applied.databaseId, 10);
+    const node = dto.versions.find((v) => v.id === applied.versionId);
+
+    // A bare id on the node would be useless to a reader: the source lives in
+    // another history, so the number and the database name have to be resolved
+    // here or they cannot be shown at all.
+    expect(node?.appliedFrom?.number).toBe(1);
+    expect(node?.appliedFrom?.database).toBe('shop');
+  });
+
+  it('leaves an ordinary capture without provenance', async () => {
+    const { weave } = await freshStore();
+    const seeded = await seedSource(weave);
+
+    const dto = await weave.graph(USER, seeded.databaseId, 10);
+    const node = dto.versions.find((v) => v.id === seeded.versionId);
+
+    expect(node?.appliedFrom).toBeUndefined();
+  });
+
+  it('never resolves provenance across users', async () => {
+    const { weave } = await freshStore();
+    // USER owns the source history.
+    const seeded = await seedSource(weave);
+
+    // Another user's database records a force-migrate naming USER's version.
+    // The id is real, so only the `user_id` join stops it resolving.
+    const applied = await weave.capture(OTHER_USER, {
+      ...TARGET,
+      tables: [CUSTOMER],
+      source: 'force-migrate',
+      appliedFrom: { databaseId: seeded.databaseId, versionId: seeded.versionId },
+    });
+
+    const dto = await weave.graph(OTHER_USER, applied.databaseId, 10);
+    const node = dto.versions.find((v) => v.id === applied.versionId);
+
+    // The version still reads as force-migrated; what it must not do is leak
+    // another user's version number or database name into this graph.
+    expect(node?.source).toBe('force-migrate');
+    expect(node?.appliedFrom).toBeUndefined();
+  });
+});

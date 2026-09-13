@@ -1042,6 +1042,49 @@ export class LokeeWeaveStore {
       }
     }
 
+    /**
+     * Where a force-migrated version's schema came from.
+     *
+     * A revert's target sits in this same history, so `versions.find` below
+     * resolves it for free. A force-migrate points at a *different* database —
+     * neither the version number nor a name for it is anywhere in this graph —
+     * so it takes a lookup. One batched query rather than one per node; in
+     * practice a page holds zero or one of these.
+     *
+     * Joined through `lokee_databases` and filtered on `user_id`: the stored id
+     * is whatever was written at capture time, and it must never be able to
+     * surface a version number or database name from another user's history.
+     */
+    const appliedFromIds = [
+      ...new Set(
+        versions.map((v) => v.appliedFromVersionId).filter((id): id is string => Boolean(id))
+      ),
+    ];
+    const appliedFrom = new Map<string, { number: number; database?: string }>();
+    if (appliedFromIds.length > 0) {
+      const placeholders = appliedFromIds.map(() => '?').join(', ');
+      const rows = await store.all<{
+        id: string;
+        version_number: number;
+        database_name: string | null;
+        host: string | null;
+      }>(
+        `SELECT lv.id, lv.version_number, ld.database_name, ld.host
+           FROM lokee_versions lv
+           JOIN lokee_databases ld ON ld.id = lv.database_id
+          WHERE lv.id IN (${placeholders}) AND ld.user_id = ?`,
+        [...appliedFromIds, userId]
+      );
+      for (const row of rows) {
+        appliedFrom.set(row.id, {
+          number: Number(row.version_number),
+          // `database_name` is what the reader recognises; host is the fallback
+          // for a dialect that records no database (SQLite is a file path).
+          database: row.database_name ?? row.host ?? undefined,
+        });
+      }
+    }
+
     return {
       databaseId,
       versions: versions.map((v) => ({
@@ -1056,6 +1099,9 @@ export class LokeeWeaveStore {
         // Resolve the id to the number the reader actually sees on the graph.
         revertedToNumber: v.revertToVersionId
           ? versions.find((other) => other.id === v.revertToVersionId)?.number
+          : undefined,
+        appliedFrom: v.appliedFromVersionId
+          ? appliedFrom.get(v.appliedFromVersionId)
           : undefined,
       })),
       objects,
