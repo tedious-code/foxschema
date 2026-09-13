@@ -281,6 +281,69 @@ describe('a revert only runs against the current database', () => {
       'Target must be current'
     );
   });
+
+  it('cannot execute an approved plan after the Original version changes', async () => {
+    let resolveReplacementPlan: ((value: typeof PLAN) => void) | undefined;
+    const replacementPlan = new Promise<typeof PLAN>((resolve) => {
+      resolveReplacementPlan = resolve;
+    });
+    compareLokeeVersions.mockImplementation(
+      (_databaseId: string, requestedVersionId: string) =>
+        Promise.resolve({
+          ...CHANGED,
+          to: VERSION(Number(requestedVersionId.slice(1))),
+        })
+    );
+    planLokeeRevert.mockImplementation(
+      (_databaseId: string, requestedVersionId: string) =>
+        requestedVersionId === 'v9'
+          ? replacementPlan
+          : Promise.resolve({
+              ...PLAN,
+              reversal: {
+                risk: 'lossy',
+                safeCount: 0,
+                lossyCount: 1,
+                blockedCount: 0,
+                verdicts: [],
+              },
+            })
+    );
+
+    const props = {
+      databaseId: 'db1',
+      againstVersionId: 'v15',
+      latestVersionId: 'v15',
+      captureConnectionId: 'c1',
+      onClose: () => undefined,
+    };
+    const { rerender } = render(<VersionCompareModal {...props} versionId="v10" />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('lokee-cmp-run-revert').textContent).toContain('Tick objects')
+    );
+    fireEvent.click(screen.getByTestId('lokee-cmp-select-all'));
+    await waitFor(() =>
+      expect(screen.getByTestId('lokee-cmp-run-revert').textContent).toContain('Review data loss')
+    );
+    fireEvent.click(screen.getByTestId('lokee-cmp-run-revert'));
+    fireEvent.click(await screen.findByTestId('lokee-cmp-confirm-lossy'));
+    await waitFor(() =>
+      expect((screen.getByTestId('lokee-cmp-run-revert') as HTMLButtonElement).disabled).toBe(false)
+    );
+
+    rerender(<VersionCompareModal {...props} versionId="v9" />);
+    await waitFor(() =>
+      expect(screen.getByTestId('lokee-version-compare').getAttribute('data-state')).toBe('ready')
+    );
+
+    const run = screen.getByTestId('lokee-cmp-run-revert') as HTMLButtonElement;
+    expect(run.disabled).toBe(true);
+    fireEvent.click(run);
+    expect(executeLokeeRevert).not.toHaveBeenCalled();
+
+    resolveReplacementPlan?.(PLAN);
+  });
 });
 
 describe('the run button names where it goes', () => {

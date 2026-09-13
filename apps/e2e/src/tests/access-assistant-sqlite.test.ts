@@ -77,11 +77,15 @@ describe.skipIf(!ready)('Access Assistant · SQLite (cloud)', () => {
   it('opens Access with every tab', async () => {
     await access.openView();
     expect(await driver.locator('[data-testid="access-view"]').isVisible()).toBe(true);
-    for (const tab of ['users', 'builder', 'diff', 'inspector', 'report'] as const) {
+    for (const tab of ['permission', 'users', 'diff'] as const) {
       expect(
         await driver.locator(`[data-testid="access-tab-${tab}"]`).isVisible(),
         `missing tab ${tab}`
       ).toBe(true);
+    }
+    // Folded tabs must stay gone — regressing them would break the cloud suite.
+    for (const gone of ['builder', 'inspector', 'report'] as const) {
+      expect(await driver.locator(`[data-testid="access-tab-${gone}"]`).count()).toBe(0);
     }
     await saveScreenshot(driver, 'access-sqlite-tabs');
   });
@@ -99,22 +103,26 @@ describe.skipIf(!ready)('Access Assistant · SQLite (cloud)', () => {
     await saveScreenshot(driver, 'access-sqlite-users');
   });
 
-  it('Permission Builder refuses GRANT on SQLite', async () => {
-    await access.openTab('builder');
-    await access.selectConnection('access-connection', NAME);
-    await driver.waitForSelector('[data-testid="access-unsupported"]', { timeout: 10_000 });
-    // Copy names the engine's nature ("no grants" / file permissions) — not
-    // the old "no GRANT model" line, which sounded like a Fox Schema gap.
-    expect(await driver.locator('[data-testid="access-unsupported"]').innerText()).toMatch(
-      /no grants/i
+  it('Principals refuses GRANT on SQLite', async () => {
+    await access.openTab('permission');
+    await access.selectConnection('access-permission-connection', NAME);
+    // Catalog load returns the unsupported hint (or an error EmptyState).
+    await driver.waitForSelector(
+      '[data-testid="access-permission-hint"], [data-testid="access-permission-unsupported"], [data-testid="access-permission-error"]',
+      { timeout: 15_000 }
     );
-    // Assert on the control that offers to build SQL, not on the SQL panel.
-    // The panel now lives in a dialog that is closed until asked for, so it is
-    // absent on every engine — this assertion would pass even if SQLite were
-    // wrongly treated as supported. The Preview SQL button is what the builder
-    // only renders when the engine can express grants at all.
-    expect(await driver.locator('[data-testid="access-preview-sql"]').count()).toBe(0);
-    await saveScreenshot(driver, 'access-sqlite-builder');
+    const notice = (
+      (await driver.locator('[data-testid="access-permission-hint"]').innerText().catch(() => '')) ||
+      (await driver
+        .locator('[data-testid="access-permission-unsupported"]')
+        .innerText()
+        .catch(() => '')) ||
+      (await driver.locator('[data-testid="access-permission-error"]').innerText().catch(() => ''))
+    ).toLowerCase();
+    expect(notice).toMatch(/grant\/revoke catalog|no grants|file- or engine-level|does not support/);
+    // No grant confirm path on an engine without a catalog.
+    expect(await driver.locator('[data-testid="access-permission-confirm-run"]').count()).toBe(0);
+    await saveScreenshot(driver, 'access-sqlite-permission');
   });
 
   it('Permission Diff refuses a GRANT model on SQLite', async () => {
@@ -130,30 +138,18 @@ describe.skipIf(!ready)('Access Assistant · SQLite (cloud)', () => {
   });
 
   it('offers no permission reader on SQLite at all', async () => {
-    // The inspector used to be its own tab, and this asserted it failed closed
-    // on an engine with no GRANT catalog. It now lives inside the permissions
-    // screen, driven by that screen's connection — and SQLite never gets that
-    // far, because the builder refuses the engine first. The guarantee is
-    // stronger than it was: rather than a reader that fails when used, there
-    // is no reader to use.
-    await access.openTab('builder');
-    await access.selectConnection('access-connection', NAME);
-    await driver.waitForSelector('[data-testid="access-unsupported"]', { timeout: 10_000 });
-    expect(await driver.locator('[data-testid="access-effective"]').count()).toBe(0);
+    // Effective / inspector used to be its own tab. It now lives inside
+    // Principals and only appears once a principal is selected — SQLite never
+    // loads principals, so there is no reader to use.
+    await access.openTab('permission');
+    await access.selectConnection('access-permission-connection', NAME);
+    await driver.waitForSelector(
+      '[data-testid="access-permission-hint"], [data-testid="access-permission-unsupported"], [data-testid="access-permission-error"]',
+      { timeout: 15_000 }
+    );
+    expect(await driver.locator('[data-testid="permission-inspector"]').count()).toBe(0);
     expect(await driver.locator('[data-testid="inspector-table"]').count()).toBe(0);
     await saveScreenshot(driver, 'access-sqlite-inspector');
-  });
-
-  it('Access Report load fails closed on SQLite (no catalog)', async () => {
-    await access.openTab('report');
-    await access.selectConnection('report-connection', NAME);
-    await driver.locator('[data-testid="report-load"]').click();
-    await driver.waitForSelector('[data-testid="report-error"]', { timeout: 20_000 });
-    expect(await driver.locator('[data-testid="report-error"]').innerText()).toMatch(
-      /GRANT\/REVOKE catalog|file- or engine-level|does not support/i
-    );
-    expect(await driver.locator('[data-testid="report-table"]').count()).toBe(0);
-    await saveScreenshot(driver, 'access-sqlite-report');
   });
 
   it('SQL Editor Database Access utility shows SQLite has no GRANT catalog', async () => {

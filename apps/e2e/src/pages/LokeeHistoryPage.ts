@@ -23,10 +23,23 @@ export class LokeeHistoryPage {
   }
 
   async openComparePane(): Promise<void> {
+    // Snapshots is its own workspace now, and the toolbar's pane switcher only
+    // exists while `activeView === 'sync'`. Coming back from Snapshots means
+    // selecting Sync first — reaching straight for the Compare pill waited 15s
+    // for a control that is not on that screen, which is what failed this test
+    // on every dialect at once.
+    const rail = this.page.locator('[data-testid="view-sync-btn"]');
+    if (await rail.isVisible().catch(() => false)) {
+      await clickWhen(this.page, '[data-testid="view-sync-btn"]');
+    }
     await clickWhen(this.page, '[data-testid="sync-pane-compare-btn"]');
   }
 
   async snapshotTarget(): Promise<void> {
+    // The button lives on the Sync workspace's compare pane. A second snapshot
+    // is usually taken after looking at the first one, from Snapshots, where
+    // the button is not on screen at all.
+    await this.openComparePane();
     const btn = this.page.locator('[data-testid="lokee-snapshot-target-btn"]');
     await btn.waitFor({ state: 'visible', timeout: 15_000 });
     await this.page.waitForFunction(
@@ -37,8 +50,20 @@ export class LokeeHistoryPage {
       { timeout: 15_000 }
     );
     await btn.click();
+    // Wait for the outcome, not for the button to come back.
+    //
+    // Capture bumps the Lokee epoch, and the toolbar's compare controls — the
+    // snapshot button among them — are gone from the DOM by the time it
+    // settles. Waiting for that button to re-enable waited on something that
+    // had left, and the run reported a 30s timeout for a snapshot the toast
+    // said had already succeeded: "Snapshot v1 · 10 object change(s)".
+    //
+    // Either ending is fine: the toast if it is still up, or the button back
+    // and idle if the toolbar kept it.
     await this.page.waitForFunction(
       () => {
+        const toast = document.querySelector('[data-testid="app-toast"]');
+        if (/snapshot\s+v\d+/i.test(toast?.textContent ?? '')) return true;
         const el = document.querySelector('[data-testid="lokee-snapshot-target-btn"]');
         return (
           el instanceof HTMLButtonElement &&

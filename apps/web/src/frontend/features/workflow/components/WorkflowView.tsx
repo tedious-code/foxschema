@@ -17,6 +17,7 @@ import {
   Settings2,
   Workflow,
 } from 'lucide-react';
+import { sectionLabelCls } from '@/shared/components/surfaces';
 import {
   MOCK_CREDENTIALS,
   MOCK_EDGES,
@@ -270,19 +271,19 @@ function DesignerPane({
         </div>
         <div className="space-y-3 overflow-y-auto p-3 text-xs">
           <div>
-            <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+            <div className={sectionLabelCls}>
               Pipe type
             </div>
             <div className="mt-0.5 font-mono font-semibold text-slate-100">{selected.type}</div>
           </div>
           <div>
-            <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+            <div className={sectionLabelCls}>
               Label
             </div>
             <div className="mt-0.5 text-slate-200">{selected.label}</div>
           </div>
           <div>
-            <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+            <div className={sectionLabelCls}>
               Config
             </div>
             <pre className="mt-1 overflow-x-auto rounded border border-slate-800 bg-slate-900/80 p-2 font-mono text-[10px] text-slate-300">
@@ -290,7 +291,7 @@ function DesignerPane({
             </pre>
           </div>
           <div>
-            <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+            <div className={sectionLabelCls}>
               In ({incoming.length})
             </div>
             <ul className="mt-1 space-y-0.5 text-slate-400">
@@ -304,7 +305,7 @@ function DesignerPane({
             </ul>
           </div>
           <div>
-            <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+            <div className={sectionLabelCls}>
               Out ({outgoing.length})
             </div>
             <ul className="mt-1 space-y-0.5 text-slate-400">
@@ -468,7 +469,7 @@ function EnginePane({
           })}
         </div>
         <label className="mt-4 flex max-w-xl flex-col gap-1">
-          <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+          <span className={sectionLabelCls}>
             API endpoint
           </span>
           <input
@@ -480,7 +481,7 @@ function EnginePane({
         </label>
         <div className="mt-3 flex flex-wrap gap-4">
           <label className="flex max-w-xs flex-col gap-1">
-            <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+            <span className={sectionLabelCls}>
               Max parallel pipes
             </span>
             <input
@@ -499,7 +500,7 @@ function EnginePane({
             />
           </label>
           <label className="flex max-w-xs flex-col gap-1">
-            <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+            <span className={sectionLabelCls}>
               onOverlap
             </span>
             <select

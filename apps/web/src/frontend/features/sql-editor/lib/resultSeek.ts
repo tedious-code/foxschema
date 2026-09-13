@@ -15,6 +15,7 @@ import {
 import type { TableSchema } from '@/shared/lib/types';
 import {
   fromClauseIsMultiTable,
+  selectListSafeForResultEdit,
   sqlHasSetOperation,
   tableNamesFromSql,
 } from '@/shared/lib/tablePreview';
@@ -64,6 +65,10 @@ export function seekFromLastRow(opts: {
 }): ResultSeek | null {
   const parsed = parseTopLevelOrderBy(opts.sql);
   if (!parsed || !opts.table) return null;
+  // The ORDER BY name must still mean the base-table column in the result.
+  // `SELECT id % 2 AS id ... ORDER BY id` otherwise borrows the table PK's
+  // uniqueness and keyset paging skips every remaining row with that value.
+  if (!selectListSafeForResultEdit(opts.sql)) return null;
   const orderCols = parsed.terms.map((t) => t.column);
   if (!uniqueKeyCoversOrder(uniqueKeysFromTable(opts.table), orderCols)) return null;
   const values: unknown[] = [];

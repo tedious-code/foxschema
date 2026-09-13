@@ -194,6 +194,7 @@ export function buildVersionGraph(
       description: version.description,
       changeCount: changeCount.get(version.id) ?? 0,
       revertedToNumber: version.revertedToNumber,
+      appliedFrom: version.appliedFrom,
     } satisfies VersionNodeData,
   }));
 

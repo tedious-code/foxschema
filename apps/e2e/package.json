@@ -7,6 +7,8 @@
     "test": "vitest run --config vitest.config.ts",
     "test:all": "node scripts/run-all.mjs",
     "test:all:headed": "HEADLESS=false node scripts/run-all.mjs",
+    "test:cloud": "node scripts/run-cloud.mjs",
+    "test:cloud:headed": "HEADLESS=false node scripts/run-cloud.mjs",
     "test:watch": "vitest --config vitest.config.ts",
     "test:headed": "HEADLESS=false vitest run --config vitest.config.ts",
     "test:smoke": "vitest run --config vitest.config.ts src/tests/smoke.test.ts",

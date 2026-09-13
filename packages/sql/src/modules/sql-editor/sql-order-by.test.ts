@@ -60,10 +60,32 @@ describe('uniqueKeysFromTable', () => {
   it('includes PK and unique indexes', () => {
     const keys = uniqueKeysFromTable({
       primaryKey: { columns: ['id'] },
-      columns: [{ name: 'id', primaryKey: true }, { name: 'email' }],
+      columns: [
+        { name: 'id', primaryKey: true, nullable: false },
+        { name: 'email', nullable: false },
+      ],
       indices: [{ name: 'u_email', unique: true, columns: ['email'] }],
     });
     expect(keys).toEqual([['id'], ['email']]);
+  });
+
+  it('rejects partial and nullable unique indexes for keyset paging', () => {
+    const keys = uniqueKeysFromTable({
+      columns: [
+        { name: 'active_email', nullable: false },
+        { name: 'optional_code', nullable: true },
+      ],
+      indices: [
+        {
+          name: 'u_active_email',
+          unique: true,
+          columns: ['active_email'],
+          filter: 'deleted_at IS NULL',
+        },
+        { name: 'u_optional_code', unique: true, columns: ['optional_code'] },
+      ],
+    });
+    expect(keys).toEqual([]);
   });
 });
 

@@ -190,7 +190,7 @@ describe('HTTP contract', () => {
       // deliberately, which is the point.
       //
       // 80 -> 81: POST /api/schema/table-insight, behind dbaUtilityLimiter and
-      // requirePermissions('utility.access').
+      // requirePermissions('editor.run') because it powers Data Peek.
       expect(ROUTES.length).toBe(81);
       expect(new Set(ROUTES.map((r) => `${r.method} ${r.path}`)).size).toBe(ROUTES.length);
     });

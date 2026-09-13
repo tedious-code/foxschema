@@ -70,6 +70,9 @@ INSERT INTO items (id, label, qty) VALUES (1, 'seed', 3);
   it('adds a row from the result grid and keeps joins read-only', async () => {
     await sql.openView();
     await sql.checkConnection(NAME);
+    // checkConnection opens Destinations, and the sidebar is an exclusive
+    // accordion — reopen Schema or the explorer below never renders.
+    await sql.ensureSidebarSectionOpen('schema');
     // Wait for schema so single-table editability can resolve.
     await expect
       .poll(async () => sql.schemaExplorerVisible(), { timeout: 30_000 })

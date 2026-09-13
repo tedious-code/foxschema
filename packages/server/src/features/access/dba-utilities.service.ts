@@ -21,6 +21,7 @@ import {
   type SystemInfoMetric,
   type UserSessionRow,
 } from '@foxschema/db';
+import { dbaPrivilegeRemedy } from '@foxschema/sql';
 
 export type DbaUtilityProbeSuccess = {
   kind: DbaUtilityKind;
@@ -97,11 +98,16 @@ export async function probeDbaUtility(opts: {
     return { ok: true, value: { ...base, sizes: normalizeObjectSizeRows(raw) } };
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'DBA utility probe failed';
+    // A privileged view refused is not a broken database, and the raw code says
+    // the opposite — Oracle reports "table or view does not exist" for a view
+    // the caller simply may not read. Where the engine's error is that shape,
+    // answer with the grant instead of the hint describing what we attempted.
+    const remedy = dbaPrivilegeRemedy(opts.dialect, opts.kind, message);
     return {
       ok: false,
       failure: {
-        status: 500,
-        error: `${message} — ${support.hint}`,
+        status: remedy ? 403 : 500,
+        error: remedy ? `${message} — ${remedy}` : `${message} — ${support.hint}`,
         support,
       },
     };
