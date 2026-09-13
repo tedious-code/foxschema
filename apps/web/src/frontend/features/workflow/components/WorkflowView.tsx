@@ -21,7 +21,7 @@ import {
   MOCK_CREDENTIALS,
   MOCK_EDGES,
   MOCK_ENVIRONMENT,
-  MOCK_PALETTE,
+  MOCK_PALETTE_GROUPS,
   MOCK_PIPELINE_NAME,
   MOCK_PIPES,
   MOCK_RUNS,
@@ -50,10 +50,10 @@ const PANES: {
 ];
 
 const FAMILY_TONE: Record<string, string> = {
-  trigger: 'border-violet-500/40 bg-violet-950/40 text-violet-200',
-  source: 'border-cyan-500/40 bg-cyan-950/40 text-cyan-100',
+  triggers: 'border-violet-500/40 bg-violet-950/40 text-violet-200',
+  process: 'border-cyan-500/40 bg-cyan-950/40 text-cyan-100',
   transform: 'border-amber-500/40 bg-amber-950/40 text-amber-100',
-  sink: 'border-rose-500/40 bg-rose-950/40 text-rose-100',
+  notification: 'border-rose-500/40 bg-rose-950/40 text-rose-100',
   control: 'border-fuchsia-500/40 bg-fuchsia-950/40 text-fuchsia-100',
   pipe: 'border-slate-500/40 bg-slate-900 text-slate-200',
 };
@@ -92,25 +92,48 @@ function DesignerPane({
 
   return (
     <div className="flex min-h-0 flex-1" data-testid="workflow-designer">
-      <aside className="flex w-52 shrink-0 flex-col border-r border-slate-800 bg-slate-950/80">
+      <aside
+        className="flex w-52 shrink-0 flex-col border-r border-slate-800 bg-slate-950/80"
+        data-testid="workflow-palette"
+      >
         <div className="border-b border-slate-800 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
           Pipes
         </div>
-        <ul className="flex-1 space-y-1 overflow-y-auto p-2">
-          {MOCK_PALETTE.map((item) => (
-            <li key={item.type}>
-              <button
-                type="button"
-                data-testid={`workflow-palette-${item.type.replace(/\./g, '-')}`}
-                className={`flex w-full flex-col items-start rounded-md border px-2 py-1.5 text-left transition hover:bg-slate-900 ${toneFor(item.type)}`}
-                title="Mockup — drag/drop not wired"
+        <div className="flex-1 space-y-3 overflow-y-auto p-2">
+          {MOCK_PALETTE_GROUPS.map((group) => (
+            <section
+              key={group.id}
+              aria-labelledby={`palette-group-${group.id}`}
+              data-testid={`workflow-palette-group-${group.id}`}
+            >
+              <h3
+                id={`palette-group-${group.id}`}
+                className="mb-1 px-1 text-[9px] font-bold uppercase tracking-wider text-slate-500"
               >
-                <span className="text-[11px] font-semibold">{item.label}</span>
-                <span className="font-mono text-[9px] opacity-70">{item.hint}</span>
-              </button>
-            </li>
+                {group.label}
+              </h3>
+              <ul className="space-y-1">
+                {group.items.map((item) => (
+                  <li key={item.type}>
+                    <button
+                      type="button"
+                      data-testid={`workflow-palette-${item.type.replace(/\./g, '-')}`}
+                      className={`flex w-full flex-col items-start rounded-md border px-2 py-1.5 text-left transition hover:bg-slate-900 ${toneFor(item.type)}`}
+                      title="Mockup — drag/drop not wired"
+                    >
+                      <span className="text-[11px] font-semibold">
+                        {item.label}
+                      </span>
+                      <span className="font-mono text-[9px] opacity-70">
+                        {item.hint}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
           ))}
-        </ul>
+        </div>
       </aside>
 
       <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-[radial-gradient(circle_at_1px_1px,rgba(148,163,184,0.12)_1px,transparent_0)] [background-size:16px_16px]">

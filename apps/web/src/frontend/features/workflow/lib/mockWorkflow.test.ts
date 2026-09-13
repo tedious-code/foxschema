@@ -9,8 +9,10 @@ import { describe, expect, it } from 'vitest';
 import {
   FOXFLOW_PIPE_TYPES,
   MOCK_PALETTE,
+  MOCK_PALETTE_GROUPS,
   MOCK_PIPES,
   MOCK_TRIGGERS,
+  pipeFamily,
   type PipeTypeId,
 } from './mockWorkflow';
 
@@ -39,5 +41,42 @@ describe('FoxFlow-aligned workflow mock', () => {
     expect(types).toContain('workflow.sub');
     expect(types).toContain('source.trigger.cron');
     expect(types).toContain('sink.email');
+  });
+
+  it('groups the palette into triggers · process · transform · notification · control', () => {
+    expect(MOCK_PALETTE_GROUPS.map((g) => g.id)).toEqual([
+      'triggers',
+      'process',
+      'transform',
+      'notification',
+      'control',
+    ]);
+    expect(MOCK_PALETTE_GROUPS.every((g) => g.items.length > 0)).toBe(true);
+    expect(MOCK_PALETTE).toEqual(MOCK_PALETTE_GROUPS.flatMap((g) => g.items));
+
+    const triggerTypes = MOCK_PALETTE_GROUPS.find((g) => g.id === 'triggers')!.items.map(
+      (i) => i.type,
+    );
+    expect(triggerTypes).toEqual(
+      expect.arrayContaining([
+        'source.trigger.manual',
+        'source.trigger.cron',
+        'source.trigger.webhook',
+      ]),
+    );
+    expect(
+      MOCK_PALETTE_GROUPS.find((g) => g.id === 'notification')!.items.map((i) => i.type),
+    ).toContain('sink.email');
+  });
+
+  it('maps pipe types onto the product palette groups', () => {
+    expect(pipeFamily('source.trigger.cron')).toBe('triggers');
+    expect(pipeFamily('source.db.postgres')).toBe('process');
+    expect(pipeFamily('sink.postgres')).toBe('process');
+    expect(pipeFamily('transform.merge')).toBe('transform');
+    expect(pipeFamily('logic.loop')).toBe('transform');
+    expect(pipeFamily('sink.email')).toBe('notification');
+    expect(pipeFamily('workflow.sub')).toBe('control');
+    expect(pipeFamily('human.gate')).toBe('control');
   });
 });

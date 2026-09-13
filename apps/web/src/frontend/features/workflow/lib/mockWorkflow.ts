@@ -283,26 +283,168 @@ export const MOCK_EDGES: MockEdge[] = [
   { from: 'g2', to: 'c1' },
 ];
 
-export const MOCK_PALETTE: { type: PipeTypeId; label: string; hint: string }[] = [
+/** Product palette groups (Designer sidebar). Orthogonal to FoxFlow type ids. */
+export type PaletteGroupId =
+  | 'triggers'
+  | 'process'
+  | 'transform'
+  | 'notification'
+  | 'control';
+
+export interface MockPaletteItem {
+  type: PipeTypeId;
+  label: string;
+  hint: string;
+}
+
+export interface MockPaletteGroup {
+  id: PaletteGroupId;
+  label: string;
+  items: MockPaletteItem[];
+}
+
+/**
+ * Palette grouped for authoring: triggers → process (I/O) → transform →
+ * notification → control. FoxFlow `category` strings (Source/Database, …)
+ * stay on the engine; this is the mock UX lens.
+ */
+export const MOCK_PALETTE_GROUPS: MockPaletteGroup[] = [
   {
-    type: 'source.trigger.cron',
-    label: 'Trigger',
-    hint: 'manual · cron · webhook · http · parent',
+    id: 'triggers',
+    label: 'Triggers',
+    items: [
+      {
+        type: 'source.trigger.manual',
+        label: 'Manual',
+        hint: 'source.trigger.manual',
+      },
+      {
+        type: 'source.trigger.cron',
+        label: 'Cron',
+        hint: 'source.trigger.cron',
+      },
+      {
+        type: 'source.trigger.webhook',
+        label: 'Webhook',
+        hint: 'source.trigger.webhook',
+      },
+      {
+        type: 'source.trigger.http',
+        label: 'HTTP',
+        hint: 'source.trigger.http',
+      },
+      {
+        type: 'source.trigger.parent',
+        label: 'Parent',
+        hint: 'source.trigger.parent',
+      },
+    ],
   },
-  { type: 'source.db.postgres', label: 'DB source', hint: 'source.db.*' },
-  { type: 'source.api.http', label: 'HTTP source', hint: 'source.api.http' },
-  { type: 'source.file.csv', label: 'File source', hint: 'csv · json · text' },
-  { type: 'transform.script', label: 'Script', hint: 'transform.script (JS)' },
-  { type: 'transform.http', label: 'HTTP transform', hint: 'transform.http' },
-  { type: 'transform.condition', label: 'Condition', hint: 'true / false ports' },
-  { type: 'transform.split', label: 'Split', hint: 'partition by field' },
-  { type: 'transform.merge', label: 'Merge', hint: 'fan-in join' },
-  { type: 'logic.loop', label: 'Loop', hint: 'logic.loop' },
-  { type: 'workflow.sub', label: 'Sub-workflow', hint: 'workflow.sub' },
-  { type: 'sink.email', label: 'Email', hint: 'sink.email' },
-  { type: 'sink.postgres', label: 'DB sink', hint: 'sink.postgres' },
-  { type: 'human.gate', label: 'Human gate', hint: 'pause for input' },
+  {
+    id: 'process',
+    label: 'Process',
+    items: [
+      {
+        type: 'source.db.postgres',
+        label: 'DB source',
+        hint: 'source.db.*',
+      },
+      {
+        type: 'source.api.http',
+        label: 'HTTP source',
+        hint: 'source.api.http',
+      },
+      {
+        type: 'source.file.csv',
+        label: 'File source',
+        hint: 'csv · json · text',
+      },
+      {
+        type: 'sink.postgres',
+        label: 'DB sink',
+        hint: 'sink.postgres',
+      },
+      {
+        type: 'sink.http',
+        label: 'HTTP sink',
+        hint: 'sink.http',
+      },
+    ],
+  },
+  {
+    id: 'transform',
+    label: 'Transform',
+    items: [
+      {
+        type: 'transform.script',
+        label: 'Script',
+        hint: 'transform.script (JS)',
+      },
+      {
+        type: 'transform.map',
+        label: 'Map',
+        hint: 'transform.map',
+      },
+      {
+        type: 'transform.http',
+        label: 'HTTP',
+        hint: 'transform.http',
+      },
+      {
+        type: 'transform.condition',
+        label: 'Condition',
+        hint: 'true / false ports',
+      },
+      {
+        type: 'transform.split',
+        label: 'Split',
+        hint: 'partition by field',
+      },
+      {
+        type: 'transform.merge',
+        label: 'Merge',
+        hint: 'fan-in join',
+      },
+      {
+        type: 'logic.loop',
+        label: 'Loop',
+        hint: 'logic.loop',
+      },
+    ],
+  },
+  {
+    id: 'notification',
+    label: 'Notification',
+    items: [
+      {
+        type: 'sink.email',
+        label: 'Email',
+        hint: 'sink.email',
+      },
+    ],
+  },
+  {
+    id: 'control',
+    label: 'Control',
+    items: [
+      {
+        type: 'workflow.sub',
+        label: 'Sub-workflow',
+        hint: 'workflow.sub',
+      },
+      {
+        type: 'human.gate',
+        label: 'Human gate',
+        hint: 'pause for input',
+      },
+    ],
+  },
 ];
+
+/** Flat list for tests / callers that do not need group headers. */
+export const MOCK_PALETTE: MockPaletteItem[] = MOCK_PALETTE_GROUPS.flatMap(
+  (g) => g.items,
+);
 
 export const MOCK_RUNS: MockRun[] = [
   {
@@ -383,16 +525,18 @@ export interface MockEngineConfig {
   sinks: { kind: LogSinkKind; enabled: boolean; target: string }[];
 }
 
-export function pipeFamily(type: PipeTypeId): string {
-  if (type.startsWith('source.trigger')) return 'trigger';
-  if (type.startsWith('source.')) return 'source';
-  if (type.startsWith('transform.')) return 'transform';
-  if (type.startsWith('sink.')) return 'sink';
-  if (
-    type.startsWith('logic.') ||
-    type.startsWith('workflow.') ||
-    type.startsWith('human.')
-  ) {
+/**
+ * Canvas / palette tone family. Maps FoxFlow type prefixes onto the product
+ * groups (triggers · process · transform · notification · control).
+ */
+export function pipeFamily(type: PipeTypeId): PaletteGroupId | 'pipe' {
+  if (type.startsWith('source.trigger')) return 'triggers';
+  if (type === 'sink.email') return 'notification';
+  if (type.startsWith('source.') || type.startsWith('sink.')) return 'process';
+  if (type.startsWith('transform.') || type.startsWith('logic.')) {
+    return 'transform';
+  }
+  if (type.startsWith('workflow.') || type.startsWith('human.')) {
     return 'control';
   }
   return 'pipe';
