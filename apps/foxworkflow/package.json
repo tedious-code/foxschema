@@ -1,0 +1,24 @@
+{
+  "name": "@foxschema/foxworkflow",
+  "version": "0.1.0",
+  "description": "Minimal FoxWorkflow engine HTTP process (community Phase B scaffold).",
+  "type": "module",
+  "license": "Apache-2.0",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tedious-code/foxschema.git",
+    "directory": "apps/foxworkflow"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "dev": "tsx watch src/main.ts"
+  },
+  "dependencies": {
+    "@foxschema/workflow-contract": "*",
+    "tsx": "4.23.13"
+  }
+}

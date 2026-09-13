@@ -391,6 +391,25 @@ const MIGRATIONS: Migration[] = [
       ];
     },
   },
+  {
+    id: 16,
+    name: 'workspace_and_workflow_settings',
+    statements: (d) => {
+      const t = types(d);
+      return [
+        // Community installs use workspace_id = 'local'. Enterprise may attach
+        // connections to real workspaces later without another connections DDL.
+        `ALTER TABLE connections ADD COLUMN workspace_id ${t.str} DEFAULT 'local'`,
+        // Optional per-workspace JSON for FoxWorkflow (control plane may also
+        // use app_settings key workflow.engine_config for the local default).
+        `CREATE TABLE IF NOT EXISTS workflow_settings (
+           workspace_id ${t.id} PRIMARY KEY,
+           config_json ${t.big},
+           updated_at ${t.ts} NOT NULL
+         )`,
+      ];
+    },
+  },
 ];
 
 const SIGNUP_WIZARD_SHOWN_KEY = 'signup.wizard_shown';

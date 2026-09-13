@@ -5,22 +5,34 @@ A map of the repository, and where a change belongs.
 ## Packages
 
 ```
-packages/sql        Dialect knowledge: SQL generation, schema compare,
-                    statement splitting, type mapping. No dependencies,
-                    no Node built-ins — it runs in a browser too.
+packages/sql                Dialect knowledge: SQL generation, schema compare,
+                            statement splitting, type mapping. No dependencies,
+                            no Node built-ins — it runs in a browser too.
 
-packages/db         Database drivers and the connection runtime: connection
-                    factory, pooling, circuit breaker. Depends on sql.
+packages/db                 Database drivers and the connection runtime: connection
+                            factory, pooling, circuit breaker. Depends on sql.
 
-packages/shared     Contracts the frontend, server and CLI must agree on:
-                    permission names, error codes, wire message shapes.
-                    Browser-safe.
+packages/shared             Contracts the frontend, server and CLI must agree on:
+                            permission names, error codes, wire message shapes,
+                            and the COMMUNITY_NAV registry (`nav.ts`). Browser-safe.
 
-packages/server     The backend: HTTP layer, feature modules, metadata store.
+packages/workflow-contract  Browser-safe FoxWorkflow engine types (config, health,
+                            sinks, overlap policy) and COMMUNITY_WORKSPACE_ID.
 
-apps/web            The frontend, plus the entry point that serves it.
-apps/cli            The `foxschema` command line tool.
-apps/e2e            Browser tests that drive the running application.
+packages/rbac-contract      RbacProvider interface + CommunityRbacProvider.
+
+packages/plugin-sdk         Phase E plugin activate/context stubs.
+
+packages/server             The backend: HTTP layer, feature modules, metadata store.
+
+packages/enterprise/*       Private enterprise stubs (not shipped in community npm).
+
+packages/features/*         Feature package markers / future extraction homes.
+
+apps/web                    The frontend, plus the entry point that serves it.
+apps/cli                    The `foxschema` command line tool.
+apps/foxworkflow            Minimal FoxWorkflow engine HTTP process (port 8081).
+apps/e2e                    Browser tests that drive the running application.
 ```
 
 Imports may only run in one direction:
@@ -28,11 +40,19 @@ Imports may only run in one direction:
 ```
 sql  ←  db      ←  server  ←  web, cli
 sql  ←  shared  ←  server, web, cli
+workflow-contract  ←  server, foxworkflow, web
+rbac-contract      ←  server, web, enterprise/rbac
 ```
 
 `packages/sql/src/purity.test.ts` and `packages/shared/src/purity.test.ts`
 enforce this. The frontend must never import `@foxschema/db` or
 `@foxschema/server`.
+
+### Nav registry — `packages/shared/src/nav.ts`
+
+`COMMUNITY_NAV` is the single source for activity-rail ids and RBAC gating.
+`filterNav(items, can, flags)` hides items by permission and optional feature
+flags (`workflow`, `enterprise.channels`).
 
 ## Dialect knowledge — `packages/sql/src`
 
@@ -102,6 +122,7 @@ database/    The metadata store and its migrations.
 | `schema` | Reading a schema |
 | `sql-editor` | SQL editor, code cells, sandboxed execution |
 | `users` | Profile, preferences, first-run wizard |
+| `workflow` | FoxWorkflow settings + engine health proxy |
 
 Inside a feature:
 

@@ -23,6 +23,7 @@
     "@foxschema/db": "*",
     "@foxschema/shared": "*",
     "@foxschema/sql": "*",
+    "@foxschema/workflow-contract": "*",
     "fastify": "5.12.3",
     "pino": "10.3.1"
   }

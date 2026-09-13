@@ -1,0 +1,20 @@
+{
+  "name": "@foxschema/plugin-sdk",
+  "version": "0.1.0",
+  "description": "Phase E plugin SDK placeholder for FoxSchema extensions.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tedious-code/foxschema.git",
+    "directory": "packages/plugin-sdk"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "sideEffects": false,
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}
