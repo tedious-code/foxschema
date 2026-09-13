@@ -105,3 +105,33 @@ describe('DATAGRID_ACTION_PERMISSION', () => {
     expect(viewer.has('editor.datagrid.delete')).toBe(false);
   });
 });
+
+describe('access and workflow permissions', () => {
+  it('documents Access and Workflow keys', () => {
+    for (const id of [
+      'access.access',
+      'access.users',
+      'access.builder',
+      'access.diff',
+      'compare.history',
+      'workflow.access',
+      'workflow.design',
+      'workflow.run',
+      'workflow.admin',
+    ] as const) {
+      expect(PERMISSIONS).toContain(id);
+      expect(PERMISSION_META.some((m) => m.id === id)).toBe(true);
+    }
+  });
+
+  it('lets legacy editor.grant satisfy Access builder/diff', () => {
+    expect(permissionSatisfied(['editor.grant'], 'access.builder')).toBe(true);
+    expect(permissionSatisfied(['editor.grant'], 'access.diff')).toBe(true);
+    expect(permissionSatisfied(['editor.dml'], 'access.builder')).toBe(false);
+  });
+
+  it('grants workflow.admin to owner by default', () => {
+    expect(DEFAULT_ROLE_PERMISSIONS.owner).toContain('workflow.admin');
+    expect(DEFAULT_ROLE_PERMISSIONS.editor).not.toContain('workflow.admin');
+  });
+});

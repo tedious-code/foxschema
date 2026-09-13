@@ -30,7 +30,7 @@ const ITEMS: {
   {
     view: 'sync',
     testId: 'view-sync-btn',
-    label: 'Sync',
+    label: 'Compare',
     icon: GitCompareArrows,
     permission: 'schema',
   },
@@ -58,7 +58,7 @@ const ITEMS: {
   {
     view: 'workflow',
     testId: 'view-workflow-btn',
-    label: 'Flow',
+    label: 'Workflow',
     icon: Workflow,
     permission: 'workflow',
   },
@@ -78,12 +78,17 @@ export function ActivityRail(): React.ReactElement | null {
   const canSchemaCompare = useAuthStore((s) => s.can('schema.compare'));
   const canEditorAccess = useAuthStore((s) => s.can('editor.access'));
   const canUtilityAccess = useAuthStore((s) => s.can('utility.access'));
+  const canAccess = useAuthStore((s) => s.can('access.access'));
+  const canWorkflow = useAuthStore((s) => s.can('workflow.access'));
+  const canHistory = useAuthStore((s) => s.can('compare.history'));
 
   const allowed = (permission: (typeof ITEMS)[number]['permission']): boolean => {
     if (permission === 'schema') return canSchemaBrowse || canSchemaCompare;
     if (permission === 'editor') return canEditorAccess;
     if (permission === 'utilities') return canUtilityAccess;
-    if (permission === 'snapshots') return canSchemaBrowse;
+    if (permission === 'access') return canAccess;
+    if (permission === 'workflow') return canWorkflow;
+    if (permission === 'snapshots') return canHistory || canSchemaBrowse;
     return true;
   };
 

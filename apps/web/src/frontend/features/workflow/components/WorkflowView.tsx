@@ -7,7 +7,7 @@
  * (Workflow → Pipeline → Pipe, api/scheduler/worker).
  * Visual only — no execution API yet.
  */
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   Braces,
@@ -37,6 +37,13 @@ import {
   type PipeTypeId,
   type WorkflowPane,
 } from '../lib/mockWorkflow';
+import {
+  fetchWorkflowEngineHealth,
+  fetchWorkflowSettings,
+  saveWorkflowSettings,
+  toAdminConfigPut,
+  toMockEngineConfig,
+} from '../api/workflowApi';
 
 const PANES: {
   id: WorkflowPane;
@@ -370,9 +377,17 @@ function RunsPane(): React.ReactElement {
 function EnginePane({
   config,
   onChange,
+  health,
+  saving,
+  onSave,
+  onRefreshHealth,
 }: {
   config: MockEngineConfig;
   onChange: (next: MockEngineConfig) => void;
+  health: { ok: boolean; acceptsRuns: boolean; endpoint: string; error?: string; version?: string } | null;
+  saving: boolean;
+  onSave: () => void;
+  onRefreshHealth: () => void;
 }): React.ReactElement {
   const setState = (state: EngineState) => onChange({ ...config, state });
 
@@ -385,13 +400,47 @@ function EnginePane({
         <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-100">
           <Settings2 className="h-4 w-4 text-slate-400" />
           FoxFlow control plane
-          <span className="rounded border border-amber-500/30 bg-amber-950/40 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-200">
-            Mockup
+          <span className="rounded border border-cyan-500/30 bg-cyan-950/40 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-cyan-200">
+            Live settings
           </span>
         </div>
         <p className="mb-3 text-[11px] text-slate-400">
           FoxSchema designs &amp; administers; FoxFlow api / scheduler / worker execute.
+          Settings persist in the control plane and probe the engine health endpoint.
         </p>
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-[11px]">
+          <span
+            data-testid="workflow-engine-health"
+            className={`rounded border px-2 py-0.5 font-mono ${
+              health?.ok
+                ? 'border-emerald-500/40 bg-emerald-950/40 text-emerald-200'
+                : 'border-rose-500/40 bg-rose-950/40 text-rose-200'
+            }`}
+          >
+            {health
+              ? health.ok
+                ? `engine ok · acceptsRuns=${String(health.acceptsRuns)}${health.version ? ` · ${health.version}` : ''}`
+                : `engine down · ${health.error ?? 'unreachable'}`
+              : 'engine status unknown'}
+          </span>
+          <button
+            type="button"
+            data-testid="workflow-engine-refresh-health"
+            onClick={onRefreshHealth}
+            className="rounded border border-slate-700 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-300 hover:bg-slate-900"
+          >
+            Refresh health
+          </button>
+          <button
+            type="button"
+            data-testid="workflow-engine-save"
+            disabled={saving}
+            onClick={onSave}
+            className="rounded border border-cyan-500/40 bg-cyan-950/50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-cyan-100 hover:bg-cyan-900/50 disabled:opacity-50"
+          >
+            {saving ? 'Saving…' : 'Save settings'}
+          </button>
+        </div>
         <div className="flex flex-wrap gap-2" role="group" aria-label="Engine state">
           {(
             [
@@ -605,25 +654,84 @@ function VariablesPane(): React.ReactElement {
   );
 }
 
+const DEFAULT_ENGINE: MockEngineConfig = {
+  state: 'enabled',
+  endpoint: 'http://127.0.0.1:8081',
+  maxParallel: 8,
+  onOverlap: 'skip',
+  processes: [
+    { id: 'api', label: 'API', status: 'up', detail: 'control plane :8081' },
+    { id: 'scheduler', label: 'Scheduler', status: 'up', detail: 'cron admission' },
+    { id: 'worker', label: 'Worker', status: 'up', detail: 'pipeline executor' },
+  ],
+  sinks: [
+    { kind: 'events', enabled: true, target: 'foxflow.sqlite · event_store' },
+    { kind: 'json', enabled: false, target: '/var/log/foxflow/runs/*.json' },
+    { kind: 'text', enabled: false, target: '/var/log/foxflow/app.log' },
+  ],
+};
+
 export const WorkflowView: React.FC = () => {
   const [pane, setPane] = useState<WorkflowPane>('designer');
   const [selectedId, setSelectedId] = useState(MOCK_PIPES[0]?.id ?? 't1');
-  const [engine, setEngine] = useState<MockEngineConfig>({
-    state: 'enabled',
-    endpoint: 'http://127.0.0.1:3080',
-    maxParallel: 8,
-    onOverlap: 'skip',
-    processes: [
-      { id: 'api', label: 'API', status: 'up', detail: 'control plane :3080' },
-      { id: 'scheduler', label: 'Scheduler', status: 'up', detail: 'cron admission' },
-      { id: 'worker', label: 'Worker', status: 'up', detail: 'pipeline executor' },
-    ],
-    sinks: [
-      { kind: 'events', enabled: true, target: 'foxflow.sqlite · event_store' },
-      { kind: 'json', enabled: false, target: '/var/log/foxflow/runs/*.json' },
-      { kind: 'text', enabled: false, target: '/var/log/foxflow/app.log' },
-    ],
-  });
+  const [engine, setEngine] = useState<MockEngineConfig>(DEFAULT_ENGINE);
+  const [health, setHealth] = useState<{
+    ok: boolean;
+    acceptsRuns: boolean;
+    endpoint: string;
+    error?: string;
+    version?: string;
+  } | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const refreshHealth = async () => {
+    try {
+      const h = await fetchWorkflowEngineHealth();
+      setHealth({
+        ok: h.ok,
+        acceptsRuns: h.acceptsRuns,
+        endpoint: h.endpoint,
+        error: h.error,
+        version: h.version,
+      });
+    } catch (err) {
+      setHealth({
+        ok: false,
+        acceptsRuns: false,
+        endpoint: engine.endpoint,
+        error: err instanceof Error ? err.message : 'health request failed',
+      });
+    }
+  };
+
+  const saveSettings = async () => {
+    setSaving(true);
+    try {
+      const saved = await saveWorkflowSettings(toAdminConfigPut(engine));
+      setEngine((prev) => toMockEngineConfig(saved, prev));
+      await refreshHealth();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const config = await fetchWorkflowSettings();
+        if (cancelled) return;
+        setEngine((prev) => toMockEngineConfig(config, prev));
+      } catch {
+        /* keep defaults when API is offline */
+      }
+      if (!cancelled) await refreshHealth();
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- boot once
+  }, []);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="workflow-view">
@@ -665,7 +773,16 @@ export const WorkflowView: React.FC = () => {
           <DesignerPane selectedId={selectedId} onSelect={setSelectedId} />
         ) : null}
         {pane === 'runs' ? <RunsPane /> : null}
-        {pane === 'engine' ? <EnginePane config={engine} onChange={setEngine} /> : null}
+        {pane === 'engine' ? (
+          <EnginePane
+            config={engine}
+            onChange={setEngine}
+            health={health}
+            saving={saving}
+            onSave={() => void saveSettings()}
+            onRefreshHealth={() => void refreshHealth()}
+          />
+        ) : null}
         {pane === 'variables' ? <VariablesPane /> : null}
       </div>
     </div>
