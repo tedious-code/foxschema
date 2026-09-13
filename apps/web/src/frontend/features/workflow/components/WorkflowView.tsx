@@ -7,7 +7,7 @@
  * (Workflow → Pipeline → Pipe, api/scheduler/worker).
  * Visual only — no execution API yet.
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Activity,
   Braces,
@@ -56,6 +56,19 @@ const PANES: {
   { id: 'engine', label: 'Engine', icon: Power },
   { id: 'variables', label: 'Variables', icon: Braces },
 ];
+
+/**
+ * Node box width, as a percent of the canvas.
+ *
+ * The edge endpoints below are percentages of the SVG's own box, so the node
+ * width has to be in that same unit for an arrow to reach a node at all. A
+ * fixed `rem` width cannot be: 10rem equals 4% only on a 4000px-wide canvas,
+ * so the arrows used to stop short of the boxes at every real viewport.
+ */
+const NODE_W = 11;
+
+/** Variable scopes, in display order. A constant — not state, not derived. */
+const VARIABLE_SCOPES = ['global', 'workflow', 'run'] as const;
 
 const FAMILY_TONE: Record<string, string> = {
   triggers: 'border-violet-500/40 bg-violet-950/40 text-violet-200',
@@ -197,10 +210,12 @@ function DesignerPane({
             const a = pipeById(edge.from);
             const b = pipeById(edge.to);
             if (!a || !b) return null;
-            const x1 = a.x + 4;
-            const y1 = a.y + 4;
+            // Right edge of the source box to the left edge of the target's.
+            // `y` is already the vertical centre: the node is -translate-y-1/2.
+            const x1 = a.x + NODE_W;
+            const y1 = a.y;
             const x2 = b.x;
-            const y2 = b.y + 4;
+            const y2 = b.y;
             const mx = (x1 + x2) / 2;
             const my = (y1 + y2) / 2;
             return (
@@ -250,8 +265,8 @@ function DesignerPane({
               type="button"
               data-testid={`workflow-node-${pipe.id}`}
               onClick={() => onSelect(pipe.id)}
-              style={{ left: `${pipe.x}%`, top: `${pipe.y}%` }}
-              className={`absolute z-[1] w-[10rem] -translate-y-1/2 rounded-md border px-2 py-1.5 text-left shadow-sm transition ${toneFor(
+              style={{ left: `${pipe.x}%`, top: `${pipe.y}%`, width: `${NODE_W}%` }}
+              className={`absolute z-[1] -translate-y-1/2 rounded-md border px-2 py-1.5 text-left shadow-sm transition ${toneFor(
                 pipe.type
               )} ${on ? 'ring-2 ring-cyan-400/70' : 'hover:brightness-110'}`}
             >
@@ -493,7 +508,7 @@ function EnginePane({
               onChange={(e) =>
                 onChange({
                   ...config,
-                  maxParallel: Math.max(1, Number(e.target.value) || 1),
+                  maxParallel: Math.min(64, Math.max(1, Number(e.target.value) || 1)),
                 })
               }
               className="rounded border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-100 outline-none accent-focus"
@@ -598,8 +613,6 @@ function EnginePane({
 }
 
 function VariablesPane(): React.ReactElement {
-  const scopes = useMemo(() => ['global', 'workflow', 'run'] as const, []);
-
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="workflow-variables">
       <div className="border-b border-slate-800 px-4 py-2 text-[11px] text-slate-400">
@@ -625,7 +638,7 @@ function VariablesPane(): React.ReactElement {
           </ul>
         </div>
         <div className="grid gap-4 lg:grid-cols-3">
-          {scopes.map((scope) => (
+          {VARIABLE_SCOPES.map((scope) => (
             <section
               key={scope}
               className="rounded-md border border-slate-800 bg-slate-950/60"
