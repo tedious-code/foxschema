@@ -14,6 +14,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { FilterPicker } from '@/shared/components/FilterPicker';
 import type { CredentialMeta, WorkflowSummary } from '../api/engineClient';
 import type { CatalogCategory, CatalogEntry } from '../lib/catalog';
 import {
@@ -50,6 +51,13 @@ const HTTP_REQUEST_KEYS = new Set<string>([
   // Legacy wrapper that toHttpRequestValue still unwraps.
   'request',
 ]);
+
+/** The closed credential picker's text; an id the list no longer has still shows. */
+function credentialSummary(credentials: readonly CredentialMeta[], credentialId: string): string {
+  const credential = credentials.find((candidate) => candidate.id === credentialId);
+  if (credential) return `${credential.name} (${credential.kind})`;
+  return credentialId || 'none';
+}
 
 interface Props {
   pipeId: string | null;
@@ -754,18 +762,24 @@ export function Inspector({
             ))}
           </select>
 
-          <label>Credential</label>
-          <select
-            value={data.credentialId}
-            onChange={(ev) => onChange(pipeId, { credentialId: ev.target.value })}
-          >
-            <option value="">none</option>
-            {credentials.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name} ({c.kind})
-              </option>
-            ))}
-          </select>
+          <label htmlFor="pipe-credential">Credential</label>
+          <FilterPicker
+            id="pipe-credential"
+            mode="single"
+            testId="pipe-credential"
+            options={credentials.map((c) => ({
+              id: c.id,
+              label: c.name,
+              badge: c.kind,
+              detail: c.source ? `${c.id} · ${c.source}` : c.id,
+              testId: `pipe-credential-option-${c.id}`,
+            }))}
+            selectedId={data.credentialId || null}
+            onSelect={(credentialId) => onChange(pipeId, { credentialId })}
+            clearLabel="none"
+            placeholder="Filter by name, kind, id…"
+            summary={credentialSummary(credentials, data.credentialId)}
+          />
 
           <label>Concurrency (×N workers)</label>
           <input

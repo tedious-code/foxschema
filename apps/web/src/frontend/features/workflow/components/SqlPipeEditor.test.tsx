@@ -72,10 +72,11 @@ function renderEditor(type: 'source.db.sql' | 'sink.db.sql', credentialId = '', 
 describe('SqlPipeEditor', () => {
   it('links a saved connection when it is picked, and points the pipe at its credential', async () => {
     const { onCredentialChange } = renderEditor('source.db.sql');
-    const picker = (await screen.findByLabelText('Database')) as HTMLSelectElement;
+    const picker = (await screen.findByLabelText('Database')) as HTMLButtonElement;
     await waitFor(() => expect(picker.disabled).toBe(false));
 
-    fireEvent.change(picker, { target: { value: 'conn-1' } });
+    fireEvent.click(picker);
+    fireEvent.click(screen.getByTestId('sql-pipe-connection-option-conn-1'));
 
     await waitFor(() => expect(onCredentialChange).toHaveBeenCalledWith('foxschema-conn-1'));
     expect(workflowConnections.grant).toHaveBeenCalledWith('conn-1');
