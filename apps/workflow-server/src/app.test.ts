@@ -7,7 +7,6 @@
  */
 import { createHmac, randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { parseWorkflow } from '@foxschema/workflow-engine';
 import { buildApp, buildIngressApp } from './app.js';
 import { createContext, type AppContext } from './context.js';
 
