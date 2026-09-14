@@ -10,71 +10,30 @@ import type {
   WorkflowEngineConfig,
   WorkflowHealth,
 } from '@foxschema/workflow-contract';
-import { getApiBase, parseJsonResponse } from '@/shared/api/apiBase';
-import type { MockEngineConfig } from '../lib/mockWorkflow';
-
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${getApiBase()}${path}`, {
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    ...init,
-  });
-  return parseJsonResponse<T>(res);
-}
+import { api } from '@/shared/api/client';
 
 export async function fetchWorkflowSettings(): Promise<WorkflowEngineConfig> {
-  const { config } = await request<{ config: WorkflowEngineConfig }>('/workflow/settings');
+  const { config } = await api.get<{ config: WorkflowEngineConfig }>('/workflow/settings');
   return config;
 }
 
-export async function saveWorkflowSettings(
-  body: AdminConfigPut,
-): Promise<WorkflowEngineConfig> {
-  const { config } = await request<{ config: WorkflowEngineConfig }>('/workflow/settings', {
-    method: 'PUT',
-    body: JSON.stringify(body),
-  });
+export async function saveWorkflowSettings(body: AdminConfigPut): Promise<WorkflowEngineConfig> {
+  const { config } = await api.put<{ config: WorkflowEngineConfig }>('/workflow/settings', body);
   return config;
 }
 
 export async function fetchWorkflowEngineHealth(): Promise<
   WorkflowHealth & { endpoint: string; error?: string }
 > {
-  return request('/workflow/engine/health');
+  return api.get('/workflow/engine/health');
 }
 
-/** Merge persisted control-plane config into the Designer mock engine shape. */
-export function toMockEngineConfig(
-  config: WorkflowEngineConfig,
-  fallback: MockEngineConfig,
-): MockEngineConfig {
-  return {
-    ...fallback,
-    state: config.state,
-    endpoint: config.endpoint,
-    maxParallel: config.maxParallel,
-    onOverlap: config.onOverlap,
-    sinks: config.sinks.map((s) => ({
-      kind: s.kind,
-      enabled: s.enabled,
-      target: s.target ?? '',
-    })),
-    processes:
-      config.processes.length > 0
-        ? config.processes.map((p) => ({
-            id: (p.id as MockEngineConfig['processes'][number]['id']) || 'api',
-            label: p.label,
-            status: p.status === 'down' ? 'down' : 'up',
-            detail: p.detail ?? '',
-          }))
-        : fallback.processes,
-  };
-}
-
-export function toAdminConfigPut(config: MockEngineConfig): AdminConfigPut {
+/** The editable part of the engine config, as the settings endpoint takes it. */
+export function toAdminConfigPut(config: WorkflowEngineConfig): AdminConfigPut {
   return {
     state: config.state,
     acceptsRuns: config.state === 'enabled',
+    endpoint: config.endpoint,
     maxParallel: config.maxParallel,
     onOverlap: config.onOverlap,
     sinks: config.sinks.map((s) => ({

@@ -53,6 +53,7 @@ export class WorkflowSettingsService {
       current.state = body.acceptsRuns ? 'enabled' : 'disabled';
     }
     if (body.state) current.state = body.state;
+    if (typeof body.endpoint === 'string') current.endpoint = body.endpoint;
     if (typeof body.maxParallel === 'number' && Number.isFinite(body.maxParallel)) {
       current.maxParallel = Math.max(1, Math.floor(body.maxParallel));
     }
@@ -83,10 +84,14 @@ export class WorkflowSettingsService {
           error: `HTTP ${res.status}`,
         };
       }
-      const body = (await res.json()) as WorkflowHealth;
+      // FoxAgent answers `{ status: 'ok' }` and leaves run admission to this
+      // control plane, so an engine that does not report `acceptsRuns` takes
+      // the state saved here.
+      const body = (await res.json()) as Partial<WorkflowHealth> & { status?: string };
       return {
-        ok: Boolean(body.ok),
-        acceptsRuns: Boolean(body.acceptsRuns),
+        ok: body.ok === true || body.status === 'ok',
+        acceptsRuns:
+          typeof body.acceptsRuns === 'boolean' ? body.acceptsRuns : config.state === 'enabled',
         version: body.version,
         endpoint,
       };

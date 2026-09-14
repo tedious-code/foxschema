@@ -122,7 +122,7 @@ database/    The metadata store and its migrations.
 | `schema` | Reading a schema |
 | `sql-editor` | SQL editor, code cells, sandboxed execution |
 | `users` | Profile, preferences, first-run wizard |
-| `workflow` | FoxWorkflow settings + engine health proxy |
+| `workflow` | Workflow engine settings and health, and the engine proxy: an allowlist of engine routes, each behind a `workflow.*` permission |
 
 Inside a feature:
 
@@ -163,6 +163,7 @@ Imports may run `app → features → shared`, never `shared → features`.
 | `schema-diff` | Diff rendering shared by compare and history |
 | `sql-editor` | SQL editor, results grid, data peek, utilities |
 | `utilities` | Clone table, index management, server insights |
+| `workflow` | Workflow designer (canvas, inspector, triggers), runs, variables, credentials and engine settings — all through the engine proxy |
 
 ## Where does my change go?
 

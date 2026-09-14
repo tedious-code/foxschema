@@ -49,6 +49,8 @@ export interface WorkflowHealth {
 export interface AdminConfigPut {
   acceptsRuns?: boolean;
   state?: EngineState;
+  /** Where the engine listens (http or https). Honoured by the FoxSchema proxy only. */
+  endpoint?: string;
   maxParallel?: number;
   onOverlap?: OverlapPolicy;
   sinks?: WorkflowLogSink[];
