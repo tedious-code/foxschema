@@ -2,7 +2,7 @@
   "name": "foxschema",
   "author": "Huy Phan <huyplb@gmail.com>",
   "private": true,
-  "version": "0.2.240",
+  "version": "0.2.243",
   "packageManager": "npm@11.6.2",
   "type": "module",
   "license": "Apache-2.0",
@@ -80,16 +80,16 @@
   },
   "devDependencies": {
     "@testing-library/react": "16.3.3",
-    "eslint": "10.9.1",
+    "eslint": "10.10.0",
     "eslint-plugin-react-hooks": "7.1.1",
     "eslint-plugin-security": "4.0.1",
     "ink": "7.1.1",
     "jsdom": "30.0.1",
-    "react": "19.2.8",
-    "react-dom": "19.2.8",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
     "turbo": "2.10.12",
     "typescript": "6.0.3",
-    "typescript-eslint": "8.69.0",
+    "typescript-eslint": "8.70.0",
     "vitest": "5.0.0"
   },
   "overrides": {
@@ -98,6 +98,6 @@
     "postcss": "8.5.26",
     "dompurify": "3.4.13",
     "adm-zip": "0.6.0",
-    "react-dom": "19.2.8"
+    "react-dom": "19.3.0"
   }
 }

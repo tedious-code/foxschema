@@ -1,6 +1,6 @@
 {
   "name": "@foxschema/cli",
-  "version": "0.2.240",
+  "version": "0.2.243",
   "private": true,
   "type": "module",
   "description": "Fox Schema CLI — schema diff, migrations, and a rich SQL Editor (TypeScript / Node ESM)",
@@ -30,20 +30,20 @@
     "@foxschema/shared": "*",
     "@foxschema/sql": "*",
     "@foxschema/web": "*",
-    "@inquirer/prompts": "8.7.1",
+    "@inquirer/prompts": "8.7.2",
     "@napi-rs/keyring": "2.0.0",
-    "chalk": "5.6.2",
+    "chalk": "6.0.0",
     "commander": "15.0.0",
     "env-paths": "4.0.0",
     "ink": "7.1.1",
     "ink-select-input": "6.2.0",
     "ink-spinner": "5.0.0",
     "ink-text-input": "6.0.0",
-    "react": "19.2.8",
+    "react": "19.3.0",
     "tsx": "4.23.13"
   },
   "devDependencies": {
-    "@types/react": "19.2.18",
+    "@types/react": "19.3.0",
     "esbuild": "0.28.2",
     "ink-testing-library": "4.0.0",
     "postject": "1.0.0-alpha.6"

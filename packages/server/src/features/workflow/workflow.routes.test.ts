@@ -68,7 +68,10 @@ async function serve(
     createWorkflowRoutes(settings, new WorkflowEngineProxyService(settings, fetchImpl)),
   );
 
-  app = Fastify();
+  // Destroy sockets on close rather than wait for them. A client that aborts
+  // mid-stream can leave its connection lingering on Linux, and the default
+  // graceful close then waits past the hook timeout.
+  app = Fastify({ forceCloseConnections: true });
   app.addHook('onRequest', async (req, reply) => {
     const authed = req as unknown as AuthedRequest;
     authed.userId = 'user-1';
