@@ -383,9 +383,7 @@ export function coerceHttpRequest(input: unknown): unknown {
   if (
     body === undefined ||
     body === null ||
-    (typeof body === 'object' &&
-      body !== null &&
-      'mode' in (body as object))
+    (typeof body === 'object' && 'mode' in (body as object))
   ) {
     // already structured or absent
   } else if (typeof body === 'string') {
