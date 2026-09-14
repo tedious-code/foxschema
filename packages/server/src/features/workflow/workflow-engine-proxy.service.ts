@@ -57,7 +57,6 @@ export const ENGINE_ROUTES: readonly EngineRoute[] = [
   { method: 'POST', path: '/workflows/:id/duplicate', permission: 'workflow.design' },
   { method: 'POST', path: '/workflows/:id/extract-pipeline', permission: 'workflow.design' },
   { method: 'POST', path: '/preview/parse', permission: 'workflow.design' },
-  { method: 'POST', path: '/browser/compile/codegen', permission: 'workflow.design' },
   { method: 'GET', path: '/environments', permission: 'workflow.design' },
   { method: 'POST', path: '/environments', permission: 'workflow.design' },
   { method: 'POST', path: '/environments/:id/activate', permission: 'workflow.design' },
@@ -85,8 +84,18 @@ export class EngineUnavailableError extends Error {
   }
 }
 
+/** A request that would start a run arrived while the engine is not `enabled`. */
+export class EngineNotAcceptingRunsError extends Error {
+  constructor() {
+    super('The workflow engine is not accepting new runs. A workflow admin can enable it in the control panel.');
+    this.name = 'EngineNotAcceptingRunsError';
+  }
+}
+
 export interface EngineRequest {
   method: EngineRoute['method'];
+  /** Refused unless the engine is `enabled`: `draining` finishes work and takes nothing new. */
+  startsRun?: boolean;
   /** Path under the engine's `/api`, still URL-encoded — e.g. `/workflows/a%2Fb`. */
   path: string;
   /** Query string without the leading `?`, or empty. */
@@ -120,13 +129,11 @@ export class WorkflowEngineProxyService {
     private readonly fetchImpl: typeof fetch = fetch,
   ) {}
 
-  /** `draining` finishes what is running and takes nothing new; `disabled` takes nothing. */
-  async acceptsRuns(): Promise<boolean> {
-    return (await this.settings.getConfig()).state === 'enabled';
-  }
-
   async forward(request: EngineRequest): Promise<Response> {
-    const base = engineBaseUrl((await this.settings.getConfig()).endpoint);
+    // One settings read serves both the run gate and the endpoint.
+    const config = await this.settings.getConfig();
+    if (request.startsRun && config.state !== 'enabled') throw new EngineNotAcceptingRunsError();
+    const base = engineBaseUrl(config.endpoint);
     const url = `${base}/api${request.path}${request.search ? `?${request.search}` : ''}`;
     // A JSON content type on an empty body is rejected by the engine's Fastify
     // (FST_ERR_CTP_EMPTY_JSON_BODY), so it is only claimed when there is one.

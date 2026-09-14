@@ -5,7 +5,7 @@
  *
  * Workflow designer — ported from FoxAgent (lib/zod-schema.ts).
  */
-import { z as zod } from 'zod/v4';
+import { z as zod } from 'zod';
 
 /**
  * Compile designer-authored Zod code into an ajv-compatible JSON Schema

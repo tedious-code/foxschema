@@ -16,6 +16,7 @@ import { beginStream, pathOf, streamEnd, streamWrite } from '../../platform/http
 import { WorkflowSettingsService } from './workflow-settings.service';
 import {
   ENGINE_ROUTES,
+  EngineNotAcceptingRunsError,
   EngineUnavailableError,
   engineBaseUrl,
   WorkflowEngineProxyService,
@@ -67,15 +68,6 @@ async function relayEventStream(upstream: Response, res: FastifyReply): Promise<
 
 function proxyTo(engine: WorkflowEngineProxyService, route: EngineRoute): RouteHandler {
   return async (req: AppRequest, res: FastifyReply) => {
-    if (route.startsRun && !(await engine.acceptsRuns())) {
-      sendError(
-        res,
-        'conflict',
-        'The workflow engine is not accepting new runs. A workflow admin can enable it in the control panel.',
-      );
-      return;
-    }
-
     // Abort the engine call if the client goes away. This listens on the
     // response: for a request that carries a body, Node emits the request's
     // `close` once that body has been read — before any handler runs — not when
@@ -91,8 +83,13 @@ function proxyTo(engine: WorkflowEngineProxyService, route: EngineRoute): RouteH
         search: searchOf(req),
         body: req.body,
         signal: abort.signal,
+        ...(route.startsRun ? { startsRun: true } : {}),
       });
     } catch (error) {
+      if (error instanceof EngineNotAcceptingRunsError) {
+        sendError(res, 'conflict', error.message);
+        return;
+      }
       if (error instanceof EngineUnavailableError) {
         sendError(res, 'unavailable', error.message);
         return;

@@ -1374,7 +1374,6 @@
   background: color-mix(in srgb, var(--ok) 12%, transparent);
   color: var(--ok);
 }
-.fox-workflow .icon-button { border: 0; background: transparent; color: var(--muted); }
 .fox-workflow .execution-body { display: grid; grid-template-columns: 180px 1fr 190px; height: calc(100% - 35px); }
 .fox-workflow .execution-list,
 .fox-workflow .execution-info { padding: 9px 10px; overflow: auto; }
@@ -1492,35 +1491,6 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-.fox-workflow .browser-flow-editor {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.fox-workflow .browser-flow-step {
-  padding: 8px;
-  border: 1px solid var(--border-soft);
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--source) 12%, transparent);
-}
-.fox-workflow .browser-flow-step-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  margin-bottom: 6px;
-}
-.fox-workflow .browser-flow-step-head strong {
-  font-size: 10px;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.fox-workflow .browser-flow-step-actions {
-  display: inline-flex;
-  gap: 2px;
 }
 .fox-workflow .multi-http-row {
   padding: 8px;
@@ -1643,9 +1613,6 @@
   margin-bottom: 8px;
 }
 .fox-workflow .workflow-variables-section .variable-table { margin-top: 8px; }
-.fox-workflow .browser-codegen-dialog { width: min(720px, 96vw); height: min(640px, 90vh); }
-.fox-workflow .browser-codegen-body { height: calc(100% - 62px); padding: 18px 20px; overflow: auto; }
-.fox-workflow .browser-codegen-body textarea { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
 .fox-workflow .middleware-row { margin-top: 8px; padding: 10px; border: 1px solid var(--border-soft); border-radius: 4px; background: color-mix(in srgb, var(--source) 12%, transparent); }
 .fox-workflow .middleware-row-head { display: flex; align-items: center; gap: 7px; margin-bottom: 6px; }
 .fox-workflow .middleware-row-order { display: grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); font-size: 8px; font-weight: 600; }

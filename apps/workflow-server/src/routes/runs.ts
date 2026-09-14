@@ -1,0 +1,361 @@
+/**
+ * Fox Schema (foxschema)
+ * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Workflow engine — moved from FoxAgent (apps/api/src/routes/runs.ts).
+ */
+import type { FastifyInstance } from 'fastify';
+import type { ZodTypeProvider } from '../zod-provider.js';
+import { z } from 'zod';
+import { redactAnswer, type HumanInputField } from '@foxschema/workflow-engine';
+import { assertNoWorkflowCycles } from '@foxschema/workflow-engine';
+import type { AppContext } from '../context.js';
+import { buildRunFailureSummary } from '../run-failure.js';
+
+/** Optional per-run environment override and designer debug capture. */
+const runBodySchema = z.object({
+  environment: z.string().min(1).optional(),
+  /** When true, the executor emits truncated per-port I/O samples. */
+  debug: z.boolean().optional(),
+});
+
+export function runRoutes(ctx: AppContext) {
+  return async (app: FastifyInstance) => {
+    const r = app.withTypeProvider<ZodTypeProvider>();
+    /**
+     * Live SSE pollers, so shutdown can stop them all at once. Without this a
+     * stream's interval could keep querying the event store after onClose has
+     * closed the database underneath it.
+     */
+    const openStreams = new Set<() => void>();
+    app.addHook('onClose', async () => {
+      for (const stop of [...openStreams]) stop();
+    });
+
+    r.post(
+      '/workflows/:id/run',
+      { schema: { params: z.object({ id: z.string() }) } },
+      // The body is deliberately not in the fastify schema: this endpoint is
+      // normally called with no body at all, and a declared body schema 400s
+      // those bare POSTs. Parsed by hand below instead.
+      async (req, reply) => {
+        const workflow = await ctx.workflows.get(req.params.id);
+        if (!workflow) {
+          return reply.code(404).send({ error: 'workflow not found' });
+        }
+
+        // Layer 2 circular detection — re-walk the reference graph at
+        // admission; edits to other workflows since save can introduce cycles.
+        try {
+          await assertNoWorkflowCycles(workflow, (id) => ctx.workflows.get(id));
+        } catch (error) {
+          return reply.code(400).send({ error: (error as Error).message });
+        }
+
+        const body = runBodySchema.safeParse(req.body ?? {});
+        if (!body.success) {
+          return reply.code(400).send({
+            error:
+              'body must be { environment?: string, debug?: boolean }',
+          });
+        }
+        const { environment, debug } = body.data;
+        let result;
+        try {
+          result = await ctx.scheduler.enqueue(
+            workflow,
+            undefined,
+            {
+              ...(environment ? { environment } : {}),
+              ...(debug ? { debug: true } : {}),
+            },
+          );
+        } catch (error) {
+          const message = (error as Error).message;
+          // Input-contract and unknown-environment failures are the caller's
+          // fault, not a conflict.
+          const status =
+            (error as Error).name === 'WorkflowInputError' ||
+            message.startsWith('unknown environment:')
+              ? 400
+              : 409;
+          return reply.code(status).send({ error: message });
+        }
+        return reply.code(202).send({
+          runId: result.run?.id,
+          status: result.run?.status,
+          accepted: result.accepted,
+          ...(result.reason ? { reason: result.reason } : {}),
+          ...(result.detail ? { detail: result.detail } : {}),
+          ...(result.reason ? { reason: result.reason } : {}),
+        });
+      },
+    );
+
+    r.get(
+      '/runs/:id',
+      { schema: { params: z.object({ id: z.string() }) } },
+      async (req, reply) => {
+        const run = await ctx.runs.get(req.params.id);
+        if (!run) return reply.code(404).send({ error: 'not found' });
+        const [pipelines, pipes] = await Promise.all([
+          ctx.runs.listPipelines(run.id),
+          ctx.runs.listPipes(run.id),
+        ]);
+        return { ...run, pipelines, pipes };
+      },
+    );
+
+    /**
+     * Compact failure / outcome summary for agents and the Runs UI
+     * (Agentic OS Phase E) — which pipeline/pipe/gate failed, AI failover.
+     */
+    r.get(
+      '/runs/:id/failure',
+      { schema: { params: z.object({ id: z.string() }) } },
+      async (req, reply) => {
+        const run = await ctx.runs.get(req.params.id);
+        if (!run) return reply.code(404).send({ error: 'not found' });
+        const [pipelines, pipes, events, workflow] = await Promise.all([
+          ctx.runs.listPipelines(run.id),
+          ctx.runs.listPipes(run.id),
+          ctx.events.list(run.id),
+          ctx.workflows.get(run.workflowId),
+        ]);
+        return buildRunFailureSummary({
+          run,
+          ...(workflow ? { workflow } : {}),
+          pipelines,
+          pipes,
+          events,
+        });
+      },
+    );
+
+    r.get('/runs', {}, async () => ctx.runs.list());
+
+    r.get(
+      '/runs/:id/events',
+      {
+        schema: {
+          params: z.object({ id: z.string() }),
+          querystring: z.object({ after: z.coerce.number().int().min(0).default(0) }),
+        },
+      },
+      async (req, reply) => {
+        if (!(await ctx.runs.get(req.params.id))) {
+          return reply.code(404).send({ error: 'not found' });
+        }
+        return {
+          events: await ctx.events.list(req.params.id, req.query.after),
+        };
+      },
+    );
+
+    r.get(
+      '/runs/:id/events/stream',
+      {
+        schema: {
+          params: z.object({ id: z.string() }),
+          querystring: z.object({ after: z.coerce.number().int().min(0).default(0) }),
+        },
+      },
+      async (req, reply) => {
+        if (!(await ctx.runs.get(req.params.id))) {
+          return reply.code(404).send({ error: 'not found' });
+        }
+        reply.hijack();
+        reply.raw.writeHead(200, {
+          'content-type': 'text/event-stream',
+          'cache-control': 'no-cache',
+          connection: 'keep-alive',
+        });
+        let after = req.query.after;
+        let closed = false;
+        const write = async () => {
+          if (closed) return;
+          const events = await ctx.events.list(req.params.id, after);
+          for (const event of events) {
+            reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
+            after = event.seq;
+          }
+        };
+        await write();
+        // Poll cadence is the floor on how fast the designer sees progress.
+        // The query is a single indexed range scan (~1ms), so 100ms buys a
+        // responsive execution panel at negligible cost; a stream lives only
+        // as long as its run is being watched.
+        const timer = setInterval(() => {
+          void write().catch(() => undefined);
+        }, 100);
+        // An open SSE stream must not keep the process alive on its own — the
+        // client socket already does that, and this poller would otherwise
+        // outlive shutdown and block exit.
+        timer.unref?.();
+        const stop = () => {
+          closed = true;
+          clearInterval(timer);
+          openStreams.delete(stop);
+        };
+        openStreams.add(stop);
+        req.raw.on('close', stop);
+      },
+    );
+
+    r.post(
+      '/runs/:id/cancel',
+      { schema: { params: z.object({ id: z.string() }) } },
+      async (req, reply) => {
+        const run = await ctx.scheduler.cancel(req.params.id);
+        if (!run) return reply.code(404).send({ error: 'not found' });
+        return reply.code(202).send({ runId: run.id, status: run.status });
+      },
+    );
+
+    /**
+     * What this run is waiting for a person to supply — the form to render,
+     * on a page or a phone. Field *definitions* only: an answer already given
+     * is never returned, or this endpoint would be a way to read back every
+     * OTP the installation has ever been told.
+     */
+    r.get(
+      '/runs/:id/inputs',
+      { schema: { params: z.object({ id: z.string() }) } },
+      async (req, reply) => {
+        const run = await ctx.runs.get(req.params.id);
+        if (!run) return reply.code(404).send({ error: 'not found' });
+        const pending = await ctx.humanInputs.pending(req.params.id);
+        return {
+          runId: run.id,
+          status: run.status,
+          pending: pending.map((record) => ({
+            key: record.request.key,
+            prompt: record.request.prompt,
+            channel: record.request.channel,
+            pipelineId: record.pipelineId,
+            expiresAt: record.expiresAt,
+            fields: record.request.fields,
+          })),
+        };
+      },
+    );
+
+    /**
+     * Answer, then resume. One call rather than two because a client that
+     * answered and failed to resume would leave the run parked with its
+     * question already marked answered — nothing would ever ask again.
+     */
+    r.post(
+      '/runs/:id/inputs',
+      {
+        schema: {
+          params: z.object({ id: z.string() }),
+          body: z.object({
+            key: z.string().min(1),
+            values: z.record(z.string(), z.unknown()),
+          }),
+        },
+      },
+      async (req, reply) => {
+        const run = await ctx.runs.get(req.params.id);
+        if (!run) return reply.code(404).send({ error: 'not found' });
+
+        const record = await ctx.humanInputs.get(req.params.id, req.body.key);
+        if (!record) {
+          return reply.code(404).send({ error: `no such question: ${req.body.key}` });
+        }
+        if (record.status !== 'pending') {
+          // Answering an expired or already-answered question must not resume
+          // the run: the pipe would find a stale value and proceed on it.
+          return reply
+            .code(409)
+            .send({ error: `question is ${record.status}, not pending` });
+        }
+
+        const problems = validateAnswer(record.request.fields, req.body.values);
+        if (problems.length > 0) {
+          return reply.code(400).send({ error: 'invalid answer', problems });
+        }
+
+        await ctx.humanInputs.answer(
+          req.params.id,
+          req.body.key,
+          req.body.values,
+          new Date().toISOString(),
+        );
+        await ctx.events.append({
+          workflowRunId: run.id,
+          pipelineId: record.pipelineId,
+          at: new Date().toISOString(),
+          type: 'human.input.received',
+          message: `answered: ${record.request.key}`,
+          // Redacted at the boundary so a new caller cannot forget to.
+          data: { key: record.request.key, values: redactAnswer(record.request.fields, req.body.values) },
+        });
+
+        try {
+          const resumed = await ctx.scheduler.resume(req.params.id);
+          return reply.code(202).send({ runId: run.id, status: resumed?.status ?? 'queued' });
+        } catch (error) {
+          return reply.code(409).send({ error: (error as Error).message });
+        }
+      },
+    );
+
+    r.post(
+      '/runs/:id/resume',
+      { schema: { params: z.object({ id: z.string() }) } },
+      async (req, reply) => {
+        try {
+          const run = await ctx.scheduler.resume(req.params.id);
+          if (!run) return reply.code(404).send({ error: 'not found' });
+          return reply.code(202).send({ runId: run.id, status: 'queued' });
+        } catch (error) {
+          return reply.code(409).send({ error: (error as Error).message });
+        }
+      },
+    );
+  };
+}
+
+/**
+ * Check an answer against the fields that were asked for.
+ *
+ * Server-side because the form is only one of the ways in — a phone, a script,
+ * or a curl can all POST here, and "the UI validates it" is not validation.
+ */
+function validateAnswer(
+  fields: HumanInputField[],
+  values: Record<string, unknown>,
+): string[] {
+  const problems: string[] = [];
+  for (const field of fields) {
+    const value = values[field.key];
+    if (value === undefined || value === '') {
+      if (!field.optional) problems.push(`${field.key} is required`);
+      continue;
+    }
+    if (field.type === 'number' && typeof value !== 'number') {
+      problems.push(`${field.key} must be a number`);
+      continue;
+    }
+    if (field.type === 'boolean' && typeof value !== 'boolean') {
+      problems.push(`${field.key} must be true or false`);
+      continue;
+    }
+    if (field.pattern) {
+      // Anchored: an unanchored `\d{6}` would accept a 6-digit substring of
+      // something much longer, which for an OTP is exactly wrong.
+      const anchored = new RegExp(`^(?:${field.pattern})$`);
+      if (!anchored.test(String(value))) {
+        problems.push(`${field.key} does not match the expected format`);
+      }
+    }
+  }
+  const known = new Set(fields.map((field) => field.key));
+  for (const key of Object.keys(values)) {
+    if (!known.has(key)) problems.push(`unexpected field: ${key}`);
+  }
+  return problems;
+}

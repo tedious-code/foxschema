@@ -14,6 +14,14 @@ const aliases = [
     replacement: pkg('./packages/workflow-contract/src/index.ts'),
   },
   {
+    find: '@foxschema/workflow-engine/definitions',
+    replacement: pkg('./packages/workflow-engine/src/definitions.ts'),
+  },
+  {
+    find: /^@foxschema\/workflow-engine$/,
+    replacement: pkg('./packages/workflow-engine/src/index.ts'),
+  },
+  {
     find: '@foxschema/rbac-contract',
     replacement: pkg('./packages/rbac-contract/src/index.ts'),
   },
@@ -38,7 +46,7 @@ export default defineConfig({
           include: [
             'packages/**/*.test.ts',
             'apps/web/**/*.test.ts',
-            'apps/foxworkflow/**/*.test.ts',
+            'apps/workflow-server/**/*.test.ts',
             'apps/cli/src/**/*.test.ts',
             'scripts/security/**/*.test.mjs',
           ],

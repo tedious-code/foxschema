@@ -42,6 +42,28 @@ export function createCronRetryConfig(): CronRetryConfig {
   };
 }
 
+/** How a webhook caller proves it may start the run. Mirrors the engine's `webhookAuthSchema`. */
+export type WebhookAuthValue =
+  | { type: 'none'; acknowledgeUnauthenticated: true }
+  | {
+      type: 'signature';
+      credentialId: string;
+      signatureHeader: string;
+      timestampHeader: string;
+      maxAgeSeconds: number;
+    }
+  | { type: 'basic'; credentialId: string }
+  | { type: 'header'; credentialId: string; header: string }
+  | {
+      type: 'jwt';
+      credentialId: string;
+      header: string;
+      algorithms: ('HS256' | 'HS384' | 'HS512' | 'RS256' | 'RS384' | 'RS512')[];
+      issuer?: string;
+      audience?: string;
+      clockToleranceSeconds: number;
+    };
+
 export type WorkflowTrigger =
   | (CommonTrigger & { kind: 'manual'; inputData?: unknown })
   | (CommonTrigger & {
@@ -56,11 +78,12 @@ export type WorkflowTrigger =
     })
   | (CommonTrigger & {
       kind: 'webhook';
-      credentialId: string;
-      signatureHeader: string;
-      timestampHeader: string;
+      auth: WebhookAuthValue;
+      methods: ('GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE')[];
+      /** Vanity path served at /api/hooks/<path>. */
+      path?: string;
       idempotencyHeader: string;
-      maxAgeSeconds: number;
+      onMissingIdempotencyKey: 'reject' | 'fingerprint';
       maxBodyBytes: number;
     })
   | (CommonTrigger & {
@@ -129,13 +152,20 @@ export function createTrigger(
       return {
         ...common,
         kind,
-        credentialId: '',
-        // The API verifies these header names (apps/api). They are protocol,
-        // not branding — the FoxFlow → FoxAgent rename must not reach them.
-        signatureHeader: 'x-foxflow-signature',
-        timestampHeader: 'x-foxflow-timestamp',
+        // Signature is the strongest option and the historical default, so a
+        // new webhook starts there rather than at the one that needs no setup.
+        // The header names are wire protocol the engine verifies — not branding
+        // for a rename to reach.
+        auth: {
+          type: 'signature',
+          credentialId: '',
+          signatureHeader: 'x-foxflow-signature',
+          timestampHeader: 'x-foxflow-timestamp',
+          maxAgeSeconds: 300,
+        },
+        methods: ['POST'],
         idempotencyHeader: 'x-idempotency-key',
-        maxAgeSeconds: 300,
+        onMissingIdempotencyKey: 'reject',
         maxBodyBytes: 1_048_576,
       };
     case 'http':
@@ -166,6 +196,23 @@ export function createTrigger(
     case 'custom':
       return { ...common, kind, pluginId: '', config: {} };
   }
+}
+
+/**
+ * The credential a trigger authenticates with, wherever it lives: `http` keeps
+ * it flat, `webhook` keeps it inside `auth`, and `auth: none` has none.
+ */
+export function triggerCredentialId(trigger: WorkflowTrigger): string {
+  if (trigger.kind === 'http') return trigger.credentialId;
+  if (trigger.kind !== 'webhook') return '';
+  return trigger.auth.type === 'none' ? '' : trigger.auth.credentialId;
+}
+
+/** `trigger` with its credential set; unchanged for kinds (or `auth: none`) that take none. */
+export function withTriggerCredentialId(trigger: WorkflowTrigger, credentialId: string): WorkflowTrigger {
+  if (trigger.kind === 'http') return { ...trigger, credentialId };
+  if (trigger.kind !== 'webhook' || trigger.auth.type === 'none') return trigger;
+  return { ...trigger, auth: { ...trigger.auth, credentialId } };
 }
 
 /** First free id of the form `kind`, `kind-2`, `kind-3`, … */

@@ -453,30 +453,4 @@ export const api = {
       body: input,
     });
   },
-
-  /** B4: compile Playwright Codegen / Inspector output into Workflow JSON. */
-  compileBrowserCodegen(body: {
-    id: string;
-    name?: string;
-    description?: string;
-    source: string;
-    credentialId?: string;
-    callable?: boolean;
-    remapSecrets?: boolean;
-    save?: boolean;
-    overwrite?: boolean;
-  }): Promise<{
-    workflow: unknown;
-    warnings: Array<{
-      code: string;
-      step: number;
-      selector?: string;
-      message: string;
-    }>;
-  }> {
-    return request('/browser/compile/codegen', {
-      method: 'POST',
-      body: body,
-    });
-  },
 };

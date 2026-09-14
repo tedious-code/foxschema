@@ -16,8 +16,13 @@ packages/shared             Contracts the frontend, server and CLI must agree on
                             permission names, error codes, wire message shapes,
                             and the COMMUNITY_NAV registry (`nav.ts`). Browser-safe.
 
-packages/workflow-contract  Browser-safe FoxWorkflow engine types (config, health,
-                            sinks, overlap policy) and COMMUNITY_WORKSPACE_ID.
+packages/workflow-contract  Browser-safe control-plane types for the workflow engine
+                            (config, health, sinks, overlap policy) and
+                            COMMUNITY_WORKSPACE_ID.
+
+packages/workflow-engine    The workflow engine: definitions, compiler, runtime,
+                            SQLite stores, credentials and the built-in pipes
+                            (`src/pipes/*`). Node only. Depends on sql.
 
 packages/rbac-contract      RbacProvider interface + CommunityRbacProvider.
 
@@ -31,7 +36,9 @@ packages/features/*         Feature package markers / future extraction homes.
 
 apps/web                    The frontend, plus the entry point that serves it.
 apps/cli                    The `foxschema` command line tool.
-apps/foxworkflow            Minimal FoxWorkflow engine HTTP process (port 8081).
+apps/workflow-server        The workflow engine's HTTP process (port 8081), plus
+                            optional scheduler and worker roles. Reached only
+                            through the server's engine proxy.
 apps/e2e                    Browser tests that drive the running application.
 ```
 
@@ -40,7 +47,8 @@ Imports may only run in one direction:
 ```
 sql  ←  db      ←  server  ←  web, cli
 sql  ←  shared  ←  server, web, cli
-workflow-contract  ←  server, foxworkflow, web
+workflow-contract  ←  server, web
+sql  ←  workflow-engine  ←  workflow-server
 rbac-contract      ←  server, web, enterprise/rbac
 ```
 

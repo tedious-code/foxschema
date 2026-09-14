@@ -119,7 +119,13 @@ describe('frontend layering', () => {
     // fails at bundle time. Checking here gives a clearer message than a module
     // resolution error.
     const banned = imports
-      .filter((i) => i.spec === '@foxschema/db' || i.spec.startsWith('@foxschema/server'))
+      .filter(
+        (i) =>
+          i.spec === '@foxschema/db' ||
+          i.spec.startsWith('@foxschema/server') ||
+          // Only the browser-safe `@foxschema/workflow-engine/definitions` entry.
+          i.spec === '@foxschema/workflow-engine',
+      )
       .map((i) => `${i.from} → ${i.spec}`);
     expect(banned).toEqual([]);
   });

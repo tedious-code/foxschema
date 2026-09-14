@@ -45,6 +45,8 @@ import {
   createTrigger,
   credentialsForTrigger,
   nextTriggerId,
+  triggerCredentialId,
+  withTriggerCredentialId,
   type WorkflowTrigger,
 } from '../lib/triggers';
 import { Button, Input, Label, Select, Textarea, TimezoneSelect } from './controls';
@@ -733,9 +735,9 @@ export function TriggerConfigurationDialog({
                       <div>
                         <Label>Authentication</Label>
                         <Select
-                          value={trigger.credentialId}
+                          value={triggerCredentialId(trigger)}
                           onChange={(event) =>
-                            patch({ ...trigger, credentialId: event.target.value })
+                            patch(withTriggerCredentialId(trigger, event.target.value))
                           }
                         >
                           <option value="">None</option>
