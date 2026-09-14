@@ -9,11 +9,13 @@
 import type { FastifyReply } from 'fastify';
 import type { AppRequest, RouteHandler } from '../../platform/http/types';
 import { Router } from '../../platform/http/router';
-import type { AdminConfigPut } from '@foxschema/workflow-contract';
+import { connectionCredentialId, type AdminConfigPut } from '@foxschema/workflow-contract';
 import { requirePermissions } from '../authorization/rbac.guard';
 import { sendError } from '../../platform/http/respond';
 import { beginStream, pathOf, streamEnd, streamWrite } from '../../platform/http/reply';
 import { WorkflowSettingsService } from './workflow-settings.service';
+import { WorkflowConnectionGrants } from './workflow-connection-grants.service';
+import { actorOf } from '../../platform/http/actor-of';
 import {
   ENGINE_ROUTES,
   EngineNotAcceptingRunsError,
@@ -125,8 +127,89 @@ function proxyTo(engine: WorkflowEngineProxyService, route: EngineRoute): RouteH
 export function createWorkflowRoutes(
   settings = new WorkflowSettingsService(),
   engine = new WorkflowEngineProxyService(settings),
+  grants: Pick<WorkflowConnectionGrants, 'list' | 'grant' | 'revoke'> = new WorkflowConnectionGrants(),
 ): Router {
   const router = Router();
+
+  // Saved connections, and which of them workflows may use. Only the owner can
+  // grant one: the engine then resolves it on their behalf, per run. The
+  // permission guard has already refused a caller with no user.
+  router.get(
+    '/connections',
+    requirePermissions('workflow.design'),
+    async (req: AppRequest, res: FastifyReply) => {
+      res.send({ connections: await grants.list(actorOf(req).userId!) });
+    },
+  );
+
+  router.put(
+    '/connections/:id/grant',
+    requirePermissions('workflow.design'),
+    async (req: AppRequest, res: FastifyReply) => {
+      const userId = actorOf(req).userId!;
+      const { id } = req.params as { id: string };
+      const name = await grants.grant(userId, id);
+      if (name === undefined) {
+        sendError(res, 'not_found', 'Saved connection not found');
+        return;
+      }
+      // The engine credential that points at the connection. Created here,
+      // under the designer's permission, because it holds a reference and no
+      // secret; the engine's own credential route stays admin-only because
+      // everything else it stores is a secret.
+      const credentialId = connectionCredentialId(id);
+      let upstream: Response | undefined;
+      try {
+        upstream = await engine.forward({
+          method: 'POST',
+          path: '/credentials',
+          search: '',
+          body: {
+            id: credentialId,
+            name: (name || id).slice(0, 80),
+            kind: 'database',
+            source: 'foxschema',
+            data: { connectionId: id },
+          },
+        });
+      } catch (error) {
+        if (!(error instanceof EngineUnavailableError)) throw error;
+      }
+      if (!upstream?.ok) {
+        // A grant the engine cannot use is not worth keeping.
+        await grants.revoke(userId, id);
+        sendError(
+          res,
+          'unavailable',
+          upstream
+            ? `The workflow engine did not record the connection (HTTP ${upstream.status})`
+            : 'The workflow engine is unreachable, so the connection was not linked',
+        );
+        return;
+      }
+      res.send({ ok: true, credentialId });
+    },
+  );
+
+  router.delete(
+    '/connections/:id/grant',
+    requirePermissions('workflow.design'),
+    async (req: AppRequest, res: FastifyReply) => {
+      const { id } = req.params as { id: string };
+      if (await grants.revoke(actorOf(req).userId!, id)) {
+        // Best effort: without the grant the engine can no longer resolve the
+        // connection anyway, so a leftover credential only lingers in a list.
+        await engine
+          .forward({
+            method: 'DELETE',
+            path: `/credentials/${encodeURIComponent(connectionCredentialId(id))}`,
+            search: '',
+          })
+          .catch(() => undefined);
+      }
+      res.send({ ok: true });
+    },
+  );
 
   router.get(
     '/settings',

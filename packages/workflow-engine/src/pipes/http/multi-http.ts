@@ -18,6 +18,7 @@ import type {
   SourcePipe,
 } from '../../registry/index.js';
 import { definePipeMetadata, type PipeMetadata } from '../../sdk/index.js';
+import { revealPipeSecret } from '../pipe-context.js';
 import { executeHttpRequest } from './request.js';
 
 const endpointSchema = z.preprocess((input) => {
@@ -217,10 +218,7 @@ async function fetchOneEndpoint(options: {
     endpoint.auth.type === 'credential'
       ? endpoint.auth.credentialId
       : context.pipe.credentialId;
-  const secret = authCredentialId
-    ? await (context.infrastructure?.secrets.get(authCredentialId) ??
-        context.credentials?.revealSecret(authCredentialId))
-    : undefined;
+  const secret = await revealPipeSecret(context, authCredentialId);
 
   const result = await executeHttpRequest({
     request: endpoint,

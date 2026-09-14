@@ -6,8 +6,10 @@
  * Worker role: recovers interrupted runs, then keeps executing queued ones.
  */
 import { createEngine } from './context.js';
+import { attachEngineSettings } from './engine-settings.js';
 
 const engine = createEngine({ instanceId: process.env.FOXFLOW_INSTANCE_ID ?? 'worker' });
+const detachSettings = attachEngineSettings(engine);
 
 await engine.start();
 console.log('workflow worker recovered queued/interrupted runs');
@@ -20,6 +22,8 @@ setInterval(() => {
 }, pollMs).unref?.();
 
 process.on('SIGINT', () => {
-  engine.close();
-  process.exit(0);
+  void detachSettings().finally(() => {
+    engine.close();
+    process.exit(0);
+  });
 });

@@ -13,6 +13,7 @@
 import { isPageableStatement } from '@foxschema/db';
 import {
   isSafeSeekColumn,
+  isTsqlDialect,
   parseTopLevelOrderBy,
   placeholderStyleFor,
   quoteSqlIdentifier,
@@ -20,9 +21,6 @@ import {
 } from '@foxschema/sql';
 
 export { isPageableStatement };
-
-/** Dialects that use T-SQL OFFSET/FETCH (not MySQL/Postgres LIMIT). */
-const TSQL_DIALECTS = new Set(['sqlserver', 'mssql', 'azuresql']);
 
 /** Derived-table alias for page wraps (no leading underscore — see file header). */
 const PAGE_ALIAS = 'fox_page';
@@ -133,7 +131,7 @@ export function wrapSqlForPage(
   const inner = trimmed;
   const fetchLimit = limit + 1; // +1 probe row
 
-  if (TSQL_DIALECTS.has(d)) {
+  if (isTsqlDialect(d)) {
     // SQL Server / Azure SQL require ORDER BY for OFFSET/FETCH.
     // Prefer appending to a top-level ORDER BY so paging stays stable and the
     // engine accepts the statement (ORDER BY inside a bare derived table is illegal).
@@ -220,7 +218,6 @@ export function wrapSqlForSeek(
   const seekParams: unknown[] = [];
   const nextPh = (): string => {
     const idx = existingParamCount + seekParams.length;
-    if (TSQL_DIALECTS.has(d)) return `@p${idx}`;
     return renderPlaceholder(style, idx + 1);
   };
   for (let i = 0; i < seek.columns.length; i++) {
@@ -239,7 +236,7 @@ export function wrapSqlForSeek(
     .map((t) => `${quoteSqlIdentifier(t.column, dialect)}${t.descending ? ' DESC' : ''}`)
     .join(', ');
   let wrapped: string;
-  if (TSQL_DIALECTS.has(d)) {
+  if (isTsqlDialect(d)) {
     wrapped = `SELECT * FROM (${inner}) AS ${PAGE_ALIAS} WHERE ${pred} ORDER BY ${orderSql} OFFSET 0 ROWS FETCH NEXT ${fetchLimit} ROWS ONLY`;
   } else if (d === 'oracle') {
     wrapped = `SELECT * FROM (${inner}) ${PAGE_ALIAS} WHERE ${pred} ORDER BY ${orderSql} OFFSET 0 ROWS FETCH NEXT ${fetchLimit} ROWS ONLY`;

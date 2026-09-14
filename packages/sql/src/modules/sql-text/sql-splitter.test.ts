@@ -297,6 +297,40 @@ SELECT 1;`;
     expect(splitSqlStatements(sql)).toHaveLength(2);
   });
 
+  it('keeps an anonymous BEGIN … END block as one statement', () => {
+    const sql = `BEGIN
+  DELETE FROM staging;
+  INSERT INTO staging SELECT * FROM raw;
+END;
+SELECT 1;`;
+    const stmts = splitSqlStatements(sql);
+    expect(stmts).toHaveLength(2);
+    expect(stmts[0]!.text).toContain('INSERT INTO staging');
+    expect(stmts[0]!.text).toMatch(/END;$/);
+    expect(stmts[1]!.text.trim()).toBe('SELECT 1;');
+  });
+
+  it('keeps nested anonymous blocks together', () => {
+    const sql = `BEGIN BEGIN UPDATE t SET a = 1; END; UPDATE t SET b = 2; END;
+SELECT 1;`;
+    const stmts = splitSqlStatements(sql);
+    expect(stmts).toHaveLength(2);
+    expect(stmts[0]!.text).toContain('SET b = 2');
+  });
+
+  it.each([
+    'BEGIN;',
+    'BEGIN TRANSACTION;',
+    'BEGIN TRAN;',
+    'BEGIN WORK;',
+    'BEGIN ISOLATION LEVEL SERIALIZABLE;',
+    'BEGIN READ ONLY;',
+    'BEGIN DEFERRED TRANSACTION;',
+  ])('still splits transaction control: %s', (begin) => {
+    const stmts = splitSqlStatements(`${begin}\nUPDATE t SET a = 1;\nCOMMIT;`);
+    expect(stmts.map((s) => s.text.trim())).toEqual([begin, 'UPDATE t SET a = 1;', 'COMMIT;']);
+  });
+
   it('understands SQL Server CREATE PROC abbreviation', () => {
     const sql = `CREATE PROC dbo.bump
 AS

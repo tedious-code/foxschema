@@ -240,6 +240,13 @@ const migrations = [
     -- is why this is nullable rather than defaulting to an empty array.
     ALTER TABLE trigger_schedules ADD COLUMN seen_keys_json TEXT;
   `,
+  `
+    -- The runs list reads newest first across every workflow, and the
+    -- scheduler looks runs up by status to find what is queued or still
+    -- active. Without these both scan every run ever recorded.
+    CREATE INDEX IF NOT EXISTS workflow_runs_started_at ON workflow_runs(started_at);
+    CREATE INDEX IF NOT EXISTS workflow_runs_status ON workflow_runs(status, workflow_id);
+  `,
 ] as const;
 
 function migrate(db: DatabaseSync, encryptionKey: Buffer): void {
@@ -597,21 +604,40 @@ class SqliteRunStore implements RunStore {
 
   async get(id: string): Promise<WorkflowRunRecord | undefined> {
     const row = this.db
-      .prepare('SELECT * FROM workflow_runs WHERE id = ?')
+      .prepare(`SELECT ${RUN_COLUMNS} FROM workflow_runs WHERE id = ?`)
       .get(id) as Row | undefined;
     return row ? workflowRun(row) : undefined;
   }
 
-  async list(workflowId?: string): Promise<WorkflowRunRecord[]> {
-    const rows = workflowId
-      ? this.db
-          .prepare(
-            'SELECT * FROM workflow_runs WHERE workflow_id = ? ORDER BY started_at DESC',
-          )
-          .all(workflowId)
-      : this.db
-          .prepare('SELECT * FROM workflow_runs ORDER BY started_at DESC')
-          .all();
+  async list(
+    workflowId?: string,
+    filter: { status?: readonly WorkflowRunRecord['status'][]; limit?: number } = {},
+  ): Promise<WorkflowRunRecord[]> {
+    // Built from fixed fragments, so the statement cache holds a handful of
+    // variants rather than one per value.
+    const where: string[] = [];
+    const params: (string | number)[] = [];
+    if (workflowId) {
+      where.push('workflow_id = ?');
+      params.push(workflowId);
+    }
+    if (filter.status?.length) {
+      where.push(`status IN (${filter.status.map(() => '?').join(', ')})`);
+      params.push(...filter.status);
+    }
+    if (filter.limit !== undefined) params.push(filter.limit);
+    const rows = this.db
+      .prepare(
+        `SELECT ${RUN_COLUMNS} FROM workflow_runs
+         ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''}
+         ORDER BY ${
+           // `+started_at` stops SQLite ordering through the (workflow_id,
+           // started_at) index, which made a status lookup walk every run of
+           // the workflow; the status index finds the few active runs instead.
+           filter.status?.length ? '+started_at' : 'started_at'
+         } DESC${filter.limit !== undefined ? ' LIMIT ?' : ''}`,
+      )
+      .all(...params);
     return (rows as Row[]).map(workflowRun);
   }
 
@@ -655,7 +681,7 @@ class SqliteRunStore implements RunStore {
   ): Promise<WorkflowRunRecord | undefined> {
     const row = this.db
       .prepare(
-        `SELECT * FROM workflow_runs
+        `SELECT ${RUN_COLUMNS} FROM workflow_runs
          WHERE workflow_id = ? AND trigger_id = ? AND idempotency_key = ?`,
       )
       .get(
@@ -1325,11 +1351,34 @@ function humanInput(row: Row): HumanInputRecord {
   };
 }
 
+/**
+ * `db` with `prepare` memoised by SQL text.
+ *
+ * Every store method prepares its statement on each call, and compiling the
+ * SQL is most of what a small query costs: an event append or a checkpoint
+ * write paid for it on every batch of every run. A statement is reusable once
+ * its call returns, and nothing here holds one open across an `iterate()`.
+ * The set of statements is fixed by the code, so the cache is bounded.
+ */
+function withStatementCache(db: DatabaseSync): DatabaseSync {
+  const statements = new Map<string, ReturnType<DatabaseSync['prepare']>>();
+  const prepare = db.prepare.bind(db);
+  db.prepare = (sql: string) => {
+    let statement = statements.get(sql);
+    if (!statement) {
+      statement = prepare(sql);
+      statements.set(sql, statement);
+    }
+    return statement;
+  };
+  return db;
+}
+
 export function openSqliteStores(
   filename: string,
   encryptionKey: Buffer,
 ): SqliteStores {
-  const db = new DatabaseSync(filename);
+  const db = withStatementCache(new DatabaseSync(filename));
   if (filename !== ':memory:') db.exec('PRAGMA journal_mode = WAL');
   migrate(db, encryptionKey);
   return {
@@ -1394,6 +1443,28 @@ function credentialMeta(row: Row): CredentialMeta {
     updatedAt: String(row.updated_at),
   };
 }
+
+/**
+ * The columns {@link workflowRun} reads. Not `*`: every run row also carries
+ * the workflow snapshot it ran and its encrypted invocation, which are the
+ * largest values in the table and which nothing listing runs needs.
+ */
+const RUN_COLUMNS = [
+  'id',
+  'workflow_id',
+  'workflow_version',
+  'status',
+  'trigger',
+  'trigger_id',
+  'started_at',
+  'finished_at',
+  'error',
+  'instance_id',
+  'parent_run_id',
+  'environment_id',
+  'variables_json',
+  'debug',
+].join(', ');
 
 function workflowRun(row: Row): WorkflowRunRecord {
   return {

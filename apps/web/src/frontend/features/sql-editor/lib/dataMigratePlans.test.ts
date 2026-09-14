@@ -379,7 +379,8 @@ describe('data migrate across every dialect', () => {
     // must be the destination's.
     const sqlserver = build('sqlserver', false).plans[0]!.plan.sql;
     expect(sqlserver).toContain('[customers]');
-    expect(sqlserver).toContain('?');
+    // The SQL Server adapter binds @p0, @p1, …; a `?` there binds nothing.
+    expect(sqlserver).toContain('@p0');
 
     const postgres = build('postgres', false).plans[0]!.plan.sql;
     expect(postgres).toContain('"customers"');

@@ -16,7 +16,7 @@
  */
 
 /** Placeholder syntax per engine family. */
-export type SqlPlaceholderStyle = 'dollar' | 'question' | 'colon';
+export type SqlPlaceholderStyle = 'dollar' | 'question' | 'colon' | 'at';
 
 // ClickHouse's adapter substitutes `$N` (string-escaped) — it does not bind `?`.
 // Emitting question-mark placeholders left peek FK drills and `sql\`…\`` cells
@@ -31,19 +31,28 @@ const DOLLAR_DIALECTS = new Set([
 ]);
 const COLON_DIALECTS = new Set(['oracle']);
 const BACKTICK_DIALECTS = new Set(['mysql', 'mariadb', 'tidb', 'clickhouse']);
-const BRACKET_DIALECTS = new Set(['sqlserver', 'azuresql']);
+/** The T-SQL family: bracket-quoted names, `@p0`-named parameters, OFFSET/FETCH paging. */
+const TSQL_DIALECTS = new Set(['sqlserver', 'mssql', 'azuresql']);
+
+export function isTsqlDialect(dialect: string): boolean {
+  return TSQL_DIALECTS.has(dialect.toLowerCase());
+}
 
 export function placeholderStyleFor(dialect: string): SqlPlaceholderStyle {
   const d = dialect.toLowerCase();
   if (DOLLAR_DIALECTS.has(d)) return 'dollar';
   if (COLON_DIALECTS.has(d)) return 'colon';
+  // The T-SQL adapters bind `@p0, @p1, …` by name. A `?` in the text binds
+  // nothing there, so the statement fails at the engine.
+  if (TSQL_DIALECTS.has(d)) return 'at';
   return 'question';
 }
 
-/** `index` is 1-based. */
+/** `index` is 1-based; `@p` names are 0-based, matching the adapters' binding. */
 export function renderPlaceholder(style: SqlPlaceholderStyle, index: number): string {
   if (style === 'dollar') return `$${index}`;
   if (style === 'colon') return `:${index}`;
+  if (style === 'at') return `@p${index - 1}`;
   return '?';
 }
 
@@ -55,7 +64,7 @@ export function renderPlaceholder(style: SqlPlaceholderStyle, index: number): st
 export function quoteSqlIdentifier(name: string, dialect: string): string {
   const d = dialect.toLowerCase();
   if (BACKTICK_DIALECTS.has(d)) return '`' + name.replace(/`/g, '``') + '`';
-  if (BRACKET_DIALECTS.has(d)) return '[' + name.replace(/]/g, ']]') + ']';
+  if (TSQL_DIALECTS.has(d)) return '[' + name.replace(/]/g, ']]') + ']';
   return '"' + name.replace(/"/g, '""') + '"';
 }
 

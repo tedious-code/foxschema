@@ -13,10 +13,12 @@ import type {
 } from '../../registry/index.js';
 import {
   REJECTS_PORT,
+  SandboxError,
   definePipeMetadata,
   errorPolicyField,
-  runSandboxed,
+  runSandboxedWithLogs,
   type PipeMetadata,
+  type SandboxLog,
 } from '../../sdk/index.js';
 
 const configSchema = z.object({
@@ -87,12 +89,14 @@ export class ScriptTransformPipe implements TransformPipe {
     const ports = new Map<string, RecordBatch>();
 
     try {
-      const result = await runSandboxed(config.script, batch.records, {
+      const { result, logs } = await runSandboxedWithLogs(config.script, batch.records, {
         timeoutMs: config.timeoutMs,
         maxOldGenerationSizeMb: config.memoryMb,
       });
+      forwardLogs(context, logs);
       ports.set('out', { ...batch, records: asRecords(result) });
     } catch (error) {
+      if (error instanceof SandboxError) forwardLogs(context, error.logs);
       if (config.onError === 'fail') throw error;
       // Dead-letter the whole batch: the script failed, so there is no
       // per-record verdict to give — the records are carried through with the
@@ -112,6 +116,13 @@ export class ScriptTransformPipe implements TransformPipe {
 
     return ports;
   }
+}
+
+/** What the script printed, into the run's log through the pipe's logger. */
+function forwardLogs(context: PipeContext, logs: readonly SandboxLog[]): void {
+  const logger = context.infrastructure?.logger;
+  if (!logger) return;
+  for (const line of logs) logger[line.level](line.message);
 }
 
 /**

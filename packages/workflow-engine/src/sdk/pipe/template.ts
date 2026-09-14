@@ -19,15 +19,36 @@ const SOLE_TOKEN = /^\s*\{\{\s*([a-zA-Z0-9_.$-]+)\s*\}\}\s*$/;
 export function interpolate(
   template: string,
   variables: Record<string, unknown>,
+  /** Applied to each substituted value, never to the template's own text — e.g. HTML escaping. */
+  escape: (value: string) => string = (value) => value,
 ): string {
   return template.replace(TOKEN, (_match, path: string) => {
     const value = getPath(variables, path);
     if (value === undefined || value === null) return '';
     if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-      return String(value);
+      return escape(String(value));
     }
-    return JSON.stringify(value);
+    return escape(JSON.stringify(value));
   });
+}
+
+/**
+ * A template cut at its tokens: the literal text around them, and each token's
+ * path. `strings` is always one longer than `paths`, the shape a tagged
+ * template has — for callers that must bind values rather than write them into
+ * text, as SQL does.
+ */
+export function splitTemplate(template: string): { strings: string[]; paths: string[] } {
+  const strings: string[] = [];
+  const paths: string[] = [];
+  let last = 0;
+  for (const match of template.matchAll(TOKEN)) {
+    strings.push(template.slice(last, match.index));
+    paths.push(match[1]!);
+    last = match.index + match[0].length;
+  }
+  strings.push(template.slice(last));
+  return { strings, paths };
 }
 
 /**

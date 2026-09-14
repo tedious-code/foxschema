@@ -6,6 +6,8 @@
  * Workflow designer — ported from FoxAgent (hooks/useDebugSamples.ts).
  */
 import { useEffect, useState } from 'react';
+import { RUN_STREAM_END_EVENT } from '@foxschema/workflow-contract';
+import { isTerminalRunStatus } from '@foxschema/workflow-engine/definitions';
 import { api, type RunEvent } from '../api/engineClient';
 import { pipeKey } from '../lib/pipeKey';
 
@@ -55,8 +57,6 @@ function parseSample(event: RunEvent): DebugSample | null {
   };
 }
 
-/** Run states after which no further events can arrive. */
-const TERMINAL = ['succeeded', 'failed', 'cancelled'];
 
 /** One human-readable log line per event, or null for events with no prose. */
 function describeEvent(
@@ -75,6 +75,12 @@ function describeEvent(
   const suffix = event.message ? ` — ${event.message}` : '';
 
   switch (event.type) {
+    case 'pipe.log':
+      return {
+        at: event.at,
+        text: `${where} ${event.message ?? ''}`,
+        level: event.data?.level === 'error' ? 'error' : 'info',
+      };
     case 'run.status':
       return { at: event.at, text: `▸ run ${status}${suffix}`, level };
     case 'pipeline.status':
@@ -278,7 +284,7 @@ export function useDebugSamples(runId: string | null): {
         if (
           event.type === 'run.status' &&
           typeof event.data?.status === 'string' &&
-          TERMINAL.includes(event.data.status)
+          isTerminalRunStatus(event.data.status)
         ) {
           stopPolling();
           void refreshDetail().catch(() => undefined);
@@ -290,6 +296,9 @@ export function useDebugSamples(runId: string | null): {
     source.onerror = () => {
       // The stream is best-effort; the poll below remains the safety net.
     };
+    // The engine sends `end` once the run has finished and every event is out.
+    // Left open, an EventSource would reconnect and replay the run from seq 0.
+    source.addEventListener(RUN_STREAM_END_EVENT, () => source?.close());
 
     // Safety net only: covers a dropped stream or a run that reached a
     // terminal state before this effect ran.
@@ -302,7 +311,7 @@ export function useDebugSamples(runId: string | null): {
     const poll = () =>
       refreshDetail().then(
         (runStatus) => {
-          if (!cancelled && runStatus && TERMINAL.includes(runStatus)) {
+          if (!cancelled && runStatus && isTerminalRunStatus(runStatus)) {
             stopPolling();
           }
         },

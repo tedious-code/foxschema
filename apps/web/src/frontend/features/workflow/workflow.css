@@ -1828,3 +1828,15 @@
   --xy-controls-button-border-color: var(--border);
   --xy-attribution-background-color: transparent;
 }
+
+/* SQL pipe editor: the tables of the linked connection, scrollable. */
+.sql-pipe-tables {
+  max-height: 12rem;
+  overflow-y: auto;
+  margin: 0.25rem 0;
+  padding: 0;
+  list-style: none;
+}
+.sql-pipe-tables li {
+  padding: 0.125rem 0;
+}

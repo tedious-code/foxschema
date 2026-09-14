@@ -28,6 +28,7 @@ import {
   type HttpRequestValue,
 } from './HttpRequestEditor';
 import { MultiHttpEditor } from './MultiHttpEditor';
+import { SqlPipeEditor, type SqlPipeType } from './SqlPipeEditor';
 import type { PipeData } from './PipeNode';
 import { TriggerInlineSettings } from './TriggerInlineSettings';
 import { JSON_EDITOR_OPTIONS, useJsonEditorTheme } from '../lib/jsonEditorOptions';
@@ -469,10 +470,15 @@ export function Inspector({
   // covering every config key, so the generic fields stay hidden for them.
   const isDelimitedSource =
     data?.type === 'source.file.csv' || data?.type === 'source.file.text';
+  // The SQL pipes' editor owns the statement text; the rest stay generic.
+  const isSqlPipe = data?.type === 'source.db.sql' || data?.type === 'sink.db.sql';
+  const isScriptPipe = data?.type === 'transform.script';
   const propertyKeys = Object.keys(properties).filter(
     (key) =>
       !isDelimitedSource &&
       !isMultiHttpSource &&
+      !(isSqlPipe && key === 'sql') &&
+      !(isScriptPipe && key === 'script') &&
       !(entry?.triggerKind && key === 'triggerId') &&
       !(isSubWorkflow && key === 'workflowId') &&
       !(isSubWorkflow && key === 'workflowVersion') &&
@@ -838,6 +844,46 @@ export function Inspector({
               setConfigError(null);
             }}
           />
+        </>
+      )}
+
+      {isSqlPipe && (
+        <>
+          <h4 className="inspector-section">
+            {data.type === 'sink.db.sql' ? 'SQL write' : 'SQL query'}
+          </h4>
+          <SqlPipeEditor
+            key={pipeId}
+            type={data.type as SqlPipeType}
+            config={config}
+            credentialId={data.credentialId}
+            onConfigChange={(next) => {
+              onChange(pipeId, { config: JSON.stringify(next, null, 2) });
+              setConfigError(null);
+            }}
+            onCredentialChange={(credentialId) => onChange(pipeId, { credentialId })}
+          />
+        </>
+      )}
+
+      {isScriptPipe && (
+        <>
+          <h4 className="inspector-section">Script</h4>
+          <div className="monaco-frame">
+            <Editor
+              height="220px"
+              language="javascript"
+              theme={jsonEditorTheme}
+              value={typeof config.script === 'string' ? config.script : ''}
+              onChange={(value) => patchConfig('script', value ?? '')}
+              options={{ ...JSON_EDITOR_OPTIONS, lineNumbers: 'on' }}
+            />
+          </div>
+          <div className="hint">
+            The body of a function that receives <code>records</code> and returns the new array. It runs in
+            an isolated process with no file, network or environment access, and its <code>console.log</code>{' '}
+            lines appear in the run log.
+          </div>
         </>
       )}
 

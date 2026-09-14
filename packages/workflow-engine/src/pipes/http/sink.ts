@@ -13,6 +13,7 @@ import {
   mapRecordsConcurrently,
   type PipeMetadata,
 } from '../../sdk/index.js';
+import { revealPipeSecret } from '../pipe-context.js';
 import { executeHttpRequest } from './request.js';
 
 const configSchema = z
@@ -158,10 +159,5 @@ async function revealSecret(
   config: z.infer<typeof configSchema>,
   context: PipeContext,
 ): Promise<Record<string, unknown> | undefined> {
-  const credentialId = credentialIdFor(config, context);
-  if (!credentialId) return undefined;
-  return (
-    (await (context.infrastructure?.secrets.get(credentialId) ??
-      context.credentials?.revealSecret(credentialId))) ?? undefined
-  );
+  return revealPipeSecret(context, credentialIdFor(config, context));
 }

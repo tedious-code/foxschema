@@ -6,6 +6,12 @@
  * Workflow engine — moved from FoxAgent (packages/common/src/credentials/providers.ts).
  */
 import { z } from 'zod';
+import {
+  WORKFLOW_CONNECTION_RESOLVE_PATH,
+  WORKFLOW_ENGINE_TOKEN_ENV,
+  foxSchemaEndpoint,
+  type ResolvedWorkflowConnection,
+} from '@foxschema/workflow-contract';
 
 /** Where credential secret material is resolved from at run time. */
 export const credentialSourceSchema = z.enum([
@@ -14,6 +20,8 @@ export const credentialSourceSchema = z.enum([
   'gcp',
   'aws',
   'azure',
+  /** A saved FoxSchema connection its owner granted to workflows. */
+  'foxschema',
 ]);
 export type CredentialSource = z.infer<typeof credentialSourceSchema>;
 
@@ -45,6 +53,8 @@ export type StoredSecretPayload = {
   format?: 'json' | 'text';
   /** Field name for text secrets (default `value`). */
   valueKey?: string;
+  /** FoxSchema saved connection (source=foxschema). The secret never leaves FoxSchema at rest. */
+  connectionId?: string;
 };
 
 export function isStoredSecretPayload(
@@ -94,6 +104,16 @@ export function buildStoredSecret(
   };
   const format =
     data.format === 'json' || data.format === 'text' ? data.format : undefined;
+
+  if (source === 'foxschema') {
+    const connectionId = str('connectionId');
+    if (!connectionId) {
+      throw new Error('FoxSchema credentials require connectionId');
+    }
+    // Only the reference is stored: FoxSchema keeps the password, encrypted,
+    // and hands it over per run while the grant stands.
+    return { source: 'foxschema', connectionId };
+  }
 
   if (source === 'gcp') {
     const projectId = str('projectId');
@@ -210,6 +230,9 @@ export async function resolveStoredSecret(
       break;
     case 'azure':
       resolved = await resolveAzureSecret(payload, env, fetchImpl);
+      break;
+    case 'foxschema':
+      resolved = await resolveFoxSchemaConnection(payload, env, fetchImpl);
       break;
     default: {
       const _exhaustive: never = payload.source;
@@ -509,4 +532,49 @@ async function signAwsHeaders(input: {
   ].join(', ');
 
   return headers;
+}
+
+/**
+ * Ask FoxSchema for a saved connection its owner granted to workflows.
+ *
+ * Resolved per run rather than copied in: revoking the grant, or changing the
+ * password in FoxSchema, takes effect on the next run with nothing to re-sync.
+ */
+async function resolveFoxSchemaConnection(
+  payload: StoredSecretPayload,
+  env: NodeJS.ProcessEnv,
+  fetchImpl: typeof fetch,
+): Promise<Record<string, unknown>> {
+  const connectionId = payload.connectionId;
+  if (!connectionId) {
+    throw new Error('FoxSchema connection reference is incomplete (connectionId)');
+  }
+  const { url, token } = foxSchemaEndpoint(WORKFLOW_CONNECTION_RESOLVE_PATH, env);
+  if (!token) {
+    throw new Error(
+      `${WORKFLOW_ENGINE_TOKEN_ENV} is not set, so saved FoxSchema connections cannot be resolved`,
+    );
+  }
+  const response = await fetchImpl(url, {
+    method: 'POST',
+    headers: {
+      accept: 'application/json',
+      'content-type': 'application/json',
+      authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ connectionId }),
+  });
+  if (!response.ok) {
+    const reason =
+      response.status === 404
+        ? 'it is not granted to workflows, or no longer exists'
+        : `FoxSchema answered HTTP ${response.status}`;
+    throw new Error(`Saved connection ${connectionId} could not be resolved: ${reason}`);
+  }
+  const body = (await response.json()) as ResolvedWorkflowConnection;
+  return {
+    dialect: body.dialect,
+    ...(body.schema ? { schema: body.schema } : {}),
+    option: body.option,
+  };
 }

@@ -18,7 +18,9 @@
     "./definitions": "./src/definitions.ts"
   },
   "dependencies": {
+    "@foxschema/db": "*",
     "@foxschema/sql": "*",
+    "@foxschema/workflow-contract": "*",
     "ajv": "8.20.0",
     "cron-parser": "5.6.2",
     "mysql2": "3.24.3",

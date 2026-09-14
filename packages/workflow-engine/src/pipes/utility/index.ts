@@ -82,7 +82,10 @@ import {
   MysqlSourcePipe,
   PostgresSinkPipe,
   PostgresSourcePipe,
+  SqlSinkPipe,
+  SqlSourcePipe,
 } from '../db/index.js';
+import { EmailSinkPipe, SmsSinkPipe } from '../notify/index.js';
 import {
   CronTriggerSourcePipe,
   HttpTriggerSourcePipe,
@@ -107,6 +110,7 @@ export function createDefaultPipeRegistry(): PipeRegistry {
     new FileSinkPipe(),
     new TextSourcePipe(),
     new JsonSourcePipe(),
+    new SqlSourcePipe(),
     new PostgresSourcePipe(),
     new MysqlSourcePipe(),
     new HttpSourcePipe(),
@@ -125,9 +129,12 @@ export function createDefaultPipeRegistry(): PipeRegistry {
     new MergePipe(),
     new SplitPipe(),
     new LoopPipe(),
+    new SqlSinkPipe(),
     new PostgresSinkPipe(),
     new MysqlSinkPipe(),
     new HttpSinkPipe(),
+    new EmailSinkPipe(),
+    new SmsSinkPipe(),
     new HttpResponsePipe(),
     new SubWorkflowPipe(),
     new HumanGatePipe(),

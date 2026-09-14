@@ -8,7 +8,8 @@
  */
 
 /** Whether the engine accepts new runs. */
-export type EngineState = 'enabled' | 'draining' | 'disabled';
+export const ENGINE_STATES = ['enabled', 'draining', 'disabled'] as const;
+export type EngineState = (typeof ENGINE_STATES)[number];
 
 /** What to do when a process is already running. */
 export type OverlapPolicy = 'skip' | 'queue' | 'parallel';
@@ -55,3 +56,30 @@ export interface AdminConfigPut {
   onOverlap?: OverlapPolicy;
   sinks?: WorkflowLogSink[];
 }
+
+/**
+ * A saved FoxSchema connection, decrypted for the workflow engine. Only ever
+ * travels between the two server processes — never to a browser.
+ */
+export interface ResolvedWorkflowConnection {
+  dialect: string;
+  schema?: string;
+  /** Driver options as FoxSchema stores them, password included. */
+  option: Record<string, unknown>;
+}
+
+/** A saved connection as the designer lists it: no secrets, plus whether workflows may use it. */
+export interface WorkflowConnectionSummary {
+  id: string;
+  name: string;
+  dialect: string;
+  schema?: string;
+  host?: string;
+  database?: string;
+  /** False for a connection saved without its password: a run could not sign in. */
+  hasPassword: boolean;
+  granted: boolean;
+}
+
+/** The part of the saved engine settings the engine itself applies. */
+export type EngineRuntimeConfig = Pick<WorkflowEngineConfig, 'state' | 'maxParallel' | 'sinks'>;

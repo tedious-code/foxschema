@@ -168,7 +168,7 @@ export function EnginePanel(): React.ReactElement {
         </label>
         <div className="mt-3 flex flex-wrap gap-4">
           <label className="flex max-w-xs flex-col gap-1">
-            <span className={sectionLabelCls}>Max parallel pipes</span>
+            <span className={sectionLabelCls}>Max parallel runs</span>
             <input
               type="number"
               min={1}

@@ -88,6 +88,45 @@ export interface PipelineExecutionContext {
 const DEBUG_SAMPLE_RECORDS = 20;
 /** Soft cap on JSON size for sampled records. */
 const DEBUG_SAMPLE_BYTES = 16 * 1024;
+/**
+ * Log lines one pipe may add to its run's timeline. A pipe that logs per
+ * record would otherwise write more events than the run has records.
+ */
+const PIPE_LOG_LIMIT = 200;
+
+/**
+ * `store` with each secret revealed once for the life of `cache`. Updating a
+ * secret (a refreshed token, a new cookie) drops the cached copy, and a failed
+ * reveal is not remembered.
+ */
+function cacheRevealedSecrets(
+  store: CredentialStore,
+  cache: Map<string, Promise<Record<string, unknown> | undefined>>,
+): CredentialStore {
+  const cached: CredentialStore = {
+    create: (input) => store.create(input),
+    list: () => store.list(),
+    get: (id) => store.get(id),
+    remove: (id) => store.remove(id),
+    revealSecret(id) {
+      let secret = cache.get(id);
+      if (!secret) {
+        secret = store.revealSecret(id);
+        cache.set(id, secret);
+        secret.catch(() => cache.delete(id));
+      }
+      return secret;
+    },
+  };
+  if (store.updateSecret) {
+    const update = store.updateSecret.bind(store);
+    cached.updateSecret = async (id, patch) => {
+      cache.delete(id);
+      return update(id, patch);
+    };
+  }
+  return cached;
+}
 
 export interface PipelineExecutorOptions {
   /**
@@ -174,6 +213,10 @@ export class PipelineExecutor {
    * updates ordered without serialising unrelated pipes.
    */
   private readonly pipeUpdates = new Map<string, Promise<void>>();
+  /** Log lines recorded per run:pipeline:pipe, evicted with the records above. */
+  private readonly logCounts = new Map<string, number>();
+  /** Revealed secrets per run:pipeline — see {@link cacheRevealedSecrets}. */
+  private readonly secretCaches = new Map<string, Map<string, Promise<Record<string, unknown> | undefined>>>();
 
   constructor(private readonly options: PipelineExecutorOptions) {
     this.now = options.now ?? (() => new Date().toISOString());
@@ -315,11 +358,10 @@ export class PipelineExecutor {
       // Evict this execution's cached pipe records — the executor instance is
       // long-lived and must not accumulate per-run state.
       const prefix = `${execution.workflowRunId}\0${pipeline.id}\0`;
-      for (const key of this.pipeRecords.keys()) {
-        if (key.startsWith(prefix)) this.pipeRecords.delete(key);
-      }
-      for (const key of this.pipeUpdates.keys()) {
-        if (key.startsWith(prefix)) this.pipeUpdates.delete(key);
+      for (const map of [this.pipeRecords, this.pipeUpdates, this.logCounts, this.secretCaches]) {
+        for (const key of map.keys()) {
+          if (key.startsWith(prefix)) map.delete(key);
+        }
       }
     }
   }
@@ -615,13 +657,42 @@ export class PipelineExecutor {
       pipe.id,
       '0',
     );
-    // Per-pipe logger so AI failover (and similar) warnings become run events
-    // with pipeline/pipe identity for the failure summary timeline.
+    // Per-pipe logger. What a pipe logs lands in its run's timeline with
+    // pipeline/pipe identity, where the Runs panel, the failure summary and a
+    // log sink can all read it. AI failover keeps the event it always had.
     const baseLogger = this.infrastructure.logger;
     const events = this.options.events;
+    const logKey = `${execution.workflowRunId}\0${pipeline.id}\0${pipe.id}`;
+    const record = (
+      level: 'info' | 'warn' | 'error',
+      message: string,
+      data?: Record<string, unknown>,
+    ): void => {
+      if (!events) return;
+      const count = (this.logCounts.get(logKey) ?? 0) + 1;
+      this.logCounts.set(logKey, count);
+      if (count > PIPE_LOG_LIMIT) return;
+      void events
+        .append({
+          workflowRunId: execution.workflowRunId,
+          pipelineId: pipeline.id,
+          pipeId: pipe.id,
+          at: this.now(),
+          type: 'pipe.log',
+          message:
+            count === PIPE_LOG_LIMIT
+              ? `${message} (later lines from this pipe are not recorded)`
+              : message,
+          data: { ...(data ?? {}), level },
+        })
+        // A log line is not worth failing the run over.
+        .catch(() => undefined);
+    };
     const logger = {
-      info: (message: string, data?: Record<string, unknown>) =>
-        baseLogger.info(message, data),
+      info: (message: string, data?: Record<string, unknown>) => {
+        baseLogger.info(message, data);
+        record('info', message, data);
+      },
       warn: (message: string, data?: Record<string, unknown>) => {
         baseLogger.warn(message, data);
         if (message === 'ai.failover' && events) {
@@ -635,11 +706,27 @@ export class PipelineExecutor {
               typeof data?.reason === 'string' ? data.reason : 'AI failover',
             data: { kind: 'ai.failover', ...(data ?? {}) },
           });
+          return;
         }
+        record('warn', message, data);
       },
-      error: (message: string, data?: Record<string, unknown>) =>
-        baseLogger.error(message, data),
+      error: (message: string, data?: Record<string, unknown>) => {
+        baseLogger.error(message, data);
+        record('error', message, data);
+      },
     };
+
+    // Revealed once per pipeline run, not per batch: a linked FoxSchema
+    // connection is an HTTP call, and a sink asks for its secret every batch.
+    const cacheKey = `${execution.workflowRunId}\0${pipeline.id}\0`;
+    let secrets = this.secretCaches.get(cacheKey);
+    if (!secrets) {
+      secrets = new Map();
+      this.secretCaches.set(cacheKey, secrets);
+    }
+    const credentials = this.options.credentials
+      ? cacheRevealedSecrets(this.options.credentials, secrets)
+      : undefined;
 
     return {
       workflowRunId: execution.workflowRunId,
@@ -650,10 +737,12 @@ export class PipelineExecutor {
       signal: execution.signal,
       // Scoped, not the shared store: a pipe may only reveal credentials its
       // own definition names. See credential-scope.ts.
-      credentials: this.options.credentials
-        ? scopeCredentialsToPipe(this.options.credentials, pipe)
-        : undefined,
-      infrastructure: { ...this.infrastructure, logger },
+      credentials: credentials ? scopeCredentialsToPipe(credentials, pipe) : undefined,
+      infrastructure: {
+        ...this.infrastructure,
+        logger,
+        ...(credentials ? { secrets: { get: (id: string) => credentials.revealSecret(id) } } : {}),
+      },
       workflows: execution.workflows,
       variables: execution.variables,
       output: execution.output,

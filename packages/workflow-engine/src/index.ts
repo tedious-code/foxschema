@@ -52,6 +52,8 @@ export {
 export {
   PostgresSinkPipe,
   PostgresSourcePipe,
+  SqlSinkPipe,
+  SqlSourcePipe,
   type PostgresClient,
   type PostgresClientFactory,
 } from './pipes/db/index.js';
@@ -67,3 +69,4 @@ export {
   HumanGatePipe,
 } from './pipes/control/index.js';
 export * from './storage/index.js';
+export { EmailSinkPipe, SmsSinkPipe } from './pipes/notify/index.js';

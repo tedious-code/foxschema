@@ -59,11 +59,65 @@ export class SandboxTimeoutError extends Error {
 }
 
 export class SandboxError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    /** What the code logged before it failed — often the best clue to why. */
+    readonly logs: SandboxLog[] = [],
+  ) {
     super(`sandboxed code failed: ${message}`);
     this.name = 'SandboxError';
   }
 }
+
+/** A line sandboxed code wrote with `console`. */
+export interface SandboxLog {
+  level: 'info' | 'warn' | 'error';
+  message: string;
+}
+
+export interface SandboxOutcome {
+  result: unknown;
+  logs: SandboxLog[];
+}
+
+/** What either isolation body sends back. */
+interface SandboxMessage {
+  ok: boolean;
+  result?: unknown;
+  message?: string;
+  logs?: SandboxLog[];
+}
+
+/** The outcome a body's message describes, or its failure thrown. */
+function settle(message: SandboxMessage): SandboxOutcome {
+  const logs = message.logs ?? [];
+  if (!message.ok) throw new SandboxError(message.message ?? 'unknown error', logs);
+  return { result: message.result, logs };
+}
+
+/** Lines kept per call, and characters per line: a script logging per record must not flood the run. */
+const MAX_SANDBOX_LOGS = 100;
+const MAX_SANDBOX_LOG_CHARS = 2_000;
+
+/**
+ * The `console` sandboxed code sees: it collects lines instead of writing to
+ * a stdout the host reads its result from. Shared by both isolation bodies.
+ */
+const CAPTURE_CONSOLE = `
+const logs = [];
+const capture = (level) => (...args) => {
+  if (logs.length >= ${MAX_SANDBOX_LOGS}) return;
+  const text = args.map((value) => {
+    if (typeof value === 'string') return value;
+    try { return String(JSON.stringify(value)); } catch (error) { return String(value); }
+  }).join(' ');
+  logs.push({ level, message: text.slice(0, ${MAX_SANDBOX_LOG_CHARS}) });
+};
+const sandboxConsole = {
+  log: capture('info'), info: capture('info'), debug: capture('info'),
+  warn: capture('warn'), error: capture('error'),
+};
+`;
 
 export interface SandboxOptions {
   /** Hard budget. The thread or process is killed when it elapses. */
@@ -109,18 +163,20 @@ for (const name of ['fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'Work
   try { delete globalThis[name]; } catch (error) { /* non-configurable: the shadow below still covers it */ }
 }
 
+${CAPTURE_CONSOLE}
 try {
   // Compiled here, inside the worker, so even a malicious *parse* stays off the
-  // host thread. The extra parameters shadow the host's own bindings.
+  // host thread. The extra parameters shadow the host's own bindings, and
+  // console is the collecting one above.
   const fn = new Function(
-    'records',
+    'records', 'console',
     'require', 'process', 'module', 'exports', 'globalThis', 'fetch', 'Worker', 'WebAssembly',
     '"use strict";' + workerData.body,
   );
-  const result = fn(workerData.records);
-  post({ ok: true, result });
+  const result = fn(workerData.records, sandboxConsole);
+  post({ ok: true, result, logs });
 } catch (error) {
-  post({ ok: false, message: String(error && error.message || error) });
+  post({ ok: false, message: String(error && error.message || error), logs });
 }
 `;
 
@@ -134,6 +190,7 @@ let input = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => { input += chunk; });
 process.stdin.on('end', () => {
+  ${CAPTURE_CONSOLE}
   let out;
   try {
     const payload = JSON.parse(input);
@@ -144,13 +201,13 @@ process.stdin.on('end', () => {
       try { delete globalThis[name]; } catch (error) { /* shadowed below */ }
     }
     const fn = new Function(
-      'records',
+      'records', 'console',
       'require', 'process', 'module', 'exports', 'globalThis', 'fetch',
       '"use strict";' + payload.body,
     );
-    out = { ok: true, result: fn(payload.records) };
+    out = { ok: true, result: fn(payload.records, sandboxConsole), logs };
   } catch (error) {
-    out = { ok: false, message: String((error && error.message) || error) };
+    out = { ok: false, message: String((error && error.message) || error), logs };
   }
   process.stdout.write(JSON.stringify(out));
 });
@@ -168,7 +225,7 @@ async function runInProcess(
   body: string,
   records: Record<string, unknown>[],
   options: SandboxOptions,
-): Promise<unknown> {
+): Promise<SandboxOutcome> {
   const child = spawn(
     process.execPath,
     [
@@ -204,28 +261,32 @@ async function runInProcess(
       throw new SandboxError(stderr.trim() || `sandbox exited with code ${code}`);
     }
 
-    const message = JSON.parse(stdout) as {
-      ok: boolean;
-      result?: unknown;
-      message?: string;
-    };
-    if (!message.ok) throw new SandboxError(message.message ?? 'unknown error');
-    return message.result;
+    return settle(JSON.parse(stdout) as SandboxMessage);
   } finally {
     clearTimeout(timer);
     if (!child.killed) child.kill('SIGKILL');
   }
 }
 
-/**
- * Run `body` — a function body receiving `records` and returning a value — in
- * isolation, killing it if it overruns.
- */
+/** {@link runSandboxedWithLogs}, for a caller that only wants the value. */
 export async function runSandboxed(
   body: string,
   records: Record<string, unknown>[],
   options: SandboxOptions,
 ): Promise<unknown> {
+  return (await runSandboxedWithLogs(body, records, options)).result;
+}
+
+/**
+ * Run `body` — a function body receiving `records` and returning a value — in
+ * isolation, killing it if it overruns. Resolves with the value and what the
+ * code logged.
+ */
+export async function runSandboxedWithLogs(
+  body: string,
+  records: Record<string, unknown>[],
+  options: SandboxOptions,
+): Promise<SandboxOutcome> {
   if ((options.isolation ?? 'process') === 'process') {
     return runInProcess(body, records, options);
   }
@@ -247,7 +308,7 @@ export async function runSandboxed(
 
   let timer: NodeJS.Timeout | undefined;
   try {
-    return await new Promise<unknown>((resolve, reject) => {
+    return await new Promise<SandboxOutcome>((resolve, reject) => {
       timer = setTimeout(() => {
         // terminate() is the whole point: it stops a thread that is not
         // yielding, which no in-process mechanism can do.
@@ -256,9 +317,12 @@ export async function runSandboxed(
       }, options.timeoutMs);
       timer.unref?.();
 
-      worker.once('message', (message: { ok: boolean; result?: unknown; message?: string }) => {
-        if (message.ok) resolve(message.result);
-        else reject(new SandboxError(message.message ?? 'unknown error'));
+      worker.once('message', (message: SandboxMessage) => {
+        try {
+          resolve(settle(message));
+        } catch (error) {
+          reject(error);
+        }
       });
       worker.once('error', (error: Error) => reject(new SandboxError(error.message)));
       worker.once('exit', (code) => {

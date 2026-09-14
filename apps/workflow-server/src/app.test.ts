@@ -8,7 +8,7 @@
 import { createHmac, randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { parseWorkflow } from '@foxschema/workflow-engine';
-import { buildApp } from './app.js';
+import { buildApp, buildIngressApp } from './app.js';
 import { createContext, type AppContext } from './context.js';
 
 function testContext(): AppContext {
@@ -556,15 +556,19 @@ describe('foxflow api', () => {
     expect(body.pipes.map((c: { type: string }) => c.type)).toEqual([
       'human.gate',
       'logic.loop',
+      'sink.db.sql',
       'sink.file.delimited',
       'sink.http',
       'sink.mysql',
+      'sink.notify.email',
+      'sink.notify.sms',
       'sink.postgres',
       'sink.response',
       'source.api.http',
       'source.api.http.multi',
       'source.db.mysql',
       'source.db.postgres',
+      'source.db.sql',
       'source.file.csv',
       'source.file.json',
       'source.file.text',
@@ -593,4 +597,119 @@ describe('foxflow api', () => {
     await app.close();
   });
 
+});
+
+describe('service token', () => {
+  const TOKEN = 'shared-engine-token-for-tests';
+
+  it('answers the API only to a caller presenting the token', async () => {
+    const app = buildApp(testContext(), { token: TOKEN });
+    try {
+      expect((await app.inject({ method: 'GET', url: '/api/workflows' })).statusCode).toBe(401);
+      expect(
+        (await app.inject({
+          method: 'GET',
+          url: '/api/workflows',
+          headers: { authorization: 'Bearer not-the-shared-engine-token' },
+        })).statusCode,
+      ).toBe(401);
+      expect(
+        (await app.inject({
+          method: 'GET',
+          url: '/api/workflows',
+          headers: { authorization: `Bearer ${TOKEN}` },
+        })).statusCode,
+      ).toBe(200);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('leaves health and trigger ingress to their own authentication', async () => {
+    const app = buildApp(testContext(), { token: TOKEN });
+    try {
+      expect((await app.inject({ method: 'GET', url: '/health' })).statusCode).toBe(200);
+      // No such workflow: the point is that the token check did not answer first.
+      const ingress = await app.inject({ method: 'POST', url: '/api/triggers/nope/nope', payload: {} });
+      expect(ingress.statusCode).not.toBe(401);
+      const hook = await app.inject({ method: 'POST', url: '/api/hooks/nope', payload: {} });
+      expect(hook.statusCode).not.toBe(401);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('stays open when no token is configured', async () => {
+    const app = buildApp(testContext(), { token: undefined });
+    try {
+      expect((await app.inject({ method: 'GET', url: '/api/workflows' })).statusCode).toBe(200);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('serves no trigger ingress once ingress has a listener of its own', async () => {
+    const app = buildApp(testContext(), { token: TOKEN, ingress: false });
+    try {
+      const response = await app.inject({ method: 'POST', url: '/api/triggers/nope/nope', payload: {} });
+      expect(response.statusCode).toBe(404);
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+describe('run event stream', () => {
+  it('sends a finished run’s events, then `end`, and closes', async () => {
+    const ctx = testContext();
+    const app = buildApp(ctx, { token: undefined });
+    try {
+      await ctx.runs.create(
+        {
+          id: 'run-done',
+          workflowId: 'wf',
+          workflowVersion: 1,
+          status: 'succeeded',
+          trigger: 'manual',
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+          instanceId: 'test',
+        } as never,
+        { id: 'wf', name: 'wf', version: 1, triggers: [], pipelines: [] } as never,
+      );
+      await ctx.events.append({
+        workflowRunId: 'run-done',
+        at: new Date().toISOString(),
+        type: 'run.status',
+        data: { status: 'succeeded' },
+      } as never);
+
+      // inject resolves only once the response ends, so this also proves the
+      // stream closes by itself.
+      const response = await app.inject({ method: 'GET', url: '/api/runs/run-done/events/stream' });
+      const frames = response.body.split('\n\n').filter(Boolean);
+      expect(frames[0]).toMatch(/^data: \{.*"type":"run.status"/);
+      expect(frames.at(-1)).toBe('event: end\ndata: {}');
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+describe('ingress listener', () => {
+  it('serves trigger ingress and health, and none of the engine API', async () => {
+    const ctx = testContext();
+    const ingress = buildIngressApp(ctx);
+    try {
+      expect((await ingress.inject({ method: 'GET', url: '/health' })).statusCode).toBe(200);
+      const trigger = await ingress.inject({ method: 'POST', url: '/api/triggers/nope/nope', payload: {} });
+      expect(trigger.statusCode).toBe(404);
+      expect(trigger.json()).toEqual({ error: 'workflow not found' });
+      expect((await ingress.inject({ method: 'GET', url: '/api/workflows' })).statusCode).toBe(404);
+      expect((await ingress.inject({ method: 'GET', url: '/api/credentials' })).statusCode).toBe(404);
+    } finally {
+      await ingress.close();
+      ctx.close();
+    }
+  });
 });

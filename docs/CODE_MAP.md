@@ -17,12 +17,16 @@ packages/shared             Contracts the frontend, server and CLI must agree on
                             and the COMMUNITY_NAV registry (`nav.ts`). Browser-safe.
 
 packages/workflow-contract  Browser-safe control-plane types for the workflow engine
-                            (config, health, sinks, overlap policy) and
-                            COMMUNITY_WORKSPACE_ID.
+                            (config, health, sinks, overlap policy), the service
+                            token and internal route names, connection-grant types
+                            and COMMUNITY_WORKSPACE_ID.
 
 packages/workflow-engine    The workflow engine: definitions, compiler, runtime,
                             SQLite stores, credentials and the built-in pipes
-                            (`src/pipes/*`). Node only. Depends on sql.
+                            (`src/pipes/*`: SQL on every FoxSchema dialect, files,
+                            HTTP, email/SMS, control flow). Node only. Depends on
+                            sql, workflow-contract and db — db loaded on first use.
+                            `src/definitions.ts` is the browser-safe subset.
 
 packages/rbac-contract      RbacProvider interface + CommunityRbacProvider.
 
@@ -37,8 +41,10 @@ packages/features/*         Feature package markers / future extraction homes.
 apps/web                    The frontend, plus the entry point that serves it.
 apps/cli                    The `foxschema` command line tool.
 apps/workflow-server        The workflow engine's HTTP process (port 8081), plus
-                            optional scheduler and worker roles. Reached only
-                            through the server's engine proxy.
+                            optional scheduler and worker roles. Its API answers
+                            the server's engine proxy (WORKFLOW_ENGINE_TOKEN);
+                            trigger ingress can take a port of its own
+                            (INGRESS_PORT). Pulls engine settings from the server.
 apps/e2e                    Browser tests that drive the running application.
 ```
 
@@ -47,8 +53,8 @@ Imports may only run in one direction:
 ```
 sql  ←  db      ←  server  ←  web, cli
 sql  ←  shared  ←  server, web, cli
-workflow-contract  ←  server, web
-sql  ←  workflow-engine  ←  workflow-server
+workflow-contract  ←  server, web, workflow-engine, workflow-server
+sql, db  ←  workflow-engine  ←  workflow-server
 rbac-contract      ←  server, web, enterprise/rbac
 ```
 
@@ -130,7 +136,7 @@ database/    The metadata store and its migrations.
 | `schema` | Reading a schema |
 | `sql-editor` | SQL editor, code cells, sandboxed execution |
 | `users` | Profile, preferences, first-run wizard |
-| `workflow` | Workflow engine settings and health, and the engine proxy: an allowlist of engine routes, each behind a `workflow.*` permission |
+| `workflow` | Workflow engine settings and health; the engine proxy (an allowlist of engine routes, each behind a `workflow.*` permission); saved-connection grants; and the token-guarded internal routes the engine calls to resolve a granted connection and read its settings |
 
 Inside a feature:
 
@@ -171,7 +177,7 @@ Imports may run `app → features → shared`, never `shared → features`.
 | `schema-diff` | Diff rendering shared by compare and history |
 | `sql-editor` | SQL editor, results grid, data peek, utilities |
 | `utilities` | Clone table, index management, server insights |
-| `workflow` | Workflow designer (canvas, inspector, triggers), runs, variables, credentials and engine settings — all through the engine proxy |
+| `workflow` | Workflow designer (canvas, inspector, triggers, SQL and script editors), runs, variables, credentials and engine settings — through the engine proxy, plus linking saved connections to workflows |
 
 ## Where does my change go?
 

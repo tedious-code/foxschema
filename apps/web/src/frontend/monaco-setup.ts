@@ -6,6 +6,8 @@ import * as monaco from 'monaco-editor/editor/editor.api';
 import 'monaco-editor/languages/definitions/sql/register';
 import 'monaco-editor/languages/definitions/pgsql/register';
 import 'monaco-editor/languages/definitions/mysql/register';
+// The Workflow designer's script pipe. The tokenizer loads on first use.
+import 'monaco-editor/languages/definitions/javascript/register';
 // JSON (the Workflow designer's config editors) validates in its own worker.
 import 'monaco-editor/languages/features/json/register';
 import editorWorker from 'monaco-editor/editor/editor.worker?worker';

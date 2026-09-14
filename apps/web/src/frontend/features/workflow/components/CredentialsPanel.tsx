@@ -13,7 +13,7 @@ import { api, type CredentialMeta } from '../api/engineClient';
 import { toast } from '../lib/notify';
 import { Badge, Button, Input, Label, Select } from './controls';
 
-const KINDS = ['database', 'http', 'oauth', 'webhook', 'llm'] as const;
+const KINDS = ['database', 'http', 'oauth', 'webhook', 'llm', 'email', 'sms'] as const;
 const SOURCES = ['local', 'env', 'gcp', 'aws', 'azure'] as const;
 
 type Kind = (typeof KINDS)[number];
@@ -44,6 +44,20 @@ const KIND_FIELDS: Record<Kind, Array<{ key: string; label: string; secret?: boo
   llm: [
     { key: 'apiKey', label: 'API key', secret: true },
     { key: 'token', label: 'Token (alias)', secret: true },
+  ],
+  email: [
+    { key: 'host', label: 'SMTP host' },
+    { key: 'port', label: 'SMTP port (465 = TLS, 587 = STARTTLS)' },
+    { key: 'security', label: 'Security (tls | starttls | none)' },
+    { key: 'username', label: 'SMTP username' },
+    { key: 'password', label: 'SMTP password', secret: true },
+    { key: 'apiKey', label: 'API key (SendGrid / Resend)', secret: true },
+  ],
+  sms: [
+    { key: 'accountSid', label: 'Twilio account SID' },
+    { key: 'authToken', label: 'Twilio auth token', secret: true },
+    { key: 'apiKey', label: 'Vonage API key' },
+    { key: 'apiSecret', label: 'Vonage API secret', secret: true },
   ],
 };
 

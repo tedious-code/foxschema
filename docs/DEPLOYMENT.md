@@ -107,6 +107,30 @@ docker compose -f docker-compose.app.yml up -d
 > The app also reads `APP_USER_EMAIL` (only for the `v2` key scheme).
 > Update checks default to the npm `foxschema` registry feed (see below).
 
+### Workflow engine
+
+The workflow engine (`apps/workflow-server`) is a separate process: a slow or
+failing run never shares a process with FoxSchema. FoxSchema reaches it through
+its engine proxy, and the engine calls FoxSchema back to resolve saved
+connections a user linked to workflows and to read the engine settings saved in
+the admin screen. Both directions authenticate with one shared token.
+
+| Variable | Set on | Default | Purpose |
+|----------|--------|---------|---------|
+| `WORKFLOW_ENGINE_TOKEN` | both | — | Shared service token. Set the **same** long random value on FoxSchema and the engine. Without it the engine API is open (loopback dev only) and saved connections cannot be used by workflows. |
+| `FOXSCHEMA_URL` | engine | `http://127.0.0.1:3210` | Where the engine reaches FoxSchema's API. |
+| `PORT` / `HOST` | engine | `8081` / `127.0.0.1` | The engine API. Keep it on a private interface. |
+| `INGRESS_PORT` / `INGRESS_HOST` | engine | unset / `127.0.0.1` | Webhook and API-endpoint ingress on a listener of its own, serving only `/api/hooks/*` and `/api/triggers/*`. Put this one behind your public reverse proxy; webhook traffic then never touches FoxSchema or the engine API. |
+| `WORKFLOW_LOG_DIR` | engine | `workflow-logs/` next to the engine database | Directory for the JSON / text run-event sinks enabled in the admin screen. A sink target is a file name inside it, never a path. |
+| `FOXFLOW_ENCRYPTION_KEY` | engine | — | 32-byte key (hex) encrypting the engine's own credential store. |
+| `FOXFLOW_DB_PATH` | engine | `workflow-engine.sqlite` at the repo root | The engine's SQLite database. |
+| `FOXFLOW_TRUST_PROXY` | engine | `false` | Trust `X-Forwarded-*` when the engine sits behind a proxy. |
+
+The engine re-reads its settings from FoxSchema every 30 seconds: `Disabled`
+refuses new runs from every trigger, `Draining` finishes work in flight, and
+`Max parallel runs` caps runs executing at once in each engine process. If FoxSchema is unreachable the
+engine keeps the settings it last had.
+
 ### First-open email subscriber wizard
 
 On **first UI boot of a brand-new install** (before login), Fox can show a skippable

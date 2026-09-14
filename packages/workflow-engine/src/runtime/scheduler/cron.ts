@@ -74,7 +74,15 @@ export class CronCoordinator {
 
   private async process(recovering: boolean): Promise<void> {
     const now = this.now();
-    const workflows = await this.options.workflows.list();
+    // One read of each per tick. Reading a schedule per trigger made a tick
+    // cost a query for every cron trigger in the installation.
+    const [workflows, states] = await Promise.all([
+      this.options.workflows.list(),
+      this.options.schedules.list(),
+    ]);
+    const stateByKey = new Map(
+      states.map((state) => [`${state.workflowId}\0${state.triggerId}`, state]),
+    );
     const active = new Set<string>();
 
     for (const workflow of workflows) {
@@ -83,7 +91,7 @@ export class CronCoordinator {
         const key = `${workflow.id}\0${trigger.id}`;
         const fingerprint = scheduleFingerprint(trigger);
         active.add(key);
-        const state = await this.options.schedules.get(workflow.id, trigger.id);
+        const state = stateByKey.get(key);
         if (!state || state.scheduleFingerprint !== fingerprint) {
           await this.options.schedules.put({
             workflowId: workflow.id,
@@ -134,7 +142,9 @@ export class CronCoordinator {
           .map((trigger) => `${workflow.id}\0${trigger.id}`),
       ),
     );
-    for (const state of await this.options.schedules.list()) {
+    // Rows written during this tick are for live triggers, so the list read at
+    // the start is all this needs.
+    for (const state of states) {
       if (!live.has(`${state.workflowId}\0${state.triggerId}`)) {
         await this.options.schedules.remove(state.workflowId, state.triggerId);
       }

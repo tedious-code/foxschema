@@ -5,7 +5,7 @@
  *
  * Workflow engine — moved from FoxAgent (packages/sdk/src/index.ts).
  */
-export { interpolate, interpolateDeep } from './pipe/template.js';
+export { interpolate, interpolateDeep, splitTemplate } from './pipe/template.js';
 export {
   definePipeMetadata,
   type PipeMetadata,
@@ -36,7 +36,10 @@ export {
 } from './pipe/infrastructure.js';
 export {
   runSandboxed,
+  runSandboxedWithLogs,
   SandboxError,
   SandboxTimeoutError,
+  type SandboxLog,
   type SandboxOptions,
+  type SandboxOutcome,
 } from './pipe/sandbox.js';

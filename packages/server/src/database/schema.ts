@@ -436,6 +436,22 @@ const MIGRATIONS: Migration[] = [
       ];
     },
   },
+  {
+    id: 18,
+    name: 'workflow_connection_grants',
+    statements: (d) => {
+      const t = types(d);
+      return [
+        // A saved connection its owner lets workflows use. The engine resolves
+        // it as that owner; deleting the row revokes it from the next run on.
+        `CREATE TABLE IF NOT EXISTS workflow_connection_grants (
+           connection_id ${t.id} PRIMARY KEY,
+           user_id ${t.id} NOT NULL,
+           created_at ${t.ts} NOT NULL
+         )`,
+      ];
+    },
+  },
 ];
 
 const SIGNUP_WIZARD_SHOWN_KEY = 'signup.wizard_shown';

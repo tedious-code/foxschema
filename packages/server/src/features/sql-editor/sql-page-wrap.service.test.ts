@@ -129,6 +129,24 @@ describe('wrapSqlForSeek', () => {
     }
   });
 
+  it('names seek parameters after the ones the statement already binds on SQL Server', () => {
+    // The T-SQL adapters bind @p0, @p1, … by position in the params array, so
+    // seek parameters continue the numbering rather than restarting it.
+    const out = wrapSqlForSeek(
+      'SELECT * FROM t WHERE org_id = @p0 ORDER BY org_id, id',
+      'sqlserver',
+      { columns: ['org_id', 'id'], values: [1, 9] },
+      5,
+      1
+    );
+    expect(out).toHaveProperty('sql');
+    if ('sql' in out) {
+      expect(out.sql).toContain('([org_id] > @p1)');
+      expect(out.sql).toContain('([org_id] = @p2 AND [id] > @p3)');
+      expect(out.seekParams).toEqual([1, 1, 9]);
+    }
+  });
+
   it('rejects seek columns that do not match ORDER BY', () => {
     const out = wrapSqlForSeek(
       'SELECT * FROM t ORDER BY id',

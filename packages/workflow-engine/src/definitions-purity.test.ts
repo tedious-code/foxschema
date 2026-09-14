@@ -15,8 +15,17 @@ import { describe, expect, it } from 'vitest';
 const SRC = dirname(fileURLToPath(import.meta.url));
 const ENTRY = join(SRC, 'definitions.ts');
 
-/** Runtime dependencies a browser bundle can carry. */
-const ALLOWED_PACKAGES = new Set(['zod', 'zod/v4/core', 'ajv', 'cron-parser']);
+/**
+ * Runtime dependencies a browser bundle can carry. `@foxschema/workflow-contract`
+ * is browser-safe by its own rule: the web app already imports it.
+ */
+const ALLOWED_PACKAGES = new Set([
+  'zod',
+  'zod/v4/core',
+  'ajv',
+  'cron-parser',
+  '@foxschema/workflow-contract',
+]);
 
 /** Specifiers an import or re-export pulls in at runtime; `import type` / `export type` are erased. */
 function runtimeSpecifiers(source: string): string[] {

@@ -25,12 +25,13 @@ export { credentialSourceSchema, type CredentialSource } from './common/credenti
 
 export type { CredentialKind, CredentialMeta } from './common/credentials/store.js';
 export type { PipeMetadata, PipeProvider, PortDef } from './sdk/pipe/metadata.js';
-export type {
-  PipelineRunRecord,
-  PipeRunRecord,
-  RunEvent,
-  RunStatus,
-  WorkflowRunRecord,
+export {
+  isTerminalRunStatus,
+  type PipelineRunRecord,
+  type PipeRunRecord,
+  type RunEvent,
+  type RunStatus,
+  type WorkflowRunRecord,
 } from './common/types.js';
 export type { EnvironmentRecord, VariableRecord, VariableScope } from './common/storage.js';
 export type {

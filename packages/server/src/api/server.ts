@@ -35,6 +35,8 @@ import { createAdminRoutes } from '../features/admin/admin.routes';
 import { createSignupRoutes } from '../features/users/signup-wizard.routes';
 import { createFileQueryRoutes } from '../features/files/files.routes';
 import { createWorkflowRoutes } from '../features/workflow/workflow.routes';
+import { createWorkflowInternalRoutes } from '../features/workflow/workflow-internal.routes';
+import { WORKFLOW_INTERNAL_PREFIX } from '@foxschema/workflow-contract';
 import { DEFAULT_API_PORT } from '../defaultApiPort';
 import { AppSecretsStore } from '../features/admin/app-secrets.service';
 import { resolveAppVersion } from '../internal/updates.service';
@@ -75,6 +77,9 @@ export function buildApiRoutes(): RouteDefinition[] {
   root.use('/api/auth', createAuthRoutes(auth));
   // First-open email subscriber wizard — must stay public (before login).
   root.use('/api/signup', createSignupRoutes());
+  // Called by the workflow engine, never a browser: no session, the shared
+  // service token instead.
+  root.use(WORKFLOW_INTERNAL_PREFIX, createWorkflowInternalRoutes());
 
   // In local single-user mode (community desktop) the singleton local user is
   // attached automatically; otherwise per-user routes require a real session.
