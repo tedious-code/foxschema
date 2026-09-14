@@ -1285,7 +1285,7 @@ function coerceAuth(value: unknown): HttpAuth {
 
 function coerceBody(value: unknown): HttpBody {
   if (value == null) return { mode: 'none' };
-  if (typeof value === 'object' && value !== null && 'mode' in value) {
+  if (typeof value === 'object' && 'mode' in value) {
     // Hand-authored configs (raw JSON editor) may declare a mode without its
     // payload — normalize so BodyEditor never dereferences a missing array.
     const raw = value as Record<string, unknown> & { mode: string };
