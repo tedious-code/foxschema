@@ -175,7 +175,7 @@ export function EnginePanel(): React.ReactElement {
               max={64}
               data-testid="workflow-engine-max-parallel"
               value={config.maxParallel}
-              onChange={(e) => patch({ maxParallel: Math.max(1, Number(e.target.value) || 1) })}
+              onChange={(e) => patch({ maxParallel: Math.min(64, Math.max(1, Number(e.target.value) || 1)) })}
               className={FIELD_CLS}
             />
           </label>
