@@ -64,4 +64,29 @@ describe('ProfileMenu', () => {
     fireEvent.click(screen.getByTestId('profile-menu-trigger'));
     expect(screen.queryByTestId('profile-access-control')).toBeNull();
   });
+
+  it('opens on screen from the avatar at the foot of the left rail', () => {
+    // Placed below the avatar and right-aligned to it, the menu opened past the
+    // bottom and left edges of the window, so clicking the avatar showed nothing.
+    const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      left: 8, right: 48, top: 720, bottom: 760, width: 40, height: 40, x: 8, y: 720, toJSON: () => ({}),
+    } as DOMRect);
+    const width = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(256);
+    const height = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(300);
+    try {
+      render(<ProfileMenu />);
+      fireEvent.click(screen.getByTestId('profile-menu-trigger'));
+      const menu = screen.getByTestId('profile-menu-dropdown');
+      const top = parseFloat(menu.style.top);
+      const left = parseFloat(menu.style.left);
+      expect(left).toBeGreaterThanOrEqual(0);
+      expect(left + 256).toBeLessThanOrEqual(window.innerWidth);
+      expect(top).toBeGreaterThanOrEqual(0);
+      expect(top + 300).toBeLessThanOrEqual(window.innerHeight);
+    } finally {
+      rect.mockRestore();
+      width.mockRestore();
+      height.mockRestore();
+    }
+  });
 });

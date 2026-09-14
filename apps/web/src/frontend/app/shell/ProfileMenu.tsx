@@ -1,9 +1,10 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { LogOut, Palette, ChevronDown, ArrowUpCircle, Globe, Shield } from 'lucide-react';
 import { useAuthStore } from '@/app/store/authStore';
 import { useUiStore } from '@/app/store/uiStore';
 import { checkForUpdates, type UpdateInfo } from '@/shared/api/updatesApi';
+import { useAnchoredPopover } from '@/shared/lib/useAnchoredPopover';
 import { maybeToastUpdateAvailable } from '@/app/shell/updateToast';
 import { AdminAccessPanel } from '@/features/admin';
 
@@ -14,10 +15,13 @@ export function ProfileMenu(): React.ReactElement | null {
   const [open, setOpen] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
-  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
+  // Beside the avatar, not below it: the avatar sits at the foot of the left
+  // rail, where a menu opened below and right-aligned lands off the screen.
+  const { anchorRef: buttonRef, popoverRef: menuRef, style: menuStyle } = useAnchoredPopover<
+    HTMLButtonElement,
+    HTMLDivElement
+  >(open, 'right');
 
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
@@ -41,38 +45,17 @@ export function ProfileMenu(): React.ReactElement | null {
     };
   }, []);
 
-  const placeMenu = () => {
-    const btn = buttonRef.current;
-    if (!btn) return;
-    const r = btn.getBoundingClientRect();
-    setMenuPos({ top: r.bottom + 8, right: window.innerWidth - r.right });
-  };
-
-  useLayoutEffect(() => {
-    if (!open) {
-      setMenuPos(null);
-      return;
-    }
-    placeMenu();
-    window.addEventListener('resize', placeMenu);
-    window.addEventListener('scroll', placeMenu, true);
-    return () => {
-      window.removeEventListener('resize', placeMenu);
-      window.removeEventListener('scroll', placeMenu, true);
-    };
-  }, [open]);
-
   if (!user) return null;
 
   const updateAvailable = !!update?.updateAvailable;
 
-  const menu = open && menuPos
+  const menu = open
     ? createPortal(
         <div
           ref={menuRef}
           data-testid="profile-menu-dropdown"
-          className="fixed w-64 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-[300] overflow-hidden"
-          style={{ top: menuPos.top, right: menuPos.right }}
+          className="w-64 max-w-[calc(100vw-1rem)] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-[300] overflow-hidden"
+          style={menuStyle}
         >
           <div className="px-4 py-3 border-b border-slate-800">
             <p className="text-xs text-slate-500 uppercase tracking-wider font-bold">Signed in as</p>

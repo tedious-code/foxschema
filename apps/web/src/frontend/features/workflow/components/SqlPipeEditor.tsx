@@ -15,6 +15,8 @@ import { linkedConnectionId, type WorkflowConnectionSummary } from '@foxschema/w
 import { useAuthStore } from '@/app/store/authStore';
 import { monacoLanguage } from '@/monaco-setup';
 import { loadSchema } from '@/shared/api/schemaApi';
+import { FilterPicker, connectionPickerOption } from '@/shared/components/FilterPicker';
+import { dialectLabel } from '@/shared/lib/dialectLabel';
 import { quoteSqlIdentifier } from '@/shared/lib/sql-splitter';
 import type { TableSchema } from '@/shared/lib/types';
 import { workflowConnections } from '../api/connections';
@@ -126,31 +128,36 @@ export function SqlPipeEditor({ type, config, credentialId, onConfigChange, onCr
   return (
     <div className="sql-pipe-editor">
       <label htmlFor="sql-pipe-connection">Database</label>
-      <select
+      <FilterPicker
         id="sql-pipe-connection"
-        value={connectionId ?? (credentialId ? `credential:${credentialId}` : '')}
-        disabled={linking || connections === null}
-        onChange={(event) => {
-          if (!event.target.value.startsWith('credential:')) void link(event.target.value);
+        mode="single"
+        testId="sql-pipe-connection"
+        options={(connections ?? []).map((candidate) => ({
+          ...connectionPickerOption(candidate),
+          note: candidate.granted ? undefined : 'links it',
+          testId: `sql-pipe-connection-option-${candidate.id}`,
+        }))}
+        selectedId={connectionId ?? null}
+        onSelect={(id) => {
+          if (id !== connectionId) void link(id);
         }}
-      >
-        <option value="">
-          {connections === null
-            ? 'Loading saved connections…'
-            : connections.length > 0
-              ? 'Choose a saved connection…'
-              : 'No saved connections'}
-        </option>
-        {credentialId && !connectionId && (
-          <option value={`credential:${credentialId}`}>Engine credential: {credentialId}</option>
-        )}
-        {connections?.map((candidate) => (
-          <option key={candidate.id} value={candidate.id}>
-            {candidate.name} ({candidate.dialect}
-            {candidate.database ? ` · ${candidate.database}` : ''}){candidate.granted ? '' : ' — links it'}
-          </option>
-        ))}
-      </select>
+        clearLabel={credentialId ? 'None' : undefined}
+        disabled={linking || connections === null}
+        placeholder="Filter by name, dialect, host…"
+        summary={
+          linking
+            ? 'Linking…'
+            : connections === null
+              ? 'Loading saved connections…'
+              : connection
+                ? [connection.name, dialectLabel(connection.dialect), connection.database].filter(Boolean).join(' · ')
+                : credentialId
+                  ? `Engine credential: ${credentialId}`
+                  : connections.length > 0
+                    ? 'Choose a saved connection…'
+                    : 'No saved connections'
+        }
+      />
       {connection && !connection.hasPassword && (
         <div className="field-error">
           This connection was saved without its password, so a run cannot sign in. Save the password with the
