@@ -24,7 +24,7 @@
     "@foxschema/shared": "*",
     "@foxschema/sql": "*",
     "@foxschema/workflow-contract": "*",
-    "fastify": "5.12.3",
+    "fastify": "5.12.4",
     "pino": "10.3.1",
     "@foxschema/rbac-contract": "*"
   }
