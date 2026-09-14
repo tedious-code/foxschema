@@ -23,6 +23,8 @@ import {
 import {
   createCronRetryConfig,
   credentialsForTrigger,
+  triggerCredentialId,
+  withTriggerCredentialId,
   type WorkflowTrigger,
 } from '../lib/triggers';
 
@@ -382,9 +384,9 @@ export function TriggerInlineSettings({
       <>
         <label>Credential</label>
         <select
-          value={webhook.credentialId}
+          value={triggerCredentialId(webhook)}
           onChange={(eventChange) =>
-            onChange({ ...webhook, credentialId: eventChange.target.value })
+            onChange(withTriggerCredentialId(webhook, eventChange.target.value))
           }
         >
           <option value="">Select credential</option>

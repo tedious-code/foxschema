@@ -68,6 +68,7 @@ const PACKAGE_ROOTS = [
   'packages/server/src',
   'packages/shared/src',
   'packages/workflow-contract/src',
+  'packages/workflow-engine/src',
   'packages/rbac-contract/src',
   'packages/plugin-sdk/src',
 ];

@@ -743,13 +743,6 @@ function Designer() {
     }
   }, [workflowId, applyDocument, setBusy]);
 
-  const applyCompiledWorkflow = useCallback(
-    (doc: unknown) => {
-      applyDocument(doc as SavedWorkflow);
-    },
-    [applyDocument],
-  );
-
   const save = useCallback(async () => {
     setBusy(true);
     try {
@@ -1123,7 +1116,6 @@ function Designer() {
             currentId={workflowId}
             onOpen={openWorkflow}
             onCreate={createWorkflow}
-            onApplyDocument={applyCompiledWorkflow}
           />
         )}
         {view === 'variables' && <VariablesPanel />}

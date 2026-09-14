@@ -28,7 +28,6 @@ import {
   type HttpRequestValue,
 } from './HttpRequestEditor';
 import { MultiHttpEditor } from './MultiHttpEditor';
-import { BrowserFlowEditor } from './BrowserFlowEditor';
 import type { PipeData } from './PipeNode';
 import { TriggerInlineSettings } from './TriggerInlineSettings';
 import { JSON_EDITOR_OPTIONS, useJsonEditorTheme } from '../lib/jsonEditorOptions';
@@ -466,7 +465,6 @@ export function Inspector({
   // so keep them out of the generic schema-driven config fields.
   const isHttpSource = data?.type === 'source.api.http';
   const isMultiHttpSource = data?.type === 'source.api.http.multi';
-  const isBrowserFlow = data?.type === 'browser.flow';
   // The CSV/Text sources get a dedicated editor (parsing, schema, preview)
   // covering every config key, so the generic fields stay hidden for them.
   const isDelimitedSource =
@@ -475,7 +473,6 @@ export function Inspector({
     (key) =>
       !isDelimitedSource &&
       !isMultiHttpSource &&
-      !isBrowserFlow &&
       !(entry?.triggerKind && key === 'triggerId') &&
       !(isSubWorkflow && key === 'workflowId') &&
       !(isSubWorkflow && key === 'workflowVersion') &&
@@ -836,20 +833,6 @@ export function Inspector({
             key={pipeId}
             config={config}
             credentials={credentials}
-            onChange={(next) => {
-              onChange(pipeId, { config: JSON.stringify(next, null, 2) });
-              setConfigError(null);
-            }}
-          />
-        </>
-      )}
-
-      {isBrowserFlow && (
-        <>
-          <h4 className="inspector-section">Browser flow steps</h4>
-          <BrowserFlowEditor
-            key={pipeId}
-            config={config}
             onChange={(next) => {
               onChange(pipeId, { config: JSON.stringify(next, null, 2) });
               setConfigError(null);

@@ -22,7 +22,7 @@
     "dev": "npm -w @foxschema/web run dev:all",
     "dev:auth": "npm -w @foxschema/web run dev:all:auth",
     "dev:api": "npm -w @foxschema/web run dev:api",
-    "dev:foxworkflow": "npm -w @foxschema/foxworkflow run dev",
+    "dev:workflow-server": "npm -w @foxschema/workflow-server run dev",
     "build": "turbo build",
     "build:sql": "turbo build --filter=@foxschema/sql",
     "version:sql": "npm version -w @foxschema/sql --no-git-tag-version",

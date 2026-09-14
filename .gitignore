@@ -90,14 +90,13 @@ packages/db/npm-pack/
 !docs/homebrew.md
 
 
-# FoxFlow's local SQLite DB (sibling project) — never belongs in this repo.
-# Its credentials/variables tables can hold real secrets.
-#
-# This is a backstop, not the fix. FoxFlow used to default to the bare relative
-# path 'foxflow.sqlite', so it created its database in whatever directory a
-# command was run from — including this one. FoxFlow now anchors the default to
-# its own repo root (packages/storage/src/database-path.ts), so a file should
-# no longer appear here. If one does, something is running with the old default.
+# The workflow engine's SQLite DB, created at the repo root by default
+# (packages/workflow-engine/src/storage/database-path.ts). Its credentials and
+# variables tables can hold real secrets, so it never belongs in the repo.
+workflow-engine.sqlite
+workflow-engine.sqlite-shm
+workflow-engine.sqlite-wal
+# Left by the FoxAgent engine before it moved here.
 foxflow.sqlite
 foxflow.sqlite-shm
 foxflow.sqlite-wal

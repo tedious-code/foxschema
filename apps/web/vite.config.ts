@@ -28,6 +28,12 @@ export default defineConfig({
       // Shared is browser-safe by contract (packages/shared/src/purity.test.ts),
       // so unlike @foxschema/db it belongs in the frontend bundle.
       { find: '@foxschema/shared', replacement: pkg('../../packages/shared/src/index.ts') },
+      // Only the engine's browser-safe entry (guarded by definitions-purity.test.ts).
+      // The package root needs Node, so it is deliberately not aliased here.
+      {
+        find: '@foxschema/workflow-engine/definitions',
+        replacement: pkg('../../packages/workflow-engine/src/definitions.ts'),
+      },
     ],
     // Force a single copy of React resolved from this app's node_modules. The
     // monorepo also contains the Ink-based CLI, which pins react@18; npm hoists

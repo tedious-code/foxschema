@@ -84,14 +84,11 @@ export class WorkflowSettingsService {
           error: `HTTP ${res.status}`,
         };
       }
-      // FoxAgent answers `{ status: 'ok' }` and leaves run admission to this
-      // control plane, so an engine that does not report `acceptsRuns` takes
-      // the state saved here.
-      const body = (await res.json()) as Partial<WorkflowHealth> & { status?: string };
+      const body = (await res.json()) as Partial<WorkflowHealth>;
       return {
-        ok: body.ok === true || body.status === 'ok',
-        acceptsRuns:
-          typeof body.acceptsRuns === 'boolean' ? body.acceptsRuns : config.state === 'enabled',
+        ok: body.ok === true,
+        // Admission is decided here, by the saved state; the engine does not know it.
+        acceptsRuns: config.state === 'enabled',
         version: body.version,
         endpoint,
       };

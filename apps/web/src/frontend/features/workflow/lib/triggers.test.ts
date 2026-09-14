@@ -12,6 +12,9 @@ import {
   createTrigger,
   credentialsForTrigger,
   nextTriggerId,
+  triggerCredentialId,
+  withTriggerCredentialId,
+  type WorkflowTrigger,
 } from './triggers';
 
 describe('nextTriggerId', () => {
@@ -47,13 +50,52 @@ describe('createTrigger', () => {
     }
   });
 
-  it('keeps the webhook header names the API verifies', () => {
-    // These are wire protocol. A project-wide rename sweep must not touch
-    // them, or every signed webhook starts failing verification.
+  it('starts a webhook on signature auth, POST only, with the header names the engine verifies', () => {
+    // The header names are wire protocol. A project-wide rename sweep must not
+    // touch them, or every signed webhook starts failing verification.
     expect(createTrigger('webhook', 'hook')).toMatchObject({
-      signatureHeader: 'x-foxflow-signature',
-      timestampHeader: 'x-foxflow-timestamp',
+      auth: {
+        type: 'signature',
+        credentialId: '',
+        signatureHeader: 'x-foxflow-signature',
+        timestampHeader: 'x-foxflow-timestamp',
+      },
+      methods: ['POST'],
+      onMissingIdempotencyKey: 'reject',
     });
+  });
+});
+
+describe('trigger credentials', () => {
+  const webhook = createTrigger('webhook', 'hook');
+  const http = createTrigger('http', 'api');
+
+  it('reads and writes an HTTP trigger’s credential flat', () => {
+    const next = withTriggerCredentialId(http, 'cred-http');
+    expect(next).toMatchObject({ credentialId: 'cred-http' });
+    expect(triggerCredentialId(next)).toBe('cred-http');
+  });
+
+  it('reads and writes a webhook’s credential inside auth', () => {
+    const next = withTriggerCredentialId(webhook, 'cred-hook');
+    expect(next).toMatchObject({ auth: { type: 'signature', credentialId: 'cred-hook' } });
+    expect(next).not.toHaveProperty('credentialId');
+    expect(triggerCredentialId(next)).toBe('cred-hook');
+  });
+
+  it('gives an unauthenticated webhook no credential to set', () => {
+    const open = {
+      ...webhook,
+      auth: { type: 'none', acknowledgeUnauthenticated: true },
+    } as WorkflowTrigger;
+    expect(triggerCredentialId(open)).toBe('');
+    expect(withTriggerCredentialId(open, 'cred-hook')).toBe(open);
+  });
+
+  it('gives kinds without authentication no credential', () => {
+    const cron = createTrigger('cron', 'nightly');
+    expect(triggerCredentialId(cron)).toBe('');
+    expect(withTriggerCredentialId(cron, 'cred-x')).toBe(cron);
   });
 });
 

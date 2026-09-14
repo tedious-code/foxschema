@@ -1,0 +1,31 @@
+{
+  "name": "@foxschema/workflow-engine",
+  "version": "0.1.0",
+  "description": "Workflow engine: definitions, compiler, runtime, SQLite stores and the built-in pipes.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tedious-code/foxschema.git",
+    "directory": "packages/workflow-engine"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./definitions": "./src/definitions.ts"
+  },
+  "dependencies": {
+    "@foxschema/sql": "*",
+    "ajv": "8.20.0",
+    "cron-parser": "5.6.2",
+    "mysql2": "3.24.3",
+    "pg": "8.23.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/pg": "8.20.0"
+  }
+}

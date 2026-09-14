@@ -5,12 +5,11 @@
  *
  * Workflow designer — ported from FoxAgent (components/WorkflowsPanel.tsx).
  */
-import { Copy, Download, FilePlus2, PlayCircle, Search, Trash2, Upload, Wand2 } from 'lucide-react';
+import { Copy, Download, FilePlus2, PlayCircle, Search, Trash2, Upload } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import { toast } from '../lib/notify';
 import { api, type WorkflowPackage, type WorkflowSummary } from '../api/engineClient';
 import { useWorkflows } from '../api/engineQueries';
-import { BrowserCodegenDialog } from './BrowserCodegenDialog';
 import { Button, Input } from './controls';
 
 interface Props {
@@ -20,8 +19,6 @@ interface Props {
   onOpen: (id: string) => void;
   /** Start a blank workflow under a new id. */
   onCreate: (id: string) => void;
-  /** Load a compiled workflow document onto the canvas (not yet saved). */
-  onApplyDocument?: (workflow: unknown) => void;
 }
 
 function relativeTime(iso?: string): string {
@@ -41,12 +38,10 @@ export function WorkflowsPanel({
   currentId,
   onOpen,
   onCreate,
-  onApplyDocument,
 }: Props) {
   const { workflows, loading, refresh } = useWorkflows();
   const [query, setQuery] = useState('');
   const [newId, setNewId] = useState('');
-  const [codegenOpen, setCodegenOpen] = useState(false);
   const importRef = useRef<HTMLInputElement>(null);
 
   const filtered = useMemo(() => {
@@ -71,30 +66,6 @@ export function WorkflowsPanel({
     }
     setNewId('');
     onCreate(id);
-  };
-
-  const applyCodegen = (
-    workflow: unknown,
-    warnings: Array<{ code: string; step: number; message: string }>,
-  ) => {
-    onApplyDocument?.(workflow);
-    const id =
-      workflow &&
-      typeof workflow === 'object' &&
-      'id' in workflow &&
-      typeof (workflow as { id: unknown }).id === 'string'
-        ? (workflow as { id: string }).id
-        : 'workflow';
-    if (warnings.length > 0) {
-      toast.warning(`Compiled "${id}" with ${warnings.length} warning(s)`, {
-        description: warnings
-          .slice(0, 3)
-          .map((warning) => warning.message)
-          .join(' · '),
-      });
-    } else {
-      toast.success(`Compiled "${id}" — edit selectors, then Save`);
-    }
   };
 
   const duplicate = async (workflow: WorkflowSummary) => {
@@ -177,15 +148,6 @@ export function WorkflowsPanel({
 
   return (
     <div className="workflows-panel">
-      {onApplyDocument && (
-        <BrowserCodegenDialog
-          open={codegenOpen}
-          defaultId={newId.trim()}
-          existingIds={workflows.map((workflow) => workflow.id)}
-          onApply={applyCodegen}
-          onClose={() => setCodegenOpen(false)}
-        />
-      )}
       <header className="workflows-header">
         <div>
           <h3>Workflows</h3>
@@ -211,11 +173,6 @@ export function WorkflowsPanel({
           <Button variant="primary" onClick={create} disabled={!newId.trim()}>
             <FilePlus2 /> New
           </Button>
-          {onApplyDocument && (
-            <Button variant="ghost" onClick={() => setCodegenOpen(true)}>
-              <Wand2 /> From codegen
-            </Button>
-          )}
           <Button variant="ghost" onClick={() => importRef.current?.click()}>
             <Upload /> Import
           </Button>

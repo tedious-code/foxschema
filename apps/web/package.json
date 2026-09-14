@@ -53,7 +53,8 @@
     "sql-formatter": "15.8.2",
     "tailwindcss": "4.3.3",
     "zod": "4.4.3",
-    "zustand": "5.0.15"
+    "zustand": "5.0.15",
+    "@foxschema/workflow-engine": "*"
   },
   "optionalDependencies": {
     "@aws-sdk/client-secrets-manager": "3.1126.0",

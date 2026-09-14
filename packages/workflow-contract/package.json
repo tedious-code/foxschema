@@ -1,7 +1,7 @@
 {
   "name": "@foxschema/workflow-contract",
   "version": "0.1.0",
-  "description": "Browser-safe FoxWorkflow engine types and constants shared by the control plane and foxworkflow.",
+  "description": "Browser-safe control-plane types for the workflow engine, shared by the server and web app.",
   "type": "module",
   "license": "Apache-2.0",
   "repository": {
