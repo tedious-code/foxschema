@@ -6,13 +6,16 @@ import * as monaco from 'monaco-editor/editor/editor.api';
 import 'monaco-editor/languages/definitions/sql/register';
 import 'monaco-editor/languages/definitions/pgsql/register';
 import 'monaco-editor/languages/definitions/mysql/register';
+// JSON (the Workflow designer's config editors) validates in its own worker.
+import 'monaco-editor/languages/features/json/register';
 import editorWorker from 'monaco-editor/editor/editor.worker?worker';
+import jsonWorker from 'monaco-editor/languages/features/json/json.worker?worker';
 import { FOXSCHEMA_SQL_LANG, FOXSCRIPT_LANG } from '@/features/sql-editor/lib/foxschemaSqlLanguage';
 
-// SQL highlighting runs on the main thread (basic-languages); only the core
-// editor worker is needed for edit operations, diffing, etc.
+// SQL highlighting runs on the main thread (basic-languages); only JSON needs a
+// language worker — everything else uses the core editor worker.
 self.MonacoEnvironment = {
-  getWorker: () => new editorWorker(),
+  getWorker: (_workerId, label) => (label === 'json' ? new jsonWorker() : new editorWorker()),
 };
 
 loader.config({ monaco });

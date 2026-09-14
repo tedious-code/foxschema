@@ -18,6 +18,8 @@ afterEach(() => {
 // jsdom implements neither of these, and components that measure or observe
 // layout throw on mount without them.
 class ResizeObserverStub {
+  // Same signature as the real constructor, which every caller passes a callback.
+  constructor(_callback: ResizeObserverCallback) {}
   observe(): void {}
   unobserve(): void {}
   disconnect(): void {}
