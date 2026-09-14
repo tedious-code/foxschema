@@ -5,7 +5,7 @@
  *
  * Workflow engine — moved from FoxAgent (packages/runtime/src/triggers.ts).
  */
-import { secretEquals, type CredentialStore } from '../common/index.js';
+import { nonEmptyString, secretEquals, type CredentialStore } from '../common/index.js';
 import type { TriggerDef } from '../common/index.js';
 import {
   TriggerAuthenticationError,
@@ -55,8 +55,8 @@ export async function authenticateHttpTrigger(
 
   const expected =
     bearer(secret.bearerToken) ??
-    stringValue(secret.apiKey) ??
-    stringValue(secret.token);
+    nonEmptyString(secret.apiKey) ??
+    nonEmptyString(secret.token);
   const supplied = header(headers, trigger.authHeader);
   if (!expected || !supplied || !secretEquals(supplied, expected)) {
     throw new TriggerAuthenticationError();
@@ -71,11 +71,7 @@ function header(
   return Array.isArray(value) ? value[0] : value;
 }
 
-function stringValue(value: unknown): string | undefined {
-  return typeof value === 'string' && value.length > 0 ? value : undefined;
-}
-
 function bearer(value: unknown): string | undefined {
-  const token = stringValue(value);
+  const token = nonEmptyString(value);
   return token ? `Bearer ${token}` : undefined;
 }

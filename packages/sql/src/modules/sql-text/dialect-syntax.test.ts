@@ -64,16 +64,12 @@ describe('known gaps — dialect syntax the splitter cannot see', () => {
     expect(parts('SELECT 1\nGO\nSELECT 2\nGO')).toHaveLength(2);
   });
 
-  it.fails('an anonymous BEGIN … END block should stay whole', () => {
+  it('an anonymous BEGIN … END block stays whole', () => {
     // PL/SQL and Db2 SQL PL both use bare `BEGIN … END;` blocks whose inner
     // semicolons are body text — the shape the Db2 tolerant-drop statements
-    // use. The splitter chops `BEGIN NULL; END;` into two fragments, neither
-    // of which runs. Migrations are unaffected (MigrationModule sends whole
-    // statements), but pasting generated SQL into the editor breaks.
-    //
-    // The fix is not simply "treat BEGIN as an opener": in Postgres and MySQL
-    // `BEGIN;` starts a transaction, so this needs the dialect or a heuristic
-    // on what follows the keyword.
+    // use. A statement-leading BEGIN opens a block unless what follows it is
+    // transaction control (`BEGIN;`, `BEGIN TRANSACTION`, Postgres
+    // `BEGIN ISOLATION LEVEL …`), which still splits as before.
     expect(parts('BEGIN NULL; END;')).toHaveLength(1);
   });
 

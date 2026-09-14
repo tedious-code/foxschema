@@ -339,6 +339,17 @@ const NOT_ROUTINE_OBJECT = new Set([
  * `TRY` / `CATCH` pair with `BEGIN TRY` / `BEGIN CATCH` (SQL Server).
  */
 const END_COMPOUND = new Set(['IF', 'LOOP', 'WHILE', 'REPEAT', 'TRY', 'CATCH']);
+/**
+ * What follows a statement-leading `BEGIN` when it is transaction control —
+ * `BEGIN TRANSACTION`, Postgres `BEGIN ISOLATION LEVEL …` / `BEGIN READ ONLY`,
+ * SQLite `BEGIN DEFERRED` — rather than the start of an anonymous block.
+ */
+const TRANSACTION_BEGIN = new Set([
+  'TRAN', 'TRANSACTION', 'WORK', 'ISOLATION', 'READ', 'NOT', 'DEFERRABLE',
+  'DEFERRED', 'IMMEDIATE', 'EXCLUSIVE', 'DISTRIBUTED',
+  // T-SQL `BEGIN DIALOG CONVERSATION` (Service Broker) is a statement, not a block.
+  'DIALOG',
+]);
 
 /** Block frames pushed while scanning routine DDL bodies. */
 type RoutineBlock = 'begin' | 'case' | 'try' | 'catch';
@@ -410,7 +421,10 @@ function splitSqlOnly(sql: string): SplitStatement[] {
   let stmtVerb: string | null = null;
   /** True until we know whether this CREATE/ALTER is routine DDL. */
   let lookingForRoutine = false;
-  /** CREATE/ALTER FUNCTION|PROCEDURE|TRIGGER — inner `;` do not split. */
+  /**
+   * CREATE/ALTER FUNCTION|PROCEDURE|TRIGGER, or an anonymous `BEGIN … END`
+   * block — inner `;` do not split.
+   */
   let inRoutineDdl = false;
   /**
    * Nesting stack while `inRoutineDdl`. A bare counter treated every `END`
@@ -512,6 +526,13 @@ function splitSqlOnly(sql: string): SplitStatement[] {
             if (stmtVerb === null) {
               stmtVerb = word;
               lookingForRoutine = word === 'CREATE' || word === 'ALTER';
+              if (word === 'BEGIN') {
+                // A bare BEGIN opens an anonymous block (PL/SQL, Db2 SQL PL,
+                // T-SQL) whose `;` belong to it, exactly like a routine body.
+                // `BEGIN;` and `BEGIN TRANSACTION` are transaction control.
+                const nxt = peekSqlKeyword(sql, ident.end);
+                if (nxt !== null && !TRANSACTION_BEGIN.has(nxt)) inRoutineDdl = true;
+              }
             } else if (lookingForRoutine) {
               if (ROUTINE_OBJECT.has(word)) {
                 inRoutineDdl = true;

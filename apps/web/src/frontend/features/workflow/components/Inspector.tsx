@@ -14,6 +14,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { FilterPicker } from '@/shared/components/FilterPicker';
 import type { CredentialMeta, WorkflowSummary } from '../api/engineClient';
 import type { CatalogCategory, CatalogEntry } from '../lib/catalog';
 import {
@@ -28,6 +29,7 @@ import {
   type HttpRequestValue,
 } from './HttpRequestEditor';
 import { MultiHttpEditor } from './MultiHttpEditor';
+import { SqlPipeEditor, type SqlPipeType } from './SqlPipeEditor';
 import type { PipeData } from './PipeNode';
 import { TriggerInlineSettings } from './TriggerInlineSettings';
 import { JSON_EDITOR_OPTIONS, useJsonEditorTheme } from '../lib/jsonEditorOptions';
@@ -49,6 +51,13 @@ const HTTP_REQUEST_KEYS = new Set<string>([
   // Legacy wrapper that toHttpRequestValue still unwraps.
   'request',
 ]);
+
+/** The closed credential picker's text; an id the list no longer has still shows. */
+function credentialSummary(credentials: readonly CredentialMeta[], credentialId: string): string {
+  const credential = credentials.find((candidate) => candidate.id === credentialId);
+  if (credential) return `${credential.name} (${credential.kind})`;
+  return credentialId || 'none';
+}
 
 interface Props {
   pipeId: string | null;
@@ -469,10 +478,15 @@ export function Inspector({
   // covering every config key, so the generic fields stay hidden for them.
   const isDelimitedSource =
     data?.type === 'source.file.csv' || data?.type === 'source.file.text';
+  // The SQL pipes' editor owns the statement text; the rest stay generic.
+  const isSqlPipe = data?.type === 'source.db.sql' || data?.type === 'sink.db.sql';
+  const isScriptPipe = data?.type === 'transform.script';
   const propertyKeys = Object.keys(properties).filter(
     (key) =>
       !isDelimitedSource &&
       !isMultiHttpSource &&
+      !(isSqlPipe && key === 'sql') &&
+      !(isScriptPipe && key === 'script') &&
       !(entry?.triggerKind && key === 'triggerId') &&
       !(isSubWorkflow && key === 'workflowId') &&
       !(isSubWorkflow && key === 'workflowVersion') &&
@@ -748,18 +762,24 @@ export function Inspector({
             ))}
           </select>
 
-          <label>Credential</label>
-          <select
-            value={data.credentialId}
-            onChange={(ev) => onChange(pipeId, { credentialId: ev.target.value })}
-          >
-            <option value="">none</option>
-            {credentials.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name} ({c.kind})
-              </option>
-            ))}
-          </select>
+          <label htmlFor="pipe-credential">Credential</label>
+          <FilterPicker
+            id="pipe-credential"
+            mode="single"
+            testId="pipe-credential"
+            options={credentials.map((c) => ({
+              id: c.id,
+              label: c.name,
+              badge: c.kind,
+              detail: c.source ? `${c.id} · ${c.source}` : c.id,
+              testId: `pipe-credential-option-${c.id}`,
+            }))}
+            selectedId={data.credentialId || null}
+            onSelect={(credentialId) => onChange(pipeId, { credentialId })}
+            clearLabel="none"
+            placeholder="Filter by name, kind, id…"
+            summary={credentialSummary(credentials, data.credentialId)}
+          />
 
           <label>Concurrency (×N workers)</label>
           <input
@@ -838,6 +858,46 @@ export function Inspector({
               setConfigError(null);
             }}
           />
+        </>
+      )}
+
+      {isSqlPipe && (
+        <>
+          <h4 className="inspector-section">
+            {data.type === 'sink.db.sql' ? 'SQL write' : 'SQL query'}
+          </h4>
+          <SqlPipeEditor
+            key={pipeId}
+            type={data.type as SqlPipeType}
+            config={config}
+            credentialId={data.credentialId}
+            onConfigChange={(next) => {
+              onChange(pipeId, { config: JSON.stringify(next, null, 2) });
+              setConfigError(null);
+            }}
+            onCredentialChange={(credentialId) => onChange(pipeId, { credentialId })}
+          />
+        </>
+      )}
+
+      {isScriptPipe && (
+        <>
+          <h4 className="inspector-section">Script</h4>
+          <div className="monaco-frame">
+            <Editor
+              height="220px"
+              language="javascript"
+              theme={jsonEditorTheme}
+              value={typeof config.script === 'string' ? config.script : ''}
+              onChange={(value) => patchConfig('script', value ?? '')}
+              options={{ ...JSON_EDITOR_OPTIONS, lineNumbers: 'on' }}
+            />
+          </div>
+          <div className="hint">
+            The body of a function that receives <code>records</code> and returns the new array. It runs in
+            an isolated process with no file, network or environment access, and its <code>console.log</code>{' '}
+            lines appear in the run log.
+          </div>
         </>
       )}
 

@@ -94,6 +94,8 @@ export {
   validateAgainstSchema,
   validateWorkflowInput,
 } from './definitions/io-schema.js';
+export { ACTIVE_RUN_STATUSES, isTerminalRunStatus } from './types.js';
+export { nonEmptyString } from './strings.js';
 export type {
   RunStatus,
   PipelineRunStatus,

@@ -10,6 +10,7 @@ import {
   RUN_OUTPUT_EVENT,
   TriggerAuthenticationError,
   authenticateHttpTrigger,
+  isTerminalRunStatus,
   validateAgainstSchema,
   type TriggerDef,
   type TriggerInvocation,
@@ -271,7 +272,9 @@ async function handleIngress(
     return respondWhenFinished(reply, ctx, result.run.id, waitMs);
   }
 
-  return reply.code(result.reason === 'conflict' ? 409 : 202).send({
+  // A disabled or draining engine is a temporary refusal, so callers retry.
+  const status = result.reason === 'conflict' ? 409 : result.reason === 'disabled' ? 503 : 202;
+  return reply.code(status).send({
     accepted: result.accepted,
     runId: result.run?.id,
     status: result.run?.status,
@@ -308,8 +311,6 @@ function requestedWait(
   return wait === '1' || wait === 'true' ? DEFAULT_WAIT_MS : 0;
 }
 
-const TERMINAL_RUN_STATUSES = ['succeeded', 'failed', 'cancelled'];
-
 /**
  * Hold the request until the run settles, then answer with what
  * `sink.response` collected.
@@ -326,8 +327,11 @@ async function respondWhenFinished(
 ): Promise<unknown> {
   const deadline = Date.now() + waitMs;
   let run = await ctx.runs.get(runId);
+  // Quick at first, for a run that answers in milliseconds, then backing off:
+  // a thirty-second wait costs a few dozen reads rather than twelve hundred.
+  let delayMs = 25;
 
-  while (run && !TERMINAL_RUN_STATUSES.includes(run.status)) {
+  while (run && !isTerminalRunStatus(run.status)) {
     if (Date.now() >= deadline) {
       // Not an error: the run is still going. Hand back the id so the caller
       // can poll, and say plainly that this is a timeout rather than a result.
@@ -338,7 +342,10 @@ async function respondWhenFinished(
         reason: 'timeout',
       });
     }
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.min(delayMs, Math.max(0, deadline - Date.now()))),
+    );
+    delayMs = Math.min(delayMs * 2, 250);
     run = await ctx.runs.get(runId);
   }
   if (!run) return reply.code(404).send({ error: 'run not found' });

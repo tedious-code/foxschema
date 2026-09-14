@@ -6,6 +6,7 @@
  * Workflow engine — moved from FoxAgent (packages/common/src/credentials/store.ts).
  */
 import { z } from 'zod';
+import { LINKED_CONNECTION_PREFIX, connectionCredentialId } from '@foxschema/workflow-contract';
 import { decrypt, encrypt } from './crypto.js';
 import {
   buildStoredSecret,
@@ -24,6 +25,8 @@ export const credentialKindSchema = z.enum([
   'oauth', // OAuth2 / OIDC client + refresh (Google, Meta, …) — same secret shape as http
   'webhook', // shared secret for verifying inbound webhook signatures
   'llm', // API key for AI generate (Anthropic / OpenAI / compatible)
+  'email', // SMTP host/port/security/username/password, or a mail provider API key
+  'sms', // SMS provider account: Twilio account SID + auth token, or Vonage key + secret
 ]);
 export type CredentialKind = z.infer<typeof credentialKindSchema>;
 
@@ -66,6 +69,18 @@ export const createCredentialSchema = z
     data: z.record(z.string(), z.unknown()),
   })
   .superRefine((input, ctx) => {
+    // The prefix tags a linked FoxSchema connection, and the designer reads the
+    // id to show the link, so no other credential may take it.
+    if (input.id?.startsWith(LINKED_CONNECTION_PREFIX)) {
+      const connectionId = typeof input.data.connectionId === 'string' ? input.data.connectionId.trim() : '';
+      if (input.source !== 'foxschema' || input.id !== connectionCredentialId(connectionId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'ids starting ' + LINKED_CONNECTION_PREFIX + ' are reserved for linked FoxSchema connections',
+          path: ['id'],
+        });
+      }
+    }
     try {
       buildStoredSecret(input.source ?? 'local', input.data);
     } catch (error) {

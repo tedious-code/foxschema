@@ -12,6 +12,7 @@ import type {
   PipeRunRecord,
   PipelineRunRecord,
   RunEvent,
+  RunStatus,
   TriggerInvocation,
   TriggerScheduleState,
   WorkflowRunRecord,
@@ -57,7 +58,15 @@ export interface RunStore {
     invocation?: TriggerInvocation,
   ): Promise<boolean>;
   get(id: string): Promise<WorkflowRunRecord | undefined>;
-  list(workflowId?: string): Promise<WorkflowRunRecord[]>;
+  /**
+   * Runs, newest first. `status` keeps runs in one of those states and `limit`
+   * caps the rows: the scheduler asks for what is queued and the designer for
+   * the latest page, and neither needs the whole history.
+   */
+  list(
+    workflowId?: string,
+    filter?: { status?: readonly RunStatus[]; limit?: number },
+  ): Promise<WorkflowRunRecord[]>;
   update(run: WorkflowRunRecord): Promise<void>;
   getSnapshot(id: string): Promise<WorkflowDef | undefined>;
   getInvocation(id: string): Promise<TriggerInvocation | undefined>;

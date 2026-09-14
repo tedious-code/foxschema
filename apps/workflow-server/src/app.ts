@@ -5,8 +5,10 @@
  *
  * Workflow engine — moved from FoxAgent (apps/api/src/app.ts).
  */
+import { timingSafeEqual } from 'node:crypto';
 import rateLimit from '@fastify/rate-limit';
-import Fastify, { type FastifyInstance } from 'fastify';
+import { WORKFLOW_ENGINE_TOKEN_ENV } from '@foxschema/workflow-contract';
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import rawBody from 'fastify-raw-body';
 import {
   serializerCompiler,
@@ -23,12 +25,8 @@ import { triggerRoutes } from './routes/triggers.js';
 import { variableRoutes } from './routes/variables.js';
 import { workflowRoutes } from './routes/workflows.js';
 
-/**
- * Build the Fastify app with zod as the validation + serialization provider.
- * Accepts a context for tests (inject in-memory stores); defaults to a fresh
- * one in production.
- */
-export function buildApp(ctx: AppContext = createContext()): FastifyInstance {
+/** What both listeners share: validation, rate limiting, the raw body webhooks sign, and health. */
+function createServer(): FastifyInstance {
   const app = Fastify({
     logger: false,
     trustProxy: process.env.FOXFLOW_TRUST_PROXY === 'true',
@@ -40,20 +38,62 @@ export function buildApp(ctx: AppContext = createContext()): FastifyInstance {
 
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
-
   app.register(rateLimit, { global: false });
   app.register(rawBody, { global: false, encoding: false, runFirst: true });
-
   app.get('/health', async () => ({ ok: true, service: 'workflow-server' }));
+  return app;
+}
 
-  app.register(credentialRoutes(ctx), { prefix: '/api' });
-  app.register(pipeRoutes(ctx), { prefix: '/api' });
-  app.register(previewRoutes(), { prefix: '/api' });
-  app.register(middlewareRoutes(ctx), { prefix: '/api' });
-  app.register(workflowRoutes(ctx), { prefix: '/api' });
-  app.register(runRoutes(ctx), { prefix: '/api' });
-  app.register(triggerRoutes(ctx), { prefix: '/api' });
-  app.register(variableRoutes(ctx), { prefix: '/api' });
+/** Refuse a request that does not present `token`, compared in constant time. */
+function requireToken(token: string) {
+  const expected = Buffer.from(token);
+  return async (req: FastifyRequest, reply: FastifyReply) => {
+    const header = req.headers.authorization ?? '';
+    const presented = Buffer.from(header.startsWith('Bearer ') ? header.slice('Bearer '.length) : '');
+    if (presented.length !== expected.length || !timingSafeEqual(presented, expected)) {
+      return reply.code(401).send({ error: 'unauthorized' });
+    }
+  };
+}
+
+/**
+ * The engine API. Accepts a context for tests (inject in-memory stores);
+ * defaults to a fresh one in production. Owns the context's lifecycle:
+ * recovery and schedules start when it is ready and stop when it closes.
+ *
+ * `ingress: false` leaves trigger ingress to {@link buildIngressApp} on a
+ * listener of its own, so this one can stay on loopback with every route
+ * behind the service token.
+ */
+export function buildApp(
+  ctx: AppContext = createContext(),
+  {
+    token = process.env[WORKFLOW_ENGINE_TOKEN_ENV],
+    ingress = true,
+  }: { token?: string; ingress?: boolean } = {},
+): FastifyInstance {
+  const app = createServer();
+
+  // The API in a plugin of its own, so the token hook covers exactly these
+  // routes. Trigger ingress is registered beside it, outside the hook: webhooks
+  // and API endpoints authenticate their own callers, and the proxy never
+  // fronts them. Without a token the API stays open, for a loopback-only dev
+  // setup.
+  app.register(
+    async (api) => {
+      if (token) api.addHook('onRequest', requireToken(token));
+      api.register(credentialRoutes(ctx));
+      api.register(pipeRoutes(ctx));
+      api.register(previewRoutes());
+      api.register(middlewareRoutes(ctx));
+      api.register(workflowRoutes(ctx));
+      api.register(runRoutes(ctx));
+      api.register(variableRoutes(ctx));
+    },
+    { prefix: '/api' },
+  );
+  if (ingress) app.register(triggerRoutes(ctx), { prefix: '/api' });
+
   app.addHook('onReady', async () => {
     await loadConfiguredPlugins(ctx.registry);
     await ctx.scheduler.recover();
@@ -75,6 +115,17 @@ export function buildApp(ctx: AppContext = createContext()): FastifyInstance {
     ctx.close?.();
   });
 
+  return app;
+}
 
+/**
+ * Trigger ingress alone, for a listener that can face the internet while the
+ * engine API does not. It serves the same paths the API app would, so an
+ * integration keeps its URL when ingress moves to its own port. It shares the
+ * API app's context and leaves that context's lifecycle to it.
+ */
+export function buildIngressApp(ctx: AppContext): FastifyInstance {
+  const app = createServer();
+  app.register(triggerRoutes(ctx), { prefix: '/api' });
   return app;
 }

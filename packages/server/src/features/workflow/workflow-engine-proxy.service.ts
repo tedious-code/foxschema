@@ -11,6 +11,7 @@
  * public trigger ingress above all — is simply not reachable through here.
  */
 import type { Permission } from '@foxschema/shared';
+import { WORKFLOW_ENGINE_TOKEN_ENV } from '@foxschema/workflow-contract';
 import { WorkflowSettingsService } from './workflow-settings.service';
 
 export interface EngineRoute {
@@ -127,6 +128,8 @@ export class WorkflowEngineProxyService {
   constructor(
     private readonly settings: Pick<WorkflowSettingsService, 'getConfig'> = new WorkflowSettingsService(),
     private readonly fetchImpl: typeof fetch = fetch,
+    /** Shared service token; the engine refuses its API without it once it has one. */
+    private readonly token: string | undefined = process.env[WORKFLOW_ENGINE_TOKEN_ENV],
   ) {}
 
   async forward(request: EngineRequest): Promise<Response> {
@@ -147,6 +150,8 @@ export class WorkflowEngineProxyService {
         headers: {
           accept: 'application/json, text/event-stream',
           ...(hasBody ? { 'content-type': 'application/json' } : {}),
+          // FoxSchema's own credential for the engine, never the caller's.
+          ...(this.token ? { authorization: `Bearer ${this.token}` } : {}),
         },
         ...(hasBody ? { body: JSON.stringify(request.body) } : {}),
         ...(request.signal ? { signal: request.signal } : {}),

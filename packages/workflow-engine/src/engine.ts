@@ -6,7 +6,7 @@
  * Workflow engine — moved from FoxAgent (packages/engine/src/engine.ts).
  */
 import { randomUUID } from 'node:crypto';
-import { keyFromEnv } from './common/index.js';
+import { keyFromEnv, type EventStore, type NewRunEvent, type RunEvent } from './common/index.js';
 import { createDefaultPipeRegistry } from './pipes/utility/index.js';
 import type { PipeRegistry } from './registry/index.js';
 import {
@@ -63,12 +63,16 @@ export class Engine {
   readonly executor: PipelineExecutor;
   readonly runner: WorkflowRunner;
   readonly scheduler: LocalRunScheduler;
+  private readonly eventListeners = new Set<(event: RunEvent) => void>();
 
   constructor(options: EngineOptions = {}) {
-    this.stores = openSqliteStores(
+    const stores = openSqliteStores(
       resolveDatabasePath(options.databasePath),
       options.encryptionKey ?? keyFromEnv(),
     );
+    // Every writer of run events — executor, runner, scheduler, sub-workflows —
+    // is handed this one store, so observing it here observes all of them.
+    this.stores = { ...stores, events: this.observe(stores.events) };
     this.registry = options.registry ?? createDefaultPipeRegistry();
     this.middleware = options.middleware ?? createDefaultMiddlewareRegistry();
     this.executor = new PipelineExecutor({
@@ -154,6 +158,31 @@ export class Engine {
         : {}),
     });
     dispatcher.scheduler = this.scheduler;
+  }
+
+  /** Be told of each run event once it is stored. Returns the unsubscribe. */
+  onEvent(listener: (event: RunEvent) => void): () => void {
+    this.eventListeners.add(listener);
+    return () => {
+      this.eventListeners.delete(listener);
+    };
+  }
+
+  private observe(events: EventStore): EventStore {
+    return {
+      append: async (event: NewRunEvent) => {
+        const stored = await events.append(event);
+        for (const listener of this.eventListeners) {
+          try {
+            listener(stored);
+          } catch {
+            // A listener's failure is not the run's.
+          }
+        }
+        return stored;
+      },
+      list: (workflowRunId, afterSeq) => events.list(workflowRunId, afterSeq),
+    };
   }
 
   /** Resume interrupted and queued runs after a restart. */

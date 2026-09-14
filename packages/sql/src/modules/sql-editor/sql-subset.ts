@@ -80,12 +80,15 @@ function tableName(raw: string): string {
 function parseValue(raw: string, nextParamIndex: () => number): SubsetValue | null {
   const s = raw.trim();
   if (!s) return null;
-  // $1 / ? / :1 — the three placeholder styles renderSqlQuery emits.
+  // $1 / ? / :1 / @p0 — the placeholder styles renderSqlQuery emits.
   if (s === '?') return { kind: 'param', index: nextParamIndex() };
   const dollar = /^\$(\d+)$/.exec(s);
   if (dollar) return { kind: 'param', index: Number(dollar[1]) - 1 };
   const colon = /^:(\d+)$/.exec(s);
   if (colon) return { kind: 'param', index: Number(colon[1]) - 1 };
+  // SQL Server names are already 0-based.
+  const at = /^@p(\d+)$/.exec(s);
+  if (at) return { kind: 'param', index: Number(at[1]) };
 
   if (/^NULL$/i.test(s)) return { kind: 'literal', value: null };
   if (/^TRUE$/i.test(s)) return { kind: 'literal', value: true };

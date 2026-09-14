@@ -13,6 +13,7 @@ import {
   planWorkflow,
   type WorkflowDef,
 } from '@foxschema/workflow-engine';
+import { ACTIVE_RUN_STATUSES } from '@foxschema/workflow-engine';
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from '../zod-provider.js';
 import { z } from 'zod';
@@ -429,9 +430,10 @@ export function workflowRoutes(ctx: AppContext) {
         // An in-flight run still needs its definition reachable for resume, so
         // refuse rather than delete out from under it. Finished runs are safe:
         // they carry their own immutable snapshot.
-        const active = (await ctx.runs.list(req.params.id)).find(
-          (run) => run.status === 'queued' || run.status === 'running',
-        );
+        const [active] = await ctx.runs.list(req.params.id, {
+          status: ACTIVE_RUN_STATUSES,
+          limit: 1,
+        });
         if (active) {
           return reply.code(409).send({
             error: `workflow has an active run (${active.id}); cancel it first`,

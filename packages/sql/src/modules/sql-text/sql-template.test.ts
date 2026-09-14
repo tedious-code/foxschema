@@ -12,6 +12,10 @@ describe('placeholderStyleFor', () => {
     expect(placeholderStyleFor('mysql')).toBe('question');
     expect(placeholderStyleFor('sqlite')).toBe('question');
     expect(placeholderStyleFor('db2')).toBe('question');
+    // The T-SQL adapters bind @p0, @p1, … by name; `?` binds nothing there.
+    expect(placeholderStyleFor('sqlserver')).toBe('at');
+    expect(placeholderStyleFor('azuresql')).toBe('at');
+    expect(placeholderStyleFor('mssql')).toBe('at');
   });
 });
 
@@ -45,6 +49,7 @@ describe('renderSqlQuery', () => {
     expect(renderSqlQuery(q, 'oracle').text).toBe('SELECT :1, :2, :3');
     expect(renderSqlQuery(q, 'mysql').text).toBe('SELECT ?, ?, ?');
     expect(renderSqlQuery(q, 'clickhouse').text).toBe('SELECT $1, $2, $3');
+    expect(renderSqlQuery(q, 'sqlserver').text).toBe('SELECT @p0, @p1, @p2');
   });
 
   it('expands a bare array into an IN list', () => {
@@ -109,7 +114,7 @@ describe('renderSqlQuery', () => {
     );
     expect(out.params).toEqual([1, 'a@b.c']);
     expect(out.text).toContain('MERGE INTO [accounts]');
-    expect(out.text).toContain('SELECT ? AS id, ? AS email');
+    expect(out.text).toContain('SELECT @p0 AS id, @p1 AS email');
   });
 });
 

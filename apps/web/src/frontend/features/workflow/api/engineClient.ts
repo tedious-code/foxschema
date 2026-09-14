@@ -261,8 +261,9 @@ export const api = {
     return request(`/workflows/${encodeURIComponent(id)}/run`, { method: 'POST', body });
   },
 
+  /** The newest runs; the list is polled, and the engine caps it anyway. */
   listRuns(): Promise<RunRecord[]> {
-    return request('/runs');
+    return request('/runs?limit=200');
   },
 
   getRun(id: string): Promise<RunDetail> {

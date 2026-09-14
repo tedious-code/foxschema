@@ -6,7 +6,7 @@
  * Workflow engine — moved from FoxAgent (packages/runtime/src/webhook-auth.ts).
  */
 import { createHmac, createVerify, timingSafeEqual } from 'node:crypto';
-import { secretEquals, type CredentialStore } from '../common/index.js';
+import { nonEmptyString, secretEquals, type CredentialStore } from '../common/index.js';
 import type { WebhookAuth } from '../common/index.js';
 
 export class TriggerAuthenticationError extends Error {
@@ -60,7 +60,7 @@ function verifySignature(
   secret: Secret,
 ): void {
   const sharedSecret =
-    stringValue(secret.sharedSecret) ?? stringValue(secret.secret);
+    nonEmptyString(secret.sharedSecret) ?? nonEmptyString(secret.secret);
   const supplied = header(request.headers, auth.signatureHeader);
   const timestamp = header(request.headers, auth.timestampHeader);
   const idempotencyKey = request.idempotencyKey;
@@ -89,8 +89,8 @@ function verifyBasic(
   request: WebhookAuthRequest,
   secret: Secret,
 ): void {
-  const username = stringValue(secret.username);
-  const password = stringValue(secret.password);
+  const username = nonEmptyString(secret.username);
+  const password = nonEmptyString(secret.password);
   const supplied = header(request.headers, 'authorization');
   if (!username || !password || !supplied) {
     throw new TriggerAuthenticationError();
@@ -123,9 +123,9 @@ function verifyHeader(
   secret: Secret,
 ): void {
   const expected =
-    stringValue(secret.token) ??
-    stringValue(secret.apiKey) ??
-    stringValue(secret.secret);
+    nonEmptyString(secret.token) ??
+    nonEmptyString(secret.apiKey) ??
+    nonEmptyString(secret.secret);
   const supplied = header(request.headers, auth.header);
   if (!expected || !supplied) throw new TriggerAuthenticationError();
   // Accept the value with or without a Bearer prefix: which one a provider
@@ -218,7 +218,7 @@ function verifyHmac(
   signature: Buffer,
   secret: Secret,
 ): boolean {
-  const key = stringValue(secret.secret) ?? stringValue(secret.sharedSecret);
+  const key = nonEmptyString(secret.secret) ?? nonEmptyString(secret.sharedSecret);
   if (!key) return false;
   const expected = createHmac(`sha${alg.slice(2)}`, key)
     .update(signingInput)
@@ -235,7 +235,7 @@ function verifyRsa(
   signature: Buffer,
   secret: Secret,
 ): boolean {
-  const publicKey = stringValue(secret.publicKey);
+  const publicKey = nonEmptyString(secret.publicKey);
   if (!publicKey) return false;
   try {
     return createVerify(`RSA-SHA${alg.slice(2)}`)
@@ -274,10 +274,6 @@ function header(
 ): string | undefined {
   const value = headers[name.toLowerCase()];
   return Array.isArray(value) ? value[0] : value;
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
 function isFreshTimestamp(

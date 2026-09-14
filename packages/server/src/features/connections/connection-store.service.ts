@@ -165,14 +165,15 @@ export class ConnectionStore {
   async resolve(
     userId: string,
     id: string
-  ): Promise<{ dialect: string; schema?: string; option: ConnectionOptions } | null> {
+  ): Promise<{ name: string; dialect: string; schema?: string; option: ConnectionOptions } | null> {
     const store = await getStore();
-    const row = await store.get<{ dialect: string; schema: string | null; encrypted_config: string }>(
-      'SELECT dialect, "schema", encrypted_config FROM connections WHERE id = ? AND user_id = ?',
+    const row = await store.get<{ name: string | null; dialect: string; schema: string | null; encrypted_config: string }>(
+      'SELECT name, dialect, "schema", encrypted_config FROM connections WHERE id = ? AND user_id = ?',
       [id, userId]
     );
     if (!row) return null;
     return {
+      name: row.name ?? '',
       dialect: row.dialect,
       schema: row.schema ?? undefined,
       option: JSON.parse(decryptSecret(row.encrypted_config)) as ConnectionOptions,

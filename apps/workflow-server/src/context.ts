@@ -49,6 +49,8 @@ export interface AppContext {
   scheduler: LocalRunScheduler;
   cron: CronCoordinator;
   poll: PollCoordinator;
+  /** Be told of each run event once it is stored. */
+  onEvent: Engine['onEvent'];
   close: () => void;
 }
 
@@ -92,6 +94,7 @@ export function createContext(options: Pick<EngineOptions, 'databasePath' | 'enc
     middleware: engine.middleware,
     scheduler: engine.scheduler,
     ...createTriggerCoordinators(engine),
+    onEvent: (listener) => engine.onEvent(listener),
     close: () => engine.close(),
   };
 }

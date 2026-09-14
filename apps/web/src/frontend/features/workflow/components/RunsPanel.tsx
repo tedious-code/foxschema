@@ -8,6 +8,7 @@
  */
 import { ArrowDown, ArrowUp, RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { RUN_STREAM_END_EVENT } from '@foxschema/workflow-contract';
 import {
   api,
   type RunEvent,
@@ -171,6 +172,9 @@ export function RunsPanel({ runs, onRefresh }: { runs: RunRecord[]; onRefresh: (
       }
     };
     source.onerror = () => setLive(false);
+    // The engine sends `end` once the run has finished and every event is out.
+    // Left open, an EventSource would reconnect and replay the run from seq 0.
+    source.addEventListener(RUN_STREAM_END_EVENT, () => source.close());
     return () => source.close();
   }, [selectedId, live]);
 

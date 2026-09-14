@@ -4,25 +4,42 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Workflow engine — moved from FoxAgent (apps/api/src/server.ts).
+ *
+ * The engine API listens on HOST:PORT (loopback by default). Setting
+ * INGRESS_PORT moves webhook and API-endpoint ingress to a listener of its
+ * own on INGRESS_HOST, which is the one to put behind a public reverse proxy:
+ * callers from outside never share a port with the engine API, and FoxSchema
+ * itself never carries webhook traffic.
  */
-import { buildApp } from './app.js';
+import type { FastifyInstance } from 'fastify';
+import { buildApp, buildIngressApp } from './app.js';
+import { createContext } from './context.js';
+import { attachEngineSettings } from './engine-settings.js';
 
 const port = Number(process.env.PORT ?? 8081);
 const host = process.env.HOST ?? '127.0.0.1';
+const ingressPort = process.env.INGRESS_PORT ? Number(process.env.INGRESS_PORT) : undefined;
+const ingressHost = process.env.INGRESS_HOST ?? '127.0.0.1';
 /** Hard cap on graceful shutdown; tsx watch SIGKILLs at 5s. */
 const SHUTDOWN_TIMEOUT_MS = Number(process.env.FOXFLOW_SHUTDOWN_TIMEOUT_MS ?? 3000);
 
-const app = buildApp();
+const ctx = createContext();
+const detachSettings = attachEngineSettings(ctx);
+const app = buildApp(ctx, { ingress: ingressPort === undefined });
+const ingress: FastifyInstance | undefined =
+  ingressPort === undefined ? undefined : buildIngressApp(ctx);
 
-app
-  .listen({ port, host })
-  .then((address) => {
-    console.log(`workflow-server listening on ${address}`);
-  })
-  .catch((err) => {
-    console.error(err);
-    process.exit(1);
-  });
+async function start(): Promise<void> {
+  console.log(`workflow-server listening on ${await app.listen({ port, host })}`);
+  if (ingress) {
+    console.log(`workflow-server ingress listening on ${await ingress.listen({ port: ingressPort, host: ingressHost })}`);
+  }
+}
+
+start().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
 
 /**
  * Graceful shutdown. Without this the process ignores SIGTERM (tsx's preflight
@@ -30,7 +47,7 @@ app
  * so `tsx watch` restarts hung for 5s and then SIGKILLed — losing the onClose
  * hook that stops cron, drains runs, and closes SQLite.
  *
- * `app.close()` is still bounded: a wedged run or a stuck socket must not
+ * `close()` is still bounded: a wedged run or a stuck socket must not
  * outlive the timeout, so we force-exit rather than wait to be killed.
  */
 let closing = false;
@@ -43,7 +60,11 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   }, SHUTDOWN_TIMEOUT_MS);
   forced.unref();
   try {
+    // Stop taking new trigger requests before the API app drains runs and
+    // closes the stores they write to.
+    await ingress?.close();
     await app.close();
+    await detachSettings();
     process.exit(0);
   } catch (error) {
     console.error('workflow-server: shutdown failed', error);

@@ -10,7 +10,12 @@ import type {
   DependencyDef,
   WorkflowDef,
 } from '../common/index.js';
-import { isHumanInputRequired, validateWorkflowInput } from '../common/index.js';
+import type { EngineState } from '@foxschema/workflow-contract';
+import {
+  ACTIVE_RUN_STATUSES,
+  isHumanInputRequired,
+  validateWorkflowInput,
+} from '../common/index.js';
 import { evaluateConditions } from './conditions.js';
 import type { SqlProbe } from './scheduler/sql-precondition.js';
 import type { HumanInputRequired, HumanInputStore } from '../common/index.js';
@@ -506,6 +511,8 @@ export interface LocalRunSchedulerOptions {
   /** Environments + variables. Absent = runs get no resolved variables. */
   environments?: EnvironmentStore;
   variables?: VariableStore;
+  /** Most runs executing at once on this instance. Default: no limit. */
+  maxConcurrentRuns?: number;
 }
 
 export interface EnqueueResult {
@@ -516,7 +523,7 @@ export interface EnqueueResult {
    * exists rather than after.
    */
   run?: WorkflowRunRecord;
-  reason?: 'overlap' | 'duplicate' | 'conflict' | 'condition';
+  reason?: 'overlap' | 'duplicate' | 'conflict' | 'condition' | 'disabled';
   /** Which condition refused, so the silence is explainable. */
   detail?: string;
 }
@@ -534,10 +541,24 @@ export class LocalRunScheduler {
   private readonly leases = new Map<string, NodeJS.Timeout>();
   private readonly now: () => string;
   private readonly instanceId: string;
+  private state: EngineState = 'enabled';
+  private readonly slots = new RunSlots();
 
   constructor(private readonly options: LocalRunSchedulerOptions) {
     this.now = options.now ?? (() => new Date().toISOString());
     this.instanceId = options.instanceId ?? 'local';
+    this.slots.setLimit(options.maxConcurrentRuns);
+  }
+
+  /**
+   * Apply the engine settings an admin saved. `disabled` admits nothing new.
+   * `draining` admits only runs started for a run already in flight
+   * (sub-workflows), so work under way can finish. Lowering
+   * `maxConcurrentRuns` lets running work finish and keeps the rest queued.
+   */
+  setAdmission(admission: { state: EngineState; maxConcurrentRuns?: number }): void {
+    this.state = admission.state;
+    this.slots.setLimit(admission.maxConcurrentRuns);
   }
 
   async enqueue(
@@ -545,6 +566,11 @@ export class LocalRunScheduler {
     providedInvocation?: TriggerInvocation,
     options?: { parentRunId?: string; environment?: string; debug?: boolean },
   ): Promise<EnqueueResult> {
+    // First, and for every activation path: manual, cron, poll, webhook and
+    // sub-workflow runs all arrive here.
+    if (this.state === 'disabled' || (this.state === 'draining' && !options?.parentRunId)) {
+      return { accepted: false, reason: 'disabled', detail: `the workflow engine is ${this.state}` };
+    }
     const invocation = providedInvocation ?? this.manualInvocation(workflow);
     const trigger = workflow.triggers.find(
       (candidate) => candidate.id === invocation.triggerId,
@@ -618,9 +644,10 @@ export class LocalRunScheduler {
       collected = outcome.collected;
     }
 
-    const active = (await this.options.runs.list(workflow.id)).find(
-      (run) => run.status === 'queued' || run.status === 'running',
-    );
+    const [active] = await this.options.runs.list(workflow.id, {
+      status: ACTIVE_RUN_STATUSES,
+      limit: 1,
+    });
     if (active && workflow.onOverlap === 'skip') {
       return { accepted: false, run: active, reason: 'overlap' };
     }
@@ -663,10 +690,10 @@ export class LocalRunScheduler {
       if (workflow.onOverlap === 'skip' && this.options.runs.createIfIdle) {
         const won = await this.options.runs.createIfIdle(run, workflow, enriched);
         if (!won) {
-          const blocking = (await this.options.runs.list(workflow.id)).find(
-            (candidate) =>
-              candidate.status === 'queued' || candidate.status === 'running',
-          );
+          const [blocking] = await this.options.runs.list(workflow.id, {
+            status: ACTIVE_RUN_STATUSES,
+            limit: 1,
+          });
           // `blocking` can be absent if the winner finished in between; the
           // decision stands either way — this instance did not create a run.
           return { accepted: false, run: blocking ?? run, reason: 'overlap' };
@@ -815,9 +842,7 @@ export class LocalRunScheduler {
   }
 
   async dispatchAvailable(): Promise<void> {
-    const queued = (await this.options.runs.list()).filter(
-      (run) => run.status === 'queued',
-    );
+    const queued = await this.options.runs.list(undefined, { status: ['queued'] });
     const workflowIds = new Set(queued.map((run) => run.workflowId));
     for (const workflowId of workflowIds) {
       const workflowRuns = queued.filter((run) => run.workflowId === workflowId);
@@ -843,9 +868,7 @@ export class LocalRunScheduler {
       run.finishedAt = undefined;
       await this.options.runs.update(run);
     }
-    const queued = (await this.options.runs.list()).filter(
-      (run) => run.status === 'queued',
-    );
+    const queued = await this.options.runs.list(undefined, { status: ['queued'] });
     const workflowIds = new Set(queued.map((run) => run.workflowId));
     for (const workflowId of workflowIds) {
       const workflowRuns = queued.filter(
@@ -871,8 +894,7 @@ export class LocalRunScheduler {
     if (this.serial.has(workflowId)) return;
     const job = (async () => {
       while (true) {
-        const queued = (await this.options.runs.list(workflowId))
-          .filter((run) => run.status === 'queued')
+        const queued = (await this.options.runs.list(workflowId, { status: ['queued'] }))
           .sort((a, b) => a.startedAt.localeCompare(b.startedAt))[0];
         if (!queued) return;
         await this.runControlled(queued.id);
@@ -896,6 +918,8 @@ export class LocalRunScheduler {
   }
 
   private async runControlled(runId: string): Promise<void> {
+    // Waits here, still queued, while this instance is at its limit.
+    await this.slots.acquire();
     const controller = new AbortController();
     this.controls.set(runId, controller);
     this.holdLease(runId);
@@ -904,6 +928,7 @@ export class LocalRunScheduler {
     } finally {
       this.controls.delete(runId);
       this.releaseLease(runId);
+      this.slots.release();
     }
   }
 
@@ -983,6 +1008,40 @@ function inbound(
   pipelineId: string,
 ): DependencyDef[] {
   return dependencies.filter((dependency) => dependency.to === pipelineId);
+}
+
+/** A counting gate whose size can change while runs wait on it. */
+class RunSlots {
+  private limit = Number.POSITIVE_INFINITY;
+  private active = 0;
+  private readonly waiting: Array<() => void> = [];
+
+  /** A missing or non-positive limit means no limit. */
+  setLimit(limit: number | undefined): void {
+    this.limit = limit !== undefined && limit > 0 ? limit : Number.POSITIVE_INFINITY;
+    this.wake();
+  }
+
+  async acquire(): Promise<void> {
+    if (this.active < this.limit) {
+      this.active += 1;
+      return;
+    }
+    await new Promise<void>((resolve) => this.waiting.push(resolve));
+  }
+
+  release(): void {
+    this.active -= 1;
+    this.wake();
+  }
+
+  /** Hand free slots to waiters in arrival order. */
+  private wake(): void {
+    while (this.active < this.limit && this.waiting.length > 0) {
+      this.active += 1;
+      this.waiting.shift()!();
+    }
+  }
 }
 
 function isTerminal(status: PipelineRunStatus): boolean {

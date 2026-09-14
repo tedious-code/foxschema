@@ -8,7 +8,8 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from '../zod-provider.js';
 import { z } from 'zod';
-import { redactAnswer, type HumanInputField } from '@foxschema/workflow-engine';
+import { RUN_STREAM_END_EVENT } from '@foxschema/workflow-contract';
+import { isTerminalRunStatus, redactAnswer, type HumanInputField } from '@foxschema/workflow-engine';
 import { assertNoWorkflowCycles } from '@foxschema/workflow-engine';
 import type { AppContext } from '../context.js';
 import { buildRunFailureSummary } from '../run-failure.js';
@@ -133,7 +134,20 @@ export function runRoutes(ctx: AppContext) {
       },
     );
 
-    r.get('/runs', {}, async () => ctx.runs.list());
+    r.get(
+      '/runs',
+      {
+        schema: {
+          querystring: z.object({
+            workflowId: z.string().min(1).optional(),
+            // Newest first, and bounded: run history only grows, and the
+            // designer polls this list.
+            limit: z.coerce.number().int().min(1).max(1_000).default(200),
+          }),
+        },
+      },
+      async (req) => ctx.runs.list(req.query.workflowId, { limit: req.query.limit }),
+    );
 
     r.get(
       '/runs/:id/events',
@@ -173,33 +187,69 @@ export function runRoutes(ctx: AppContext) {
         });
         let after = req.query.after;
         let closed = false;
-        const write = async () => {
-          if (closed) return;
-          const events = await ctx.events.list(req.params.id, after);
-          for (const event of events) {
-            reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
-            after = event.seq;
-          }
-        };
-        await write();
-        // Poll cadence is the floor on how fast the designer sees progress.
-        // The query is a single indexed range scan (~1ms), so 100ms buys a
-        // responsive execution panel at negligible cost; a stream lives only
-        // as long as its run is being watched.
-        const timer = setInterval(() => {
-          void write().catch(() => undefined);
-        }, 100);
-        // An open SSE stream must not keep the process alive on its own — the
-        // client socket already does that, and this poller would otherwise
-        // outlive shutdown and block exit.
-        timer.unref?.();
+        let writing = false;
+        let timer: ReturnType<typeof setInterval> | undefined;
         const stop = () => {
           closed = true;
           clearInterval(timer);
           openStreams.delete(stop);
         };
         openStreams.add(stop);
-        req.raw.on('close', stop);
+        // The response, not the request: see the proxy's note on `close`.
+        reply.raw.on('close', stop);
+
+        // Set once a terminal run.status has gone out; the stream then only
+        // waits for one quiet tick, so nothing appended right after it is lost.
+        let finished = false;
+        let idleTicks = 0;
+        const flush = async (): Promise<number> => {
+          const events = await ctx.events.list(req.params.id, after);
+          for (const event of events) {
+            reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
+            after = event.seq;
+            const status = event.type === 'run.status' ? event.data?.status : undefined;
+            if (typeof status === 'string' && isTerminalRunStatus(status)) finished = true;
+          }
+          return events.length;
+        };
+        const write = async () => {
+          // One at a time: two overlapping reads from the same `after` would
+          // send the same events twice.
+          if (closed || writing) return;
+          writing = true;
+          try {
+            if ((await flush()) > 0) return;
+            if (!finished) {
+              // Nothing new, and no event said the run ended — normal while it
+              // runs. The run record is read on the first quiet tick and about
+              // once a second after, for a client that subscribed past the
+              // run's final event.
+              if (idleTicks++ % 10 !== 0) return;
+              const run = await ctx.runs.get(req.params.id);
+              if (closed || (run && !isTerminalRunStatus(run.status))) return;
+              await flush(); // anything appended between the two reads
+            }
+            // Everything the run will emit has been sent. Say so and close: an
+            // EventSource reconnects when a stream just ends.
+            stop();
+            reply.raw.write(`event: ${RUN_STREAM_END_EVENT}\ndata: {}\n\n`);
+            reply.raw.end();
+          } finally {
+            writing = false;
+          }
+        };
+        await write();
+        if (closed) return;
+        // Poll cadence is the floor on how fast the designer sees progress.
+        // The query is a single indexed range scan (~1ms), so 100ms buys a
+        // responsive execution panel at negligible cost.
+        timer = setInterval(() => {
+          void write().catch(() => undefined);
+        }, 100);
+        // An open SSE stream must not keep the process alive on its own — the
+        // client socket already does that, and this poller would otherwise
+        // outlive shutdown and block exit.
+        timer.unref?.();
       },
     );
 

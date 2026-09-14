@@ -20,6 +20,16 @@ export type RunStatus =
   | 'failed'
   | 'cancelled';
 
+/** States a run never leaves. `paused` and `interrupted` can still resume. */
+const TERMINAL_RUN_STATUSES: readonly RunStatus[] = ['succeeded', 'failed', 'cancelled'];
+
+/** States in which a run holds its workflow's place: admitted, not finished, not parked. */
+export const ACTIVE_RUN_STATUSES = ['queued', 'running'] as const satisfies readonly RunStatus[];
+
+export function isTerminalRunStatus(status: string): boolean {
+  return (TERMINAL_RUN_STATUSES as readonly string[]).includes(status);
+}
+
 // Per-pipeline status within a workflow run. `skipped` is what a false run
 // gate on a completion edge produces (vs `failed` — matters for alerting).
 // `paused` is a pipeline stopped on a human gate — waiting for an OTP, a
@@ -184,7 +194,9 @@ export interface RunEvent {
      */
     | 'human.input.requested'
     /** Someone answered; the run is about to be resumed. */
-    | 'human.input.received';
+    | 'human.input.received'
+    /** A line a pipe logged; `data.level` is `info`, `warn` or `error`. */
+    | 'pipe.log';
   pipelineId?: string;
   pipeId?: string;
   message?: string;

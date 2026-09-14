@@ -7,11 +7,13 @@
  * worker (or the server) to execute.
  */
 import { createEngine, createTriggerCoordinators } from './context.js';
+import { attachEngineSettings } from './engine-settings.js';
 
 const engine = createEngine({
   executeInline: false,
   instanceId: process.env.FOXFLOW_INSTANCE_ID ?? 'scheduler',
 });
+const detachSettings = attachEngineSettings(engine);
 const { cron, poll } = createTriggerCoordinators(engine);
 
 await cron.recover();
@@ -22,6 +24,8 @@ console.log('workflow scheduler running (cron + poll admission, executeInline=fa
 process.on('SIGINT', () => {
   cron.stop();
   poll.stop();
-  engine.close();
-  process.exit(0);
+  void detachSettings().finally(() => {
+    engine.close();
+    process.exit(0);
+  });
 });
