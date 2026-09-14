@@ -441,11 +441,6 @@ export const MOCK_PALETTE_GROUPS: MockPaletteGroup[] = [
   },
 ];
 
-/** Flat list for tests / callers that do not need group headers. */
-export const MOCK_PALETTE: MockPaletteItem[] = MOCK_PALETTE_GROUPS.flatMap(
-  (g) => g.items,
-);
-
 export const MOCK_RUNS: MockRun[] = [
   {
     id: 'run_8f2a',

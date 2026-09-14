@@ -8,7 +8,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   FOXFLOW_PIPE_TYPES,
-  MOCK_PALETTE,
   MOCK_PALETTE_GROUPS,
   MOCK_PIPES,
   MOCK_TRIGGERS,
@@ -21,7 +20,7 @@ describe('FoxFlow-aligned workflow mock', () => {
     const known = new Set<string>(FOXFLOW_PIPE_TYPES);
     const used = new Set<PipeTypeId>([
       ...MOCK_PIPES.map((p) => p.type),
-      ...MOCK_PALETTE.map((p) => p.type),
+      ...MOCK_PALETTE_GROUPS.flatMap((g) => g.items).map((p) => p.type),
     ]);
     for (const type of used) {
       expect(known.has(type), `unknown pipe type: ${type}`).toBe(true);
@@ -52,7 +51,6 @@ describe('FoxFlow-aligned workflow mock', () => {
       'control',
     ]);
     expect(MOCK_PALETTE_GROUPS.every((g) => g.items.length > 0)).toBe(true);
-    expect(MOCK_PALETTE).toEqual(MOCK_PALETTE_GROUPS.flatMap((g) => g.items));
 
     const triggerTypes = MOCK_PALETTE_GROUPS.find((g) => g.id === 'triggers')!.items.map(
       (i) => i.type,
