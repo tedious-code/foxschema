@@ -128,6 +128,11 @@ const ALWAYS = [
     file: 'src/tests/access-assistant-sqlite.test.ts',
     label: 'Access SQLite',
   },
+  {
+    key: 'workflow',
+    file: 'src/tests/workflow-smoke.test.ts',
+    label: 'Workflow',
+  },
   ...(configured.length
     ? [
         {
