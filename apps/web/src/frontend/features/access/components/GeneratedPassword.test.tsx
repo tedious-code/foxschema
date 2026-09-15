@@ -13,6 +13,8 @@
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { DEFAULT_ROLE_PERMISSIONS } from '@foxschema/shared';
+import { useAuthStore } from '@/app/store/authStore';
 import { AccessView } from './AccessView';
 
 vi.mock('@/app/store/useSyncStore', () => {
@@ -77,6 +79,21 @@ beforeEach(() => {
     support: { mode: 'native', query: true, grant: true, hint: '' },
     principals: [],
     privileges: [],
+  });
+  // Tabs only render when can(access.users) is true; seed like AccessPermissionPanel.test.
+  useAuthStore.setState({
+    user: {
+      id: 'owner',
+      email: 'owner@example.com',
+      onboardingCompleted: true,
+      role: 'owner',
+      permissions: [...DEFAULT_ROLE_PERMISSIONS.owner],
+    },
+    status: 'ready',
+    localSingleUser: false,
+    error: null,
+    busy: false,
+    refreshMe: vi.fn(async () => {}),
   });
 });
 

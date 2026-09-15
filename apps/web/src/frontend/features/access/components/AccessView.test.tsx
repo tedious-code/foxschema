@@ -5,6 +5,8 @@
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { DEFAULT_ROLE_PERMISSIONS } from '@foxschema/shared';
+import { useAuthStore } from '@/app/store/authStore';
 import { AccessView } from './AccessView';
 
 vi.mock('@/app/store/useSyncStore', () => {
@@ -45,6 +47,22 @@ vi.mock('@/shared/api/schemaApi', () => ({
 
 beforeEach(() => {
   localStorage.removeItem('foxschema-access-connection');
+  // Access tabs are gated by can(access.*). Without a seeded user, visibleSections
+  // is empty and access-tab-* never mounts — same setup as AccessPermissionPanel.test.
+  useAuthStore.setState({
+    user: {
+      id: 'owner',
+      email: 'owner@example.com',
+      onboardingCompleted: true,
+      role: 'owner',
+      permissions: [...DEFAULT_ROLE_PERMISSIONS.owner],
+    },
+    status: 'ready',
+    localSingleUser: false,
+    error: null,
+    busy: false,
+    refreshMe: vi.fn(async () => {}),
+  });
 });
 
 describe('AccessView — User Management list + Builder handoff', () => {
