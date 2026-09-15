@@ -124,9 +124,12 @@ export class MysqlSinkPipe implements SinkPipe {
       try {
         // INSERT IGNORE is the claim: a second delivery of the same batch
         // affects no rows and takes the early return below.
+        // Source batch ids repeat across scheduled runs, so include the run:
+        // retries still deduplicate while a later run writes its new rows.
+        const claimId = JSON.stringify([context.workflowRunId, batch.id]);
         const [claim] = await client.query(
           `INSERT IGNORE INTO ${commitTable}(batch_id, target_table) VALUES (?, ?)`,
-          [batch.id, `${config.database ?? ''}.${config.table}`],
+          [claimId, `${config.database ?? ''}.${config.table}`],
         );
         const claimed = (claim as unknown as { affectedRows?: number })
           .affectedRows;

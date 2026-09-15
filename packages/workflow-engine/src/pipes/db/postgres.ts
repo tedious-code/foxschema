@@ -101,12 +101,15 @@ export class PostgresSinkPipe implements SinkPipe {
           `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${quote(name)} ${type}`,
         );
       }
+      // Source batch ids are stable across scheduled runs. Scope the claim to
+      // this run so retries deduplicate without suppressing tomorrow's rows.
+      const claimId = JSON.stringify([context.workflowRunId, batch.id]);
       const claim = await client.query(
         `INSERT INTO ${commitTable}(batch_id, target_table)
          VALUES ($1, $2)
          ON CONFLICT DO NOTHING
          RETURNING batch_id`,
-        [batch.id, `${config.schema}.${config.table}`],
+        [claimId, `${config.schema}.${config.table}`],
       );
       if ((claim.rowCount ?? 0) > 0 && batch.records.length > 0) {
         const names = Object.keys(config.columns);
