@@ -20,6 +20,7 @@ const suites = [
   { name: 'schema-history', args: ['run', 'test:schema-history'] },
   { name: 'access', args: ['run', 'test:access'] },
   { name: 'sql-editor', args: ['run', 'test:sql-editor'] },
+  { name: 'workflow', args: ['run', 'test:workflow'] },
 ];
 
 const results = [];
