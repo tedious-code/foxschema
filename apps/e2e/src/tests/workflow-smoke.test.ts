@@ -38,9 +38,11 @@ describe('Workflow workspace', () => {
   it('opens the Engine pane and shows health chrome', async () => {
     const workflow = new WorkflowPage(driver);
     await workflow.openTab('engine');
-    await driver.waitForSelector('[data-testid="workflow-engine"]', { timeout: 15_000 });
+    // Loading state shares workflow-engine — wait until settings hydrate.
+    await driver.waitForSelector('[data-testid="workflow-engine-endpoint"]', { timeout: 20_000 });
     expect(await driver.locator('[data-testid="workflow-engine"]').isVisible()).toBe(true);
-    expect(await driver.locator('[data-testid="workflow-engine-endpoint"]').count()).toBeGreaterThan(0);
+    expect(await driver.locator('[data-testid="workflow-engine-endpoint"]').isVisible()).toBe(true);
+    expect(await driver.locator('[data-testid="workflow-engine-health"]').isVisible()).toBe(true);
   });
 
   it('reports engine health when workflow-server is up', async () => {
