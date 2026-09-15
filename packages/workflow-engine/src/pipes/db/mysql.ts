@@ -6,7 +6,6 @@
  * Workflow engine — moved from FoxAgent (packages/pipes/db/src/mysql.ts).
  */
 import * as z from 'zod';
-import { appendFileSync } from 'node:fs';
 import { resolveDialect } from '@foxschema/sql';
 import type { PipeContext, RecordBatch, SinkPipe } from '../../registry/index.js';
 import { definePipeMetadata, type PipeMetadata } from '../../sdk/index.js';
@@ -125,18 +124,15 @@ export class MysqlSinkPipe implements SinkPipe {
       try {
         // INSERT IGNORE is the claim: a second delivery of the same batch
         // affects no rows and takes the early return below.
-        // #region agent log
-        appendFileSync('/opt/cursor/logs/debug.log', `${JSON.stringify({ hypothesisId: 'A,B,C', location: 'mysql.ts:claim-before', message: 'MySQL sink claim input', data: { workflowRunId: context.workflowRunId, batchId: batch.id, targetTable: `${config.database ?? ''}.${config.table}` }, timestamp: Date.now() })}\n`);
-        // #endregion
+        // Source batch ids repeat across scheduled runs, so include the run:
+        // retries still deduplicate while a later run writes its new rows.
+        const claimId = JSON.stringify([context.workflowRunId, batch.id]);
         const [claim] = await client.query(
           `INSERT IGNORE INTO ${commitTable}(batch_id, target_table) VALUES (?, ?)`,
-          [batch.id, `${config.database ?? ''}.${config.table}`],
+          [claimId, `${config.database ?? ''}.${config.table}`],
         );
         const claimed = (claim as unknown as { affectedRows?: number })
           .affectedRows;
-        // #region agent log
-        appendFileSync('/opt/cursor/logs/debug.log', `${JSON.stringify({ hypothesisId: 'A,D', location: 'mysql.ts:claim-after', message: 'MySQL sink claim result', data: { workflowRunId: context.workflowRunId, batchId: batch.id, affectedRows: claimed, recordCount: batch.records.length }, timestamp: Date.now() })}\n`);
-        // #endregion
 
         if ((claimed ?? 0) > 0 && batch.records.length > 0) {
           const names = Object.keys(config.columns);

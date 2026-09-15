@@ -6,7 +6,6 @@
  * Workflow engine — moved from FoxAgent (packages/pipes/db/src/postgres.ts).
  */
 import type { ClientConfig } from 'pg';
-import { appendFileSync } from 'node:fs';
 import * as z from 'zod';
 import { resolveDialect } from '@foxschema/sql';
 import type {
@@ -102,19 +101,16 @@ export class PostgresSinkPipe implements SinkPipe {
           `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${quote(name)} ${type}`,
         );
       }
-      // #region agent log
-      appendFileSync('/opt/cursor/logs/debug.log', `${JSON.stringify({ hypothesisId: 'A,B,C', location: 'postgres.ts:claim-before', message: 'PostgreSQL sink claim input', data: { workflowRunId: context.workflowRunId, batchId: batch.id, targetTable: `${config.schema}.${config.table}` }, timestamp: Date.now() })}\n`);
-      // #endregion
+      // Source batch ids are stable across scheduled runs. Scope the claim to
+      // this run so retries deduplicate without suppressing tomorrow's rows.
+      const claimId = JSON.stringify([context.workflowRunId, batch.id]);
       const claim = await client.query(
         `INSERT INTO ${commitTable}(batch_id, target_table)
          VALUES ($1, $2)
          ON CONFLICT DO NOTHING
          RETURNING batch_id`,
-        [batch.id, `${config.schema}.${config.table}`],
+        [claimId, `${config.schema}.${config.table}`],
       );
-      // #region agent log
-      appendFileSync('/opt/cursor/logs/debug.log', `${JSON.stringify({ hypothesisId: 'A,D', location: 'postgres.ts:claim-after', message: 'PostgreSQL sink claim result', data: { workflowRunId: context.workflowRunId, batchId: batch.id, rowCount: claim.rowCount, recordCount: batch.records.length }, timestamp: Date.now() })}\n`);
-      // #endregion
       if ((claim.rowCount ?? 0) > 0 && batch.records.length > 0) {
         const names = Object.keys(config.columns);
         // All chunks ride the transaction opened above, so the batch is still

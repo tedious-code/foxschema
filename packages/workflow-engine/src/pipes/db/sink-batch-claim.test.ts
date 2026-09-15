@@ -23,7 +23,7 @@ function context(workflowRunId: string, type: string, config: Record<string, unk
 }
 
 describe('sink batch claims across workflow runs', () => {
-  it('reproduces PostgreSQL skipping the second run with the same source batch id', async () => {
+  it('deduplicates a PostgreSQL replay within one run but not a later run', async () => {
     const committed = new Set<string>();
     const claimResults: number[] = [];
     let dataInserts = 0;
@@ -46,13 +46,14 @@ describe('sink batch claims across workflow runs', () => {
     const config = { schema: 'public', table: 'target', columns: { id: 'integer' } };
 
     await sink.write(batch, context('workflow-run-1', 'sink.postgres', config));
+    await sink.write(batch, context('workflow-run-1', 'sink.postgres', config));
     await sink.write(batch, context('workflow-run-2', 'sink.postgres', config));
 
-    expect(claimResults).toEqual([1, 0]);
-    expect(dataInserts).toBe(1);
+    expect(claimResults).toEqual([1, 0, 1]);
+    expect(dataInserts).toBe(2);
   });
 
-  it('reproduces MySQL skipping the second run with the same source batch id', async () => {
+  it('deduplicates a MySQL replay within one run but not a later run', async () => {
     const committed = new Set<string>();
     const claimResults: number[] = [];
     let dataInserts = 0;
@@ -81,9 +82,10 @@ describe('sink batch claims across workflow runs', () => {
     const config = { database: 'app', table: 'target', columns: { id: 'bigint' } };
 
     await sink.write(batch, context('workflow-run-1', 'sink.mysql', config));
+    await sink.write(batch, context('workflow-run-1', 'sink.mysql', config));
     await sink.write(batch, context('workflow-run-2', 'sink.mysql', config));
 
-    expect(claimResults).toEqual([1, 0]);
-    expect(dataInserts).toBe(1);
+    expect(claimResults).toEqual([1, 0, 1]);
+    expect(dataInserts).toBe(2);
   });
 });
