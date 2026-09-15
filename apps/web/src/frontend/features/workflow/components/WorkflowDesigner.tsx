@@ -311,6 +311,16 @@ function formatWaves(waves: string[][]): string {
   return waves.map((wave) => wave.join(' + ')).join(' → ');
 }
 
+/** The workflow-level settings a saved document carries; keys it lacks stay absent. */
+function settingsOf(workflow: SavedWorkflow): WorkflowSettings {
+  const { description, purpose, tags, expectedResult, inputSchema, outputSchema } = workflow;
+  const optional = { description, purpose, tags, expectedResult, inputSchema, outputSchema };
+  return {
+    ...Object.fromEntries(Object.entries(optional).filter(([, value]) => value !== undefined)),
+    middleware: workflow.middleware ?? [],
+  };
+}
+
 function Designer() {
   const [nodes, setNodes, onNodesChange] = useNodesState<PipeNodeType>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -702,23 +712,7 @@ function Designer() {
       setDependencies(workflow.dependencies ?? []);
       setTriggers(workflow.triggers ?? DEFAULT_TRIGGERS);
       setOverlapPolicy(workflow.onOverlap ?? 'skip');
-      setWorkflowSettings({
-        ...(workflow.description !== undefined
-          ? { description: workflow.description }
-          : {}),
-        ...(workflow.purpose !== undefined ? { purpose: workflow.purpose } : {}),
-        ...(workflow.tags !== undefined ? { tags: workflow.tags } : {}),
-        ...(workflow.expectedResult !== undefined
-          ? { expectedResult: workflow.expectedResult }
-          : {}),
-        ...(workflow.inputSchema !== undefined
-          ? { inputSchema: workflow.inputSchema }
-          : {}),
-        ...(workflow.outputSchema !== undefined
-          ? { outputSchema: workflow.outputSchema }
-          : {}),
-        middleware: workflow.middleware ?? [],
-      });
+      setWorkflowSettings(settingsOf(workflow));
       setActivePipelineId(first.id);
       setNodes(canvases.flatMap((pipeline) => pipeline.nodes));
       setEdges(canvases.flatMap((pipeline) => pipeline.edges));

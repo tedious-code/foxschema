@@ -50,7 +50,6 @@ export const retryConfigSchema = z.object({
   maxBackoffDuration: durationField.default('1h'),
   maxDoublings: z.number().int().min(0).max(20).default(5),
 });
-export type RetryConfig = z.infer<typeof retryConfigSchema>;
 
 /**
  * Webhook defaults declared as values, not only as zod `.default()` calls:

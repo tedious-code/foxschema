@@ -8,6 +8,12 @@
  */
 import { getApiBase } from '@/shared/api/apiBase';
 import { api as http } from '@/shared/api/client';
+import type {
+  EnvironmentRecord,
+  TriggerKind,
+  VariableRecord,
+  VariableScope,
+} from '@foxschema/workflow-engine/definitions';
 
 const ENGINE = '/workflow/engine';
 
@@ -41,17 +47,8 @@ export interface PipeMetadata {
   /** Capability pack (auth, notify, integration.google, …). */
   family?: string;
   tags?: string[];
-  // Mirrors TRIGGER_KINDS in @foxagent/common. The designer is a standalone
-  // frontend and does not depend on workspace packages, so this copy is by
-  // hand — keep it in step when a kind is added or removed.
-  triggerKind?:
-    | 'manual'
-    | 'cron'
-    | 'webhook'
-    | 'http'
-    | 'poll'
-    | 'parent'
-    | '*';
+  /** The trigger kind a trigger pipe stands for; `*` binds to any kind. */
+  triggerKind?: TriggerKind | '*';
   provider?: PipeProvider;
 }
 
@@ -77,25 +74,10 @@ export interface WorkflowSummary {
   lastRun?: { id: string; status: string; startedAt: string };
 }
 
-export interface EnvironmentMeta {
-  id: string;
-  name: string;
-  isActive: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export type VariableScope = 'global' | 'workflow';
-
-export interface VariableMeta {
-  id: string;
-  environmentId: string;
-  scope: VariableScope;
-  workflowId?: string;
-  key: string;
-  value: unknown;
-  updatedAt: string;
-}
+// The engine's own records, shared type-only through its browser-safe entry.
+export type EnvironmentMeta = EnvironmentRecord;
+export type VariableMeta = VariableRecord;
+export type { VariableScope };
 
 export interface RunRecord {
   id: string;

@@ -166,6 +166,37 @@ function describeValidationError(error: unknown): string {
   return (error as Error).message;
 }
 
+/** The part of a reply the helpers below use, whatever the route's typing. */
+interface RouteReply {
+  code(statusCode: number): { send(payload?: unknown): unknown };
+}
+
+/** A refused mutation: its own status (404, 409…) when it carries one, else 400. */
+function sendMutationError(reply: RouteReply, err: unknown) {
+  const status =
+    err instanceof WorkflowMutationError || err instanceof ExtractPipelineError
+      ? err.status
+      : 400;
+  return reply.code(status).send({ error: (err as Error).message });
+}
+
+/**
+ * Store the workflow a pipeline mutation produced, after the same parse and
+ * checks a human `PUT` gets, and answer with it and its plan. Nothing is
+ * stored unless the whole result is legal.
+ */
+async function saveMutation(ctx: AppContext, reply: RouteReply, merged: WorkflowDef) {
+  let workflow: WorkflowDef;
+  try {
+    workflow = parseWorkflowInput(merged);
+    await assertSavable(workflow, ctx);
+  } catch (err) {
+    return reply.code(400).send({ error: describeValidationError(err) });
+  }
+  await ctx.workflows.put(workflow);
+  return reply.code(200).send({ workflow, plan: plansFor(workflow) });
+}
+
 export function workflowRoutes(ctx: AppContext) {
   return async (app: FastifyInstance) => {
     const r = app.withTypeProvider<ZodTypeProvider>();
@@ -367,21 +398,9 @@ export function workflowRoutes(ctx: AppContext) {
             replace: body.replace === true,
           });
         } catch (err) {
-          const status =
-            err instanceof WorkflowMutationError ? err.status : 400;
-          return reply.code(status).send({ error: (err as Error).message });
+          return sendMutationError(reply, err);
         }
-
-        let workflow: WorkflowDef;
-        try {
-          workflow = parseWorkflowInput(merged);
-          await assertSavable(workflow, ctx);
-        } catch (err) {
-          return reply.code(400).send({ error: describeValidationError(err) });
-        }
-
-        await ctx.workflows.put(workflow);
-        return reply.code(200).send({ workflow, plan: plansFor(workflow) });
+        return saveMutation(ctx, reply, merged);
       },
     );
 
@@ -402,21 +421,9 @@ export function workflowRoutes(ctx: AppContext) {
           assertExpectedVersion(current, req.query.expectedVersion);
           merged = removePipeline(current, req.params.pipelineId);
         } catch (err) {
-          const status =
-            err instanceof WorkflowMutationError ? err.status : 400;
-          return reply.code(status).send({ error: (err as Error).message });
+          return sendMutationError(reply, err);
         }
-
-        let workflow: WorkflowDef;
-        try {
-          workflow = parseWorkflowInput(merged);
-          await assertSavable(workflow, ctx);
-        } catch (err) {
-          return reply.code(400).send({ error: describeValidationError(err) });
-        }
-
-        await ctx.workflows.put(workflow);
-        return reply.code(200).send({ workflow, plan: plansFor(workflow) });
+        return saveMutation(ctx, reply, merged);
       },
     );
 
@@ -512,14 +519,9 @@ export function workflowRoutes(ctx: AppContext) {
         if (!current) return reply.code(404).send({ error: 'not found' });
         const body = (req.body ?? {}) as Record<string, unknown>;
         try {
-          assertExpectedVersion(
-            current,
-            body.expectedVersion as number | undefined,
-          );
+          assertExpectedVersion(current, body.expectedVersion as number | undefined);
         } catch (err) {
-          const status =
-            err instanceof WorkflowMutationError ? err.status : 400;
-          return reply.code(status).send({ error: (err as Error).message });
+          return sendMutationError(reply, err);
         }
 
         let extracted;

@@ -40,6 +40,7 @@ import {
 import { planExecution } from '../compiler/index.js';
 import { applyContract } from './contracts.js';
 import { scopeCredentialsToPipe } from './credential-scope.js';
+import { errorMessage, isAbort, throwIfAborted } from './errors.js';
 import {
   assertKnownFromPorts,
   defaultOutputPort,
@@ -150,6 +151,13 @@ export interface PipelineExecutorOptions {
 /** A completed downstream traversal: `undefined` on success, else the error. */
 type Settled = { error: unknown } | undefined;
 
+/** Hands one batch to a downstream pipe; `inbound` names the edge it arrived on. */
+type Dispatch = (
+  pipe: PipeDef,
+  batch: RecordBatch,
+  inbound?: { fromPipe: string; fromPort: string },
+) => Promise<void>;
+
 /**
  * Bound one unit of a pipe's work by `pipe.timeoutMs`.
  *
@@ -256,75 +264,53 @@ export class PipelineExecutor {
     // flood the event log. Keyed for this pipeline execution only.
     const sampledKeys = new Set<string>();
 
-    const dispatch = async (
-      pipe: PipeDef,
-      batch: RecordBatch,
-      inbound?: { fromPipe: string; fromPort: string },
-    ): Promise<void> => {
+    const dispatch: Dispatch = async (pipe, batch, inbound) => {
       throwIfAborted(execution.signal);
       const connector = this.options.registry.get(pipe);
       const context = await this.connectorContext(pipeline, pipe, execution);
       await this.markPipe(context, 'running');
       try {
-        if (connector.role === 'transform') {
-          await this.captureSample(
-            execution,
-            pipeline.id,
-            pipe.id,
-            'in',
-            inbound?.fromPort ?? 'in',
-            batch,
-            sampledKeys,
-            inbound,
+        const isTransform = connector.role === 'transform';
+        if (!isTransform && connector.role !== 'sink') {
+          throw new ExecutionError(
+            `source pipe ${pipe.id} cannot receive an input batch`,
           );
-          const result = await this.withRetry(
-            pipe,
-            connector,
-            context,
-            execution.workflowRunId,
-            pipeline.id,
-            () => (connector as TransformPipe).transform(batch, context),
-          );
-          if (result.skipped) {
-            await this.markPipe(context, 'skipped', batch);
-            return;
-          }
+        }
+        await this.captureSample(
+          execution,
+          pipeline.id,
+          pipe.id,
+          'in',
+          inbound?.fromPort ?? 'in',
+          batch,
+          sampledKeys,
+          inbound,
+        );
+        const result = await this.withRetry(
+          pipe,
+          connector,
+          context,
+          execution.workflowRunId,
+          pipeline.id,
+          (): Promise<TransformOutput | void> =>
+            isTransform
+              ? (connector as TransformPipe).transform(batch, context)
+              : (connector as SinkPipe).write(batch, context),
+        );
+        if (result.skipped) {
+          await this.markPipe(context, 'skipped', batch);
+          return;
+        }
+        if (isTransform) {
           await this.routeOutput(
             pipes,
             downstream.get(pipe.id)!,
-            result.value,
+            result.value as TransformOutput,
             pipe,
             dispatch,
             execution,
             pipeline.id,
             sampledKeys,
-          );
-        } else if (connector.role === 'sink') {
-          await this.captureSample(
-            execution,
-            pipeline.id,
-            pipe.id,
-            'in',
-            inbound?.fromPort ?? 'in',
-            batch,
-            sampledKeys,
-            inbound,
-          );
-          const result = await this.withRetry(
-            pipe,
-            connector,
-            context,
-            execution.workflowRunId,
-            pipeline.id,
-            () => (connector as SinkPipe).write(batch, context),
-          );
-          if (result.skipped) {
-            await this.markPipe(context, 'skipped', batch);
-            return;
-          }
-        } else {
-          throw new ExecutionError(
-            `source pipe ${pipe.id} cannot receive an input batch`,
           );
         }
         await this.saveCheckpoint(pipeline.id, pipe.id, execution, batch);
@@ -372,11 +358,7 @@ export class PipelineExecutor {
     pipes: Map<string, PipeDef>,
     children: EdgeDef[],
     execution: PipelineExecutionContext,
-    dispatch: (
-      pipe: PipeDef,
-      batch: RecordBatch,
-      inbound?: { fromPipe: string; fromPort: string },
-    ) => Promise<void>,
+    dispatch: Dispatch,
     sampledKeys: Set<string>,
   ): Promise<void> {
     let failures = 0;
@@ -502,11 +484,7 @@ export class PipelineExecutor {
     edges: EdgeDef[],
     output: TransformOutput,
     pipe: PipeDef,
-    dispatch: (
-      pipe: PipeDef,
-      batch: RecordBatch,
-      inbound?: { fromPipe: string; fromPort: string },
-    ) => Promise<void>,
+    dispatch: Dispatch,
     execution: PipelineExecutionContext,
     pipelineId: string,
     sampledKeys: Set<string>,
@@ -542,11 +520,7 @@ export class PipelineExecutor {
     batch: RecordBatch,
     port: string,
     defaultPort: string,
-    dispatch: (
-      pipe: PipeDef,
-      batch: RecordBatch,
-      inbound?: { fromPipe: string; fromPort: string },
-    ) => Promise<void>,
+    dispatch: Dispatch,
     execution: PipelineExecutionContext,
     pipelineId: string,
     fromPipe: string,
@@ -967,21 +941,6 @@ function truncateRecords(
 
 function isTransient(error: unknown): boolean {
   return error instanceof ExecutionError && error.transient;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function throwIfAborted(signal?: AbortSignal): void {
-  if (!signal?.aborted) return;
-  const error = new Error('execution cancelled');
-  error.name = 'AbortError';
-  throw error;
-}
-
-function isAbort(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError';
 }
 
 function isTerminalPipeStatus(status: PipeRunRecord['status']): boolean {
