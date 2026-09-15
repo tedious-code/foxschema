@@ -17,6 +17,7 @@ import {
   validateWorkflowInput,
 } from '../common/index.js';
 import { evaluateConditions } from './conditions.js';
+import { errorMessage, isAbort } from './errors.js';
 import type { SqlProbe } from './scheduler/sql-precondition.js';
 import type { HumanInputRequired, HumanInputStore } from '../common/index.js';
 import { evaluateGate } from './gates.js';
@@ -189,7 +190,7 @@ export class WorkflowRunner {
     } catch (error) {
       await this.cancelPending(records);
       run.status = 'failed';
-      run.error = error instanceof Error ? error.message : String(error);
+      run.error = errorMessage(error);
       run.finishedAt = this.now();
       await this.updateRun(run);
       await this.handleFailure(workflow, run, invocation);
@@ -266,9 +267,7 @@ export class WorkflowRunner {
           workflowRunId: run.id,
           at: this.now(),
           type: 'run.status',
-          message: `error handler dispatch failed: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
+          message: `error handler dispatch failed: ${errorMessage(error)}`,
         })
         .catch(() => undefined);
     }
@@ -378,8 +377,7 @@ export class WorkflowRunner {
           } catch (error) {
             const failed = records.get(pipeline.id)!;
             failed.status = 'failed';
-            failed.error =
-              error instanceof Error ? error.message : String(error);
+            failed.error = errorMessage(error);
             failed.finishedAt = this.now();
             await this.putPipeline(failed);
             return;
@@ -447,7 +445,7 @@ export class WorkflowRunner {
         await this.recordHumanInput(run, pipeline.id, error);
       } else {
         record.status = isAbort(error) ? 'cancelled' : 'failed';
-        record.error = error instanceof Error ? error.message : String(error);
+        record.error = errorMessage(error);
       }
     }
     record.finishedAt = this.now();
@@ -593,7 +591,7 @@ export class LocalRunScheduler {
     }
     const admit = () =>
       this.withAdmission(workflow.id, () =>
-        this.enqueueLocked(workflow, invocation, options),
+        this.enqueueLocked(workflow, trigger, invocation, options),
       );
     // Engine-tier middleware wraps admission. A rejection here happens before
     // a run exists, so it surfaces to the caller instead of a run event.
@@ -613,6 +611,7 @@ export class LocalRunScheduler {
 
   private async enqueueLocked(
     workflow: WorkflowDef,
+    trigger: WorkflowDef['triggers'][number],
     invocation: TriggerInvocation,
     options?: { parentRunId?: string; environment?: string; debug?: boolean },
   ): Promise<EnqueueResult> {
@@ -628,11 +627,8 @@ export class LocalRunScheduler {
     }
     // Asked after idempotency (a duplicate is a duplicate whatever the gates
     // say) and before anything is written.
-    const trigger = workflow.triggers.find(
-      (candidate) => candidate.id === invocation.triggerId,
-    );
     let collected: Record<string, unknown> = {};
-    if (trigger?.conditions?.length) {
+    if (trigger.conditions?.length) {
       const outcome = await evaluateConditions(trigger.conditions, {
         payload: invocation.payload,
         ...(this.options.sql ? { sql: this.options.sql } : {}),
@@ -842,17 +838,7 @@ export class LocalRunScheduler {
   }
 
   async dispatchAvailable(): Promise<void> {
-    const queued = await this.options.runs.list(undefined, { status: ['queued'] });
-    const workflowIds = new Set(queued.map((run) => run.workflowId));
-    for (const workflowId of workflowIds) {
-      const workflowRuns = queued.filter((run) => run.workflowId === workflowId);
-      const workflow = await this.options.runs.getSnapshot(workflowRuns[0]!.id);
-      if (workflow?.onOverlap === 'parallel') {
-        workflowRuns.forEach((run) => this.startRun(run.id));
-      } else {
-        this.startSerial(workflowId);
-      }
-    }
+    await this.startQueuedRuns();
   }
 
   async recover(): Promise<void> {
@@ -868,12 +854,19 @@ export class LocalRunScheduler {
       run.finishedAt = undefined;
       await this.options.runs.update(run);
     }
+    await this.startQueuedRuns();
+    await this.idle();
+  }
+
+  /**
+   * Start every queued run: side by side for a workflow that allows parallel
+   * runs, otherwise one at a time in queue order.
+   */
+  private async startQueuedRuns(): Promise<void> {
     const queued = await this.options.runs.list(undefined, { status: ['queued'] });
     const workflowIds = new Set(queued.map((run) => run.workflowId));
     for (const workflowId of workflowIds) {
-      const workflowRuns = queued.filter(
-        (run) => run.workflowId === workflowId,
-      );
+      const workflowRuns = queued.filter((run) => run.workflowId === workflowId);
       const workflow = await this.options.runs.getSnapshot(workflowRuns[0]!.id);
       if (workflow?.onOverlap === 'parallel') {
         workflowRuns.forEach((run) => this.startRun(run.id));
@@ -881,7 +874,6 @@ export class LocalRunScheduler {
         this.startSerial(workflowId);
       }
     }
-    await this.idle();
   }
 
   async idle(): Promise<void> {
@@ -1073,8 +1065,4 @@ function finalRunStatus(
   if (cancelled) return 'cancelled';
   if (failed) return 'failed';
   return 'succeeded';
-}
-
-function isAbort(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError';
 }

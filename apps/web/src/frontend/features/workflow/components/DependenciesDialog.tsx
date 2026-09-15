@@ -71,6 +71,26 @@ function formatWave(
     .join(' + ');
 }
 
+function PipelineSelect({
+  value,
+  pipelines,
+  onChange,
+}: {
+  value: string;
+  pipelines: PipelineOption[];
+  onChange: (pipelineId: string) => void;
+}) {
+  return (
+    <Select value={value} onChange={(event) => onChange(event.target.value)}>
+      {pipelines.map((pipeline) => (
+        <option key={pipeline.id} value={pipeline.id}>
+          {pipeline.name}
+        </option>
+      ))}
+    </Select>
+  );
+}
+
 export function DependenciesDialog({
   open,
   pipelines,
@@ -181,83 +201,57 @@ export function DependenciesDialog({
             </p>
           ) : (
             <div className="deps-rows">
-              {draft.map((dep, index) => (
-                <div key={`${dep.from}-${dep.to}-${index}`} className="deps-row">
-                  <div>
-                    <Label>From (upstream)</Label>
-                    <Select
-                      value={dep.from}
-                      onChange={(event) => {
-                        const from = event.target.value;
-                        setDraft((current) =>
-                          current.map((row, i) =>
-                            i === index ? { ...row, from } : row,
-                          ),
-                        );
-                      }}
+              {draft.map((dep, index) => {
+                const patchRow = (patch: Partial<WorkflowDependency>) =>
+                  setDraft((current) =>
+                    current.map((row, i) => (i === index ? { ...row, ...patch } : row)),
+                  );
+                return (
+                  <div key={`${dep.from}-${dep.to}-${index}`} className="deps-row">
+                    <div>
+                      <Label>From (upstream)</Label>
+                      <PipelineSelect
+                        value={dep.from}
+                        pipelines={pipelines}
+                        onChange={(from) => patchRow({ from })}
+                      />
+                    </div>
+                    <div>
+                      <Label>To (waits)</Label>
+                      <PipelineSelect
+                        value={dep.to}
+                        pipelines={pipelines}
+                        onChange={(to) => patchRow({ to })}
+                      />
+                    </div>
+                    <div>
+                      <Label>When</Label>
+                      <Select
+                        value={dep.on}
+                        onChange={(event) =>
+                          patchRow({ on: event.target.value as WorkflowDependency['on'] })
+                        }
+                      >
+                        {ON_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Remove dependency"
+                      onClick={() =>
+                        setDraft((current) => current.filter((_, i) => i !== index))
+                      }
                     >
-                      {pipelines.map((pipeline) => (
-                        <option key={pipeline.id} value={pipeline.id}>
-                          {pipeline.name}
-                        </option>
-                      ))}
-                    </Select>
+                      <Trash2 />
+                    </Button>
                   </div>
-                  <div>
-                    <Label>To (waits)</Label>
-                    <Select
-                      value={dep.to}
-                      onChange={(event) => {
-                        const to = event.target.value;
-                        setDraft((current) =>
-                          current.map((row, i) =>
-                            i === index ? { ...row, to } : row,
-                          ),
-                        );
-                      }}
-                    >
-                      {pipelines.map((pipeline) => (
-                        <option key={pipeline.id} value={pipeline.id}>
-                          {pipeline.name}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-                  <div>
-                    <Label>When</Label>
-                    <Select
-                      value={dep.on}
-                      onChange={(event) => {
-                        const on = event.target
-                          .value as WorkflowDependency['on'];
-                        setDraft((current) =>
-                          current.map((row, i) =>
-                            i === index ? { ...row, on } : row,
-                          ),
-                        );
-                      }}
-                    >
-                      {ON_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label="Remove dependency"
-                    onClick={() =>
-                      setDraft((current) =>
-                        current.filter((_, i) => i !== index),
-                      )
-                    }
-                  >
-                    <Trash2 />
-                  </Button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 

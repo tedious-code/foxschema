@@ -529,15 +529,19 @@ export function Inspector({
     );
   }
 
+  const header = (
+    <InspectorHeader
+      pipeId={data.pipeId}
+      pipeLabel={entry?.label ?? data.type}
+      activeTab={activeTab}
+      onTabChange={setActiveTab}
+    />
+  );
+
   if (activeTab === 'input' || activeTab === 'output') {
     return (
       <aside className="inspector">
-        <InspectorHeader
-          pipeId={data.pipeId}
-          pipeLabel={entry?.label ?? data.type}
-          activeTab={activeTab}
-          onTabChange={setActiveTab}
-        />
+        {header}
         <DebugIoPanel
           direction={activeTab === 'input' ? 'in' : 'out'}
           data={data}
@@ -555,12 +559,7 @@ export function Inspector({
   if (activeTab === 'error') {
     return (
       <aside className="inspector">
-        <InspectorHeader
-          pipeId={data.pipeId}
-          pipeLabel={entry?.label ?? data.type}
-          activeTab={activeTab}
-          onTabChange={setActiveTab}
-        />
+        {header}
         <div className="inspector-debug-io">
           {debugRunError ? (
             <div className="field-error">{debugRunError}</div>
@@ -599,12 +598,7 @@ export function Inspector({
 
   return (
     <aside className="inspector">
-      <InspectorHeader
-        pipeId={data.pipeId}
-        pipeLabel={entry?.label ?? data.type}
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
-      />
+      {header}
 
       <label>Pipe id</label>
       <input

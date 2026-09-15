@@ -47,7 +47,7 @@ export class CronCoordinator {
     // surface somewhere even when no embedder wires onError.
     this.onError =
       options.onError ??
-      ((error) => console.error('[foxagent] cron fire failed:', error));
+      ((error) => console.error('[workflow-engine] cron fire failed:', error));
   }
 
   async recover(): Promise<void> {

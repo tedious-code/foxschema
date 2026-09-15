@@ -67,7 +67,7 @@ export class PollCoordinator {
     this.tickIntervalMs = options.tickIntervalMs ?? 30_000;
     this.onError =
       options.onError ??
-      ((error) => console.error('[foxagent] poll failed:', error));
+      ((error) => console.error('[workflow-engine] poll failed:', error));
   }
 
   async tick(): Promise<void> {
