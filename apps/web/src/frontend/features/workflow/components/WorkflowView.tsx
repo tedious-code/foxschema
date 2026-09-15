@@ -4,26 +4,49 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Workflow workspace: the designer and the engine panes behind one tab strip.
+ * Tab visibility follows the same RBAC keys the engine proxy enforces, so a
+ * viewer who can open Workflow does not see Design / Variables / Engine chrome
+ * that would only 403.
  */
-import React from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { Activity, Braces, KeyRound, ListTree, Power, Workflow } from 'lucide-react';
+import type { Permission } from '@foxschema/shared';
 import '@xyflow/react/dist/style.css';
 import '../workflow.css';
+import { useAuthStore } from '@/app/store/authStore';
 import { useWorkflowUiStore, type WorkflowPane } from '../store/workflowUiStore';
 import { WorkflowDesigner } from './WorkflowDesigner';
 
-const PANES: { id: WorkflowPane; label: string; icon: React.ElementType }[] = [
-  { id: 'designer', label: 'Designer', icon: Workflow },
-  { id: 'workflows', label: 'Workflows', icon: ListTree },
-  { id: 'runs', label: 'Runs', icon: Activity },
-  { id: 'variables', label: 'Variables', icon: Braces },
-  { id: 'credentials', label: 'Credentials', icon: KeyRound },
-  { id: 'engine', label: 'Engine', icon: Power },
+const PANES: {
+  id: WorkflowPane;
+  label: string;
+  icon: React.ElementType;
+  /** Open the pane. Mutating actions inside still check their own keys. */
+  permission: Permission;
+}[] = [
+  { id: 'designer', label: 'Designer', icon: Workflow, permission: 'workflow.design' },
+  // Listing workflows/runs is workflow.access on the proxy; starting a run is
+  // gated separately with workflow.run inside the designer.
+  { id: 'workflows', label: 'Workflows', icon: ListTree, permission: 'workflow.access' },
+  { id: 'runs', label: 'Runs', icon: Activity, permission: 'workflow.access' },
+  { id: 'variables', label: 'Variables', icon: Braces, permission: 'workflow.design' },
+  { id: 'credentials', label: 'Credentials', icon: KeyRound, permission: 'workflow.design' },
+  { id: 'engine', label: 'Engine', icon: Power, permission: 'workflow.admin' },
 ];
 
 export const WorkflowView: React.FC = () => {
   const pane = useWorkflowUiStore((s) => s.view);
   const setPane = useWorkflowUiStore((s) => s.setView);
+  const can = useAuthStore((s) => s.can);
+
+  const visiblePanes = useMemo(() => PANES.filter((p) => can(p.permission)), [can]);
+
+  useEffect(() => {
+    if (visiblePanes.length === 0) return;
+    if (!visiblePanes.some((p) => p.id === pane)) {
+      setPane(visiblePanes[0]!.id);
+    }
+  }, [pane, setPane, visiblePanes]);
 
   return (
     <div className="fox-workflow flex min-h-0 flex-1 flex-col" data-testid="workflow-view">
@@ -33,7 +56,7 @@ export const WorkflowView: React.FC = () => {
         data-testid="workflow-menu"
       >
         <span className="px-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">Workflow</span>
-        {PANES.map((p) => {
+        {visiblePanes.map((p) => {
           const active = pane === p.id;
           return (
             <button
@@ -54,7 +77,13 @@ export const WorkflowView: React.FC = () => {
       </nav>
 
       <div className="mt-2 flex min-h-0 flex-1 flex-col border-t border-slate-800">
-        <WorkflowDesigner />
+        {visiblePanes.length === 0 ? (
+          <p className="p-4 text-sm text-slate-500" data-testid="workflow-no-panes">
+            No Workflow panes are available for this role.
+          </p>
+        ) : (
+          <WorkflowDesigner />
+        )}
       </div>
     </div>
   );
