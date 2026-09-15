@@ -67,3 +67,42 @@ describe('table insight permissions', () => {
     expect(resolveRef).not.toHaveBeenCalled();
   });
 });
+
+describe('db-access catalog permissions', () => {
+  it('allows Access workspace viewers with access.access (not only utility.access)', async () => {
+    const { server, resolveRef } = await serve(['access.access']);
+    const res = await server.inject({
+      method: 'POST',
+      url: '/schema/db-access',
+      payload: { connectionId: 'c1' },
+    });
+
+    // Unsupported dialect fails after the permission check — not 403.
+    expect(res.statusCode).not.toBe(403);
+    expect(resolveRef).toHaveBeenCalledOnce();
+  });
+
+  it('still allows Utilities → Database Access via utility.access', async () => {
+    const { server, resolveRef } = await serve(['utility.access']);
+    const res = await server.inject({
+      method: 'POST',
+      url: '/schema/db-access',
+      payload: { connectionId: 'c1' },
+    });
+
+    expect(res.statusCode).not.toBe(403);
+    expect(resolveRef).toHaveBeenCalledOnce();
+  });
+
+  it('rejects callers with neither utility.access nor access.*', async () => {
+    const { server, resolveRef } = await serve(['editor.run']);
+    const res = await server.inject({
+      method: 'POST',
+      url: '/schema/db-access',
+      payload: { connectionId: 'c1' },
+    });
+
+    expect(res.statusCode).toBe(403);
+    expect(resolveRef).not.toHaveBeenCalled();
+  });
+});

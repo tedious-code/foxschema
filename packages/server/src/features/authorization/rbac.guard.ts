@@ -20,6 +20,18 @@ export function requirePermissions(...required: Permission[]) {
   };
 }
 
+/**
+ * Reject when the actor has none of the listed permissions (OR).
+ * Use for surfaces that share one API but are reached from different UI keys
+ * (e.g. Access workspace `access.*` vs Utilities `utility.access`).
+ */
+export function requireAnyPermission(...accepted: Permission[]) {
+  return (req: AuthedRequest, res: FastifyReply, next: NextFunction): void => {
+    if (denyUnlessAny(req, res, ...accepted)) return;
+    next();
+  };
+}
+
 /** Returns true when the response was already sent (denied). */
 export function denyUnless(
   req: AuthedRequest,
@@ -40,4 +52,21 @@ export function denyUnless(
     return true;
   }
   return false;
+}
+
+/** Returns true when the response was already sent (denied). */
+export function denyUnlessAny(
+  req: AuthedRequest,
+  res: FastifyReply,
+  ...accepted: Permission[]
+): boolean {
+  if (!req.userId) {
+    sendError(res, 'unauthenticated', 'Authentication required');
+    return true;
+  }
+  if (req.appRole === 'admin') return false;
+  const have = req.permissions ?? new Set<Permission>();
+  if (accepted.some((p) => permissionSatisfied(have, p))) return false;
+  sendError(res, 'forbidden', 'Permission denied', { extra: { missing: accepted } });
+  return true;
 }

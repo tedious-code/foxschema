@@ -13,7 +13,7 @@ import type { FastifyReply } from 'fastify';
 import type { AppRequest } from '../../platform/http/types';
 import { Router } from '../../platform/http/router';
 import type { ConnectionModule } from '@foxschema/db';
-import { requirePermissions } from '../authorization/rbac.guard';
+import { requireAnyPermission, requirePermissions } from '../authorization/rbac.guard';
 import { rateLimit } from '../../platform/guards/rate-limit';
 import type { AuthedRequest } from '../auth/auth.routes';
 import type { ConnectionRef } from '../../platform/db/resolve';
@@ -235,7 +235,17 @@ export function createAccessRoutes(deps: AccessRouteDeps): Router {
   router.post(
     '/schema/db-access',
     dbAccessLimiter,
-    requirePermissions('utility.access'),
+    // Access workspace tabs use access.*; Utilities → Database Access uses
+    // utility.access. Either family may load the catalog.
+    requireAnyPermission(
+      'utility.access',
+      'access.access',
+      'access.users',
+      'access.builder',
+      'access.diff',
+      'access.inspector',
+      'access.report',
+    ),
     async (req: AppRequest, res: FastifyReply) => {
       const body = req.body as ConnectionRef & { schema?: unknown };
       try {
