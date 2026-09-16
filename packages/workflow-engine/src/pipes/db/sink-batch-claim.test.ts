@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { PipeContext, RecordBatch } from '../../registry/index.js';
+import type { MysqlClient } from './mysql-source.js';
 import { MysqlSinkPipe } from './mysql.js';
 import { PostgresSinkPipe, type PostgresClient } from './postgres.js';
 
@@ -57,25 +58,27 @@ describe('sink batch claims across workflow runs', () => {
     const committed = new Set<string>();
     const claimResults: number[] = [];
     let dataInserts = 0;
-    const client = {
+    // mysql2 returns ResultSetHeader for INSERT IGNORE; the sink reads
+    // affectedRows off the first tuple slot (see MysqlSinkPipe.write).
+    const client: MysqlClient = {
       connect: async () => undefined,
       end: async () => undefined,
-      query: async (sql: string, values?: unknown[]) => {
+      query: async (sql, values) => {
         if (sql.includes('information_schema.schemata')) {
-          return [[{ schema_name: 'app' }], undefined] as const;
+          return [[{ schema_name: 'app' }], undefined];
         }
         if (sql.includes('SHOW COLUMNS')) {
-          return [[{ Field: 'id' }], undefined] as const;
+          return [[{ Field: 'id' }], undefined];
         }
         if (sql.includes('INSERT IGNORE INTO')) {
           const key = `${String(values?.[0])}/${String(values?.[1])}`;
           const affectedRows = committed.has(key) ? 0 : 1;
           committed.add(key);
           claimResults.push(affectedRows);
-          return [{ affectedRows }, undefined] as const;
+          return [{ affectedRows } as never, undefined];
         }
         if (sql.includes('INSERT INTO `app`.`target`')) dataInserts++;
-        return [[], undefined] as const;
+        return [[], undefined];
       },
     };
     const sink = new MysqlSinkPipe(async () => client);
