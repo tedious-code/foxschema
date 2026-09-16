@@ -15,6 +15,7 @@ import {
 import type { TableSchema } from '@/shared/lib/types';
 import {
   fromClauseIsMultiTable,
+  fromClauseIsSubquery,
   selectListSafeForResultEdit,
   sqlHasSetOperation,
   tableNamesFromSql,
@@ -32,10 +33,12 @@ export function tableForOrderBy(
 ): TableSchema | undefined {
   if (!tables?.length) return undefined;
   // A unique key is only unique in the result while one source row can produce
-  // at most one output row. JOIN/APPLY/comma-FROM and set operations can repeat
-  // a primary key, so keyset paging would skip the remaining rows for that key.
+  // at most one output row. Subqueries can also expose a non-unique expression
+  // under a base table's key name. In either case keyset paging would skip the
+  // remaining rows for that value.
   if (
     fromClauseIsMultiTable(sql) ||
+    fromClauseIsSubquery(sql) ||
     sqlHasSetOperation(sql) ||
     /\b(?:CROSS|OUTER)\s+APPLY\b/i.test(sql)
   ) {
