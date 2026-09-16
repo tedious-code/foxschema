@@ -262,17 +262,23 @@ describe('two instances, one database', () => {
     try {
       const workflow = workflowDoc('parallel');
       await a.stores.workflows.put(workflow as never);
-      const { run } = await a.scheduler.enqueue(workflow as never, invocation('legacy'));
-      await a.idle();
-      const record = (await a.stores.runs.get(run!.id))!;
-      record.status = 'running';
-      await a.stores.runs.update(record);
+      const run = {
+        id: 'legacy-run',
+        workflowId: workflow.id,
+        workflowVersion: workflow.version,
+        status: 'running',
+        trigger: 'manual',
+        triggerId: 'm',
+        startedAt: new Date().toISOString(),
+        instanceId: 'instance-a',
+      } as const;
+      await a.stores.runs.create(run, workflow as never);
 
       const reclaimed = await b.stores.runs.interruptRunning(
         new Date().toISOString(),
       );
 
-      expect(reclaimed.map((entry) => entry.id)).toContain(run!.id);
+      expect(reclaimed.map((entry) => entry.id)).toContain(run.id);
     } finally {
       await a.close();
       await b.close();
