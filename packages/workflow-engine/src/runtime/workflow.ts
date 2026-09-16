@@ -912,6 +912,21 @@ export class LocalRunScheduler {
   private async runControlled(runId: string): Promise<void> {
     // Waits here, still queued, while this instance is at its limit.
     await this.slots.acquire();
+    let claimed: boolean;
+    try {
+      claimed = await this.options.runs.claimQueuedRun(
+        runId,
+        this.instanceId,
+        this.leaseExpiry(),
+      );
+    } catch (error) {
+      this.slots.release();
+      throw error;
+    }
+    if (!claimed) {
+      this.slots.release();
+      return;
+    }
     const controller = new AbortController();
     this.controls.set(runId, controller);
     this.holdLease(runId);

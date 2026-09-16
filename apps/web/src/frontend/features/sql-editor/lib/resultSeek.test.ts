@@ -54,6 +54,12 @@ describe('seekFromLastRow', () => {
     ).toBeNull();
   });
 
+  it('does not borrow PK uniqueness from inside a subquery', () => {
+    const sql =
+      'SELECT ID FROM (SELECT NAME AS ID FROM ORDERS) derived ORDER BY ID';
+    expect(tableForOrderBy(sql, [TABLE])).toBeUndefined();
+  });
+
   it('does not seek on a partial unique index', () => {
     const table: TableSchema = {
       ...TABLE,

@@ -641,6 +641,21 @@ class SqliteRunStore implements RunStore {
     return (rows as Row[]).map(workflowRun);
   }
 
+  async claimQueuedRun(
+    runId: string,
+    instanceId: string,
+    expiresAt: string,
+  ): Promise<boolean> {
+    const result = this.db
+      .prepare(
+        `UPDATE workflow_runs
+         SET status = 'running', instance_id = ?, lease_expires_at = ?
+         WHERE id = ? AND status = 'queued'`,
+      )
+      .run(instanceId, expiresAt, runId);
+    return Number(result.changes) > 0;
+  }
+
   async update(run: WorkflowRunRecord): Promise<void> {
     this.db
       .prepare(
