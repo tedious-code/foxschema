@@ -31,6 +31,7 @@ const FE = path.dirname(fileURLToPath(import.meta.url));
  */
 const SEMANTIC: ReadonlyArray<readonly [string, string]> = [
   ['features/sql-editor/components/PeekRowEditor.tsx', 'focus:border-rose-400'],
+  ['features/sql-editor/components/PeekDatePicker.tsx', 'focus:border-rose-400'],
   ['features/sql-editor/components/TableBlueprintModal.tsx', 'focus:border-violet-400'],
   ['features/sql-editor/components/TableBlueprintModal.tsx', 'focus:border-emerald-400'],
   ['features/lokee-weave/components/HistoryCompareBar.tsx', 'focus:border-purple-500'],

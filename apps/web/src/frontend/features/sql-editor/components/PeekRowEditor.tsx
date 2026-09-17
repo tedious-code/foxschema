@@ -36,6 +36,7 @@ import {
 } from '@/features/sql-editor/lib/rowDml';
 import { PeekDatePicker } from '@/features/sql-editor/components/PeekDatePicker';
 import { SQL_ICON_STROKE } from '@/shared/lib/iconStyle';
+import { sectionLabelCls } from '@/shared/components/surfaces';
 
 /** Same union as {@link PeekFieldMode} — kept as an alias for existing imports. */
 export type PeekRowEditorMode = PeekFieldMode;
@@ -409,7 +410,7 @@ export const PeekRowEditor: React.FC<Props> = ({
                 className="rounded-md border border-slate-800 bg-slate-950/50 px-2.5 py-2"
               >
                 <div className="mb-1.5 flex items-center justify-between gap-2">
-                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                  <span className={sectionLabelCls}>
                     Columns to update
                   </span>
                   <span className="flex gap-2">
@@ -474,7 +475,7 @@ export const PeekRowEditor: React.FC<Props> = ({
                   className={`block ${dimmed ? 'opacity-45' : ''}`}
                   data-testid={`peek-row-field-wrap-${f.name}`}
                 >
-                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500 flex items-center gap-1.5">
+                  <span className={`${sectionLabelCls} flex items-center gap-1.5`}>
                     {f.name}
                     {f.isKey && <span className="text-amber-400/80 normal-case">PK</span>}
                     {f.isIdentity && (
