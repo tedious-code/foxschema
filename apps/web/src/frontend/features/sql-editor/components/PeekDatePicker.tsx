@@ -27,17 +27,25 @@ export function draftFromDateInput(kind: 'date' | 'timestamp', value: string): s
 export function dateInputFromDraft(kind: 'date' | 'timestamp', draft: string): string {
   const v = (draft ?? '').trim();
   if (!v) return '';
-  if (kind === 'date') {
-    const m = /^(\d{4}-\d{1,2}-\d{1,2})/.exec(v);
-    if (!m) return '';
-    const [y, mo, d] = m[1]!.split('-');
-    return `${y}-${mo!.padStart(2, '0')}-${d!.padStart(2, '0')}`;
-  }
-  const m = /^(\d{4}-\d{1,2}-\d{1,2})[ T](\d{1,2}:\d{2})(?::(\d{2}))?/.exec(v);
-  if (!m) return '';
-  const [y, mo, d] = m[1]!.split('-');
-  const [hh, mm] = m[2]!.split(':');
-  return `${y}-${mo!.padStart(2, '0')}-${d!.padStart(2, '0')}T${hh!.padStart(2, '0')}:${mm}`;
+  // Manual parse (no nested optional regex groups) — `security/detect-unsafe-regex`
+  // rejects `(?::\d{2})?` even when every class is bounded.
+  const space = v.indexOf(' ');
+  const tSep = v.indexOf('T');
+  const cut = space >= 0 ? space : tSep >= 0 ? tSep : -1;
+  const datePart = cut >= 0 ? v.slice(0, cut) : v;
+  const dateBits = datePart.split('-');
+  if (dateBits.length !== 3) return '';
+  const [y, mo, d] = dateBits;
+  if (!y || !mo || !d || y.length !== 4) return '';
+  if (![y, mo, d].every((p) => /^\d+$/.test(p))) return '';
+  const ymd = `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  if (kind === 'date') return ymd;
+  if (cut < 0) return '';
+  const timeBits = v.slice(cut + 1).split(':');
+  if (timeBits.length < 2) return '';
+  const [hh, mm] = timeBits;
+  if (!hh || !mm || ![hh, mm].every((p) => /^\d+$/.test(p))) return '';
+  return `${ymd}T${hh.padStart(2, '0')}:${mm.padStart(2, '0')}`;
 }
 
 interface Props {

@@ -331,7 +331,8 @@ export function suggestPeekGenerator(field: Pick<PeekField, 'name' | 'kind' | 't
   if (/job|title|role/.test(name)) return 'jobTitle';
   if (/uuid|guid/.test(name) || type.includes('uuid')) return 'uuid';
   if (/url|website|href/.test(name)) return 'url';
-  if (/ip(_?v?4)?$|ip_addr/.test(name)) return 'ipv4';
+  // Avoid nested optionals (`(_?v?4)?`) — security/detect-unsafe-regex rejects that shape.
+  if (name === 'ip' || name.endsWith('_ip') || /ipv4|ip_v4|ip4|ip_addr/.test(name)) return 'ipv4';
   if (field.kind === 'boolean' || /bool|flag|is_|has_/.test(name)) return 'boolean';
   if (field.kind === 'date' || field.kind === 'timestamp') {
     if (/expir|due|end|until/.test(name)) return 'futureDate';
@@ -362,7 +363,6 @@ export function evaluatePeekFormula(raw: string): string | null {
   if (/[+]{2}|[-]{2}|[*\/]{2}|\(\)|^\.+|\.{2,}/.test(expr)) return null;
   try {
     // Expression already restricted to a digit/operator alphabet.
-    // eslint-disable-next-line no-new-func -- intentional sandbox for arithmetic-only input
     const result = Function(`"use strict"; return (${expr});`)() as unknown;
     if (typeof result !== 'number' || !Number.isFinite(result)) return null;
     // Avoid scientific notation noise for typical money/int edits.
