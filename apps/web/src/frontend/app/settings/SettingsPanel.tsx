@@ -33,7 +33,6 @@ import {
   type ThemePreset,
 } from '@/app/store/uiStore';
 import { fetchAppInfo, type AppInfo } from '@/features/auth';
-import { DatabaseSettings } from '@/features/connections';
 import { EmailSettings } from './EmailSettings';
 import { UpdatesSettings } from './UpdatesSettings';
 
@@ -303,7 +302,13 @@ export const SettingsPanel: React.FC<Props> = ({ open = true, onClose, embedded 
         {tab === 'database' && (
           <Section icon={<Database className="w-3 h-3" />} title="Database">
             {info ? (
-              <DatabaseSettings info={info} />
+              <p className="text-xs text-slate-300">
+                <span className="font-mono text-slate-200">{info.db.engine}</span>
+                {info.db.location && info.db.location !== '(default)'
+                  ? ` · ${info.db.location}`
+                  : ''}{' '}
+                — managed by the server.
+              </p>
             ) : (
               <p className="text-xs text-slate-500">Loading app database info…</p>
             )}

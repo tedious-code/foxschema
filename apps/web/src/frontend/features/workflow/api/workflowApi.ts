@@ -3,10 +3,12 @@
  * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
  * SPDX-License-Identifier: Apache-2.0
  *
- * Control-plane client for FoxWorkflow settings and engine health.
+ * Control-plane client for FoxWorkflow settings, engine health, and linking
+ * saved FoxSchema connections to workflows.
  */
 import type {
   AdminConfigPut,
+  WorkflowConnectionSummary,
   WorkflowEngineConfig,
   WorkflowHealth,
 } from '@foxschema/workflow-contract';
@@ -43,3 +45,16 @@ export function toAdminConfigPut(config: WorkflowEngineConfig): AdminConfigPut {
     })),
   };
 }
+
+const connectionGrantPath = (id: string) =>
+  `/workflow/connections/${encodeURIComponent(id)}/grant`;
+
+/** The caller's saved FoxSchema connections, and linking them to workflows. */
+export const workflowConnections = {
+  list: async (): Promise<WorkflowConnectionSummary[]> =>
+    (await api.get<{ connections: WorkflowConnectionSummary[] }>('/workflow/connections')).connections,
+  /** Links the connection and resolves with the engine credential that points at it. */
+  grant: (id: string): Promise<{ ok: true; credentialId: string }> =>
+    api.put(connectionGrantPath(id)),
+  revoke: (id: string): Promise<{ ok: true }> => api.delete(connectionGrantPath(id)),
+};

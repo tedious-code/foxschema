@@ -10,7 +10,7 @@
  * actually import today — derived from usage, not guessed, so the surface
  * starts as small as it truly is.
  */
-export { SchemaTreePanel, TYPE_META, TYPE_ORDER } from './components/SchemaTreePanel';
+export { SchemaTreePanel } from './components/SchemaTreePanel';
 export { WriteConfirmDialog } from './components/WriteConfirmDialog';
 export { scrubRemovedFileConnections } from './lib/fileQueryEditorHelpers';
 export { getCaretOffset, getSelectedSql, insertAtCursor } from './lib/sqlEditorBridge';

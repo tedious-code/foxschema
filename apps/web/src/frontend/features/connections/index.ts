@@ -12,4 +12,3 @@
  */
 export { ConnectionModal } from './components/ConnectionModal';
 export { CredentialManager } from './components/CredentialManager';
-export { DatabaseSettings } from './components/DatabaseSettings';

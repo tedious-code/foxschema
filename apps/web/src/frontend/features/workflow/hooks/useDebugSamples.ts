@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react';
 import { RUN_STREAM_END_EVENT } from '@foxschema/workflow-contract';
 import { isTerminalRunStatus } from '@foxschema/workflow-engine/definitions';
 import { api, type RunEvent } from '../api/engineClient';
-import { pipeKey } from '../lib/pipeKey';
+import { pipeKey } from '../lib/ports';
 
 export type DebugSample = {
   pipelineId?: string;

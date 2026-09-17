@@ -10,7 +10,7 @@
  * actually import today — derived from usage, not guessed, so the surface
  * starts as small as it truly is.
  */
-export { fetchAppInfo } from './api/setupApi';
-export type { AppInfo } from './api/setupApi';
+export { fetchAppInfo } from './api/authApi';
+export type { AppInfo } from './api/authApi';
 export { AuthPage } from './components/AuthPage';
 export { OnboardingWizard } from './components/OnboardingWizard';

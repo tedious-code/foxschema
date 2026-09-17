@@ -221,9 +221,9 @@ export const PermissionDiff: React.FC<{
   };
 
   // Was `supportsAccessBuilder` plus "<dialect> has no GRANT model for
-  // diffing" — the same claim its sibling PermissionBuilder just stopped
-  // making, because it is false of all three engines that reach it. Adjacent
-  // tabs of one screen were about to give ClickHouse two different answers.
+  // diffing" — dropped because it is false of all three engines that reach
+  // it. Adjacent tabs of one screen were about to give ClickHouse two
+  // different answers.
   const accessBlockedBy = dialect ? dialectFeatureReason(dialect, 'dbAccess') : undefined;
 
   return (

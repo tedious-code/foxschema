@@ -17,7 +17,7 @@ import type { Permission } from '@foxschema/shared';
 import { PermissionDiff } from './PermissionDiff';
 import { UserManagement } from './UserManagement';
 import { AccessPermissionPanel } from './AccessPermissionPanel';
-import type { AccessPrincipalDraft } from '../lib/access-draft';
+import type { AccessPrincipalDraft } from '../lib/access';
 
 export type AccessSection = 'users' | 'permission' | 'diff';
 

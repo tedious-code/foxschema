@@ -19,7 +19,7 @@ import { FilterPicker, connectionPickerOption } from '@/shared/components/Filter
 import { dialectLabel } from '@/shared/lib/dialectLabel';
 import { quoteSqlIdentifier } from '@/shared/lib/sql-splitter';
 import type { TableSchema } from '@/shared/lib/types';
-import { workflowConnections } from '../api/connections';
+import { workflowConnections } from '../api/workflowApi';
 import { invalidateEngineQueries } from '../api/engineQueries';
 import { JSON_EDITOR_OPTIONS, useJsonEditorTheme } from '../lib/jsonEditorOptions';
 import { toast } from '../lib/notify';

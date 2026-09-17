@@ -77,7 +77,7 @@ import {
 import { Button, Input, Select } from './controls';
 import { useDebugSamples } from '../hooks/useDebugSamples';
 import { usePaneResize } from '../hooks/usePaneResize';
-import { pipeKey } from '../lib/pipeKey';
+import { pipeKey } from '../lib/ports';
 import {
   createTrigger,
   nextTriggerId,

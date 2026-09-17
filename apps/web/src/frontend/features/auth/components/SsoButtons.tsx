@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { fetchSsoProviders, startSso, type SsoProvider, type SsoProviderId } from '../api/ssoApi';
+import { fetchSsoProviders, startSso, type SsoProvider, type SsoProviderId } from '../api/authApi';
 
 const GoogleIcon: React.FC = () => (
   <svg width="16" height="16" viewBox="0 0 48 48" aria-hidden="true">

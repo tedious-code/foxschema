@@ -4,7 +4,7 @@ import App from './frontend/App.tsx'
 import { SignupWizard } from '@/features/auth/components/SignupWizard'
 import { LoadingScreen } from '@/app/shell/LoadingScreen'
 import { resolveApiBase } from '@/shared/api/apiBase'
-import { getSignupState } from '@/features/auth/api/signupApi'
+import { getSignupState } from '@/features/auth/api/authApi'
 import './style.css'
 
 const rootEl = document.getElementById('app')
