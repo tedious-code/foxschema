@@ -83,23 +83,36 @@ beforeEach(() => {
 
 describe('schema. lists the tables in that schema', () => {
   it('offers every table when nothing follows the dot', () => {
-    expect(labels('SELECT * FROM demo_a.').sort()).toEqual([
-      'customers',
-      'order_items',
-      'orders',
-    ]);
+    const names = complete('SELECT * FROM demo_a.').map((s) => s.insertText.split(/\s+/)[0]!);
+    expect(names.sort()).toEqual(['customers', 'order_items', 'orders']);
   });
 
   it('narrows as the reader keeps typing', () => {
-    expect(labels('SELECT * FROM demo_a.order').sort()).toEqual(['order_items', 'orders']);
+    const names = complete('SELECT * FROM demo_a.order').map((s) => s.insertText.split(/\s+/)[0]!);
+    expect(names.sort()).toEqual(['order_items', 'orders']);
   });
 
-  it('says the tables belong to that schema', () => {
-    expect(complete('SELECT * FROM demo_a.')[0]!.detail).toBe('table · demo_a');
+  it('says the tables belong to that schema and offers an alias in FROM', () => {
+    const orders = complete('SELECT * FROM demo_a.').find((s) => s.insertText.startsWith('orders'));
+    expect(orders?.detail).toMatch(/^table · demo_a · alias /);
+    expect(orders?.insertText).toMatch(/^orders \w+$/);
+    expect(orders?.label).toMatch(/^orders {2}\w+$/);
   });
 
   it('matches the schema whatever case it is typed in', () => {
-    expect(labels('SELECT * FROM DEMO_A.')).toContain('orders');
+    expect(labels('SELECT * FROM DEMO_A.').some((l) => l.startsWith('orders'))).toBe(true);
+  });
+
+  it('keeps a bare table name outside FROM (SELECT list)', () => {
+    const orders = complete('SELECT demo_a.').find((s) => s.label === 'orders' || s.insertText === 'orders');
+    expect(orders?.insertText).toBe('orders');
+    expect(orders?.detail).toBe('table · demo_a');
+  });
+
+  it('gives each FROM table a unique alias when several are listed', () => {
+    const items = complete('SELECT * FROM demo_a.');
+    const aliases = items.map((s) => s.insertText.split(/\s+/)[1]).filter(Boolean);
+    expect(new Set(aliases).size).toBe(aliases.length);
   });
 });
 

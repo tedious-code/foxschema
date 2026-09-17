@@ -264,15 +264,35 @@ export function ensureSqlCompletions(monaco: typeof Monaco): void {
         if (schemaTables) {
           const names = trieCollect(schemaTables, partial);
           if (names.length > 0) {
+            // Same as bare FROM/JOIN: insert `table alias` so the reader can
+            // qualify columns with the short name. Outside FROM (e.g. SELECT
+            // list `demo_a.`) keep the bare table — an alias there is noise.
+            const takenAliases = new Set(Object.keys(aliases));
             return {
-              suggestions: names.map((name) => ({
-                label: name,
-                kind: monaco.languages.CompletionItemKind.Struct,
-                insertText: name,
-                detail: `table · ${dot[1]!}`,
-                sortText: `0_${name}`,
-                range: colRange,
-              })),
+              suggestions: names.map((name) => {
+                const bare = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : name;
+                if (fromTablePos) {
+                  const alias = suggestTableAlias(bare, takenAliases);
+                  takenAliases.add(alias);
+                  return {
+                    label: `${name}  ${alias}`,
+                    kind: monaco.languages.CompletionItemKind.Struct,
+                    insertText: `${name} ${alias}`,
+                    filterText: name,
+                    detail: `table · ${dot[1]!} · alias ${alias}`,
+                    sortText: `0_${name}`,
+                    range: colRange,
+                  };
+                }
+                return {
+                  label: name,
+                  kind: monaco.languages.CompletionItemKind.Struct,
+                  insertText: name,
+                  detail: `table · ${dot[1]!}`,
+                  sortText: `0_${name}`,
+                  range: colRange,
+                };
+              }),
             };
           }
         }
@@ -400,16 +420,19 @@ export function ensureSqlCompletions(monaco: typeof Monaco): void {
         // In FROM/JOIN, insert `table alias` so columns can use the short name.
         let insertText = name;
         let detail = (meta?.objectType ?? 'TABLE').toLowerCase();
+        let label: string = name;
         if (fromTablePos) {
           const alias = suggestTableAlias(bare, takenAliases);
           takenAliases.add(alias);
           insertText = `${name} ${alias}`;
+          label = `${name}  ${alias}`;
           detail = `${detail} · alias ${alias}`;
         }
         suggestions.push({
-          label: name,
+          label,
           kind: monaco.languages.CompletionItemKind.Class,
           insertText,
+          filterText: name,
           detail,
           sortText: `1_${name}`,
           range,
