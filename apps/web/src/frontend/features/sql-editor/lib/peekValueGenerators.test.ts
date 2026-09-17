@@ -5,14 +5,13 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  dateInputFromDraft,
-  draftFromDateInput,
   evaluatePeekFormula,
   generatePeekValue,
   resolvePeekNumberInput,
   suggestPeekGenerator,
   PEEK_GENERATORS,
 } from './peekValueGenerators';
+import { dateInputFromDraft, draftFromDateInput } from '../components/PeekDatePicker';
 
 describe('generatePeekValue', () => {
   it('produces core generator kinds', () => {

@@ -18,6 +18,7 @@ import {
   buildPeekFields,
   validatePeekRow,
   type PeekField,
+  type PeekFieldMode,
 } from '@/features/sql-editor/lib/peekRowValidation';
 import {
   PEEK_GENERATORS,
@@ -36,7 +37,8 @@ import {
 import { PeekDatePicker } from '@/features/sql-editor/components/PeekDatePicker';
 import { SQL_ICON_STROKE } from '@/shared/lib/iconStyle';
 
-export type PeekRowEditorMode = 'add' | 'edit' | 'clone';
+/** Same union as {@link PeekFieldMode} — kept as an alias for existing imports. */
+export type PeekRowEditorMode = PeekFieldMode;
 
 export type PeekRowEditorSubmit = {
   draft: Record<string, string>;

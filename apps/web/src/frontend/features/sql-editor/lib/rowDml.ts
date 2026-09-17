@@ -11,6 +11,7 @@ import { sqlTag as sql, renderSqlQuery, identityInsertFor } from '@/shared/lib/s
 import { tableNameParts } from '@/shared/lib/tablePreview';
 import { dialectFeatures } from '@/shared/lib/dialect-features';
 import type { TableSchema } from '@/shared/lib/types';
+import { describeSqlType } from '@/features/sql-editor/lib/peekRowValidation';
 
 export type PeekWriteKind = 'update' | 'insert' | 'delete';
 
@@ -42,12 +43,12 @@ export interface PeekEditability {
  * Column types whose grid cells are display-only hex (`0x…`), not round-trippable
  * bind values. Clone/edit would INSERT/UPDATE the ASCII hex string (or a
  * truncated `0xabcd…` prefix) and corrupt the binary.
+ *
+ * Uses the same catalog classifier as the row form (`describeSqlType`) so the
+ * two paths cannot drift.
  */
-const BINARY_SQL_TYPE_RE =
-  /\b(bytea|blob|binary|varbinary|raw|image|longblob|mediumblob|tinyblob|varbinary\(max\)|binary\(max\))\b/i;
-
 export function columnTypeIsBinary(type: string | undefined | null): boolean {
-  return BINARY_SQL_TYPE_RE.test(String(type ?? ''));
+  return describeSqlType(String(type ?? '')).kind === 'binary';
 }
 
 function resultIndexMap(columns: string[]): Map<string, number> {

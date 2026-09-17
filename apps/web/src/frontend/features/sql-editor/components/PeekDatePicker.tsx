@@ -8,12 +8,37 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays } from 'lucide-react';
-import {
-  dateInputFromDraft,
-  draftFromDateInput,
-  timestampFormatHint,
-} from '@/features/sql-editor/lib/peekValueGenerators';
 import { SQL_ICON_STROKE } from '@/shared/lib/iconStyle';
+
+export function timestampFormatHint(kind: 'date' | 'timestamp'): string {
+  return kind === 'date' ? 'YYYY-MM-DD' : 'YYYY-MM-DD HH:MM:SS';
+}
+
+/** Convert a date / datetime-local control value into the draft string the form validates. */
+export function draftFromDateInput(kind: 'date' | 'timestamp', value: string): string {
+  if (!value) return '';
+  if (kind === 'date') return value;
+  const [datePart, timePart = '00:00'] = value.split('T');
+  const time = timePart.length === 5 ? `${timePart}:00` : timePart;
+  return `${datePart} ${time}`;
+}
+
+/** Convert a draft timestamp/date into a value an HTML date/datetime-local input accepts. */
+export function dateInputFromDraft(kind: 'date' | 'timestamp', draft: string): string {
+  const v = (draft ?? '').trim();
+  if (!v) return '';
+  if (kind === 'date') {
+    const m = /^(\d{4}-\d{1,2}-\d{1,2})/.exec(v);
+    if (!m) return '';
+    const [y, mo, d] = m[1]!.split('-');
+    return `${y}-${mo!.padStart(2, '0')}-${d!.padStart(2, '0')}`;
+  }
+  const m = /^(\d{4}-\d{1,2}-\d{1,2})[ T](\d{1,2}:\d{2})(?::(\d{2}))?/.exec(v);
+  if (!m) return '';
+  const [y, mo, d] = m[1]!.split('-');
+  const [hh, mm] = m[2]!.split(':');
+  return `${y}-${mo!.padStart(2, '0')}-${d!.padStart(2, '0')}T${hh!.padStart(2, '0')}:${mm}`;
+}
 
 interface Props {
   fieldName: string;
