@@ -11,6 +11,7 @@ import { sqlTag as sql, renderSqlQuery, identityInsertFor } from '@/shared/lib/s
 import { tableNameParts } from '@/shared/lib/tablePreview';
 import { dialectFeatures } from '@/shared/lib/dialect-features';
 import type { TableSchema } from '@/shared/lib/types';
+import { describeSqlType } from '@/features/sql-editor/lib/peekRowValidation';
 
 export type PeekWriteKind = 'update' | 'insert' | 'delete';
 
@@ -42,12 +43,12 @@ export interface PeekEditability {
  * Column types whose grid cells are display-only hex (`0x…`), not round-trippable
  * bind values. Clone/edit would INSERT/UPDATE the ASCII hex string (or a
  * truncated `0xabcd…` prefix) and corrupt the binary.
+ *
+ * Uses the same catalog classifier as the row form (`describeSqlType`) so the
+ * two paths cannot drift.
  */
-const BINARY_SQL_TYPE_RE =
-  /\b(bytea|blob|binary|varbinary|raw|image|longblob|mediumblob|tinyblob|varbinary\(max\)|binary\(max\))\b/i;
-
 export function columnTypeIsBinary(type: string | undefined | null): boolean {
-  return BINARY_SQL_TYPE_RE.test(String(type ?? ''));
+  return describeSqlType(String(type ?? '')).kind === 'binary';
 }
 
 function resultIndexMap(columns: string[]): Map<string, number> {
@@ -253,24 +254,41 @@ export function buildPeekUpdate(opts: {
   originalRow: unknown[];
   draftRow: unknown[];
   keyColumns: PeekKeyColumn[];
+  /**
+   * When set, only these columns may appear in SET (still skips unchanged
+   * values and key columns). Used when the edit form lets the user pick which
+   * fields to update.
+   */
+  onlyColumns?: Iterable<string>;
 }): PeekWritePlan | { error: string } {
-  const { tableName, dialect, columns, originalRow, draftRow, keyColumns } = opts;
+  const { tableName, dialect, columns, originalRow, draftRow, keyColumns, onlyColumns } = opts;
   const parts = tableNameParts(tableName);
   if (!parts.length) return { error: 'Invalid table name.' };
   const keyErr = assertPeekKeyValuesPresent(originalRow, keyColumns);
   if (keyErr) return { error: keyErr };
 
   const keyLower = new Set(keyColumns.map((k) => k.name.toLowerCase()));
+  const onlyLower =
+    onlyColumns == null
+      ? null
+      : new Set([...onlyColumns].map((c) => c.toLowerCase()));
   const setCols: string[] = [];
   const setVals: unknown[] = [];
   for (let i = 0; i < columns.length; i++) {
     const name = columns[i]!;
     if (keyLower.has(name.toLowerCase())) continue;
+    if (onlyLower && !onlyLower.has(name.toLowerCase())) continue;
     if (valuesEqual(originalRow[i], draftRow[i])) continue;
     setCols.push(name);
     setVals.push(draftRow[i] ?? null);
   }
-  if (setCols.length === 0) return { error: 'No changes to save.' };
+  if (setCols.length === 0) {
+    return {
+      error: onlyLower
+        ? 'No selected columns changed — pick columns to update, or discard.'
+        : 'No changes to save.',
+    };
+  }
 
   let query = sql`UPDATE ${sql.id(...parts)} SET `;
   setCols.forEach((col, i) => {

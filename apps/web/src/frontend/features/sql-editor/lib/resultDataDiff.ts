@@ -48,7 +48,7 @@ export function resultValuesEqual(a: unknown, b: unknown): boolean {
   return normalizeResultValue(a) === normalizeResultValue(b);
 }
 
-function emptySummary(): GridDiffSummary {
+export function emptySummary(): GridDiffSummary {
   return {
     cells: new Map(),
     modified: 0,

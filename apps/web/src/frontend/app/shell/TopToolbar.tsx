@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { useUiStore } from '@/app/store/uiStore';
 import { ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, Zap, Settings, KeyRound, X, Layers, Camera, Search } from 'lucide-react';
-import { TYPE_META, TYPE_ORDER } from '@/features/sql-editor/components/SchemaTreePanel';
+import { TYPE_META, TYPE_ORDER } from '@/features/schema-diff';
 import type { DbObjectType } from '@/shared/lib/types';
 import { connectionNeedsSecret } from '@/shared/lib/provider-settings';
 import { schemaCompareBlocker } from '@/shared/lib/dialect-features';

@@ -12,7 +12,7 @@ import {
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { getProviderSettings } from '@/shared/lib/provider-settings';
-import { TYPE_META } from './SchemaTreePanel';
+import { TYPE_META } from '@/features/schema-diff';
 import {
   filterCallParameters,
   getCompletionContext,

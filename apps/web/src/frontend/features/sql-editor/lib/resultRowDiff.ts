@@ -7,7 +7,7 @@
  * Visual compare uses resultKeyAlign for key-aligned cell tinting.
  */
 
-import { resultValuesEqual } from './resultDataDiff';
+import { resultValuesEqual, type ResultGridLike } from './resultDataDiff';
 import { normalizeResultKey } from '@/features/sql-editor/lib/resultValueKey';
 import type { PeekKeyColumn } from './rowDml';
 
@@ -15,10 +15,7 @@ export const DATA_MIGRATE_ROW_CAP = 500;
 
 export type RowDiffOp = 'insert' | 'update' | 'delete';
 
-export interface ResultGridLike {
-  columns: string[];
-  rows: unknown[][];
-}
+export type { ResultGridLike };
 
 export interface ClassifiedRowDiff {
   op: RowDiffOp;

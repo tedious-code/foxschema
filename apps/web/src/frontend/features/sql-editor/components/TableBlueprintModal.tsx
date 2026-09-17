@@ -28,7 +28,7 @@ import {
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { insertAtCursor } from '../lib/sqlEditorBridge';
 import { WriteConfirmDialog } from './WriteConfirmDialog';
-import { SchemaAutocomplete } from './SchemaAutocomplete';
+import { Autocomplete } from '@/shared/components/Autocomplete';
 import {
   appendFkTriggerSql,
   applyTypeSize,
@@ -68,7 +68,7 @@ import {
 } from '../lib/tableBlueprintSql';
 import type { ForeignKeyInfo, IndexInfo, TriggerInfo } from '@/shared/lib/types';
 import { SQL_ICON_STROKE } from '@/shared/lib/iconStyle';
-import { TYPE_META } from './SchemaTreePanel';
+import { TYPE_META } from '@/features/schema-diff';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import {
   buildIndexDefragSql,
@@ -2154,7 +2154,10 @@ export const TableBlueprintModal: React.FC<Props> = ({
                         <span className="text-[10px] font-bold text-violet-300/70 uppercase">
                           References table
                         </span>
-                        <SchemaAutocomplete
+                        <Autocomplete
+                          theme="violet"
+                          maxResults={60}
+                          resolveExactOnBlur
                           data-testid="blueprint-fk-ref-table"
                           value={fkForm.referencedTable}
                           options={refTableAutocompleteOptions}

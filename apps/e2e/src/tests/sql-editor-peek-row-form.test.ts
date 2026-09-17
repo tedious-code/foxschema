@@ -149,7 +149,7 @@ describe.skipIf(!postgresReachable())('SQL Editor · Data Peek row form', () => 
       .poll(async () => form.locator('[data-testid="peek-row-error-amount"]').innerText())
       .toMatch(/2 decimal places/i);
 
-    // Fixing both clears the errors and lets the insert through.
+    // Fixing both clears the errors and lets the insert through (preview → save).
     await form.locator('[data-testid="peek-row-field-email"]').fill('ok@e2e.co');
     await form.locator('[data-testid="peek-row-field-amount"]').fill('12.34');
     await expect
@@ -157,6 +157,7 @@ describe.skipIf(!postgresReachable())('SQL Editor · Data Peek row form', () => 
       .toBe(0);
 
     await driver.locator('[data-testid="peek-row-submit"]').click();
+    await driver.locator('[data-testid="peek-row-save"]').click();
     await sql.confirmWriteIfShown();
     await form.waitFor({ state: 'detached', timeout: 15_000 });
 

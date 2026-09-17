@@ -90,6 +90,25 @@ describe('rowDml', () => {
     expect(blocked.reason).toMatch(/binary/i);
   });
 
+  
+  it('limits UPDATE SET to onlyColumns', () => {
+    const keys = resolvePeekKeyColumns(usersTable, ['id', 'email', 'name']);
+    const plan = buildPeekUpdate({
+      tableName: 'public.users',
+      dialect: 'postgres',
+      columns: ['id', 'email', 'name'],
+      originalRow: [1, 'a@x.com', 'Ada'],
+      draftRow: [1, 'changed@x.com', 'Ada Lovelace'],
+      keyColumns: keys,
+      onlyColumns: ['name'],
+    });
+    expect('error' in plan).toBe(false);
+    if ('error' in plan) return;
+    expect(plan.sql).toMatch(/"name"\s*=/i);
+    expect(plan.sql).not.toMatch(/"email"\s*=/i);
+    expect(plan.params).toEqual(['Ada Lovelace', 1]);
+  });
+
   it('builds UPDATE with bound params', () => {
     const keys = resolvePeekKeyColumns(usersTable, ['id', 'email', 'name']);
     const plan = buildPeekUpdate({

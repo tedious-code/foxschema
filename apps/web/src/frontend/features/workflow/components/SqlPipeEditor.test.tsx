@@ -10,7 +10,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorkflowConnectionSummary } from '@foxschema/workflow-contract';
 import { loadSchema } from '@/shared/api/schemaApi';
-import { workflowConnections } from '../api/connections';
+import { workflowConnections } from '../api/workflowApi';
 import { SqlPipeEditor } from './SqlPipeEditor';
 
 vi.mock('@monaco-editor/react', () => ({
@@ -25,8 +25,8 @@ vi.mock('@/shared/api/schemaApi', () => ({ loadSchema: vi.fn() }));
 vi.mock('@/app/store/authStore', () => ({
   useAuthStore: (select: (state: { can: () => boolean }) => unknown) => select({ can: () => true }),
 }));
-vi.mock('../api/connections', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../api/connections')>()),
+vi.mock('../api/workflowApi', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/workflowApi')>()),
   workflowConnections: { list: vi.fn(), grant: vi.fn(), revoke: vi.fn() },
 }));
 

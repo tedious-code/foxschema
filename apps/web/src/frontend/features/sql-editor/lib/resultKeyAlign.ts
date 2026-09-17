@@ -12,6 +12,7 @@ import {
   type GridDiffSummary,
   type ResultGridLike,
   type ResultPairDiff,
+  emptySummary,
   resultValuesEqual,
 } from './resultDataDiff';
 import { keyColumnsForGrid } from './resultRowDiff';
@@ -38,17 +39,6 @@ export interface KeyAlignedGrids {
   deleteCount: number;
   /** Duplicate key values skipped on left/right (only first kept for align). */
   duplicateKeys: number;
-}
-
-function emptySummary(): GridDiffSummary {
-  return {
-    cells: new Map(),
-    modified: 0,
-    missing: 0,
-    extra: 0,
-    missingColumns: [],
-    extraColumns: [],
-  };
 }
 
 function mark(

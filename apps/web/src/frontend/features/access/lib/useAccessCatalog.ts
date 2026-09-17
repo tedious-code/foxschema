@@ -2,8 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { fetchDbAccess, fetchSchemaList } from '@/shared/api/schemaApi';
 import { findCachedTable, tableNameParts } from '@/shared/lib/tablePreview';
-import type { DbPrincipal } from './access';
-import { connectionDatabaseNames } from './catalogDatabases';
+import { connectionDatabaseNames, type DbPrincipal } from './access';
 
 type Conn = {
   id: string;

@@ -8,7 +8,7 @@
  */
 import React, { useState } from 'react';
 import { Loader2, AlertCircle, Mail, Sparkles } from 'lucide-react';
-import { submitSignup, skipSignup } from '../api/signupApi';
+import { submitSignup, skipSignup } from '../api/authApi';
 import { Brand } from '@/app/shell/Brand';
 import { sectionLabelCls } from '@/shared/components/surfaces';
 

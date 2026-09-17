@@ -5,14 +5,6 @@ import { Search, Layers } from 'lucide-react';
 import type { TableDiff } from '@/shared/lib/types';
 import { SchemaDiffTree, TYPE_META, TYPE_ORDER } from '@/features/schema-diff';
 
-// Re-exported from their new home so TopToolbar's import keeps working.
-export { TYPE_META, TYPE_ORDER };
-
-// Exported so TopToolbar can render the same type pills (with counts) for
-// filtering the compare-results tree — that bar has the horizontal room this
-// panel's narrow, resizable width doesn't.
-
-
 const MIN_WIDTH = 280;
 const MAX_WIDTH = 640;
 

@@ -26,9 +26,31 @@ import {
 } from '@/features/sql-editor/lib/rowDml';
 import { executeSql } from '@/shared/api/sqlApi';
 import type { TableSchema } from '@/shared/lib/types';
-import { PeekRowEditor, type PeekRowEditorMode } from './PeekRowEditor';
+import { PeekRowEditor, type PeekRowEditorMode, type PeekRowEditorSubmit } from './PeekRowEditor';
 import { WriteConfirmDialog } from './WriteConfirmDialog';
 import { SQL_ICON_STROKE } from '@/shared/lib/iconStyle';
+
+function recordPeekRun(args: {
+  kind: string;
+  tableName: string;
+  connectionId: string;
+  sql: string;
+  failed?: boolean;
+}) {
+  const title = `${args.kind.toUpperCase()} ${args.tableName}${args.failed ? ' (failed)' : ''}`;
+  useSqlEditorStore.setState((s) => ({
+    recentQueries: [
+      {
+        id: `peek-${Date.now().toString(36)}`,
+        sql: args.sql,
+        title,
+        selectedConnectionIds: [args.connectionId],
+        ranAt: Date.now(),
+      },
+      ...s.recentQueries.filter((r) => r.sql !== args.sql),
+    ].slice(0, 40),
+  }));
+}
 
 export interface PeekGridCrudArgs {
   connectionId: string;
@@ -158,19 +180,41 @@ export function usePeekGridCrud(args: PeekGridCrudArgs): PeekGridCrud {
         );
         const failed = results.find((r) => !r.ok);
         if (failed && !failed.ok) {
-          setWriteError(failed.error || 'Write failed');
+          const err = failed.error || 'Write failed';
+          setWriteError(err);
+          recordPeekRun({
+            kind: plan.kind,
+            tableName,
+            connectionId,
+            sql: plan.displaySql || plan.sql,
+            failed: true,
+          });
           return;
         }
+        recordPeekRun({
+          kind: plan.kind,
+          tableName,
+          connectionId,
+          sql: plan.displaySql || plan.sql,
+        });
         setEditor(null);
         setSelectedRowIndex(null);
         await onAfterWrite();
       } catch (e) {
-        setWriteError(e instanceof Error ? e.message : String(e));
+        const err = e instanceof Error ? e.message : String(e);
+        setWriteError(err);
+        recordPeekRun({
+          kind: plan.kind,
+          tableName,
+          connectionId,
+          sql: plan.displaySql || plan.sql,
+          failed: true,
+        });
       } finally {
         setWriting(false);
       }
     },
-    [writing, connectionId, sessionPasswords, conn?.schema, onAfterWrite]
+    [writing, connectionId, sessionPasswords, conn?.schema, onAfterWrite, tableName]
   );
 
   const queueOrRun = useCallback(
@@ -243,8 +287,9 @@ export function usePeekGridCrud(args: PeekGridCrudArgs): PeekGridCrud {
     queueOrRun(plan);
   };
 
-  const onEditorSubmit = (draft: Record<string, string>) => {
+  const onEditorSubmit = (payload: PeekRowEditorSubmit) => {
     if (!gridWritable || !resultOk || !editor) return;
+    const { draft, updateColumns } = payload;
     if (editor.mode === 'edit') {
       const original = originalRowForPeekEdit(editor, rows);
       if (!original) return;
@@ -255,6 +300,7 @@ export function usePeekGridCrud(args: PeekGridCrudArgs): PeekGridCrud {
         originalRow: original,
         draftRow: draftToArray(columns, draft, original),
         keyColumns: editability.keyColumns,
+        onlyColumns: updateColumns,
       });
       if ('error' in plan) {
         setWriteError(plan.error);
@@ -356,9 +402,16 @@ export function usePeekGridCrud(args: PeekGridCrudArgs): PeekGridCrud {
           tableName={tableName}
           table={table}
           columns={columns}
+          dialect={dialect}
           draft={editor.draft}
           keyNames={editability.keyColumns.map((k) => k.name)}
           identityColumns={editability.identityColumns}
+          originalRow={
+            editor.mode === 'edit'
+              ? originalRowForPeekEdit(editor, rows) ?? editor.originalRow
+              : undefined
+          }
+          keyColumns={editability.keyColumns}
           onCancel={() => {
             setEditor(null);
             setWriteError(null);

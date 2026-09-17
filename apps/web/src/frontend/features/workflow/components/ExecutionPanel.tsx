@@ -15,7 +15,7 @@ import {
   Terminal,
 } from 'lucide-react';
 import type { DebugLogLine, DebugPipeState } from '../hooks/useDebugSamples';
-import { pipeKey } from '../lib/pipeKey';
+import { pipeKey } from '../lib/ports';
 import type { PipeNodeType } from './PipeNode';
 
 interface Props {

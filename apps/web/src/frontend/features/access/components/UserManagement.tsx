@@ -73,7 +73,7 @@ import {
   availableAlterations,
   dropSafetyNotes,
 } from '../lib/accountAlterations';
-import type { AccessPrincipalDraft } from '../lib/access-draft';
+import type { AccessPrincipalDraft } from '../lib/access';
 
 type Mode = 'idle' | 'add' | 'edit' | 'drop' | 'list';
 

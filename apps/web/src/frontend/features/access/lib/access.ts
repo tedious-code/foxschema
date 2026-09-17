@@ -1,6 +1,9 @@
 /**
  * Thin re-export facade over `@foxschema/sql` for the Database Access
  * Assistant. Frontend code imports from here, never from `@foxschema/db`.
+ *
+ * Also owns the few Access-UI helpers that sit on top of that facade
+ * (`AccessPrincipalDraft`, `connectionDatabaseNames`).
  */
 export {
   ACCESS_PERMISSIONS,
@@ -85,3 +88,37 @@ export {
   type DbPrincipalKind,
   type DbPrivilege,
 } from '@foxschema/sql';
+
+import { accessFamily } from '@foxschema/sql';
+
+/** Draft carried from User Management into the permission panel. */
+export interface AccessPrincipalDraft {
+  connectionId: string;
+  principalName: string;
+  principalType: 'user' | 'role';
+}
+
+/**
+ * Which names from the access catalog are actually databases.
+ *
+ * `fetchSchemaList` returns schemas. On the MySQL family those are databases
+ * (`db.*` is the GRANT target). Everywhere else a schema is not a database —
+ * treating `public` as one would emit `GRANT CONNECT ON DATABASE public`.
+ */
+export function connectionDatabaseNames(opts: {
+  dialect?: string;
+  database?: string;
+  schemas?: readonly string[];
+}): string[] {
+  const family = accessFamily(opts.dialect ?? '');
+  const dbs = new Set<string>();
+  const connected = opts.database?.trim();
+  if (connected) dbs.add(connected);
+  if (family === 'mysql' || family === 'mariadb') {
+    for (const s of opts.schemas ?? []) {
+      const name = s.trim();
+      if (name) dbs.add(name);
+    }
+  }
+  return [...dbs].sort((a, b) => a.localeCompare(b));
+}

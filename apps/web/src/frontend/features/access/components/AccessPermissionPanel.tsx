@@ -42,7 +42,7 @@ import {
   availableAlterations,
   dropSafetyNotes,
 } from '../lib/accountAlterations';
-import type { AccessPrincipalDraft } from '../lib/access-draft';
+import type { AccessPrincipalDraft } from '../lib/access';
 
 type PermissionStage = 'account' | 'grants' | 'effective';
 type KindFilter = 'all' | 'user' | 'role';

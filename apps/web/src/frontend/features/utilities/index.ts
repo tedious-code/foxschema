@@ -6,14 +6,7 @@
  * The utilities feature's public surface.
  *
  * Everything else under this folder is internal, so the layout can change
- * without touching a consumer. These are the symbols other parts of the app
- * actually import today — derived from usage, not guessed, so the surface
- * starts as small as it truly is.
+ * without touching a consumer. `UtilitiesView` is the only entry the app
+ * shell needs.
  */
-export { CloneTableModal } from './components/CloneTableModal';
-export { DatabaseAccessModal } from './components/DatabaseAccessModal';
-export { FileQueryModal } from './components/FileQueryModal';
-export { IndexManagementModal } from './components/IndexManagementModal';
-export { ServerInsightsModal } from './components/ServerInsightsModal';
-export type { ServerInsightsTab } from './components/ServerInsightsModal';
 export { UtilitiesView } from './components/UtilitiesView';
