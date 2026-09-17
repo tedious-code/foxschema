@@ -35,7 +35,6 @@ const EXCEPTIONS = new Set([
   'apps/web/src/frontend/shared/lib/sql-variables.ts',
   'apps/web/src/frontend/monaco-setup.ts',
   'apps/web/src/frontend/features/access/lib/password-suggest.ts',
-  'apps/web/src/frontend/features/access/lib/access-draft.ts',
 ]);
 
 const SKIP_DIRS = new Set(['node_modules', 'dist', 'npm-pack', 'build', '.git']);
