@@ -645,14 +645,21 @@ class SqliteRunStore implements RunStore {
     runId: string,
     instanceId: string,
     expiresAt: string,
+    serial = false,
   ): Promise<boolean> {
     const result = this.db
       .prepare(
         `UPDATE workflow_runs
          SET status = 'running', instance_id = ?, lease_expires_at = ?
-         WHERE id = ? AND status = 'queued'`,
+         WHERE id = ? AND status = 'queued'
+           AND (? = 0 OR NOT EXISTS (
+             SELECT 1 FROM workflow_runs AS active
+             WHERE active.workflow_id = workflow_runs.workflow_id
+               AND active.status = 'running'
+               AND active.id <> workflow_runs.id
+           ))`,
       )
-      .run(instanceId, expiresAt, runId);
+      .run(instanceId, expiresAt, runId, serial ? 1 : 0);
     return Number(result.changes) > 0;
   }
 
