@@ -8,7 +8,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Engine, parseWorkflowInput } from '../index.js';
+import { Engine, LocalRunScheduler, parseWorkflowInput } from '../index.js';
 
 const cleanup: string[] = [];
 
@@ -65,7 +65,81 @@ const workflow = parseWorkflowInput({
   ],
 });
 
+const queuedWorkflow = parseWorkflowInput({
+  ...workflow,
+  id: 'claim-race-queued',
+  name: 'Claim race queued',
+  onOverlap: 'queue',
+});
+
 describe('split-role queued-run claims', () => {
+  it('does not claim a queued serial run while a peer executes the workflow', async () => {
+    const { scheduler, workerA, workerB } = await harness();
+    let releaseFirst!: () => void;
+    let firstStarted!: () => void;
+    const firstBlocked = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const firstRunning = new Promise<void>((resolve) => {
+      firstStarted = resolve;
+    });
+    let started = 0;
+    const dispatchA = new LocalRunScheduler({
+      runs: workerA.stores.runs,
+      events: workerA.stores.events,
+      instanceId: 'worker-a',
+      runner: {
+        run: async (runId: string) => {
+          started += 1;
+          firstStarted();
+          await firstBlocked;
+          const run = (await workerA.stores.runs.get(runId))!;
+          run.status = 'succeeded';
+          run.finishedAt = new Date().toISOString();
+          await workerA.stores.runs.update(run);
+        },
+      } as never,
+    });
+    const dispatchB = new LocalRunScheduler({
+      runs: workerB.stores.runs,
+      events: workerB.stores.events,
+      instanceId: 'worker-b',
+      runner: {
+        run: async (runId: string) => {
+          started += 1;
+          const run = (await workerB.stores.runs.get(runId))!;
+          run.status = 'succeeded';
+          run.finishedAt = new Date().toISOString();
+          await workerB.stores.runs.update(run);
+        },
+      } as never,
+    });
+    try {
+      await scheduler.stores.workflows.put(queuedWorkflow);
+      await scheduler.scheduler.enqueue(queuedWorkflow);
+      await dispatchA.dispatchAvailable();
+      await firstRunning;
+
+      await scheduler.scheduler.enqueue(queuedWorkflow);
+      await dispatchB.dispatchAvailable();
+      await dispatchB.idle();
+
+      expect(started).toBe(1);
+
+      releaseFirst();
+      await dispatchA.idle();
+      await dispatchB.dispatchAvailable();
+      await dispatchB.idle();
+      expect(started).toBe(2);
+    } finally {
+      releaseFirst();
+      await dispatchA.idle();
+      await scheduler.close();
+      await workerA.close();
+      await workerB.close();
+    }
+  });
+
   it('allows exactly one worker to execute a scheduler-owned queued run', async () => {
     const { scheduler, workerA, workerB } = await harness();
     try {

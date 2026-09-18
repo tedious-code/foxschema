@@ -69,12 +69,14 @@ export interface RunStore {
   ): Promise<WorkflowRunRecord[]>;
   /**
    * Atomically take a queued run for this instance and establish its lease.
-   * Returns false when another worker already took it.
+   * Returns false when another worker already took it, or when `serial` is
+   * true and another run of the same workflow is already running.
    */
   claimQueuedRun(
     runId: string,
     instanceId: string,
     expiresAt: string,
+    serial?: boolean,
   ): Promise<boolean>;
   update(run: WorkflowRunRecord): Promise<void>;
   getSnapshot(id: string): Promise<WorkflowDef | undefined>;
