@@ -118,21 +118,16 @@ export function usePeekGridCrud(args: PeekGridCrudArgs): PeekGridCrud {
   const [writing, setWriting] = useState(false);
 
   useEffect(() => {
-    if (!editor && !pendingWrite) return;
+    if (!pendingWrite) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       e.preventDefault();
       e.stopPropagation();
-      if (pendingWrite) {
-        setPendingWrite(null);
-        return;
-      }
-      setEditor(null);
-      setWriteError(null);
+      setPendingWrite(null);
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [editor, pendingWrite]);
+  }, [pendingWrite]);
 
   useEffect(() => {
     setSelectedRowIndex(null);
