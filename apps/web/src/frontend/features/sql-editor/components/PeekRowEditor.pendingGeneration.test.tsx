@@ -1,3 +1,8 @@
+/**
+ * Fox Schema (foxschema)
+ * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
+ * SPDX-License-Identifier: Apache-2.0
+ */
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TableSchema } from '@/shared/lib/types';
@@ -33,7 +38,7 @@ const editTable: TableSchema = {
   primaryKey: { columns: ['id'] },
 };
 
-describe('PeekRowEditor pending Generate runtime investigation', () => {
+describe('PeekRowEditor pending generation', () => {
   beforeEach(() => {
     generatePeekValueAsync.mockReset();
   });
