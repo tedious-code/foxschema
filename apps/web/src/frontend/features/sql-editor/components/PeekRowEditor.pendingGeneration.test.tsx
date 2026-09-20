@@ -124,7 +124,7 @@ describe('PeekRowEditor pending Generate runtime investigation', () => {
         draft={{ id: '1', name: 'reviewed-name', city: 'reviewed-city' }}
         keyNames={['id']}
         identityColumns={new Set()}
-        originalRow={[1, 'reviewed-name', 'reviewed-city']}
+        originalRow={[1, 'original-name', 'reviewed-city']}
         keyColumns={[{ name: 'id', resultIndex: 0 }]}
         onCancel={() => undefined}
         onSubmit={(payload) => {
