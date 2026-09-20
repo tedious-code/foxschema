@@ -42,7 +42,7 @@ describe('PeekRowEditor pending Generate runtime investigation', () => {
     generatePeekValueAsync.mockReset();
   });
 
-  it('submits generated params after Preview captured the prior draft', async () => {
+  it('submits the draft snapshot captured by Preview when Generate is pending', async () => {
     let resolveGeneration!: (value: string) => void;
     generatePeekValueAsync.mockReturnValue(
       new Promise<string>((resolve) => {
@@ -145,12 +145,12 @@ describe('PeekRowEditor pending Generate runtime investigation', () => {
     // #endregion
 
     expect(submitted).toEqual({
-      draft: { name: 'generated-after-preview' },
+      draft: { name: 'reviewed-value' },
       updateColumns: undefined,
       previewSql,
     });
     expect(reviewedPlan.params).toEqual(['reviewed-value']);
-    expect(actualPlan.params).toEqual(['generated-after-preview']);
+    expect(actualPlan.params).toEqual(reviewedPlan.params);
     expect(actualPlan.displaySql).toBe(previewSql);
   });
 });

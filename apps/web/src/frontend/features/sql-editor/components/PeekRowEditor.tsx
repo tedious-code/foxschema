@@ -244,6 +244,10 @@ export const PeekRowEditor: React.FC<Props> = ({
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [step, setStep] = useState<'form' | 'preview'>('form');
   const [previewSql, setPreviewSql] = useState('');
+  const [previewSnapshot, setPreviewSnapshot] = useState<{
+    draft: Record<string, string>;
+    updateColumns: string[];
+  } | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [updateColumns, setUpdateColumns] = useState<Set<string>>(new Set());
 
@@ -259,6 +263,7 @@ export const PeekRowEditor: React.FC<Props> = ({
       setSubmitAttempted(false);
       setStep('form');
       setPreviewSql('');
+      setPreviewSnapshot(null);
       setPreviewError(null);
       // Edit: start with no columns selected; typing a field auto-selects it.
       setUpdateColumns(new Set());
@@ -308,10 +313,13 @@ export const PeekRowEditor: React.FC<Props> = ({
     setDraft(next);
   };
 
-  const buildPreview = (): { sql: string } | { error: string } => {
+  const buildPreview = (
+    snapshotDraft: Record<string, string>,
+    snapshotUpdateColumns: Set<string>
+  ): { sql: string } | { error: string } => {
     if (mode === 'edit') {
       if (!originalRow) return { error: 'Missing original row.' };
-      if (updateColumns.size === 0) {
+      if (snapshotUpdateColumns.size === 0) {
         return { error: 'Select at least one column to update.' };
       }
       const plan = buildPeekUpdate({
@@ -319,9 +327,9 @@ export const PeekRowEditor: React.FC<Props> = ({
         dialect,
         columns,
         originalRow,
-        draftRow: draftToArray(columns, draft, originalRow),
+        draftRow: draftToArray(columns, snapshotDraft, originalRow),
         keyColumns,
-        onlyColumns: updateColumns,
+        onlyColumns: snapshotUpdateColumns,
       });
       if ('error' in plan) return { error: plan.error };
       return { sql: plan.displaySql || plan.sql };
@@ -329,7 +337,7 @@ export const PeekRowEditor: React.FC<Props> = ({
     const plan = buildPeekInsert({
       tableName,
       dialect,
-      values: draftToRowValues(columns, draft),
+      values: draftToRowValues(columns, snapshotDraft),
       identityColumns,
     });
     if ('error' in plan) return { error: plan.error };
@@ -341,20 +349,27 @@ export const PeekRowEditor: React.FC<Props> = ({
   const goPreview = () => {
     setSubmitAttempted(true);
     if (errorCount > 0) return;
-    const built = buildPreview();
+    const snapshotDraft = { ...draft };
+    const snapshotUpdateColumns = new Set(updateColumns);
+    const built = buildPreview(snapshotDraft, snapshotUpdateColumns);
     if ('error' in built) {
       setPreviewError(built.error);
       return;
     }
     setPreviewError(null);
     setPreviewSql(built.sql);
+    setPreviewSnapshot({
+      draft: snapshotDraft,
+      updateColumns: [...snapshotUpdateColumns],
+    });
     setStep('preview');
   };
 
   const confirmSave = () => {
+    if (!previewSnapshot) return;
     onSubmit({
-      draft,
-      updateColumns: mode === 'edit' ? [...updateColumns] : undefined,
+      draft: previewSnapshot.draft,
+      updateColumns: mode === 'edit' ? previewSnapshot.updateColumns : undefined,
       previewSql,
     });
   };
@@ -520,10 +535,10 @@ export const PeekRowEditor: React.FC<Props> = ({
             </p>
             {mode === 'edit' && (
               <ul className="space-y-1 rounded-md border border-slate-800 bg-slate-950/40 p-2">
-                {[...updateColumns].map((name) => {
+                {(previewSnapshot?.updateColumns ?? []).map((name) => {
                   const idx = columns.findIndex((c) => c.toLowerCase() === name.toLowerCase());
                   const before = idx >= 0 && originalRow ? String(originalRow[idx] ?? '') : '';
-                  const after = draft[name] ?? '';
+                  const after = previewSnapshot?.draft[name] ?? '';
                   return (
                     <li key={name} className="text-[11px] font-mono text-slate-300">
                       <span className="text-sky-300">{name}</span>
