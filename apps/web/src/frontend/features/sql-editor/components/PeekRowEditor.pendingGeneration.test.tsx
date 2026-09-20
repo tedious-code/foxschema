@@ -1,9 +1,3 @@
-/**
- * Runtime investigation for a pending Generate operation crossing the Preview
- * boundary. This intentionally records the current unsafe behaviour; it is not
- * the fix.
- */
-import { appendFileSync } from 'node:fs';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TableSchema } from '@/shared/lib/types';
@@ -19,7 +13,6 @@ vi.mock('@/features/sql-editor/lib/peekValueGenerators', async (importOriginal) 
 
 import { PeekRowEditor } from './PeekRowEditor';
 
-const LOG = '/opt/cursor/logs/debug.log';
 const table: TableSchema = {
   name: 'users',
   objectType: 'TABLE',
@@ -27,15 +20,18 @@ const table: TableSchema = {
   indices: [],
   foreignKeys: [],
 };
-
-function writeLog(entry: {
-  hypothesisId: string;
-  location: string;
-  message: string;
-  data: Record<string, unknown>;
-}): void {
-  appendFileSync(LOG, `${JSON.stringify({ ...entry, timestamp: Date.now() })}\n`);
-}
+const editTable: TableSchema = {
+  name: 'users',
+  objectType: 'TABLE',
+  columns: [
+    { name: 'id', type: 'integer', nullable: false, primaryKey: true },
+    { name: 'name', type: 'text', nullable: false, primaryKey: false },
+    { name: 'city', type: 'text', nullable: false, primaryKey: false },
+  ],
+  indices: [],
+  foreignKeys: [],
+  primaryKey: { columns: ['id'] },
+};
 
 describe('PeekRowEditor pending Generate runtime investigation', () => {
   beforeEach(() => {
@@ -65,30 +61,13 @@ describe('PeekRowEditor pending Generate runtime investigation', () => {
         onCancel={() => undefined}
         onSubmit={(payload) => {
           submitted = payload;
-          // #region agent log
-          writeLog({
-            hypothesisId: 'B,D',
-            location: 'PeekRowEditor.pendingGeneration.test.tsx:onSubmit',
-            message: 'Save submitted payload',
-            data: { draft: payload.draft, previewSql: payload.previewSql },
-          });
-          // #endregion
         }}
       />
     );
 
     fireEvent.click(screen.getByTestId('peek-row-generate-all'));
-    // #region agent log
-    writeLog({
-      hypothesisId: 'A,E',
-      location: 'PeekRowEditor.pendingGeneration.test.tsx:after-generate-click',
-      message: 'Generate pending while Preview remains enabled',
-      data: {
-        generatorCalls: generatePeekValueAsync.mock.calls.length,
-        previewDisabled: (screen.getByTestId('peek-row-submit') as HTMLButtonElement).disabled,
-      },
-    });
-    // #endregion
+    expect(generatePeekValueAsync).toHaveBeenCalledOnce();
+    expect((screen.getByTestId('peek-row-submit') as HTMLButtonElement).disabled).toBe(false);
 
     fireEvent.click(screen.getByTestId('peek-row-submit'));
     const previewSql = screen.getByTestId('peek-row-preview-sql').textContent ?? '';
@@ -98,30 +77,12 @@ describe('PeekRowEditor pending Generate runtime investigation', () => {
       values: { name: 'reviewed-value' },
     });
     if ('error' in reviewedPlan) throw new Error(reviewedPlan.error);
-    // #region agent log
-    writeLog({
-      hypothesisId: 'C',
-      location: 'PeekRowEditor.pendingGeneration.test.tsx:after-preview-click',
-      message: 'Preview captured before generation resolved',
-      data: { previewSql, reviewedParams: reviewedPlan.params },
-    });
-    // #endregion
 
     await act(async () => {
       resolveGeneration('generated-after-preview');
     });
     await waitFor(() => expect(generatePeekValueAsync).toHaveBeenCalledOnce());
-    // #region agent log
-    writeLog({
-      hypothesisId: 'A,C',
-      location: 'PeekRowEditor.pendingGeneration.test.tsx:after-generation-resolve',
-      message: 'Generation resolved while Preview stayed open',
-      data: {
-        previewStillOpen: Boolean(screen.queryByTestId('peek-row-preview')),
-        previewSql: screen.getByTestId('peek-row-preview-sql').textContent,
-      },
-    });
-    // #endregion
+    expect(screen.queryByTestId('peek-row-preview')).toBeTruthy();
 
     fireEvent.click(screen.getByTestId('peek-row-save'));
     expect(submitted).toBeDefined();
@@ -131,18 +92,6 @@ describe('PeekRowEditor pending Generate runtime investigation', () => {
       values: draftToRowValues(['name'], submitted!.draft),
     });
     if ('error' in actualPlan) throw new Error(actualPlan.error);
-    // #region agent log
-    writeLog({
-      hypothesisId: 'D',
-      location: 'PeekRowEditor.pendingGeneration.test.tsx:reconstructed-write',
-      message: 'Downstream write reconstructed from submitted draft',
-      data: {
-        reviewedParams: reviewedPlan.params,
-        actualParams: actualPlan.params,
-        sqlMatchesPreview: actualPlan.displaySql === submitted!.previewSql,
-      },
-    });
-    // #endregion
 
     expect(submitted).toEqual({
       draft: { name: 'reviewed-value' },
@@ -152,5 +101,60 @@ describe('PeekRowEditor pending Generate runtime investigation', () => {
     expect(reviewedPlan.params).toEqual(['reviewed-value']);
     expect(actualPlan.params).toEqual(reviewedPlan.params);
     expect(actualPlan.displaySql).toBe(previewSql);
+  });
+
+  it('submits the update-column snapshot captured while Generate continues', async () => {
+    const resolvers: Array<(value: string) => void> = [];
+    generatePeekValueAsync.mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          resolvers.push(resolve);
+        })
+    );
+    let submitted: PeekRowEditorSubmit | undefined;
+
+    render(
+      <PeekRowEditor
+        open
+        mode="edit"
+        tableName="users"
+        table={editTable}
+        columns={['id', 'name', 'city']}
+        dialect="postgres"
+        draft={{ id: '1', name: 'reviewed-name', city: 'reviewed-city' }}
+        keyNames={['id']}
+        identityColumns={new Set()}
+        originalRow={[1, 'reviewed-name', 'reviewed-city']}
+        keyColumns={[{ name: 'id', resultIndex: 0 }]}
+        onCancel={() => undefined}
+        onSubmit={(payload) => {
+          submitted = payload;
+        }}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId('peek-row-generate-all'));
+    expect(generatePeekValueAsync).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      resolvers[0]!('generated-name');
+    });
+    await waitFor(() => expect(generatePeekValueAsync).toHaveBeenCalledTimes(2));
+    expect((screen.getByTestId('peek-row-col-name') as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByTestId('peek-row-col-city') as HTMLInputElement).checked).toBe(false);
+
+    fireEvent.click(screen.getByTestId('peek-row-submit'));
+    expect(screen.getByTestId('peek-row-preview').textContent).toContain('reviewed-name');
+
+    await act(async () => {
+      resolvers[1]!('generated-city');
+    });
+    fireEvent.click(screen.getByTestId('peek-row-save'));
+
+    expect(submitted).toEqual({
+      draft: { id: '1', name: 'reviewed-name', city: 'reviewed-city' },
+      updateColumns: ['name'],
+      previewSql: screen.getByTestId('peek-row-preview-sql').textContent,
+    });
   });
 });
