@@ -22,12 +22,12 @@
     "@foxschema/sql": "*",
     "@foxschema/workflow-contract": "*",
     "ajv": "8.20.0",
-    "cron-parser": "5.6.2",
-    "mysql2": "3.24.3",
+    "cron-parser": "5.10.1",
+    "mysql2": "3.24.4",
     "pg": "8.23.0",
-    "zod": "4.4.3"
+    "zod": "4.6.5"
   },
   "devDependencies": {
-    "@types/pg": "8.20.0"
+    "@types/pg": "8.23.1"
   }
 }
