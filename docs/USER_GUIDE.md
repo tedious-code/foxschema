@@ -12,6 +12,8 @@ SQL to make one match the other. This guide is for **using** Fox Schema — no c
 - [Read the diff](#read-the-diff)
 - [Generate & apply a migration](#generate--apply-a-migration)
 - [SQL Editor](#sql-editor)
+- [Workflow](#workflow)
+- [Access control](#access-control)
 - [History](#history)
 - [Troubleshooting](#troubleshooting)
 
@@ -177,6 +179,12 @@ Tips:
   locally; result grids are not.
 - **Schema explorer** — browse objects on the left; click a name to insert it at the
   cursor. Autocomplete uses the checked connections’ schemas when available.
+  Type a schema name then `.` (`demo_a.`) to list that schema’s tables; in
+  `FROM` / `JOIN` the insert is `table alias` so you can qualify columns with the
+  short name. In the SELECT list, `schema.` inserts the bare table (no alias).
+  `table.` and `alias.` still suggest columns. A name that is both a schema and
+  a table keeps its **columns** (`orders.`). An unknown qualifier shows a short
+  explanation instead of an empty popup.
   **Edit table** shows each index’s fragmentation % for every dialect (physical or
   estimated probe; SQLite / DuckDB / ClickHouse / Redshift list indexes when no
   native % exists). Paste custom SELECT if the default fails, and use the wrench
@@ -215,10 +223,26 @@ Tips:
     to open the related parent rows in Data Peek.
   In the peek window you can follow more FKs (panels stack and scroll), edit
   WHERE / ORDER BY / LIMIT (filters auto-apply when you edit, blur, or press Enter; Apply still works), use Prev/Next, drag ⋮⋮ to rearrange, and resize.
-  **Esc** closes. Values are bind parameters. Row edit needs **Change data** plus
-  the matching **Data grid** permissions in Access control (**Insert** / **Update** /
-  **Delete** rows); viewers stay read-only. The same gates apply to editable
-  single-table query-result grids.
+  **Esc** closes. Values are bind parameters.
+
+  **Add / Edit / Clone row** — when you have **Change data** plus the matching
+  **Data grid** permission (**Insert** / **Update** / **Delete**), peek and
+  single-table result grids show row actions. Viewers stay read-only. The form:
+
+  - Sparkles **Generate** fills a field (or all editable fields) from a curated
+    list (person, location, number, date…). English faker loads on first use;
+    a local fallback list works before that chunk arrives.
+  - Number fields accept a simple `=` formula on blur: digits, `.`, `+`, `-`,
+    `*`, `/`, and parentheses only (`=10+5`, `=100*1.1`). No function names.
+  - Date / timestamp fields have a calendar; you can still type the catalog format.
+  - Edit mode: pick which columns go in `SET` (All / None; typing a field selects it).
+    Identity columns, and primary keys while editing, stay locked.
+  - **Preview** shows the SQL (and an edit diff) before **Save**. Safe mode still
+    confirms UPDATE / DELETE after Preview.
+
+  Catalog checks (NOT NULL, ranges, UUID, JSON, length) run in the form.
+  Engine CHECK / FK / uniqueness still fail at execute time. Subquery `FROM`,
+  joins, and `UNION` result grids stay read-only.
 - **Format** — pretty-print the buffer. **Clear** removes results for the active tab.
 - **Bookmarks** — save reusable snippets from the sidebar.
 - **Variables** — named values reused as `${{name}}` or `${{name.col}}` (table
@@ -283,6 +307,10 @@ Tips:
   200). Use **Next** / **Prev** on a result grid to page through more rows;
   visited pages stay cached in memory so going back does not re-query the server.
   Sibling result grids from the same Run sync vertical scroll by row index.
+  **Last Id** (keyset) paging is used only for a single-table query whose
+  `ORDER BY` is covered by a unique key. Subqueries, joins, `UNION` / set
+  operations, and `CROSS` / `OUTER APPLY` fall back to `OFFSET` (Next/Prev still
+  work; they just are not seek-based).
 - **Code cells (JS / TS / Node)** — mix SQL with local transforms in the same buffer. Fence
   a cell with `-- @js` / `-- @ts` … `-- @end` (runs in the browser; inner semicolons are fine)
   or `-- @node` / `-- @nodets` … `-- @end` (runs on the FoxSchema **Node** server). You can use
@@ -366,11 +394,56 @@ Tips:
   and DDL need an extra confirmation before run. Plain INSERT (including insert
   CTEs and `ON CONFLICT DO NOTHING`) does not.
 
-Writes and DDL are allowed when you confirm them. Some dialects (e.g. SQLite /
-ClickHouse adapters used for SELECT-only paths) may reject writes with a clear error
-per connection cell.
+Writes and DDL are allowed when you confirm them. **SQLite** connections are
+read-write (the file is opened that way on purpose). **ClickHouse** grid row
+editing is blocked; other dialects that cannot apply a given write show a
+clear error on that connection’s result cell.
 
 Switch back to **Schema Sync** anytime to compare and migrate schemas.
+
+## Workflow
+
+Optional workspace for scheduled and triggered jobs (SQL, HTTP, files, email/SMS)
+beside Schema Sync and the SQL Editor. The designer lives in the Fox Schema UI;
+a **separate engine process** runs the jobs.
+
+Developer / ops runbook: [WORKFLOW.md](WORKFLOW.md). Env vars:
+[DEPLOYMENT.md](DEPLOYMENT.md#workflow-engine).
+
+1. Start the engine beside Fox Schema (`npm run dev:with-workflow` in a checkout,
+   or deploy `apps/workflow-server` next to Docker/CLI). The published Docker
+   image is Fox Schema only — it does not start the engine.
+2. Open **Workflow** on the activity rail.
+3. **Engine** tab: health should read `engine ok`. Set state to **Enabled** and
+   **Save settings**. New installs default to **Disabled**, so Run does nothing
+   useful until you enable it.
+4. **Designer**: drop a trigger (Manual, Schedule, Webhook, API Endpoint, …) and
+   pipes. Picking a saved connection on a **SQL query** / **SQL write** pipe
+   **links** it — Fox Schema records the grant; the pipe never holds a password.
+5. **Run** from the designer, or let cron / webhook / poll fire. **Runs** lists
+   history. **Variables** and **Credentials** are per-engine; linked Fox Schema
+   connections show up as `foxschema-…` credentials.
+
+Permissions (multi-user): **Open Workflow** to see the pane; **Design** to edit;
+**Run** to start jobs; **Workflow admin** for the Engine tab. Viewers can open
+Workflow and read runs without seeing Designer chrome.
+
+## Access control
+
+On a multi-user install, **Profile → Access control** assigns Fox Schema roles
+(`viewer` / `editor` / `owner` / `admin`) and permission keys — that is **app**
+access, not GRANT on a connected database.
+
+**Database** users and privileges have two entry points that share one catalog
+API (`POST /schema/db-access`):
+
+- **Access** workspace (needs any `access.*` tab permission, including
+  **Open Access**).
+- **Utilities → Database Access** (needs **Use utilities**).
+
+Either family may load the catalog. Running GRANT / REVOKE still needs
+**Grant privileges** (`editor.grant`). SQLite / DuckDB have no GRANT catalog;
+ClickHouse has no permission builder yet.
 
 ## History
 
@@ -424,5 +497,13 @@ re-enter the passwords.
 **Lost my saved connections/history after a restart (Docker).** The app data lives on
 the `/data` volume — make sure you didn't remove it (`docker compose down -v` deletes
 volumes). See [DEPLOYMENT.md](DEPLOYMENT.md).
+
+**Workflow engine down / Run refused.** The designer is in the UI; jobs run in a
+separate process. Check **Workflow → Engine** health. New installs default to
+**Disabled** — set **Enabled** and Save. `FOXFLOW_ENCRYPTION_KEY` is required at
+engine boot. Saved connections need both `WORKFLOW_ENGINE_TOKEN` (same value on
+FoxSchema and the engine) and an explicit grant (pick the connection on a SQL
+pipe). The published Docker image does not start the engine. See
+[WORKFLOW.md](WORKFLOW.md).
 
 Still stuck? Open a GitHub issue with what you did and the error you saw.

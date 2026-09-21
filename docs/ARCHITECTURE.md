@@ -1,7 +1,7 @@
 # Architecture reference
 
-Stable orientation for FoxSchema. `CLAUDE.md` holds the must-follow rules and points
-here for detail. For current state, gotchas, and pending work see `IMPLEMENTATION_STATE.md`.
+Stable orientation for FoxSchema. For where a change belongs see
+[CODE_MAP.md](CODE_MAP.md). Workflow engine runbook: [WORKFLOW.md](WORKFLOW.md).
 
 ## What this is
 
@@ -19,9 +19,10 @@ foxschema                            # start UI on :3210 + open browser
 foxschema stop
 foxschema doctor
 
-# Development (starts both Express API + Vite frontend)
+# Development (starts Fastify API + Vite frontend)
 npm run dev                          # single-user mode (no login)
 npm run dev:auth                     # multi-user auth mode
+npm run dev:with-workflow            # plus workflow-server on :8081
 
 # Typecheck — primary correctness gate
 cd apps/web && npx tsc --noEmit
@@ -38,7 +39,7 @@ cd apps/cli && npm run foxschema -- doctor
 cd apps/cli && npm run foxschema -- compare --source ... --target ...
 ```
 
-Backend changes (`apps/web/src/backend`, `packages/sql`, `packages/db`) hot-reload via `tsx watch`.
+Backend changes (`packages/server`, `packages/sql`, `packages/db`) hot-reload via `tsx watch`.
 
 ## E2E tests (apps/e2e)
 
@@ -78,6 +79,8 @@ packages/shared/        Contracts the frontend, server and CLI agree on:
                         permission names, error codes, wire message shapes
 packages/server/        The backend: Fastify HTTP layer, feature modules,
                         metadata store
+packages/workflow-contract  Browser-safe engine types and token/route names
+packages/workflow-engine    Runtime, SQLite stores, built-in pipes (Node)
 
 apps/web/src/frontend/
   app/                  Application shell, settings screens, global stores
@@ -85,6 +88,7 @@ apps/web/src/frontend/
   shared/               API client, UI components, lib, utils
 
 apps/cli/               `foxschema` CLI — browser launcher (:3210), line commands, Ink TUI
+apps/workflow-server/   Workflow engine HTTP process (:8081); optional scheduler/worker
 apps/e2e/               Playwright tests that drive the running application
 packaging/homebrew/     Scripts to refresh Formula/foxschema.rb (Homebrew, same repo)
 ```
@@ -111,8 +115,11 @@ and `domain`) inside `encrypted_config`. Methods:
 `SavedConnectionSummary` exposes `authMethod` / `domain` / `hasPassword` but
 never the secret. Windows integrated SSO (no password) is not implemented.
 
-**Frontend imports nothing from workspace packages** — it uses standalone copies in
-`apps/web/src/frontend/lib/`. Accepted duplication to avoid bundler complications.
+The frontend imports **browser-safe** workspace packages through Vite aliases
+(`@foxschema/sql`, `@foxschema/shared`, `@foxschema/workflow-contract`,
+`@foxschema/workflow-engine/definitions`). Facades live in
+`apps/web/src/frontend/shared/lib/`. `@foxschema/db` and `@foxschema/server`
+are not aliased — a UI import of either fails the build.
 
 ## How a migration runs
 
@@ -127,8 +134,9 @@ never the secret. Windows integrated SSO (no password) is not implemented.
 
 ## Dialect system
 
-Each of the 10 dialects has three layers, split across `packages/sql/src/providers/`
-(dialect + settings) and `packages/db/src/providers/` (adapter + provider):
+Each SQL dialect has three layers, split across `packages/sql/src/providers/`
+(dialect + settings) and `packages/db/src/providers/` (adapter + provider).
+`packages/sql` lists 14 SQL dialects (MongoDB and Redis carry settings only):
 
 | File | Interface | Registry |
 |------|-----------|----------|
@@ -178,7 +186,8 @@ backend and streams results back via SSE.
 1. Create the dialect files in `packages/sql/src/providers/<name>/` and the driver files in `packages/db/src/providers/<name>/`
 2. Register in `provider-settings.ts`, `adapter-registry.ts`, `provider-registry.ts`, `modules/dialect/registry.ts`
    (and `modules/access/user-sql.registry.ts` / `modules/access/access-sql.registry.ts` when the engine has account or GRANT SQL)
-3. Also update `apps/web/src/frontend/lib/provider-settings.ts` (frontend copy)
+3. Frontend settings come from `@foxschema/sql` via the facade
+   `apps/web/src/frontend/shared/lib/provider-settings.ts` — do not duplicate the table.
 4. Add `parseType`/`renderType` round-trip tests in `type-mapping.test.ts`
 5. Verify each optional hook against real DDL — the generic fallbacks are often wrong for DROP INDEX/TRIGGER/FK
 6. `npx vitest run` + `cd apps/web && npx tsc --noEmit`

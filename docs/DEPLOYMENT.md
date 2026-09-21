@@ -26,7 +26,8 @@ LOCAL_SINGLE_USER=false
 - First UI open can still show the **email subscriber wizard** (public; before login).
 - First registered account becomes **admin**; later signups default to **viewer**.
 - Admins configure role permissions and assign users under **Profile → Access control**.
-- Permissions cover Schema Sync (browse / compare / migrate), SQL Editor (sidebar, variables, writes, Data grid insert/update/delete, code cells), Utilities, and Secrets.
+- Permissions cover Schema Sync (browse / compare / migrate), SQL Editor (sidebar, variables, writes, Data grid insert/update/delete, code cells), Utilities, Secrets, Access, and Workflow (`workflow.access` / `design` / `run` / `admin`).
+- **Database Access** catalog (`POST /schema/db-access`) is an OR gate: **Use utilities** *or* any Access-workspace permission (`access.access`, Users, builder, diff, inspector, report) may load it. GRANT / REVOKE still needs **Grant privileges**.
 
 **Servers / teams:** Fox Schema ships as a **single Docker image** (all dialects including
 Db2) that serves both the UI and the API on one configurable port (default **3210**).
@@ -122,7 +123,7 @@ the admin screen. Both directions authenticate with one shared token.
 | `PORT` / `HOST` | engine | `8081` / `127.0.0.1` | The engine API. Keep it on a private interface. |
 | `INGRESS_PORT` / `INGRESS_HOST` | engine | unset / `127.0.0.1` | Webhook and API-endpoint ingress on a listener of its own, serving only `/api/hooks/*` and `/api/triggers/*`. Put this one behind your public reverse proxy; webhook traffic then never touches FoxSchema or the engine API. |
 | `WORKFLOW_LOG_DIR` | engine | `workflow-logs/` next to the engine database | Directory for the JSON / text run-event sinks enabled in the admin screen. A sink target is a file name inside it, never a path. |
-| `FOXFLOW_ENCRYPTION_KEY` | engine | — | 32-byte key (hex) encrypting the engine's own credential store. |
+| `FOXFLOW_ENCRYPTION_KEY` | engine | — | **Required at boot.** 32-byte key (hex or base64) encrypting the engine's own credential store. No plaintext fallback. |
 | `FOXFLOW_DB_PATH` | engine | `workflow-engine.sqlite` at the repo root | The engine's SQLite database. |
 | `FOXFLOW_TRUST_PROXY` | engine | `false` | Trust `X-Forwarded-*` when the engine sits behind a proxy. |
 
@@ -130,6 +131,21 @@ The engine re-reads its settings from FoxSchema every 30 seconds: `Disabled`
 refuses new runs from every trigger, `Draining` finishes work in flight, and
 `Max parallel runs` caps runs executing at once in each engine process. If FoxSchema is unreachable the
 engine keeps the settings it last had.
+
+`FOXFLOW_ENCRYPTION_KEY` is **required at engine boot** (32 bytes, hex or base64) —
+there is no plaintext fallback. Default `FOXFLOW_DB_PATH` in a git checkout is
+repo-root `workflow-engine.sqlite`, not relative to cwd, so server / scheduler /
+worker share one file. Optional split roles:
+
+```bash
+npm -w @foxschema/workflow-server run start:scheduler   # admit cron/poll, queue runs
+npm -w @foxschema/workflow-server run start:worker      # claim queued runs
+```
+
+**The published Docker image does not start the engine.** `Dockerfile` /
+`docker-compose.app.yml` run FoxSchema only. Deploy `apps/workflow-server` beside
+it (same token on both). Local checkout: `npm run dev:with-workflow`. Full
+runbook: [WORKFLOW.md](WORKFLOW.md).
 
 ### First-open email subscriber wizard
 
@@ -296,7 +312,7 @@ docker build --platform=linux/amd64 -t foxschema .
 The image:
 - Uses `npm install` (no committed lockfile), builds the Vite frontend to
   `apps/web/dist`, then runs the API + static server via
-  `apps/web/src/backend/serve.ts`.
+  `apps/web/src/serve.ts`.
 - Runs as a non-root user and exposes a `/api/health` healthcheck.
 - Includes Db2 by default (`WITH_DB2=true`). For a local lean build without Db2:
   `docker build --build-arg WITH_DB2=false -t foxschema:lite .`

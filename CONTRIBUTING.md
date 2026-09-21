@@ -25,12 +25,23 @@ npm install                       # installs the whole workspace
 docker compose up -d
 bash scripts/seed/seed-all.sh all # seed demo_a/demo_b schemas into each
 
-npm run dev                       # Express API + Vite UI (single-user mode)
+npm run dev                       # Fastify API + Vite UI (single-user mode)
 ```
 
-`npm run dev` serves the UI on **http://localhost:5173** and the API on **:3210**.
-Connection details for the seeded databases are printed by `seed-all.sh` (all use
-`foxuser` / `foxpass` except SQL Server/Oracle — see the script output).
+`npm run dev` serves the UI on **http://localhost:5173** and the **Fastify** API
+on **:3210** (`packages/server`). Connection details for the seeded databases are
+printed by `seed-all.sh` (all use `foxuser` / `foxpass` except SQL Server/Oracle —
+see the script output).
+
+Workflow engine (optional, separate process on **:8081**):
+
+```bash
+export WORKFLOW_ENGINE_TOKEN="$(openssl rand -hex 32)"
+export FOXFLOW_ENCRYPTION_KEY="$(openssl rand -hex 32)"
+npm run dev:with-workflow
+```
+
+Then **Workflow → Engine → Enabled**. Runbook: [docs/WORKFLOW.md](docs/WORKFLOW.md).
 
 For the advanced test schemas (`demo_c` / `demo_d` — FK chains, cross-dialect type
 matrix, materialized views, etc.): `bash scripts/seed/seed-advanced.sh all`.
@@ -51,8 +62,11 @@ the Playwright E2E suite (see below).
 |-----------|------------|
 | [`packages/sql`](packages/sql) | Dialect knowledge: diff, migration generation, statement splitting, type mapping. Pure and browser-safe — zero deps, no Node built-ins. |
 | [`packages/db`](packages/db) | The Node runtime: introspection, drivers, pooling, migration execution. Depends on `packages/sql`. |
-| [`apps/web`](apps/web) | Express API + React/Vite UI (also served by the CLI launcher and Docker). |
+| [`packages/server`](packages/server) | Fastify HTTP API, feature modules, metadata store. |
+| [`packages/workflow-engine`](packages/workflow-engine) | Workflow runtime, SQLite stores, built-in pipes. |
+| [`apps/web`](apps/web) | React/Vite UI (also served by the CLI launcher and Docker). |
 | [`apps/cli`](apps/cli) | Public `foxschema` CLI — browser launcher, desktop shortcut, line commands, Ink TUI. |
+| [`apps/workflow-server`](apps/workflow-server) | Workflow engine HTTP process (`:8081`). |
 | [`apps/e2e`](apps/e2e) | Playwright E2E tests against the dockerized databases. |
 
 The design, the migration pipeline, and the dialect system are described in
@@ -61,9 +75,10 @@ The design, the migration pipeline, and the dialect system are described in
 ## Running each surface
 
 ```bash
-# Web (API + UI)
+# Web (Fastify API + Vite UI)
 npm run dev
 npm run dev:auth                  # multi-user + auth enabled
+npm run dev:with-workflow         # API + UI + workflow-server (:8081)
 
 # CLI / TUI (opens local UI like the published package)
 cd apps/cli && npx tsx src/index.ts
@@ -75,6 +90,8 @@ npm -w @foxschema/e2e run test:postgres
 npm -w @foxschema/e2e run test:all
 # Access Assistant on local SQLite (no Docker)
 npm run test:e2e:access
+# Workflow designer smoke (engine must be up)
+npm run test:e2e:workflow
 ```
 
 **E2E hard rule:** migrations mutate the target, so re-seed before every run — use
@@ -113,12 +130,15 @@ A few rules that have bitten people before (the full set is in [CLAUDE.md](CLAUD
   match key from `compare.module.ts` — use `source?.name` / `targetTable?.name` for
   real DDL (native casing; case-sensitive on MySQL).
 - **The app's metadata-DB migrations are append-only** — never edit a shipped
-  migration in `apps/web/src/backend/database/schema.ts`; add a new one.
+  migration in `packages/server/src/database/schema.ts`; add a new one.
 - **Never store database passwords client-side or in history.** Saved connections
   are encrypted server-side; only host/database/schema/port/username reach the browser.
 - **Keep React hooks above any early `return`** (a rules-of-hooks crash has happened).
-- **The frontend imports nothing from workspace packages** — it uses standalone copies
-  in `apps/web/src/frontend/lib/` that re-export `@foxschema/sql`.
+- **The frontend may import browser-safe workspace packages** via Vite aliases
+  (`@foxschema/sql`, `@foxschema/shared`, `@foxschema/workflow-contract`,
+  `@foxschema/workflow-engine/definitions`). Thin facades live in
+  `apps/web/src/frontend/shared/lib/`. Never import `@foxschema/db` or
+  `@foxschema/server` from the UI.
 
 ## Pull requests
 
