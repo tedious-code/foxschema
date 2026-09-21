@@ -120,7 +120,7 @@ export function ConnectionChip({
         />
       )}
       <span
-        className={`hidden min-w-0 max-w-[7rem] truncate font-mono text-[10px] font-medium xl:inline ${
+        className={`pointer-events-none hidden min-w-0 max-w-[7rem] truncate font-mono text-[10px] font-medium xl:inline ${
           summary ? tone.summary : tone.empty
         }`}
         title={summary ?? undefined}
