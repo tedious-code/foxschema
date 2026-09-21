@@ -269,6 +269,16 @@ describe('singleTableForResultEdit', () => {
     ).toBe(false);
   });
 
+  it('does not resolve a same-named outer CTE reference as a cached table', () => {
+    const r = singleTableForResultEdit(
+      'WITH users AS (SELECT id % 10 AS id FROM users) SELECT id FROM users ORDER BY id',
+      [users]
+    );
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.reason).toBe('No base table in this query.');
+  });
+
   it('rejects UNION / EXCEPT / INTERSECT (rows may not exist in the base table)', () => {
     expect(sqlHasSetOperation('SELECT id FROM public.users UNION ALL SELECT 42')).toBe(true);
     expect(

@@ -517,7 +517,7 @@ function splitSelectListItems(list: string): string[] {
  * Drop a leading WITH [RECURSIVE] cte_list so callers can inspect the main
  * SELECT. Returns null when the CTE list is malformed.
  */
-export function stripLeadingWithClause(sql: string): string | null {
+export function stripLeadingWithClause(sql: string, cteNames?: Set<string>): string | null {
   const t = sql.trim();
   // `\s+` followed by an optional group that starts with the literal word
   // RECURSIVE — the two cannot match the same character, so the `?` group adds
@@ -531,6 +531,7 @@ export function stripLeadingWithClause(sql: string): string | null {
     while (i < t.length && /\s/.test(t[i]!)) i++;
     const name = t.slice(i).match(ident);
     if (!name) return null;
+    cteNames?.add(stripSqlIdent(name[0]).toLowerCase());
     i += name[0].length;
     while (i < t.length && /\s/.test(t[i]!)) i++;
     // Optional column list: name (a, b) AS (...)
@@ -574,6 +575,64 @@ export function stripLeadingWithClause(sql: string): string | null {
   }
   const rest = t.slice(i).trim();
   return /^(SELECT)\b/i.test(rest) ? rest : null;
+}
+
+/**
+ * Tables referenced by the main query, excluding references to its leading CTEs.
+ * CTE bodies are ignored because their source tables do not imply that each
+ * outer result row maps directly to one cached base-table row.
+ */
+export function outerTableNamesFromSql(sql: string): string[] {
+  // #region agent log
+  if (typeof process !== 'undefined' && process.env.FOX_DEBUG_CTE_RESOLUTION === '1') {
+    process.getBuiltinModule('fs').appendFileSync(
+      '/opt/cursor/logs/debug.log',
+      JSON.stringify({
+        hypothesisId: 'A',
+        location: 'tablePreview.ts:outerTableNamesFromSql:entry',
+        message: 'Resolve outer query tables',
+        data: { hasLeadingWith: /^\s*WITH\b/i.test(sql) },
+        timestamp: Date.now(),
+      }) + '\n'
+    );
+  }
+  // #endregion
+  const cteNames = new Set<string>();
+  const main = stripLeadingWithClause(sql, cteNames);
+  if (!main) return [];
+  const candidates = tableNamesFromSql(main);
+  // #region agent log
+  if (typeof process !== 'undefined' && process.env.FOX_DEBUG_CTE_RESOLUTION === '1') {
+    process.getBuiltinModule('fs').appendFileSync(
+      '/opt/cursor/logs/debug.log',
+      JSON.stringify({
+        hypothesisId: 'B',
+        location: 'tablePreview.ts:outerTableNamesFromSql:filter',
+        message: 'Compare outer references with CTE names',
+        data: { cteNames: [...cteNames], candidates },
+        timestamp: Date.now(),
+      }) + '\n'
+    );
+  }
+  // #endregion
+  const names = candidates.filter(
+    (name) => name.includes('.') || !cteNames.has(name.toLowerCase())
+  );
+  // #region agent log
+  if (typeof process !== 'undefined' && process.env.FOX_DEBUG_CTE_RESOLUTION === '1') {
+    process.getBuiltinModule('fs').appendFileSync(
+      '/opt/cursor/logs/debug.log',
+      JSON.stringify({
+        hypothesisId: 'C',
+        location: 'tablePreview.ts:outerTableNamesFromSql:exit',
+        message: 'Resolved physical outer query tables',
+        data: { names },
+        timestamp: Date.now(),
+      }) + '\n'
+    );
+  }
+  // #endregion
+  return names;
 }
 
 /** Outer SELECT list text (between SELECT and FROM), or null. */
@@ -669,7 +728,7 @@ export function singleTableForResultEdit(
       reason: 'Computed or renamed columns make this result read-only.',
     };
   }
-  const names = tableNamesFromSql(trimmed);
+  const names = outerTableNamesFromSql(trimmed);
   if (names.length === 0) {
     return { ok: false, reason: 'No base table in this query.' };
   }

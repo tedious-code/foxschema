@@ -60,6 +60,18 @@ describe('seekFromLastRow', () => {
     expect(tableForOrderBy(sql, [TABLE])).toBeUndefined();
   });
 
+  it('does not borrow uniqueness for a same-named outer CTE reference', () => {
+    const users = { ...TABLE, name: 'users' };
+    const sql =
+      'WITH users AS (SELECT id % 10 AS id FROM users) SELECT id FROM users ORDER BY id';
+    expect(tableForOrderBy(sql, [users])).toBeUndefined();
+  });
+
+  it('still resolves a base table selected after an unrelated CTE', () => {
+    const sql = 'WITH x AS (SELECT 1) SELECT ID FROM ORDERS ORDER BY ID';
+    expect(tableForOrderBy(sql, [TABLE])).toBe(TABLE);
+  });
+
   it('does not seek on a partial unique index', () => {
     const table: TableSchema = {
       ...TABLE,
