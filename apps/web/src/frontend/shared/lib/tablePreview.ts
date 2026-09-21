@@ -583,55 +583,13 @@ export function stripLeadingWithClause(sql: string, cteNames?: Set<string>): str
  * outer result row maps directly to one cached base-table row.
  */
 export function outerTableNamesFromSql(sql: string): string[] {
-  // #region agent log
-  if (typeof process !== 'undefined' && process.env.FOX_DEBUG_CTE_RESOLUTION === '1') {
-    process.getBuiltinModule('fs').appendFileSync(
-      '/opt/cursor/logs/debug.log',
-      JSON.stringify({
-        hypothesisId: 'A',
-        location: 'tablePreview.ts:outerTableNamesFromSql:entry',
-        message: 'Resolve outer query tables',
-        data: { hasLeadingWith: /^\s*WITH\b/i.test(sql) },
-        timestamp: Date.now(),
-      }) + '\n'
-    );
-  }
-  // #endregion
   const cteNames = new Set<string>();
   const main = stripLeadingWithClause(sql, cteNames);
   if (!main) return [];
   const candidates = tableNamesFromSql(main);
-  // #region agent log
-  if (typeof process !== 'undefined' && process.env.FOX_DEBUG_CTE_RESOLUTION === '1') {
-    process.getBuiltinModule('fs').appendFileSync(
-      '/opt/cursor/logs/debug.log',
-      JSON.stringify({
-        hypothesisId: 'B',
-        location: 'tablePreview.ts:outerTableNamesFromSql:filter',
-        message: 'Compare outer references with CTE names',
-        data: { cteNames: [...cteNames], candidates },
-        timestamp: Date.now(),
-      }) + '\n'
-    );
-  }
-  // #endregion
   const names = candidates.filter(
     (name) => name.includes('.') || !cteNames.has(name.toLowerCase())
   );
-  // #region agent log
-  if (typeof process !== 'undefined' && process.env.FOX_DEBUG_CTE_RESOLUTION === '1') {
-    process.getBuiltinModule('fs').appendFileSync(
-      '/opt/cursor/logs/debug.log',
-      JSON.stringify({
-        hypothesisId: 'C',
-        location: 'tablePreview.ts:outerTableNamesFromSql:exit',
-        message: 'Resolved physical outer query tables',
-        data: { names },
-        timestamp: Date.now(),
-      }) + '\n'
-    );
-  }
-  // #endregion
   return names;
 }
 
