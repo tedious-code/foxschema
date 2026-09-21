@@ -27,7 +27,11 @@ vi.mock('@/app/store/useSqlEditorStore', () => ({
 vi.mock('@/app/store/useSyncStore', () => ({
   useSyncStore: (sel: (s: Record<string, unknown>) => unknown) =>
     sel({
-      connections: [{ id: 'c1', name: 'Demo SQLite', dialect: 'sqlite' }],
+      connections: [
+        { id: 'c1', name: 'Demo SQLite', dialect: 'sqlite' },
+        { id: 'c2', name: 'Warehouse', dialect: 'postgres', host: 'db.internal', port: 5432 },
+        { id: 'c3', name: 'Lab SQLite', dialect: 'sqlite' },
+      ],
       compareResult: null,
       sourceConfig: { option: {} },
       targetConfig: { option: {} },
@@ -71,7 +75,17 @@ describe('HomeView', () => {
 
   it('shows the total number of saved connections', () => {
     render(<HomeView />);
-    expect(screen.getByTestId('home-connections-count').textContent).toBe('1');
+    expect(screen.getByTestId('home-connections-count').textContent).toBe('3');
+  });
+
+  it('groups connections by dialect on the home index', () => {
+    render(<HomeView />);
+    expect(screen.getByTestId('home-connections-group-postgres')).toBeTruthy();
+    expect(screen.getByTestId('home-connections-group-sqlite')).toBeTruthy();
+    const sqliteGroup = screen.getByTestId('home-connections-group-sqlite');
+    expect(sqliteGroup.textContent).toMatch(/Demo SQLite/);
+    expect(sqliteGroup.textContent).toMatch(/Lab SQLite/);
+    expect(screen.getByTestId('home-connections-group-postgres').textContent).toMatch(/Warehouse/);
   });
 
   it('opens the Utilities workspace from Home', () => {

@@ -107,9 +107,8 @@ export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
     const filtered = connections.filter((c) => {
       if (dialectFilter !== 'all' && c.dialect.toLowerCase() !== dialectFilter) return false;
       if (!q) return true;
-      return [c.name, c.host, c.database, c.username, dialectLabel(c.dialect)].some((f) =>
-        f?.toLowerCase().includes(q)
-      );
+      return [c.name, c.host, c.database, c.username, c.port != null ? String(c.port) : '', dialectLabel(c.dialect)]
+        .some((f) => f?.toLowerCase().includes(q));
     });
     const byRecent = (a: SavedConnectionSummary, b: SavedConnectionSummary) =>
       (b.createdAt || '').localeCompare(a.createdAt || '');
@@ -117,9 +116,28 @@ export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
       (a.name || '').localeCompare(b.name || '');
     const byProvider = (a: SavedConnectionSummary, b: SavedConnectionSummary) =>
       dialectLabel(a.dialect).localeCompare(dialectLabel(b.dialect)) || byName(a, b);
-    const cmp = sortBy === 'name' ? byName : sortBy === 'provider' ? byProvider : byRecent;
+    // Default "recent" still clusters by dialect so a 500-credential wall is
+    // scannable; within each dialect keep the chosen sort.
+    const cmp =
+      sortBy === 'name'
+        ? byName
+        : sortBy === 'provider'
+          ? byProvider
+          : (a: SavedConnectionSummary, b: SavedConnectionSummary) =>
+              dialectLabel(a.dialect).localeCompare(dialectLabel(b.dialect)) || byRecent(a, b);
     return [...filtered].sort(cmp);
   }, [connections, search, dialectFilter, sortBy]);
+
+  const visibleGroups = useMemo(() => {
+    const groups: Array<{ dialect: string; label: string; items: SavedConnectionSummary[] }> = [];
+    for (const c of visible) {
+      const key = c.dialect.toLowerCase();
+      const last = groups[groups.length - 1];
+      if (last && last.dialect === key) last.items.push(c);
+      else groups.push({ dialect: key, label: dialectLabel(c.dialect), items: [c] });
+    }
+    return groups;
+  }, [visible]);
 
   if (!open) return null;
 
@@ -213,7 +231,7 @@ export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
                     data-testid="cred-search"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Search name, host, database, user…"
+                    placeholder="Search name, host, database, user, port…"
                     className="w-full bg-slate-950 border border-slate-800 accent-focus rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 outline-none"
                   />
                 </div>
@@ -287,7 +305,15 @@ export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
                   </button>
                 </div>
               ) : (
-                visible.map((c) => {
+                visibleGroups.map((group) => (
+                  <div key={group.dialect} data-testid={`cred-group-${group.dialect}`} className="space-y-2.5">
+                    <h3 className="sticky top-0 z-[1] -mx-1 px-1 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-500 bg-slate-900/95 backdrop-blur-sm">
+                      {group.label}
+                      <span className="ml-1.5 font-mono text-[10px] font-semibold normal-case tracking-normal text-slate-600">
+                        {group.items.length}
+                      </span>
+                    </h3>
+                    {group.items.map((c) => {
                   const styles = DIALECT_STYLES[c.dialect.toLowerCase()] ?? {
                     badge: 'bg-slate-800 text-slate-300 border-slate-700/50',
                     dot: 'bg-slate-400',
@@ -394,7 +420,9 @@ export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
                       </div>
                     </div>
                   );
-                })
+                    })}
+                  </div>
+                ))
               )}
             </div>
 

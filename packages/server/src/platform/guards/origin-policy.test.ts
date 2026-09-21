@@ -31,7 +31,13 @@ describe('the hole this closes', () => {
 
 describe('what must keep working', () => {
   it('allows the dev UI ports outside production', () => {
-    for (const o of ['http://localhost:5173', 'http://localhost:5199', 'http://127.0.0.1:5199']) {
+    for (const o of [
+      'http://localhost:5173',
+      'http://localhost:5199',
+      'http://127.0.0.1:5199',
+      'http://[::1]:5173',
+      'http://localhost:3210',
+    ]) {
       expect(isAllowedOrigin(o, dev)).toBe(true);
     }
   });

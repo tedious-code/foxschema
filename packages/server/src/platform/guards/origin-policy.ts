@@ -67,10 +67,12 @@ export function allowedOriginSet(options: OriginPolicyOptions = {}): Set<string>
   if (!isProduction) {
     // Dev serves the UI and the API on different ports, so same-origin does not
     // hold and the Vite ports have to be named. Deliberately a fixed list, not
-    // "any localhost port".
+    // "any localhost port". Include IPv6 loopback — some agents / browsers send
+    // Origin as http://[::1]:5173 and would otherwise 403.
     for (const port of DEV_ORIGIN_PORTS) {
       out.add(`http://localhost:${port}`);
       out.add(`http://127.0.0.1:${port}`);
+      out.add(`http://[::1]:${port}`);
     }
   }
   return out;

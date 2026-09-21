@@ -8,7 +8,11 @@
  */
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { FilterPicker, type FilterPickerOption } from './FilterPicker';
+import {
+  FilterPicker,
+  connectionPickerOption,
+  type FilterPickerOption,
+} from './FilterPicker';
 
 const OPTIONS: FilterPickerOption[] = [
   { id: 'a', label: 'Warehouse', badge: 'PostgreSQL', detail: 'db.internal / dw', testId: 'opt-a' },
@@ -90,5 +94,47 @@ describe('FilterPicker (single)', () => {
     fireEvent.keyDown(screen.getByTestId('picker-filter'), { key: 'Escape' });
     expect(screen.queryByTestId('picker-filter')).toBeNull();
     expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('searches connection host, database, user, and port via connectionPickerOption', () => {
+    const onSelect = vi.fn();
+    const options = [
+      connectionPickerOption({
+        id: 'pg',
+        name: 'Warehouse',
+        dialect: 'postgres',
+        host: 'db.internal',
+        port: 5432,
+        database: 'dw',
+        username: 'analyst',
+      }),
+      connectionPickerOption({
+        id: 'lite',
+        name: 'Local',
+        dialect: 'sqlite',
+        database: '/tmp/demo.db',
+      }),
+    ].map((o) => ({ ...o, testId: `opt-${o.id}` }));
+    render(
+      <FilterPicker
+        mode="single"
+        testId="conn"
+        options={options}
+        selectedId={null}
+        onSelect={onSelect}
+        summary="Choose…"
+      />
+    );
+    fireEvent.click(screen.getByTestId('conn-trigger'));
+    expect(screen.getByTestId('conn-group-PostgreSQL')).toBeTruthy();
+    expect(screen.getByTestId('conn-group-SQLite')).toBeTruthy();
+    fireEvent.change(screen.getByTestId('conn-filter'), { target: { value: '5432' } });
+    expect(screen.getByTestId('opt-pg')).toBeTruthy();
+    expect(screen.queryByTestId('opt-lite')).toBeNull();
+    fireEvent.change(screen.getByTestId('conn-filter'), { target: { value: 'analyst' } });
+    expect(screen.getByTestId('opt-pg')).toBeTruthy();
+    fireEvent.change(screen.getByTestId('conn-filter'), { target: { value: 'dw' } });
+    fireEvent.keyDown(screen.getByTestId('conn-filter'), { key: 'Enter' });
+    expect(onSelect).toHaveBeenCalledWith('pg');
   });
 });

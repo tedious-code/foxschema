@@ -104,13 +104,18 @@ export class LokeeHistoryPage {
   }
 
   async selectSavedTargetByName(name: string): Promise<void> {
-    const select = this.page.locator('[data-testid="target-saved-select"]');
-    await select.waitFor({ state: 'visible', timeout: 15_000 });
-    const option = select.locator('option', { hasText: name });
-    await option.waitFor({ state: 'attached', timeout: 15_000 });
-    const value = await option.getAttribute('value');
-    if (!value) throw new Error(`No saved target option matching ${name}`);
-    await select.selectOption(value);
+    const trigger = this.page.locator('[data-testid="target-saved-select-trigger"]');
+    await trigger.waitFor({ state: 'visible', timeout: 15_000 });
+    await trigger.click();
+    const filter = this.page.locator('[data-testid="target-saved-select-filter"]');
+    await filter.waitFor({ state: 'visible', timeout: 5_000 });
+    await filter.fill(name);
+    const option = this.page
+      .locator('[data-testid^="target-saved-select-option-"]')
+      .filter({ hasText: name })
+      .first();
+    await option.waitFor({ state: 'visible', timeout: 15_000 });
+    await option.click();
   }
 
   /** Single owner of the object-node selector, shared by every accessor below. */

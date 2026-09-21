@@ -10,7 +10,7 @@
  * what a row shows and what its tooltip shows, a portal so no scrolling ancestor
  * clips the list, and either a checklist or a single choice.
  */
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronDown } from 'lucide-react';
 import { dialectLabel } from '@/shared/lib/dialectLabel';
@@ -27,6 +27,8 @@ export interface FilterPickerOption {
   note?: string;
   /** Searched, not shown. */
   keywords?: readonly (string | undefined)[];
+  /** When set, rows are listed under this section heading (e.g. dialect). */
+  group?: string;
   testId?: string;
 }
 
@@ -59,21 +61,52 @@ export type FilterPickerProps = CommonProps &
       }
   );
 
-/** A saved connection as a row: dialect badge, and host / database / schema searchable. */
+/** Fields searched when filtering a saved connection in any picker. */
+export function connectionSearchHaystack(connection: {
+  name?: string;
+  dialect: string;
+  host?: string;
+  port?: number | string;
+  database?: string;
+  schema?: string;
+  username?: string;
+}): string[] {
+  return [
+    connection.name,
+    dialectLabel(connection.dialect),
+    connection.dialect,
+    connection.host,
+    connection.port != null && connection.port !== '' ? String(connection.port) : undefined,
+    connection.database,
+    connection.schema,
+    connection.username,
+  ].filter((v): v is string => Boolean(v && String(v).trim()));
+}
+
+/** A saved connection as a row: dialect badge; host/db/user/port searchable. */
 export function connectionPickerOption(connection: {
   id: string;
   name?: string;
   dialect: string;
   host?: string;
+  port?: number | string;
   database?: string;
   schema?: string;
+  username?: string;
 }): FilterPickerOption {
+  const hostPort = [connection.host, connection.port != null && connection.port !== '' ? `:${connection.port}` : '']
+    .join('')
+    .trim();
+  const detail = [hostPort || undefined, connection.database, connection.schema, connection.username]
+    .filter(Boolean)
+    .join(' / ');
   return {
     id: connection.id,
     label: connection.name || '(unnamed)',
     badge: dialectLabel(connection.dialect),
-    detail: [connection.host, connection.database, connection.schema].filter(Boolean).join(' / '),
-    keywords: [connection.dialect],
+    group: dialectLabel(connection.dialect),
+    detail: detail || undefined,
+    keywords: connectionSearchHaystack(connection),
   };
 }
 
@@ -81,6 +114,21 @@ const TRIGGER =
   'flex w-full min-w-0 items-center gap-1.5 rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-left text-[11px] text-slate-200 transition hover:border-slate-500 disabled:cursor-not-allowed disabled:opacity-50';
 const ROW =
   'flex w-full cursor-pointer select-none items-center gap-2 rounded px-1.5 py-1 text-left text-[12px] font-semibold text-slate-300 hover:bg-slate-800/60 hover:text-slate-100';
+
+function optionMatches(option: FilterPickerOption, query: string): boolean {
+  return [option.label, option.badge, option.detail, option.note, option.group, ...(option.keywords ?? [])].some(
+    (value) => value?.toLowerCase().includes(query)
+  );
+}
+
+/** Stable order: group label A→Z, then label within each group. Ungrouped last. */
+export function sortOptionsByGroup(options: readonly FilterPickerOption[]): FilterPickerOption[] {
+  return [...options].sort((a, b) => {
+    const ga = a.group ?? '\uffff';
+    const gb = b.group ?? '\uffff';
+    return ga.localeCompare(gb) || a.label.localeCompare(b.label);
+  });
+}
 
 export function FilterPicker(props: FilterPickerProps): React.ReactElement {
   const {
@@ -101,13 +149,11 @@ export function FilterPicker(props: FilterPickerProps): React.ReactElement {
   const part = (name: string) => (testId ? `${testId}-${name}` : undefined);
 
   const query = filter.trim().toLowerCase();
-  const shown = query
-    ? options.filter((option) =>
-        [option.label, option.badge, option.detail, option.note, ...(option.keywords ?? [])].some((value) =>
-          value?.toLowerCase().includes(query)
-        )
-      )
-    : options;
+  const shown = useMemo(() => {
+    const filtered = query ? options.filter((option) => optionMatches(option, query)) : [...options];
+    const hasGroups = filtered.some((o) => o.group);
+    return hasGroups ? sortOptionsByGroup(filtered) : filtered;
+  }, [options, query]);
 
   const close = (refocus: boolean) => {
     setOpen(false);
@@ -170,6 +216,24 @@ export function FilterPicker(props: FilterPickerProps): React.ReactElement {
 
   const clearLabel = props.mode === 'single' ? props.clearLabel : undefined;
 
+  const listBody: React.ReactNode[] = [];
+  let lastGroup: string | undefined;
+  for (const option of shown) {
+    if (option.group && option.group !== lastGroup) {
+      lastGroup = option.group;
+      listBody.push(
+        <div
+          key={`group-${option.group}`}
+          data-testid={part(`group-${option.group}`)}
+          className="sticky top-0 z-[1] px-1.5 pt-1.5 pb-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-500 bg-slate-900"
+        >
+          {option.group}
+        </div>
+      );
+    }
+    listBody.push(row(option));
+  }
+
   return (
     <div className={className}>
       <button
@@ -197,7 +261,7 @@ export function FilterPicker(props: FilterPickerProps): React.ReactElement {
             <div
               ref={popoverRef}
               style={style}
-              className="z-[501] w-72 max-w-[calc(100vw-1rem)] rounded-lg border border-slate-700 bg-slate-900 p-1.5 shadow-2xl"
+              className="z-[501] w-80 max-w-[calc(100vw-1rem)] rounded-lg border border-slate-700 bg-slate-900 p-1.5 shadow-2xl"
               onKeyDown={(event) => {
                 if (event.key === 'Escape') {
                   event.stopPropagation();
@@ -242,7 +306,7 @@ export function FilterPicker(props: FilterPickerProps): React.ReactElement {
                     {query ? `Nothing matches “${filter}”.` : 'Nothing to choose from.'}
                   </p>
                 ) : (
-                  shown.map(row)
+                  listBody
                 )}
               </div>
             </div>
