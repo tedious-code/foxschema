@@ -9,60 +9,27 @@ ranges install it automatically.
 
 ## What is in place
 
-### The lockfile is NOT committed — this section describes an intent, not a state
+### The lockfile is committed
 
-> **Corrected 2026-09-21.** This section read "The lockfile is committed.
-> `package-lock.json` is tracked." That is not true and does not appear to have
-> been: `.gitignore:10` ignores `package-lock.json`, and `git ls-files` does not
-> list it. The CI workflows say so too — `build-gate.yml` disables
-> `setup-node`'s package-manager cache with the comment "package-lock.json is
-> gitignored here", and the Dockerfile builds with "npm install (no committed
-> lockfile)". So the defence below is the one that *should* be in place. It is
-> not one you can currently rely on.
+`package-lock.json` is tracked. It is the only thing that pins **transitive**
+dependencies; `package.json` pins only the direct ones. Without it, every
+install resolves fresh and a compromised release published an hour ago is
+installed on the next CI run.
 
-`package-lock.json` should be tracked. It is the only thing that pins
-**transitive** dependencies; `package.json` pins only the direct ones. Without
-it, every install resolves fresh and a compromised release published an hour ago
-is installed on the next CI run.
+This was the intent for a long time without being the state. `.gitignore`
+carried `package-lock.json` on line 10 and, directly beneath it, the comment
+*"package-lock.json is committed on purpose"* — the comment was added and the
+ignore line above it was never removed, so the policy this document described
+had simply never taken effect. Corrected 2026-09-21: the ignore line is gone,
+the lockfile is regenerated and committed, and CI installs with `npm ci`.
 
-This is not academic. It is already costing something concrete — see
-"adm-zip: an override the lockfile overrules" below.
-
-### adm-zip: an override the lockfile overrules
-
-An open example of what the missing lockfile discipline costs, recorded because
-the symptom is confusing on its own.
-
-`ibm_db` (the Db2 driver, an optional dependency of `@foxschema/db`) depends on
-`adm-zip: ^0.5.16`. Three advisories cover that range — two HIGH, one moderate —
-and all three are cleared by `adm-zip` **0.6.1**:
-
-| Advisory | Affected | Severity |
-|---|---|---|
-| GHSA-xcpc-8h2w-3j85 — 4GB allocation from a crafted ZIP | `<0.6.0` | high |
-| GHSA-vwc7-r8mq-g2x9 — extraction follows destination symlinks | `>=0.5.9 <=0.6.0` | moderate |
-| GHSA-7q85-xj36-vmfc — allocation from the declared uncompressed size | `<0.6.1` | high |
-
-`package.json` carries `overrides: { "adm-zip": "0.6.1" }` — bumped from
-`0.6.0`, which was one release short of clearing the third. **The override
-works**: a clean resolve of `ibm_db@4.0.1` with that override in an empty
-directory installs `adm-zip@0.6.1`. In this repository it does not, because the
-untracked `package-lock.json` on disk pins `node_modules/adm-zip` to `0.5.18`
-and npm honours it.
-
-Deleting that one lockfile entry does not fix it either — npm removes the
-package rather than re-resolving it, leaving `ibm_db` without a dependency it
-needs at install time. The fix is a regenerated lockfile, which per the section
-above needs a Linux CI job.
-
-There is **no forward fix** from `ibm_db` itself: `4.0.1` is the newest release,
-and `npm audit fix` proposes `ibm_db@3.1.0`, a downgrade. Reach is limited to
-the Db2 build variant, and `adm-zip` is used by ibm_db's installer to unpack the
-clidriver rather than on any request path.
-
-`npm run audit:security` runs at `--audit-level=high` and reports this; the CI
-step is `continue-on-error` until the lockfile is regenerated, at which point
-both the flag and this section should go.
+What that cost while it was untracked is worth keeping, because the symptom was
+confusing on its own: `package.json` carried `overrides: { "adm-zip": "0.6.1" }`
+to clear three advisories in the `ibm_db` -> `adm-zip` chain, the override was
+correct, and it did nothing — the stale untracked lockfile on each machine
+pinned `adm-zip` to `0.5.18` and npm honoured it. The override only took effect
+once the lockfile was regenerated from a clean resolve. An override you cannot
+see the effect of is worse than no override.
 
 ### CI installs with `--ignore-scripts`
 
@@ -73,39 +40,53 @@ This includes the publish and release workflows, which hold an npm token and
 are therefore the worst place to run code a dependency chose. `build-gate`
 builds the same artifacts with `--ignore-scripts`, so nothing needs them.
 
-### Why not `npm ci` yet
+### `npm ci`, and the cross-platform problem that used to block it
 
-`npm ci` would be stronger — it installs exactly the locked tree and fails when
-the lockfile and `package.json` disagree — but it cannot be used here yet.
+CI installs with `npm ci --ignore-scripts`. It installs exactly the locked tree
+and fails when the lockfile and `package.json` disagree, which is the property
+that makes a committed lockfile worth having.
 
-npm records a lockfile entry only for the platform binaries it actually
-resolved (npm/cli#4828). A lockfile generated on macOS therefore has
-`@tailwindcss/oxide-darwin-arm64` and no `@tailwindcss/oxide-linux-x64-gnu`,
-and a Linux runner then fails with "Cannot find native binding" — under
-`npm install` as well as `npm ci`, because npm trusts the lockfile and skips
-the binary it does not find listed. The `optionalDependencies` for all twelve
-platforms are listed; only the resolved *entries* were missing.
+This section used to say `npm ci` could not be used, for a real reason worth
+keeping: npm records a lockfile entry only for the platform binaries it actually
+resolved (npm/cli#4828). A lockfile generated on macOS had
+`@tailwindcss/oxide-darwin-arm64` and no `@tailwindcss/oxide-linux-x64-gnu`, and
+a Linux runner then failed with "Cannot find native binding" — under
+`npm install` as well as `npm ci`, because npm trusts the lockfile and skips the
+binary it does not find listed. Twenty-nine entries were added from the registry
+by hand to work around it, and the two platforms pruned each other's entries on
+every install.
 
-The committed lockfile therefore carries an entry for **every** platform of
-every native package — 29 were added from the registry by hand, covering
-`@tailwindcss/oxide-*`, `@duckdb/node-bindings-*` and `@napi-rs/keyring-*`.
-Verified by installing and building inside `linux/amd64`.
+**On npm 11 this no longer reproduces.** A from-scratch resolve on macOS
+(`rm -rf node_modules package-lock.json && npm install`) now records every
+platform of every native package:
 
-Generating the lockfile on Linux instead does not currently work either: a
-from-scratch resolve of this workspace fails inside npm with
-`Cannot read properties of null (reading 'edgesOut')` on both npm 10 and
-npm 12.
+| Package family | Platforms recorded |
+|---|---|
+| `@tailwindcss/oxide` | android, darwin, freebsd, linux, win32 |
+| `@duckdb/node-bindings` | darwin, linux, win32 |
+| `@napi-rs/keyring` | darwin, freebsd, linux, win32 |
+| `@rolldown/binding` | android, darwin, freebsd, linux, win32 |
+| `lightningcss` | android, darwin, freebsd, linux, win32 |
 
-The same asymmetry means the two platforms prune each other's entries: running
-`npm install` on macOS deletes the `@emnapi/*` entries a Linux install added,
-and vice versa. Expect small lockfile diffs from that until it is fixed; they
-are noise, not a dependency change, and are worth checking rather than
-committing blindly.
+Sixty native entries, up from twenty-five, with no hand editing. The
+`edgesOut` crash that made a from-scratch resolve impossible was seen on npm 10
+and npm 12; the repo pins npm 11 (`packageManager`), where it does not occur.
 
-The fix is to produce the lockfile on a Linux runner and commit that artifact,
-which needs a CI job rather than a local command. Until then CI uses
-`npm install --ignore-scripts`, which honours the committed lockfile where it
-can and fills in the platform binaries it needs.
+Two things this does *not* prove, and which are worth checking the first time CI
+runs on it: that a Linux runner is happy with a macOS-generated lockfile in
+practice, and that the release workflows behave. If a native binding goes
+missing on Linux again, this section is the history of why, and regenerating the
+lockfile on a Linux runner remains the fallback.
+
+**Regenerating it.** `npm install --package-lock-only` reads any existing
+`node_modules` and will reproduce whatever is already there — which is how the
+`adm-zip` override stayed invisible. Remove both first:
+
+```bash
+rm -rf node_modules package-lock.json
+npm install
+npm ls adm-zip && npm audit --audit-level=high
+```
 
 ### Every version is exact
 

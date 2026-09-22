@@ -63,9 +63,6 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-          # package-lock.json is gitignored here; setup-node@v5 defaults
-          # package-manager-cache to true and fails outright without a lockfile.
-          package-manager-cache: false
           # No registry-url: it writes an .npmrc with
           # `_authToken=${NODE_AUTH_TOKEN}` and exports the literal placeholder
           # XXXXX-XXXXX-XXXXX-XXXXX. npm then sends that as a bearer token and
@@ -82,7 +79,7 @@ jobs:
       # holds an npm publish token, so it is the worst place to run code a
       # dependency chose. build-gate builds the same artifacts this way.
       - name: Install workspace
-        run: npm install --ignore-scripts
+        run: npm ci --ignore-scripts
 
       - name: Build web UI + CLI
         run: |

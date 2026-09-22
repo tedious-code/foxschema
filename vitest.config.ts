@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { defaultExclude, defineConfig } from 'vitest/config';
 import { fileURLToPath } from 'node:url';
 
 const pkg = (p: string) => fileURLToPath(new URL(p, import.meta.url));
@@ -50,7 +50,15 @@ export default defineConfig({
             'apps/cli/src/**/*.test.ts',
             'scripts/security/**/*.test.mjs',
           ],
-          exclude: ['apps/cli/src/tui/**'],
+          // `exclude` REPLACES vitest's defaults, it does not add to them — so
+          // listing the TUI here silently dropped `**/node_modules/**` too.
+          // That went unnoticed only because zod happened to hoist to the root,
+          // outside these include globs. The moment the lockfile was
+          // regenerated and npm nested each workspace's pinned zod under
+          // `apps/web/node_modules` and friends, this project started
+          // collecting zod's own test suite: 407 test files became 912, and
+          // nine of them failed.
+          exclude: [...defaultExclude, 'apps/cli/src/tui/**'],
           testTimeout: 15_000,
         },
       },
