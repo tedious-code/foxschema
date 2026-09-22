@@ -47,3 +47,67 @@ export function getProviderSettings(dialect: string): ProviderConnectionSettings
   }
   return settings;
 }
+
+/**
+ * Every dialect this package can build a connection for.
+ *
+ * `PROVIDER_SETTINGS` is keyed by `string`, so it cannot give callers a checked
+ * set of names. The frontend needed one and had been carrying its own copy of
+ * this union beside its own copy of the whole registry; both live here now.
+ *
+ * `PROVIDER_SETTINGS` is built with computed keys (`[postgresSettings.dialect]`),
+ * which TypeScript widens to `string`, so the two cannot be tied together at
+ * compile time — the obvious `Record<Dialect, …>` assertion needs a cast, and
+ * the cast makes it pass unconditionally. `dialect-registry.test.ts` checks the
+ * union against the registry's actual keys instead.
+ */
+export type Dialect =
+  | 'postgres'
+  | 'cockroachdb'
+  | 'yugabytedb'
+  | 'mysql'
+  | 'mariadb'
+  | 'tidb'
+  | 'db2'
+  | 'sqlserver'
+  | 'azuresql'
+  | 'oracle'
+  | 'sqlite'
+  | 'duckdb'
+  | 'clickhouse'
+  | 'redshift'
+  | 'redis'
+  | 'mongodb';
+
+/**
+ * Dialects that are a file on disk rather than a server.
+ *
+ * They have no host, port, user or password, so anything that asks for one has
+ * to know not to. Selecting a saved SQLite connection used to open a password
+ * prompt — the credential form had stopped offering a password to store, and
+ * the picker still treated "no stored password" as "ask the user for one",
+ * which snapped the selection back and left no target set.
+ */
+export const DIALECTS: readonly Dialect[] = [
+  'postgres',
+  'cockroachdb',
+  'yugabytedb',
+  'mysql',
+  'mariadb',
+  'tidb',
+  'db2',
+  'sqlserver',
+  'azuresql',
+  'oracle',
+  'sqlite',
+  'duckdb',
+  'clickhouse',
+  'redshift',
+  'redis',
+  'mongodb',
+];
+
+export function isFileDialect(dialect: string): boolean {
+  const name = dialect.toLowerCase();
+  return name === 'sqlite' || name === 'duckdb';
+}

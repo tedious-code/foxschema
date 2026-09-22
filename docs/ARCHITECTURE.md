@@ -111,12 +111,16 @@ and `domain`) inside `encrypted_config`. Methods:
 `SavedConnectionSummary` exposes `authMethod` / `domain` / `hasPassword` but
 never the secret. Windows integrated SSO (no password) is not implemented.
 
-**The frontend imports `@foxschema/sql` and nothing else from the workspace.** Most
-files in `apps/web/src/frontend/shared/lib/` are thin re-export facades over it.
-`shared/lib/provider-settings.ts` is the one real copy: it re-implements each
-dialect's `buildConnectionString` for the browser. That duplication is accepted,
-but it is duplication — `provider-settings-parity.test.ts` pins the two registries
-together so a new dialect cannot land on one side only.
+**The frontend imports `@foxschema/sql` and nothing else from the workspace**, and
+the files in `apps/web/src/frontend/shared/lib/` are thin re-export facades over it.
+
+`shared/lib/provider-settings.ts` used to be a real copy of the dialect registry,
+kept on the theory that the browser should not pull the driver runtime in. It does
+not: `@foxschema/sql` is dependency-free and Node-free by design, enforced by
+`purity.test.ts`. The copy drifted on `postgres.schemaRequired` and broke schema
+browsing for schema-less PostgreSQL connections, so it is a facade now, and
+`provider-settings-facade.test.ts` asserts its exports are the same objects as
+core's.
 
 ## How a migration runs
 
@@ -182,8 +186,10 @@ backend and streams results back via SSE.
 1. Create the dialect files in `packages/sql/src/providers/<name>/` and the driver files in `packages/db/src/providers/<name>/`
 2. Register in `provider-settings.ts`, `adapter-registry.ts`, `provider-registry.ts`, `modules/dialect/registry.ts`
    (and `modules/access/user-sql.registry.ts` / `modules/access/access-sql.registry.ts` when the engine has account or GRANT SQL)
-3. Also update `apps/web/src/frontend/shared/lib/provider-settings.ts` — a real copy,
-   not a facade; `provider-settings-parity.test.ts` fails if you skip it
+3. Add the dialect name to the `Dialect` union **and** the `DIALECTS` array in
+   `packages/sql/src/providers/provider-settings.ts` (`dialect-registry.test.ts`
+   fails until they match `PROVIDER_SETTINGS`). Nothing in `apps/web` needs
+   editing — the frontend re-exports this registry.
 4. Add `parseType`/`renderType` round-trip tests in `type-mapping.test.ts`
 5. Verify each optional hook against real DDL — the generic fallbacks are often wrong for DROP INDEX/TRIGGER/FK
 6. `npx vitest run` + `cd apps/web && npx tsc --noEmit`
