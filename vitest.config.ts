@@ -67,18 +67,22 @@ export default defineConfig({
         // `unit` run stays a pure-node suite — component tests need a DOM,
         // which is an order of magnitude slower to spin up per file.
         //
-        // `pool: 'vmThreads'` builds the DOM once per worker instead of once
-        // per file. Measured on this suite, 41 files / 268 tests:
-        // **17.49s -> 5.98s**, with jsdom construction falling from 41 builds
-        // and ~39s of tracked time. It keeps per-file isolation — unlike
-        // `isolate: false`, which shares one DOM across files and would let a
-        // component test leak state into the next one.
+        // **Do not set `pool: 'vmThreads'` here.** Vitest suggests it on every
+        // run of this project, and it does what it says — 17.49s -> 5.98s, by
+        // building jsdom once per worker instead of once per file. It also
+        // makes the suite flaky: `SqlPipeEditor.test.tsx` failed on roughly one
+        // run in three under it, and passed 4/4 without. These files mock
+        // heavily with `vi.mock`, and vmThreads shares the module registry
+        // across files in a worker, so the mocks bleed between them.
+        //
+        // The eleven seconds are not worth a suite people learn to re-run.
+        // Making it work means auditing mock isolation across all 41 files,
+        // which is its own piece of work.
         resolve: { alias: aliases },
         test: {
           name: 'web-ui',
           include: ['apps/web/src/**/*.test.tsx'],
           environment: 'jsdom',
-          pool: 'vmThreads',
           setupFiles: ['./apps/web/src/frontend/test/setup.ts'],
           testTimeout: 15_000,
         },
