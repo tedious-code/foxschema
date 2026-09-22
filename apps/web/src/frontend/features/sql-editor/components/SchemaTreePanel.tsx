@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { useUiStore } from '@/app/store/uiStore';
 import { Search, Layers } from 'lucide-react';
@@ -59,9 +59,13 @@ export const SchemaTreePanel: React.FC = () => {
   // Compute the filtered list even when compareResult is null so the selection-
   // sync effect can sit above the early return (rules of hooks).
   const query = searchTerm.trim().toLowerCase();
-  const filteredTables = !compareResult
-    ? []
-    : compareResult.tables.filter((table) => {
+  // Memoized for two reasons: it is a dependency of the selection-sync effect
+  // below, so an unstable identity re-ran that effect on every render; and the
+  // filter itself builds a haystack of every column, index, FK and trigger name
+  // per table, which is not work to repeat for an unrelated state change.
+  const filteredTables = useMemo(() => {
+    if (!compareResult) return [];
+    return compareResult.tables.filter((table) => {
         if (query) {
           const haystack: (string | undefined)[] = [table.tableName];
           for (const c of table.columnDiffs) haystack.push(c.name);
@@ -84,7 +88,8 @@ export const SchemaTreePanel: React.FC = () => {
           return showUnchanged || (table.indexDiffs ?? []).some((d) => d.nameOnly);
         }
         return filterStatus === 'ALL' || table.status === filterStatus;
-      });
+    });
+  }, [compareResult, query, typeFilter, browseMode, showUnchanged, filterStatus]);
 
   // After Compare, leave selection empty so Diff Briefing is the landing view.
   // Only clear a selection that filters have hidden — do not pick the first row.
