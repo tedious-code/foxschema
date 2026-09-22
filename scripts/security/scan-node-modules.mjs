@@ -57,17 +57,35 @@ const CRITICAL_CODE_RES = [
   /(?:nc|ncat|netcat)\s+-[elp]/i,
   /\/dev\/tcp\//,
   /bash\s+-i\s+>&\s*\/dev\/tcp\//i,
-  /socket\.connect\s*\([^)]*["'](?:\d{1,3}\.){3}\d{1,3}["']/,
+  // `(?:\d{1,3}\.){3}` behind a greedy `[^)]*` is the shape detect-unsafe-regex
+  // rejects: the prefix and the octets can both give ground, so a crafted line
+  // backtracks exponentially. This scanner reads third-party source out of
+  // node_modules — the one input an attacker controls — so a stall here is a
+  // package disabling the scanner that is looking for it. The prefix is bounded
+  // and lazy, and the octets are written out, which removes the nesting.
+  /socket\.connect\s*\([^)]{0,200}?["']\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}["']/,
   /new\s+WebSocket\s*\(\s*["']wss?:\/\/[^"']*(?:webhook|oast|burp|interact\.sh)/i,
   /\beval\s*\(\s*(?:Buffer\.from\([^)]*['"]base64['"]|atob\s*\()/i,
 ];
 
 /** Port / server patterns → HIGH unless package is allowlisted. */
 const SERVER_CODE_RES = [
-  /\.listen\s*\(\s*(?:0|process\.env\.[A-Z0-9_]*PORT|['"`]0\.0\.0\.0['"`])/i,
+  // `[A-Z0-9_]*PORT` overlaps its own trailing literal (P, O, R and T are all in
+  // the class), so `PORTPORTPORT…` backtracks. Bounding the run keeps every real
+  // env var name matching — `PORT`, `HTTP_PORT`, `MY_APP_PORT` — without the
+  // unbounded search.
+  /\.listen\s*\(\s*(?:0|process\.env\.[A-Z0-9_]{0,40}PORT|['"`]0\.0\.0\.0['"`])/i,
   /\.listen\s*\(\s*\d{2,5}\s*[,)]/,
   /(?:http|https|net|tls)\.createServer\s*\(/,
-  /createServer\s*\(\s*(?:async\s*)?\(?\s*req/,
+  // Three whitespace runs separated by optional atoms can each claim the same
+  // spaces. Unbounded (`\s*`) that is exponential; bounded at ten it is at worst
+  // a few hundred parses and cannot stall the scan, which is the property that
+  // matters here — this runs over third-party source, the one input an attacker
+  // controls. detect-unsafe-regex does not distinguish the two cases, and every
+  // rewrite that satisfies it also drops a form the original matched
+  // (`createServer(async(req`).
+  // eslint-disable-next-line security/detect-unsafe-regex -- ambiguous but bounded: at most 11^3 parses, no unbounded backtracking
+  /createServer\s{0,10}\(\s{0,10}(?:async\s{0,10})?\(?\s{0,10}req/,
 ];
 
 /** Known worm / campaign drop files (basename). */

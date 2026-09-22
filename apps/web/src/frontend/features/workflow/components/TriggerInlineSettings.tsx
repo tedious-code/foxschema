@@ -64,6 +64,7 @@ export function TriggerInlineSettings({
   const [inputError, setInputError] = useState<string | null>(null);
   const nextRuns = useMemo(
     () => (cron ? computeNextRuns(cron.cron, cron.timezone, 3) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed to the two fields the preview reads; depending on `cron` would recompute on every unrelated keystroke in the inspector
     [cron?.cron, cron?.timezone],
   );
 

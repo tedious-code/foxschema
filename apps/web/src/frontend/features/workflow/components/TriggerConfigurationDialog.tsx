@@ -280,6 +280,7 @@ export function TriggerConfigurationDialog({
       cronTrigger
         ? computeNextRuns(cronTrigger.cron, cronTrigger.timezone)
         : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed to the two fields the preview reads; depending on `cronTrigger` would recompute on every unrelated keystroke in the dialog
     [cronTrigger?.cron, cronTrigger?.timezone],
   );
 

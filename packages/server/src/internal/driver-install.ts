@@ -35,6 +35,7 @@ export type DriverInstallTarget = {
 
 function readPkgName(dir: string): string | null {
   try {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- walks up from this module's own directory looking for the workspace manifest
     const raw = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as {
       name?: string;
     };
@@ -46,6 +47,7 @@ function readPkgName(dir: string): string | null {
 
 function isFoxschemaMonorepo(dir: string): boolean {
   try {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- walks up from this module's own directory looking for the workspace manifest
     const raw = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as {
       name?: string;
       workspaces?: string[] | { packages?: string[] };
@@ -55,8 +57,10 @@ function isFoxschemaMonorepo(dir: string): boolean {
       ? raw.workspaces
       : (raw.workspaces?.packages ?? []);
     if (!ws.some((p) => p.includes('apps/web') || p.includes('packages/*') || p === 'apps/*')) {
+      // eslint-disable-next-line security/detect-non-literal-fs-filename -- walks up from this module's own directory looking for the workspace manifest
       return existsSync(join(dir, 'apps/web/package.json'));
     }
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- walks up from this module's own directory looking for the workspace manifest
     return existsSync(join(dir, 'apps/web/package.json'));
   } catch {
     return false;

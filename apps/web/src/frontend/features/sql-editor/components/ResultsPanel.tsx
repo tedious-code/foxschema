@@ -1093,7 +1093,7 @@ const SideBySideStatementSection: React.FC<{
       triggerIgnoreColumns.length > 0
         ? { ignoreColumns: triggerIgnoreColumns }
         : undefined,
-    [triggerIgnoreKey, triggerIgnoreColumns]
+    [triggerIgnoreColumns]
   );
 
   const effectiveKeys = keyNames.length ? keyNames : defaultKeys;

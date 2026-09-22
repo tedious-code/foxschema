@@ -698,7 +698,7 @@ export const DataGrid: React.FC<{
   const colKey = sourceColumns.join('\0');
   const colKinds = useMemo(
     () => computeColKinds(sourceColumns, sourceRows),
-    [colKey, sourceColumns, sourceRows]
+    [sourceColumns, sourceRows]
   );
 
   useEffect(() => {
