@@ -78,8 +78,9 @@ describe('HomeView', () => {
     expect(screen.getByTestId('home-connections-count').textContent).toBe('3');
   });
 
-  it('groups connections by dialect on the home index', () => {
+  it('groups connections by provider on the home index', () => {
     render(<HomeView />);
+    expect(screen.getByTestId('home-connections').textContent).toMatch(/Connections by provider/);
     expect(screen.getByTestId('home-connections-group-postgres')).toBeTruthy();
     expect(screen.getByTestId('home-connections-group-sqlite')).toBeTruthy();
     const sqliteGroup = screen.getByTestId('home-connections-group-sqlite');

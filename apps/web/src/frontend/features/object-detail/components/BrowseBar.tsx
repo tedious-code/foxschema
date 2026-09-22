@@ -16,6 +16,7 @@
 import React from 'react';
 import { Loader2, Search } from 'lucide-react';
 import { dialectLabel } from '@/shared/lib/dialectLabel';
+import { FilterPicker, connectionPickerOption } from '@/shared/components/FilterPicker';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { getSessionPassword } from '@/shared/lib/sessionPasswords';
 
@@ -29,6 +30,7 @@ export function BrowseBar(): React.ReactElement {
   const browseSchema = useSyncStore((s) => s.browseSchema);
 
   const selectedId = sourceConfig.connectionId ?? '';
+  const selected = connections.find((c) => c.id === selectedId);
 
   /**
    * Browsing reads through the `source` side because that is where the store's
@@ -51,6 +53,12 @@ export function BrowseBar(): React.ReactElement {
         .join('/')}${sourceConfig.schema ? `.${sourceConfig.schema}` : ''}`
     : null;
 
+  const pickerSummary = selected
+    ? `${selected.name || '(unnamed)'} · ${dialectLabel(selected.dialect)}`
+    : connections.length === 0
+      ? 'No saved connections'
+      : 'Pick a database…';
+
   return (
     <div
       data-testid="browse-bar"
@@ -59,21 +67,23 @@ export function BrowseBar(): React.ReactElement {
       <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-500/80">
         Database
       </span>
-      <select
-        data-testid="browse-connection-select"
-        value={selectedId}
+      <FilterPicker
+        mode="single"
+        testId="browse-connection-select"
+        className="min-w-0 flex-1 max-w-md"
         disabled={connections.length === 0 || isBrowsing}
-        onChange={(e) => onPick(e.target.value)}
-        title="Read this database's objects"
-        className="min-w-0 flex-1 max-w-md text-xs bg-slate-900 border border-slate-700/60 rounded px-2 py-1 text-slate-200 focus:outline-none accent-focus truncate disabled:opacity-50"
-      >
-        <option value="">{connections.length === 0 ? 'No saved connections' : 'Pick a database…'}</option>
-        {connections.map((c) => (
-          <option key={c.id} value={c.id}>
-            {c.name} · {dialectLabel(c.dialect)}
-          </option>
-        ))}
-      </select>
+        options={connections.map((c) => ({
+          ...connectionPickerOption(c),
+          testId: `browse-connection-option-${c.id}`,
+        }))}
+        selectedId={selectedId || null}
+        onSelect={onPick}
+        clearLabel="Pick a database…"
+        summary={pickerSummary}
+        title="Read this database's objects — search by name, host, database, user, or port"
+        placeholder="Search name, host, db, user, port…"
+        triggerClassName="flex w-full min-w-0 items-center gap-1.5 rounded border border-slate-700/60 bg-slate-900 px-2 py-1 text-left text-xs text-slate-200 accent-focus focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+      />
 
       <button
         type="button"

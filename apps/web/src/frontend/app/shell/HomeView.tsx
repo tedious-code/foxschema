@@ -175,7 +175,7 @@ export const HomeView: React.FC = () => {
 
       <section className="mt-6" data-testid="home-connections">
         <h2 className="mb-2 flex items-baseline gap-2 text-[11px] font-bold uppercase tracking-wide text-slate-500">
-          <span>Connections</span>
+          <span>Connections by provider</span>
           <span
             data-testid="home-connections-count"
             className="rounded-full border border-slate-700 bg-slate-900 px-1.5 py-0.5 font-mono text-[10px] font-semibold normal-case tracking-normal text-slate-300"
