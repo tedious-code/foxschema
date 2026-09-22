@@ -6,6 +6,7 @@
  * Workflow designer — ported from FoxAgent (lib/triggers.test.ts).
  */
 import { describe, expect, it } from 'vitest';
+import { TRIGGER_KINDS as ENGINE_TRIGGER_KINDS } from '@foxschema/workflow-engine/definitions';
 import type { CredentialMeta } from '../api/engineClient';
 import {
   TRIGGER_KINDS,
@@ -36,6 +37,36 @@ describe('nextTriggerId', () => {
     expect(nextTriggerId([{ id: 'manual' }, { id: 'manual-2' }], 'cron')).toBe(
       'cron',
     );
+  });
+});
+
+describe('the designer offers exactly the kinds the engine accepts', () => {
+  /**
+   * This suite exists because it used to pass while being wrong. `TRIGGER_KINDS`
+   * was a hand-maintained copy in `triggers.ts` that still listed `event` and
+   * `custom` after the engine deleted them, and the loop below iterated that
+   * copy — so it happily asserted that the designer could build two kinds the
+   * engine's schema rejects. A designer picking either produced a workflow that
+   * failed on save.
+   *
+   * `TRIGGER_KINDS` is now re-exported from the engine, and `triggers.ts`
+   * carries a compile-time assertion tying `WorkflowTrigger['kind']` to it.
+   * This is the runtime half: it fails if the re-export is ever replaced by a
+   * local array again.
+   */
+  it('re-exports the engine list rather than restating it', () => {
+    expect([...TRIGGER_KINDS]).toEqual([...ENGINE_TRIGGER_KINDS]);
+  });
+
+  it('does not offer the kinds the engine removed', () => {
+    expect(TRIGGER_KINDS).not.toContain('event');
+    expect(TRIGGER_KINDS).not.toContain('custom');
+  });
+
+  it('can construct every kind the engine accepts', () => {
+    for (const kind of ENGINE_TRIGGER_KINDS) {
+      expect(createTrigger(kind, kind).kind).toBe(kind);
+    }
   });
 });
 
