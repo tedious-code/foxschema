@@ -19,7 +19,7 @@ foxschema                            # start UI on :3210 + open browser
 foxschema stop
 foxschema doctor
 
-# Development (starts both Express API + Vite frontend)
+# Development (starts both the Fastify API + Vite frontend)
 npm run dev                          # single-user mode (no login)
 npm run dev:auth                     # multi-user auth mode
 
@@ -38,7 +38,7 @@ cd apps/cli && npm run foxschema -- doctor
 cd apps/cli && npm run foxschema -- compare --source ... --target ...
 ```
 
-Backend changes (`apps/web/src/backend`, `packages/sql`, `packages/db`) hot-reload via `tsx watch`.
+Backend changes (`packages/server`, `packages/sql`, `packages/db`) hot-reload via `tsx watch`.
 
 ## E2E tests (apps/e2e)
 
@@ -111,8 +111,12 @@ and `domain`) inside `encrypted_config`. Methods:
 `SavedConnectionSummary` exposes `authMethod` / `domain` / `hasPassword` but
 never the secret. Windows integrated SSO (no password) is not implemented.
 
-**Frontend imports nothing from workspace packages** — it uses standalone copies in
-`apps/web/src/frontend/lib/`. Accepted duplication to avoid bundler complications.
+**The frontend imports `@foxschema/sql` and nothing else from the workspace.** Most
+files in `apps/web/src/frontend/shared/lib/` are thin re-export facades over it.
+`shared/lib/provider-settings.ts` is the one real copy: it re-implements each
+dialect's `buildConnectionString` for the browser. That duplication is accepted,
+but it is duplication — `provider-settings-parity.test.ts` pins the two registries
+together so a new dialect cannot land on one side only.
 
 ## How a migration runs
 
@@ -178,7 +182,8 @@ backend and streams results back via SSE.
 1. Create the dialect files in `packages/sql/src/providers/<name>/` and the driver files in `packages/db/src/providers/<name>/`
 2. Register in `provider-settings.ts`, `adapter-registry.ts`, `provider-registry.ts`, `modules/dialect/registry.ts`
    (and `modules/access/user-sql.registry.ts` / `modules/access/access-sql.registry.ts` when the engine has account or GRANT SQL)
-3. Also update `apps/web/src/frontend/lib/provider-settings.ts` (frontend copy)
+3. Also update `apps/web/src/frontend/shared/lib/provider-settings.ts` — a real copy,
+   not a facade; `provider-settings-parity.test.ts` fails if you skip it
 4. Add `parseType`/`renderType` round-trip tests in `type-mapping.test.ts`
 5. Verify each optional hook against real DDL — the generic fallbacks are often wrong for DROP INDEX/TRIGGER/FK
 6. `npx vitest run` + `cd apps/web && npx tsc --noEmit`

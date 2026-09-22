@@ -130,7 +130,7 @@ CommonJS at runtime. Requires **Node ≥ 22.5**.
 |-----------|------|
 | `packages/sql` | Dialect knowledge: SQL generation, compare, splitting, type mapping (pure, zero deps) |
 | `packages/db` | Node runtime: drivers, pooling, migration execution (depends on `packages/sql`) |
-| `apps/web` | Express API + React UI (CLI launcher + Docker) |
+| `apps/web` | React UI + the entry point that serves it (CLI launcher + Docker) |
 | `apps/cli` | `foxschema` CLI, desktop shortcut, TUI |
 | `apps/e2e` | Playwright tests against dockerized databases |
 
