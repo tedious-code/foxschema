@@ -130,4 +130,23 @@ jobs:
       # it fine. Verified on a clean clone at Node 22.23.1.
       - run: npm i -g npm@11
       - run: npm install --ignore-scripts
+      # Everything: security rules are errors, quality rules are warnings.
       - run: npx eslint .
+      # Security rules only, zero tolerance. This is the gate that was defined
+      # in package.json but never run here, and could not have passed if it
+      # had been — it counted quality warnings too. It runs its own config now.
+      - run: npm run lint:security
+      # Production dependencies only, at `high` — the threshold was `critical`,
+      # which meant the two HIGH advisories in the ibm_db -> adm-zip chain never
+      # failed anything and nobody was told.
+      #
+      # Non-blocking *for now*, and only because of those two: there is no
+      # forward fix. ibm_db 4.0.1 is the newest release and pulls adm-zip
+      # ^0.5.16; `npm audit fix` proposes ibm_db@3.1.0, which is a downgrade.
+      # The `adm-zip: 0.6.1` override in package.json clears all three
+      # advisories on a clean resolve (verified), but the untracked
+      # package-lock.json holds 0.5.18 in place. See docs/DEPENDENCY_POLICY.md.
+      #
+      # Drop continue-on-error once the lockfile is regenerated on CI.
+      - run: npm run audit:security
+        continue-on-error: true

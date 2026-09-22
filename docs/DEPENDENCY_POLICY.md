@@ -9,16 +9,60 @@ ranges install it automatically.
 
 ## What is in place
 
-### The lockfile is committed
+### The lockfile is NOT committed — this section describes an intent, not a state
 
-`package-lock.json` is tracked. It is the only thing that pins **transitive**
-dependencies; `package.json` pins only the direct ones. Without it, every
-install resolves fresh and a compromised release published an hour ago is
-installed on the next CI run.
+> **Corrected 2026-09-21.** This section read "The lockfile is committed.
+> `package-lock.json` is tracked." That is not true and does not appear to have
+> been: `.gitignore:10` ignores `package-lock.json`, and `git ls-files` does not
+> list it. The CI workflows say so too — `build-gate.yml` disables
+> `setup-node`'s package-manager cache with the comment "package-lock.json is
+> gitignored here", and the Dockerfile builds with "npm install (no committed
+> lockfile)". So the defence below is the one that *should* be in place. It is
+> not one you can currently rely on.
 
-It was previously gitignored — inherited from a starter template rather than
-chosen. That gap also caused two unrelated CI breakages in one month, when a
-transitive release changed under a branch that had not been touched.
+`package-lock.json` should be tracked. It is the only thing that pins
+**transitive** dependencies; `package.json` pins only the direct ones. Without
+it, every install resolves fresh and a compromised release published an hour ago
+is installed on the next CI run.
+
+This is not academic. It is already costing something concrete — see
+"adm-zip: an override the lockfile overrules" below.
+
+### adm-zip: an override the lockfile overrules
+
+An open example of what the missing lockfile discipline costs, recorded because
+the symptom is confusing on its own.
+
+`ibm_db` (the Db2 driver, an optional dependency of `@foxschema/db`) depends on
+`adm-zip: ^0.5.16`. Three advisories cover that range — two HIGH, one moderate —
+and all three are cleared by `adm-zip` **0.6.1**:
+
+| Advisory | Affected | Severity |
+|---|---|---|
+| GHSA-xcpc-8h2w-3j85 — 4GB allocation from a crafted ZIP | `<0.6.0` | high |
+| GHSA-vwc7-r8mq-g2x9 — extraction follows destination symlinks | `>=0.5.9 <=0.6.0` | moderate |
+| GHSA-7q85-xj36-vmfc — allocation from the declared uncompressed size | `<0.6.1` | high |
+
+`package.json` carries `overrides: { "adm-zip": "0.6.1" }` — bumped from
+`0.6.0`, which was one release short of clearing the third. **The override
+works**: a clean resolve of `ibm_db@4.0.1` with that override in an empty
+directory installs `adm-zip@0.6.1`. In this repository it does not, because the
+untracked `package-lock.json` on disk pins `node_modules/adm-zip` to `0.5.18`
+and npm honours it.
+
+Deleting that one lockfile entry does not fix it either — npm removes the
+package rather than re-resolving it, leaving `ibm_db` without a dependency it
+needs at install time. The fix is a regenerated lockfile, which per the section
+above needs a Linux CI job.
+
+There is **no forward fix** from `ibm_db` itself: `4.0.1` is the newest release,
+and `npm audit fix` proposes `ibm_db@3.1.0`, a downgrade. Reach is limited to
+the Db2 build variant, and `adm-zip` is used by ibm_db's installer to unpack the
+clidriver rather than on any request path.
+
+`npm run audit:security` runs at `--audit-level=high` and reports this; the CI
+step is `continue-on-error` until the lockfile is regenerated, at which point
+both the flag and this section should go.
 
 ### CI installs with `--ignore-scripts`
 
