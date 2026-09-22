@@ -87,6 +87,11 @@ const EXCEPTIONS = new Set<string>([
   // the name would lose the record of where `apps/workflow-server` came from.
   'apps/foxworkflow',
   'apps/designer',
+  // The old backend root, named in the docs precisely to say it is gone. Only
+  // the bare directory is exempt — a file under it (the stale
+  // `apps/web/src/backend/database/schema.ts` that started all this) still
+  // fails, which is the case that matters.
+  'apps/web/src/backend/',
 ]);
 
 /** A path is a glob/placeholder rather than a literal file. */
