@@ -148,7 +148,7 @@ export const ConnectionChecklist: React.FC<{ variant?: 'list' | 'chips' }> = ({
             onToggle={toggleConnection}
             summary={summary}
             title={chosen.map((c) => c.name || c.id).join(', ') || 'Choose destinations'}
-            placeholder="Filter by name, dialect, host…"
+            placeholder="Filter by name, host, database, user, port…"
             renderLead={(option) => {
               const n = groupNo.get(option.id);
               return (

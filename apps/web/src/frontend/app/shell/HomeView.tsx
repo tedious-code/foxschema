@@ -175,7 +175,7 @@ export const HomeView: React.FC = () => {
 
       <section className="mt-6" data-testid="home-connections">
         <h2 className="mb-2 flex items-baseline gap-2 text-[11px] font-bold uppercase tracking-wide text-slate-500">
-          <span>Connections</span>
+          <span>Connections by provider</span>
           <span
             data-testid="home-connections-count"
             className="rounded-full border border-slate-700 bg-slate-900 px-1.5 py-0.5 font-mono text-[10px] font-semibold normal-case tracking-normal text-slate-300"
@@ -186,25 +186,64 @@ export const HomeView: React.FC = () => {
         {connections.length === 0 ? (
           <p className="text-[12px] text-slate-500">Save a connection from Compare to see it here.</p>
         ) : (
-          <ul className="flex flex-wrap gap-2">
-            {connections.map((c) => (
-              <li key={c.id}>
-                <button
-                  type="button"
-                  data-testid={`home-connection-${c.id}`}
-                  onClick={() => openConnection(c.id)}
-                  title={`${dialectLabel(c.dialect)} · ${c.name}`}
-                  className="inline-flex max-w-full items-center gap-2 rounded-md border border-slate-800 bg-slate-900/40 px-2.5 py-1.5 text-[12px] font-semibold text-slate-200 hover:border-slate-600"
-                >
-                  <Database className="h-3.5 w-3.5 shrink-0 text-slate-500" />
-                  <span className="truncate">{c.name}</span>
-                  <span className="shrink-0 rounded border border-slate-700/80 bg-slate-950/80 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-400">
-                    {dialectLabel(c.dialect)}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          <div className="space-y-4">
+            {[...connections]
+              .sort(
+                (a, b) =>
+                  dialectLabel(a.dialect).localeCompare(dialectLabel(b.dialect)) ||
+                  (a.name || '').localeCompare(b.name || '')
+              )
+              .reduce<Array<{ dialect: string; label: string; items: typeof connections }>>(
+                (groups, c) => {
+                  const key = c.dialect.toLowerCase();
+                  const last = groups[groups.length - 1];
+                  if (last && last.dialect === key) {
+                    last.items = [...last.items, c];
+                  } else {
+                    groups.push({ dialect: key, label: dialectLabel(c.dialect), items: [c] });
+                  }
+                  return groups;
+                },
+                []
+              )
+              .map((group) => (
+                <div key={group.dialect} data-testid={`home-connections-group-${group.dialect}`}>
+                  <h3 className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                    {group.label}
+                    <span className="ml-1.5 font-mono text-[10px] font-semibold normal-case tracking-normal text-slate-600">
+                      {group.items.length}
+                    </span>
+                  </h3>
+                  <ul className="flex flex-wrap gap-2">
+                    {group.items.map((c) => (
+                      <li key={c.id}>
+                        <button
+                          type="button"
+                          data-testid={`home-connection-${c.id}`}
+                          onClick={() => openConnection(c.id)}
+                          title={[
+                            dialectLabel(c.dialect),
+                            c.name,
+                            c.host && (c.port ? `${c.host}:${c.port}` : c.host),
+                            c.database,
+                            c.username,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                          className="inline-flex max-w-full items-center gap-2 rounded-md border border-slate-800 bg-slate-900/40 px-2.5 py-1.5 text-[12px] font-semibold text-slate-200 hover:border-slate-600"
+                        >
+                          <Database className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+                          <span className="truncate">{c.name}</span>
+                          <span className="shrink-0 rounded border border-slate-700/80 bg-slate-950/80 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-400">
+                            {dialectLabel(c.dialect)}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+          </div>
         )}
       </section>
     </div>

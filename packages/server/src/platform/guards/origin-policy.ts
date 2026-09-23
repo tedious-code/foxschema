@@ -14,14 +14,48 @@
  * These functions are pure so they can be tested without a running server.
  */
 
+import { networkInterfaces } from 'node:os';
+
 /** Ports the dev setup legitimately serves the UI from. */
 const DEV_ORIGIN_PORTS = [5173, 5199, 3210, 3211];
+
+/**
+ * Literal addresses this machine answers on, for the dev allowlist.
+ *
+ * Why literal IPs and never hostnames: a page is only served from
+ * `http://192.168.1.69:5173` if something on this machine served it, so an
+ * Origin naming one of our own addresses is our own dev UI. A hostname proves
+ * nothing — DNS rebinding points `evil.com` at 127.0.0.1, the browser treats
+ * `http://evil.com:5173` as same-origin, and Vite (`allowedHosts: true`) serves
+ * it. The Origin is still `http://evil.com:5173`, so it stays refused.
+ *
+ * This is what `npm run dev` needed. Vite binds 0.0.0.0 and prints a `Network:`
+ * URL on the LAN address; opening it sent that address as Origin, which was not
+ * on the list, so every API call answered 403 and the UI looked disconnected.
+ */
+export function localDevHosts(): string[] {
+  const hosts = new Set<string>(['localhost', '127.0.0.1', '[::1]', '0.0.0.0']);
+  for (const addresses of Object.values(networkInterfaces())) {
+    for (const a of addresses ?? []) {
+      // Link-local IPv6 carries a zone id (`fe80::1%en0`) that cannot appear in
+      // an Origin, so it could never match; skip it rather than add dead entries.
+      if (a.family === 'IPv6' && a.address.toLowerCase().startsWith('fe80:')) continue;
+      hosts.add(a.family === 'IPv6' ? `[${a.address}]` : a.address);
+    }
+  }
+  return [...hosts];
+}
 
 export interface OriginPolicyOptions {
   /** Comma-separated explicit allowlist. Wins over everything else. */
   allowedOrigins?: string;
   /** False outside production, where the UI and API share an origin. */
   isProduction?: boolean;
+  /**
+   * Hosts the dev ports are allowed on, as they appear in an Origin (`[::1]`
+   * for IPv6). Defaults to `localDevHosts()`; tests pass a fixed list.
+   */
+  devHosts?: string[];
   /** The origin this server is reachable on, when it knows it. */
   selfOrigin?: string;
   /**
@@ -66,11 +100,11 @@ export function allowedOriginSet(options: OriginPolicyOptions = {}): Set<string>
   const isProduction = options.isProduction ?? process.env.NODE_ENV === 'production';
   if (!isProduction) {
     // Dev serves the UI and the API on different ports, so same-origin does not
-    // hold and the Vite ports have to be named. Deliberately a fixed list, not
-    // "any localhost port".
-    for (const port of DEV_ORIGIN_PORTS) {
-      out.add(`http://localhost:${port}`);
-      out.add(`http://127.0.0.1:${port}`);
+    // hold and the Vite ports have to be named. Deliberately a fixed list of
+    // ports, not "any localhost port", on this machine's own literal addresses
+    // — see `localDevHosts` for why hostnames other than `localhost` are out.
+    for (const host of options.devHosts ?? localDevHosts()) {
+      for (const port of DEV_ORIGIN_PORTS) out.add(`http://${host}:${port}`);
     }
   }
   return out;

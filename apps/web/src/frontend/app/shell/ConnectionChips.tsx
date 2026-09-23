@@ -9,12 +9,18 @@
  */
 import React from 'react';
 import { CheckCircle2, RefreshCw, Settings } from 'lucide-react';
+import { FilterPicker, connectionPickerOption } from '@/shared/components/FilterPicker';
 import { dialectLabel } from '@/shared/lib/dialectLabel';
 
 export interface ConnectionChipOption {
   id: string;
   name: string;
   dialect: string;
+  host?: string;
+  port?: number;
+  database?: string;
+  schema?: string;
+  username?: string;
 }
 
 export interface ConnectionChipProps {
@@ -65,6 +71,10 @@ export function ConnectionChip({
   const editTestId = side === 'source' ? 'source-config-btn' : 'target-config-btn';
   const connectedTestId = side === 'source' ? 'source-connected-btn' : 'target-connected-btn';
   const connectTestId = side === 'source' ? 'source-connect-btn' : 'target-connect-btn';
+  const selected = connections.find((c) => c.id === selectedId);
+  const pickerSummary = selected
+    ? `${selected.name || '(unnamed)'} · ${dialectLabel(selected.dialect)}`
+    : '— Saved —';
 
   return (
     <div
@@ -90,30 +100,27 @@ export function ConnectionChip({
         {label}
       </span>
       {connections.length > 0 && (
-        <select
-          data-testid={savedTestId}
-          value={selectedId ?? ''}
-          onChange={(e) => e.target.value && onSelect(e.target.value)}
-          title="Saved connections"
-          // No shrink-0: the chip itself is `min-w-0 flex-1`, so a crowded toolbar
-        // collapses its box while its children keep their intrinsic width. The
-        // label and the buttons genuinely cannot shrink, so with this select
-        // refusing too, ~210px of content sat in a 95px box and spilled across
-        // the toolbar — far enough that the "Same DB" pill covered the edit
-        // button and swallowed the click. This select already truncates, so it
-        // is the one that can give ground.
-        className="min-w-0 max-w-[12rem] flex-1 truncate rounded-full border border-slate-700/60 bg-slate-950 px-2 py-0.5 text-[11px] text-slate-200 accent-focus focus:outline-none"
-        >
-          <option value="">— Saved —</option>
-          {connections.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name} · {dialectLabel(c.dialect)}
-            </option>
-          ))}
-        </select>
+        <FilterPicker
+          mode="single"
+          testId={savedTestId}
+          className="min-w-0 max-w-[12rem] flex-1"
+          options={connections.map((c) => ({
+            ...connectionPickerOption(c),
+            testId: `${savedTestId}-option-${c.id}`,
+          }))}
+          selectedId={selectedId ?? null}
+          onSelect={(id) => {
+            if (id) onSelect(id);
+          }}
+          clearLabel="— Saved —"
+          summary={pickerSummary}
+          title="Saved connections — search by name, host, database, user, or port"
+          placeholder="Search name, host, db, user, port…"
+          triggerClassName="flex w-full min-w-0 items-center gap-1 truncate rounded-full border border-slate-700/60 bg-slate-950 px-2 py-0.5 text-left text-[11px] text-slate-200 accent-focus focus:outline-none"
+        />
       )}
       <span
-        className={`hidden min-w-0 max-w-[7rem] truncate font-mono text-[10px] font-medium xl:inline ${
+        className={`pointer-events-none hidden min-w-0 max-w-[7rem] truncate font-mono text-[10px] font-medium xl:inline ${
           summary ? tone.summary : tone.empty
         }`}
         title={summary ?? undefined}

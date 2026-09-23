@@ -94,12 +94,20 @@ CREATE VIEW v_customers AS SELECT id, name FROM customers;
     // Browse's own bar, with no Original/Target and no swap. Compare keeps its
     // two-sided grid and its own Browse buttons — untouched by this pane.
     expect(await driver.locator('[data-testid="browse-bar"]').isVisible()).toBe(true);
-    expect(await driver.locator('[data-testid="source-saved-select"]').count()).toBe(0);
+    expect(await driver.locator('[data-testid="source-saved-select-trigger"]').count()).toBe(0);
 
-    const select = driver.locator('[data-testid="browse-connection-select"]');
-    const option = select.locator('option', { hasText: NAME });
-    await option.waitFor({ state: 'attached', timeout: 15_000 });
-    await select.selectOption((await option.getAttribute('value'))!);
+    const trigger = driver.locator('[data-testid="browse-connection-select-trigger"]');
+    await trigger.waitFor({ state: 'visible', timeout: 15_000 });
+    await trigger.click();
+    const filter = driver.locator('[data-testid="browse-connection-select-filter"]');
+    await filter.waitFor({ state: 'visible', timeout: 5_000 });
+    await filter.fill(NAME);
+    const option = driver
+      .locator('[data-testid^="browse-connection-option-"]')
+      .filter({ hasText: NAME })
+      .first();
+    await option.waitFor({ state: 'visible', timeout: 15_000 });
+    await option.click();
 
     await driver.waitForSelector('[data-testid="browse-type-filter"]', { timeout: 30_000 });
 

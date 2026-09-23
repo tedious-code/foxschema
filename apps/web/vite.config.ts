@@ -63,6 +63,12 @@ export default defineConfig({
         // Match DEFAULT_API_PORT (3210). Override with API_PORT when needed.
         target: `http://localhost:${process.env.API_PORT || 3210}`,
         changeOrigin: true,
+        // Origin is forwarded untouched, on purpose. Rewriting it to a trusted
+        // value would switch the API's origin check off for everything that
+        // reaches this dev server, including a DNS-rebound page (Vite serves any
+        // Host — see `allowedHosts` above). The API allows this machine's own
+        // addresses in dev; a forwarded preview hostname (Cursor, Codespaces)
+        // has to be named in FOX_ALLOWED_ORIGINS.
       },
     },
   },

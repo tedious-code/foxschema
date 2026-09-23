@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { allowedOriginSet, isAllowedOrigin, requestOriginFrom } from './origin-policy';
+import { allowedOriginSet, isAllowedOrigin, localDevHosts, requestOriginFrom } from './origin-policy';
 
 const dev = { isProduction: false, allowedOrigins: '' };
 const prod = { isProduction: true, allowedOrigins: '', selfOrigin: 'https://fox.example.com' };
@@ -31,7 +31,13 @@ describe('the hole this closes', () => {
 
 describe('what must keep working', () => {
   it('allows the dev UI ports outside production', () => {
-    for (const o of ['http://localhost:5173', 'http://localhost:5199', 'http://127.0.0.1:5199']) {
+    for (const o of [
+      'http://localhost:5173',
+      'http://localhost:5199',
+      'http://127.0.0.1:5199',
+      'http://[::1]:5173',
+      'http://localhost:3210',
+    ]) {
       expect(isAllowedOrigin(o, dev)).toBe(true);
     }
   });
@@ -109,5 +115,57 @@ describe('explicit configuration', () => {
     expect(requestOriginFrom('https', 'app.example.com')).toBe('https://app.example.com');
     expect(requestOriginFrom('http', 'localhost:3210')).toBe('http://localhost:3210');
     expect(requestOriginFrom('http', undefined)).toBeUndefined();
+  });
+});
+
+describe('npm run dev from an address other than localhost', () => {
+  /**
+   * Vite binds 0.0.0.0 and prints a `Network:` URL on the machine's LAN address.
+   * Opening it sent that address as Origin, which was not on the list, so every
+   * API call — reads included, once an Origin was present — answered 403 and the
+   * UI looked disconnected from its API.
+   */
+  const lanDev = { ...dev, devHosts: ['localhost', '127.0.0.1', '[::1]', '0.0.0.0', '192.168.1.69'] };
+
+  it("allows the dev ports on this machine's own LAN address", () => {
+    expect(isAllowedOrigin('http://192.168.1.69:5173', lanDev)).toBe(true);
+  });
+
+  it('allows IPv6 loopback and the 0.0.0.0 bind address', () => {
+    expect(isAllowedOrigin('http://[::1]:5173', lanDev)).toBe(true);
+    expect(isAllowedOrigin('http://0.0.0.0:5173', lanDev)).toBe(true);
+  });
+
+  it('still refuses a port the dev setup does not use, even on our own address', () => {
+    expect(isAllowedOrigin('http://192.168.1.69:1337', lanDev)).toBe(false);
+  });
+
+  it('still refuses somebody else\'s address', () => {
+    expect(isAllowedOrigin('http://192.168.1.70:5173', lanDev)).toBe(false);
+  });
+
+  it('never trusts a hostname, which is what a DNS-rebinding attack looks like', () => {
+    // evil.com rebound to 127.0.0.1 is same-origin to the browser and Vite
+    // serves it (allowedHosts: true), but the Origin still names the hostname.
+    // Trusting it — e.g. by rewriting Origin in the dev proxy — would hand the
+    // page the developer's saved database connections.
+    expect(isAllowedOrigin('http://evil.com:5173', lanDev)).toBe(false);
+    expect(isAllowedOrigin('https://preview.example.dev', lanDev)).toBe(false);
+  });
+
+  it('does not extend any of this to production', () => {
+    const lanProd = { ...prod, devHosts: lanDev.devHosts };
+    expect(isAllowedOrigin('http://192.168.1.69:5173', lanProd)).toBe(false);
+  });
+
+  it('discovers the real interfaces by default, including loopback in both families', () => {
+    const hosts = localDevHosts();
+    expect(hosts).toEqual(expect.arrayContaining(['localhost', '127.0.0.1', '[::1]', '0.0.0.0']));
+    // Every entry must be usable verbatim inside an Origin: no zone ids, IPv6
+    // bracketed.
+    for (const h of hosts) {
+      expect(h).not.toContain('%');
+      if (h.includes(':')) expect(h.startsWith('[') && h.endsWith(']')).toBe(true);
+    }
   });
 });
