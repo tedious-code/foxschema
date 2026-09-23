@@ -31,9 +31,6 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: 22
-          # package-lock.json is gitignored here; setup-node@v5 defaults
-          # package-manager-cache to true and fails outright without a lockfile.
-          package-manager-cache: false
       # npm 10 (what Node 22 ships) cannot resolve this workspace graph
       # without a lockfile — arborist dies in #loadPeerSet on vitest with
       # "Cannot read properties of null (reading 'edgesOut')". npm 11 does
@@ -43,7 +40,7 @@ jobs:
       # Generate lockfile on the fly so npm audit has a full dependency graph.
       # Consider committing package-lock.json for faster, deterministic CI.
       - name: Generate lockfile
-        run: npm install --ignore-scripts
+        run: npm ci --ignore-scripts
 
       # Hard block — Critical vulns in production dependencies.
       # Verifies every package in the lockfile against the registry's own
@@ -97,9 +94,6 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: 22
-          # package-lock.json is gitignored here; setup-node@v5 defaults
-          # package-manager-cache to true and fails outright without a lockfile.
-          package-manager-cache: false
       # npm 10 (what Node 22 ships) cannot resolve this workspace graph
       # without a lockfile — arborist dies in #loadPeerSet on vitest with
       # "Cannot read properties of null (reading 'edgesOut')". npm 11 does
@@ -107,7 +101,7 @@ jobs:
       - run: npm i -g npm@11
 
       - name: Install dependencies
-        run: npm install --ignore-scripts
+        run: npm ci --ignore-scripts
 
       # Errors (inject/eval/ReDoS) cause non-zero exit and block the PR.
       # Warnings (detect-non-literal-fs-filename) are informational — legitimate
@@ -135,9 +129,6 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: 22
-          # package-lock.json is gitignored here; setup-node@v5 defaults
-          # package-manager-cache to true and fails outright without a lockfile.
-          package-manager-cache: false
       # npm 10 (what Node 22 ships) cannot resolve this workspace graph
       # without a lockfile — arborist dies in #loadPeerSet on vitest with
       # "Cannot read properties of null (reading 'edgesOut')". npm 11 does
@@ -145,7 +136,7 @@ jobs:
       - run: npm i -g npm@11
 
       - name: Install dependencies (ignore-scripts)
-        run: npm install --ignore-scripts
+        run: npm ci --ignore-scripts
 
       - name: Scan node_modules
         run: npm run scan:deps-security -- --report deps-backdoor-report.json

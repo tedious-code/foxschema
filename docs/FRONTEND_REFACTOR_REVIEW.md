@@ -1,5 +1,11 @@
 # Frontend refactor plan — review, and the version adapted to this codebase
 
+> **Status: landed (verified 2026-09-21).** `apps/web/src/frontend` is
+> `app/` + `features/` + `shared/`, and `architecture.test.ts` enforces the
+> `app -> features -> shared` direction. This document is the record of the
+> reasoning and of which parts of the original plan were rejected — not a map
+> of where anything is. For that see `docs/CODE_MAP.md`.
+
 Review of `frontend-feature-domain-refactor-plan.md`, measured against the
 actual frontend rather than against the plan's generic example.
 

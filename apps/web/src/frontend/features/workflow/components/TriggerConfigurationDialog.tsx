@@ -13,10 +13,8 @@ import {
   Code2,
   GitBranch,
   Globe2,
-  Puzzle,
   Play,
   Plus,
-  Radio,
   RefreshCw,
   RotateCcw,
   Save,
@@ -108,59 +106,6 @@ function InputDataEditor({
   );
 }
 
-/** Opaque plugin config bag for custom triggers. */
-function CustomConfigEditor({
-  value,
-  onChange,
-}: {
-  value: Record<string, unknown>;
-  onChange: (value: Record<string, unknown>) => void;
-}): React.JSX.Element {
-  const [text, setText] = useState(() => JSON.stringify(value ?? {}, null, 2));
-  const jsonEditorTheme = useJsonEditorTheme();
-  const [error, setError] = useState<string | null>(null);
-
-  return (
-    <div className="span-2">
-      <Label>Plugin config (JSON object)</Label>
-      <div className="monaco-frame">
-        <Editor
-          height="160px"
-          language="json"
-          theme={jsonEditorTheme}
-          value={text}
-          onChange={(next) => {
-            const raw = next ?? '';
-            setText(raw);
-            if (!raw.trim()) {
-              onChange({});
-              setError(null);
-              return;
-            }
-            try {
-              const parsed = JSON.parse(raw) as unknown;
-              if (
-                !parsed ||
-                typeof parsed !== 'object' ||
-                Array.isArray(parsed)
-              ) {
-                setError('Config must be a JSON object.');
-                return;
-              }
-              onChange(parsed as Record<string, unknown>);
-              setError(null);
-            } catch {
-              setError('Not valid JSON — fix before saving.');
-            }
-          }}
-          options={JSON_EDITOR_OPTIONS}
-        />
-      </div>
-      {error ? <div className="field-error">{error}</div> : null}
-    </div>
-  );
-}
-
 /**
  * Live "next 5 runs" preview. Each fire time is shown in the schedule's own
  * timezone and, when it differs, in the viewer's local timezone as well.
@@ -245,16 +190,6 @@ const TRIGGER_META = {
     description: 'Allow other workflows to call this one via workflow.sub.',
     icon: GitBranch,
   },
-  event: {
-    label: 'Event Trigger',
-    description: 'Subscribe to an internal pub/sub topic between workflows.',
-    icon: Radio,
-  },
-  custom: {
-    label: 'Custom Trigger',
-    description: 'Extend activation through a plugin-owned trigger.',
-    icon: Puzzle,
-  },
 } as const;
 
 function getSections(kind: WorkflowTrigger['kind']): string[] {
@@ -302,10 +237,6 @@ function getSections(kind: WorkflowTrigger['kind']): string[] {
       ];
     case 'parent':
       return ['general', 'allow from', 'output', 'error handling'];
-    case 'event':
-      return ['general', 'subscription', 'output', 'error handling'];
-    case 'custom':
-      return ['general', 'plugin', 'output', 'error handling'];
   }
 }
 
@@ -349,6 +280,7 @@ export function TriggerConfigurationDialog({
       cronTrigger
         ? computeNextRuns(cronTrigger.cron, cronTrigger.timezone)
         : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed to the two fields the preview reads; depending on `cronTrigger` would recompute on every unrelated keystroke in the dialog
     [cronTrigger?.cron, cronTrigger?.timezone],
   );
 
@@ -817,67 +749,6 @@ export function TriggerConfigurationDialog({
                   </div>
                 )}
 
-                {trigger.kind === 'event' && section === 'subscription' && (
-                  <div className="trigger-form-grid">
-                    <div className="span-2">
-                      <Label>Topic</Label>
-                      <Input
-                        value={trigger.topic}
-                        onChange={(event) =>
-                          patch({ ...trigger, topic: event.target.value })
-                        }
-                      />
-                      <small className="form-help">
-                        Internal pub/sub topic. Delivery runtime is coming soon
-                        — definitions save and load today.
-                      </small>
-                    </div>
-                    <div className="span-2">
-                      <Label>Filter (optional)</Label>
-                      <Input
-                        value={trigger.filter ?? ''}
-                        placeholder="e.g. status == &quot;ready&quot;"
-                        onChange={(event) =>
-                          patch({
-                            ...trigger,
-                            filter: event.target.value.trim()
-                              ? event.target.value
-                              : undefined,
-                          })
-                        }
-                      />
-                      <small className="form-help">
-                        Opaque filter expression — evaluation is deferred with
-                        the event bus.
-                      </small>
-                    </div>
-                  </div>
-                )}
-
-                {trigger.kind === 'custom' && section === 'plugin' && (
-                  <div className="trigger-form-grid">
-                    <div className="span-2">
-                      <Label>Plugin id</Label>
-                      <Input
-                        value={trigger.pluginId}
-                        placeholder="acme/trigger.my-source"
-                        onChange={(event) =>
-                          patch({ ...trigger, pluginId: event.target.value })
-                        }
-                      />
-                      <small className="form-help">
-                        Plugin-owned trigger runtime is coming soon — config is
-                        persisted for when the registry lands.
-                      </small>
-                    </div>
-                    <CustomConfigEditor
-                      key={trigger.id}
-                      value={trigger.config}
-                      onChange={(config) => patch({ ...trigger, config })}
-                    />
-                  </div>
-                )}
-
                 {section !== 'general' &&
                   !(
                     trigger.kind === 'manual' && section === 'input parameters'
@@ -895,9 +766,7 @@ export function TriggerConfigurationDialog({
                     (trigger.kind === 'http' || trigger.kind === 'webhook') &&
                     ['authentication', 'request validation'].includes(section)
                   ) &&
-                  !(trigger.kind === 'parent' && section === 'allow from') &&
-                  !(trigger.kind === 'event' && section === 'subscription') &&
-                  !(trigger.kind === 'custom' && section === 'plugin') && (
+                  !(trigger.kind === 'parent' && section === 'allow from') && (
                     <div className="trigger-section-placeholder">
                       <Code2 size={24} />
                       <h4>{section} settings</h4>

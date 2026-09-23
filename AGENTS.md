@@ -1,8 +1,9 @@
 # AGENTS.md
 
 Fox Schema (`foxschema`) is a database schema diff & migration tool: an npm-workspaces
-monorepo delivered as a web app (`apps/web` = Express API + React/Vite UI), a CLI
-(`apps/cli`), and the dialect engine (`packages/sql` + `packages/db`). See `README.md` and
+monorepo delivered as a web app (`apps/web` = React/Vite UI served beside the Fastify API
+in `packages/server`), a CLI (`apps/cli`), and the dialect engine (`packages/sql` +
+`packages/db`). See `README.md` and
 `CONTRIBUTING.md` for the product overview and the canonical dev/test/build commands.
 
 ## Naming conventions
@@ -26,14 +27,14 @@ Standard commands live in `CONTRIBUTING.md` and `package.json` scripts (`npm run
   points at the nvm-installed Node 24; nvm `default` is also 24).
 - Do **not** switch to the base image's `/exec-daemon/node` (v22.14): under it the three
   SQL-editor "code cell" worker tests in
-  `apps/web/src/backend/api/code-cell-execute.test.ts` fail with `Unknown file extension
+  `packages/server/src/features/sql-editor/` fail with `Unknown file extension
   ".ts"` (tsx-in-`worker_threads` incompatibility on that Node). On Node 24 the full
   suite is green.
 - `better-sqlite3` ships N-API prebuilds (ABI-stable), so its native addon works across
   Node 22/24 without reinstalling — a Node switch alone does not require `npm install`.
 
 ### Running the app
-- `npm run dev` runs the Express API (`:3210`) and Vite UI (`:5173`) together; open the
+- `npm run dev` runs the Fastify API (`:3210`) and Vite UI (`:5173`) together; open the
   UI at http://localhost:5173. API liveness: `GET http://localhost:3210/api/health`
   → `{"ok":true}`. Default mode is single-user (no login).
 - Vite is configured with `server.host: true`, `server.strictPort: true`, and
@@ -59,7 +60,7 @@ Standard commands live in `CONTRIBUTING.md` and `package.json` scripts (`npm run
 
 ### Lint
 - `npm run lint` currently exits non-zero due to **one pre-existing error** in
-  `apps/web/src/frontend/components/sql-editor/DataGrid.tsx`: `Definition for rule
+  `apps/web/src/frontend/features/sql-editor/components/DataGrid.tsx`: `Definition for rule
   'react-hooks/exhaustive-deps' was not found` (the eslint config references a
   react-hooks rule whose plugin isn't loaded). This is unrelated to environment setup —
   don't assume you broke lint. The other ~49 items are pre-existing `security/*` warnings.

@@ -48,7 +48,6 @@ export const SelectColumnPicker: React.FC<Props> = ({ open, anchor, onClose }) =
       mutateSql(() => after);
       refresh();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only on open
   }, [open]);
 
   // Close when clicking outside the box (defer so the opening click doesn't dismiss it).

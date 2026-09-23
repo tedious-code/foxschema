@@ -31,7 +31,6 @@ process.argv = process.argv.slice(0, 1);
 function lockdownWorkerGlobals(): void {
   neutralizeCodeCellHostBreakouts();
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     delete (globalThis as any).process;
   } catch {
     /* ignore */

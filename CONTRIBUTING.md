@@ -25,7 +25,7 @@ npm install                       # installs the whole workspace
 docker compose up -d
 bash scripts/seed/seed-all.sh all # seed demo_a/demo_b schemas into each
 
-npm run dev                       # Express API + Vite UI (single-user mode)
+npm run dev                       # Fastify API + Vite UI (single-user mode)
 ```
 
 `npm run dev` serves the UI on **http://localhost:5173** and the API on **:3210**.
@@ -51,7 +51,7 @@ the Playwright E2E suite (see below).
 |-----------|------------|
 | [`packages/sql`](packages/sql) | Dialect knowledge: diff, migration generation, statement splitting, type mapping. Pure and browser-safe — zero deps, no Node built-ins. |
 | [`packages/db`](packages/db) | The Node runtime: introspection, drivers, pooling, migration execution. Depends on `packages/sql`. |
-| [`apps/web`](apps/web) | Express API + React/Vite UI (also served by the CLI launcher and Docker). |
+| [`apps/web`](apps/web) | React/Vite UI and the entry point that serves it (also used by the CLI launcher and Docker). |
 | [`apps/cli`](apps/cli) | Public `foxschema` CLI — browser launcher, desktop shortcut, line commands, Ink TUI. |
 | [`apps/e2e`](apps/e2e) | Playwright E2E tests against the dockerized databases. |
 
@@ -113,12 +113,12 @@ A few rules that have bitten people before (the full set is in [CLAUDE.md](CLAUD
   match key from `compare.module.ts` — use `source?.name` / `targetTable?.name` for
   real DDL (native casing; case-sensitive on MySQL).
 - **The app's metadata-DB migrations are append-only** — never edit a shipped
-  migration in `apps/web/src/backend/database/schema.ts`; add a new one.
+  migration in `packages/server/src/database/schema.ts`; add a new one.
 - **Never store database passwords client-side or in history.** Saved connections
   are encrypted server-side; only host/database/schema/port/username reach the browser.
 - **Keep React hooks above any early `return`** (a rules-of-hooks crash has happened).
 - **The frontend imports nothing from workspace packages** — it uses standalone copies
-  in `apps/web/src/frontend/lib/` that re-export `@foxschema/sql`.
+  in `apps/web/src/frontend/shared/lib/` that re-export `@foxschema/sql`.
 
 ## Pull requests
 
