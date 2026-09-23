@@ -41,11 +41,9 @@ export function dateInputFromDraft(kind: 'date' | 'timestamp', draft: string): s
   const ymd = `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
   if (kind === 'date') return ymd;
   if (cut < 0) return '';
-  const timeBits = v.slice(cut + 1).split(':');
-  if (timeBits.length < 2) return '';
-  const [hh, mm] = timeBits;
-  if (!hh || !mm || ![hh, mm].every((p) => /^\d+$/.test(p))) return '';
-  return `${ymd}T${hh.padStart(2, '0')}:${mm.padStart(2, '0')}`;
+  const parts = timestampClockParts(v);
+  if (!parts) return '';
+  return `${ymd}T${parts.clock}`;
 }
 
 interface Props {
@@ -60,6 +58,51 @@ interface Props {
 
 function daysInMonth(year: number, month0: number): number {
   return new Date(year, month0 + 1, 0).getDate();
+}
+
+function timestampClockParts(draft: string): {
+  value: string;
+  dateTimeSeparator: number;
+  clock: string;
+  suffix: string;
+} | null {
+  const value = (draft ?? '').trim();
+  const space = value.indexOf(' ');
+  const tSep = value.indexOf('T');
+  const dateTimeSeparator = space >= 0 ? space : tSep >= 0 ? tSep : -1;
+  if (dateTimeSeparator < 0) return null;
+  const rest = value.slice(dateTimeSeparator + 1);
+  const minute = /^(\d{1,2}):(\d{2})/.exec(rest);
+  if (!minute) return null;
+  let consumed = minute[0].length;
+  let clock = `${minute[1]!.padStart(2, '0')}:${minute[2]!}`;
+  if (rest[consumed] === ':') {
+    const seconds = rest.slice(consumed + 1, consumed + 3);
+    if (/^\d{2}$/.test(seconds)) {
+      clock += `:${seconds}`;
+      consumed += 3;
+    }
+  }
+  return {
+    value,
+    dateTimeSeparator,
+    clock,
+    suffix: rest.slice(consumed),
+  };
+}
+
+function replaceTimestampDate(draft: string, date: string): string {
+  if (dateInputFromDraft('date', draft) === date) return draft;
+  const parts = timestampClockParts(draft);
+  if (!parts) return draftFromDateInput('timestamp', `${date}T00:00`);
+  return `${date}${parts.value.slice(parts.dateTimeSeparator)}`;
+}
+
+function replaceTimestampClock(draft: string, clock: string, fallbackDate: string): string {
+  const parts = timestampClockParts(draft);
+  const normalizedClock = clock.length === 5 ? `${clock}:00` : clock;
+  if (!parts) return `${fallbackDate} ${normalizedClock}`;
+  return `${parts.value.slice(0, parts.dateTimeSeparator + 1)}${normalizedClock}${parts.suffix}`;
 }
 
 export const PeekDatePicker: React.FC<Props> = ({
@@ -121,9 +164,7 @@ export const PeekDatePicker: React.FC<Props> = ({
     if (kind === 'date') {
       onChange(`${y}-${m}-${d}`);
     } else {
-      const existing = dateInputFromDraft('timestamp', value);
-      const time = existing.includes('T') ? existing.split('T')[1] : '00:00';
-      onChange(draftFromDateInput('timestamp', `${y}-${m}-${d}T${time}`));
+      onChange(replaceTimestampDate(value, `${y}-${m}-${d}`));
     }
     setOpen(false);
   };
@@ -166,6 +207,7 @@ export const PeekDatePicker: React.FC<Props> = ({
         <input
           data-testid={`peek-row-datetime-native-${fieldName}`}
           type="datetime-local"
+          step={1}
           value={dateInputFromDraft('timestamp', value)}
           disabled={disabled}
           onChange={(e) => onChange(draftFromDateInput('timestamp', e.target.value))}
@@ -242,17 +284,15 @@ export const PeekDatePicker: React.FC<Props> = ({
                 data-testid={`peek-row-time-${fieldName}`}
                 className="mt-0.5 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-[12px] text-slate-100"
                 value={(() => {
-                  const html = dateInputFromDraft('timestamp', value);
-                  if (!html.includes('T')) return '00:00:00';
-                  const t = html.split('T')[1]!;
-                  return t.length === 5 ? `${t}:00` : t;
+                  const clock = timestampClockParts(value)?.clock;
+                  if (!clock) return '00:00:00';
+                  return clock.length === 5 ? `${clock}:00` : clock;
                 })()}
                 onChange={(e) => {
                   const datePart =
                     dateInputFromDraft('date', value) ||
                     `${view.y}-${String(view.m + 1).padStart(2, '0')}-${String(view.d).padStart(2, '0')}`;
-                  const t = e.target.value.length === 5 ? `${e.target.value}:00` : e.target.value;
-                  onChange(`${datePart} ${t}`);
+                  onChange(replaceTimestampClock(value, e.target.value, datePart));
                 }}
               />
             </label>

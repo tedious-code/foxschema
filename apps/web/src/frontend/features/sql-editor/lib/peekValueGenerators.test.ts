@@ -78,6 +78,8 @@ describe('date draft ↔ input', () => {
 
   it('round-trips timestamp via datetime-local', () => {
     expect(draftFromDateInput('timestamp', '2024-03-05T14:30')).toBe('2024-03-05 14:30:00');
-    expect(dateInputFromDraft('timestamp', '2024-03-05 14:30:00')).toBe('2024-03-05T14:30');
+    expect(dateInputFromDraft('timestamp', '2024-03-05 14:30:00')).toBe(
+      '2024-03-05T14:30:00'
+    );
   });
 });
