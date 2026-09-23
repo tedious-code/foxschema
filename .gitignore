@@ -48,6 +48,11 @@ CHANGELOG.md
 # Public project docs must be tracked
 !README.md
 !CONTRIBUTING.md
+# The dialect checklist is required reading before touching a `*.sql-dialect.ts`
+# — CONTRIBUTING.md and docs/ARCHITECTURE.md both send contributors to it. The
+# `*.md` rules above had swallowed it, so nobody cloning the repo has ever
+# actually had the file those docs point at. Caught by doc-paths.test.ts.
+!packages/sql/src/providers/DIALECTS.md
 # Licence notices for bundled dependencies must ship with the product —
 # MIT/BSD/ISC all require their notice to travel with the code.
 !THIRD-PARTY-NOTICES.md
