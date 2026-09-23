@@ -19,7 +19,7 @@ has an equivalent split under different names, enforced by
 |---|---|---|
 | `@foxschema/core` | `@foxschema/sql` | Dialect knowledge, compare, SQL generation, access model. **Zero deps, no Node built-ins.** |
 | `@foxschema/database` | `@foxschema/db` | Drivers, pools, connection factory, circuit breaker. Depends on `sql`. |
-| `@foxschema/api` | `apps/web/src/backend` | HTTP, auth, routes. |
+| `@foxschema/api` | `packages/server` | HTTP, auth, routes. |
 | `@foxschema/shared` | — | Not separate; shared types live in `sql`. |
 
 **The dependency rule is one-way and tested**: `sql` never imports `db`; the
@@ -31,13 +31,17 @@ architecture does not.
 
 ---
 
-## 2. HTTP: two servers, Express is still the default
+## 2. HTTP: Fastify only
 
-`FOX_SERVER=fastify` selects the Fastify edge (`api/fastify-server.ts`);
-anything else uses Express (`api/server.ts`). Both mount the same Express
-router, so behaviour is identical.
+**Express is gone.** `packages/server/src/api/fastify-server.ts` is the only HTTP
+edge; `api/routes.ts` declares the route tree and `bindRoutes` registers each
+route with Fastify, using that route's guards as its `preHandler` chain. There
+is no second server, no bridge, and no `express` dependency in any workspace.
 
-### Why Fastify is not yet the default
+This section is kept because the *reasons* still matter — they are why the
+routing layer looks the way it does, and they are the measurements not to redo.
+
+### Why Express came out
 
 Measured, 50 concurrent keep-alive connections, load generator in its **own
 process**:
@@ -48,33 +52,12 @@ express                        15209 req/s   p50 2.80ms   p99 9.15ms
 fastify + express bridge        6786 req/s   p50 5.42ms   p99 11.10ms
 ```
 
-Fastify is ~3.5× Express. The **bridge** is what costs: `app.use()` runs
-Express's entire middleware chain on every request, native routes included.
+Fastify is ~3.5x Express. The **bridge** was what cost: `app.use()` ran
+Express's entire middleware chain on every request, native routes included —
+which is why running both at once was slower than either alone, and why the
+migration had to finish rather than settle into a permanent hybrid.
 
-Two traps already paid for:
-
-1. **Benchmarking in-process.** An earlier run put the load generator in the
-   server process and reported Fastify as *slower with a better tail*. Both
-   halves were artifacts of sharing one event loop. Always measure from a
-   separate process.
-2. **`setNotFoundHandler` delegation without handing over the body.** Reaching
-   Express only when Fastify has no route is the right shape, but Fastify parses
-   the body first, so Express's parser saw an empty stream and **every POST
-   returned 500** while GETs kept working. A pass-through content-type parser
-   does not fix it.
-
-   The fix is to give Express the already-parsed body and mark it parsed —
-   `body-parser` skips when `req._body` is set, which is what that flag is for:
-
-   ```ts
-   app.setNotFoundHandler((req, reply) => {
-     const raw = req.raw as unknown as { body?: unknown; _body?: boolean };
-     if (req.body !== undefined) { raw.body = req.body; raw._body = true; }
-     expressApp(req.raw, reply.raw);
-   });
-   ```
-
-With that in place, measured again:
+After the fallback was wired correctly, and before the last routes were ported:
 
 ```
 fastify native route          43984 req/s   p50 1.06ms   p99 2.25ms
@@ -82,26 +65,27 @@ fastify -> express fallback   26171 req/s   p50 1.78ms   p99 4.29ms
 express standalone            15209 req/s   p50 2.80ms   p99 9.15ms
 ```
 
-A native route is ~2.5x Express, and an un-ported route is *still* faster than
-Express standalone because Fastify's HTTP layer handles it before handing off.
-**Porting routes is now incremental and safe**, which is the unlock the previous
-version of this document said was missing.
+That is the shape that made the port incremental and safe: an un-ported route
+was *still* faster than Express standalone, because Fastify's HTTP layer handled
+it before handing off. Both numbers are now historical — every route is native.
 
-### Removing Express entirely
+### Two traps already paid for — do not re-learn these
 
-The remaining surface, measured rather than guessed:
+1. **Benchmarking in-process.** An earlier run put the load generator in the
+   server process and reported Fastify as *slower with a better tail*. Both
+   halves were artifacts of sharing one event loop. Always measure from a
+   separate process.
 
-- 10 route files
-- 142 `res.status(`, 79 `res.json(`
-- cookies (`res.cookie` / `clearCookie`), `res.redirect`, `res.sendFile`
-- NDJSON streaming on `/migration/execute` (`res.write` / `res.end`)
+2. **`setNotFoundHandler` delegation without handing over the body.** Reaching
+   the fallback only when Fastify has no route is the right shape, but Fastify
+   parses the body first, so the downstream parser saw an empty stream and
+   **every POST returned 500** while GETs kept working. A pass-through
+   content-type parser does not fix it — the parsed body has to be handed over
+   and marked parsed.
 
-Port in batches, verifying each against the running server, and delete Express
-when the fallback stops being reached. Do not attempt it in one pass: the e2e
-suite that would catch a regression cannot run reliably on a machine that
-cannot hold all 11 engines.
-
----
+   The bridge this applied to no longer exists. It is recorded because the same
+   failure will appear the moment anything is mounted *behind* Fastify again
+   (a proxied engine route, an embedded third-party handler).
 
 ## 3. Resilience layers, and what each actually protects
 
@@ -109,8 +93,8 @@ cannot hold all 11 engines.
 |---|---|---|
 | Circuit breaker | `packages/db/src/cores/circuit-breaker.ts` | A dead or hanging database tying up request slots. Opens after 3 consecutive *availability* failures; a hanging target went 4s → 0ms. |
 | Pool error guard | `packages/db/src/cores/pool-error-guard.ts` | An idle-connection `'error'` event killing the process. This was a **real crash**, observed. |
-| Target lock | `backend/platform/guards/target-lock.ts` | Two people migrating the same schema at once. |
-| Rate limit | `backend/platform/guards/rate-limit.ts` | Endpoint floods. |
+| Target lock | `packages/server/src/platform/guards/target-lock.ts` | Two people migrating the same schema at once. |
+| Rate limit | `packages/server/src/platform/guards/rate-limit.ts` | Endpoint floods. |
 | Idempotency | `writeIdempotency` middleware | A retried write applying twice. |
 
 **Important distinction the circuit breaker makes**: a syntax error or
@@ -127,7 +111,7 @@ needs a lock the database holds; do not imply otherwise in UI copy.
 
 ## 4. Logging
 
-Pino, configured in `backend/platform/logger/logger.ts`.
+Pino, configured in `packages/server/src/platform/logger/logger.ts`.
 
 - **Fastify owns the logger** (`Fastify({ logger: loggerConfig() })`), which is
   what gives every line a request id without a correlation mechanism of our own.
@@ -222,7 +206,7 @@ takes an `ActorContext`, returns a value, testable with no HTTP server.
 
 | Suffix | Role |
 |---|---|
-| `*.routes.ts` | Express router: paths, middleware order, mounting |
+| `*.routes.ts` | Route declarations: paths, methods, and which guards run |
 | `*.guard.ts` | Middleware that admits or refuses a request |
 | `*.handler.ts` | One endpoint: parse the request, call a controller |
 | `*.controller.ts` | One feature: orchestrate services, own the cache seam |
@@ -290,13 +274,13 @@ engines and still missed this.
 
 | Concern | File |
 |---|---|
-| Express app | `backend/api/server.ts` |
-| Fastify edge | `backend/api/fastify-server.ts` |
-| Routes | `backend/api/routes.ts` |
+| Fastify edge | `packages/server/src/api/fastify-server.ts` |
+| Route tree | `packages/server/src/api/routes.ts` |
+| Route binding | `packages/server/src/platform/http/router.ts` |
 | Service pattern | `packages/server/src/features/compare/compare.service.ts` |
 | Module map | section 5 of this doc |
-| Logging | `backend/platform/logger/logger.ts` |
-| Target locks | `backend/platform/guards/target-lock.ts` |
+| Logging | `packages/server/src/platform/logger/logger.ts` |
+| Target locks | `packages/server/src/platform/guards/target-lock.ts` |
 | Circuit breaker | `packages/db/src/cores/circuit-breaker.ts` |
 | Pool guard | `packages/db/src/cores/pool-error-guard.ts` |
 | Logger interface | `packages/db/src/cores/logger.ts` |

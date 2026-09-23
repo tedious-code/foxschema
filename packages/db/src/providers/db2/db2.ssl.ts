@@ -50,7 +50,9 @@ export function resolveDb2SslConnectionString(
 export function materializeDb2CaPem(pem: string): string {
   const hash = createHash('sha256').update(pem).digest('hex').slice(0, 16);
   const dest = path.join(os.tmpdir(), `foxschema-db2-ca-${hash}.pem`);
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- os.tmpdir() plus a sha256 of the PEM itself — no caller-supplied path component
   if (!fs.existsSync(dest) || fs.readFileSync(dest, 'utf8') !== pem) {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- os.tmpdir() plus a sha256 of the PEM itself — no caller-supplied path component
     fs.writeFileSync(dest, pem, { encoding: 'utf8', mode: 0o600 });
   }
   return dest;

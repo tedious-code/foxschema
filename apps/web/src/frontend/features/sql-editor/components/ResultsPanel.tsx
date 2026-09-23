@@ -1093,9 +1093,13 @@ const SideBySideStatementSection: React.FC<{
       triggerIgnoreColumns.length > 0
         ? { ignoreColumns: triggerIgnoreColumns }
         : undefined,
-    [triggerIgnoreKey, triggerIgnoreColumns]
+    [triggerIgnoreColumns]
   );
 
+  // Both branches are already stable references — `keyNames` is state and
+  // `defaultKeys` is a memo — so this identity only changes when the keys
+  // actually change. That is why the memo below can depend on it directly
+  // instead of joining it into a string.
   const effectiveKeys = keyNames.length ? keyNames : defaultKeys;
 
   /** Key-align source ↔ dest (same pair as Data migrate) for a friendly visual. */
@@ -1108,7 +1112,7 @@ const SideBySideStatementSection: React.FC<{
       effectiveKeys,
       ignoreOpts
     );
-  }, [compareActive, sourceGrid, destGrid, effectiveKeys.join('\0'), ignoreOpts]);
+  }, [compareActive, sourceGrid, destGrid, effectiveKeys, ignoreOpts]);
 
   const { diffByConnection, badgeByConnection, legendBits, displayItems } = useMemo(() => {
     const diffByConnection: Record<string, GridDiffSummary> = {};

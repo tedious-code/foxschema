@@ -62,6 +62,7 @@ export function resolveAppVersion(): string {
   ];
   for (const path of candidates) {
     try {
+      // eslint-disable-next-line security/detect-non-literal-fs-filename -- three fixed candidates relative to this module and cwd
       const v = (JSON.parse(readFileSync(path, 'utf8')) as { version?: string }).version;
       if (v) return stripV(v);
     } catch {
@@ -105,7 +106,7 @@ export function parseUpdateFeed(
     latest,
     updateAvailable: !!latest && isNewer(latest, current),
     // Prefer explicit release links; otherwise the GitHub Release page
-    // (populated from docs/RELEASE_*.md) so “What’s new” shows ship notes.
+    // (populated from docs/releases/RELEASE_*.md) so “What’s new” shows ship notes.
     url: data.url || data.html_url || githubReleaseUrl(latest) || data.homepage,
     notes: data.notes || data.body || data.description || undefined,
   };

@@ -51,6 +51,18 @@ const COL_FIT_MAX_PX = 720;
 const ROW_NUM_PX = 48;
 const SYNC_COL_PX = 44;
 /** Fixed row height for windowing (must match rendered row). Off-screen pages live in pageCache LRU, not the DOM. */
+/**
+ * Shared empties for a result that did not come back.
+ *
+ * `result.ok ? result.columns : []` looks harmless and is not: the literal is a
+ * new array on every render, so six hooks downstream saw a changed dependency
+ * each time and redid their work. The `ok` branch is already stable — it is the
+ * same array off the same result object — so pinning the other branch makes
+ * both stable without a hook.
+ */
+const NO_COLUMNS: string[] = [];
+const NO_ROWS: unknown[][] = [];
+
 const ROW_H_PX = 28;
 /** Taller rows for Data Peek’s larger/bolder type. */
 const ROW_H_EMPHASIS_PX = 34;
@@ -571,8 +583,8 @@ export const DataGrid: React.FC<{
   }) => {
   const upsertVariable = useSqlEditorStore((s) => s.upsertVariable);
   const rowH = emphasis ? ROW_H_EMPHASIS_PX : ROW_H_PX;
-  const sourceColumns = result.ok ? result.columns : [];
-  const sourceRows = result.ok ? result.rows : [];
+  const sourceColumns = result.ok ? result.columns : NO_COLUMNS;
+  const sourceRows = result.ok ? result.rows : NO_ROWS;
 
   /**
    * Sorting and filtering applied to the rows already loaded.
@@ -698,12 +710,26 @@ export const DataGrid: React.FC<{
   const colKey = sourceColumns.join('\0');
   const colKinds = useMemo(
     () => computeColKinds(sourceColumns, sourceRows),
-    [colKey, sourceColumns, sourceRows]
+    [sourceColumns, sourceRows]
   );
 
+  /**
+   * Latest columns and rows, for the reset effect below.
+   *
+   * That effect is keyed on `colKey` — the column *names* — on purpose: paging
+   * through a table hands back a new rows array with the same columns, and
+   * re-running the reset would throw away the user's scroll position and column
+   * widths on every page. So it must read the current data without depending on
+   * it, which is what a ref is for. Listing `sourceRows` in the dependency array
+   * would satisfy the linter and break paging.
+   */
+  const latest = useRef({ columns: sourceColumns, rows: sourceRows });
+  latest.current = { columns: sourceColumns, rows: sourceRows };
+
   useEffect(() => {
-    setColOrder(identityOrder(sourceColumns.length));
-    setColWidths(computeColWidths(sourceColumns, sourceRows));
+    const { columns, rows } = latest.current;
+    setColOrder(identityOrder(columns.length));
+    setColWidths(computeColWidths(columns, rows));
     setFittedCols(new Set());
     setDragFrom(null);
     setDragOver(null);

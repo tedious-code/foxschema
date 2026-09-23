@@ -137,7 +137,7 @@ After publish, installed CLIs check
 
 - **What's new** opens the GitHub Release page
   `https://github.com/tedious-code/foxschema/releases/tag/vX.Y.Z`
-  (body = `docs/RELEASE_X.Y.Z.md` from `gh release create --notes-file`).
+  (body = `docs/releases/RELEASE_X.Y.Z.md` from `gh release create --notes-file`).
 - **Local CLI (`foxschema open`)** — toast / Settings offer **Update now**, which
   runs `npm install -g foxschema@latest` and relaunches the UI (no terminal).
 - **Docker / locked-down hosts** — toast offers **Copy command** instead

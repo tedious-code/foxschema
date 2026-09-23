@@ -70,7 +70,6 @@ const IDENT_PART = '(?:"[^"]+"|`[^`]+`|\\[[^\\]]+\\]|[A-Za-z_][\\w$]*)';
  * IDENT_PART can match one, so the repeated group cannot overlap itself —
  * there is no ambiguous split for the engine to backtrack through.
  */
-// eslint-disable-next-line security/detect-unsafe-regex -- repetitions are `.`-delimited; no overlap
 const IDENT = `${IDENT_PART}(?:\\s*\\.\\s*${IDENT_PART})*`;
 
 /**

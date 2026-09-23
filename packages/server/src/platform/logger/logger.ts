@@ -86,6 +86,7 @@ export function loggerConfig(options: LoggerOptions = {}): pino.LoggerOptions {
   };
 
   if (file) {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- the log file path is the operator's own configuration (FOX_LOG_FILE), not a request value
     mkdirSync(dirname(file), { recursive: true });
     return {
       ...base,
