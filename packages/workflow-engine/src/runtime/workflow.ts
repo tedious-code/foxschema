@@ -833,7 +833,12 @@ export class LocalRunScheduler {
     run.finishedAt = undefined;
     run.error = undefined;
     await this.options.runs.update(run);
-    this.startRun(run.id);
+    const workflow = await this.options.runs.getSnapshot(run.id);
+    if (workflow?.onOverlap === 'parallel') {
+      this.startRun(run.id);
+    } else {
+      this.startSerial(run.workflowId);
+    }
     return run;
   }
 
@@ -889,7 +894,7 @@ export class LocalRunScheduler {
         const queued = (await this.options.runs.list(workflowId, { status: ['queued'] }))
           .sort((a, b) => a.startedAt.localeCompare(b.startedAt))[0];
         if (!queued) return;
-        await this.runControlled(queued.id);
+        if (!(await this.runControlled(queued.id, true))) return;
       }
     })();
     this.serial.set(workflowId, job);
@@ -906,10 +911,10 @@ export class LocalRunScheduler {
   }
 
   private startRun(runId: string): void {
-    this.track(this.runControlled(runId));
+    this.track(this.runControlled(runId).then(() => undefined));
   }
 
-  private async runControlled(runId: string): Promise<void> {
+  private async runControlled(runId: string, serial = false): Promise<boolean> {
     // Waits here, still queued, while this instance is at its limit.
     await this.slots.acquire();
     let claimed: boolean;
@@ -918,6 +923,8 @@ export class LocalRunScheduler {
         runId,
         this.instanceId,
         this.leaseExpiry(),
+        serial,
+        this.now(),
       );
     } catch (error) {
       this.slots.release();
@@ -925,7 +932,7 @@ export class LocalRunScheduler {
     }
     if (!claimed) {
       this.slots.release();
-      return;
+      return false;
     }
     const controller = new AbortController();
     this.controls.set(runId, controller);
@@ -937,6 +944,7 @@ export class LocalRunScheduler {
       this.releaseLease(runId);
       this.slots.release();
     }
+    return true;
   }
 
   /**

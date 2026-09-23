@@ -645,14 +645,29 @@ class SqliteRunStore implements RunStore {
     runId: string,
     instanceId: string,
     expiresAt: string,
+    serial = false,
+    now: string = new Date().toISOString(),
   ): Promise<boolean> {
     const result = this.db
       .prepare(
         `UPDATE workflow_runs
          SET status = 'running', instance_id = ?, lease_expires_at = ?
-         WHERE id = ? AND status = 'queued'`,
+         WHERE id = ? AND status = 'queued'
+           AND (? = 0 OR NOT EXISTS (
+             SELECT 1 FROM workflow_runs AS active
+             WHERE active.workflow_id = workflow_runs.workflow_id
+               AND active.status = 'running'
+               AND active.id <> workflow_runs.id
+               -- Only a live lease blocks. A crashed worker leaves its row
+               -- 'running' with a lease that stops renewing; counting it would
+               -- stall this workflow's queue until some process restarted and
+               -- ran recover(), since the worker poll never reclaims leases.
+               -- Same rule interruptRunning uses to decide reclaimability.
+               AND active.lease_expires_at IS NOT NULL
+               AND active.lease_expires_at >= ?
+           ))`,
       )
-      .run(instanceId, expiresAt, runId);
+      .run(instanceId, expiresAt, runId, serial ? 1 : 0, now);
     return Number(result.changes) > 0;
   }
 

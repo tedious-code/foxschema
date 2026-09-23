@@ -8,7 +8,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Engine, parseWorkflowInput } from '../index.js';
+import { Engine, LocalRunScheduler, parseWorkflowInput } from '../index.js';
 
 const cleanup: string[] = [];
 
@@ -65,7 +65,139 @@ const workflow = parseWorkflowInput({
   ],
 });
 
+const queuedWorkflow = parseWorkflowInput({
+  ...workflow,
+  id: 'claim-race-queued',
+  name: 'Claim race queued',
+  onOverlap: 'queue',
+});
+
 describe('split-role queued-run claims', () => {
+  it('does not claim a queued serial run while a peer executes the workflow', async () => {
+    const { scheduler, workerA, workerB } = await harness();
+    let releaseFirst!: () => void;
+    let firstStarted!: () => void;
+    const firstBlocked = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const firstRunning = new Promise<void>((resolve) => {
+      firstStarted = resolve;
+    });
+    let started = 0;
+    const dispatchA = new LocalRunScheduler({
+      runs: workerA.stores.runs,
+      events: workerA.stores.events,
+      instanceId: 'worker-a',
+      runner: {
+        run: async (runId: string) => {
+          started += 1;
+          firstStarted();
+          await firstBlocked;
+          const run = (await workerA.stores.runs.get(runId))!;
+          run.status = 'succeeded';
+          run.finishedAt = new Date().toISOString();
+          await workerA.stores.runs.update(run);
+        },
+      } as never,
+    });
+    const dispatchB = new LocalRunScheduler({
+      runs: workerB.stores.runs,
+      events: workerB.stores.events,
+      instanceId: 'worker-b',
+      runner: {
+        run: async (runId: string) => {
+          started += 1;
+          const run = (await workerB.stores.runs.get(runId))!;
+          run.status = 'succeeded';
+          run.finishedAt = new Date().toISOString();
+          await workerB.stores.runs.update(run);
+        },
+      } as never,
+    });
+    try {
+      await scheduler.stores.workflows.put(queuedWorkflow);
+      await scheduler.scheduler.enqueue(queuedWorkflow);
+      await dispatchA.dispatchAvailable();
+      await firstRunning;
+
+      await scheduler.scheduler.enqueue(queuedWorkflow);
+      await dispatchB.dispatchAvailable();
+      await dispatchB.idle();
+
+      expect(started).toBe(1);
+
+      releaseFirst();
+      await dispatchA.idle();
+      await dispatchB.dispatchAvailable();
+      await dispatchB.idle();
+      expect(started).toBe(2);
+    } finally {
+      releaseFirst();
+      await dispatchA.idle();
+      await scheduler.close();
+      await workerA.close();
+      await workerB.close();
+    }
+  });
+
+  it('does not let a crashed worker block the queue once its lease lapses', async () => {
+    // A worker that dies mid-run leaves its row 'running'; its lease simply
+    // stops renewing. The serial guard must count only live leases, or every
+    // later run of the workflow waits until some process restarts — the worker
+    // poll never reclaims leases, only recover() at boot does.
+    const { scheduler, workerB } = await harness();
+    let started = 0;
+    const dispatchB = new LocalRunScheduler({
+      runs: workerB.stores.runs,
+      events: workerB.stores.events,
+      instanceId: 'worker-b',
+      runner: {
+        run: async (runId: string) => {
+          started += 1;
+          const run = (await workerB.stores.runs.get(runId))!;
+          run.status = 'succeeded';
+          run.finishedAt = new Date().toISOString();
+          await workerB.stores.runs.update(run);
+        },
+      } as never,
+    });
+    try {
+      await scheduler.stores.workflows.put(queuedWorkflow);
+      const { run: dead } = await scheduler.scheduler.enqueue(queuedWorkflow);
+      const lapsed = new Date(Date.now() - 60_000).toISOString();
+      expect(await scheduler.stores.runs.claimQueuedRun(dead!.id, 'dead-worker', lapsed)).toBe(true);
+      const { run: next } = await scheduler.scheduler.enqueue(queuedWorkflow);
+
+      await dispatchB.dispatchAvailable();
+      await dispatchB.idle();
+
+      expect(started).toBe(1);
+      expect((await scheduler.stores.runs.get(next!.id))?.status).toBe('succeeded');
+    } finally {
+      await dispatchB.idle();
+      await scheduler.close();
+      await workerB.close();
+    }
+  });
+
+  it('still blocks the queue behind a peer whose lease is live', async () => {
+    const { scheduler, workerB } = await harness();
+    try {
+      await scheduler.stores.workflows.put(queuedWorkflow);
+      const { run: active } = await scheduler.scheduler.enqueue(queuedWorkflow);
+      const live = new Date(Date.now() + 60_000).toISOString();
+      expect(await scheduler.stores.runs.claimQueuedRun(active!.id, 'worker-a', live)).toBe(true);
+      const { run: next } = await scheduler.scheduler.enqueue(queuedWorkflow);
+
+      expect(
+        await workerB.stores.runs.claimQueuedRun(next!.id, 'worker-b', live, true, new Date().toISOString()),
+      ).toBe(false);
+    } finally {
+      await scheduler.close();
+      await workerB.close();
+    }
+  });
+
   it('allows exactly one worker to execute a scheduler-owned queued run', async () => {
     const { scheduler, workerA, workerB } = await harness();
     try {

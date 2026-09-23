@@ -69,12 +69,19 @@ export interface RunStore {
   ): Promise<WorkflowRunRecord[]>;
   /**
    * Atomically take a queued run for this instance and establish its lease.
-   * Returns false when another worker already took it.
+   * Returns false when another worker already took it, or when `serial` is
+   * true and another run of the same workflow is running *under a live lease*.
+   *
+   * `now` decides which leases are live. A run whose lease has lapsed belongs
+   * to a worker that died — the lease design exists so nothing has to notice
+   * the death — and must not block the queue behind it.
    */
   claimQueuedRun(
     runId: string,
     instanceId: string,
     expiresAt: string,
+    serial?: boolean,
+    now?: string,
   ): Promise<boolean>;
   update(run: WorkflowRunRecord): Promise<void>;
   getSnapshot(id: string): Promise<WorkflowDef | undefined>;
