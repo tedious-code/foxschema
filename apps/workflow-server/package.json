@@ -20,12 +20,12 @@
     "start:worker": "tsx src/worker.ts"
   },
   "dependencies": {
-    "@fastify/rate-limit": "11.1.0",
+    "@fastify/rate-limit": "11.2.0",
     "@foxschema/workflow-contract": "*",
     "@foxschema/workflow-engine": "*",
-    "fastify": "5.12.4",
+    "fastify": "5.12.5",
     "fastify-raw-body": "6.0.1",
-    "tsx": "4.23.13",
-    "zod": "4.4.3"
+    "tsx": "4.23.15",
+    "zod": "4.6.5"
   }
 }
