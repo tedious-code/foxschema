@@ -24,7 +24,7 @@
     "@foxschema/workflow-contract": "*",
     "@foxschema/workflow-engine": "*",
     "fastify": "5.12.4",
-    "fastify-raw-body": "5.0.0",
+    "fastify-raw-body": "6.0.1",
     "tsx": "4.23.13",
     "zod": "4.4.3"
   }
