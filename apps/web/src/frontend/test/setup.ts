@@ -40,6 +40,15 @@ globalThis.matchMedia ??= ((query: string) => ({
 // Element.scrollTo is unimplemented in jsdom; grids call it on mount.
 Element.prototype.scrollTo ??= function scrollTo(): void {};
 
+// Nor is scrollIntoView. DataPeekPanel calls it from a requestAnimationFrame
+// callback to bring a newly opened peek into view, and jsdom runs animation
+// frames on a timer — so the call can land after the test's assertions, where
+// the TypeError becomes an *unhandled* error. Every test still passes and
+// Vitest fails the run anyway, intermittently. jsdom 30.1 / vitest 5.0.1 made
+// that timing common enough to break CI. Every browser has this method; the
+// test environment should too.
+Element.prototype.scrollIntoView ??= function scrollIntoView(): void {};
+
 /**
  * jsdom does not implement the deprecated `document.queryCommand*` API, and
  * Monaco's clipboard contribution probes it at module load — so any test that
