@@ -92,6 +92,27 @@ export function LokeeWeaveView({
   const targetVersionId = useLokeeHistoryStore((s) => s.targetVersionId);
   const setTargetVersionId = useLokeeHistoryStore((s) => s.setTargetVersionId);
   const [databases, setDatabases] = useState<LokeeDatabase[]>([]);
+  /**
+   * Whether the database list has answered at least once, success or failure.
+   *
+   * Until it has, "no active database" means "not known yet", not "none". The
+   * view used to treat the two alike: on open it rendered the "No schema history
+   * yet" empty state, then a spinner the moment the list arrived and picked a
+   * database, then the empty state again once that database's versions came
+   * back empty — a flash of the wrong answer on every first open, and the cause
+   * of an intermittent test failure that asserted during the flash.
+   */
+  const [databasesLoaded, setDatabasesLoaded] = useState(false);
+  /**
+   * The database whose versions are currently in `dto` (or whose load failed).
+   *
+   * `loading` is set by an effect, so it is updated *after* the render in which
+   * `activeId` changes — for one commit it still describes the previous
+   * database. When the list arrived and picked a database, that one commit
+   * rendered "No schema history yet" for a database whose versions had not been
+   * requested. Comparing against this instead is correct on the same render.
+   */
+  const [versionsFor, setVersionsFor] = useState<string | null>(null);
 
   const [dto, setDto] = useState<VersionGraphDTO>(EMPTY_DTO);
   const [loading, setLoading] = useState(true);
@@ -212,6 +233,8 @@ export function LokeeWeaveView({
         // A failure here is not fatal — the graph below reports its own error.
         if (!cancelled) setDatabases([]);
         void err;
+      } finally {
+        if (!cancelled) setDatabasesLoaded(true);
       }
     })();
     return () => {
@@ -240,10 +263,12 @@ export function LokeeWeaveView({
           versions,
           totalVersions: versions.length,
         });
+        setVersionsFor(activeId);
       } catch (err) {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : 'Failed to load schema history');
         setDto(EMPTY_DTO);
+        setVersionsFor(activeId);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -427,7 +452,10 @@ export function LokeeWeaveView({
 
   // Every hook above any early return — a rules-of-hooks crash has happened in
   // this codebase before.
-  if (loading) {
+  // Nothing is known yet: either the list has not answered (and no explicit
+  // `databaseId` was given), or a database is chosen but its versions are not in.
+  const undecided = activeId ? versionsFor !== activeId : !databasesLoaded;
+  if (loading || undecided) {
     return (
       <div className="flex flex-1 min-h-0 flex-col overflow-hidden" data-testid="lokee-weave-view">
           <div className="flex flex-1 items-center justify-center text-slate-400">
