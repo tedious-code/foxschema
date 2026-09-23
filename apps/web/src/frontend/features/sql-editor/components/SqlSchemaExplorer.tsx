@@ -10,7 +10,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { useSyncStore } from '@/app/store/useSyncStore';
-import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
+import { SCHEMA_ROUTINE_SCOPE, useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { getProviderSettings } from '@/shared/lib/provider-settings';
 import { TYPE_META } from '@/features/schema-diff';
 import {
@@ -353,7 +353,7 @@ export const SqlSchemaExplorer = forwardRef<SqlSchemaExplorerHandle>(function Sq
                       const next = !open;
                       setExpandedGroup((m) => ({ ...m, [g.type]: next }));
                       if (next && isRoutine && !routinesLoaded && explorerId) {
-                        void ensureSchema(explorerId, { scope: ['PROCEDURE', 'FUNCTION'] });
+                        void ensureSchema(explorerId, { scope: [...SCHEMA_ROUTINE_SCOPE] });
                       }
                     }}
                     className="w-full flex items-center gap-1.5 px-0.5 py-1 text-left sticky top-0 bg-slate-900 z-[1]"

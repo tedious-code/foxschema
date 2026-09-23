@@ -18,7 +18,7 @@
  * be a way around that.
  */
 import { identityInsertSupport, qualifiedNameParts, quoteQualifiedName } from '@foxschema/sql';
-import type { DataMigrateSessionSql } from '../../api/data-migrate-execute';
+import type { DataMigrateSessionSql } from './data-migrate-execute';
 
 export type IdentitySessionResult =
   /** Statements to run around the ops. */

@@ -28,15 +28,20 @@ export function applyEnv(): boolean {
   return !!dek;
 }
 
-/** Guard for commands that need the store: ensure setup ran and apply env. */
+/**
+ * Guard for commands that need the store: ensure setup ran and apply env.
+ *
+ * The one place these two checks live. `getContext()` used to repeat them with
+ * its own wording, and the two had already drifted apart.
+ */
 export function requireReady(): void {
   if (!readConfig().setupComplete) {
-    throw new Error('Not set up yet — run `foxschema setup` first.');
+    throw new Error('Not set up yet — run `fox setup` first.');
   }
   if (!applyEnv()) {
     throw new Error(
       'Encryption key unavailable (keychain locked or on a different machine). ' +
-        'Re-run `foxschema setup`, or set FOXSCHEMA_KEY for headless use.'
+        'Re-run `fox setup`, or set FOXSCHEMA_KEY for headless use.'
     );
   }
 }
@@ -44,7 +49,7 @@ export function requireReady(): void {
 /**
  * Non-throwing counterpart to requireReady(), for the TUI: a thrown error there
  * would crash the whole interactive session instead of landing on a helpful
- * screen. Line commands keep using requireReady()/getContext() as-is.
+ * screen. Line commands use requireReady(), directly or through getContext().
  */
 export function checkReady(): { ready: true } | { ready: false; reason: 'not-set-up' | 'key-unreachable' } {
   if (!readConfig().setupComplete) return { ready: false, reason: 'not-set-up' };
