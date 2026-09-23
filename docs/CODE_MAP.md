@@ -45,6 +45,7 @@ apps/workflow-server        The workflow engine's HTTP process (port 8081), plus
                             the server's engine proxy (WORKFLOW_ENGINE_TOKEN);
                             trigger ingress can take a port of its own
                             (INGRESS_PORT). Pulls engine settings from the server.
+                            Runbook: docs/WORKFLOW.md.
 apps/e2e                    Browser tests that drive the running application.
 ```
 
@@ -136,7 +137,7 @@ database/    The metadata store and its migrations.
 | `schema` | Reading a schema |
 | `sql-editor` | SQL editor, code cells, sandboxed execution |
 | `users` | Profile, preferences, first-run wizard |
-| `workflow` | Workflow engine settings and health; the engine proxy (an allowlist of engine routes, each behind a `workflow.*` permission); saved-connection grants; and the token-guarded internal routes the engine calls to resolve a granted connection and read its settings |
+| `workflow` | Workflow engine settings and health; the engine proxy (an allowlist of engine routes, each behind a `workflow.*` permission); saved-connection grants; and the token-guarded internal routes the engine calls to resolve a granted connection and read its settings. Runbook: [WORKFLOW.md](WORKFLOW.md). |
 
 Inside a feature:
 
@@ -214,8 +215,9 @@ the page-epoch guard, bookmarks and recents, SQL variables.
 | Reusable UI or helper | `apps/web/src/frontend/shared/` |
 | Calling an API endpoint | use `api` from `@/shared/api/client` — never `fetch` directly |
 | SQL for permissions or accounts | `packages/sql/src/modules/access/` (facade) + `packages/sql/src/providers/<dialect>/*.user-sql.ts` / `*.access-sql.ts`. Db2 OS-user docker steps: `buildDb2OsUserInstructions`. |
-| A dialect capability the app must branch on | `packages/sql/src/modules/dialect/` |
+| A dialect capability the app must branch on | `packages/sql/src/modules/capabilities/` (`dialect-features.ts`) and `packages/sql/src/modules/dialect/` |
 | Guard or cross-cutting HTTP concern | `packages/server/src/platform/` |
+| Workflow pipe, runtime, or store | `packages/workflow-engine/` — HTTP process in `apps/workflow-server/` ([WORKFLOW.md](WORKFLOW.md)) |
 
 ## Checks to run
 

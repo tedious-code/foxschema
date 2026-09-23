@@ -4,10 +4,10 @@
 
 **Compare schemas · generate migrations · run SQL — across 10 dialects.**
 
-Install once, then open the local web UI (`foxschema`) for **Schema Sync** and the
-**SQL Editor**. Self-host with Docker when you need a server.
+Install once, then open the local web UI (`foxschema`) for **Schema Sync**, the
+**SQL Editor**, and optional **Workflow**. Self-host with Docker when you need a server.
 
-[foxschema.com](https://foxschema.com) · [Install](docs/INSTALL.md) · [User guide](docs/USER_GUIDE.md) · [Publish](docs/PUBLISH.md) · [Contributing](CONTRIBUTING.md)
+[foxschema.com](https://foxschema.com) · [Install](docs/INSTALL.md) · [User guide](docs/USER_GUIDE.md) · [Workflow](docs/WORKFLOW.md) · [Publish](docs/PUBLISH.md) · [Contributing](CONTRIBUTING.md)
 
 <p>
   <a href="https://www.npmjs.com/package/foxschema"><img alt="npm" src="https://img.shields.io/npm/v/foxschema.svg?logo=npm" /></a>
@@ -83,6 +83,21 @@ A full query workbench next to Schema Sync — not a thin prompt.
 
 Walkthrough: [User guide → SQL Editor](docs/USER_GUIDE.md#sql-editor).
 
+## Workflow
+
+Optional designer for scheduled and triggered jobs (SQL, HTTP, files, email/SMS).
+The UI lives in Fox Schema; a **separate engine process** (`apps/workflow-server`,
+port **8081**) runs them. The published Docker image does not start that process.
+
+```bash
+export WORKFLOW_ENGINE_TOKEN="$(openssl rand -hex 32)"
+export FOXFLOW_ENCRYPTION_KEY="$(openssl rand -hex 32)"
+npm run dev:with-workflow
+```
+
+Then **Workflow → Engine → Enabled**. Runbook: [docs/WORKFLOW.md](docs/WORKFLOW.md).
+User steps: [User guide → Workflow](docs/USER_GUIDE.md#workflow).
+
 ## Schema Sync
 
 Point Fox at a **source** and a **target**. It introspects both, shows a color-coded
@@ -130,8 +145,11 @@ CommonJS at runtime. Requires **Node ≥ 22.5**.
 |-----------|------|
 | `packages/sql` | Dialect knowledge: SQL generation, compare, splitting, type mapping (pure, zero deps) |
 | `packages/db` | Node runtime: drivers, pooling, migration execution (depends on `packages/sql`) |
+| `packages/server` | Fastify HTTP API, feature modules, metadata store |
+| `packages/workflow-engine` | Workflow runtime, stores, built-in pipes |
 | `apps/web` | React UI + the entry point that serves it (CLI launcher + Docker) |
 | `apps/cli` | `foxschema` CLI, desktop shortcut, TUI |
+| `apps/workflow-server` | Workflow engine HTTP process (`:8081`) |
 | `apps/e2e` | Playwright tests against dockerized databases |
 
 Maintainers: [docs/PUBLISH.md](docs/PUBLISH.md) · [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

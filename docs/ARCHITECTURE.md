@@ -1,7 +1,7 @@
 # Architecture reference
 
-Stable orientation for FoxSchema. `CLAUDE.md` holds the must-follow rules and points
-here for detail. For current state, gotchas, and pending work see `IMPLEMENTATION_STATE.md`.
+Stable orientation for FoxSchema. For where a change belongs see
+[CODE_MAP.md](CODE_MAP.md). Workflow engine runbook: [WORKFLOW.md](WORKFLOW.md).
 
 ## What this is
 
@@ -22,6 +22,7 @@ foxschema doctor
 # Development (starts both the Fastify API + Vite frontend)
 npm run dev                          # single-user mode (no login)
 npm run dev:auth                     # multi-user auth mode
+npm run dev:with-workflow            # plus workflow-server on :8081
 
 # Typecheck — primary correctness gate
 cd apps/web && npx tsc --noEmit
@@ -78,6 +79,8 @@ packages/shared/        Contracts the frontend, server and CLI agree on:
                         permission names, error codes, wire message shapes
 packages/server/        The backend: Fastify HTTP layer, feature modules,
                         metadata store
+packages/workflow-contract  Browser-safe engine types and token/route names
+packages/workflow-engine    Runtime, SQLite stores, built-in pipes (Node)
 
 apps/web/src/frontend/
   app/                  Application shell, settings screens, global stores
@@ -85,6 +88,7 @@ apps/web/src/frontend/
   shared/               API client, UI components, lib, utils
 
 apps/cli/               `foxschema` CLI — browser launcher (:3210), line commands, Ink TUI
+apps/workflow-server/   Workflow engine HTTP process (:8081); optional scheduler/worker
 apps/e2e/               Playwright tests that drive the running application
 packaging/homebrew/     Scripts to refresh Formula/foxschema.rb (Homebrew, same repo)
 ```
@@ -111,8 +115,11 @@ and `domain`) inside `encrypted_config`. Methods:
 `SavedConnectionSummary` exposes `authMethod` / `domain` / `hasPassword` but
 never the secret. Windows integrated SSO (no password) is not implemented.
 
-**The frontend imports `@foxschema/sql` and nothing else from the workspace**, and
-the files in `apps/web/src/frontend/shared/lib/` are thin re-export facades over it.
+The frontend imports **browser-safe** workspace packages through Vite aliases
+(`@foxschema/sql`, `@foxschema/shared`, `@foxschema/workflow-contract`,
+`@foxschema/workflow-engine/definitions`). Facades live in
+`apps/web/src/frontend/shared/lib/`. `@foxschema/db` and `@foxschema/server`
+are not aliased — a UI import of either fails the build.
 
 `shared/lib/provider-settings.ts` used to be a real copy of the dialect registry,
 kept on the theory that the browser should not pull the driver runtime in. It does
@@ -135,8 +142,9 @@ core's.
 
 ## Dialect system
 
-Each of the 10 dialects has three layers, split across `packages/sql/src/providers/`
-(dialect + settings) and `packages/db/src/providers/` (adapter + provider):
+Each SQL dialect has three layers, split across `packages/sql/src/providers/`
+(dialect + settings) and `packages/db/src/providers/` (adapter + provider).
+`packages/sql` lists 14 SQL dialects (MongoDB and Redis carry settings only):
 
 | File | Interface | Registry |
 |------|-----------|----------|

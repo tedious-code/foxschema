@@ -1,10 +1,11 @@
 # AGENTS.md
 
 Fox Schema (`foxschema`) is a database schema diff & migration tool: an npm-workspaces
-monorepo delivered as a web app (`apps/web` = React/Vite UI served beside the Fastify API
-in `packages/server`), a CLI (`apps/cli`), and the dialect engine (`packages/sql` +
-`packages/db`). See `README.md` and
-`CONTRIBUTING.md` for the product overview and the canonical dev/test/build commands.
+monorepo delivered as a web app (`apps/web` = React/Vite UI + `packages/server`
+Fastify API), a CLI (`apps/cli`), and the dialect engine (`packages/sql` +
+`packages/db`). Optional workflow engine: `apps/workflow-server` ([docs/WORKFLOW.md](docs/WORKFLOW.md)).
+See `README.md` and `CONTRIBUTING.md` for the product overview and the canonical
+dev/test/build commands.
 
 ## Naming conventions
 
@@ -25,18 +26,20 @@ Standard commands live in `CONTRIBUTING.md` and `package.json` scripts (`npm run
   engines is `>=22.5`). The environment is already configured so `node` resolves to
   **v24** in every shell (a symlink in `/usr/local/cargo/bin`, which is first on `PATH`,
   points at the nvm-installed Node 24; nvm `default` is also 24).
-- Do **not** switch to the base image's `/exec-daemon/node` (v22.14): under it the three
+- Do **not** switch to the base image's `/exec-daemon/node` (v22.14): under it the
   SQL-editor "code cell" worker tests in
-  `packages/server/src/features/sql-editor/` fail with `Unknown file extension
-  ".ts"` (tsx-in-`worker_threads` incompatibility on that Node). On Node 24 the full
-  suite is green.
+  `packages/server/src/features/sql-editor/code-cell-execute.service.test.ts`
+  fail with `Unknown file extension ".ts"` (tsx-in-`worker_threads` incompatibility
+  on that Node). On Node 24 the full suite is green.
 - `better-sqlite3` ships N-API prebuilds (ABI-stable), so its native addon works across
   Node 22/24 without reinstalling — a Node switch alone does not require `npm install`.
 
 ### Running the app
 - `npm run dev` runs the Fastify API (`:3210`) and Vite UI (`:5173`) together; open the
   UI at http://localhost:5173. API liveness: `GET http://localhost:3210/api/health`
-  → `{"ok":true}`. Default mode is single-user (no login).
+  → `{"ok":true}`. Default mode is single-user (no login). Workflow engine:
+  `npm run dev:with-workflow` (needs `WORKFLOW_ENGINE_TOKEN` and
+  `FOXFLOW_ENCRYPTION_KEY` — [docs/WORKFLOW.md](docs/WORKFLOW.md)).
 - Vite is configured with `server.host: true`, `server.strictPort: true`, and
   `server.allowedHosts: true` so `http://127.0.0.1:5173` works (not only IPv6
   localhost), the port does not silently hop to 5174+, and Cursor/cloud
