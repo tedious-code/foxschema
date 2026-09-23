@@ -33,6 +33,26 @@ const DEV_ORIGIN_PORTS = [5173, 5199, 3210, 3211];
  * URL on the LAN address; opening it sent that address as Origin, which was not
  * on the list, so every API call answered 403 and the UI looked disconnected.
  */
+/**
+ * How long a snapshot of this machine's addresses is reused. The policy runs on
+ * every request that carries an Origin — twice, once in the guard and once for
+ * CORS — and `os.networkInterfaces()` is a synchronous syscall. A few seconds
+ * still picks up a LAN address that appears mid-run (joining Wi-Fi) without
+ * paying for it per request.
+ */
+const DEV_HOSTS_TTL_MS = 5_000;
+let devHostsSnapshot: { at: number; hosts: string[] } | undefined;
+
+function currentDevHosts(now = Date.now()): string[] {
+  if (!devHostsSnapshot || now - devHostsSnapshot.at > DEV_HOSTS_TTL_MS) {
+    devHostsSnapshot = { at: now, hosts: localDevHosts() };
+  }
+  return devHostsSnapshot.hosts;
+}
+
+/** Last computed allowlist and what it was computed from. */
+let allowlistMemo: { key: string; hosts: string[] | undefined; set: Set<string> } | undefined;
+
 export function localDevHosts(): string[] {
   const hosts = new Set<string>(['localhost', '127.0.0.1', '[::1]', '0.0.0.0']);
   for (const addresses of Object.values(networkInterfaces())) {
@@ -85,25 +105,46 @@ function normalize(origin: string): string {
  * real hostname can say so without editing code.
  */
 export function allowedOriginSet(options: OriginPolicyOptions = {}): Set<string> {
-  const explicit = (options.allowedOrigins ?? process.env.FOX_ALLOWED_ORIGINS ?? '')
+  const allowedOrigins = options.allowedOrigins ?? process.env.FOX_ALLOWED_ORIGINS ?? '';
+  const isProduction = options.isProduction ?? process.env.NODE_ENV === 'production';
+  // Hosts only matter outside production; resolve them lazily so a production
+  // server never touches the network interfaces at all.
+  const hosts = isProduction ? undefined : (options.devHosts ?? currentDevHosts());
+  const key = `${allowedOrigins}\u0000${isProduction}\u0000${options.selfOrigin ?? ''}`;
+  // Same inputs as last time (the hosts array is compared by reference: the
+  // snapshot keeps its identity for the TTL) → same answer, without rebuilding.
+  if (allowlistMemo && allowlistMemo.key === key && allowlistMemo.hosts === hosts) {
+    return allowlistMemo.set;
+  }
+  const set = buildAllowedOriginSet(allowedOrigins, isProduction, options.selfOrigin, hosts);
+  allowlistMemo = { key, hosts, set };
+  return set;
+}
+
+function buildAllowedOriginSet(
+  allowedOrigins: string,
+  isProduction: boolean,
+  selfOrigin: string | undefined,
+  hosts: string[] | undefined
+): Set<string> {
+  const explicit = allowedOrigins
     .split(',')
     .map((o) => normalize(o.trim()))
     .filter(Boolean);
   if (explicit.length > 0) return new Set(explicit);
 
   const out = new Set<string>();
-  if (options.selfOrigin) {
-    const self = normalize(options.selfOrigin);
+  if (selfOrigin) {
+    const self = normalize(selfOrigin);
     if (self) out.add(self);
   }
 
-  const isProduction = options.isProduction ?? process.env.NODE_ENV === 'production';
   if (!isProduction) {
     // Dev serves the UI and the API on different ports, so same-origin does not
     // hold and the Vite ports have to be named. Deliberately a fixed list of
     // ports, not "any localhost port", on this machine's own literal addresses
     // — see `localDevHosts` for why hostnames other than `localhost` are out.
-    for (const host of options.devHosts ?? localDevHosts()) {
+    for (const host of hosts ?? []) {
       for (const port of DEV_ORIGIN_PORTS) out.add(`http://${host}:${port}`);
     }
   }
