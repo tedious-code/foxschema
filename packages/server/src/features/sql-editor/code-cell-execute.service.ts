@@ -5,7 +5,8 @@
 
 import { Worker } from 'node:worker_threads';
 import { randomBytes } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { BrowserCodeCellKind } from '@foxschema/db';
 import { isCodeCellLast, isCodeCellVars } from '@foxschema/db';
 import type { CodeCellLast, CodeCellResult, CodeCellVars } from './code-cell-node-exec.service';
@@ -24,6 +25,21 @@ export type CellQueryRunner = (
 ) => Promise<Record<string, unknown>[]>;
 import { clampMaxRows } from './sql-execute.service';
 import { createBeamSqlCap } from '@foxschema/shared';
+
+/**
+ * The tsx ESM loader, as an absolute URL resolved from this module.
+ *
+ * `--import tsx/esm` on its own is resolved from the process's working
+ * directory, not from this package, so it only worked while some workspace's
+ * tsx happened to be hoisted to the repository root — and this package did not
+ * even declare tsx. A dependency upgrade that nested tsx under each workspace
+ * instead left the sandbox failing with "Cannot find package 'tsx'". Declared
+ * in package.json now, and resolved from here so the working directory no
+ * longer matters.
+ */
+function tsxLoaderUrl(): string {
+  return pathToFileURL(createRequire(import.meta.url).resolve('tsx/esm')).href;
+}
 
 export const MAX_CODE_CELL_LENGTH = 100_000;
 export const DEFAULT_CODE_CELL_TIMEOUT_MS = 10_000;
@@ -237,7 +253,7 @@ function runInWorkerThread(args: {
       // Deduplicate if the parent already passed the same flag (tsx server).
       const execArgv = [...process.execArgv];
       if (!execArgv.some((a) => a.includes('tsx'))) {
-        execArgv.push('--import', 'tsx/esm');
+        execArgv.push('--import', tsxLoaderUrl());
       }
       worker = new Worker(fileURLToPath(new URL('./code-cell-thread.ts', import.meta.url)), {
         workerData: {
