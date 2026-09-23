@@ -51,8 +51,6 @@ export function TriggerInlineSettings({
   const manual = trigger.kind === 'manual' ? trigger : null;
   const cron = trigger.kind === 'cron' ? trigger : null;
   const parent = trigger.kind === 'parent' ? trigger : null;
-  const event = trigger.kind === 'event' ? trigger : null;
-  const custom = trigger.kind === 'custom' ? trigger : null;
   const webhook = trigger.kind === 'webhook' ? trigger : null;
   const http = trigger.kind === 'http' ? trigger : null;
 
@@ -66,6 +64,7 @@ export function TriggerInlineSettings({
   const [inputError, setInputError] = useState<string | null>(null);
   const nextRuns = useMemo(
     () => (cron ? computeNextRuns(cron.cron, cron.timezone, 3) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed to the two fields the preview reads; depending on `cron` would recompute on every unrelated keystroke in the inspector
     [cron?.cron, cron?.timezone],
   );
 
@@ -328,53 +327,6 @@ export function TriggerInlineSettings({
         {candidates.length === 0 && (
           <div className="hint">No other saved workflows yet.</div>
         )}
-      </>
-    );
-  }
-
-  if (event) {
-    return (
-      <>
-        <label>Topic</label>
-        <input
-          value={event.topic}
-          onChange={(eventChange) =>
-            onChange({ ...event, topic: eventChange.target.value })
-          }
-        />
-        <label>Filter (optional)</label>
-        <input
-          value={event.filter ?? ''}
-          onChange={(eventChange) =>
-            onChange({
-              ...event,
-              filter: eventChange.target.value.trim()
-                ? eventChange.target.value
-                : undefined,
-            })
-          }
-        />
-        <div className="hint">
-          Event bus runtime is coming soon — settings persist today.
-        </div>
-      </>
-    );
-  }
-
-  if (custom) {
-    return (
-      <>
-        <label>Plugin id</label>
-        <input
-          value={custom.pluginId}
-          placeholder="acme/trigger.my-source"
-          onChange={(eventChange) =>
-            onChange({ ...custom, pluginId: eventChange.target.value })
-          }
-        />
-        <div className="hint">
-          Plugin trigger runtime is coming soon — config persists today.
-        </div>
       </>
     );
   }

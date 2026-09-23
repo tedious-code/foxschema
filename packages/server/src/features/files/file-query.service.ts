@@ -52,6 +52,7 @@ const SQLITE_INSERT_BATCH = 200;
 
 export function fileQueryTempDir(): string {
   const dir = join(tmpdir(), 'foxschema-file-query');
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- confined to fileQueryTempDir(); any caller-supplied path has passed isFileQueryDbPath, which resolves and rejects anything outside it
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -71,6 +72,7 @@ export function isFileQueryDbPath(path: string | undefined | null): boolean {
 export function removeFileQueryDb(path: string): boolean {
   if (!isFileQueryDbPath(path)) return false;
   try {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- confined to fileQueryTempDir(); any caller-supplied path has passed isFileQueryDbPath, which resolves and rejects anything outside it
     unlinkSync(path);
     return true;
   } catch {
@@ -82,12 +84,15 @@ export function removeFileQueryDb(path: string): boolean {
 export function cleanupStaleFileQueryDbs(now = Date.now()): number {
   const dir = fileQueryTempDir();
   let removed = 0;
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- confined to fileQueryTempDir(); any caller-supplied path has passed isFileQueryDbPath, which resolves and rejects anything outside it
   for (const name of readdirSync(dir)) {
     if (!name.endsWith('.db')) continue;
     const path = join(dir, name);
     try {
+      // eslint-disable-next-line security/detect-non-literal-fs-filename -- confined to fileQueryTempDir(); any caller-supplied path has passed isFileQueryDbPath, which resolves and rejects anything outside it
       const age = now - statSync(path).mtimeMs;
       if (age > TTL_MS) {
+        // eslint-disable-next-line security/detect-non-literal-fs-filename -- confined to fileQueryTempDir(); any caller-supplied path has passed isFileQueryDbPath, which resolves and rejects anything outside it
         unlinkSync(path);
         removed++;
       }
@@ -129,6 +134,7 @@ export async function pruneOrphanFileQueryConnections(
     const resolved = await store.resolve(userId, c.id);
     const dbPath = resolved?.option.connectionString || resolved?.option.database || c.database;
     if (!dbPath || !isFileQueryDbPath(dbPath)) continue;
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- confined to fileQueryTempDir(); any caller-supplied path has passed isFileQueryDbPath, which resolves and rejects anything outside it
     if (existsSync(dbPath)) continue;
     if (await store.remove(userId, c.id)) removed.push(c.id);
   }
@@ -578,6 +584,7 @@ export function materializeFileToSqlite(
     };
   } catch (e) {
     try {
+      // eslint-disable-next-line security/detect-non-literal-fs-filename -- confined to fileQueryTempDir(); any caller-supplied path has passed isFileQueryDbPath, which resolves and rejects anything outside it
       unlinkSync(dbPath);
     } catch {
       /* ignore */

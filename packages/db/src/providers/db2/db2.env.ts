@@ -22,6 +22,7 @@ export function setupDb2ClientEnv(): void {
     const libDir = path.join(clidriverDir, 'lib');
     const binDir = path.join(clidriverDir, 'bin');
 
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is derived from require.resolve('ibm_db/package.json') — a resolved node_modules location, never caller input
     if (!fs.existsSync(clidriverDir)) {
       // Leave configured=false so a later successful `npm install ibm_db
       // --foreground-scripts` can retry setup on the next connect.
@@ -52,6 +53,7 @@ export function hasDb2Clidriver(): boolean {
   try {
     const pkgPath = nodeRequire.resolve('ibm_db/package.json');
     const clidriverDir = path.join(path.dirname(pkgPath), 'installer', 'clidriver');
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is derived from require.resolve('ibm_db/package.json') — a resolved node_modules location, never caller input
     return fs.existsSync(clidriverDir);
   } catch {
     return false;

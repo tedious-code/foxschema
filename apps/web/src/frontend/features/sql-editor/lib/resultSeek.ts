@@ -16,9 +16,9 @@ import type { TableSchema } from '@/shared/lib/types';
 import {
   fromClauseIsMultiTable,
   fromClauseIsSubquery,
+  outerTableNamesFromSql,
   selectListSafeForResultEdit,
   sqlHasSetOperation,
-  tableNamesFromSql,
 } from '@/shared/lib/tablePreview';
 
 export type ResultSeek = {
@@ -47,7 +47,7 @@ export function tableForOrderBy(
   // Match parsed FROM references, not substrings. With tables `order` and
   // `order_items`, searching the SQL text returned whichever cache entry came
   // first and could borrow the wrong table's uniqueness metadata.
-  const names = tableNamesFromSql(sql);
+  const names = outerTableNamesFromSql(sql);
   if (names.length !== 1) return undefined;
   const wanted = names[0]!.toLowerCase();
   if (wanted.includes('.')) {

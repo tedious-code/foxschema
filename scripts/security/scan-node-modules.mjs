@@ -57,17 +57,87 @@ const CRITICAL_CODE_RES = [
   /(?:nc|ncat|netcat)\s+-[elp]/i,
   /\/dev\/tcp\//,
   /bash\s+-i\s+>&\s*\/dev\/tcp\//i,
-  /socket\.connect\s*\([^)]*["'](?:\d{1,3}\.){3}\d{1,3}["']/,
+  // `(?:\d{1,3}\.){3}` behind a greedy `[^)]*` is the shape detect-unsafe-regex
+  // rejects: the prefix and the octets can both give ground, so a crafted line
+  // backtracks exponentially. This scanner reads third-party source out of
+  // node_modules — the one input an attacker controls — so a stall here is a
+  // package disabling the scanner that is looking for it. The prefix is bounded
+  // and lazy, and the octets are written out, which removes the nesting.
+  /socket\.connect\s*\([^)]{0,200}?["']\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}["']/,
   /new\s+WebSocket\s*\(\s*["']wss?:\/\/[^"']*(?:webhook|oast|burp|interact\.sh)/i,
   /\beval\s*\(\s*(?:Buffer\.from\([^)]*['"]base64['"]|atob\s*\()/i,
 ];
 
+/**
+ * `createServer(` immediately followed by a request-handler parameter — i.e.
+ * `createServer((req`, `createServer(async (req`, `createServer(req`.
+ *
+ * Scanned rather than matched. The regex form needs three optional whitespace
+ * runs separated by optional atoms (`async`, `(`), and any two adjacent runs can
+ * claim the same spaces — the ambiguity `detect-unsafe-regex` rejects. Bounding
+ * the runs quiets the rule but still asks the engine to try every split, and
+ * every rewrite that fully satisfies it drops a form the original caught
+ * (`createServer(async(req`). Walking the string forward decides each position
+ * once, so this is linear in the input and cannot backtrack at all. That matters
+ * here more than elsewhere: this scanner reads third-party source out of
+ * node_modules — the one input an attacker chooses — so a stall is a malicious
+ * package switching off the scanner that is looking for it.
+ */
+function createServerTakesRequestHandler(text) {
+  const NEEDLE = 'createServer(';
+  // Cap how much whitespace counts as "immediately followed by"; ten is far
+  // past any real formatting and keeps a pathological run from being walked.
+  const MAX_GAP = 10;
+
+  const skipSpace = (i) => {
+    let seen = 0;
+    while (i < text.length && seen < MAX_GAP && /\s/.test(text[i])) {
+      i += 1;
+      seen += 1;
+    }
+    return i;
+  };
+
+  let from = text.indexOf(NEEDLE);
+  while (from !== -1) {
+    let i = skipSpace(from + NEEDLE.length);
+    // An optional `async`, which must be followed by a space or an opening
+    // paren — otherwise `asyncronousHandler` would read as `async` + junk.
+    if (text.startsWith('async', i) && /[\s(]/.test(text[i + 5] ?? '')) {
+      i = skipSpace(i + 5);
+    }
+    // An optional parameter list paren.
+    if (text[i] === '(') i = skipSpace(i + 1);
+    if (text.startsWith('req', i)) return true;
+    from = text.indexOf(NEEDLE, from + NEEDLE.length);
+  }
+  return false;
+}
+
+/**
+ * Detectors are normally RegExps. This one is a named predicate, so the scan
+ * loop and the finding message treat both the same way.
+ */
+const CREATE_SERVER_HANDLER = {
+  label: 'createServer(<request handler>)',
+  test: createServerTakesRequestHandler,
+};
+
+/** How a detector is described in a finding. */
+function detectorLabel(detector) {
+  return detector instanceof RegExp ? String(detector) : detector.label;
+}
+
 /** Port / server patterns → HIGH unless package is allowlisted. */
 const SERVER_CODE_RES = [
-  /\.listen\s*\(\s*(?:0|process\.env\.[A-Z0-9_]*PORT|['"`]0\.0\.0\.0['"`])/i,
+  // `[A-Z0-9_]*PORT` overlaps its own trailing literal (P, O, R and T are all in
+  // the class), so `PORTPORTPORT…` backtracks. Bounding the run keeps every real
+  // env var name matching — `PORT`, `HTTP_PORT`, `MY_APP_PORT` — without the
+  // unbounded search.
+  /\.listen\s*\(\s*(?:0|process\.env\.[A-Z0-9_]{0,40}PORT|['"`]0\.0\.0\.0['"`])/i,
   /\.listen\s*\(\s*\d{2,5}\s*[,)]/,
   /(?:http|https|net|tls)\.createServer\s*\(/,
-  /createServer\s*\(\s*(?:async\s*)?\(?\s*req/,
+  CREATE_SERVER_HANDLER,
 ];
 
 /** Known worm / campaign drop files (basename). */
@@ -312,7 +382,7 @@ function scan(root) {
           kind: 'backdoor-code',
           package: pkgName,
           path: full,
-          detail: `Matched ${re}`,
+          detail: `Matched ${detectorLabel(re)}`,
         });
         return;
       }
@@ -327,7 +397,7 @@ function scan(root) {
           kind: 'unexpected-server-listen',
           package: pkgName,
           path: full,
-          detail: `Non-allowlisted package opens a port/server (${re}). Add to scripts/security/scan-node-modules.allowlist.json only if expected.`,
+          detail: `Non-allowlisted package opens a port/server (${detectorLabel(re)}). Add to scripts/security/scan-node-modules.allowlist.json only if expected.`,
         });
         return;
       }

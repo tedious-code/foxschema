@@ -64,7 +64,7 @@ the Playwright E2E suite (see below).
 | [`packages/db`](packages/db) | The Node runtime: introspection, drivers, pooling, migration execution. Depends on `packages/sql`. |
 | [`packages/server`](packages/server) | Fastify HTTP API, feature modules, metadata store. |
 | [`packages/workflow-engine`](packages/workflow-engine) | Workflow runtime, SQLite stores, built-in pipes. |
-| [`apps/web`](apps/web) | React/Vite UI (also served by the CLI launcher and Docker). |
+| [`apps/web`](apps/web) | React/Vite UI and the entry point that serves it (also used by the CLI launcher and Docker). |
 | [`apps/cli`](apps/cli) | Public `foxschema` CLI — browser launcher, desktop shortcut, line commands, Ink TUI. |
 | [`apps/workflow-server`](apps/workflow-server) | Workflow engine HTTP process (`:8081`). |
 | [`apps/e2e`](apps/e2e) | Playwright E2E tests against the dockerized databases. |

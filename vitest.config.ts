@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { defaultExclude, defineConfig } from 'vitest/config';
 import { fileURLToPath } from 'node:url';
 
 const pkg = (p: string) => fileURLToPath(new URL(p, import.meta.url));
@@ -50,7 +50,15 @@ export default defineConfig({
             'apps/cli/src/**/*.test.ts',
             'scripts/security/**/*.test.mjs',
           ],
-          exclude: ['apps/cli/src/tui/**'],
+          // `exclude` REPLACES vitest's defaults, it does not add to them — so
+          // listing the TUI here silently dropped `**/node_modules/**` too.
+          // That went unnoticed only because zod happened to hoist to the root,
+          // outside these include globs. The moment the lockfile was
+          // regenerated and npm nested each workspace's pinned zod under
+          // `apps/web/node_modules` and friends, this project started
+          // collecting zod's own test suite: 407 test files became 912, and
+          // nine of them failed.
+          exclude: [...defaultExclude, 'apps/cli/src/tui/**'],
           testTimeout: 15_000,
         },
       },
@@ -58,6 +66,18 @@ export default defineConfig({
         // React components, in jsdom. Kept as its own project so the default
         // `unit` run stays a pure-node suite — component tests need a DOM,
         // which is an order of magnitude slower to spin up per file.
+        //
+        // **Do not set `pool: 'vmThreads'` here.** Vitest suggests it on every
+        // run of this project, and it does what it says — 17.49s -> 5.98s, by
+        // building jsdom once per worker instead of once per file. It also
+        // makes the suite flaky: `SqlPipeEditor.test.tsx` failed on roughly one
+        // run in three under it, and passed 4/4 without. These files mock
+        // heavily with `vi.mock`, and vmThreads shares the module registry
+        // across files in a worker, so the mocks bleed between them.
+        //
+        // The eleven seconds are not worth a suite people learn to re-run.
+        // Making it work means auditing mock isolation across all 41 files,
+        // which is its own piece of work.
         resolve: { alias: aliases },
         test: {
           name: 'web-ui',

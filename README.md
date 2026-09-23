@@ -147,7 +147,7 @@ CommonJS at runtime. Requires **Node ≥ 22.5**.
 | `packages/db` | Node runtime: drivers, pooling, migration execution (depends on `packages/sql`) |
 | `packages/server` | Fastify HTTP API, feature modules, metadata store |
 | `packages/workflow-engine` | Workflow runtime, stores, built-in pipes |
-| `apps/web` | React UI (CLI launcher + Docker) |
+| `apps/web` | React UI + the entry point that serves it (CLI launcher + Docker) |
 | `apps/cli` | `foxschema` CLI, desktop shortcut, TUI |
 | `apps/workflow-server` | Workflow engine HTTP process (`:8081`) |
 | `apps/e2e` | Playwright tests against dockerized databases |

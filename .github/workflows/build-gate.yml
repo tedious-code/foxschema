@@ -37,15 +37,12 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-          # package-lock.json is gitignored here; setup-node@v5 defaults
-          # package-manager-cache to true and fails outright without a lockfile.
-          package-manager-cache: false
       # npm 10 (what Node 22 ships) cannot resolve this workspace graph
       # without a lockfile — arborist dies in #loadPeerSet on vitest with
       # "Cannot read properties of null (reading 'edgesOut')". npm 11 does
       # it fine. Verified on a clean clone at Node 22.23.1.
       - run: npm i -g npm@11
-      - run: npm install --ignore-scripts
+      - run: npm ci --ignore-scripts
       # apps/web's tsconfig covers the frontend, the backend, and — through the
       # workspace path aliases — packages/sql, so this is the whole surface.
       - run: npm run typecheck
@@ -65,15 +62,12 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-          # package-lock.json is gitignored here; setup-node@v5 defaults
-          # package-manager-cache to true and fails outright without a lockfile.
-          package-manager-cache: false
       # npm 10 (what Node 22 ships) cannot resolve this workspace graph
       # without a lockfile — arborist dies in #loadPeerSet on vitest with
       # "Cannot read properties of null (reading 'edgesOut')". npm 11 does
       # it fine. Verified on a clean clone at Node 22.23.1.
       - run: npm i -g npm@11
-      - run: npm install --ignore-scripts
+      - run: npm ci --ignore-scripts
       - run: npx vitest run
 
   frontend-build:
@@ -91,15 +85,12 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-          # package-lock.json is gitignored here; setup-node@v5 defaults
-          # package-manager-cache to true and fails outright without a lockfile.
-          package-manager-cache: false
       # npm 10 (what Node 22 ships) cannot resolve this workspace graph
       # without a lockfile — arborist dies in #loadPeerSet on vitest with
       # "Cannot read properties of null (reading 'edgesOut')". npm 11 does
       # it fine. Verified on a clean clone at Node 22.23.1.
       - run: npm i -g npm@11
-      - run: npm install --ignore-scripts
+      - run: npm ci --ignore-scripts
       # Typecheck and tests both passed while `vite build` was broken for
       # months: a dependency's `exports` map changed and only the bundler's
       # resolver could see it. Nothing else in this workflow builds the
@@ -121,13 +112,20 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-          # package-lock.json is gitignored here; setup-node@v5 defaults
-          # package-manager-cache to true and fails outright without a lockfile.
-          package-manager-cache: false
       # npm 10 (what Node 22 ships) cannot resolve this workspace graph
       # without a lockfile — arborist dies in #loadPeerSet on vitest with
       # "Cannot read properties of null (reading 'edgesOut')". npm 11 does
       # it fine. Verified on a clean clone at Node 22.23.1.
       - run: npm i -g npm@11
-      - run: npm install --ignore-scripts
+      - run: npm ci --ignore-scripts
+      # Everything: security rules are errors, quality rules are warnings.
       - run: npx eslint .
+      # Security rules only, zero tolerance. This is the gate that was defined
+      # in package.json but never run here, and could not have passed if it
+      # had been — it counted quality warnings too. It runs its own config now.
+      - run: npm run lint:security
+      # Production dependencies only, at `high`, and blocking. The threshold was
+      # `critical`, which meant the two HIGH advisories in the ibm_db -> adm-zip
+      # chain never failed anything and nobody was told; the `adm-zip: 0.6.1`
+      # override plus a committed lockfile clears them, so this is a real gate.
+      - run: npm run audit:security

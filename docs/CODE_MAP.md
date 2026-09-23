@@ -164,6 +164,29 @@ shared/      Reusable across features: api clients, ui components, lib, utils.
 Imports may run `app → features → shared`, never `shared → features`.
 `architecture.test.ts` enforces it.
 
+### The SQL editor store, and how it is being reduced
+
+`app/store/useSqlEditorStore.ts` is the largest file in the repository and the
+most-changed one. It is being shrunk a slice at a time rather than rewritten,
+because a file with that much churn is the worst possible candidate for a
+big-bang refactor.
+
+The rule, when you touch it: **take one slice of logic that does not need the
+store, move it to its own module beside the store, and test it there.** The
+store keeps the async orchestration — `get()`, `set()`, API calls — and imports
+the pure part. Re-export the moved symbols from the store so existing callers
+do not churn.
+
+Done so far:
+
+| Module | Covers |
+|---|---|
+| `store/sqlEditorTabLogic.ts` | Which statements a run executes, from the caret offset |
+| `store/sqlEditorDataPeek.ts` | Peek panel shape, the drill tree, limit clamping, run generations |
+
+Next candidates, roughly in order of how tangled they are: results paging and
+the page-epoch guard, bookmarks and recents, SQL variables.
+
 ### Frontend features
 
 | Folder | What it covers |
