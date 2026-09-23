@@ -34,7 +34,12 @@ RUN if [ "$WITH_DB2" = "true" ]; then \
       node -e "const fs=require('fs');for(const f of ['apps/web/package.json','packages/db/package.json']){const p=JSON.parse(fs.readFileSync(f));if(p.optionalDependencies){delete p.optionalDependencies.ibm_db;}fs.writeFileSync(f,JSON.stringify(p,null,2)+'\n');}"; \
     fi
 
-# No committed lockfile (it's gitignored), so `npm install`, not `npm ci`.
+# `npm install`, not `npm ci`, and deliberately so — this is the one place the
+# committed lockfile is not used:
+#   - the WITH_DB2=false path above rewrites package.json to drop ibm_db, and
+#     `npm ci` fails by design when package.json and the lockfile disagree;
+#   - .dockerignore excludes package-lock.json from the build context anyway.
+# Everywhere else (CI, local) installs the locked tree. See docs/DEPENDENCY_POLICY.md.
 RUN npm install
 
 # Produce the frontend bundle at apps/web/dist (root build -> @foxschema/web).

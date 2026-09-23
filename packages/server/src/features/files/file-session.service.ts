@@ -67,6 +67,7 @@ const sessions = new Map<string, FileUploadSession>();
 
 function uploadsDir(): string {
   const dir = join(fileQueryTempDir(), 'uploads');
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- upload files are randomUUID() names inside uploadsDir() — the caller names the upload, never the path on disk
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -76,6 +77,7 @@ export function cleanupStaleUploadSessions(now = Date.now()): number {
   for (const [id, s] of sessions) {
     if (now - s.createdAt > SESSION_TTL_MS) {
       try {
+        // eslint-disable-next-line security/detect-non-literal-fs-filename -- upload files are randomUUID() names inside uploadsDir() — the caller names the upload, never the path on disk
         unlinkSync(s.uploadPath);
       } catch {
         /* ignore */
@@ -106,12 +108,15 @@ export function sweepOrphanedUploadFiles(opts: { keepMs?: number; now?: number }
   const live = new Set([...sessions.values()].map((s) => s.uploadPath));
   const dir = uploadsDir();
   let removed = 0;
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- upload files are randomUUID() names inside uploadsDir() — the caller names the upload, never the path on disk
   for (const name of readdirSync(dir)) {
     if (!name.endsWith('.part')) continue;
     const full = join(dir, name);
     if (live.has(full)) continue;
     try {
+      // eslint-disable-next-line security/detect-non-literal-fs-filename -- upload files are randomUUID() names inside uploadsDir() — the caller names the upload, never the path on disk
       if (now - statSync(full).mtimeMs <= keepMs) continue;
+      // eslint-disable-next-line security/detect-non-literal-fs-filename -- upload files are randomUUID() names inside uploadsDir() — the caller names the upload, never the path on disk
       unlinkSync(full);
       removed++;
     } catch {
@@ -139,6 +144,7 @@ export function createUploadSession(
   cleanupStaleUploadSessions();
   const id = randomUUID();
   const uploadPath = join(uploadsDir(), `${id}.part`);
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- upload files are randomUUID() names inside uploadsDir() — the caller names the upload, never the path on disk
   writeFileSync(uploadPath, '');
   const session: FileUploadSession = {
     id,
@@ -184,6 +190,7 @@ export function appendUploadChunk(userId: string, id: string, chunk: Buffer | st
       `Upload too large (max ${Math.round(limit / 1024 / 1024)} MB). ${capacityMessage()}`
     );
   }
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- upload files are randomUUID() names inside uploadsDir() — the caller names the upload, never the path on disk
   appendFileSync(s.uploadPath, buf);
   s.bytes += buf.length;
   return s;
@@ -192,7 +199,9 @@ export function appendUploadChunk(userId: string, id: string, chunk: Buffer | st
 export function readUploadSessionContent(userId: string, id: string): string {
   const s = getUploadSession(userId, id);
   if (!s) throw new Error('Upload session not found or expired');
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- upload files are randomUUID() names inside uploadsDir() — the caller names the upload, never the path on disk
   if (!existsSync(s.uploadPath)) throw new Error('Upload data missing');
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- upload files are randomUUID() names inside uploadsDir() — the caller names the upload, never the path on disk
   return readFileSync(s.uploadPath, 'utf8');
 }
 
@@ -214,6 +223,7 @@ export function abortUploadSession(userId: string, id: string): boolean {
   const s = sessions.get(id);
   if (!s || s.userId !== userId) return false;
   try {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- upload files are randomUUID() names inside uploadsDir() — the caller names the upload, never the path on disk
     unlinkSync(s.uploadPath);
   } catch {
     /* ignore */
@@ -226,6 +236,7 @@ export function completeUploadSession(userId: string, id: string): FileUploadSes
   const s = getUploadSession(userId, id);
   if (!s) return null;
   try {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- upload files are randomUUID() names inside uploadsDir() — the caller names the upload, never the path on disk
     unlinkSync(s.uploadPath);
   } catch {
     /* ignore */

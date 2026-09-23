@@ -76,29 +76,44 @@ export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
     []
   );
 
-  // Stable object so ConnectionModal does not reset mid-edit when this parent re-renders.
+  // Stable object so ConnectionModal does not reset mid-edit when this parent
+  // re-renders. `editing` itself is the wrong dependency — it takes a new
+  // identity on every parent render, which is the reset this exists to prevent
+  // — so the fields are pulled out and depended on individually. Destructured
+  // rather than written as `editing?.host` in the array, because the rule
+  // cannot statically check an optional chain and flagged the whole memo.
+  const {
+    id: editingId,
+    host: editingHost,
+    port: editingPort,
+    database: editingDatabase,
+    username: editingUsername,
+    schema: editingSchema,
+    authMethod: editingAuthMethod,
+    domain: editingDomain,
+  } = editing ?? {};
   const editingInitialOptions = useMemo(
     () =>
-      editing
-        ? {
-            host: editing.host,
-            port: editing.port,
-            database: editing.database,
-            username: editing.username,
-            schema: editing.schema,
-            authMethod: editing.authMethod as ConnectionOptions['authMethod'],
-            domain: editing.domain,
-          }
-        : undefined,
+      editingId === undefined
+        ? undefined
+        : {
+            host: editingHost,
+            port: editingPort,
+            database: editingDatabase,
+            username: editingUsername,
+            schema: editingSchema,
+            authMethod: editingAuthMethod as ConnectionOptions['authMethod'],
+            domain: editingDomain,
+          },
     [
-      editing?.id,
-      editing?.host,
-      editing?.port,
-      editing?.database,
-      editing?.username,
-      editing?.schema,
-      editing?.authMethod,
-      editing?.domain,
+      editingId,
+      editingHost,
+      editingPort,
+      editingDatabase,
+      editingUsername,
+      editingSchema,
+      editingAuthMethod,
+      editingDomain,
     ]
   );
 

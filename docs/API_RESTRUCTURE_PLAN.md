@@ -1,6 +1,7 @@
 # API restructure — plan, decisions, and open questions
 
-Status: **partly implemented.** The layout is in place; the layering is not.
+Status: **partly implemented — historical reasoning, not a map.** The layout is
+in place; the layering is not. Last reconciled against the tree 2026-09-21.
 
 | Step | State |
 |---|---|
@@ -13,13 +14,15 @@ Status: **partly implemented.** The layout is in place; the layering is not.
 | Resource-level authorization (§6) | Not started — highest remaining security value |
 | Async stores for locks / idempotency / rate limit | Not started — multi-instance prep |
 | Scope-aware cache (§4) | Not started, deliberately last |
-| Remove Express entirely | Not started |
+| Remove Express entirely | **Done** — see `docs/BACKEND_EXTRACTION_PLAN.md` §8 |
 
-**Paths below are as-written and now stale**: `features/` became
-`modules/<feature>/`, and `features/compare/service.ts` is
-`modules/compare/compare.service.ts`. The current layout is section 5 of
-`docs/BACKEND_ARCHITECTURE.md`. The reasoning is kept unedited — it is the
-record of why, not a map of where.
+**Paths below are as-written and now stale.** The tree has moved twice since:
+out of `apps/web/src/backend/` into `packages/server/src/`, and through a
+`modules/` naming that has since gone back to `features/`. Today
+`features/compare/service.ts` is
+`packages/server/src/features/compare/compare.service.ts`. The current layout is
+`docs/CODE_MAP.md`, and section 5 of `docs/BACKEND_ARCHITECTURE.md`. The
+reasoning below is kept unedited — it is the record of why, not a map of where.
 
 Open question 4 is still unanswered and blocks the cache design: **can two
 users of one deployment see different connection sets?** That decides whether

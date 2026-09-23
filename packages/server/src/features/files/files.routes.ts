@@ -52,6 +52,7 @@ function asFormat(v: unknown): FileQueryFormat | null {
 }
 
 function listTablesInSqliteFile(dbPath: string): string[] {
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- dbPath has already passed isFileQueryDbPath containment
   if (!dbPath || !existsSync(dbPath)) return [];
   try {
     const Database = nodeRequire('better-sqlite3');

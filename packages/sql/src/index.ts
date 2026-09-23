@@ -350,7 +350,13 @@ export {
   type ConnectionAuthMethod,
   type AuthMethodChoice,
 } from './cores/connection-auth.js';
-export { PROVIDER_SETTINGS, getProviderSettings } from './providers/provider-settings.js';
+export {
+  PROVIDER_SETTINGS,
+  getProviderSettings,
+  isFileDialect,
+  DIALECTS,
+  type Dialect,
+} from './providers/provider-settings.js';
 // Row-shaping helpers. The providers in @foxschema/db call these to turn raw
 // catalog rows into TableSchema; before the split they reached in by relative
 // path, so only a few were listed here.

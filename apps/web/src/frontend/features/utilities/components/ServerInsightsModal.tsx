@@ -160,7 +160,7 @@ export const ServerInsightsModal: React.FC<Props> = ({
     if (!open || !connectionId || needsPassword || tab === 'sizes') return;
     if (!support.query) return;
     void load();
-    // Intentionally omit `load` — tab/connection changes already re-trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `load` is omitted on purpose: tab/connection changes already re-trigger, and `load` is rebuilt on every render
   }, [open, connectionId, tab, needsPassword, support.query]);
 
   const unlock = () => {

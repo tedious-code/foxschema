@@ -127,17 +127,33 @@ Configured in `eslint.config.js` at the repo root.
 
 `security/detect-object-injection` is deliberately omitted — it fires on every `obj[key]` access and produces an extreme false-positive rate in the dialect/registry code.
 
-To suppress a specific line (use sparingly, document why):
+To suppress a specific line, state the reason in the directive itself, after
+`--`. ESLint treats the text after `--` as part of the directive, so it travels
+with the suppression and shows up in `eslint --format json`:
+
 ```ts
-// eslint-disable-next-line security/detect-non-literal-fs-filename
-fs.readFileSync(resolvedPath);  // resolvedPath is validated by validateFilePath() above
+// eslint-disable-next-line security/detect-non-literal-fs-filename -- resolvedPath is validated by validateFilePath() above
+fs.readFileSync(resolvedPath);
 ```
+
+A suppression with no reason is not reviewable. `eslint.config.js` sets
+`reportUnusedDisableDirectives: 'error'`, so one that stops suppressing anything
+fails the build rather than lingering — five had accumulated, three of them for
+rules that were never installed.
 
 Run locally:
 ```bash
-npm run lint           # warnings allowed (developer feedback)
-npm run lint:security  # zero warnings (same as CI)
+npm run lint           # everything: security rules are errors, quality rules are warnings
+npm run lint:security  # security rules only, zero tolerance — the gate CI requires
 ```
+
+`lint:security` uses `eslint.security.config.js`, which runs the four security
+rules and nothing else. It is a separate config on purpose: the everyday config
+carries quality rules as warnings, and while `lint:security` was defined as
+`eslint . --max-warnings 0` over *that* config it counted those too, sat at 230
+warnings, and could not pass — so CI ran plain `eslint .` instead and this
+document's claim that the two matched was not true. Both are wired into
+`build-gate.yml` now.
 
 ---
 

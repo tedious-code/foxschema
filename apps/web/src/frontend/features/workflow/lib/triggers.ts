@@ -5,6 +5,7 @@
  *
  * Workflow designer — ported from FoxAgent (lib/triggers.ts).
  */
+import { TRIGGER_KINDS, type TriggerKind } from '@foxschema/workflow-engine/definitions';
 import type { CredentialMeta } from '../api/engineClient';
 import type { HttpRequestValue } from '../components/HttpRequestEditor';
 
@@ -108,28 +109,28 @@ export type WorkflowTrigger =
       kind: 'parent';
       /** Empty = any parent workflow may call via workflow.sub. */
       allowFrom: string[];
-    })
-  | (CommonTrigger & {
-      kind: 'event';
-      topic: string;
-      filter?: string;
-    })
-  | (CommonTrigger & {
-      kind: 'custom';
-      pluginId: string;
-      config: Record<string, unknown>;
     });
 
-export const TRIGGER_KINDS = [
-  'manual',
-  'cron',
-  'webhook',
-  'http',
-  'poll',
-  'parent',
-  'event',
-  'custom',
-] as const;
+/**
+ * The kinds a trigger may have — **re-exported from the engine, never restated**.
+ *
+ * This list used to be a hand-maintained copy here, and it drifted: it kept
+ * offering `event` and `custom` after the engine deleted both, so the designer
+ * rendered a picker with two kinds the engine's schema rejects, and this
+ * module's own test iterated the wrong list and passed. The engine guards its
+ * copy with a compile-time assertion (`common/definitions/workflow.ts`); the
+ * assertion below extends that guarantee to the designer's union, so adding or
+ * removing a kind on either side fails to compile until both agree.
+ */
+export { TRIGGER_KINDS, type TriggerKind };
+
+type AssertDesignerKindsMatchEngine = [WorkflowTrigger['kind']] extends [TriggerKind]
+  ? [TriggerKind] extends [WorkflowTrigger['kind']]
+    ? true
+    : ['the engine has a trigger kind WorkflowTrigger is missing']
+  : ['WorkflowTrigger has a kind the engine schema rejects'];
+const _assertDesignerKindsMatchEngine: AssertDesignerKindsMatchEngine = true;
+void _assertDesignerKindsMatchEngine;
 
 export function createTrigger(
   kind: WorkflowTrigger['kind'],
@@ -191,10 +192,6 @@ export function createTrigger(
       };
     case 'parent':
       return { ...common, kind, allowFrom: [] };
-    case 'event':
-      return { ...common, kind, topic: 'workflow.events' };
-    case 'custom':
-      return { ...common, kind, pluginId: '', config: {} };
   }
 }
 

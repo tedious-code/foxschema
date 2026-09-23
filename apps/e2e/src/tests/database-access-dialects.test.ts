@@ -153,7 +153,6 @@ describe.skipIf(configured.length === 0)('Database Access · User Management', (
       // is how a suite comes to pass without testing anything, so the reason is
       // always printed and the tests below skip rather than report green.
       unreachable.set(dialect, err instanceof Error ? err.message : String(err));
-      // eslint-disable-next-line no-console
       console.warn(`[db-access] no connection for ${dialect}: ${unreachable.get(dialect)}`);
       await driver.reload().catch(() => undefined);
       await driver
@@ -387,7 +386,6 @@ describe.skipIf(configured.length === 0)('Database Access · User Management', (
         expect(verdict.accepted).toBe(true);
         accountCreated.set(dialect, !verdict.skipped);
         if (verdict.skipped) {
-          // eslint-disable-next-line no-console
           console.warn(`[db-access] ${dialect} could not create an account: ${verdict.skipped}`);
         }
       }, 180_000);

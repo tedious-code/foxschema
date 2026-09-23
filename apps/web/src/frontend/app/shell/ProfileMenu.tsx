@@ -31,7 +31,7 @@ export function ProfileMenu(): React.ReactElement | null {
     };
     document.addEventListener('mousedown', onClick);
     return () => document.removeEventListener('mousedown', onClick);
-  }, []);
+  }, [menuRef]);
 
   useEffect(() => {
     let alive = true;

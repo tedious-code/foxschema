@@ -57,7 +57,7 @@ Fox Schema checks npm for a newer `foxschema` version when you open the UI.
 
 1. An **Update available** toast appears (and a badge on the profile menu).
 2. **What's new** opens the [GitHub Release](https://github.com/tedious-code/foxschema/releases)
-   page for that version (ship notes from `docs/RELEASE_*.md`).
+   page for that version (ship notes from `docs/releases/RELEASE_*.md`).
 3. **Update now** (local npm CLI installs only) installs the latest package and
    restarts the UI — **no terminal**, no `npm update -g foxschema` by hand.
    You can also use **User Preference → Update now**.

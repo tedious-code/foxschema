@@ -28,7 +28,10 @@ export function DiffBriefingPanel(): React.ReactElement {
   const sourceConfig = useSyncStore((s) => s.sourceConfig);
   const targetConfig = useSyncStore((s) => s.targetConfig);
 
-  const tables = compareResult?.tables ?? [];
+  // `?? []` builds a fresh array whenever there is no compare result, so
+  // without this the `changed` memo below re-ran on every render — the exact
+  // work it exists to avoid.
+  const tables = useMemo(() => compareResult?.tables ?? [], [compareResult]);
   const briefing = diffBriefing(tables);
   const changed = useMemo(
     () => tables.filter((t) => t.status !== 'UNCHANGED'),
