@@ -2,7 +2,7 @@
   "name": "foxschema",
   "author": "Huy Phan <huyplb@gmail.com>",
   "private": true,
-  "version": "0.2.252",
+  "version": "0.2.254",
   "packageManager": "npm@11.6.2",
   "type": "module",
   "license": "Apache-2.0",
@@ -16,8 +16,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p apps/web/tsconfig.json",
     "lint": "eslint .",
-    "lint:security": "eslint . --max-warnings 0",
-    "audit:security": "npm audit --audit-level=critical --omit=dev",
+    "lint:security": "eslint . --config eslint.security.config.js --max-warnings 0",
+    "audit:security": "npm audit --audit-level=high --omit=dev",
     "scan:deps-security": "node scripts/security/scan-node-modules.mjs --fail-on high",
     "dev": "npm -w @foxschema/web run dev:all",
     "dev:auth": "npm -w @foxschema/web run dev:all:auth",
@@ -100,7 +100,7 @@
     "nanoid": "3.3.18",
     "postcss": "8.5.26",
     "dompurify": "3.4.13",
-    "adm-zip": "0.6.0",
+    "adm-zip": "0.6.1",
     "react-dom": "19.3.0"
   }
 }

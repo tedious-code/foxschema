@@ -296,7 +296,7 @@ docker build --platform=linux/amd64 -t foxschema .
 The image:
 - Uses `npm install` (no committed lockfile), builds the Vite frontend to
   `apps/web/dist`, then runs the API + static server via
-  `apps/web/src/backend/serve.ts`.
+  `apps/web/src/serve.ts`.
 - Runs as a non-root user and exposes a `/api/health` healthcheck.
 - Includes Db2 by default (`WITH_DB2=true`). For a local lean build without Db2:
   `docker build --build-arg WITH_DB2=false -t foxschema:lite .`

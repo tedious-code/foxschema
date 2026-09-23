@@ -7,7 +7,6 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-package-lock.json
 pnpm-lock.yaml
 # package-lock.json is committed on purpose: it is the only thing that
 # pins transitive dependencies, so CI installs the same tree that was
@@ -49,6 +48,11 @@ CHANGELOG.md
 # Public project docs must be tracked
 !README.md
 !CONTRIBUTING.md
+# The dialect checklist is required reading before touching a `*.sql-dialect.ts`
+# — CONTRIBUTING.md and docs/ARCHITECTURE.md both send contributors to it. The
+# `*.md` rules above had swallowed it, so nobody cloning the repo has ever
+# actually had the file those docs point at. Caught by doc-paths.test.ts.
+!packages/sql/src/providers/DIALECTS.md
 # Licence notices for bundled dependencies must ship with the product —
 # MIT/BSD/ISC all require their notice to travel with the code.
 !THIRD-PARTY-NOTICES.md
@@ -60,7 +64,7 @@ CHANGELOG.md
 !docs/INSTALL.md
 !docs/PUBLISH.md
 !docs/docker-hub-overview.md
-!docs/RELEASE_*.md
+!docs/releases/*.md
 docs/demo/*
 !docs/demo/foxschema-demo.mp4
 !docs/demo/foxschema-demo.gif
