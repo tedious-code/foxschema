@@ -63,16 +63,12 @@ export default defineConfig({
         // Match DEFAULT_API_PORT (3210). Override with API_PORT when needed.
         target: `http://localhost:${process.env.API_PORT || 3210}`,
         changeOrigin: true,
-        // Cursor / cloud port-forwards serve the UI from a non-localhost Origin
-        // (e.g. https://…proxy.cursor.sh). The API's origin policy only allows
-        // the named Vite ports in dev — rewrite Origin so the proxied call looks
-        // like the local UI, otherwise every /api fetch 403s with
-        // "This origin is not allowed to call the Fox Schema API."
-        configure: (proxy) => {
-          proxy.on('proxyReq', (proxyReq) => {
-            proxyReq.setHeader('Origin', 'http://localhost:5173');
-          });
-        },
+        // Origin is forwarded untouched, on purpose. Rewriting it to a trusted
+        // value would switch the API's origin check off for everything that
+        // reaches this dev server, including a DNS-rebound page (Vite serves any
+        // Host — see `allowedHosts` above). The API allows this machine's own
+        // addresses in dev; a forwarded preview hostname (Cursor, Codespaces)
+        // has to be named in FOX_ALLOWED_ORIGINS.
       },
     },
   },
