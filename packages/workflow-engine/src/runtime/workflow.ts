@@ -924,6 +924,7 @@ export class LocalRunScheduler {
         this.instanceId,
         this.leaseExpiry(),
         serial,
+        this.now(),
       );
     } catch (error) {
       this.slots.release();
