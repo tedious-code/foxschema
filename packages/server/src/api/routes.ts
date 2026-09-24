@@ -29,8 +29,6 @@ import { createMetadataStore } from '../database/stores/registry';
 import type { AuthedRequest } from '../features/auth/auth.routes';
 import { requirePermissions } from '../features/authorization/rbac.guard';
 import { isLocalSingleUser } from './deployment';
-import { permissionSatisfied, type Permission } from '@foxschema/shared';
-import { type ActorContext } from '../platform/contracts/actor';
 import { makeConnectionResolver, type ConnectionRef } from '../platform/db/resolve';
 import { makeCompareService } from '../features/compare/compare.service';
 import { createCompareRoutes } from '../features/compare/compare.routes';
@@ -72,17 +70,6 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   // the handlers below are meant to shrink into translation as more move over.
   const resolver = makeConnectionResolver(connectionModule, connectionStore);
   const compareService = makeCompareService({ resolver, compareModule });
-
-  /** Express request → the transport-free ActorContext services are written against. */
-  const actorOf = (req: AppRequest): ActorContext => {
-    const authed = req as AuthedRequest;
-    return {
-      userId: authed.userId,
-      can: (permission) =>
-        authed.appRole === 'admin' ||
-        permissionSatisfied(authed.permissions ?? new Set<Permission>(), permission),
-    };
-  };
 
   // Single implementation, shared with the feature services. Destructured so the
   // handlers below keep their existing call sites unchanged.

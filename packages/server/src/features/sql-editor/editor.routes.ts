@@ -23,11 +23,11 @@ import {
 } from '@foxschema/shared';
 import { sqlStatementCategories, statementVerb } from '@foxschema/sql';
 import { isSingleSqlStatement } from '../../api/single-statement';
-import { permissionSatisfied } from '@foxschema/shared';
 import { clampOffset, parseSqlSeek } from './sql-page-wrap.service';
 import { makeBeamCellQueryRunner, makeCellQueryRunner } from './code-cell-query.service';
 import type { CellQueryRunner } from './code-cell-execute.service';
 import { parseBeamEndpoints } from '@foxschema/shared';
+import { actorOf } from '../../platform/http/actor-of';
 import type { CodeCellRequestBody } from './code-cell-execute.service';
 import { validateCodeCellRequest } from './code-cell-execute.service';
 import { runStatements, clampMaxRows } from './sql-execute.service';
@@ -202,11 +202,10 @@ export function createEditorRoutes(deps: EditorRouteDeps): Router {
       let beamDialects: Record<string, string> | undefined;
       let defaultBeamAlias: string | undefined;
       let enforceBeamSqlOnCap = false;
-      const granted = authed.permissions ?? new Set<Permission>();
       const policy = {
         allowWrites: body.allowWrites === true,
-        can: (permission: Permission) =>
-          authed.appRole === 'admin' || permissionSatisfied(granted, permission),
+        // The one definition of "can this caller do X" (platform/http/actor-of).
+        can: actorOf(req).can,
       };
 
       if (beamParsed.value.length > 0) {

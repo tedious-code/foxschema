@@ -11,16 +11,12 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { ConnectionOptions } from '@foxschema/sql';
+import { odbcEscape, type ConnectionOptions } from '@foxschema/sql';
 
 function looksLikePem(value: string): boolean {
   return /-----BEGIN [A-Z ]*CERTIFICATE-----/.test(value);
 }
 
-function odbcEscape(value: string): string {
-  if (!/[;{}]/.test(value) && value === value.trim()) return value;
-  return `{${value.replace(/}/g, '}}')}}`;
-}
 
 /**
  * Ensure SSLServerCertificate is an absolute path GSKit can open.
