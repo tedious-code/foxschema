@@ -92,6 +92,7 @@ export type {
   ReversalPlan,
   ReversalRisk,
   ReversalVerdict,
+  HashOptions,
   WeaveCapture,
   WeaveObject,
   GraphNode,

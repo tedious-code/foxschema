@@ -29,6 +29,7 @@ export {
   type Digest,
   type LatestIndex,
   type ObjectChange,
+  type HashOptions,
   type WeaveCapture,
   type WeaveObject,
 } from './weave.js';

@@ -4,7 +4,7 @@ import type { SqlDialect } from '../dialect/sql-dialect.interface.js';
 import { resolveDialect } from '../dialect/registry.js';
 import { canonicalEquals } from '../dialect/type-mapping.js';
 import { compareKey } from './compare-key.js';
-import { escapeRegExp } from '../../cores/escape-regexp.js';
+import { normalizeDefinitionText, stripSchemaQualifiers } from './definition-text.js';
 
 export class CompareModule {
   /** When set (and the dialects differ), columns are compared by canonical type. */
@@ -161,48 +161,16 @@ export class CompareModule {
    * for semantic comparison. Postgres reformats definitions on storage — different
    * whitespace, implicit schema prefixes, lower-cased identifiers — so a raw
    * string compare always shows MODIFIED after a successful migration.
-   * We collapse whitespace and lowercase before comparing.
+   *
+   * The rules live in `normalizeDefinitionText`, shared with Lokee's content
+   * hash so the two cannot disagree about whether an object changed.
    */
-  /**
-   * Remove `schema.` qualifiers for the known source/target schemas wherever they
-   * appear — bracketed ([demo_a].), quoted ("demo_a".) or bare (demo_a.), any case.
-   * Position-independent, so it catches `ON demo_a.customers`, `NEXT VALUE FOR
-   * [demo_a].[order_seq]`, `demo_a.fn(...)`, etc. — anything the syntactic strips miss.
-   */
-  private stripSchemaQualifiers(s: string): string {
-    let out = s;
-    for (const schema of this.compareSchemas) {
-      const esc = escapeRegExp(schema);
-      // [schema]. | "schema". | `schema`. (MySQL/MariaDB) | schema.  → (removed)
-      out = out.replace(new RegExp(`(?:\\[${esc}\\]|"${esc}"|\`${esc}\`|\\b${esc}\\b)\\s*\\.\\s*`, 'gi'), '');
-    }
-    return out;
+  private normalizeDefinition(d: string | undefined | null): string {
+    return normalizeDefinitionText(d, this.compareSchemas);
   }
 
-  private normalizeDefinition(d: string | undefined | null): string {
-    if (!d) return '';
-    return this.stripSchemaQualifiers(d)
-      .replace(/\s+/g, ' ')
-      .trim()
-      .toLowerCase()
-      // Strip schema qualifier from the object name in CREATE statements:
-      //   CREATE OR REPLACE FUNCTION app.fn_get_discount → ... FUNCTION fn_get_discount
-      .replace(/\b(function|procedure|view|trigger|table)\s+"?[\w$]+"?\s*\.\s*"?/g, '$1 ')
-      // Strip schema qualifiers from table references inside the body, e.g.
-      //   FROM app.orders → FROM orders
-      //   JOIN demo_b.order_items → JOIN order_items
-      // Safe: both sides are normalized the same way, so equivalence is preserved.
-      .replace(/\b(from|join|update|into|table)\s+"?[\w$]+"?\s*\.\s*"?/g, '$1 ')
-      // Strip a schema qualifier before a routine call in the body, e.g.
-      //   demo_a.fn_tier_priority(:new.tier) → fn_tier_priority(:new.tier)
-      // The migration re-qualifies such calls to the target schema, so this keeps an
-      // otherwise-identical trigger/routine from reading as MODIFIED after a deploy.
-      // Guarded by the trailing "(" so it never touches record refs like :new.tier.
-      .replace(/\b[\w$]+\s*\.\s*([\w$]+\s*\()/g, '$1')
-      // Drop a trailing statement terminator — `... END` vs `... END;` is the same
-      // routine (SQL Server stores the body with/without it inconsistently), and it
-      // otherwise keeps a function/procedure reading as MODIFIED after a deploy.
-      .replace(/\s*;\s*$/, '');
+  private stripSchemaQualifiers(s: string): string {
+    return stripSchemaQualifiers(s, this.compareSchemas);
   }
 
   /**
