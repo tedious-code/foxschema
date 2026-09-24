@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildCreateTableSql,
   bulkChunkSize,
+  bulkRowsPerStatement,
   inferColumnTypes,
   sqlTypeForDialect,
 } from './file-query-bulk.service';
@@ -42,5 +43,31 @@ describe('file-query bulk helpers', () => {
     const my = buildCreateTableSql('mysql', 't', ['id'], ['INTEGER']);
     expect(my).toContain('`t`');
     expect(my).toContain('`id` BIGINT');
+  });
+});
+
+describe('bulkRowsPerStatement', () => {
+  it('keeps the old batch size when the engine limit is not the constraint', () => {
+    expect(bulkRowsPerStatement('postgres', 10)).toBe(200);
+    expect(bulkRowsPerStatement('mysql', 10)).toBe(100);
+    expect(bulkRowsPerStatement('sqlserver', 10)).toBe(50);
+  });
+
+  it("stays under SQL Server's parameter limit for a wide file", () => {
+    // 50 rows × 60 columns = 3,000 bound parameters; SQL Server allows 2,100.
+    for (const dialect of ['sqlserver', 'azuresql']) {
+      const rows = bulkRowsPerStatement(dialect, 60);
+      expect(rows * 60).toBeLessThanOrEqual(2_100);
+      expect(rows).toBeGreaterThan(0);
+    }
+  });
+
+  it('sends Oracle one row per VALUES list', () => {
+    // Multi-row VALUES only arrived in Oracle 23ai.
+    expect(bulkRowsPerStatement('oracle', 5)).toBe(1);
+  });
+
+  it('never returns zero, however wide the file', () => {
+    expect(bulkRowsPerStatement('sqlserver', 5_000)).toBe(1);
   });
 });
