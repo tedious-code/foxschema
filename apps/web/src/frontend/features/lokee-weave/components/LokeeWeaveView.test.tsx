@@ -68,8 +68,19 @@ vi.mock('@/shared/lib/sessionPasswords', () => ({
 // React Flow needs layout APIs jsdom does not provide; the graph's own
 // behaviour is tested in buildGraph.test.ts, so a marker stands in for it here.
 vi.mock('./LokeeWeavePage', () => ({
-  LokeeWeavePage: ({ subtitle }: { subtitle?: string }) => (
-    <div data-testid="graph">{subtitle ?? 'no-subtitle'}</div>
+  LokeeWeavePage: ({
+    subtitle,
+    dto,
+  }: {
+    subtitle?: string;
+    dto?: { versions: Array<{ revertedToNumber?: number }> };
+  }) => (
+    <div
+      data-testid="graph"
+      data-reverted={String(dto?.versions.some((v) => v.revertedToNumber != null) ?? false)}
+    >
+      {subtitle ?? 'no-subtitle'}
+    </div>
   ),
 }));
 
@@ -198,6 +209,40 @@ describe('LokeeWeaveView', () => {
     expect(screen.queryByText(/Loading schema history/)).toBeNull();
     expect(screen.getByTestId('graph')).toBeTruthy();
     expect(screen.getByTestId('lokee-graph-toggle').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('keeps the graph when the timeline answers after it on a refresh', async () => {
+    // The graph carries revert provenance; the timeline list does not.
+    const GRAPH = {
+      ...DTO,
+      versions: [{ ...DTO.versions[0]!, revertedToNumber: 1 }, DTO.versions[1]!],
+      truncatedObjects: false,
+    };
+    listLokeeDatabases.mockResolvedValue([DB]);
+    listLokeeVersions.mockResolvedValue(DTO.versions);
+    loadVersionGraph.mockResolvedValue(GRAPH);
+
+    render(<LokeeWeaveView />);
+    await waitFor(() => expect(screen.getByTestId('lokee-timeline')).toBeTruthy());
+    await act(async () => {
+      screen.getByTestId('lokee-graph-toggle').click();
+    });
+    await waitFor(() => expect(screen.getByTestId('graph').dataset.reverted).toBe('true'));
+
+    // A refresh where the graph answers first and the timeline second.
+    let answerTimeline: (v: typeof DTO.versions) => void = () => undefined;
+    let answerGraph: (g: typeof GRAPH) => void = () => undefined;
+    listLokeeVersions.mockReturnValue(new Promise((r) => (answerTimeline = r)));
+    loadVersionGraph.mockReturnValue(new Promise((r) => (answerGraph = r)));
+    await act(async () => {
+      useLokeeHistoryStore.setState({ refreshRequest: 1 });
+    });
+    await act(async () => answerGraph(GRAPH));
+    await act(async () => answerTimeline(DTO.versions));
+
+    // The timeline list used to overwrite the graph it shared state with, and
+    // the "reverted to vN" marks vanished until the next refresh.
+    expect(screen.getByTestId('graph').dataset.reverted).toBe('true');
   });
 
   it('shows an empty state rather than an empty canvas', async () => {
