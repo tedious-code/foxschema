@@ -170,6 +170,7 @@ export {
   normalizeSystemInfoRows,
   normalizeObjectSizeRows,
   formatBytes,
+  formatPct,
   formatRowCount,
   groupObjectSizes,
   filterTableSizeGroups,

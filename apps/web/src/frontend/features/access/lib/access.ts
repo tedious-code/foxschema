@@ -3,7 +3,7 @@
  * Assistant. Frontend code imports from here, never from `@foxschema/db`.
  *
  * Also owns the few Access-UI helpers that sit on top of that facade
- * (`AccessPrincipalDraft`, `connectionDatabaseNames`).
+ * (`AccessPrincipalDraft`, `connectionDatabaseNames`, `permissionBand`).
  */
 export {
   ACCESS_PERMISSIONS,
@@ -89,7 +89,19 @@ export {
   type DbPrivilege,
 } from '@foxschema/sql';
 
-import { accessFamily } from '@foxschema/sql';
+import { accessFamily, type AccessPermission } from '@foxschema/sql';
+
+/** Which band of the permission grid a permission sits in: data (DML) or definition (DDL). */
+export function permissionBand(p: AccessPermission): 'DML' | 'DDL' {
+  return p === 'read' ||
+    p === 'insert' ||
+    p === 'update' ||
+    p === 'delete' ||
+    p === 'execute-procedure' ||
+    p === 'execute-function'
+    ? 'DML'
+    : 'DDL';
+}
 
 /** Draft carried from User Management into the permission panel. */
 export interface AccessPrincipalDraft {

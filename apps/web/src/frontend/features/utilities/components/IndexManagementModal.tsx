@@ -30,6 +30,7 @@ import {
   dialectSupportsIndexFragmentation,
   indexMaintenanceVerb,
   formatBytes,
+  formatPct,
   formatRowCount,
   fragmentationSeverity,
   groupObjectSizes,
@@ -120,11 +121,6 @@ export function describeFragmentationChange(
   return delta > 0
     ? `fragmentation ${formatPct(from)} → ${formatPct(to)}.`
     : `fragmentation rose ${formatPct(from)} → ${formatPct(to)}, which usually means the rebuild is still settling.`;
-}
-
-function formatPct(pct: number | null | undefined): string {
-  if (pct == null || !Number.isFinite(pct)) return '—';
-  return `${pct < 10 ? pct.toFixed(1) : Math.round(pct)}%`;
 }
 
 function fragClass(severity: ReturnType<typeof fragmentationSeverity>): string {

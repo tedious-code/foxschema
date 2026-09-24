@@ -33,6 +33,7 @@ import {
   availablePermissions,
   buildAccessSql,
   cellSupport,
+  permissionBand,
   compileObjectGrid,
   describePermission,
   gridColumnsFor,
@@ -74,17 +75,6 @@ const CHIP_LABEL: Partial<Record<AccessPermission, string>> = {
   'execute-procedure': 'EXECUTE',
   'execute-function': 'EXECUTE',
 };
-
-function bandOf(p: AccessPermission): 'DML' | 'DDL' {
-  return p === 'read' ||
-    p === 'insert' ||
-    p === 'update' ||
-    p === 'delete' ||
-    p === 'execute-procedure' ||
-    p === 'execute-function'
-    ? 'DML'
-    : 'DDL';
-}
 
 /**
  * What "create-object" means on this dialect — shown so the reader is not
@@ -602,8 +592,8 @@ export const DbAccessPermissionSections: React.FC<Props> = ({
                         const cols = new Set(
                           gridColumnsFor(dialect, kind).map((c) => c.permission)
                         );
-                        const dml = held.filter((p) => bandOf(p) === 'DML' && cols.has(p));
-                        const ddl = held.filter((p) => bandOf(p) === 'DDL' && cols.has(p));
+                        const dml = held.filter((p) => permissionBand(p) === 'DML' && cols.has(p));
+                        const ddl = held.filter((p) => permissionBand(p) === 'DDL' && cols.has(p));
                         return (
                           <tr
                             key={objectKey(row.schema, row.name, kind)}
@@ -933,8 +923,8 @@ const PrivBands: React.FC<{
   onToggle: (p: AccessPermission) => void;
 }> = ({ dialect, kind, selected, onToggle }) => {
   const cols = gridColumnsFor(dialect, kind);
-  const dml = cols.filter((c) => bandOf(c.permission) === 'DML');
-  const ddl = cols.filter((c) => bandOf(c.permission) === 'DDL');
+  const dml = cols.filter((c) => permissionBand(c.permission) === 'DML');
+  const ddl = cols.filter((c) => permissionBand(c.permission) === 'DDL');
   const Band = ({
     title,
     list,

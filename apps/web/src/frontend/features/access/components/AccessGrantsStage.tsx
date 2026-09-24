@@ -28,6 +28,7 @@ import {
 } from './DbAccessPermissionSections';
 import type { DbPrincipal } from '@foxschema/sql';
 import { sectionLabelCls } from '@/shared/components/surfaces';
+import { writeClipboard } from '@/shared/utils/clipboard';
 
 const PRESET_LABEL: Record<Exclude<AccessPreset, 'custom'>, string> = {
   'read-only': 'Read only',
@@ -271,7 +272,7 @@ export const AccessGrantsStage: React.FC<{
                   type="button"
                   data-testid="access-grants-copy"
                   disabled={!sqlText.trim() || sqlText.startsWith('-- Desired')}
-                  onClick={() => void navigator.clipboard.writeText(sqlText)}
+                  onClick={() => void writeClipboard(sqlText)}
                   className="inline-flex items-center gap-1 rounded-md border border-slate-600 px-2 py-1 text-[11px] font-bold text-slate-200 disabled:opacity-40"
                 >
                   <Copy className="w-3 h-3" /> Copy

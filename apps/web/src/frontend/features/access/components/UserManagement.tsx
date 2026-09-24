@@ -74,6 +74,7 @@ import {
   dropSafetyNotes,
 } from '../lib/accountAlterations';
 import type { AccessPrincipalDraft } from '../lib/access';
+import { writeClipboard } from '@/shared/utils/clipboard';
 
 type Mode = 'idle' | 'add' | 'edit' | 'drop' | 'list';
 
@@ -605,24 +606,6 @@ export const UserManagement: React.FC<{
     if (mode === 'add') setMode('idle');
     else if (mode === 'drop') startDrop(p);
     else if (mode === 'edit') startEdit(p);
-  };
-
-  /**
-   * Write to the clipboard, saying whether it worked.
-   *
-   * `writeText` rejects with NotAllowedError when the page lacks clipboard
-   * permission or is not focused. Callers previously awaited it bare, so a
-   * refusal meant the button did nothing at all. This helper does not touch
-   * password-panel state: Copy SQL and Copy-with-password mean different
-   * things landed on the clipboard.
-   */
-  const writeClipboard = async (text: string): Promise<boolean> => {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      return false;
-    }
   };
 
   const copy = async () => {

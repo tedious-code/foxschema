@@ -14,6 +14,7 @@ import {
   DdlDiffLines,
   stripSchemaQualifiers,
 } from '@/features/schema-diff';
+import { writeClipboard } from '@/shared/utils/clipboard';
 import { MigrationProgressPanel } from '@/features/object-detail/components/MigrationProgressPanel';
 import { DeployConfirmDialog } from '@/features/object-detail/components/DeployConfirmDialog';
 import { DependencyWarningDialog } from '@/features/object-detail/components/DependencyWarningDialog';
@@ -321,9 +322,10 @@ export const ObjectDetailPanel: React.FC = () => {
     applyMigration();
   };
 
-  const handleCopySql = () => {
+  const handleCopySql = async () => {
     if (!formattedSql) return;
-    navigator.clipboard.writeText(formattedSql);
+    // Only claim "Copied!" when it was: writeText rejects without focus/permission.
+    if (!(await writeClipboard(formattedSql))) return;
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };

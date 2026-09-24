@@ -17,25 +17,13 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle, ChevronUp, Database, Folder, Home, Loader2, RefreshCw, X } from 'lucide-react';
 import { browseFiles, type FileBrowseEntry, type FileBrowseResult } from '@/shared/api/fileApi';
+import { formatBytes } from '@foxschema/sql';
 
 export interface DatabaseFilePickerProps {
   /** Where to open. A file path opens its directory, with the name filled in. */
   initialPath?: string;
   onCancel: () => void;
   onSelect: (path: string) => void;
-}
-
-function formatSize(bytes: number | undefined): string {
-  if (bytes == null) return '';
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ['KB', 'MB', 'GB', 'TB'];
-  let value = bytes / 1024;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
 }
 
 /** Join a directory and a file name without assuming the platform's separator. */
@@ -208,7 +196,7 @@ export const DatabaseFilePicker: React.FC<DatabaseFilePickerProps> = ({
                   <span className="min-w-0 flex-1 truncate">{entry.name}</span>
                   {entry.kind === 'file' && (
                     <span className="shrink-0 text-[10px] text-slate-500">
-                      {formatSize(entry.size)}
+                      {entry.size == null ? '' : formatBytes(entry.size)}
                       {entry.modifiedAt ? ` · ${entry.modifiedAt.slice(0, 10)}` : ''}
                     </span>
                   )}

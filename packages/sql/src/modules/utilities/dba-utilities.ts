@@ -233,6 +233,12 @@ export function formatBytes(bytes: number | null | undefined): string {
   return `${signed}${n < 10 && i > 0 ? n.toFixed(1) : Math.round(n)} ${units[i]}`;
 }
 
+/** A percentage: one decimal below 10, whole numbers above, '—' when unknown. */
+export function formatPct(pct: number | null | undefined): string {
+  if (pct == null || !Number.isFinite(pct)) return '—';
+  return `${pct < 10 ? pct.toFixed(1) : Math.round(pct)}%`;
+}
+
 /** Stable thousands separators so UI and tests do not depend on host locale. */
 export function formatRowCount(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return '—';
