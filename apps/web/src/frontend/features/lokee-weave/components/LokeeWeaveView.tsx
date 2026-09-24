@@ -115,6 +115,16 @@ export function LokeeWeaveView({
   const [versionsFor, setVersionsFor] = useState<string | null>(null);
 
   const [dto, setDto] = useState<VersionGraphDTO>(EMPTY_DTO);
+  /**
+   * The graph, kept apart from the timeline in `dto`.
+   *
+   * Both reload on every refresh and they used to write the same state, so
+   * whichever request answered last won. When the timeline list (which carries
+   * no objects and no revert provenance) landed after the graph, it replaced
+   * the graph: the canvas lost its objects and "reverted to vN" marks until the
+   * next refresh.
+   */
+  const [graphDto, setGraphDto] = useState<VersionGraphDTO | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [error, setError] = useState<string | null>(null);
@@ -285,7 +295,7 @@ export function LokeeWeaveView({
       try {
         const graph = await loadVersionGraph(activeId, versionLimit);
         if (cancelled) return;
-        setDto(graph);
+        setGraphDto(graph);
       } catch (err) {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : 'Failed to load schema history');
@@ -318,7 +328,7 @@ export function LokeeWeaveView({
       if (!activeId) return;
       try {
         const version = await updateLokeeVersionMeta(activeId, versionId, patch);
-        setDto((prev) => ({
+        const rename = <T extends VersionGraphDTO>(prev: T): T => ({
           ...prev,
           versions: prev.versions.map((v) =>
             v.id === versionId
@@ -330,7 +340,9 @@ export function LokeeWeaveView({
                 }
               : v
           ),
-        }));
+        });
+        setDto(rename);
+        setGraphDto((prev) => (prev ? rename(prev) : prev));
         toast({ tone: 'success', title: 'Version updated', body: 'Name and description saved.' });
       } catch (err) {
         toast({
@@ -461,6 +473,8 @@ export function LokeeWeaveView({
   // the page mid-reload, so a click aimed at the toggle landed after the
   // reload and switched the graph off.
   const undecided = activeId ? versionsFor !== activeId : !databasesLoaded;
+  // The graph for this database once it has loaded; the timeline until then.
+  const graph = graphDto && graphDto.databaseId === activeId ? graphDto : dto;
   if (undecided || (loading && !activeId)) {
     return (
       <div className="flex flex-1 min-h-0 flex-col overflow-hidden" data-testid="lokee-weave-view">
@@ -556,7 +570,7 @@ export function LokeeWeaveView({
 
   return (
     <div className="flex flex-1 min-h-0 flex-col overflow-hidden" data-testid="lokee-weave-view">
-      {dto.truncatedObjects && showGraph && (
+      {graph.truncatedObjects && showGraph && (
         <div className="border-b border-amber-500/30 bg-amber-500/10 px-6 py-1.5 text-[11px] text-amber-200">
           Showing the objects that changed in this window. This schema has more objects than the
           graph draws at once.
@@ -594,7 +608,7 @@ export function LokeeWeaveView({
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           {showGraph ? (
             <LokeeWeavePage
-              dto={dto}
+              dto={graph}
               subtitle={subtitle}
               embedded={embedded}
               onSelectObject={handleSelectObject}
@@ -652,7 +666,7 @@ export function LokeeWeaveView({
             onSelectVersion={(versionId) => {
               setSelectedObject((prev) => {
                 if (!prev) return prev;
-                const at = dto.objects.find(
+                const at = graph.objects.find(
                   (o) => o.objectKey === prev.objectKey && o.versionId === versionId
                 );
                 return {
