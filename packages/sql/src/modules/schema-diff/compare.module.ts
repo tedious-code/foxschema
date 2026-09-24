@@ -3,6 +3,7 @@ import { type TableSchema, type ColumnInfo, type IndexInfo, type ForeignKeyInfo,
 import type { SqlDialect } from '../dialect/sql-dialect.interface.js';
 import { resolveDialect } from '../dialect/registry.js';
 import { canonicalEquals } from '../dialect/type-mapping.js';
+import { compareKey } from './compare-key.js';
 
 export class CompareModule {
   /** When set (and the dialects differ), columns are compared by canonical type. */
@@ -22,7 +23,7 @@ export class CompareModule {
    * the comparison is about the object, not which schema it was read from.
    */
   private key(name: string): string {
-    return name.replace(/^"?[^".]+"?\./, '').replace(/"/g, '').toUpperCase();
+    return compareKey(name);
   }
 
   /**

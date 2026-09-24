@@ -1,4 +1,5 @@
 import type { TableDiff, DbObjectType } from '../../interfaces/index.js';
+import { bareObjectName as bareName } from '../schema-diff/compare-key.js';
 
 /**
  * A procedural object (view/function/procedure/trigger) in the TARGET database
@@ -26,11 +27,6 @@ export interface DropDependencyOptions {
 }
 
 const PROCEDURAL_TYPES: ReadonlySet<DbObjectType> = new Set(['VIEW', 'FUNCTION', 'PROCEDURE', 'TRIGGER']);
-
-/** Drops any leading "schema." prefix and surrounding quotes from an object name. */
-function bareName(name: string): string {
-  return name.replace(/^"?[^".]+"?\./, '').replace(/"/g, '');
-}
 
 /**
  * Normalize a procedural body for matching — identical to compare.module's

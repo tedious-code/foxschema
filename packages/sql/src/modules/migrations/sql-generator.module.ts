@@ -4,6 +4,7 @@ import type { IndexInfo } from '../../interfaces/index.js';
 import type { SqlDialect, ColumnSpec } from '../dialect/sql-dialect.interface.js';
 import { resolveDialect, tryResolveDialect } from '../dialect/registry.js';
 import { dialectSupportsFk, type FkFeatureSupport } from '../dialect/fk-support.js';
+import { compareKey } from '../schema-diff/compare-key.js';
 
 export interface MigrationStep {
   objectName: string;
@@ -517,10 +518,7 @@ export class SqlGeneratorModule {
 
     if ((obj.objectType === 'TABLE' || obj.objectType === 'MQT') && source) {
       const typeWarnings: string[] = [];
-      const cycleKey = (source.name ?? obj.tableName)
-        .replace(/^"?[^".]+"?\./, '')
-        .replace(/"/g, '')
-        .toUpperCase();
+      const cycleKey = compareKey(source.name ?? obj.tableName);
       if (this.fkCycleKeys.has(cycleKey)) {
         const cycleList = [...this.fkCycleKeys].sort().join(', ');
         statements.push(
@@ -1043,11 +1041,8 @@ export class SqlGeneratorModule {
     const others = added.filter((o) => o.objectType !== 'TABLE');
     if (tables.length === 0) return [...others];
 
-    const bare = (name: string) =>
-      name.replace(/^"?[^".]+"?\./, '').replace(/"/g, '').toUpperCase();
-
     const byKey = new Map<string, TableDiff>(
-      tables.map((t) => [bare(t.tableName), t])
+      tables.map((t) => [compareKey(t.tableName), t])
     );
     // Edge: child → parent (child depends on parent). Indegree counts parents
     // that must be created first for each child... Kahn wants indegree = number
@@ -1059,9 +1054,9 @@ export class SqlGeneratorModule {
       dependents.set(key, []);
     }
     for (const obj of tables) {
-      const child = bare(obj.tableName);
+      const child = compareKey(obj.tableName);
       for (const fk of obj.sourceTable?.foreignKeys ?? []) {
-        const parent = bare(fk.referencedTable);
+        const parent = compareKey(fk.referencedTable);
         if (!byKey.has(parent) || parent === child) continue;
         dependents.get(parent)!.push(child);
         indegree.set(child, (indegree.get(child) ?? 0) + 1);
@@ -1090,8 +1085,8 @@ export class SqlGeneratorModule {
     }
 
     // Residual cycle — append remaining tables; createObjectStatements emits review.
-    const residual = tables.filter((t) => !placed.has(bare(t.tableName)));
-    this.fkCycleKeys = new Set(residual.map((t) => bare(t.tableName)));
+    const residual = tables.filter((t) => !placed.has(compareKey(t.tableName)));
+    this.fkCycleKeys = new Set(residual.map((t) => compareKey(t.tableName)));
     result.push(...residual);
 
     return [...result, ...others];
@@ -1118,7 +1113,7 @@ export class SqlGeneratorModule {
       if (visited.has(key)) return;
       visited.add(key);
       for (const fk of obj.targetTable?.foreignKeys ?? []) {
-        const refKey = fk.referencedTable.replace(/^"?[^".]+"?\./, '').replace(/"/g, '').toUpperCase();
+        const refKey = compareKey(fk.referencedTable);
         const dep = byKey.get(refKey);
         if (dep) visit(dep);
       }
