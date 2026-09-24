@@ -211,7 +211,7 @@ export const StatementStrip: React.FC<Props> = ({
     <div className="shrink-0 flex flex-col border-b border-slate-800 bg-slate-950" data-testid="sql-statement-strip">
       <div className="px-2 py-1.5 flex flex-col gap-1 overflow-y-auto" style={{ height }}>
         {statements.map((stmt, i) => {
-          const status = checkStatement(stmt);
+          const status = checkStatement(stmt, { last: i === statements.length - 1 });
           const ok = status.level === 'ok';
           const isChecked = checked.includes(i);
           const codeKind = isCodeCellKind(stmt.kind) ? stmt.kind : null;

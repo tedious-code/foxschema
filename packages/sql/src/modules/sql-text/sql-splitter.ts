@@ -768,9 +768,14 @@ function isBlankOrCommentsOnly(text: string): boolean {
  * Cheap completeness signal for the gutter indicator. 'ok' means "looks
  * complete" — balanced quoting/parens, known leading keyword, terminated with
  * a semicolon — NOT that the statement will execute.
+ *
+ * `last`: this is the final statement in the buffer. Nothing follows it, so
+ * its semicolon is optional — every driver runs `SELECT 1` — and warning on
+ * it put an amber ⚠ beside nearly every one-line query anyone typed.
  */
 export function checkStatement(
-  stmt: Pick<SplitStatement, 'text' | 'terminated'> & { kind?: StatementKind }
+  stmt: Pick<SplitStatement, 'text' | 'terminated'> & { kind?: StatementKind },
+  opts: { last?: boolean } = {}
 ): StatementStatus {
   const cell = parseCodeCell(stmt.text);
   const kind = stmt.kind ?? cell?.kind ?? 'sql';
@@ -839,7 +844,7 @@ export function checkStatement(
     reasons.push('Unclosed dollar-quoted string');
   }
   if (parens !== 0) reasons.push('Unbalanced parentheses');
-  if (!stmt.terminated) reasons.push('Missing terminating semicolon');
+  if (!stmt.terminated && !opts.last) reasons.push('Missing terminating semicolon');
 
   const kw = firstKeyword(text);
   if (!kw) reasons.push('Does not start with a SQL keyword');

@@ -13,7 +13,7 @@ export class AppPage {
     // First-run signup can appear after /signup/state (up to ~4s). Wait for
     // either the workspace or the wizard so we don't miss Skip.
     await this.page.waitForSelector(
-      '[data-testid="toolbar"], [data-testid="signup-wizard-skip"]',
+      '[data-testid="toolbar"], [data-testid="signup-wizard-skip"], [data-testid="onboarding-skip"]',
       { timeout: 30_000 }
     );
     const skipSignup = this.page.locator('[data-testid="signup-wizard-skip"]');

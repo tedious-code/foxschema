@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Loader2, ChevronRight, Table2, Eye, FunctionSquare, Code, Database } from 'lucide-react';
 import { useAuthStore } from '@/app/store/authStore';
+import { useUiStore } from '@/app/store/uiStore';
+import { landingForGoal } from '../lib/onboardingLanding';
 import { PROVIDER_SETTINGS } from '@/shared/lib/provider-settings';
 
 const ROLES = ['Developer', 'DBA', 'Data Engineer', 'Analyst', 'Student', 'Other'];
@@ -58,9 +60,24 @@ export const OnboardingWizard: React.FC = () => {
     },
   ];
 
-  const finish = (goal: string) => {
+  /**
+   * Finish with whatever has been answered so far. Every step is optional: a
+   * survey you cannot leave stands between a new user and the product, which
+   * is the opposite of what a welcome is for.
+   */
+  const finish = async (goal?: string) => {
     setPrimaryGoal(goal);
-    completeOnboarding({ role, primaryDatabase, primaryGoal: goal });
+    await completeOnboarding({
+      ...(role ? { role } : {}),
+      ...(primaryDatabase ? { primaryDatabase } : {}),
+      ...(goal ? { primaryGoal: goal } : {}),
+    });
+    if (useAuthStore.getState().status !== 'ready') return;
+    const landing = landingForGoal(goal);
+    if (!landing) return;
+    const ui = useUiStore.getState();
+    if (landing.syncPane) ui.setSyncPane(landing.syncPane);
+    ui.setActiveView(landing.view);
   };
 
   const optionGridClass =
@@ -108,7 +125,8 @@ export const OnboardingWizard: React.FC = () => {
                 <button
                   key={g.id}
                   disabled={busy}
-                  onClick={() => finish(g.id)}
+                  data-testid={`onboarding-goal-${g.id}`}
+                  onClick={() => void finish(g.id)}
                   className="flex items-center gap-3 px-4 py-3 rounded-lg border border-slate-800 bg-slate-900/60 hover:border-cyan-500/40 hover:bg-cyan-500/5 text-sm font-semibold text-slate-200 transition cursor-pointer disabled:opacity-60"
                 >
                   <span className="text-cyan-400">{g.icon}</span>
@@ -120,11 +138,27 @@ export const OnboardingWizard: React.FC = () => {
           </div>
         )}
 
-        {step > 0 && step < 2 && (
-          <button onClick={() => setStep(step - 1)} className="mt-6 text-xs text-slate-500 hover:text-slate-300 mx-auto block">
-            ← Back
+        <div className="mt-6 flex items-center justify-center gap-6">
+          {step > 0 && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setStep(step - 1)}
+              className="text-xs text-slate-500 hover:text-slate-300 disabled:opacity-50"
+            >
+              ← Back
+            </button>
+          )}
+          <button
+            type="button"
+            data-testid="onboarding-skip"
+            disabled={busy}
+            onClick={() => void finish()}
+            className="text-xs font-semibold text-slate-400 hover:text-slate-200 disabled:opacity-50"
+          >
+            {busy && primaryGoal === undefined ? 'Skipping…' : 'Skip — take me to the app'}
           </button>
-        )}
+        </div>
         {error && <p className="mt-4 text-xs text-rose-400 text-center">{error}</p>}
 
         <div className="flex items-center justify-center gap-1.5 mt-8 text-slate-700">

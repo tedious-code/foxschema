@@ -25,7 +25,6 @@ import {
   DATA_MIGRATE_ROW_CAP,
   diffKeyLabelsForOps,
   filterOpsByKeyLabels,
-  migrateGridsAreComplete,
   migrateKeysSafeForMutatingOps,
   selectMigrateOps,
   type ClassifiedRowDiff,
@@ -202,8 +201,23 @@ export const DataMigrateBar: React.FC<Props> = ({
         dest: { columns: dest.columns, rows: dest.rows },
         keyNames,
         ignoreColumns,
+        // A row missing from a partial grid may just be on a later page: count
+        // it as unresolved rather than offer an INSERT/DELETE for it.
+        sourceComplete: (source.pageIndex ?? 0) === 0 && !source.hasMore,
+        destComplete: (dest.pageIndex ?? 0) === 0 && !dest.hasMore,
       }),
-    [source.columns, source.rows, dest.columns, dest.rows, keyNames, ignoreColumns]
+    [
+      source.columns,
+      source.rows,
+      dest.columns,
+      dest.rows,
+      keyNames,
+      ignoreColumns,
+      source.pageIndex,
+      source.hasMore,
+      dest.pageIndex,
+      dest.hasMore,
+    ]
   );
 
   const opsEnabled = useMemo(
@@ -335,25 +349,6 @@ export const DataMigrateBar: React.FC<Props> = ({
         tone: 'warning',
         title: 'Key columns missing from the result',
         body: `Include ${keysMissing.join(', ')} in the SELECT, or pick a Key that is in both grids.`,
-      });
-      return;
-    }
-    if (
-      !migrateGridsAreComplete({
-        sourcePageIndex: source.pageIndex ?? 0,
-        destPageIndex: dest.pageIndex ?? 0,
-        sourceHasMore: Boolean(source.hasMore),
-        destHasMore: Boolean(dest.hasMore),
-      })
-    ) {
-      toast({
-        tone: 'warning',
-        title: 'Migrate needs the full result on page 1',
-        body:
-          'Add / Edit / Delete classify only the rows currently loaded. ' +
-          'Page both grids to page 1 with no “next page”, or tighten the SELECT ' +
-          `(LIMIT ≤ page size). Otherwise Delete can remove destination rows that ` +
-          'still exist later in the source.',
       });
       return;
     }
@@ -1192,6 +1187,18 @@ export const DataMigrateBar: React.FC<Props> = ({
           )}
         </button>
       </div>
+
+      {classification.unresolved > 0 && (
+        <p
+          className="text-[11px] font-semibold text-amber-400/90"
+          data-testid={`sql-data-migrate-unresolved-${statementIndex}`}
+        >
+          {classification.unresolved} row{classification.unresolved === 1 ? ' is' : 's are'} on one
+          side only, but the other side&apos;s result is cut off — they may just be further down, so
+          they are not offered as Add or Delete. Raise Rows/page (or narrow the SELECT) to classify
+          them. Edits are safe to apply: both copies are loaded.
+        </p>
+      )}
 
       {!editTarget.ok && (
         <p className="text-[11px] font-semibold text-amber-400/90">

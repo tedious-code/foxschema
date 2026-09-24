@@ -214,30 +214,36 @@ export const ConnectionChecklist: React.FC<{ variant?: 'list' | 'chips' }> = ({
             return (
             <label
               key={c.id}
-              className="flex items-center gap-2 text-[13px] font-semibold text-slate-300 cursor-pointer select-none hover:text-slate-100 hover:bg-slate-800/60 rounded px-0.5 py-0.5 shrink-0"
+              className="flex items-start gap-2 text-[13px] font-semibold text-slate-300 cursor-pointer select-none hover:text-slate-100 hover:bg-slate-800/60 rounded px-0.5 py-1 shrink-0"
             >
               <input
                 type="checkbox"
                 data-testid={`sql-conn-check-${c.name || c.id}`}
                 checked={group !== null}
                 onChange={() => toggleConnection(c.id)}
-                className="w-3.5 h-3.5 accent-cyan-600 cursor-pointer shrink-0"
+                className="w-3.5 h-3.5 mt-0.5 accent-cyan-600 cursor-pointer shrink-0"
               />
               <span
-                className={`w-5 shrink-0 text-center font-mono text-[10px] font-bold ${
+                className={`w-5 shrink-0 mt-0.5 text-center font-mono text-[10px] font-bold ${
                   group ? 'text-cyan-300' : 'text-slate-600'
                 }`}
               >
                 {group ? `#${group}` : '·'}
               </span>
-              <span className="shrink-0 rounded border border-slate-700/70 bg-slate-950/70 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-400">
-                {dialectLabel(c.dialect)}
-              </span>
+              {/* The name gets the row's full width. With the dialect chip in
+                  front of it, a narrow sidebar cut "Scratch a" and "Scratch b"
+                  down to the same "Scratc…". */}
               <span
-                className="truncate"
-                title={[c.host, c.database, c.schema].filter(Boolean).join(' / ')}
+                className="min-w-0 flex-1"
+                title={[c.name, c.host, c.database, c.schema].filter(Boolean).join(' / ')}
               >
-                {c.name || '(unnamed)'}
+                <span className="block break-words leading-snug">{c.name || '(unnamed)'}</span>
+                <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] font-medium text-slate-500">
+                  <span className="shrink-0 rounded border border-slate-700/70 bg-slate-950/70 px-1 text-[9px] font-bold uppercase tracking-wide text-slate-400">
+                    {dialectLabel(c.dialect)}
+                  </span>
+                  <span className="truncate">{c.database || c.host || ''}</span>
+                </span>
               </span>
             </label>
             );

@@ -110,8 +110,11 @@ export function parseFoxScript(source: string): FoxScriptDocument {
   }
 
   const statements = splitSqlStatements(source);
+  // Code cells always need their `-- @end`; only a plain SQL statement's
+  // trailing semicolon is optional, and only when nothing follows it.
+  const lastIndex = statements.length - 1;
   const blocks: FoxScriptBlock[] = statements.map((stmt, index) => {
-    const status = checkStatement(stmt);
+    const status = checkStatement(stmt, { last: index === lastIndex });
     const range = rangeOf(stmt);
     if (isCodeCellKind(stmt.kind)) {
       const parsed = parseCodeCell(stmt.text);

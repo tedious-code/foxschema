@@ -330,3 +330,21 @@ describe('formatPct', () => {
     expect(formatPct(42.6)).toBe('43%');
   });
 });
+
+describe('DuckDB probes', () => {
+  it('answers System from its own threads, memory and block storage', () => {
+    expect(dialectSupportsDbaUtility('duckdb', 'system').query).toBe(true);
+    const built = buildDbaUtilityQuery({ dialect: 'duckdb', kind: 'system' });
+    expect('sql' in built && built.sql).toMatch(/pragma_database_size\(\)/);
+    expect('sql' in built && built.sql).toMatch(/AS server_version/);
+  });
+
+  it('reports estimated_size as rows, never as bytes', () => {
+    // duckdb_tables().estimated_size is a row estimate; it was once shown as
+    // total/data bytes too.
+    const built = buildDbaUtilityQuery({ dialect: 'duckdb', kind: 'sizes' });
+    const sql = 'sql' in built ? built.sql : '';
+    expect(sql).toMatch(/estimated_size AS row_count/);
+    expect(sql).not.toMatch(/estimated_size AS (total|data)_bytes/);
+  });
+});

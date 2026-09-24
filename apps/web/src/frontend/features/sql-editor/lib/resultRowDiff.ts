@@ -36,6 +36,12 @@ export interface RowDiffClassification {
   duplicateKeys: number;
   /** Total ops before cap. */
   totalOps: number;
+  /**
+   * One-sided rows left out because the other side's grid is incomplete: a
+   * source-only row may be on a later destination page (so not an insert),
+   * and a destination-only row on a later source page (so not a delete).
+   */
+  unresolved: number;
 }
 
 function colIndexMap(columns: string[]): Map<string, number> {
@@ -121,8 +127,18 @@ export function classifyRowsByKey(opts: {
   dest: ResultGridLike;
   keyNames: string[];
   ignoreColumns?: string[];
+  /** False when that grid holds only part of its result; see `unresolved`. */
+  sourceComplete?: boolean;
+  destComplete?: boolean;
 }): RowDiffClassification {
-  const { source, dest, keyNames, ignoreColumns = [] } = opts;
+  const {
+    source,
+    dest,
+    keyNames,
+    ignoreColumns = [],
+    sourceComplete = true,
+    destComplete = true,
+  } = opts;
   const sourceKeys = keyColumnsForGrid(keyNames, source.columns);
   const destKeys = keyColumnsForGrid(keyNames, dest.columns);
   const keyNamesLower = new Set(keyNames.map((k) => k.toLowerCase()));
@@ -140,6 +156,7 @@ export function classifyRowsByKey(opts: {
       skippedNullKeys: 0,
       duplicateKeys: 0,
       totalOps: 0,
+      unresolved: 0,
     };
   }
 
@@ -176,11 +193,13 @@ export function classifyRowsByKey(opts: {
   const inserts: ClassifiedRowDiff[] = [];
   const updates: ClassifiedRowDiff[] = [];
   const deletes: ClassifiedRowDiff[] = [];
+  let unresolved = 0;
 
   for (const [key, src] of sourceMap) {
     const dst = destMap.get(key);
     if (!dst) {
-      inserts.push({ op: 'insert', keyLabel: src.label, sourceRow: src.row });
+      if (destComplete) inserts.push({ op: 'insert', keyLabel: src.label, sourceRow: src.row });
+      else unresolved += 1;
       continue;
     }
     if (
@@ -203,7 +222,8 @@ export function classifyRowsByKey(opts: {
   }
   for (const [key, dst] of destMap) {
     if (sourceMap.has(key)) continue;
-    deletes.push({ op: 'delete', keyLabel: dst.label, destRow: dst.row });
+    if (sourceComplete) deletes.push({ op: 'delete', keyLabel: dst.label, destRow: dst.row });
+    else unresolved += 1;
   }
 
   return {
@@ -213,6 +233,7 @@ export function classifyRowsByKey(opts: {
     skippedNullKeys,
     duplicateKeys,
     totalOps: inserts.length + updates.length + deletes.length,
+    unresolved,
   };
 }
 

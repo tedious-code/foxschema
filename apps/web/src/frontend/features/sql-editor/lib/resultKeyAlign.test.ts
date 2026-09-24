@@ -148,3 +148,33 @@ describe('compareKeyAlignedGrids', () => {
     expect(diff.baseline.cells.get(cellDiffKey(insertIdx, 0))).toBe('extra');
   });
 });
+
+describe('alignResultGridsByKey on a partial grid', () => {
+  const cols = ['id', 'v'];
+
+  it('marks one-sided rows unresolved when the other side is cut off, and does not tint them', () => {
+    const left = { columns: cols, rows: [[1, 'a'], [2, 'b'], [3, 'c']] };
+    const right = { columns: cols, rows: [[1, 'a'], [9, 'z']] };
+    const aligned = alignResultGridsByKey(left, right, ['id'], {
+      leftComplete: false,
+      rightComplete: false,
+    })!;
+    expect(aligned.rowOps).toEqual(['match', 'unresolved', 'unresolved', 'unresolved']);
+    expect(aligned.unresolvedCount).toBe(3);
+    expect(aligned.deleteCount + aligned.insertCount).toBe(0);
+    const diff = compareKeyAlignedGrids(left, right, aligned);
+    expect(diff.totalDiffCells).toBe(0);
+  });
+
+  it('only the side facing an incomplete grid becomes unresolved', () => {
+    const aligned = alignResultGridsByKey(
+      { columns: cols, rows: [[1, 'a'], [2, 'b']] },
+      { columns: cols, rows: [[3, 'c']] },
+      ['id'],
+      { rightComplete: false },
+    )!;
+    // left-only rows face the incomplete right → unresolved; right-only rows
+    // face the complete left → still a real insert.
+    expect(aligned.rowOps).toEqual(['unresolved', 'unresolved', 'insert']);
+  });
+});
