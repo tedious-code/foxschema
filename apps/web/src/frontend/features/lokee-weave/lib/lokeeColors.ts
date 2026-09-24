@@ -134,13 +134,6 @@ export function riskStyle(risk: ReversalRisk | undefined): RiskStyle {
   return RISK_STYLES[risk ?? 'safe'];
 }
 
-/** ADD / MODIFY / DELETE, shown as a leading glyph rather than another colour. */
-export const OPERATION_GLYPH: Record<string, string> = {
-  ADD: '+',
-  MODIFY: '~',
-  DELETE: '−',
-};
-
 export interface StatusStyle {
   label: string;
   /** Node border + accent. */

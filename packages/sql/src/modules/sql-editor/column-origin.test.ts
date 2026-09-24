@@ -16,6 +16,7 @@ import {
   fromClauseEntries,
   rowKeyFor,
   tablesInOrigins,
+  splitSelectItems,
 } from './column-origin.js';
 import type { TableSchema } from '../../interfaces/schema.interface.js';
 
@@ -283,5 +284,17 @@ describe('collapsedColumnsFor', () => {
 
   it('says nothing when a FROM table is not in the cache', () => {
     expect(collapsed('SELECT * FROM orders o JOIN mystery m ON 1=1', ['id'])).toBeNull();
+  });
+});
+
+describe('splitSelectItems', () => {
+  it('splits on top-level commas only', () => {
+    expect(splitSelectItems(`a, coalesce(b, 0) AS b, 'x,y' AS s, "q,""r" , [c,d]`)).toEqual([
+      'a',
+      'coalesce(b, 0) AS b',
+      `'x,y' AS s`,
+      '"q,""r"',
+      '[c,d]',
+    ]);
   });
 });

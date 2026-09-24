@@ -10,6 +10,7 @@ import { quoteSqlIdentifier } from '../sql-text/sql-template.js';
 import {
   accessCapabilities,
   accessFamily,
+  hasAccessModel,
   supportsAccessBuilder,
   describePermission,
   type AccessPermission,
@@ -111,12 +112,6 @@ export function qualifier(ident: (n: string) => string, schema: string): string 
 export function quoteAccessIdent(name: string, dialect: string): string {
   return quoteSqlIdentifier(name, dialect);
 }
-
-/**
- * Families with a dedicated emitter. Anything else falls back to the PostgreSQL
- * shape, which `warnFor` says out loud rather than passing off as authoritative.
- */
-const KNOWN_FAMILIES = new Set(['postgres', 'mysql', 'mariadb', 'sqlserver', 'db2', 'oracle']);
 
 /**
  * Reject rather than approximate.
@@ -249,7 +244,9 @@ export function warnForAccess(request: PermissionRequest, dialect: string): Perm
         'DENY overrides grants, including through roles. A direct DENY blocks access even when a role would grant it.',
     });
   }
-  if (!KNOWN_FAMILIES.has(fam)) {
+  // Anything without its own privilege model falls back to the PostgreSQL
+  // shape; say so rather than passing it off as authoritative.
+  if (!hasAccessModel(dialect)) {
     warnings.push({
       level: 'caution',
       message: `Fox Schema has no privilege model for ${dialect}; the statements below use PostgreSQL's GRANT syntax. Check them against your engine before running them.`,

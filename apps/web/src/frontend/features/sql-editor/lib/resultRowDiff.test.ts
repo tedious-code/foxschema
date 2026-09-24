@@ -5,7 +5,6 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  allDiffKeyLabels,
   classifyRowsByKey,
   DATA_MIGRATE_ROW_CAP,
   diffKeyLabelsForOps,
@@ -242,7 +241,8 @@ describe('selectMigrateOps', () => {
   });
 });
 
-describe('filterOpsByKeyLabels / allDiffKeyLabels', () => {
+describe('filterOpsByKeyLabels / diffKeyLabelsForOps', () => {
+  const ALL = { insert: true, update: true, delete: true };
   const classification = classifyRowsByKey({
     source: {
       columns: ['id', 'name'],
@@ -264,7 +264,7 @@ describe('filterOpsByKeyLabels / allDiffKeyLabels', () => {
   });
 
   it('lists every differing key label', () => {
-    expect(allDiffKeyLabels(classification)).toHaveLength(3);
+    expect(diffKeyLabelsForOps(classification, ALL)).toHaveLength(3);
   });
 
   it('defaults to all selected; uncheck drops from migrate plans', () => {
@@ -273,11 +273,11 @@ describe('filterOpsByKeyLabels / allDiffKeyLabels', () => {
       update: true,
       delete: true,
     });
-    expect(filterOpsByKeyLabels(byOp.ops, new Set(allDiffKeyLabels(classification))).uncappedCount).toBe(3);
+    expect(filterOpsByKeyLabels(byOp.ops, new Set(diffKeyLabelsForOps(classification, ALL))).uncappedCount).toBe(3);
     const updateLabel = classification.updates[0]!.keyLabel;
     const without = filterOpsByKeyLabels(
       byOp.ops,
-      new Set(allDiffKeyLabels(classification).filter((l) => l !== updateLabel))
+      new Set(diffKeyLabelsForOps(classification, ALL).filter((l) => l !== updateLabel))
     );
     expect(without.uncappedCount).toBe(2);
   });
@@ -290,7 +290,7 @@ describe('filterOpsByKeyLabels / allDiffKeyLabels', () => {
     });
     expect(filterOpsByKeyLabels(byOp.ops, new Set()).uncappedCount).toBe(0);
     expect(
-      filterOpsByKeyLabels(byOp.ops, new Set(allDiffKeyLabels(classification))).uncappedCount
+      filterOpsByKeyLabels(byOp.ops, new Set(diffKeyLabelsForOps(classification, ALL))).uncappedCount
     ).toBe(3);
   });
 
@@ -303,6 +303,8 @@ describe('filterOpsByKeyLabels / allDiffKeyLabels', () => {
     );
     expect(
       diffKeyLabelsForOps(classification, { insert: true, update: true, delete: true }).sort()
-    ).toEqual(allDiffKeyLabels(classification).sort());
+    ).toEqual([...classification.inserts, ...classification.updates, ...classification.deletes]
+        .map((o) => o.keyLabel)
+        .sort());
   });
 });

@@ -9,8 +9,6 @@ import { describe, expect, it } from 'vitest';
 import type { PipeMetadata } from '../api/engineClient';
 import {
   categoriesFromPipes,
-  familiesFromPipes,
-  filterCatalog,
   splitCategory,
 } from './catalog';
 
@@ -112,35 +110,5 @@ describe('categoriesFromPipes', () => {
     expect(categories[1]!.entries.map((e) => e.type)).toEqual([
       'acme/source.file.parquet',
     ]);
-  });
-});
-
-describe('familiesFromPipes', () => {
-  it('groups by capability family and filters by tags', () => {
-    const pipes = [
-      pipe('source.api.http', 'Source/API', {
-        name: 'HTTP API',
-        family: 'http',
-        tags: ['auth', 'api'],
-      }),
-      pipe('sink.email', 'Output/Notification', {
-        name: 'Email',
-        family: 'notify',
-        tags: ['email'],
-      }),
-      pipe('transform.map', 'Transform', { name: 'Map' }),
-    ];
-
-    expect(familiesFromPipes(pipes).map((f) => f.id)).toEqual([
-      'http',
-      'notify',
-      'other',
-    ]);
-    expect(filterCatalog(pipes, { family: 'http' }).map((e) => e.type)).toEqual(
-      ['source.api.http'],
-    );
-    expect(filterCatalog(pipes, { tags: ['auth'] }).map((e) => e.type)).toEqual(
-      ['source.api.http'],
-    );
   });
 });

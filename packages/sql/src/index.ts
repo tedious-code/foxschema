@@ -387,6 +387,7 @@ export {
   collapsedColumnsFor,
   fromClauseEntries,
   rowKeyFor,
+  splitSelectItems,
   tablesInOrigins,
   type AttributeOptions,
   type CollapsedColumns,

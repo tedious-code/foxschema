@@ -87,18 +87,6 @@ const NOT_AN_ALIAS = new Set([
   'and', 'or', 'not', 'as', 'lateral', 'with',
 ]);
 
-function stripOneIdent(raw: string): string {
-  const s = raw.trim();
-  if (s.length >= 2) {
-    const a = s[0];
-    const b = s[s.length - 1];
-    if ((a === '"' && b === '"') || (a === '`' && b === '`') || (a === '[' && b === ']')) {
-      return s.slice(1, -1).replace(/""/g, '"');
-    }
-  }
-  return s;
-}
-
 /**
  * Unquote each part of a qualified name: `"sales"."orders"` → `sales.orders`.
  *
@@ -212,7 +200,7 @@ function resolveTable(name: string, tables: readonly TableSchema[]): TableSchema
 }
 
 /** Split a SELECT list on commas that are not inside parens or quotes. */
-function splitSelectItems(list: string): string[] {
+export function splitSelectItems(list: string): string[] {
   const items: string[] = [];
   let depth = 0;
   let current = '';

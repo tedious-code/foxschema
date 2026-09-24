@@ -8,6 +8,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { getStore } from '../../database/store';
+import { HISTORY_MAX_TEXT_LEN, truncateForDisplay } from '../../database/stored-text';
 
 export type DataMigrateRunStatus =
   | 'RUNNING'
@@ -69,13 +70,7 @@ interface Row {
 
 const MAX_RUNS_PER_USER = 200;
 /** Bound script / snapshot blobs so one run cannot bloat the metadata DB. */
-export const DATA_MIGRATE_MAX_TEXT_LEN = 1_000_000;
-
-/** Truncate free-form script text for display; never used for machine-parsed JSON. */
-function capScript(text: string | undefined, max = DATA_MIGRATE_MAX_TEXT_LEN): string | undefined {
-  if (text == null) return text;
-  return text.length > max ? `${text.slice(0, max)}\n-- … (truncated)` : text;
-}
+export const DATA_MIGRATE_MAX_TEXT_LEN = HISTORY_MAX_TEXT_LEN;
 
 /**
  * Store snapshot JSON only when it fits intact. Appending a truncation marker
@@ -148,7 +143,7 @@ export class DataMigrateHistoryStore {
         JSON.stringify(input.opsEnabled),
         input.includeIdentity ? 1 : 0,
         JSON.stringify(input.keyColumns),
-        capScript(input.script) ?? null,
+        truncateForDisplay(input.script) ?? null,
         snapshot.json ?? null,
         new Date().toISOString(),
       ]

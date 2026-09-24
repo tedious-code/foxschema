@@ -324,6 +324,11 @@ export function accessFamily(dialect: string): string {
   return d;
 }
 
+/** Whether the dialect's family has its own privilege model (rather than the PostgreSQL fallback). */
+export function hasAccessModel(dialect: string): boolean {
+  return Object.hasOwn(CAPABILITIES, accessFamily(dialect));
+}
+
 const NO_ACCESS: AccessCapabilities = {
   databaseScope: false,
   schemaScope: false,

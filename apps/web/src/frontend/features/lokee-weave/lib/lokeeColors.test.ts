@@ -3,7 +3,6 @@ import { DIALECT_MAP } from '@foxschema/sql';
 import { COLORED, TONE_FAMILIES } from '@/app/store/uiStore';
 import {
   OBJECT_STYLES,
-  OPERATION_GLYPH,
   RISK_STYLES,
   CHANGE_KIND_STYLES,
   STATUS_STYLES,
@@ -99,13 +98,6 @@ describe('STATUS_STYLES — status must not be colour-only', () => {
     for (const [status, style] of Object.entries(STATUS_STYLES)) {
       expect(style.stroke, status).toMatch(/^var\(--color-/);
     }
-  });
-});
-
-describe('OPERATION_GLYPH', () => {
-  it('distinguishes the three operations', () => {
-    const glyphs = [OPERATION_GLYPH.ADD, OPERATION_GLYPH.MODIFY, OPERATION_GLYPH.DELETE];
-    expect(new Set(glyphs).size).toBe(3);
   });
 });
 

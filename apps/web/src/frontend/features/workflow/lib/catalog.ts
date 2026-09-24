@@ -31,13 +31,6 @@ export interface CatalogEntry {
   provider?: PipeProvider;
 }
 
-/** Family lens over the palette — orthogonal to category groups. */
-export interface CatalogFamily {
-  id: string;
-  label: string;
-  entries: CatalogEntry[];
-}
-
 /** Entries sharing a subgroup, rendered under their own heading. */
 export interface CatalogSubgroup {
   id: string;
@@ -168,41 +161,4 @@ export function catalogFromPipes(
   pipes: PipeMetadata[],
 ): CatalogEntry[] {
   return categoriesFromPipes(pipes).flatMap((c) => c.entries);
-}
-
-/**
- * Group palette entries by capability family (docs/pipe-families.md).
- * Pipes without `family` land under `other`.
- */
-export function familiesFromPipes(pipes: PipeMetadata[]): CatalogFamily[] {
-  const byFamily = new Map<string, CatalogEntry[]>();
-  for (const meta of pipes) {
-    const id = meta.family?.trim() || 'other';
-    byFamily.set(id, [...(byFamily.get(id) ?? []), toEntry(meta)]);
-  }
-  return [...byFamily.entries()]
-    .sort(([a], [b]) => {
-      if (a === 'other') return 1;
-      if (b === 'other') return -1;
-      return a.localeCompare(b);
-    })
-    .map(([id, entries]) => ({
-      id,
-      label: id === 'other' ? 'Other' : id,
-      entries: entries.sort(byLabel),
-    }));
-}
-
-/** Filter catalog entries that match a family and/or any of the given tags. */
-export function filterCatalog(
-  pipes: PipeMetadata[],
-  options: { family?: string; tags?: string[] } = {},
-): CatalogEntry[] {
-  const wantTags = (options.tags ?? []).map((t) => t.toLowerCase());
-  return catalogFromPipes(pipes).filter((entry) => {
-    if (options.family && entry.family !== options.family) return false;
-    if (wantTags.length === 0) return true;
-    const have = (entry.tags ?? []).map((t) => t.toLowerCase());
-    return wantTags.some((tag) => have.includes(tag));
-  });
 }

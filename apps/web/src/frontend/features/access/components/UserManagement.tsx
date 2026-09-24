@@ -96,9 +96,6 @@ function principalTypeOf(p: DbPrincipal): PrincipalType {
 /** Short, dialect-specific coaching shown after a connection is chosen. */
 function dialectCoach(dialect: string): string | null {
   const d = dialect.toLowerCase();
-  if (['sqlite', 'duckdb', 'mongodb', 'redis'].includes(d)) {
-    return 'This engine has no SQL user catalog. Use OS / application permissions instead.';
-  }
   if (d === 'postgres' || d === 'cockroachdb' || d === 'yugabytedb') {
     return 'PostgreSQL treats a user as a role with LOGIN. The list shows Name, Type, Roles, and whether login is allowed.';
   }

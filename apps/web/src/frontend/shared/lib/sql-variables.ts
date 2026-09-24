@@ -391,20 +391,6 @@ export function parseImportedVariables(
   return { ok: true, items };
 }
 
-/** Substitute each statement; fail fast with the first error. */
-export function substituteStatements(
-  statements: string[],
-  variables: SqlVariable[]
-): { ok: true; statements: string[] } | SubstituteErr {
-  const next: string[] = [];
-  for (const stmt of statements) {
-    const r = substituteVariables(stmt, variables);
-    if (!r.ok) return r;
-    next.push(r.sql);
-  }
-  return { ok: true, statements: next };
-}
-
 /**
  * Parse leading `-- @set …` comments and return them plus SQL with those lines removed.
  * Other leading comments / blank lines are kept in `sql`.
