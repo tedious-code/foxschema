@@ -29,6 +29,7 @@ import type { TableSchema } from '@/shared/lib/types';
 import { PeekRowEditor, type PeekRowEditorMode, type PeekRowEditorSubmit } from './PeekRowEditor';
 import { WriteConfirmDialog } from './WriteConfirmDialog';
 import { SQL_ICON_STROKE } from '@/shared/lib/iconStyle';
+import { supportsDialectFeature } from '@foxschema/sql';
 
 function recordPeekRun(args: {
   kind: string;
@@ -419,9 +420,11 @@ export function usePeekGridCrud(args: PeekGridCrudArgs): PeekGridCrud {
           writeStatements={[pendingWrite.displaySql]}
           credentialCount={1}
           readonlyTargets={
-            dialect.toLowerCase() === 'clickhouse'
-              ? [{ name: conn?.name || connectionId, dialect }]
-              : []
+            // The capability table owns which adapters are SELECT-only; the
+            // editor store asks it the same way.
+            supportsDialectFeature(dialect, 'rowEditing')
+              ? []
+              : [{ name: conn?.name || connectionId, dialect }]
           }
           onCancel={() => setPendingWrite(null)}
           onConfirm={() => void runWrite(pendingWrite)}

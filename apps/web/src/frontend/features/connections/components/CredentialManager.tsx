@@ -56,7 +56,10 @@ function formatDate(iso: string): string {
 
 /** Manage reusable, encrypted credentials (DB + cloud providers). */
 export const CredentialManager: React.FC<Props> = ({ open, onClose }) => {
-  const { connections, addConnection, updateConnection, removeConnection } = useSyncStore();
+  const connections = useSyncStore((s) => s.connections);
+  const addConnection = useSyncStore((s) => s.addConnection);
+  const updateConnection = useSyncStore((s) => s.updateConnection);
+  const removeConnection = useSyncStore((s) => s.removeConnection);
   const [tab, setTab] = useState<CredTab>('database');
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<SavedConnectionSummary | null>(null);

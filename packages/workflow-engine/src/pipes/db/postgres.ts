@@ -7,7 +7,7 @@
  */
 import type { ClientConfig } from 'pg';
 import * as z from 'zod';
-import { resolveDialect } from '@foxschema/sql';
+import { quoteSqlIdentifier, resolveDialect } from '@foxschema/sql';
 import type {
   PipeContext,
   RecordBatch,
@@ -221,7 +221,7 @@ function fallbackPostgresType(raw: string): string {
 }
 
 function quote(value: string): string {
-  return `"${value.replaceAll('"', '""')}"`;
+  return quoteSqlIdentifier(value, 'postgres');
 }
 
 /**

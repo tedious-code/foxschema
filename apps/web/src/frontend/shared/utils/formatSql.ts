@@ -5,16 +5,41 @@ import {
   type CodeCellKind,
 } from '../lib/sql-splitter';
 import { parseSetDirectives, type SetDirective } from '../lib/sql-variables';
+import type { Dialect } from '../lib/provider-settings';
 
-const LANGUAGE_BY_DIALECT: Record<string, NonNullable<FormatOptionsWithLanguage['language']>> = {
+/**
+ * sql-formatter's grammar for every SQL dialect. Keyed on the full `Dialect`
+ * union (minus the two non-SQL stores) so a new dialect fails the typecheck
+ * here instead of silently falling back to generic `'sql'` — which cannot parse
+ * `[dbo].[t]`, `x::int` or `$$ … $$`, so Format quietly did nothing for Azure
+ * SQL, CockroachDB, YugabyteDB and Redshift.
+ */
+const LANGUAGE_BY_DIALECT: Record<
+  Exclude<Dialect, 'redis' | 'mongodb'>,
+  NonNullable<FormatOptionsWithLanguage['language']>
+> = {
   db2: 'db2',
   mysql: 'mysql',
   mariadb: 'mariadb',
+  tidb: 'tidb',
   oracle: 'plsql',
   postgres: 'postgresql',
+  cockroachdb: 'postgresql',
+  yugabytedb: 'postgresql',
+  redshift: 'redshift',
   sqlserver: 'tsql',
+  azuresql: 'tsql',
   sqlite: 'sqlite',
+  duckdb: 'duckdb',
+  clickhouse: 'clickhouse',
 };
+
+function languageFor(dialect: string): NonNullable<FormatOptionsWithLanguage['language']> {
+  const key = dialect.toLowerCase();
+  return Object.hasOwn(LANGUAGE_BY_DIALECT, key)
+    ? LANGUAGE_BY_DIALECT[key as keyof typeof LANGUAGE_BY_DIALECT]
+    : 'sql';
+}
 
 /**
  * Pretty-prints catalog DDL (views, triggers, routines often come back as one line).
@@ -24,7 +49,7 @@ export function formatSql(sql: string, dialect: string): string {
   if (!sql || !sql.trim()) return sql;
   try {
     return format(sql, {
-      language: LANGUAGE_BY_DIALECT[dialect.toLowerCase()] ?? 'sql',
+      language: languageFor(dialect),
       keywordCase: 'upper',
       tabWidth: 1,
       indentStyle: 'tabularLeft',

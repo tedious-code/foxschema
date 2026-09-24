@@ -1,10 +1,8 @@
-import { createRequire } from 'node:module';
 import { type ConnectionOptions, type DriverAdapter } from '@foxschema/sql';
 import { BoundedPoolCache, disposePoolEndOrClose } from '../../cores/pool-cache.js';
 import { guardPoolErrors } from '../../cores/pool-error-guard.js';
 import { connectTimeoutMs } from '../../cores/timeouts.js';
-
-const nodeRequire = createRequire(import.meta.url);
+import { requireDriver } from '../../cores/driver-loader.js';
 
 /**
  * MySQL / MariaDB adapter — connection pooling via mysql2's promise API.
@@ -20,14 +18,8 @@ class MysqlAdapter implements DriverAdapter {
 
   private load(): any {
     if (this.driver) return this.driver;
-    try {
-      // mysql2/promise exposes createPool returning promise-based connections
-      const mod = nodeRequire('mysql2/promise');
-      this.driver = mod.default ?? mod;
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : String(e);
-      throw new Error(`Database driver "${this.packageName}" is not installed for mysql/mariadb. Install it with: npm install ${this.packageName} — ${message}`);
-    }
+    // mysql2/promise exposes createPool returning promise-based connections
+    this.driver = requireDriver(this.packageName, 'mysql/mariadb', { specifier: 'mysql2/promise' });
     return this.driver;
   }
 

@@ -12,6 +12,7 @@ import {
 } from '@/shared/api/sqlApi';
 import type { ConnectionRef } from '@/shared/api/schemaApi';
 import { usesServerBeam } from '@foxschema/shared';
+import { errorMessage } from '@foxschema/sql';
 export { usesServerBeam };
 import type { SetDirective, SqlVariable } from '@/shared/lib/sql-variables';
 import { parseSetDirectives } from '@/shared/lib/sql-variables';
@@ -79,10 +80,6 @@ export function prepareCodeCellSource(statement: string):
     body: stripFullLineSqlComments(inner.sql),
     directives: [...leading.directives, ...inner.directives],
   };
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 async function transpileTs(body: string): Promise<string> {

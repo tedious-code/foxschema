@@ -18,6 +18,7 @@ import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { hasDb2Clidriver, setupDb2ClientEnv } from '@foxschema/db';
+import { errorMessage } from '@foxschema/sql';
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -374,7 +375,7 @@ export function verifyInstalledDriver(packageName: string): VerifyDriverResult {
   } catch (e) {
     return {
       ok: false,
-      error: e instanceof Error ? e.message : String(e),
+      error: errorMessage(e),
       needsClidriverRebuild: packageName === 'ibm_db',
     };
   }

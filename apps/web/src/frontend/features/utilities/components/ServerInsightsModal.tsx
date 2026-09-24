@@ -22,7 +22,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { dialectSupportsDbaUtility, formatBytes, type DbaUtilityKind } from '@foxschema/sql';
+import { dialectSupportsDbaUtility, formatBytes, formatPct, type DbaUtilityKind } from '@foxschema/sql';
 import { fetchDbaUtility, type DbaUtilityResponse } from '@/shared/api/schemaApi';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
@@ -68,11 +68,6 @@ function formatUptime(seconds: number | null | undefined): string {
   if (d > 0) return `${d}d ${h}h`;
   if (h > 0) return `${h}h ${m}m`;
   return `${m}m`;
-}
-
-function formatPct(n: number | null | undefined): string {
-  if (n == null || !Number.isFinite(n)) return '—';
-  return `${n < 10 ? n.toFixed(1) : Math.round(n)}%`;
 }
 
 /** Utilities modal: credential → tabbed DBA probes. */

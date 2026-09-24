@@ -1,5 +1,5 @@
 import { ConnectionFactory } from '../../cores/connection-factory.js';
-import { dbSchemaToTableSchemas, rolesToTableSchemas, groupRoleRows, roleSkippedWarning } from '@foxschema/sql';
+import { dbSchemaToTableSchemas, rolesToTableSchemas, groupRoleRows, roleSkippedWarning, errorMessage } from '@foxschema/sql';
 import {
   type SchemaProvider,
   type RoleLoadResult,
@@ -75,7 +75,7 @@ export class MysqlProvider implements SchemaProvider {
       await ConnectionFactory.executeQuery(this.provider, options, 'SELECT 1');
       return true;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       console.error(`Error testing ${this.provider} connection:`, error);
       throw new Error(message);
     }

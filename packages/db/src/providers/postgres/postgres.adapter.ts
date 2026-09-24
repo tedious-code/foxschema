@@ -1,11 +1,9 @@
-import { createRequire } from 'node:module';
 import { type ConnectionOptions, type DriverAdapter } from '@foxschema/sql';
 import { assertSafeIdentifier } from '../../cores/sql-identifier.js';
 import { BoundedPoolCache, disposePoolEndOrClose } from '../../cores/pool-cache.js';
 import { guardClientErrors, guardPoolErrors } from '../../cores/pool-error-guard.js';
 import { connectTimeoutMs } from '../../cores/timeouts.js';
-
-const nodeRequire = createRequire(import.meta.url);
+import { requireDriver } from '../../cores/driver-loader.js';
 
 /** node-postgres (pg) adapter — connection pooling via pg.Pool. */
 class PostgresAdapter implements DriverAdapter {
@@ -17,13 +15,7 @@ class PostgresAdapter implements DriverAdapter {
 
   private load(): any {
     if (this.driver) return this.driver;
-    try {
-      const mod = nodeRequire(this.packageName);
-      this.driver = mod.default ?? mod;
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : String(e);
-      throw new Error(`Database driver "${this.packageName}" is not installed for postgres. Install it with: npm install ${this.packageName} — ${message}`);
-    }
+    this.driver = requireDriver(this.packageName, this.dialect);
     return this.driver;
   }
 

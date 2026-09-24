@@ -18,7 +18,7 @@ import type {
   SourcePipe,
 } from '../../registry/index.js';
 import { definePipeMetadata, type PipeMetadata } from '../../sdk/index.js';
-import { revealPipeSecret } from '../pipe-context.js';
+import { requestCredentialId, revealPipeSecret } from '../pipe-context.js';
 import { executeHttpRequest } from './request.js';
 
 const sourceExtrasSchema = z.object({
@@ -78,10 +78,7 @@ export class HttpSourcePipe implements SourcePipe {
 
   async *read(context: PipeContext): AsyncIterable<RecordBatch> {
     const config = configSchema.parse(context.pipe.config);
-    const authCredentialId =
-      config.auth.type === 'credential'
-        ? config.auth.credentialId
-        : context.pipe.credentialId;
+    const authCredentialId = requestCredentialId(config.auth, context);
     const secret = await revealPipeSecret(context, authCredentialId);
 
     const triggerPayload =

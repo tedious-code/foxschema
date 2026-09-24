@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { getStore } from '../../database/store';
+import { truncateForDisplay } from '../../database/stored-text';
 
 /** PARTIAL_SUCCESS: committed, but continueOnError mode skipped one or more failed objects. */
 export type MigrationRunStatus = 'RUNNING' | 'SUCCESS' | 'PARTIAL_SUCCESS' | 'FAILED' | 'ROLLED_BACK';
@@ -51,13 +52,6 @@ interface Row {
 
 // Bounds so the metadata DB can't grow unbounded.
 const MAX_RUNS_PER_USER = 200;
-const MAX_TEXT_LEN = 1_000_000; // ~1MB cap on the stored script / snapshot
-
-/** Cap very large text (a huge schema snapshot) so one row can't bloat the DB. */
-function cap(text: string | undefined, max = MAX_TEXT_LEN): string | undefined {
-  if (text == null) return text;
-  return text.length > max ? `${text.slice(0, max)}\n-- … (truncated)` : text;
-}
 
 /**
  * Per-user log of executed migrations. A row is created (RUNNING) when a
@@ -85,7 +79,7 @@ export class MigrationHistoryStore {
         input.database ?? null,
         input.schema ?? null,
         input.objectCount,
-        cap(input.script) ?? null,
+        truncateForDisplay(input.script) ?? null,
         new Date().toISOString(),
       ]
     );
@@ -121,7 +115,7 @@ export class MigrationHistoryStore {
       [
         outcome.status,
         JSON.stringify(outcome.results ?? []),
-        cap(outcome.snapshotDdl) ?? null,
+        truncateForDisplay(outcome.snapshotDdl) ?? null,
         outcome.error ?? null,
         new Date().toISOString(),
         id,

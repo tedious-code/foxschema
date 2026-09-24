@@ -231,15 +231,6 @@ export function selectMigrateOps(
   return { ops: all.slice(0, cap), truncated: true, uncappedCount };
 }
 
-/** All differing key labels (insert + update + delete). */
-export function allDiffKeyLabels(classification: RowDiffClassification): string[] {
-  return [
-    ...classification.inserts,
-    ...classification.updates,
-    ...classification.deletes,
-  ].map((o) => o.keyLabel);
-}
-
 /** Differing key labels for the currently enabled ops only (Sync column follows Ops). */
 export function diffKeyLabelsForOps(
   classification: RowDiffClassification,

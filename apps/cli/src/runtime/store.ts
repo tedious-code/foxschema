@@ -1,5 +1,4 @@
-import { readConfig } from './config';
-import { applyEnv } from './bootstrap';
+import { requireReady } from './bootstrap';
 import { AuthModule } from '@foxschema/server';
 import { ConnectionStore } from '@foxschema/server';
 import { MigrationHistoryStore } from '@foxschema/server';
@@ -19,14 +18,7 @@ let ctx: CliContext | null = null;
  */
 export async function getContext(): Promise<CliContext> {
   if (ctx) return ctx;
-  if (!readConfig().setupComplete) {
-    throw new Error('Not set up yet — run `fox setup` first.');
-  }
-  if (!applyEnv()) {
-    throw new Error(
-      'Encryption key unavailable (keychain locked or moved). Re-run `fox setup`, or set FOXSCHEMA_KEY.'
-    );
-  }
+  requireReady();
   const user = await new AuthModule().ensureLocalUser();
   ctx = { userId: user.id, connections: new ConnectionStore(), history: new MigrationHistoryStore() };
   return ctx;

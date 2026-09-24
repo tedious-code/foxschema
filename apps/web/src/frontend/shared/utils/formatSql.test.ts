@@ -2,8 +2,28 @@ import { describe, expect, it } from 'vitest';
 import {
   formatCodeCellBody,
   formatEditorSql,
+  formatSql,
   splitCodeFenceSlice,
 } from './formatSql';
+
+describe('formatSql picks a grammar that parses each dialect', () => {
+  // Each input is one the generic 'sql' grammar throws on, so falling back to
+  // it returns the text unchanged — Format silently doing nothing.
+  it.each([
+    ['azuresql', 'select id from [dbo].[orders]'],
+    ['cockroachdb', 'select id::int from orders'],
+    ['yugabytedb', 'select id::int from orders'],
+    ['redshift', 'select id::int from orders'],
+  ])('%s', (dialect, sql) => {
+    const out = formatSql(sql, dialect);
+    expect(out).not.toBe(sql);
+    expect(out).toContain('SELECT');
+  });
+
+  it('still returns unknown dialects unchanged rather than throwing', () => {
+    expect(formatSql('select [x', 'nosuchdialect')).toBe('select [x');
+  });
+});
 
 describe('splitCodeFenceSlice', () => {
   it('splits open / body / close', () => {

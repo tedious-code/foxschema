@@ -3,6 +3,8 @@ import { type TableSchema, type ColumnInfo, type IndexInfo, type ForeignKeyInfo,
 import type { SqlDialect } from '../dialect/sql-dialect.interface.js';
 import { resolveDialect } from '../dialect/registry.js';
 import { canonicalEquals } from '../dialect/type-mapping.js';
+import { compareKey } from './compare-key.js';
+import { escapeRegExp } from '../../cores/escape-regexp.js';
 
 export class CompareModule {
   /** When set (and the dialects differ), columns are compared by canonical type. */
@@ -22,7 +24,7 @@ export class CompareModule {
    * the comparison is about the object, not which schema it was read from.
    */
   private key(name: string): string {
-    return name.replace(/^"?[^".]+"?\./, '').replace(/"/g, '').toUpperCase();
+    return compareKey(name);
   }
 
   /**
@@ -170,7 +172,7 @@ export class CompareModule {
   private stripSchemaQualifiers(s: string): string {
     let out = s;
     for (const schema of this.compareSchemas) {
-      const esc = schema.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const esc = escapeRegExp(schema);
       // [schema]. | "schema". | `schema`. (MySQL/MariaDB) | schema.  → (removed)
       out = out.replace(new RegExp(`(?:\\[${esc}\\]|"${esc}"|\`${esc}\`|\\b${esc}\\b)\\s*\\.\\s*`, 'gi'), '');
     }

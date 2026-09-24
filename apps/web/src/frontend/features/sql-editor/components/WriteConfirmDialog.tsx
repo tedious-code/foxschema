@@ -201,9 +201,9 @@ export const WriteConfirmDialog: React.FC<Props> = ({
                   Read-only adapters will reject these writes
                 </p>
                 <p className="text-amber-200/80 leading-relaxed">
-                  {readonlyTargets.map((t) => `${t.name} [${t.dialect}]`).join(', ')} — SQLite and
-                  ClickHouse connections in FoxSchema only support SELECT. Those cells will show a
-                  friendly error; other dialects still run the writes.
+                  {readonlyTargets.map((t) => `${t.name} [${t.dialect}]`).join(', ')} — only
+                  SELECT runs on these connections in FoxSchema. Those cells will show a friendly
+                  error; the other connections still run the writes.
                 </p>
               </div>
             </div>

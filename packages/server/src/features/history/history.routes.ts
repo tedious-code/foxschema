@@ -18,6 +18,7 @@ import { LOKEE_FULL_SCOPE } from './lokee-scope';
 import type { ConnectionRef } from '../../platform/db/resolve';
 import type { ConnectionOptions, MigrationModule } from '@foxschema/db';
 import { sendError, sendThrown } from '../../platform/http/respond';
+import type { ForceMigrateErrorCode, LokeeRevertErrorCode } from '@foxschema/shared';
 
 export interface HistoryRouteDeps {
   lokee: Record<string, any>;
@@ -254,14 +255,13 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
         return;
       }
       if (preSnapshot.changed) {
-        res.status(409).send({
-          ok: false,
-          code: 'schema_drifted',
-          error:
-            `The live schema had changed since the last capture — snapshotted it as v${preSnapshot.versionNumber} ` +
+        sendRefusal(
+          res,
+          'schema_drifted',
+          `The live schema had changed since the last capture — snapshotted it as v${preSnapshot.versionNumber} ` +
             `(${preSnapshot.changeCount} object change(s)). Review the diff against that version and run the revert again.`,
-          capture: preSnapshot,
-        });
+          { capture: preSnapshot }
+        );
         return;
       }
 
@@ -285,22 +285,12 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
         res.send({ ok: true, ...published, alreadyAtTarget: true });
         return;
       }
-      if (plan.reversal.risk === 'blocked') {
-        res.status(409).send({
-          ok: false,
-          error: 'This revert is blocked — existing data cannot be converted.',
-          code: 'blocked',
-          ...published,
-        });
-        return;
-      }
-      if (plan.reversal.risk === 'lossy' && body.confirmLossy !== true) {
-        res.status(409).send({
-          ok: false,
-          error: 'This revert destroys data. Confirm to continue.',
-          code: 'confirm_lossy',
-          ...published,
-        });
+      const refusal = reversalGate(plan.reversal.risk, body, {
+        blocked: 'This revert is blocked — existing data cannot be converted.',
+        lossy: 'This revert destroys data. Confirm to continue.',
+      });
+      if (refusal) {
+        sendRefusal(res, refusal.code, refusal.error, published);
         return;
       }
 
@@ -456,37 +446,15 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
           res.send({ ok: true, ...published });
           return;
         }
-        if (plan.reversal.risk === 'blocked') {
-          res.status(409).send({
-            ok: false,
-            code: 'blocked',
-            error: 'This cannot be applied — existing data cannot be converted.',
-            ...published,
-          });
-          return;
-        }
-        if (plan.reversal.risk === 'lossy' && body.confirmLossy !== true) {
-          res.status(409).send({
-            ok: false,
-            code: 'confirm_lossy',
-            error: 'Applying this version destroys data on the target. Confirm to continue.',
-            ...published,
-          });
-          return;
-        }
-        // Checked last, and never satisfied by `confirmLossy`: agreeing to lose
-        // data is not the same as agreeing to write this schema onto a database
-        // it was never captured from, and a plan that destroys nothing still
-        // needs that second answer.
-        if (body.confirmForce !== true) {
-          res.status(409).send({
-            ok: false,
-            code: 'confirm_force',
-            error:
-              `This applies v${plan.version.number} to ${option.database ?? 'the selected database'}` +
-              ', which is not the database this history was captured from. Confirm to continue.',
-            ...published,
-          });
+        const refusal = reversalGate(plan.reversal.risk, body, {
+          blocked: 'This cannot be applied — existing data cannot be converted.',
+          lossy: 'Applying this version destroys data on the target. Confirm to continue.',
+          force:
+            `This applies v${plan.version.number} to ${option.database ?? 'the selected database'}` +
+            ', which is not the database this history was captured from. Confirm to continue.',
+        });
+        if (refusal) {
+          sendRefusal(res, refusal.code, refusal.error, published);
           return;
         }
 
@@ -607,4 +575,40 @@ export function createHistoryRoutes(deps: HistoryRouteDeps): Router {
   );
 
   return router;
+}
+
+type LokeeRefusalCode = LokeeRevertErrorCode | ForceMigrateErrorCode;
+
+/**
+ * The confirmation ladder shared by revert and force-migrate: a blocked plan
+ * is refused outright, a lossy one needs `confirmLossy`, and — force-migrate
+ * only, when `msg.force` is given — writing onto a database the history was
+ * not captured from needs `confirmForce` as well. That last answer is checked
+ * after the others and is never satisfied by `confirmLossy`: agreeing to lose
+ * data is not agreeing to target a different database, and a plan that
+ * destroys nothing still needs it.
+ */
+function reversalGate(
+  risk: string,
+  confirmed: { confirmLossy?: unknown; confirmForce?: unknown },
+  msg: { blocked: string; lossy: string; force?: string }
+): { code: LokeeRefusalCode; error: string } | null {
+  if (risk === 'blocked') return { code: 'blocked', error: msg.blocked };
+  if (risk === 'lossy' && confirmed.confirmLossy !== true) {
+    return { code: 'confirm_lossy', error: msg.lossy };
+  }
+  if (msg.force !== undefined && confirmed.confirmForce !== true) {
+    return { code: 'confirm_force', error: msg.force };
+  }
+  return null;
+}
+
+/**
+ * A 409 carrying a Lokee refusal code. These codes are the Lokee wire contract
+ * (`@foxschema/shared` lokee-wire), not `ErrorCode`, so they are sent directly
+ * rather than through `sendError`; `extra` (the plan, or the fresh capture)
+ * goes last, as before.
+ */
+function sendRefusal(res: FastifyReply, code: LokeeRefusalCode, error: string, extra: object): void {
+  res.status(409).send({ ok: false, code, error, ...extra });
 }

@@ -121,22 +121,6 @@ export function pickColumns(
   };
 }
 
-/**
- * Write text to the clipboard, reporting success rather than throwing.
- *
- * `navigator.clipboard` rejects when the document is not focused or the
- * context is insecure; callers surface that instead of leaving the user
- * thinking a copy happened.
- */
-export async function writeClipboard(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 // ── Discontiguous selection ────────────────────────────────────────────────
 
 /**

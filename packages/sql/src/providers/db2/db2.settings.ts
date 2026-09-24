@@ -1,6 +1,16 @@
 import { type ConnectionOptions, type ProviderConnectionSettings } from '../../interfaces/schema-provider.interface.js';
 import { buildDb2ConnectionString } from './db2.connection.js';
 
+/**
+ * The ibm_db release Fox installs and tells people to install.
+ *
+ * Pinned exactly: ibm_db downloads IBM's clidriver at install time and builds a
+ * native binding, and a floating range has broken that before. The package.json
+ * entries (packages/db, apps/web) must match — `ibm-db-pin.test.ts` checks.
+ * Changing the version means changing it here and there, nowhere else.
+ */
+export const IBM_DB_VERSION = '4.0.1';
+
 export const db2Settings: ProviderConnectionSettings = {
   dialect: 'db2',
   label: 'IBM DB2',

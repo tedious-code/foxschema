@@ -21,6 +21,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { Plus, Trash2, Table2, Eye, Cog, FunctionSquare, Info } from 'lucide-react';
 import {
   cellSupport,
+  permissionBand,
   compileObjectGrid,
   describePermission,
   gridColumnsFor,
@@ -75,17 +76,6 @@ const COLUMN_LABEL: Partial<Record<AccessPermission, string>> = {
  * grid scannable: the two halves carry very different consequences, and the
  * reader is usually looking for one or the other.
  */
-function bandOf(permission: AccessPermission): 'DML' | 'DDL' {
-  return permission === 'read' ||
-    permission === 'insert' ||
-    permission === 'update' ||
-    permission === 'delete' ||
-    permission === 'execute-procedure' ||
-    permission === 'execute-function'
-    ? 'DML'
-    : 'DDL';
-}
-
 let rowSeq = 0;
 const newRow = (kind: GridObjectKind): MatrixRow => ({
   id: `row-${++rowSeq}`,
@@ -304,7 +294,7 @@ export const PermissionMatrix: React.FC<{
         const kindRows = rows.filter((r) => r.kind === kind);
         const meta = KIND_META[kind];
         const bands = columns.reduce<{ band: 'DML' | 'DDL'; span: number }[]>((acc, c) => {
-          const band = bandOf(c.permission);
+          const band = permissionBand(c.permission);
           const last = acc[acc.length - 1];
           if (last && last.band === band) last.span += 1;
           else acc.push({ band, span: 1 });

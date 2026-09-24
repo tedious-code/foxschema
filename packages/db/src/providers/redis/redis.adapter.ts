@@ -1,8 +1,6 @@
-import { createRequire } from 'node:module';
 import { type ConnectionOptions, type DriverAdapter, parseSqlSubset, subsetValue } from '@foxschema/sql';
 import { credentialedCacheKey } from '../../cores/pool-cache.js';
-
-const nodeRequire = createRequire(import.meta.url);
+import { requireDriver } from '../../cores/driver-loader.js';
 
 /**
  * Redis behind the SQL editor, for the cache-maintenance case.
@@ -51,15 +49,7 @@ class RedisAdapter implements DriverAdapter {
 
   private load(): any {
     if (this.mod) return this.mod;
-    try {
-      const m = nodeRequire(this.packageName);
-      this.mod = m.default ?? m;
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : String(e);
-      throw new Error(
-        `Database driver "${this.packageName}" is not installed for redis. Install it with: npm install ${this.packageName} — ${message}`
-      );
-    }
+    this.mod = requireDriver(this.packageName, this.dialect);
     return this.mod;
   }
 

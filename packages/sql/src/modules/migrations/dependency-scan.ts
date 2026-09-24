@@ -1,4 +1,5 @@
 import type { TableDiff, DbObjectType } from '../../interfaces/index.js';
+import { bareObjectName as bareName } from '../schema-diff/compare-key.js';
 
 /**
  * A procedural object (view/function/procedure/trigger) in the TARGET database
@@ -27,15 +28,12 @@ export interface DropDependencyOptions {
 
 const PROCEDURAL_TYPES: ReadonlySet<DbObjectType> = new Set(['VIEW', 'FUNCTION', 'PROCEDURE', 'TRIGGER']);
 
-/** Drops any leading "schema." prefix and surrounding quotes from an object name. */
-function bareName(name: string): string {
-  return name.replace(/^"?[^".]+"?\./, '').replace(/"/g, '');
-}
-
 /**
- * Normalize a procedural body for matching — identical to compare.module's
- * normalizeDefinition: collapse whitespace, lowercase, strip schema qualifiers
- * from CREATE statements and from FROM/JOIN/etc. table references in the body.
+ * Normalize a procedural body for matching: collapse whitespace, lowercase,
+ * strip schema qualifiers from CREATE statements and from FROM/JOIN/etc. table
+ * references. A subset of compare.module's normalizeDefinition — it only feeds
+ * the tokenizer below, which already splits on the punctuation the rest of
+ * that function deals with.
  */
 function normalize(d: string | undefined | null): string {
   if (!d) return '';
@@ -55,6 +53,28 @@ export function tokenizeSqlIdents(normalizedBody: string): Set<string> {
   while ((m = re.exec(normalizedBody)) !== null) {
     tokens.add(m[0]);
   }
+  return tokens;
+}
+
+/**
+ * Tokens per target body, keyed on the object that owns the body.
+ *
+ * The scan runs on every deploy-checkbox click over every view and routine.
+ * Selection copies the diff wrapper (`{...diff}`) but carries `targetTable` over
+ * by reference, so that is the key that survives a click; the stored `raw`
+ * guards against a body that changed under the same owner.
+ */
+const tokenCache = new WeakMap<object, { raw: string; tokens: Set<string> }>();
+
+function bodyTokens(cand: TableDiff): Set<string> | null {
+  const raw = targetBody(cand);
+  const owner = cand.targetTable ?? cand;
+  const hit = tokenCache.get(owner);
+  if (hit && hit.raw === raw) return hit.tokens;
+  const body = normalize(raw);
+  if (!body) return null;
+  const tokens = tokenizeSqlIdents(body);
+  tokenCache.set(owner, { raw, tokens });
   return tokens;
 }
 
@@ -111,10 +131,9 @@ export function findDropDependencies(
     if (cand.status === 'ADDED') continue; // source-only — doesn't exist in target yet
     if (cand.status === 'REMOVED' && selection[cand.tableName]) continue; // being dropped anyway
 
-    const body = normalize(targetBody(cand));
-    if (!body) continue;
     // Tokenize once per body — avoid N regex scans over the full string.
-    const tokens = tokenizeSqlIdents(body);
+    const tokens = bodyTokens(cand);
+    if (!tokens) continue;
     const deployable = cand.status === 'MODIFIED';
 
     const record = (dropped: string, kind: 'table' | 'column') => {

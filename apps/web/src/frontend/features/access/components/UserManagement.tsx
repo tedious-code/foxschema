@@ -74,6 +74,8 @@ import {
   dropSafetyNotes,
 } from '../lib/accountAlterations';
 import type { AccessPrincipalDraft } from '../lib/access';
+import { writeClipboard } from '@/shared/utils/clipboard';
+import { dialectFamily } from '@foxschema/sql';
 
 type Mode = 'idle' | 'add' | 'edit' | 'drop' | 'list';
 
@@ -95,9 +97,6 @@ function principalTypeOf(p: DbPrincipal): PrincipalType {
 /** Short, dialect-specific coaching shown after a connection is chosen. */
 function dialectCoach(dialect: string): string | null {
   const d = dialect.toLowerCase();
-  if (['sqlite', 'duckdb', 'mongodb', 'redis'].includes(d)) {
-    return 'This engine has no SQL user catalog. Use OS / application permissions instead.';
-  }
   if (d === 'postgres' || d === 'cockroachdb' || d === 'yugabytedb') {
     return 'PostgreSQL treats a user as a role with LOGIN. The list shows Name, Type, Roles, and whether login is allowed.';
   }
@@ -107,7 +106,7 @@ function dialectCoach(dialect: string): string | null {
   if (['mysql', 'mariadb', 'tidb'].includes(d)) {
     return 'Accounts are identified as name@host. The same username with a different host is a different account — Host is required when adding a user.';
   }
-  if (d === 'sqlserver' || d === 'azuresql') {
+  if (dialectFamily(d) === 'sqlserver') {
     return 'SQL Server separates server LOGIN from database USER. Add user generates both statements — run the login against master, then the user against this database.';
   }
   if (d === 'oracle') {
@@ -605,24 +604,6 @@ export const UserManagement: React.FC<{
     if (mode === 'add') setMode('idle');
     else if (mode === 'drop') startDrop(p);
     else if (mode === 'edit') startEdit(p);
-  };
-
-  /**
-   * Write to the clipboard, saying whether it worked.
-   *
-   * `writeText` rejects with NotAllowedError when the page lacks clipboard
-   * permission or is not focused. Callers previously awaited it bare, so a
-   * refusal meant the button did nothing at all. This helper does not touch
-   * password-panel state: Copy SQL and Copy-with-password mean different
-   * things landed on the clipboard.
-   */
-  const writeClipboard = async (text: string): Promise<boolean> => {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      return false;
-    }
   };
 
   const copy = async () => {

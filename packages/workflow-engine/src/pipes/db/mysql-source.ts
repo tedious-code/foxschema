@@ -16,6 +16,7 @@ import {
   definePipeMetadata,
   type PipeMetadata,
 } from '../../sdk/index.js';
+import { quoteSqlIdentifier } from '@foxschema/sql';
 
 /**
  * MySQL identifiers are quoted with backticks, and a backtick inside one is
@@ -169,5 +170,5 @@ async function defaultClient(context: PipeContext): Promise<MysqlClient> {
 
 /** Backtick quoting; an embedded backtick is doubled. */
 export function quote(value: string): string {
-  return `\`${value.replaceAll('`', '``')}\``;
+  return quoteSqlIdentifier(value, 'mysql');
 }

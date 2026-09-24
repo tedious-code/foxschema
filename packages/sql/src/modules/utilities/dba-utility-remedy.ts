@@ -21,6 +21,7 @@
  * happens to catch the exception.
  */
 import type { DbaUtilityKind } from './dba-utilities.types.js';
+import { dialectFamily } from '../../providers/provider-settings.js';
 
 /** Views each utility reads, per engine, for the grant sentence. */
 const ORACLE_VIEWS: Record<DbaUtilityKind, string[]> = {
@@ -87,13 +88,13 @@ export function dbaPrivilegeRemedy(
       .map((v) => `GRANT SELECT ON ${v} TO <user>;`)
       .join(' ')} (SELECT_CATALOG_ROLE also covers it, but grants more.)`;
   }
-  if (d === 'postgres' || d === 'cockroachdb' || d === 'yugabytedb' || d === 'redshift') {
+  if (dialectFamily(d) === 'postgres') {
     return 'This reads server-wide activity, which is restricted. Ask a DBA for pg_monitor: GRANT pg_monitor TO <user>;';
   }
-  if (d === 'mysql' || d === 'mariadb' || d === 'tidb') {
+  if (dialectFamily(d) === 'mysql') {
     return 'This reads server-wide state. Ask a DBA for: GRANT PROCESS ON *.* TO <user>;';
   }
-  if (d === 'sqlserver' || d === 'azuresql') {
+  if (dialectFamily(d) === 'sqlserver') {
     return 'This reads dynamic management views. Ask a DBA for: GRANT VIEW SERVER STATE TO [<login>];';
   }
   if (d === 'db2') {

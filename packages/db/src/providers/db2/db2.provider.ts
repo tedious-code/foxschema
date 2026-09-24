@@ -1,5 +1,5 @@
 import { ConnectionFactory } from "../../cores/connection-factory.js";
-import { type ConnectionOptions, type SchemaProvider } from '@foxschema/sql';
+import { type ConnectionOptions, type SchemaProvider, errorMessage } from '@foxschema/sql';
 
 import {
   type DbProcedure,
@@ -59,7 +59,7 @@ export class Db2Provider implements SchemaProvider {
 
       return true;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       console.error('Error testing DB2 connection:', error);
       throw new Error(message);
     } finally {

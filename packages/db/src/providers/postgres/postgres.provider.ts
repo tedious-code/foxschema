@@ -1,5 +1,5 @@
 import { ConnectionFactory } from '../../cores/connection-factory.js';
-import { dbSchemaToTableSchemas, rolesToTableSchemas, roleSkippedWarning, groupForeignKeyRows } from '@foxschema/sql';
+import { dbSchemaToTableSchemas, rolesToTableSchemas, roleSkippedWarning, groupForeignKeyRows, errorMessage } from '@foxschema/sql';
 import {
   type ConnectionOptions,
   type SchemaProvider,
@@ -53,7 +53,7 @@ export class PostgresProvider implements SchemaProvider {
       await ConnectionFactory.executeQuery(this.provider, options, 'SELECT 1');
       return true;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       console.error('Error testing postgres connection:', error);
       throw new Error(message);
     }

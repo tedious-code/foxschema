@@ -61,8 +61,8 @@ function verifySignature(
 ): void {
   const sharedSecret =
     nonEmptyString(secret.sharedSecret) ?? nonEmptyString(secret.secret);
-  const supplied = header(request.headers, auth.signatureHeader);
-  const timestamp = header(request.headers, auth.timestampHeader);
+  const supplied = headerValue(request.headers, auth.signatureHeader);
+  const timestamp = headerValue(request.headers, auth.timestampHeader);
   const idempotencyKey = request.idempotencyKey;
   if (
     !sharedSecret ||
@@ -91,7 +91,7 @@ function verifyBasic(
 ): void {
   const username = nonEmptyString(secret.username);
   const password = nonEmptyString(secret.password);
-  const supplied = header(request.headers, 'authorization');
+  const supplied = headerValue(request.headers, 'authorization');
   if (!username || !password || !supplied) {
     throw new TriggerAuthenticationError();
   }
@@ -126,7 +126,7 @@ function verifyHeader(
     nonEmptyString(secret.token) ??
     nonEmptyString(secret.apiKey) ??
     nonEmptyString(secret.secret);
-  const supplied = header(request.headers, auth.header);
+  const supplied = headerValue(request.headers, auth.header);
   if (!expected || !supplied) throw new TriggerAuthenticationError();
   // Accept the value with or without a Bearer prefix: which one a provider
   // sends is not something the workflow author controls.
@@ -158,7 +158,7 @@ function verifyJwt(
   request: WebhookAuthRequest,
   secret: Secret,
 ): void {
-  const supplied = header(request.headers, auth.header);
+  const supplied = headerValue(request.headers, auth.header);
   if (!supplied) throw new TriggerAuthenticationError();
   const token = supplied.startsWith('Bearer ')
     ? supplied.slice('Bearer '.length).trim()
@@ -268,7 +268,11 @@ function base64UrlToBuffer(segment: string): Buffer | undefined {
   return Buffer.from(segment, 'base64url');
 }
 
-function header(
+/**
+ * One request header, by case-insensitive name. Node and Fastify lower-case
+ * header keys, so only `name` is folded; a repeated header yields its first value.
+ */
+export function headerValue(
   headers: Record<string, string | string[] | undefined>,
   name: string,
 ): string | undefined {

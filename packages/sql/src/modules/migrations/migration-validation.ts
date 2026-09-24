@@ -1,6 +1,7 @@
 import type { TableDiff, DbObjectType } from '../../interfaces/index.js';
 import type { SqlDialect, CanonicalType } from '../dialect/sql-dialect.interface.js';
 import type { MigrationStep } from './sql-generator.module.js';
+import { bareObjectName as bareName, compareKey as key } from '../schema-diff/compare-key.js';
 
 export type ValidationSeverity = 'error' | 'warning';
 
@@ -15,16 +16,6 @@ export interface ValidationIssue {
 }
 
 const TABLE_LIKE: ReadonlySet<DbObjectType> = new Set(['TABLE', 'MQT']);
-
-/** Drops any leading "schema." prefix and surrounding quotes, then uppercases for matching. */
-function key(name: string): string {
-  return name.replace(/^"?[^".]+"?\./, '').replace(/"/g, '').toUpperCase();
-}
-
-/** Same normalization, kept lowercase-preserving for display. */
-function bareName(name: string): string {
-  return name.replace(/^"?[^".]+"?\./, '').replace(/"/g, '');
-}
 
 /**
  * FK diffs (ADDED/MODIFIED) whose referenced table won't actually exist in the

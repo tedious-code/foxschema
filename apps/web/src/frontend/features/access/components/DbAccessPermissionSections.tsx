@@ -33,6 +33,7 @@ import {
   availablePermissions,
   buildAccessSql,
   cellSupport,
+  permissionBand,
   compileObjectGrid,
   describePermission,
   gridColumnsFor,
@@ -45,6 +46,7 @@ import {
 } from '@/features/access/lib/access';
 import { useAllSchemaObjects } from '@/features/access/lib/useAllSchemaObjects';
 import { sectionLabelCls } from '@/shared/components/surfaces';
+import { dialectFamily } from '@foxschema/sql';
 
 type ActionMode = 'grant' | 'revoke';
 
@@ -75,17 +77,6 @@ const CHIP_LABEL: Partial<Record<AccessPermission, string>> = {
   'execute-function': 'EXECUTE',
 };
 
-function bandOf(p: AccessPermission): 'DML' | 'DDL' {
-  return p === 'read' ||
-    p === 'insert' ||
-    p === 'update' ||
-    p === 'delete' ||
-    p === 'execute-procedure' ||
-    p === 'execute-function'
-    ? 'DML'
-    : 'DDL';
-}
-
 /**
  * What "create-object" means on this dialect — shown so the reader is not
  * surprised when Preview SQL does not say CREATE VIEW separately.
@@ -98,13 +89,13 @@ function createObjectDialectHint(dialect: string): string {
       ? 'database'
       : 'objects';
   const d = dialect.toLowerCase();
-  if (d === 'postgres' || d === 'cockroachdb' || d === 'yugabytedb' || d === 'redshift') {
+  if (dialectFamily(d) === 'postgres') {
     return 'PostgreSQL: CREATE ON SCHEMA (covers new tables/views/routines in that schema). Fine-grained CREATE VIEW/PROC are not separate grants.';
   }
-  if (d === 'mysql' || d === 'mariadb' || d === 'tidb') {
+  if (dialectFamily(d) === 'mysql') {
     return 'MySQL/MariaDB: CREATE (and related DDL) on database.* — there is no separate schema CREATE privilege.';
   }
-  if (d === 'sqlserver' || d === 'azuresql') {
+  if (dialectFamily(d) === 'sqlserver') {
     return 'SQL Server: CREATE TABLE is database-scoped (GRANT CREATE TABLE TO …). Schema OBJECT grants cover existing objects.';
   }
   if (d === 'oracle') {
@@ -602,8 +593,8 @@ export const DbAccessPermissionSections: React.FC<Props> = ({
                         const cols = new Set(
                           gridColumnsFor(dialect, kind).map((c) => c.permission)
                         );
-                        const dml = held.filter((p) => bandOf(p) === 'DML' && cols.has(p));
-                        const ddl = held.filter((p) => bandOf(p) === 'DDL' && cols.has(p));
+                        const dml = held.filter((p) => permissionBand(p) === 'DML' && cols.has(p));
+                        const ddl = held.filter((p) => permissionBand(p) === 'DDL' && cols.has(p));
                         return (
                           <tr
                             key={objectKey(row.schema, row.name, kind)}
@@ -933,8 +924,8 @@ const PrivBands: React.FC<{
   onToggle: (p: AccessPermission) => void;
 }> = ({ dialect, kind, selected, onToggle }) => {
   const cols = gridColumnsFor(dialect, kind);
-  const dml = cols.filter((c) => bandOf(c.permission) === 'DML');
-  const ddl = cols.filter((c) => bandOf(c.permission) === 'DDL');
+  const dml = cols.filter((c) => permissionBand(c.permission) === 'DML');
+  const ddl = cols.filter((c) => permissionBand(c.permission) === 'DDL');
   const Band = ({
     title,
     list,

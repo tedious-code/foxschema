@@ -9,6 +9,7 @@ import {
   dialectSupportsDbaUtility,
   filterTableSizeGroups,
   formatBytes,
+  formatPct,
   formatRowCount,
   groupObjectSizes,
   lookupIndexSizeRow,
@@ -318,5 +319,14 @@ describe('Server Insights probes the engines actually accept', () => {
     // system.settings.value is a String, so the pool probe was always correct —
     // the fix must not be applied indiscriminately.
     expect(sqlFor('clickhouse', 'pool')).toMatch(/toInt64OrNull/);
+  });
+});
+
+describe('formatPct', () => {
+  it('keeps one decimal under 10 and rounds above', () => {
+    expect(formatPct(null)).toBe('—');
+    expect(formatPct(Number.NaN)).toBe('—');
+    expect(formatPct(3.14159)).toBe('3.1%');
+    expect(formatPct(42.6)).toBe('43%');
   });
 });

@@ -18,6 +18,7 @@ import {
   type DbPrincipal,
   type DbPrivilege,
 } from '@foxschema/db';
+import { errorMessage } from '@foxschema/sql';
 
 export type DbAccessProbeSuccess = {
   dialect: string;
@@ -51,7 +52,7 @@ async function firstSuccessfulQuery(
       );
       return { rows: Array.isArray(rows) ? rows : [], failed };
     } catch (error: unknown) {
-      failed.push(error instanceof Error ? error.message : String(error));
+      failed.push(errorMessage(error));
     }
   }
   throw new Error(failed[failed.length - 1] || 'Catalog query failed.');
@@ -95,7 +96,7 @@ export async function probeDbAccess(opts: {
         warning = `Used a fallback privilege catalog after: ${privQ.failed[0]}`;
       }
     } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : String(error);
+      const msg = errorMessage(error);
       warning = `Users and groups loaded; privileges could not be read (${msg}).`;
     }
     if (principalsQ.failed.length && !warning) {

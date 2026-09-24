@@ -8,6 +8,7 @@
  * two runtimes — the bundled module namespaces and the globals preamble.
  */
 
+import { errorMessage } from '../../cores/error-message.js';
 import {
   codeCellHasReturn,
   stripFullLineSqlComments,
@@ -20,6 +21,7 @@ import type {
   CodeCellResult,
   CodeCellVars,
 } from './code-cell-types.js';
+import { isPlainObject } from './code-cell-types.js';
 
 export const CODE_CELL_ALLOWED_PACKAGES = [
   'lodash',
@@ -170,14 +172,6 @@ export function neutralizeCodeCellHostBreakouts(): void {
   } catch {
     /* ignore */
   }
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function parseNamedList(inner: string): NamedBinding[] | { error: string } {

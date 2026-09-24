@@ -19,10 +19,10 @@ import {
   sliceGridRange,
   sliceGridSelection,
   toTsv,
-  writeClipboard,
   type GridRange,
   type GridSelection,
 } from '@/features/sql-editor/utils/copyGrid';
+import { writeClipboard } from '@/shared/utils/clipboard';
 import {
   EMPTY_VIEW,
   applyGridView,

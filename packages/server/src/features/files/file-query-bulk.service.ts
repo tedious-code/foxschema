@@ -6,36 +6,58 @@
  */
 import {
   ConnectionFactory,
+  maxInsertRows,
   quoteSqlIdentifier,
   renderSqlQuery,
   sqlTag,
   type ConnectionOptions,
 } from '@foxschema/db';
+import { dialectFamily } from '@foxschema/sql';
 
-export type InferredSqlType = 'INTEGER' | 'REAL' | 'TEXT';
+import { coerceCell, inferColumnTypes, type InferredSqlType } from './file-infer';
 
-/** Rows per multi-VALUES statement. Conservative for engines with param caps. */
+export { coerceCell, inferColumnTypes, type InferredSqlType } from './file-infer';
+
+/**
+ * A comfortable batch size per engine — an upper bound, not the answer on its
+ * own. It knows nothing about column count; see `bulkRowsPerStatement`.
+ */
 export function bulkChunkSize(dialect: string): number {
   const d = dialect.toLowerCase();
   if (d === 'sqlserver' || d === 'azuresql' || d === 'oracle' || d === 'db2') return 50;
-  if (d === 'mysql' || d === 'mariadb' || d === 'tidb') return 100;
+  if (dialectFamily(d) === 'mysql') return 100;
   if (d === 'clickhouse') return 200;
   return 200;
 }
 
+/**
+ * Rows to put in one multi-row INSERT for this import.
+ *
+ * Every value is bound, so a statement carries rows × columns parameters.
+ * `bulkChunkSize` alone ignored the column count: 50 rows is fine for a narrow
+ * file and over SQL Server's 2,100-parameter limit past 42 columns. It also sent
+ * 50-row VALUES lists to Oracle, which before 23ai accepts one row per VALUES.
+ * `maxInsertRows` in @foxschema/sql owns both rules and is what the workflow
+ * engine's SQL sink already uses; this keeps the old sizes as a ceiling so
+ * nothing gets *larger* batches than before.
+ */
+export function bulkRowsPerStatement(dialect: string, columnCount: number): number {
+  return Math.min(bulkChunkSize(dialect), maxInsertRows(dialect, columnCount));
+}
+
 export function sqlTypeForDialect(dialect: string, t: InferredSqlType): string {
   const d = dialect.toLowerCase();
-  if (d === 'postgres' || d === 'redshift' || d === 'cockroachdb' || d === 'yugabytedb') {
+  if (dialectFamily(d) === 'postgres') {
     if (t === 'INTEGER') return 'BIGINT';
     if (t === 'REAL') return 'DOUBLE PRECISION';
     return 'TEXT';
   }
-  if (d === 'mysql' || d === 'mariadb' || d === 'tidb') {
+  if (dialectFamily(d) === 'mysql') {
     if (t === 'INTEGER') return 'BIGINT';
     if (t === 'REAL') return 'DOUBLE';
     return 'TEXT';
   }
-  if (d === 'sqlserver' || d === 'azuresql') {
+  if (dialectFamily(d) === 'sqlserver') {
     if (t === 'INTEGER') return 'BIGINT';
     if (t === 'REAL') return 'FLOAT';
     return 'NVARCHAR(MAX)';
@@ -57,59 +79,6 @@ export function sqlTypeForDialect(dialect: string, t: InferredSqlType): string {
   }
   // sqlite, duckdb, default
   return t;
-}
-
-export function inferColumnTypes(columns: string[], matrix: unknown[][]): InferredSqlType[] {
-  return columns.map((_, i) => inferType(matrix.map((r) => r[i])));
-}
-
-function inferType(values: unknown[]): InferredSqlType {
-  let sawReal = false;
-  let sawInt = false;
-  for (const v of values) {
-    if (v == null || v === '') continue;
-    if (typeof v === 'number') {
-      if (Number.isInteger(v)) sawInt = true;
-      else sawReal = true;
-      continue;
-    }
-    const s = String(v).trim();
-    if (s === '') continue;
-    if (/^[+-]?\d+$/.test(s)) {
-      sawInt = true;
-      continue;
-    }
-    // Prior grammar: [+-]?(digits.digits* | .digits)(e[+-]?digits)?
-    // Split forms keep that (incl. `123.` / `1.e10`) without a ReDoS-prone
-    // alternation (eslint security/detect-unsafe-regex).
-    if (
-      /^[+-]?\d+\.\d*$/.test(s) ||
-      /^[+-]?\.\d+$/.test(s) ||
-      /^[+-]?\d+\.\d*[eE][+-]?\d+$/.test(s) ||
-      /^[+-]?\.\d+[eE][+-]?\d+$/.test(s)
-    ) {
-      sawReal = true;
-      continue;
-    }
-    return 'TEXT';
-  }
-  if (sawReal) return 'REAL';
-  if (sawInt) return 'INTEGER';
-  return 'TEXT';
-}
-
-export function coerceCell(v: unknown, type: InferredSqlType): unknown {
-  if (v == null || v === '') return null;
-  if (type === 'INTEGER') {
-    const n = typeof v === 'number' ? v : Number(String(v).trim());
-    return Number.isFinite(n) ? Math.trunc(n) : null;
-  }
-  if (type === 'REAL') {
-    const n = typeof v === 'number' ? v : Number(String(v).trim());
-    return Number.isFinite(n) ? n : null;
-  }
-  if (typeof v === 'object') return JSON.stringify(v);
-  return String(v);
 }
 
 export function buildCreateTableSql(
@@ -154,7 +123,7 @@ export async function bulkLoadIntoConnection(args: {
   const { dialect, option, tableName, columns, matrix } = args;
   if (!columns.length) throw new Error('No columns to import');
   const types = args.types ?? inferColumnTypes(columns, matrix);
-  const chunk = bulkChunkSize(dialect);
+  const chunk = bulkRowsPerStatement(dialect, columns.length);
 
   const connection = await ConnectionFactory.create(dialect, option);
   let chunks = 0;

@@ -5,23 +5,16 @@
  * server/process memory and must never be logged. Eviction calls `dispose`
  * so idle pools do not grow without bound across many credentials.
  */
+import { nonSecretFingerprint } from '@foxschema/sql';
+
+// Re-exported so `@foxschema/db` keeps exporting it; the one copy lives in `@foxschema/sql`.
+export { nonSecretFingerprint };
 
 export type PoolDispose<T> = (pool: T) => void | Promise<void>;
 
 const DEFAULT_MAX_POOLS = 16;
 const DEFAULT_IDLE_TTL_MS = 10 * 60 * 1000;
 
-/**
- * Non-secret fingerprint for cache partitioning (djb2). Distinguishes different
- * passwords without embedding plaintext in logs or debug output.
- */
-export function nonSecretFingerprint(value: string): string {
-  let h = 5381;
-  for (let i = 0; i < value.length; i++) {
-    h = ((h << 5) + h) ^ value.charCodeAt(i);
-  }
-  return (h >>> 0).toString(16);
-}
 
 /**
  * Cache key for adapters whose connection string omits username/password/database

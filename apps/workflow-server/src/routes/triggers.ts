@@ -10,6 +10,7 @@ import {
   RUN_OUTPUT_EVENT,
   TriggerAuthenticationError,
   authenticateHttpTrigger,
+  headerValue,
   isTerminalRunStatus,
   validateAgainstSchema,
   type TriggerDef,
@@ -198,7 +199,7 @@ async function handleIngress(
 
   // Read before authenticating: the signature scheme binds the idempotency key
   // into the digest, so it is an input to verification, not just bookkeeping.
-  const suppliedIdempotencyKey = requestHeader(
+  const suppliedIdempotencyKey = headerValue(
     req.headers,
     trigger.idempotencyHeader,
   )?.trim();
@@ -250,7 +251,7 @@ async function handleIngress(
     fingerprint,
     metadata: {
       contentType:
-        requestHeader(req.headers, 'content-type') ?? 'application/json',
+        headerValue(req.headers, 'content-type') ?? 'application/json',
       method,
     },
   };
@@ -378,14 +379,6 @@ async function respondWhenFinished(
   }
 
   return reply.code(200).send({ runId, status: run.status, output: records });
-}
-
-function requestHeader(
-  headers: Record<string, string | string[] | undefined>,
-  name: string,
-): string | undefined {
-  const value = headers[name.toLowerCase()];
-  return Array.isArray(value) ? value[0] : value;
 }
 
 function missingFields(payload: unknown, required: string[]): string[] {

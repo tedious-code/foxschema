@@ -17,7 +17,7 @@ import type { Permission } from '@foxschema/shared';
 import { CATEGORY_PERMISSION, DATAGRID_ACTION_PERMISSION } from '@foxschema/shared';
 import { sqlStatementCategories, statementVerb } from '@foxschema/sql';
 import { isSingleSqlStatement } from '../../api/single-statement';
-import { executeDataMigrateOps, type DataMigrateExecOp } from '../../api/data-migrate-execute';
+import { executeDataMigrateOps, type DataMigrateExecOp } from './data-migrate-execute';
 import { identitySessionSql } from './identity-session';
 import type {
   DataMigrateOpResult,

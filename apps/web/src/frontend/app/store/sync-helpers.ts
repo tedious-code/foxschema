@@ -44,6 +44,19 @@ export function buildRef(cfg: ConnectionConfig): ConnectionRef {
 }
 
 /**
+ * The tables going into the script: ticked for deploy, or with at least one
+ * index change opted in. Order follows `tables`.
+ */
+function inScriptTables(tables: TableDiff[], sel: DeploySelections): TableDiff[] {
+  const { selection, indexSelection } = sel;
+  return tables.filter(
+    (t) =>
+      selection[t.tableName] ||
+      Object.values(indexSelection[t.tableName] ?? {}).some((v) => v === true)
+  );
+}
+
+/**
  * Build the diffs to deploy from the object selection, applying per-role member
  * opt-outs (a role member explicitly set to false is dropped from the role's
  * diffs, so it won't appear in the generated GRANT/REVOKE) and per-index opt-ins
@@ -56,8 +69,6 @@ export function buildRef(cfg: ConnectionConfig): ConnectionRef {
  */
 export function buildIncludedDiffs(tables: TableDiff[], sel: DeploySelections): TableDiff[] {
   const { selection, memberSelection, indexSelection, columnSelection, triggerSelection } = sel;
-  const hasIndexOptIn = (tableName: string) =>
-    Object.values(indexSelection[tableName] ?? {}).some((v) => v === true);
 
   /** The index keys actually going into the script, so column rules can see them. */
   const includedIndexKeys = (tableName: string): Set<string> =>
@@ -67,7 +78,7 @@ export function buildIncludedDiffs(tables: TableDiff[], sel: DeploySelections): 
         .map(([k]) => k.toUpperCase())
     );
 
-  const inScript = tables.filter((t) => selection[t.tableName] || hasIndexOptIn(t.tableName));
+  const inScript = inScriptTables(tables, sel);
 
   return inScript
     .map((t) => {
@@ -135,9 +146,9 @@ export function applySelectionsForScan(
   tables: TableDiff[],
   sel: DeploySelections
 ): TableDiff[] {
-  const inScript = new Set(
-    buildIncludedDiffs(tables, sel).map((t) => t.tableName)
-  );
+  // Built once, not per table: it was an O(n²) filter on every checkbox click.
+  const siblings = inScriptTables(tables, sel);
+  const inScript = new Set(siblings.map((t) => t.tableName));
   return tables.map((t) => {
     if (t.objectType === 'ROLE' || !inScript.has(t.tableName)) return t;
     return applySelectionToDiff(t, {
@@ -148,7 +159,7 @@ export function applySelectionsForScan(
           .filter(([, v]) => v === true)
           .map(([k]) => k.toUpperCase())
       ),
-      siblings: tables.filter((x) => inScript.has(x.tableName)),
+      siblings,
     });
   });
 }

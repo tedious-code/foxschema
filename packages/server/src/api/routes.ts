@@ -7,6 +7,7 @@ import {
   MigrationModule,
   SqlGeneratorModule,
   DriverDetector,
+  IBM_DB_VERSION,
   normalizeTableSchemas,
   type ConnectionOptions,
 } from '@foxschema/db';
@@ -29,8 +30,6 @@ import { createMetadataStore } from '../database/stores/registry';
 import type { AuthedRequest } from '../features/auth/auth.routes';
 import { requirePermissions } from '../features/authorization/rbac.guard';
 import { isLocalSingleUser } from './deployment';
-import { permissionSatisfied, type Permission } from '@foxschema/shared';
-import { type ActorContext } from '../platform/contracts/actor';
 import { makeConnectionResolver, type ConnectionRef } from '../platform/db/resolve';
 import { makeCompareService } from '../features/compare/compare.service';
 import { createCompareRoutes } from '../features/compare/compare.routes';
@@ -72,17 +71,6 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
   // the handlers below are meant to shrink into translation as more move over.
   const resolver = makeConnectionResolver(connectionModule, connectionStore);
   const compareService = makeCompareService({ resolver, compareModule });
-
-  /** Express request → the transport-free ActorContext services are written against. */
-  const actorOf = (req: AppRequest): ActorContext => {
-    const authed = req as AuthedRequest;
-    return {
-      userId: authed.userId,
-      can: (permission) =>
-        authed.appRole === 'admin' ||
-        permissionSatisfied(authed.permissions ?? new Set<Permission>(), permission),
-    };
-  };
 
   // Single implementation, shared with the feature services. Destructured so the
   // handlers below keep their existing call sites unchanged.
@@ -267,7 +255,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
 
     try {
       const packageName = DriverDetector.getPackageName(dialect);
-      const versionPin = packageName === 'ibm_db' ? '4.0.1' : undefined;
+      const versionPin = packageName === 'ibm_db' ? IBM_DB_VERSION : undefined;
 
       // Resolve monorepo vs packaged cwd (bundled ui-server used to install into `/`).
       // ibm_db must run install scripts so clidriver downloads + native binding builds.

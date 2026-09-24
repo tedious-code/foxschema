@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { findDropDependencies } from './dependency-scan.js';
-import type { TableDiff } from '../../interfaces/index.js';
+import type { TableDiff, TableSchema } from '../../interfaces/index.js';
 
 // Minimal TableDiff factory — only the fields the scanner reads.
 function diff(partial: Partial<TableDiff> & Pick<TableDiff, 'tableName' | 'objectType' | 'status'>): TableDiff {
@@ -101,5 +101,16 @@ describe('findDropDependencies', () => {
       view('V_ORDER_SUMMARY', 'REMOVED', 'SELECT * FROM ORDERS'),
     ];
     expect(findDropDependencies(tables, { ORDERS: true, V_ORDER_SUMMARY: true })).toHaveLength(0);
+  });
+});
+
+describe('findDropDependencies token cache', () => {
+  it('re-reads a body that changed under the same target object', () => {
+    const targetTable = { name: 'V', definition: 'create view v as select * from orders' } as never as TableSchema;
+    const view = { tableName: 'V', objectType: 'VIEW', status: 'UNCHANGED', columnDiffs: [], indexDiffs: [], foreignKeyDiffs: [], targetTable } as never as TableDiff;
+    const drop = { tableName: 'ORDERS', objectType: 'TABLE', status: 'REMOVED', columnDiffs: [], indexDiffs: [], foreignKeyDiffs: [] } as never as TableDiff;
+    expect(findDropDependencies([drop, view], { ORDERS: true })).toHaveLength(1);
+    (targetTable as { definition: string }).definition = 'create view v as select 1 from dual';
+    expect(findDropDependencies([drop, view], { ORDERS: true })).toHaveLength(0);
   });
 });

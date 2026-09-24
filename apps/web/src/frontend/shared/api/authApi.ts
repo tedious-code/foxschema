@@ -3,7 +3,7 @@
  * Copyright 2024-2026 Huy Phan <huyplb@gmail.com>
  * SPDX-License-Identifier: Apache-2.0
  */
-import { getApiBase, parseJsonResponse } from './apiBase';
+import { api, type RequestOptions } from './client';
 import type { AppRole, Permission, PermissionMeta } from '../lib/permissions';
 
 export interface AuthUser {
@@ -26,19 +26,13 @@ export interface AppConfig {
   localSingleUser: boolean;
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${getApiBase()}${path}`, {
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    ...init,
-  });
-  return parseJsonResponse<T>(res, { allowEmpty: true });
-}
+/** These routes predate the shared client and tolerate an empty reply; keep that. */
+const EMPTY_OK: RequestOptions = { allowEmpty: true };
 
 /** Public SPA boot config (login required?). */
 export async function apiAppConfig(): Promise<AppConfig> {
   try {
-    return await request<AppConfig>('/config');
+    return await api.get<AppConfig>('/config', EMPTY_OK);
   } catch {
     return { localSingleUser: true };
   }
@@ -47,7 +41,7 @@ export async function apiAppConfig(): Promise<AppConfig> {
 /** Current session, or null if not signed in. */
 export async function apiMe(): Promise<AuthUser | null> {
   try {
-    const { user } = await request<{ user: AuthUser }>('/auth/me');
+    const { user } = await api.get<{ user: AuthUser }>('/auth/me', EMPTY_OK);
     return user;
   } catch {
     return null;
@@ -55,35 +49,26 @@ export async function apiMe(): Promise<AuthUser | null> {
 }
 
 export async function apiRegister(email: string, password: string): Promise<AuthUser> {
-  const { user } = await request<{ user: AuthUser }>('/auth/register', {
-    method: 'POST',
-    body: JSON.stringify({ email, password }),
-  });
+  const { user } = await api.post<{ user: AuthUser }>('/auth/register', { email, password }, EMPTY_OK);
   return user;
 }
 
 export async function apiLogin(email: string, password: string): Promise<AuthUser> {
-  const { user } = await request<{ user: AuthUser }>('/auth/login', {
-    method: 'POST',
-    body: JSON.stringify({ email, password }),
-  });
+  const { user } = await api.post<{ user: AuthUser }>('/auth/login', { email, password }, EMPTY_OK);
   return user;
 }
 
 export async function apiLogout(): Promise<void> {
-  await request('/auth/logout', { method: 'POST' });
+  await api.post('/auth/logout', undefined, EMPTY_OK);
 }
 
 export async function apiGetPreferences(): Promise<UserPreferences> {
-  const { preferences } = await request<{ preferences: UserPreferences }>('/user/preferences');
+  const { preferences } = await api.get<{ preferences: UserPreferences }>('/user/preferences', EMPTY_OK);
   return preferences;
 }
 
 export async function apiPutPreferences(prefs: Partial<UserPreferences>): Promise<UserPreferences> {
-  const { preferences } = await request<{ preferences: UserPreferences }>('/user/preferences', {
-    method: 'PUT',
-    body: JSON.stringify(prefs),
-  });
+  const { preferences } = await api.put<{ preferences: UserPreferences }>('/user/preferences', prefs, EMPTY_OK);
   return preferences;
 }
 
@@ -97,45 +82,33 @@ export async function apiAdminListUsers(): Promise<{
     permissions: Permission[];
   }>;
 }> {
-  return request('/admin/users');
+  return api.get('/admin/users', EMPTY_OK);
 }
 
 export async function apiAdminSetUserRole(userId: string, role: AppRole): Promise<void> {
-  await request(`/admin/users/${encodeURIComponent(userId)}/role`, {
-    method: 'PUT',
-    body: JSON.stringify({ role }),
-  });
+  await api.put(`/admin/users/${encodeURIComponent(userId)}/role`, { role }, EMPTY_OK);
 }
 
 export async function apiAdminSetUserActive(userId: string, active: boolean): Promise<void> {
-  await request(`/admin/users/${encodeURIComponent(userId)}/active`, {
-    method: 'PUT',
-    body: JSON.stringify({ active }),
-  });
+  await api.put(`/admin/users/${encodeURIComponent(userId)}/active`, { active }, EMPTY_OK);
 }
 
 export async function apiAdminSetUserPassword(userId: string, password: string): Promise<void> {
-  await request(`/admin/users/${encodeURIComponent(userId)}/password`, {
-    method: 'PUT',
-    body: JSON.stringify({ password }),
-  });
+  await api.put(`/admin/users/${encodeURIComponent(userId)}/password`, { password }, EMPTY_OK);
 }
 
 export async function apiAdminRolePermissions(): Promise<{
   matrix: Record<AppRole, Permission[]>;
   catalog: PermissionMeta[];
 }> {
-  return request('/admin/role-permissions');
+  return api.get('/admin/role-permissions', EMPTY_OK);
 }
 
 export async function apiAdminSetRolePermissions(
   role: AppRole,
   permissions: Permission[]
 ): Promise<Permission[]> {
-  const { permissions: next } = await request<{ role: AppRole; permissions: Permission[] }>(
-    `/admin/role-permissions/${encodeURIComponent(role)}`,
-    { method: 'PUT', body: JSON.stringify({ permissions }) }
-  );
+  const { permissions: next } = await api.put<{ role: AppRole; permissions: Permission[] }>(`/admin/role-permissions/${encodeURIComponent(role)}`, { permissions }, EMPTY_OK);
   return next;
 }
 
@@ -159,7 +132,7 @@ export interface SavedConnectionSummary {
 }
 
 export async function apiListConnections(): Promise<SavedConnectionSummary[]> {
-  const { connections } = await request<{ connections: SavedConnectionSummary[] }>('/connections');
+  const { connections } = await api.get<{ connections: SavedConnectionSummary[] }>('/connections', EMPTY_OK);
   return connections;
 }
 
@@ -170,10 +143,7 @@ export async function apiCreateConnection(input: {
   option: Record<string, unknown>;
   savePassword?: boolean;
 }): Promise<SavedConnectionSummary> {
-  const { connection } = await request<{ connection: SavedConnectionSummary }>('/connections', {
-    method: 'POST',
-    body: JSON.stringify(input),
-  });
+  const { connection } = await api.post<{ connection: SavedConnectionSummary }>('/connections', input, EMPTY_OK);
   return connection;
 }
 
@@ -187,13 +157,10 @@ export async function apiUpdateConnection(
     savePassword?: boolean;
   }
 ): Promise<SavedConnectionSummary> {
-  const { connection } = await request<{ connection: SavedConnectionSummary }>(
-    `/connections/${id}`,
-    { method: 'PUT', body: JSON.stringify(input) }
-  );
+  const { connection } = await api.put<{ connection: SavedConnectionSummary }>(`/connections/${id}`, input, EMPTY_OK);
   return connection;
 }
 
 export async function apiDeleteConnection(id: string): Promise<void> {
-  await request(`/connections/${id}`, { method: 'DELETE' });
+  await api.delete(`/connections/${id}`, undefined, EMPTY_OK);
 }

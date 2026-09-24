@@ -32,6 +32,7 @@ export {
   buildConnectionString,
   withConnectionString,
   isFileDialect,
+  dialectFamily,
   DEFAULT_PORTS,
   connectionNeedsSecret,
   authMethodsForDialect,

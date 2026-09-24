@@ -10,6 +10,8 @@ import { existsSync, mkdirSync, readdirSync, unlinkSync, statSync } from 'node:f
 import { join, resolve, relative, isAbsolute } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
+import { quoteSqlIdentifier, errorMessage } from '@foxschema/sql';
+import { coerceCell, inferColumnTypes, type InferredSqlType } from './file-infer';
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -345,46 +347,11 @@ export function parseTextOffsets(
   return { columns: names, rows };
 }
 
-type SqlType = 'INTEGER' | 'REAL' | 'TEXT';
-
-function inferType(values: unknown[]): SqlType {
-  let sawReal = false;
-  let sawInt = false;
-  for (const v of values) {
-    if (v == null || v === '') continue;
-    if (typeof v === 'number') {
-      if (Number.isInteger(v)) sawInt = true;
-      else sawReal = true;
-      continue;
-    }
-    const s = String(v).trim();
-    if (s === '') continue;
-    if (/^[+-]?\d+$/.test(s)) {
-      sawInt = true;
-      continue;
-    }
-    // Prior grammar: [+-]?(digits.digits* | .digits)(e[+-]?digits)?
-    // Split forms keep that (incl. `123.` / `1.e10`) without a ReDoS-prone
-    // alternation (eslint security/detect-unsafe-regex).
-    if (
-      /^[+-]?\d+\.\d*$/.test(s) ||
-      /^[+-]?\.\d+$/.test(s) ||
-      /^[+-]?\d+\.\d*[eE][+-]?\d+$/.test(s) ||
-      /^[+-]?\.\d+[eE][+-]?\d+$/.test(s)
-    ) {
-      sawReal = true;
-      continue;
-    }
-    return 'TEXT';
-  }
-  if (sawReal) return 'REAL';
-  if (sawInt) return 'INTEGER';
-  return 'TEXT';
-}
-
-function quoteIdent(name: string): string {
-  return `"${name.replace(/"/g, '""')}"`;
-}
+/**
+ * SQLite quoting. One argument on purpose: it is passed straight to `.map()`,
+ * which would hand `quoteSqlIdentifier` the array index as its dialect.
+ */
+const quoteIdent = (name: string): string => quoteSqlIdentifier(name, 'sqlite');
 
 function loadSqlite(): new (
   path: string,
@@ -401,7 +368,7 @@ function loadSqlite(): new (
     const mod = nodeRequire('better-sqlite3');
     return (mod.default ?? mod) as never;
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : String(e);
+    const message = errorMessage(e);
     throw new Error(`better-sqlite3 is required for file query import — ${message}`);
   }
 }
@@ -410,7 +377,7 @@ export type ParsedFileTable = {
   tableName: string;
   columns: string[];
   matrix: unknown[][];
-  types: SqlType[];
+  types: InferredSqlType[];
 };
 
 /** Parse file content into a padded row matrix (shared by SQLite + remote writers). */
@@ -454,25 +421,10 @@ export function parseFileToTable(
   }
 
   matrix = matrix.map((r) => columns.map((_, i) => (r as unknown[])[i] ?? null));
-  const types = columns.map((_, i) => inferType(matrix.map((r) => r[i])));
+  const types = inferColumnTypes(columns, matrix);
   return { tableName, columns, matrix, types };
 }
 
-function bindRow(row: unknown[], types: SqlType[]): unknown[] {
-  return row.map((v, i) => {
-    if (v == null || v === '') return null;
-    if (types[i] === 'INTEGER') {
-      const n = typeof v === 'number' ? v : Number(String(v).trim());
-      return Number.isFinite(n) ? Math.trunc(n) : null;
-    }
-    if (types[i] === 'REAL') {
-      const n = typeof v === 'number' ? v : Number(String(v).trim());
-      return Number.isFinite(n) ? n : null;
-    }
-    if (typeof v === 'object') return JSON.stringify(v);
-    return String(v);
-  });
-}
 
 /** Pick a free table name inside an existing SQLite file. */
 export function uniqueSqliteTableName(dbPath: string, desired: string): string {
@@ -548,7 +500,7 @@ function writeTableWithDb(
       const sql = `INSERT INTO ${quoteIdent(tableName)} (${colList}) VALUES ${valueGroups}`;
       const stmt = db.prepare(sql);
       const binds: unknown[] = [];
-      for (const row of slice) binds.push(...bindRow(row, types));
+      for (const row of slice) binds.push(...row.map((v, i) => coerceCell(v, types[i]!)));
       stmt.run(...binds);
     }
     db.exec('COMMIT');

@@ -8,8 +8,11 @@ import type {
   MigrationEvent,
   TableSchema,
 } from '../lib/types';
-import type { DbPrincipal, DbPrivilege } from '@foxschema/sql';
+import { nonSecretFingerprint, type DbPrincipal, type DbPrivilege } from '@foxschema/sql';
 import { getApiBase, parseJsonBody, parseJsonResponse } from './apiBase';
+
+// Re-exported for existing callers; the one copy lives in `@foxschema/sql`.
+export { nonSecretFingerprint };
 
 
 /** Either a saved connection (resolved server-side) or an inline ad-hoc option. */
@@ -31,18 +34,6 @@ const CACHE_MAX_ENTRIES = 64;
 const inflight = new Map<string, Promise<unknown>>();
 const cache = new Map<string, { at: number; value: unknown; ttlMs: number }>();
 
-/**
- * Non-secret fingerprint for cache partitioning (djb2). Distinguishes different
- * session passwords / connection strings without embedding their plaintext.
- */
-export function nonSecretFingerprint(value: string): string {
-  let h = 5381;
-  for (let i = 0; i < value.length; i++) {
-    h = ((h << 5) + h) ^ value.charCodeAt(i);
-  }
-  // Unsigned 32-bit hex — short, stable, never the original secret.
-  return (h >>> 0).toString(16);
-}
 
 /** Strip userinfo from a URI-like connection string before fingerprinting. */
 function connectionStringFingerprint(connectionString: string | undefined): string {

@@ -1,4 +1,4 @@
-import { getApiBase, parseJsonResponse } from '@/shared/api/apiBase';
+import { api, type RequestOptions } from '@/shared/api/client';
 
 export type MigrationRunStatus = 'RUNNING' | 'SUCCESS' | 'PARTIAL_SUCCESS' | 'FAILED' | 'ROLLED_BACK';
 
@@ -29,40 +29,31 @@ export interface MigrationRunDetail extends MigrationRunSummary {
   results: MigrationObjectResult[];
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${getApiBase()}${path}`, {
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    ...init,
-  });
-  return parseJsonResponse<T>(res, { allowEmpty: true });
-}
+/** These routes predate the shared client and tolerate an empty reply; keep that. */
+const EMPTY_OK: RequestOptions = { allowEmpty: true };
 
 export async function apiListMigrations(): Promise<MigrationRunSummary[]> {
-  const { runs } = await request<{ runs: MigrationRunSummary[] }>('/migrations');
+  const { runs } = await api.get<{ runs: MigrationRunSummary[] }>('/migrations', EMPTY_OK);
   return runs;
 }
 
 export async function apiGetMigration(id: string): Promise<MigrationRunDetail> {
-  const { run } = await request<{ run: MigrationRunDetail }>(`/migrations/${id}`);
+  const { run } = await api.get<{ run: MigrationRunDetail }>(`/migrations/${id}`, EMPTY_OK);
   return run;
 }
 
 export async function apiDeleteMigration(id: string): Promise<void> {
-  await request(`/migrations/${id}`, { method: 'DELETE' });
+  await api.delete(`/migrations/${id}`, undefined, EMPTY_OK);
 }
 
 /** Delete a set of runs. Returns how many were removed. */
 export async function apiDeleteMigrations(ids: string[]): Promise<number> {
-  const { removed } = await request<{ removed: number }>('/migrations/delete', {
-    method: 'POST',
-    body: JSON.stringify({ ids }),
-  });
+  const { removed } = await api.post<{ removed: number }>('/migrations/delete', { ids }, EMPTY_OK);
   return removed;
 }
 
 /** Clear the entire migration history. Returns how many were removed. */
 export async function apiClearMigrations(): Promise<number> {
-  const { removed } = await request<{ removed: number }>('/migrations', { method: 'DELETE' });
+  const { removed } = await api.delete<{ removed: number }>('/migrations', undefined, EMPTY_OK);
   return removed;
 }

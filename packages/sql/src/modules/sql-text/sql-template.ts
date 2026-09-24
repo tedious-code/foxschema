@@ -68,6 +68,23 @@ export function quoteSqlIdentifier(name: string, dialect: string): string {
   return '"' + name.replace(/"/g, '""') + '"';
 }
 
+/** A name that needs no quoting in any supported dialect. */
+const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * Quote `name` for `dialect` only when it is not a plain identifier — what the
+ * editor inserts when a user clicks a table or column. Plain names stay bare so
+ * inserted SQL reads the way people write it.
+ *
+ * The web app had two hand copies of this. One of them left `tidb` and
+ * `azuresql` out of their families, so a TiDB name needing quotes came out as
+ * `"x"` — which MySQL-mode TiDB reads as a string literal, not an identifier.
+ * Built on `quoteSqlIdentifier`, so the families live in one place.
+ */
+export function quoteIdentifierIfNeeded(name: string, dialect: string): string {
+  return PLAIN_IDENTIFIER.test(name) ? name : quoteSqlIdentifier(name, dialect);
+}
+
 /**
  * Split `schema.table` into identifier parts, honouring quoted segments.
  *

@@ -21,6 +21,7 @@ import { useAccessCatalog } from '../lib/useAccessCatalog';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { fetchDbAccess } from '@/shared/api/schemaApi';
+import { writeClipboard } from '@/shared/utils/clipboard';
 
 const STATUS_STYLE: Record<string, string> = {
   match: 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30',
@@ -215,7 +216,7 @@ export const PermissionDiff: React.FC<{
 
   const copy = async () => {
     if (!previewSql) return;
-    await navigator.clipboard.writeText(previewSql);
+    if (!(await writeClipboard(previewSql))) return;
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
   };

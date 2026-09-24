@@ -16,6 +16,7 @@ import {
   type IndexFragmentationRow,
   type IndexFragmentationSupport,
 } from '@foxschema/db';
+import { dialectFamily } from '@foxschema/sql';
 
 export type FragProbeResult = {
   rows: IndexFragmentationRow[];
@@ -50,7 +51,7 @@ export function resolveFragmentationSchema(
   const explicit = (schema ?? '').trim();
   if (explicit) return explicit;
   const d = dialect.toLowerCase();
-  if (d === 'mysql' || d === 'mariadb' || d === 'tidb') {
+  if (dialectFamily(d) === 'mysql') {
     return String(option.database || option.schema || '').trim();
   }
   if (d === 'oracle') {

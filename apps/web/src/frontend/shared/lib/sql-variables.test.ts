@@ -13,7 +13,6 @@ import {
   reattachSetComments,
   resolveVariablesForConnection,
   stripSecretsForPersist,
-  substituteStatements,
   substituteVariables,
   type SqlVariable,
   SQL_VARIABLE_LIST_MAX,
@@ -105,12 +104,6 @@ describe('sql-variables', () => {
   it('leaves non-template dollars alone', () => {
     const r = substituteVariables("SELECT '$var', '${x}', 1", [scalar('x', 1)]);
     expect(r).toEqual({ ok: true, sql: "SELECT '$var', '${x}', 1" });
-  });
-
-  it('substituteStatements fails fast', () => {
-    const r = substituteStatements(['SELECT 1', 'SELECT ${{nope}}'], []);
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain('nope');
   });
 
   it('columnToListValues skips nulls and caps length', () => {

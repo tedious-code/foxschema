@@ -5,13 +5,14 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import chalk from 'chalk';
 import { friendlyError } from '../format/friendlyError';
+import { IBM_DB_VERSION } from '@foxschema/sql';
 
 const require = createRequire(import.meta.url);
 
 const DRIVER_PACKAGES: Record<string, { pkg: string; pin?: string; notes: string }> = {
   db2: {
     pkg: 'ibm_db',
-    pin: '4.0.1',
+    pin: IBM_DB_VERSION,
     notes:
       'Large CLI driver + native build. Needs --foreground-scripts (clidriver download). Not available on linux/arm64. Docker image 5nickels/foxschema:latest includes Db2 (linux/amd64).',
   },

@@ -19,6 +19,7 @@ import {
   type PipeMetadata,
 } from '../../sdk/index.js';
 import { executeHttpRequest } from './request.js';
+import { requestCredentialId } from '../pipe-context.js';
 
 const configSchema = z.object({
   /**
@@ -105,7 +106,7 @@ export class HttpTransformPipe implements TransformPipe {
     context: PipeContext,
   ): Promise<Map<string, RecordBatch>> {
     const config = configSchema.parse(context.pipe.config);
-    const credentialId = credentialIdFor(config, context);
+    const credentialId = requestCredentialId(config.request.auth, context);
     // Revealed once per batch, not once per record: a decrypt per row is
     // wasted work and widens the window the secret is in memory.
     const secret = credentialId
@@ -167,14 +168,4 @@ export class HttpTransformPipe implements TransformPipe {
     }
     return ports;
   }
-}
-
-/** Explicit request credential wins; else the credential bound to the pipe. */
-function credentialIdFor(
-  config: z.infer<typeof configSchema>,
-  context: PipeContext,
-): string | undefined {
-  return config.request.auth.type === 'credential'
-    ? config.request.auth.credentialId
-    : context.pipe.credentialId;
 }

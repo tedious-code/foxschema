@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import type { DriverInfo } from '@foxschema/sql';
 import { getAdapter, ADAPTERS } from '../providers/adapter-registry.js';
 import { hasDb2Clidriver, setupDb2ClientEnv } from '../providers/db2/db2.env.js';
+import { IBM_DB_VERSION, errorMessage } from '@foxschema/sql';
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -34,7 +35,7 @@ export class DriverDetector {
           packageName,
           installed: false,
           installCommand:
-            'foxschema drivers install db2   # or: npm install ibm_db@4.0.1 --foreground-scripts -w @foxschema/db',
+            `foxschema drivers install db2   # or: npm install ibm_db@${IBM_DB_VERSION} --foreground-scripts -w @foxschema/db`,
           error:
             'ibm_db is present but the DB2 clidriver was not downloaded (install scripts were skipped).',
         };
@@ -50,14 +51,14 @@ export class DriverDetector {
         version: mod?.version ?? mod?.default?.version,
       };
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       // ibm_db needs its postinstall (clidriver download + native build). Plain
       // `npm install` with --ignore-scripts leaves a broken package that still
       // "resolves" as a module path but fails on require — tell the user how to
       // rebuild correctly. Prefer the CLI for packaged installs.
       const installCommand =
         packageName === 'ibm_db'
-          ? 'foxschema drivers install db2   # or: npm install ibm_db@4.0.1 --foreground-scripts -w @foxschema/db'
+          ? `foxschema drivers install db2   # or: npm install ibm_db@${IBM_DB_VERSION} --foreground-scripts -w @foxschema/db`
           : `npm install ${packageName}`;
       return {
         provider: dialect,

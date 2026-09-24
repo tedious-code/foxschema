@@ -170,6 +170,7 @@ export {
   normalizeSystemInfoRows,
   normalizeObjectSizeRows,
   formatBytes,
+  formatPct,
   formatRowCount,
   groupObjectSizes,
   filterTableSizeGroups,
@@ -313,6 +314,7 @@ export {
   placeholderStyleFor,
   renderPlaceholder,
   quoteSqlIdentifier,
+  quoteIdentifierIfNeeded,
   qualifiedNameParts,
   quoteQualifiedName,
   isTsqlDialect,
@@ -354,6 +356,7 @@ export {
   PROVIDER_SETTINGS,
   getProviderSettings,
   isFileDialect,
+  dialectFamily,
   DIALECTS,
   type Dialect,
 } from './providers/provider-settings.js';
@@ -385,6 +388,7 @@ export {
   collapsedColumnsFor,
   fromClauseEntries,
   rowKeyFor,
+  splitSelectItems,
   tablesInOrigins,
   type AttributeOptions,
   type CollapsedColumns,
@@ -506,3 +510,9 @@ export type {
   OsAccountSteps,
   OsRunMode,
 } from './modules/access/os-account.types.js';
+
+export { nonSecretFingerprint } from './cores/fingerprint.js';
+export { errorMessage } from './cores/error-message.js';
+export { escapeRegExp } from './cores/escape-regexp.js';
+export { odbcEscape, db2CaLooksLikePem } from './providers/db2/db2.connection.js';
+export { IBM_DB_VERSION } from './providers/db2/db2.settings.js';

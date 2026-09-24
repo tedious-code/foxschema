@@ -53,6 +53,7 @@ import {
   matchFkReferencedColumns,
   moveFkColumnsLockstep,
   moveOrderedName,
+  normalizeIndexOrders,
   parseTypeSize,
   pkColumnsFromTable,
   sameStringList,
@@ -76,6 +77,7 @@ import {
   dialectSupportsIndexFragmentation,
   fragmentationSeverity,
 } from '@foxschema/sql';
+import { dialectFamily } from '@foxschema/sql';
 
 function fragBadgeClass(severity: ReturnType<typeof fragmentationSeverity>): string {
   if (severity === 'ok') return 'text-emerald-300/90 border-emerald-500/40 bg-emerald-950/40';
@@ -132,15 +134,8 @@ function indexInfoToDraft(idx: IndexInfo): BlueprintIndexDraft {
   };
 }
 
-function normalizeOrders(
-  columns: string[],
-  orders: IndexColumnOrder[] | undefined
-): IndexColumnOrder[] {
-  return columns.map((_, i) => (orders?.[i] === 'DESC' ? 'DESC' : 'ASC'));
-}
-
 function formatIndexCols(idx: { columns: string[]; orders?: IndexColumnOrder[] }): string {
-  const orders = normalizeOrders(idx.columns, idx.orders);
+  const orders = normalizeIndexOrders(idx.columns, idx.orders);
   return idx.columns
     .map((c, i) => `${c} ${orders[i] ?? 'ASC'}`)
     .join(', ');
@@ -774,7 +769,7 @@ export const TableBlueprintModal: React.FC<Props> = ({
     setIndexForm({
       ...draftIdx,
       columns: [...draftIdx.columns],
-      orders: normalizeOrders(draftIdx.columns, draftIdx.orders),
+      orders: normalizeIndexOrders(draftIdx.columns, draftIdx.orders),
       filter: draftIdx.filter ?? '',
     });
   };
@@ -797,7 +792,7 @@ export const TableBlueprintModal: React.FC<Props> = ({
       return {
         ...prev,
         columns,
-        orders: [...normalizeOrders(prev.columns, prev.orders), 'ASC'],
+        orders: [...normalizeIndexOrders(prev.columns, prev.orders), 'ASC'],
         name:
           prev.name.trim() ||
           suggestIndexName(tableName || 'table', columns, prev.unique),
@@ -812,7 +807,7 @@ export const TableBlueprintModal: React.FC<Props> = ({
       const j = i + dir;
       if (j < 0 || j >= prev.columns.length) return prev;
       const columns = [...prev.columns];
-      const orders = normalizeOrders(prev.columns, prev.orders);
+      const orders = normalizeIndexOrders(prev.columns, prev.orders);
       [columns[i], columns[j]] = [columns[j]!, columns[i]!];
       [orders[i], orders[j]] = [orders[j]!, orders[i]!];
       return { ...prev, columns, orders };
@@ -823,7 +818,7 @@ export const TableBlueprintModal: React.FC<Props> = ({
     setIndexForm((prev) => {
       const i = prev.columns.indexOf(colName);
       if (i < 0) return prev;
-      const orders = normalizeOrders(prev.columns, prev.orders);
+      const orders = normalizeIndexOrders(prev.columns, prev.orders);
       orders[i] = order;
       return { ...prev, orders };
     });
@@ -863,7 +858,7 @@ export const TableBlueprintModal: React.FC<Props> = ({
     const next: BlueprintIndexDraft = {
       ...indexForm,
       name,
-      orders: normalizeOrders(indexForm.columns, indexForm.orders),
+      orders: normalizeIndexOrders(indexForm.columns, indexForm.orders),
       filter: filter || undefined,
       constraint: indexForm.unique ? indexForm.constraint : undefined,
       replaces,
@@ -2666,8 +2661,8 @@ export const TableBlueprintModal: React.FC<Props> = ({
 function resolveDialectIdentityPreview(col: ColumnInfo, dialect: string): string {
   if (!col.identity || !isIntegerAutoIncrementType(col.type)) return '';
   const d = dialect.toLowerCase();
-  if (d === 'mysql' || d === 'mariadb' || d === 'tidb') return ' AUTO_INCREMENT';
-  if (d === 'sqlserver' || d === 'azuresql') return ' IDENTITY(1,1)';
+  if (dialectFamily(d) === 'mysql') return ' AUTO_INCREMENT';
+  if (dialectFamily(d) === 'sqlserver') return ' IDENTITY(1,1)';
   if (d === 'redshift') return ' IDENTITY(0,1)';
   if (d === 'sqlite') return ' AUTOINCREMENT';
   const gen = col.identityGeneration ?? 'ALWAYS';

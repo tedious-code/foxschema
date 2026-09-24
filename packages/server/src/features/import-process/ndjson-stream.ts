@@ -28,6 +28,7 @@
  * earlier version stripped it separately; removing that code changed no test,
  * with no callers at present.
  */
+import { errorMessage } from '@foxschema/sql';
 
 export interface NdjsonStreamOptions {
   /** Records to buffer before {@link NdjsonStreamReader.take} returns them. */
@@ -70,7 +71,7 @@ export class NdjsonStreamReader {
       // without one, and the buffered path numbers them too.
       throw new Error(
         `NDJSON line ${this.lineNo} is not valid JSON: ${
-          cause instanceof Error ? cause.message : String(cause)
+          errorMessage(cause)
         }`
       );
     }

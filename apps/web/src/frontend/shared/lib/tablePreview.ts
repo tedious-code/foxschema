@@ -14,7 +14,7 @@
  */
 
 import { sqlTag as sql, renderSqlQuery } from './sql-splitter';
-import { qualifiedNameParts as tableNameParts } from '@foxschema/sql';
+import { qualifiedNameParts as tableNameParts, splitSelectItems } from '@foxschema/sql';
 import type { ForeignKeyInfo, TableSchema } from './types';
 
 export interface PreviewQuery {
@@ -466,54 +466,6 @@ export function sqlHasSetOperation(sql: string): boolean {
 }
 
 /**
- * Split a SELECT list on top-level commas (paren depth 0).
- */
-function splitSelectListItems(list: string): string[] {
-  const items: string[] = [];
-  let depth = 0;
-  let current = '';
-  let quote: '"' | '`' | "'" | '[' | null = null;
-  for (let i = 0; i < list.length; i++) {
-    const ch = list[i]!;
-    if (quote) {
-      current += ch;
-      if (quote === '[' && ch === ']') quote = null;
-      else if (ch === quote) {
-        if ((quote === '"' || quote === "'") && list[i + 1] === quote) {
-          current += list[++i];
-          continue;
-        }
-        quote = null;
-      }
-      continue;
-    }
-    if (ch === '"' || ch === '`' || ch === "'" || ch === '[') {
-      quote = ch === '[' ? '[' : ch;
-      current += ch;
-      continue;
-    }
-    if (ch === '(') {
-      depth++;
-      current += ch;
-      continue;
-    }
-    if (ch === ')') {
-      depth = Math.max(0, depth - 1);
-      current += ch;
-      continue;
-    }
-    if (ch === ',' && depth === 0) {
-      items.push(current.trim());
-      current = '';
-      continue;
-    }
-    current += ch;
-  }
-  if (current.trim()) items.push(current.trim());
-  return items;
-}
-
-/**
  * Drop a leading WITH [RECURSIVE] cte_list so callers can inspect the main
  * SELECT. Returns null when the CTE list is malformed.
  */
@@ -612,7 +564,7 @@ export function selectListSafeForResultEdit(sql: string): boolean {
   // DISTINCT / ALL prefixes are fine; strip them before inspecting items.
   const body = list.replace(/^(DISTINCT|ALL)\s+/i, '').trim();
   if (!body) return false;
-  for (const raw of splitSelectListItems(body)) {
+  for (const raw of splitSelectItems(body)) {
     const item = raw.trim();
     if (!item) return false;
     if (/^(\*|[A-Za-z_][\w$]*\s*\.\s*\*|"[^"]+"\s*\.\s*\*|`[^`]+`\s*\.\s*\*|\[[^\]]+\]\s*\.\s*\*)$/.test(item)) {
