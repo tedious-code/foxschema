@@ -1,4 +1,4 @@
-import { type ConnectionOptions, type DriverAdapter, normalizeAuthMethod, unsupportedAuthMethodMessage } from '@foxschema/sql';
+import { type ConnectionOptions, type DriverAdapter, IBM_DB_VERSION, normalizeAuthMethod, unsupportedAuthMethodMessage } from '@foxschema/sql';
 import { assertSafeIdentifier } from '../../cores/sql-identifier.js';
 import { BoundedPoolCache, disposePoolEndOrClose } from '../../cores/pool-cache.js';
 import { setupDb2ClientEnv, hasDb2Clidriver } from './db2.env.js';
@@ -23,7 +23,7 @@ class Db2Adapter implements DriverAdapter {
       throw new Error(
         'ibm_db is installed but its CLI driver (clidriver) is missing. ' +
           'On Windows this usually means scripts were skipped — reinstall with: ' +
-          'npm install ibm_db@4.0.1 --foreground-scripts  (or: foxschema drivers install db2)'
+          `npm install ibm_db@${IBM_DB_VERSION} --foreground-scripts  (or: foxschema drivers install db2)`
       );
     }
     this.driver = requireDriver(this.packageName, this.dialect, { installFlags: '--foreground-scripts' });

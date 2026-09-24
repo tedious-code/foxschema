@@ -16,6 +16,7 @@ import {
   type ConnectionAuthMethod,
 } from '@/shared/lib/provider-settings';
 import type { DriverInfo } from '@/shared/lib/types';
+import { IBM_DB_VERSION } from '@foxschema/sql';
 import { fetchSchemaList, checkDriver as apiCheckDriver, installDriver as apiInstallDriver } from "@/shared/api/schemaApi";
 import { PasswordInput } from '@/shared/components/PasswordInput';
 import { Autocomplete } from '@/shared/components/Autocomplete';
@@ -419,7 +420,7 @@ export const ConnectionModal: React.FC<Props> = ({
                     , then <span className="text-amber-100 font-mono">foxschema stop && foxschema</span>.
                     In a monorepo:{' '}
                     <span className="text-amber-100 font-mono">
-                      npm install ibm_db@4.0.1 --foreground-scripts -w @foxschema/db
+                      npm install ibm_db@{IBM_DB_VERSION} --foreground-scripts -w @foxschema/db
                     </span>
                     . On linux/arm64 use Docker (
                     <span className="text-amber-100 font-mono">5nickels/foxschema:latest</span>).

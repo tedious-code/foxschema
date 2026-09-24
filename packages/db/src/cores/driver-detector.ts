@@ -2,7 +2,7 @@ import { createRequire } from 'node:module';
 import type { DriverInfo } from '@foxschema/sql';
 import { getAdapter, ADAPTERS } from '../providers/adapter-registry.js';
 import { hasDb2Clidriver, setupDb2ClientEnv } from '../providers/db2/db2.env.js';
-import { errorMessage } from '@foxschema/sql';
+import { IBM_DB_VERSION, errorMessage } from '@foxschema/sql';
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -35,7 +35,7 @@ export class DriverDetector {
           packageName,
           installed: false,
           installCommand:
-            'foxschema drivers install db2   # or: npm install ibm_db@4.0.1 --foreground-scripts -w @foxschema/db',
+            `foxschema drivers install db2   # or: npm install ibm_db@${IBM_DB_VERSION} --foreground-scripts -w @foxschema/db`,
           error:
             'ibm_db is present but the DB2 clidriver was not downloaded (install scripts were skipped).',
         };
@@ -58,7 +58,7 @@ export class DriverDetector {
       // rebuild correctly. Prefer the CLI for packaged installs.
       const installCommand =
         packageName === 'ibm_db'
-          ? 'foxschema drivers install db2   # or: npm install ibm_db@4.0.1 --foreground-scripts -w @foxschema/db'
+          ? `foxschema drivers install db2   # or: npm install ibm_db@${IBM_DB_VERSION} --foreground-scripts -w @foxschema/db`
           : `npm install ${packageName}`;
       return {
         provider: dialect,

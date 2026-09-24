@@ -7,6 +7,7 @@ import {
   MigrationModule,
   SqlGeneratorModule,
   DriverDetector,
+  IBM_DB_VERSION,
   normalizeTableSchemas,
   type ConnectionOptions,
 } from '@foxschema/db';
@@ -254,7 +255,7 @@ export function createApiRoutes(connectionModule: ConnectionModule, connectionSt
 
     try {
       const packageName = DriverDetector.getPackageName(dialect);
-      const versionPin = packageName === 'ibm_db' ? '4.0.1' : undefined;
+      const versionPin = packageName === 'ibm_db' ? IBM_DB_VERSION : undefined;
 
       // Resolve monorepo vs packaged cwd (bundled ui-server used to install into `/`).
       // ibm_db must run install scripts so clidriver downloads + native binding builds.
