@@ -42,7 +42,11 @@ const WorkflowView = lazy(() =>
 );
 
 const Workspace: React.FC = () => {
-  const { errorMsg, warnings, dismissWarnings } = useSyncStore();
+  // Per-field selectors: Workspace parents the whole shell, so a whole-store
+  // subscription re-rendered everything on every checkbox click.
+  const errorMsg = useSyncStore((s) => s.errorMsg);
+  const warnings = useSyncStore((s) => s.warnings);
+  const dismissWarnings = useSyncStore((s) => s.dismissWarnings);
   const activeView = useUiStore((s) => s.activeView);
   const setActiveView = useUiStore((s) => s.setActiveView);
   const canEditorAccess = useAuthStore((s) => s.can('editor.access'));

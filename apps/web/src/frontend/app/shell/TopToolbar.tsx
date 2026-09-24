@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSyncStore } from '@/app/store/useSyncStore';
+import { useShallow } from 'zustand/react/shallow';
 import { useUiStore } from '@/app/store/uiStore';
 import { ArrowRight, ArrowLeftRight, RefreshCw, AlertCircle, Zap, Settings, KeyRound, X, Layers, Camera, Search } from 'lucide-react';
 import { TYPE_META, TYPE_ORDER } from '@/features/schema-diff';
@@ -32,6 +33,8 @@ function connectionSummary(config: {
 }
 
 export const TopToolbar: React.FC = () => {
+  // useShallow: none of these change on a deploy-checkbox click, so the
+  // toolbar no longer re-renders on one. (A bare object selector would loop in zustand 5.)
   const {
     sourceConfig,
     targetConfig,
@@ -58,7 +61,35 @@ export const TopToolbar: React.FC = () => {
     selectedTargetConnectionId,
     applySavedConnection,
     swapSourceTarget,
-  } = useSyncStore();
+  } = useSyncStore(
+    useShallow((s) => ({
+      sourceConfig: s.sourceConfig,
+      targetConfig: s.targetConfig,
+      setShowConnectionModal: s.setShowConnectionModal,
+      isTestingSource: s.isTestingSource,
+      isTestingTarget: s.isTestingTarget,
+      sourceConnected: s.sourceConnected,
+      targetConnected: s.targetConnected,
+      testSourceConnection: s.testSourceConnection,
+      testTargetConnection: s.testTargetConnection,
+      isComparing: s.isComparing,
+      runSchemaComparison: s.runSchemaComparison,
+      compareResult: s.compareResult,
+      resetSync: s.resetSync,
+      selectedObjectTypes: s.selectedObjectTypes,
+      toggleObjectTypeFilter: s.toggleObjectTypeFilter,
+      typeFilter: s.typeFilter,
+      toggleTypeFilter: s.toggleTypeFilter,
+      clearTypeFilter: s.clearTypeFilter,
+      showConnectionModal: s.showConnectionModal,
+      addConnection: s.addConnection,
+      connections: s.connections,
+      selectedSourceConnectionId: s.selectedSourceConnectionId,
+      selectedTargetConnectionId: s.selectedTargetConnectionId,
+      applySavedConnection: s.applySavedConnection,
+      swapSourceTarget: s.swapSourceTarget,
+    }))
+  );
 
   const [activeModalTarget, setActiveModalTarget] = useState<'source' | 'target' | null>(null);
   const [capturingSnapshot, setCapturingSnapshot] = useState(false);

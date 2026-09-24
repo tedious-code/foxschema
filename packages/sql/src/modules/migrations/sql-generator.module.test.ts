@@ -821,7 +821,7 @@ describe('SqlGeneratorModule.generateMigrationPlan', () => {
     //   SELECT ... FROM foxdb.demo_b.orders AS o
     //     JOIN foxdb.demo_b.order_items AS oi ON oi.order_id = o.id
     //
-    // viewReferencesTable allowed one optional qualifier, so it matched
+    // the reference pattern allowed one optional qualifier, so it matched
     // `demo_b.order_items` and missed `foxdb.demo_b.order_items`. The
     // dependency went unseen, the view was never dropped around the ALTER, and
     // the migration died at apply time on the live engine:

@@ -6,6 +6,10 @@ import { resolveDialect, tryResolveDialect } from '../dialect/registry.js';
 import { dialectSupportsFk, type FkFeatureSupport } from '../dialect/fk-support.js';
 import { compareKey } from '../schema-diff/compare-key.js';
 
+/** One key per (type, name) pair; NUL cannot occur in either part. */
+const selectionKey = (d: Pick<TableDiff, 'objectType' | 'tableName'>): string =>
+  `${d.objectType}\u0000${d.tableName}`;
+
 export interface MigrationStep {
   objectName: string;
   objectType: DbObjectType;
@@ -603,8 +607,8 @@ export class SqlGeneratorModule {
   }
 
   /**
-   * True when a view/routine body references `tableName` as a relation
-   * (schema-qualified or bare). Used by the generate-time dependent-view
+   * Matches a view/routine body that references `tableName` as a relation
+   * (schema-qualified or bare); null when the name is empty. Used by the generate-time dependent-view
    * fallback for dialects that cannot run Postgres's pg_depend DO-block guard
    * (e.g. CockroachDB).
    *
@@ -613,10 +617,9 @@ export class SqlGeneratorModule {
    * `ORDER BY` / `GROUP BY` do not false-positive when the table is named
    * `status`, `order`, `group`, etc.
    */
-  private viewReferencesTable(viewDef: string | undefined, tableName: string): boolean {
-    if (!viewDef) return false;
+  private tableReferencePattern(tableName: string): RegExp | null {
     const bare = tableName.replace(/^.*\./, '').replace(/"/g, '');
-    if (!bare) return false;
+    if (!bare) return null;
     const escaped = bare.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     // Up to two qualifiers, then the bare table (optionally quoted).
     //
@@ -634,10 +637,12 @@ export class SqlGeneratorModule {
     // referenced a same-named table elsewhere, which is the safe direction:
     // an unnecessary recreate costs nothing, a missed one fails the migration.
     const relation = String.raw`(?:(?:"[^"]+"|[\w]+)\s*\.\s*){0,2}"?${escaped}"?\b`;
+    // No `g` flag, so `.test` keeps no lastIndex state and the pattern can be
+    // reused across every candidate body.
     return new RegExp(
       String.raw`\b(?:from|join|update|into|table|using|references)\s+${relation}`,
       'i'
-    ).test(viewDef);
+    );
   }
 
   private alterObjectStatements(
@@ -645,8 +650,8 @@ export class SqlGeneratorModule {
     dialect: SqlDialect,
     mapping?: SchemaMapping,
     contextDiffs: TableDiff[] = [],
-    /** Objects selected for this deploy — used so unchecked dependents restore target DDL. */
-    selectedDiffs: TableDiff[] = []
+    /** `selectionKey` of each object selected for this deploy — unchecked dependents restore target DDL. */
+    selectedKeys: ReadonlySet<string> = new Set()
   ): string[] {
     const statements: string[] = [];
     // The table already exists in the target — reference it with the casing it
@@ -674,7 +679,12 @@ export class SqlGeneratorModule {
       // DDL only for dependents that are themselves selected for deploy; otherwise
       // restore the target body so unchecked MODIFIED objects are not rewritten.
       type DependentRecreate = { dep: TableDiff; rawDef: string; useSource: boolean };
-      const dependentsToRecreate: DependentRecreate[] = !dropViewsBlock && hasStructuralColumnChanges
+      // Built once per table, not once per candidate body.
+      const refPattern = !dropViewsBlock && hasStructuralColumnChanges
+        ? this.tableReferencePattern(tableName)
+        : null;
+      const references = (def: string | undefined) => !!def && !!refPattern?.test(def);
+      const dependentsToRecreate: DependentRecreate[] = refPattern
         ? contextDiffs.flatMap((d): DependentRecreate[] => {
             if (d.objectType !== 'VIEW' && d.objectType !== 'MQT'
               && d.objectType !== 'FUNCTION' && d.objectType !== 'PROCEDURE') {
@@ -685,9 +695,7 @@ export class SqlGeneratorModule {
             if (d.status === 'ADDED' && (d.objectType === 'VIEW' || d.objectType === 'MQT')) {
               return [];
             }
-            const isSelected = selectedDiffs.some(
-              (s) => s.objectType === d.objectType && s.tableName === d.tableName
-            );
+            const isSelected = selectedKeys.has(selectionKey(d));
             // Intentionally removed (destructive): DROP phase already handled it —
             // do not temporarily drop/recreate around ALTER.
             if (d.status === 'REMOVED' && !mapping?.nonDestructive && isSelected) {
@@ -695,8 +703,7 @@ export class SqlGeneratorModule {
             }
             const targetDef = d.targetTable?.definition ?? (d.status === 'REMOVED' ? d.definition : undefined);
             const sourceDef = d.sourceTable?.definition ?? (d.status !== 'REMOVED' ? d.definition : undefined);
-            if (!this.viewReferencesTable(targetDef, tableName)
-              && !this.viewReferencesTable(sourceDef, tableName)) {
+            if (!references(targetDef) && !references(sourceDef)) {
               return [];
             }
             const useSource = isSelected && !!sourceDef?.trim();
@@ -1223,12 +1230,13 @@ export class SqlGeneratorModule {
 
     // MODIFIED (ALTER TABLE, etc.) — must run before ADDED views/triggers so that
     // views referencing newly-added columns see them when created.
+    const selectedKeys = new Set(diffs.map(selectionKey));
     for (const obj of diffs.filter((d) => d.status === 'MODIFIED')) {
       steps.push({
         objectName: obj.tableName,
         objectType: obj.objectType,
         action: 'ALTER',
-        statements: this.alterObjectStatements(obj, dialect, m, depContext, diffs),
+        statements: this.alterObjectStatements(obj, dialect, m, depContext, selectedKeys),
       });
     }
 
