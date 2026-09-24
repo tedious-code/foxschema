@@ -72,4 +72,18 @@ describe('clickRateLimited', () => {
       clickRateLimited(page, { click: async () => undefined, path, label: 'Revert' })
     ).rejects.toThrow('Revert failed: HTTP 500 {"error":"boom"}');
   });
+
+  it('with returnErrors, hands back another error but still waits out a 429', async () => {
+    const { page, waits } = fakePage([
+      response(429, { 'retry-after': '2' }),
+      response(500, {}, '{"error":"ECONNREFUSED"}'),
+    ]);
+    const click = vi.fn(async () => undefined);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const res = await clickRateLimited(page, { click, path, label: 'Refresh', returnErrors: true });
+    expect(res.status()).toBe(500);
+    expect(click).toHaveBeenCalledTimes(2);
+    expect(waits).toEqual([2_250]);
+    warn.mockRestore();
+  });
 });

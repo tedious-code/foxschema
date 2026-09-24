@@ -45,12 +45,16 @@ export class ConnectionModal {
 
   async loadSchemas(): Promise<void> {
     await this.page.click('[data-testid="conn-load-schema-btn"]');
-    // Wait for the API call to START (testing banner appears).
-    await this.page.waitForSelector('[data-testid="conn-test-testing"]', { timeout: 8_000 });
-    // Wait for success or failure — the actual completion signal.
+    // Wait for the outcome, never for the "testing" banner on the way to it.
+    // The banner lasts only as long as the request: a SQLite file answers in
+    // milliseconds, and a list fetched in the last 15s comes from the client
+    // cache (`fetchSchemaList`) with no request at all, so the banner can come
+    // and go between two polls. Waiting for it timed out the blueprint suite's
+    // setup in a sweep with the schemas already loaded. The cache is also why
+    // this does not wait for the HTTP response: there may not be one.
     await this.page.waitForSelector(
       '[data-testid="conn-test-success"], [data-testid="conn-test-failed"]',
-      { timeout: 25_000 }
+      { timeout: 30_000 }
     );
     const failed = this.page.locator('[data-testid="conn-test-failed"]');
     if (await failed.isVisible().catch(() => false)) {

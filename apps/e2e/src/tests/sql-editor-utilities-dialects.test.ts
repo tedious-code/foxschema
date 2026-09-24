@@ -184,14 +184,18 @@ describe.skipIf(configured.length === 0)('SQL Editor · Utilities (all configure
         // Wait for a real outcome: a principal row, or a refusal. The status
         // element carries a per-dialect hint from the moment the modal opens,
         // so its presence says nothing about whether the probe has run.
+        //
+        // A refusal is read from the two elements that report one, never from
+        // the modal's text. The modal also holds the permission builder, which
+        // says "This dialect does not support the Access permission builder"
+        // on ClickHouse — true, and nothing to do with reading principals —
+        // and matching that failed ClickHouse with its four users on screen.
         await driver.waitForFunction(
           () => {
             const principal = document.querySelector('[data-testid^="db-access-principal-"]');
             const err = document.querySelector('[data-testid="db-access-error"]')?.textContent ?? '';
-            const text = document.querySelector('[data-testid="db-access-modal"]')?.textContent ?? '';
-            return (
-              principal !== null || err.trim().length > 0 || /not support|unsupported/i.test(text)
-            );
+            const unsupported = document.querySelector('[data-testid="db-access-unsupported"]');
+            return principal !== null || err.trim().length > 0 || unsupported !== null;
           },
           // waitForFunction's second parameter is the argument passed to the
           // function; options are third. Passing options second leaves the
@@ -204,7 +208,7 @@ describe.skipIf(configured.length === 0)('SQL Editor · Utilities (all configure
         expect(modalText.toLowerCase()).not.toMatch(/credential not found|password required/);
 
         const refused =
-          /does not support|unsupported/i.test(modalText) ||
+          (await driver.locator('[data-testid="db-access-unsupported"]').count()) > 0 ||
           ((await driver
             .locator('[data-testid="db-access-error"]')
             .textContent()

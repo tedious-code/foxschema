@@ -35,6 +35,7 @@ import type { Page } from 'playwright';
 import { buildDriver, quitDriver } from '../helpers/driver.js';
 import { getSourceConfig, hasConfig } from '../helpers/db-config.js';
 import { deleteSavedConnections, engineAcceptsSyntax } from '../helpers/sql-exec.js';
+import { clickRateLimited } from '../helpers/rate-limited.js';
 import { saveScreenshot } from '../helpers/screenshot.js';
 import { AppPage } from '../pages/AppPage.js';
 import { SqlEditorPage } from '../pages/SqlEditorPage.js';
@@ -263,6 +264,31 @@ describe.skipIf(configured.length === 0)('Database Access · User Management', (
       .catch(() => undefined);
   }
 
+  /**
+   * Press Refresh and wait for the catalog read it sends to be answered.
+   *
+   * `/schema/db-access` allows 20 reads a minute per user (`dbAccessLimiter`
+   * in access.routes.ts). Every engine here reads it when its connection is
+   * selected and again on each Refresh, so a run over several engines goes
+   * faster than that — the fast ones take about ten seconds each. A refused
+   * read empties the list, and the test after it finds no row: in a full run
+   * TiDB "created fox_u_… but does not list it", and alone it passed. The
+   * limit is left alone; a refused read is waited out and retried instead.
+   */
+  async function refreshCatalog() {
+    // Let the read that selecting the connection started finish first, so the
+    // response awaited below belongs to this Refresh and not to that read.
+    await catalogIdle();
+    await clickRateLimited(driver, {
+      click: () => driver.locator('[data-testid="user-refresh"]').click(),
+      path: /^\/api\/schema\/db-access$/,
+      label: 'Database Access refresh',
+      // A read that fails for another reason shows in the list's error, which
+      // the tests judge: a container that is down is not a product failure.
+      returnErrors: true,
+    });
+  }
+
   /** Start an Add for the given principal type, named and ready to read. */
   async function startAdd(dialect: string, kind: 'user' | 'role', name: string) {
     await driver.locator('[data-testid="access-tab-users"]').click();
@@ -314,7 +340,7 @@ describe.skipIf(configured.length === 0)('Database Access · User Management', (
           return;
         }
 
-        await driver.locator('[data-testid="user-refresh"]').click();
+        await refreshCatalog();
 
         await driver.waitForFunction(
           () =>
@@ -331,10 +357,10 @@ describe.skipIf(configured.length === 0)('Database Access · User Management', (
           const message = await error.innerText();
           // A container that is down must not read as a product failure, but
           // a catalog query that is wrong must not read as a container problem.
-          // The rate limiter counts too: a whole-suite run reads the catalog
-          // far more often per minute than any person would.
+          // Not the rate limiter: refreshCatalog waits a refusal out, so a
+          // "too many requests" here would be a read it failed to retry.
           expect(message, `${dialect} failed to read its catalog`).toMatch(
-            /not responding|ECONNREFUSED|timed? ?out|terminated|refused|too many requests/i
+            /not responding|ECONNREFUSED|timed? ?out|terminated|refused/i
           );
           return;
         }
@@ -400,7 +426,7 @@ describe.skipIf(configured.length === 0)('Database Access · User Management', (
           // Removing a Db2 account is an OS operation, like adding one.
           await driver.locator('[data-testid="access-tab-users"]').click();
           await selectConnection(dialect);
-          await driver.locator('[data-testid="user-refresh"]').click();
+          await refreshCatalog();
           await driver
             .waitForSelector(anyUserRow, { timeout: 120_000 })
             .catch(() => undefined);
@@ -425,7 +451,7 @@ describe.skipIf(configured.length === 0)('Database Access · User Management', (
         // simply has nothing to select here.
         await driver.locator('[data-testid="access-tab-users"]').click();
         await selectConnection(dialect);
-        await driver.locator('[data-testid="user-refresh"]').click();
+        await refreshCatalog();
         // Only wait for a row that could exist. Waiting 60s for an account the
         // engine refused to create is a minute per dialect spent proving
         // nothing, and it is what pushed Oracle past the test timeout.
@@ -456,7 +482,7 @@ describe.skipIf(configured.length === 0)('Database Access · User Management', (
 
         // And the catalog agrees it is gone — which also proves the listing
         // reflects the database rather than a cache of what Fox last drew.
-        await driver.locator('[data-testid="user-refresh"]').click();
+        await refreshCatalog();
         await driver
           .waitForFunction(
             (id) => document.querySelector(`[data-testid^="user-row-${id}"]`) === null,
@@ -493,7 +519,7 @@ describe.skipIf(configured.length === 0)('Database Access · User Management', (
         expect(verdict.rejected ?? '', verdict.rejected ?? '').toBe('');
 
         // Clean up the role with the product's own DROP, so that path runs too.
-        await driver.locator('[data-testid="user-refresh"]').click();
+        await refreshCatalog();
         await driver.waitForSelector(rowFor(roleName), { timeout: 60_000 }).catch(() => undefined);
         await catalogIdle();
         const row = driver.locator(rowFor(roleName));
@@ -527,7 +553,7 @@ describe.skipIf(configured.length === 0)('Database Access · User Management', (
         if (NO_ACCOUNTS.includes(dialect)) return;
         await driver.locator('[data-testid="access-tab-users"]').click();
         await selectConnection(dialect);
-        await driver.locator('[data-testid="user-refresh"]').click();
+        await refreshCatalog();
         await driver
           .waitForSelector(anyUserRow, { timeout: 120_000 })
           .catch(() => undefined);
