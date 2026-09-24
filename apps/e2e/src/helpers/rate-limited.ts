@@ -23,6 +23,9 @@
  *   - anything else that is not 2xx fails at once, naming the status and body;
  *   - a wait longer than `maxWaitMs` fails at once instead of eating the test's
  *     own timeout.
+ *
+ * Database Access catalog reads (`/schema/db-access`, 20 a minute) go through
+ * here too; a run over several engines reads the catalog faster than that.
  */
 import type { Page, Response } from 'playwright';
 
@@ -38,6 +41,11 @@ export interface RateLimitedClick {
   maxWaitMs?: number;
   /** How long one press may take to send its request and get an answer. */
   responseTimeoutMs?: number;
+  /**
+   * Return a non-2xx answer other than 429 instead of throwing, for a caller
+   * that judges the failure the UI then shows (a container that is down).
+   */
+  returnErrors?: boolean;
 }
 
 /** The limiter's window is a minute; one full wait plus a margin. */
@@ -51,6 +59,7 @@ export async function clickRateLimited(page: Page, options: RateLimitedClick): P
     label,
     maxWaitMs = DEFAULT_MAX_WAIT_MS,
     responseTimeoutMs = 30_000,
+    returnErrors = false,
   } = options;
   let waited = 0;
   for (;;) {
@@ -62,6 +71,7 @@ export async function clickRateLimited(page: Page, options: RateLimitedClick): P
       click(),
     ]);
     if (response.ok()) return response;
+    if (returnErrors && response.status() !== 429) return response;
 
     const body = await response.text().catch(() => '');
     if (response.status() !== 429) {
@@ -73,8 +83,8 @@ export async function clickRateLimited(page: Page, options: RateLimitedClick): P
     if (waited + retryAfterMs > maxWaitMs) {
       throw new Error(
         `${label} refused: rate limited (HTTP 429, retry after ${Math.ceil(retryAfterMs / 1000)}s, ` +
-          `already waited ${Math.round(waited / 1000)}s). The Lokee capture limit is 20 a minute ` +
-          `per user; something is making more limited requests than the suites do. ${body}`
+          `already waited ${Math.round(waited / 1000)}s). Something is making more requests ` +
+          `against this limit than the suites do. ${body}`
       );
     }
     console.warn(

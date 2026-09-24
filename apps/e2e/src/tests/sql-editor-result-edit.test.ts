@@ -93,16 +93,26 @@ INSERT INTO items (id, label, qty) VALUES (1, 'seed', 3);
     expect(await form.locator('[data-testid="peek-row-field-id"]').isDisabled()).toBe(true);
     await form.locator('[data-testid="peek-row-field-label"]').fill('from-grid');
     await form.locator('[data-testid="peek-row-field-qty"]').fill('9');
+    // Submit only previews the statement; Save on the preview runs it. The
+    // spec used to press Escape on a form still open here, which threw the
+    // preview away unsaved and left the test waiting 20s for a row that was
+    // never written.
     await driver.locator('[data-testid="peek-row-submit"]').click();
-
+    const preview = form.locator('[data-testid="peek-row-preview-sql"]');
+    await preview.waitFor({ state: 'visible', timeout: 10_000 });
+    expect(await preview.innerText()).toMatch(/^INSERT INTO "items" \("label", "qty"\)/);
+    await driver.locator('[data-testid="peek-row-save"]').click();
     await sql.confirmWriteIfShown();
-    // Data Peek keeps the form under Safe Mode confirm until the write succeeds;
-    // dismiss any leftover form so later steps can reach the editor.
-    const formStill = driver.locator('[data-testid="peek-row-editor"]');
-    if (await formStill.isVisible().catch(() => false)) {
-      await driver.keyboard.press('Escape');
-      await formStill.waitFor({ state: 'detached', timeout: 5_000 }).catch(() => undefined);
-    }
+    // The editor closes only when the write succeeded; a failed one stays open
+    // with its error, so this is where a rejected INSERT shows up.
+    await form.waitFor({ state: 'detached', timeout: 15_000 });
+
+    // The row reached the file, and the grid re-ran its query to show it.
+    expect(
+      execFileSync('sqlite3', [DB, "SELECT id, qty FROM items WHERE label = 'from-grid';"])
+        .toString()
+        .trim()
+    ).toBe('2|9');
     await expect
       .poll(async () => (await sql.resultsText()).toLowerCase(), { timeout: 20_000 })
       .toMatch(/from-grid/);
