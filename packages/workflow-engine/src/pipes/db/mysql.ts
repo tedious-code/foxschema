@@ -48,9 +48,13 @@ export class MysqlSinkPipe implements SinkPipe {
   metadata(): PipeMetadata {
     return definePipeMetadata({
       type: this.type,
-      name: 'MySQL table',
+      name: 'MySQL: load table',
       category: 'Output/Database',
       family: 'database',
+      // SQL query / SQL write cover every dialect and are what the palette
+      // offers first; this engine-specific pipe (resumable keyset paging or
+      // exactly-once batch claims) stays one toggle away.
+      palette: 'advanced',
       tags: ['sql', 'mysql'],
       version: '0.1.0',
       role: 'sink',

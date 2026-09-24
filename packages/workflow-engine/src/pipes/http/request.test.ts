@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { randomBytes } from 'node:crypto';
 import { InMemoryCredentialStore, parseHttpRequest } from '../../common/index.js';
-import { buildHttpRequest, executeHttpRequest } from './request.js';
+import { buildHttpRequest, describeHttpFailure, executeHttpRequest } from './request.js';
 import { interpolate } from '../../sdk/index.js';
 
 describe('shared HTTP request', () => {
@@ -397,5 +397,30 @@ describe('shared HTTP request', () => {
         trigger: { q: 'a b' },
       }),
     ).toBe('https://x/7?q=a b');
+  });
+});
+
+describe('describeHttpFailure', () => {
+  it('names the error a JSON body gives', () => {
+    expect(describeHttpFailure({ status: 400, body: { error: 'idempotency key is required' } })).toBe(
+      'returned 400: idempotency key is required',
+    );
+    expect(describeHttpFailure({ status: 422, body: { message: 'bad field' } })).toBe('returned 422: bad field');
+  });
+
+  it('falls back to the JSON itself when there is no error field', () => {
+    expect(describeHttpFailure({ status: 409, body: { taken: true } })).toBe('returned 409: {"taken":true}');
+  });
+
+  it('flattens and caps a text body', () => {
+    const page = `<html>\n  <body>${'x'.repeat(500)}</body>\n</html>`;
+    const message = describeHttpFailure({ status: 502, body: page });
+    expect(message).toMatch(/^returned 502: <html> <body>x+…$/);
+    expect(message.length).toBeLessThan(230);
+  });
+
+  it('is just the status when the body says nothing', () => {
+    expect(describeHttpFailure({ status: 500, body: '' })).toBe('returned 500');
+    expect(describeHttpFailure({ status: 500, body: undefined })).toBe('returned 500');
   });
 });

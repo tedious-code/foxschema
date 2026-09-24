@@ -24,6 +24,7 @@ import {
 import { validateAgainstSchema } from '../../common/index.js';
 import { rejectBatch } from './delimited.js';
 import { readLines } from './text.js';
+import { resolveWorkflowFile } from './file-root.js';
 
 const configSchema = z.object({
   path: z.string().min(1),
@@ -53,6 +54,7 @@ export class JsonSourcePipe implements SourcePipe {
       type: this.type,
       name: 'JSON file',
       category: 'Source/File',
+      family: 'file',
       version: '0.1.0',
       role: 'source',
       inputs: [],
@@ -69,7 +71,8 @@ export class JsonSourcePipe implements SourcePipe {
   }
 
   async *read(context: PipeContext): AsyncIterable<RecordBatch> {
-    const config = configSchema.parse(context.pipe.config);
+    const parsedConfig = configSchema.parse(context.pipe.config);
+    const config = { ...parsedConfig, path: await resolveWorkflowFile(parsedConfig.path) };
     const format =
       config.format === 'auto' ? await detectFormat(config.path) : config.format;
     yield* format === 'array'

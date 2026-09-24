@@ -61,7 +61,7 @@ export class HumanGatePipe implements TransformPipe {
     return definePipeMetadata({
       type: this.type,
       name: 'Ask a person',
-      category: 'Control/Human',
+      category: 'Logic/Human',
       family: 'human',
       tags: ['otp', 'captcha', 'auth', 'approval'],
       version: '0.1.0',

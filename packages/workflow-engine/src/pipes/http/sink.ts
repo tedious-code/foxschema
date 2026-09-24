@@ -14,7 +14,7 @@ import {
   type PipeMetadata,
 } from '../../sdk/index.js';
 import { requestCredentialId, revealPipeSecret } from '../pipe-context.js';
-import { executeHttpRequest } from './request.js';
+import { executeHttpRequest, describeHttpFailure } from './request.js';
 
 const configSchema = z
   .object({
@@ -55,7 +55,7 @@ export class HttpSinkPipe implements SinkPipe {
   metadata(): PipeMetadata {
     return definePipeMetadata({
       type: this.type,
-      name: 'HTTP request',
+      name: 'Send HTTP request',
       category: 'Output/API',
       family: 'http',
       tags: ['auth', 'api'],
@@ -139,7 +139,7 @@ export class HttpSinkPipe implements SinkPipe {
       // raw template. Reporting the template makes a failure read as if
       // interpolation broke — which sends you debugging the wrong thing.
       throw new Error(
-        `HTTP sink ${config.request.method} ${result.url} returned ${result.status}`,
+        `HTTP sink ${config.request.method} ${result.url} ${describeHttpFailure(result)}`,
       );
     }
   }

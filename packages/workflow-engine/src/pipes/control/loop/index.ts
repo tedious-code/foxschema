@@ -76,6 +76,7 @@ export class LoopPipe implements TransformPipe {
       type: this.type,
       name: 'Loop',
       category: 'Logic',
+      family: 'logic',
       version: '0.1.0',
       role: 'transform',
       inputs: [{ name: 'in', type: 'records' }],

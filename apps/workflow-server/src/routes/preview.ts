@@ -16,6 +16,7 @@ import {
   parseTextRows,
   textConfigFields,
   textFormatRefine,
+  resolveWorkflowFile,
 } from '@foxschema/workflow-engine';
 
 /** At most this much of a file is read for a preview. */
@@ -139,7 +140,7 @@ export function previewRoutes(): FastifyPluginAsync {
           const path = parsed.data.path;
           if (!path) return failure('provide a sample or set a file path');
           try {
-            ({ text, truncated: headTruncated } = await readHead(path));
+            ({ text, truncated: headTruncated } = await readHead(await resolveWorkflowFile(path)));
           } catch (error) {
             return failure(`read ${path}: ${(error as Error).message}`);
           }

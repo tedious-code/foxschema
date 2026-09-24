@@ -12,6 +12,7 @@ export {
   type VerifyRule,
   type Verdict,
 } from './verify.js';
+export { resolveWorkflowFile, workflowFilesRoot, FILES_DIR_ENV } from './file-root.js';
 export { FileSinkPipe, escapeField, toRow, type FileSinkConfig } from './file-sink.js';
 export {
   CsvSourcePipe,

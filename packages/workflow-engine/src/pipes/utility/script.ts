@@ -65,6 +65,7 @@ export class ScriptTransformPipe implements TransformPipe {
       type: this.type,
       name: 'Script',
       category: 'Transform',
+      family: 'logic',
       version: '0.1.0',
       role: 'transform',
       inputs: [{ name: 'in', type: 'records' }],

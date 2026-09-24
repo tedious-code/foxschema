@@ -32,6 +32,7 @@ import {
   parseLine,
   rejectBatch,
 } from './delimited.js';
+import { resolveWorkflowFile } from './file-root.js';
 
 /**
  * The field shape, exported without the cross-field `.refine()` so callers
@@ -117,6 +118,7 @@ export class TextSourcePipe implements SourcePipe {
       type: this.type,
       name: 'Text file',
       category: 'Source/File',
+      family: 'file',
       version: '0.4.0',
       role: 'source',
       inputs: [],
@@ -150,8 +152,8 @@ export class TextSourcePipe implements SourcePipe {
     let headerDone = config.header === 'none' || resumeAfter > 0;
 
     for await (const line of readLines(
-      // eslint-disable-next-line security/detect-non-literal-fs-filename -- the source file path is this pipe's own configuration
-      createReadStream(config.path, { encoding: 'utf8' }),
+      // eslint-disable-next-line security/detect-non-literal-fs-filename -- the source file path is this pipe's own configuration, confined to the files root
+      createReadStream(await resolveWorkflowFile(config.path), { encoding: 'utf8' }),
     )) {
       lineNumber++;
       if (lineNumber <= config.offset) continue;

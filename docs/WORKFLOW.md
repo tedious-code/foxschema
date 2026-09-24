@@ -108,14 +108,21 @@ Registry: `createDefaultPipeRegistry()` in
 `packages/workflow-engine/src/pipes/utility/index.ts`. Names below are the
 palette labels (`metadata().name`).
 
-| Family | Pipes |
-|--------|--------|
-| SQL | SQL query, SQL write (any FoxSchema dialect via `@foxschema/db`); PostgreSQL query / PostgreSQL; MySQL query / MySQL table |
-| HTTP | HTTP API, HTTP Multi, HTTP request (transform + sink), Workflow response |
-| Notify | Send email, Send SMS |
-| Files | CSV file, Text file, JSON file, Write CSV file |
-| Logic | Map fields, Condition, Script, Verify, Merge, Split, Loop, Sub-workflow, Ask a person |
-| Triggers | Trigger payload, Manual, Schedule, Webhook, API Endpoint, API Polling, Parent Workflow |
+Palette groups follow the order a pipeline reads — **Trigger, Source,
+Transform, Logic, Output** — and every label is unique
+(`packages/workflow-engine/src/pipes/catalog.test.ts` enforces both).
+
+| Group | Pipes |
+|-------|--------|
+| Trigger | Manual, Schedule, Webhook, API Endpoint, API Polling, Parent Workflow; Trigger payload |
+| Source | SQL query (any FoxSchema dialect); HTTP API, HTTP Multi; CSV file, JSON file, Text file |
+| Transform | Map fields, Merge, Split, Script; HTTP lookup; Verify |
+| Logic | Condition, Loop, Sub-workflow; Ask a person |
+| Output | SQL write (any dialect); Send HTTP request, Workflow response; Write CSV file; Send email, Send SMS |
+| *Advanced* (palette toggle) | PostgreSQL / MySQL: stream table (resumable keyset paging) and load table (exactly-once batch claims) |
+
+Condition takes either spelling for its comparison — `operator: 'greaterThan'`
+or the `op: 'gt'` that Verify rules and trigger conditions use.
 
 SQL interpolations are **bind parameters**, never text (`{{path}}` in templates;
 table/column names are quoted). Each `await`/pipe call uses the drivers the rest
@@ -153,9 +160,14 @@ Saved in FoxSchema (`workflow.engine_config`). The engine re-reads them every
 - **Sink batch claims are per run.** Postgres/MySQL write pipes scope the
   idempotency claim to `[workflowRunId, batch.id]` so a retry inside one run
   dedupes, but the next scheduled run is not suppressed.
+- **File pipes are confined.** CSV / JSON / text sources, Write CSV file and
+  the designer's file preview only touch paths under `FOXFLOW_FILES_DIR`
+  (default `workflow-files/` beside the engine database). Designing a workflow
+  is an editor permission; without the root an editor could read or write any
+  file the engine process can (`pipes/utility/file-root.ts`).
 - **Plugin loading** needs both `FOXFLOW_PLUGINS_DIR` and
   `FOXFLOW_PLUGINS_ALLOWLIST`. Unapproved plugins are skipped, not fatal.
-- **Do not commit** `foxflow.sqlite*` / `workflow-engine.sqlite`.
+- **Do not commit** `foxflow.sqlite*` / `workflow-engine.sqlite` / `workflow-files/`.
 
 ## Tests
 

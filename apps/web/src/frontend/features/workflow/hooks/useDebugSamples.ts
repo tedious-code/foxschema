@@ -129,6 +129,46 @@ export interface DebugLogLine {
 }
 
 /**
+ * Fold one run event into the live per-pipe state. Sources announce each
+ * status with `pipe.status`; transforms and sinks report their finished batch
+ * as `batch.progress` carrying `status: 'success'` and send no separate
+ * `pipe.status` for it, so both have to be read for status.
+ */
+export function applyPipeEvent(
+  current: Record<string, DebugPipeState>,
+  key: string,
+  event: RunEvent,
+): Record<string, DebugPipeState> {
+  const status = event.data?.status;
+  const previous = current[key];
+  if (event.type === 'pipe.status' && typeof status === 'string') {
+    return {
+      ...current,
+      [key]: {
+        ...previous,
+        processedBatches: previous?.processedBatches ?? 0,
+        processedRecords: previous?.processedRecords ?? 0,
+        status,
+        ...(event.message ? { error: event.message } : {}),
+      },
+    };
+  }
+  if (event.type === 'batch.progress') {
+    const records = Number(event.data?.records ?? 0);
+    return {
+      ...current,
+      [key]: {
+        status: typeof status === 'string' ? status : (previous?.status ?? 'running'),
+        processedBatches: (previous?.processedBatches ?? 0) + 1,
+        processedRecords: (previous?.processedRecords ?? 0) + records,
+        ...(previous?.error ? { error: previous.error } : {}),
+      },
+    };
+  }
+  return current;
+}
+
+/**
  * Live `batch.sample` events for a debug run. Latest sample wins per
  * (pipe, direction, port[, fromPipe]).
  */
@@ -181,36 +221,13 @@ export function useDebugSamples(runId: string | null): {
       // rather than waiting for a detail refresh at the end.
       if (event.pipeId && event.pipelineId) {
         const key = pipeKey(event.pipelineId, event.pipeId);
-        const status = event.data?.status;
-        if (event.type === 'pipe.status' && typeof status === 'string') {
-          setPipeStates((current) => ({
-            ...current,
-            [key]: {
-              ...current[key],
-              processedBatches: current[key]?.processedBatches ?? 0,
-              processedRecords: current[key]?.processedRecords ?? 0,
-              status,
-              ...(event.message ? { error: event.message } : {}),
-            },
-          }));
-          if (status === 'failed' && event.message) {
-            setPipeErrors((current) => ({ ...current, [key]: event.message! }));
-          }
-        }
-        if (event.type === 'batch.progress') {
-          const records = Number(event.data?.records ?? 0);
-          setPipeStates((current) => {
-            const previous = current[key];
-            return {
-              ...current,
-              [key]: {
-                status: previous?.status ?? 'running',
-                processedBatches: (previous?.processedBatches ?? 0) + 1,
-                processedRecords: (previous?.processedRecords ?? 0) + records,
-                ...(previous?.error ? { error: previous.error } : {}),
-              },
-            };
-          });
+        setPipeStates((current) => applyPipeEvent(current, key, event));
+        if (
+          event.type === 'pipe.status' &&
+          event.data?.status === 'failed' &&
+          event.message
+        ) {
+          setPipeErrors((current) => ({ ...current, [key]: event.message! }));
         }
       }
 

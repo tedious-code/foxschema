@@ -19,7 +19,7 @@ import type {
 } from '../../registry/index.js';
 import { definePipeMetadata, type PipeMetadata } from '../../sdk/index.js';
 import { requestCredentialId, revealPipeSecret } from '../pipe-context.js';
-import { executeHttpRequest } from './request.js';
+import { executeHttpRequest, describeHttpFailure } from './request.js';
 
 const sourceExtrasSchema = z.object({
   recordsPath: z.string().default(''),
@@ -105,7 +105,7 @@ export class HttpSourcePipe implements SourcePipe {
       signal: context.signal,
     });
     if (!result.ok) {
-      throw new Error(`HTTP source returned ${result.status}`);
+      throw new Error(`HTTP source ${describeHttpFailure(result)}`);
     }
 
     const selected = config.recordsPath

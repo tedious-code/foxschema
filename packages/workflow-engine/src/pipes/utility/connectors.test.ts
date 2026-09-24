@@ -240,6 +240,28 @@ describe('built-in connectors', () => {
     ]);
   });
 
+  it('accepts the op/gt spelling that Verify rules and trigger conditions use', async () => {
+    const batch = {
+      id: 'b',
+      partitionId: '0',
+      records: [{ amount: 5 }, { amount: 50 }],
+    };
+    const pipe = new ConditionPipe();
+    const short = { field: 'amount', op: 'gt', value: 10 };
+    expect(() => pipe.validateConfig(short)).not.toThrow();
+    const routed = await pipe.transform(batch, context('transform.condition', 'transform', short));
+    expect(routed.get('true')?.records).toEqual([{ amount: 50 }]);
+    expect(routed.get('false')?.records).toEqual([{ amount: 5 }]);
+
+    // The long form still wins when both are present.
+    const both = await pipe.transform(
+      batch,
+      context('transform.condition', 'transform', { field: 'amount', operator: 'lessThan', op: 'gt', value: 10 }),
+    );
+    expect(both.get('true')?.records).toEqual([{ amount: 5 }]);
+    expect(() => pipe.validateConfig({ field: 'amount', op: 'bogus' })).toThrow();
+  });
+
   it('deduplicates PostgreSQL batch commits by stable batch id', async () => {
     const queries: Array<{ text: string; values?: unknown[] }> = [];
     const committed = new Set<string>();

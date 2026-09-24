@@ -373,9 +373,12 @@ export function DelimitedSourceEditor({ kind, config, onChange }: Props) {
       <input
         type="text"
         value={str(config.path)}
-        placeholder={kind === 'csv' ? '/data/orders.csv' : '/data/report.txt'}
+        placeholder={kind === 'csv' ? 'imports/orders.csv' : 'imports/report.txt'}
         onChange={(ev) => patch({ path: ev.target.value })}
       />
+      <p className="hint">
+        Relative to the engine's workflow files folder (<code>FOXFLOW_FILES_DIR</code>).
+      </p>
 
       {kind === 'csv' ? (
         <div className="delimited-grid">

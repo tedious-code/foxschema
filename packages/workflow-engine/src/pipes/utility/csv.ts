@@ -22,6 +22,7 @@ import {
 } from '../../sdk/index.js';
 import { validateAgainstSchema } from '../../common/index.js';
 import { rejectBatch } from './delimited.js';
+import { resolveWorkflowFile } from './file-root.js';
 
 /** Exported so the preview endpoint parses with the pipe's own field shape. */
 export const csvConfigFields = z.object({
@@ -43,6 +44,7 @@ export class CsvSourcePipe implements SourcePipe {
       type: this.type,
       name: 'CSV file',
       category: 'Source/File',
+      family: 'file',
       version: '0.3.0',
       role: 'source',
       inputs: [],
@@ -72,8 +74,8 @@ export class CsvSourcePipe implements SourcePipe {
     let lastReject = 0;
 
     for await (const values of parseCsv(
-      // eslint-disable-next-line security/detect-non-literal-fs-filename -- the source file path is this pipe's own configuration
-      createReadStream(config.path, { encoding: 'utf8' }),
+      // eslint-disable-next-line security/detect-non-literal-fs-filename -- the source file path is this pipe's own configuration, confined to the files root
+      createReadStream(await resolveWorkflowFile(config.path), { encoding: 'utf8' }),
       config.delimiter,
     )) {
       if (skipped < config.skipLines) {

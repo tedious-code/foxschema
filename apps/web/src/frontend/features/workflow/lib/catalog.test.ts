@@ -112,3 +112,18 @@ describe('categoriesFromPipes', () => {
     ]);
   });
 });
+
+describe('palette group order', () => {
+  it('reads like a pipeline: Trigger, Source, Transform, Logic, Output, then the rest', () => {
+    const labels = categoriesFromPipes([
+      pipe('a', 'Output/File'),
+      pipe('b', 'Logic'),
+      pipe('c', 'Zeta'),
+      pipe('d', 'Transform'),
+      pipe('e', 'Trigger'),
+      pipe('f', 'Source/Database'),
+      pipe('g', 'Alpha'),
+    ]).map((category) => category.label);
+    expect(labels).toEqual(['Trigger', 'Source', 'Transform', 'Logic', 'Output', 'Alpha', 'Zeta']);
+  });
+});

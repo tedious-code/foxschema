@@ -97,8 +97,23 @@ seed_sqlite() {
   echo "▶ SQLite …"
   mkdir -p "$SL_DIR" || return 1
   rm -f "$SL_DIR/demo_a.db" "$SL_DIR/demo_b.db"
-  step sqlite3 "$SL_DIR/demo_a.db" < "$INIT/sqlite/demo_a.sql" || return 1
-  step sqlite3 "$SL_DIR/demo_b.db" < "$INIT/sqlite/demo_b.sql" || return 1
+  # The sqlite3 CLI is not always installed; better-sqlite3 always is (it is a
+  # dependency of the app), so fall back to it rather than fail the seed.
+  if command -v sqlite3 >/dev/null 2>&1; then
+    step sqlite3 "$SL_DIR/demo_a.db" < "$INIT/sqlite/demo_a.sql" || return 1
+    step sqlite3 "$SL_DIR/demo_b.db" < "$INIT/sqlite/demo_b.sql" || return 1
+  else
+    step node -e '
+      const Database = require(require.resolve("better-sqlite3", { paths: [process.argv[1]] }));
+      const fs = require("fs");
+      for (const [db, sql] of [[process.argv[2], process.argv[3]], [process.argv[4], process.argv[5]]]) {
+        const conn = new Database(db);
+        conn.exec(fs.readFileSync(sql, "utf8"));
+        conn.close();
+      }' "$REPO/packages/db" \
+      "$SL_DIR/demo_a.db" "$INIT/sqlite/demo_a.sql" \
+      "$SL_DIR/demo_b.db" "$INIT/sqlite/demo_b.sql" || return 1
+  fi
   echo "  ✓ done  →  $SL_DIR/demo_a.db  |  demo_b.db"
 }
 

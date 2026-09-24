@@ -237,6 +237,68 @@ describe('POST /api/workflows/:id/pipelines', () => {
     await app.close();
   });
 
+  it('says what is wrong with a pipe config in words, not a JSON dump', async () => {
+    const app = await api();
+    await seed(app);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/workflows/agent-target/pipelines',
+      payload: {
+        pipeline: {
+          id: 'gate',
+          name: 'gate',
+          pipes: [
+            { id: 's', role: 'source', type: 'source.triggerPayload', config: {} },
+            { id: 'c', role: 'transform', type: 'transform.condition', config: { value: 1 } },
+          ],
+          edges: [{ from: 's', to: 'c' }],
+        },
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+    const error = res.json().error as string;
+    expect(error).toMatch(/pipeline gate, pipe c: field: /);
+    expect(error).not.toMatch(/"code":/);
+
+    await app.close();
+  });
+
+  it('refuses an edge from a port the pipe does not declare', async () => {
+    // The executor refused this on the first batch, so it saved fine and
+    // failed at run time instead.
+    const app = await api();
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/api/workflows/ports',
+      payload: {
+        ...base,
+        id: 'ports',
+        pipelines: [
+          {
+            id: 'p',
+            name: 'p',
+            pipes: [
+              { id: 's', role: 'source', type: 'source.triggerPayload', config: {} },
+              { id: 'split', role: 'transform', type: 'transform.split', config: { field: 'region' } },
+              { id: 'out', role: 'sink', type: 'sink.response', config: {} },
+            ],
+            edges: [
+              { from: 's', to: 'split' },
+              { from: 'split', fromPort: 'eu', to: 'out' },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/pipeline p: edge split → out: unknown fromPort "eu"/);
+
+    await app.close();
+  });
+
   it('404s for a workflow that is not there', async () => {
     const app = await api();
     const res = await app.inject({

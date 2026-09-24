@@ -31,6 +31,7 @@ export class MapPipe implements TransformPipe {
       type: this.type,
       name: 'Map fields',
       category: 'Transform',
+      family: 'logic',
       version: '0.1.0',
       role: 'transform',
       inputs: [{ name: 'in', type: 'records' }],
@@ -63,7 +64,37 @@ export class MapPipe implements TransformPipe {
   }
 }
 
-const conditionConfigSchema = z.object({
+/**
+ * Verify rules and trigger conditions spell comparisons `op: 'gt'`; this pipe
+ * has always spelled them `operator: 'greaterThan'`. Both spellings are
+ * accepted here so a rule copied from one to the other just works — the
+ * saved form keeps whichever the author wrote.
+ */
+const CONDITION_OPERATOR_ALIASES: Record<string, string> = {
+  gt: 'greaterThan',
+  gte: 'greaterThanOrEqual',
+  lt: 'lessThan',
+  lte: 'lessThanOrEqual',
+};
+
+function normalizeConditionConfig(config: unknown): unknown {
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return config;
+  const { op, ...rest } = config as Record<string, unknown>;
+  const operator = rest.operator ?? op;
+  return {
+    ...rest,
+    ...(operator === undefined
+      ? {}
+      : {
+          operator:
+            typeof operator === 'string'
+              ? (CONDITION_OPERATOR_ALIASES[operator] ?? operator)
+              : operator,
+        }),
+  };
+}
+
+const conditionConfigSchema = z.preprocess(normalizeConditionConfig, z.object({
   field: z.string().min(1),
   operator: z.enum([
     'equals',
@@ -76,7 +107,7 @@ const conditionConfigSchema = z.object({
     'exists',
   ]),
   value: z.unknown().optional(),
-});
+}));
 
 export class ConditionPipe implements TransformPipe {
   readonly type = 'transform.condition';
@@ -89,6 +120,7 @@ export class ConditionPipe implements TransformPipe {
       // Branching belongs to Logic; the `transform.` type id is frozen so
       // saved workflows keep resolving (same precedent as source.trigger.cron).
       category: 'Logic',
+      family: 'logic',
       version: '0.2.0',
       role: 'transform',
       inputs: [{ name: 'in', type: 'records' }],

@@ -53,9 +53,13 @@ export class PostgresSourcePipe implements SourcePipe {
   metadata(): PipeMetadata {
     return definePipeMetadata({
       type: this.type,
-      name: 'PostgreSQL query',
+      name: 'PostgreSQL: stream table',
       category: 'Source/Database',
       family: 'database',
+      // SQL query / SQL write cover every dialect and are what the palette
+      // offers first; this engine-specific pipe (resumable keyset paging or
+      // exactly-once batch claims) stays one toggle away.
+      palette: 'advanced',
       tags: ['sql', 'postgres'],
       version: '0.1.0',
       role: 'source',

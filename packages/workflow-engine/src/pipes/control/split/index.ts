@@ -66,6 +66,7 @@ export class SplitPipe implements TransformPipe {
       type: this.type,
       name: 'Split',
       category: 'Transform',
+      family: 'logic',
       version: '0.1.0',
       role: 'transform',
       inputs: [{ name: 'in', type: 'records' }],

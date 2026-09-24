@@ -125,6 +125,7 @@ the admin screen. Both directions authenticate with one shared token.
 | `WORKFLOW_LOG_DIR` | engine | `workflow-logs/` next to the engine database | Directory for the JSON / text run-event sinks enabled in the admin screen. A sink target is a file name inside it, never a path. |
 | `FOXFLOW_ENCRYPTION_KEY` | engine | — | **Required at boot.** 32-byte key (hex or base64) encrypting the engine's own credential store. No plaintext fallback. |
 | `FOXFLOW_DB_PATH` | engine | `workflow-engine.sqlite` at the repo root | The engine's SQLite database. |
+| `FOXFLOW_FILES_DIR` | engine | `workflow-files/` next to the engine database | The only directory the file pipes (CSV / JSON / text sources, Write CSV file, the designer's file preview) read or write. A relative pipe path is taken from here; an absolute one must already be inside it. |
 | `FOXFLOW_TRUST_PROXY` | engine | `false` | Trust `X-Forwarded-*` when the engine sits behind a proxy. |
 
 The engine re-reads its settings from FoxSchema every 30 seconds: `Disabled`

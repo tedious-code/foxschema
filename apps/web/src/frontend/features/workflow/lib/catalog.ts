@@ -99,6 +99,18 @@ const byLabel = (a: { label: string }, b: { label: string }) =>
   a.label.localeCompare(b.label);
 
 /**
+ * Built-in groups in the order a pipeline reads — what starts it, where data
+ * comes from, what changes it, what decides, where it goes. Alphabetical put
+ * Logic first and Trigger last. Unknown groups follow, alphabetically.
+ */
+const GROUP_ORDER = ['Trigger', 'Source', 'Transform', 'Logic', 'Output'];
+
+function groupRank(label: string): number {
+  const index = GROUP_ORDER.indexOf(label);
+  return index === -1 ? GROUP_ORDER.length : index;
+}
+
+/**
  * Build palette categories from registry metadata (no hardcoded pipe types).
  * `category` answers what a pipe does — optionally two levels as
  * `Group/Subgroup` — while `provider` answers whose it is: FoxAgent built-in
@@ -125,7 +137,7 @@ export function categoriesFromPipes(
       // Built-in groups (no namespace suffix) sort before third-party ones.
       const thirdA = a.includes(' · ') ? 1 : 0;
       const thirdB = b.includes(' · ') ? 1 : 0;
-      return thirdA - thirdB || a.localeCompare(b);
+      return thirdA - thirdB || groupRank(a) - groupRank(b) || a.localeCompare(b);
     })
     .map(([label, subgroupMap]) => {
       const named = [...subgroupMap.entries()]

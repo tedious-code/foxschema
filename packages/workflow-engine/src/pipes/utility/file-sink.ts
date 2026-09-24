@@ -10,6 +10,7 @@ import { dirname } from 'node:path';
 import { z } from 'zod';
 import type { PipeContext, RecordBatch, SinkPipe } from '../../registry/index.js';
 import { definePipeMetadata, type PipeMetadata } from '../../sdk/index.js';
+import { resolveWorkflowFile } from './file-root.js';
 
 /**
  * Write records to a delimited file.
@@ -92,7 +93,7 @@ export class FileSinkPipe implements SinkPipe {
     return definePipeMetadata({
       type: this.type,
       name: 'Write CSV file',
-      category: 'Sink/File',
+      category: 'Output/File',
       family: 'file',
       tags: ['csv', 'export', 'spreadsheet'],
       version: '0.1.0',
@@ -121,8 +122,9 @@ export class FileSinkPipe implements SinkPipe {
   }
 
   async write(batch: RecordBatch, context: PipeContext): Promise<void> {
-    const config = configSchema.parse(context.pipe.config);
+    const parsedConfig = configSchema.parse(context.pipe.config);
     if (batch.records.length === 0) return;
+    const config = { ...parsedConfig, path: await resolveWorkflowFile(parsedConfig.path) };
 
     const key = `${context.workflowRunId}:${config.path}`;
     const first = !this.started.has(key);
