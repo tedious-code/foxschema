@@ -6,6 +6,7 @@
  * Workflow engine — moved from FoxAgent (apps/api/src/routes/workflows.ts).
  */
 import {
+  assertKnownFromPorts,
   assertNoWorkflowCycles,
   assertRunnableRoots,
   parseWorkflowInput,
@@ -130,9 +131,21 @@ function assertPipesUsable(
       registry.get(pipe);
     } catch (err) {
       throw new Error(
-        `pipeline ${pipeline.id}, pipe ${pipe.id}: ${(err as Error).message}`,
+        `pipeline ${pipeline.id}, pipe ${pipe.id}: ${describeValidationError(err)}`,
       );
     }
+  }
+  // The executor makes this same check before the first batch moves; making
+  // it here too means an edge wired to a port the pipe does not have is
+  // refused at save, not discovered when a scheduled run fails.
+  try {
+    assertKnownFromPorts(
+      registry,
+      new Map(pipeline.pipes.map((pipe) => [pipe.id, pipe])),
+      pipeline.edges,
+    );
+  } catch (err) {
+    throw new Error(`pipeline ${pipeline.id}: ${(err as Error).message}`);
   }
 }
 

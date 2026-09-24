@@ -17,7 +17,13 @@ import {
 } from './resultDataDiff';
 import { keyColumnsForGrid } from './resultRowDiff';
 
-export type AlignRowOp = 'match' | 'update' | 'insert' | 'delete';
+/**
+ * `unresolved`: the row is on one side only, but the other side's result was
+ * cut short (a later page, or truncated at Rows/page), so it may well exist
+ * there too. Calling it an add or a delete would be a guess — and a wrong
+ * "add" is an INSERT of a row the destination already has.
+ */
+export type AlignRowOp = 'match' | 'update' | 'insert' | 'delete' | 'unresolved';
 
 export interface KeyAlignedGrids {
   keyNames: string[];
@@ -37,6 +43,8 @@ export interface KeyAlignedGrids {
   updateCount: number;
   insertCount: number;
   deleteCount: number;
+  /** One-sided rows the other side's truncated result cannot rule out. */
+  unresolvedCount: number;
   /** Duplicate key values skipped on left/right (only first kept for align). */
   duplicateKeys: number;
 }
@@ -101,7 +109,16 @@ export function alignResultGridsByKey(
   left: ResultGridLike,
   right: ResultGridLike,
   keyNames: string[],
-  opts?: { ignoreColumns?: string[] }
+  opts?: {
+    ignoreColumns?: string[];
+    /**
+     * False when that side holds only part of its result (not on page 1, a
+     * next page exists, or rows were truncated). Rows found only on the
+     * *other* side are then `unresolved` instead of insert/delete.
+     */
+    leftComplete?: boolean;
+    rightComplete?: boolean;
+  }
 ): KeyAlignedGrids | null {
   if (keyNames.length === 0) return null;
   const leftKeys = keyColumnsForGrid(keyNames, left.columns);
@@ -152,6 +169,9 @@ export function alignResultGridsByKey(
   let updateCount = 0;
   let insertCount = 0;
   let deleteCount = 0;
+  let unresolvedCount = 0;
+  const leftComplete = opts?.leftComplete ?? true;
+  const rightComplete = opts?.rightComplete ?? true;
 
   const seenRight = new Set<string>();
 
@@ -186,8 +206,13 @@ export function alignResultGridsByKey(
       leftGap.push(false);
       rightGap.push(true);
       rowKeyLabels.push(keyLabelForRow(lRow, leftKeys));
-      rowOps.push('delete');
-      deleteCount += 1;
+      if (rightComplete) {
+        rowOps.push('delete');
+        deleteCount += 1;
+      } else {
+        rowOps.push('unresolved');
+        unresolvedCount += 1;
+      }
     }
   }
 
@@ -199,8 +224,13 @@ export function alignResultGridsByKey(
     leftGap.push(true);
     rightGap.push(false);
     rowKeyLabels.push(keyLabelForRow(rRow, rightKeys));
-    rowOps.push('insert');
-    insertCount += 1;
+    if (leftComplete) {
+      rowOps.push('insert');
+      insertCount += 1;
+    } else {
+      rowOps.push('unresolved');
+      unresolvedCount += 1;
+    }
   }
 
   return {
@@ -215,6 +245,7 @@ export function alignResultGridsByKey(
     updateCount,
     insertCount,
     deleteCount,
+    unresolvedCount,
     duplicateKeys,
   };
 }
@@ -305,7 +336,8 @@ export function compareKeyAlignedGrids(
 
   for (let r = 0; r < aligned.rowOps.length; r++) {
     const op = aligned.rowOps[r]!;
-    if (op === 'match') continue;
+    // Unresolved rows are not a difference anyone has shown; leave them plain.
+    if (op === 'match' || op === 'unresolved') continue;
 
     if (op === 'delete') {
       // Source-only: rose on both panes at this aligned index (gap on dest).

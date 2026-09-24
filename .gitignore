@@ -101,6 +101,7 @@ packages/db/npm-pack/
 workflow-engine.sqlite
 workflow-engine.sqlite-shm
 workflow-engine.sqlite-wal
+workflow-files/
 # Left by the FoxAgent engine before it moved here.
 foxflow.sqlite
 foxflow.sqlite-shm

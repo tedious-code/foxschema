@@ -31,6 +31,7 @@ abstract class TriggerSourcePipe implements SourcePipe {
       type: this.type,
       name: this.displayName,
       category: 'Trigger',
+      family: 'trigger',
       version: '0.1.0',
       role: 'source',
       inputs: [],

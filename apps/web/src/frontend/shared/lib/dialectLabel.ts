@@ -16,3 +16,18 @@ export function dialectLabel(dialect: string): string {
   if (!dialect?.trim()) return '';
   return PROVIDER_SETTINGS[dialect.toLowerCase()]?.label ?? dialect.toUpperCase();
 }
+
+/**
+ * `[POSTGRESQL] Orders DB · public` — how a saved connection reads in a
+ * connection picker. Seven pickers each built this inline, and three of them
+ * printed the wire value (`[SQLSERVER]`) instead of the written name.
+ */
+export function connectionOptionLabel(connection: {
+  dialect: string;
+  name: string;
+  schema?: string | null;
+}): string {
+  const dialect = dialectLabel(connection.dialect).toUpperCase();
+  const schema = connection.schema ? ` · ${connection.schema}` : '';
+  return `${dialect ? `[${dialect}] ` : ''}${connection.name}${schema}`;
+}

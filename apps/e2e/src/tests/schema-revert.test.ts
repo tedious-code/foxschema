@@ -199,10 +199,13 @@ INSERT INTO customers (id, name, email) VALUES (1, 'Ada', 'ada@example.com');
 
     // Both reverts are legible from the graph: each node says which version it
     // put back, which is the whole point of recording the provenance.
+    //
+    // Polled, not read once: the graph keeps showing what it had while it
+    // reloads after the revert, so the first look can be the old graph.
     await history.waitForGraph();
-    const restored = await history.revertedToLabels();
-    expect(restored.join(' '), restored.join(' ')).toMatch(/reverted to v1/i);
-    expect(restored.join(' '), restored.join(' ')).toMatch(/reverted to v2/i);
+    const restored = async () => (await history.revertedToLabels()).join(' ');
+    await expect.poll(restored, { timeout: 30_000 }).toMatch(/reverted to v1/i);
+    await expect.poll(restored, { timeout: 30_000 }).toMatch(/reverted to v2/i);
   }, 180_000);
 });
 

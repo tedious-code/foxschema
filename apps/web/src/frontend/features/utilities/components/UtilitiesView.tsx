@@ -24,13 +24,13 @@ import { useSyncStore } from '@/app/store/useSyncStore';
 import { useUiStore } from '@/app/store/uiStore';
 import { FileImportsPanel } from '@/features/sql-editor/components/FileImportsPanel';
 import { SQL_ICON_STROKE } from '@/shared/lib/iconStyle';
-import { PROVIDER_SETTINGS } from '@/shared/lib/provider-settings';
 import { CloneTableModal } from './CloneTableModal';
 import { DatabaseAccessModal } from './DatabaseAccessModal';
 import { FileQueryModal } from './FileQueryModal';
 import { IndexManagementModal } from './IndexManagementModal';
 import { ServerInsightsModal, type ServerInsightsTab } from './ServerInsightsModal';
 import { sectionLabelCls } from '@/shared/components/surfaces';
+import { connectionOptionLabel } from '@/shared/lib/dialectLabel';
 
 export type UtilityTool =
   | 'indexes'
@@ -254,9 +254,7 @@ export const UtilitiesView: React.FC = () => {
               ) : (
                 connections.map((c) => (
                   <option key={c.id} value={c.id}>
-                    [{(PROVIDER_SETTINGS[c.dialect.toLowerCase()]?.label ?? c.dialect).toUpperCase()}]{' '}
-                    {c.name}
-                    {c.schema ? ` · ${c.schema}` : ''}
+                    {connectionOptionLabel(c)}
                   </option>
                 ))
               )}

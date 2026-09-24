@@ -409,10 +409,16 @@ describe('checkStatement', () => {
     expect(checkStatement(stmt('SELECT * FROM users WHERE id = 1;'))).toEqual({ level: 'ok', reasons: [] });
   });
 
-  it('warns on a missing final semicolon', () => {
+  it('warns on a missing semicolon when another statement follows', () => {
     const s = checkStatement(stmt('SELECT 1', false));
     expect(s.level).toBe('warn');
     expect(s.reasons).toContain('Missing terminating semicolon');
+  });
+
+  it('lets the last statement in the buffer leave its semicolon off', () => {
+    expect(checkStatement(stmt('SELECT 1', false), { last: true })).toEqual({ level: 'ok', reasons: [] });
+    // Everything else still counts on the last statement.
+    expect(checkStatement(stmt("SELECT 'oops", false), { last: true }).reasons).toEqual(['Unclosed quote']);
   });
 
   it('warns on unclosed quote and unbalanced parentheses', () => {

@@ -55,6 +55,7 @@ import {
   compareKeyAlignedGrids,
   type AlignRowOp,
 } from '@/features/sql-editor/lib/resultKeyAlign';
+import { migrateGridsAreComplete } from '@/features/sql-editor/lib/resultRowDiff';
 import { sideBySideSectionCount } from '@/features/sql-editor/lib/resultsSections';
 import { detectTriggerManagedColumns } from '@/features/sql-editor/lib/triggerManagedColumns';
 import { resolvePeekKeyColumns } from '@/features/sql-editor/lib/rowDml';
@@ -69,6 +70,7 @@ function compareOpCsvLabel(op: AlignRowOp): string {
   if (op === 'update') return 'edit';
   if (op === 'delete') return 'add';
   if (op === 'insert') return 'delete';
+  if (op === 'unresolved') return 'unknown';
   return 'match';
 }
 
@@ -1102,6 +1104,30 @@ const SideBySideStatementSection: React.FC<{
   // instead of joining it into a string.
   const effectiveKeys = keyNames.length ? keyNames : defaultKeys;
 
+  /**
+   * Whether each side holds its whole result: page 1, no next page, nothing
+   * truncated. The same test Data migrate applies before it will write.
+   */
+  const sourceComplete = Boolean(
+    sourceGrid?.result.ok &&
+      migrateGridsAreComplete({
+        sourcePageIndex:
+          pageState?.[`${sourceGrid.connectionId}:${statementIndex}`]?.pageIndex ?? 0,
+        destPageIndex: 0,
+        sourceHasMore: Boolean(sourceGrid.result.hasNext || sourceGrid.result.truncated),
+        destHasMore: false,
+      })
+  );
+  const destComplete = Boolean(
+    destGrid?.result.ok &&
+      migrateGridsAreComplete({
+        sourcePageIndex: 0,
+        destPageIndex: pageState?.[`${destGrid.connectionId}:${statementIndex}`]?.pageIndex ?? 0,
+        sourceHasMore: false,
+        destHasMore: Boolean(destGrid.result.hasNext || destGrid.result.truncated),
+      })
+  );
+
   /** Key-align source ↔ dest (same pair as Data migrate) for a friendly visual. */
   const keyAligned = useMemo(() => {
     if (!compareActive || !sourceGrid?.result.ok || !destGrid?.result.ok) return null;
@@ -1110,9 +1136,9 @@ const SideBySideStatementSection: React.FC<{
       { columns: sourceGrid.result.columns, rows: sourceGrid.result.rows },
       { columns: destGrid.result.columns, rows: destGrid.result.rows },
       effectiveKeys,
-      ignoreOpts
+      { ...ignoreOpts, leftComplete: sourceComplete, rightComplete: destComplete }
     );
-  }, [compareActive, sourceGrid, destGrid, effectiveKeys, ignoreOpts]);
+  }, [compareActive, sourceGrid, destGrid, effectiveKeys, ignoreOpts, sourceComplete, destComplete]);
 
   const { diffByConnection, badgeByConnection, legendBits, displayItems } = useMemo(() => {
     const diffByConnection: Record<string, GridDiffSummary> = {};
@@ -1157,6 +1183,12 @@ const SideBySideStatementSection: React.FC<{
         if (keyAligned.deleteCount > 0) legendBits.push(`${keyAligned.deleteCount} add`);
         if (keyAligned.insertCount > 0) legendBits.push(`${keyAligned.insertCount} delete`);
         if (keyAligned.matchCount > 0) legendBits.push(`${keyAligned.matchCount} match`);
+        if (keyAligned.unresolvedCount > 0) {
+          legendBits.push(
+            `${keyAligned.unresolvedCount} on one side only — the other side's result is cut ` +
+              'off, so they may be further down; raise Rows/page to classify them'
+          );
+        }
         if (keyAligned.duplicateKeys > 0) {
           legendBits.push(
             `⚠ ${keyAligned.duplicateKeys} duplicate key${keyAligned.duplicateKeys === 1 ? '' : 's'} skipped`
@@ -1318,7 +1350,7 @@ const SideBySideStatementSection: React.FC<{
       [destId]: {
         isChecked: (rowIdx: number): boolean | null => {
           const op = keyAligned.rowOps[rowIdx];
-          if (op === 'match') return null;
+          if (op === 'match' || op === 'unresolved') return null;
           const label = keyAligned.rowKeyLabels[rowIdx];
           if (!label) return false;
           return selectedSyncKeys.has(label);

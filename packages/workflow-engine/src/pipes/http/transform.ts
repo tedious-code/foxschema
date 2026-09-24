@@ -18,7 +18,7 @@ import {
   mapRecordsConcurrently,
   type PipeMetadata,
 } from '../../sdk/index.js';
-import { executeHttpRequest } from './request.js';
+import { executeHttpRequest, describeHttpFailure } from './request.js';
 import { requestCredentialId } from '../pipe-context.js';
 
 const configSchema = z.object({
@@ -58,7 +58,7 @@ export class HttpTransformPipe implements TransformPipe {
   metadata(): PipeMetadata {
     return definePipeMetadata({
       type: this.type,
-      name: 'HTTP request',
+      name: 'HTTP lookup',
       category: 'Transform/API',
       family: 'http',
       tags: ['auth', 'api'],
@@ -132,7 +132,7 @@ export class HttpTransformPipe implements TransformPipe {
         });
         if (!result.ok) {
           throw new Error(
-            `${config.request.method} ${result.url} returned ${result.status}`,
+            `${config.request.method} ${result.url} ${describeHttpFailure(result)}`,
           );
         }
         return {

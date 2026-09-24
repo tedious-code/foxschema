@@ -19,7 +19,7 @@ import type {
 } from '../../registry/index.js';
 import { definePipeMetadata, type PipeMetadata } from '../../sdk/index.js';
 import { requestCredentialId, revealPipeSecret } from '../pipe-context.js';
-import { executeHttpRequest } from './request.js';
+import { executeHttpRequest, describeHttpFailure } from './request.js';
 
 const endpointSchema = z.preprocess((input) => {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return input;
@@ -233,7 +233,7 @@ async function fetchOneEndpoint(options: {
   });
   if (!result.ok) {
     throw new Error(
-      `HTTP multi endpoint "${endpoint.id}" returned ${result.status}`,
+      `HTTP multi endpoint "${endpoint.id}" ${describeHttpFailure(result)}`,
     );
   }
 

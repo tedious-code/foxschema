@@ -7,6 +7,7 @@
  */
 import type { Page } from 'playwright';
 import { clickWhen, waitFor } from '../helpers/driver.js';
+import { clickRateLimited } from '../helpers/rate-limited.js';
 
 export class LokeeHistoryPage {
   constructor(private page: Page) {}
@@ -40,35 +41,29 @@ export class LokeeHistoryPage {
     // is usually taken after looking at the first one, from Snapshots, where
     // the button is not on screen at all.
     await this.openComparePane();
-    const btn = this.page.locator('[data-testid="lokee-snapshot-target-btn"]');
-    await btn.waitFor({ state: 'visible', timeout: 15_000 });
+    // Wait for the capture request's answer, not for the UI: the toolbar's
+    // compare controls leave the DOM when capture bumps the Lokee epoch, and
+    // "button idle" can be true before the request has even been sent.
+    await clickRateLimited(this.page, {
+      label: 'Snapshot',
+      path: /\/api\/lokee\/capture$/,
+      click: () => this.pressWhenEnabled('lokee-snapshot-target-btn'),
+    });
+  }
+
+  /** Wait until the button is on screen and enabled, then press it. */
+  private async pressWhenEnabled(testId: string, timeout = 15_000): Promise<void> {
+    const btn = this.page.locator(`[data-testid="${testId}"]`);
+    await btn.waitFor({ state: 'visible', timeout });
     await this.page.waitForFunction(
-      () => {
-        const el = document.querySelector('[data-testid="lokee-snapshot-target-btn"]');
+      (id) => {
+        const el = document.querySelector(`[data-testid="${id}"]`);
         return el instanceof HTMLButtonElement && !el.disabled;
       },
-      { timeout: 15_000 }
+      testId,
+      { timeout }
     );
-    // Wait for the capture request's answer, not for the UI.
-    //
-    // Capture bumps the Lokee epoch, and the toolbar's compare controls — the
-    // snapshot button among them — are gone from the DOM by the time it
-    // settles, so waiting for the button to re-enable waited on something that
-    // had left. Accepting "button idle" instead returned before the request had
-    // even been sent, and a refused capture (the route is rate-limited to 20 a
-    // minute, which back-to-back suite runs reach) surfaced 20s later as "the
-    // database is not in the history list". The response says which it was.
-    const [response] = await Promise.all([
-      this.page.waitForResponse(
-        (r) => r.url().includes('/api/lokee/capture') && r.request().method() === 'POST',
-        { timeout: 30_000 }
-      ),
-      btn.click(),
-    ]);
-    if (!response.ok()) {
-      const body = await response.text().catch(() => '');
-      throw new Error(`Snapshot failed: HTTP ${response.status()} ${body}`);
-    }
+    await btn.click();
   }
 
   async waitForVersionCount(n: number, timeoutMs = 30_000): Promise<void> {
@@ -275,21 +270,30 @@ export class LokeeHistoryPage {
    */
   async executeRevert(): Promise<void> {
     const run = this.page.locator('[data-testid="lokee-cmp-run-revert"]');
-    await run.waitFor({ state: 'visible', timeout: 20_000 });
-    await this.page.waitForFunction(
-      () => {
-        const el = document.querySelector('[data-testid="lokee-cmp-run-revert"]');
-        return el instanceof HTMLButtonElement && !el.disabled;
+    await clickRateLimited(this.page, {
+      label: 'Revert',
+      path: /\/api\/lokee\/databases\/[^/]+\/revert$/,
+      click: async () => {
+        await run.waitFor({ state: 'visible', timeout: 20_000 });
+        await this.page.waitForFunction(
+          () => {
+            const el = document.querySelector('[data-testid="lokee-cmp-run-revert"]');
+            return el instanceof HTMLButtonElement && !el.disabled;
+          },
+          { timeout: 30_000 }
+        );
+        // A lossy plan parks the button on "Review data loss…", which opens
+        // Migration SQL rather than running. A retry after a refusal finds the
+        // box already ticked and the button ready to run.
+        if ((await run.innerText()).includes('Review data loss')) {
+          await run.click();
+          const ack = this.page.locator('[data-testid="lokee-cmp-confirm-lossy"]');
+          await ack.waitFor({ state: 'visible', timeout: 10_000 });
+          await ack.check();
+        }
+        await run.click();
       },
-      { timeout: 30_000 }
-    );
-    if ((await run.innerText()).includes('Review data loss')) {
-      await run.click();
-      const ack = this.page.locator('[data-testid="lokee-cmp-confirm-lossy"]');
-      await ack.waitFor({ state: 'visible', timeout: 10_000 });
-      await ack.check();
-    }
-    await run.click();
+    });
   }
 
   /** Visible toast text, so a failed revert reports the driver's reason. */
@@ -411,27 +415,11 @@ export class LokeeHistoryPage {
   }
 
   async captureFromHistoryBar(): Promise<void> {
-    const btn = this.page.locator('[data-testid="lokee-capture-btn"]');
-    await btn.waitFor({ state: 'visible', timeout: 15_000 });
-    await this.page.waitForFunction(
-      () => {
-        const el = document.querySelector('[data-testid="lokee-capture-btn"]');
-        return el instanceof HTMLButtonElement && !el.disabled;
-      },
-      { timeout: 15_000 }
-    );
-    await btn.click();
-    await this.page.waitForFunction(
-      () => {
-        const el = document.querySelector('[data-testid="lokee-capture-btn"]');
-        return (
-          el instanceof HTMLButtonElement &&
-          !el.disabled &&
-          /(Capture|Capturing)/i.test(el.textContent ?? '')
-        );
-      },
-      { timeout: 30_000 }
-    );
+    await clickRateLimited(this.page, {
+      label: 'Capture',
+      path: /\/api\/lokee\/capture$/,
+      click: () => this.pressWhenEnabled('lokee-capture-btn'),
+    });
   }
 
   /** "↩ reverted to vN" labels on the version nodes, newest first. */

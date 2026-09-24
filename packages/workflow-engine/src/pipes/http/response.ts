@@ -51,6 +51,7 @@ export class HttpResponsePipe implements SinkPipe {
       type: this.type,
       name: 'Workflow response',
       category: 'Output/API',
+      family: 'http',
       version: '0.1.0',
       role: 'sink',
       inputs: [{ name: 'in', type: 'records' }],

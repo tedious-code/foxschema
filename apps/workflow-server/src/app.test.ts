@@ -593,6 +593,12 @@ describe('foxflow api', () => {
       version: expect.stringMatching(/^\d+\.\d+\.\d+$/),
       configSchema: expect.objectContaining({ type: 'object' }),
     });
+    // The response schema filters as well as documents: these were dropped
+    // from every reply, so the designer never saw a family or a palette tier.
+    const sql = body.pipes.find((c: { type: string }) => c.type === 'source.db.sql');
+    expect(sql).toMatchObject({ family: 'database', tags: expect.arrayContaining(['sql']) });
+    const csvSink = body.pipes.find((c: { type: string }) => c.type === 'sink.file.delimited');
+    expect(csvSink).toMatchObject({ family: 'file', sideEffects: true });
     await app.close();
   });
 

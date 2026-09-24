@@ -37,7 +37,7 @@ describe('SQL Editor smoke', () => {
     const body = await driver.locator('[data-testid="sql-editor-view"]').innerText();
     // Either no saved connections yet, or leftovers from a prior local session —
     // explorer chrome must still be present either way.
-    expect(body).toMatch(/Schema|Destination servers/i);
+    expect(body).toMatch(/Schema|Destinations/i);
   });
 
   it('can add a second editor tab', async () => {

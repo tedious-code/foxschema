@@ -226,6 +226,7 @@ describe('selectMigrateOps', () => {
       skippedNullKeys: 0,
       duplicateKeys: 0,
       totalOps: 600,
+      unresolved: 0,
     };
     const selected = selectMigrateOps(
       classification,
@@ -306,5 +307,59 @@ describe('filterOpsByKeyLabels / diffKeyLabelsForOps', () => {
     ).toEqual([...classification.inserts, ...classification.updates, ...classification.deletes]
         .map((o) => o.keyLabel)
         .sort());
+  });
+});
+
+describe('classifyRowsByKey on a partial grid', () => {
+  // The screenshot that found this: two customers tables, 200 rows per page.
+  // The source is missing six rows, so its page 1 reaches id 206 while the
+  // destination's stops at 200 — and ids 201..206 showed as "6 add", an
+  // INSERT of rows the destination already has.
+  const cols = ['id', 'name'];
+  const rows = (ids: number[]) => ids.map((id) => [id, `c${id}`]);
+
+  it('does not offer an insert for a row the incomplete destination may hold further down', () => {
+    const result = classifyRowsByKey({
+      source: { columns: cols, rows: rows([1, 2, 3, 4]) },
+      dest: { columns: cols, rows: rows([1, 2]) },
+      keyNames: ['id'],
+      destComplete: false,
+    });
+    expect(result.inserts).toEqual([]);
+    expect(result.unresolved).toBe(2);
+  });
+
+  it('does not offer a delete for a row the incomplete source may hold further down', () => {
+    const result = classifyRowsByKey({
+      source: { columns: cols, rows: rows([1]) },
+      dest: { columns: cols, rows: rows([1, 2, 3]) },
+      keyNames: ['id'],
+      sourceComplete: false,
+    });
+    expect(result.deletes).toEqual([]);
+    expect(result.unresolved).toBe(2);
+  });
+
+  it('still classifies edits, since both copies are loaded', () => {
+    const result = classifyRowsByKey({
+      source: { columns: cols, rows: [[1, 'new']] },
+      dest: { columns: cols, rows: [[1, 'old'], [2, 'x']] },
+      keyNames: ['id'],
+      sourceComplete: false,
+      destComplete: false,
+    });
+    expect(result.updates.map((u) => u.keyLabel)).toEqual(['id=1']);
+    expect(result.unresolved).toBe(1);
+  });
+
+  it('classifies everything when both grids are complete', () => {
+    const result = classifyRowsByKey({
+      source: { columns: cols, rows: rows([1, 2]) },
+      dest: { columns: cols, rows: rows([2, 3]) },
+      keyNames: ['id'],
+    });
+    expect(result.inserts).toHaveLength(1);
+    expect(result.deletes).toHaveLength(1);
+    expect(result.unresolved).toBe(0);
   });
 });

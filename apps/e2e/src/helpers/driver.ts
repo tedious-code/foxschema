@@ -11,6 +11,9 @@ export async function buildDriver(): Promise<Page> {
   const browser = await chromium.launch({
     headless,
     args: ['--no-sandbox', '--disable-dev-shm-usage'],
+    // For machines whose preinstalled Chromium is not the build this
+    // Playwright version downloads (CI images, cloud dev containers).
+    ...(process.env.E2E_CHROMIUM_PATH ? { executablePath: process.env.E2E_CHROMIUM_PATH } : {}),
   });
   const page = await browser.newPage();
   await page.setViewportSize({ width: 1440, height: 900 });

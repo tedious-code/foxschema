@@ -138,8 +138,12 @@ INSERT INTO invoices (id, total) VALUES (1, 10);
     await history.waitForGraph();
     await expect.poll(async () => history.versionCount(), { timeout: 30_000 }).toBe(2);
 
+    // The graph keeps its previous nodes while it reloads, so wait for it to
+    // catch up with the timeline before taking the count to compare against.
+    await expect
+      .poll(async () => history.graphVersionNodeCount(), { timeout: 30_000 })
+      .toBeGreaterThanOrEqual(2);
     const nodesBeforePick = await history.graphVersionNodeCount();
-    expect(nodesBeforePick).toBeGreaterThanOrEqual(2);
 
     // Pickers choose what to compare. They must not hide the other version —
     // that was the #261 regression: choosing Version 1 collapsed the timeline.

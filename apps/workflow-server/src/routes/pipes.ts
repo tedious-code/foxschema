@@ -6,7 +6,7 @@
  * Workflow engine — moved from FoxAgent (apps/api/src/routes/pipes.ts).
  */
 import { z } from 'zod';
-import { TRIGGER_KINDS } from '@foxschema/workflow-engine';
+import { PIPE_FAMILIES, TRIGGER_KINDS } from '@foxschema/workflow-engine';
 import type { FastifyPluginAsync } from 'fastify';
 import type { ZodTypeProvider } from '../zod-provider.js';
 import type { AppContext } from '../context.js';
@@ -31,6 +31,14 @@ const metadataSchema = z.object({
   ),
   configSchema: z.record(z.string(), z.unknown()),
   simple: z.boolean().optional(),
+  // The response schema is also a filter: a field missing here is silently
+  // dropped from every reply. `palette`, `family`, `tags` and `sideEffects`
+  // were, so the designer's advanced-pipes toggle and family grouping never
+  // saw a value.
+  sideEffects: z.boolean().optional(),
+  palette: z.enum(['primary', 'advanced']).optional(),
+  family: z.enum(PIPE_FAMILIES).optional(),
+  tags: z.array(z.string()).optional(),
   triggerKind: z.enum([...TRIGGER_KINDS, '*']).optional(),
   provider: z
     .object({

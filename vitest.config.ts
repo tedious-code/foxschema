@@ -1,5 +1,7 @@
 import { defaultExclude, defineConfig } from 'vitest/config';
 import { fileURLToPath } from 'node:url';
+import { realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 
 const pkg = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 
@@ -40,6 +42,8 @@ export default defineConfig({
             'apps/web/**/*.test.ts',
             'apps/workflow-server/**/*.test.ts',
             'apps/cli/src/**/*.test.ts',
+            // The browser suites need a running app; their pure helpers do not.
+            'apps/e2e/src/helpers/**/*.test.ts',
             'scripts/security/**/*.test.mjs',
           ],
           // `exclude` REPLACES vitest's defaults, it does not add to them — so
@@ -51,6 +55,11 @@ export default defineConfig({
           // collecting zod's own test suite: 407 test files became 912, and
           // nine of them failed.
           exclude: [...defaultExclude, 'apps/cli/src/tui/**'],
+          // Workflow file pipes are confined to FOXFLOW_FILES_DIR. The suites
+          // build their fixtures under the OS temp dir, so that is the root
+          // here; the confinement itself is tested with its own roots.
+          // eslint-disable-next-line security/detect-non-literal-fs-filename -- the OS temp dir
+          env: { FOXFLOW_FILES_DIR: realpathSync(tmpdir()) },
           testTimeout: 15_000,
         },
       },

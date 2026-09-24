@@ -32,6 +32,9 @@ export {
   MapPipe,
   ConditionPipe,
   createDefaultPipeRegistry,
+  resolveWorkflowFile,
+  workflowFilesRoot,
+  FILES_DIR_ENV,
 } from './pipes/utility/index.js';
 export {
   HttpSourcePipe,

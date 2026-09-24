@@ -36,6 +36,7 @@ import { useAuthStore } from '@/app/store/authStore';
 import { PROVIDER_SETTINGS, connectionNeedsSecret } from '@/shared/lib/provider-settings';
 import { DbAccessPermissionSections } from '@/features/access/components/DbAccessPermissionSections';
 import { sectionLabelCls } from '@/shared/components/surfaces';
+import { connectionOptionLabel } from '@/shared/lib/dialectLabel';
 
 interface Props {
   open: boolean;
@@ -291,9 +292,7 @@ export const DatabaseAccessModal: React.FC<Props> = ({
               <option value="">— Select credential —</option>
               {connections.map((c) => (
                 <option key={c.id} value={c.id}>
-                  [{(PROVIDER_SETTINGS[c.dialect.toLowerCase()]?.label ?? c.dialect).toUpperCase()}]{' '}
-                  {c.name}
-                  {c.schema ? ` · ${c.schema}` : ''}
+                  {connectionOptionLabel(c)}
                 </option>
               ))}
             </select>

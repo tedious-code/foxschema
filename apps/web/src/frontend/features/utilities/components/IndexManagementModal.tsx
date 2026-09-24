@@ -64,6 +64,7 @@ import {
   type IndexMgmtSortKey,
 } from '@/features/utilities/lib/indexManagementGrid';
 import { sectionLabelCls } from '@/shared/components/surfaces';
+import { connectionOptionLabel } from '@/shared/lib/dialectLabel';
 
 interface Props {
   open: boolean;
@@ -789,9 +790,7 @@ export const IndexManagementModal: React.FC<Props> = ({
                 <option value="">— Select credential —</option>
                 {connections.map((c) => (
                   <option key={c.id} value={c.id}>
-                    [{(PROVIDER_SETTINGS[c.dialect.toLowerCase()]?.label ?? c.dialect).toUpperCase()}]{' '}
-                    {c.name}
-                    {c.schema ? ` · ${c.schema}` : ''}
+                    {connectionOptionLabel(c)}
                   </option>
                 ))}
               </select>

@@ -57,6 +57,32 @@ export interface HttpExecuteResult {
   cookies: StoredCookie[];
 }
 
+/** Longest excerpt of a failed response's body carried into an error. */
+const FAILURE_BODY_CHARS = 200;
+
+/**
+ * `returned 400: idempotency key is required` rather than `returned 400`.
+ *
+ * The status alone rarely says what to fix; the server usually does, in the
+ * body. JSON bodies contribute their `error`/`message` field when they have
+ * one, anything else a single-line excerpt, capped so a returned HTML page
+ * does not become the run's error message.
+ */
+export function describeHttpFailure(result: Pick<HttpExecuteResult, 'status' | 'body'>): string {
+  const { body } = result;
+  let detail = '';
+  if (body && typeof body === 'object') {
+    const record = body as Record<string, unknown>;
+    const named = record.error ?? record.message;
+    detail = typeof named === 'string' ? named : JSON.stringify(body);
+  } else if (typeof body === 'string') {
+    detail = body;
+  }
+  detail = detail.replace(/\s+/g, ' ').trim();
+  if (detail.length > FAILURE_BODY_CHARS) detail = `${detail.slice(0, FAILURE_BODY_CHARS)}…`;
+  return detail ? `returned ${result.status}: ${detail}` : `returned ${result.status}`;
+}
+
 /** Build URL + init from a resolved (already-interpolated) request def. */
 export function buildHttpRequest(
   request: HttpRequestDef,

@@ -384,7 +384,7 @@ export const SqlEditorView: React.FC = () => {
             <SqlSidebarSection
               railPanel
               id="destinations"
-              title="Destination servers"
+              title="Destinations"
               icon={<Database className="text-[#0284c7]" strokeWidth={SQL_ICON_STROKE} />}
               open={sidebarOpen.destinations}
               onToggle={() => selectSidebar('destinations')}

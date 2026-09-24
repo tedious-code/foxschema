@@ -89,7 +89,6 @@ export function runRoutes(ctx: AppContext) {
           accepted: result.accepted,
           ...(result.reason ? { reason: result.reason } : {}),
           ...(result.detail ? { detail: result.detail } : {}),
-          ...(result.reason ? { reason: result.reason } : {}),
         });
       },
     );
