@@ -58,8 +58,12 @@ sync_one() {
   find "$dir" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
   rsync -a --exclude node_modules --exclude dist "$ROOT/packages/$pkg/" "$dir/"
 
-  # carry over LICENSE/.gitignore if the package doesn't ship its own
-  [ -f "$dir/LICENSE" ]    || cp "$ROOT/scripts/mirror-assets/LICENSE" "$dir/LICENSE" 2>/dev/null || true
+  # The packages are this repository's own code, Apache-2.0 like the rest of
+  # it (SPDX headers, package.json "license"). A package without its own
+  # LICENSE gets the repository's. This used to copy an MIT file from
+  # scripts/mirror-assets, which contradicted every header it shipped beside.
+  [ -f "$dir/LICENSE" ]    || cp "$ROOT/LICENSE" "$dir/LICENSE"
+  [ -f "$dir/NOTICE" ]     || { [ -f "$ROOT/NOTICE" ] && cp "$ROOT/NOTICE" "$dir/NOTICE"; } || true
   [ -f "$dir/.gitignore" ] || printf 'node_modules/\ndist/\n*.log\n.DS_Store\n' > "$dir/.gitignore"
 
   cd "$dir"

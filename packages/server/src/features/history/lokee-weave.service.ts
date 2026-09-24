@@ -35,6 +35,7 @@ import {
   collapseObjectHistory,
   countSourceLines,
   databaseIdentity,
+  hashObject,
   hydrateTableSchemas,
   isLokeeTableLikeType,
   objectKeyKind,
@@ -49,6 +50,7 @@ import {
   weave,
   type CanonicalObject,
   type DatabaseIdentityInput,
+  type HashOptions,
   type LokeeObjectType,
   type MigrationStep,
   type ObjectChange,
@@ -76,6 +78,11 @@ import type {
 import type { MetadataStore, SqlParam } from '../../database/stores/types';
 
 const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8').digest('hex');
+
+/** A history's own schema qualifies its definitions; hash them without it. */
+function hashOptionsFor(schema: string | null | undefined): HashOptions {
+  return { schemas: schema ? [schema] : [] };
+}
 
 /**
  * Bound on placeholders in one statement.
@@ -577,7 +584,7 @@ export class LokeeWeaveStore {
       const databaseId = await this.upsertDatabase(store, userId, input);
       const latest = await this.loadLatestIndex(store, databaseId);
       const objects = canonicalizeSchema(input.tables);
-      const capture = weave(objects, latest, sha256);
+      const capture = weave(objects, latest, sha256, hashOptionsFor(input.schema));
 
       const head = await store.get<VersionRow>(
         `SELECT * FROM lokee_versions WHERE database_id = ?
@@ -1352,19 +1359,6 @@ export class LokeeWeaveStore {
           )
         : objects;
 
-    const entries: Array<{ key: string; current?: CanonicalObject; target?: CanonicalObject }> = [];
-    for (const key of new Set([...current.keys(), ...desired.keys()])) {
-      if (!wanted(key)) continue;
-      const cur = current.get(key);
-      const tgt = desired.get(key);
-      if (cur && tgt && cur.hash === tgt.hash) continue;
-      entries.push({
-        key,
-        current: cur ? toCanonical(cur) : undefined,
-        target: tgt ? toCanonical(tgt) : undefined,
-      });
-    }
-
     let dialectName = dialect;
     let schemaName = schema;
     if (!dialectName) {
@@ -1374,6 +1368,28 @@ export class LokeeWeaveStore {
       );
       dialectName = db?.dialect;
       schemaName ??= db?.schema ?? undefined;
+    }
+
+    // Stored hashes are compared first; when they differ, both sides are
+    // re-hashed with today's rules. A version captured before the definition
+    // normalisation changed carries an old-rules hash, and without this every
+    // view and routine would read as changed across that boundary.
+    const hashOptions = hashOptionsFor(schemaName);
+    const sameContent = (a: StoredWeaveObject, b: StoredWeaveObject): boolean =>
+      a.hash === b.hash ||
+      hashObject(toCanonical(a), sha256, hashOptions) === hashObject(toCanonical(b), sha256, hashOptions);
+
+    const entries: Array<{ key: string; current?: CanonicalObject; target?: CanonicalObject }> = [];
+    for (const key of new Set([...current.keys(), ...desired.keys()])) {
+      if (!wanted(key)) continue;
+      const cur = current.get(key);
+      const tgt = desired.get(key);
+      if (cur && tgt && sameContent(cur, tgt)) continue;
+      entries.push({
+        key,
+        current: cur ? toCanonical(cur) : undefined,
+        target: tgt ? toCanonical(tgt) : undefined,
+      });
     }
 
     // Revert is a migration whose source lives in the object store: the version

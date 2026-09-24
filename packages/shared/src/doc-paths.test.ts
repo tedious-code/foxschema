@@ -81,8 +81,6 @@ const ROOTS = ['apps', 'packages', 'docs', 'scripts', 'docker', 'packaging', 'ex
 const EXCEPTIONS = new Set<string>([
   // Build output, present only after `npm run build`.
   'apps/web/dist',
-  // Named as the destination of a future extraction, not as somewhere to look.
-  'packages/features',
   // Named in IMPLEMENTATION_STATE.md as what a current app *replaced*. Removing
   // the name would lose the record of where `apps/workflow-server` came from.
   'apps/foxworkflow',

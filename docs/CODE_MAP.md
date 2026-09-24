@@ -28,15 +28,7 @@ packages/workflow-engine    The workflow engine: definitions, compiler, runtime,
                             sql, workflow-contract and db — db loaded on first use.
                             `src/definitions.ts` is the browser-safe subset.
 
-packages/rbac-contract      RbacProvider interface + CommunityRbacProvider.
-
-packages/plugin-sdk         Phase E plugin activate/context stubs.
-
 packages/server             The backend: HTTP layer, feature modules, metadata store.
-
-packages/enterprise/*       Private enterprise stubs (not shipped in community npm).
-
-packages/features/*         Feature package markers / future extraction homes.
 
 apps/web                    The frontend, plus the entry point that serves it.
 apps/cli                    The `foxschema` command line tool.
@@ -56,7 +48,6 @@ sql  ←  db      ←  server  ←  web, cli
 sql  ←  shared  ←  server, web, cli
 workflow-contract  ←  server, web, workflow-engine, workflow-server
 sql, db  ←  workflow-engine  ←  workflow-server
-rbac-contract      ←  server, enterprise/rbac
 ```
 
 `packages/sql/src/purity.test.ts` and `packages/shared/src/purity.test.ts`

@@ -14,9 +14,19 @@
  */
 import { stableStringify } from './stable-stringify.js';
 import type { CanonicalObject } from './canonical.js';
+import { normalizeDefinitionText } from '../schema-diff/definition-text.js';
 
 /** Hex digest of a UTF-8 string. Node: `createHash('sha256')`. */
 export type Digest = (text: string) => string;
+
+export interface HashOptions {
+  /**
+   * Schema names a definition may be qualified with — the schema the history
+   * was captured from. `app.orders` and `orders` then hash the same, as they
+   * compare the same.
+   */
+  schemas?: readonly string[];
+}
 
 export interface WeaveObject extends CanonicalObject {
   hash: string;
@@ -38,16 +48,40 @@ export interface ObjectChange {
 /** Map of object key → content hash, as held by the latest-state index. */
 export type LatestIndex = ReadonlyMap<string, string>;
 
+/**
+ * The body as it is hashed: a definition is replaced by its comparison key
+ * (`normalizeDefinitionText`, the same rules Compare uses), so the hash changes
+ * exactly when Compare would call the object MODIFIED.
+ *
+ * Only the hash sees this. The stored body keeps the definition as written —
+ * revert rebuilds DDL from it, and a folded, unqualified copy would change
+ * string literals' meaning and drop qualifiers the DDL needs.
+ */
+function hashedBody(body: Record<string, unknown>, schemas: readonly string[]): Record<string, unknown> {
+  if (typeof body.definition !== 'string') return body;
+  return { ...body, definition: normalizeDefinitionText(body.definition, schemas) };
+}
+
 /** Content hash for one object: hash the canonical body, never raw SQL. */
-export function hashObject(object: CanonicalObject, digest: Digest): string {
+export function hashObject(object: CanonicalObject, digest: Digest, options: HashOptions = {}): string {
   // The key is included so two objects with identical bodies but different
   // addresses stay distinct — otherwise every `id integer not null` column in
   // the database would collapse to one object and a rename would be invisible.
-  return digest(stableStringify({ key: object.key, type: object.type, body: object.body }));
+  return digest(
+    stableStringify({
+      key: object.key,
+      type: object.type,
+      body: hashedBody(object.body, options.schemas ?? []),
+    })
+  );
 }
 
-export function hashObjects(objects: CanonicalObject[], digest: Digest): WeaveObject[] {
-  return objects.map((object) => ({ ...object, hash: hashObject(object, digest) }));
+export function hashObjects(
+  objects: CanonicalObject[],
+  digest: Digest,
+  options: HashOptions = {}
+): WeaveObject[] {
+  return objects.map((object) => ({ ...object, hash: hashObject(object, digest, options) }));
 }
 
 /**
@@ -133,9 +167,10 @@ export interface WeaveCapture {
 export function weave(
   objects: CanonicalObject[],
   previous: LatestIndex,
-  digest: Digest
+  digest: Digest,
+  options: HashOptions = {}
 ): WeaveCapture {
-  const hashed = hashObjects(objects, digest);
+  const hashed = hashObjects(objects, digest, options);
   const changes = diffAgainstIndex(previous, hashed);
   return {
     objects: hashed,

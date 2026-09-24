@@ -8,8 +8,6 @@
   "license": "Apache-2.0",
   "workspaces": [
     "packages/*",
-    "packages/enterprise/*",
-    "packages/features/*",
     "apps/*"
   ],
   "bugs": "https://github.com/tedious-code/foxschema/issues",

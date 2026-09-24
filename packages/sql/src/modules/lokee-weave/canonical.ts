@@ -65,14 +65,16 @@ function matchKey(name: string): string {
 }
 
 /**
- * Whitespace inside a definition is formatting, not meaning. Servers
- * re-indent stored SQL (and some prepend a header), so raw text would mint a
- * new version for a change nobody made.
+ * The definition as stored: whitespace collapsed, terminator dropped, case and
+ * qualifiers kept. Servers re-indent stored SQL, and revert rebuilds DDL from
+ * this text (when no `sourceText` was kept), so it must stay valid SQL.
  *
- * This is the weakest link in the whole design: without a parser, two
- * semantically identical definitions that differ beyond whitespace still hash
- * differently. Genuine equivalence needs dialect-level normalisation — the
- * same problem `DIALECTS.md` documents for view headers and Db2 system names.
+ * Whether two definitions are the *same* is decided at hash time instead, by
+ * `normalizeDefinitionText` — the rules Compare uses (case folded outside
+ * string literals, the history's schema qualifier removed). See `hashObject`.
+ * Without a parser, definitions that differ in more than that still hash
+ * differently — the problem `DIALECTS.md` documents for view headers and Db2
+ * system names.
  */
 function normalizeDefinition(text: string | undefined): string | null {
   if (text == null) return null;

@@ -68,8 +68,6 @@ const PACKAGE_ROOTS = [
   'packages/shared/src',
   'packages/workflow-contract/src',
   'packages/workflow-engine/src',
-  'packages/rbac-contract/src',
-  'packages/plugin-sdk/src',
 ];
 const FRONTEND_ROOT = 'apps/web/src/frontend';
 

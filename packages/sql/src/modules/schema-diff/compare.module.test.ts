@@ -154,6 +154,23 @@ describe('CompareModule.compare', () => {
     expect(r.tables[0].status).toBe('UNCHANGED');
   });
 
+  it('folds case outside string literals but not inside them', async () => {
+    const view = (def: string) => table({ name: 'V_ACTIVE', objectType: 'VIEW', definition: def });
+    // Identifier and keyword case is how an engine stored it, not a change.
+    const folded = await cmp.compare(
+      [view("CREATE VIEW V_ACTIVE AS SELECT ID FROM T WHERE STATUS = 'Active'")],
+      [view("create view v_active as select id from t where status = 'Active'")]
+    );
+    expect(folded.tables[0].status).toBe('UNCHANGED');
+    // A literal's case is: these select different rows. It used to be folded
+    // too, so this real change read as UNCHANGED.
+    const literal = await cmp.compare(
+      [view("CREATE VIEW V_ACTIVE AS SELECT ID FROM T WHERE STATUS = 'Active'")],
+      [view("CREATE VIEW V_ACTIVE AS SELECT ID FROM T WHERE STATUS = 'active'")]
+    );
+    expect(literal.tables[0].status).toBe('MODIFIED');
+  });
+
   it('strips the source/target schema qualifiers everywhere in a trigger body', async () => {
     // ON demo_a.customers, FROM demo_a.customers, demo_a.fn(...) — the migration
     // re-qualifies all of these to the target schema, so it must read as UNCHANGED.
