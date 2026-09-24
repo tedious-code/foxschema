@@ -75,6 +75,7 @@ import {
 } from '../lib/accountAlterations';
 import type { AccessPrincipalDraft } from '../lib/access';
 import { writeClipboard } from '@/shared/utils/clipboard';
+import { dialectFamily } from '@foxschema/sql';
 
 type Mode = 'idle' | 'add' | 'edit' | 'drop' | 'list';
 
@@ -105,7 +106,7 @@ function dialectCoach(dialect: string): string | null {
   if (['mysql', 'mariadb', 'tidb'].includes(d)) {
     return 'Accounts are identified as name@host. The same username with a different host is a different account — Host is required when adding a user.';
   }
-  if (d === 'sqlserver' || d === 'azuresql') {
+  if (dialectFamily(d) === 'sqlserver') {
     return 'SQL Server separates server LOGIN from database USER. Add user generates both statements — run the login against master, then the user against this database.';
   }
   if (d === 'oracle') {

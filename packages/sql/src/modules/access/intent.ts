@@ -10,6 +10,7 @@
  * FoxSchema does not apply access changes — it explains and generates. The
  * database stays the source of truth.
  */
+import { dialectFamily } from '../../providers/provider-settings.js';
 
 /**
  * What a reader wants, not what the engine calls it.
@@ -316,12 +317,12 @@ const CAPABILITIES: Record<string, AccessCapabilities> = {
 /** Dialects that behave as another engine for access purposes. */
 export function accessFamily(dialect: string): string {
   const d = (dialect || '').toLowerCase();
-  if (d === 'azuresql') return 'sqlserver';
-  if (d === 'tidb') return 'mysql';
-  // Postgres-wire engines share the privilege model. Redshift is included
-  // because its GRANT syntax follows Postgres even though its catalogs differ.
-  if (d === 'cockroachdb' || d === 'yugabytedb' || d === 'redshift') return 'postgres';
-  return d;
+  // MariaDB has its own entry in CAPABILITIES (and in db-access), so it is not
+  // folded into MySQL. Every other relative shares its family's model —
+  // Redshift included, because its GRANT syntax follows Postgres even though
+  // its catalogs differ.
+  if (d === 'mariadb') return 'mariadb';
+  return dialectFamily(d);
 }
 
 /** Whether the dialect's family has its own privilege model (rather than the PostgreSQL fallback). */

@@ -13,6 +13,7 @@ import 'monaco-editor/languages/features/json/register';
 import editorWorker from 'monaco-editor/editor/editor.worker?worker';
 import jsonWorker from 'monaco-editor/languages/features/json/json.worker?worker';
 import { FOXSCHEMA_SQL_LANG, FOXSCRIPT_LANG } from '@/features/sql-editor/lib/foxschemaSqlLanguage';
+import { dialectFamily } from '@foxschema/sql';
 
 // SQL highlighting runs on the main thread (basic-languages); only JSON needs a
 // language worker — everything else uses the core editor worker.
@@ -165,19 +166,14 @@ export const MONACO_EDITOR_BASE_OPTIONS = {
  * {@link FOXSCHEMA_SQL_LANG}) after lazy registration.
  */
 export function monacoLanguage(dialect: string): string {
-  switch (dialect.toLowerCase()) {
-    // Wire-compatible relatives get their family's grammar rather than the
-    // generic one: MariaDB and TiDB speak MySQL, and CockroachDB, YugabyteDB
-    // and Redshift speak PostgreSQL. Falling through to plain `sql` cost them
-    // backtick and dollar-quote handling for no reason.
+  // Wire-compatible relatives get their family's grammar rather than the
+  // generic one: MariaDB and TiDB speak MySQL, and CockroachDB, YugabyteDB
+  // and Redshift speak PostgreSQL. Falling through to plain `sql` cost them
+  // backtick and dollar-quote handling for no reason.
+  switch (dialectFamily(dialect)) {
     case 'mysql':
-    case 'mariadb':
-    case 'tidb':
       return 'mysql';
     case 'postgres':
-    case 'cockroachdb':
-    case 'yugabytedb':
-    case 'redshift':
       return 'pgsql';
     default:
       return 'sql';

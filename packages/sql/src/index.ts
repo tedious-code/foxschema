@@ -356,6 +356,7 @@ export {
   PROVIDER_SETTINGS,
   getProviderSettings,
   isFileDialect,
+  dialectFamily,
   DIALECTS,
   type Dialect,
 } from './providers/provider-settings.js';

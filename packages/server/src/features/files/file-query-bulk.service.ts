@@ -12,6 +12,7 @@ import {
   sqlTag,
   type ConnectionOptions,
 } from '@foxschema/db';
+import { dialectFamily } from '@foxschema/sql';
 
 export type InferredSqlType = 'INTEGER' | 'REAL' | 'TEXT';
 
@@ -22,7 +23,7 @@ export type InferredSqlType = 'INTEGER' | 'REAL' | 'TEXT';
 export function bulkChunkSize(dialect: string): number {
   const d = dialect.toLowerCase();
   if (d === 'sqlserver' || d === 'azuresql' || d === 'oracle' || d === 'db2') return 50;
-  if (d === 'mysql' || d === 'mariadb' || d === 'tidb') return 100;
+  if (dialectFamily(d) === 'mysql') return 100;
   if (d === 'clickhouse') return 200;
   return 200;
 }
@@ -44,17 +45,17 @@ export function bulkRowsPerStatement(dialect: string, columnCount: number): numb
 
 export function sqlTypeForDialect(dialect: string, t: InferredSqlType): string {
   const d = dialect.toLowerCase();
-  if (d === 'postgres' || d === 'redshift' || d === 'cockroachdb' || d === 'yugabytedb') {
+  if (dialectFamily(d) === 'postgres') {
     if (t === 'INTEGER') return 'BIGINT';
     if (t === 'REAL') return 'DOUBLE PRECISION';
     return 'TEXT';
   }
-  if (d === 'mysql' || d === 'mariadb' || d === 'tidb') {
+  if (dialectFamily(d) === 'mysql') {
     if (t === 'INTEGER') return 'BIGINT';
     if (t === 'REAL') return 'DOUBLE';
     return 'TEXT';
   }
-  if (d === 'sqlserver' || d === 'azuresql') {
+  if (dialectFamily(d) === 'sqlserver') {
     if (t === 'INTEGER') return 'BIGINT';
     if (t === 'REAL') return 'FLOAT';
     return 'NVARCHAR(MAX)';

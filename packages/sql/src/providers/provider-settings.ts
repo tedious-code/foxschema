@@ -107,6 +107,33 @@ export const DIALECTS: readonly Dialect[] = [
   'mongodb',
 ];
 
+/**
+ * Dialects that speak another dialect's wire protocol and SQL, keyed to that
+ * base dialect. Anything not listed is its own family.
+ *
+ * Redshift is in the PostgreSQL family (its grammar and privilege model follow
+ * Postgres); a caller that must treat it differently — no triggers, a different
+ * boolean literal set — checks for it before asking for the family.
+ */
+const DIALECT_FAMILY: Partial<Record<Dialect, 'mysql' | 'postgres' | 'sqlserver'>> = {
+  mariadb: 'mysql',
+  tidb: 'mysql',
+  cockroachdb: 'postgres',
+  yugabytedb: 'postgres',
+  redshift: 'postgres',
+  azuresql: 'sqlserver',
+};
+
+/**
+ * The base dialect whose syntax this one follows: `mysql` for MariaDB and
+ * TiDB, `postgres` for CockroachDB, YugabyteDB and Redshift, `sqlserver` for
+ * Azure SQL; otherwise the dialect itself, lower-cased.
+ */
+export function dialectFamily(dialect: string): string {
+  const d = (dialect || '').toLowerCase();
+  return Object.hasOwn(DIALECT_FAMILY, d) ? DIALECT_FAMILY[d as Dialect]! : d;
+}
+
 export function isFileDialect(dialect: string): boolean {
   const name = dialect.toLowerCase();
   return name === 'sqlite' || name === 'duckdb';

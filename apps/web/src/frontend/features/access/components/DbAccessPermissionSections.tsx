@@ -46,6 +46,7 @@ import {
 } from '@/features/access/lib/access';
 import { useAllSchemaObjects } from '@/features/access/lib/useAllSchemaObjects';
 import { sectionLabelCls } from '@/shared/components/surfaces';
+import { dialectFamily } from '@foxschema/sql';
 
 type ActionMode = 'grant' | 'revoke';
 
@@ -88,13 +89,13 @@ function createObjectDialectHint(dialect: string): string {
       ? 'database'
       : 'objects';
   const d = dialect.toLowerCase();
-  if (d === 'postgres' || d === 'cockroachdb' || d === 'yugabytedb' || d === 'redshift') {
+  if (dialectFamily(d) === 'postgres') {
     return 'PostgreSQL: CREATE ON SCHEMA (covers new tables/views/routines in that schema). Fine-grained CREATE VIEW/PROC are not separate grants.';
   }
-  if (d === 'mysql' || d === 'mariadb' || d === 'tidb') {
+  if (dialectFamily(d) === 'mysql') {
     return 'MySQL/MariaDB: CREATE (and related DDL) on database.* — there is no separate schema CREATE privilege.';
   }
-  if (d === 'sqlserver' || d === 'azuresql') {
+  if (dialectFamily(d) === 'sqlserver') {
     return 'SQL Server: CREATE TABLE is database-scoped (GRANT CREATE TABLE TO …). Schema OBJECT grants cover existing objects.';
   }
   if (d === 'oracle') {

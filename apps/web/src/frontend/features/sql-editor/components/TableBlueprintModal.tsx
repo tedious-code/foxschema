@@ -76,6 +76,7 @@ import {
   dialectSupportsIndexFragmentation,
   fragmentationSeverity,
 } from '@foxschema/sql';
+import { dialectFamily } from '@foxschema/sql';
 
 function fragBadgeClass(severity: ReturnType<typeof fragmentationSeverity>): string {
   if (severity === 'ok') return 'text-emerald-300/90 border-emerald-500/40 bg-emerald-950/40';
@@ -2666,8 +2667,8 @@ export const TableBlueprintModal: React.FC<Props> = ({
 function resolveDialectIdentityPreview(col: ColumnInfo, dialect: string): string {
   if (!col.identity || !isIntegerAutoIncrementType(col.type)) return '';
   const d = dialect.toLowerCase();
-  if (d === 'mysql' || d === 'mariadb' || d === 'tidb') return ' AUTO_INCREMENT';
-  if (d === 'sqlserver' || d === 'azuresql') return ' IDENTITY(1,1)';
+  if (dialectFamily(d) === 'mysql') return ' AUTO_INCREMENT';
+  if (dialectFamily(d) === 'sqlserver') return ' IDENTITY(1,1)';
   if (d === 'redshift') return ' IDENTITY(0,1)';
   if (d === 'sqlite') return ' AUTOINCREMENT';
   const gen = col.identityGeneration ?? 'ALWAYS';

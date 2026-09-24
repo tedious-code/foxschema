@@ -2,6 +2,7 @@ import { resolveDialect } from '@/shared/lib/migration-validation';
 import type { ColumnInfo, TableSchema } from '@/shared/lib/types';
 import {
   dialectSupportsFk,
+  dialectFamily,
   dialectSupportsIndex,
   escapeRegExp,
   type CanonicalBase,
@@ -388,7 +389,7 @@ export function dialectBooleanDefaultOptions(dialectName: string): BooleanDefaul
       { value: 'NULL', label: 'NULL' },
     ];
   }
-  if (d === 'mysql' || d === 'mariadb' || d === 'tidb') {
+  if (dialectFamily(d) === 'mysql') {
     return [
       { value: '', label: '(none)' },
       { value: '1', label: '1 (true)' },
@@ -479,7 +480,7 @@ export type IdentitySupport = {
 
 export function dialectIdentitySupport(dialectName: string): IdentitySupport {
   const d = dialectName.toLowerCase();
-  if (d === 'mysql' || d === 'mariadb' || d === 'tidb') {
+  if (dialectFamily(d) === 'mysql') {
     return {
       supported: true,
       label: 'Auto increment',
@@ -487,7 +488,7 @@ export function dialectIdentitySupport(dialectName: string): IdentitySupport {
       hint: 'Only for int / integer / bigint / long types; usually also the primary key.',
     };
   }
-  if (d === 'sqlserver' || d === 'azuresql') {
+  if (dialectFamily(d) === 'sqlserver') {
     return {
       supported: true,
       label: 'Auto increment',
@@ -887,7 +888,7 @@ export function generateCreateTableSql(
   if (!ifNotExists) {
     return [`CREATE TABLE ${qTable} ${body};`];
   }
-  if (d === 'sqlserver' || d === 'azuresql') {
+  if (dialectFamily(d) === 'sqlserver') {
     const escaped = objectIdName.replace(/'/g, "''");
     return [
       `IF OBJECT_ID(N'${escaped}', N'U') IS NULL\nCREATE TABLE ${qTable} ${body};`,
@@ -1174,7 +1175,7 @@ export type TriggerFormMeta = {
 
 export function dialectTriggerForm(dialectName: string): TriggerFormMeta {
   const d = dialectName.toLowerCase();
-  if (d === 'mysql' || d === 'mariadb' || d === 'tidb') {
+  if (dialectFamily(d) === 'mysql') {
     return {
       timings: ['BEFORE', 'AFTER'],
       events: ['INSERT', 'UPDATE', 'DELETE'],
@@ -1209,7 +1210,7 @@ export function dialectTriggerForm(dialectName: string): TriggerFormMeta {
       hint: 'Postgres-family triggers call a FUNCTION — create the function first, then reference it here.',
     };
   }
-  if (d === 'sqlserver' || d === 'azuresql') {
+  if (dialectFamily(d) === 'sqlserver') {
     return {
       timings: ['AFTER', 'INSTEAD OF'],
       events: ['INSERT', 'UPDATE', 'DELETE'],
@@ -1264,7 +1265,7 @@ export function generateCreateTriggerSql(
       `CREATE TRIGGER ${spec.name}\n${timing} ${event} ON ${qTable}\nFOR EACH ROW\n${exec};`,
     ];
   }
-  if (d === 'sqlserver' || d === 'azuresql') {
+  if (dialectFamily(d) === 'sqlserver') {
     return [
       `CREATE TRIGGER ${spec.name} ON ${qTable}\n${timing} ${event}\nAS\n${body};`,
     ];
@@ -1401,7 +1402,7 @@ export function generateCreateIndexSql(
 
   // SQL Server unique constraints must round-trip as constraints, not indexes.
   // Constraints cannot carry a WHERE filter — use a unique filtered index instead.
-  if (idx.unique && idx.constraint && (d === 'sqlserver' || d === 'azuresql')) {
+  if (idx.unique && idx.constraint && (dialectFamily(d) === 'sqlserver')) {
     if (filterPred) {
       return [
         `-- review: ${idx.name.trim()}: unique constraints cannot include a WHERE filter — create a UNIQUE INDEX with filter instead`,
@@ -1574,11 +1575,11 @@ export function generateRenameTableSql(
   const fromQ = qualifiedQuotedTable(from, schema, dialectName);
   const toQ = quoteIdent(toBare, dialectName);
 
-  if (d === 'mysql' || d === 'mariadb' || d === 'tidb') {
+  if (dialectFamily(d) === 'mysql') {
     const toFull = qualifiedQuotedTable(toBare, schema, dialectName);
     return [`RENAME TABLE ${fromQ} TO ${toFull};`];
   }
-  if (d === 'sqlserver' || d === 'azuresql') {
+  if (dialectFamily(d) === 'sqlserver') {
     const fromQual = qualifyTableName(from, schema, dialectName).replace(/'/g, "''");
     const toEsc = toBare.replace(/'/g, "''");
     return [`EXEC sp_rename N'${fromQual}', N'${toEsc}', N'OBJECT';`];
@@ -1655,7 +1656,7 @@ function generateRenameIndexSql(
       `DROP INDEX IF EXISTS ${qOld};`,
     ];
   }
-  if (d === 'sqlserver' || d === 'azuresql') {
+  if (dialectFamily(d) === 'sqlserver') {
     const qual = `${qualifyTableName(archiveTable, schema, dialectName)}.${indexName}`.replace(
       /'/g,
       "''"
@@ -1680,7 +1681,7 @@ function generateRenameConstraintSql(
   const qTable = qualifiedQuotedTable(tableName, schema, dialectName);
   const qOld = quoteIdent(oldName.trim(), dialectName);
   const qNew = quoteIdent(newName.trim(), dialectName);
-  if (d === 'sqlserver' || d === 'azuresql') {
+  if (dialectFamily(d) === 'sqlserver') {
     const qual = `${qualifyTableName(tableName, schema, dialectName)}.${oldName}`.replace(
       /'/g,
       "''"
