@@ -20,20 +20,6 @@ import { networkInterfaces } from 'node:os';
 const DEV_ORIGIN_PORTS = [5173, 5199, 3210, 3211];
 
 /**
- * Literal addresses this machine answers on, for the dev allowlist.
- *
- * Why literal IPs and never hostnames: a page is only served from
- * `http://192.168.1.69:5173` if something on this machine served it, so an
- * Origin naming one of our own addresses is our own dev UI. A hostname proves
- * nothing — DNS rebinding points `evil.com` at 127.0.0.1, the browser treats
- * `http://evil.com:5173` as same-origin, and Vite (`allowedHosts: true`) serves
- * it. The Origin is still `http://evil.com:5173`, so it stays refused.
- *
- * This is what `npm run dev` needed. Vite binds 0.0.0.0 and prints a `Network:`
- * URL on the LAN address; opening it sent that address as Origin, which was not
- * on the list, so every API call answered 403 and the UI looked disconnected.
- */
-/**
  * How long a snapshot of this machine's addresses is reused. The policy runs on
  * every request that carries an Origin — twice, once in the guard and once for
  * CORS — and `os.networkInterfaces()` is a synchronous syscall. A few seconds
@@ -53,6 +39,20 @@ function currentDevHosts(now = Date.now()): string[] {
 /** Last computed allowlist and what it was computed from. */
 let allowlistMemo: { key: string; hosts: string[] | undefined; set: Set<string> } | undefined;
 
+/**
+ * Literal addresses this machine answers on, for the dev allowlist.
+ *
+ * Why literal IPs and never hostnames: a page is only served from
+ * `http://192.168.1.69:5173` if something on this machine served it, so an
+ * Origin naming one of our own addresses is our own dev UI. A hostname proves
+ * nothing — DNS rebinding points `evil.com` at 127.0.0.1, the browser treats
+ * `http://evil.com:5173` as same-origin, and Vite (`allowedHosts: true`) serves
+ * it. The Origin is still `http://evil.com:5173`, so it stays refused.
+ *
+ * This is what `npm run dev` needed. Vite binds 0.0.0.0 and prints a `Network:`
+ * URL on the LAN address; opening it sent that address as Origin, which was not
+ * on the list, so every API call answered 403 and the UI looked disconnected.
+ */
 export function localDevHosts(): string[] {
   const hosts = new Set<string>(['localhost', '127.0.0.1', '[::1]', '0.0.0.0']);
   for (const addresses of Object.values(networkInterfaces())) {

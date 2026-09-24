@@ -11,7 +11,7 @@ import { join, resolve, relative, isAbsolute } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { quoteSqlIdentifier, errorMessage } from '@foxschema/sql';
-import { coerceCell, inferColumnTypes, type InferredSqlType } from './file-query-bulk.service';
+import { coerceCell, inferColumnTypes, type InferredSqlType } from './file-infer';
 
 const nodeRequire = createRequire(import.meta.url);
 
