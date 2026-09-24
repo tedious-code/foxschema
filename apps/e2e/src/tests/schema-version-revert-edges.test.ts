@@ -167,8 +167,9 @@ INSERT INTO invoices (id, total) VALUES (1, 10);
     await history.selectTargetCurrent();
     await history.openCompareModal();
 
-    const summary = await history.compareSummaryText();
-    expect(summary, summary).toMatch(/added|modified|removed/i);
+    // v1 → v2 added a column to each table and dropped an index: two tables modified.
+    const counts = await history.compareChangeCounts();
+    expect(counts.modified, JSON.stringify(counts)).toBeGreaterThanOrEqual(1);
     const names = await history.compareObjectNames();
     expect(names.some((n) => /customers/i.test(n))).toBe(true);
 
@@ -190,7 +191,8 @@ INSERT INTO invoices (id, total) VALUES (1, 10);
 
     const before = schemaAt(DB);
     await history.openCompareModal();
-    expect(await history.compareSummaryText()).toMatch(/added|modified|removed/i);
+    const counts = await history.compareChangeCounts();
+    expect(counts.added + counts.modified + counts.removed, JSON.stringify(counts)).toBeGreaterThan(0);
     expect(schemaAt(DB)).toBe(before);
     expect(schemaAt(DB)).toMatch(/phone/i);
     await history.closeCompareModal();
@@ -396,8 +398,9 @@ INSERT INTO audit (id, body) VALUES (1, 'gone on revert');
     await history.selectAllCompareObjects();
 
     const run = driver.locator('[data-testid="lokee-cmp-run-revert"]');
-    await run.waitFor({ state: 'visible', timeout: 20_000 });
-    const label = (await run.innerText()) ?? '';
+    // Select all changes the selection, so a new plan is on its way; read the
+    // label once it has arrived rather than mid-flight.
+    const label = await history.settledRunRevertLabel();
     // Additive-looking CREATE INDEX is mixed with DROP COLUMN / DROP TABLE.
     expect(label, label).toMatch(/Review data loss|Execute migration/i);
 

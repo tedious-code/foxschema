@@ -454,8 +454,14 @@ export function LokeeWeaveView({
   // this codebase before.
   // Nothing is known yet: either the list has not answered (and no explicit
   // `databaseId` was given), or a database is chosen but its versions are not in.
+  //
+  // Only then. A refresh of the database already on screen (after a capture, a
+  // revert, a pressed Refresh) keeps showing it until the new list arrives:
+  // swapping the whole view for a spinner took the graph and its toggle off
+  // the page mid-reload, so a click aimed at the toggle landed after the
+  // reload and switched the graph off.
   const undecided = activeId ? versionsFor !== activeId : !databasesLoaded;
-  if (loading || undecided) {
+  if (undecided || (loading && !activeId)) {
     return (
       <div className="flex flex-1 min-h-0 flex-col overflow-hidden" data-testid="lokee-weave-view">
           <div className="flex flex-1 items-center justify-center text-slate-400">
