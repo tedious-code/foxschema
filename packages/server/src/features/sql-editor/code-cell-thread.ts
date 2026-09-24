@@ -13,6 +13,7 @@ import {
 } from '@foxschema/db';
 import { executeCodeCellNode, type CodeCellLast, type CodeCellVars } from './code-cell-node-exec.service';
 import type { CellQueryResponse } from './code-cell-bridge.service';
+import { errorMessage } from '@foxschema/sql';
 
 /**
  * Worker threads inherit a copy of process.env. The parent already passes a
@@ -227,6 +228,6 @@ async function main() {
 }
 
 main().catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = errorMessage(error);
   parentPort?.postMessage({ type: 'cell-done', result: { ok: false, error: message } });
 });

@@ -21,6 +21,7 @@ import type {
   CodeCellResult,
   CodeCellVars,
 } from './code-cell-types.js';
+import { isPlainObject } from './code-cell-types.js';
 
 export const CODE_CELL_ALLOWED_PACKAGES = [
   'lodash',
@@ -171,10 +172,6 @@ export function neutralizeCodeCellHostBreakouts(): void {
   } catch {
     /* ignore */
   }
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function parseNamedList(inner: string): NamedBinding[] | { error: string } {

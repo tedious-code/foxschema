@@ -10,7 +10,7 @@ import { existsSync, mkdirSync, readdirSync, unlinkSync, statSync } from 'node:f
 import { join, resolve, relative, isAbsolute } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { quoteSqlIdentifier } from '@foxschema/sql';
+import { quoteSqlIdentifier, errorMessage } from '@foxschema/sql';
 import { coerceCell, inferColumnTypes, type InferredSqlType } from './file-query-bulk.service';
 
 const nodeRequire = createRequire(import.meta.url);
@@ -368,7 +368,7 @@ function loadSqlite(): new (
     const mod = nodeRequire('better-sqlite3');
     return (mod.default ?? mod) as never;
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : String(e);
+    const message = errorMessage(e);
     throw new Error(`better-sqlite3 is required for file query import — ${message}`);
   }
 }

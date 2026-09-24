@@ -1,10 +1,8 @@
-import { createRequire } from 'node:module';
 import { type ConnectionOptions, type DriverAdapter } from '@foxschema/sql';
 import { BoundedPoolCache, disposePoolEndOrClose } from '../../cores/pool-cache.js';
 import { guardPoolErrors } from '../../cores/pool-error-guard.js';
 import { buildMssqlPoolConfig } from './sqlserver.config.js';
-
-const nodeRequire = createRequire(import.meta.url);
+import { requireDriver } from '../../cores/driver-loader.js';
 
 type MssqlHandle =
   | { _type: 'pool'; pool: any }
@@ -14,35 +12,37 @@ type MssqlHandle =
  * SQL Server adapter via mssql. mssql's Request objects are created per-query
  * from a pool or transaction — there is no persistent "connection" object to
  * hold between calls. We wrap a pool/transaction in a tagged handle instead.
+ *
+ * Azure SQL is the same driver and the same code; only the dialect name (for
+ * errors and the registry) and the TLS default differ — Azure requires
+ * encryption, an on-premises server does not by default.
  */
-class SqlServerAdapter implements DriverAdapter {
-  readonly dialect = 'sqlserver';
+export class MssqlAdapter implements DriverAdapter {
   readonly packageName = 'mssql';
+
+  constructor(
+    readonly dialect: 'sqlserver' | 'azuresql',
+    private readonly encryptDefault: boolean
+  ) {}
 
   private pools = new BoundedPoolCache<any>(disposePoolEndOrClose);
   private driver: any;
 
   private load(): any {
     if (this.driver) return this.driver;
-    try {
-      const mod = nodeRequire(this.packageName);
-      this.driver = mod.default ?? mod;
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : String(e);
-      throw new Error(`Database driver "${this.packageName}" is not installed for sqlserver. Install it with: npm install ${this.packageName} — ${message}`);
-    }
+    this.driver = requireDriver(this.packageName, this.dialect);
     return this.driver;
   }
 
   private buildConfig(options: ConnectionOptions): Record<string, unknown> {
-    return buildMssqlPoolConfig(options, { encryptDefault: false });
+    return buildMssqlPoolConfig(options, { encryptDefault: this.encryptDefault });
   }
 
   async acquire(connectionString: string, options: ConnectionOptions, _pooled: boolean): Promise<MssqlHandle> {
     const mssql = this.load();
     const pool = await this.pools.getOrCreate(connectionString, async () => {
       const created = new mssql.ConnectionPool(this.buildConfig(options));
-      guardPoolErrors(created, 'sqlserver');
+      guardPoolErrors(created, this.dialect);
       await created.connect();
       return created;
     });
@@ -111,7 +111,7 @@ class SqlServerAdapter implements DriverAdapter {
   }
 
   async setCurrentSchema(_handle: MssqlHandle, _schema: string): Promise<void> {
-    // SQL Server schemas are part of the object qualifier (schema.object), not a session variable.
+    // Schemas are part of the object qualifier (schema.object), not a session variable.
     // Migration DDL is expected to be already schema-qualified.
   }
 
@@ -120,4 +120,4 @@ class SqlServerAdapter implements DriverAdapter {
   }
 }
 
-export const sqlServerAdapter = new SqlServerAdapter();
+export const sqlServerAdapter = new MssqlAdapter('sqlserver', false);

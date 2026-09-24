@@ -1,5 +1,5 @@
 
-import { type ConnectionOptions, type PositionalRows } from '@foxschema/sql';
+import { type ConnectionOptions, type PositionalRows, errorMessage } from '@foxschema/sql';
 import { getProviderSettings } from '@foxschema/sql';
 import { getAdapter, ADAPTERS } from '../providers/adapter-registry.js';
 import { circuitKey, dbCircuitBreaker } from './circuit-breaker.js';
@@ -21,7 +21,7 @@ import { noopLogger, safeTarget, type AppLogger } from './logger.js';
 function describeConnectionError(error: unknown): Error {
   if (error instanceof AggregateError && !error.message && error.errors?.length) {
     const message = error.errors
-      .map((e) => (e instanceof Error ? e.message : String(e)))
+      .map((e) => errorMessage(e))
       .join('; ');
     return new Error(message);
   }

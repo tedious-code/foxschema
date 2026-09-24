@@ -1,5 +1,5 @@
 import { ConnectionFactory } from '../../cores/connection-factory.js';
-import { dbSchemaToTableSchemas, groupForeignKeyRows } from '@foxschema/sql';
+import { dbSchemaToTableSchemas, groupForeignKeyRows, errorMessage } from '@foxschema/sql';
 import {
   type SchemaProvider,
   type ConnectionOptions,
@@ -57,7 +57,7 @@ export class RedshiftProvider implements SchemaProvider {
       await ConnectionFactory.executeQuery(this.provider, options, 'SELECT 1');
       return true;
     } catch (error) {
-      throw new Error(error instanceof Error ? error.message : String(error));
+      throw new Error(errorMessage(error));
     }
   }
 

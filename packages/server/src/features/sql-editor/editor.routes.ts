@@ -21,7 +21,7 @@ import {
   isDatagridAction,
   type Permission,
 } from '@foxschema/shared';
-import { sqlStatementCategories, statementVerb } from '@foxschema/sql';
+import { sqlStatementCategories, statementVerb, errorMessage } from '@foxschema/sql';
 import { isSingleSqlStatement } from '../../api/single-statement';
 import { clampOffset, parseSqlSeek } from './sql-page-wrap.service';
 import { makeBeamCellQueryRunner, makeCellQueryRunner } from './code-cell-query.service';
@@ -233,7 +233,7 @@ export function createEditorRoutes(deps: EditorRouteDeps): Router {
               reachable = probe.success;
               if (!reachable) why = 'the server refused the connection';
             } catch (error: unknown) {
-              why = error instanceof Error ? error.message : String(error);
+              why = errorMessage(error);
             }
             if (!reachable) {
               sendError(

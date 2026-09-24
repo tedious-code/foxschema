@@ -1,5 +1,5 @@
 import { ConnectionFactory } from '../../cores/connection-factory.js';
-import { dbSchemaToTableSchemas, rolesToTableSchemas, groupRoleRows, roleSkippedWarning } from '@foxschema/sql';
+import { dbSchemaToTableSchemas, rolesToTableSchemas, groupRoleRows, roleSkippedWarning, errorMessage } from '@foxschema/sql';
 import {
   type SchemaProvider,
   type RoleLoadResult,
@@ -61,7 +61,7 @@ export class OracleProvider implements SchemaProvider {
       await ConnectionFactory.executeQuery(this.provider, options, 'SELECT 1 FROM DUAL');
       return true;
     } catch (error) {
-      throw new Error(error instanceof Error ? error.message : String(error));
+      throw new Error(errorMessage(error));
     }
   }
 

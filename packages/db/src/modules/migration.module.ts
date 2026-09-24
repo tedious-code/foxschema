@@ -1,7 +1,7 @@
 import { ConnectionFactory } from '../cores/connection-factory.js';
 import { getAdapter } from '../providers/adapter-registry.js';
 import { dialectSupportsTransactionalDdlRollback } from './dialect-transaction-support.js';
-import { type ConnectionOptions, type DriverAdapter } from '@foxschema/sql';
+import { type ConnectionOptions, type DriverAdapter, errorMessage } from '@foxschema/sql';
 import type { MigrationEvent } from '@foxschema/sql';
 import type { MigrationStep } from '@foxschema/sql';
 
@@ -108,7 +108,7 @@ export class MigrationModule {
             for (const raw of step.statements) await this.runStatement(adapter, conn, dialect, raw);
             onEvent({ type: 'object', objectName: step.objectName, objectType: step.objectType, action: step.action, status: 'SUCCESS' });
           } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
+            const message = errorMessage(err);
             onEvent({ type: 'object', objectName: step.objectName, objectType: step.objectType, action: step.action, status: 'FAILED', error: message });
             throw err;
           }
@@ -117,7 +117,7 @@ export class MigrationModule {
         await adapter.commitTransaction(conn);
         onEvent({ type: 'done', success: true, rolledBack: false });
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errorMessage(err);
         let rolledBack = false;
         try {
           await adapter.rollbackTransaction(conn);
@@ -131,7 +131,7 @@ export class MigrationModule {
       }
     } catch (err) {
       // beginTransaction/setCurrentSchema itself failed, before any step ran.
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errorMessage(err);
       onEvent({ type: 'done', success: false, rolledBack: false, error: message });
     }
   }
@@ -154,7 +154,7 @@ export class MigrationModule {
     try {
       if (schema?.trim()) await adapter.setCurrentSchema(conn, schema.trim());
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errorMessage(err);
       onEvent({ type: 'done', success: false, rolledBack: false, error: message });
       return;
     }
@@ -173,7 +173,7 @@ export class MigrationModule {
         await adapter.commitTransaction(conn);
         onEvent({ type: 'object', objectName: step.objectName, objectType: step.objectType, action: step.action, status: 'SUCCESS' });
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errorMessage(err);
         onEvent({ type: 'object', objectName: step.objectName, objectType: step.objectType, action: step.action, status: 'FAILED', error: message });
         try {
           await adapter.rollbackTransaction(conn);

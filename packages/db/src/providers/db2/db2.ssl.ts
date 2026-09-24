@@ -11,11 +11,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { odbcEscape, type ConnectionOptions } from '@foxschema/sql';
-
-function looksLikePem(value: string): boolean {
-  return /-----BEGIN [A-Z ]*CERTIFICATE-----/.test(value);
-}
+import { db2CaLooksLikePem, odbcEscape, type ConnectionOptions, errorMessage } from '@foxschema/sql';
 
 
 /**
@@ -29,7 +25,7 @@ export function resolveDb2SslConnectionString(
   const ca = options.ssl?.ca?.trim();
   if (!ca) return connectionString;
 
-  const certPath = looksLikePem(ca)
+  const certPath = db2CaLooksLikePem(ca)
     ? materializeDb2CaPem(ca)
     : path.isAbsolute(ca)
       ? ca
@@ -81,7 +77,7 @@ export function explainDb2ConnectError(error: unknown, options: ConnectionOption
 
 /** SQL30082N 17 = auth type mismatch; SQL1042C = GSKit often needed for SERVER_ENCRYPT. */
 export function shouldRetryDb2Authentication(error: unknown): boolean {
-  const text = error instanceof Error ? error.message : String(error);
+  const text = errorMessage(error);
   if (/SQL30082N/i.test(text) && /reason\s*"17"/i.test(text)) return true;
   return /SQL1042C/i.test(text);
 }

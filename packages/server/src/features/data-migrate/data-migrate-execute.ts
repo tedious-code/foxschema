@@ -12,6 +12,7 @@ import {
   getAdapter,
   type ConnectionOptions,
 } from '@foxschema/db';
+import { errorMessage } from '@foxschema/sql';
 
 export type DataMigrateOpKind = 'insert' | 'update' | 'delete';
 
@@ -120,7 +121,7 @@ export async function executeDataMigrateOps(
       } catch (err) {
         // Every insert would fail the same way a moment later, one error per
         // row. Stop here so the user gets the cause once.
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errorMessage(err);
         throw new Error(`Could not prepare the destination session: ${message}`);
       }
     }
@@ -138,7 +139,7 @@ export async function executeDataMigrateOps(
             results.push({ op: item.op, key: item.key, status: 'SUCCESS' });
             emit({ type: 'op', index: i, op: item.op, key: item.key, status: 'SUCCESS' });
           } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
+            const message = errorMessage(err);
             failCount += 1;
             results.push({ op: item.op, key: item.key, status: 'FAILED', error: message });
             emit({
@@ -172,7 +173,7 @@ export async function executeDataMigrateOps(
         await adapter.commitTransaction(conn);
         emit({ type: 'done', success: true, rolledBack: false, failCount: 0 });
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errorMessage(err);
         try {
           await adapter.rollbackTransaction(conn);
           // No-op rollback adapters still resolve — only mark rolled back when
@@ -209,7 +210,7 @@ export async function executeDataMigrateOps(
         results.push({ op: item.op, key: item.key, status: 'SUCCESS' });
         emit({ type: 'op', index: i, op: item.op, key: item.key, status: 'SUCCESS' });
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errorMessage(err);
         failCount += 1;
         if (opts.useTransaction || opts.continueOnError) {
           try {

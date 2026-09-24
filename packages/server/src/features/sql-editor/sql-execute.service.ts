@@ -1,5 +1,5 @@
 import { ConnectionFactory, getAdapter, type ConnectionOptions } from '@foxschema/db';
-import { autoAliasSelectColumns } from '@foxschema/sql';
+import { autoAliasSelectColumns, errorMessage } from '@foxschema/sql';
 import { isPageableStatement, trimPageProbe, wrapSqlForPage, wrapSqlForSeek, type SqlSeek } from './sql-page-wrap.service';
 
 /**
@@ -186,7 +186,7 @@ export async function runStatements(
         try {
           await pushUnwrappedOk();
         } catch (error: unknown) {
-          pushErr(error instanceof Error ? error.message : String(error));
+          pushErr(errorMessage(error));
         }
         continue;
       }
@@ -228,7 +228,7 @@ export async function runStatements(
           durationMs: Date.now() - started,
         });
       } catch (error: unknown) {
-        const wrapMsg = error instanceof Error ? error.message : String(error);
+        const wrapMsg = errorMessage(error);
         // Fail closed for all pageable statements: raw fallback can materialize
         // an unbounded result set before shapeRows truncates, and ignores OFFSET.
         // Include the wrapped SQL so DB2 alias / dialect issues are diagnosable.

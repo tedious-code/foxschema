@@ -12,6 +12,7 @@ import {
 import { rethrowUniqueViolation } from '../../platform/db/db-errors';
 import { CloudProviderCredentialsStore } from './cloud-provider-credentials.service';
 import type { CloudProviderCredentials } from '../../internal/cloud-secrets';
+import { errorMessage } from '@foxschema/sql';
 
 export type AppSecretSource = 'local' | CloudSecretSource;
 
@@ -281,7 +282,7 @@ export class AppSecretsStore {
           const providerCreds = await credsFor(row.source, ref.credentialId);
           secrets[row.name] = await resolveCloudSecret(row.source, ref, providerCreds);
         } catch (err: unknown) {
-          errors[row.name] = err instanceof Error ? err.message : String(err);
+          errors[row.name] = errorMessage(err);
         }
       })
     );

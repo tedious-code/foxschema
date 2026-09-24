@@ -8,6 +8,7 @@
  */
 import { parentPort, workerData } from 'node:worker_threads';
 import { parseFileToTable, type FileQueryImportInput } from '../files/file-query.service';
+import { errorMessage } from '@foxschema/sql';
 
 interface ParseJob {
   input: FileQueryImportInput;
@@ -22,6 +23,6 @@ try {
 } catch (error) {
   parentPort?.postMessage({
     type: 'error',
-    error: error instanceof Error ? error.message : String(error),
+    error: errorMessage(error),
   });
 }

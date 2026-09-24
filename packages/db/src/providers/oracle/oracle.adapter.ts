@@ -1,4 +1,3 @@
-import { createRequire } from 'node:module';
 import { type ConnectionOptions, type DriverAdapter } from '@foxschema/sql';
 import {
   BoundedPoolCache,
@@ -6,8 +5,7 @@ import {
   disposePoolEndOrClose,
 } from '../../cores/pool-cache.js';
 import { connectTimeoutSeconds } from '../../cores/timeouts.js';
-
-const nodeRequire = createRequire(import.meta.url);
+import { requireDriver } from '../../cores/driver-loader.js';
 
 type OracleHandle =
   | { _type: 'pool'; pool: any; conn: any }
@@ -27,13 +25,7 @@ class OracleAdapter implements DriverAdapter {
 
   private load(): any {
     if (this.driver) return this.driver;
-    try {
-      const mod = nodeRequire(this.packageName);
-      this.driver = mod.default ?? mod;
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : String(e);
-      throw new Error(`Database driver "${this.packageName}" is not installed for oracle. Install it with: npm install ${this.packageName} — ${message}`);
-    }
+    this.driver = requireDriver(this.packageName, this.dialect);
     return this.driver;
   }
 

@@ -1,5 +1,5 @@
 import { ConnectionFactory } from '../../cores/connection-factory.js';
-import { dbSchemaToTableSchemas, rolesToTableSchemas, roleSkippedWarning, groupForeignKeyRows } from '@foxschema/sql';
+import { dbSchemaToTableSchemas, rolesToTableSchemas, roleSkippedWarning, groupForeignKeyRows, errorMessage } from '@foxschema/sql';
 import {
   type SchemaProvider,
   type RoleLoadResult,
@@ -84,7 +84,7 @@ export class AzureSqlProvider implements SchemaProvider {
       await ConnectionFactory.executeQuery(this.provider, options, 'SELECT 1 AS n');
       return true;
     } catch (error) {
-      throw new Error(error instanceof Error ? error.message : String(error));
+      throw new Error(errorMessage(error));
     }
   }
 

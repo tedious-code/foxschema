@@ -1337,7 +1337,7 @@ export function dialectIndexSupport(dialectName: string): IndexFeatureSupport {
   return dialectSupportsIndex(dialectName);
 }
 
-function normalizeIndexOrders(
+export function normalizeIndexOrders(
   columns: string[],
   orders: IndexColumnOrder[] | undefined
 ): IndexColumnOrder[] {

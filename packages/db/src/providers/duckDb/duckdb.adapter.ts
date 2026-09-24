@@ -1,7 +1,5 @@
-import { createRequire } from 'node:module';
 import { type ConnectionOptions, type DriverAdapter } from '@foxschema/sql';
-
-const nodeRequire = createRequire(import.meta.url);
+import { requireDriver } from '../../cores/driver-loader.js';
 
 interface DuckHandle {
   instance: any;
@@ -26,12 +24,7 @@ class DuckDbAdapter implements DriverAdapter {
 
   private load(): any {
     if (this.api) return this.api;
-    try {
-      this.api = nodeRequire(this.packageName);
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : String(e);
-      throw new Error(`Database driver "${this.packageName}" is not installed for duckdb. Install it with: npm install ${this.packageName} — ${message}`);
-    }
+    this.api = requireDriver(this.packageName, this.dialect, { unwrapDefault: false });
     return this.api;
   }
 
