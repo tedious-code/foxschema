@@ -1,5 +1,6 @@
 import React, { useState, useMemo, Suspense, lazy } from 'react';
 import { useSyncStore } from '@/app/store/useSyncStore';
+import { useShallow } from 'zustand/react/shallow';
 import { useAuthStore } from '@/app/store/authStore';
 import { Play, RefreshCw, FileText, CheckCircle2, Copy, AlertTriangle } from 'lucide-react';
 import { SqlGeneratorModule } from '@/shared/lib/sql-generator';
@@ -49,6 +50,8 @@ const SKIP_DEPLOY_CONFIRM_KEY = 'foxschema-skip-deploy-confirm';
 
 export const ObjectDetailPanel: React.FC = () => {
   const canMigrate = useAuthStore((s) => s.can('schema.migrate'));
+  // Only these fields: a whole-store subscription re-rendered this on every
+  // store write (migration progress events included).
   const {
     selectedTable,
     generatedSql,
@@ -79,7 +82,39 @@ export const ObjectDetailPanel: React.FC = () => {
     toggleTriggerSelection,
     setAllTriggerSelection,
     targetServerVersion,
-  } = useSyncStore();
+  } = useSyncStore(
+    useShallow((s) => ({
+      selectedTable: s.selectedTable,
+      generatedSql: s.generatedSql,
+      applyMigration: s.applyMigration,
+      migrationExecuted: s.migrationExecuted,
+      isComparing: s.isComparing,
+      sourceConfig: s.sourceConfig,
+      targetConfig: s.targetConfig,
+      targetConnected: s.targetConnected,
+      compareResult: s.compareResult,
+      browseMode: s.browseMode,
+      browseSide: s.browseSide,
+      syncSelection: s.syncSelection,
+      toggleSyncSelection: s.toggleSyncSelection,
+      nonDestructive: s.nonDestructive,
+      isMigrating: s.isMigrating,
+      searchTerm: s.searchTerm,
+      memberSelection: s.memberSelection,
+      toggleMemberSelection: s.toggleMemberSelection,
+      setAllMemberSelection: s.setAllMemberSelection,
+      indexSelection: s.indexSelection,
+      toggleIndexSelection: s.toggleIndexSelection,
+      setAllIndexSelection: s.setAllIndexSelection,
+      columnSelection: s.columnSelection,
+      toggleColumnSelection: s.toggleColumnSelection,
+      setAllColumnSelection: s.setAllColumnSelection,
+      triggerSelection: s.triggerSelection,
+      toggleTriggerSelection: s.toggleTriggerSelection,
+      setAllTriggerSelection: s.setAllTriggerSelection,
+      targetServerVersion: s.targetServerVersion,
+    }))
+  );
 
   const includedCount = Object.values(syncSelection).filter(Boolean).length;
 

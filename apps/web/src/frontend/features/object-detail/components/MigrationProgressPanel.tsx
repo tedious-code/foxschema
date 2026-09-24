@@ -1,5 +1,6 @@
 import React from 'react';
 import { useSyncStore } from '@/app/store/useSyncStore';
+import { useShallow } from 'zustand/react/shallow';
 import { RefreshCw, CheckCircle2, XCircle, Circle, AlertCircle, Download, X, Undo2, SkipForward, MinusCircle } from 'lucide-react';
 
 const fileSafe = (s?: string) => (s ?? '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'unknown';
@@ -10,6 +11,8 @@ const fileSafe = (s?: string) => (s ?? '').replace(/[^A-Za-z0-9]+/g, '-').replac
  * store-driven — it renders whenever there's progress to show.
  */
 export const MigrationProgressPanel: React.FC = () => {
+  // Only these fields: a whole-store subscription re-rendered this on every
+  // store write (migration progress events included).
   const {
     isMigrating,
     migrationProgress,
@@ -20,7 +23,19 @@ export const MigrationProgressPanel: React.FC = () => {
     skipObjectAndRetry,
     setNonDestructive,
     targetConfig,
-  } = useSyncStore();
+  } = useSyncStore(
+    useShallow((s) => ({
+      isMigrating: s.isMigrating,
+      migrationProgress: s.migrationProgress,
+      snapshotDdl: s.snapshotDdl,
+      migrationError: s.migrationError,
+      migrationRolledBack: s.migrationRolledBack,
+      clearMigrationProgress: s.clearMigrationProgress,
+      skipObjectAndRetry: s.skipObjectAndRetry,
+      setNonDestructive: s.setNonDestructive,
+      targetConfig: s.targetConfig,
+    }))
+  );
 
   if (migrationProgress.length === 0) return null;
 
