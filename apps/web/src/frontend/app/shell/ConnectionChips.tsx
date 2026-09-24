@@ -154,17 +154,20 @@ export function ConnectionChip({
           <span className="group-hover:hidden">On</span>
           <span className="hidden group-hover:inline">Refresh</span>
         </button>
-      ) : (
+      ) : summary ? (
+        // "Connect", not "Retry": most of the time nothing has failed yet —
+        // the connection was just picked. And with nothing picked there is
+        // nothing to connect to, so the button is not offered at all.
         <button
           type="button"
           data-testid={connectTestId}
           onClick={onConnect}
-          title="Retry connection"
+          title="Connect and load the schema list"
           className="flex shrink-0 items-center gap-1 rounded-full border border-slate-700 px-1.5 py-0.5 text-[11px] font-medium text-slate-400 hover:border-cyan-500/40 hover:text-cyan-300"
         >
-          <RefreshCw className="h-3.5 w-3.5" /> Retry
+          <RefreshCw className="h-3.5 w-3.5" /> Connect
         </button>
-      )}
+      ) : null}
     </div>
   );
 }

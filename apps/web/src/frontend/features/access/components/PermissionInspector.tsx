@@ -14,6 +14,7 @@ import {
 } from '../lib/access';
 import type { DbPrincipal, DbPrivilege } from '@foxschema/sql';
 import { inputCls, labelCls } from './controls';
+import { connectionOptionLabel } from '@/shared/lib/dialectLabel';
 
 /** The columns the effective-permission table reports on, in reading order. */
 const TABLE_PERMISSIONS: AccessPermission[] = ['read', 'insert', 'update', 'delete'];
@@ -168,7 +169,7 @@ export const PermissionInspector: React.FC<{
               <option value="">Choose a saved connection…</option>
               {connections.map((c) => (
                 <option key={c.id} value={c.id}>
-                  [{(c.dialect || '').toUpperCase()}] {c.name}
+                  {connectionOptionLabel(c)}
                 </option>
               ))}
             </select>

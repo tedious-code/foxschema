@@ -29,6 +29,7 @@ import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { PROVIDER_SETTINGS, connectionNeedsSecret } from '@/shared/lib/provider-settings';
 import { IndexManagementModal } from './IndexManagementModal';
 import { sectionLabelCls } from '@/shared/components/surfaces';
+import { connectionOptionLabel } from '@/shared/lib/dialectLabel';
 
 export type ServerInsightsTab = DbaUtilityKind;
 
@@ -220,9 +221,7 @@ export const ServerInsightsModal: React.FC<Props> = ({
               ) : (
                 connections.map((c) => (
                   <option key={c.id} value={c.id}>
-                    [{(PROVIDER_SETTINGS[c.dialect.toLowerCase()]?.label ?? c.dialect).toUpperCase()}]{' '}
-                    {c.name}
-                    {c.schema ? ` · ${c.schema}` : ''}
+                    {connectionOptionLabel(c)}
                   </option>
                 ))
               )}

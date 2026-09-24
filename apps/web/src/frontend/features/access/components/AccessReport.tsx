@@ -6,6 +6,7 @@ import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { buildAccessReport, principalsWithAccessTo, type AccessReport as Report } from '../lib/access';
 import type { DbPrincipal, DbPrivilege } from '@foxschema/sql';
 import { inputCls, labelCls } from './controls';
+import { connectionOptionLabel } from '@/shared/lib/dialectLabel';
 
 const RISK_STYLE: Record<string, string> = {
   low: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200',
@@ -105,7 +106,7 @@ export const AccessReport: React.FC<{ embedded?: boolean }> = ({ embedded = fals
             <option value="">Choose a saved connection…</option>
             {connections.map((c) => (
               <option key={c.id} value={c.id}>
-                [{(c.dialect || '').toUpperCase()}] {c.name}
+                {connectionOptionLabel(c)}
               </option>
             ))}
           </select>

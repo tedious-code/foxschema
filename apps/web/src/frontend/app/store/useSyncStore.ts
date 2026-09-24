@@ -44,14 +44,14 @@ export const useSyncStore = create<SyncState>()(
   sourceConfig: {
     dialect: 'postgres',
     option: {
-      connectionString: 'put your connection string here',
+      connectionString: '',
     },
     schema: 'public',
   },
   targetConfig: {
     dialect: 'postgres',
     option: {
-      connectionString: 'put your connection string here',
+      connectionString: '',
     },
     schema: 'public',
   },

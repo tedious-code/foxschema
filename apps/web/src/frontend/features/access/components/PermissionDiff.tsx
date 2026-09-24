@@ -22,6 +22,7 @@ import { useSyncStore } from '@/app/store/useSyncStore';
 import { useSqlEditorStore } from '@/app/store/useSqlEditorStore';
 import { fetchDbAccess } from '@/shared/api/schemaApi';
 import { writeClipboard } from '@/shared/utils/clipboard';
+import { connectionOptionLabel } from '@/shared/lib/dialectLabel';
 
 const STATUS_STYLE: Record<string, string> = {
   match: 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30',
@@ -249,7 +250,7 @@ export const PermissionDiff: React.FC<{
             <option value="">Choose a saved connection…</option>
             {connections.map((c) => (
               <option key={c.id} value={c.id}>
-                [{(c.dialect || '').toUpperCase()}] {c.name}
+                {connectionOptionLabel(c)}
               </option>
             ))}
             </select>

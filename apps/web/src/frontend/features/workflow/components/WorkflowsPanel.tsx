@@ -154,9 +154,13 @@ export function WorkflowsPanel({
           <p>{workflows.length} saved</p>
         </div>
         <div className="workflows-actions">
-          <div className="workflows-search">
+          {/* Utilities, not workflow.css: that sheet is in @layer components,
+              which Input's own w-full/px-2.5 utilities outrank — so the icon
+              sat on top of the placeholder in a box too narrow to read. */}
+          <div className="workflows-search w-52 shrink-0">
             <Search size={13} />
             <Input
+              className="pl-7"
               value={query}
               placeholder="Search workflows…"
               onChange={(event) => setQuery(event.target.value)}

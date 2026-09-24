@@ -20,6 +20,7 @@ import { ActivityIndicator } from './ActivityIndicator';
 import { DiffBriefingChips } from '@/features/schema-diff';
 import { diffBriefing } from '@/features/schema-diff';
 import { ConnectionChip } from './ConnectionChips';
+import { pointsToSameDatabase } from './sameDatabase';
 import { openCommandPalette } from './commandPaletteEvent';
 
 function connectionSummary(config: {
@@ -168,11 +169,7 @@ export const TopToolbar: React.FC = () => {
     }
   };
 
-  const sameConfig =
-    sourceConfig.dialect === targetConfig.dialect &&
-    (sourceConfig.option.host ?? '') === (targetConfig.option.host ?? '') &&
-    (sourceConfig.option.database ?? '') === (targetConfig.option.database ?? '') &&
-    sourceConfig.schema.trim().toUpperCase() === targetConfig.schema.trim().toUpperCase();
+  const sameConfig = pointsToSameDatabase(sourceConfig, targetConfig);
 
   const compareUnavailable =
     !canSchemaCompare ||
@@ -186,6 +183,9 @@ export const TopToolbar: React.FC = () => {
     (!canSchemaCompare && 'Your role cannot compare schemas') ||
     compareBlockedBy ||
     (sameConfig && 'Original Server and Target point to the same database and schema') ||
+    (!sourceConnected && !targetConnected && 'Pick an Original and a Target connection first') ||
+    (!sourceConnected && 'Pick and connect the Original connection') ||
+    (!targetConnected && 'Pick and connect the Target connection') ||
     undefined;
 
   const typeCounts = (type: 'ALL' | DbObjectType) =>
