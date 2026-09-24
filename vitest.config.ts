@@ -21,14 +21,6 @@ const aliases = [
     find: /^@foxschema\/workflow-engine$/,
     replacement: pkg('./packages/workflow-engine/src/index.ts'),
   },
-  {
-    find: '@foxschema/rbac-contract',
-    replacement: pkg('./packages/rbac-contract/src/index.ts'),
-  },
-  {
-    find: '@foxschema/plugin-sdk',
-    replacement: pkg('./packages/plugin-sdk/src/index.ts'),
-  },
 ];
 
 // Root test runner for the whole workspace. CLI Ink TUI screens are isolated in

@@ -21,7 +21,6 @@
     "@fastify/cors": "11.3.0",
     "@fastify/static": "10.1.4",
     "@foxschema/db": "*",
-    "@foxschema/rbac-contract": "*",
     "@foxschema/shared": "*",
     "@foxschema/sql": "*",
     "@foxschema/workflow-contract": "*",
