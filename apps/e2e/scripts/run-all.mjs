@@ -70,6 +70,16 @@ const logDir  = join(ROOT, 'logs');
 mkdirSync(logDir, { recursive: true });
 
 const results = [];
+
+/**
+ * execSync kills a suite that outlives its budget with SIGTERM. The log then
+ * just stops, with no failing test in it — say so, or the summary reports a
+ * failure nobody can find.
+ */
+function timedOutNote(err) {
+  if (err?.signal !== 'SIGTERM' && err?.code !== 'ETIMEDOUT') return '';
+  return '\n✗ Error: runner timeout — the suite outlived its budget and was killed (see run-all.mjs suiteTimeoutMs).\n';
+}
 const bar = '─'.repeat(60);
 
 console.log('\n' + bar);
@@ -185,11 +195,18 @@ for (const suite of ALWAYS) {
   // that access-assistant-dialects allows for its own beforeAll — so the runner
   // could kill the process before a single test ran.
   const DIALECT_MATRIX = new Set(['sql-editor-utilities', 'db-access', 'access-dialects']);
+  // 60s a dialect was not enough: sql-editor-utilities took 1005s for 11
+  // dialects on its own (2026-09-24), against a 660s budget.
   const suiteTimeoutMs = DIALECT_MATRIX.has(suite.key)
-    ? Math.max(600_000, configured.length * 60_000)
+    ? Math.max(600_000, configured.length * 120_000)
     : suite.key === 'schema-revert-edges'
       ? 600_000
-      : 300_000;
+      // Twelve files; it took 327s on its own (2026-09-24), so the 300s
+      // default killed it mid-run and the sweep reported a failure with no
+      // failing test in the log.
+      : suite.key === 'sql-editor'
+        ? 600_000
+        : 300_000;
   try {
     output = execSync(`${HEADED}${VITEST} ${suite.file}`, {
       cwd: ROOT,
@@ -203,6 +220,7 @@ for (const suite of ALWAYS) {
     output = (err.stdout ?? '').toString() + '\n' + (err.stderr ?? '').toString();
     passed = false;
     process.stdout.write('✗  FAIL');
+    output += timedOutNote(err);
   }
   const elapsed = ((Date.now() - start) / 1000).toFixed(1);
   console.log(`  (${elapsed}s)  → log: logs/${suite.key}.log`);
@@ -231,6 +249,7 @@ for (const dialect of configured) {
     output = (err.stdout ?? '').toString() + '\n' + (err.stderr ?? '').toString();
     passed = false;
     process.stdout.write('✗  FAIL');
+    output += timedOutNote(err);
   }
 
   const elapsed = ((Date.now() - start) / 1000).toFixed(1);
