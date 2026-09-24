@@ -252,10 +252,15 @@ export function VersionCompareModal({
       };
     }
     if (!plan) {
+      // A plan for a different selection is being replaced. Between the render
+      // that changes the selection and the effect that starts planning,
+      // `planning` still reads false, so this said "No plan" for a frame after
+      // every tick — and a reader (or a test) looking then saw a dead end.
+      const waiting = planning || (!!data && !planError);
       return {
         code: 'planning',
-        label: planning ? 'Planning…' : 'No plan',
-        why: planning ? 'Still planning…' : 'No plan yet.',
+        label: waiting ? 'Planning…' : 'No plan',
+        why: waiting ? 'Still planning…' : 'No plan yet.',
       };
     }
     /**
@@ -318,6 +323,8 @@ export function VersionCompareModal({
     captureConnectionId,
     plan,
     planning,
+    planError,
+    data,
     confirmLossy,
     selectedKeys,
     changed,

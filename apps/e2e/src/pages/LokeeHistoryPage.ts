@@ -49,30 +49,26 @@ export class LokeeHistoryPage {
       },
       { timeout: 15_000 }
     );
-    await btn.click();
-    // Wait for the outcome, not for the button to come back.
+    // Wait for the capture request's answer, not for the UI.
     //
     // Capture bumps the Lokee epoch, and the toolbar's compare controls — the
     // snapshot button among them — are gone from the DOM by the time it
-    // settles. Waiting for that button to re-enable waited on something that
-    // had left, and the run reported a 30s timeout for a snapshot the toast
-    // said had already succeeded: "Snapshot v1 · 10 object change(s)".
-    //
-    // Either ending is fine: the toast if it is still up, or the button back
-    // and idle if the toolbar kept it.
-    await this.page.waitForFunction(
-      () => {
-        const toast = document.querySelector('[data-testid="app-toast"]');
-        if (/snapshot\s+v\d+/i.test(toast?.textContent ?? '')) return true;
-        const el = document.querySelector('[data-testid="lokee-snapshot-target-btn"]');
-        return (
-          el instanceof HTMLButtonElement &&
-          !el.disabled &&
-          (el.textContent ?? '').includes('Snapshot target')
-        );
-      },
-      { timeout: 30_000 }
-    );
+    // settles, so waiting for the button to re-enable waited on something that
+    // had left. Accepting "button idle" instead returned before the request had
+    // even been sent, and a refused capture (the route is rate-limited to 20 a
+    // minute, which back-to-back suite runs reach) surfaced 20s later as "the
+    // database is not in the history list". The response says which it was.
+    const [response] = await Promise.all([
+      this.page.waitForResponse(
+        (r) => r.url().includes('/api/lokee/capture') && r.request().method() === 'POST',
+        { timeout: 30_000 }
+      ),
+      btn.click(),
+    ]);
+    if (!response.ok()) {
+      const body = await response.text().catch(() => '');
+      throw new Error(`Snapshot failed: HTTP ${response.status()} ${body}`);
+    }
   }
 
   async waitForVersionCount(n: number, timeoutMs = 30_000): Promise<void> {
@@ -91,8 +87,13 @@ export class LokeeHistoryPage {
   }
 
   async waitForGraph(timeoutMs = 30_000): Promise<void> {
-    const graphPage = this.page.locator('[data-testid="lokee-weave-page"]');
-    if (!(await graphPage.isVisible().catch(() => false))) {
+    // Ask the toggle whether the graph is on, rather than inferring it from
+    // whether the graph is on screen: while a database's history is loading the
+    // graph is absent either way, and a click made on that guess landed after
+    // the load and switched a graph that was already on, off.
+    const toggle = this.page.locator('[data-testid="lokee-graph-toggle"]');
+    await toggle.waitFor({ state: 'visible', timeout: timeoutMs });
+    if ((await toggle.getAttribute('aria-pressed')) !== 'true') {
       await clickWhen(this.page, '[data-testid="lokee-graph-toggle"]');
     }
     await waitFor(this.page, '[data-testid="lokee-weave-page"]', timeoutMs);
@@ -323,6 +324,37 @@ export class LokeeHistoryPage {
 
   async compareIdenticalVisible(): Promise<boolean> {
     return this.page.locator('[data-testid="lokee-cmp-identical"]').isVisible();
+  }
+
+  /**
+   * The compare summary's object counts. The summary is the shared
+   * `+N ~N −N` briefing chips (DiffBriefingChips), not words.
+   */
+  async compareChangeCounts(): Promise<{ added: number; modified: number; removed: number }> {
+    const text = await this.compareSummaryText();
+    const count = (glyph: string): number => {
+      const m = text.match(new RegExp(`${glyph}\\s*(\\d+)`));
+      if (!m) throw new Error(`No ${glyph} count in compare summary: ${JSON.stringify(text)}`);
+      return Number(m[1]);
+    };
+    return { added: count('\\+'), modified: count('~'), removed: count('−') };
+  }
+
+  /**
+   * The run button's label once planning has settled. The label changes as
+   * the plan for the current selection arrives, so reading it straight after
+   * a tick can catch "Planning…" instead of the decision.
+   */
+  async settledRunRevertLabel(timeout = 30_000): Promise<string> {
+    const run = this.page.locator('[data-testid="lokee-cmp-run-revert"]');
+    await run.waitFor({ state: 'visible', timeout: 20_000 });
+    const deadline = Date.now() + timeout;
+    let label = (await run.innerText()) ?? '';
+    while (/Planning…/.test(label) && Date.now() < deadline) {
+      await this.page.waitForTimeout(200);
+      label = (await run.innerText()) ?? '';
+    }
+    return label;
   }
 
   async runRevertButtonText(): Promise<string> {

@@ -175,6 +175,31 @@ describe('LokeeWeaveView', () => {
     expect(loadVersionGraph).toHaveBeenCalledWith('db1', 20);
   });
 
+  it('keeps the history on screen while it refreshes the same database', async () => {
+    listLokeeDatabases.mockResolvedValue([DB]);
+    listLokeeVersions.mockResolvedValue(DTO.versions);
+    loadVersionGraph.mockResolvedValue({ ...DTO, truncatedObjects: false });
+
+    render(<LokeeWeaveView />);
+    await waitFor(() => expect(screen.getByTestId('lokee-timeline')).toBeTruthy());
+    await act(async () => {
+      screen.getByTestId('lokee-graph-toggle').click();
+    });
+    await waitFor(() => expect(screen.getByTestId('graph')).toBeTruthy());
+
+    // A refresh whose answer has not arrived yet — what a capture triggers.
+    listLokeeVersions.mockReturnValue(new Promise(() => undefined));
+    await act(async () => {
+      useLokeeHistoryStore.setState({ refreshRequest: 1 });
+    });
+
+    // Swapping the view for a spinner here unmounted the graph toggle; a click
+    // aimed at it during the reload landed afterwards and turned the graph off.
+    expect(screen.queryByText(/Loading schema history/)).toBeNull();
+    expect(screen.getByTestId('graph')).toBeTruthy();
+    expect(screen.getByTestId('lokee-graph-toggle').getAttribute('aria-pressed')).toBe('true');
+  });
+
   it('shows an empty state rather than an empty canvas', async () => {
     listLokeeDatabases.mockResolvedValue([DB]);
     listLokeeVersions.mockResolvedValue([]);
