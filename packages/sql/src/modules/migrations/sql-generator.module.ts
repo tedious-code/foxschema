@@ -5,6 +5,7 @@ import type { SqlDialect, ColumnSpec } from '../dialect/sql-dialect.interface.js
 import { resolveDialect, tryResolveDialect } from '../dialect/registry.js';
 import { dialectSupportsFk, type FkFeatureSupport } from '../dialect/fk-support.js';
 import { compareKey } from '../schema-diff/compare-key.js';
+import { escapeRegExp } from '../../cores/escape-regexp.js';
 
 /** One key per (type, name) pair; NUL cannot occur in either part. */
 const selectionKey = (d: Pick<TableDiff, 'objectType' | 'tableName'>): string =>
@@ -173,7 +174,7 @@ export class SqlGeneratorModule {
     const tgt = mapping?.targetSchema?.trim();
     if (!src || !tgt || src.toUpperCase() === tgt.toUpperCase()) return statement;
 
-    const escaped = src.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escaped = escapeRegExp(src);
     return statement
       .replace(new RegExp(`"${escaped}"\\.`, 'gi'), `"${tgt}".`)
       .replace(new RegExp(`\\b${escaped}\\.`, 'gi'), `${tgt}.`);
@@ -208,7 +209,7 @@ export class SqlGeneratorModule {
     const src = mapping?.sourceSchema?.trim();
     const tgt = mapping?.targetSchema?.trim();
     if (!src || !tgt || src.toUpperCase() === tgt.toUpperCase()) return defaultValue;
-    const esc = src.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const esc = escapeRegExp(src);
     return defaultValue
       .replace(new RegExp(`\\[${esc}\\]\\s*\\.`, 'gi'), `[${tgt}].`)
       .replace(new RegExp(`"${esc}"\\s*\\.`, 'gi'), `"${tgt}".`)
@@ -620,7 +621,7 @@ export class SqlGeneratorModule {
   private tableReferencePattern(tableName: string): RegExp | null {
     const bare = tableName.replace(/^.*\./, '').replace(/"/g, '');
     if (!bare) return null;
-    const escaped = bare.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escaped = escapeRegExp(bare);
     // Up to two qualifiers, then the bare table (optionally quoted).
     //
     // Two, not one: CockroachDB reports view bodies qualified by the database

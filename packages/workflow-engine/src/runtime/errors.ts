@@ -7,10 +7,7 @@
  * thrown value, and cancellation carried as an `AbortError`.
  */
 
-/** What to record for a thrown value, which need not be an `Error`. */
-export function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+export { errorMessage } from '@foxschema/sql';
 
 /** Cancellation, however it was raised — never retried, never a failure. */
 export function isAbort(error: unknown): boolean {

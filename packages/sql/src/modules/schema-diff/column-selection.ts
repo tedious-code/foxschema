@@ -25,6 +25,7 @@
  * column that still exists for the key or index to name.
  */
 import type { ColumnDiff, ForeignKeyDiff, IndexDiff, TableDiff } from '../../interfaces/diff.types.interface.js';
+import { escapeRegExp } from '../../cores/escape-regexp.js';
 
 /**
  * Whether this object migrates column by column at all.
@@ -123,7 +124,7 @@ function triggerBodyReferencesColumn(definition: string, names: readonly string[
   for (const raw of names) {
     const name = raw.trim();
     if (!name) continue;
-    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escaped = escapeRegExp(name);
     // :NEW.col / NEW.`col` / OLD."col" / inserted.[col] / deleted.col
     const re = new RegExp(
       `(?::)?\\b(?:NEW|OLD|inserted|deleted)\\s*\\.\\s*[\`"\\[]?${escaped}[\`"\\]]?`,

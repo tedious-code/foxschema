@@ -10,6 +10,7 @@ import type { TriggerDef } from '../common/index.js';
 import {
   TriggerAuthenticationError,
   authenticateWebhook,
+  headerValue,
 } from './webhook-auth.js';
 
 export { TriggerAuthenticationError } from './webhook-auth.js';
@@ -57,18 +58,10 @@ export async function authenticateHttpTrigger(
     bearer(secret.bearerToken) ??
     nonEmptyString(secret.apiKey) ??
     nonEmptyString(secret.token);
-  const supplied = header(headers, trigger.authHeader);
+  const supplied = headerValue(headers, trigger.authHeader);
   if (!expected || !supplied || !secretEquals(supplied, expected)) {
     throw new TriggerAuthenticationError();
   }
-}
-
-function header(
-  headers: Record<string, string | string[] | undefined>,
-  name: string,
-): string | undefined {
-  const value = headers[name.toLowerCase()];
-  return Array.isArray(value) ? value[0] : value;
 }
 
 function bearer(value: unknown): string | undefined {

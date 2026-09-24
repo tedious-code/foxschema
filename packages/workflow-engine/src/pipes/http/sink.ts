@@ -13,7 +13,7 @@ import {
   mapRecordsConcurrently,
   type PipeMetadata,
 } from '../../sdk/index.js';
-import { revealPipeSecret } from '../pipe-context.js';
+import { requestCredentialId, revealPipeSecret } from '../pipe-context.js';
 import { executeHttpRequest } from './request.js';
 
 const configSchema = z
@@ -122,7 +122,7 @@ export class HttpSinkPipe implements SinkPipe {
     const result = await executeHttpRequest({
       request: config.request,
       secret,
-      credentialId: credentialIdFor(config, context),
+      credentialId: requestCredentialId(config.request.auth, context),
       credentials: context.credentials,
       variables: { ...context.variables, ...scope },
       trigger: {
@@ -145,19 +145,9 @@ export class HttpSinkPipe implements SinkPipe {
   }
 }
 
-/** Explicit request credential wins; else the credential bound to the pipe. */
-function credentialIdFor(
-  config: z.infer<typeof configSchema>,
-  context: PipeContext,
-): string | undefined {
-  return config.request.auth.type === 'credential'
-    ? config.request.auth.credentialId
-    : context.pipe.credentialId;
-}
-
 async function revealSecret(
   config: z.infer<typeof configSchema>,
   context: PipeContext,
 ): Promise<Record<string, unknown> | undefined> {
-  return revealPipeSecret(context, credentialIdFor(config, context));
+  return revealPipeSecret(context, requestCredentialId(config.request.auth, context));
 }

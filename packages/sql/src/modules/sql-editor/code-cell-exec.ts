@@ -8,6 +8,7 @@
  * two runtimes — the bundled module namespaces and the globals preamble.
  */
 
+import { errorMessage } from '../../cores/error-message.js';
 import {
   codeCellHasReturn,
   stripFullLineSqlComments,
@@ -170,10 +171,6 @@ export function neutralizeCodeCellHostBreakouts(): void {
   } catch {
     /* ignore */
   }
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

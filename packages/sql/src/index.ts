@@ -509,4 +509,6 @@ export type {
 } from './modules/access/os-account.types.js';
 
 export { nonSecretFingerprint } from './cores/fingerprint.js';
+export { errorMessage } from './cores/error-message.js';
+export { escapeRegExp } from './cores/escape-regexp.js';
 export { odbcEscape } from './providers/db2/db2.connection.js';

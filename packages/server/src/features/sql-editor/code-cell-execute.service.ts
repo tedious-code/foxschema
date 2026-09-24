@@ -25,6 +25,7 @@ export type CellQueryRunner = (
 ) => Promise<Record<string, unknown>[]>;
 import { clampMaxRows } from './sql-execute.service';
 import { createBeamSqlCap } from '@foxschema/shared';
+import { errorMessage } from '@foxschema/sql';
 
 /**
  * The tsx ESM loader, as an absolute URL resolved from this module.
@@ -95,10 +96,6 @@ export type CodeCellRequestBody = {
   maxRows?: unknown;
   timeoutMs?: unknown;
 };
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 export function clampCodeCellTimeout(v: unknown): number {
   const n = typeof v === 'number' ? Math.floor(v) : Number.NaN;

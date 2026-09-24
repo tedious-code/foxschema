@@ -2,6 +2,7 @@
  * Helpers to inject columns into a SELECT list (Schema click / column picker).
  */
 import { extractTableAliases } from '@/shared/lib/sql-splitter';
+import { escapeRegExp } from '@foxschema/sql';
 
 /** Find the SELECT … FROM span for the first SELECT in `sql` (heuristic). */
 export function findSelectListRange(
@@ -309,11 +310,6 @@ export function shortAliasesByTable(sql: string): Map<string, string> {
   return byTable;
 }
 
-/** Escape a SQL identifier for use inside a RegExp. */
-function escapeRe(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 /**
  * Add a short alias after a bare table in FROM/JOIN and rewrite `table.` →
  * `alias.` in the SELECT list. No-op when a short alias already exists.
@@ -331,7 +327,7 @@ export function ensureTableHasAlias(
 
   const nextAlias = alias || suggestTableAlias(bare, sql);
   const tableAlt = [tableIdent, bare].filter((v, i, a) => a.indexOf(v) === i);
-  const tablePat = tableAlt.map((t) => escapeRe(t)).join('|');
+  const tablePat = tableAlt.map((t) => escapeRegExp(t)).join('|');
 
   // FROM|JOIN table  →  FROM|JOIN table alias  (when not already followed by an alias)
   const fromRe = new RegExp(

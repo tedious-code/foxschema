@@ -3,6 +3,7 @@ import type { ColumnInfo, TableSchema } from '@/shared/lib/types';
 import {
   dialectSupportsFk,
   dialectSupportsIndex,
+  escapeRegExp,
   type CanonicalBase,
   type CanonicalType,
   type IndexFeatureSupport,
@@ -1526,7 +1527,7 @@ export function nextArchiveTableName(
     existingTableNames.map((n) => bareTableName(n).toLowerCase()).filter(Boolean)
   );
 
-  const escapeRe = bare.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escapeRe = escapeRegExp(bare);
   const re = new RegExp(`^${escapeRe}_(\\d+)$`, 'i');
   let max = 0;
   for (const n of existingTableNames) {

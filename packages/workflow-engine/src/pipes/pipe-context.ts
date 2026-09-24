@@ -6,7 +6,13 @@
  * What several pipes take from their context in the same shape: the secret of
  * a credential the pipe references, and the scope `{{path}}` templates see.
  */
+import type { HttpAuth } from '../common/index.js';
 import type { PipeContext } from '../registry/index.js';
+
+/** An HTTP request's credential: its own explicit one wins, else the pipe's. */
+export function requestCredentialId(auth: HttpAuth, context: PipeContext): string | undefined {
+  return auth.type === 'credential' ? auth.credentialId : context.pipe.credentialId;
+}
 
 /** The secret of `credentialId` — by default the pipe's own credential — or undefined. */
 export async function revealPipeSecret(

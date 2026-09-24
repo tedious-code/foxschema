@@ -81,4 +81,4 @@ export {
   type ErrorHandlerDispatch,
 } from './workflow.js';
 
-export { authenticateWebhook, type WebhookAuthRequest } from './webhook-auth.js';
+export { authenticateWebhook, headerValue, type WebhookAuthRequest } from './webhook-auth.js';

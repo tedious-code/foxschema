@@ -6,6 +6,7 @@
  * Workflow engine — moved from FoxAgent (packages/pipes/utility/src/delimited.ts).
  */
 import * as z from 'zod';
+import { escapeRegExp } from '@foxschema/sql';
 import { REJECTS_PORT } from '../../sdk/index.js';
 import { validateAgainstSchema } from '../../common/index.js';
 import type { RecordBatch } from '../../registry/index.js';
@@ -330,9 +331,6 @@ export interface InvalidRecord {
   line?: number;
   message: string;
 }
-
-const escapeRegExp = (value: string): string =>
-  value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** One regex that splits on any of the configured delimiters. */
 export function fieldSplitter(delimiters: string[]): RegExp {
