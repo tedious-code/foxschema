@@ -313,6 +313,7 @@ export {
   placeholderStyleFor,
   renderPlaceholder,
   quoteSqlIdentifier,
+  quoteIdentifierIfNeeded,
   qualifiedNameParts,
   quoteQualifiedName,
   isTsqlDialect,

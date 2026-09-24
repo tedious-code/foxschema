@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { useSyncStore } from '@/app/store/useSyncStore';
 import { SCHEMA_ROUTINE_SCOPE, useSqlEditorStore } from '@/app/store/useSqlEditorStore';
+import { quoteIdentifierIfNeeded } from '@foxschema/sql';
 import { getProviderSettings } from '@/shared/lib/provider-settings';
 import { TYPE_META } from '@/features/schema-diff';
 import {
@@ -457,7 +458,7 @@ const ObjectNode: React.FC<{
   onPeek,
 }) => {
   const meta = TYPE_META[table.objectType] ?? TYPE_META.TABLE;
-  const insertName = quoteIfNeeded(table.name, dialect);
+  const insertName = quoteIdentifierIfNeeded(table.name, dialect);
   const isRoutine = table.objectType === 'PROCEDURE' || table.objectType === 'FUNCTION';
   const params = isRoutine ? filterCallParameters(table.parameters ?? []) : [];
   const columns = !isRoutine
@@ -494,7 +495,7 @@ const ObjectNode: React.FC<{
   };
 
   const insertIdent = (name: string) => {
-    insertAtCursor(`${quoteIfNeeded(name, dialect)} `);
+    insertAtCursor(`${quoteIdentifierIfNeeded(name, dialect)} `);
   };
 
   /** Prefer the short FROM alias when adding `alias.column` into SELECT. */
@@ -509,7 +510,7 @@ const ObjectNode: React.FC<{
 
   /** Add `alias.column` into the active SELECT list (or insert at cursor). */
   const insertColumnIntoSelect = (colName: string) => {
-    const col = quoteIfNeeded(colName, dialect);
+    const col = quoteIdentifierIfNeeded(colName, dialect);
     const expr = `${resolveTableAlias()}.${col}`;
     const ok = mutateSql((sql) => insertIntoSelectList(sql, expr));
     if (!ok) insertAtCursor(`${expr}, `);
@@ -788,14 +789,3 @@ function routineInsertText(
   return `${name}${callBody}`;
 }
 
-function quoteIfNeeded(name: string, dialect: string): string {
-  if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return name;
-  const d = dialect.toLowerCase();
-  if (d === 'mysql' || d === 'mariadb' || d === 'clickhouse') {
-    return '`' + name.replace(/`/g, '``') + '`';
-  }
-  if (d === 'sqlserver') {
-    return '[' + name.replace(/]/g, ']]') + ']';
-  }
-  return '"' + name.replace(/"/g, '""') + '"';
-}

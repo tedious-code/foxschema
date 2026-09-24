@@ -43,6 +43,7 @@ import {
   uploadLimitBytes,
 } from '../files/file-session.service';
 import { sendError, sendThrown } from '../../platform/http/respond';
+import { quoteSqlIdentifier } from '@foxschema/sql';
 
 const nodeRequire = createRequire(import.meta.url);
 const importLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 60 });
@@ -564,7 +565,11 @@ async function runImport(
       columns: table.columns,
       chunks: load.chunks,
       dialect: resolved.dialect,
-      sampleSql: `SELECT * FROM "${table.tableName.replace(/"/g, '""')}" LIMIT 100;`,
+      // Quoted for the target engine and with no LIMIT: `/sql/execute` wraps a
+      // SELECT in the dialect's own paging, as it does for data peek. This used
+      // to be `SELECT * FROM "t" LIMIT 100` for every engine — a string literal
+      // on MySQL/TiDB and a syntax error on SQL Server and Oracle (no LIMIT).
+      sampleSql: `SELECT * FROM ${quoteSqlIdentifier(table.tableName, resolved.dialect)};`,
       replacedPrevious: false,
       removedConnectionIds: [] as string[],
       removedFiles: 0,
@@ -595,7 +600,7 @@ async function runImport(
       tableName: appended.tableName,
       rowCount: appended.rowCount,
       columns: appended.columns,
-      sampleSql: `SELECT * FROM "${appended.tableName.replace(/"/g, '""')}" LIMIT 100;`,
+      sampleSql: `SELECT * FROM ${quoteSqlIdentifier(appended.tableName, 'sqlite')} LIMIT 100;`,
       replacedPrevious: false,
       removedConnectionIds: [] as string[],
       removedFiles: 0,
@@ -639,7 +644,7 @@ async function runImport(
     rowCount: result.rowCount,
     columns: result.columns,
     dbPath: result.dbPath,
-    sampleSql: `SELECT * FROM "${result.tableName}" LIMIT 100;`,
+    sampleSql: `SELECT * FROM ${quoteSqlIdentifier(result.tableName, 'sqlite')} LIMIT 100;`,
     replacedPrevious: parsed.replacePrevious,
     removedConnectionIds: cleared.removedConnectionIds,
     removedFiles: cleared.removedFiles,

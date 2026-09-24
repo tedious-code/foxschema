@@ -6,19 +6,12 @@ import {
   type CanonicalBase,
   type CanonicalType,
   type IndexFeatureSupport,
+  quoteIdentifierIfNeeded,
 } from '@foxschema/sql';
 
 /** Quote an identifier when it is not a plain SQL name. */
 export function quoteIdent(name: string, dialect: string): string {
-  if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return name;
-  const d = dialect.toLowerCase();
-  if (d === 'mysql' || d === 'mariadb' || d === 'clickhouse' || d === 'tidb') {
-    return '`' + name.replace(/`/g, '``') + '`';
-  }
-  if (d === 'sqlserver' || d === 'azuresql') {
-    return '[' + name.replace(/]/g, ']]') + ']';
-  }
-  return '"' + name.replace(/"/g, '""') + '"';
+  return quoteIdentifierIfNeeded(name, dialect);
 }
 
 /**

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sqlTag as sql, renderSqlQuery, placeholderStyleFor } from './sql-template.js';
+import { quoteIdentifierIfNeeded, sqlTag as sql, renderSqlQuery, placeholderStyleFor } from './sql-template.js';
 
 describe('placeholderStyleFor', () => {
   it('maps each engine family to its placeholder syntax', () => {
@@ -129,5 +129,39 @@ describe('sql.values edge cases', () => {
     expect(() => renderSqlQuery(sql`INSERT INTO t ${sql.values([{}])}`, 'postgres')).toThrow(
       /no columns/i
     );
+  });
+});
+
+describe('quoteIdentifierIfNeeded', () => {
+  it('leaves a plain name bare in every dialect', () => {
+    for (const d of ['postgres', 'mysql', 'tidb', 'sqlserver', 'azuresql', 'oracle', 'sqlite']) {
+      expect(quoteIdentifierIfNeeded('order_items', d)).toBe('order_items');
+    }
+  });
+
+  it('backtick-quotes the whole MySQL family, TiDB included', () => {
+    // A hand copy of this in the SQL editor's schema explorer left TiDB out and
+    // produced "x" — a string literal to MySQL-mode TiDB, not a column.
+    for (const d of ['mysql', 'mariadb', 'tidb', 'clickhouse']) {
+      expect(quoteIdentifierIfNeeded('my col', d)).toBe('`my col`');
+    }
+    expect(quoteIdentifierIfNeeded('a`b', 'tidb')).toBe('`a``b`');
+  });
+
+  it('bracket-quotes the whole T-SQL family, Azure SQL included', () => {
+    for (const d of ['sqlserver', 'mssql', 'azuresql']) {
+      expect(quoteIdentifierIfNeeded('my col', d)).toBe('[my col]');
+    }
+    expect(quoteIdentifierIfNeeded('a]b', 'azuresql')).toBe('[a]]b]');
+  });
+
+  it('double-quotes everything else', () => {
+    expect(quoteIdentifierIfNeeded('my col', 'postgres')).toBe('"my col"');
+    expect(quoteIdentifierIfNeeded('a"b', 'oracle')).toBe('"a""b"');
+  });
+
+  it('quotes names a bare identifier cannot express', () => {
+    expect(quoteIdentifierIfNeeded('1st', 'postgres')).toBe('"1st"');
+    expect(quoteIdentifierIfNeeded('café', 'postgres')).toBe('"café"');
   });
 });

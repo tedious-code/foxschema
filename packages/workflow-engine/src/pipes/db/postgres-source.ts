@@ -18,6 +18,7 @@ import {
   type PipeMetadata,
 } from '../../sdk/index.js';
 import type { PostgresClient, PostgresClientFactory } from './postgres.js';
+import { quoteSqlIdentifier } from '@foxschema/sql';
 
 const identifier = z.string().regex(/^[A-Za-z_][A-Za-z0-9_$]*$/);
 const configSchema = z.object({
@@ -167,5 +168,5 @@ export function preserveTemporalPrecision(types: {
 }
 
 function quote(value: string): string {
-  return `"${value.replaceAll('"', '""')}"`;
+  return quoteSqlIdentifier(value, 'postgres');
 }
