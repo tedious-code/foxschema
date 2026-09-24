@@ -23,9 +23,10 @@
 # push rights). Run `gh auth status` to check which account is active.
 #
 # Usage:
-#   ./scripts/sync-public-packages.sh             # mirror both
-#   ./scripts/sync-public-packages.sh core        # mirror only core
+#   ./scripts/sync-public-packages.sh             # mirror all three
 #   ./scripts/sync-public-packages.sh shared      # mirror only shared
+#   ./scripts/sync-public-packages.sh sql         # mirror only sql
+#   ./scripts/sync-public-packages.sh db          # mirror only db
 #
 set -euo pipefail
 
@@ -74,6 +75,10 @@ sync_one() {
 }
 
 want="${1:-all}"
+case "$want" in
+  all|shared|sql|db) ;;
+  *) echo "Unknown package '$want' (expected: all, shared, sql, db)." >&2; exit 2 ;;
+esac
 if [ "$want" = all ] || [ "$want" = shared ]; then sync_one shared foxschema-shared; fi
 if [ "$want" = all ] || [ "$want" = sql ];    then sync_one sql    foxschema-sql;    fi
 if [ "$want" = all ] || [ "$want" = db ];     then sync_one db     foxschema-db;     fi

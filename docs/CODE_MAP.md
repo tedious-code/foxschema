@@ -56,7 +56,7 @@ sql  ←  db      ←  server  ←  web, cli
 sql  ←  shared  ←  server, web, cli
 workflow-contract  ←  server, web, workflow-engine, workflow-server
 sql, db  ←  workflow-engine  ←  workflow-server
-rbac-contract      ←  server, web, enterprise/rbac
+rbac-contract      ←  server, enterprise/rbac
 ```
 
 `packages/sql/src/purity.test.ts` and `packages/shared/src/purity.test.ts`

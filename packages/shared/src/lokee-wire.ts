@@ -276,13 +276,13 @@ export type ForceMigrateErrorCode =
 
 /**
  * Why a revert was refused. Named once; three call sites narrow on it.
- * `connection_mismatch` guards reverting through a connection that does not
- * point at the database the history belongs to.
+ * Reverting through a connection that points at a different database is the
+ * shared `conflict` error, not a Lokee code, and surfaces here as `failed`
+ * with the server's message.
  */
 export type LokeeRevertErrorCode =
   | 'blocked'
   | 'confirm_lossy'
-  | 'connection_mismatch'
   /**
    * The pre-revert snapshot found the live schema had moved since the last
    * capture. The plan the caller reviewed was computed against the old picture,

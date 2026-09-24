@@ -160,7 +160,6 @@ export async function executeLokeeRevert(
   const code =
     data.code === 'blocked' ||
     data.code === 'confirm_lossy' ||
-    data.code === 'connection_mismatch' ||
     data.code === 'schema_drifted'
       ? data.code
       : 'failed';
