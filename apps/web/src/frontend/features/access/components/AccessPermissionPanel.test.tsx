@@ -222,3 +222,32 @@ describe('AccessPermissionPanel — one session', () => {
     expect(runAccessSql).not.toHaveBeenCalled();
   });
 });
+
+describe('AccessPermissionPanel — allow-all', () => {
+  async function accountOf(name: string) {
+    render(<AccessPermissionPanel />);
+    fireEvent.change(screen.getByTestId('access-permission-connection'), { target: { value: 'c1' } });
+    await waitFor(() => expect(screen.getByTestId(`access-permission-row-${name}`)).toBeTruthy());
+    fireEvent.click(screen.getByTestId(`access-permission-row-${name}`));
+    fireEvent.click(screen.getByTestId('access-permission-stage-account'));
+  }
+
+  it('says an account inherits superuser through its role', async () => {
+    fetchDbAccess.mockResolvedValue({
+      ...catalog,
+      principals: [
+        { ...catalog.principals[0]!, superuser: false },
+        { ...catalog.principals[1]!, superuser: true },
+      ],
+    });
+    await accountOf('alice');
+    expect(screen.getByTestId('access-permission-allow-all').textContent).toMatch(
+      /Superuser.*Inherited through readonly/
+    );
+  });
+
+  it('shows no banner for an ordinary account', async () => {
+    await accountOf('alice');
+    expect(screen.queryByTestId('access-permission-allow-all')).toBeNull();
+  });
+});

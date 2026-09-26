@@ -38,9 +38,29 @@ export interface DbPrincipal {
   memberOf: string[];
   /** Members when this principal is a role/group. */
   members: string[];
+  /**
+   * Bypasses every permission check (Postgres `rolsuper`, SQL Server
+   * `sysadmin`). An account attribute, not a grant, so it never appears in the
+   * privilege list — which is how a superuser came to read as "no privileges".
+   * Absent or null where the engine has no such flag or the catalog does not say.
+   */
+  superuser?: boolean | null;
 }
 
-export type DbPrivilegeObjectType = 'TABLE' | 'SCHEMA' | 'DATABASE' | 'ROLE' | 'SYSTEM' | 'COLUMN' | 'OTHER';
+/**
+ * `GLOBAL` is instance-wide: MySQL-family and ClickHouse `ON *.*`. `SYSTEM` is
+ * an engine authority that takes no object (Oracle system privileges, Db2
+ * database authorities).
+ */
+export type DbPrivilegeObjectType =
+  | 'TABLE'
+  | 'SCHEMA'
+  | 'DATABASE'
+  | 'GLOBAL'
+  | 'ROLE'
+  | 'SYSTEM'
+  | 'COLUMN'
+  | 'OTHER';
 
 export interface DbPrivilege {
   grantee: string;
@@ -52,6 +72,12 @@ export interface DbPrivilege {
   grantor: string | null;
   /** SQL Server DENY vs GRANT. Null on engines without DENY. */
   state: 'grant' | 'deny' | null;
+  /**
+   * Absent for a row the catalog returned. `derived`: a role membership filled
+   * in from the other catalog (see `reconcileDbAccess`). `implied`: what a
+   * fixed role confers without any row saying so (SQL Server `db_owner`).
+   */
+  source?: 'derived' | 'implied';
 }
 
 export interface DbAccessGrantArgs {
@@ -95,7 +121,7 @@ const SUPPORT: Record<string, DbAccessSupport> = {
     mode: 'native',
     query: true,
     grant: true,
-    hint: 'PostgreSQL: pg_roles / pg_auth_members and information_schema table/schema grants.',
+    hint: 'PostgreSQL: pg_roles (with superuser) / pg_auth_members, table grants, and schema and database ACLs.',
   },
   cockroachdb: {
     mode: 'native',
@@ -119,13 +145,13 @@ const SUPPORT: Record<string, DbAccessSupport> = {
     mode: 'native',
     query: true,
     grant: true,
-    hint: 'MySQL: mysql.user / mysql.role_edges and INFORMATION_SCHEMA TABLE/SCHEMA_PRIVILEGES.',
+    hint: 'MySQL: mysql.user / mysql.role_edges and INFORMATION_SCHEMA USER/SCHEMA/TABLE_PRIVILEGES (including *.*).',
   },
   mariadb: {
     mode: 'native',
     query: true,
     grant: true,
-    hint: 'MariaDB: mysql.user / mysql.roles_mapping and INFORMATION_SCHEMA TABLE/SCHEMA_PRIVILEGES.',
+    hint: 'MariaDB: mysql.user / mysql.roles_mapping and INFORMATION_SCHEMA USER/SCHEMA/TABLE_PRIVILEGES (including *.*).',
   },
   tidb: {
     mode: 'native',
@@ -137,7 +163,7 @@ const SUPPORT: Record<string, DbAccessSupport> = {
     mode: 'native',
     query: true,
     grant: true,
-    hint: 'SQL Server: sys.database_principals, database_role_members, database_permissions.',
+    hint: 'SQL Server: sys.database_principals (with sysadmin), database_role_members, database_permissions, and what fixed roles imply.',
   },
   azuresql: {
     mode: 'native',
@@ -161,7 +187,7 @@ const SUPPORT: Record<string, DbAccessSupport> = {
     mode: 'native',
     query: true,
     grant: true,
-    hint: 'ClickHouse: system.users, system.roles, system.grants.',
+    hint: 'ClickHouse: system.users, system.roles, system.role_grants, system.grants.',
   },
   sqlite: UNSUPPORTED,
   duckdb: UNSUPPORTED,
@@ -182,16 +208,31 @@ export function buildDbAccessPrincipalQueries(opts: {
   schema?: string;
 }): DbAccessQuery[] {
   const fam = family(opts.dialect);
-  if (fam === 'postgres') return [{ sql: PG_PRINCIPALS, params: [] }];
-  if (fam === 'mysql') return [{ sql: MYSQL_PRINCIPALS, params: [] }, { sql: MYSQL_PRINCIPALS_FALLBACK, params: [] }];
-  if (fam === 'mariadb') {
+  if (fam === 'postgres') {
+    // rolsuper is in every Postgres-family pg_roles we target; the second probe
+    // keeps an engine without it listing its roles rather than nothing.
+    return [{ sql: PG_PRINCIPALS, params: [] }, { sql: PG_PRINCIPALS_NO_SUPERUSER, params: [] }];
+  }
+  if (fam === 'mysql') {
     return [
-      { sql: MARIADB_PRINCIPALS, params: [] },
       { sql: MYSQL_PRINCIPALS, params: [] },
+      // MySQL 5.7 has no mysql.role_edges, and so no roles.
+      { sql: MYSQL_PRINCIPALS_NO_ROLES, params: [] },
       { sql: MYSQL_PRINCIPALS_FALLBACK, params: [] },
     ];
   }
-  if (fam === 'sqlserver') return [{ sql: MSSQL_PRINCIPALS, params: [] }];
+  if (fam === 'mariadb') {
+    return [
+      { sql: MARIADB_PRINCIPALS, params: [] },
+      { sql: MYSQL_PRINCIPALS_NO_ROLES, params: [] },
+      { sql: MYSQL_PRINCIPALS_FALLBACK, params: [] },
+    ];
+  }
+  if (fam === 'sqlserver') {
+    // Azure SQL Database, or a login that may not ask about server roles, falls
+    // back to the database-only form.
+    return [{ sql: MSSQL_PRINCIPALS, params: [] }, { sql: MSSQL_PRINCIPALS_NO_SERVER, params: [] }];
+  }
   if (fam === 'oracle') {
     return [{ sql: ORACLE_PRINCIPALS_DBA, params: [] }, { sql: ORACLE_PRINCIPALS_ALL, params: [] }];
   }
@@ -201,7 +242,12 @@ export function buildDbAccessPrincipalQueries(opts: {
       { sql: DB2_PRINCIPALS_ROLES, params: [] },
     ];
   }
-  if (fam === 'clickhouse') return [{ sql: CLICKHOUSE_PRINCIPALS, params: [] }];
+  if (fam === 'clickhouse') {
+    return [
+      { sql: CLICKHOUSE_PRINCIPALS, params: [] },
+      { sql: CLICKHOUSE_PRINCIPALS_NO_ROLE_GRANTS, params: [] },
+    ];
+  }
   return [{ sql: GENERIC_PRINCIPALS, params: [] }];
 }
 
@@ -211,11 +257,23 @@ export function buildDbAccessPrivilegeQueries(opts: {
 }): DbAccessQuery[] {
   const fam = family(opts.dialect);
   const schema = (opts.schema ?? '').trim();
-  if (fam === 'postgres') return [{ sql: PG_PRIVILEGES, params: [] }];
+  if (fam === 'postgres') {
+    // aclexplode reads schema and database ACLs; an engine without it still
+    // gets table grants and memberships from the information_schema form.
+    return [{ sql: PG_PRIVILEGES, params: [] }, { sql: PG_PRIVILEGES_NO_ACL, params: [] }];
+  }
   if (fam === 'mysql' || fam === 'mariadb') {
-    return schema
-      ? [{ sql: MYSQL_PRIVILEGES_SCHEMA, params: [schema, schema] }, { sql: MYSQL_PRIVILEGES, params: [] }]
-      : [{ sql: MYSQL_PRIVILEGES, params: [] }];
+    // Most complete first. A login that may not read mysql.* loses the role
+    // rows only; global grants come from information_schema, which every
+    // login may read (it shows each its own).
+    const roles = fam === 'mariadb' ? 'mariadb' : 'mysql';
+    const ladder = (filter: boolean): DbAccessQuery[] =>
+      [
+        mysqlPrivilegesQuery({ schemaFilter: filter, global: true, roles }),
+        mysqlPrivilegesQuery({ schemaFilter: filter, global: true, roles: null }),
+        mysqlPrivilegesQuery({ schemaFilter: filter, global: false, roles: null }),
+      ].map((sql) => ({ sql, params: filter ? [schema, schema] : [] }));
+    return schema ? [...ladder(true), ...ladder(false)] : ladder(false);
   }
   if (fam === 'sqlserver') return [{ sql: MSSQL_PRIVILEGES, params: [] }];
   if (fam === 'oracle') {
@@ -241,6 +299,7 @@ export function normalizeDbPrincipals(rows: ReadonlyArray<Record<string, unknown
       canLogin: asBool(pick(row, 'can_login', 'rolcanlogin', 'canlogin')),
       memberOf: splitList(asString(pick(row, 'member_of', 'memberof'))),
       members: splitList(asString(pick(row, 'members', 'member'))),
+      superuser: asBool(pick(row, 'superuser', 'rolsuper', 'is_superuser')),
     });
   }
   return out;
@@ -297,6 +356,7 @@ export function principalsFromPrivileges(privileges: readonly DbPrivilege[]): Db
       canLogin: false,
       memberOf: [],
       members: [],
+      superuser: null,
     });
   }
   return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
@@ -323,6 +383,104 @@ export function groupDbPrincipals(principals: readonly DbPrincipal[]): Array<{
   ];
 }
 
+/**
+ * What SQL Server's fixed database roles confer with no permission row to say
+ * so. Without these, `db_owner` — allowed everything in the database — listed
+ * no privileges at all.
+ */
+const SQLSERVER_FIXED_ROLE_PRIVILEGES: Record<string, string[]> = {
+  db_owner: ['CONTROL'],
+  db_datareader: ['SELECT'],
+  db_datawriter: ['INSERT', 'UPDATE', 'DELETE'],
+};
+
+function memberKey(name: string): string {
+  return stripQuotes(name).toLowerCase();
+}
+
+/**
+ * Make the two catalogs agree about role membership, and add what fixed roles
+ * imply.
+ *
+ * Membership arrives two ways: `memberOf` / `members` on each principal, and
+ * ROLE rows in the privilege list. Postgres, SQL Server and Oracle fill both;
+ * the MySQL family and ClickHouse used to fill one, so the list said "member of
+ * reader" while the detail pane said "Belongs to no roles". Each side is filled
+ * from the other here, once, so every screen reads the same answer. Rows added
+ * this way carry `source: 'derived'`.
+ */
+export function reconcileDbAccess(opts: {
+  dialect: string;
+  principals: readonly DbPrincipal[];
+  privileges: readonly DbPrivilege[];
+}): { principals: DbPrincipal[]; privileges: DbPrivilege[] } {
+  const principals = opts.principals.map((p) => ({
+    ...p,
+    memberOf: [...p.memberOf],
+    members: [...p.members],
+  }));
+  const byName = new Map(principals.map((p) => [memberKey(p.name), p]));
+  const privileges = [...opts.privileges];
+  const edges = new Set<string>();
+  const edgeKey = (member: string, role: string) => `${memberKey(member)}\u0000${memberKey(role)}`;
+
+  for (const priv of privileges) {
+    if (priv.objectType !== 'ROLE') continue;
+    edges.add(edgeKey(priv.grantee, priv.objectName ?? priv.privilege));
+  }
+  const addEdge = (member: string, role: string) => {
+    const k = edgeKey(member, role);
+    if (edges.has(k)) return;
+    edges.add(k);
+    privileges.push({
+      grantee: member,
+      privilege: role,
+      objectType: 'ROLE',
+      objectSchema: null,
+      objectName: role,
+      grantable: false,
+      grantor: null,
+      state: null,
+      source: 'derived',
+    });
+  };
+  for (const p of principals) {
+    for (const role of p.memberOf) addEdge(p.name, role);
+    for (const member of p.members) addEdge(member, p.name);
+  }
+
+  const has = (list: string[], name: string) => list.some((n) => memberKey(n) === memberKey(name));
+  for (const priv of privileges) {
+    if (priv.objectType !== 'ROLE') continue;
+    const role = priv.objectName ?? priv.privilege;
+    const member = byName.get(memberKey(priv.grantee));
+    if (member && !has(member.memberOf, role)) member.memberOf.push(role);
+    const rolePrincipal = byName.get(memberKey(role));
+    if (rolePrincipal && !has(rolePrincipal.members, priv.grantee)) {
+      rolePrincipal.members.push(member?.name ?? stripQuotes(priv.grantee));
+    }
+  }
+
+  if (family(opts.dialect) === 'sqlserver') {
+    for (const p of principals) {
+      for (const privilege of SQLSERVER_FIXED_ROLE_PRIVILEGES[p.name.toLowerCase()] ?? []) {
+        privileges.push({
+          grantee: p.name,
+          privilege,
+          objectType: 'DATABASE',
+          objectSchema: null,
+          objectName: null,
+          grantable: false,
+          grantor: null,
+          state: 'grant',
+          source: 'implied',
+        });
+      }
+    }
+  }
+  return { principals, privileges };
+}
+
 /** Quote a principal for GRANT/REVOKE (MySQL `'user'@'host'`, Db2 `USER "x"`). */
 export function formatDbGrantee(
   dialect: string,
@@ -337,6 +495,10 @@ export function formatDbGrantee(
     // the quote early and turn the rest of the GRANT into free SQL. Double
     // backslashes before doubling quotes.
     const quote = (v: string) => `'${v.replace(/\\/g, '\\\\').replace(/'/g, "''")}'`;
+    // A MariaDB role has no host: `'r'@'%'` names a user that does not exist.
+    if (fam === 'mariadb' && kind === 'role') {
+      return quote(raw.endsWith('@') ? raw.slice(0, -1) : raw);
+    }
     const at = raw.lastIndexOf('@');
     if (at > 0) {
       return `${quote(raw.slice(0, at))}@${quote(raw.slice(at + 1))}`;
@@ -412,7 +574,12 @@ export function buildGrantRevokeSql(args: DbAccessGrantArgs): { sql: string } | 
   if (objectType === 'ROLE') {
     const roleName = (args.objectName || privilege).trim();
     if (!roleName) return { error: 'role name is required.' };
-    const roleSql = ident(roleName);
+    // A MySQL role is an account, `'r'@'%'`; the catalog names it `r@%`, and a
+    // backtick-quoted `r@%` is a role nobody created.
+    const roleSql =
+      fam === 'mysql' || fam === 'mariadb'
+        ? formatDbGrantee(args.dialect, roleName, 'role')
+        : ident(roleName);
     // SQL Server does not grant a role, it adds a member to one.
     if (fam === 'sqlserver') {
       const member = ident(stripQuotes(grantee));
@@ -424,17 +591,24 @@ export function buildGrantRevokeSql(args: DbAccessGrantArgs): { sql: string } | 
       };
     }
     // Db2 names the object kind; every other engine grants the role directly,
-    // Oracle included — it had its own branch emitting exactly this.
+    // Oracle included — it had its own branch emitting exactly this. A role is
+    // passed on WITH ADMIN OPTION, not GRANT OPTION; the form's checkbox used
+    // to be dropped here without a word.
     return emitGrant({
       action,
       privilege: fam === 'db2' ? `ROLE ${roleSql}` : roleSql,
       on: '',
       grantee: granteeSql,
+      grantOption: action === 'grant' && args.withGrantOption ? ' WITH ADMIN OPTION' : undefined,
     });
   }
 
-  if (!objectSql && objectType !== 'SYSTEM' && objectType !== 'DATABASE') {
+  if (!objectSql && objectType !== 'SYSTEM' && objectType !== 'DATABASE' && objectType !== 'GLOBAL') {
     return { error: 'object name is required.' };
+  }
+
+  if (objectType === 'GLOBAL' && fam !== 'mysql' && fam !== 'mariadb' && fam !== 'clickhouse') {
+    return { error: 'This engine has no instance-wide (*.*) grant.' };
   }
 
   // --- Object privileges: each family supplies only its ON clause ----------
@@ -455,9 +629,11 @@ export function buildGrantRevokeSql(args: DbAccessGrantArgs): { sql: string } | 
     // MySQL names a whole database as `db`.* — a bare `db` is a table
     // reference, so a database-level grant landed on a table of that name.
     const target =
-      objectType === 'DATABASE' || objectType === 'SCHEMA'
-        ? `${objectSql || namedObject()}.*`
-        : objectSql || '*.*';
+      objectType === 'GLOBAL'
+        ? '*.*'
+        : objectType === 'DATABASE' || objectType === 'SCHEMA'
+          ? `${objectSql || namedObject()}.*`
+          : objectSql || '*.*';
     return emitGrant({
       action,
       privilege: privSql === 'ALL' ? 'ALL PRIVILEGES' : privSql,
@@ -469,10 +645,17 @@ export function buildGrantRevokeSql(args: DbAccessGrantArgs): { sql: string } | 
 
   if (fam === 'clickhouse') {
     // ClickHouse takes no object keyword; `db.table` or `db.*` is the target.
+    // A database is `db.*` here as on MySQL; a bare `db` names a table.
+    const target =
+      objectType === 'GLOBAL'
+        ? '*.*'
+        : objectType === 'DATABASE' || objectType === 'SCHEMA'
+          ? `${objectSql || namedObject()}.*`
+          : objectSql || '*.*';
     return emitGrant({
       action,
       privilege: privSql,
-      on: `ON ${objectSql || '*.*'}`,
+      on: `ON ${target}`,
       grantee: granteeSql,
       grantOption,
     });
@@ -534,6 +717,7 @@ function normalizeKind(raw: unknown): DbPrincipalKind {
 
 function normalizeObjectType(raw: unknown): DbPrivilegeObjectType {
   const s = String(raw ?? '').toUpperCase();
+  if (s === 'GLOBAL') return 'GLOBAL';
   if (s.includes('COLUMN') && !s.includes('OBJECT_OR_COLUMN')) return 'COLUMN';
   if (s.includes('SCHEMA')) return 'SCHEMA';
   if (s.includes('DATABASE')) return 'DATABASE';
@@ -580,6 +764,15 @@ function splitList(raw: string): string[] {
 }
 
 function stripQuotes(name: string): string {
+  // information_schema prints a MySQL-family grantee as 'user'@'host', and a
+  // MariaDB role as 'role'@'' — a role has no host, and its principal row is
+  // the bare name. Without this the role read as `role'@` and matched nothing.
+  const account = /^'((?:[^']|'')*)'@'((?:[^']|'')*)'$/.exec(name.trim());
+  if (account) {
+    const user = account[1]!.replace(/''/g, "'");
+    const host = account[2]!.replace(/''/g, "'");
+    return host ? `${user}@${host}` : user;
+  }
   return name.replace(/^['"`\[]+/, '').replace(/['"`\]]+$/, '').replace(/'@'/g, '@');
 }
 
@@ -588,6 +781,28 @@ function emptyToNull(s: string): string | null {
 }
 
 const PG_PRINCIPALS = `
+SELECT r.rolname AS name,
+       CASE WHEN r.rolcanlogin THEN 'user' ELSE 'role' END AS kind,
+       r.rolcanlogin AS can_login,
+       r.rolsuper AS superuser,
+       COALESCE((
+         SELECT string_agg(g.rolname, ',' ORDER BY g.rolname)
+         FROM pg_auth_members am
+         JOIN pg_roles g ON g.oid = am.roleid
+         WHERE am.member = r.oid
+       ), '') AS member_of,
+       COALESCE((
+         SELECT string_agg(m.rolname, ',' ORDER BY m.rolname)
+         FROM pg_auth_members am
+         JOIN pg_roles m ON m.oid = am.member
+         WHERE am.roleid = r.oid
+       ), '') AS members
+FROM pg_roles r
+WHERE r.rolname NOT LIKE 'pg\\_%'
+ORDER BY CASE WHEN r.rolcanlogin THEN 1 ELSE 0 END, r.rolname
+`.trim();
+
+const PG_PRINCIPALS_NO_SUPERUSER = `
 SELECT r.rolname AS name,
        CASE WHEN r.rolcanlogin THEN 'user' ELSE 'role' END AS kind,
        r.rolcanlogin AS can_login,
@@ -608,7 +823,62 @@ WHERE r.rolname NOT LIKE 'pg\\_%'
 ORDER BY CASE WHEN r.rolcanlogin THEN 1 ELSE 0 END, r.rolname
 `.trim();
 
+/**
+ * Table grants, schema and database ACLs, and role memberships.
+ *
+ * Schema and database privileges come from the ACL columns. The earlier form
+ * read `information_schema.usage_privileges WHERE object_type = 'SCHEMA'`, a
+ * value that view never holds (it lists domains, collations, sequences and
+ * foreign servers), so `GRANT ALL ON SCHEMA` and `GRANT ALL ON DATABASE` both
+ * read as nothing. A NULL ACL is the owner-only default and yields no rows.
+ */
 const PG_PRIVILEGES = `
+SELECT grantee,
+       privilege_type AS privilege,
+       'TABLE' AS object_type,
+       table_schema AS object_schema,
+       table_name AS object_name,
+       CASE WHEN is_grantable = 'YES' THEN 1 ELSE 0 END AS grantable,
+       grantor
+FROM information_schema.role_table_grants
+WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
+UNION ALL
+SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
+       a.privilege_type,
+       'SCHEMA',
+       n.nspname,
+       NULL,
+       CASE WHEN a.is_grantable THEN 1 ELSE 0 END,
+       pg_get_userbyid(a.grantor)
+FROM pg_namespace n
+CROSS JOIN LATERAL aclexplode(n.nspacl) a
+WHERE n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema'
+UNION ALL
+SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
+       a.privilege_type,
+       'DATABASE',
+       NULL,
+       d.datname,
+       CASE WHEN a.is_grantable THEN 1 ELSE 0 END,
+       pg_get_userbyid(a.grantor)
+FROM pg_database d
+CROSS JOIN LATERAL aclexplode(d.datacl) a
+WHERE d.datname = current_database()
+UNION ALL
+SELECT m.rolname,
+       g.rolname,
+       'ROLE',
+       NULL,
+       g.rolname,
+       CASE WHEN am.admin_option THEN 1 ELSE 0 END,
+       NULL
+FROM pg_auth_members am
+JOIN pg_roles g ON g.oid = am.roleid
+JOIN pg_roles m ON m.oid = am.member
+WHERE g.rolname NOT LIKE 'pg\\_%'
+`.trim();
+
+const PG_PRIVILEGES_NO_ACL = `
 SELECT grantee,
        privilege_type AS privilege,
        'TABLE' AS object_type,
@@ -642,10 +912,16 @@ JOIN pg_roles m ON m.oid = am.member
 WHERE g.rolname NOT LIKE 'pg\\_%'
 `.trim();
 
+/**
+ * A MySQL role is a row of mysql.user like any account. `CREATE ROLE` makes it
+ * locked with no password, and that is how one is told apart — every row used
+ * to be labelled `user`, which emptied "Roles & groups" on MySQL and TiDB.
+ */
 const MYSQL_PRINCIPALS = `
 SELECT CONCAT(u.User, '@', u.Host) AS name,
-       'user' AS kind,
-       1 AS can_login,
+       CASE WHEN u.account_locked = 'Y' AND COALESCE(u.authentication_string, '') = ''
+            THEN 'role' ELSE 'user' END AS kind,
+       CASE WHEN u.account_locked = 'Y' THEN 0 ELSE 1 END AS can_login,
        COALESCE((
          SELECT GROUP_CONCAT(DISTINCT CONCAT(e.FROM_USER, '@', e.FROM_HOST) ORDER BY e.FROM_USER)
          FROM mysql.role_edges e
@@ -661,16 +937,36 @@ WHERE u.User <> ''
 ORDER BY u.User, u.Host
 `.trim();
 
+/**
+ * MariaDB marks a role with `is_role` and gives it an empty host, and a role is
+ * named without one everywhere (`GRANT r TO …`), so its row is the bare name.
+ * `roles_mapping` holds memberships and also a role's creator, who is granted
+ * it WITH ADMIN OPTION automatically.
+ */
 const MARIADB_PRINCIPALS = `
-SELECT CONCAT(u.User, '@', u.Host) AS name,
-       'user' AS kind,
-       1 AS can_login,
+SELECT CASE WHEN u.is_role = 'Y' THEN u.User ELSE CONCAT(u.User, '@', u.Host) END AS name,
+       CASE WHEN u.is_role = 'Y' THEN 'role' ELSE 'user' END AS kind,
+       CASE WHEN u.is_role = 'Y' THEN 0 ELSE 1 END AS can_login,
        COALESCE((
          SELECT GROUP_CONCAT(DISTINCT rm.Role ORDER BY rm.Role)
          FROM mysql.roles_mapping rm
          WHERE rm.User = u.User AND rm.Host = u.Host
        ), '') AS member_of,
-       '' AS members
+       CASE WHEN u.is_role = 'Y' THEN COALESCE((
+         SELECT GROUP_CONCAT(DISTINCT CASE WHEN rm.Host = '' THEN rm.User
+                                          ELSE CONCAT(rm.User, '@', rm.Host) END
+                             ORDER BY rm.User)
+         FROM mysql.roles_mapping rm
+         WHERE rm.Role = u.User
+       ), '') ELSE '' END AS members
+FROM mysql.user u
+WHERE u.User <> ''
+ORDER BY u.User, u.Host
+`.trim();
+
+const MYSQL_PRINCIPALS_NO_ROLES = `
+SELECT CONCAT(u.User, '@', u.Host) AS name, 'user' AS kind, 1 AS can_login,
+       '' AS member_of, '' AS members
 FROM mysql.user u
 WHERE u.User <> ''
 ORDER BY u.User, u.Host
@@ -680,49 +976,108 @@ const MYSQL_PRINCIPALS_FALLBACK = `
 SELECT CURRENT_USER() AS name, 'user' AS kind, 1 AS can_login, '' AS member_of, '' AS members
 `.trim();
 
-const MYSQL_PRIVILEGES = `
-SELECT GRANTEE AS grantee,
+/**
+ * Table and schema grants, plus — the part that used to be missing — global
+ * `ON *.*` grants and role memberships.
+ *
+ * `GRANT ALL PRIVILEGES ON *.*` lives only in USER_PRIVILEGES, so an account
+ * holding every privilege on the server read as "No object privileges". USAGE
+ * there means "no privileges" and is left out.
+ */
+function mysqlPrivilegesQuery(opts: {
+  schemaFilter: boolean;
+  global: boolean;
+  roles: 'mysql' | 'mariadb' | null;
+}): string {
+  const where = (col: string) => (opts.schemaFilter ? `\nWHERE ${col} = ?` : '');
+  const parts = [
+    `SELECT GRANTEE AS grantee,
        PRIVILEGE_TYPE AS privilege,
        'TABLE' AS object_type,
        TABLE_SCHEMA AS object_schema,
        TABLE_NAME AS object_name,
        CASE WHEN IS_GRANTABLE = 'YES' THEN 1 ELSE 0 END AS grantable,
        NULL AS grantor
-FROM information_schema.TABLE_PRIVILEGES
-UNION ALL
-SELECT GRANTEE,
+FROM information_schema.TABLE_PRIVILEGES${where('TABLE_SCHEMA')}`,
+    `SELECT GRANTEE,
        PRIVILEGE_TYPE,
        'SCHEMA',
        TABLE_SCHEMA,
        NULL,
        CASE WHEN IS_GRANTABLE = 'YES' THEN 1 ELSE 0 END,
        NULL
-FROM information_schema.SCHEMA_PRIVILEGES
-`.trim();
-
-const MYSQL_PRIVILEGES_SCHEMA = `
-SELECT GRANTEE AS grantee,
-       PRIVILEGE_TYPE AS privilege,
-       'TABLE' AS object_type,
-       TABLE_SCHEMA AS object_schema,
-       TABLE_NAME AS object_name,
-       CASE WHEN IS_GRANTABLE = 'YES' THEN 1 ELSE 0 END AS grantable,
-       NULL AS grantor
-FROM information_schema.TABLE_PRIVILEGES
-WHERE TABLE_SCHEMA = ?
-UNION ALL
-SELECT GRANTEE,
+FROM information_schema.SCHEMA_PRIVILEGES${where('TABLE_SCHEMA')}`,
+  ];
+  if (opts.global) {
+    parts.push(`SELECT GRANTEE,
        PRIVILEGE_TYPE,
-       'SCHEMA',
-       TABLE_SCHEMA,
+       'GLOBAL',
+       NULL,
        NULL,
        CASE WHEN IS_GRANTABLE = 'YES' THEN 1 ELSE 0 END,
        NULL
-FROM information_schema.SCHEMA_PRIVILEGES
-WHERE TABLE_SCHEMA = ?
-`.trim();
+FROM information_schema.USER_PRIVILEGES
+WHERE PRIVILEGE_TYPE <> 'USAGE'`);
+  }
+  if (opts.roles === 'mysql') {
+    // Quoted the way information_schema quotes a grantee, so one normalizer
+    // reads both. The role is named user@host, as its principal row is.
+    parts.push(`SELECT CONCAT('''', e.TO_USER, '''@''', e.TO_HOST, ''''),
+       CONCAT(e.FROM_USER, '@', e.FROM_HOST),
+       'ROLE',
+       NULL,
+       CONCAT(e.FROM_USER, '@', e.FROM_HOST),
+       CASE WHEN e.WITH_ADMIN_OPTION = 'Y' THEN 1 ELSE 0 END,
+       NULL
+FROM mysql.role_edges e`);
+  } else if (opts.roles === 'mariadb') {
+    parts.push(`SELECT CONCAT('''', rm.User, '''@''', rm.Host, ''''),
+       rm.Role,
+       'ROLE',
+       NULL,
+       rm.Role,
+       CASE WHEN rm.Admin_option = 'Y' THEN 1 ELSE 0 END,
+       NULL
+FROM mysql.roles_mapping rm`);
+  }
+  return parts.join('\nUNION ALL\n');
+}
 
+/**
+ * `superuser` is sysadmin membership of the login behind each database user.
+ * IS_SRVROLEMEMBER answers NULL when the caller may not see it, which is kept
+ * as "unknown" rather than read as "no".
+ */
 const MSSQL_PRINCIPALS = `
+SELECT dp.name AS name,
+       CASE
+         WHEN dp.type IN ('R', 'A') THEN 'role'
+         WHEN dp.type = 'G' THEN 'group'
+         ELSE 'user'
+       END AS kind,
+       CASE WHEN dp.type IN ('S', 'U', 'E', 'X') THEN 1 ELSE 0 END AS can_login,
+       CASE WHEN dp.sid IS NULL OR dp.type NOT IN ('S', 'U', 'G', 'E', 'X') THEN NULL
+            ELSE IS_SRVROLEMEMBER('sysadmin', SUSER_SNAME(dp.sid)) END AS superuser,
+       ISNULL(STUFF((
+         SELECT ',' + r.name
+         FROM sys.database_role_members rm
+         JOIN sys.database_principals r ON r.principal_id = rm.role_principal_id
+         WHERE rm.member_principal_id = dp.principal_id
+         FOR XML PATH(''), TYPE).value('.', 'nvarchar(max)'), 1, 1, ''), '') AS member_of,
+       ISNULL(STUFF((
+         SELECT ',' + m.name
+         FROM sys.database_role_members rm
+         JOIN sys.database_principals m ON m.principal_id = rm.member_principal_id
+         WHERE rm.role_principal_id = dp.principal_id
+         FOR XML PATH(''), TYPE).value('.', 'nvarchar(max)'), 1, 1, ''), '') AS members
+FROM sys.database_principals dp
+WHERE dp.name IS NOT NULL
+  AND dp.type IN ('S', 'U', 'G', 'R', 'A', 'E', 'X')
+  AND dp.name NOT IN ('sys', 'INFORMATION_SCHEMA')
+ORDER BY CASE WHEN dp.type IN ('R', 'A', 'G') THEN 0 ELSE 1 END, dp.name
+`.trim();
+
+const MSSQL_PRINCIPALS_NO_SERVER = `
 SELECT dp.name AS name,
        CASE
          WHEN dp.type IN ('R', 'A') THEN 'role'
@@ -848,6 +1203,28 @@ FROM (
     AND TRIM(GRANTEE) NOT LIKE 'SYS%'
 ) U
 UNION ALL
+SELECT TRIM(G.GRANTEE) AS name,
+       'group' AS kind,
+       0 AS can_login,
+       COALESCE((
+         SELECT LISTAGG(TRIM(A.ROLENAME), ',') WITHIN GROUP (ORDER BY A.ROLENAME)
+         FROM SYSCAT.ROLEAUTH A
+         WHERE A.GRANTEETYPE = 'G'
+           AND TRIM(A.GRANTEE) = TRIM(G.GRANTEE)
+           AND A.ROLENAME NOT LIKE 'SYS%'
+       ), '') AS member_of,
+       '' AS members
+FROM (
+  SELECT DISTINCT GRANTEE FROM SYSCAT.DBAUTH
+  WHERE GRANTEETYPE = 'G' AND TRIM(GRANTEE) NOT IN ('', 'PUBLIC')
+  UNION
+  SELECT DISTINCT GRANTEE FROM SYSCAT.ROLEAUTH
+  WHERE GRANTEETYPE = 'G' AND TRIM(GRANTEE) NOT IN ('', 'PUBLIC')
+  UNION
+  SELECT DISTINCT GRANTEE FROM SYSCAT.TABAUTH
+  WHERE GRANTEETYPE = 'G' AND TRIM(GRANTEE) NOT IN ('', 'PUBLIC')
+) G
+UNION ALL
 SELECT R.ROLENAME AS name,
        'role' AS kind,
        0 AS can_login,
@@ -882,7 +1259,7 @@ SELECT TRIM(GRANTEE) AS grantee, 'CONNECT' AS privilege, 'DATABASE' AS object_ty
        NULL AS object_schema, NULL AS object_name,
        CASE WHEN CONNECTAUTH = 'G' THEN 1 ELSE 0 END AS grantable, TRIM(GRANTOR) AS grantor
 FROM SYSCAT.DBAUTH
-WHERE CONNECTAUTH IN ('Y', 'G') AND GRANTEETYPE = 'U'
+WHERE CONNECTAUTH IN ('Y', 'G') AND GRANTEETYPE IN ('U', 'G')
 UNION ALL
 SELECT TRIM(GRANTEE) AS grantee, 'SELECT' AS privilege, 'TABLE' AS object_type,
        TRIM(TABSCHEMA) AS object_schema, TRIM(TABNAME) AS object_name,
@@ -906,21 +1283,62 @@ FROM SYSCAT.ROLEAUTH
 WHERE ROLENAME NOT LIKE 'SYS%'
 `.trim();
 
+/**
+ * Memberships live in system.role_grants, which the first version never read,
+ * so no ClickHouse account showed a role. ClickHouse has no correlated
+ * subqueries, hence the joins on pre-aggregated lists.
+ */
 const CLICKHOUSE_PRINCIPALS = `
+SELECT p.name AS name, p.kind AS kind, p.can_login AS can_login,
+       m.member_of AS member_of, r.members AS members
+FROM (
+  SELECT name, 'user' AS kind, 1 AS can_login FROM system.users
+  UNION ALL
+  SELECT name, 'role', 0 FROM system.roles
+) p
+LEFT JOIN (
+  SELECT ifNull(user_name, role_name) AS who,
+         arrayStringConcat(groupArray(granted_role_name), ',') AS member_of
+  FROM system.role_grants
+  GROUP BY who
+) m ON m.who = p.name
+LEFT JOIN (
+  SELECT granted_role_name AS role,
+         arrayStringConcat(groupArray(ifNull(user_name, role_name)), ',') AS members
+  FROM system.role_grants
+  GROUP BY role
+) r ON r.role = p.name
+`.trim();
+
+const CLICKHOUSE_PRINCIPALS_NO_ROLE_GRANTS = `
 SELECT name, 'user' AS kind, 1 AS can_login, '' AS member_of, '' AS members FROM system.users
 UNION ALL
 SELECT name, 'role', 0, '', '' FROM system.roles
 `.trim();
 
+/**
+ * A grant with no database is `ON *.*`. The NULL used to fall through the
+ * `database != ''` test to 'SYSTEM', so every instance-wide grant read as a
+ * system authority. Role memberships come from system.role_grants.
+ */
 const CLICKHOUSE_PRIVILEGES = `
-SELECT if(user_name != '', user_name, role_name) AS grantee,
-       access_type AS privilege,
-       if(table != '', 'TABLE', if(database != '', 'SCHEMA', 'SYSTEM')) AS object_type,
-       nullIf(database, '') AS object_schema,
-       nullIf(table, '') AS object_name,
+SELECT ifNull(user_name, role_name) AS grantee,
+       toString(access_type) AS privilege,
+       multiIf(ifNull(table, '') != '', 'TABLE', ifNull(database, '') != '', 'SCHEMA', 'GLOBAL') AS object_type,
+       nullIf(ifNull(database, ''), '') AS object_schema,
+       nullIf(ifNull(table, ''), '') AS object_name,
        grant_option AS grantable,
        NULL AS grantor
 FROM system.grants
+UNION ALL
+SELECT ifNull(user_name, role_name),
+       granted_role_name,
+       'ROLE',
+       NULL,
+       granted_role_name,
+       with_admin_option,
+       NULL
+FROM system.role_grants
 `.trim();
 
 const GENERIC_PRINCIPALS = `

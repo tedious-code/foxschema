@@ -201,8 +201,23 @@ export {
   groupDbPrincipals,
   formatDbGrantee,
   buildGrantRevokeSql,
+  reconcileDbAccess,
   DB_OBJECT_PRIVILEGES,
 } from './modules/access/db-access.js';
+export {
+  isAllPrivilegeSet,
+  groupPrivileges,
+  privilegeTargetLabel,
+  findAllowAll,
+  describeAllowAll,
+  allPrivilegeTargets,
+} from './modules/access/privilege-groups.js';
+export type {
+  PrivilegeGroup,
+  AllowAll,
+  AllowAllKind,
+  AllPrivilegeTarget,
+} from './modules/access/privilege-groups.js';
 export type {
   DbAccessProbeMode,
   DbAccessSupport,

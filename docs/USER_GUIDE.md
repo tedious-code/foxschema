@@ -445,6 +445,34 @@ Either family may load the catalog. Running GRANT / REVOKE still needs
 **Grant privileges** (`editor.grant`). SQLite / DuckDB have no GRANT catalog;
 ClickHouse has no permission builder yet.
 
+What the catalog shows:
+
+- **Roles and groups** are listed apart from users on every engine that has
+  them — MySQL, MariaDB and TiDB roles included — with who belongs to each.
+  Every screen reads membership from one reconciled answer, so the list and
+  the detail pane agree.
+- **Allow-all accounts** carry an `allow-all` or `superuser` tag: a superuser
+  (Postgres `rolsuper`, SQL Server `sysadmin`), every privilege on the whole
+  server (`ON *.*`), or control of the whole database (SQL Server `db_owner`).
+  Inherited through a role counts, and the banner says which role. Type
+  `allow-all` or `superuser` in the filter to list only those.
+- A **complete privilege set** on one object is one `ALL PRIVILEGES` row, which
+  expands to the individual privileges and has **Revoke all**. `grantable`
+  marks a privilege held WITH GRANT OPTION.
+
+Granting:
+
+- **Membership of a role** offers the listed roles and groups the principal is
+  not yet in; **Other…** still takes a typed name.
+- **All privileges (allow-all)** grants the engine's widest form — `*.*` or a
+  whole database on the MySQL family and ClickHouse, a database or schema on
+  Postgres (which reads no table; server-wide there is superuser), `CONTROL` on
+  SQL Server, `ALL PRIVILEGES` on Oracle, `DBADM` on Db2. It states what it
+  confers, and Run stays disabled until the principal's name is typed.
+- **Add user / Add role** can put the new account in existing roles. On MySQL
+  and TiDB it also emits `SET DEFAULT ROLE ALL`, and on MariaDB
+  `SET DEFAULT ROLE`, because a granted role is otherwise inactive at login.
+
 ## History
 
 Every migration you apply is recorded — status, target, the exact script, the

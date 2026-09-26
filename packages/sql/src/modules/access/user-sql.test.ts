@@ -574,3 +574,49 @@ describe('buildUserSql — quoting', () => {
     expect('error' in buildUserSql(req({ name: '   ' }), 'postgres')).toBe(true);
   });
 });
+
+describe('create with role membership', () => {
+  const sqlOf = (dialect: string, extra: Partial<UserRequest> = {}) => {
+    const out = buildUserSql(
+      { action: 'create', principalType: 'user', name: 'app', host: '%', roles: ['reader'], ...extra },
+      dialect
+    );
+    if ('error' in out) throw new Error(out.error);
+    return out.statements.map((s) => s.sql);
+  };
+
+  it('grants each role after the CREATE on Postgres', () => {
+    const sql = sqlOf('postgres', { roles: ['reader', 'writer'] });
+    expect(sql.slice(-2)).toEqual(['GRANT "reader" TO "app";', 'GRANT "writer" TO "app";']);
+    expect(sql[0]).toMatch(/^CREATE (ROLE|USER)/);
+  });
+
+  it('turns the roles on at login on MySQL and TiDB', () => {
+    for (const dialect of ['mysql', 'tidb']) {
+      expect(sqlOf(dialect, { roles: ['reader@%'] }).slice(-2), dialect).toEqual([
+        "GRANT 'reader'@'%' TO 'app'@'%';",
+        "SET DEFAULT ROLE ALL TO 'app'@'%';",
+      ]);
+    }
+  });
+
+  it('names a MariaDB role bare and sets exactly one default', () => {
+    expect(sqlOf('mariadb', { roles: ['reader', 'writer'] }).slice(-3)).toEqual([
+      "GRANT 'reader' TO 'app'@'%';",
+      "GRANT 'writer' TO 'app'@'%';",
+      "SET DEFAULT ROLE 'reader' FOR 'app'@'%';",
+    ]);
+  });
+
+  it('adds nothing when no role is chosen, or when the account is being altered', () => {
+    const plain = buildUserSql({ action: 'create', principalType: 'user', name: 'app' }, 'postgres');
+    const alter = buildUserSql(
+      { action: 'alter', principalType: 'user', name: 'app', alteration: 'password', roles: ['reader'] },
+      'postgres'
+    );
+    for (const out of [plain, alter]) {
+      if ('error' in out) throw new Error(out.error);
+      expect(out.statements.some((s) => /GRANT/.test(s.sql))).toBe(false);
+    }
+  });
+});

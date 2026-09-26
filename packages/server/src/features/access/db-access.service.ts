@@ -13,6 +13,7 @@ import {
   normalizeDbPrincipals,
   principalsFromPrivileges,
   normalizeDbPrivileges,
+  reconcileDbAccess,
   type ConnectionOptions,
   type DbAccessSupport,
   type DbPrincipal,
@@ -116,6 +117,13 @@ export async function probeDbAccess(opts: {
           'named in its privileges.';
       }
     }
+    // One answer about membership for every screen: the catalogs report it two
+    // ways, and on several engines only one of them was filled.
+    const reconciled = reconcileDbAccess({
+      dialect: opts.dialect,
+      principals: resolved,
+      privileges,
+    });
     return {
       ok: true,
       value: {
@@ -123,8 +131,8 @@ export async function probeDbAccess(opts: {
         schema,
         mode: support.mode,
         support,
-        principals: resolved,
-        privileges,
+        principals: reconciled.principals,
+        privileges: reconciled.privileges,
         warning,
       },
     };
