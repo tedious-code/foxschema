@@ -118,10 +118,13 @@ describe('DatabaseAccessModal', () => {
     fireEvent.change(screen.getByTestId('db-access-connection'), { target: { value: 'c1' } });
 
     await waitFor(() => expect(fetchDbAccess).toHaveBeenCalled());
-    expect(screen.getByTestId('db-access-group-role').textContent).toMatch(/analysts/);
+    // The group renders empty before the catalog arrives; wait for its rows.
+    await waitFor(() =>
+      expect(screen.getByTestId('db-access-group-role').textContent).toMatch(/analysts/)
+    );
     expect(screen.getByTestId('db-access-group-user').textContent).toMatch(/alice/);
 
-    fireEvent.click(screen.getByTestId('db-access-principal-alice'));
+    fireEvent.click(await screen.findByTestId('db-access-principal-alice'));
     expect(screen.getByTestId('db-access-privileges').textContent).toMatch(/SELECT/);
     expect(screen.getByTestId('db-access-privileges').textContent).toMatch(/public\.orders/);
 
@@ -259,7 +262,7 @@ describe('DatabaseAccessModal — role membership is not an object privilege', (
     render(<DatabaseAccessModal open onClose={() => undefined} />);
     fireEvent.change(screen.getByTestId('db-access-connection'), { target: { value: 'c1' } });
     await waitFor(() => expect(fetchDbAccess).toHaveBeenCalled());
-    fireEvent.click(screen.getByTestId('db-access-principal-alice'));
+    fireEvent.click(await screen.findByTestId('db-access-principal-alice'));
 
     const privileges = screen.getByTestId('db-access-privileges').textContent ?? '';
     const memberships = screen.getByTestId('db-access-memberships').textContent ?? '';
@@ -279,7 +282,7 @@ describe('DatabaseAccessModal — role membership is not an object privilege', (
     render(<DatabaseAccessModal open onClose={() => undefined} />);
     fireEvent.change(screen.getByTestId('db-access-connection'), { target: { value: 'c1' } });
     await waitFor(() => expect(fetchDbAccess).toHaveBeenCalled());
-    fireEvent.click(screen.getByTestId('db-access-principal-alice'));
+    fireEvent.click(await screen.findByTestId('db-access-principal-alice'));
 
     const kind = screen.getByTestId('db-access-grant-kind') as HTMLSelectElement;
     // Postgres has database-level ALL, so allow-all is offered too.
@@ -297,7 +300,7 @@ describe('DatabaseAccessModal — dialect-aware general CREATE', () => {
     render(<DatabaseAccessModal open onClose={() => undefined} />);
     fireEvent.change(screen.getByTestId('db-access-connection'), { target: { value: 'c1' } });
     await waitFor(() => expect(fetchDbAccess).toHaveBeenCalled());
-    fireEvent.click(screen.getByTestId('db-access-principal-alice'));
+    fireEvent.click(await screen.findByTestId('db-access-principal-alice'));
 
     fireEvent.click(screen.getByTestId('db-access-grant-general'));
     await waitFor(() => expect(screen.getByTestId('db-access-general-editor')).toBeTruthy());
